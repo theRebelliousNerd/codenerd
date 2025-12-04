@@ -1,0 +1,632 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+)
+
+// TDDState represents the current state of the TDD repair loop.
+type TDDState string
+
+const (
+	TDDStateIdle          TDDState = "idle"
+	TDDStateRunning       TDDState = "running_tests"
+	TDDStatePassing       TDDState = "passing"
+	TDDStateFailing       TDDState = "failing"
+	TDDStateAnalyzing     TDDState = "analyzing"
+	TDDStateGenerating    TDDState = "generating_patch"
+	TDDStateApplying      TDDState = "applying_patch"
+	TDDStateEscalated     TDDState = "escalated"
+	TDDStateCompiling     TDDState = "compiling"
+	TDDStateCompileError  TDDState = "compile_error"
+)
+
+// TDDAction represents an action in the TDD loop.
+type TDDAction string
+
+const (
+	TDDActionRunTests       TDDAction = "run_tests"
+	TDDActionReadErrorLog   TDDAction = "read_error_log"
+	TDDActionAnalyzeRoot    TDDAction = "analyze_root_cause"
+	TDDActionGeneratePatch  TDDAction = "generate_patch"
+	TDDActionApplyPatch     TDDAction = "apply_patch"
+	TDDActionBuild          TDDAction = "build"
+	TDDActionEscalate       TDDAction = "escalate_to_user"
+	TDDActionComplete       TDDAction = "complete"
+)
+
+// Diagnostic represents a compiler/test error.
+type Diagnostic struct {
+	Severity  string // error, warning
+	FilePath  string
+	Line      int
+	Column    int
+	Code      string // Error code (e.g., E0308 for Rust)
+	Message   string
+	RawOutput string
+}
+
+// ToFact converts a diagnostic to a Mangle fact.
+func (d Diagnostic) ToFact() Fact {
+	return Fact{
+		Predicate: "diagnostic",
+		Args: []interface{}{
+			"/" + d.Severity,
+			d.FilePath,
+			int64(d.Line),
+			d.Code,
+			d.Message,
+		},
+	}
+}
+
+// Patch represents a code change to be applied.
+type Patch struct {
+	FilePath   string
+	OldContent string
+	NewContent string
+	Rationale  string
+}
+
+// ToFact converts a patch to a Mangle fact.
+func (p Patch) ToFact() Fact {
+	return Fact{
+		Predicate: "patch",
+		Args: []interface{}{
+			p.FilePath,
+			p.OldContent,
+			p.NewContent,
+			p.Rationale,
+		},
+	}
+}
+
+// TDDLoopConfig holds configuration for the TDD loop.
+type TDDLoopConfig struct {
+	MaxRetries     int
+	TestCommand    string
+	BuildCommand   string
+	TestTimeout    time.Duration
+	BuildTimeout   time.Duration
+	WorkingDir     string
+}
+
+// DefaultTDDLoopConfig returns sensible defaults.
+func DefaultTDDLoopConfig() TDDLoopConfig {
+	return TDDLoopConfig{
+		MaxRetries:   3,
+		TestCommand:  "go test ./...",
+		BuildCommand: "go build ./...",
+		TestTimeout:  5 * time.Minute,
+		BuildTimeout: 2 * time.Minute,
+		WorkingDir:   ".",
+	}
+}
+
+// TDDLoop implements the TDD repair loop state machine.
+// Based on Cortex 1.5.0 §3.2 TDD Repair Loop (OODA Loop)
+type TDDLoop struct {
+	mu sync.RWMutex
+
+	// Current state
+	state       TDDState
+	retryCount  int
+	maxRetries  int
+
+	// Configuration
+	config TDDLoopConfig
+
+	// Dependencies
+	virtualStore *VirtualStore
+	kernel       Kernel
+
+	// State data
+	diagnostics    []Diagnostic
+	lastOutput     string
+	patches        []Patch
+	hypothesis     string
+
+	// State history for debugging
+	history []TDDStateTransition
+}
+
+// TDDStateTransition records a state transition.
+type TDDStateTransition struct {
+	FromState TDDState
+	ToState   TDDState
+	Action    TDDAction
+	Timestamp time.Time
+	Metadata  map[string]interface{}
+}
+
+// NewTDDLoop creates a new TDD loop with default configuration.
+func NewTDDLoop(vs *VirtualStore, kernel Kernel) *TDDLoop {
+	return NewTDDLoopWithConfig(vs, kernel, DefaultTDDLoopConfig())
+}
+
+// NewTDDLoopWithConfig creates a new TDD loop with custom configuration.
+func NewTDDLoopWithConfig(vs *VirtualStore, kernel Kernel, config TDDLoopConfig) *TDDLoop {
+	return &TDDLoop{
+		state:        TDDStateIdle,
+		retryCount:   0,
+		maxRetries:   config.MaxRetries,
+		config:       config,
+		virtualStore: vs,
+		kernel:       kernel,
+		diagnostics:  make([]Diagnostic, 0),
+		patches:      make([]Patch, 0),
+		history:      make([]TDDStateTransition, 0),
+	}
+}
+
+// GetState returns the current state.
+func (t *TDDLoop) GetState() TDDState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.state
+}
+
+// GetRetryCount returns the current retry count.
+func (t *TDDLoop) GetRetryCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.retryCount
+}
+
+// GetDiagnostics returns the current diagnostics.
+func (t *TDDLoop) GetDiagnostics() []Diagnostic {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return append([]Diagnostic{}, t.diagnostics...)
+}
+
+// GetHistory returns the state transition history.
+func (t *TDDLoop) GetHistory() []TDDStateTransition {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return append([]TDDStateTransition{}, t.history...)
+}
+
+// transition records a state transition.
+func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[string]interface{}) {
+	t.history = append(t.history, TDDStateTransition{
+		FromState: t.state,
+		ToState:   newState,
+		Action:    action,
+		Timestamp: time.Now(),
+		Metadata:  meta,
+	})
+	t.state = newState
+
+	// Inject state into kernel for logic-driven decisions
+	if t.kernel != nil {
+		_ = t.kernel.Assert(Fact{
+			Predicate: "test_state",
+			Args:      []interface{}{"/" + string(newState)},
+		})
+		_ = t.kernel.Assert(Fact{
+			Predicate: "retry_count",
+			Args:      []interface{}{int64(t.retryCount)},
+		})
+	}
+}
+
+// NextAction determines the next action based on the current state.
+// This implements the logic from Cortex 1.5.0 §3.2:
+// - State: Failing + Retry < Max -> Action: read_error_log
+// - State: LogRead -> Action: analyze_root_cause
+// - State: CauseFound -> Action: generate_patch
+// - State: PatchApplied -> Action: run_tests
+// - State: Failing + Retry >= Max -> Action: escalate_to_user
+func (t *TDDLoop) NextAction() TDDAction {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	switch t.state {
+	case TDDStateIdle:
+		return TDDActionRunTests
+
+	case TDDStateFailing:
+		if t.retryCount < t.maxRetries {
+			return TDDActionReadErrorLog
+		}
+		return TDDActionEscalate
+
+	case TDDStateAnalyzing:
+		return TDDActionGeneratePatch
+
+	case TDDStateGenerating:
+		return TDDActionApplyPatch
+
+	case TDDStateApplying:
+		return TDDActionBuild
+
+	case TDDStateCompiling:
+		return TDDActionRunTests
+
+	case TDDStateCompileError:
+		if t.retryCount < t.maxRetries {
+			return TDDActionAnalyzeRoot
+		}
+		return TDDActionEscalate
+
+	case TDDStatePassing:
+		return TDDActionComplete
+
+	case TDDStateEscalated:
+		return TDDActionComplete
+
+	default:
+		return TDDActionRunTests
+	}
+}
+
+// Run executes a single step of the TDD loop.
+func (t *TDDLoop) Run(ctx context.Context) error {
+	action := t.NextAction()
+
+	switch action {
+	case TDDActionRunTests:
+		return t.runTests(ctx)
+	case TDDActionReadErrorLog:
+		return t.readErrorLog(ctx)
+	case TDDActionAnalyzeRoot:
+		return t.analyzeRootCause(ctx)
+	case TDDActionGeneratePatch:
+		return t.generatePatch(ctx)
+	case TDDActionApplyPatch:
+		return t.applyPatch(ctx)
+	case TDDActionBuild:
+		return t.build(ctx)
+	case TDDActionEscalate:
+		return t.escalate(ctx)
+	case TDDActionComplete:
+		return nil
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+}
+
+// RunToCompletion runs the TDD loop until completion or escalation.
+func (t *TDDLoop) RunToCompletion(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		state := t.GetState()
+		if state == TDDStatePassing || state == TDDStateEscalated {
+			return nil
+		}
+
+		if err := t.Run(ctx); err != nil {
+			return fmt.Errorf("TDD loop error in state %s: %w", state, err)
+		}
+	}
+}
+
+// Reset resets the TDD loop to initial state.
+func (t *TDDLoop) Reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.state = TDDStateIdle
+	t.retryCount = 0
+	t.diagnostics = make([]Diagnostic, 0)
+	t.patches = make([]Patch, 0)
+	t.lastOutput = ""
+	t.hypothesis = ""
+	// Keep history for debugging
+}
+
+// runTests executes the test suite.
+func (t *TDDLoop) runTests(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.transition(TDDStateRunning, TDDActionRunTests, nil)
+
+	// Execute tests via VirtualStore
+	action := Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/run_tests",
+			t.config.TestCommand,
+		},
+	}
+
+	output, err := t.virtualStore.RouteAction(ctx, action)
+	t.lastOutput = output
+
+	if err != nil || strings.Contains(output, "FAIL") || strings.Contains(output, "error") {
+		t.retryCount++
+		t.diagnostics = t.parseTestOutput(output)
+		t.transition(TDDStateFailing, TDDActionRunTests, map[string]interface{}{
+			"error_count": len(t.diagnostics),
+			"retry":       t.retryCount,
+		})
+		return nil
+	}
+
+	t.transition(TDDStatePassing, TDDActionRunTests, nil)
+	return nil
+}
+
+// readErrorLog parses the error output.
+func (t *TDDLoop) readErrorLog(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// The diagnostics are already parsed from the test output
+	// Inject them into the kernel for analysis
+	for _, diag := range t.diagnostics {
+		if t.kernel != nil {
+			_ = t.kernel.Assert(diag.ToFact())
+		}
+	}
+
+	t.transition(TDDStateAnalyzing, TDDActionReadErrorLog, map[string]interface{}{
+		"diagnostic_count": len(t.diagnostics),
+	})
+
+	return nil
+}
+
+// analyzeRootCause performs abductive reasoning to find the root cause.
+func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Build a hypothesis based on diagnostics
+	if len(t.diagnostics) == 0 {
+		t.hypothesis = "unknown error - no diagnostics available"
+	} else {
+		// Analyze the first diagnostic
+		diag := t.diagnostics[0]
+		t.hypothesis = fmt.Sprintf("Error in %s at line %d: %s", diag.FilePath, diag.Line, diag.Message)
+	}
+
+	// Inject hypothesis into kernel
+	if t.kernel != nil {
+		_ = t.kernel.Assert(Fact{
+			Predicate: "hypothesis",
+			Args:      []interface{}{t.hypothesis},
+		})
+	}
+
+	t.transition(TDDStateGenerating, TDDActionAnalyzeRoot, map[string]interface{}{
+		"hypothesis": t.hypothesis,
+	})
+
+	return nil
+}
+
+// generatePatch creates a patch to fix the issue.
+func (t *TDDLoop) generatePatch(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// In a real implementation, this would use the LLM to generate patches
+	// For now, we create a placeholder indicating a patch is needed
+	if len(t.diagnostics) > 0 {
+		diag := t.diagnostics[0]
+		t.patches = []Patch{
+			{
+				FilePath:  diag.FilePath,
+				Rationale: fmt.Sprintf("Fix: %s", diag.Message),
+				// OldContent and NewContent would be filled by LLM
+			},
+		}
+	}
+
+	t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{
+		"patch_count": len(t.patches),
+	})
+
+	return nil
+}
+
+// applyPatch applies the generated patches.
+func (t *TDDLoop) applyPatch(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, patch := range t.patches {
+		if patch.OldContent == "" || patch.NewContent == "" {
+			// Skip patches that need LLM generation
+			continue
+		}
+
+		// Apply via VirtualStore
+		action := Fact{
+			Predicate: "next_action",
+			Args: []interface{}{
+				"/edit_file",
+				patch.FilePath,
+				map[string]interface{}{
+					"old": patch.OldContent,
+					"new": patch.NewContent,
+				},
+			},
+		}
+
+		_, err := t.virtualStore.RouteAction(ctx, action)
+		if err != nil {
+			// Mark as needing analysis
+			t.transition(TDDStateAnalyzing, TDDActionApplyPatch, map[string]interface{}{
+				"error": err.Error(),
+			})
+			return nil
+		}
+	}
+
+	t.transition(TDDStateCompiling, TDDActionApplyPatch, nil)
+	return nil
+}
+
+// build compiles the project.
+func (t *TDDLoop) build(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	action := Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/build_project",
+			t.config.BuildCommand,
+		},
+	}
+
+	output, err := t.virtualStore.RouteAction(ctx, action)
+	t.lastOutput = output
+
+	if err != nil || strings.Contains(output, "error") {
+		t.diagnostics = t.parseBuildOutput(output)
+		t.transition(TDDStateCompileError, TDDActionBuild, map[string]interface{}{
+			"error_count": len(t.diagnostics),
+		})
+		return nil
+	}
+
+	t.transition(TDDStateIdle, TDDActionBuild, nil)
+	return nil
+}
+
+// escalate escalates to the user.
+func (t *TDDLoop) escalate(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	reason := fmt.Sprintf("TDD loop exhausted after %d retries. Last diagnostics: %d errors",
+		t.retryCount, len(t.diagnostics))
+
+	action := Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/escalate",
+			reason,
+		},
+	}
+
+	_, _ = t.virtualStore.RouteAction(ctx, action)
+
+	t.transition(TDDStateEscalated, TDDActionEscalate, map[string]interface{}{
+		"reason": reason,
+	})
+
+	return nil
+}
+
+// parseTestOutput parses test output into diagnostics.
+func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
+	diagnostics := make([]Diagnostic, 0)
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		// Parse Go test output: --- FAIL: TestName (0.00s)
+		if strings.HasPrefix(line, "--- FAIL:") {
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity:  "error",
+				Message:   line,
+				RawOutput: output,
+			})
+		}
+
+		// Parse Go compile errors: file.go:line:col: message
+		if strings.Contains(line, ".go:") && strings.Contains(line, ": ") {
+			parts := strings.SplitN(line, ":", 4)
+			if len(parts) >= 4 {
+				lineNum := 0
+				fmt.Sscanf(parts[1], "%d", &lineNum)
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity: "error",
+					FilePath: parts[0],
+					Line:     lineNum,
+					Message:  parts[3],
+				})
+			}
+		}
+	}
+
+	return diagnostics
+}
+
+// parseBuildOutput parses build output into diagnostics.
+func (t *TDDLoop) parseBuildOutput(output string) []Diagnostic {
+	// Similar to parseTestOutput but for build errors
+	return t.parseTestOutput(output)
+}
+
+// InjectPatch allows external code (e.g., LLM) to inject a patch.
+func (t *TDDLoop) InjectPatch(patch Patch) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.patches = append(t.patches, patch)
+
+	if t.kernel != nil {
+		_ = t.kernel.Assert(patch.ToFact())
+	}
+}
+
+// SetHypothesis allows external code to set the root cause hypothesis.
+func (t *TDDLoop) SetHypothesis(hypothesis string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.hypothesis = hypothesis
+
+	if t.kernel != nil {
+		_ = t.kernel.Assert(Fact{
+			Predicate: "hypothesis",
+			Args:      []interface{}{hypothesis},
+		})
+	}
+}
+
+// TDDLoopToFacts converts the current TDD state to Mangle facts.
+func (t *TDDLoop) ToFacts() []Fact {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	facts := []Fact{
+		{Predicate: "test_state", Args: []interface{}{"/" + string(t.state)}},
+		{Predicate: "retry_count", Args: []interface{}{int64(t.retryCount)}},
+		{Predicate: "max_retries", Args: []interface{}{int64(t.maxRetries)}},
+	}
+
+	for _, diag := range t.diagnostics {
+		facts = append(facts, diag.ToFact())
+	}
+
+	for _, patch := range t.patches {
+		facts = append(facts, patch.ToFact())
+	}
+
+	if t.hypothesis != "" {
+		facts = append(facts, Fact{
+			Predicate: "hypothesis",
+			Args:      []interface{}{t.hypothesis},
+		})
+	}
+
+	return facts
+}
+
+// BlockCommit returns true if there are blocking errors.
+// Implements Cortex 1.5.0 §2.2 "The Barrier":
+// block_commit :- diagnostic(_, _, _, _, Severity), Severity == 'Error'.
+func (t *TDDLoop) BlockCommit() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	for _, diag := range t.diagnostics {
+		if diag.Severity == "error" {
+			return true
+		}
+	}
+	return false
+}

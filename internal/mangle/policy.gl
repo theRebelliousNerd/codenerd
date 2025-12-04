@@ -1,0 +1,435 @@
+# Cortex 1.5.0 Executive Policy (IDB)
+# Version: 1.5.0
+# Philosophy: Logic determines Reality; the Model merely describes it.
+
+# =============================================================================
+# SECTION 1: SPREADING ACTIVATION (Context Selection)
+# =============================================================================
+# Per §8.1: Energy flows from the user's intent through the graph of known facts
+
+# 1. Base Activation (Recency) - High priority for new facts
+activation(Fact, 100) :- new_fact(Fact).
+
+# 2. Spreading Activation (Dependency)
+# Energy flows from goals to required tools
+activation(Tool, 80) :-
+    active_goal(Goal),
+    tool_capabilities(Tool, Cap),
+    goal_requires(Goal, Cap).
+
+# 3. Intent-driven activation
+activation(Target, 90) :-
+    user_intent(_, _, _, Target, _).
+
+# 4. File modification spreads to dependents
+activation(Dep, 70) :-
+    modified(File),
+    dependency_link(Dep, File, _).
+
+# 5. Context Pruning - Only high-activation facts enter working memory
+context_atom(Fact) :-
+    activation(Fact, Score),
+    Score > 30.
+
+# =============================================================================
+# SECTION 2: STRATEGY SELECTION (§3.1)
+# =============================================================================
+# Different coding tasks require different logical loops
+
+# TDD Repair Loop for bug fixes
+active_strategy(/tdd_repair_loop) :-
+    user_intent(_, _, /fix, _, _),
+    diagnostic(/error, _, _, _, _).
+
+active_strategy(/tdd_repair_loop) :-
+    user_intent(_, _, /debug, _, _).
+
+# Exploration for queries
+active_strategy(/breadth_first_survey) :-
+    user_intent(_, /query, /explore, _, _).
+
+active_strategy(/breadth_first_survey) :-
+    user_intent(_, /query, /explain, _, _).
+
+# Code generation for scaffolding
+active_strategy(/project_init) :-
+    user_intent(_, /mutation, /scaffold, _, _).
+
+active_strategy(/project_init) :-
+    user_intent(_, /mutation, /init, _, _).
+
+# Refactor guard for modifications
+active_strategy(/refactor_guard) :-
+    user_intent(_, /mutation, /refactor, _, _).
+
+# =============================================================================
+# SECTION 3: TDD REPAIR LOOP (§3.2)
+# =============================================================================
+# State machine: Write -> Test -> Analyze -> Fix
+
+# State Transitions
+next_action(/read_error_log) :-
+    test_state(/failing),
+    retry_count(N), N < 3.
+
+next_action(/analyze_root_cause) :-
+    test_state(/log_read).
+
+next_action(/generate_patch) :-
+    test_state(/cause_found).
+
+next_action(/run_tests) :-
+    test_state(/patch_applied).
+
+next_action(/run_tests) :-
+    test_state(/unknown),
+    user_intent(_, _, /test, _, _).
+
+# Surrender Logic - Escalate after 3 retries
+next_action(/escalate_to_user) :-
+    test_state(/failing),
+    retry_count(N), N >= 3.
+
+# Success state
+next_action(/complete) :-
+    test_state(/passing).
+
+# =============================================================================
+# SECTION 4: FOCUS RESOLUTION & CLARIFICATION (§1.2)
+# =============================================================================
+
+# Clarification threshold - block execution if confidence < 0.85
+clarification_needed(Ref) :-
+    focus_resolution(Ref, _, _, Score),
+    Score < 0.85.
+
+# Block action derivation when clarification is needed
+next_action(/interrogative_mode) :-
+    clarification_needed(_).
+
+# Ambiguity detection
+ambiguity_detected(Param) :-
+    ambiguity_flag(Param, _, _).
+
+next_action(/interrogative_mode) :-
+    ambiguity_detected(_).
+
+# =============================================================================
+# SECTION 5: IMPACT ANALYSIS & REFACTORING GUARD (§3.3)
+# =============================================================================
+
+# Direct impact
+impacted(X) :-
+    dependency_link(X, Y, _),
+    modified(Y).
+
+# Transitive closure (recursive impact)
+impacted(X) :-
+    dependency_link(X, Z, _),
+    impacted(Z).
+
+# Unsafe to refactor if impacted code lacks test coverage
+unsafe_to_refactor(Target) :-
+    impacted(Target),
+    !test_coverage(Target).
+
+# Block refactoring when unsafe
+block_refactor(Target, "uncovered_dependency") :-
+    unsafe_to_refactor(Target).
+
+# =============================================================================
+# SECTION 6: COMMIT BARRIER (§2.2)
+# =============================================================================
+
+# Cannot commit if there are errors
+block_commit("Build Broken") :-
+    diagnostic(/error, _, _, _, _).
+
+block_commit("Tests Failing") :-
+    test_state(/failing).
+
+# Safe to commit
+safe_to_commit() :-
+    !block_commit(_).
+
+# =============================================================================
+# SECTION 7: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
+# =============================================================================
+
+# Default deny - permitted must be positively derived
+permitted(Action) :-
+    safe_action(Action).
+
+permitted(Action) :-
+    dangerous_action(Action),
+    admin_override(User),
+    signed_approval(Action).
+
+# Dangerous action patterns - marked by explicit facts
+# dangerous_action is derived from danger_marker facts
+# (String matching to be implemented via custom builtins)
+
+# Network policy - allowlist approach
+allowed_domain("github.com").
+allowed_domain("pypi.org").
+allowed_domain("crates.io").
+allowed_domain("npmjs.com").
+allowed_domain("pkg.go.dev").
+
+# Note: network_permitted and security_violation require string matching
+# which will be implemented via custom Go builtins at runtime
+
+# =============================================================================
+# SECTION 8: SHARD DELEGATION (§7.0)
+# =============================================================================
+
+# Delegate to researcher for init/explore
+delegate_task(/researcher, "Initialize codebase analysis", /pending) :-
+    user_intent(_, _, /init, _, _).
+
+delegate_task(/researcher, Task, /pending) :-
+    user_intent(_, _, /research, Task, _).
+
+delegate_task(/researcher, Task, /pending) :-
+    user_intent(_, /query, /explore, Task, _).
+
+# Delegate to coder for coding tasks
+delegate_task(/coder, Task, /pending) :-
+    user_intent(_, /mutation, /implement, Task, _).
+
+# Note: Negation with unbound variables is unsafe in Datalog
+# Delegate refactoring task only when block_refactor facts don't exist
+# This is handled at runtime by checking block_refactor before delegation
+delegate_task(/coder, Task, /pending) :-
+    user_intent(_, /mutation, /refactor, Task, _).
+
+# Delegate to tester for test tasks
+delegate_task(/tester, Task, /pending) :-
+    user_intent(_, _, /test, Task, _).
+
+delegate_task(/tester, "Generate tests for impacted code", /pending) :-
+    impacted(File),
+    !test_coverage(File).
+
+# Delegate to reviewer for review tasks
+delegate_task(/reviewer, Task, /pending) :-
+    user_intent(_, _, /review, Task, _).
+
+# =============================================================================
+# SECTION 9: BROWSER PHYSICS (§9.0)
+# =============================================================================
+
+# Spatial reasoning - element to the left
+left_of(A, B) :-
+    geometry(A, Ax, _, _, _),
+    geometry(B, Bx, _, _, _),
+    Ax < Bx.
+
+# Element above another
+above(A, B) :-
+    geometry(A, _, Ay, _, _),
+    geometry(B, _, By, _, _),
+    Ay < By.
+
+# Honeypot detection via CSS properties
+honeypot_detected(ID) :-
+    computed_style(ID, "display", "none").
+
+honeypot_detected(ID) :-
+    computed_style(ID, "visibility", "hidden").
+
+honeypot_detected(ID) :-
+    computed_style(ID, "opacity", "0").
+
+honeypot_detected(ID) :-
+    geometry(ID, _, _, 0, _).
+
+honeypot_detected(ID) :-
+    geometry(ID, _, _, _, 0).
+
+# Safe interactive elements (not honeypots)
+safe_interactable(ID) :-
+    interactable(ID, _),
+    !honeypot_detected(ID).
+
+# Target checkbox to the left of label text
+target_checkbox(CheckID, LabelText) :-
+    dom_node(CheckID, /input, _),
+    attr(CheckID, "type", "checkbox"),
+    visible_text(TextID, LabelText),
+    left_of(CheckID, TextID).
+
+# =============================================================================
+# SECTION 10: TOOL CAPABILITY MAPPING
+# =============================================================================
+
+# Tool capabilities for spreading activation
+tool_capabilities(/fs_read, /read).
+tool_capabilities(/fs_write, /write).
+tool_capabilities(/exec_cmd, /execute).
+tool_capabilities(/browser, /navigate).
+tool_capabilities(/browser, /click).
+tool_capabilities(/browser, /type).
+tool_capabilities(/code_graph, /analyze).
+tool_capabilities(/code_graph, /dependencies).
+
+# Goal capability requirements
+goal_requires(Goal, /read) :-
+    user_intent(_, /query, _, Goal, _).
+
+goal_requires(Goal, /write) :-
+    user_intent(_, /mutation, _, Goal, _).
+
+goal_requires(Goal, /execute) :-
+    user_intent(_, _, /run, Goal, _).
+
+goal_requires(Goal, /analyze) :-
+    user_intent(_, _, /explain, Goal, _).
+
+# =============================================================================
+# SECTION 11: ABDUCTIVE REASONING (§8.2)
+# =============================================================================
+
+# Abductive reasoning: missing hypotheses are symptoms without known causes
+# This rule requires all variables to be bound in the negated atom
+# Implementation: We use a helper predicate has_known_cause to track which symptoms have causes
+# Then negate against that helper
+
+# Mark symptoms that have known causes
+has_known_cause(Symptom) :-
+    known_cause(Symptom, _).
+
+# Symptoms without causes need investigation
+# Note: Using has_known_cause helper to ensure safe negation
+missing_hypothesis(Symptom) :-
+    symptom(_, Symptom),
+    !has_known_cause(Symptom).
+
+# Trigger clarification for missing hypotheses
+next_action(/interrogative_mode) :-
+    missing_hypothesis(_).
+
+# =============================================================================
+# SECTION 12: AUTOPOIESIS / LEARNING (§8.3)
+# =============================================================================
+
+# Detect repeated rejection pattern
+preference_signal(Pattern) :-
+    rejection_count(Pattern, N),
+    N >= 3.
+
+# Promote to long-term memory
+promote_to_long_term(Fact) :-
+    preference_signal(Pattern),
+    derived_rule(Pattern, Fact).
+
+# =============================================================================
+# SECTION 13: GIT-AWARE SAFETY / CHESTERTON'S FENCE (§21)
+# =============================================================================
+
+# Recent change by another author (within 2 days)
+recent_change_by_other(File) :-
+    git_history(File, _, Author, Age, _),
+    current_user(CurrentUser),
+    Author != CurrentUser,
+    Age < 2.
+
+# Chesterton's Fence warning - warn before deleting recently-changed code
+chesterton_fence_warning(File, "recent_change_by_other") :-
+    user_intent(_, /mutation, /delete, File, _),
+    recent_change_by_other(File).
+
+chesterton_fence_warning(File, "high_churn_file") :-
+    user_intent(_, /mutation, /refactor, File, _),
+    churn_rate(File, Freq),
+    Freq > 5.0.
+
+# Trigger clarification for Chesterton's Fence
+clarification_needed(File) :-
+    chesterton_fence_warning(File, _).
+
+# =============================================================================
+# SECTION 14: SHADOW MODE / COUNTERFACTUAL REASONING (§22)
+# =============================================================================
+
+# Safe projection - action passes safety checks in shadow simulation
+safe_projection(ActionID) :-
+    shadow_state(_, ActionID, /valid),
+    !projection_violation(ActionID, _).
+
+# Projection violation detection
+projection_violation(ActionID, "test_failure") :-
+    simulated_effect(ActionID, "diagnostic", _),
+    simulated_effect(ActionID, "diagnostic_severity", /error).
+
+projection_violation(ActionID, "security_violation") :-
+    simulated_effect(ActionID, "security_violation", _).
+
+# Block action if projection fails
+block_commit("shadow_simulation_failed") :-
+    pending_mutation(MutationID, _, _, _),
+    !safe_projection(MutationID).
+
+# =============================================================================
+# SECTION 15: INTERACTIVE DIFF APPROVAL (§23)
+# =============================================================================
+
+# Require approval for dangerous mutations
+requires_approval(MutationID) :-
+    pending_mutation(MutationID, File, _, _),
+    chesterton_fence_warning(File, _).
+
+requires_approval(MutationID) :-
+    pending_mutation(MutationID, File, _, _),
+    impacted(File).
+
+# Block mutation without approval
+next_action(/ask_user) :-
+    pending_mutation(MutationID, _, _, _),
+    requires_approval(MutationID),
+    !mutation_approved(MutationID, _, _).
+
+# =============================================================================
+# SECTION 16: SESSION STATE / CLARIFICATION LOOP (§20)
+# =============================================================================
+
+# Resume from clarification
+next_action(/resume_task) :-
+    session_state(_, /suspended, _),
+    focus_clarification(_).
+
+# Clear clarification when answered
+# (Handled at runtime - logic marks session as active)
+
+# =============================================================================
+# SECTION 17: KNOWLEDGE ATOM INTEGRATION (§24)
+# =============================================================================
+
+# Knowledge atoms inform strategy selection
+active_strategy(/domain_expert) :-
+    knowledge_atom(_, Concept, _, Confidence),
+    Confidence > 0.8,
+    user_intent(_, _, _, Target, _).
+    # When high-confidence knowledge about the domain exists
+
+# =============================================================================
+# SECTION 18: SHARD TYPE CLASSIFICATION (§6.1 Taxonomy)
+# =============================================================================
+
+# Type 1: System Level - Always on, high reliability
+shard_type(/system, /permanent, /high_reliability).
+
+# Type 2: Ephemeral - Fast spawning, RAM only
+shard_type(/ephemeral, /spawn_die, /speed_optimized).
+
+# Type 3: Persistent LLM-Created - Background tasks, SQLite
+shard_type(/persistent, /long_running, /adaptive).
+
+# Type 4: User Configured - Deep domain knowledge
+shard_type(/user, /explicit, /user_defined).
+
+# Model capability mapping for shards
+shard_model_config(/system, /high_reasoning).
+shard_model_config(/ephemeral, /high_speed).
+shard_model_config(/persistent, /balanced).
+shard_model_config(/user, /high_reasoning).

@@ -1,0 +1,413 @@
+# Cortex 1.5.0 Schemas (EDB Declarations)
+# Version: 1.5.0
+# Philosophy: Logic determines Reality; the Model merely describes it.
+
+# =============================================================================
+# SECTION 1: INTENT SCHEMA (§1.1)
+# =============================================================================
+
+# user_intent(ID, Category, Verb, Target, Constraint)
+# Category: /query, /mutation, /instruction
+# Verb: /explain, /refactor, /debug, /generate, /scaffold, /init, /test, /review, /fix, /run, /research, /explore, /implement
+Decl user_intent(ID, Category, Verb, Target, Constraint).
+
+# =============================================================================
+# SECTION 2: FOCUS RESOLUTION (§1.2)
+# =============================================================================
+
+# focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence)
+Decl focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence).
+
+# ambiguity_flag(MissingParam, ContextClue, Hypothesis)
+Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis).
+
+# =============================================================================
+# SECTION 3: FILE TOPOLOGY (§2.1)
+# =============================================================================
+
+# file_topology(Path, Hash, Language, LastModified, IsTestFile)
+# Language: /go, /python, /ts, /rust, /java, /js
+# IsTestFile: /true, /false
+Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
+
+# modified(FilePath) - marks a file as modified
+Decl modified(FilePath).
+
+# test_coverage(FilePath) - marks a file as having test coverage
+Decl test_coverage(FilePath).
+
+# =============================================================================
+# SECTION 4: SYMBOL GRAPH / AST PROJECTION (§2.3)
+# =============================================================================
+
+# symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
+# Type: /function, /class, /interface, /struct, /variable, /constant
+# Visibility: /public, /private, /protected
+Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature).
+
+# dependency_link(CallerID, CalleeID, ImportPath)
+Decl dependency_link(CallerID, CalleeID, ImportPath).
+
+# =============================================================================
+# SECTION 5: DIAGNOSTICS / LINTER-LOGIC BRIDGE (§2.2)
+# =============================================================================
+
+# diagnostic(Severity, FilePath, Line, ErrorCode, Message)
+# Severity: /panic, /error, /warning, /info
+Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
+
+# =============================================================================
+# SECTION 6: SHARD DELEGATION (§7.0)
+# =============================================================================
+
+# delegate_task(ShardType, TaskDescription, Status)
+# ShardType: /researcher, /coder, /reviewer, /tester, /generalist, /specialist
+# Status: /pending, /in_progress, /completed, /failed
+Decl delegate_task(ShardType, TaskDescription, Status).
+
+# shard_profile(AgentName, Type, KnowledgePath)
+Decl shard_profile(AgentName, Type, KnowledgePath).
+
+# =============================================================================
+# SECTION 7: MEMORY SHARDS (§7.1-7.4)
+# =============================================================================
+
+# vector_recall(Query, Content, Score)
+Decl vector_recall(Query, Content, Score).
+
+# knowledge_link(EntityA, Relation, EntityB)
+Decl knowledge_link(EntityA, Relation, EntityB).
+
+# new_fact(FactID) - marks a fact as newly added (for activation)
+Decl new_fact(FactID).
+
+# =============================================================================
+# SECTION 8: BROWSER PHYSICS (§9.0)
+# =============================================================================
+
+# dom_node(ID, Tag, Parent)
+Decl dom_node(ID, Tag, Parent).
+
+# attr(ID, Key, Val)
+Decl attr(ID, Key, Val).
+
+# geometry(ID, X, Y, W, H)
+Decl geometry(ID, X, Y, W, H).
+
+# computed_style(ID, Prop, Val)
+Decl computed_style(ID, Prop, Val).
+
+# interactable(ID, Type)
+# Type: /button, /input, /link, /select, /checkbox
+Decl interactable(ID, Type).
+
+# visible_text(ID, Text)
+Decl visible_text(ID, Text).
+
+# =============================================================================
+# SECTION 9: TDD REPAIR LOOP STATE (§3.2)
+# =============================================================================
+
+# test_state(State)
+# State: /failing, /log_read, /cause_found, /patch_applied, /passing, /unknown
+Decl test_state(State).
+
+# retry_count(Count)
+Decl retry_count(Count).
+
+# =============================================================================
+# SECTION 10: ACTION & EXECUTION (§4.0)
+# =============================================================================
+
+# next_action(ActionType)
+# ActionType: /read_error_log, /analyze_root_cause, /generate_patch, /run_tests,
+#             /escalate_to_user, /complete, /interrogative_mode
+Decl next_action(ActionType).
+
+# action_details(ActionType, Payload)
+Decl action_details(ActionType, Payload).
+
+# safe_action(ActionType)
+Decl safe_action(ActionType).
+
+# =============================================================================
+# SECTION 11: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
+# =============================================================================
+
+# permitted(ActionType) - derived predicate
+Decl permitted(ActionType).
+
+# dangerous_action(ActionType) - derived predicate
+Decl dangerous_action(ActionType).
+
+# admin_override(User)
+Decl admin_override(User).
+
+# signed_approval(ActionType)
+Decl signed_approval(ActionType).
+
+# allowed_domain(Domain) - network allowlist
+Decl allowed_domain(Domain).
+
+# network_permitted(URL) - derived predicate
+Decl network_permitted(URL).
+
+# security_violation(ViolationType) - derived predicate
+Decl security_violation(ViolationType).
+
+# =============================================================================
+# SECTION 12: SPREADING ACTIVATION (§8.1)
+# =============================================================================
+
+# activation(Fact, Score)
+Decl activation(Fact, Score).
+
+# active_goal(Goal)
+Decl active_goal(Goal).
+
+# tool_capabilities(Tool, Cap)
+# Tool: /fs_read, /fs_write, /exec_cmd, /browser, /code_graph
+# Cap: /read, /write, /execute, /navigate, /click, /type, /analyze, /dependencies
+Decl tool_capabilities(Tool, Cap).
+
+# goal_requires(Goal, Cap)
+Decl goal_requires(Goal, Cap).
+
+# context_atom(Fact) - derived predicate
+Decl context_atom(Fact).
+
+# =============================================================================
+# SECTION 13: STRATEGY SELECTION (§3.1)
+# =============================================================================
+
+# active_strategy(Strategy)
+# Strategy: /tdd_repair_loop, /breadth_first_survey, /project_init, /refactor_guard
+Decl active_strategy(Strategy).
+
+# =============================================================================
+# SECTION 14: IMPACT ANALYSIS (§3.3)
+# =============================================================================
+
+# impacted(FilePath) - derived predicate
+Decl impacted(FilePath).
+
+# unsafe_to_refactor(Target) - derived predicate
+Decl unsafe_to_refactor(Target).
+
+# block_refactor(Target, Reason) - derived predicate
+Decl block_refactor(Target, Reason).
+
+# block_commit(Reason) - derived predicate
+Decl block_commit(Reason).
+
+# =============================================================================
+# SECTION 15: ABDUCTIVE REASONING (§8.2)
+# =============================================================================
+
+# missing_hypothesis(RootCause)
+Decl missing_hypothesis(RootCause).
+
+# clarification_needed(Ref) - derived predicate
+Decl clarification_needed(Ref).
+
+# ambiguity_detected(Param) - derived predicate
+Decl ambiguity_detected(Param).
+
+# symptom(Context, SymptomType)
+Decl symptom(Context, SymptomType).
+
+# known_cause(SymptomType, Cause)
+Decl known_cause(SymptomType, Cause).
+
+# has_known_cause(SymptomType) - helper for safe negation
+Decl has_known_cause(SymptomType).
+
+# =============================================================================
+# SECTION 16: AUTOPOIESIS / LEARNING (§8.3)
+# =============================================================================
+
+# rejection_count(Pattern, Count)
+Decl rejection_count(Pattern, Count).
+
+# preference_signal(Pattern) - derived predicate
+Decl preference_signal(Pattern).
+
+# derived_rule(Pattern, Fact)
+Decl derived_rule(Pattern, Fact).
+
+# promote_to_long_term(Fact) - derived predicate
+Decl promote_to_long_term(Fact).
+
+# =============================================================================
+# SECTION 17: BROWSER SPATIAL REASONING (§9.0)
+# =============================================================================
+
+# left_of(A, B) - derived predicate
+Decl left_of(A, B).
+
+# above(A, B) - derived predicate
+Decl above(A, B).
+
+# honeypot_detected(ID) - derived predicate
+Decl honeypot_detected(ID).
+
+# safe_interactable(ID) - derived predicate
+Decl safe_interactable(ID).
+
+# target_checkbox(CheckID, LabelText) - derived predicate
+Decl target_checkbox(CheckID, LabelText).
+
+# =============================================================================
+# SECTION 18: PROJECT PROFILE (nerd init)
+# =============================================================================
+
+# project_profile(ProjectID, Name, Description)
+Decl project_profile(ProjectID, Name, Description).
+
+# project_language(Language)
+# Language: /go, /rust, /python, /javascript, /typescript, /java, etc.
+Decl project_language(Language).
+
+# project_framework(Framework)
+# Framework: /gin, /echo, /nextjs, /react, /django, etc.
+Decl project_framework(Framework).
+
+# project_architecture(Architecture)
+# Architecture: /monolith, /microservices, /clean_architecture, /serverless
+Decl project_architecture(Architecture).
+
+# build_system(BuildSystem)
+# BuildSystem: /go, /npm, /cargo, /pip, /maven, /gradle
+Decl build_system(BuildSystem).
+
+# architectural_pattern(Pattern)
+# Pattern: /standard_go_layout, /repository_pattern, /service_layer, /domain_driven
+Decl architectural_pattern(Pattern).
+
+# entry_point(FilePath)
+Decl entry_point(FilePath).
+
+# =============================================================================
+# SECTION 19: USER PREFERENCES (Autopoiesis / Learning)
+# =============================================================================
+
+# user_preference(Key, Value)
+# Keys: /test_style, /error_handling, /commit_style, /verbosity, /explanation_level
+Decl user_preference(Key, Value).
+
+# preference_learned(Key, Value, Timestamp, Confidence)
+Decl preference_learned(Key, Value, Timestamp, Confidence).
+
+# =============================================================================
+# SECTION 20: SESSION STATE (Pause/Resume Protocol)
+# =============================================================================
+
+# session_state(SessionID, State, SerializedContext)
+# State: /active, /suspended, /completed
+Decl session_state(SessionID, State, SerializedContext).
+
+# pending_clarification(Question, Options, DefaultValue)
+Decl pending_clarification(Question, Options, DefaultValue).
+
+# focus_clarification(Response) - user's clarification response
+Decl focus_clarification(Response).
+
+# turn_context(TurnNumber, IntentID, ActionsTaken)
+Decl turn_context(TurnNumber, IntentID, ActionsTaken).
+
+# =============================================================================
+# SECTION 21: GIT-AWARE SAFETY (Chesterton's Fence)
+# =============================================================================
+
+# git_history(FilePath, CommitHash, Author, AgeDays, Message)
+Decl git_history(FilePath, CommitHash, Author, AgeDays, Message).
+
+# churn_rate(FilePath, ChangeFrequency)
+Decl churn_rate(FilePath, ChangeFrequency).
+
+# current_user(UserName)
+Decl current_user(UserName).
+
+# recent_change_by_other(FilePath) - derived predicate
+# True if file was changed < 2 days ago by a different author
+Decl recent_change_by_other(FilePath).
+
+# chesterton_fence_warning(FilePath, Reason) - derived predicate
+# Warns before deleting recently-changed code
+Decl chesterton_fence_warning(FilePath, Reason).
+
+# =============================================================================
+# SECTION 22: SHADOW MODE / COUNTERFACTUAL REASONING
+# =============================================================================
+
+# shadow_state(StateID, ActionID, IsValid)
+Decl shadow_state(StateID, ActionID, IsValid).
+
+# simulated_effect(ActionID, FactPredicate, FactArgs)
+Decl simulated_effect(ActionID, FactPredicate, FactArgs).
+
+# safe_projection(ActionID) - derived predicate
+# True if the action passes safety checks in shadow simulation
+Decl safe_projection(ActionID).
+
+# projection_violation(ActionID, ViolationType) - derived predicate
+Decl projection_violation(ActionID, ViolationType).
+
+# =============================================================================
+# SECTION 23: INTERACTIVE DIFF APPROVAL
+# =============================================================================
+
+# pending_mutation(MutationID, FilePath, OldContent, NewContent)
+Decl pending_mutation(MutationID, FilePath, OldContent, NewContent).
+
+# mutation_approved(MutationID, ApprovedBy, Timestamp)
+Decl mutation_approved(MutationID, ApprovedBy, Timestamp).
+
+# mutation_rejected(MutationID, RejectedBy, Reason)
+Decl mutation_rejected(MutationID, RejectedBy, Reason).
+
+# requires_approval(MutationID) - derived predicate
+# True if the mutation requires user approval before execution
+Decl requires_approval(MutationID).
+
+# =============================================================================
+# SECTION 24: KNOWLEDGE ATOMS (Research Results)
+# =============================================================================
+
+# knowledge_atom(SourceURL, Concept, Title, Confidence)
+Decl knowledge_atom(SourceURL, Concept, Title, Confidence).
+
+# code_pattern(Concept, PatternCode)
+Decl code_pattern(Concept, PatternCode).
+
+# anti_pattern(Concept, PatternCode, Reason)
+Decl anti_pattern(Concept, PatternCode, Reason).
+
+# research_complete(Query, AtomCount, DurationSeconds)
+Decl research_complete(Query, AtomCount, DurationSeconds).
+
+# =============================================================================
+# SECTION 25: LSP INTEGRATION (Language Server Protocol)
+# =============================================================================
+
+# lsp_definition(Symbol, FilePath, Line, Column)
+Decl lsp_definition(Symbol, FilePath, Line, Column).
+
+# lsp_reference(Symbol, RefFile, RefLine)
+Decl lsp_reference(Symbol, RefFile, RefLine).
+
+# lsp_hover(Symbol, Documentation)
+Decl lsp_hover(Symbol, Documentation).
+
+# lsp_diagnostic(FilePath, Line, Severity, Message)
+Decl lsp_diagnostic(FilePath, Line, Severity, Message).
+
+# =============================================================================
+# SECTION 26: DERIVATION TRACE (Glass Box Interface)
+# =============================================================================
+
+# derivation_trace(Conclusion, RuleApplied, Premises)
+Decl derivation_trace(Conclusion, RuleApplied, Premises).
+
+# proof_tree_node(NodeID, ParentID, Fact, RuleName)
+Decl proof_tree_node(NodeID, ParentID, Fact, RuleName).
