@@ -7,10 +7,12 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +44,12 @@ type chatModel struct {
 	styles    ui.Styles
 	renderer  *glamour.TermRenderer
 
+	// Split-pane TUI (Glass Box Interface)
+	splitPane    *ui.SplitPaneView
+	logicPane    *ui.LogicPane
+	showLogic    bool
+	paneMode     ui.PaneMode
+
 	// State
 	history   []chatMessage
 	isLoading bool
@@ -64,6 +72,7 @@ type chatModel struct {
 	client     perception.LLMClient
 	kernel     *core.RealKernel
 	shardMgr   *core.ShardManager
+	shadowMode *core.ShadowMode
 	transducer *perception.RealTransducer
 	executor   *tactile.SafeExecutor
 	emitter    *articulation.Emitter
@@ -149,8 +158,13 @@ func initChat() chatModel {
 	executor := tactile.NewSafeExecutor()
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
+	shadowMode := core.NewShadowMode(kernel)
 	emitter := articulation.NewEmitter()
 	scanner := world.NewScanner()
+
+	// Initialize split-pane view (Glass Box Interface)
+	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
+	logicPane := ui.NewLogicPane(styles, 30, 20)
 
 	return chatModel{
 		textinput:             ti,
@@ -158,11 +172,16 @@ func initChat() chatModel {
 		spinner:               sp,
 		styles:                styles,
 		renderer:              renderer,
+		splitPane:             &splitPaneView,
+		logicPane:             &logicPane,
+		showLogic:             false,
+		paneMode:              ui.ModeSinglePane,
 		history:               []chatMessage{},
 		config:                cfg,
 		client:                llmClient,
 		kernel:                kernel,
 		shardMgr:              shardMgr,
+		shadowMode:            shadowMode,
 		transducer:            transducer,
 		executor:              executor,
 		emitter:               emitter,
@@ -194,6 +213,40 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+
+		case tea.KeyCtrlL:
+			// Toggle logic pane (Glass Box Interface)
+			m.showLogic = !m.showLogic
+			if m.showLogic {
+				m.paneMode = ui.ModeSplitPane
+				m.splitPane.SetMode(ui.ModeSplitPane)
+			} else {
+				m.paneMode = ui.ModeSinglePane
+				m.splitPane.SetMode(ui.ModeSinglePane)
+			}
+			return m, nil
+
+		case tea.KeyCtrlG:
+			// Cycle through pane modes: Single -> Split -> Full Logic -> Single
+			switch m.paneMode {
+			case ui.ModeSinglePane:
+				m.paneMode = ui.ModeSplitPane
+				m.showLogic = true
+			case ui.ModeSplitPane:
+				m.paneMode = ui.ModeFullLogic
+			case ui.ModeFullLogic:
+				m.paneMode = ui.ModeSinglePane
+				m.showLogic = false
+			}
+			m.splitPane.SetMode(m.paneMode)
+			return m, nil
+
+		case tea.KeyCtrlR:
+			// Toggle focus between chat and logic pane (when in split mode)
+			if m.paneMode == ui.ModeSplitPane {
+				m.splitPane.ToggleFocus()
+			}
+			return m, nil
 
 		case tea.KeyEnter:
 			// Enter sends the message
@@ -252,6 +305,14 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.textinput.Width = msg.Width - 4
+
+		// Update split pane dimensions
+		if m.splitPane != nil {
+			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight-inputHeight)
+		}
+		if m.logicPane != nil {
+			m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight)
+		}
 
 		// Update renderer word wrap
 		if m.renderer != nil {
@@ -513,7 +574,18 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /agents | List all defined agents |
 | /query <predicate> | Query the Mangle kernel |
 | /why [predicate] | Explain logic derivation |
+| /logic [predicate] | Show derivation trace in Glass Box |
+| /shadow <action> | Start Shadow Mode simulation |
+| /whatif <action> | Quick counterfactual query |
+| /approve | Review pending mutations (Interactive Diff) |
 | /quit, /exit, /q | Exit the CLI |
+
+## Glass Box Interface (Split-Pane TUI)
+| Keybinding | Description |
+|------------|-------------|
+| Ctrl+L | Toggle logic pane on/off |
+| Ctrl+G | Cycle views: Chat → Split → Logic |
+| Ctrl+R | Toggle focus between panes |
 
 ## Shard Types
 | Type | Lifecycle | Use Case |
@@ -734,7 +806,7 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 		var sb strings.Builder
 		sb.WriteString("## Defined Agents\n\n")
 
-		// Built-in agents
+		// Built-in agents (Type 2: Ephemeral)
 		sb.WriteString("### Built-in (Type 2: Ephemeral)\n")
 		sb.WriteString("| Name | Capabilities |\n")
 		sb.WriteString("|------|-------------|\n")
@@ -742,6 +814,18 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 		sb.WriteString("| coder | Code generation, refactoring |\n")
 		sb.WriteString("| reviewer | Code review, best practices |\n")
 		sb.WriteString("| tester | Test generation, TDD loop |\n\n")
+
+		// Type 3 agents (LLM-Created Persistent)
+		type3Agents := m.loadType3Agents()
+		if len(type3Agents) > 0 {
+			sb.WriteString("### Auto-Created (Type 3: Persistent)\n")
+			sb.WriteString("| Name | KB Size | Status |\n")
+			sb.WriteString("|------|---------|--------|\n")
+			for _, agent := range type3Agents {
+				sb.WriteString(fmt.Sprintf("| %s | %d atoms | %s |\n", agent.Name, agent.KBSize, agent.Status))
+			}
+			sb.WriteString("\n")
+		}
 
 		// User-defined agents (Type 4)
 		sb.WriteString("### User-Defined (Type 4: Specialist)\n")
@@ -755,6 +839,10 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 				sb.WriteString(fmt.Sprintf("| %s | %s |\n", name, cfg.KnowledgePath))
 			}
 		}
+
+		sb.WriteString("\n### Commands\n")
+		sb.WriteString("- Spawn agent: `/spawn <agent> <task>`\n")
+		sb.WriteString("- Define new: `/define-agent <name> --topic <topic>`\n")
 
 		m.history = append(m.history, chatMessage{
 			role:    "assistant",
@@ -876,6 +964,163 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 			default:
 				sb.WriteString("_(See policy.gl for rule definitions)_")
 			}
+		}
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: sb.String(),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/logic":
+		// Show derivation trace in the Glass Box pane
+		predicate := "next_action"
+		if len(parts) >= 2 {
+			predicate = parts[1]
+		}
+
+		// Query the kernel
+		facts, _ := m.kernel.Query(predicate)
+
+		// Build derivation trace
+		trace := m.buildDerivationTrace(predicate, facts)
+
+		// Update the logic pane
+		if m.splitPane != nil && m.splitPane.RightPane != nil {
+			m.splitPane.RightPane.SetTrace(trace)
+		}
+		if m.logicPane != nil {
+			m.logicPane.SetTrace(trace)
+		}
+
+		// Enable split view if not already enabled
+		if !m.showLogic {
+			m.showLogic = true
+			m.paneMode = ui.ModeSplitPane
+			m.splitPane.SetMode(ui.ModeSplitPane)
+		}
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔬 Showing derivation trace for `%s` in the Glass Box pane.\n\nUse **Ctrl+L** to toggle the logic view.", predicate),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/shadow":
+		// Start Shadow Mode simulation
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/shadow <action-type> <target>`\n\n**Action Types:**\n- `write <file>` - Simulate file modification\n- `delete <file>` - Simulate file deletion\n- `refactor <file>` - Simulate refactoring\n- `commit` - Simulate git commit\n\n**Examples:**\n```\n/shadow write src/auth/handler.go\n/shadow refactor internal/core/kernel.go\n/shadow commit\n```",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		actionType := parts[1]
+		target := ""
+		if len(parts) >= 3 {
+			target = strings.Join(parts[2:], " ")
+		}
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🌑 **Starting Shadow Mode Simulation**\n\nAction: `%s`\nTarget: `%s`\n\n_Running counterfactual analysis..._", actionType, target),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.runShadowSimulation(actionType, target),
+		)
+
+	case "/whatif":
+		// Quick counterfactual query
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/whatif <scenario>`\n\n**Examples:**\n```\n/whatif I delete auth/handler.go\n/whatif I refactor the login function\n/whatif tests fail after this change\n```\n\nThis runs a quick counterfactual analysis without starting a full simulation.",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		scenario := strings.Join(parts[1:], " ")
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔮 **What-If Analysis**\n\nScenario: _\"%s\"_\n\n_Projecting effects..._", scenario),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.runWhatIfQuery(scenario),
+		)
+
+	case "/approve":
+		// Interactive Diff Approval
+		// Query for pending mutations requiring approval
+		pendingMutations, _ := m.kernel.Query("pending_mutation")
+		requiresApproval, _ := m.kernel.Query("requires_approval")
+
+		var sb strings.Builder
+		sb.WriteString("## 📝 Interactive Diff Approval\n\n")
+
+		if len(pendingMutations) == 0 {
+			sb.WriteString("✅ **No pending mutations** - All changes have been reviewed or there are no pending changes.\n\n")
+			sb.WriteString("Mutations require approval when:\n")
+			sb.WriteString("- Chesterton's Fence warning is triggered (recent changes by others)\n")
+			sb.WriteString("- Code impacts other files transitively\n")
+			sb.WriteString("- Shadow Mode simulation detected potential issues\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("Found **%d pending mutation(s)** requiring review:\n\n", len(pendingMutations)))
+
+			sb.WriteString("| # | File | Reason |\n")
+			sb.WriteString("|---|------|--------|\n")
+			for i, mutation := range pendingMutations {
+				file := "unknown"
+				if len(mutation.Args) > 1 {
+					file = fmt.Sprintf("%v", mutation.Args[1])
+				}
+				reason := "approval_required"
+				for _, ra := range requiresApproval {
+					if len(ra.Args) > 0 && fmt.Sprintf("%v", ra.Args[0]) == fmt.Sprintf("%v", mutation.Args[0]) {
+						reason = "safety_check"
+					}
+				}
+				sb.WriteString(fmt.Sprintf("| %d | %s | %s |\n", i+1, file, reason))
+			}
+
+			sb.WriteString("\n### Approval Commands\n\n")
+			sb.WriteString("```\n")
+			sb.WriteString("/approve accept <id>  - Approve a specific mutation\n")
+			sb.WriteString("/approve reject <id>  - Reject a specific mutation\n")
+			sb.WriteString("/approve all          - Approve all pending mutations\n")
+			sb.WriteString("/approve clear        - Clear all pending mutations\n")
+			sb.WriteString("```\n")
 		}
 
 		m.history = append(m.history, chatMessage{
@@ -1060,6 +1305,11 @@ func (m chatModel) View() string {
 		chatView += "\n" + m.styles.Error.Render("Error: "+m.err.Error())
 	}
 
+	// Apply split-pane view if enabled (Glass Box Interface)
+	if m.showLogic && m.splitPane != nil {
+		chatView = m.splitPane.Render(chatView)
+	}
+
 	// Input area
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1068,7 +1318,7 @@ func (m chatModel) View() string {
 
 	inputArea := inputStyle.Render(m.textinput.View())
 
-	// Footer
+	// Footer (with mode indicator)
 	footer := m.renderFooter()
 
 	// Compose full view
@@ -1113,78 +1363,445 @@ func (m chatModel) renderHeader() string {
 }
 
 func (m chatModel) renderFooter() string {
-	help := m.styles.Muted.Render("Enter: send • /help: commands • Ctrl+C: exit")
+	// Build mode indicator
+	modeIndicator := ""
+	switch m.paneMode {
+	case ui.ModeSinglePane:
+		modeIndicator = "📝 Chat"
+	case ui.ModeSplitPane:
+		modeIndicator = "🔬 Split (Chat + Logic)"
+	case ui.ModeFullLogic:
+		modeIndicator = "🔬 Logic View"
+	}
+
+	help := m.styles.Muted.Render(fmt.Sprintf("%s • Enter: send • Ctrl+L: toggle logic • Ctrl+G: cycle views • /help: commands • Ctrl+C: exit", modeIndicator))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
 }
 
-// runInit performs workspace initialization
-func (m chatModel) runInit() tea.Cmd {
+// runShadowSimulation runs a full Shadow Mode simulation
+func (m chatModel) runShadowSimulation(actionType, target string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Create initializer with LLM client
-		initConfig := struct {
-			Workspace string
-			LLMClient perception.LLMClient
-			Timeout   time.Duration
-		}{
-			Workspace: m.workspace,
-			LLMClient: m.client,
-			Timeout:   5 * time.Minute,
+		// Map action type string to SimActionType
+		var at core.SimActionType
+		switch actionType {
+		case "write":
+			at = core.ActionTypeFileWrite
+		case "delete":
+			at = core.ActionTypeFileDelete
+		case "refactor":
+			at = core.ActionTypeRefactor
+		case "exec":
+			at = core.ActionTypeExec
+		case "commit":
+			at = core.ActionTypeGitCommit
+		default:
+			return errorMsg(fmt.Errorf("unknown action type: %s", actionType))
 		}
 
-		// Simple initialization - create .nerd directory and scan codebase
-		nerdDir := m.workspace + "/.nerd"
-		if err := createDirIfNotExists(nerdDir); err != nil {
-			return errorMsg(fmt.Errorf("failed to create .nerd directory: %w", err))
-		}
-		if err := createDirIfNotExists(nerdDir + "/shards"); err != nil {
-			return errorMsg(fmt.Errorf("failed to create shards directory: %w", err))
-		}
-
-		// Scan workspace
-		facts, err := m.scanner.ScanWorkspace(m.workspace)
+		// Start simulation
+		sim, err := m.shadowMode.StartSimulation(ctx, fmt.Sprintf("%s %s", actionType, target))
 		if err != nil {
-			return errorMsg(fmt.Errorf("failed to scan workspace: %w", err))
+			return errorMsg(fmt.Errorf("failed to start simulation: %w", err))
 		}
 
-		// Load facts into kernel
-		if err := m.kernel.LoadFacts(facts); err != nil {
-			return errorMsg(fmt.Errorf("failed to load facts: %w", err))
+		// Create the action
+		action := core.SimulatedAction{
+			ID:          fmt.Sprintf("action_%d", time.Now().UnixNano()),
+			Type:        at,
+			Target:      target,
+			Description: fmt.Sprintf("%s on %s", actionType, target),
 		}
 
-		// Detect project type
-		projectType := detectProjectType(m.workspace)
+		// Run simulation
+		result, err := m.shadowMode.SimulateAction(ctx, action)
+		if err != nil {
+			m.shadowMode.AbortSimulation(err.Error())
+			return errorMsg(fmt.Errorf("simulation failed: %w", err))
+		}
 
-		// Generate summary
-		summary := fmt.Sprintf(`## Initialization Complete
+		// Build response
+		var sb strings.Builder
+		sb.WriteString("## 🌑 Shadow Mode Simulation Complete\n\n")
+		sb.WriteString(fmt.Sprintf("**Simulation ID**: `%s`\n", sim.ID))
+		sb.WriteString(fmt.Sprintf("**Action**: %s → %s\n\n", actionType, target))
 
-**Workspace**: %s
-**Language**: %s
-**Framework**: %s
-**Architecture**: %s
-**Files Indexed**: %d
+		// Show projected effects
+		sb.WriteString("### Projected Effects\n\n")
+		if len(result.Effects) == 0 {
+			sb.WriteString("_No effects projected._\n\n")
+		} else {
+			sb.WriteString("```datalog\n")
+			for _, effect := range result.Effects {
+				op := "+"
+				if !effect.IsPositive {
+					op = "-"
+				}
+				sb.WriteString(fmt.Sprintf("%s %s(%v)\n", op, effect.Predicate, effect.Args))
+			}
+			sb.WriteString("```\n\n")
+		}
 
-The .nerd/ directory has been created with:
-- Knowledge database
-- Shard storage
-- Project profile
+		// Show violations
+		sb.WriteString("### Safety Analysis\n\n")
+		if len(result.Violations) == 0 {
+			sb.WriteString("✅ **No violations detected** - Action appears safe.\n\n")
+		} else {
+			for _, v := range result.Violations {
+				icon := "⚠️"
+				if v.Blocking {
+					icon = "🛑"
+				}
+				sb.WriteString(fmt.Sprintf("%s **%s**: %s\n", icon, v.ViolationType, v.Description))
+			}
+			sb.WriteString("\n")
+		}
 
-You can now use codeNERD with full context awareness.
+		// Overall verdict
+		if result.IsSafe {
+			sb.WriteString("### ✅ Verdict: SAFE\n\n")
+			sb.WriteString("The simulated action passes all safety checks.\n")
+		} else {
+			sb.WriteString("### 🛑 Verdict: BLOCKED\n\n")
+			sb.WriteString("The action would be blocked by safety rules.\n")
+		}
 
-**Next steps:**
-- Define specialist agents: ` + "`/define-agent <name>`" + `
-- Query the codebase: Just ask questions!
-- Run tasks: ` + "`/spawn <agent> <task>`",
-			m.workspace, projectType.Language, projectType.Framework, projectType.Architecture, len(facts))
+		// Abort the simulation (don't apply changes)
+		m.shadowMode.AbortSimulation("simulation complete - not applying")
 
-		_ = initConfig // Suppress unused warning
-		_ = ctx
+		return responseMsg(sb.String())
+	}
+}
 
-		return responseMsg(summary)
+// runWhatIfQuery runs a quick counterfactual query
+func (m chatModel) runWhatIfQuery(scenario string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		// Parse the scenario to determine action type
+		scenarioLower := strings.ToLower(scenario)
+		var actionType core.SimActionType
+		var target string
+
+		switch {
+		case strings.Contains(scenarioLower, "delete"):
+			actionType = core.ActionTypeFileDelete
+			target = extractTarget(scenario, "delete")
+		case strings.Contains(scenarioLower, "refactor"):
+			actionType = core.ActionTypeRefactor
+			target = extractTarget(scenario, "refactor")
+		case strings.Contains(scenarioLower, "modify") || strings.Contains(scenarioLower, "change") || strings.Contains(scenarioLower, "edit"):
+			actionType = core.ActionTypeFileWrite
+			target = extractTarget(scenario, "modify", "change", "edit")
+		case strings.Contains(scenarioLower, "commit"):
+			actionType = core.ActionTypeGitCommit
+			target = "HEAD"
+		case strings.Contains(scenarioLower, "test") && strings.Contains(scenarioLower, "fail"):
+			// Simulate test failure scenario
+			actionType = core.ActionTypeExec
+			target = "test"
+		default:
+			actionType = core.ActionTypeFileWrite
+			target = scenario
+		}
+
+		// Create action
+		action := core.SimulatedAction{
+			ID:          fmt.Sprintf("whatif_%d", time.Now().UnixNano()),
+			Type:        actionType,
+			Target:      target,
+			Description: scenario,
+		}
+
+		// Run what-if query
+		result, err := m.shadowMode.WhatIf(ctx, action)
+		if err != nil {
+			return errorMsg(fmt.Errorf("what-if query failed: %w", err))
+		}
+
+		// Build response
+		var sb strings.Builder
+		sb.WriteString("## 🔮 What-If Analysis Results\n\n")
+		sb.WriteString(fmt.Sprintf("**Scenario**: _%s_\n\n", scenario))
+		sb.WriteString(fmt.Sprintf("**Interpreted as**: `%s` on `%s`\n\n", actionType, target))
+
+		// Effects
+		sb.WriteString("### If this happens, then:\n\n")
+		if len(result.Effects) == 0 {
+			sb.WriteString("- No immediate effects detected\n")
+		} else {
+			for _, effect := range result.Effects {
+				sb.WriteString(fmt.Sprintf("- `%s(%v)` would be asserted\n", effect.Predicate, effect.Args))
+			}
+		}
+		sb.WriteString("\n")
+
+		// Consequences
+		sb.WriteString("### Potential Consequences:\n\n")
+		if len(result.Violations) == 0 {
+			sb.WriteString("✅ No safety violations predicted.\n\n")
+		} else {
+			for _, v := range result.Violations {
+				icon := "⚠️"
+				if v.Blocking {
+					icon = "🛑"
+				}
+				sb.WriteString(fmt.Sprintf("%s %s\n", icon, v.Description))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Recommendation
+		sb.WriteString("### Recommendation:\n\n")
+		if result.IsSafe {
+			sb.WriteString("👍 This action appears safe to proceed with.\n")
+		} else {
+			sb.WriteString("⚠️ Consider addressing the violations before proceeding.\n")
+		}
+
+		return responseMsg(sb.String())
+	}
+}
+
+// extractTarget extracts the target from a scenario description
+func extractTarget(scenario string, keywords ...string) string {
+	words := strings.Fields(scenario)
+	for i, word := range words {
+		for _, kw := range keywords {
+			if strings.EqualFold(word, kw) && i+1 < len(words) {
+				// Return everything after the keyword
+				return strings.Join(words[i+1:], " ")
+			}
+		}
+	}
+	// Return the whole scenario if no keyword found
+	return scenario
+}
+
+// buildDerivationTrace constructs a derivation trace from kernel facts
+func (m chatModel) buildDerivationTrace(predicate string, facts []core.Fact) *ui.DerivationTrace {
+	trace := &ui.DerivationTrace{
+		Query:       predicate,
+		TotalFacts:  len(facts),
+		DerivedTime: 10 * time.Millisecond, // Placeholder, could track actual time
+		RootNodes:   make([]*ui.DerivationNode, 0),
+	}
+
+	// Build nodes from facts
+	for _, fact := range facts {
+		args := make([]string, len(fact.Args))
+		for i, arg := range fact.Args {
+			args[i] = fmt.Sprintf("%v", arg)
+		}
+
+		node := &ui.DerivationNode{
+			Predicate:  fact.Predicate,
+			Args:       args,
+			Source:     "idb", // Assume derived unless we can determine otherwise
+			Rule:       m.getRuleForPredicate(fact.Predicate),
+			Expanded:   true,
+			Activation: 0.8 + float64(len(facts)-1)*0.05, // Simulated activation
+			Children:   m.getChildNodes(fact),
+		}
+		trace.RootNodes = append(trace.RootNodes, node)
+	}
+
+	// If no facts, create a placeholder
+	if len(trace.RootNodes) == 0 {
+		trace.RootNodes = append(trace.RootNodes, &ui.DerivationNode{
+			Predicate:  predicate,
+			Args:       []string{"(no facts derived)"},
+			Source:     "edb",
+			Expanded:   false,
+			Activation: 0.0,
+		})
+	}
+
+	return trace
+}
+
+// getRuleForPredicate returns the Mangle rule that derives a predicate
+func (m chatModel) getRuleForPredicate(predicate string) string {
+	// Map of predicates to their derivation rules
+	ruleMap := map[string]string{
+		"next_action":          "next_action(A) :- user_intent(_, V, T, _), action_mapping(V, A).",
+		"block_commit":         "block_commit(R) :- diagnostic(/error, _, _, _, _).",
+		"permitted":            "permitted(A) :- safe_action(A).",
+		"impacted":             "impacted(X) :- dependency_link(X, Y, _), modified(Y).",
+		"clarification_needed": "clarification_needed(R) :- focus_resolution(R, _, _, S), S < 0.85.",
+		"unsafe_to_refactor":   "unsafe_to_refactor(T) :- impacted(D), not test_coverage(D).",
+		"needs_research":       "needs_research(A) :- shard_profile(A, _, T, _), not knowledge_ingested(A).",
+	}
+
+	if rule, ok := ruleMap[predicate]; ok {
+		return rule
+	}
+	return ""
+}
+
+// getChildNodes finds the supporting facts for a derived fact
+func (m chatModel) getChildNodes(fact core.Fact) []*ui.DerivationNode {
+	children := make([]*ui.DerivationNode, 0)
+
+	// Based on the predicate, find related facts
+	switch fact.Predicate {
+	case "next_action":
+		// next_action depends on user_intent and action_mapping
+		intents, _ := m.kernel.Query("user_intent")
+		for _, intent := range intents {
+			args := make([]string, len(intent.Args))
+			for i, arg := range intent.Args {
+				args[i] = fmt.Sprintf("%v", arg)
+			}
+			children = append(children, &ui.DerivationNode{
+				Predicate:  intent.Predicate,
+				Args:       args,
+				Source:     "edb",
+				Expanded:   false,
+				Activation: 0.7,
+			})
+		}
+
+	case "permitted":
+		// permitted depends on safe_action or admin_override
+		safeActions, _ := m.kernel.Query("safe_action")
+		for _, sa := range safeActions {
+			args := make([]string, len(sa.Args))
+			for i, arg := range sa.Args {
+				args[i] = fmt.Sprintf("%v", arg)
+			}
+			children = append(children, &ui.DerivationNode{
+				Predicate:  sa.Predicate,
+				Args:       args,
+				Source:     "edb",
+				Expanded:   false,
+				Activation: 0.6,
+			})
+		}
+
+	case "impacted":
+		// impacted depends on dependency_link and modified
+		deps, _ := m.kernel.Query("dependency_link")
+		for _, dep := range deps {
+			args := make([]string, len(dep.Args))
+			for i, arg := range dep.Args {
+				args[i] = fmt.Sprintf("%v", arg)
+			}
+			children = append(children, &ui.DerivationNode{
+				Predicate:  dep.Predicate,
+				Args:       args,
+				Source:     "edb",
+				Expanded:   false,
+				Activation: 0.5,
+			})
+		}
+
+	case "block_commit":
+		// block_commit depends on diagnostic or test_state
+		diagnostics, _ := m.kernel.Query("diagnostic")
+		for _, diag := range diagnostics {
+			args := make([]string, len(diag.Args))
+			for i, arg := range diag.Args {
+				args[i] = fmt.Sprintf("%v", arg)
+			}
+			children = append(children, &ui.DerivationNode{
+				Predicate:  diag.Predicate,
+				Args:       args,
+				Source:     "edb",
+				Expanded:   false,
+				Activation: 0.9, // High activation for blockers
+			})
+		}
+	}
+
+	return children
+}
+
+// runInit performs comprehensive workspace initialization
+func (m chatModel) runInit() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		// Create the comprehensive initializer with all components
+		initConfig := nerdinit.InitConfig{
+			Workspace:    m.workspace,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			Timeout:      10 * time.Minute,
+			Interactive:  false,        // Non-interactive in chat mode
+			SkipResearch: false,        // Do full research
+			SkipAgentCreate: false,     // Create Type 3 agents
+		}
+
+		initializer := nerdinit.NewInitializer(initConfig)
+
+		// Run the comprehensive initialization
+		result, err := initializer.Initialize(ctx)
+		if err != nil {
+			return errorMsg(fmt.Errorf("initialization failed: %w", err))
+		}
+
+		// Load all generated facts into the kernel
+		nerdDir := m.workspace + "/.nerd"
+		factsPath := nerdDir + "/profile.gl"
+		if _, statErr := os.Stat(factsPath); statErr == nil {
+			// TODO: Load Mangle facts from file
+			// For now, scan workspace to load basic facts
+			facts, scanErr := m.scanner.ScanWorkspace(m.workspace)
+			if scanErr == nil {
+				_ = m.kernel.LoadFacts(facts)
+			}
+		}
+
+		// Build the summary message
+		var sb strings.Builder
+		sb.WriteString("## ✅ Initialization Complete\n\n")
+
+		sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
+		sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
+		if result.Profile.Framework != "" {
+			sb.WriteString(fmt.Sprintf("**Framework**: %s\n", result.Profile.Framework))
+		}
+		sb.WriteString(fmt.Sprintf("**Architecture**: %s\n", result.Profile.Architecture))
+		sb.WriteString(fmt.Sprintf("**Files Analyzed**: %d\n", result.Profile.FileCount))
+		sb.WriteString(fmt.Sprintf("**Directories**: %d\n", result.Profile.DirectoryCount))
+		sb.WriteString(fmt.Sprintf("**Facts Generated**: %d\n\n", result.FactsGenerated))
+
+		// Show created agents
+		if len(result.CreatedAgents) > 0 {
+			sb.WriteString("### 🤖 Type 3 Agents Created\n\n")
+			sb.WriteString("| Agent | Knowledge Atoms | Status |\n")
+			sb.WriteString("|-------|-----------------|--------|\n")
+			for _, agent := range result.CreatedAgents {
+				sb.WriteString(fmt.Sprintf("| %s | %d | %s |\n", agent.Name, agent.KBSize, agent.Status))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Show warnings if any
+		if len(result.Warnings) > 0 {
+			sb.WriteString("### ⚠️ Warnings\n\n")
+			for _, w := range result.Warnings {
+				sb.WriteString(fmt.Sprintf("- %s\n", w))
+			}
+			sb.WriteString("\n")
+		}
+
+		sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
+
+		sb.WriteString("### 💡 Next Steps\n\n")
+		sb.WriteString("- View agents: `/agents`\n")
+		sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
+		sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
+		sb.WriteString("- Query the codebase: Just ask questions!\n")
+
+		return responseMsg(sb.String())
 	}
 }
 
@@ -1207,6 +1824,31 @@ func (m chatModel) getDefinedProfiles() map[string]core.ShardConfig {
 	}
 
 	return profiles
+}
+
+// loadType3Agents loads Type 3 agents from the agents.json registry
+func (m chatModel) loadType3Agents() []nerdinit.CreatedAgent {
+	agents := make([]nerdinit.CreatedAgent, 0)
+
+	// Try to load from agents.json registry
+	registryPath := m.workspace + "/.nerd/agents.json"
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		return agents
+	}
+
+	// Parse the registry
+	var registry struct {
+		Version   string                   `json:"version"`
+		CreatedAt string                   `json:"created_at"`
+		Agents    []nerdinit.CreatedAgent  `json:"agents"`
+	}
+
+	if err := json.Unmarshal(data, &registry); err != nil {
+		return agents
+	}
+
+	return registry.Agents
 }
 
 // spawnShard spawns a shard agent for a task
