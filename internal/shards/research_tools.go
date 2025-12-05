@@ -52,7 +52,7 @@ func NewResearchToolkit(cacheDir string) *ResearchToolkit {
 	_ = os.MkdirAll(cacheDir, 0755)
 
 	toolkit := &ResearchToolkit{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 60 * time.Second}, // Increased for paginated requests
 		cacheDir:   cacheDir,
 		userAgent:  "codeNERD/1.5.0 ResearchAgent (+https://github.com/codenerd)",
 	}
@@ -435,30 +435,54 @@ func (g *GitHubResearchTool) parseReadme(repoName, content, sourceURL string) []
 		}
 	}
 
-	// Extract sections
-	sectionRegex := regexp.MustCompile(`(?m)^##\s+(.+?)\n([\s\S]*?)(?=^##|\z)`)
-	sectionMatches := sectionRegex.FindAllStringSubmatch(content, 10)
-	for _, match := range sectionMatches {
-		if len(match) > 2 {
-			sectionTitle := strings.TrimSpace(match[1])
-			sectionContent := strings.TrimSpace(match[2])
+	// Extract sections by splitting on ## headers (Go regex doesn't support lookahead)
+	// Split content by ## headers and process each section
+	headerRegex := regexp.MustCompile(`(?m)^##\s+(.+)$`)
+	headers := headerRegex.FindAllStringIndex(content, -1)
 
-			// Skip non-informative sections
-			lowerTitle := strings.ToLower(sectionTitle)
-			if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" {
-				continue
-			}
+	for i, loc := range headers {
+		if i >= 10 {
+			break
+		}
 
-			if len(sectionContent) > 50 && len(sectionContent) < 3000 {
-				atoms = append(atoms, KnowledgeAtom{
-					SourceURL:   sourceURL,
-					Title:       sectionTitle,
-					Content:     truncateContent(sectionContent, 1000),
-					Concept:     "documentation_section",
-					Confidence:  0.85,
-					ExtractedAt: time.Now(),
-				})
-			}
+		// Get section start and end
+		start := loc[0]
+		end := len(content)
+		if i+1 < len(headers) {
+			end = headers[i+1][0]
+		}
+
+		sectionText := content[start:end]
+
+		// Extract title from header line
+		headerMatch := headerRegex.FindStringSubmatch(sectionText)
+		if len(headerMatch) < 2 {
+			continue
+		}
+		sectionTitle := strings.TrimSpace(headerMatch[1])
+
+		// Get content after the header line
+		lines := strings.SplitN(sectionText, "\n", 2)
+		if len(lines) < 2 {
+			continue
+		}
+		sectionContent := strings.TrimSpace(lines[1])
+
+		// Skip non-informative sections
+		lowerTitle := strings.ToLower(sectionTitle)
+		if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" {
+			continue
+		}
+
+		if len(sectionContent) > 50 && len(sectionContent) < 3000 {
+			atoms = append(atoms, KnowledgeAtom{
+				SourceURL:   sourceURL,
+				Title:       sectionTitle,
+				Content:     truncateContent(sectionContent, 1000),
+				Concept:     "documentation_section",
+				Confidence:  0.85,
+				ExtractedAt: time.Now(),
+			})
 		}
 	}
 
@@ -819,6 +843,11 @@ type Context7Tool struct {
 	cache   *ResearchCache
 	baseURL string
 	apiKey  string
+
+	// Configurable limits for knowledge ingestion
+	maxTokens   int // Max tokens to fetch per library (0 = no limit)
+	maxSnippets int // Max snippets per request (API may cap this)
+	paginate    bool // Whether to fetch all pages
 }
 
 // Context7SearchResult represents a library from search results.
@@ -833,7 +862,7 @@ type Context7SearchResult struct {
 	TotalTokens    int      `json:"totalTokens"`    // Documentation token count
 	TotalSnippets  int      `json:"totalSnippets"`  // Code snippet count
 	Stars          int      `json:"stars"`          // GitHub stars
-	TrustScore     int      `json:"trustScore"`     // Reputation 0-10
+	TrustScore     float64  `json:"trustScore"`     // Reputation 0-10 (can be decimal)
 	BenchmarkScore float64  `json:"benchmarkScore"` // Quality 0-100
 	Versions       []string `json:"versions"`       // Available version tags
 }
@@ -906,11 +935,30 @@ type Context7InfoResponse struct {
 func NewContext7Tool(client *http.Client, cache *ResearchCache) *Context7Tool {
 	apiKey := os.Getenv("CONTEXT7_API_KEY")
 	return &Context7Tool{
-		client:  client,
-		cache:   cache,
-		baseURL: "https://context7.com/api/v2",
-		apiKey:  apiKey,
+		client:      client,
+		cache:       cache,
+		baseURL:     "https://context7.com/api/v2",
+		apiKey:      apiKey,
+		maxTokens:   0,    // No token limit - pull everything
+		maxSnippets: 10,   // Context7 API max is 10 per page
+		paginate:    true, // Fetch all pages for maximum knowledge
 	}
+}
+
+// SetMaxTokens sets the maximum tokens to fetch per library.
+// 0 means no limit (fetch all available).
+func (c *Context7Tool) SetMaxTokens(max int) {
+	c.maxTokens = max
+}
+
+// SetMaxSnippets sets the maximum snippets per API request.
+func (c *Context7Tool) SetMaxSnippets(max int) {
+	c.maxSnippets = max
+}
+
+// SetPaginate enables/disables pagination (fetching all pages).
+func (c *Context7Tool) SetPaginate(enabled bool) {
+	c.paginate = enabled
 }
 
 // SetAPIKey sets the Context7 API key.
@@ -971,159 +1019,240 @@ func (c *Context7Tool) Search(ctx context.Context, query string) ([]Context7Sear
 	return searchResp.Results, nil
 }
 
-// FetchCodeSnippets fetches code examples from /v2/docs/code/{owner}/{repo}
+// FetchCodeSnippets fetches ALL code examples from /v2/docs/code/{owner}/{repo}
+// Uses pagination to pull the complete knowledge base.
 func (c *Context7Tool) FetchCodeSnippets(ctx context.Context, owner, repo, topic string) ([]KnowledgeAtom, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("CONTEXT7_API_KEY not configured")
 	}
 
-	// Check cache
-	cacheKey := fmt.Sprintf("context7:code:%s/%s:%s", owner, repo, topic)
+	// Check cache first
+	cacheKey := fmt.Sprintf("context7:code:%s/%s:%s:full", owner, repo, topic)
 	if cached, ok := c.cache.Get(cacheKey); ok {
 		var atoms []KnowledgeAtom
 		if err := json.Unmarshal([]byte(cached), &atoms); err == nil {
+			fmt.Printf("[Context7] Using cached code snippets (%d atoms)\n", len(atoms))
 			return atoms, nil
 		}
 	}
 
-	// Build request URL - use JSON to get structured snippets
-	reqURL := fmt.Sprintf("%s/docs/code/%s/%s?type=json&limit=10", c.baseURL, owner, repo)
-	if topic != "" {
-		reqURL += "&topic=" + url.QueryEscape(topic)
+	var allAtoms []KnowledgeAtom
+	totalTokens := 0
+	page := 1
+	limit := c.maxSnippets
+	if limit <= 0 {
+		limit = 100 // Default to max
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Context7 code failed (HTTP %d): %s", resp.StatusCode, string(body))
-	}
-
-	var codeResp Context7CodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&codeResp); err != nil {
-		return nil, fmt.Errorf("failed to decode Context7 code response: %w", err)
-	}
-
-	// Convert snippets to KnowledgeAtoms
-	var atoms []KnowledgeAtom
-	for _, snippet := range codeResp.Snippets {
-		// Build content from code list
-		var codeContent strings.Builder
-		codeContent.WriteString(snippet.CodeDescription + "\n\n")
-		for _, code := range snippet.CodeList {
-			codeContent.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", code.Language, code.Code))
+	for {
+		// Build request URL with pagination
+		reqURL := fmt.Sprintf("%s/docs/code/%s/%s?type=json&limit=%d&page=%d",
+			c.baseURL, owner, repo, limit, page)
+		if topic != "" {
+			reqURL += "&topic=" + url.QueryEscape(topic)
 		}
 
-		atoms = append(atoms, KnowledgeAtom{
-			SourceURL:   snippet.CodeID,
-			Title:       snippet.CodeTitle,
-			Content:     codeContent.String(),
-			Concept:     "context7_code",
-			Confidence:  0.95,
-			ExtractedAt: time.Now(),
-			Metadata: map[string]interface{}{
-				"source":    "context7",
-				"owner":     owner,
-				"repo":      repo,
-				"topic":     topic,
-				"language":  snippet.CodeLanguage,
-				"pageTitle": snippet.PageTitle,
-				"tokens":    snippet.CodeTokens,
-			},
-		})
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if err != nil {
+			return allAtoms, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return allAtoms, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if len(allAtoms) > 0 {
+				// Return what we have if we got some results
+				break
+			}
+			return nil, fmt.Errorf("Context7 code failed (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+
+		var codeResp Context7CodeResponse
+		if err := json.NewDecoder(resp.Body).Decode(&codeResp); err != nil {
+			resp.Body.Close()
+			return allAtoms, fmt.Errorf("failed to decode Context7 code response: %w", err)
+		}
+		resp.Body.Close()
+
+		// Convert snippets to KnowledgeAtoms
+		for _, snippet := range codeResp.Snippets {
+			// Check token limit
+			if c.maxTokens > 0 && totalTokens >= c.maxTokens {
+				fmt.Printf("[Context7] Reached token limit (%d tokens)\n", totalTokens)
+				goto done
+			}
+
+			// Build content from code list
+			var codeContent strings.Builder
+			codeContent.WriteString(snippet.CodeDescription + "\n\n")
+			for _, code := range snippet.CodeList {
+				codeContent.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", code.Language, code.Code))
+			}
+
+			allAtoms = append(allAtoms, KnowledgeAtom{
+				SourceURL:   snippet.CodeID,
+				Title:       snippet.CodeTitle,
+				Content:     codeContent.String(),
+				Concept:     "context7_code",
+				Confidence:  0.95,
+				ExtractedAt: time.Now(),
+				Metadata: map[string]interface{}{
+					"source":    "context7",
+					"owner":     owner,
+					"repo":      repo,
+					"topic":     topic,
+					"language":  snippet.CodeLanguage,
+					"pageTitle": snippet.PageTitle,
+					"tokens":    snippet.CodeTokens,
+				},
+			})
+			totalTokens += snippet.CodeTokens
+		}
+
+		// Check if we should continue pagination
+		if !c.paginate || !codeResp.Pagination.HasNext {
+			break
+		}
+		page++
+
+		// Safety limit - don't fetch more than 20 pages
+		if page > 20 {
+			fmt.Printf("[Context7] Reached max page limit (20 pages)\n")
+			break
+		}
 	}
 
+done:
+	fmt.Printf("[Context7] Fetched %d code snippets (%d tokens) from %s/%s\n",
+		len(allAtoms), totalTokens, owner, repo)
+
 	// Cache results
-	if len(atoms) > 0 {
-		if data, err := json.Marshal(atoms); err == nil {
+	if len(allAtoms) > 0 {
+		if data, err := json.Marshal(allAtoms); err == nil {
 			c.cache.Set(cacheKey, string(data), 7200) // 2 hours
 		}
 	}
 
-	return atoms, nil
+	return allAtoms, nil
 }
 
-// FetchDocContent fetches documentation text from /v2/docs/info/{owner}/{repo}
+// FetchDocContent fetches ALL documentation from /v2/docs/info/{owner}/{repo}
+// Uses pagination to pull the complete documentation.
 func (c *Context7Tool) FetchDocContent(ctx context.Context, owner, repo, topic string) ([]KnowledgeAtom, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("CONTEXT7_API_KEY not configured")
 	}
 
-	// Check cache
-	cacheKey := fmt.Sprintf("context7:info:%s/%s:%s", owner, repo, topic)
+	// Check cache first
+	cacheKey := fmt.Sprintf("context7:info:%s/%s:%s:full", owner, repo, topic)
 	if cached, ok := c.cache.Get(cacheKey); ok {
 		var atoms []KnowledgeAtom
 		if err := json.Unmarshal([]byte(cached), &atoms); err == nil {
+			fmt.Printf("[Context7] Using cached documentation (%d atoms)\n", len(atoms))
 			return atoms, nil
 		}
 	}
 
-	// Build request URL
-	reqURL := fmt.Sprintf("%s/docs/info/%s/%s?type=json&limit=10", c.baseURL, owner, repo)
-	if topic != "" {
-		reqURL += "&topic=" + url.QueryEscape(topic)
+	var allAtoms []KnowledgeAtom
+	totalTokens := 0
+	page := 1
+	limit := c.maxSnippets
+	if limit <= 0 {
+		limit = 100 // Default to max
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	for {
+		// Build request URL with pagination
+		reqURL := fmt.Sprintf("%s/docs/info/%s/%s?type=json&limit=%d&page=%d",
+			c.baseURL, owner, repo, limit, page)
+		if topic != "" {
+			reqURL += "&topic=" + url.QueryEscape(topic)
+		}
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if err != nil {
+			return allAtoms, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Context7 info failed (HTTP %d): %s", resp.StatusCode, string(body))
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return allAtoms, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if len(allAtoms) > 0 {
+				break
+			}
+			return nil, fmt.Errorf("Context7 info failed (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+
+		var infoResp Context7InfoResponse
+		if err := json.NewDecoder(resp.Body).Decode(&infoResp); err != nil {
+			resp.Body.Close()
+			return allAtoms, fmt.Errorf("failed to decode Context7 info response: %w", err)
+		}
+		resp.Body.Close()
+
+		// Convert snippets to KnowledgeAtoms
+		for _, snippet := range infoResp.Snippets {
+			// Check token limit
+			if c.maxTokens > 0 && totalTokens >= c.maxTokens {
+				fmt.Printf("[Context7] Reached token limit (%d tokens)\n", totalTokens)
+				goto done
+			}
+
+			allAtoms = append(allAtoms, KnowledgeAtom{
+				SourceURL:   snippet.PageID,
+				Title:       snippet.Breadcrumb,
+				Content:     snippet.Content,
+				Concept:     "context7_docs",
+				Confidence:  0.95,
+				ExtractedAt: time.Now(),
+				Metadata: map[string]interface{}{
+					"source": "context7",
+					"owner":  owner,
+					"repo":   repo,
+					"topic":  topic,
+					"tokens": snippet.ContentTokens,
+				},
+			})
+			totalTokens += snippet.ContentTokens
+		}
+
+		// Check if we should continue pagination
+		if !c.paginate || !infoResp.Pagination.HasNext {
+			break
+		}
+		page++
+
+		// Safety limit - don't fetch more than 20 pages
+		if page > 20 {
+			fmt.Printf("[Context7] Reached max page limit (20 pages)\n")
+			break
+		}
 	}
 
-	var infoResp Context7InfoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&infoResp); err != nil {
-		return nil, fmt.Errorf("failed to decode Context7 info response: %w", err)
-	}
-
-	// Convert snippets to KnowledgeAtoms
-	var atoms []KnowledgeAtom
-	for _, snippet := range infoResp.Snippets {
-		atoms = append(atoms, KnowledgeAtom{
-			SourceURL:   snippet.PageID,
-			Title:       snippet.Breadcrumb,
-			Content:     snippet.Content,
-			Concept:     "context7_docs",
-			Confidence:  0.95,
-			ExtractedAt: time.Now(),
-			Metadata: map[string]interface{}{
-				"source": "context7",
-				"owner":  owner,
-				"repo":   repo,
-				"topic":  topic,
-				"tokens": snippet.ContentTokens,
-			},
-		})
-	}
+done:
+	fmt.Printf("[Context7] Fetched %d documentation pages (%d tokens) from %s/%s\n",
+		len(allAtoms), totalTokens, owner, repo)
 
 	// Cache results
-	if len(atoms) > 0 {
-		if data, err := json.Marshal(atoms); err == nil {
+	if len(allAtoms) > 0 {
+		if data, err := json.Marshal(allAtoms); err == nil {
 			c.cache.Set(cacheKey, string(data), 7200) // 2 hours
 		}
 	}
 
-	return atoms, nil
+	return allAtoms, nil
 }
 
 // ResearchTopic searches Context7 for a topic and fetches relevant docs.
@@ -1135,12 +1264,22 @@ func (c *Context7Tool) ResearchTopic(ctx context.Context, topic string, keywords
 
 	var allAtoms []KnowledgeAtom
 
-	// Search for relevant libraries
-	searchQuery := topic
-	if len(keywords) > 0 && len(keywords) <= 3 {
-		searchQuery = topic + " " + strings.Join(keywords, " ")
-	} else if len(keywords) > 3 {
-		searchQuery = topic + " " + strings.Join(keywords[:3], " ")
+	// Use topic directly as search query - it's already meaningful
+	// Don't append keywords as they usually just duplicate the topic
+	searchQuery := strings.TrimSpace(topic)
+	topicLower := strings.ToLower(searchQuery)
+
+	// Detect language hint from topic (for filtering results)
+	langHint := ""
+	if strings.Contains(topicLower, "golang") || strings.HasPrefix(topicLower, "go ") ||
+		strings.HasSuffix(topicLower, " go") || topicLower == "go" {
+		langHint = "go"
+	} else if strings.Contains(topicLower, "rust") {
+		langHint = "rust"
+	} else if strings.Contains(topicLower, "python") {
+		langHint = "python"
+	} else if strings.Contains(topicLower, "javascript") || strings.Contains(topicLower, "typescript") {
+		langHint = "js"
 	}
 
 	results, err := c.Search(ctx, searchQuery)
@@ -1152,17 +1291,74 @@ func (c *Context7Tool) ResearchTopic(ctx context.Context, topic string, keywords
 		return nil, fmt.Errorf("no Context7 results for: %s", searchQuery)
 	}
 
-	// Fetch docs from top result only (most relevant)
-	// Context7 search already ranks by relevance
-	result := results[0]
+	// Find best matching result with quality filtering
+	var result *Context7SearchResult
+	for i := range results {
+		r := &results[i]
 
-	// Only use finalized libraries
-	if result.State != "finalized" {
-		if len(results) > 1 {
-			result = results[1]
-		} else {
-			return nil, fmt.Errorf("no finalized Context7 library for: %s", searchQuery)
+		// Skip non-finalized libraries
+		if r.State != "finalized" {
+			continue
 		}
+
+		// Skip very low quality results
+		if r.BenchmarkScore < 30 && r.TrustScore < 3 {
+			continue
+		}
+
+		idLower := strings.ToLower(r.ID)
+		titleLower := strings.ToLower(r.Title)
+
+		// Language filtering - skip obvious mismatches
+		if langHint == "go" {
+			// Skip Rust libraries (detect by common patterns)
+			isRust := strings.Contains(idLower, "rust") ||
+				strings.Contains(idLower, "_rs_") || strings.Contains(idLower, "/rs_") ||
+				strings.Contains(idLower, "rs-") || strings.HasPrefix(idLower, "rs_") ||
+				strings.Contains(titleLower, "rust") ||
+				strings.Contains(titleLower, "futures") || // Rust futures crate
+				strings.Contains(titleLower, "tokio") || // Rust async runtime
+				strings.Contains(titleLower, "crate")
+			if isRust {
+				continue
+			}
+
+			// Prefer Go-specific libraries
+			isGo := strings.Contains(idLower, "go-") || strings.Contains(idLower, "/go") ||
+				strings.Contains(idLower, "golang") ||
+				strings.Contains(titleLower, "go ") || strings.HasPrefix(titleLower, "go")
+			if isGo {
+				result = r
+				break
+			}
+		} else if langHint == "rust" {
+			// Skip Go libraries when searching for Rust
+			isGo := strings.Contains(idLower, "go-") || strings.Contains(idLower, "/go") ||
+				strings.Contains(idLower, "golang") ||
+				strings.Contains(titleLower, "golang")
+			if isGo {
+				continue
+			}
+		}
+
+		// Take first good result if no language-specific match
+		if result == nil {
+			result = r
+		}
+	}
+
+	if result == nil {
+		// Fallback to first finalized result if no quality match
+		for i := range results {
+			if results[i].State == "finalized" {
+				result = &results[i]
+				break
+			}
+		}
+	}
+
+	if result == nil {
+		return nil, fmt.Errorf("no suitable Context7 library for: %s", searchQuery)
 	}
 
 	// Parse owner/repo from ID (e.g., "/vercel/next.js" -> "vercel", "next.js")
