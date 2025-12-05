@@ -31,6 +31,17 @@ const (
 	ActionAskUser       ActionType = "ask_user"
 	ActionEscalate      ActionType = "escalate"
 	ActionDelegate      ActionType = "delegate"
+
+	// Code DOM Actions (semantic code element operations)
+	ActionOpenFile     ActionType = "open_file"      // Open file, load 1-hop scope
+	ActionGetElements  ActionType = "get_elements"   // Query elements in scope
+	ActionGetElement   ActionType = "get_element"    // Get single element by ref
+	ActionEditElement  ActionType = "edit_element"   // Replace element body by ref
+	ActionRefreshScope ActionType = "refresh_scope"  // Re-project after changes
+	ActionCloseScope   ActionType = "close_scope"    // Close current scope
+	ActionEditLines    ActionType = "edit_lines"     // Line-based file editing
+	ActionInsertLines  ActionType = "insert_lines"   // Insert lines at position
+	ActionDeleteLines  ActionType = "delete_lines"   // Delete line range
 )
 
 // ActionRequest represents a request to execute an action.
@@ -64,6 +75,101 @@ type ConstitutionalRule struct {
 type IntegrationClient interface {
 	// CallTool makes an MCP tool call via HTTP.
 	CallTool(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error)
+}
+
+// CodeElement represents a semantic code unit (function, struct, etc.).
+// Used by CodeScope to return element information.
+type CodeElement struct {
+	Ref        string   `json:"ref"`
+	Type       string   `json:"type"`
+	File       string   `json:"file"`
+	StartLine  int      `json:"start_line"`
+	EndLine    int      `json:"end_line"`
+	Signature  string   `json:"signature"`
+	Body       string   `json:"body,omitempty"`
+	Parent     string   `json:"parent,omitempty"`
+	Visibility string   `json:"visibility"`
+	Actions    []string `json:"actions"`
+}
+
+// CodeScope is an interface for Code DOM scope management.
+// This breaks the import cycle - implemented by world.FileScope.
+type CodeScope interface {
+	// Open opens a file and loads its 1-hop dependency scope.
+	Open(path string) error
+
+	// Refresh re-parses all in-scope files after an edit.
+	Refresh() error
+
+	// Close clears the current scope.
+	Close()
+
+	// GetCoreElement returns an element by ref.
+	GetCoreElement(ref string) *CodeElement
+
+	// GetElementBody returns the body text of an element.
+	GetElementBody(ref string) string
+
+	// GetCoreElementsByFile returns all elements in a file.
+	GetCoreElementsByFile(path string) []CodeElement
+
+	// IsInScope checks if a file is in the current scope.
+	IsInScope(path string) bool
+
+	// ScopeFacts returns all current scope facts.
+	ScopeFacts() []Fact
+
+	// GetActiveFile returns the currently active file.
+	GetActiveFile() string
+
+	// GetInScopeFiles returns all files in the current scope.
+	GetInScopeFiles() []string
+
+	// VerifyFileHash checks if a file has been modified since it was loaded.
+	// Returns true if unchanged, false if modified externally.
+	VerifyFileHash(path string) (bool, error)
+
+	// RefreshWithRetry attempts refresh with exponential backoff.
+	RefreshWithRetry(maxRetries int) error
+}
+
+// FileEditor is an interface for file operations with audit logging.
+// This breaks the import cycle - implemented by tactile.FileEditor.
+type FileEditor interface {
+	// ReadFile reads an entire file and returns its lines.
+	ReadFile(path string) ([]string, error)
+
+	// ReadLines reads specific lines from a file (1-indexed, inclusive).
+	ReadLines(path string, startLine, endLine int) ([]string, error)
+
+	// WriteFile writes content to a file.
+	WriteFile(path string, lines []string) (*FileEditResult, error)
+
+	// EditLines replaces lines in a file (1-indexed, inclusive).
+	EditLines(path string, startLine, endLine int, newLines []string) (*FileEditResult, error)
+
+	// InsertLines inserts lines after the specified line.
+	InsertLines(path string, afterLine int, newLines []string) (*FileEditResult, error)
+
+	// DeleteLines removes lines from a file.
+	DeleteLines(path string, startLine, endLine int) (*FileEditResult, error)
+
+	// ReplaceElement replaces content between start and end lines.
+	ReplaceElement(path string, startLine, endLine int, newContent string) (*FileEditResult, error)
+}
+
+// FileEditResult represents the result of a file edit operation.
+type FileEditResult struct {
+	Success       bool     `json:"success"`
+	Path          string   `json:"path"`
+	LinesAffected int      `json:"lines_affected"`
+	OldContent    []string `json:"old_content,omitempty"`
+	NewContent    []string `json:"new_content,omitempty"`
+	OldHash       string   `json:"old_hash,omitempty"`
+	NewHash       string   `json:"new_hash,omitempty"`
+	LineCount     int      `json:"line_count"`
+	Facts         []Fact   `json:"facts,omitempty"`
+	Error         string   `json:"error,omitempty"`
 }
 
 // VirtualStore acts as the FFI Router for the Hollow Kernel.
@@ -100,6 +206,10 @@ type VirtualStore struct {
 
 	// Use modern executor for command execution
 	useModernExecutor bool
+
+	// Code DOM - semantic code element operations
+	codeScope  CodeScope
+	fileEditor FileEditor
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -246,6 +356,20 @@ func (v *VirtualStore) SetScraperClient(client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.scraper = client
+}
+
+// SetCodeScope sets the Code DOM scope manager.
+func (v *VirtualStore) SetCodeScope(scope CodeScope) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.codeScope = scope
+}
+
+// SetFileEditor sets the file editor for line-based operations.
+func (v *VirtualStore) SetFileEditor(editor FileEditor) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.fileEditor = editor
 }
 
 // initConstitution initializes the constitutional safety rules.
@@ -447,6 +571,27 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleAskUser(ctx, req)
 	case ActionEscalate:
 		return v.handleEscalate(ctx, req)
+
+	// Code DOM actions
+	case ActionOpenFile:
+		return v.handleOpenFile(ctx, req)
+	case ActionGetElements:
+		return v.handleGetElements(ctx, req)
+	case ActionGetElement:
+		return v.handleGetElement(ctx, req)
+	case ActionEditElement:
+		return v.handleEditElement(ctx, req)
+	case ActionRefreshScope:
+		return v.handleRefreshScope(ctx, req)
+	case ActionCloseScope:
+		return v.handleCloseScope(ctx, req)
+	case ActionEditLines:
+		return v.handleEditLines(ctx, req)
+	case ActionInsertLines:
+		return v.handleInsertLines(ctx, req)
+	case ActionDeleteLines:
+		return v.handleDeleteLines(ctx, req)
+
 	default:
 		return ActionResult{}, fmt.Errorf("unknown action type: %s", req.Type)
 	}
@@ -1218,4 +1363,576 @@ func errString(err error) string {
 // QueryPermitted checks if an action is permitted by the constitutional logic.
 func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 	return v.checkConstitution(req) == nil
+}
+
+// =============================================================================
+// CODE DOM HANDLERS
+// =============================================================================
+
+// handleOpenFile opens a file and loads its 1-hop dependency scope.
+func (v *VirtualStore) handleOpenFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+	if err := scope.Open(path); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "scope_open_failed", Args: []interface{}{path, err.Error()}},
+			},
+		}, nil
+	}
+
+	// Inject scope facts into kernel
+	facts := scope.ScopeFacts()
+	for _, fact := range facts {
+		v.injectFact(fact)
+	}
+
+	inScopeFiles := scope.GetInScopeFiles()
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Opened %s with %d files in scope", path, len(inScopeFiles)),
+		Metadata: map[string]interface{}{
+			"active_file":    path,
+			"in_scope_count": len(inScopeFiles),
+			"in_scope":       inScopeFiles,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleGetElements returns all elements in the current scope.
+func (v *VirtualStore) handleGetElements(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	// Get elements, optionally filtered by file
+	var elements []CodeElement
+	if req.Target != "" {
+		path := v.resolvePath(req.Target)
+		elements = scope.GetCoreElementsByFile(path)
+	} else {
+		// Return all elements in scope - need to iterate files
+		for _, file := range scope.GetInScopeFiles() {
+			elements = append(elements, scope.GetCoreElementsByFile(file)...)
+		}
+	}
+
+	// Filter by type if specified
+	if elemType, ok := req.Payload["type"].(string); ok && elemType != "" {
+		var filtered []CodeElement
+		for _, e := range elements {
+			if e.Type == elemType {
+				filtered = append(filtered, e)
+			}
+		}
+		elements = filtered
+	}
+
+	output, _ := json.Marshal(elements)
+	return ActionResult{
+		Success: true,
+		Output:  string(output),
+		Metadata: map[string]interface{}{
+			"count": len(elements),
+		},
+	}, nil
+}
+
+// handleGetElement returns a single element by ref.
+func (v *VirtualStore) handleGetElement(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	ref := req.Target
+	elem := scope.GetCoreElement(ref)
+	if elem == nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("element not found: %s", ref),
+		}, nil
+	}
+
+	// Include body if requested
+	includeBody, _ := req.Payload["include_body"].(bool)
+	if includeBody && elem.Body == "" {
+		elem.Body = scope.GetElementBody(ref)
+	}
+
+	output, _ := json.Marshal(elem)
+	return ActionResult{
+		Success: true,
+		Output:  string(output),
+		Metadata: map[string]interface{}{
+			"ref":        elem.Ref,
+			"type":       elem.Type,
+			"file":       elem.File,
+			"start_line": elem.StartLine,
+			"end_line":   elem.EndLine,
+		},
+	}, nil
+}
+
+// handleEditElement replaces an element's body by ref.
+func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	editor := v.fileEditor
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	ref := req.Target
+	newContent, ok := req.Payload["content"].(string)
+	if !ok {
+		return ActionResult{Success: false, Error: "edit_element requires 'content' in payload"}, nil
+	}
+
+	elem := scope.GetCoreElement(ref)
+	if elem == nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("element not found: %s", ref),
+		}, nil
+	}
+
+	// Verify file hasn't been modified externally before editing
+	unchanged, hashErr := scope.VerifyFileHash(elem.File)
+	if hashErr != nil {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to verify file hash: %v", hashErr),
+			FactsToAdd: []Fact{
+				{Predicate: "element_edit_blocked", Args: []interface{}{ref, "hash_verification_failed"}},
+			},
+		}, nil
+	}
+	if !unchanged {
+		// File was modified externally - refresh scope first
+		if err := scope.RefreshWithRetry(3); err != nil {
+			return ActionResult{
+				Success: false,
+				Error:   "file was modified externally and refresh failed",
+				FactsToAdd: []Fact{
+					{Predicate: "element_edit_blocked", Args: []interface{}{ref, "concurrent_modification"}},
+					{Predicate: "file_modified_externally", Args: []interface{}{elem.File}},
+				},
+			}, nil
+		}
+		// Re-fetch element after refresh (line numbers may have changed)
+		elem = scope.GetCoreElement(ref)
+		if elem == nil {
+			return ActionResult{
+				Success: false,
+				Error:   fmt.Sprintf("element %s no longer exists after refresh", ref),
+				FactsToAdd: []Fact{
+					{Predicate: "element_stale", Args: []interface{}{ref, "not_found_after_refresh"}},
+				},
+			}, nil
+		}
+	}
+
+	// Replace the element
+	result, err := editor.ReplaceElement(elem.File, elem.StartLine, elem.EndLine, newContent)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Refresh scope to update line numbers with retry
+	if err := scope.RefreshWithRetry(3); err != nil {
+		v.injectFact(Fact{
+			Predicate: "scope_refresh_failed",
+			Args:      []interface{}{elem.File, err.Error()},
+		})
+	}
+
+	// Inject the new scope facts
+	for _, fact := range scope.ScopeFacts() {
+		v.injectFact(fact)
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Replaced element %s (%d lines affected)", ref, result.LinesAffected),
+		Metadata: map[string]interface{}{
+			"ref":            ref,
+			"lines_affected": result.LinesAffected,
+			"new_line_count": result.LineCount,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "element_modified", Args: []interface{}{ref, req.SessionID}},
+			{Predicate: "modified", Args: []interface{}{elem.File}},
+		},
+	}, nil
+}
+
+// handleRefreshScope re-parses all in-scope files.
+func (v *VirtualStore) handleRefreshScope(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	if err := scope.Refresh(); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Re-inject all scope facts
+	facts := scope.ScopeFacts()
+	for _, fact := range facts {
+		v.injectFact(fact)
+	}
+
+	return ActionResult{
+		Success:    true,
+		Output:     "Scope refreshed",
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleCloseScope closes the current scope.
+func (v *VirtualStore) handleCloseScope(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if scope == nil {
+		return ActionResult{Success: false, Error: "code scope not configured"}, nil
+	}
+
+	scope.Close()
+
+	return ActionResult{
+		Success: true,
+		Output:  "Scope closed",
+		FactsToAdd: []Fact{
+			{Predicate: "scope_closed", Args: []interface{}{}},
+		},
+	}, nil
+}
+
+// handleEditLines performs line-based file editing.
+func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	startLine, _ := req.Payload["start_line"].(float64)
+	endLine, _ := req.Payload["end_line"].(float64)
+	newContent, _ := req.Payload["content"].(string)
+
+	if startLine == 0 || endLine == 0 {
+		return ActionResult{Success: false, Error: "edit_lines requires 'start_line' and 'end_line' in payload"}, nil
+	}
+
+	// Split content into lines
+	var newLines []string
+	if newContent != "" {
+		newLines = strings.Split(strings.TrimSuffix(newContent, "\n"), "\n")
+	}
+
+	result, err := editor.EditLines(path, int(startLine), int(endLine), newLines)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			v.injectFact(Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []interface{}{path, err.Error()},
+			})
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Edited lines %d-%d in %s", int(startLine), int(endLine), path),
+		Metadata: map[string]interface{}{
+			"path":           path,
+			"start_line":     int(startLine),
+			"end_line":       int(endLine),
+			"lines_affected": result.LinesAffected,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "lines_edited", Args: []interface{}{path, int64(startLine), int64(endLine), req.SessionID}},
+			{Predicate: "modified", Args: []interface{}{path}},
+		},
+	}, nil
+}
+
+// handleInsertLines inserts lines at a position.
+func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	afterLine, _ := req.Payload["after_line"].(float64)
+	content, _ := req.Payload["content"].(string)
+
+	if content == "" {
+		return ActionResult{Success: false, Error: "insert_lines requires 'content' in payload"}, nil
+	}
+
+	newLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+
+	result, err := editor.InsertLines(path, int(afterLine), newLines)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			v.injectFact(Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []interface{}{path, err.Error()},
+			})
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Inserted %d lines after line %d in %s", result.LinesAffected, int(afterLine), path),
+		Metadata: map[string]interface{}{
+			"path":        path,
+			"after_line":  int(afterLine),
+			"lines_added": result.LinesAffected,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "lines_inserted", Args: []interface{}{path, int64(afterLine), int64(len(newLines)), req.SessionID}},
+			{Predicate: "modified", Args: []interface{}{path}},
+		},
+	}, nil
+}
+
+// handleDeleteLines removes lines from a file.
+func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	editor := v.fileEditor
+	scope := v.codeScope
+	v.mu.RUnlock()
+
+	if editor == nil {
+		return ActionResult{Success: false, Error: "file editor not configured"}, nil
+	}
+
+	path := v.resolvePath(req.Target)
+
+	startLine, _ := req.Payload["start_line"].(float64)
+	endLine, _ := req.Payload["end_line"].(float64)
+
+	if startLine == 0 || endLine == 0 {
+		return ActionResult{Success: false, Error: "delete_lines requires 'start_line' and 'end_line' in payload"}, nil
+	}
+
+	result, err := editor.DeleteLines(path, int(startLine), int(endLine))
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// Refresh scope if active with retry
+	if scope != nil && scope.IsInScope(path) {
+		if err := scope.RefreshWithRetry(3); err != nil {
+			v.injectFact(Fact{
+				Predicate: "scope_refresh_failed",
+				Args:      []interface{}{path, err.Error()},
+			})
+		}
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Deleted lines %d-%d from %s", int(startLine), int(endLine), path),
+		Metadata: map[string]interface{}{
+			"path":          path,
+			"start_line":    int(startLine),
+			"end_line":      int(endLine),
+			"lines_deleted": result.LinesAffected,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "lines_deleted", Args: []interface{}{path, int64(startLine), int64(endLine), req.SessionID}},
+			{Predicate: "modified", Args: []interface{}{path}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// FILE EDITOR ADAPTER
+// =============================================================================
+
+// TactileFileEditorAdapter wraps tactile.FileEditor to implement core.FileEditor.
+type TactileFileEditorAdapter struct {
+	editor *tactile.FileEditor
+}
+
+// NewTactileFileEditorAdapter creates a new adapter.
+func NewTactileFileEditorAdapter(editor *tactile.FileEditor) *TactileFileEditorAdapter {
+	return &TactileFileEditorAdapter{editor: editor}
+}
+
+func (a *TactileFileEditorAdapter) ReadFile(path string) ([]string, error) {
+	return a.editor.ReadFile(path)
+}
+
+func (a *TactileFileEditorAdapter) ReadLines(path string, startLine, endLine int) ([]string, error) {
+	return a.editor.ReadLines(path, startLine, endLine)
+}
+
+func (a *TactileFileEditorAdapter) WriteFile(path string, lines []string) (*FileEditResult, error) {
+	result, err := a.editor.WriteFile(path, lines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) EditLines(path string, startLine, endLine int, newLines []string) (*FileEditResult, error) {
+	result, err := a.editor.EditLines(path, startLine, endLine, newLines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) InsertLines(path string, afterLine int, newLines []string) (*FileEditResult, error) {
+	result, err := a.editor.InsertLines(path, afterLine, newLines)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) DeleteLines(path string, startLine, endLine int) (*FileEditResult, error) {
+	result, err := a.editor.DeleteLines(path, startLine, endLine)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) ReplaceElement(path string, startLine, endLine int, newContent string) (*FileEditResult, error) {
+	result, err := a.editor.ReplaceElement(path, startLine, endLine, newContent)
+	if err != nil {
+		return nil, err
+	}
+	return a.convertResult(result), nil
+}
+
+func (a *TactileFileEditorAdapter) convertResult(r *tactile.FileResult) *FileEditResult {
+	if r == nil {
+		return nil
+	}
+	// Convert tactile.Fact to core.Fact
+	facts := make([]Fact, len(r.Facts))
+	for i, f := range r.Facts {
+		facts[i] = Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return &FileEditResult{
+		Success:       r.Success,
+		Path:          r.Path,
+		LinesAffected: r.LinesAffected,
+		OldContent:    r.OldContent,
+		NewContent:    r.NewContent,
+		OldHash:       r.OldHash,
+		NewHash:       r.NewHash,
+		LineCount:     r.LineCount,
+		Facts:         facts,
+		Error:         r.Error,
+	}
 }

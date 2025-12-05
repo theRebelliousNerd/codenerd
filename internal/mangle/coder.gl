@@ -164,16 +164,23 @@ promote_to_long_term(/preferred_pattern, Pattern) :-
 # SECTION 7: SAFETY CONSTRAINTS
 # =============================================================================
 
-# Never modify files outside workspace
-coder_forbidden_path(Path) :-
-    !fn:string_starts_with(Path, workspace_root()).
+# Workspace root is provided as a fact by Go runtime
+Decl workspace_root(Root).
 
-# Block dangerous operations
-coder_block_action(Action, "forbidden_path") :-
+# Helper: Path starts with workspace root (positive check for negation)
+# This is populated by Go runtime when pending_edit is set
+Decl path_in_workspace(Path).
+
+# Block dangerous operations - paths outside workspace
+# Uses safe negation: Path is bound by pending_edit, then checked
+coder_block_action(/edit, "forbidden_path") :-
     pending_edit(Path, _),
-    coder_forbidden_path(Path).
+    !path_in_workspace(Path).
+
+# Binary file detection (populated by Go runtime)
+Decl is_binary_file(Path).
 
 # Block binary file modifications
-coder_block_action(Action, "binary_file") :-
+coder_block_action(/edit, "binary_file") :-
     pending_edit(Path, _),
     is_binary_file(Path).

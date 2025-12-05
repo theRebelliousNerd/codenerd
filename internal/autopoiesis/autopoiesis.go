@@ -219,6 +219,107 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 	}
 }
 
+// =============================================================================
+// CODE DOM INTEGRATION
+// =============================================================================
+// Methods for querying code elements from the kernel.
+// Code DOM facts are asserted to the kernel by VirtualStore when files are opened.
+
+// QueryCodeElements queries the kernel for code_element facts.
+// Returns the number of elements in scope.
+func (o *Orchestrator) QueryCodeElementCount() int {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return 0
+	}
+
+	facts, err := kernel.QueryPredicate("code_element")
+	if err != nil {
+		return 0
+	}
+	return len(facts)
+}
+
+// QueryElementsByType returns count of elements matching a type.
+func (o *Orchestrator) QueryElementsByType(elemType string) int {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return 0
+	}
+
+	facts, err := kernel.QueryPredicate("code_element")
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, fact := range facts {
+		if len(fact.Args) >= 2 {
+			if t, ok := fact.Args[1].(string); ok {
+				if t == "/"+elemType || t == elemType {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
+// QueryActiveFile returns the currently active file from the kernel.
+func (o *Orchestrator) QueryActiveFile() string {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return ""
+	}
+
+	facts, err := kernel.QueryPredicate("active_file")
+	if err != nil || len(facts) == 0 {
+		return ""
+	}
+
+	if len(facts[0].Args) >= 1 {
+		if path, ok := facts[0].Args[0].(string); ok {
+			return path
+		}
+	}
+	return ""
+}
+
+// QueryFilesInScope returns the count of files in the current scope.
+func (o *Orchestrator) QueryFilesInScope() int {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return 0
+	}
+
+	facts, err := kernel.QueryPredicate("file_in_scope")
+	if err != nil {
+		return 0
+	}
+	return len(facts)
+}
+
+// RecordCodeEditOutcome records the outcome of a code edit for learning.
+func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string, success bool) {
+	successStr := "/false"
+	if success {
+		successStr = "/true"
+	}
+	_ = o.assertToKernel("code_edit_outcome", elementRef, "/"+editType, successStr)
+}
+
 // QueryNextAction queries the kernel for derived next_action facts.
 // Returns the action type if the kernel derives one, empty string otherwise.
 func (o *Orchestrator) QueryNextAction() string {
@@ -503,6 +604,21 @@ func (o *Orchestrator) QuickAnalyze(ctx context.Context, input string, target st
 	complexity := o.complexity.Analyze(ctx, input, target)
 	result.ComplexityLevel = complexity.Level
 	result.NeedsCampaign = complexity.NeedsCampaign
+
+	// Enhance with code element awareness from kernel
+	elementCount := o.QueryCodeElementCount()
+	filesInScope := o.QueryFilesInScope()
+
+	// If many elements are in scope, the task might be more complex
+	if elementCount > 20 && result.ComplexityLevel < ComplexityComplex {
+		result.ComplexityLevel = ComplexityComplex
+		result.NeedsCampaign = true
+	}
+
+	// If many files in scope, consider complexity
+	if filesInScope > 5 && result.ComplexityLevel < ComplexityModerate {
+		result.ComplexityLevel = ComplexityModerate
+	}
 
 	// Quick persistence check (heuristic only)
 	persistence := o.persistence.Analyze(ctx, input)
