@@ -21,10 +21,10 @@ type DiffLine struct {
 type DiffLineType int
 
 const (
-	DiffLineContext  DiffLineType = iota // Unchanged context line
-	DiffLineAdded                        // Added line
-	DiffLineRemoved                      // Removed line
-	DiffLineHeader                       // Diff header line
+	DiffLineContext DiffLineType = iota // Unchanged context line
+	DiffLineAdded                       // Added line
+	DiffLineRemoved                     // Removed line
+	DiffLineHeader                      // Diff header line
 )
 
 // DiffHunk represents a group of changes
@@ -52,24 +52,24 @@ type PendingMutation struct {
 	Description string
 	FilePath    string
 	Diff        *FileDiff
-	Reason      string    // Why approval is needed
-	Warnings    []string  // Safety warnings
+	Reason      string   // Why approval is needed
+	Warnings    []string // Safety warnings
 	Approved    bool
 	Rejected    bool
-	Comment     string    // User's comment
+	Comment     string // User's comment
 }
 
 // DiffApprovalView handles interactive diff approval
 type DiffApprovalView struct {
-	Styles         Styles
-	Viewport       viewport.Model
-	Mutations      []*PendingMutation
-	CurrentIndex   int
-	Width          int
-	Height         int
-	ShowWarnings   bool
-	SelectedHunk   int
-	ApprovalMode   ApprovalMode
+	Styles       Styles
+	Viewport     viewport.Model
+	Mutations    []*PendingMutation
+	CurrentIndex int
+	Width        int
+	Height       int
+	ShowWarnings bool
+	SelectedHunk int
+	ApprovalMode ApprovalMode
 }
 
 // ApprovalMode represents the current approval state
@@ -286,7 +286,7 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 		Foreground(d.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(d.Styles.Theme.Border).
-		Width(d.Width - 4).
+		Width(d.Width-4).
 		Padding(0, 1)
 
 	// Status indicator
@@ -467,23 +467,4 @@ func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *Fil
 	diff.Hunks = append(diff.Hunks, hunk)
 
 	return diff
-}
-
-// CreateMockMutation creates a sample mutation for testing
-func CreateMockMutation(id, file, description string) *PendingMutation {
-	return &PendingMutation{
-		ID:          id,
-		Description: description,
-		FilePath:    file,
-		Reason:      "Requires approval due to Chesterton's Fence warning",
-		Warnings: []string{
-			"File was recently modified by another developer",
-			"5 other files depend on this code",
-		},
-		Diff: CreateDiffFromStrings(
-			file, file,
-			"func oldFunction() {\n    // Old implementation\n    return nil\n}",
-			"func newFunction() {\n    // New implementation with improvements\n    return result\n}",
-		),
-	}
 }

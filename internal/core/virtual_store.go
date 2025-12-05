@@ -426,6 +426,9 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 // handleReadFile reads a file from disk.
 func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	path := v.resolvePath(req.Target)
 
 	data, err := os.ReadFile(path)
@@ -465,6 +468,9 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 
 // handleWriteFile writes content to a file.
 func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	path := v.resolvePath(req.Target)
 
 	content, ok := req.Payload["content"].(string)
@@ -504,6 +510,9 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 
 // handleEditFile performs a search-and-replace edit on a file.
 func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	path := v.resolvePath(req.Target)
 
 	oldContent, ok := req.Payload["old"].(string)
@@ -559,6 +568,9 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 
 // handleDeleteFile deletes a file (requires explicit confirmation flag).
 func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	path := v.resolvePath(req.Target)
 
 	// Require confirmation flag for safety
@@ -975,6 +987,9 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 
 // handleAskUser handles requests that require user input.
 func (v *VirtualStore) handleAskUser(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	question := req.Target
 	options, _ := req.Payload["options"].([]interface{})
 
@@ -996,6 +1011,9 @@ func (v *VirtualStore) handleAskUser(ctx context.Context, req ActionRequest) (Ac
 
 // handleEscalate escalates to the user when the agent cannot proceed.
 func (v *VirtualStore) handleEscalate(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	reason := req.Target
 
 	return ActionResult{

@@ -45,10 +45,10 @@ type chatModel struct {
 	renderer  *glamour.TermRenderer
 
 	// Split-pane TUI (Glass Box Interface)
-	splitPane    *ui.SplitPaneView
-	logicPane    *ui.LogicPane
-	showLogic    bool
-	paneMode     ui.PaneMode
+	splitPane *ui.SplitPaneView
+	logicPane *ui.LogicPane
+	showLogic bool
+	paneMode  ui.PaneMode
 
 	// State
 	history   []chatMessage
@@ -65,8 +65,8 @@ type chatModel struct {
 	selectedOption        int // For option picker
 
 	// Session State
-	sessionID  string
-	turnCount  int
+	sessionID string
+	turnCount int
 
 	// Backend
 	client     perception.LLMClient
@@ -288,30 +288,31 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textinput, tiCmd = m.textinput.Update(msg)
 		}
 
-	case tea.WindowSizeMsg:
+	case windowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
 		headerHeight := 4
 		footerHeight := 3
-		inputHeight := 3 // Smaller input height for textinput
+		inputHeight := 3   // Smaller input height for textinput
+		paddingHeight := 2 // Extra padding for safety
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width-4, msg.Height-headerHeight-footerHeight-inputHeight)
+			m.viewport = viewport.New(msg.Width-4, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width - 4
-			m.viewport.Height = msg.Height - headerHeight - footerHeight - inputHeight
+			m.viewport.Height = msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
 		}
 
 		m.textinput.Width = msg.Width - 4
 
 		// Update split pane dimensions
 		if m.splitPane != nil {
-			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight-inputHeight)
+			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
 		}
 		if m.logicPane != nil {
-			m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight)
+			m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
 		}
 
 		// Update renderer word wrap
@@ -321,6 +322,14 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				glamour.WithWordWrap(msg.Width-8),
 			)
 		}
+
+	case tea.WindowSizeMsg:
+		// Convert to our alias and re-process
+		return m.Update(windowSizeMsg(msg))
+
+	case clarificationReply:
+		// Handle clarification reply
+		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent)
 
 	case spinner.TickMsg:
 		if m.isLoading {
@@ -728,7 +737,7 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/init":
 		// Run comprehensive initialization in background
 		m.history = append(m.history, chatMessage{
-			role:    "assistant",
+			role: "assistant",
 			content: `🚀 **Initializing codeNERD in workspace...**
 
 This comprehensive initialization will:
@@ -789,8 +798,8 @@ _This may take a minute for large codebases..._`,
 The agent will undergo deep research on first spawn to build its knowledge base.
 
 **Next steps:**
-- Run research: ` + "`/spawn researcher %s research`" + `
-- Use the agent: ` + "`/spawn %s <task>`", agentName, topic, agentName, topic, agentName)
+- Run research: `+"`/spawn researcher %s research`"+`
+- Use the agent: `+"`/spawn %s <task>`", agentName, topic, agentName, topic, agentName)
 
 		m.history = append(m.history, chatMessage{
 			role:    "assistant",
@@ -1728,15 +1737,23 @@ func (m chatModel) runInit() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
+		// Detect project type for profile
+		projectInfo := detectProjectType(m.workspace)
+
 		// Create the comprehensive initializer with all components
 		initConfig := nerdinit.InitConfig{
-			Workspace:    m.workspace,
-			LLMClient:    m.client,
-			ShardManager: m.shardMgr,
-			Timeout:      10 * time.Minute,
-			Interactive:  false,        // Non-interactive in chat mode
-			SkipResearch: false,        // Do full research
-			SkipAgentCreate: false,     // Create Type 3 agents
+			Workspace:       m.workspace,
+			LLMClient:       m.client,
+			ShardManager:    m.shardMgr,
+			Timeout:         10 * time.Minute,
+			Interactive:     false, // Non-interactive in chat mode
+			SkipResearch:    false, // Do full research
+			SkipAgentCreate: false, // Create Type 3 agents
+		}
+
+		// Ensure .nerd directory exists
+		if err := createDirIfNotExists(m.workspace + "/.nerd"); err != nil {
+			return errorMsg(fmt.Errorf("failed to create .nerd directory: %w", err))
 		}
 
 		initializer := nerdinit.NewInitializer(initConfig)
@@ -1747,12 +1764,27 @@ func (m chatModel) runInit() tea.Cmd {
 			return errorMsg(fmt.Errorf("initialization failed: %w", err))
 		}
 
+		// Update profile with detected info if missing
+		if result.Profile.Language == "unknown" {
+			result.Profile.Language = projectInfo.Language
+		}
+		if result.Profile.Framework == "unknown" {
+			result.Profile.Framework = projectInfo.Framework
+		}
+		if result.Profile.Architecture == "unknown" {
+			result.Profile.Architecture = projectInfo.Architecture
+		}
+
 		// Load all generated facts into the kernel
 		nerdDir := m.workspace + "/.nerd"
 		factsPath := nerdDir + "/profile.gl"
 		if _, statErr := os.Stat(factsPath); statErr == nil {
-			// TODO: Load Mangle facts from file
-			// For now, scan workspace to load basic facts
+			// Load Mangle facts from file
+			if err := m.kernel.LoadFactsFromFile(factsPath); err != nil {
+				return errorMsg(fmt.Errorf("failed to load profile facts: %w", err))
+			}
+
+			// Also scan workspace to load fresh AST facts (supplemental)
 			facts, scanErr := m.scanner.ScanWorkspace(m.workspace)
 			if scanErr == nil {
 				_ = m.kernel.LoadFacts(facts)
@@ -1839,9 +1871,9 @@ func (m chatModel) loadType3Agents() []nerdinit.CreatedAgent {
 
 	// Parse the registry
 	var registry struct {
-		Version   string                   `json:"version"`
-		CreatedAt string                   `json:"created_at"`
-		Agents    []nerdinit.CreatedAgent  `json:"agents"`
+		Version   string                  `json:"version"`
+		CreatedAt string                  `json:"created_at"`
+		Agents    []nerdinit.CreatedAgent `json:"agents"`
 	}
 
 	if err := json.Unmarshal(data, &registry); err != nil {
@@ -1941,7 +1973,6 @@ func runInteractiveChat() error {
 	p := tea.NewProgram(
 		initChat(),
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	)
 
 	_, err := p.Run()

@@ -408,3 +408,187 @@ func (k *RealKernel) FactCount() int {
 	defer k.mu.RUnlock()
 	return len(k.facts)
 }
+
+// LoadFactsFromFile loads facts from a .gl file into the kernel.
+// This parses the file and extracts EDB facts to load.
+func (k *RealKernel) LoadFactsFromFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read facts file: %w", err)
+	}
+
+	// Parse the facts from the file content
+	facts, err := ParseFactsFromString(string(data))
+	if err != nil {
+		return fmt.Errorf("failed to parse facts: %w", err)
+	}
+
+	return k.LoadFacts(facts)
+}
+
+// ParseFactsFromString parses Mangle fact statements from a string.
+// Extracts lines that look like: predicate(arg1, arg2, ...).
+func ParseFactsFromString(content string) ([]Fact, error) {
+	facts := make([]Fact, 0)
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip comments and empty lines
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		// Skip rule definitions (contain :-)
+		if strings.Contains(line, ":-") {
+			continue
+		}
+
+		// Skip declarations (start with Decl)
+		if strings.HasPrefix(line, "Decl ") {
+			continue
+		}
+
+		// Try to parse as a fact: predicate(args).
+		fact, err := parseSingleFact(line)
+		if err == nil && fact.Predicate != "" {
+			facts = append(facts, fact)
+		}
+	}
+
+	return facts, nil
+}
+
+// parseSingleFact parses a single fact line like: predicate(arg1, arg2).
+func parseSingleFact(line string) (Fact, error) {
+	// Remove trailing period and whitespace
+	line = strings.TrimSuffix(strings.TrimSpace(line), ".")
+	line = strings.TrimSpace(line)
+
+	if line == "" {
+		return Fact{}, fmt.Errorf("empty line")
+	}
+
+	// Find the opening parenthesis
+	parenIdx := strings.Index(line, "(")
+	if parenIdx == -1 {
+		return Fact{}, fmt.Errorf("no opening parenthesis")
+	}
+
+	// Extract predicate name
+	predicate := strings.TrimSpace(line[:parenIdx])
+	if predicate == "" {
+		return Fact{}, fmt.Errorf("empty predicate")
+	}
+
+	// Extract arguments (everything between parentheses)
+	closeIdx := strings.LastIndex(line, ")")
+	if closeIdx == -1 || closeIdx <= parenIdx {
+		return Fact{}, fmt.Errorf("no closing parenthesis")
+	}
+
+	argsStr := line[parenIdx+1 : closeIdx]
+	args := parseFactArgs(argsStr)
+
+	return Fact{
+		Predicate: predicate,
+		Args:      args,
+	}, nil
+}
+
+// parseFactArgs parses the arguments string into individual values.
+func parseFactArgs(argsStr string) []interface{} {
+	args := make([]interface{}, 0)
+
+	// Handle empty args
+	if strings.TrimSpace(argsStr) == "" {
+		return args
+	}
+
+	// Split by comma, respecting quoted strings
+	parts := splitRespectingQuotes(argsStr)
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Parse the argument value
+		args = append(args, parseArgValue(part))
+	}
+
+	return args
+}
+
+// splitRespectingQuotes splits a string by comma while respecting quoted strings.
+func splitRespectingQuotes(s string) []string {
+	var result []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := rune(0)
+
+	for _, ch := range s {
+		switch {
+		case (ch == '"' || ch == '\'') && !inQuotes:
+			inQuotes = true
+			quoteChar = ch
+			current.WriteRune(ch)
+		case ch == quoteChar && inQuotes:
+			inQuotes = false
+			current.WriteRune(ch)
+		case ch == ',' && !inQuotes:
+			result = append(result, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	// Don't forget the last part
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
+}
+
+// parseArgValue converts a string argument to the appropriate Go type.
+func parseArgValue(s string) interface{} {
+	s = strings.TrimSpace(s)
+
+	// Name constant (starts with /)
+	if strings.HasPrefix(s, "/") {
+		return s
+	}
+
+	// Quoted string
+	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
+		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
+		return s[1 : len(s)-1]
+	}
+
+	// Boolean
+	if s == "true" || s == "/true" {
+		return true
+	}
+	if s == "false" || s == "/false" {
+		return false
+	}
+
+	// Try integer
+	var intVal int64
+	if _, err := fmt.Sscanf(s, "%d", &intVal); err == nil {
+		return intVal
+	}
+
+	// Try float
+	var floatVal float64
+	if _, err := fmt.Sscanf(s, "%f", &floatVal); err == nil {
+		return floatVal
+	}
+
+	// Default to string
+	return s
+}

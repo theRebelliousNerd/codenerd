@@ -148,9 +148,13 @@ block_commit("Build Broken") :-
 block_commit("Tests Failing") :-
     test_state(/failing).
 
+# Helper for safe negation
+has_block_commit() :-
+    block_commit(_).
+
 # Safe to commit
 safe_to_commit() :-
-    !block_commit(_).
+    !has_block_commit().
 
 # =============================================================================
 # SECTION 7: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
@@ -352,10 +356,14 @@ clarification_needed(File) :-
 # SECTION 14: SHADOW MODE / COUNTERFACTUAL REASONING (§22)
 # =============================================================================
 
+# Helper for safe negation
+has_projection_violation(ActionID) :-
+    projection_violation(ActionID, _).
+
 # Safe projection - action passes safety checks in shadow simulation
 safe_projection(ActionID) :-
     shadow_state(_, ActionID, /valid),
-    !projection_violation(ActionID, _).
+    !has_projection_violation(ActionID).
 
 # Projection violation detection
 projection_violation(ActionID, "test_failure") :-
@@ -383,11 +391,15 @@ requires_approval(MutationID) :-
     pending_mutation(MutationID, File, _, _),
     impacted(File).
 
+# Helper for safe negation
+is_mutation_approved(MutationID) :-
+    mutation_approved(MutationID, _, _).
+
 # Block mutation without approval
 next_action(/ask_user) :-
     pending_mutation(MutationID, _, _, _),
     requires_approval(MutationID),
-    !mutation_approved(MutationID, _, _).
+    !is_mutation_approved(MutationID).
 
 # =============================================================================
 # SECTION 16: SESSION STATE / CLARIFICATION LOOP (§20)

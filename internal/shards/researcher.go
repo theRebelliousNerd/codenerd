@@ -394,16 +394,16 @@ func (r *ResearcherShard) detectProjectType(workspace string) ProjectType {
 		framework string
 		build     string
 	}{
-		"go.mod":         {"go", "", "go"},
-		"go.sum":         {"go", "", "go"},
-		"Cargo.toml":     {"rust", "", "cargo"},
-		"package.json":   {"javascript", "", "npm"},
+		"go.mod":           {"go", "", "go"},
+		"go.sum":           {"go", "", "go"},
+		"Cargo.toml":       {"rust", "", "cargo"},
+		"package.json":     {"javascript", "", "npm"},
 		"requirements.txt": {"python", "", "pip"},
-		"pyproject.toml": {"python", "", "poetry"},
-		"pom.xml":        {"java", "", "maven"},
-		"build.gradle":   {"java", "", "gradle"},
-		"Gemfile":        {"ruby", "rails", "bundler"},
-		"composer.json":  {"php", "", "composer"},
+		"pyproject.toml":   {"python", "", "poetry"},
+		"pom.xml":          {"java", "", "maven"},
+		"build.gradle":     {"java", "", "gradle"},
+		"Gemfile":          {"ruby", "rails", "bundler"},
+		"composer.json":    {"php", "", "composer"},
 	}
 
 	for file, info := range markers {
@@ -626,16 +626,16 @@ func (r *ResearcherShard) parseCargoToml(path string) []Dependency {
 func (r *ResearcherShard) detectArchitecturalPatterns(workspace string, facts []core.Fact) []string {
 	var patterns []string
 
-	// Check directory structure
+	// Check directory structure from facts
 	dirs := make(map[string]bool)
-	filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
-		if err != nil || !info.IsDir() {
-			return nil
+	for _, fact := range facts {
+		if fact.Predicate == "directory" && len(fact.Args) > 0 {
+			if path, ok := fact.Args[0].(string); ok {
+				rel, _ := filepath.Rel(workspace, path)
+				dirs[rel] = true
+			}
 		}
-		rel, _ := filepath.Rel(workspace, path)
-		dirs[rel] = true
-		return nil
-	})
+	}
 
 	// Detect patterns based on structure
 	if dirs["cmd"] && dirs["internal"] && dirs["pkg"] {

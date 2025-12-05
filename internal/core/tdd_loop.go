@@ -3,39 +3,45 @@ package core
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
+// LLMClient defines the interface for LLM interactions.
+type LLMClient interface {
+	Complete(ctx context.Context, prompt string) (string, error)
+}
+
 // TDDState represents the current state of the TDD repair loop.
 type TDDState string
 
 const (
-	TDDStateIdle          TDDState = "idle"
-	TDDStateRunning       TDDState = "running_tests"
-	TDDStatePassing       TDDState = "passing"
-	TDDStateFailing       TDDState = "failing"
-	TDDStateAnalyzing     TDDState = "analyzing"
-	TDDStateGenerating    TDDState = "generating_patch"
-	TDDStateApplying      TDDState = "applying_patch"
-	TDDStateEscalated     TDDState = "escalated"
-	TDDStateCompiling     TDDState = "compiling"
-	TDDStateCompileError  TDDState = "compile_error"
+	TDDStateIdle         TDDState = "idle"
+	TDDStateRunning      TDDState = "running_tests"
+	TDDStatePassing      TDDState = "passing"
+	TDDStateFailing      TDDState = "failing"
+	TDDStateAnalyzing    TDDState = "analyzing"
+	TDDStateGenerating   TDDState = "generating_patch"
+	TDDStateApplying     TDDState = "applying_patch"
+	TDDStateEscalated    TDDState = "escalated"
+	TDDStateCompiling    TDDState = "compiling"
+	TDDStateCompileError TDDState = "compile_error"
 )
 
 // TDDAction represents an action in the TDD loop.
 type TDDAction string
 
 const (
-	TDDActionRunTests       TDDAction = "run_tests"
-	TDDActionReadErrorLog   TDDAction = "read_error_log"
-	TDDActionAnalyzeRoot    TDDAction = "analyze_root_cause"
-	TDDActionGeneratePatch  TDDAction = "generate_patch"
-	TDDActionApplyPatch     TDDAction = "apply_patch"
-	TDDActionBuild          TDDAction = "build"
-	TDDActionEscalate       TDDAction = "escalate_to_user"
-	TDDActionComplete       TDDAction = "complete"
+	TDDActionRunTests      TDDAction = "run_tests"
+	TDDActionReadErrorLog  TDDAction = "read_error_log"
+	TDDActionAnalyzeRoot   TDDAction = "analyze_root_cause"
+	TDDActionGeneratePatch TDDAction = "generate_patch"
+	TDDActionApplyPatch    TDDAction = "apply_patch"
+	TDDActionBuild         TDDAction = "build"
+	TDDActionEscalate      TDDAction = "escalate_to_user"
+	TDDActionComplete      TDDAction = "complete"
 )
 
 // Diagnostic represents a compiler/test error.
@@ -86,12 +92,12 @@ func (p Patch) ToFact() Fact {
 
 // TDDLoopConfig holds configuration for the TDD loop.
 type TDDLoopConfig struct {
-	MaxRetries     int
-	TestCommand    string
-	BuildCommand   string
-	TestTimeout    time.Duration
-	BuildTimeout   time.Duration
-	WorkingDir     string
+	MaxRetries   int
+	TestCommand  string
+	BuildCommand string
+	TestTimeout  time.Duration
+	BuildTimeout time.Duration
+	WorkingDir   string
 }
 
 // DefaultTDDLoopConfig returns sensible defaults.
@@ -112,9 +118,9 @@ type TDDLoop struct {
 	mu sync.RWMutex
 
 	// Current state
-	state       TDDState
-	retryCount  int
-	maxRetries  int
+	state      TDDState
+	retryCount int
+	maxRetries int
 
 	// Configuration
 	config TDDLoopConfig
@@ -122,12 +128,13 @@ type TDDLoop struct {
 	// Dependencies
 	virtualStore *VirtualStore
 	kernel       Kernel
+	llmClient    LLMClient
 
 	// State data
-	diagnostics    []Diagnostic
-	lastOutput     string
-	patches        []Patch
-	hypothesis     string
+	diagnostics []Diagnostic
+	lastOutput  string
+	patches     []Patch
+	hypothesis  string
 
 	// State history for debugging
 	history []TDDStateTransition
@@ -143,12 +150,12 @@ type TDDStateTransition struct {
 }
 
 // NewTDDLoop creates a new TDD loop with default configuration.
-func NewTDDLoop(vs *VirtualStore, kernel Kernel) *TDDLoop {
-	return NewTDDLoopWithConfig(vs, kernel, DefaultTDDLoopConfig())
+func NewTDDLoop(vs *VirtualStore, kernel Kernel, llmClient LLMClient) *TDDLoop {
+	return NewTDDLoopWithConfig(vs, kernel, llmClient, DefaultTDDLoopConfig())
 }
 
 // NewTDDLoopWithConfig creates a new TDD loop with custom configuration.
-func NewTDDLoopWithConfig(vs *VirtualStore, kernel Kernel, config TDDLoopConfig) *TDDLoop {
+func NewTDDLoopWithConfig(vs *VirtualStore, kernel Kernel, llmClient LLMClient, config TDDLoopConfig) *TDDLoop {
 	return &TDDLoop{
 		state:        TDDStateIdle,
 		retryCount:   0,
@@ -156,6 +163,7 @@ func NewTDDLoopWithConfig(vs *VirtualStore, kernel Kernel, config TDDLoopConfig)
 		config:       config,
 		virtualStore: vs,
 		kernel:       kernel,
+		llmClient:    llmClient,
 		diagnostics:  make([]Diagnostic, 0),
 		patches:      make([]Patch, 0),
 		history:      make([]TDDStateTransition, 0),
@@ -215,12 +223,6 @@ func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[strin
 }
 
 // NextAction determines the next action based on the current state.
-// This implements the logic from Cortex 1.5.0 §3.2:
-// - State: Failing + Retry < Max -> Action: read_error_log
-// - State: LogRead -> Action: analyze_root_cause
-// - State: CauseFound -> Action: generate_patch
-// - State: PatchApplied -> Action: run_tests
-// - State: Failing + Retry >= Max -> Action: escalate_to_user
 func (t *TDDLoop) NextAction() TDDAction {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -343,7 +345,7 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 	output, err := t.virtualStore.RouteAction(ctx, action)
 	t.lastOutput = output
 
-	if err != nil || strings.Contains(output, "FAIL") || strings.Contains(output, "error") {
+	if err != nil || strings.Contains(output, "FAIL") || strings.Contains(output, "error") || strings.Contains(output, "FAILED") {
 		t.retryCount++
 		t.diagnostics = t.parseTestOutput(output)
 		t.transition(TDDStateFailing, TDDActionRunTests, map[string]interface{}{
@@ -359,6 +361,9 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 
 // readErrorLog parses the error output.
 func (t *TDDLoop) readErrorLog(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -379,6 +384,9 @@ func (t *TDDLoop) readErrorLog(ctx context.Context) error {
 
 // analyzeRootCause performs abductive reasoning to find the root cause.
 func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -406,29 +414,93 @@ func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
 	return nil
 }
 
-// generatePatch creates a patch to fix the issue.
+// generatePatch creates a patch to fix the issue using LLM.
 func (t *TDDLoop) generatePatch(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// In a real implementation, this would use the LLM to generate patches
-	// For now, we create a placeholder indicating a patch is needed
-	if len(t.diagnostics) > 0 {
-		diag := t.diagnostics[0]
-		t.patches = []Patch{
-			{
-				FilePath:  diag.FilePath,
-				Rationale: fmt.Sprintf("Fix: %s", diag.Message),
-				// OldContent and NewContent would be filled by LLM
-			},
+	if t.llmClient == nil {
+		// Fallback for no LLM
+		if len(t.diagnostics) > 0 {
+			diag := t.diagnostics[0]
+			t.patches = []Patch{
+				{
+					FilePath:  diag.FilePath,
+					Rationale: fmt.Sprintf("Fix: %s (LLM not configured)", diag.Message),
+				},
+			}
 		}
+		t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{"patch_count": 1})
+		return nil
 	}
+
+	// Construct prompt for LLM
+	var sb strings.Builder
+	sb.WriteString("You are an expert software engineer fixing a bug.\n\n")
+	sb.WriteString("Hypothesis: " + t.hypothesis + "\n\n")
+	sb.WriteString("Diagnostics:\n")
+	for i, d := range t.diagnostics {
+		if i >= 5 {
+			break
+		} // Limit context
+		sb.WriteString(fmt.Sprintf("- %s:%d: %s\n", d.FilePath, d.Line, d.Message))
+	}
+	sb.WriteString("\nPlease generate a patch to fix this issue. Return ONLY the code change in the following format:\n")
+	sb.WriteString("FILE: <file_path>\n")
+	sb.WriteString("OLD:\n<old_code>\n")
+	sb.WriteString("NEW:\n<new_code>\n")
+	sb.WriteString("RATIONALE: <explanation>\n")
+
+	// Call LLM
+	resp, err := t.llmClient.Complete(ctx, sb.String())
+	if err != nil {
+		return fmt.Errorf("LLM patch generation failed: %w", err)
+	}
+
+	// Parse LLM response
+	t.patches = t.parseLLMPatch(resp)
 
 	t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{
 		"patch_count": len(t.patches),
 	})
 
 	return nil
+}
+
+// parseLLMPatch parses the LLM response into Patch structs.
+func (t *TDDLoop) parseLLMPatch(response string) []Patch {
+	patches := make([]Patch, 0)
+
+	// Simple parsing logic (robustness could be improved)
+	// Expecting blocks separated by FILE:
+	parts := strings.Split(response, "FILE:")
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+
+		lines := strings.Split(part, "\n")
+		filePath := strings.TrimSpace(lines[0])
+
+		oldIdx := strings.Index(part, "OLD:")
+		newIdx := strings.Index(part, "NEW:")
+		ratIdx := strings.Index(part, "RATIONALE:")
+
+		if oldIdx != -1 && newIdx != -1 && ratIdx != -1 {
+			oldContent := strings.TrimSpace(part[oldIdx+4 : newIdx])
+			newContent := strings.TrimSpace(part[newIdx+4 : ratIdx])
+			rationale := strings.TrimSpace(part[ratIdx+10:])
+
+			patches = append(patches, Patch{
+				FilePath:   filePath,
+				OldContent: oldContent,
+				NewContent: newContent,
+				Rationale:  rationale,
+			})
+		}
+	}
+
+	return patches
 }
 
 // applyPatch applies the generated patches.
@@ -438,7 +510,6 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 
 	for _, patch := range t.patches {
 		if patch.OldContent == "" || patch.NewContent == "" {
-			// Skip patches that need LLM generation
 			continue
 		}
 
@@ -527,9 +598,18 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	lines := strings.Split(output, "\n")
 
+	// Regex patterns
+	goFailRegex := regexp.MustCompile(`--- FAIL: (\w+)`)
+	goErrorRegex := regexp.MustCompile(`^(.+\.go):(\d+):(\d+): (.+)$`)
+	pyErrorRegex := regexp.MustCompile(`File "(.+)", line (\d+), in (.+)`)
+	rustErrorRegex := regexp.MustCompile(`error\[(E\d+)\]: (.+)`)
+	rustLocRegex := regexp.MustCompile(`\s+--> (.+):(\d+):(\d+)`)
+
+	var lastRustError *Diagnostic
+
 	for _, line := range lines {
-		// Parse Go test output: --- FAIL: TestName (0.00s)
-		if strings.HasPrefix(line, "--- FAIL:") {
+		// Go Test Fail
+		if matches := goFailRegex.FindStringSubmatch(line); len(matches) > 1 {
 			diagnostics = append(diagnostics, Diagnostic{
 				Severity:  "error",
 				Message:   line,
@@ -537,18 +617,52 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 			})
 		}
 
-		// Parse Go compile errors: file.go:line:col: message
-		if strings.Contains(line, ".go:") && strings.Contains(line, ": ") {
-			parts := strings.SplitN(line, ":", 4)
-			if len(parts) >= 4 {
+		// Go Compile Error
+		if matches := goErrorRegex.FindStringSubmatch(line); len(matches) > 4 {
+			lineNum := 0
+			colNum := 0
+			fmt.Sscanf(matches[2], "%d", &lineNum)
+			fmt.Sscanf(matches[3], "%d", &colNum)
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity: "error",
+				FilePath: matches[1],
+				Line:     lineNum,
+				Column:   colNum,
+				Message:  matches[4],
+			})
+		}
+
+		// Python Traceback
+		if matches := pyErrorRegex.FindStringSubmatch(line); len(matches) > 3 {
+			lineNum := 0
+			fmt.Sscanf(matches[2], "%d", &lineNum)
+			diagnostics = append(diagnostics, Diagnostic{
+				Severity: "error",
+				FilePath: matches[1],
+				Line:     lineNum,
+				Message:  "Python error in " + matches[3],
+			})
+		}
+
+		// Rust Error
+		if matches := rustErrorRegex.FindStringSubmatch(line); len(matches) > 2 {
+			lastRustError = &Diagnostic{
+				Severity: "error",
+				Code:     matches[1],
+				Message:  matches[2],
+			}
+		}
+		if lastRustError != nil {
+			if matches := rustLocRegex.FindStringSubmatch(line); len(matches) > 3 {
 				lineNum := 0
-				fmt.Sscanf(parts[1], "%d", &lineNum)
-				diagnostics = append(diagnostics, Diagnostic{
-					Severity: "error",
-					FilePath: parts[0],
-					Line:     lineNum,
-					Message:  parts[3],
-				})
+				colNum := 0
+				fmt.Sscanf(matches[2], "%d", &lineNum)
+				fmt.Sscanf(matches[3], "%d", &colNum)
+				lastRustError.FilePath = matches[1]
+				lastRustError.Line = lineNum
+				lastRustError.Column = colNum
+				diagnostics = append(diagnostics, *lastRustError)
+				lastRustError = nil
 			}
 		}
 	}
@@ -558,7 +672,7 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 
 // parseBuildOutput parses build output into diagnostics.
 func (t *TDDLoop) parseBuildOutput(output string) []Diagnostic {
-	// Similar to parseTestOutput but for build errors
+	// Reuse test output parser as it covers compile errors too
 	return t.parseTestOutput(output)
 }
 

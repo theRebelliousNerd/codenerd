@@ -160,7 +160,7 @@ func (p *LogicPane) renderContent() string {
 		Foreground(p.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(p.Styles.Theme.Border).
-		Width(p.Width - 4).
+		Width(p.Width-4).
 		Padding(0, 1)
 
 	sb.WriteString(headerStyle.Render("🔬 Derivation Trace"))
@@ -340,14 +340,14 @@ func (p *LogicPane) View() string {
 
 // SplitPaneView renders a split-pane view with chat and logic
 type SplitPaneView struct {
-	Styles      Styles
-	LeftPane    string // Chat content
-	RightPane   *LogicPane
-	Mode        PaneMode
-	Width       int
-	Height      int
-	SplitRatio  float64 // 0.0-1.0, left pane percentage
-	FocusRight  bool
+	Styles     Styles
+	LeftPane   string // Chat content
+	RightPane  *LogicPane
+	Mode       PaneMode
+	Width      int
+	Height     int
+	SplitRatio float64 // 0.0-1.0, left pane percentage
+	FocusRight bool
 }
 
 // NewSplitPaneView creates a new split pane view
@@ -455,56 +455,4 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		dividerStyle.Render(divider.String()),
 		rightStyle.Render(s.RightPane.renderContent()),
 	)
-}
-
-// CreateMockTrace creates a mock derivation trace for demonstration
-func CreateMockTrace(query string) *DerivationTrace {
-	return &DerivationTrace{
-		Query:       query,
-		TotalFacts:  42,
-		DerivedTime: 15 * time.Millisecond,
-		RootNodes: []*DerivationNode{
-			{
-				Predicate:  "next_action",
-				Args:       []string{"/execute"},
-				Source:     "idb",
-				Rule:       "next_action(A) :- user_intent(_, V, T, _), action_mapping(V, A).",
-				Expanded:   true,
-				Activation: 0.95,
-				Children: []*DerivationNode{
-					{
-						Predicate:  "user_intent",
-						Args:       []string{"/i001", "/query", "auth system", ""},
-						Source:     "edb",
-						Expanded:   false,
-						Activation: 0.85,
-					},
-					{
-						Predicate:  "action_mapping",
-						Args:       []string{"/query", "/execute"},
-						Source:     "edb",
-						Expanded:   false,
-						Activation: 0.75,
-					},
-				},
-			},
-			{
-				Predicate:  "permitted",
-				Args:       []string{"/execute"},
-				Source:     "idb",
-				Rule:       "permitted(A) :- safe_action(A).",
-				Expanded:   true,
-				Activation: 0.9,
-				Children: []*DerivationNode{
-					{
-						Predicate:  "safe_action",
-						Args:       []string{"/execute"},
-						Source:     "edb",
-						Expanded:   false,
-						Activation: 0.8,
-					},
-				},
-			},
-		},
-	}
 }

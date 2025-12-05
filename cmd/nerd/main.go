@@ -367,8 +367,19 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 
 	shardManager.DefineProfile(name, config)
 
-	// TODO: Trigger deep research phase (§9.2)
-	// This would spawn a researcher shard to build the knowledge base
+	// Trigger deep research phase (§9.2)
+	// This spawns a researcher shard to build the knowledge base
+	fmt.Printf("Initiating deep research on topic: %s...\n", topic)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	researchTask := fmt.Sprintf("Research the topic '%s' and generate Mangle facts for the %s agent knowledge base.", topic, name)
+	if _, err := shardManager.Spawn(ctx, "researcher", researchTask); err != nil {
+		logger.Warn("Deep research phase failed", zap.Error(err))
+		fmt.Printf("Warning: Deep research failed (%v). Agent will start with empty knowledge base.\n", err)
+	} else {
+		fmt.Println("Deep research complete. Knowledge base populated.")
+	}
 
 	fmt.Printf("Agent '%s' defined with topic '%s'\n", name, topic)
 	fmt.Println("Knowledge shard will be populated during first spawn.")
