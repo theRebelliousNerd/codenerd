@@ -1,21 +1,21 @@
 {
   "version": "1.5.0",
-  "created_at": "2025-12-05T02:24:05.0741576-05:00",
+  "created_at": "2025-12-05T03:12:03.6857211-05:00",
   "agents": [
     {
       "name": "GoExpert",
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\goexpert_knowledge.db",
-      "kb_size": 73,
-      "created_at": "2025-12-05T02:22:09.2957358-05:00",
+      "kb_size": 372,
+      "created_at": "2025-12-05T03:11:00.1808491-05:00",
       "status": "ready"
     },
     {
       "name": "RodExpert",
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\rodexpert_knowledge.db",
-      "kb_size": 31,
-      "created_at": "2025-12-05T02:23:15.6141425-05:00",
+      "kb_size": 13,
+      "created_at": "2025-12-05T03:11:07.2881639-05:00",
       "status": "ready"
     },
     {
@@ -23,7 +23,7 @@
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\mangleexpert_knowledge.db",
       "kb_size": 8,
-      "created_at": "2025-12-05T02:23:22.6509456-05:00",
+      "created_at": "2025-12-05T03:11:14.3226181-05:00",
       "status": "ready"
     },
     {
@@ -31,7 +31,7 @@
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\bubbleteaexpert_knowledge.db",
       "kb_size": 7,
-      "created_at": "2025-12-05T02:23:29.6882725-05:00",
+      "created_at": "2025-12-05T03:11:21.3541984-05:00",
       "status": "ready"
     },
     {
@@ -39,7 +39,7 @@
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\cobraexpert_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T02:23:36.7196032-05:00",
+      "created_at": "2025-12-05T03:11:28.3840345-05:00",
       "status": "ready"
     },
     {
@@ -47,7 +47,7 @@
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\securityauditor_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T02:23:43.7495174-05:00",
+      "created_at": "2025-12-05T03:11:35.4108512-05:00",
       "status": "ready"
     },
     {
@@ -55,7 +55,7 @@
       "type": "persistent",
       "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\testarchitect_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T02:23:50.7812478-05:00",
+      "created_at": "2025-12-05T03:11:42.4379746-05:00",
       "status": "ready"
     }
   ]

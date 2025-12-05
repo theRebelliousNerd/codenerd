@@ -38,9 +38,9 @@ func DefaultResearchConfig() ResearchConfig {
 	return ResearchConfig{
 		MaxPages:        20,
 		MaxDepth:        2,
-		Timeout:         30 * time.Second,
-		ConcurrentFetch: 3,
-		AllowedDomains:  []string{}, // Allow all by default
+		Timeout:         90 * time.Second, // Increased for paginated Context7 fetches
+		ConcurrentFetch: 2,                // Reduced to avoid overwhelming APIs
+		AllowedDomains:  []string{},       // Allow all by default
 		BlockedDomains: []string{
 			"facebook.com", "twitter.com", "instagram.com",
 			"linkedin.com", "tiktok.com", // Social media noise
@@ -196,7 +196,8 @@ func (r *ResearcherShard) GetToolkit() *ResearchToolkit {
 	return r.toolkit
 }
 
-// ResearchTopicsParallel researches multiple topics in parallel.
+// ResearchTopicsParallel researches multiple topics in sequential batches.
+// Uses batched processing to avoid overwhelming APIs and causing timeouts.
 // This is the primary method for building agent knowledge bases efficiently.
 func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []string) (*ResearchResult, error) {
 	r.mu.Lock()
@@ -211,7 +212,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 	}()
 
 	result := &ResearchResult{
-		Query:    fmt.Sprintf("parallel research: %d topics", len(topics)),
+		Query:    fmt.Sprintf("batch research: %d topics", len(topics)),
 		Keywords: topics,
 		Atoms:    make([]KnowledgeAtom, 0),
 	}
@@ -220,40 +221,56 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 		return result, nil
 	}
 
-	fmt.Printf("[Researcher] Starting parallel research for %d topics...\n", len(topics))
+	// Process topics in sequential batches of 2 to avoid API overload
+	batchSize := 2
+	fmt.Printf("[Researcher] Starting batch research for %d topics (batch size: %d)...\n", len(topics), batchSize)
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	semaphore := make(chan struct{}, 3) // Limit concurrent research
+	for i := 0; i < len(topics); i += batchSize {
+		// Calculate batch end
+		end := i + batchSize
+		if end > len(topics) {
+			end = len(topics)
+		}
+		batch := topics[i:end]
 
-	for _, topic := range topics {
-		topic := topic
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
+		fmt.Printf("[Researcher] Processing batch %d/%d: %v\n", (i/batchSize)+1, (len(topics)+batchSize-1)/batchSize, batch)
 
-			topicResult, err := r.conductWebResearch(ctx, topic, strings.Fields(topic))
-			if err != nil {
-				fmt.Printf("[Researcher] Topic '%s' failed: %v\n", topic, err)
-				return
-			}
+		// Process batch in parallel
+		var wg sync.WaitGroup
+		var mu sync.Mutex
 
-			mu.Lock()
-			result.Atoms = append(result.Atoms, topicResult.Atoms...)
-			result.PagesScraped += topicResult.PagesScraped
-			mu.Unlock()
+		for _, topic := range batch {
+			topic := topic
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-			fmt.Printf("[Researcher] Topic '%s': %d atoms\n", topic, len(topicResult.Atoms))
-		}()
+				topicResult, err := r.conductWebResearch(ctx, topic, nil) // Don't pass keywords, topic is sufficient
+				if err != nil {
+					fmt.Printf("[Researcher] Topic '%s' failed: %v\n", topic, err)
+					return
+				}
+
+				mu.Lock()
+				result.Atoms = append(result.Atoms, topicResult.Atoms...)
+				result.PagesScraped += topicResult.PagesScraped
+				mu.Unlock()
+
+				fmt.Printf("[Researcher] Topic '%s': %d atoms\n", topic, len(topicResult.Atoms))
+			}()
+		}
+
+		wg.Wait()
+
+		// Brief pause between batches to let APIs breathe (except for last batch)
+		if end < len(topics) {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
-
-	wg.Wait()
 
 	result.Duration = time.Since(r.startTime)
 	result.FactsGenerated = len(result.Atoms)
-	result.Summary = fmt.Sprintf("Researched %d topics, gathered %d knowledge atoms in %.2fs",
+	result.Summary = fmt.Sprintf("Researched %d topics in batches, gathered %d knowledge atoms in %.2fs",
 		len(topics), len(result.Atoms), result.Duration.Seconds())
 
 	// Persist to local DB if available
