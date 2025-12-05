@@ -1089,10 +1089,13 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 		}
 	}
 
-	// If Context7 returned good results, skip noisy web scraping
-	// Only use LLM synthesis as supplement
-	if context7Found && len(result.Atoms) >= 1 {
-		// Strategy 3 only: LLM synthesis to supplement Context7 docs
+	// If Context7 returned sufficient results, skip LLM synthesis to avoid timeouts
+	// Only synthesize when Context7 data is insufficient (< 10 atoms)
+	if context7Found && len(result.Atoms) >= 10 {
+		// Context7 gave us enough - skip slow LLM synthesis
+		fmt.Printf("[Researcher] Context7 provided sufficient data (%d atoms), skipping LLM synthesis\n", len(result.Atoms))
+	} else if context7Found && len(result.Atoms) >= 1 {
+		// Context7 gave some data but not enough - supplement with LLM
 		if r.llmClient != nil {
 			wg.Add(1)
 			go func() {
