@@ -2300,6 +2300,35 @@ func (m chatModel) processInput(input string) tea.Cmd {
 			return errorMsg(err)
 		}
 
+		// 7. SEMANTIC COMPRESSION (Process turn for infinite context)
+		// This implements §8.2: Compress surface text, retain only logical atoms
+		if m.compressor != nil {
+			controlPacket := &perception.ControlPacket{
+				IntentClassification: perception.IntentClassification{
+					Category:   intent.Category,
+					Verb:       intent.Verb,
+					Target:     intent.Target,
+					Constraint: intent.Constraint,
+					Confidence: intent.Confidence,
+				},
+				MangleUpdates:    mangleUpdates,
+				MemoryOperations: nil, // Populated by articulation layer in future
+			}
+			turn := ctxcompress.Turn{
+				UserInput:       input,
+				SurfaceResponse: response,
+				ControlPacket:   controlPacket,
+				Timestamp:       time.Now(),
+			}
+			// Process turn asynchronously - don't block response
+			go func() {
+				if _, err := m.compressor.ProcessTurn(ctx, turn); err != nil {
+					// Log compression errors but don't fail the turn
+					fmt.Printf("[Compressor] Warning: %v\n", err)
+				}
+			}()
+		}
+
 		return responseMsg(response)
 	}
 }
