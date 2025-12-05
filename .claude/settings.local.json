@@ -16,7 +16,8 @@
       "Bash(xargs -I {} bash -c \"test -f ''''{}/claude.md'''' && echo ''''{}'''' && head -3 ''''{}/claude.md''''\")",
       "Bash(git status:*)",
       "Bash(dir /b \"c:\\CodeProjects\\codeNERD\\internal\\shards\")",
-      "Skill(mangle-programming)"
+      "Skill(mangle-programming)",
+      "Bash(go build:*)"
     ],
     "deny": [],
     "ask": []
