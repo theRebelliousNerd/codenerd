@@ -613,3 +613,49 @@ Decl campaign_blocked(CampaignID, Reason).
 
 # replan_needed(CampaignID, Reason) - derived: campaign needs replanning
 Decl replan_needed(CampaignID, Reason).
+
+# =============================================================================
+# SECTION 28: OUROBOROS / TOOL SELF-GENERATION (§8.3)
+# =============================================================================
+# Tool registry and lifecycle for self-generating tools
+
+# tool_registered(ToolName, RegisteredAt) - tracks registered tools
+Decl tool_registered(ToolName, RegisteredAt).
+
+# tool_exists(ToolName) - derived: tool is in registry
+Decl tool_exists(ToolName).
+
+# tool_ready(ToolName) - derived: tool is compiled and ready
+Decl tool_ready(ToolName).
+
+# tool_hash(ToolName, Hash) - content hash for change detection
+Decl tool_hash(ToolName, Hash).
+
+# tool_capability(ToolName, Capability) - capabilities provided by a tool
+Decl tool_capability(ToolName, Capability).
+
+# capability_available(Capability) - derived: capability exists
+Decl capability_available(Capability).
+
+# Tool generation lifecycle
+# tool_source_ready(ToolName) - source code has been generated
+Decl tool_source_ready(ToolName).
+
+# tool_safety_verified(ToolName) - passed safety checks
+Decl tool_safety_verified(ToolName).
+
+# tool_compiled(ToolName) - successfully compiled
+Decl tool_compiled(ToolName).
+
+# generation_state(ToolName, State) - current generation state
+# State: /pending, /in_progress, /completed, /failed
+Decl generation_state(ToolName, State).
+
+# missing_tool_for(Intent, Capability) - detected capability gap
+Decl missing_tool_for(Intent, Capability).
+
+# task_failure_reason(TaskID, ReasonType, Detail)
+Decl task_failure_reason(TaskID, ReasonType, Detail).
+
+# task_failure_count(Capability, Count) - tracks repeated failures
+Decl task_failure_count(Capability, Count).
