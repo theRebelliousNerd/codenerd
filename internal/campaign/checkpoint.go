@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
 	"codenerd/internal/tactile"
 	"context"
 	"fmt"
@@ -9,18 +10,18 @@ import (
 	"time"
 )
 
-// Note: time is still used for Checkpoint.Timestamp in RunAll
-
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
 	executor  *tactile.SafeExecutor
+	shardMgr  *core.ShardManager
 	workspace string
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
-func NewCheckpointRunner(executor *tactile.SafeExecutor, workspace string) *CheckpointRunner {
+func NewCheckpointRunner(executor *tactile.SafeExecutor, shardMgr *core.ShardManager, workspace string) *CheckpointRunner {
 	return &CheckpointRunner{
 		executor:  executor,
+		shardMgr:  shardMgr,
 		workspace: workspace,
 	}
 }
@@ -102,11 +103,49 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 	return true, "Manual review skipped (non-interactive mode)", nil
 }
 
-// runShardValidationCheckpoint spawns a reviewer shard.
+// runShardValidationCheckpoint spawns a reviewer shard to validate the phase.
 func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
-	// For now, just return success
-	// TODO: Implement reviewer shard validation
-	return true, "Shard validation skipped (not implemented)", nil
+	if cr.shardMgr == nil {
+		return true, "Shard validation skipped (no shard manager)", nil
+	}
+
+	// Build a review prompt based on phase objectives and completed tasks
+	var reviewPrompt strings.Builder
+	reviewPrompt.WriteString("Review the following phase completion for quality and correctness:\n\n")
+	reviewPrompt.WriteString(fmt.Sprintf("Phase: %s\n\n", phase.Name))
+
+	reviewPrompt.WriteString("Objectives:\n")
+	for _, obj := range phase.Objectives {
+		reviewPrompt.WriteString(fmt.Sprintf("- %s\n", obj.Description))
+	}
+
+	reviewPrompt.WriteString("\nCompleted Tasks:\n")
+	for _, task := range phase.Tasks {
+		if task.Status == TaskCompleted {
+			reviewPrompt.WriteString(fmt.Sprintf("- [DONE] %s\n", task.Description))
+			if len(task.Artifacts) > 0 {
+				reviewPrompt.WriteString(fmt.Sprintf("  Artifacts: %v\n", task.Artifacts))
+			}
+		}
+	}
+
+	reviewPrompt.WriteString("\nProvide a brief assessment: PASS if objectives are met, FAIL with reason if not.")
+
+	// Spawn reviewer shard
+	result, err := cr.shardMgr.Spawn(ctx, "reviewer", reviewPrompt.String())
+	if err != nil {
+		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
+	}
+
+	// Parse result - look for PASS/FAIL
+	resultStr := fmt.Sprintf("%v", result)
+	resultLower := strings.ToLower(resultStr)
+
+	if strings.Contains(resultLower, "fail") {
+		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
+	}
+
+	return true, fmt.Sprintf("Review passed: %s", resultStr), nil
 }
 
 // detectTestCommand determines the appropriate test command for the project.

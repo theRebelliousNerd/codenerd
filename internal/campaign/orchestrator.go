@@ -89,7 +89,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 
 	// Initialize sub-components
 	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient)
-	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.Workspace)
+	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.ShardManager, cfg.Workspace)
 	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
 	o.transducer = perception.NewRealTransducer(cfg.LLMClient)
 
@@ -373,11 +373,24 @@ func (o *Orchestrator) GetProgress() Progress {
 		CurrentTask:     currentTask,
 		CompletedTasks:  o.campaign.CompletedTasks,
 		TotalTasks:      o.campaign.TotalTasks,
-		ActiveShards:    []string{}, // TODO: Get from shard manager
+		ActiveShards:    o.getActiveShardNames(),
 		ContextUsage:    contextUsage,
 		Learnings:       len(o.campaign.Learnings),
 		Replans:         o.campaign.RevisionNumber,
 	}
+}
+
+// getActiveShardNames returns the names of currently active shards.
+func (o *Orchestrator) getActiveShardNames() []string {
+	if o.shardMgr == nil {
+		return []string{}
+	}
+	activeShards := o.shardMgr.GetActiveShards()
+	names := make([]string, 0, len(activeShards))
+	for _, shard := range activeShards {
+		names = append(names, shard.GetConfig().Name)
+	}
+	return names
 }
 
 // getCurrentPhase gets the current active phase from Mangle.
