@@ -121,7 +121,7 @@ The JSON Schema is:
   "control_packet": {
     "intent_classification": {
       "category": "/query|/mutation|/instruction",
-      "verb": "/explain|/refactor|/debug|/generate|/init|/research|/fix|/test|/delete|/create|/search|/configure",
+      "verb": "/explain|/refactor|/debug|/generate|/init|/research|/fix|/test|/delete|/create|/search|/configure|/read|/write",
       "target": "primary target string or 'none'",
       "constraint": "any constraints or 'none'",
       "confidence": 0.0-1.0

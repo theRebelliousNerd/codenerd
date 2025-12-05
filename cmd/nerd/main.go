@@ -472,7 +472,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 	sessionID := args[0]
 	logger.Info("Snapshotting DOM", zap.String("session", sessionID))
 
-	// This would connect to an existing session and snapshot
+	// TODO: Implement persistent session registry + DOM fact export
 	fmt.Printf("DOM snapshot for session %s\n", sessionID)
 	fmt.Println("(Session persistence not yet implemented)")
 	return nil
@@ -484,6 +484,9 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	logger.Info("Querying facts", zap.String("predicate", predicate))
 
 	kernel := core.NewRealKernel()
+	if err := kernel.LoadFacts(nil); err != nil {
+		return fmt.Errorf("query init failed: %w", err)
+	}
 	facts, err := kernel.Query(predicate)
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
@@ -626,6 +629,9 @@ func runWhy(cmd *cobra.Command, args []string) error {
 
 	// Initialize kernel
 	kernel := core.NewRealKernel()
+	if err := kernel.LoadFacts(nil); err != nil {
+		return fmt.Errorf("query failed: %w", err)
+	}
 
 	// Query for facts
 	facts, err := kernel.Query(predicate)

@@ -1,0 +1,6 @@
+# codeNERD local files
+knowledge.db
+knowledge.db-journal
+sessions/
+cache/
+*.log

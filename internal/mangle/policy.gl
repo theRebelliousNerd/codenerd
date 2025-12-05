@@ -264,7 +264,7 @@ target_checkbox(CheckID, LabelText) :-
     left_of(CheckID, TextID).
 
 # =============================================================================
-# SECTION 10: TOOL CAPABILITY MAPPING
+# SECTION 10: TOOL CAPABILITY MAPPING & ACTION MAPPING
 # =============================================================================
 
 # Tool capabilities for spreading activation
@@ -289,6 +289,25 @@ goal_requires(Goal, /execute) :-
 
 goal_requires(Goal, /analyze) :-
     user_intent(_, _, /explain, Goal, _).
+
+# Action Mappings: Map intent verbs to executable actions
+action_mapping(/explain, /analyze_code).
+action_mapping(/read, /fs_read).
+action_mapping(/search, /search_files).
+action_mapping(/run, /exec_cmd).
+action_mapping(/test, /run_tests).
+
+# Derive next_action from intent and mapping
+next_action(Action) :-
+    user_intent(_, _, Verb, _, _),
+    action_mapping(Verb, Action).
+
+# Specific file system actions
+next_action(/fs_read) :-
+    user_intent(_, _, /read, _, _).
+
+next_action(/fs_write) :-
+    user_intent(_, _, /write, _, _).
 
 # =============================================================================
 # SECTION 11: ABDUCTIVE REASONING (§8.2)
@@ -326,6 +345,17 @@ preference_signal(Pattern) :-
 promote_to_long_term(Fact) :-
     preference_signal(Pattern),
     derived_rule(Pattern, Fact).
+
+# Autopoiesis: Missing Tool Detection
+# Derive missing_tool_for if user intent requires a capability we don't have
+missing_tool_for(IntentID, Cap) :-
+    user_intent(IntentID, _, _, _, _),
+    goal_requires(_, Cap),
+    !tool_capabilities(_, Cap).
+
+# Trigger tool generation if tool is missing
+next_action(/generate_tool) :-
+    missing_tool_for(_, _).
 
 # =============================================================================
 # SECTION 13: GIT-AWARE SAFETY / CHESTERTON'S FENCE (§21)
