@@ -319,6 +319,12 @@ action_mapping(/debug, /delegate_coder).
 action_mapping(/research, /delegate_researcher).
 action_mapping(/explore, /delegate_researcher).
 
+# Autopoiesis/Tool generation actions (delegate to tool_generator shard)
+action_mapping(/generate_tool, /delegate_tool_generator).
+action_mapping(/refine_tool, /delegate_tool_generator).
+action_mapping(/list_tools, /delegate_tool_generator).
+action_mapping(/tool_status, /delegate_tool_generator).
+
 # Diff actions
 action_mapping(/diff, /show_diff).
 
@@ -343,6 +349,24 @@ delegate_task(/reviewer, Target, /pending) :-
 
 delegate_task(/reviewer, Target, /pending) :-
     user_intent(_, _, /analyze, Target, _).
+
+# Tool generator delegation - autopoiesis operations
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /generate_tool, Target, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /refine_tool, Target, _).
+
+delegate_task(/tool_generator, "", /pending) :-
+    user_intent(_, _, /list_tools, _, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /tool_status, Target, _).
+
+# Auto-delegate when missing capability detected (implicit tool generation)
+delegate_task(/tool_generator, Cap, /pending) :-
+    missing_tool_for(_, Cap),
+    !tool_generation_blocked(Cap).
 
 # =============================================================================
 # SECTION 11: ABDUCTIVE REASONING (§8.2)

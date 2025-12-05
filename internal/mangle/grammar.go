@@ -301,6 +301,14 @@ func (v *AtomValidator) loadCoreNameConstants() {
 	v.ValidNameConstants["/coder"] = true
 	v.ValidNameConstants["/tester"] = true
 	v.ValidNameConstants["/reviewer"] = true
+	v.ValidNameConstants["/tool_generator"] = true
+
+	// Autopoiesis verbs
+	v.ValidNameConstants["/generate_tool"] = true
+	v.ValidNameConstants["/refine_tool"] = true
+	v.ValidNameConstants["/list_tools"] = true
+	v.ValidNameConstants["/tool_status"] = true
+	v.ValidNameConstants["/delegate_tool_generator"] = true
 
 	// Research status
 	v.ValidNameConstants["/pending"] = true
