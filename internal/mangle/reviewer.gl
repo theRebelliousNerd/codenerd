@@ -81,8 +81,8 @@ block_commit("security_vulnerabilities") :-
 # =============================================================================
 # SECTION 4: REVIEW PRIORITIZATION
 # =============================================================================
+# Uses churn_rate from schemas.gl
 
-Decl churn_rate(FilePath, Rate).
 Decl file_contains(FilePath, Pattern).
 
 # High priority files (recently modified, high churn)

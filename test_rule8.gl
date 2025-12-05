@@ -1,5 +1,0 @@
-Decl foo(X).
-Decl test(X).
-foo(/a).
-foo(/b).
-test(X) :- foo(X), X != /done.
