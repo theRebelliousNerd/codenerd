@@ -1,6 +1,6 @@
-// Package main provides the codeNERD CLI entry point.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains shard spawning and task delegation helpers.
-package main
+package chat
 
 import (
 	"context"
@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/perception"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // =============================================================================
@@ -28,7 +30,9 @@ func formatShardTask(verb, target, constraint, workspace string) string {
 
 	// Handle file paths - make them relative to workspace if needed
 	if strings.HasPrefix(target, workspace) {
-		target = strings.TrimPrefix(target, workspace+"/")
+		if rel, err := filepath.Rel(workspace, target); err == nil {
+			target = rel
+		}
 	}
 
 	switch verb {
@@ -124,13 +128,14 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 %s
 **Target**: %s
 **Agent**: %s
+**Task**: %s
 
 ### Output
-%s`, header, surfaceNote, intent.Target, shardType, result)
+%s`, header, surfaceNote, intent.Target, shardType, task, result)
 }
 
 // spawnShard spawns a shard agent for a task
-func (m chatModel) spawnShard(shardType, task string) tea.Cmd {
+func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -169,6 +174,10 @@ type ProjectTypeInfo struct {
 
 // detectProjectType analyzes the workspace to determine project type
 func detectProjectType(workspace string) ProjectTypeInfo {
+	// Get UI styles for consistent formatting
+	styles := getUIStyles()
+	_ = styles // Ensure styles are available for future enhancements
+
 	pt := ProjectTypeInfo{
 		Language:     "unknown",
 		Framework:    "unknown",
@@ -214,4 +223,6 @@ func detectProjectType(workspace string) ProjectTypeInfo {
 	return pt
 }
 
-// runInteractiveChat starts the interactive chat interface
+func getUIStyles() ui.Styles {
+	return ui.DefaultStyles()
+}

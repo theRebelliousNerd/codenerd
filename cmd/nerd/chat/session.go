@@ -1,6 +1,6 @@
-// Package main provides the codeNERD CLI entry point.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains session management, initialization, and state persistence.
-package main
+package chat
 
 import (
 	"codenerd/cmd/nerd/config"
@@ -11,10 +11,11 @@ import (
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
+	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
-	"codenerd/internal/campaign"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,15 +35,16 @@ import (
 // Functions for initializing the chat, loading/saving session state, and
 // managing persistent configuration.
 
-func initChat() chatModel {
+// InitChat initializes the interactive chat model
+func InitChat(cfg Config) Model {
 	// Load configuration
-	cfg, _ := config.Load()
+	appCfg, _ := config.Load()
 
-	initialMessages := []chatMessage{}
+	initialMessages := []Message{}
 
 	// Initialize styles
 	styles := ui.DefaultStyles()
-	if cfg.Theme == "dark" {
+	if appCfg.Theme == "dark" {
 		styles = ui.NewStyles(ui.DarkTheme())
 	}
 
@@ -50,7 +52,7 @@ func initChat() chatModel {
 	ti := textinput.New()
 	ti.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
 	ti.Focus()
-	ti.Prompt = "│ "
+	ti.Prompt = "| "
 	ti.CharLimit = 4096
 	ti.Width = 80
 	ti.PromptStyle = styles.Prompt
@@ -88,13 +90,13 @@ func initChat() chatModel {
 		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 	if apiKey == "" {
-		apiKey = cfg.APIKey
+		apiKey = appCfg.APIKey
 	}
 	if apiKey == "" {
-		initialMessages = append(initialMessages, chatMessage{
-			role:    "assistant",
-			content: "⚠️ No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
-			time:    time.Now(),
+		initialMessages = append(initialMessages, Message{
+			Role:    "assistant",
+			Content: "No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
+			Time:    time.Now(),
 		})
 	}
 
@@ -144,7 +146,7 @@ func initChat() chatModel {
 			shard.SetLocalDB(localDB)
 		}
 		// Set Context7 API key from config or environment
-		context7Key := cfg.Context7APIKey
+		context7Key := appCfg.Context7APIKey
 		if context7Key == "" {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
 		}
@@ -156,7 +158,7 @@ func initChat() chatModel {
 
 	ctx := context.Background()
 	disabled := make(map[string]struct{})
-	for _, name := range disableSystemShards {
+	for _, name := range cfg.DisableSystemShards {
 		disabled[name] = struct{}{}
 	}
 	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
@@ -171,10 +173,10 @@ func initChat() chatModel {
 		shardMgr.DisableSystemShard(name)
 	}
 	if err := shardMgr.StartSystemShards(ctx); err != nil {
-		initialMessages = append(initialMessages, chatMessage{
-			role:    "assistant",
-			content: fmt.Sprintf("⚠️ Failed to start system shards: %v", err),
-			time:    time.Now(),
+		initialMessages = append(initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Failed to start system shards: %v", err),
+			Time:    time.Now(),
 		})
 	}
 	shadowMode := core.NewShadowMode(kernel)
@@ -182,7 +184,7 @@ func initChat() chatModel {
 	scanner := world.NewScanner()
 
 	// Initialize Semantic Compression (§8.2)
-	ctxCfg := cfg.GetContextWindowConfig()
+	ctxCfg := appCfg.GetContextWindowConfig()
 	compressor := ctxcompress.NewCompressorWithParams(
 		kernel, localDB, llmClient,
 		ctxCfg.MaxTokens,
@@ -205,7 +207,7 @@ func initChat() chatModel {
 	// Preload workspace facts from .nerd/profile.gl if present
 	// (Already done in hydrateNerdState)
 
-	model := chatModel{
+	model := Model{
 		textinput:             ti,
 		viewport:              vp,
 		spinner:               sp,
@@ -215,8 +217,8 @@ func initChat() chatModel {
 		logicPane:             &logicPane,
 		showLogic:             false,
 		paneMode:              ui.ModeSinglePane,
-		history:               []chatMessage{},
-		config:                cfg,
+		history:               []Message{},
+		Config:                appCfg,
 		client:                llmClient,
 		kernel:                kernel,
 		shardMgr:              shardMgr,
@@ -243,48 +245,48 @@ func initChat() chatModel {
 	return model
 }
 
-func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.ShardManager, initialMessages *[]chatMessage) (*nerdSession, *nerdPreferences) {
+func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
 	nerdDir := filepath.Join(workspace, ".nerd")
 
 	// Load profile facts
 	profilePath := filepath.Join(nerdDir, "profile.gl")
 	if info, err := os.Stat(profilePath); err == nil && !info.IsDir() {
 		if err := kernel.LoadFactsFromFile(profilePath); err != nil {
-			*initialMessages = append(*initialMessages, chatMessage{
-				role:    "assistant",
-				content: fmt.Sprintf("⚠️ Failed to load .nerd/profile.gl: %v", err),
-				time:    time.Now(),
+			*initialMessages = append(*initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to load .nerd/profile.gl: %v", err),
+				Time:    time.Now(),
 			})
 		}
 	} else if err != nil && !os.IsNotExist(err) {
-		*initialMessages = append(*initialMessages, chatMessage{
-			role:    "assistant",
-			content: fmt.Sprintf("⚠️ Unable to access .nerd/profile.gl: %v", err),
-			time:    time.Now(),
+		*initialMessages = append(*initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Unable to access .nerd/profile.gl: %v", err),
+			Time:    time.Now(),
 		})
 	}
 
 	// Load preferences
-	var prefs *nerdPreferences
+	var prefs *Preferences
 	prefPath := filepath.Join(nerdDir, "preferences.json")
 	if data, err := os.ReadFile(prefPath); err == nil {
-		var p nerdPreferences
+		var p Preferences
 		if err := json.Unmarshal(data, &p); err == nil {
 			prefs = &p
 		} else {
-			*initialMessages = append(*initialMessages, chatMessage{
-				role:    "assistant",
-				content: fmt.Sprintf("⚠️ Failed to parse .nerd/preferences.json: %v", err),
-				time:    time.Now(),
+			*initialMessages = append(*initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to parse .nerd/preferences.json: %v", err),
+				Time:    time.Now(),
 			})
 		}
 	}
 
 	// Load session info
-	var session *nerdSession
+	var session *Session
 	sessionPath := filepath.Join(nerdDir, "session.json")
 	if data, err := os.ReadFile(sessionPath); err == nil {
-		var s nerdSession
+		var s Session
 		if err := json.Unmarshal(data, &s); err == nil {
 			session = &s
 
@@ -293,26 +295,26 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 				if history, err := nerdinit.LoadSessionHistory(workspace, session.SessionID); err == nil {
 					// Convert and prepend history to initialMessages
 					for _, msg := range history.Messages {
-						*initialMessages = append(*initialMessages, chatMessage{
-							role:    msg.Role,
-							content: msg.Content,
-							time:    msg.Time,
+						*initialMessages = append(*initialMessages, Message{
+							Role:    msg.Role,
+							Content: msg.Content,
+							Time:    msg.Time,
 						})
 					}
 					if len(history.Messages) > 0 {
-						*initialMessages = append(*initialMessages, chatMessage{
-							role:    "assistant",
-							content: fmt.Sprintf("📜 *Restored %d messages from previous session*", len(history.Messages)),
-							time:    time.Now(),
+						*initialMessages = append(*initialMessages, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("*Restored %d messages from previous session*", len(history.Messages)),
+							Time:    time.Now(),
 						})
 					}
 				}
 			}
 		} else {
-			*initialMessages = append(*initialMessages, chatMessage{
-				role:    "assistant",
-				content: fmt.Sprintf("⚠️ Failed to parse .nerd/session.json: %v", err),
-				time:    time.Now(),
+			*initialMessages = append(*initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to parse .nerd/session.json: %v", err),
+				Time:    time.Now(),
 			})
 		}
 	}
@@ -320,7 +322,7 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 	// Load agents registry and hydrate shard profiles
 	agentsPath := filepath.Join(nerdDir, "agents.json")
 	if data, err := os.ReadFile(agentsPath); err == nil {
-		var reg nerdRegistry
+		var reg Registry
 		if err := json.Unmarshal(data, &reg); err == nil {
 			for _, agent := range reg.Agents {
 				cfg := core.DefaultSpecialistConfig(agent.Name, agent.KnowledgePath)
@@ -330,10 +332,10 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 				shardMgr.DefineProfile(agent.Name, cfg)
 			}
 		} else {
-			*initialMessages = append(*initialMessages, chatMessage{
-				role:    "assistant",
-				content: fmt.Sprintf("⚠️ Failed to parse .nerd/agents.json: %v", err),
-				time:    time.Now(),
+			*initialMessages = append(*initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to parse .nerd/agents.json: %v", err),
+				Time:    time.Now(),
 			})
 		}
 	}
@@ -342,7 +344,7 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 }
 
 // saveSessionState saves the current session state and history.
-func (m *chatModel) saveSessionState() {
+func (m *Model) saveSessionState() {
 	if m.workspace == "" || m.sessionID == "" {
 		return
 	}
@@ -373,9 +375,9 @@ func (m *chatModel) saveSessionState() {
 	messages := make([]nerdinit.ChatMessage, len(m.history))
 	for i, msg := range m.history {
 		messages[i] = nerdinit.ChatMessage{
-			Role:    msg.role,
-			Content: msg.content,
-			Time:    msg.time,
+			Role:    msg.Role,
+			Content: msg.Content,
+			Time:    msg.Time,
 		}
 	}
 	_ = nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages)
@@ -388,10 +390,10 @@ func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSiz
 	}
 
 	agentsPath := filepath.Join(nerdDir, "agents.json")
-	reg := nerdRegistry{
+	reg := Registry{
 		Version:   "1.0",
 		CreatedAt: time.Now().Format(time.RFC3339),
-		Agents:    []nerdAgent{},
+		Agents:    []Agent{},
 	}
 
 	if data, err := os.ReadFile(agentsPath); err == nil {
@@ -411,7 +413,7 @@ func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSiz
 		}
 	}
 	if !found {
-		reg.Agents = append(reg.Agents, nerdAgent{
+		reg.Agents = append(reg.Agents, Agent{
 			Name:          name,
 			Type:          agentType,
 			KnowledgePath: knowledgePath,
@@ -427,17 +429,16 @@ func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSiz
 	return os.WriteFile(agentsPath, data, 0644)
 }
 
-func resolveSessionID(session *nerdSession) string {
+func resolveSessionID(session *Session) string {
 	if session != nil && strings.TrimSpace(session.SessionID) != "" {
 		return session.SessionID
 	}
 	return fmt.Sprintf("sess_%d", time.Now().UnixNano())
 }
 
-func resolveTurnCount(session *nerdSession) int {
+func resolveTurnCount(session *Session) int {
 	if session != nil && session.TurnCount > 0 {
 		return session.TurnCount
 	}
 	return 0
 }
-

@@ -1,18 +1,19 @@
-// Package main provides the codeNERD CLI entry point.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains utility and helper functions.
-package main
+package chat
 
 import (
-	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -151,7 +152,7 @@ func applyPatchResult(workspace, patch string) string {
 	if err := runApplyPatch(fullPatch); err != nil {
 		return fmt.Sprintf("Patch failed: %v", err)
 	}
-	return "✅ Patch applied."
+	return "Patch applied."
 }
 
 func runApplyPatch(patch string) error {
@@ -204,7 +205,7 @@ func makeDir(workspace, path string) error {
 
 func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
 	matches := make([]string, 0)
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(root, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -229,7 +230,7 @@ func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
 	return matches, err
 }
 
-func (m chatModel) runInit() tea.Cmd {
+func (m Model) runInit() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -238,7 +239,7 @@ func (m chatModel) runInit() tea.Cmd {
 		projectInfo := detectProjectType(m.workspace)
 
 		// Get Context7 API key from config or environment
-		context7Key := m.config.Context7APIKey
+		context7Key := m.Config.Context7APIKey
 		if context7Key == "" {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
 		}
@@ -320,7 +321,7 @@ type scanCompleteMsg struct {
 }
 
 // runScan performs a codebase rescan without full reinitialization
-func (m chatModel) runScan() tea.Cmd {
+func (m Model) runScan() tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
 
@@ -397,9 +398,9 @@ func (a *learningStoreAdapter) Close() error {
 }
 
 // renderInitComplete builds a summary message for initialization completion.
-func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
+func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 	var sb strings.Builder
-	sb.WriteString("## ✅ Initialization Complete\n\n")
+	sb.WriteString("## Initialization Complete\n\n")
 
 	sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
 	sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
@@ -413,7 +414,7 @@ func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
 
 	// Show created agents
 	if len(result.CreatedAgents) > 0 {
-		sb.WriteString("### 🤖 Type 3 Agents Created\n\n")
+		sb.WriteString("### Type 3 Agents Created\n\n")
 		sb.WriteString("| Agent | Knowledge Atoms | Status |\n")
 		sb.WriteString("|-------|-----------------|--------|\n")
 		for _, agent := range result.CreatedAgents {
@@ -424,7 +425,7 @@ func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
 
 	// Show warnings if any
 	if len(result.Warnings) > 0 {
-		sb.WriteString("### ⚠️ Warnings\n\n")
+		sb.WriteString("### Warnings\n\n")
 		for _, w := range result.Warnings {
 			sb.WriteString(fmt.Sprintf("- %s\n", w))
 		}
@@ -433,7 +434,7 @@ func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
 
 	sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
 
-	sb.WriteString("### 💡 Next Steps\n\n")
+	sb.WriteString("### Next Steps\n\n")
 	sb.WriteString("- View agents: `/agents`\n")
 	sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
 	sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
@@ -443,7 +444,7 @@ func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
 }
 
 // getDefinedProfiles returns user-defined agent profiles
-func (m chatModel) getDefinedProfiles() map[string]core.ShardConfig {
+func (m Model) getDefinedProfiles() map[string]core.ShardConfig {
 	profiles := make(map[string]core.ShardConfig)
 
 	// Get profiles from shard manager
@@ -464,7 +465,7 @@ func (m chatModel) getDefinedProfiles() map[string]core.ShardConfig {
 }
 
 // loadType3Agents loads Type 3 agents from the agents.json registry
-func (m chatModel) loadType3Agents() []nerdinit.CreatedAgent {
+func (m Model) loadType3Agents() []nerdinit.CreatedAgent {
 	agents := make([]nerdinit.CreatedAgent, 0)
 
 	// Try to load from agents.json registry
@@ -487,10 +488,3 @@ func (m chatModel) loadType3Agents() []nerdinit.CreatedAgent {
 
 	return registry.Agents
 }
-
-// =============================================================================
-// SHARD DELEGATION HELPERS
-// =============================================================================
-
-// formatShardTask converts an intent into a task string for a shard.
-// Different shard types expect different task formats.

@@ -1,16 +1,15 @@
-// Package main provides the codeNERD CLI entry point.
-// This file implements the core interactive chat interface using bubbletea.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // The chat functionality is split across multiple files for maintainability:
-//   - chat_core.go: Types, Init, Update loop (this file)
-//   - chat_commands.go: /command handling
-//   - chat_process.go: Natural language input processing
-//   - chat_view.go: Rendering functions
-//   - chat_session.go: Session management
-//   - chat_campaign.go: Campaign orchestration
-//   - chat_delegation.go: Shard spawning
-//   - chat_shadow.go: Shadow mode
-//   - chat_helpers.go: Utility functions
-package main
+//   - model.go: Types, Init, Update loop (this file)
+//   - commands.go: /command handling
+//   - process.go: Natural language input processing
+//   - view.go: Rendering functions
+//   - session.go: Session management
+//   - campaign.go: Campaign orchestration
+//   - delegation.go: Shard spawning
+//   - shadow.go: Shadow mode
+//   - helpers.go: Utility functions
+package chat
 
 import (
 	"codenerd/cmd/nerd/config"
@@ -22,16 +21,10 @@ import (
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
-	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
-	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,8 +33,17 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
 )
+
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+// Config holds configuration for initializing the chat interface.
+type Config struct {
+	// DisableSystemShards is a list of system shard names to disable.
+	DisableSystemShards []string
+}
 
 // =============================================================================
 // CORE TYPES
@@ -56,8 +58,8 @@ type ClarificationState struct {
 	PendingIntent *perception.Intent
 }
 
-// chatModel is the main model for the interactive chat interface
-type chatModel struct {
+// Model is the main model for the interactive chat interface
+type Model struct {
 	// UI Components
 	textinput textinput.Model
 	viewport  viewport.Model
@@ -72,13 +74,13 @@ type chatModel struct {
 	paneMode  ui.PaneMode
 
 	// State
-	history   []chatMessage
+	history   []Message
 	isLoading bool
 	err       error
 	width     int
 	height    int
 	ready     bool
-	config    config.Config
+	Config    config.Config
 
 	// Clarification Loop State (Pause/Resume Protocol)
 	awaitingClarification bool
@@ -123,13 +125,15 @@ type chatModel struct {
 	autopoiesis *autopoiesis.Orchestrator
 }
 
-type chatMessage struct {
-	role    string // "user" or "assistant"
-	content string
-	time    time.Time
+// Message represents a single message in the chat history
+type Message struct {
+	Role    string // "user" or "assistant"
+	Content string
+	Time    time.Time
 }
 
-type nerdAgent struct {
+// Agent represents a defined agent in the registry
+type Agent struct {
 	Name          string `json:"name"`
 	Type          string `json:"type"`
 	KnowledgePath string `json:"knowledge_path"`
@@ -137,20 +141,23 @@ type nerdAgent struct {
 	Status        string `json:"status"`
 }
 
-type nerdRegistry struct {
-	Version   string      `json:"version"`
-	CreatedAt string      `json:"created_at"`
-	Agents    []nerdAgent `json:"agents"`
+// Registry holds the list of defined agents
+type Registry struct {
+	Version   string  `json:"version"`
+	CreatedAt string  `json:"created_at"`
+	Agents    []Agent `json:"agents"`
 }
 
-type nerdPreferences struct {
+// Preferences holds user preferences
+type Preferences struct {
 	RequireTests     bool   `json:"require_tests"`
 	RequireReview    bool   `json:"require_review"`
 	Verbosity        string `json:"verbosity"`
 	ExplanationLevel string `json:"explanation_level"`
 }
 
-type nerdSession struct {
+// Session holds session state
+type Session struct {
 	SessionID    string `json:"session_id"`
 	StartedAt    string `json:"started_at"`
 	LastActiveAt string `json:"last_active_at"`
@@ -170,7 +177,7 @@ type (
 	campaignStartedMsg   *campaign.Campaign
 	campaignProgressMsg  *campaign.Progress
 	campaignCompletedMsg *campaign.Campaign
-	campaignErrorMsg     error
+	campaignErrorMsg     struct{ err error }
 
 	// Init messages
 	initCompleteMsg struct {
@@ -179,15 +186,15 @@ type (
 	}
 )
 
-// initChat initializes the interactive chat model
-func (m chatModel) Init() tea.Cmd {
+// Init initializes the interactive chat model
+func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
 		m.spinner.Tick,
 	)
 }
 
-func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
@@ -331,10 +338,10 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: string(msg),
-			time:    time.Now(),
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: string(msg),
+			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -361,20 +368,10 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Add clarification question to history
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: m.formatClarificationRequest(ClarificationState(msg)),
-			time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-
-	case campaignErrorMsg:
-		m.isLoading = false
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: fmt.Sprintf("## ❌ Campaign Error\n\n%v", msg),
-			time:    time.Now(),
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: m.formatClarificationRequest(ClarificationState(msg)),
+			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -394,15 +391,25 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = msg
 
+	case campaignErrorMsg:
+		m.isLoading = false
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("## Campaign Error\n\n%v", msg.err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
 	// Campaign message handlers
 	case campaignStartedMsg:
 		m.isLoading = false
 		m.activeCampaign = msg
 		m.showCampaignPanel = true
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: m.renderCampaignStarted(msg),
-			time:    time.Now(),
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: m.renderCampaignStarted(msg),
+			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -421,10 +428,10 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignOrch = nil
 		m.campaignProgress = nil
 		m.showCampaignPanel = false
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: m.renderCampaignCompleted(msg),
-			time:    time.Now(),
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: m.renderCampaignCompleted(msg),
+			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -440,10 +447,10 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shardMgr.SetLearningStore(adapter)
 		}
 		// Build summary message from result
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: m.renderInitComplete(msg.result),
-			time:    time.Now(),
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: m.renderInitComplete(msg.result),
+			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -453,15 +460,15 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
-			m.history = append(m.history, chatMessage{
-				role:    "assistant",
-				content: fmt.Sprintf("❌ **Scan failed:** %v", msg.err),
-				time:    time.Now(),
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Scan failed:** %v", msg.err),
+				Time:    time.Now(),
 			})
 		} else {
-			m.history = append(m.history, chatMessage{
-				role: "assistant",
-				content: fmt.Sprintf(`✅ **Scan complete**
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: fmt.Sprintf(`**Scan complete**
 
 | Metric | Value |
 |--------|-------|
@@ -471,7 +478,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 | Duration | %.2fs |
 
 The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
-				time: time.Now(),
+				Time: time.Now(),
 			})
 		}
 		m.viewport.SetContent(m.renderHistory())
@@ -485,7 +492,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 }
 
 // handleClarificationResponse processes the user's response to a clarification request
-func (m chatModel) handleClarificationResponse() (tea.Model, tea.Cmd) {
+func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	var response string
 
 	// Check if user selected an option or typed custom response
@@ -506,10 +513,10 @@ func (m chatModel) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	}
 
 	// Add user response to history
-	m.history = append(m.history, chatMessage{
-		role:    "user",
-		content: response,
-		time:    time.Now(),
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: response,
+		Time:    time.Now(),
 	})
 
 	// Clear clarification state (Resume)
@@ -537,7 +544,7 @@ func (m chatModel) handleClarificationResponse() (tea.Model, tea.Cmd) {
 }
 
 // processClarificationResponse continues processing after user provides clarification
-func (m chatModel) processClarificationResponse(response string, pendingIntent *perception.Intent) tea.Cmd {
+func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent) tea.Cmd {
 	return func() tea.Msg {
 		// Inject the clarification fact into the kernel
 		clarificationFact := core.Fact{
@@ -571,10 +578,10 @@ func (m chatModel) processClarificationResponse(response string, pendingIntent *
 }
 
 // formatClarificationRequest formats a clarification request for display
-func (m chatModel) formatClarificationRequest(state ClarificationState) string {
+func (m Model) formatClarificationRequest(state ClarificationState) string {
 	var sb strings.Builder
 
-	sb.WriteString("🤔 **I need some clarification:**\n\n")
+	sb.WriteString("**I need some clarification:**\n\n")
 	sb.WriteString(state.Question)
 	sb.WriteString("\n\n")
 
@@ -582,12 +589,12 @@ func (m chatModel) formatClarificationRequest(state ClarificationState) string {
 		sb.WriteString("**Options:**\n")
 		for i, opt := range state.Options {
 			if i == m.selectedOption {
-				sb.WriteString(fmt.Sprintf("  → **%d. %s** ←\n", i+1, opt))
+				sb.WriteString(fmt.Sprintf("  -> **%d. %s** <-\n", i+1, opt))
 			} else {
 				sb.WriteString(fmt.Sprintf("    %d. %s\n", i+1, opt))
 			}
 		}
-		sb.WriteString("\n_Use ↑/↓ to select, Enter to confirm, or type a custom answer_")
+		sb.WriteString("\n_Use arrow keys to select, Enter to confirm, or type a custom answer_")
 	}
 
 	return sb.String()
@@ -605,7 +612,7 @@ func extractClarificationQuestion(errMsg string) string {
 	return "Could you please provide more details?"
 }
 
-func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
+func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	input := strings.TrimSpace(m.textinput.Value())
 	if input == "" {
 		return m, nil
@@ -619,10 +626,10 @@ func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
 			m.pendingPatchLines = nil
 			m.awaitingPatch = false
 			m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
-			m.history = append(m.history, chatMessage{
-				role:    "assistant",
-				content: applyPatchResult(m.workspace, patch),
-				time:    time.Now(),
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: applyPatchResult(m.workspace, patch),
+				Time:    time.Now(),
 			})
 			m.textinput.Reset()
 			m.viewport.SetContent(m.renderHistory())
@@ -640,10 +647,10 @@ func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Add user message to history
-	m.history = append(m.history, chatMessage{
-		role:    "user",
-		content: input,
-		time:    time.Now(),
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: input,
+		Time:    time.Now(),
 	})
 
 	// Clear input
@@ -673,3 +680,12 @@ func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
 	)
 }
 
+// RunInteractiveChat starts the interactive chat session
+func RunInteractiveChat(cfg Config) error {
+	model := InitChat(cfg)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return err
+	}
+	return nil
+}
