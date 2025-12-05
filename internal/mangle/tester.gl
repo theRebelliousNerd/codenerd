@@ -1,0 +1,205 @@
+# Tester Shard Policy - TDD & Test Execution Logic
+# Loaded by TesterShard kernel alongside base policy.gl
+# Part of Cortex 1.5.0 Architecture
+
+# =============================================================================
+# SECTION 1: TEST FRAMEWORK DETECTION
+# =============================================================================
+
+Decl file_exists(FilePath).
+Decl package_has_dep(DepName).
+
+test_framework(/gotest) :-
+    file_exists("go.mod").
+
+test_framework(/jest) :-
+    file_exists("package.json"),
+    package_has_dep("jest").
+
+test_framework(/pytest) :-
+    file_exists("pyproject.toml").
+
+test_framework(/pytest) :-
+    file_exists("setup.py").
+
+test_framework(/pytest) :-
+    file_exists("requirements.txt").
+
+test_framework(/cargo) :-
+    file_exists("Cargo.toml").
+
+test_framework(/junit) :-
+    file_exists("pom.xml").
+
+test_framework(/xunit) :-
+    file_exists("*.csproj").
+
+# =============================================================================
+# SECTION 2: TESTER TASK CLASSIFICATION
+# =============================================================================
+
+Decl tester_task(ID, Action, Target, Timestamp).
+
+tester_action(/run_tests) :-
+    tester_task(_, /run_tests, _, _).
+
+tester_action(/generate_tests) :-
+    tester_task(_, /generate_tests, _, _).
+
+tester_action(/coverage) :-
+    tester_task(_, /coverage, _, _).
+
+tester_action(/tdd_loop) :-
+    tester_task(_, /tdd, _, _).
+
+# =============================================================================
+# SECTION 3: TDD STATE MACHINE EXTENSIONS
+# =============================================================================
+
+Decl test_state(State).
+Decl retry_count(Count).
+Decl max_retries(Max).
+
+# Test generation needed when file modified without coverage
+needs_test_generation(File) :-
+    modified(File),
+    !is_test_file(File),
+    !test_coverage(File).
+
+# Generate test action
+next_tester_action(/generate_test, File) :-
+    needs_test_generation(File).
+
+# Run tests action
+next_tester_action(/run_tests, Package) :-
+    test_state(/unknown),
+    test_package(Package).
+
+next_tester_action(/run_tests, Package) :-
+    test_state(/idle),
+    test_package(Package).
+
+# Analyze failures
+next_tester_action(/analyze_failure) :-
+    test_state(/failing),
+    retry_count(N),
+    max_retries(Max),
+    N < Max.
+
+# Escalate after max retries
+next_tester_action(/escalate) :-
+    test_state(/failing),
+    retry_count(N),
+    max_retries(Max),
+    N >= Max.
+
+# =============================================================================
+# SECTION 4: COVERAGE ANALYSIS
+# =============================================================================
+
+Decl coverage_metric(FilePath, Percentage).
+Decl coverage_goal(Goal).
+
+coverage_below_goal(File) :-
+    coverage_metric(File, Pct),
+    coverage_goal(Goal),
+    Pct < Goal.
+
+needs_more_tests(File) :-
+    coverage_below_goal(File).
+
+# Coverage warning
+coverage_warning(File, Pct, Goal) :-
+    coverage_metric(File, Pct),
+    coverage_goal(Goal),
+    Pct < Goal.
+
+# =============================================================================
+# SECTION 5: TEST FILE IDENTIFICATION
+# =============================================================================
+
+is_test_file(File) :-
+    fn:string_ends_with(File, "_test.go").
+
+is_test_file(File) :-
+    fn:string_ends_with(File, ".test.ts").
+
+is_test_file(File) :-
+    fn:string_ends_with(File, ".test.js").
+
+is_test_file(File) :-
+    fn:string_starts_with(fn:basename(File), "test_").
+
+is_test_file(File) :-
+    fn:string_ends_with(File, "_test.rs").
+
+is_test_file(File) :-
+    fn:string_contains(File, "/tests/").
+
+is_test_file(File) :-
+    fn:string_contains(File, "/__tests__/").
+
+# =============================================================================
+# SECTION 6: FAILED TEST TRACKING
+# =============================================================================
+
+Decl failed_test(TestName, FilePath, Message).
+Decl test_output(Output).
+
+# Count failures
+failure_count(N) :-
+    fn:count(failed_test(_, _, _), N).
+
+# Critical failure threshold
+critical_failure_state :-
+    failure_count(N),
+    N > 10.
+
+# =============================================================================
+# SECTION 7: AUTOPOIESIS - LEARNING FROM TEST FAILURES
+# =============================================================================
+
+Decl test_failure(TestID, Pattern, Message).
+Decl failure_count(Pattern, Count).
+Decl test_passed(TestID, Pattern).
+Decl pass_count(Pattern, Count).
+
+# Track recurring test failures
+recurring_failure_pattern(Pattern) :-
+    test_failure(_, Pattern, _),
+    failure_count(Pattern, N),
+    N >= 3.
+
+# Learn to avoid patterns that cause failures
+promote_to_long_term(avoid_pattern(Pattern)) :-
+    recurring_failure_pattern(Pattern).
+
+# Track successful test patterns
+successful_test_pattern(Pattern) :-
+    test_passed(_, Pattern),
+    pass_count(Pattern, N),
+    N >= 5.
+
+# Promote test templates that work well
+promote_to_long_term(test_template(Pattern)) :-
+    successful_test_pattern(Pattern).
+
+# =============================================================================
+# SECTION 8: TDD LOOP CONSTRAINTS
+# =============================================================================
+
+# Block commit while tests failing
+block_commit("tests_failing") :-
+    test_state(/failing).
+
+# Block commit with low coverage
+block_commit("low_coverage") :-
+    coverage_metric(_, Pct),
+    coverage_goal(Goal),
+    Pct < 50.0.  # Hard minimum
+
+# Require tests for critical files
+require_tests(File) :-
+    file_topology(File, _, _, _, false),
+    file_has_public_api(File),
+    !test_coverage(File).

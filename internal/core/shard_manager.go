@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -238,6 +239,21 @@ func (s *BaseShardAgent) Execute(ctx context.Context, task string) (string, erro
 	return fmt.Sprintf("Executed task: %s", task), nil
 }
 
+// LearningStore interface for Autopoiesis persistence (§8.3).
+type LearningStore interface {
+	Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error
+	Load(shardType string) ([]ShardLearning, error)
+	DecayConfidence(shardType string, decayFactor float64) error
+	Close() error
+}
+
+// ShardLearning represents a persisted learning.
+type ShardLearning struct {
+	FactPredicate string
+	FactArgs      []any
+	Confidence    float64
+}
+
 // ShardManager acts as the Hypervisor for ShardAgents.
 // Implements Cortex 1.5.0 §7.0 Sharding (Scalability Layer)
 type ShardManager struct {
@@ -270,6 +286,12 @@ type ShardManager struct {
 
 	// Shared LLM client for shards (optional)
 	llmClient LLMClient
+
+	// Learning store for Autopoiesis (§8.3)
+	learningStore LearningStore
+
+	// Current campaign ID (for learning attribution)
+	currentCampaignID string
 }
 
 // NewShardManager creates a new shard manager.
@@ -440,6 +462,20 @@ func (sm *ShardManager) SetLLMClient(client LLMClient) {
 	sm.llmClient = client
 }
 
+// SetLearningStore sets the learning store for Autopoiesis (§8.3).
+func (sm *ShardManager) SetLearningStore(store LearningStore) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.learningStore = store
+}
+
+// SetCampaignID sets the current campaign ID for learning attribution.
+func (sm *ShardManager) SetCampaignID(campaignID string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.currentCampaignID = campaignID
+}
+
 // RegisterShard registers a custom shard type with a factory function.
 func (sm *ShardManager) RegisterShard(shardType ShardType, factory func(string, ShardConfig) ShardAgent) {
 	sm.mu.Lock()
@@ -518,6 +554,14 @@ func (sm *ShardManager) Spawn(ctx context.Context, shardType string, task string
 	}
 	sm.injectLLMClient(shard)
 
+	// Hydrate with prior learnings (Autopoiesis §8.3)
+	// Extract base shard type (e.g., "coder" from "shard-coder-123")
+	baseShardType := shardType
+	if idx := strings.LastIndex(shardType, "-"); idx > 0 {
+		baseShardType = shardType[:idx]
+	}
+	sm.hydrateWithLearnings(shard, baseShardType)
+
 	// Register as active
 	sm.mu.Lock()
 	sm.activeShards[id] = shard
@@ -530,14 +574,26 @@ func (sm *ShardManager) Spawn(ctx context.Context, shardType string, task string
 		output, err := shard.Execute(ctx, task)
 		duration := time.Since(startTime)
 
+		// Try to get facts from shard for learning propagation
+		var facts []Fact
+		if factProvider, ok := shard.(interface{ GetKernel() *RealKernel }); ok {
+			if kernel := factProvider.GetKernel(); kernel != nil {
+				facts = kernel.GetAllFacts()
+			}
+		}
+
 		result := &ShardResult{
 			ShardID:   id,
 			Task:      task,
 			Output:    output,
 			Error:     err,
 			Duration:  duration,
+			Facts:     facts,
 			Timestamp: time.Now(),
 		}
+
+		// Process learnings from result (Autopoiesis §8.3)
+		sm.processLearnings(baseShardType, result)
 
 		// Store result
 		sm.mu.Lock()
@@ -643,6 +699,95 @@ func (sm *ShardManager) injectLLMClient(shard ShardAgent) {
 	}
 	if llmAware, ok := shard.(interface{ SetLLMClient(LLMClient) }); ok {
 		llmAware.SetLLMClient(client)
+	}
+}
+
+// processLearnings extracts and persists promote_to_long_term facts from a shard result.
+// This implements the Autopoiesis feedback loop (§8.3).
+func (sm *ShardManager) processLearnings(shardType string, result *ShardResult) {
+	sm.mu.RLock()
+	store := sm.learningStore
+	campaignID := sm.currentCampaignID
+	sm.mu.RUnlock()
+
+	if store == nil || result == nil {
+		return
+	}
+
+	for _, fact := range result.Facts {
+		if fact.Predicate == "promote_to_long_term" && len(fact.Args) >= 2 {
+			// Args format: [predicate_name, ...args]
+			factPredicate, ok := fact.Args[0].(string)
+			if !ok {
+				continue
+			}
+
+			// Extract remaining args
+			factArgs := fact.Args[1:]
+
+			// Validate against parent kernel (Constitution) if available
+			if sm.parentKernel != nil {
+				// Check if this learning would violate safety rules
+				// Query: contradict_safety(FactPredicate, FactArgs)?
+				// For now, allow all learnings (Constitution validation can be added)
+			}
+
+			// Persist the learning
+			if err := store.Save(shardType, factPredicate, factArgs, campaignID); err != nil {
+				// Log error but don't fail the shard execution
+				fmt.Printf("[ShardManager] Failed to persist learning: %v\n", err)
+			}
+		}
+	}
+}
+
+// hydrateWithLearnings loads prior learnings into a shard's kernel.
+// This allows shards to benefit from patterns learned in previous sessions.
+func (sm *ShardManager) hydrateWithLearnings(shard ShardAgent, shardType string) {
+	sm.mu.RLock()
+	store := sm.learningStore
+	sm.mu.RUnlock()
+
+	if store == nil {
+		return
+	}
+
+	// Get the shard's kernel if it has one
+	kernelGetter, ok := shard.(interface{ GetKernel() *RealKernel })
+	if !ok {
+		return
+	}
+	kernel := kernelGetter.GetKernel()
+	if kernel == nil {
+		return
+	}
+
+	// Load learnings for this shard type
+	learnings, err := store.Load(shardType)
+	if err != nil {
+		fmt.Printf("[ShardManager] Failed to load learnings: %v\n", err)
+		return
+	}
+
+	// Assert each learning as a fact in the kernel
+	for _, learning := range learnings {
+		// Reconstruct the fact from the learning
+		args := make([]interface{}, 0, len(learning.FactArgs)+1)
+		args = append(args, learning.FactPredicate)
+		args = append(args, learning.FactArgs...)
+
+		_ = kernel.Assert(Fact{
+			Predicate: "learned_" + learning.FactPredicate,
+			Args:      learning.FactArgs,
+		})
+
+		// Also assert as a weighted preference fact
+		if learning.Confidence >= 0.7 {
+			_ = kernel.Assert(Fact{
+				Predicate: "strong_preference",
+				Args:      []interface{}{learning.FactPredicate, learning.FactArgs},
+			})
+		}
 	}
 }
 

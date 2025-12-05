@@ -372,6 +372,34 @@ func (k *RealKernel) SetPolicy(policy string) {
 	k.policy = policy
 }
 
+// AppendPolicy appends additional policy rules (for shard-specific policies).
+func (k *RealKernel) AppendPolicy(additionalPolicy string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.policy = k.policy + "\n\n# Appended Policy\n" + additionalPolicy
+}
+
+// LoadPolicyFile loads policy rules from a file and appends them.
+func (k *RealKernel) LoadPolicyFile(path string) error {
+	// Try multiple search paths
+	searchPaths := []string{
+		path,
+		filepath.Join("internal/mangle", filepath.Base(path)),
+		filepath.Join("../internal/mangle", filepath.Base(path)),
+		filepath.Join("../../internal/mangle", filepath.Base(path)),
+	}
+
+	for _, p := range searchPaths {
+		data, err := os.ReadFile(p)
+		if err == nil {
+			k.AppendPolicy(string(data))
+			return nil
+		}
+	}
+
+	return fmt.Errorf("policy file not found: %s", path)
+}
+
 // GetSchemas returns the current schemas.
 func (k *RealKernel) GetSchemas() string {
 	k.mu.RLock()
@@ -407,6 +435,15 @@ func (k *RealKernel) FactCount() int {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	return len(k.facts)
+}
+
+// GetAllFacts returns a copy of all facts in the kernel.
+func (k *RealKernel) GetAllFacts() []Fact {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	result := make([]Fact, len(k.facts))
+	copy(result, k.facts)
+	return result
 }
 
 // LoadFactsFromFile loads facts from a .gl file into the kernel.

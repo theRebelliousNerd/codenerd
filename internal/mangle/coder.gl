@@ -1,0 +1,179 @@
+# Coder Shard Policy - Code Generation Logic
+# Loaded by CoderShard kernel alongside base policy.gl
+# Part of Cortex 1.5.0 Architecture
+
+# =============================================================================
+# SECTION 1: CODER TASK CLASSIFICATION
+# =============================================================================
+
+# Task type atoms
+Decl coder_task(ID, Action, Target, Instruction).
+
+# Active strategy based on task action
+coder_strategy(/generate) :-
+    coder_task(_, /create, _, _).
+
+coder_strategy(/modify) :-
+    coder_task(_, /modify, _, _).
+
+coder_strategy(/refactor) :-
+    coder_task(_, /refactor, _, _).
+
+coder_strategy(/fix) :-
+    coder_task(_, /fix, _, _).
+
+# =============================================================================
+# SECTION 2: LANGUAGE DETECTION
+# =============================================================================
+
+Decl file_extension(FilePath, Extension).
+
+detected_language(File, /go) :-
+    file_extension(File, ".go").
+
+detected_language(File, /python) :-
+    file_extension(File, ".py").
+
+detected_language(File, /typescript) :-
+    file_extension(File, ".ts").
+
+detected_language(File, /javascript) :-
+    file_extension(File, ".js").
+
+detected_language(File, /rust) :-
+    file_extension(File, ".rs").
+
+detected_language(File, /java) :-
+    file_extension(File, ".java").
+
+detected_language(File, /csharp) :-
+    file_extension(File, ".cs").
+
+detected_language(File, /ruby) :-
+    file_extension(File, ".rb").
+
+detected_language(File, /php) :-
+    file_extension(File, ".php").
+
+detected_language(File, /cpp) :-
+    file_extension(File, ".cpp").
+
+detected_language(File, /c) :-
+    file_extension(File, ".c").
+
+# =============================================================================
+# SECTION 3: IMPACT ANALYSIS BEFORE WRITE
+# =============================================================================
+
+Decl pending_edit(FilePath, Content).
+Decl test_coverage(FilePath).
+Decl impacted(FilePath).
+Decl dependency_link(Caller, Callee, ImportPath).
+
+# Transitive impact calculation
+impacted(X) :- dependency_link(X, Y, _), modified(Y).
+impacted(X) :- dependency_link(X, Z, _), impacted(Z).
+
+# Block write if impacted files lack test coverage
+coder_block_write(File, "uncovered_impact") :-
+    pending_edit(File, _),
+    impacted(Dependent),
+    dependency_link(Dependent, File, _),
+    !test_coverage(Dependent).
+
+# Safe to write check
+coder_safe_to_write(File) :-
+    pending_edit(File, _),
+    !coder_block_write(File, _).
+
+# =============================================================================
+# SECTION 4: BUILD STATE TRACKING
+# =============================================================================
+
+Decl build_state(State).
+Decl diagnostic(Severity, FilePath, Line, Code, Message).
+
+# Block commit on build errors (per Cortex 1.5.0 Section 2.2)
+block_commit("build_errors") :-
+    diagnostic(/error, _, _, _, _).
+
+block_commit("build_errors") :-
+    build_state(/failing).
+
+# =============================================================================
+# SECTION 5: NEXT ACTION DERIVATION
+# =============================================================================
+
+Decl coder_state(State).
+
+# Derive next action based on state
+next_coder_action(/read_context) :-
+    coder_state(/idle),
+    coder_task(_, _, Target, _),
+    !file_content(Target, _).
+
+next_coder_action(/generate_code) :-
+    coder_state(/context_ready),
+    coder_task(_, _, _, _).
+
+next_coder_action(/apply_edit) :-
+    coder_state(/code_generated),
+    pending_edit(_, _).
+
+next_coder_action(/run_build) :-
+    coder_state(/edit_applied).
+
+next_coder_action(/complete) :-
+    coder_state(/build_passed).
+
+next_coder_action(/escalate) :-
+    coder_state(/build_failed),
+    retry_count(N),
+    N >= 3.
+
+# =============================================================================
+# SECTION 6: AUTOPOIESIS - LEARNING FROM PATTERNS
+# =============================================================================
+
+Decl rejection(TaskID, Category, Pattern).
+Decl rejection_count(Category, Pattern, Count).
+Decl code_accepted(TaskID, Pattern).
+Decl acceptance_count(Pattern, Count).
+
+# Track rejection patterns (style issues rejected 2+ times)
+coder_rejection_pattern(Style) :-
+    rejection(_, /style, Style),
+    rejection_count(/style, Style, N),
+    N >= 2.
+
+# Promote style preference to long-term memory
+promote_to_long_term(/style_preference, Style) :-
+    coder_rejection_pattern(Style).
+
+# Track successful patterns (accepted 3+ times)
+coder_success_pattern(Pattern) :-
+    code_accepted(_, Pattern),
+    acceptance_count(Pattern, N),
+    N >= 3.
+
+# Promote preferred patterns
+promote_to_long_term(/preferred_pattern, Pattern) :-
+    coder_success_pattern(Pattern).
+
+# =============================================================================
+# SECTION 7: SAFETY CONSTRAINTS
+# =============================================================================
+
+# Never modify files outside workspace
+coder_forbidden_path(Path) :-
+    !fn:string_starts_with(Path, workspace_root()).
+
+# Block dangerous operations
+coder_block_action(Action, "forbidden_path") :-
+    pending_edit(Path, _),
+    coder_forbidden_path(Path).
+
+# Block binary file modifications
+coder_block_action(Action, "binary_file") :-
+    pending_edit(Path, _),
+    is_binary_file(Path).
