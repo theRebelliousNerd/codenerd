@@ -291,11 +291,42 @@ goal_requires(Goal, /analyze) :-
     user_intent(_, _, /explain, Goal, _).
 
 # Action Mappings: Map intent verbs to executable actions
+# Core actions
 action_mapping(/explain, /analyze_code).
 action_mapping(/read, /fs_read).
 action_mapping(/search, /search_files).
 action_mapping(/run, /exec_cmd).
 action_mapping(/test, /run_tests).
+
+# Code review & analysis actions (delegate to reviewer shard)
+action_mapping(/review, /delegate_reviewer).
+action_mapping(/security, /delegate_reviewer).
+action_mapping(/analyze, /delegate_reviewer).
+
+# Code mutation actions (delegate to coder shard)
+action_mapping(/fix, /delegate_coder).
+action_mapping(/refactor, /delegate_coder).
+action_mapping(/create, /delegate_coder).
+action_mapping(/delete, /delegate_coder).
+action_mapping(/write, /fs_write).
+action_mapping(/document, /delegate_coder).
+action_mapping(/commit, /delegate_coder).
+
+# Debug actions
+action_mapping(/debug, /delegate_coder).
+
+# Research actions (delegate to researcher shard)
+action_mapping(/research, /delegate_researcher).
+action_mapping(/explore, /delegate_researcher).
+
+# Autopoiesis/Tool generation actions (delegate to tool_generator shard)
+action_mapping(/generate_tool, /delegate_tool_generator).
+action_mapping(/refine_tool, /delegate_tool_generator).
+action_mapping(/list_tools, /delegate_tool_generator).
+action_mapping(/tool_status, /delegate_tool_generator).
+
+# Diff actions
+action_mapping(/diff, /show_diff).
 
 # Derive next_action from intent and mapping
 next_action(Action) :-
@@ -308,6 +339,34 @@ next_action(/fs_read) :-
 
 next_action(/fs_write) :-
     user_intent(_, _, /write, _, _).
+
+# Review delegation - high confidence triggers immediate delegation
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(_, _, /review, Target, _).
+
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(_, _, /security, Target, _).
+
+delegate_task(/reviewer, Target, /pending) :-
+    user_intent(_, _, /analyze, Target, _).
+
+# Tool generator delegation - autopoiesis operations
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /generate_tool, Target, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /refine_tool, Target, _).
+
+delegate_task(/tool_generator, "", /pending) :-
+    user_intent(_, _, /list_tools, _, _).
+
+delegate_task(/tool_generator, Target, /pending) :-
+    user_intent(_, _, /tool_status, Target, _).
+
+# Auto-delegate when missing capability detected (implicit tool generation)
+delegate_task(/tool_generator, Cap, /pending) :-
+    missing_tool_for(_, Cap),
+    !tool_generation_blocked(Cap).
 
 # =============================================================================
 # SECTION 11: ABDUCTIVE REASONING (§8.2)
@@ -360,6 +419,167 @@ missing_tool_for(IntentID, Cap) :-
 # Trigger tool generation if tool is missing
 next_action(/generate_tool) :-
     missing_tool_for(_, _).
+
+# =============================================================================
+# SECTION 12B: OUROBOROS LOOP - TOOL SELF-GENERATION
+# =============================================================================
+# The Ouroboros Loop: Detection → Specification → Safety → Compile → Register → Execute
+# Named after the ancient symbol of a serpent eating its own tail.
+
+# Tool exists in registry
+tool_exists(ToolName) :-
+    tool_registered(ToolName, _).
+
+# Tool is ready for execution (compiled and registered)
+tool_ready(ToolName) :-
+    tool_exists(ToolName),
+    tool_hash(ToolName, _).
+
+# Capability is available if any tool provides it
+capability_available(Cap) :-
+    tool_capability(_, Cap).
+
+# Need new tool when capability missing and user explicitly requests it
+explicit_tool_request(Cap) :-
+    user_intent(_, /mutation, /generate_tool, Cap, _).
+
+# Need new tool when repeated failures suggest capability gap
+capability_gap_detected(Cap) :-
+    task_failure_reason(_, "missing_capability", Cap),
+    task_failure_count(Cap, N),
+    N >= 2.
+
+# Tool generation is permitted (safety gate)
+tool_generation_permitted(Cap) :-
+    missing_tool_for(_, Cap),
+    !tool_generation_blocked(Cap).
+
+# Block tool generation for dangerous capabilities
+tool_generation_blocked(Cap) :-
+    dangerous_capability(Cap).
+
+# Define dangerous capabilities that should never be auto-generated
+dangerous_capability(/exec_arbitrary).
+dangerous_capability(/network_unconstrained).
+dangerous_capability(/system_admin).
+dangerous_capability(/credential_access).
+
+# Ouroboros next actions
+next_action(/ouroboros_detect) :-
+    capability_gap_detected(_).
+
+next_action(/ouroboros_generate) :-
+    tool_generation_permitted(_),
+    !active_generation(_).
+
+next_action(/ouroboros_compile) :-
+    tool_source_ready(ToolName),
+    tool_safety_verified(ToolName),
+    !tool_compiled(ToolName).
+
+next_action(/ouroboros_register) :-
+    tool_compiled(ToolName),
+    !tool_registered(ToolName, _).
+
+# Track active tool generation (prevent parallel generations)
+active_generation(ToolName) :-
+    generation_state(ToolName, /in_progress).
+
+# Tool lifecycle states
+tool_lifecycle(ToolName, /detected) :-
+    missing_tool_for(_, ToolName).
+
+tool_lifecycle(ToolName, /generating) :-
+    generation_state(ToolName, /in_progress).
+
+tool_lifecycle(ToolName, /safety_check) :-
+    tool_source_ready(ToolName),
+    !tool_safety_verified(ToolName).
+
+tool_lifecycle(ToolName, /compiling) :-
+    tool_safety_verified(ToolName),
+    !tool_compiled(ToolName).
+
+tool_lifecycle(ToolName, /ready) :-
+    tool_ready(ToolName).
+
+# =============================================================================
+# SECTION 12C: TOOL LEARNING AND OPTIMIZATION
+# =============================================================================
+# Learning from tool executions to improve future generations.
+
+# Tool quality tracking
+tool_quality_poor(ToolName) :-
+    tool_learning(ToolName, Executions, SuccessRate, AvgQuality),
+    Executions >= 3,
+    AvgQuality < 0.5.
+
+tool_quality_acceptable(ToolName) :-
+    tool_learning(ToolName, Executions, _, AvgQuality),
+    Executions >= 3,
+    AvgQuality >= 0.5,
+    AvgQuality < 0.8.
+
+tool_quality_good(ToolName) :-
+    tool_learning(ToolName, Executions, _, AvgQuality),
+    Executions >= 3,
+    AvgQuality >= 0.8.
+
+# Trigger refinement for poor quality tools
+tool_needs_refinement(ToolName) :-
+    tool_quality_poor(ToolName).
+
+tool_needs_refinement(ToolName) :-
+    tool_known_issue(ToolName, /pagination),
+    tool_learning(ToolName, Executions, _, _),
+    Executions >= 2.
+
+tool_needs_refinement(ToolName) :-
+    tool_known_issue(ToolName, /incomplete),
+    tool_learning(ToolName, Executions, _, _),
+    Executions >= 2.
+
+# Next action for refinement
+next_action(/refine_tool) :-
+    tool_needs_refinement(_),
+    !active_refinement(_).
+
+# Prevent parallel refinements
+active_refinement(ToolName) :-
+    refinement_state(ToolName, /in_progress).
+
+# Learning pattern signals
+learning_pattern_detected(ToolName, IssueType) :-
+    tool_known_issue(ToolName, IssueType),
+    issue_occurrence_count(ToolName, IssueType, Count),
+    Count >= 3.
+
+# Promote learnings to tool generation hints
+tool_generation_hint(Capability, "add_pagination") :-
+    learning_pattern_detected(_, /pagination),
+    capability_similar_to(Capability, _).
+
+tool_generation_hint(Capability, "increase_limits") :-
+    learning_pattern_detected(_, /incomplete),
+    capability_similar_to(Capability, _).
+
+tool_generation_hint(Capability, "add_retry") :-
+    learning_pattern_detected(_, /rate_limit),
+    capability_similar_to(Capability, _).
+
+# Track refinement success
+refinement_effective(ToolName) :-
+    tool_refined(ToolName, OldVersion, NewVersion),
+    version_quality(ToolName, OldVersion, OldQuality),
+    version_quality(ToolName, NewVersion, NewQuality),
+    NewQuality > OldQuality.
+
+# Escalate if refinement didn't help
+escalate_to_user(ToolName, "refinement_ineffective") :-
+    tool_refined(ToolName, _, _),
+    tool_quality_poor(ToolName),
+    refinement_count(ToolName, Count),
+    Count >= 2.
 
 # =============================================================================
 # SECTION 13: GIT-AWARE SAFETY / CHESTERTON'S FENCE (§21)
