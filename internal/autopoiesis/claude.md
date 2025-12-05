@@ -4,23 +4,25 @@ This package implements autopoiesis (self-creation) - the ability for codeNERD t
 
 ## Architecture
 
-Autopoiesis provides five core capabilities:
+Autopoiesis provides six core capabilities:
 1. **Complexity Analysis** - Detect when campaigns are needed
 2. **Tool Generation** - Create new tools when capabilities are missing
 3. **Persistence Analysis** - Identify when persistent agents are needed
 4. **Ouroboros Loop** - Full tool self-generation cycle with safety verification
 5. **Feedback & Learning** - Evaluate tool quality and improve over time
+6. **Reasoning Traces** - Capture LLM reasoning for optimization and debugging
 
 ## File Structure
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `autopoiesis.go` | ~600 | Main orchestrator |
+| `autopoiesis.go` | ~750 | Main orchestrator |
 | `complexity.go` | ~300 | Task complexity analysis |
 | `toolgen.go` | ~600 | LLM-based tool generation |
 | `persistence.go` | ~400 | Persistent agent detection |
 | `ouroboros.go` | ~550 | Full Ouroboros Loop with safety/compile/execute |
 | `feedback.go` | ~700 | Quality evaluation, pattern detection, learning |
+| `traces.go` | ~970 | Reasoning traces, audit logs, mandatory logging |
 
 ## The Ouroboros Loop
 
@@ -254,6 +256,151 @@ Scenario: A tool fetches docs but only gets 10% of available data.
 - `os.Chmod` - Permission change
 - `os.Chown` - Ownership change
 - `unsafe.Pointer` - Unsafe pointers
+
+## Reasoning Traces
+
+The trace system captures the "why" behind tool generation for optimization and debugging.
+
+### What's Captured
+
+| Component | Description |
+|-----------|-------------|
+| **SystemPrompt** | System prompt sent to LLM |
+| **UserPrompt** | Full user prompt |
+| **RawResponse** | Complete LLM response |
+| **ChainOfThought** | Extracted reasoning steps |
+| **KeyDecisions** | Major choices and why |
+| **Assumptions** | Assumptions the LLM made |
+| **Alternatives** | Options considered but rejected |
+
+### ReasoningTrace
+```go
+type ReasoningTrace struct {
+    TraceID        string
+    ToolName       string
+    UserRequest    string
+    DetectedNeed   *ToolNeed
+    SystemPrompt   string
+    UserPrompt     string
+    RawResponse    string
+    ChainOfThought []ThoughtStep
+    KeyDecisions   []Decision
+    Assumptions    []string
+    QualityScore   float64  // Filled after execution feedback
+}
+```
+
+### Generation Audit
+
+Analyze patterns across ALL tool generations:
+
+```go
+audit, _ := orchestrator.AnalyzeGenerations(ctx)
+
+// Summary statistics
+audit.TotalGenerations    // 50
+audit.SuccessRate         // 0.85
+audit.AverageQuality      // 0.72
+
+// Common patterns
+audit.CommonDecisions     // [{Topic: "pagination", Choice: "cursor-based", SuccessRate: 0.9}]
+audit.CommonIssues        // [{Issue: "incomplete", Occurrences: 12, CommonCauses: [...]}]
+
+// Optimization opportunities
+audit.Optimizations       // [{Area: "issue_prevention", Suggestion: "Add pagination by default"}]
+```
+
+## Mandatory Logging Injection
+
+All generated tools MUST have verbose logging for learning. Logging is automatically injected before compilation.
+
+### Required Log Points
+
+| Log Type | Tag | When |
+|----------|-----|------|
+| Entry | `[TOOL_ENTRY]` | Function start |
+| Exit | `[TOOL_EXIT]` | Function end (via defer) |
+| Error | `[TOOL_ERROR]` | Every error |
+| Timing | `[TOOL_TIMING]` | Execution duration |
+| API Call | `[TOOL_API_CALL]` | External API requests |
+| Iteration | `[TOOL_ITERATION]` | Loop execution counts |
+
+### LoggingRequirements
+```go
+type LoggingRequirements struct {
+    RequireEntryLog     bool  // Log on function entry
+    RequireExitLog      bool  // Log on function exit
+    RequireErrorLog     bool  // Log all errors
+    RequireInputLog     bool  // Log input parameters
+    RequireOutputLog    bool  // Log output/return values
+    RequireTimingLog    bool  // Log execution duration
+    RequireDecisionLog  bool  // Log key decisions
+    RequireAPICallLog   bool  // Log external API calls
+    RequireIterationLog bool  // Log loop iterations
+}
+```
+
+### Example Injected Logging
+
+```go
+// Original code:
+func fetchDocs(input string) (string, error) {
+    resp, err := http.Get(url)
+    if err != nil {
+        return "", err
+    }
+    // ...
+}
+
+// After injection:
+func fetchDocs(input string) (string, error) {
+    log.Printf("[TOOL_ENTRY] fetchDocs: starting execution, input=%q", input)
+    defer log.Printf("[TOOL_EXIT] fetchDocs: execution complete")
+    _toolStartTime := time.Now()
+    defer func() { log.Printf("[TOOL_TIMING] fetchDocs: duration=%v", time.Since(_toolStartTime)) }()
+
+    log.Printf("[TOOL_API_CALL] fetchDocs: making request")
+    resp, err := http.Get(url)
+    if err != nil {
+        log.Printf("[TOOL_ERROR] fetchDocs: %v", err)
+        return "", err
+    }
+    // ...
+}
+```
+
+### Using Traces for Optimization
+
+```go
+// Generate with full tracing
+tool, trace, _ := orchestrator.GenerateToolWithTracing(ctx, need, "fetch context7 docs")
+
+// Execute and evaluate
+output, quality, _ := orchestrator.ExecuteAndEvaluate(ctx, tool.Name, input)
+
+// Update trace with feedback
+orchestrator.UpdateTraceWithFeedback(tool.Name, quality.Score, []string{"pagination"}, nil)
+
+// Later: analyze all generations
+audit, _ := orchestrator.AnalyzeGenerations(ctx)
+// audit.Optimizations contains suggestions like:
+// "Issue 'pagination' occurred 12 times. Add pagination handling by default."
+```
+
+## Directory Structure
+
+```
+.nerd/
+├── tools/
+│   ├── context7_docs.go        # Generated source (with logging)
+│   ├── context7_docs_test.go   # Generated tests
+│   ├── .compiled/
+│   │   └── context7_docs       # Compiled binary
+│   ├── .learnings/
+│   │   └── tool_learnings.json # Persisted learnings
+│   └── .traces/
+│       └── reasoning_traces.json # Reasoning traces
+```
 
 ## Testing
 
