@@ -786,7 +786,7 @@ func (r *ReviewerShard) checkStyle(filePath, content string) []ReviewFinding {
 		},
 		// TODO without issue reference
 		{
-			Pattern:    regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX)(?![:\s]*#\d+)`),
+			Pattern:    regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX)`),
 			RuleID:     "STY003",
 			Severity:   "info",
 			Message:    "TODO/FIXME without issue reference",
