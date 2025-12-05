@@ -475,3 +475,332 @@ shard_model_config(/system, /high_reasoning).
 shard_model_config(/ephemeral, /high_speed).
 shard_model_config(/persistent, /balanced).
 shard_model_config(/user, /high_reasoning).
+
+# =============================================================================
+# SECTION 19: CAMPAIGN ORCHESTRATION POLICY
+# =============================================================================
+# Long-running, multi-phase goal execution with context management
+
+# -----------------------------------------------------------------------------
+# 19.1 Campaign State Machine
+# -----------------------------------------------------------------------------
+
+# Current campaign is the one that's active
+current_campaign(CampaignID) :-
+    campaign(CampaignID, _, _, _, /active).
+
+# Campaign execution strategy activates when a campaign is active
+active_strategy(/campaign_execution) :-
+    current_campaign(_).
+
+# -----------------------------------------------------------------------------
+# 19.2 Phase Eligibility & Sequencing
+# -----------------------------------------------------------------------------
+
+# Helper: check if a phase has incomplete hard dependencies
+has_incomplete_hard_dep(PhaseID) :-
+    phase_dependency(PhaseID, DepPhaseID, /hard),
+    campaign_phase(DepPhaseID, _, _, _, Status, _),
+    Status != /completed.
+
+# A phase is eligible when all hard dependencies are complete
+phase_eligible(PhaseID) :-
+    campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
+    current_campaign(CampaignID),
+    !has_incomplete_hard_dep(PhaseID).
+
+# Helper: check if there's an earlier eligible phase
+has_earlier_phase(PhaseID, Order) :-
+    phase_eligible(OtherPhaseID),
+    OtherPhaseID != PhaseID,
+    campaign_phase(OtherPhaseID, _, _, OtherOrder, _, _),
+    OtherOrder < Order.
+
+# Current phase: lowest order eligible phase, or the one in progress
+current_phase(PhaseID) :-
+    campaign_phase(PhaseID, CampaignID, _, _, /in_progress, _),
+    current_campaign(CampaignID).
+
+current_phase(PhaseID) :-
+    phase_eligible(PhaseID),
+    campaign_phase(PhaseID, _, _, Order, _, _),
+    !has_earlier_phase(PhaseID, Order),
+    !has_in_progress_phase().
+
+# Helper: check if any phase is in progress
+has_in_progress_phase() :-
+    campaign_phase(_, CampaignID, _, _, /in_progress, _),
+    current_campaign(CampaignID).
+
+# Phase is blocked if it has incomplete hard dependencies
+phase_blocked(PhaseID, "hard_dependency_incomplete") :-
+    campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
+    current_campaign(CampaignID),
+    has_incomplete_hard_dep(PhaseID).
+
+# -----------------------------------------------------------------------------
+# 19.3 Task Selection & Execution
+# -----------------------------------------------------------------------------
+
+# Helper: check if task has blocking dependencies
+has_blocking_task_dep(TaskID) :-
+    task_dependency(TaskID, BlockerID),
+    campaign_task(BlockerID, _, _, Status, _),
+    Status != /completed,
+    Status != /skipped.
+
+# Helper: check if there's an earlier pending task
+has_earlier_task(TaskID, PhaseID) :-
+    campaign_task(OtherTaskID, PhaseID, _, /pending, _),
+    OtherTaskID != TaskID,
+    task_priority(OtherTaskID, OtherPriority),
+    task_priority(TaskID, Priority),
+    priority_higher(OtherPriority, Priority).
+
+# Priority ordering helper (will be implemented as Go builtin)
+# For now, we use simple rules
+priority_higher(/critical, /high).
+priority_higher(/critical, /normal).
+priority_higher(/critical, /low).
+priority_higher(/high, /normal).
+priority_higher(/high, /low).
+priority_higher(/normal, /low).
+
+# Next task: highest priority pending task in current phase without blockers
+next_campaign_task(TaskID) :-
+    current_phase(PhaseID),
+    campaign_task(TaskID, PhaseID, _, /pending, _),
+    !has_blocking_task_dep(TaskID).
+
+# Derive next_action based on campaign task type
+next_action(/campaign_create_file) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /file_create).
+
+next_action(/campaign_modify_file) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /file_modify).
+
+next_action(/campaign_write_test) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /test_write).
+
+next_action(/campaign_run_test) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /test_run).
+
+next_action(/campaign_research) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /research).
+
+next_action(/campaign_verify) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /verify).
+
+next_action(/campaign_document) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /document).
+
+next_action(/campaign_refactor) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /refactor).
+
+next_action(/campaign_integrate) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, /integrate).
+
+# Auto-spawn researcher shard for research tasks
+delegate_task(/researcher, Description, /pending) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, Description, _, /research).
+
+# Auto-spawn coder shard for file creation/modification
+delegate_task(/coder, Description, /pending) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, Description, _, /file_create).
+
+delegate_task(/coder, Description, /pending) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, Description, _, /file_modify).
+
+# Auto-spawn tester shard for test tasks
+delegate_task(/tester, Description, /pending) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, Description, _, /test_write).
+
+delegate_task(/tester, Description, /pending) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, Description, _, /test_run).
+
+# -----------------------------------------------------------------------------
+# 19.4 Context Paging (Phase-Aware Spreading Activation)
+# -----------------------------------------------------------------------------
+
+# Boost activation for current phase context
+activation(Fact, 150) :-
+    current_phase(PhaseID),
+    phase_context_atom(PhaseID, Fact, _).
+
+# Boost files matching current task's target
+activation(Target, 140) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, _),
+    task_artifact(TaskID, _, Target, _).
+
+# Suppress context from completed phases
+activation(Fact, -50) :-
+    context_compression(PhaseID, _, _, _),
+    phase_context_atom(PhaseID, Fact, _).
+
+# -----------------------------------------------------------------------------
+# 19.5 Checkpoint & Verification
+# -----------------------------------------------------------------------------
+
+# Helper: check if phase has pending checkpoint
+has_pending_checkpoint(PhaseID) :-
+    phase_objective(PhaseID, _, _, VerifyMethod),
+    VerifyMethod != /none,
+    !has_passed_checkpoint(PhaseID, VerifyMethod).
+
+has_passed_checkpoint(PhaseID, CheckType) :-
+    phase_checkpoint(PhaseID, CheckType, /true, _, _).
+
+# Helper: check if all phase tasks are complete
+has_incomplete_phase_task(PhaseID) :-
+    campaign_task(_, PhaseID, _, Status, _),
+    Status != /completed,
+    Status != /skipped.
+
+all_phase_tasks_complete(PhaseID) :-
+    campaign_phase(PhaseID, _, _, _, _, _),
+    !has_incomplete_phase_task(PhaseID).
+
+# Trigger checkpoint when all tasks complete but checkpoint pending
+next_action(/run_phase_checkpoint) :-
+    current_phase(PhaseID),
+    all_phase_tasks_complete(PhaseID),
+    has_pending_checkpoint(PhaseID).
+
+# Block phase completion if checkpoint failed
+phase_blocked(PhaseID, "checkpoint_failed") :-
+    phase_checkpoint(PhaseID, _, /false, _, _).
+
+# -----------------------------------------------------------------------------
+# 19.6 Replanning Triggers
+# -----------------------------------------------------------------------------
+
+# Helper: count failed tasks
+failed_task_count(CampaignID, Count) :-
+    current_campaign(CampaignID),
+    Count = count({ TaskID : campaign_task(TaskID, _, _, /failed, _) }).
+
+# Trigger replan on repeated failures (> 3)
+replan_needed(CampaignID, "task_failure_cascade") :-
+    current_campaign(CampaignID),
+    failed_task_count(CampaignID, Count),
+    Count > 3.
+
+# Trigger replan if user provides new instruction during campaign
+replan_needed(CampaignID, "user_instruction") :-
+    current_campaign(CampaignID),
+    user_intent(_, /instruction, _, _, _).
+
+# Trigger replan if explicit trigger exists
+replan_needed(CampaignID, Reason) :-
+    replan_trigger(CampaignID, Reason, _).
+
+# Pause and replan action
+next_action(/pause_and_replan) :-
+    replan_needed(_, _).
+
+# -----------------------------------------------------------------------------
+# 19.7 Campaign Completion
+# -----------------------------------------------------------------------------
+
+# Helper: check if any phase is not complete
+has_incomplete_phase(CampaignID) :-
+    campaign_phase(_, CampaignID, _, _, Status, _),
+    Status != /completed,
+    Status != /skipped.
+
+# Campaign complete when all phases complete
+campaign_complete(CampaignID) :-
+    current_campaign(CampaignID),
+    !has_incomplete_phase(CampaignID).
+
+next_action(/campaign_complete) :-
+    campaign_complete(_).
+
+# -----------------------------------------------------------------------------
+# 19.8 Campaign Blocking Conditions
+# -----------------------------------------------------------------------------
+
+# Campaign blocked if no eligible phases and none in progress
+campaign_blocked(CampaignID, "no_eligible_phases") :-
+    current_campaign(CampaignID),
+    !phase_eligible(_),
+    !has_in_progress_phase(),
+    has_incomplete_phase(CampaignID).
+
+# Campaign blocked if all remaining tasks are blocked
+campaign_blocked(CampaignID, "all_tasks_blocked") :-
+    current_campaign(CampaignID),
+    current_phase(PhaseID),
+    !next_campaign_task(_),
+    has_incomplete_phase_task(PhaseID).
+
+# -----------------------------------------------------------------------------
+# 19.9 Autopoiesis During Campaign
+# -----------------------------------------------------------------------------
+
+# Learn from phase completion
+promote_to_long_term(pattern(PhaseType, /success)) :-
+    campaign_phase(PhaseID, _, _, _, /completed, _),
+    phase_objective(PhaseID, PhaseType, _, _),
+    phase_checkpoint(PhaseID, _, /true, _, _).
+
+# Learn from task failures for future avoidance
+campaign_learning(CampaignID, /failure_pattern, TaskType, ErrorMsg, Now) :-
+    current_campaign(CampaignID),
+    campaign_task(TaskID, _, _, /failed, TaskType),
+    task_error(TaskID, _, ErrorMsg),
+    current_time(Now).
+
+# -----------------------------------------------------------------------------
+# 19.10 Campaign-Aware Tool Permissions
+# -----------------------------------------------------------------------------
+
+# During campaigns, only permit tools in the phase's context profile
+phase_tool_permitted(Tool) :-
+    current_phase(PhaseID),
+    campaign_phase(PhaseID, _, _, _, _, ContextProfile),
+    context_profile(ContextProfile, _, RequiredTools, _),
+    tool_in_list(Tool, RequiredTools).
+
+# Block tools not in phase profile during active campaign
+# (This is advisory - Go runtime can override for safety)
+tool_advisory_block(Tool, "not_in_phase_profile") :-
+    current_campaign(_),
+    current_phase(_),
+    !phase_tool_permitted(Tool).
+
+# =============================================================================
+# SECTION 20: CAMPAIGN START TRIGGER
+# =============================================================================
+
+# Trigger campaign mode when user wants to start a campaign
+active_strategy(/campaign_planning) :-
+    user_intent(_, /mutation, /campaign, _, _).
+
+# Alternative triggers for campaign-like requests
+active_strategy(/campaign_planning) :-
+    user_intent(_, /mutation, /build, Target, _),
+    target_is_large(Target).
+
+active_strategy(/campaign_planning) :-
+    user_intent(_, /mutation, /implement, Target, _),
+    target_is_complex(Target).
+
+# Heuristics for complexity (implemented in Go builtins)
+# target_is_large(Target) - true if target references multiple files/features
+# target_is_complex(Target) - true if target requires multiple phases

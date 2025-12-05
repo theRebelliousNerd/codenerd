@@ -6,6 +6,7 @@ import (
 	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
+	"codenerd/internal/campaign"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
@@ -84,6 +85,12 @@ type chatModel struct {
 	emitter    *articulation.Emitter
 	scanner    *world.Scanner
 	workspace  string
+
+	// Campaign Orchestration
+	activeCampaign    *campaign.Campaign
+	campaignOrch      *campaign.Orchestrator
+	campaignProgress  *campaign.Progress
+	showCampaignPanel bool
 }
 
 type chatMessage struct {
@@ -128,6 +135,12 @@ type (
 	windowSizeMsg      tea.WindowSizeMsg
 	clarificationMsg   ClarificationState // Request for user clarification
 	clarificationReply string             // User's response to clarification
+
+	// Campaign messages
+	campaignStartedMsg   *campaign.Campaign
+	campaignProgressMsg  *campaign.Progress
+	campaignCompletedMsg *campaign.Campaign
+	campaignErrorMsg     error
 )
 
 // initChat initializes the interactive chat model
@@ -441,6 +454,11 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case tea.KeyCtrlP:
+			// Toggle campaign progress panel
+			m.showCampaignPanel = !m.showCampaignPanel
+			return m, nil
+
 		case tea.KeyEnter:
 			// Enter sends the message
 			if !m.isLoading {
@@ -583,6 +601,51 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.err = msg
+
+	// Campaign message handlers
+	case campaignStartedMsg:
+		m.isLoading = false
+		m.activeCampaign = msg
+		m.showCampaignPanel = true
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: m.renderCampaignStarted(msg),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+	case campaignProgressMsg:
+		m.campaignProgress = msg
+		// Update campaign panel without adding to history (live update)
+		if m.activeCampaign != nil {
+			m.activeCampaign.CompletedPhases = msg.CompletedPhases
+			m.activeCampaign.CompletedTasks = msg.CompletedTasks
+		}
+
+	case campaignCompletedMsg:
+		m.isLoading = false
+		m.activeCampaign = nil
+		m.campaignOrch = nil
+		m.campaignProgress = nil
+		m.showCampaignPanel = false
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: m.renderCampaignCompleted(msg),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+	case campaignErrorMsg:
+		m.isLoading = false
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("## ❌ Campaign Error\n\n%v", msg),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
@@ -814,6 +877,16 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /whatif <action> | Quick counterfactual query |
 | /approve | Review pending mutations (Interactive Diff) |
 | /quit, /exit, /q | Exit the CLI |
+
+## Campaign Orchestration
+| Command | Description |
+|---------|-------------|
+| /campaign start <goal> | Start a new long-running campaign |
+| /campaign status | Show active campaign progress |
+| /campaign pause | Pause the active campaign |
+| /campaign resume | Resume a paused campaign |
+| /campaign list | List all campaigns |
+| Ctrl+P | Toggle campaign progress panel |
 
 ## Glass Box Interface (Split-Pane TUI)
 | Keybinding | Description |
@@ -1583,6 +1656,202 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 		m.viewport.GotoBottom()
 		return m, nil
 
+	case "/campaign":
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role: "assistant",
+				content: `## Campaign Orchestration
+
+Usage: ` + "`/campaign <subcommand> [args]`" + `
+
+| Subcommand | Description |
+|------------|-------------|
+| start <goal> | Start a new campaign with the given goal |
+| status | Show active campaign progress |
+| pause | Pause the active campaign |
+| resume | Resume a paused campaign |
+| list | List all campaigns |
+
+**Examples:**
+` + "```" + `
+/campaign start "Build a user authentication system"
+/campaign start --type greenfield "Create a REST API for inventory management"
+/campaign status
+/campaign pause
+` + "```",
+				time: time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		subCmd := parts[1]
+		switch subCmd {
+		case "start":
+			if len(parts) < 3 {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: "Usage: `/campaign start <goal>`\n\nExample: `/campaign start \"Build authentication system\"`",
+					time:    time.Now(),
+				})
+				m.textinput.Reset()
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				return m, nil
+			}
+
+			// Parse campaign type if specified
+			campaignType := campaign.TypeFeature
+			goal := strings.Join(parts[2:], " ")
+
+			for i, p := range parts {
+				if p == "--type" && i+1 < len(parts) {
+					switch parts[i+1] {
+					case "greenfield":
+						campaignType = campaign.TypeGreenfield
+					case "feature":
+						campaignType = campaign.TypeFeature
+					case "migration":
+						campaignType = campaign.TypeMigration
+					case "stabilization":
+						campaignType = campaign.TypeStabilization
+					case "refactor":
+						campaignType = campaign.TypeRefactor
+					}
+					// Remove type flag from goal
+					goal = strings.Join(append(parts[2:i], parts[i+2:]...), " ")
+					break
+				}
+			}
+
+			// Clean up goal (remove quotes)
+			goal = strings.Trim(goal, "\"'")
+
+			m.history = append(m.history, chatMessage{
+				role: "assistant",
+				content: fmt.Sprintf(`## 🚀 Starting Campaign
+
+**Goal**: %s
+**Type**: %s
+
+_Analyzing goal and creating execution plan..._`, goal, campaignType),
+				time: time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.isLoading = true
+
+			return m, tea.Batch(
+				m.spinner.Tick,
+				m.startCampaign(goal, campaignType),
+			)
+
+		case "status":
+			if m.activeCampaign == nil {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: "No active campaign. Start one with `/campaign start <goal>`",
+					time:    time.Now(),
+				})
+			} else {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: m.renderCampaignStatus(),
+					time:    time.Now(),
+				})
+				m.showCampaignPanel = true
+			}
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+
+		case "pause":
+			if m.activeCampaign == nil {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: "No active campaign to pause.",
+					time:    time.Now(),
+				})
+			} else {
+				m.activeCampaign.Status = campaign.StatusPaused
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: fmt.Sprintf("⏸️ Campaign **%s** paused.\n\nResume with `/campaign resume`", m.activeCampaign.Title),
+					time:    time.Now(),
+				})
+			}
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+
+		case "resume":
+			if m.activeCampaign == nil {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: "No paused campaign to resume.",
+					time:    time.Now(),
+				})
+				m.textinput.Reset()
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				return m, nil
+			}
+			if m.activeCampaign.Status != campaign.StatusPaused {
+				m.history = append(m.history, chatMessage{
+					role:    "assistant",
+					content: "Campaign is not paused.",
+					time:    time.Now(),
+				})
+				m.textinput.Reset()
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				return m, nil
+			}
+
+			m.activeCampaign.Status = campaign.StatusActive
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("▶️ Campaign **%s** resumed.\n\n_Continuing execution..._", m.activeCampaign.Title),
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.isLoading = true
+
+			return m, tea.Batch(
+				m.spinner.Tick,
+				m.resumeCampaign(),
+			)
+
+		case "list":
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: m.renderCampaignList(),
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+
+		default:
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("Unknown campaign subcommand: `%s`. Use `/campaign` for usage.", subCmd),
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
 	default:
 		m.history = append(m.history, chatMessage{
 			role:    "assistant",
@@ -2023,6 +2292,12 @@ func (m chatModel) View() string {
 		chatView = m.splitPane.Render(chatView)
 	}
 
+	// Show campaign panel if active
+	if m.showCampaignPanel && m.activeCampaign != nil {
+		campaignPanel := m.renderCampaignPanel()
+		chatView = lipgloss.JoinHorizontal(lipgloss.Top, chatView, "  ", campaignPanel)
+	}
+
 	// Input area
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -2087,7 +2362,17 @@ func (m chatModel) renderFooter() string {
 		modeIndicator = "🔬 Logic View"
 	}
 
-	help := m.styles.Muted.Render(fmt.Sprintf("%s • Enter: send • Ctrl+L: toggle logic • Ctrl+G: cycle views • /help: commands • Ctrl+C: exit", modeIndicator))
+	// Add campaign indicator if active
+	campaignIndicator := ""
+	if m.activeCampaign != nil {
+		progress := 0.0
+		if m.activeCampaign.TotalTasks > 0 {
+			progress = float64(m.activeCampaign.CompletedTasks) / float64(m.activeCampaign.TotalTasks) * 100
+		}
+		campaignIndicator = fmt.Sprintf(" • 🎯 Campaign: %.0f%%", progress)
+	}
+
+	help := m.styles.Muted.Render(fmt.Sprintf("%s%s • Enter: send • Ctrl+L: logic • Ctrl+P: campaign • /help • Ctrl+C: exit", modeIndicator, campaignIndicator))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
@@ -2681,4 +2966,340 @@ func runInteractiveChat() error {
 
 	_, err := p.Run()
 	return err
+}
+
+// ============================================================================
+// Campaign Orchestration Methods
+// ============================================================================
+
+// startCampaign initiates a new campaign with the given goal
+func (m chatModel) startCampaign(goal string, campaignType campaign.CampaignType) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		// Create decomposer to break down the goal
+		decomposer := campaign.NewDecomposer(m.kernel, m.client)
+
+		// Build request
+		req := campaign.DecomposeRequest{
+			Goal:        goal,
+			Type:        campaignType,
+			Workspace:   m.workspace,
+			SourceFiles: []string{}, // Will scan workspace
+		}
+
+		// Decompose the goal into a campaign
+		result, err := decomposer.Decompose(ctx, req)
+		if err != nil {
+			return campaignErrorMsg(fmt.Errorf("failed to create campaign plan: %w", err))
+		}
+
+		// Create orchestrator
+		orch := campaign.NewOrchestrator(
+			result.Campaign,
+			m.kernel,
+			m.client,
+			m.executor,
+			m.workspace,
+		)
+
+		// Store references
+		m.activeCampaign = result.Campaign
+		m.campaignOrch = orch
+
+		// Start execution in background (non-blocking)
+		go func() {
+			if err := orch.Run(ctx); err != nil {
+				// Error will be captured by progress updates
+			}
+		}()
+
+		return campaignStartedMsg(result.Campaign)
+	}
+}
+
+// resumeCampaign continues execution of a paused campaign
+func (m chatModel) resumeCampaign() tea.Cmd {
+	return func() tea.Msg {
+		if m.activeCampaign == nil || m.campaignOrch == nil {
+			return campaignErrorMsg(fmt.Errorf("no campaign to resume"))
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		// Resume execution
+		go func() {
+			if err := m.campaignOrch.Run(ctx); err != nil {
+				// Error captured by progress
+			}
+		}()
+
+		return campaignProgressMsg(&campaign.Progress{
+			CampaignID:      m.activeCampaign.ID,
+			Status:          campaign.StatusActive,
+			CurrentPhase:    m.activeCampaign.CompletedPhases,
+			TotalPhases:     m.activeCampaign.TotalPhases,
+			CompletedTasks:  m.activeCampaign.CompletedTasks,
+			TotalTasks:      m.activeCampaign.TotalTasks,
+			CompletedPhases: m.activeCampaign.CompletedPhases,
+		})
+	}
+}
+
+// renderCampaignStarted generates the display for a newly started campaign
+func (m chatModel) renderCampaignStarted(c *campaign.Campaign) string {
+	var sb strings.Builder
+
+	sb.WriteString("## 🎯 Campaign Created\n\n")
+	sb.WriteString(fmt.Sprintf("**Title**: %s\n", c.Title))
+	sb.WriteString(fmt.Sprintf("**Type**: %s\n", c.Type))
+	sb.WriteString(fmt.Sprintf("**Goal**: %s\n\n", c.Goal))
+
+	sb.WriteString("### 📋 Execution Plan\n\n")
+	sb.WriteString(fmt.Sprintf("**Phases**: %d\n", c.TotalPhases))
+	sb.WriteString(fmt.Sprintf("**Tasks**: %d\n\n", c.TotalTasks))
+
+	// Show phase overview
+	sb.WriteString("| # | Phase | Tasks | Status |\n")
+	sb.WriteString("|---|-------|-------|--------|\n")
+	for i, phase := range c.Phases {
+		sb.WriteString(fmt.Sprintf("| %d | %s | %d | %s |\n",
+			i+1, phase.Name, len(phase.Tasks), phase.Status))
+	}
+
+	sb.WriteString("\n_Campaign execution started. Use `/campaign status` to monitor progress._\n")
+	sb.WriteString("_Toggle campaign panel with **Ctrl+P**_\n")
+
+	return sb.String()
+}
+
+// renderCampaignCompleted generates the display for a completed campaign
+func (m chatModel) renderCampaignCompleted(c *campaign.Campaign) string {
+	var sb strings.Builder
+
+	sb.WriteString("## ✅ Campaign Completed!\n\n")
+	sb.WriteString(fmt.Sprintf("**Title**: %s\n", c.Title))
+	sb.WriteString(fmt.Sprintf("**Status**: %s\n\n", c.Status))
+
+	// Summary
+	sb.WriteString("### 📊 Summary\n\n")
+	sb.WriteString(fmt.Sprintf("- **Phases Completed**: %d/%d\n", c.CompletedPhases, c.TotalPhases))
+	sb.WriteString(fmt.Sprintf("- **Tasks Completed**: %d/%d\n", c.CompletedTasks, c.TotalTasks))
+	sb.WriteString(fmt.Sprintf("- **Revisions**: %d\n", c.RevisionNumber))
+
+	// Show artifacts created
+	artifactCount := 0
+	for _, phase := range c.Phases {
+		for _, task := range phase.Tasks {
+			artifactCount += len(task.Artifacts)
+		}
+	}
+	if artifactCount > 0 {
+		sb.WriteString(fmt.Sprintf("- **Artifacts Created**: %d\n", artifactCount))
+	}
+
+	sb.WriteString("\n### 🎉 Goal Achieved\n\n")
+	sb.WriteString(fmt.Sprintf("_%s_\n", c.Goal))
+
+	return sb.String()
+}
+
+// renderCampaignStatus generates the current campaign status display
+func (m chatModel) renderCampaignStatus() string {
+	if m.activeCampaign == nil {
+		return "No active campaign."
+	}
+
+	c := m.activeCampaign
+	var sb strings.Builder
+
+	sb.WriteString("## 📊 Campaign Status\n\n")
+	sb.WriteString(fmt.Sprintf("**Title**: %s\n", c.Title))
+	sb.WriteString(fmt.Sprintf("**Status**: %s\n", c.Status))
+	sb.WriteString(fmt.Sprintf("**Progress**: %d/%d phases, %d/%d tasks\n\n",
+		c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks))
+
+	// Progress bar
+	progress := 0.0
+	if c.TotalTasks > 0 {
+		progress = float64(c.CompletedTasks) / float64(c.TotalTasks)
+	}
+	progressBar := renderProgressBar(progress, 30)
+	sb.WriteString(fmt.Sprintf("**Overall**: %s %.1f%%\n\n", progressBar, progress*100))
+
+	// Phase details
+	sb.WriteString("### Phases\n\n")
+	sb.WriteString("| # | Phase | Tasks | Status |\n")
+	sb.WriteString("|---|-------|-------|--------|\n")
+	for i, phase := range c.Phases {
+		completedInPhase := 0
+		for _, task := range phase.Tasks {
+			if task.Status == campaign.TaskCompleted {
+				completedInPhase++
+			}
+		}
+		statusIcon := getStatusIcon(string(phase.Status))
+		sb.WriteString(fmt.Sprintf("| %d | %s | %d/%d | %s %s |\n",
+			i+1, phase.Name, completedInPhase, len(phase.Tasks), statusIcon, phase.Status))
+	}
+
+	// Current task
+	if m.campaignProgress != nil && m.campaignProgress.CurrentTask != "" {
+		sb.WriteString(fmt.Sprintf("\n**Current Task**: %s\n", m.campaignProgress.CurrentTask))
+	}
+
+	// Errors if any
+	if m.campaignProgress != nil && len(m.campaignProgress.Errors) > 0 {
+		sb.WriteString("\n### ⚠️ Errors\n\n")
+		for _, err := range m.campaignProgress.Errors {
+			sb.WriteString(fmt.Sprintf("- %s\n", err))
+		}
+	}
+
+	return sb.String()
+}
+
+// renderCampaignList shows all campaigns (active and stored)
+func (m chatModel) renderCampaignList() string {
+	var sb strings.Builder
+
+	sb.WriteString("## 📋 Campaigns\n\n")
+
+	// Active campaign
+	if m.activeCampaign != nil {
+		sb.WriteString("### Active Campaign\n\n")
+		c := m.activeCampaign
+		progress := 0.0
+		if c.TotalTasks > 0 {
+			progress = float64(c.CompletedTasks) / float64(c.TotalTasks) * 100
+		}
+		sb.WriteString(fmt.Sprintf("- **%s** (%s) - %.1f%% complete\n\n", c.Title, c.Status, progress))
+	} else {
+		sb.WriteString("_No active campaign._\n\n")
+	}
+
+	// Load stored campaigns from .nerd/campaigns/
+	campaignsDir := m.workspace + "/.nerd/campaigns"
+	if entries, err := os.ReadDir(campaignsDir); err == nil && len(entries) > 0 {
+		sb.WriteString("### Stored Campaigns\n\n")
+		sb.WriteString("| ID | Title | Status | Progress |\n")
+		sb.WriteString("|----|-------|--------|----------|\n")
+
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+				data, err := os.ReadFile(filepath.Join(campaignsDir, entry.Name()))
+				if err != nil {
+					continue
+				}
+				var c campaign.Campaign
+				if err := json.Unmarshal(data, &c); err != nil {
+					continue
+				}
+				progress := 0.0
+				if c.TotalTasks > 0 {
+					progress = float64(c.CompletedTasks) / float64(c.TotalTasks) * 100
+				}
+				sb.WriteString(fmt.Sprintf("| %s | %s | %s | %.0f%% |\n",
+					c.ID[len(c.ID)-8:], c.Title, c.Status, progress))
+			}
+		}
+	} else {
+		sb.WriteString("_No stored campaigns._\n")
+	}
+
+	sb.WriteString("\n**Start a new campaign**: `/campaign start <goal>`\n")
+
+	return sb.String()
+}
+
+// renderCampaignPanel generates the campaign progress panel for split-pane view
+func (m chatModel) renderCampaignPanel() string {
+	if m.activeCampaign == nil {
+		return "No active campaign"
+	}
+
+	c := m.activeCampaign
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString("┌─ Campaign ─────────────┐\n")
+	sb.WriteString(fmt.Sprintf("│ %s\n", truncateString(c.Title, 22)))
+	sb.WriteString(fmt.Sprintf("│ Status: %s\n", c.Status))
+
+	// Progress
+	progress := 0.0
+	if c.TotalTasks > 0 {
+		progress = float64(c.CompletedTasks) / float64(c.TotalTasks)
+	}
+	bar := renderProgressBar(progress, 20)
+	sb.WriteString(fmt.Sprintf("│ %s %.0f%%\n", bar, progress*100))
+	sb.WriteString("│\n")
+
+	// Phases
+	sb.WriteString("│ Phases:\n")
+	for i, phase := range c.Phases {
+		icon := getStatusIcon(string(phase.Status))
+		sb.WriteString(fmt.Sprintf("│ %s %d. %s\n", icon, i+1, truncateString(phase.Name, 18)))
+	}
+
+	// Current task
+	if m.campaignProgress != nil && m.campaignProgress.CurrentTask != "" {
+		sb.WriteString("│\n")
+		sb.WriteString(fmt.Sprintf("│ Task: %s\n", truncateString(m.campaignProgress.CurrentTask, 18)))
+	}
+
+	sb.WriteString("└────────────────────────┘\n")
+
+	return sb.String()
+}
+
+// renderProgressBar creates a text-based progress bar
+func renderProgressBar(progress float64, width int) string {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+
+	filled := int(progress * float64(width))
+	empty := width - filled
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
+	return "[" + bar + "]"
+}
+
+// getStatusIcon returns an icon for campaign/phase/task status
+func getStatusIcon(status string) string {
+	switch status {
+	case string(campaign.StatusPending), string(campaign.TaskPending), string(campaign.PhasePending):
+		return "○"
+	case string(campaign.StatusActive), string(campaign.TaskInProgress), string(campaign.PhaseActive):
+		return "●"
+	case string(campaign.StatusCompleted), string(campaign.TaskCompleted), string(campaign.PhaseCompleted):
+		return "✓"
+	case string(campaign.StatusPaused):
+		return "⏸"
+	case string(campaign.StatusFailed), string(campaign.TaskFailed):
+		return "✗"
+	case string(campaign.TaskSkipped), string(campaign.PhaseSkipped):
+		return "⊘"
+	case string(campaign.TaskBlocked):
+		return "⊗"
+	default:
+		return "?"
+	}
+}
+
+// truncateString truncates a string to maxLen and adds ellipsis if needed
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
