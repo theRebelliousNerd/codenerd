@@ -551,3 +551,4 @@ For detailed specifications, consult the reference documentation:
 - [references/piggyback-protocol.md](references/piggyback-protocol.md) - Dual-channel steganographic control protocol specification
 - [references/campaign-orchestrator.md](references/campaign-orchestrator.md) - Multi-phase goal execution and context paging system
 - [references/autopoiesis.md](references/autopoiesis.md) - Self-creation, runtime learning, and the Ouroboros Loop
+- [references/shard-agents.md](references/shard-agents.md) - All four shard types, ShardManager API, and built-in implementations

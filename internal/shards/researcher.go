@@ -784,7 +784,116 @@ Summary (2-3 sentences):`, context.String())
 // MODE 2: WEB RESEARCH (for knowledge building)
 // ============================================================================
 
-// conductWebResearch performs deep web research on a topic.
+// KnowledgeSource defines a documentation source with API access
+type KnowledgeSource struct {
+	Name       string
+	Type       string // "github", "pkggodev", "llm", "raw"
+	RepoOwner  string // for GitHub sources
+	RepoName   string // for GitHub sources
+	PackageURL string // direct package URL
+	DocURL     string // documentation URL
+}
+
+// knownSources maps technology names to their documentation sources
+var knownSources = map[string]KnowledgeSource{
+	"rod": {
+		Name:       "Rod Browser Automation",
+		Type:       "github",
+		RepoOwner:  "go-rod",
+		RepoName:   "rod",
+		PackageURL: "github.com/go-rod/rod",
+		DocURL:     "https://go-rod.github.io",
+	},
+	"mangle": {
+		Name:       "Google Mangle Datalog",
+		Type:       "github",
+		RepoOwner:  "google",
+		RepoName:   "mangle",
+		PackageURL: "github.com/google/mangle",
+	},
+	"bubbletea": {
+		Name:       "Bubble Tea TUI Framework",
+		Type:       "github",
+		RepoOwner:  "charmbracelet",
+		RepoName:   "bubbletea",
+		PackageURL: "github.com/charmbracelet/bubbletea",
+	},
+	"cobra": {
+		Name:       "Cobra CLI Framework",
+		Type:       "github",
+		RepoOwner:  "spf13",
+		RepoName:   "cobra",
+		PackageURL: "github.com/spf13/cobra",
+	},
+	"gin": {
+		Name:       "Gin Web Framework",
+		Type:       "github",
+		RepoOwner:  "gin-gonic",
+		RepoName:   "gin",
+		PackageURL: "github.com/gin-gonic/gin",
+	},
+	"echo": {
+		Name:       "Echo Web Framework",
+		Type:       "github",
+		RepoOwner:  "labstack",
+		RepoName:   "echo",
+		PackageURL: "github.com/labstack/echo",
+	},
+	"fiber": {
+		Name:       "Fiber Web Framework",
+		Type:       "github",
+		RepoOwner:  "gofiber",
+		RepoName:   "fiber",
+		PackageURL: "github.com/gofiber/fiber",
+	},
+	"zap": {
+		Name:       "Zap Logging",
+		Type:       "github",
+		RepoOwner:  "uber-go",
+		RepoName:   "zap",
+		PackageURL: "go.uber.org/zap",
+	},
+	"sqlite": {
+		Name:       "SQLite Database",
+		Type:       "github",
+		RepoOwner:  "mattn",
+		RepoName:   "go-sqlite3",
+		PackageURL: "github.com/mattn/go-sqlite3",
+	},
+	"gorm": {
+		Name:       "GORM ORM",
+		Type:       "github",
+		RepoOwner:  "go-gorm",
+		RepoName:   "gorm",
+		PackageURL: "gorm.io/gorm",
+	},
+	"react": {
+		Name:       "React Frontend Framework",
+		Type:       "llm",
+	},
+	"typescript": {
+		Name:       "TypeScript Language",
+		Type:       "llm",
+	},
+	"kubernetes": {
+		Name:       "Kubernetes Container Orchestration",
+		Type:       "llm",
+	},
+	"docker": {
+		Name:       "Docker Containerization",
+		Type:       "llm",
+	},
+	"security": {
+		Name:       "Security Best Practices",
+		Type:       "llm",
+	},
+	"testing": {
+		Name:       "Testing Best Practices",
+		Type:       "llm",
+	},
+}
+
+// conductWebResearch performs deep web research on a topic using multi-strategy approach.
 func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, keywords []string) (*ResearchResult, error) {
 	result := &ResearchResult{
 		Query:    topic,
@@ -792,65 +901,37 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 		Atoms:    make([]KnowledgeAtom, 0),
 	}
 
-	fmt.Printf("[Researcher] Conducting web research on: %s\n", topic)
+	fmt.Printf("[Researcher] Conducting knowledge research on: %s\n", topic)
 
-	// 1. Generate search URLs
-	searchURLs := r.generateSearchURLs(topic, keywords)
+	// Normalize topic for lookup
+	normalizedTopic := strings.ToLower(strings.TrimSpace(topic))
+	normalizedTopic = strings.TrimPrefix(normalizedTopic, "research docs: ")
+	normalizedTopic = strings.TrimSuffix(normalizedTopic, " (brief overview)")
+	normalizedTopic = strings.TrimSpace(normalizedTopic)
 
-	// 2. Fetch and extract from each URL
-	sem := make(chan struct{}, r.researchConfig.ConcurrentFetch)
-	var wg sync.WaitGroup
-	atomsCh := make(chan KnowledgeAtom, 100)
-
-	for _, url := range searchURLs {
-		if r.visitedURLs[url] {
-			continue
+	// Strategy 1: Check if we have a known source for this topic
+	if source, ok := r.findKnowledgeSource(normalizedTopic); ok {
+		fmt.Printf("[Researcher] Found known source: %s (type: %s)\n", source.Name, source.Type)
+		atoms, err := r.fetchFromKnownSource(ctx, source, keywords)
+		if err == nil && len(atoms) > 0 {
+			result.Atoms = append(result.Atoms, atoms...)
+			result.PagesScraped++
+		} else if err != nil {
+			fmt.Printf("[Researcher] Known source failed: %v, falling back to LLM\n", err)
 		}
-		if len(r.visitedURLs) >= r.researchConfig.MaxPages {
-			break
-		}
-
-		wg.Add(1)
-		go func(u string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-r.stopCh:
-				return
-			default:
-			}
-
-			atoms, err := r.fetchAndExtract(ctx, u, keywords)
-			if err != nil {
-				fmt.Printf("[Researcher] Failed to fetch %s: %v\n", u, err)
-				return
-			}
-
-			for _, atom := range atoms {
-				atomsCh <- atom
-			}
-
-			r.mu.Lock()
-			r.visitedURLs[u] = true
-			r.mu.Unlock()
-		}(url)
 	}
 
-	// Collect results
-	go func() {
-		wg.Wait()
-		close(atomsCh)
-	}()
-
-	for atom := range atomsCh {
-		result.Atoms = append(result.Atoms, atom)
+	// Strategy 2: Always supplement with LLM knowledge synthesis
+	if r.llmClient != nil {
+		fmt.Printf("[Researcher] Synthesizing knowledge from LLM training data...\n")
+		llmAtoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
+		if err == nil && len(llmAtoms) > 0 {
+			result.Atoms = append(result.Atoms, llmAtoms...)
+		} else if err != nil {
+			fmt.Printf("[Researcher] LLM synthesis warning: %v\n", err)
+		}
 	}
 
-	result.PagesScraped = len(r.visitedURLs)
 	result.Duration = time.Since(r.startTime)
 	result.FactsGenerated = len(result.Atoms)
 
@@ -860,46 +941,546 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 		if err == nil {
 			result.Summary = summary
 		}
+	} else if len(result.Atoms) > 0 {
+		result.Summary = fmt.Sprintf("Researched '%s': found %d knowledge atoms",
+			topic, len(result.Atoms))
 	} else {
-		result.Summary = fmt.Sprintf("Researched '%s': found %d knowledge atoms from %d pages",
-			topic, len(result.Atoms), result.PagesScraped)
+		result.Summary = fmt.Sprintf("Limited knowledge available for '%s'", topic)
 	}
 
 	return result, nil
 }
 
-// generateSearchURLs creates a list of URLs to research.
-func (r *ResearcherShard) generateSearchURLs(topic string, keywords []string) []string {
-	var urls []string
-
-	// Documentation sites
-	docSites := map[string]string{
-		"go":         "https://pkg.go.dev/search?q=%s",
-		"rust":       "https://docs.rs/releases/search?query=%s",
-		"python":     "https://pypi.org/search/?q=%s",
-		"javascript": "https://www.npmjs.com/search?q=%s",
+// findKnowledgeSource looks up a known source for the topic
+func (r *ResearcherShard) findKnowledgeSource(topic string) (KnowledgeSource, bool) {
+	// Direct lookup
+	if source, ok := knownSources[topic]; ok {
+		return source, true
 	}
 
-	// Add documentation URLs based on keywords
-	for lang, urlTemplate := range docSites {
-		for _, kw := range keywords {
-			if strings.Contains(strings.ToLower(topic), lang) || strings.Contains(strings.ToLower(kw), lang) {
-				urls = append(urls, fmt.Sprintf(urlTemplate, strings.ReplaceAll(topic, " ", "+")))
-				break
+	// Partial match lookup
+	for key, source := range knownSources {
+		if strings.Contains(topic, key) || strings.Contains(key, topic) {
+			return source, true
+		}
+	}
+
+	return KnowledgeSource{}, false
+}
+
+// fetchFromKnownSource fetches documentation from a known source
+func (r *ResearcherShard) fetchFromKnownSource(ctx context.Context, source KnowledgeSource, keywords []string) ([]KnowledgeAtom, error) {
+	switch source.Type {
+	case "github":
+		return r.fetchGitHubDocs(ctx, source)
+	case "pkggodev":
+		return r.fetchPkgGoDev(ctx, source)
+	case "llm":
+		// LLM sources are handled separately
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown source type: %s", source.Type)
+	}
+}
+
+// fetchGitHubDocs fetches README and docs from GitHub using raw URLs (no API key needed)
+// Implements Context7-like multi-stage ingestion:
+// 1. Check for llms.txt (AI-optimized docs pointer)
+// 2. Fetch and parse documentation
+// 3. Enrich with LLM metadata
+// 4. Score content quality
+func (r *ResearcherShard) fetchGitHubDocs(ctx context.Context, source KnowledgeSource) ([]KnowledgeAtom, error) {
+	var atoms []KnowledgeAtom
+
+	// Stage 1: Check for llms.txt (Context7-style AI docs pointer)
+	llmsTxtURLs := []string{
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/llms.txt", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/llms.txt", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/.llms.txt", source.RepoOwner, source.RepoName),
+	}
+
+	var llmsContent string
+	for _, url := range llmsTxtURLs {
+		content, err := r.fetchRawContent(ctx, url)
+		if err == nil && len(content) > 10 {
+			llmsContent = content
+			fmt.Printf("[Researcher] Found llms.txt at %s - using AI-optimized docs\n", url)
+			break
+		}
+	}
+
+	// If llms.txt exists, parse it for doc pointers
+	if llmsContent != "" {
+		llmsAtoms := r.parseLlmsTxt(ctx, source, llmsContent)
+		atoms = append(atoms, llmsAtoms...)
+	}
+
+	// Stage 2: Fetch README (primary documentation)
+	readmeURLs := []string{
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/README.md", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/README.md", source.RepoOwner, source.RepoName),
+	}
+
+	var readmeContent string
+	var readmeURL string
+	for _, url := range readmeURLs {
+		content, err := r.fetchRawContent(ctx, url)
+		if err == nil && len(content) > 100 {
+			readmeContent = content
+			readmeURL = url
+			fmt.Printf("[Researcher] Fetched README from %s (%d bytes)\n", url, len(content))
+			break
+		}
+	}
+
+	if readmeContent != "" {
+		// Parse raw content into atoms
+		readmeAtoms := r.parseReadmeContent(source.Name, readmeContent)
+
+		// Stage 3: Enrich atoms with LLM metadata (Context7-style enrichment)
+		for i := range readmeAtoms {
+			readmeAtoms[i].SourceURL = readmeURL
+			readmeAtoms[i] = r.enrichAtomWithLLM(ctx, readmeAtoms[i])
+
+			// Stage 4: Score content quality
+			score := r.calculateC7Score(readmeAtoms[i])
+			if score >= 0.5 { // Only keep atoms with good quality score
+				readmeAtoms[i].Confidence = score
+				atoms = append(atoms, readmeAtoms[i])
+			} else {
+				fmt.Printf("[Researcher] Discarding low-quality atom: %s (score: %.2f)\n", readmeAtoms[i].Title, score)
 			}
 		}
 	}
 
-	// Add generic documentation sites
-	genericSites := []string{
-		"https://devdocs.io/#q=%s",
-		"https://stackoverflow.com/search?q=%s",
-	}
-	for _, site := range genericSites {
-		urls = append(urls, fmt.Sprintf(site, strings.ReplaceAll(topic, " ", "+")))
+	// Also try to fetch examples or docs if available
+	docsURLs := []string{
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/docs/README.md", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/GETTING_STARTED.md", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/examples/README.md", source.RepoOwner, source.RepoName),
+		fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/docs/getting-started.md", source.RepoOwner, source.RepoName),
 	}
 
-	return urls
+	for _, url := range docsURLs {
+		content, err := r.fetchRawContent(ctx, url)
+		if err == nil && len(content) > 100 {
+			atom := KnowledgeAtom{
+				SourceURL:   url,
+				Title:       "Additional Documentation",
+				Content:     r.truncate(content, 2000),
+				Concept:     "documentation",
+				Confidence:  0.85,
+				ExtractedAt: time.Now(),
+			}
+			atom = r.enrichAtomWithLLM(ctx, atom)
+			if r.calculateC7Score(atom) >= 0.5 {
+				atoms = append(atoms, atom)
+			}
+		}
+	}
+
+	return atoms, nil
+}
+
+// parseLlmsTxt parses an llms.txt file (Context7 standard) to find AI-optimized doc pointers
+// Format: Each line is a URL or path to documentation optimized for LLMs
+func (r *ResearcherShard) parseLlmsTxt(ctx context.Context, source KnowledgeSource, content string) []KnowledgeAtom {
+	var atoms []KnowledgeAtom
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Handle relative paths
+		var docURL string
+		if strings.HasPrefix(line, "http") {
+			docURL = line
+		} else {
+			// Relative path - construct GitHub raw URL
+			docURL = fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/%s",
+				source.RepoOwner, source.RepoName, strings.TrimPrefix(line, "/"))
+		}
+
+		content, err := r.fetchRawContent(ctx, docURL)
+		if err != nil {
+			fmt.Printf("[Researcher] llms.txt pointer failed: %s - %v\n", docURL, err)
+			continue
+		}
+
+		if len(content) > 50 {
+			// llms.txt content is pre-optimized for LLMs - higher base confidence
+			atom := KnowledgeAtom{
+				SourceURL:   docURL,
+				Title:       "AI-Optimized Documentation",
+				Content:     r.truncate(content, 3000), // Allow more content for llms.txt docs
+				Concept:     "llms_optimized",
+				Confidence:  0.95, // Higher confidence for llms.txt content
+				ExtractedAt: time.Now(),
+				Metadata: map[string]interface{}{
+					"source_type": "llms_txt",
+				},
+			}
+			atoms = append(atoms, atom)
+			fmt.Printf("[Researcher] Ingested llms.txt doc: %s (%d bytes)\n", docURL, len(content))
+		}
+	}
+
+	return atoms
+}
+
+// enrichAtomWithLLM uses LLM to add metadata and summaries (Context7-style enrichment)
+func (r *ResearcherShard) enrichAtomWithLLM(ctx context.Context, atom KnowledgeAtom) KnowledgeAtom {
+	if r.llmClient == nil {
+		return atom
+	}
+
+	// Only enrich substantial content
+	if len(atom.Content) < 100 || atom.Concept == "llms_optimized" {
+		return atom
+	}
+
+	// Generate a concise, AI-optimized summary
+	prompt := fmt.Sprintf(`Summarize this documentation for an AI coding assistant in 1-2 sentences. Focus on: what it does, when to use it, and any important caveats.
+
+Documentation:
+%s
+
+Summary:`, r.truncate(atom.Content, 1000))
+
+	summary, err := r.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return atom
+	}
+
+	summary = strings.TrimSpace(summary)
+	if len(summary) > 10 && len(summary) < len(atom.Content) {
+		// Store original content in metadata, use summary as main content
+		if atom.Metadata == nil {
+			atom.Metadata = make(map[string]interface{})
+		}
+		atom.Metadata["original_content"] = atom.Content
+		atom.Metadata["enriched"] = true
+		atom.Content = summary
+	}
+
+	return atom
+}
+
+// calculateC7Score implements a Context7-style quality scoring algorithm
+// Returns a score from 0.0 to 1.0 based on content quality indicators
+func (r *ResearcherShard) calculateC7Score(atom KnowledgeAtom) float64 {
+	score := 0.5 // Base score
+
+	// Content length checks
+	contentLen := len(atom.Content)
+	if contentLen > 50 {
+		score += 0.1
+	}
+	if contentLen > 200 {
+		score += 0.1
+	}
+	if contentLen < 20 {
+		score -= 0.3 // Too short
+	}
+
+	// Code example bonus
+	if atom.CodePattern != "" && len(atom.CodePattern) > 20 {
+		score += 0.15
+	}
+
+	// Title quality
+	if atom.Title != "" && len(atom.Title) > 5 {
+		score += 0.05
+	}
+
+	// Source quality
+	if atom.SourceURL != "" && strings.Contains(atom.SourceURL, "github") {
+		score += 0.05
+	}
+
+	// Penalize garbage content indicators
+	content := strings.ToLower(atom.Content)
+	garbageIndicators := []string{
+		"captcha", "robot", "verify you are human",
+		"access denied", "403 forbidden", "404 not found",
+		"please enable javascript", "cloudflare",
+	}
+	for _, indicator := range garbageIndicators {
+		if strings.Contains(content, indicator) {
+			score -= 0.5 // Heavy penalty for garbage content
+		}
+	}
+
+	// Ensure score is in valid range
+	if score < 0 {
+		score = 0
+	}
+	if score > 1 {
+		score = 1
+	}
+
+	return score
+}
+
+// fetchRawContent fetches raw content from a URL
+func (r *ResearcherShard) fetchRawContent(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", r.researchConfig.UserAgent)
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 500*1024)) // 500KB limit
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+// parseReadmeContent extracts structured knowledge atoms from README content
+func (r *ResearcherShard) parseReadmeContent(name, content string) []KnowledgeAtom {
+	var atoms []KnowledgeAtom
+
+	// Extract title/description (first paragraph after # heading)
+	lines := strings.Split(content, "\n")
+	var description strings.Builder
+	inDescription := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# ") {
+			inDescription = true
+			continue
+		}
+		if inDescription && line != "" && !strings.HasPrefix(line, "#") {
+			description.WriteString(line + " ")
+			if description.Len() > 500 {
+				break
+			}
+		}
+		if inDescription && line == "" && description.Len() > 50 {
+			break
+		}
+	}
+
+	if description.Len() > 0 {
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       name + " Overview",
+			Content:     strings.TrimSpace(description.String()),
+			Concept:     "overview",
+			Confidence:  0.95,
+			ExtractedAt: time.Now(),
+		})
+	}
+
+	// Extract code examples (```go or ``` blocks)
+	codeBlockRegex := regexp.MustCompile("(?s)```(?:go|golang)?\\s*\\n(.+?)```")
+	matches := codeBlockRegex.FindAllStringSubmatch(content, 5) // Max 5 examples
+	for i, match := range matches {
+		if len(match) > 1 && len(match[1]) > 20 && len(match[1]) < 2000 {
+			atoms = append(atoms, KnowledgeAtom{
+				Title:       fmt.Sprintf("%s Code Example %d", name, i+1),
+				Content:     "Code example from documentation",
+				CodePattern: strings.TrimSpace(match[1]),
+				Concept:     "code_example",
+				Confidence:  0.9,
+				ExtractedAt: time.Now(),
+			})
+		}
+	}
+
+	// Extract sections (## headings with content)
+	sectionRegex := regexp.MustCompile(`(?m)^##\s+(.+?)\n([\s\S]*?)(?=^##|\z)`)
+	sectionMatches := sectionRegex.FindAllStringSubmatch(content, 10)
+	for _, match := range sectionMatches {
+		if len(match) > 2 {
+			sectionTitle := strings.TrimSpace(match[1])
+			sectionContent := strings.TrimSpace(match[2])
+			if len(sectionContent) > 50 && len(sectionContent) < 3000 {
+				// Skip common non-informative sections
+				lowerTitle := strings.ToLower(sectionTitle)
+				if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" {
+					continue
+				}
+				atoms = append(atoms, KnowledgeAtom{
+					Title:       sectionTitle,
+					Content:     r.truncate(sectionContent, 1000),
+					Concept:     "documentation_section",
+					Confidence:  0.85,
+					ExtractedAt: time.Now(),
+				})
+			}
+		}
+	}
+
+	return atoms
+}
+
+// fetchPkgGoDev fetches documentation from pkg.go.dev
+func (r *ResearcherShard) fetchPkgGoDev(ctx context.Context, source KnowledgeSource) ([]KnowledgeAtom, error) {
+	// pkg.go.dev doesn't have a public API, so we fall back to GitHub
+	return r.fetchGitHubDocs(ctx, source)
+}
+
+// synthesizeKnowledgeFromLLM uses the LLM to generate knowledge about a topic
+func (r *ResearcherShard) synthesizeKnowledgeFromLLM(ctx context.Context, topic string, keywords []string) ([]KnowledgeAtom, error) {
+	if r.llmClient == nil {
+		return nil, fmt.Errorf("no LLM client available")
+	}
+
+	prompt := fmt.Sprintf(`You are a technical documentation specialist. Generate structured knowledge about "%s" for a developer assistant agent.
+
+Generate the following in JSON format:
+{
+  "overview": "A 2-3 sentence overview of what this technology/library does",
+  "key_concepts": ["concept1", "concept2", "concept3"],
+  "best_practices": ["practice1", "practice2", "practice3"],
+  "common_patterns": [
+    {"name": "pattern name", "description": "brief description", "code": "example code if applicable"}
+  ],
+  "common_pitfalls": ["pitfall1", "pitfall2"],
+  "related_technologies": ["tech1", "tech2"]
+}
+
+Be accurate and concise. Only include information you are confident about.
+Topic: %s
+Keywords: %s
+
+JSON:`, topic, topic, strings.Join(keywords, ", "))
+
+	response, err := r.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	// Parse JSON response
+	return r.parseLLMKnowledgeResponse(topic, response)
+}
+
+// parseLLMKnowledgeResponse parses the LLM's JSON response into knowledge atoms
+func (r *ResearcherShard) parseLLMKnowledgeResponse(topic, response string) ([]KnowledgeAtom, error) {
+	var atoms []KnowledgeAtom
+
+	// Find JSON in response (might have surrounding text)
+	jsonStart := strings.Index(response, "{")
+	jsonEnd := strings.LastIndex(response, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		// Fallback: treat entire response as overview
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       topic + " Overview (LLM)",
+			Content:     r.truncate(response, 1000),
+			Concept:     "llm_synthesized",
+			Confidence:  0.7,
+			ExtractedAt: time.Now(),
+		})
+		return atoms, nil
+	}
+
+	jsonStr := response[jsonStart : jsonEnd+1]
+
+	var knowledge struct {
+		Overview            string `json:"overview"`
+		KeyConcepts         []string `json:"key_concepts"`
+		BestPractices       []string `json:"best_practices"`
+		CommonPatterns      []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Code        string `json:"code"`
+		} `json:"common_patterns"`
+		CommonPitfalls      []string `json:"common_pitfalls"`
+		RelatedTechnologies []string `json:"related_technologies"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &knowledge); err != nil {
+		// Fallback on parse error
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       topic + " Overview (LLM)",
+			Content:     r.truncate(response, 1000),
+			Concept:     "llm_synthesized",
+			Confidence:  0.7,
+			ExtractedAt: time.Now(),
+		})
+		return atoms, nil
+	}
+
+	// Convert to atoms
+	if knowledge.Overview != "" {
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       topic + " Overview",
+			Content:     knowledge.Overview,
+			Concept:     "overview",
+			Confidence:  0.85,
+			ExtractedAt: time.Now(),
+			Metadata:    map[string]interface{}{"source": "llm_synthesis"},
+		})
+	}
+
+	for _, concept := range knowledge.KeyConcepts {
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       "Key Concept: " + concept,
+			Content:     concept,
+			Concept:     "key_concept",
+			Confidence:  0.8,
+			ExtractedAt: time.Now(),
+		})
+	}
+
+	for _, practice := range knowledge.BestPractices {
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       "Best Practice",
+			Content:     practice,
+			Concept:     "best_practice",
+			Confidence:  0.8,
+			ExtractedAt: time.Now(),
+		})
+	}
+
+	for _, pattern := range knowledge.CommonPatterns {
+		atom := KnowledgeAtom{
+			Title:       "Pattern: " + pattern.Name,
+			Content:     pattern.Description,
+			Concept:     "pattern",
+			Confidence:  0.75,
+			ExtractedAt: time.Now(),
+		}
+		if pattern.Code != "" {
+			atom.CodePattern = pattern.Code
+		}
+		atoms = append(atoms, atom)
+	}
+
+	for _, pitfall := range knowledge.CommonPitfalls {
+		atoms = append(atoms, KnowledgeAtom{
+			Title:       "Common Pitfall",
+			Content:     pitfall,
+			Concept:     "anti_pattern",
+			AntiPattern: pitfall,
+			Confidence:  0.8,
+			ExtractedAt: time.Now(),
+		})
+	}
+
+	return atoms, nil
+}
+
+// generateSearchURLs creates a list of URLs to research (kept for compatibility but unused)
+func (r *ResearcherShard) generateSearchURLs(topic string, keywords []string) []string {
+	// This method is deprecated in favor of the multi-strategy approach
+	// Kept for backward compatibility
+	return []string{}
 }
 
 // fetchAndExtract fetches a URL and extracts knowledge atoms.
