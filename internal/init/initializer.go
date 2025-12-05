@@ -359,6 +359,49 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// =========================================================================
+	// PHASE 7b: Create Codebase Knowledge Base
+	// =========================================================================
+	i.sendProgress("codebase_kb", "Creating codebase knowledge base...", 0.80)
+	fmt.Println("\n📖 Phase 7b: Creating Codebase Knowledge Base")
+
+	codebaseKBPath, codebaseAtoms, err := i.createCodebaseKnowledgeBase(ctx, nerdDir, profile, scanResult)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create codebase KB: %v", err))
+	} else {
+		result.FilesCreated = append(result.FilesCreated, codebaseKBPath)
+		fmt.Printf("   ✓ Codebase KB ready (%d atoms)\n", codebaseAtoms)
+	}
+
+	// =========================================================================
+	// PHASE 7c: Create Core Shard Knowledge Bases (Coder, Reviewer, Tester)
+	// =========================================================================
+	i.sendProgress("core_shards_kb", "Creating core shard knowledge bases...", 0.82)
+	fmt.Println("\n🔧 Phase 7c: Creating Core Shard Knowledge Bases")
+
+	coreShardKBs, err := i.createCoreShardKnowledgeBases(ctx, nerdDir, profile)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create core shard KBs: %v", err))
+	} else {
+		for name, atoms := range coreShardKBs {
+			fmt.Printf("   ✓ %s KB ready (%d atoms)\n", strings.Title(name), atoms)
+		}
+	}
+
+	// =========================================================================
+	// PHASE 7d: Create Campaign Knowledge Base
+	// =========================================================================
+	i.sendProgress("campaign_kb", "Creating campaign knowledge base...", 0.84)
+	fmt.Println("\n🎯 Phase 7d: Creating Campaign Knowledge Base")
+
+	campaignKBPath, campaignAtoms, err := i.createCampaignKnowledgeBase(ctx, nerdDir, profile)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create campaign KB: %v", err))
+	} else {
+		result.FilesCreated = append(result.FilesCreated, campaignKBPath)
+		fmt.Printf("   ✓ Campaign KB ready (%d atoms)\n", campaignAtoms)
+	}
+
+	// =========================================================================
 	// PHASE 8: Initialize Preferences
 	// =========================================================================
 	i.sendProgress("preferences", "Initializing preferences...", 0.85)
@@ -1431,4 +1474,250 @@ func sanitizeForMangle(s string) string {
 	}
 
 	return sanitized
+}
+
+// =============================================================================
+// NEW KNOWLEDGE BASES: Codebase, Core Shards, Campaign
+// =============================================================================
+
+// createCodebaseKnowledgeBase creates a knowledge base with project-specific facts.
+func (i *Initializer) createCodebaseKnowledgeBase(ctx context.Context, nerdDir string, profile ProjectProfile, scanResult *world.ScanResult) (string, int, error) {
+	kbPath := filepath.Join(nerdDir, "shards", "codebase_knowledge.db")
+
+	// Create the knowledge store
+	codebaseDB, err := store.NewLocalStore(kbPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to create codebase KB: %w", err)
+	}
+	defer codebaseDB.Close()
+
+	atomCount := 0
+
+	// Store project identity
+	if err := codebaseDB.StoreKnowledgeAtom("project_identity", fmt.Sprintf(
+		"This is %s, a %s project. %s",
+		profile.Name, profile.Language, profile.Description), 1.0); err == nil {
+		atomCount++
+	}
+
+	// Store language and framework
+	if profile.Language != "" && profile.Language != "unknown" {
+		if err := codebaseDB.StoreKnowledgeAtom("primary_language", profile.Language, 1.0); err == nil {
+			atomCount++
+		}
+	}
+	if profile.Framework != "" && profile.Framework != "unknown" {
+		if err := codebaseDB.StoreKnowledgeAtom("framework", profile.Framework, 0.95); err == nil {
+			atomCount++
+		}
+	}
+
+	// Store file topology summary
+	if scanResult != nil {
+		summary := fmt.Sprintf("Project contains %d files in %d directories (%d test files).",
+			scanResult.FileCount, scanResult.DirectoryCount, scanResult.TestFileCount)
+		if err := codebaseDB.StoreKnowledgeAtom("file_topology_summary", summary, 0.9); err == nil {
+			atomCount++
+		}
+
+		// Store language breakdown
+		for lang, count := range scanResult.Languages {
+			content := fmt.Sprintf("Language %s: %d files", lang, count)
+			if err := codebaseDB.StoreKnowledgeAtom("language_stats", content, 0.85); err == nil {
+				atomCount++
+			}
+		}
+	}
+
+	// Store entry points
+	for _, entry := range profile.EntryPoints {
+		if err := codebaseDB.StoreKnowledgeAtom("entry_point", entry, 0.95); err == nil {
+			atomCount++
+		}
+	}
+
+	// Store dependencies
+	for _, dep := range profile.Dependencies {
+		content := fmt.Sprintf("Dependency: %s (%s)", dep.Name, dep.Type)
+		if err := codebaseDB.StoreKnowledgeAtom("dependency", content, 0.9); err == nil {
+			atomCount++
+		}
+	}
+
+	// Store architectural patterns
+	for _, pattern := range profile.Patterns {
+		if err := codebaseDB.StoreKnowledgeAtom("architectural_pattern", pattern, 0.85); err == nil {
+			atomCount++
+		}
+	}
+
+	return kbPath, atomCount, nil
+}
+
+// createCoreShardKnowledgeBases creates knowledge bases for Coder, Reviewer, Tester shards.
+func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir string, profile ProjectProfile) (map[string]int, error) {
+	shardsDir := filepath.Join(nerdDir, "shards")
+	results := make(map[string]int)
+
+	// Define core shards with their domain expertise
+	coreShards := []struct {
+		Name        string
+		Description string
+		Topics      []string
+		Concepts    []struct{ Key, Value string }
+	}{
+		{
+			Name:        "coder",
+			Description: "Code generation and modification specialist",
+			Topics:      []string{"code generation", "refactoring", "file editing", "impact analysis"},
+			Concepts: []struct{ Key, Value string }{
+				{"role", "I am the Coder shard. I generate, modify, and refactor code following project conventions."},
+				{"capability_generate", "I can generate new code files, functions, and modules."},
+				{"capability_modify", "I can modify existing code with precise edits."},
+				{"capability_refactor", "I can refactor code for better structure and readability."},
+				{"safety_rule", "I always check impact radius before making changes."},
+				{"safety_rule", "I never modify files without understanding their purpose."},
+			},
+		},
+		{
+			Name:        "reviewer",
+			Description: "Code review and security analysis specialist",
+			Topics:      []string{"code review", "security audit", "style checking", "best practices"},
+			Concepts: []struct{ Key, Value string }{
+				{"role", "I am the Reviewer shard. I review code for quality, security, and style issues."},
+				{"capability_review", "I can perform comprehensive code reviews."},
+				{"capability_security", "I can detect security vulnerabilities (OWASP top 10)."},
+				{"capability_style", "I can check code style and consistency."},
+				{"safety_rule", "Critical security issues block commit."},
+				{"safety_rule", "I provide constructive feedback with suggestions."},
+			},
+		},
+		{
+			Name:        "tester",
+			Description: "Testing and TDD loop specialist",
+			Topics:      []string{"unit testing", "TDD", "test coverage", "test generation"},
+			Concepts: []struct{ Key, Value string }{
+				{"role", "I am the Tester shard. I manage tests, TDD loops, and coverage."},
+				{"capability_generate", "I can generate unit tests for functions and modules."},
+				{"capability_run", "I can execute tests and parse results."},
+				{"capability_tdd", "I can run TDD repair loops to fix failing tests."},
+				{"safety_rule", "Tests must pass before code is considered complete."},
+				{"safety_rule", "Coverage below goal triggers test generation."},
+			},
+		},
+	}
+
+	for _, shard := range coreShards {
+		kbPath := filepath.Join(shardsDir, fmt.Sprintf("%s_knowledge.db", shard.Name))
+
+		shardDB, err := store.NewLocalStore(kbPath)
+		if err != nil {
+			continue
+		}
+
+		atomCount := 0
+
+		// Store shard identity
+		if err := shardDB.StoreKnowledgeAtom("shard_identity", shard.Description, 1.0); err == nil {
+			atomCount++
+		}
+
+		// Store concepts
+		for _, concept := range shard.Concepts {
+			if err := shardDB.StoreKnowledgeAtom(concept.Key, concept.Value, 0.95); err == nil {
+				atomCount++
+			}
+		}
+
+		// Store project context
+		if err := shardDB.StoreKnowledgeAtom("project_language", profile.Language, 0.9); err == nil {
+			atomCount++
+		}
+		if profile.Framework != "" && profile.Framework != "unknown" {
+			if err := shardDB.StoreKnowledgeAtom("project_framework", profile.Framework, 0.9); err == nil {
+				atomCount++
+			}
+		}
+
+		// Research shard-specific topics if LLM available
+		if i.config.LLMClient != nil && !i.config.SkipResearch {
+			researcher := shards.NewResearcherShard()
+			researcher.SetLLMClient(i.config.LLMClient)
+			researcher.SetLocalDB(shardDB)
+
+			// Research 1-2 topics per shard (quick)
+			for j, topic := range shard.Topics {
+				if j >= 2 {
+					break
+				}
+				task := fmt.Sprintf("research docs: %s for %s (brief)", topic, profile.Language)
+				researcher.Execute(ctx, task)
+				atomCount += 5 // Approximate
+			}
+		}
+
+		shardDB.Close()
+		results[shard.Name] = atomCount
+	}
+
+	return results, nil
+}
+
+// createCampaignKnowledgeBase creates a knowledge base for campaign orchestration.
+func (i *Initializer) createCampaignKnowledgeBase(ctx context.Context, nerdDir string, profile ProjectProfile) (string, int, error) {
+	kbPath := filepath.Join(nerdDir, "shards", "campaign_knowledge.db")
+
+	campaignDB, err := store.NewLocalStore(kbPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to create campaign KB: %w", err)
+	}
+	defer campaignDB.Close()
+
+	atomCount := 0
+
+	// Campaign orchestration concepts
+	concepts := []struct{ Key, Value string }{
+		{"campaign_identity", "I am the Campaign orchestrator. I manage multi-phase development tasks."},
+		{"capability_planning", "I can break complex tasks into phases with dependencies."},
+		{"capability_delegation", "I can delegate tasks to specialized shards (Coder, Reviewer, Tester)."},
+		{"capability_checkpoints", "I validate phase completion before proceeding."},
+		{"capability_replanning", "I can replan when tasks fail or requirements change."},
+		{"phase_types", "Common phases: research, design, implement, test, review, integrate."},
+		{"safety_rule", "Failed checkpoints block phase advancement."},
+		{"safety_rule", "Critical security findings block campaign completion."},
+		{"learning_rule", "Successful patterns are promoted to long-term memory."},
+		{"learning_rule", "Repeated failures trigger strategy adjustment."},
+	}
+
+	for _, concept := range concepts {
+		if err := campaignDB.StoreKnowledgeAtom(concept.Key, concept.Value, 0.95); err == nil {
+			atomCount++
+		}
+	}
+
+	// Store project-specific campaign context
+	if err := campaignDB.StoreKnowledgeAtom("project_context",
+		fmt.Sprintf("Campaigns for %s (%s project)", profile.Name, profile.Language), 0.9); err == nil {
+		atomCount++
+	}
+
+	// Store build system info for execution
+	if profile.BuildSystem != "" {
+		if err := campaignDB.StoreKnowledgeAtom("build_system", profile.BuildSystem, 0.9); err == nil {
+			atomCount++
+		}
+	}
+
+	// Research campaign patterns if LLM available
+	if i.config.LLMClient != nil && !i.config.SkipResearch {
+		researcher := shards.NewResearcherShard()
+		researcher.SetLLMClient(i.config.LLMClient)
+		researcher.SetLocalDB(campaignDB)
+
+		// Research software development workflows
+		researcher.Execute(ctx, "research docs: software development workflow patterns (brief)")
+		atomCount += 5
+	}
+
+	return kbPath, atomCount, nil
 }
