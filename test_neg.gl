@@ -1,0 +1,5 @@
+Decl foo(X).
+Decl bar(X).
+foo(/a).
+bar(/b).
+test(X) :- foo(X), !bar(X).

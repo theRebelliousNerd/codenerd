@@ -1,0 +1,4 @@
+Decl foo(X).
+foo(/a).
+foo(/b).
+test(X) :- foo(X), X != "done".

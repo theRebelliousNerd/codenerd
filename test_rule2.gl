@@ -1,0 +1,5 @@
+Decl test(X, Y).
+test(X, Y) :-
+    foo(X),
+    bar(Y),
+    Y != /done.

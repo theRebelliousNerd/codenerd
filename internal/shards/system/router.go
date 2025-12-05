@@ -334,17 +334,58 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		r.pendingCalls = append(r.pendingCalls, call)
 		r.mu.Unlock()
 
-		// Emit exec_request fact
-		_ = r.Kernel.Assert(core.Fact{
-			Predicate: "exec_request",
-			Args: []interface{}{
-				route.ToolName,
-				target,
-				route.Timeout.Seconds(),
-				call.ID,
-				time.Now().Unix(),
-			},
-		})
+		// Execute via VirtualStore if available (synchronous execution)
+		if r.VirtualStore != nil {
+			call.Status = "executing"
+			call.StartedAt = time.Now()
+
+			// Create action fact for VirtualStore
+			actionFact := core.Fact{
+				Predicate: "next_action",
+				Args:      []interface{}{actionType, target},
+			}
+
+			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
+
+			call.CompletedAt = time.Now()
+			if err != nil {
+				call.Status = "failed"
+				call.Error = err.Error()
+				_ = r.Kernel.Assert(core.Fact{
+					Predicate: "routing_result",
+					Args:      []interface{}{call.ID, "failure", err.Error()},
+				})
+			} else {
+				call.Status = "completed"
+				call.Result = result
+				_ = r.Kernel.Assert(core.Fact{
+					Predicate: "routing_result",
+					Args:      []interface{}{call.ID, "success", result},
+				})
+			}
+
+			// Update call in pendingCalls
+			r.mu.Lock()
+			for i := range r.pendingCalls {
+				if r.pendingCalls[i].ID == call.ID {
+					r.pendingCalls[i] = call
+					break
+				}
+			}
+			r.mu.Unlock()
+		} else {
+			// Emit exec_request fact for async processing by VirtualStore
+			_ = r.Kernel.Assert(core.Fact{
+				Predicate: "exec_request",
+				Args: []interface{}{
+					route.ToolName,
+					target,
+					route.Timeout.Seconds(),
+					call.ID,
+					time.Now().Unix(),
+				},
+			})
+		}
 
 		// Clear the permitted action
 		_ = r.Kernel.Retract("action_permitted")

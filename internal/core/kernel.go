@@ -107,13 +107,15 @@ type RealKernel struct {
 	policy      string
 	initialized bool
 	manglePath  string // Path to mangle files directory
+	policyDirty bool   // True when schemas/policy changed and need reparse
 }
 
 // NewRealKernel creates a new kernel instance.
 func NewRealKernel() *RealKernel {
 	k := &RealKernel{
-		facts: make([]Fact, 0),
-		store: factstore.NewSimpleInMemoryStore(),
+		facts:       make([]Fact, 0),
+		store:       factstore.NewSimpleInMemoryStore(),
+		policyDirty: true, // Need to parse on first use
 	}
 
 	// Find and load mangle files from the project
@@ -125,9 +127,10 @@ func NewRealKernel() *RealKernel {
 // NewRealKernelWithPath creates a kernel with explicit mangle path.
 func NewRealKernelWithPath(manglePath string) *RealKernel {
 	k := &RealKernel{
-		facts:      make([]Fact, 0),
-		store:      factstore.NewSimpleInMemoryStore(),
-		manglePath: manglePath,
+		facts:       make([]Fact, 0),
+		store:       factstore.NewSimpleInMemoryStore(),
+		manglePath:  manglePath,
+		policyDirty: true,
 	}
 	k.loadMangleFiles()
 	return k
@@ -173,20 +176,37 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	return k.rebuild()
 }
 
-// Assert adds a single fact dynamically.
+// Assert adds a single fact dynamically and re-evaluates derived facts.
 func (k *RealKernel) Assert(fact Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
 	k.facts = append(k.facts, fact)
+	return k.evaluate()
+}
 
-	// Also add directly to the store for immediate availability
-	atom, err := fact.ToAtom()
-	if err != nil {
-		return err
-	}
-	k.store.Add(atom)
-	return nil
+// AssertBatch adds multiple facts and evaluates once (more efficient).
+func (k *RealKernel) AssertBatch(facts []Fact) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.facts = append(k.facts, facts...)
+	return k.evaluate()
+}
+
+// AssertWithoutEval adds a fact without re-evaluating.
+// Use when batching many facts, then call Evaluate() once at the end.
+func (k *RealKernel) AssertWithoutEval(fact Fact) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.facts = append(k.facts, fact)
+}
+
+// Evaluate forces re-evaluation of all rules. Call after AssertWithoutEval batch.
+func (k *RealKernel) Evaluate() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.evaluate()
 }
 
 // Retract removes all facts of a given predicate.
@@ -204,54 +224,73 @@ func (k *RealKernel) Retract(predicate string) error {
 	return k.rebuild()
 }
 
-// rebuild reconstructs the program and evaluates to fixpoint.
-func (k *RealKernel) rebuild() error {
-	// 1. Construct the complete program
+// rebuildProgram parses schemas+policy and caches programInfo.
+// This is only called when policyDirty is true.
+func (k *RealKernel) rebuildProgram() error {
+	// Construct program from schemas + policy (no facts)
 	var sb strings.Builder
 
-	// Schemas first (declarations)
 	if k.schemas != "" {
 		sb.WriteString(k.schemas)
 		sb.WriteString("\n")
 	}
 
-	// Facts (EDB)
-	for _, f := range k.facts {
-		sb.WriteString(f.String())
-		sb.WriteString("\n")
-	}
-
-	// Policy rules (IDB)
 	if k.policy != "" {
 		sb.WriteString(k.policy)
 	}
 
 	programStr := sb.String()
 
-	// 2. Parse
+	// Parse
 	parsed, err := parse.Unit(strings.NewReader(programStr))
 	if err != nil {
 		return fmt.Errorf("failed to parse program: %w", err)
 	}
 
-	// 3. Analyze
+	// Analyze
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
 		return fmt.Errorf("failed to analyze program: %w", err)
 	}
+
 	k.programInfo = programInfo
+	k.policyDirty = false
+	return nil
+}
 
-	// 4. Create fresh FactStore
+// evaluate populates the store with facts and evaluates to fixpoint.
+// Uses cached programInfo for efficiency.
+func (k *RealKernel) evaluate() error {
+	// Rebuild program if policy changed
+	if k.policyDirty || k.programInfo == nil {
+		if err := k.rebuildProgram(); err != nil {
+			return err
+		}
+	}
+
+	// Create fresh store and populate with EDB facts
 	k.store = factstore.NewSimpleInMemoryStore()
+	for _, f := range k.facts {
+		atom, err := f.ToAtom()
+		if err != nil {
+			return fmt.Errorf("failed to convert fact %v: %w", f, err)
+		}
+		k.store.Add(atom)
+	}
 
-	// 5. Evaluate to fixpoint using stratified evaluation
-	_, err = engine.EvalStratifiedProgramWithStats(programInfo, nil, nil, k.store)
+	// Evaluate to fixpoint using cached programInfo
+	_, err := engine.EvalStratifiedProgramWithStats(k.programInfo, nil, nil, k.store)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate program: %w", err)
 	}
 
 	k.initialized = true
 	return nil
+}
+
+// rebuild is kept for backward compatibility - now delegates to evaluate().
+func (k *RealKernel) rebuild() error {
+	return k.evaluate()
 }
 
 // Query retrieves all facts matching a predicate pattern.
@@ -363,6 +402,7 @@ func (k *RealKernel) SetSchemas(schemas string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.schemas = schemas
+	k.policyDirty = true
 }
 
 // SetPolicy allows loading custom policy rules (for shard specialization).
@@ -370,6 +410,7 @@ func (k *RealKernel) SetPolicy(policy string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.policy = policy
+	k.policyDirty = true
 }
 
 // AppendPolicy appends additional policy rules (for shard-specific policies).
@@ -377,6 +418,7 @@ func (k *RealKernel) AppendPolicy(additionalPolicy string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.policy = k.policy + "\n\n# Appended Policy\n" + additionalPolicy
+	k.policyDirty = true
 }
 
 // LoadPolicyFile loads policy rules from a file and appends them.
@@ -425,12 +467,24 @@ func (k *RealKernel) GetPolicy() string {
 	return k.policy
 }
 
-// Clear resets the kernel to empty state.
+// Clear resets the kernel to empty state (keeps cached programInfo).
 func (k *RealKernel) Clear() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.facts = make([]Fact, 0)
 	k.store = factstore.NewSimpleInMemoryStore()
+	k.initialized = false
+	// Note: programInfo and policyDirty preserved - only facts cleared
+}
+
+// Reset fully resets the kernel including cached program.
+func (k *RealKernel) Reset() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.facts = make([]Fact, 0)
+	k.store = factstore.NewSimpleInMemoryStore()
+	k.programInfo = nil
+	k.policyDirty = true
 	k.initialized = false
 }
 

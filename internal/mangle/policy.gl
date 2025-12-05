@@ -223,14 +223,18 @@ delegate_task(/reviewer, Task, /pending) :-
 # SECTION 9: BROWSER PHYSICS (§9.0)
 # =============================================================================
 
-# Spatial reasoning - element to the left
+# Spatial reasoning - element to the left (constrained to interactable elements to avoid O(N²))
 left_of(A, B) :-
+    interactable(A, _),
+    interactable(B, _),
     geometry(A, Ax, _, _, _),
     geometry(B, Bx, _, _, _),
     Ax < Bx.
 
-# Element above another
+# Element above another (constrained to interactable elements)
 above(A, B) :-
+    interactable(A, _),
+    interactable(B, _),
     geometry(A, _, Ay, _, _),
     geometry(B, _, By, _, _),
     Ay < By.
@@ -737,7 +741,7 @@ active_strategy(/campaign_execution) :-
 has_incomplete_hard_dep(PhaseID) :-
     phase_dependency(PhaseID, DepPhaseID, /hard),
     campaign_phase(DepPhaseID, _, _, _, Status, _),
-    Status != /completed .
+    /completed != Status.
 
 # A phase is eligible when all hard dependencies are complete
 phase_eligible(PhaseID) :-
@@ -783,8 +787,8 @@ phase_blocked(PhaseID, "hard_dependency_incomplete") :-
 has_blocking_task_dep(TaskID) :-
     task_dependency(TaskID, BlockerID),
     campaign_task(BlockerID, _, _, Status, _),
-    Status != /completed,
-    Status != /skipped .
+    /completed != Status,
+    /skipped != Status.
 
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
@@ -896,7 +900,7 @@ activation(Fact, -50) :-
 # Helper: check if phase has pending checkpoint
 has_pending_checkpoint(PhaseID) :-
     phase_objective(PhaseID, _, _, VerifyMethod),
-    VerifyMethod != /none,
+    /none != VerifyMethod,
     !has_passed_checkpoint(PhaseID, VerifyMethod).
 
 has_passed_checkpoint(PhaseID, CheckType) :-
@@ -905,8 +909,8 @@ has_passed_checkpoint(PhaseID, CheckType) :-
 # Helper: check if all phase tasks are complete
 has_incomplete_phase_task(PhaseID) :-
     campaign_task(_, PhaseID, _, Status, _),
-    Status != /completed,
-    Status != /skipped .
+    /completed != Status,
+    /skipped != Status.
 
 all_phase_tasks_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, _, _),
@@ -975,8 +979,8 @@ has_next_campaign_task() :-
 # Helper: check if any phase is not complete
 has_incomplete_phase(CampaignID) :-
     campaign_phase(_, CampaignID, _, _, Status, _),
-    Status != /completed,
-    Status != /skipped .
+    /completed != Status,
+    /skipped != Status.
 
 # Campaign complete when all phases complete
 campaign_complete(CampaignID) :-
@@ -1173,9 +1177,10 @@ block_all_actions("safety_violation") :-
     safety_violation(_, _, _, _).
 
 # Security anomaly triggers investigation
+# Need to check if there are uninvestigated anomalies
 next_action(/investigate_anomaly) :-
-    security_anomaly(_, _, _),
-    !anomaly_investigated(_).
+    security_anomaly(AnomalyID, _, _),
+    !anomaly_investigated(AnomalyID).
 
 # Helper for safe negation
 anomaly_investigated(AnomalyID) :-
@@ -1199,7 +1204,7 @@ propose_safety_rule(Pattern) :-
 # File change triggers world model update
 world_model_stale(File) :-
     modified(File),
-    file_topology(File, _, _, LastUpdate),
+    file_topology(File, _, _, LastUpdate, _),
     current_time(Now),
     time_diff(Now, LastUpdate, Diff),
     Diff > 5.
@@ -1211,14 +1216,14 @@ next_action(/update_world_model) :-
 
 # File topology derived from filesystem
 file_in_project(File) :-
-    file_topology(File, _, _, _).
+    file_topology(File, _, _, _, _).
 
-# Symbol graph connectivity
+# Symbol graph connectivity (uses dependency_link for edges)
 symbol_reachable(From, To) :-
-    symbol_graph(From, To, _).
+    dependency_link(From, To, _).
 
 symbol_reachable(From, To) :-
-    symbol_graph(From, Mid, _),
+    dependency_link(From, Mid, _),
     symbol_reachable(Mid, To).
 
 # -----------------------------------------------------------------------------
@@ -1266,7 +1271,7 @@ agenda_item_ready(ItemID) :-
 has_incomplete_dependency(ItemID) :-
     agenda_dependency(ItemID, DepID),
     agenda_item(DepID, _, _, Status, _),
-    Status != /completed.
+    /completed != Status.
 
 # Next agenda item: highest priority ready item
 next_agenda_item(ItemID) :-
@@ -1364,16 +1369,18 @@ learning_signal(/rule_success, RuleID) :-
 
 # OODA phases: Observe → Orient → Decide → Act
 ooda_phase(/observe) :-
-    pending_intent(_),
-    !intent_ready_for_executive(_).
+    pending_intent(IntentID),
+    !intent_ready_for_executive(IntentID).
 
 ooda_phase(/orient) :-
-    intent_ready_for_executive(_),
+    intent_ready_for_executive(IntentID),
+    pending_intent(IntentID),
     !has_next_action().
 
 ooda_phase(/decide) :-
     has_next_action(),
-    !action_permitted(_).
+    next_action(ActionID),
+    !action_permitted(ActionID).
 
 ooda_phase(/act) :-
     action_ready_for_routing(_).
@@ -1399,3 +1406,163 @@ ooda_stalled(Reason) :-
 # Escalate stalled OODA loop
 escalation_needed(/ooda_loop, "stalled", Reason) :-
     ooda_stalled(Reason).
+
+# =============================================================================
+# SECTION 22: CODE DOM RULES
+# =============================================================================
+# Rules for semantic code element operations - treating code like a DOM.
+# These rules coordinate file scope, element queries, and edit tracking.
+
+# -----------------------------------------------------------------------------
+# 22.1 File Scope Rules
+# -----------------------------------------------------------------------------
+
+# A file is in scope if it's the active file
+in_scope(File) :- active_file(File).
+
+# A file is in scope if the active file imports it
+in_scope(File) :-
+    active_file(ActiveFile),
+    dependency_link(ActiveFile, File, _).
+
+# A file is in scope if it imports the active file
+in_scope(File) :-
+    active_file(ActiveFile),
+    dependency_link(File, ActiveFile, _).
+
+# -----------------------------------------------------------------------------
+# 22.2 Element Accessibility Rules
+# -----------------------------------------------------------------------------
+
+# An element is editable if its file is in scope and it has replace action
+editable(Ref) :-
+    code_element(Ref, _, File, _, _),
+    in_scope(File),
+    code_interactable(Ref, /replace).
+
+# All functions in scope (for querying)
+function_in_scope(Ref, File, Sig) :-
+    code_element(Ref, /function, File, _, _),
+    in_scope(File),
+    element_signature(Ref, Sig).
+
+# All methods in scope
+method_in_scope(Ref, File, Sig) :-
+    code_element(Ref, /method, File, _, _),
+    in_scope(File),
+    element_signature(Ref, Sig).
+
+# Method belongs to struct
+method_of(MethodRef, StructRef) :- element_parent(MethodRef, StructRef).
+
+# -----------------------------------------------------------------------------
+# 22.3 Transitive Element Containment
+# -----------------------------------------------------------------------------
+
+# Direct containment
+code_contains(Parent, Child) :- element_parent(Child, Parent).
+
+# Transitive containment
+code_contains(Ancestor, Descendant) :-
+    element_parent(Mid, Ancestor),
+    code_contains(Mid, Descendant).
+
+# -----------------------------------------------------------------------------
+# 22.4 Safety and Complexity Rules
+# -----------------------------------------------------------------------------
+
+# Safe to modify: element is in scope (implicitly has context)
+safe_to_modify(Ref) :-
+    code_element(Ref, _, File, _, _),
+    in_scope(File).
+
+# Helper: count elements for complexity analysis (evaluated in Go runtime)
+element_count_high() :-
+    code_element(Ref1, _, _, _, _),
+    code_element(Ref2, _, _, _, _),
+    code_element(Ref3, _, _, _, _),
+    code_element(Ref4, _, _, _, _),
+    code_element(Ref5, _, _, _, _),
+    Ref1 != Ref2, Ref2 != Ref3, Ref3 != Ref4, Ref4 != Ref5.
+
+# Trigger campaign for complex refactors affecting many elements
+requires_campaign(Intent) :-
+    user_intent(Intent, /mutation, _, Target, _),
+    in_scope(Target),
+    element_count_high().
+
+# -----------------------------------------------------------------------------
+# 22.5 Next Action Derivation for Code DOM
+# -----------------------------------------------------------------------------
+
+# Open file when targeting a file that's not yet in scope
+next_action(/open_file) :-
+    user_intent(_, _, _, Target, _),
+    file_topology(Target, _, /go, _, _),
+    !active_file(Target),
+    !in_scope(Target).
+
+# Query elements when file is open and we need to find something
+next_action(/query_elements) :-
+    active_file(_),
+    user_intent(_, /query, _, _, _).
+
+# Edit element when mutation targets a known element
+next_action(/edit_element) :-
+    user_intent(_, /mutation, _, Ref, _),
+    code_element(Ref, _, File, _, _),
+    in_scope(File).
+
+# Refresh scope after external changes
+next_action(/refresh_scope) :-
+    active_file(File),
+    modified(File),
+    !scope_refreshed(File).
+
+# Helper for safe negation
+scope_refreshed(File) :-
+    file_in_scope(File, _, _, _),
+    !modified(File).
+
+# -----------------------------------------------------------------------------
+# 22.6 Learning From Code Edits
+# -----------------------------------------------------------------------------
+
+# Track edit outcomes for learning
+successful_edit(Ref, EditType) :-
+    code_edit_outcome(Ref, EditType, /true).
+
+failed_edit(Ref, EditType) :-
+    code_edit_outcome(Ref, EditType, /false).
+
+# Proven safe: edit pattern has succeeded multiple times (3+)
+# Note: Exact counting done in Go runtime; this is a heuristic trigger
+proven_safe_edit(Ref, EditType) :-
+    code_edit_outcome(Ref, EditType, /true),
+    code_edit_outcome(Ref2, EditType, /true),
+    code_edit_outcome(Ref3, EditType, /true),
+    Ref != Ref2, Ref2 != Ref3, Ref != Ref3.
+
+# Promote to long-term memory when edit pattern is proven
+promote_to_long_term(/edit_pattern, EditType) :-
+    proven_safe_edit(_, EditType).
+
+# -----------------------------------------------------------------------------
+# 22.7 Code DOM Activation Rules
+# -----------------------------------------------------------------------------
+
+# Boost activation for elements in the active file
+activation(Ref, 100) :-
+    code_element(Ref, _, File, _, _),
+    active_file(File).
+
+# Boost activation for elements matching current intent target
+activation(Ref, 120) :-
+    code_element(Ref, _, _, _, _),
+    user_intent(_, _, _, Ref, _).
+
+# Suppress activation for elements in files outside scope
+activation(Ref, -50) :-
+    code_element(Ref, _, File, _, _),
+    file_topology(File, _, _, _, _),
+    !in_scope(File).
