@@ -1,6 +1,6 @@
-// Package main provides the codeNERD CLI entry point.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains input processing and intent handling.
-package main
+package chat
 
 import (
 	"codenerd/internal/autopoiesis"
@@ -21,7 +21,7 @@ import (
 // INPUT PROCESSING
 // =============================================================================
 
-func (m chatModel) processInput(input string) tea.Cmd {
+func (m Model) processInput(input string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -64,8 +64,8 @@ func (m chatModel) processInput(input string) tea.Cmd {
 			if autoResult.NeedsCampaign && autoResult.ComplexityLevel >= autopoiesis.ComplexityComplex {
 				needsCampaign, reason := m.autopoiesis.ShouldTriggerCampaign(ctx, input, intent.Target)
 				if needsCampaign && m.activeCampaign == nil {
-					warnings = append(warnings, fmt.Sprintf("🎯 Complex task detected: %s", reason))
-					warnings = append(warnings, "💡 Consider using `/campaign start` for multi-phase execution")
+					warnings = append(warnings, fmt.Sprintf("Complex task detected: %s", reason))
+					warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
 				}
 			}
 
@@ -73,8 +73,8 @@ func (m chatModel) processInput(input string) tea.Cmd {
 			if autoResult.NeedsPersistent {
 				needsPersist, persistNeed := m.autopoiesis.ShouldCreatePersistentAgent(ctx, input)
 				if needsPersist && persistNeed != nil {
-					warnings = append(warnings, fmt.Sprintf("🤖 Persistent agent recommended: %s (%s)", persistNeed.AgentType, persistNeed.Purpose))
-					warnings = append(warnings, "💡 Use `/define-agent` to create a persistent specialist")
+					warnings = append(warnings, fmt.Sprintf("Persistent agent recommended: %s (%s)", persistNeed.AgentType, persistNeed.Purpose))
+					warnings = append(warnings, "Use `/define-agent` to create a persistent specialist")
 				}
 			}
 		}
@@ -84,7 +84,7 @@ func (m chatModel) processInput(input string) tea.Cmd {
 		if intent.Category == "/query" || intent.Category == "/mutation" {
 			fileFacts, err := m.scanner.ScanWorkspace(m.workspace)
 			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("⚠️ Workspace scan skipped: %v", err))
+				warnings = append(warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
 			} else if len(fileFacts) > 0 {
 				_ = m.kernel.LoadFacts(fileFacts)
 			}
@@ -121,9 +121,9 @@ func (m chatModel) processInput(input string) tea.Cmd {
 						}
 						executionResults = append(executionResults, resFact)
 						// Also allow articulation to see it
-						warnings = append(warnings, fmt.Sprintf("📖 Read file: %s (%d bytes)", target, len(content)))
+						warnings = append(warnings, fmt.Sprintf("Read file: %s (%d bytes)", target, len(content)))
 					} else {
-						warnings = append(warnings, fmt.Sprintf("❌ Failed to read file %s: %v", target, err))
+						warnings = append(warnings, fmt.Sprintf("Failed to read file %s: %v", target, err))
 					}
 				}
 			}
@@ -137,7 +137,7 @@ func (m chatModel) processInput(input string) tea.Cmd {
 						Args:      []interface{}{intent.Target, strings.Join(matches, ",")},
 					}
 					executionResults = append(executionResults, resFact)
-					warnings = append(warnings, fmt.Sprintf("🔍 Found %d matches for '%s'", len(matches), intent.Target))
+					warnings = append(warnings, fmt.Sprintf("Found %d matches for '%s'", len(matches), intent.Target))
 				}
 			}
 
@@ -146,26 +146,26 @@ func (m chatModel) processInput(input string) tea.Cmd {
 				// Detect tool need from the input
 				toolNeed, detectErr := m.autopoiesis.DetectToolNeed(ctx, input)
 				if detectErr == nil && toolNeed != nil {
-					warnings = append(warnings, fmt.Sprintf("🔧 Tool need detected: %s (confidence: %.2f)", toolNeed.Name, toolNeed.Confidence))
+					warnings = append(warnings, fmt.Sprintf("Tool need detected: %s (confidence: %.2f)", toolNeed.Name, toolNeed.Confidence))
 
 					// Generate the tool if confidence is high enough
 					if toolNeed.Confidence >= 0.6 {
 						genTool, genErr := m.autopoiesis.GenerateTool(ctx, toolNeed)
 						if genErr == nil && genTool != nil {
-							warnings = append(warnings, fmt.Sprintf("✨ Generated tool: %s", genTool.Name))
+							warnings = append(warnings, fmt.Sprintf("Generated tool: %s", genTool.Name))
 							if genTool.Validated {
-								warnings = append(warnings, "✅ Tool code validated successfully")
+								warnings = append(warnings, "Tool code validated successfully")
 							} else if len(genTool.Errors) > 0 {
-								warnings = append(warnings, fmt.Sprintf("⚠️ Tool validation warnings: %v", genTool.Errors))
+								warnings = append(warnings, fmt.Sprintf("Tool validation warnings: %v", genTool.Errors))
 							}
 						} else if genErr != nil {
-							warnings = append(warnings, fmt.Sprintf("❌ Tool generation failed: %v", genErr))
+							warnings = append(warnings, fmt.Sprintf("Tool generation failed: %v", genErr))
 						}
 					} else {
-						warnings = append(warnings, "💭 Tool need confidence too low for auto-generation")
+						warnings = append(warnings, "Tool need confidence too low for auto-generation")
 					}
 				} else {
-					warnings = append(warnings, "🔍 Autopoiesis: Analyzing for missing tool capabilities...")
+					warnings = append(warnings, "Autopoiesis: Analyzing for missing tool capabilities...")
 				}
 			}
 		}
@@ -224,7 +224,7 @@ func (m chatModel) processInput(input string) tea.Cmd {
 	}
 }
 
-func (m chatModel) createAgentFromPrompt(description string) tea.Cmd {
+func (m Model) createAgentFromPrompt(description string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
@@ -265,4 +265,3 @@ func (m chatModel) createAgentFromPrompt(description string) tea.Cmd {
 		return responseMsg(surface)
 	}
 }
-

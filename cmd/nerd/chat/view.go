@@ -1,6 +1,6 @@
-// Package main provides the codeNERD CLI entry point.
+// Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains view rendering functions for the TUI.
-package main
+package chat
 
 import (
 	"codenerd/cmd/nerd/ui"
@@ -16,27 +16,27 @@ import (
 // =============================================================================
 // These functions render the TUI components: history, header, footer, etc.
 
-func (m chatModel) renderHistory() string {
+func (m Model) renderHistory() string {
 	var sb strings.Builder
 
 	for _, msg := range m.history {
-		if msg.role == "user" {
+		if msg.Role == "user" {
 			// Render user message
 			userStyle := m.styles.Bold.
 				Foreground(m.styles.Theme.Primary).
 				MarginTop(1)
 			sb.WriteString(userStyle.Render("You") + "\n")
-			sb.WriteString(m.styles.UserInput.Render(msg.content))
+			sb.WriteString(m.styles.UserInput.Render(msg.Content))
 			sb.WriteString("\n\n")
 		} else {
 			// Render assistant message with markdown
 			assistantStyle := m.styles.Bold.
 				Foreground(m.styles.Theme.Accent).
 				MarginTop(1)
-			sb.WriteString(assistantStyle.Render("🧠 codeNERD") + "\n")
+			sb.WriteString(assistantStyle.Render("codeNERD") + "\n")
 
 			// Render markdown with panic recovery
-			rendered := m.safeRenderMarkdown(msg.content)
+			rendered := m.safeRenderMarkdown(msg.Content)
 			sb.WriteString(rendered)
 			sb.WriteString("\n")
 		}
@@ -46,7 +46,7 @@ func (m chatModel) renderHistory() string {
 }
 
 // safeRenderMarkdown renders markdown with panic recovery
-func (m chatModel) safeRenderMarkdown(content string) (result string) {
+func (m Model) safeRenderMarkdown(content string) (result string) {
 	defer func() {
 		if r := recover(); r != nil {
 			// If glamour panics, return plain text
@@ -63,7 +63,7 @@ func (m chatModel) safeRenderMarkdown(content string) (result string) {
 	return content
 }
 
-func (m chatModel) View() string {
+func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
@@ -116,18 +116,18 @@ func (m chatModel) View() string {
 	)
 }
 
-func (m chatModel) renderHeader() string {
+func (m Model) renderHeader() string {
 	// Logo and title
-	title := m.styles.Header.Render(" 🧠 codeNERD ")
+	title := m.styles.Header.Render(" codeNERD ")
 	version := m.styles.Badge.Render("v1.0")
-	workspace := m.styles.Muted.Render(fmt.Sprintf(" 📁 %s", m.workspace))
+	workspace := m.styles.Muted.Render(fmt.Sprintf(" %s", m.workspace))
 
 	// Status indicators
 	var status string
 	if m.isLoading {
-		status = m.styles.Warning.Render("● Processing")
+		status = m.styles.Warning.Render("* Processing")
 	} else {
-		status = m.styles.Success.Render("● Ready")
+		status = m.styles.Success.Render("* Ready")
 	}
 
 	headerLine := lipgloss.JoinHorizontal(
@@ -147,16 +147,16 @@ func (m chatModel) renderHeader() string {
 	)
 }
 
-func (m chatModel) renderFooter() string {
+func (m Model) renderFooter() string {
 	// Build mode indicator
 	modeIndicator := ""
 	switch m.paneMode {
 	case ui.ModeSinglePane:
-		modeIndicator = "📝 Chat"
+		modeIndicator = "Chat"
 	case ui.ModeSplitPane:
-		modeIndicator = "🔬 Split (Chat + Logic)"
+		modeIndicator = "Split (Chat + Logic)"
 	case ui.ModeFullLogic:
-		modeIndicator = "🔬 Logic View"
+		modeIndicator = "Logic View"
 	}
 
 	// Add campaign indicator if active
@@ -166,13 +166,12 @@ func (m chatModel) renderFooter() string {
 		if m.activeCampaign.TotalTasks > 0 {
 			progress = float64(m.activeCampaign.CompletedTasks) / float64(m.activeCampaign.TotalTasks) * 100
 		}
-		campaignIndicator = fmt.Sprintf(" • 🎯 Campaign: %.0f%%", progress)
+		campaignIndicator = fmt.Sprintf(" * Campaign: %.0f%%", progress)
 	}
 
-	help := m.styles.Muted.Render(fmt.Sprintf("%s%s • Enter: send • Ctrl+L: logic • Ctrl+P: campaign • /help • Ctrl+C: exit", modeIndicator, campaignIndicator))
+	timestamp := time.Now().Format("15:04")
+	help := m.styles.Muted.Render(fmt.Sprintf("%s%s * %s * Enter: send * Ctrl+L: logic * Ctrl+P: campaign * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, timestamp))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
 }
-
-// runShadowSimulation runs a full Shadow Mode simulation

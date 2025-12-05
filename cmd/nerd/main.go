@@ -1,6 +1,7 @@
 package main
 
 import (
+	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
@@ -77,7 +78,10 @@ Run without arguments to start the interactive chat interface.`,
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Default behavior: launch interactive chat
-		return runInteractiveChat()
+		cfg := chat.Config{
+			DisableSystemShards: disableSystemShards,
+		}
+		return chat.RunInteractiveChat(cfg)
 	},
 }
 
