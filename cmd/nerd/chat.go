@@ -267,6 +267,14 @@ func initChat() chatModel {
 		if localDB != nil {
 			shard.SetLocalDB(localDB)
 		}
+		// Set Context7 API key from config or environment
+		context7Key := cfg.Context7APIKey
+		if context7Key == "" {
+			context7Key = os.Getenv("CONTEXT7_API_KEY")
+		}
+		if context7Key != "" {
+			shard.SetContext7APIKey(context7Key)
+		}
 		return shard
 	})
 
@@ -3037,6 +3045,12 @@ func (m chatModel) runInit() tea.Cmd {
 		// Detect project type for profile
 		projectInfo := detectProjectType(m.workspace)
 
+		// Get Context7 API key from config or environment
+		context7Key := m.config.Context7APIKey
+		if context7Key == "" {
+			context7Key = os.Getenv("CONTEXT7_API_KEY")
+		}
+
 		// Create the comprehensive initializer with all components
 		initConfig := nerdinit.InitConfig{
 			Workspace:       m.workspace,
@@ -3046,6 +3060,7 @@ func (m chatModel) runInit() tea.Cmd {
 			Interactive:     false, // Non-interactive in chat mode
 			SkipResearch:    false, // Do full research
 			SkipAgentCreate: false, // Create Type 3 agents
+			Context7APIKey:  context7Key,
 		}
 
 		// Ensure .nerd directory exists

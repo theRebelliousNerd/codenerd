@@ -724,6 +724,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 		config.LLMClient = perception.NewZAIClient(key)
 	}
 
+	// Set Context7 API key from environment or config
+	context7Key := os.Getenv("CONTEXT7_API_KEY")
+	if context7Key == "" {
+		// Try loading from config.json
+		if providerCfg, err := perception.LoadConfigJSON(perception.DefaultConfigPath()); err == nil && providerCfg.Context7APIKey != "" {
+			context7Key = providerCfg.Context7APIKey
+		}
+	}
+	if context7Key != "" {
+		config.Context7APIKey = context7Key
+	}
+
 	// Run initialization
 	initializer := nerdinit.NewInitializer(config)
 	result, err := initializer.Initialize(ctx)

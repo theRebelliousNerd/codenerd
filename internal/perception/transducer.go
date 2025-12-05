@@ -2,6 +2,7 @@ package perception
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/mangle"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -62,12 +63,16 @@ type Transducer interface {
 
 // RealTransducer implements the Perception layer with LLM backing.
 type RealTransducer struct {
-	client LLMClient
+	client     LLMClient
+	repairLoop *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
 }
 
 // NewRealTransducer creates a new transducer with the given LLM client.
 func NewRealTransducer(client LLMClient) *RealTransducer {
-	return &RealTransducer{client: client}
+	return &RealTransducer{
+		client:     client,
+		repairLoop: mangle.NewRepairLoop(),
+	}
 }
 
 // PiggybackEnvelope represents the Dual-Payload JSON Schema (v1.1.0).
@@ -188,6 +193,123 @@ func parsePiggybackJSON(resp string) (PiggybackEnvelope, error) {
 	}
 
 	return envelope, nil
+}
+
+// ============================================================================
+// Grammar-Constrained Decoding (GCD) - Cortex 1.5.0 §1.1
+// ============================================================================
+
+// ValidateMangleAtoms validates atoms from the control packet using GCD.
+// Returns validated atoms and any validation errors.
+func (t *RealTransducer) ValidateMangleAtoms(atoms []string) ([]string, []mangle.ValidationResult) {
+	if t.repairLoop == nil {
+		t.repairLoop = mangle.NewRepairLoop()
+	}
+
+	validAtoms, _, _ := t.repairLoop.ValidateAndRepair(atoms)
+	results := t.repairLoop.Validator.ValidateAtoms(atoms)
+
+	return validAtoms, results
+}
+
+// ParseIntentWithGCD parses user input with Grammar-Constrained Decoding.
+// This implements the repair loop described in §6.2 of the spec.
+func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, maxRetries int) (Intent, []string, error) {
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	var lastEnvelope PiggybackEnvelope
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		userPrompt := fmt.Sprintf(`User Input: "%s"`, input)
+
+		// Add repair context if this is a retry
+		if attempt > 0 && lastErr != nil {
+			userPrompt = fmt.Sprintf(`%s
+
+PREVIOUS ATTEMPT FAILED - SYNTAX ERRORS DETECTED:
+%s
+
+Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Error())
+		}
+
+		resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+		if err != nil {
+			// LLM call failed, use simple fallback
+			intent, fallbackErr := t.parseSimple(ctx, input)
+			return intent, nil, fallbackErr
+		}
+
+		envelope, err := parsePiggybackJSON(resp)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		lastEnvelope = envelope
+
+		// Validate Mangle atoms using GCD
+		if len(envelope.Control.MangleUpdates) > 0 {
+			validAtoms, results := t.ValidateMangleAtoms(envelope.Control.MangleUpdates)
+
+			// Check for validation errors
+			hasErrors := false
+			var errorMsgs []string
+			for _, result := range results {
+				if !result.Valid {
+					hasErrors = true
+					for _, e := range result.Errors {
+						errorMsgs = append(errorMsgs, fmt.Sprintf("%s: %s", result.Atom, e.Message))
+					}
+				}
+			}
+
+			if hasErrors {
+				lastErr = fmt.Errorf("Invalid Mangle Syntax:\n%s", strings.Join(errorMsgs, "\n"))
+				continue // Retry with error context
+			}
+
+			// All atoms valid - return success
+			return Intent{
+				Category:   envelope.Control.IntentClassification.Category,
+				Verb:       envelope.Control.IntentClassification.Verb,
+				Target:     envelope.Control.IntentClassification.Target,
+				Constraint: envelope.Control.IntentClassification.Constraint,
+				Confidence: envelope.Control.IntentClassification.Confidence,
+				Response:   envelope.Surface,
+				Ambiguity:  []string{},
+			}, validAtoms, nil
+		}
+
+		// No mangle_updates to validate - return as-is
+		return Intent{
+			Category:   envelope.Control.IntentClassification.Category,
+			Verb:       envelope.Control.IntentClassification.Verb,
+			Target:     envelope.Control.IntentClassification.Target,
+			Constraint: envelope.Control.IntentClassification.Constraint,
+			Confidence: envelope.Control.IntentClassification.Confidence,
+			Response:   envelope.Surface,
+			Ambiguity:  []string{},
+		}, nil, nil
+	}
+
+	// Max retries exceeded - return best effort from last envelope
+	if lastEnvelope.Surface != "" {
+		return Intent{
+			Category:   lastEnvelope.Control.IntentClassification.Category,
+			Verb:       lastEnvelope.Control.IntentClassification.Verb,
+			Target:     lastEnvelope.Control.IntentClassification.Target,
+			Constraint: lastEnvelope.Control.IntentClassification.Constraint,
+			Confidence: lastEnvelope.Control.IntentClassification.Confidence * 0.5, // Reduce confidence
+			Response:   lastEnvelope.Surface,
+			Ambiguity:  []string{"GCD validation failed after retries"},
+		}, nil, fmt.Errorf("GCD validation failed after %d retries: %w", maxRetries, lastErr)
+	}
+
+	// Complete failure - fallback to simple parsing
+	intent, err := t.parseSimple(ctx, input)
+	return intent, nil, err
 }
 
 // parseSimple is a fallback parser using pipe-delimited format.
