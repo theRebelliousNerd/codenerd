@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Testing Research Toolkit ===\n")
+	fmt.Println("=== Testing Research Toolkit ===")
 
 	// Create researcher with toolkit
 	researcherShard := researcher.NewResearcherShard()

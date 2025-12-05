@@ -896,8 +896,6 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.textinput.Reset()
 		return m, nil
 	}
-
-	return m, nil
 }
 
 // buildStatusReport builds a status report for /status command
