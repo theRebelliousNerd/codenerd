@@ -1,7 +1,8 @@
 {
   "session_id": "sess_1764923427448237900",
   "started_at": "2025-12-05T03:30:27.4482379-05:00",
-  "last_active_at": "2025-12-05T03:30:27.4482379-05:00",
-  "turn_count": 0,
-  "suspended": false
+  "last_active_at": "2025-12-05T10:00:46.7595324-05:00",
+  "turn_count": 8,
+  "suspended": false,
+  "history_file": "sess_1764923427448237900.json"
 }
