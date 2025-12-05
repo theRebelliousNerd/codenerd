@@ -480,6 +480,84 @@ tool_lifecycle(ToolName, /ready) :-
     tool_ready(ToolName).
 
 # =============================================================================
+# SECTION 12C: TOOL LEARNING AND OPTIMIZATION
+# =============================================================================
+# Learning from tool executions to improve future generations.
+
+# Tool quality tracking
+tool_quality_poor(ToolName) :-
+    tool_learning(ToolName, Executions, SuccessRate, AvgQuality),
+    Executions >= 3,
+    AvgQuality < 0.5.
+
+tool_quality_acceptable(ToolName) :-
+    tool_learning(ToolName, Executions, _, AvgQuality),
+    Executions >= 3,
+    AvgQuality >= 0.5,
+    AvgQuality < 0.8.
+
+tool_quality_good(ToolName) :-
+    tool_learning(ToolName, Executions, _, AvgQuality),
+    Executions >= 3,
+    AvgQuality >= 0.8.
+
+# Trigger refinement for poor quality tools
+tool_needs_refinement(ToolName) :-
+    tool_quality_poor(ToolName).
+
+tool_needs_refinement(ToolName) :-
+    tool_known_issue(ToolName, /pagination),
+    tool_learning(ToolName, Executions, _, _),
+    Executions >= 2.
+
+tool_needs_refinement(ToolName) :-
+    tool_known_issue(ToolName, /incomplete),
+    tool_learning(ToolName, Executions, _, _),
+    Executions >= 2.
+
+# Next action for refinement
+next_action(/refine_tool) :-
+    tool_needs_refinement(_),
+    !active_refinement(_).
+
+# Prevent parallel refinements
+active_refinement(ToolName) :-
+    refinement_state(ToolName, /in_progress).
+
+# Learning pattern signals
+learning_pattern_detected(ToolName, IssueType) :-
+    tool_known_issue(ToolName, IssueType),
+    issue_occurrence_count(ToolName, IssueType, Count),
+    Count >= 3.
+
+# Promote learnings to tool generation hints
+tool_generation_hint(Capability, "add_pagination") :-
+    learning_pattern_detected(_, /pagination),
+    capability_similar_to(Capability, _).
+
+tool_generation_hint(Capability, "increase_limits") :-
+    learning_pattern_detected(_, /incomplete),
+    capability_similar_to(Capability, _).
+
+tool_generation_hint(Capability, "add_retry") :-
+    learning_pattern_detected(_, /rate_limit),
+    capability_similar_to(Capability, _).
+
+# Track refinement success
+refinement_effective(ToolName) :-
+    tool_refined(ToolName, OldVersion, NewVersion),
+    version_quality(ToolName, OldVersion, OldQuality),
+    version_quality(ToolName, NewVersion, NewQuality),
+    NewQuality > OldQuality.
+
+# Escalate if refinement didn't help
+escalate_to_user(ToolName, "refinement_ineffective") :-
+    tool_refined(ToolName, _, _),
+    tool_quality_poor(ToolName),
+    refinement_count(ToolName, Count),
+    Count >= 2.
+
+# =============================================================================
 # SECTION 13: GIT-AWARE SAFETY / CHESTERTON'S FENCE (§21)
 # =============================================================================
 
