@@ -470,7 +470,7 @@ next_action(/ouroboros_detect) :-
 
 next_action(/ouroboros_generate) :-
     tool_generation_permitted(_),
-    !active_generation(_).
+    !has_active_generation.
 
 next_action(/ouroboros_compile) :-
     tool_source_ready(ToolName),
@@ -479,11 +479,19 @@ next_action(/ouroboros_compile) :-
 
 next_action(/ouroboros_register) :-
     tool_compiled(ToolName),
-    !tool_registered(ToolName, _).
+    !is_tool_registered(ToolName).
 
 # Track active tool generation (prevent parallel generations)
 active_generation(ToolName) :-
     generation_state(ToolName, /in_progress).
+
+# Helper for safe negation - true if any generation is in progress
+has_active_generation :-
+    active_generation(_).
+
+# Helper for safe negation - true if tool is registered
+is_tool_registered(ToolName) :-
+    tool_registered(ToolName, _).
 
 # Tool lifecycle states
 tool_lifecycle(ToolName, /detected) :-
