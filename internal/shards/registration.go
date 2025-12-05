@@ -4,6 +4,7 @@ package shards
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/shards/researcher"
 )
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
@@ -29,7 +30,7 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 
 	// Register Researcher shard factory
 	sm.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := NewResearcherShard()
+		shard := researcher.NewResearcherShard()
 		return shard
 	})
 

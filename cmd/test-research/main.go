@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"codenerd/internal/shards"
+	"codenerd/internal/shards/researcher"
 )
 
 func main() {
 	fmt.Println("=== Testing Research Toolkit ===\n")
 
 	// Create researcher with toolkit
-	researcher := shards.NewResearcherShard()
-	toolkit := researcher.GetToolkit()
+	researcherShard := researcher.NewResearcherShard()
+	toolkit := researcherShard.GetToolkit()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -59,7 +59,7 @@ func main() {
 	// Test 4: Parallel topic research
 	fmt.Println("\n4. Testing parallel topic research...")
 	topics := []string{"rod browser automation", "golang testing"}
-	result, err := researcher.ResearchTopicsParallel(ctx, topics)
+	result, err := researcherShard.ResearchTopicsParallel(ctx, topics)
 	if err != nil {
 		fmt.Printf("   Error: %v\n", err)
 	} else {

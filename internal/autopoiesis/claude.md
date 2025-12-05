@@ -22,7 +22,10 @@ Autopoiesis provides seven core capabilities:
 | `toolgen.go` | ~600 | LLM-based tool generation |
 | `persistence.go` | ~400 | Persistent agent detection |
 | `ouroboros.go` | ~550 | Full Ouroboros Loop with safety/compile/execute |
-| `feedback.go` | ~1350 | Quality evaluation, profiles, pattern detection, learning |
+| `feedback.go` | ~430 | Core feedback tracking, tool refiner, learning store |
+| `quality.go` | ~600 | Quality assessment, evaluator, heuristic rules |
+| `patterns.go` | ~130 | Pattern detection, issue classification |
+| `profiles.go` | ~370 | Tool quality profiles, performance expectations |
 | `traces.go` | ~970 | Reasoning traces, audit logs, mandatory logging |
 
 ## The Ouroboros Loop
