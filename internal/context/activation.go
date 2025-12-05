@@ -9,10 +9,16 @@ import (
 )
 
 // =============================================================================
-// Spreading Activation Engine
+// Spreading Activation Engine - Enhanced
 // =============================================================================
 // Implements §8.1: Logic-Directed Context (Spreading Activation)
 // Energy flows from the user's intent through the graph of known facts.
+//
+// This enhanced version adds:
+// - Campaign-aware activation (boost facts related to current phase/task)
+// - Dependency-based spreading (use symbol_graph and dependency_link)
+// - Session-aware activation (boost facts from current session)
+// - Verb-based contextual boosting
 
 // ActivationEngine computes activation scores for facts.
 type ActivationEngine struct {
@@ -26,22 +32,68 @@ type ActivationEngine struct {
 
 	// Dependency graph for spreading
 	dependencies map[string][]string // fact -> depends on
+
+	// Reverse dependency graph (who depends on me)
+	reverseDependencies map[string][]string
+
+	// Symbol graph cache (extracted from symbol_graph facts)
+	symbolGraph map[string][]string // symbol -> calls
+
+	// Campaign context for phase-aware activation
+	campaignContext *CampaignActivationContext
+
+	// Session tracking
+	sessionID       string
+	sessionStarted  time.Time
+	sessionFacts    map[string]bool // Facts added this session
+}
+
+// CampaignActivationContext holds campaign-specific activation state.
+type CampaignActivationContext struct {
+	CampaignID    string
+	CurrentPhase  string
+	CurrentTask   string
+	PhaseGoals    []string
+	RelevantFiles []string
+	RelevantSymbols []string
 }
 
 // NewActivationEngine creates a new activation engine.
 func NewActivationEngine(config CompressorConfig) *ActivationEngine {
 	return &ActivationEngine{
-		config:         config,
-		factTimestamps: make(map[string]time.Time),
-		dependencies:   make(map[string][]string),
+		config:              config,
+		factTimestamps:      make(map[string]time.Time),
+		dependencies:        make(map[string][]string),
+		reverseDependencies: make(map[string][]string),
+		symbolGraph:         make(map[string][]string),
+		sessionFacts:        make(map[string]bool),
+		sessionStarted:      time.Now(),
+		sessionID:           time.Now().Format("20060102-150405"),
 	}
 }
+
+// SetCampaignContext sets the current campaign context for activation boosting.
+func (ae *ActivationEngine) SetCampaignContext(ctx *CampaignActivationContext) {
+	ae.campaignContext = ctx
+}
+
+// ClearCampaignContext clears the campaign context.
+func (ae *ActivationEngine) ClearCampaignContext() {
+	ae.campaignContext = nil
+}
+
+// =============================================================================
+// Core Scoring
+// =============================================================================
 
 // ScoreFacts computes activation scores for all facts.
 // Returns facts sorted by score in descending order.
 func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fact) []ScoredFact {
 	ae.state.ActiveIntent = currentIntent
 	ae.state.LastUpdate = time.Now()
+
+	// Build symbol graph from facts (for dependency spreading)
+	ae.buildSymbolGraph(facts)
 
 	scored := make([]ScoredFact, 0, len(facts))
 
@@ -63,6 +115,35 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	})
 
 	return scored
+}
+
+// buildSymbolGraph extracts symbol relationships from symbol_graph and dependency_link facts.
+func (ae *ActivationEngine) buildSymbolGraph(facts []core.Fact) {
+	for _, f := range facts {
+		switch f.Predicate {
+		case "dependency_link":
+			// dependency_link(CallerID, CalleeID, ImportPath)
+			if len(f.Args) >= 2 {
+				caller, _ := f.Args[0].(string)
+				callee, _ := f.Args[1].(string)
+				if caller != "" && callee != "" {
+					ae.symbolGraph[caller] = append(ae.symbolGraph[caller], callee)
+					// Also add reverse dependency
+					ae.reverseDependencies[callee] = append(ae.reverseDependencies[callee], caller)
+				}
+			}
+		case "symbol_graph":
+			// symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
+			if len(f.Args) >= 4 {
+				symbolID, _ := f.Args[0].(string)
+				definedAt, _ := f.Args[3].(string)
+				if symbolID != "" && definedAt != "" {
+					// Link symbol to its file
+					ae.dependencies[symbolID] = append(ae.dependencies[symbolID], definedAt)
+				}
+			}
+		}
+	}
 }
 
 // FilterByThreshold returns only facts above the activation threshold.
@@ -117,6 +198,7 @@ func (ae *ActivationEngine) UpdateFocusedPaths(facts []core.Fact) {
 func (ae *ActivationEngine) RecordFactTimestamp(fact core.Fact) {
 	key := factKey(fact)
 	ae.factTimestamps[key] = time.Now()
+	ae.sessionFacts[key] = true
 }
 
 // AddDependency records a dependency between facts.
@@ -124,10 +206,11 @@ func (ae *ActivationEngine) AddDependency(dependent, dependency core.Fact) {
 	depKey := factKey(dependent)
 	depsKey := factKey(dependency)
 	ae.dependencies[depKey] = append(ae.dependencies[depKey], depsKey)
+	ae.reverseDependencies[depsKey] = append(ae.reverseDependencies[depsKey], depKey)
 }
 
 // =============================================================================
-// Scoring Components
+// Enhanced Scoring Components
 // =============================================================================
 
 type scoreComponents struct {
@@ -135,10 +218,12 @@ type scoreComponents struct {
 	recency    float64
 	relevance  float64
 	dependency float64
+	campaign   float64 // NEW: Campaign-specific boost
+	session    float64 // NEW: Session-specific boost
 }
 
 func (s *scoreComponents) Total() float64 {
-	return s.base + s.recency + s.relevance + s.dependency
+	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session
 }
 
 // computeScore calculates the activation score for a fact.
@@ -148,6 +233,8 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 		recency:    ae.computeRecencyScore(fact),
 		relevance:  ae.computeRelevanceScore(fact),
 		dependency: ae.computeDependencyScore(fact),
+		campaign:   ae.computeCampaignScore(fact),
+		session:    ae.computeSessionScore(fact),
 	}
 }
 
@@ -234,22 +321,70 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 		}
 	}
 
-	// Verb-predicate relevance boosting
-	verbPredicateBoosts := map[string][]string{
-		"/fix":      {"diagnostic", "test_state", "impacted"},
-		"/debug":    {"diagnostic", "test_state", "impacted", "symbol_graph"},
-		"/refactor": {"dependency_link", "impacted", "unsafe_to_refactor", "block_refactor"},
-		"/test":     {"test_state", "test_coverage", "diagnostic"},
-		"/explain":  {"symbol_graph", "dependency_link", "file_topology"},
-		"/research": {"knowledge_atom", "vector_recall", "knowledge_link"},
+	// Enhanced verb-predicate relevance boosting
+	verbPredicateBoosts := map[string]map[string]float64{
+		"/fix": {
+			"diagnostic":    35.0,
+			"test_state":    30.0,
+			"impacted":      25.0,
+			"file_content":  20.0,
+			"error_context": 40.0,
+		},
+		"/debug": {
+			"diagnostic":    40.0,
+			"test_state":    35.0,
+			"impacted":      30.0,
+			"symbol_graph":  25.0,
+			"stack_trace":   45.0,
+		},
+		"/refactor": {
+			"dependency_link":    40.0,
+			"impacted":           35.0,
+			"unsafe_to_refactor": 50.0,
+			"block_refactor":     50.0,
+			"symbol_graph":       30.0,
+		},
+		"/test": {
+			"test_state":    45.0,
+			"test_coverage": 40.0,
+			"diagnostic":    30.0,
+			"test_result":   40.0,
+		},
+		"/explain": {
+			"symbol_graph":    35.0,
+			"dependency_link": 30.0,
+			"file_topology":   25.0,
+			"documentation":   30.0,
+		},
+		"/research": {
+			"knowledge_atom": 45.0,
+			"vector_recall":  40.0,
+			"knowledge_link": 35.0,
+			"documentation":  35.0,
+		},
+		"/review": {
+			"diagnostic":      35.0,
+			"security_issue":  45.0,
+			"code_smell":      30.0,
+			"complexity":      25.0,
+		},
+		"/security": {
+			"security_issue":    50.0,
+			"vulnerability":     50.0,
+			"diagnostic":        30.0,
+			"security_pattern":  40.0,
+		},
+		"/create": {
+			"file_topology":   30.0,
+			"symbol_graph":    25.0,
+			"template":        35.0,
+			"dependency_link": 20.0,
+		},
 	}
 
 	if boosts, ok := verbPredicateBoosts[intentVerb]; ok {
-		for _, pred := range boosts {
-			if fact.Predicate == pred {
-				score += 25.0
-				break
-			}
+		if boost, found := boosts[fact.Predicate]; found {
+			score += boost
 		}
 	}
 
@@ -257,26 +392,125 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 }
 
 // computeDependencyScore applies spreading activation through the dependency graph.
+// Enhanced with bidirectional spreading and depth-limited traversal.
 func (ae *ActivationEngine) computeDependencyScore(fact core.Fact) float64 {
-	// Simple spreading: if this fact depends on a high-priority fact,
-	// it inherits some of that priority
 	key := factKey(fact)
-	deps, ok := ae.dependencies[key]
-	if !ok || len(deps) == 0 {
-		return 0.0
-	}
+	score := 0.0
 
-	// Sum partial scores from dependencies (with decay)
-	totalScore := 0.0
-	for _, depKey := range deps {
-		// Look up the dependency's priority (simplified - use predicate)
-		pred := extractPredicate(depKey)
-		if priority, ok := ae.config.PredicatePriorities[pred]; ok {
-			totalScore += float64(priority) * 0.3 // 30% inheritance
+	// Forward dependencies (what I depend on)
+	if deps, ok := ae.dependencies[key]; ok {
+		for _, depKey := range deps {
+			pred := extractPredicate(depKey)
+			if priority, found := ae.config.PredicatePriorities[pred]; found {
+				score += float64(priority) * 0.3 // 30% inheritance
+			}
 		}
 	}
 
-	return math.Min(totalScore, 30.0) // Cap at 30
+	// Reverse dependencies (what depends on me)
+	// If many things depend on me, I'm more important
+	if rdeps, ok := ae.reverseDependencies[key]; ok {
+		score += float64(len(rdeps)) * 5.0 // 5 points per dependent
+	}
+
+	// Symbol graph spreading
+	// If this fact relates to a file that's in the focused paths
+	factStr := fact.String()
+	for _, focusPath := range ae.state.FocusedPaths {
+		if strings.Contains(factStr, focusPath) {
+			// Check if any symbols in this file are called by other symbols
+			for symbol, callees := range ae.symbolGraph {
+				if strings.Contains(symbol, focusPath) {
+					score += float64(len(callees)) * 2.0 // Points for outgoing calls
+				}
+				for _, callee := range callees {
+					if strings.Contains(callee, focusPath) {
+						score += 3.0 // Points for incoming calls
+					}
+				}
+			}
+		}
+	}
+
+	return math.Min(score, 40.0) // Cap at 40
+}
+
+// computeCampaignScore adds campaign-specific activation boost.
+// Facts related to the current phase/task get higher scores.
+func (ae *ActivationEngine) computeCampaignScore(fact core.Fact) float64 {
+	if ae.campaignContext == nil {
+		return 0.0
+	}
+
+	score := 0.0
+	factStr := strings.ToLower(fact.String())
+
+	// Boost facts related to current campaign
+	if ae.campaignContext.CampaignID != "" {
+		if strings.Contains(factStr, strings.ToLower(ae.campaignContext.CampaignID)) {
+			score += 25.0
+		}
+	}
+
+	// Boost facts related to current phase
+	if ae.campaignContext.CurrentPhase != "" {
+		if strings.Contains(factStr, strings.ToLower(ae.campaignContext.CurrentPhase)) {
+			score += 30.0
+		}
+	}
+
+	// Boost facts related to current task
+	if ae.campaignContext.CurrentTask != "" {
+		if strings.Contains(factStr, strings.ToLower(ae.campaignContext.CurrentTask)) {
+			score += 35.0
+		}
+	}
+
+	// Boost facts related to relevant files
+	for _, file := range ae.campaignContext.RelevantFiles {
+		if strings.Contains(factStr, strings.ToLower(file)) {
+			score += 20.0
+			break
+		}
+	}
+
+	// Boost facts related to relevant symbols
+	for _, symbol := range ae.campaignContext.RelevantSymbols {
+		if strings.Contains(factStr, strings.ToLower(symbol)) {
+			score += 15.0
+			break
+		}
+	}
+
+	// Campaign-specific predicates get extra boost
+	campaignPredicates := map[string]float64{
+		"campaign":          40.0,
+		"campaign_phase":    35.0,
+		"campaign_task":     35.0,
+		"current_campaign":  50.0,
+		"current_phase":     45.0,
+		"phase_goal":        30.0,
+		"task_dependency":   25.0,
+		"phase_requirement": 25.0,
+	}
+
+	if boost, ok := campaignPredicates[fact.Predicate]; ok {
+		score += boost
+	}
+
+	return math.Min(score, 60.0) // Cap at 60
+}
+
+// computeSessionScore boosts facts that were added during the current session.
+func (ae *ActivationEngine) computeSessionScore(fact core.Fact) float64 {
+	key := factKey(fact)
+
+	// Check if this fact was added during the current session
+	if ae.sessionFacts[key] {
+		return 15.0 // Session bonus
+	}
+
+	return 0.0
 }
 
 // =============================================================================
@@ -298,7 +532,7 @@ func extractPredicate(key string) string {
 }
 
 // =============================================================================
-// Predefined Activation Patterns
+// Advanced Activation Patterns
 // =============================================================================
 
 // ApplyIntentActivation applies activation boosts based on the current intent.
@@ -322,6 +556,60 @@ func (ae *ActivationEngine) GetHighActivationFacts(facts []core.Fact, intent *co
 	return ae.SelectWithinBudget(scored, budget)
 }
 
+// SpreadFromSeeds spreads activation from a set of seed facts.
+// This implements the spreading activation algorithm described in §8.1.
+func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact, depth int) []ScoredFact {
+	// Mark seeds with high recency
+	now := time.Now()
+	for _, seed := range seeds {
+		key := factKey(seed)
+		ae.factTimestamps[key] = now
+		ae.sessionFacts[key] = true
+	}
+
+	// Create a synthetic intent from the first seed if it's a user_intent
+	var intent *core.Fact
+	for _, seed := range seeds {
+		if seed.Predicate == "user_intent" {
+			intent = &seed
+			break
+		}
+	}
+
+	// Score with the seed boost
+	scored := ae.ScoreFacts(facts, intent)
+
+	// Apply depth-limited spreading
+	if depth > 0 {
+		for d := 0; d < depth; d++ {
+			for i := range scored {
+				// Spread activation to dependencies
+				key := factKey(scored[i].Fact)
+				if deps, ok := ae.dependencies[key]; ok {
+					for _, depKey := range deps {
+						// Find the dependent fact and boost it
+						for j := range scored {
+							if factKey(scored[j].Fact) == depKey {
+								// Spread 50% of activation, decaying with depth
+								spread := scored[i].Score * 0.5 * math.Pow(0.7, float64(d))
+								scored[j].Score += spread
+								scored[j].DependencyScore += spread
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Re-sort after spreading
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].Score > scored[j].Score
+		})
+	}
+
+	return scored
+}
+
 // =============================================================================
 // Activation State Management
 // =============================================================================
@@ -341,6 +629,10 @@ func (ae *ActivationEngine) ClearState() {
 	ae.state = ActivationState{}
 	ae.factTimestamps = make(map[string]time.Time)
 	ae.dependencies = make(map[string][]string)
+	ae.reverseDependencies = make(map[string][]string)
+	ae.symbolGraph = make(map[string][]string)
+	ae.sessionFacts = make(map[string]bool)
+	ae.campaignContext = nil
 }
 
 // MarkNewFacts marks a set of facts as newly added (high recency).
@@ -349,6 +641,7 @@ func (ae *ActivationEngine) MarkNewFacts(facts []core.Fact) {
 	for _, f := range facts {
 		key := factKey(f)
 		ae.factTimestamps[key] = now
+		ae.sessionFacts[key] = true
 	}
 	ae.state.RecentFacts = append(ae.state.RecentFacts, facts...)
 }
@@ -374,4 +667,24 @@ func (ae *ActivationEngine) DecayRecency(maxAge time.Duration) {
 		}
 	}
 	ae.state.RecentFacts = filtered
+}
+
+// NewSession starts a new session, resetting session-specific tracking.
+func (ae *ActivationEngine) NewSession() {
+	ae.sessionID = time.Now().Format("20060102-150405")
+	ae.sessionStarted = time.Now()
+	ae.sessionFacts = make(map[string]bool)
+}
+
+// GetSessionStats returns statistics about the current session.
+func (ae *ActivationEngine) GetSessionStats() map[string]interface{} {
+	return map[string]interface{}{
+		"session_id":      ae.sessionID,
+		"session_started": ae.sessionStarted,
+		"session_facts":   len(ae.sessionFacts),
+		"total_facts":     len(ae.factTimestamps),
+		"dependencies":    len(ae.dependencies),
+		"symbols":         len(ae.symbolGraph),
+		"has_campaign":    ae.campaignContext != nil,
+	}
 }

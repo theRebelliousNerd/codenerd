@@ -71,8 +71,12 @@ type IntegrationClient interface {
 type VirtualStore struct {
 	mu sync.RWMutex
 
-	// Execution layer
+	// Execution layer - legacy SafeExecutor for backwards compatibility
 	executor *tactile.SafeExecutor
+
+	// New execution layer - modern Executor with audit logging
+	modernExecutor tactile.Executor
+	auditLogger    *tactile.AuditLogger
 
 	// Integration clients (via interface to break import cycle)
 	codeGraph IntegrationClient
@@ -93,6 +97,9 @@ type VirtualStore struct {
 
 	// Allowed environment variables
 	allowedEnvVars []string
+
+	// Use modern executor for command execution
+	useModernExecutor bool
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -130,10 +137,80 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		shardManager:   NewShardManager(),
 	}
 
+	// Initialize modern executor with audit logging
+	vs.initModernExecutor()
+
 	// Initialize constitutional rules (safety layer)
 	vs.initConstitution()
 
 	return vs
+}
+
+// initModernExecutor sets up the modern tactile executor with audit logging.
+// This enables automatic fact generation for all command executions.
+func (v *VirtualStore) initModernExecutor() {
+	// Create executor config
+	execConfig := tactile.DefaultExecutorConfig()
+	execConfig.DefaultWorkingDir = v.workingDir
+	execConfig.AllowedEnvironment = v.allowedEnvVars
+
+	// Create composite executor (supports multiple sandbox modes)
+	composite := tactile.NewCompositeExecutorWithConfig(execConfig)
+
+	// Create audit logger
+	v.auditLogger = tactile.NewAuditLogger()
+
+	// Wire audit events to emit facts to kernel
+	v.auditLogger.SetFactCallback(func(fact tactile.Fact) {
+		v.injectTactileFact(fact)
+	})
+
+	// Connect audit logger to executor
+	composite.SetAuditCallback(v.auditLogger.Log)
+
+	v.modernExecutor = composite
+	v.useModernExecutor = true
+}
+
+// injectTactileFact converts a tactile.Fact to core.Fact and injects to kernel.
+func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
+	v.mu.RLock()
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if kernel == nil {
+		return
+	}
+
+	// Convert tactile.Fact to core.Fact
+	coreFact := Fact{
+		Predicate: tf.Predicate,
+		Args:      tf.Args,
+	}
+
+	_ = kernel.Assert(coreFact)
+}
+
+// EnableModernExecutor switches to the modern tactile executor.
+func (v *VirtualStore) EnableModernExecutor() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.useModernExecutor = true
+}
+
+// DisableModernExecutor switches back to the legacy executor.
+func (v *VirtualStore) DisableModernExecutor() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.useModernExecutor = false
+}
+
+// GetAuditMetrics returns execution metrics from the audit logger.
+func (v *VirtualStore) GetAuditMetrics() tactile.ExecutionMetricsSnapshot {
+	if v.auditLogger == nil {
+		return tactile.ExecutionMetricsSnapshot{}
+	}
+	return v.auditLogger.GetMetrics()
 }
 
 // SetKernel sets the kernel for fact injection feedback.
@@ -396,6 +473,16 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		timeout = t
 	}
 
+	// Use modern executor if enabled (auto-generates audit facts)
+	v.mu.RLock()
+	useModern := v.useModernExecutor && v.modernExecutor != nil
+	v.mu.RUnlock()
+
+	if useModern {
+		return v.handleExecCmdModern(ctx, binary, args, timeout, req.SessionID)
+	}
+
+	// Legacy path using SafeExecutor
 	cmd := tactile.ShellCommand{
 		Binary:           binary,
 		Arguments:        args,
@@ -422,6 +509,51 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 			{Predicate: "cmd_succeeded", Args: []interface{}{binary, output}},
 		},
 	}, nil
+}
+
+// handleExecCmdModern executes using the new tactile.Executor with auto-audit.
+// Facts are automatically generated and injected via the audit callback.
+func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, args []string, timeout int, sessionID string) (ActionResult, error) {
+	cmd := tactile.Command{
+		Binary:           binary,
+		Arguments:        args,
+		WorkingDirectory: v.workingDir,
+		Environment:      v.getAllowedEnv(),
+		SessionID:        sessionID,
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: int64(timeout) * 1000,
+		},
+	}
+
+	result, err := v.modernExecutor.Execute(ctx, cmd)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			// No manual facts needed - audit logger auto-injects them
+		}, nil
+	}
+
+	// Build result - audit facts are auto-injected via callback
+	actionResult := ActionResult{
+		Success: result.Success && result.ExitCode == 0,
+		Output:  result.Output(),
+		Metadata: map[string]interface{}{
+			"exit_code":    result.ExitCode,
+			"duration_ms":  result.Duration.Milliseconds(),
+			"killed":       result.Killed,
+			"sandbox_used": string(result.SandboxUsed),
+		},
+	}
+
+	if !actionResult.Success {
+		actionResult.Error = result.Error
+		if result.IsNonZeroExit() {
+			actionResult.Error = fmt.Sprintf("exit code %d", result.ExitCode)
+		}
+	}
+
+	return actionResult, nil
 }
 
 // handleReadFile reads a file from disk.

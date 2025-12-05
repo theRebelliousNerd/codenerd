@@ -10,8 +10,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 )
+
+// =============================================================================
+// KERNEL INTERFACE - Bridge to Mangle Logic Core
+// =============================================================================
+
+// KernelFact represents a fact that can be asserted to the kernel.
+// This mirrors core.Fact but avoids import cycles.
+type KernelFact struct {
+	Predicate string
+	Args      []interface{}
+}
+
+// KernelInterface defines the interface for interacting with the Mangle kernel.
+// This allows autopoiesis to assert facts and query for derived actions.
+type KernelInterface interface {
+	// AssertFact adds a fact to the kernel's EDB
+	AssertFact(fact KernelFact) error
+	// QueryPredicate queries for facts matching a predicate
+	QueryPredicate(predicate string) ([]KernelFact, error)
+	// QueryBool returns true if any facts match the predicate
+	QueryBool(predicate string) bool
+}
 
 // =============================================================================
 // AUTOPOIESIS ORCHESTRATOR
@@ -38,6 +61,7 @@ func DefaultConfig(workspaceRoot string) Config {
 
 // Orchestrator coordinates all autopoiesis capabilities
 type Orchestrator struct {
+	mu          sync.RWMutex
 	config      Config
 	complexity  *ComplexityAnalyzer
 	toolGen     *ToolGenerator
@@ -45,6 +69,9 @@ type Orchestrator struct {
 	agentCreate *AgentCreator
 	ouroboros   *OuroborosLoop  // The Ouroboros Loop for tool self-generation
 	client      LLMClient
+
+	// Kernel Integration - Bridge to Mangle Logic Core
+	kernel      KernelInterface     // The Mangle kernel for fact assertion/query
 
 	// Feedback and Learning System
 	evaluator   *QualityEvaluator   // Assess tool output quality
@@ -98,6 +125,153 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		traces:      NewTraceCollector(tracesDir, client),
 		logInjector: NewLogInjector(DefaultLoggingRequirements()),
 	}
+}
+
+// SetKernel attaches a Mangle kernel for fact assertion and query.
+// This enables the full neuro-symbolic loop where autopoiesis
+// events are reflected as Mangle facts for logic-driven orchestration.
+func (o *Orchestrator) SetKernel(kernel KernelInterface) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.kernel = kernel
+}
+
+// GetKernel returns the attached kernel (may be nil).
+func (o *Orchestrator) GetKernel() KernelInterface {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.kernel
+}
+
+// =============================================================================
+// KERNEL FACT ASSERTION - Wire Autopoiesis Events to Mangle
+// =============================================================================
+
+// assertToKernel safely asserts a fact to the kernel if attached.
+func (o *Orchestrator) assertToKernel(predicate string, args ...interface{}) error {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return nil // No kernel attached, silently skip
+	}
+
+	return kernel.AssertFact(KernelFact{
+		Predicate: predicate,
+		Args:      args,
+	})
+}
+
+// assertToolRegistered asserts tool_registered and related facts to kernel.
+// Called when a tool is successfully generated and registered.
+func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
+	if tool == nil {
+		return
+	}
+
+	timestamp := tool.RegisteredAt.Format("2006-01-02T15:04:05Z07:00")
+
+	// tool_registered(ToolName, RegisteredAt)
+	_ = o.assertToKernel("tool_registered", tool.Name, timestamp)
+
+	// tool_hash(ToolName, Hash)
+	_ = o.assertToKernel("tool_hash", tool.Name, tool.Hash)
+
+	// has_capability(ToolName)
+	_ = o.assertToKernel("has_capability", tool.Name)
+}
+
+// assertMissingTool asserts missing_tool_for fact to kernel.
+// Called when a capability gap is detected.
+func (o *Orchestrator) assertMissingTool(intentID, capability string) {
+	// missing_tool_for(Intent, Capability)
+	_ = o.assertToKernel("missing_tool_for", intentID, capability)
+}
+
+// assertToolLearning asserts tool_learning fact to kernel.
+// Called when execution feedback is recorded.
+func (o *Orchestrator) assertToolLearning(toolName string, executions int, successRate, avgQuality float64) {
+	// tool_learning(ToolName, Executions, SuccessRate, AvgQuality)
+	_ = o.assertToKernel("tool_learning", toolName, executions, successRate, avgQuality)
+}
+
+// assertToolKnownIssue asserts tool_known_issue fact to kernel.
+func (o *Orchestrator) assertToolKnownIssue(toolName string, issueType string) {
+	// tool_known_issue(ToolName, IssueType) - use name constant format
+	_ = o.assertToKernel("tool_known_issue", toolName, "/"+issueType)
+}
+
+// SyncLearningsToKernel pushes all current learnings to the kernel.
+// Call this periodically or after significant learning updates.
+func (o *Orchestrator) SyncLearningsToKernel() {
+	learnings := o.learnings.GetAllLearnings()
+	for _, learning := range learnings {
+		o.assertToolLearning(
+			learning.ToolName,
+			learning.TotalExecutions,
+			learning.SuccessRate,
+			learning.AverageQuality,
+		)
+		for _, issue := range learning.KnownIssues {
+			o.assertToolKnownIssue(learning.ToolName, string(issue))
+		}
+	}
+}
+
+// QueryNextAction queries the kernel for derived next_action facts.
+// Returns the action type if the kernel derives one, empty string otherwise.
+func (o *Orchestrator) QueryNextAction() string {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return ""
+	}
+
+	// Check for various autopoiesis-related next actions
+	actions := []string{
+		"next_action(/generate_tool)",
+		"next_action(/refine_tool)",
+	}
+
+	for _, action := range actions {
+		if kernel.QueryBool(action) {
+			// Extract the action name from the query
+			return action
+		}
+	}
+
+	return ""
+}
+
+// ShouldGenerateTool queries the kernel to check if tool generation is needed.
+// This provides logic-driven triggering instead of just heuristics.
+func (o *Orchestrator) ShouldGenerateTool() bool {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return false
+	}
+
+	return kernel.QueryBool("next_action(/generate_tool)")
+}
+
+// ShouldRefineTool queries the kernel to check if a tool needs refinement.
+func (o *Orchestrator) ShouldRefineToolByKernel(toolName string) bool {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return false
+	}
+
+	// Query for tool_needs_refinement(toolName)
+	return kernel.QueryBool(fmt.Sprintf("tool_needs_refinement(%q)", toolName))
 }
 
 // AnalysisResult contains the complete autopoiesis analysis
@@ -396,9 +570,21 @@ func (o *Orchestrator) ShouldCreatePersistentAgent(ctx context.Context, input st
 // =============================================================================
 // These methods expose the internal ToolGenerator for direct use from chat.go
 
-// DetectToolNeed analyzes input to determine if a new tool is needed
+// DetectToolNeed analyzes input to determine if a new tool is needed.
+// If a need is detected, it asserts missing_tool_for to the kernel.
 func (o *Orchestrator) DetectToolNeed(ctx context.Context, input string) (*ToolNeed, error) {
-	return o.toolGen.DetectToolNeed(ctx, input, "")
+	need, err := o.toolGen.DetectToolNeed(ctx, input, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// Wire to kernel: Assert missing_tool_for fact if capability gap detected
+	if need != nil {
+		intentID := hashString(input) // Use input hash as intent ID
+		o.assertMissingTool(intentID, need.Name)
+	}
+
+	return need, nil
 }
 
 // GenerateTool creates a new tool based on the detected need
@@ -419,9 +605,17 @@ func (o *Orchestrator) WriteAndRegisterTool(tool *GeneratedTool) error {
 // =============================================================================
 // These methods expose the Ouroboros Loop for full tool self-generation.
 
-// ExecuteOuroborosLoop runs the complete tool self-generation cycle
+// ExecuteOuroborosLoop runs the complete tool self-generation cycle.
+// On success, it asserts tool_registered facts to the kernel.
 func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed) *LoopResult {
-	return o.ouroboros.Execute(ctx, need)
+	result := o.ouroboros.Execute(ctx, need)
+
+	// Wire to kernel: Assert tool registration facts on success
+	if result.Success && result.ToolHandle != nil {
+		o.assertToolRegistered(result.ToolHandle)
+	}
+
+	return result
 }
 
 // ExecuteGeneratedTool runs a previously generated and compiled tool
@@ -455,7 +649,8 @@ func (o *Orchestrator) CheckToolSafety(code string) *SafetyReport {
 // =============================================================================
 // These methods expose the feedback loop for tool execution evaluation and improvement.
 
-// RecordExecution records a tool execution and evaluates its quality
+// RecordExecution records a tool execution and evaluates its quality.
+// It also syncs learning facts to the kernel for logic-driven refinement triggers.
 func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionFeedback) {
 	// Evaluate quality
 	if feedback.Quality == nil {
@@ -470,6 +665,22 @@ func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionF
 
 	// Update learning store
 	o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+
+	// Wire to kernel: Assert learning facts for logic-driven refinement
+	learning := o.learnings.GetLearning(feedback.ToolName)
+	if learning != nil {
+		o.assertToolLearning(
+			learning.ToolName,
+			learning.TotalExecutions,
+			learning.SuccessRate,
+			learning.AverageQuality,
+		)
+
+		// Assert known issues for pattern detection
+		for _, issue := range learning.KnownIssues {
+			o.assertToolKnownIssue(learning.ToolName, string(issue))
+		}
+	}
 }
 
 // EvaluateToolQuality assesses the quality of a tool execution

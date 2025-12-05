@@ -14,7 +14,8 @@
       "Bash(done)",
       "Bash(tree:*)",
       "Bash(xargs -I {} bash -c \"test -f ''''{}/claude.md'''' && echo ''''{}'''' && head -3 ''''{}/claude.md''''\")",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(dir /b \"c:\\CodeProjects\\codeNERD\\internal\\shards\")"
     ],
     "deny": [],
     "ask": []

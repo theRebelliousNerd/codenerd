@@ -1,51 +1,51 @@
 # The Piggyback Protocol: A Deep Dive
 
-**Architectural Standards for Steganographic Control Channels in Neuro-Symbolic Agents**
+**Architectural Standards for Dual-Channel Communication in the Creative-Executive Partnership**
 
-Version: 1.1.0
+Version: 1.2.0
 
-## 1. Executive Summary: The Monologue Problem
+## 1. Executive Summary: The Context Exhaustion Problem
 
-In traditional Agentic RAG architectures (e.g., LangChain, AutoGPT), the agent's "Thought Process" and its "User Output" share the same channel: the Context Window. This leads to three fatal pathologies:
+In traditional Agentic RAG architectures (e.g., LangChain, AutoGPT), the LLM must handle everything—creativity AND infrastructure—through a single channel: the Context Window. This creates three fatal pathologies:
 
-### 1.1 Context Pollution
+### 1.1 Creative Capacity Theft
 
-The agent's internal reasoning traces (Chain-of-Thought) clog the context window, displacing valuable domain knowledge. Every "Thinking..." and "Searching..." message consumes tokens that could hold actual facts.
+The LLM's context window gets clogged with planning traces, state management, and memory operations. Every "Thinking..." and "Searching..." message consumes tokens that should be reserved for creative problem-solving.
 
 ### 1.2 The Persona Break
 
-Users see the raw, messy "thinking" steps ("Searching file...", "Error in tool...", "Retrying..."), which shatters the illusion of intelligence and degrades the user experience.
+Users see the raw, messy infrastructure work ("Searching file...", "Error in tool...", "Retrying..."), which shatters the illusion of intelligence and degrades the user experience.
 
 ### 1.3 State Amnesia
 
-LLMs are stateless. When a session ends, the reasoning is lost. There is no mechanism to persist "Learned Facts" back to a database without explicitly asking the model to summarize itself, which further burns tokens.
+LLMs are stateless. When a session ends, the reasoning is lost. There is no mechanism to persist learned preferences without explicitly asking the model to summarize itself—further stealing creative capacity.
 
 ### The Solution
 
 The Piggyback Protocol solves these by establishing a **Dual-Channel Architecture**. It treats the LLM response not as a single string of text, but as a carrier wave for two distinct signals:
 
-- **Surface Stream**: Natural Language for the user
-- **Control Stream**: Logic Atoms for the Kernel
+- **Surface Stream**: Natural Language for the user (creative output)
+- **Control Stream**: Logic Atoms for the Kernel (executive infrastructure)
 
-## 2. Theoretical Foundation: The Bicameral Mind
+## 2. Theoretical Foundation: The Creative-Executive Bridge
 
-The protocol is grounded in a Neuro-Symbolic separation of concerns, mirroring the bicameral structure of cognition:
+The protocol enables the **Creative-Executive Partnership** by providing a channel for each role:
 
-| Hemisphere | Role | Implementation |
-|------------|------|----------------|
-| **The Interpreter** (Left) | Language, social nuance, explanation | Transducer - speaks to user |
-| **The Executive** (Right) | State, logic, spatial reasoning, tools | Kernel - speaks to machine |
+| Channel | Owner | Purpose |
+|---------|-------|---------|
+| **Surface Stream** | LLM (Creative Center) | Communicate insights, solutions, and explanations to users |
+| **Control Stream** | Kernel (Executive) | Persist state, trigger learning, manage memory, update facts |
 
-The Piggyback Protocol is the **Corpus Callosum**—the bridge that allows these two hemispheres to synchronize without interfering with each other.
+The Piggyback Protocol is the **interface layer**—the bridge that allows creative output to flow into executive infrastructure without polluting the LLM's context with state management.
 
-By embedding the Executive's state updates (Mangle Atoms) inside the Interpreter's message payload, we achieve **Stateful Logic over Stateless HTTP**.
+By embedding the Executive's state updates (Mangle Atoms) inside the creative response payload, we achieve **Stateful Logic over Stateless HTTP** while preserving the LLM's full capacity for creative work.
 
 ### 2.1 The Steganographic Concept
 
 While not "steganography" in the cryptographic sense (hiding bits in pixels), it is **Architectural Steganography**:
 
-- **To the User**: The agent appears to be simply chatting
-- **To the Kernel**: The agent is continuously emitting a high-bitrate stream of database updates, variable mutations, and tool requests
+- **To the User**: The agent appears to be a creative problem-solver, chatting naturally
+- **To the Kernel**: The agent is simultaneously emitting structured state updates, memory operations, and learning signals—all invisible to the user
 
 ## 3. Protocol Specification
 
@@ -632,13 +632,13 @@ Track these metrics for health monitoring:
 
 ## 13. Conclusion
 
-The Piggyback Protocol is the key differentiator of the Cortex Framework. It transforms the Agent from a "Chatbot" into a **Cybernetic System**.
+The Piggyback Protocol is the key enabler of the Creative-Executive Partnership. It transforms the Agent from a "Chatbot burdened with infrastructure" into a **Liberated Creative System**.
 
-By decoupling the user interface from the control logic, it enables features that are **impossible** in standard RAG:
+By giving the LLM a dedicated channel for creative output while handling infrastructure through a hidden control channel, it enables features that are **impossible** in standard RAG:
 
-1. **Deterministic Safety**: Constitutional logic can override any surface response
-2. **Infinite Context**: Semantic compression keeps the context window clean
-3. **Self-Healing State**: Abductive reasoning enables automatic recovery
-4. **Autopoiesis**: Memory operations enable learning without fine-tuning
+1. **Full Creative Capacity**: The LLM's context is reserved for problem-solving, not state management
+2. **Infinite Context**: Semantic compression keeps the context window clean for creativity
+3. **Self-Healing State**: Abductive reasoning enables automatic recovery without LLM intervention
+4. **Autopoiesis**: Memory operations enable learning without fine-tuning or explicit prompting
 
-The protocol is the **Corpus Callosum** of the Neuro-Symbolic architecture—the invisible bridge between what the agent says and what it truly believes.
+The protocol is the **interface layer** of the Creative-Executive Partnership—ensuring that creative genius flows seamlessly into reliable execution.

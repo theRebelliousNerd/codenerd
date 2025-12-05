@@ -118,6 +118,12 @@ func (s *ToolGeneratorShard) SetLLMClient(client perception.LLMClient) {
 			AgentsDir: ".nerd/agents",
 		}
 		s.orchestrator = autopoiesis.NewOrchestrator(client, autoConfig)
+
+		// Wire kernel to orchestrator for logic-driven orchestration
+		if s.kernel != nil {
+			kernelAdapter := core.NewKernelAdapter(s.kernel)
+			s.orchestrator.SetKernel(kernelAdapter)
+		}
 	}
 }
 

@@ -1,39 +1,47 @@
 # codeNERD Architecture Reference
 
-## The Inversion of Control: Theoretical Foundations
+## The Creative-Executive Partnership: Theoretical Foundations
 
-### The Stochastic Crisis
+### The Category Error
 
-Current AI agents operate on "Reasoning-via-Generation" where state is maintained in the LLM context window and reasoning is token generation simulating planning. This creates:
+Current AI agents make a fundamental mistake: they ask LLMs to handle everything—creativity AND planning, insight AND memory, problem-solving AND self-correction. But LLMs excel at the former while struggling with the latter. This creates:
 
 - **Unfaithful Reasoning**: LLMs generate convincing Chain-of-Thought that concludes with hallucinated actions contradicting their own reasoning
-- **Irreversibility**: Once a token representing a logical error is generated, it conditions all subsequent generation on that error
-- **Hallucination Cascades**: The agent confidently diverges from reality
+- **Context Window Exhaustion**: Planning, memory, and state management consume tokens that should be reserved for creative problem-solving
+- **Hallucination Cascades**: Without executive infrastructure, creative genius devolves into confident nonsense
 
-### The Neuro-Symbolic Solution
+### The Creative-Executive Partnership
 
-codeNERD implements a "Symbolic-First / Neural-Peripheral" architecture mirroring Dual Process Theory:
+codeNERD separates concerns to **liberate** each component for what it does best:
 
-| System | Role | Implementation |
-|--------|------|----------------|
-| System 1 (Neural/LLM) | Fast, intuitive pattern-matching | Perception/Articulation Transducers |
-| System 2 (Symbolic/Datalog) | Slow, deliberate rule-based reasoning | Mangle Kernel |
+| Component | Strength | Role in codeNERD |
+|-----------|----------|------------------|
+| **LLM (Creative Center)** | Problem-solving, insight, synthesis, novel approaches | Perception (understanding), Articulation (explanation), Solution generation |
+| **Mangle Kernel (Executive)** | Consistency, memory, planning, safety | State management, orchestration, permission enforcement, learning persistence |
 
-### Why Mangle (Datalog) as Kernel
+This isn't about limiting the LLM—it's about freeing it from tasks it's bad at so it can focus purely on creative work.
 
-**vs Prolog**:
-- Mangle uses bottom-up (semi-naive) evaluation guaranteeing termination
-- Order of rules does not affect outcome
-- Critical for dynamically generated rules
+### Why Mangle (Datalog) as Executive
 
-**vs SQL**:
-- Native recursion (transitive closure is one rule, not complex CTEs)
-- Naturally expresses agent reasoning patterns
+The executive layer must be deterministic, auditable, and reliable—the opposite of stochastic generation. Mangle provides:
 
-**Mangle Extensions**:
-- Aggregation (sum, count, max) for quantity reasoning
-- Optional typing for safety
-- Namespaces for self-compiling tools
+**Deterministic Guarantees**:
+
+- Bottom-up evaluation guarantees termination (no infinite loops)
+- Order of rules does not affect outcome (composable, modular policies)
+- Perfect for dynamically generated rules from LLM-proposed improvements
+
+**Expressive Power**:
+
+- Native recursion for transitive closures (impact analysis, dependency graphs)
+- Aggregation (sum, count, max) for budget tracking and preference signals
+- Namespaces for safe self-compiling tool generation
+
+**Safety by Design**:
+
+- If `permitted(Action)` cannot be derived, the action is blocked—0% probability
+- Constitutional rules cannot be overridden by prompt injection
+- All decisions are auditable and reproducible
 
 ## The Hollow Kernel Pattern
 
@@ -263,7 +271,7 @@ Obfuscated exfiltration attempts detected by analyzing argument entropy.
 
 | Framework | Approach | Limitation |
 |-----------|----------|------------|
-| LangChain/CrewAI | LLM-as-Controller | No formal safety |
-| Palantir AIP | Ontology + Visual Programming | No self-modification |
-| Adept ACT-1 | Neural-First DOM grounding | No formal safety |
-| **codeNERD** | Logic-First, Neural-Peripheral | Full formal verification |
+| LangChain/CrewAI | LLM-as-Controller | LLM wastes capacity on planning/memory |
+| Palantir AIP | Ontology + Visual Programming | No self-modification or learning |
+| Adept ACT-1 | Neural-First DOM grounding | No formal safety guarantees |
+| **codeNERD** | Creative-Executive Partnership | LLM focused on creativity, harness on infrastructure |

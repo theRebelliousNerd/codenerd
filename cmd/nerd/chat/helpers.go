@@ -48,7 +48,31 @@ func payloadForArticulation(intent perception.Intent, mangleUpdates []string) ar
 	}
 }
 
+// ArticulationOutput contains the full output from the articulation layer.
+// This is used to pass control data back to the compressor.
+type ArticulationOutput struct {
+	Surface          string
+	Envelope         articulation.PiggybackEnvelope
+	MemoryOperations []articulation.MemoryOperation
+	MangleUpdates    []string
+	SelfCorrection   *articulation.SelfCorrection
+	ParseMethod      string
+	Warnings         []string
+}
+
+// articulateWithContext performs the articulation phase and returns the surface response.
+// This is the original signature for backward compatibility.
 func articulateWithContext(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (string, error) {
+	output, err := articulateWithContextFull(ctx, client, intent, payload, contextFacts, warnings, systemPrompt)
+	if err != nil {
+		return "", err
+	}
+	return output.Surface, nil
+}
+
+// articulateWithContextFull performs articulation and returns full structured output.
+// This enhanced version properly extracts all control packet data for the compressor.
+func articulateWithContextFull(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (*ArticulationOutput, error) {
 	var sb strings.Builder
 
 	if systemPrompt != "" {
@@ -79,48 +103,63 @@ func articulateWithContext(ctx context.Context, client perception.LLMClient, int
 	sb.WriteString(`  "surface_response": "text visible to user",` + "\n")
 	sb.WriteString(`  "control_packet": {` + "\n")
 	sb.WriteString(`    "intent_classification": { "category": "mutation|query|instruction", "verb": "...", "target": "...", "confidence": 0.0 },` + "\n")
-	sb.WriteString(`    "reasoning_trace": "optional",` + "\n")
-	sb.WriteString(`    "mangle_updates": [ "atom(...)" ],` + "\n")
-	sb.WriteString(`    "memory_operations": [ { "op": "promote_to_long_term|forget|note", "key": "k", "value": "v" } ],` + "\n")
+	sb.WriteString(`    "reasoning_trace": "optional internal notes",` + "\n")
+	sb.WriteString(`    "mangle_updates": [ "predicate(arg1, arg2)." ],` + "\n")
+	sb.WriteString(`    "memory_operations": [ { "op": "promote_to_long_term|forget|note|store_vector", "key": "preference_name", "value": "value" } ],` + "\n")
 	sb.WriteString(`    "self_correction": { "triggered": false, "hypothesis": "" }` + "\n")
 	sb.WriteString("  }\n")
 	sb.WriteString("}\n\n")
+	sb.WriteString("MEMORY OPERATIONS:\n")
+	sb.WriteString("- promote_to_long_term: Store user preferences or learned patterns\n")
+	sb.WriteString("- forget: Remove outdated facts\n")
+	sb.WriteString("- note: Add temporary session notes\n")
+	sb.WriteString("- store_vector: Store for semantic search\n\n")
 	sb.WriteString("Use only the context facts above. Do not invent filesystem access or knowledge not present in the facts. Output JSON only.")
 
 	raw, err := client.CompleteWithSystem(ctx, systemPrompt, sb.String())
 	if err != nil {
-		return "", fmt.Errorf("articulation failed: %w", err)
+		return nil, fmt.Errorf("articulation failed: %w", err)
 	}
 
-	type llmPayload struct {
-		SurfaceResponse string `json:"surface_response"`
-		ControlPacket   struct {
-			IntentClassification articulation.IntentClassification `json:"intent_classification"`
-			MangleUpdates        []string                          `json:"mangle_updates"`
-			MemoryOperations     []articulation.MemoryOperation    `json:"memory_operations"`
-			SelfCorrection       map[string]interface{}            `json:"self_correction"`
-			ReasoningTrace       string                            `json:"reasoning_trace"`
-		} `json:"control_packet"`
+	// Use the enhanced ResponseProcessor from articulation package
+	processor := articulation.NewResponseProcessor()
+	result, err := processor.Process(raw)
+	if err != nil {
+		return nil, fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, raw)
 	}
 
-	var parsed llmPayload
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &parsed); err != nil || parsed.SurfaceResponse == "" {
-		return "", fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, raw)
+	// Build output
+	output := &ArticulationOutput{
+		Surface:          result.Surface,
+		MemoryOperations: result.Control.MemoryOperations,
+		MangleUpdates:    result.Control.MangleUpdates,
+		ParseMethod:      result.ParseMethod,
+		Warnings:         result.Warnings,
 	}
 
-	// Apply control data from LLM
-	if parsed.ControlPacket.IntentClassification.Category != "" {
-		payload.Control.IntentClassification = parsed.ControlPacket.IntentClassification
-	}
-	if len(parsed.ControlPacket.MangleUpdates) > 0 {
-		payload.Control.MangleUpdates = parsed.ControlPacket.MangleUpdates
-	}
-	if len(parsed.ControlPacket.MemoryOperations) > 0 {
-		payload.Control.MemoryOperations = parsed.ControlPacket.MemoryOperations
+	// Check for self-correction
+	if result.Control.SelfCorrection != nil && result.Control.SelfCorrection.Triggered {
+		output.SelfCorrection = result.Control.SelfCorrection
+		output.Warnings = append(output.Warnings,
+			fmt.Sprintf("Self-correction: %s", result.Control.SelfCorrection.Hypothesis))
 	}
 
-	payload.Surface = parsed.SurfaceResponse
-	return formatResponse(intent, payload), nil
+	// Build the envelope with merged data
+	output.Envelope = articulation.PiggybackEnvelope{
+		Surface: result.Surface,
+		Control: result.Control,
+	}
+
+	// Override with any pre-existing payload data if LLM didn't provide it
+	if result.Control.IntentClassification.Category == "" {
+		output.Envelope.Control.IntentClassification = payload.Control.IntentClassification
+	}
+	if len(result.Control.MangleUpdates) == 0 && len(payload.Control.MangleUpdates) > 0 {
+		output.Envelope.Control.MangleUpdates = payload.Control.MangleUpdates
+		output.MangleUpdates = payload.Control.MangleUpdates
+	}
+
+	return output, nil
 }
 
 func appendFileContent(workspace, path, content string) error {
@@ -487,4 +526,44 @@ func (m Model) loadType3Agents() []nerdinit.CreatedAgent {
 	}
 
 	return registry.Agents
+}
+
+// isConversationalIntent returns true if the intent is conversational (greetings,
+// help requests, general questions) rather than requiring code actions or shard work.
+// These intents can use the perception response directly without articulation.
+func isConversationalIntent(intent perception.Intent) bool {
+	// Verbs that are conversational and don't require shard execution
+	conversationalVerbs := map[string]bool{
+		"/explain": true, // General explanations, greetings, capability questions
+		"/read":    true, // Simple file reads (when target is "none" or empty)
+	}
+
+	// Check if it's a conversational verb
+	if !conversationalVerbs[intent.Verb] {
+		return false
+	}
+
+	// For /explain, it's conversational if target is generic/none
+	// (actual code explanation with a specific target should go through articulation)
+	if intent.Verb == "/explain" {
+		target := strings.ToLower(intent.Target)
+		// Generic targets indicate conversational intent
+		if target == "" || target == "none" || target == "codebase" ||
+			target == "hi" || target == "hello" || target == "help" ||
+			strings.Contains(target, "what can you") ||
+			strings.Contains(target, "what do you") ||
+			strings.Contains(target, "capabilities") {
+			return true
+		}
+	}
+
+	// For /read with no specific target, it's conversational
+	if intent.Verb == "/read" {
+		target := strings.ToLower(intent.Target)
+		if target == "" || target == "none" {
+			return true
+		}
+	}
+
+	return false
 }
