@@ -1,9 +1,9 @@
 {
-  "project_id": "proj_d26dfcf83be",
+  "project_id": "proj_264e2ff7bc1",
   "name": "codeNERD",
   "description": "",
-  "created_at": "2025-12-05T01:48:16.0326832-05:00",
-  "updated_at": "2025-12-05T01:48:16.0326832-05:00",
+  "created_at": "2025-12-05T02:18:08.3244026-05:00",
+  "updated_at": "2025-12-05T02:18:08.3244026-05:00",
   "language": "go",
   "architecture": "unknown",
   "dependencies": [
@@ -18,16 +18,16 @@
       "type": "direct"
     },
     {
-      "name": "cobra",
+      "name": "bubbletea",
       "version": "",
       "type": "direct"
     },
     {
-      "name": "bubbletea",
+      "name": "cobra",
       "version": "",
       "type": "direct"
     }
   ],
-  "file_count": 60,
-  "directory_count": 21
+  "file_count": 62,
+  "directory_count": 22
 }

@@ -66,6 +66,7 @@ type InitConfig struct {
 	SkipAgentCreate bool               // Skip Type 3 agent creation
 	PreferenceHints []string           // User-provided hints about preferences
 	ProgressChan    chan InitProgress  // Channel for progress updates
+	Context7APIKey  string             // Context7 API key for LLM-optimized docs
 }
 
 // DefaultInitConfig returns sensible defaults.
@@ -180,9 +181,15 @@ type Initializer struct {
 
 // NewInitializer creates a new initializer.
 func NewInitializer(config InitConfig) *Initializer {
+	researcher := shards.NewResearcherShard()
+	// Set Context7 API key if configured
+	if config.Context7APIKey != "" {
+		researcher.SetContext7APIKey(config.Context7APIKey)
+	}
+
 	init := &Initializer{
 		config:        config,
-		researcher:    shards.NewResearcherShard(),
+		researcher:    researcher,
 		scanner:       world.NewScanner(),
 		kernel:        core.NewRealKernel(),
 		createdAgents: make([]CreatedAgent, 0),
@@ -723,37 +730,38 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 
 	kbSize := 0
 
-	// If we have an LLM client and topics, research the topics
-	if i.config.LLMClient != nil && !i.config.SkipResearch && len(agent.Topics) > 0 {
-		// Create a researcher for this specific agent
-		agentResearcher := shards.NewResearcherShard()
-		agentResearcher.SetLLMClient(i.config.LLMClient)
-		agentResearcher.SetLocalDB(agentDB)
-
-		for _, topic := range agent.Topics {
-			select {
-			case <-ctx.Done():
-				return kbSize, ctx.Err()
-			default:
-			}
-
-			// Research the topic (limited scope for init)
-			researchTask := fmt.Sprintf("research docs: %s (brief overview)", topic)
-			_, err := agentResearcher.Execute(ctx, researchTask)
-			if err != nil {
-				// Log but don't fail - partial KB is acceptable
-				continue
-			}
-			kbSize += 10 // Approximate atoms per topic
-		}
-	}
-
-	// Add base knowledge atoms for the agent
+	// Add base knowledge atoms for the agent first (always succeeds)
 	baseAtoms := i.generateBaseKnowledgeAtoms(agent)
 	for _, atom := range baseAtoms {
 		if err := agentDB.StoreKnowledgeAtom(atom.Concept, atom.Content, atom.Confidence); err == nil {
 			kbSize++
 		}
+	}
+
+	// Research topics - use parallel research for efficiency
+	if !i.config.SkipResearch && len(agent.Topics) > 0 {
+		// Create a researcher for this specific agent
+		agentResearcher := shards.NewResearcherShard()
+		if i.config.LLMClient != nil {
+			agentResearcher.SetLLMClient(i.config.LLMClient)
+		}
+		if i.config.Context7APIKey != "" {
+			agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
+		}
+		agentResearcher.SetLocalDB(agentDB)
+
+		fmt.Printf("     Researching %d topics for %s...\n", len(agent.Topics), agent.Name)
+
+		// Use parallel topic research for efficiency
+		result, err := agentResearcher.ResearchTopicsParallel(ctx, agent.Topics)
+		if err != nil {
+			fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
+		} else if result != nil {
+			kbSize += len(result.Atoms)
+			fmt.Printf("     Gathered %d knowledge atoms for %s\n", len(result.Atoms), agent.Name)
+		}
+	} else if i.config.SkipResearch {
+		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
 	}
 
 	return kbSize, nil
@@ -1643,6 +1651,9 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		if i.config.LLMClient != nil && !i.config.SkipResearch {
 			researcher := shards.NewResearcherShard()
 			researcher.SetLLMClient(i.config.LLMClient)
+			if i.config.Context7APIKey != "" {
+				researcher.SetContext7APIKey(i.config.Context7APIKey)
+			}
 			researcher.SetLocalDB(shardDB)
 
 			// Research 1-2 topics per shard (quick)
@@ -1712,6 +1723,9 @@ func (i *Initializer) createCampaignKnowledgeBase(ctx context.Context, nerdDir s
 	if i.config.LLMClient != nil && !i.config.SkipResearch {
 		researcher := shards.NewResearcherShard()
 		researcher.SetLLMClient(i.config.LLMClient)
+		if i.config.Context7APIKey != "" {
+			researcher.SetContext7APIKey(i.config.Context7APIKey)
+		}
 		researcher.SetLocalDB(campaignDB)
 
 		// Research software development workflows

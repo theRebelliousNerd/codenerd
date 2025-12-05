@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -225,9 +226,12 @@ func (c *Config) Save(path string) error {
 
 // applyEnvOverrides applies environment variable overrides.
 func (c *Config) applyEnvOverrides() {
-	// LLM API key from environment
+	// LLM API key from environment (check in priority order)
 	if key := os.Getenv("ZAI_API_KEY"); key != "" {
 		c.LLM.APIKey = key
+		if c.LLM.Provider == "" {
+			c.LLM.Provider = "zai"
+		}
 	}
 	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 		c.LLM.APIKey = key
@@ -236,6 +240,14 @@ func (c *Config) applyEnvOverrides() {
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
 		c.LLM.APIKey = key
 		c.LLM.Provider = "openai"
+	}
+	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+		c.LLM.APIKey = key
+		c.LLM.Provider = "gemini"
+	}
+	if key := os.Getenv("XAI_API_KEY"); key != "" {
+		c.LLM.APIKey = key
+		c.LLM.Provider = "xai"
 	}
 
 	// Integration URLs from environment
@@ -291,14 +303,24 @@ func (c *Config) GetSessionTTL() time.Duration {
 	return d
 }
 
+// ValidProviders lists all supported LLM providers.
+var ValidProviders = []string{"zai", "anthropic", "openai", "gemini", "xai"}
+
 // Validate validates the configuration.
 func (c *Config) Validate() error {
 	if c.LLM.APIKey == "" {
-		return fmt.Errorf("LLM API key not configured (set ZAI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY)")
+		return fmt.Errorf("LLM API key not configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or ZAI_API_KEY)")
 	}
 
-	if c.LLM.Provider != "zai" && c.LLM.Provider != "anthropic" && c.LLM.Provider != "openai" {
-		return fmt.Errorf("invalid LLM provider: %s", c.LLM.Provider)
+	validProvider := false
+	for _, p := range ValidProviders {
+		if c.LLM.Provider == p {
+			validProvider = true
+			break
+		}
+	}
+	if !validProvider {
+		return fmt.Errorf("invalid LLM provider: %s (valid: %v)", c.LLM.Provider, ValidProviders)
 	}
 
 	return nil
@@ -317,4 +339,136 @@ func (c *Config) IsBrowserEnabled() bool {
 // IsScraperEnabled returns whether scraper integration is enabled.
 func (c *Config) IsScraperEnabled() bool {
 	return c.Integrations.Scraper.Enabled
+}
+
+// ============================================================================
+// User Config (.nerd/config.json)
+// ============================================================================
+
+// UserConfig holds user-specific settings from .nerd/config.json.
+//
+// Supported models by provider:
+//   - anthropic: claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
+//   - openai:    gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
+//   - gemini:    gemini-3-pro-preview (default), gemini-2.5-pro, gemini-2.5-flash
+//   - xai:       grok-2-latest (default), grok-2, grok-beta
+//   - zai:       GLM-4.6 (default)
+type UserConfig struct {
+	// Provider selection (anthropic, openai, gemini, xai, zai)
+	Provider string `json:"provider,omitempty"`
+
+	// API keys for each provider
+	APIKey          string `json:"api_key,omitempty"`           // Legacy: single key
+	AnthropicAPIKey string `json:"anthropic_api_key,omitempty"` // Anthropic/Claude
+	OpenAIAPIKey    string `json:"openai_api_key,omitempty"`    // OpenAI/Codex
+	GeminiAPIKey    string `json:"gemini_api_key,omitempty"`    // Google Gemini
+	XAIAPIKey       string `json:"xai_api_key,omitempty"`       // xAI/Grok
+	ZAIAPIKey       string `json:"zai_api_key,omitempty"`       // Z.AI
+
+	// Optional model override (see supported models above)
+	Model string `json:"model,omitempty"`
+
+	// UI settings
+	Theme string `json:"theme,omitempty"`
+}
+
+// DefaultUserConfigPath returns the default path to .nerd/config.json.
+func DefaultUserConfigPath() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ".nerd/config.json"
+	}
+	return filepath.Join(cwd, ".nerd", "config.json")
+}
+
+// LoadUserConfig loads configuration from .nerd/config.json.
+func LoadUserConfig(path string) (*UserConfig, error) {
+	cfg := &UserConfig{}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil // Return empty config if file doesn't exist
+		}
+		return nil, fmt.Errorf("failed to read user config: %w", err)
+	}
+
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse user config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// SaveUserConfig saves configuration to .nerd/config.json.
+func (c *UserConfig) Save(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal user config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write user config: %w", err)
+	}
+
+	return nil
+}
+
+// GetActiveProvider returns the provider and API key to use.
+// Priority: explicit provider setting > first available key
+func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
+	// If provider is explicitly set, use that provider's key
+	if c.Provider != "" {
+		switch c.Provider {
+		case "anthropic":
+			if c.AnthropicAPIKey != "" {
+				return "anthropic", c.AnthropicAPIKey
+			}
+		case "openai":
+			if c.OpenAIAPIKey != "" {
+				return "openai", c.OpenAIAPIKey
+			}
+		case "gemini":
+			if c.GeminiAPIKey != "" {
+				return "gemini", c.GeminiAPIKey
+			}
+		case "xai":
+			if c.XAIAPIKey != "" {
+				return "xai", c.XAIAPIKey
+			}
+		case "zai":
+			if c.ZAIAPIKey != "" {
+				return "zai", c.ZAIAPIKey
+			}
+		}
+	}
+
+	// Check for provider-specific keys in priority order
+	if c.AnthropicAPIKey != "" {
+		return "anthropic", c.AnthropicAPIKey
+	}
+	if c.OpenAIAPIKey != "" {
+		return "openai", c.OpenAIAPIKey
+	}
+	if c.GeminiAPIKey != "" {
+		return "gemini", c.GeminiAPIKey
+	}
+	if c.XAIAPIKey != "" {
+		return "xai", c.XAIAPIKey
+	}
+	if c.ZAIAPIKey != "" {
+		return "zai", c.ZAIAPIKey
+	}
+
+	// Legacy: single api_key field (assume zai for backward compatibility)
+	if c.APIKey != "" {
+		return "zai", c.APIKey
+	}
+
+	return "", ""
 }

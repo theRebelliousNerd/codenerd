@@ -93,6 +93,13 @@ type ResearcherShard struct {
 	llmClient perception.LLMClient
 	localDB   *store.LocalStore
 
+	// Research Toolkit (enhanced tools)
+	toolkit *ResearchToolkit
+
+	// LLM Rate Limiting - limits concurrent LLM calls to respect API rate limits
+	// The API has ~2 calls/second limit, so we serialize LLM calls
+	llmSemaphore chan struct{}
+
 	// Tracking
 	startTime   time.Time
 	stopCh      chan struct{}
@@ -119,10 +126,12 @@ func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShar
 				return nil
 			},
 		},
-		kernel:      core.NewRealKernel(),
-		scanner:     world.NewScanner(),
-		stopCh:      make(chan struct{}),
-		visitedURLs: make(map[string]bool),
+		kernel:       core.NewRealKernel(),
+		scanner:      world.NewScanner(),
+		toolkit:      NewResearchToolkit(""), // Uses default cache dir
+		llmSemaphore: make(chan struct{}, 1), // Serialize LLM calls (1 at a time)
+		stopCh:       make(chan struct{}),
+		visitedURLs:  make(map[string]bool),
 	}
 }
 
@@ -138,6 +147,140 @@ func (r *ResearcherShard) SetLocalDB(db *store.LocalStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.localDB = db
+}
+
+// SetContext7APIKey sets the Context7 API key for LLM-optimized documentation.
+func (r *ResearcherShard) SetContext7APIKey(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.toolkit != nil {
+		r.toolkit.SetContext7APIKey(key)
+	}
+}
+
+// llmComplete wraps LLM calls with rate limiting semaphore.
+// This ensures only one LLM call runs at a time across all goroutines.
+func (r *ResearcherShard) llmComplete(ctx context.Context, prompt string) (string, error) {
+	if r.llmClient == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	// Acquire semaphore (blocks if another LLM call is in progress)
+	select {
+	case r.llmSemaphore <- struct{}{}:
+		// Got the semaphore
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
+	// Release semaphore when done
+	defer func() { <-r.llmSemaphore }()
+
+	return r.llmClient.Complete(ctx, prompt)
+}
+
+// SetBrowserManager sets the browser session manager for dynamic content fetching.
+func (r *ResearcherShard) SetBrowserManager(mgr interface{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Type assert to browser.SessionManager if available
+	// This avoids circular imports - browser package imports mangle, not shards
+	if r.toolkit != nil {
+		// The toolkit handles the type assertion internally
+		// For now, store it as interface{}
+	}
+}
+
+// GetToolkit returns the research toolkit for external configuration.
+func (r *ResearcherShard) GetToolkit() *ResearchToolkit {
+	return r.toolkit
+}
+
+// ResearchTopicsParallel researches multiple topics in parallel.
+// This is the primary method for building agent knowledge bases efficiently.
+func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []string) (*ResearchResult, error) {
+	r.mu.Lock()
+	r.state = core.ShardStateRunning
+	r.startTime = time.Now()
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		r.state = core.ShardStateCompleted
+		r.mu.Unlock()
+	}()
+
+	result := &ResearchResult{
+		Query:    fmt.Sprintf("parallel research: %d topics", len(topics)),
+		Keywords: topics,
+		Atoms:    make([]KnowledgeAtom, 0),
+	}
+
+	if len(topics) == 0 {
+		return result, nil
+	}
+
+	fmt.Printf("[Researcher] Starting parallel research for %d topics...\n", len(topics))
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	semaphore := make(chan struct{}, 3) // Limit concurrent research
+
+	for _, topic := range topics {
+		topic := topic
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			topicResult, err := r.conductWebResearch(ctx, topic, strings.Fields(topic))
+			if err != nil {
+				fmt.Printf("[Researcher] Topic '%s' failed: %v\n", topic, err)
+				return
+			}
+
+			mu.Lock()
+			result.Atoms = append(result.Atoms, topicResult.Atoms...)
+			result.PagesScraped += topicResult.PagesScraped
+			mu.Unlock()
+
+			fmt.Printf("[Researcher] Topic '%s': %d atoms\n", topic, len(topicResult.Atoms))
+		}()
+	}
+
+	wg.Wait()
+
+	result.Duration = time.Since(r.startTime)
+	result.FactsGenerated = len(result.Atoms)
+	result.Summary = fmt.Sprintf("Researched %d topics, gathered %d knowledge atoms in %.2fs",
+		len(topics), len(result.Atoms), result.Duration.Seconds())
+
+	// Persist to local DB if available
+	if r.localDB != nil {
+		r.persistKnowledge(result)
+	}
+
+	return result, nil
+}
+
+// DeepResearch performs comprehensive research using all available tools.
+// This includes: known sources, web search, and LLM synthesis.
+func (r *ResearcherShard) DeepResearch(ctx context.Context, topic string, keywords []string) (*ResearchResult, error) {
+	r.mu.Lock()
+	r.state = core.ShardStateRunning
+	r.startTime = time.Now()
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		r.state = core.ShardStateCompleted
+		r.mu.Unlock()
+	}()
+
+	// Add deep flag to topic to trigger web search
+	deepTopic := topic + " (deep)"
+	return r.conductWebResearch(ctx, deepTopic, keywords)
 }
 
 // GetID returns the shard ID.
@@ -755,24 +898,20 @@ func (r *ResearcherShard) summarizeFile(path string, content string) string {
 
 // generateCodebaseSummary uses LLM to create a comprehensive summary.
 func (r *ResearcherShard) generateCodebaseSummary(ctx context.Context, result *ResearchResult) (string, error) {
-	if r.llmClient == nil {
-		return "", fmt.Errorf("no LLM client configured")
-	}
-
 	// Build context from atoms
-	var context strings.Builder
-	context.WriteString("Analyzed codebase with the following findings:\n\n")
+	var contextStr strings.Builder
+	contextStr.WriteString("Analyzed codebase with the following findings:\n\n")
 	for _, atom := range result.Atoms {
-		context.WriteString(fmt.Sprintf("- %s: %s\n", atom.Title, atom.Content))
+		contextStr.WriteString(fmt.Sprintf("- %s: %s\n", atom.Title, atom.Content))
 	}
 
 	prompt := fmt.Sprintf(`Based on this codebase analysis, provide a concise 2-3 sentence summary suitable for an AI coding agent to understand the project context:
 
 %s
 
-Summary (2-3 sentences):`, context.String())
+Summary (2-3 sentences):`, contextStr.String())
 
-	summary, err := r.llmClient.Complete(ctx, prompt)
+	summary, err := r.llmComplete(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -909,27 +1048,128 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 	normalizedTopic = strings.TrimSuffix(normalizedTopic, " (brief overview)")
 	normalizedTopic = strings.TrimSpace(normalizedTopic)
 
-	// Strategy 1: Check if we have a known source for this topic
-	if source, ok := r.findKnowledgeSource(normalizedTopic); ok {
-		fmt.Printf("[Researcher] Found known source: %s (type: %s)\n", source.Name, source.Type)
-		atoms, err := r.fetchFromKnownSource(ctx, source, keywords)
+	// Check for deep research flag
+	isDeepResearch := strings.Contains(topic, "(deep)")
+
+	// Use wait group for parallel research strategies
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	atomsChan := make(chan []KnowledgeAtom, 5)
+	context7Found := false // Track if Context7 returned results
+
+	// STRATEGY 0 (PRIMARY): Context7 - LLM-optimized documentation
+	// This is the preferred source - curated docs designed for AI consumption
+	if r.toolkit != nil && r.toolkit.Context7() != nil && r.toolkit.Context7().IsConfigured() {
+		fmt.Printf("[Researcher] Querying Context7 for: %s\n", normalizedTopic)
+		atoms, err := r.toolkit.Context7().ResearchTopic(ctx, normalizedTopic, keywords)
 		if err == nil && len(atoms) > 0 {
+			fmt.Printf("[Researcher] Context7 returned %d atoms (LLM-optimized docs)\n", len(atoms))
 			result.Atoms = append(result.Atoms, atoms...)
 			result.PagesScraped++
+			context7Found = true
 		} else if err != nil {
-			fmt.Printf("[Researcher] Known source failed: %v, falling back to LLM\n", err)
+			fmt.Printf("[Researcher] Context7 unavailable: %v (falling back to other sources)\n", err)
 		}
 	}
 
-	// Strategy 2: Always supplement with LLM knowledge synthesis
-	if r.llmClient != nil {
-		fmt.Printf("[Researcher] Synthesizing knowledge from LLM training data...\n")
-		llmAtoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
-		if err == nil && len(llmAtoms) > 0 {
-			result.Atoms = append(result.Atoms, llmAtoms...)
-		} else if err != nil {
-			fmt.Printf("[Researcher] LLM synthesis warning: %v\n", err)
+	// If Context7 returned good results, skip noisy web scraping
+	// Only use LLM synthesis as supplement
+	if context7Found && len(result.Atoms) >= 1 {
+		// Strategy 3 only: LLM synthesis to supplement Context7 docs
+		if r.llmClient != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				fmt.Printf("[Researcher] Synthesizing supplemental knowledge from LLM...\n")
+				atoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
+				if err == nil && len(atoms) > 0 {
+					atomsChan <- atoms
+				}
+			}()
 		}
+	} else {
+		// Context7 not available or no results - use fallback strategies
+
+		// Strategy 1: Check if we have a known source for this topic
+		if source, ok := r.findKnowledgeSource(normalizedTopic); ok {
+			fmt.Printf("[Researcher] Found known source: %s (type: %s)\n", source.Name, source.Type)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// Use toolkit if available for enhanced fetching
+				if r.toolkit != nil && r.toolkit.GitHub() != nil && source.Type == "github" {
+					atoms, err := r.toolkit.GitHub().FetchRepository(ctx, source.RepoOwner, source.RepoName, keywords)
+					if err == nil && len(atoms) > 0 {
+						atomsChan <- atoms
+						return
+					}
+				}
+
+				// Fallback to original method
+				atoms, err := r.fetchFromKnownSource(ctx, source, keywords)
+				if err == nil && len(atoms) > 0 {
+					atomsChan <- atoms
+				} else if err != nil {
+					fmt.Printf("[Researcher] Known source failed: %v\n", err)
+				}
+			}()
+		}
+
+		// Strategy 2: Web search (for deep research or unknown topics)
+		if isDeepResearch || result.PagesScraped == 0 {
+			if r.toolkit != nil && r.toolkit.Search() != nil {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					searchQuery := fmt.Sprintf("%s documentation tutorial", normalizedTopic)
+					atoms, err := r.toolkit.Search().SearchAndFetch(ctx, searchQuery, 5)
+					if err == nil && len(atoms) > 0 {
+						// Score and filter atoms
+						filtered := make([]KnowledgeAtom, 0, len(atoms))
+						for _, atom := range atoms {
+							score := r.calculateC7Score(atom)
+							if score >= 0.5 {
+								atom.Confidence = score
+								filtered = append(filtered, atom)
+							}
+						}
+						if len(filtered) > 0 {
+							atomsChan <- filtered
+						}
+					}
+				}()
+			}
+		}
+
+		// Strategy 3: LLM knowledge synthesis (always run in parallel)
+		if r.llmClient != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				fmt.Printf("[Researcher] Synthesizing knowledge from LLM...\n")
+				atoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
+				if err == nil && len(atoms) > 0 {
+					atomsChan <- atoms
+				} else if err != nil {
+					fmt.Printf("[Researcher] LLM synthesis warning: %v\n", err)
+				}
+			}()
+		}
+	}
+
+	// Collect results in background
+	go func() {
+		wg.Wait()
+		close(atomsChan)
+	}()
+
+	// Gather all atoms
+	for atoms := range atomsChan {
+		mu.Lock()
+		result.Atoms = append(result.Atoms, atoms...)
+		result.PagesScraped++
+		mu.Unlock()
 	}
 
 	result.Duration = time.Since(r.startTime)
@@ -1133,12 +1373,8 @@ func (r *ResearcherShard) parseLlmsTxt(ctx context.Context, source KnowledgeSour
 
 // enrichAtomWithLLM uses LLM to add metadata and summaries (Context7-style enrichment)
 func (r *ResearcherShard) enrichAtomWithLLM(ctx context.Context, atom KnowledgeAtom) KnowledgeAtom {
-	if r.llmClient == nil {
-		return atom
-	}
-
-	// Only enrich substantial content
-	if len(atom.Content) < 100 || atom.Concept == "llms_optimized" {
+	// Only enrich substantial content and if LLM is available
+	if r.llmClient == nil || len(atom.Content) < 100 || atom.Concept == "llms_optimized" {
 		return atom
 	}
 
@@ -1150,7 +1386,7 @@ Documentation:
 
 Summary:`, r.truncate(atom.Content, 1000))
 
-	summary, err := r.llmClient.Complete(ctx, prompt)
+	summary, err := r.llmComplete(ctx, prompt)
 	if err != nil {
 		return atom
 	}
@@ -1337,10 +1573,6 @@ func (r *ResearcherShard) fetchPkgGoDev(ctx context.Context, source KnowledgeSou
 
 // synthesizeKnowledgeFromLLM uses the LLM to generate knowledge about a topic
 func (r *ResearcherShard) synthesizeKnowledgeFromLLM(ctx context.Context, topic string, keywords []string) ([]KnowledgeAtom, error) {
-	if r.llmClient == nil {
-		return nil, fmt.Errorf("no LLM client available")
-	}
-
 	prompt := fmt.Sprintf(`You are a technical documentation specialist. Generate structured knowledge about "%s" for a developer assistant agent.
 
 Generate the following in JSON format:
@@ -1361,7 +1593,7 @@ Keywords: %s
 
 JSON:`, topic, topic, strings.Join(keywords, ", "))
 
-	response, err := r.llmClient.Complete(ctx, prompt)
+	response, err := r.llmComplete(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("LLM completion failed: %w", err)
 	}
@@ -1665,10 +1897,6 @@ func (r *ResearcherShard) truncate(s string, maxLen int) string {
 
 // generateResearchSummary uses LLM to summarize research findings.
 func (r *ResearcherShard) generateResearchSummary(ctx context.Context, result *ResearchResult) (string, error) {
-	if r.llmClient == nil {
-		return "", fmt.Errorf("no LLM client")
-	}
-
 	var contentBuilder strings.Builder
 	contentBuilder.WriteString(fmt.Sprintf("Research topic: %s\n\n", result.Query))
 	for i, atom := range result.Atoms {
@@ -1684,7 +1912,7 @@ func (r *ResearcherShard) generateResearchSummary(ctx context.Context, result *R
 
 Summary:`, contentBuilder.String())
 
-	return r.llmClient.Complete(ctx, prompt)
+	return r.llmComplete(ctx, prompt)
 }
 
 // ============================================================================

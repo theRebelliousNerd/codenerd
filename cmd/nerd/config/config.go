@@ -8,8 +8,9 @@ import (
 
 // Config holds user preferences
 type Config struct {
-	APIKey string `json:"api_key"`
-	Theme  string `json:"theme"` // "light" or "dark"
+	APIKey         string `json:"api_key"`
+	Theme          string `json:"theme"`           // "light" or "dark"
+	Context7APIKey string `json:"context7_api_key"` // Context7 API key for research
 }
 
 // DefaultConfig returns the default configuration
