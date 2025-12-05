@@ -428,6 +428,32 @@ func (c *CoderShard) checkImpact(target string) (blocked bool, reason string) {
 		}
 	}
 
+	// Check Code DOM edit_unsafe predicate
+	unsafeResults, _ := c.kernel.Query("edit_unsafe")
+	for _, fact := range unsafeResults {
+		if len(fact.Args) >= 2 {
+			if ref, ok := fact.Args[0].(string); ok && strings.Contains(ref, target) {
+				if reason, ok := fact.Args[1].(string); ok {
+					return true, fmt.Sprintf("Code DOM safety: %s", reason)
+				}
+			}
+		}
+	}
+
+	// Check for critical breaking change risk
+	breakingResults, _ := c.kernel.Query("breaking_change_risk")
+	for _, fact := range breakingResults {
+		if len(fact.Args) >= 3 {
+			if ref, ok := fact.Args[0].(string); ok && strings.Contains(ref, target) {
+				if level, ok := fact.Args[1].(string); ok && level == "/critical" {
+					if reason, ok := fact.Args[2].(string); ok {
+						return true, fmt.Sprintf("Critical breaking change: %s", reason)
+					}
+				}
+			}
+		}
+	}
+
 	return false, ""
 }
 
@@ -465,6 +491,9 @@ func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
 	lang := detectLanguage(task.Target)
 	langName := languageDisplayName(lang)
 
+	// Build Code DOM context if we have safety information
+	codeDOMContext := c.buildCodeDOMContext(task)
+
 	return fmt.Sprintf(`You are an expert %s programmer. Generate clean, idiomatic, well-documented code.
 
 RULES:
@@ -473,7 +502,7 @@ RULES:
 3. Add concise comments for complex logic only
 4. Do not include unnecessary imports or dependencies
 5. Match the existing code style if modifying
-
+%s
 OUTPUT FORMAT:
 Return your response as JSON with this structure:
 {
@@ -483,7 +512,85 @@ Return your response as JSON with this structure:
 }
 
 For modifications, include the COMPLETE new file content, not a diff.
-`, langName)
+`, langName, codeDOMContext)
+}
+
+// buildCodeDOMContext builds Code DOM safety context for the prompt.
+func (c *CoderShard) buildCodeDOMContext(task CoderTask) string {
+	if c.kernel == nil {
+		return ""
+	}
+
+	var warnings []string
+
+	// Check if file is generated code
+	generatedResults, _ := c.kernel.Query("generated_code")
+	for _, fact := range generatedResults {
+		if len(fact.Args) >= 2 {
+			if file, ok := fact.Args[0].(string); ok && file == task.Target {
+				if generator, ok := fact.Args[1].(string); ok {
+					warnings = append(warnings, fmt.Sprintf("WARNING: This is generated code (%s). Changes will be overwritten on regeneration.", generator))
+				}
+			}
+		}
+	}
+
+	// Check for breaking change risk
+	breakingResults, _ := c.kernel.Query("breaking_change_risk")
+	for _, fact := range breakingResults {
+		if len(fact.Args) >= 3 {
+			if ref, ok := fact.Args[0].(string); ok && strings.Contains(ref, task.Target) {
+				if level, ok := fact.Args[1].(string); ok {
+					if reason, ok := fact.Args[2].(string); ok {
+						warnings = append(warnings, fmt.Sprintf("BREAKING CHANGE RISK (%s): %s", level, reason))
+					}
+				}
+			}
+		}
+	}
+
+	// Check for API client/handler functions
+	apiClientResults, _ := c.kernel.Query("api_client_function")
+	for _, fact := range apiClientResults {
+		if len(fact.Args) >= 2 {
+			if file, ok := fact.Args[1].(string); ok && file == task.Target {
+				warnings = append(warnings, "NOTE: This file contains API client code. Ensure error handling for network failures.")
+			}
+			break // Only add once
+		}
+	}
+
+	apiHandlerResults, _ := c.kernel.Query("api_handler_function")
+	for _, fact := range apiHandlerResults {
+		if len(fact.Args) >= 2 {
+			if file, ok := fact.Args[1].(string); ok && file == task.Target {
+				warnings = append(warnings, "NOTE: This file contains API handlers. Validate inputs and handle errors appropriately.")
+			}
+			break
+		}
+	}
+
+	// Check for CGo code
+	cgoResults, _ := c.kernel.Query("cgo_code")
+	for _, fact := range cgoResults {
+		if len(fact.Args) >= 1 {
+			if file, ok := fact.Args[0].(string); ok && file == task.Target {
+				warnings = append(warnings, "WARNING: This file contains CGo code. Be careful with memory management and type conversions.")
+			}
+		}
+	}
+
+	if len(warnings) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\nCODE CONTEXT:\n")
+	for _, w := range warnings {
+		sb.WriteString(fmt.Sprintf("- %s\n", w))
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // buildUserPrompt creates the user prompt with task and context.

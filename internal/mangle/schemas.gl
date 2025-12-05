@@ -1237,3 +1237,12 @@ Decl suggest_update_mocks(Ref).
 
 # signature_change_detected(Ref, OldSig, NewSig) - function signature changed
 Decl signature_change_detected(Ref, OldSig, NewSig).
+
+# requires_integration_test(Ref) - derived: API client needs integration test
+Decl requires_integration_test(Ref).
+
+# requires_contract_check(Ref) - derived: API handler contract validation needed
+Decl requires_contract_check(Ref).
+
+# api_edit_warning(Ref, Reason) - derived: warning when editing API code
+Decl api_edit_warning(Ref, Reason).

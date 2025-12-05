@@ -678,6 +678,82 @@ Guidelines:
 Return ONLY the test code, no explanations.`, framework)
 }
 
+// buildCodeDOMTestContext builds Code DOM context for test generation.
+func (t *TesterShard) buildCodeDOMTestContext(targetPath string) string {
+	if t.kernel == nil {
+		return ""
+	}
+
+	var context []string
+
+	// Check for API client functions - need integration tests
+	apiClientResults, _ := t.kernel.Query("api_client_function")
+	for _, fact := range apiClientResults {
+		if len(fact.Args) >= 3 {
+			if file, ok := fact.Args[1].(string); ok && file == targetPath {
+				funcName := "unknown"
+				pattern := ""
+				if ref, ok := fact.Args[0].(string); ok {
+					funcName = ref
+				}
+				if p, ok := fact.Args[2].(string); ok {
+					pattern = p
+				}
+				context = append(context, fmt.Sprintf("API CLIENT: %s uses %s - mock HTTP client and test error scenarios", funcName, pattern))
+			}
+		}
+	}
+
+	// Check for API handler functions - need request/response tests
+	apiHandlerResults, _ := t.kernel.Query("api_handler_function")
+	for _, fact := range apiHandlerResults {
+		if len(fact.Args) >= 3 {
+			if file, ok := fact.Args[1].(string); ok && file == targetPath {
+				funcName := "unknown"
+				framework := ""
+				if ref, ok := fact.Args[0].(string); ok {
+					funcName = ref
+				}
+				if f, ok := fact.Args[2].(string); ok {
+					framework = f
+				}
+				context = append(context, fmt.Sprintf("API HANDLER: %s (%s) - test with httptest, check status codes and JSON responses", funcName, framework))
+			}
+		}
+	}
+
+	// Check requires_integration_test predicate
+	integrationResults, _ := t.kernel.Query("requires_integration_test")
+	for _, fact := range integrationResults {
+		if len(fact.Args) >= 1 {
+			if ref, ok := fact.Args[0].(string); ok && strings.Contains(ref, targetPath) {
+				context = append(context, fmt.Sprintf("INTEGRATION TEST RECOMMENDED: %s - consider separate _integration_test.go file", ref))
+			}
+		}
+	}
+
+	// Check for external callers (public API)
+	externalResults, _ := t.kernel.Query("has_external_callers")
+	for _, fact := range externalResults {
+		if len(fact.Args) >= 1 {
+			if ref, ok := fact.Args[0].(string); ok && strings.Contains(ref, targetPath) {
+				context = append(context, fmt.Sprintf("PUBLIC API: %s - ensure comprehensive test coverage for public interface", ref))
+			}
+		}
+	}
+
+	if len(context) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\nCODE ANALYSIS (from Code DOM):\n")
+	for _, c := range context {
+		sb.WriteString(fmt.Sprintf("- %s\n", c))
+	}
+	return sb.String()
+}
+
 // buildTestGenUserPrompt builds the user prompt for test generation.
 func (t *TesterShard) buildTestGenUserPrompt(source string, task *TesterTask, framework string) string {
 	var sb strings.Builder
@@ -695,6 +771,16 @@ func (t *TesterShard) buildTestGenUserPrompt(source string, task *TesterTask, fr
 	sb.WriteString("- Normal operation\n")
 	sb.WriteString("- Edge cases\n")
 	sb.WriteString("- Error conditions\n")
+
+	// Add Code DOM context for API-aware test generation
+	targetPath := task.Target
+	if task.File != "" {
+		targetPath = task.File
+	}
+	codeDOMContext := t.buildCodeDOMTestContext(targetPath)
+	if codeDOMContext != "" {
+		sb.WriteString(codeDOMContext)
+	}
 
 	return sb.String()
 }
