@@ -400,6 +400,17 @@ func (k *RealKernel) LoadPolicyFile(path string) error {
 	return fmt.Errorf("policy file not found: %s", path)
 }
 
+// HotLoadRule dynamically loads a single Mangle rule at runtime.
+// This is used by Autopoiesis to add new rules without restarting.
+func (k *RealKernel) HotLoadRule(rule string) error {
+	if rule == "" {
+		return fmt.Errorf("empty rule")
+	}
+	// Append the rule to policy
+	k.AppendPolicy(rule)
+	return nil
+}
+
 // GetSchemas returns the current schemas.
 func (k *RealKernel) GetSchemas() string {
 	k.mu.RLock()

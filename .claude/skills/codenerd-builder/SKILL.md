@@ -1,6 +1,6 @@
 ---
 name: codenerd-builder
-description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, ShardAgents, Virtual Predicates, TDD loops, and the Piggyback Protocol. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Inversion of Control pattern.
+description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, ShardAgents, Virtual Predicates, TDD loops, and the Piggyback Protocol. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
 ---
 
 # codeNERD Builder
@@ -9,11 +9,13 @@ Build the codeNERD high-assurance Logic-First CLI coding agent.
 
 ## Core Philosophy
 
-codeNERD inverts the traditional agent control hierarchy:
+Current AI agents make a category error: they ask LLMs to handle everything—creativity AND planning, insight AND memory, problem-solving AND self-correction—when LLMs excel at the former but struggle with the latter. codeNERD separates these concerns through a **Creative-Executive Partnership**:
 
-- **Logic is the Executive**: All state transitions, permissions, tool selections, and memory retrieval are decided by a deterministic Mangle Kernel
-- **LLM is the Transducer**: The model acts only as a peripheral for Perception (NL -> Logic Atoms) and Articulation (Logic Atoms -> NL)
-- **Correctness by Construction**: Actions are derived from formal policy, not generated stochastically
+- **LLM as Creative Center**: The model is the source of problem-solving, solution synthesis, goal-crafting, and insight. It understands problems deeply, generates novel approaches, and crafts creative solutions.
+- **Logic as Executive**: Planning, long-term memory, orchestration, skill retention, and safety derive from deterministic Mangle rules. The harness handles what LLMs cannot reliably perform.
+- **Transduction Interface**: NL↔Logic atom conversion channels the LLM's creative outputs through formal structure, ensuring creativity flows safely into execution.
+
+This architecture **liberates** the LLM to focus purely on what it does best, while the harness ensures those creative outputs are channeled safely and consistently. The result: creative power and deterministic safety coexist by design.
 
 ## Architecture Overview
 

@@ -5,6 +5,7 @@ package shards
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/shards/researcher"
+	"codenerd/internal/shards/system"
 )
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
@@ -38,6 +39,40 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := NewToolGeneratorShard(id, config)
 		return shard
+	})
+
+	// =========================================================================
+	// Type 1: System Shards (Permanent, Continuous)
+	// =========================================================================
+
+	// Register Perception Firewall - AUTO-START, LLM-primary
+	sm.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewPerceptionFirewallShard()
+	})
+
+	// Register World Model Ingestor - ON-DEMAND, Hybrid
+	sm.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewWorldModelIngestorShard()
+	})
+
+	// Register Executive Policy - AUTO-START, Logic-primary
+	sm.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewExecutivePolicyShard()
+	})
+
+	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
+	sm.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewConstitutionGateShard()
+	})
+
+	// Register Tactile Router - ON-DEMAND, Logic-primary
+	sm.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewTactileRouterShard()
+	})
+
+	// Register Session Planner - ON-DEMAND, LLM-primary
+	sm.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewSessionPlannerShard()
 	})
 
 	// Define shard profiles with proper configurations
@@ -122,6 +157,98 @@ func defineShardProfiles(sm *core.ShardManager) {
 		},
 		Timeout:     30 * 60 * 1000000000, // 30 minutes (tool generation can take time)
 		MemoryLimit: 10000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityHighReasoning,
+		},
+	})
+
+	// Define system shard profiles
+	defineSystemShardProfiles(sm)
+}
+
+// defineSystemShardProfiles registers Type 1 system shard profiles.
+func defineSystemShardProfiles(sm *core.ShardManager) {
+	// Perception Firewall - AUTO-START, LLM for NL understanding
+	sm.DefineProfile("perception_firewall", core.ShardConfig{
+		Name: "perception_firewall",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionAskUser,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours (permanent)
+		MemoryLimit: 5000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityBalanced,
+		},
+	})
+
+	// World Model Ingestor - ON-DEMAND, Hybrid
+	sm.DefineProfile("world_model_ingestor", core.ShardConfig{
+		Name: "world_model_ingestor",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionExecCmd,
+			core.PermissionCodeGraph,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 10000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityHighSpeed,
+		},
+	})
+
+	// Executive Policy - AUTO-START, Pure logic (no LLM by default)
+	sm.DefineProfile("executive_policy", core.ShardConfig{
+		Name: "executive_policy",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionCodeGraph,
+			core.PermissionAskUser,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 3000,
+		Model:       core.ModelConfig{}, // No LLM needed for core logic
+	})
+
+	// Constitution Gate - AUTO-START, Pure logic (SAFETY-CRITICAL)
+	sm.DefineProfile("constitution_gate", core.ShardConfig{
+		Name: "constitution_gate",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionAskUser, // Only for escalation
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 1000,
+		Model:       core.ModelConfig{}, // No LLM - safety MUST be deterministic
+	})
+
+	// Tactile Router - ON-DEMAND, Pure logic
+	sm.DefineProfile("tactile_router", core.ShardConfig{
+		Name: "tactile_router",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionExecCmd,
+			core.PermissionNetwork,
+			core.PermissionBrowser,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 2000,
+		Model:       core.ModelConfig{}, // No LLM needed
+	})
+
+	// Session Planner - ON-DEMAND, LLM for goal decomposition
+	sm.DefineProfile("session_planner", core.ShardConfig{
+		Name: "session_planner",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionAskUser,
+			core.PermissionReadFile,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 8000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},

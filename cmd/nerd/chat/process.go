@@ -55,6 +55,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			return responseMsg(response)
 		}
 
+		// 1.55 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
+		// no shard and a valid perception response, return the perception response
+		// directly. This handles greetings, capability questions, and general queries
+		// without requiring a second articulation LLM call.
+		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
+			return responseMsg(intent.Response)
+		}
+
 		// 1.6 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
 		// This implements §8.3: Self-modification capabilities
 		if m.autopoiesis != nil {
@@ -186,14 +194,41 @@ func (m Model) processInput(input string) tea.Cmd {
 			systemPrompt = fmt.Sprintf("%v", systemPrompts[0].Args[0])
 		}
 
-		response, err := articulateWithContext(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt)
+		// Use full articulation output to capture MemoryOperations
+		artOutput, err := articulateWithContextFull(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt)
 		if err != nil {
 			return errorMsg(err)
 		}
 
+		response := artOutput.Surface
+
+		// Add any articulation warnings to the flow
+		if len(artOutput.Warnings) > 0 {
+			for _, w := range artOutput.Warnings {
+				warnings = append(warnings, fmt.Sprintf("[Articulation] %s", w))
+			}
+		}
+
 		// 7. SEMANTIC COMPRESSION (Process turn for infinite context)
 		// This implements §8.2: Compress surface text, retain only logical atoms
+		// Now properly wired with MemoryOperations from articulation!
 		if m.compressor != nil {
+			// Convert articulation.MemoryOperation to perception.MemoryOperation
+			var memOps []perception.MemoryOperation
+			for _, op := range artOutput.MemoryOperations {
+				memOps = append(memOps, perception.MemoryOperation{
+					Op:    op.Op,
+					Key:   op.Key,
+					Value: op.Value,
+				})
+			}
+
+			// Merge mangle updates from articulation with pre-existing ones
+			allMangleUpdates := mangleUpdates
+			if len(artOutput.MangleUpdates) > 0 {
+				allMangleUpdates = append(allMangleUpdates, artOutput.MangleUpdates...)
+			}
+
 			controlPacket := &perception.ControlPacket{
 				IntentClassification: perception.IntentClassification{
 					Category:   intent.Category,
@@ -202,15 +237,25 @@ func (m Model) processInput(input string) tea.Cmd {
 					Constraint: intent.Constraint,
 					Confidence: intent.Confidence,
 				},
-				MangleUpdates:    mangleUpdates,
-				MemoryOperations: nil, // Populated by articulation layer in future
+				MangleUpdates:    allMangleUpdates,
+				MemoryOperations: memOps, // Now properly populated from articulation!
 			}
+
+			// Handle self-correction if triggered
+			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered {
+				controlPacket.SelfCorrection = &perception.SelfCorrection{
+					Triggered:  true,
+					Hypothesis: artOutput.SelfCorrection.Hypothesis,
+				}
+			}
+
 			turn := ctxcompress.Turn{
 				UserInput:       input,
 				SurfaceResponse: response,
 				ControlPacket:   controlPacket,
 				Timestamp:       time.Now(),
 			}
+
 			// Process turn asynchronously - don't block response
 			go func() {
 				if _, err := m.compressor.ProcessTurn(ctx, turn); err != nil {

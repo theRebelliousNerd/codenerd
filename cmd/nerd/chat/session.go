@@ -199,6 +199,10 @@ func InitChat(cfg Config) Model {
 	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 	autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
 
+	// Wire kernel to autopoiesis for logic-driven orchestration
+	kernelAdapter := core.NewKernelAdapter(kernel)
+	autopoiesisOrch.SetKernel(kernelAdapter)
+
 	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
 	// Initialize split-pane view (Glass Box Interface)

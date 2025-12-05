@@ -768,3 +768,218 @@ Decl has_incomplete_phase(CampaignID).
 
 # has_incomplete_phase_task(PhaseID) - helper: phase has incomplete tasks
 Decl has_incomplete_phase_task(PhaseID).
+
+# =============================================================================
+# SECTION 33: SYSTEM SHARD COORDINATION
+# =============================================================================
+# Predicates for coordinating the 6 Type 1 system shards:
+# - perception_firewall: NL → atoms transduction
+# - world_model_ingestor: file_topology, symbol_graph maintenance
+# - executive_policy: next_action derivation
+# - constitution_gate: safety enforcement
+# - tactile_router: action → tool routing
+# - session_planner: agenda/campaign orchestration
+
+# -----------------------------------------------------------------------------
+# 33.1 System Shard Registry
+# -----------------------------------------------------------------------------
+
+# system_shard(ShardName) - registered system shards
+Decl system_shard(ShardName).
+
+# system_shard_state(ShardName, State) - current shard state
+# State: /idle, /starting, /running, /stopping, /stopped, /error
+Decl system_shard_state(ShardName, State).
+
+# system_heartbeat(ShardName, Timestamp) - last heartbeat from shard
+Decl system_heartbeat(ShardName, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.2 Intent Processing Flow
+# -----------------------------------------------------------------------------
+
+# processed_intent(IntentID) - intent has been processed by perception
+Decl processed_intent(IntentID).
+
+# pending_intent(IntentID) - derived: intent waiting to be processed
+Decl pending_intent(IntentID).
+
+# -----------------------------------------------------------------------------
+# 33.3 Action Flow (Executive → Constitution → Router)
+# -----------------------------------------------------------------------------
+
+# pending_action(ActionType, Target, Timestamp) - action awaiting permission check
+Decl pending_action(ActionType, Target, Timestamp).
+
+# pending_permission_check(ActionID) - derived: action needs constitution check
+Decl pending_permission_check(ActionID).
+
+# action_permitted(ActionType, Target, Timestamp) - action passed constitution gate
+Decl action_permitted(ActionType, Target, Timestamp).
+
+# ready_for_routing(ActionID) - derived: action ready for router
+Decl ready_for_routing(ActionID).
+
+# exec_request(ToolName, Target, Timeout, CallID, Timestamp) - router output
+Decl exec_request(ToolName, Target, Timeout, CallID, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.4 Safety & Violations
+# -----------------------------------------------------------------------------
+
+# security_violation(ActionType, Reason, Timestamp) - blocked by constitution
+Decl security_violation(ActionType, Reason, Timestamp).
+
+# escalation_needed(ShardName, Type, Context, Reason, Timestamp) - needs human
+Decl escalation_needed(ShardName, Type, Context, Reason, Timestamp).
+
+# rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timestamp)
+Decl rule_proposal_pending(ShardName, MangleCode, Rationale, Confidence, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.5 System Health
+# -----------------------------------------------------------------------------
+
+# system_shard_healthy(ShardName) - derived: shard heartbeat recent
+Decl system_shard_healthy(ShardName).
+
+# system_shard_unhealthy(ShardName) - derived: shard heartbeat stale
+Decl system_shard_unhealthy(ShardName).
+
+# world_model_heartbeat(ShardID, FileCount, Timestamp) - world model status
+Decl world_model_heartbeat(ShardID, FileCount, Timestamp).
+
+# session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp)
+Decl session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.6 Routing & Tool Management
+# -----------------------------------------------------------------------------
+
+# routing_error(ActionType, Reason, Timestamp) - router couldn't find handler
+Decl routing_error(ActionType, Reason, Timestamp).
+
+# route_added(ActionPattern, ToolName, Timestamp) - new route added via autopoiesis
+Decl route_added(ActionPattern, ToolName, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.7 Agenda & Planning
+# -----------------------------------------------------------------------------
+
+# agenda_item(ItemID, Description, Priority, Status, Timestamp)
+Decl agenda_item(ItemID, Description, Priority, Status, Timestamp).
+
+# session_checkpoint(CheckpointID, ItemsRemaining, Timestamp)
+Decl session_checkpoint(CheckpointID, ItemsRemaining, Timestamp).
+
+# task_completed(TaskID) - task marked complete
+Decl task_completed(TaskID).
+
+# task_blocked(TaskID) - task is blocked
+Decl task_blocked(TaskID).
+
+# -----------------------------------------------------------------------------
+# 33.8 Perception Errors & Stats
+# -----------------------------------------------------------------------------
+
+# perception_error(Message, Timestamp) - perception shard error
+Decl perception_error(Message, Timestamp).
+
+# world_model_error(Message, Timestamp) - world model shard error
+Decl world_model_error(Message, Timestamp).
+
+# executive_error(Message, Timestamp) - executive shard error
+Decl executive_error(Message, Timestamp).
+
+# executive_trace(Action, FromRule, Rationale, Timestamp) - debug trace
+Decl executive_trace(Action, FromRule, Rationale, Timestamp).
+
+# strategy_activated(StrategyName, Timestamp) - strategy change
+Decl strategy_activated(StrategyName, Timestamp).
+
+# execution_blocked(Reason, Timestamp) - executive blocked
+Decl execution_blocked(Reason, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 33.9 Policy Derived Predicates (Section 21 Support)
+# -----------------------------------------------------------------------------
+
+# Intent processing derived predicates
+Decl intent_processed(IntentID).
+Decl focus_needs_resolution(Ref).
+Decl intent_ready_for_executive(IntentID).
+
+# Action flow derived predicates
+Decl action_pending_permission(ActionID).
+Decl permission_checked(ActionID).
+Decl permission_check_result(ActionID, Result, Reason).
+Decl action_blocked(ActionID, Reason).
+Decl action_routed(ActionID).
+Decl routing_result(ActionID, Result, Details).
+Decl routing_succeeded(ActionID).
+Decl routing_failed(ActionID, Error).
+
+# Health monitoring derived predicates
+Decl shard_heartbeat_stale(ShardName).
+
+# Safety derived predicates
+Decl block_all_actions(Reason).
+Decl security_anomaly(AnomalyID, Type, Details).
+Decl anomaly_investigated(AnomalyID).
+Decl investigation_result(AnomalyID, Result).
+Decl violation_count(Pattern, Count).
+Decl propose_safety_rule(Pattern).
+Decl repeated_violation_pattern(Pattern).
+Decl safety_violation(ViolationID, Pattern, ActionType, Timestamp).
+
+# World model derived predicates
+Decl world_model_stale(File).
+Decl file_in_project(File).
+Decl symbol_reachable(From, To).
+
+# Routing derived predicates
+Decl routing_table(ActionType, Tool, RiskLevel).
+Decl tool_allowlist(Tool, Timestamp).
+Decl tool_allowed(Tool, ActionType).
+Decl route_action(ActionID, Tool).
+Decl action_type(ActionID, ActionType).
+Decl routing_blocked(ActionID, Reason).
+Decl has_tool_for_action(ActionType).
+
+# Agenda/Planning derived predicates
+Decl agenda_item_ready(ItemID).
+Decl has_incomplete_dependency(ItemID).
+Decl agenda_dependency(ItemID, DepID).
+Decl next_agenda_item(ItemID).
+Decl has_higher_priority_item(ItemID).
+Decl checkpoint_due().
+Decl last_checkpoint_time(Timestamp).
+Decl agenda_item_escalate(ItemID, Reason).
+Decl item_retry_count(ItemID, Count).
+
+# Shard activation derived predicates
+Decl activate_shard(ShardName).
+Decl system_startup(ShardName, Mode).
+
+# Autopoiesis derived predicates
+Decl unhandled_case_count(ShardName, Count).
+Decl unhandled_cases(ShardName, Cases).
+Decl propose_new_rule(ShardName).
+Decl proposed_rule(RuleID, ShardName, MangleCode, Confidence).
+Decl rule_needs_approval(RuleID).
+Decl auto_apply_rule(RuleID).
+Decl rule_applied(RuleID).
+Decl applied_rule(RuleID, Timestamp).
+Decl learning_signal(SignalType, RuleID).
+Decl rule_outcome(RuleID, Outcome, Details).
+
+# OODA loop derived predicates
+Decl ooda_phase(Phase).
+Decl has_next_action().
+Decl current_ooda_phase(Phase).
+Decl ooda_stalled(Reason).
+Decl last_action_time(Timestamp).
+
+# Builtin helper predicates (implemented in Go runtime)
+Decl time_diff(Time1, Time2, Diff).
+Decl list_length(List, Length).

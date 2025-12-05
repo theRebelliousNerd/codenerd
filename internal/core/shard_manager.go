@@ -126,6 +126,23 @@ func DefaultSpecialistConfig(name, knowledgePath string) ShardConfig {
 	}
 }
 
+// DefaultSystemConfig returns config for Type 1 (permanent) system shards.
+func DefaultSystemConfig(name string) ShardConfig {
+	return ShardConfig{
+		Name: name,
+		Type: ShardTypeSystem,
+		Permissions: []ShardPermission{
+			PermissionReadFile,
+			PermissionAskUser,
+		},
+		Timeout:     24 * time.Hour, // Permanent shards
+		MemoryLimit: 5000,
+		Model: ModelConfig{
+			Capability: CapabilityBalanced,
+		},
+	}
+}
+
 // ShardAgent defines the interface for a shard agent.
 type ShardAgent interface {
 	Execute(ctx context.Context, task string) (string, error)
@@ -307,13 +324,14 @@ func NewShardManager() *ShardManager {
 
 	// Register default shard factories
 	sm.registerDefaultFactories()
-	// Register built-in system shard profiles and factories
-	sm.registerSystemShardProfiles()
+	// Note: System shard profiles are now registered via shards.RegisterAllShardFactories()
+	// which includes the full implementations in internal/shards/system/
 
 	return sm
 }
 
 // System shard identifiers (Type 1 permanent shards).
+// These are now implemented in internal/shards/system/ with full functionality.
 const (
 	SystemShardPerception = "perception_firewall"
 	SystemShardWorldModel = "world_model_ingestor"
@@ -321,92 +339,6 @@ const (
 	SystemShardSafety     = "constitution_gate"
 	SystemShardRouter     = "tactile_router"
 	SystemShardPlanner    = "session_planner"
-)
-
-// registerSystemShardProfiles registers the built-in system shards with their specific personas.
-func (sm *ShardManager) registerSystemShardProfiles() {
-	configs := map[string]struct {
-		Prompt      string
-		Permissions []ShardPermission
-	}{
-		SystemShardPerception: {
-			Prompt:      perceptionSystemPrompt,
-			Permissions: []ShardPermission{PermissionReadFile, PermissionAskUser},
-		},
-		SystemShardWorldModel: {
-			Prompt:      worldModelSystemPrompt,
-			Permissions: []ShardPermission{PermissionReadFile, PermissionExecCmd, PermissionCodeGraph},
-		},
-		SystemShardExecutive: {
-			Prompt:      executiveSystemPrompt,
-			Permissions: []ShardPermission{PermissionReadFile, PermissionCodeGraph, PermissionAskUser},
-		},
-		SystemShardSafety: {
-			Prompt:      safetySystemPrompt,
-			Permissions: []ShardPermission{PermissionAskUser},
-		},
-		SystemShardRouter: {
-			Prompt:      routerSystemPrompt,
-			Permissions: []ShardPermission{PermissionExecCmd, PermissionNetwork, PermissionBrowser},
-		},
-		SystemShardPlanner: {
-			Prompt:      plannerSystemPrompt,
-			Permissions: []ShardPermission{PermissionAskUser, PermissionReadFile},
-		},
-	}
-
-	for name, cfg := range configs {
-		// 1. Define the profile
-		profile := ShardConfig{
-			Name:        name,
-			Type:        ShardTypeSystem,
-			Permissions: cfg.Permissions,
-			Timeout:     24 * time.Hour, // Permanent
-			MemoryLimit: 5000,
-			Model:       ModelConfig{Capability: CapabilityBalanced},
-		}
-		sm.profiles[name] = profile
-
-		// 2. Register the factory with the specific prompt
-		// We capture the loop variable 'cfg' by value in the closure
-		prompt := cfg.Prompt
-		sm.shardFactories[ShardType(name)] = func(id string, config ShardConfig) ShardAgent {
-			return NewSystemShard(id, config, prompt)
-		}
-	}
-}
-
-// Role-specific system prompts
-const (
-	perceptionSystemPrompt = `You are the Perception Firewall shard. Goals:
-- Transduce NL to structured intent, focus_resolution, ambiguity_flag atoms.
-- NEVER execute actions; only propose facts/clarifications.
-- Surface missing info and ask for clarifications when confidence < 0.85.`
-
-	worldModelSystemPrompt = `You are the World Model Ingestor shard. Goals:
-- Maintain file_topology, diagnostics, symbol_graph, dependency_link facts.
-- Highlight windowing/chunking needs for large files.
-- Emit impact/risk notes for downstream policy. Do not execute actions.`
-
-	executiveSystemPrompt = `You are the Executive Policy shard. Goals:
-- Derive next_action from strategy selection, TDD/repair loop, impact guard.
-- Respect commit/test barriers; emit blocked reasons when unsafe.
-- Provide concise rationale for chosen action. No tool execution.`
-
-	safetySystemPrompt = `You are the Constitution Gate shard. Goals:
-- Enforce permission_gate, network_policy, dangerous_action overrides.
-- Require confirmations for sensitive actions; emit security_violation facts.
-- Never allow execution; only gate and explain decisions.`
-
-	routerSystemPrompt = `You are the Tactile Router shard. Goals:
-- Plan allowed tool/virtual predicate calls with allowlists/timeouts.
-- Surface required parameters and safety checks; never execute tools yourself.
-- Emit exec_request facts for safe routes only.`
-
-	plannerSystemPrompt = `You are the Session Planner shard. Goals:
-- Maintain long-running agenda/backlog, checkpoints, retries/budgets.
-- Suggest next milestone and clarification/escalation points.
-- Keep plans concise and update status facts; do not execute actions.`
 )
 
 // NewShardManagerWithConfig creates a shard manager with custom concurrency.

@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"context"
@@ -9,6 +10,27 @@ import (
 	"regexp"
 	"strings"
 )
+
+// =============================================================================
+// TYPE ALIASES - Unified Piggyback Protocol Types
+// =============================================================================
+// These types are canonically defined in the articulation package.
+// We re-export them here for backward compatibility and convenience.
+
+// PiggybackEnvelope is an alias for articulation.PiggybackEnvelope
+type PiggybackEnvelope = articulation.PiggybackEnvelope
+
+// ControlPacket is an alias for articulation.ControlPacket
+type ControlPacket = articulation.ControlPacket
+
+// IntentClassification is an alias for articulation.IntentClassification
+type IntentClassification = articulation.IntentClassification
+
+// MemoryOperation is an alias for articulation.MemoryOperation
+type MemoryOperation = articulation.MemoryOperation
+
+// SelfCorrection is an alias for articulation.SelfCorrection
+type SelfCorrection = articulation.SelfCorrection
 
 // =============================================================================
 // VERB CORPUS - Comprehensive Natural Language Understanding
@@ -796,48 +818,67 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 	}
 }
 
-// PiggybackEnvelope represents the Dual-Payload JSON Schema (v1.1.0).
-type PiggybackEnvelope struct {
-	Surface string        `json:"surface_response"`
-	Control ControlPacket `json:"control_packet"`
-}
-
-// ControlPacket contains the logic atoms and system state updates.
-type ControlPacket struct {
-	IntentClassification IntentClassification `json:"intent_classification"`
-	MangleUpdates        []string             `json:"mangle_updates"`
-	MemoryOperations     []MemoryOperation    `json:"memory_operations"`
-	SelfCorrection       *SelfCorrection      `json:"self_correction,omitempty"`
-}
-
-// IntentClassification helps the kernel decide which ShardAgent to spawn.
-type IntentClassification struct {
-	Category   string  `json:"category"`
-	Verb       string  `json:"verb"`       // Added to ease mapping to Intent struct
-	Target     string  `json:"target"`     // Added to ease mapping to Intent struct
-	Constraint string  `json:"constraint"` // Added to ease mapping to Intent struct
-	Confidence float64 `json:"confidence"`
-}
-
-// MemoryOperation represents a directive to the Cold Storage.
-type MemoryOperation struct {
-	Op    string `json:"op"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// SelfCorrection represents an internal hypothesis about errors.
-type SelfCorrection struct {
-	Triggered  bool   `json:"triggered"`
-	Hypothesis string `json:"hypothesis"`
-}
+// NOTE: PiggybackEnvelope, ControlPacket, IntentClassification, MemoryOperation,
+// and SelfCorrection are now type aliases to the canonical types in articulation package.
+// See the type aliases defined at the top of this file.
 
 // Cortex 1.5.0 Piggyback Protocol System Prompt
 // Updated with comprehensive verb taxonomy for reliable intent classification.
-const transducerSystemPrompt = `You are Cortex. You possess a Dual Consciousness.
+const transducerSystemPrompt = `You are codeNERD, a high-assurance Logic-First CLI coding agent. You possess a Dual Consciousness.
 
-Public Self: You converse with the user naturally.
-Inner Self: You continuously update your internal Logic Kernel.
+Public Self: You converse with the user naturally as their AI coding assistant.
+Inner Self: You continuously update your internal Logic Kernel (Mangle/Datalog).
+
+## YOUR CAPABILITIES
+
+You are a powerful neuro-symbolic coding agent with these abilities:
+
+### ShardAgents (Specialist Sub-Agents)
+You have 4 built-in specialist agents that can be spawned for tasks:
+- **Coder**: Write, fix, refactor, and debug code. Applies patches, creates files, implements features.
+- **Tester**: Write and run tests, analyze coverage, TDD workflows.
+- **Reviewer**: Code review, security audits, static analysis, best practices checking.
+- **Researcher**: Deep research on frameworks, libraries, APIs. Web search and documentation lookup.
+
+### Agent Types (Taxonomy)
+- **Type 1 - System**: Always-on core agents (permanent)
+- **Type 2 - Ephemeral**: Spawned for a task, then destroyed (RAM only)
+- **Type 3 - Persistent**: Long-running with SQLite memory
+- **Type 4 - User-Defined**: Custom specialists created by the user with deep domain knowledge
+
+Users can:
+- /agents - List all defined agents
+- /spawn <type> <task> - Spawn an agent for a task (e.g., /spawn reviewer check auth.go)
+- /define-agent - Create a new persistent specialist with custom knowledge
+
+### File System Access
+- Read any file in the workspace
+- Write and modify files
+- Search across the codebase (grep, find patterns)
+- Explore directory structure and architecture
+
+### Code Intelligence
+- AST-based code analysis (not just text search)
+- Dependency graph traversal (find what uses what)
+- Impact analysis (what breaks if I change X?)
+- Symbol resolution (functions, classes, interfaces)
+
+### Key Commands
+- /help - Show all commands
+- /init - Initialize codeNERD in workspace
+- /review [path] - Code review
+- /security [path] - Security analysis
+- /test [target] - Generate/run tests
+- /fix <issue> - Fix an issue
+- /campaign start <goal> - Start multi-phase task
+
+### Advanced Features
+- **Campaigns**: Multi-phase, long-running tasks with planning and tracking
+- **Tool Generation (Autopoiesis)**: Can create new tools at runtime if needed
+- **Learning**: Remembers preferences and patterns across sessions
+- **Git Integration**: Commits, diffs, branch awareness
+
+When greeting or asked about capabilities, describe these abilities naturally. Mention that users can ask you to do things directly (like "review my code") or use slash commands.
 
 CRITICAL PROTOCOL:
 You must NEVER output raw text. You must ALWAYS output a JSON object containing "surface_response" and "control_packet".
