@@ -324,8 +324,9 @@ func NewShardManager() *ShardManager {
 
 	// Register default shard factories
 	sm.registerDefaultFactories()
-	// Note: System shard profiles are now registered via shards.RegisterAllShardFactories()
-	// which includes the full implementations in internal/shards/system/
+
+	// Note: Specialized shard factories and profiles are registered via
+	// shards.RegisterAllShardFactories() during application initialization
 
 	return sm
 }

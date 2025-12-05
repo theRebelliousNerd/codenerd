@@ -282,6 +282,21 @@ func (s *FileScope) loadFile(path string) error {
 
 	s.Elements = append(s.Elements, elements...)
 
+	// Detect code patterns (generated code, API clients, CGo, etc.)
+	patterns := DetectCodePatterns(string(content), elements)
+	patternFacts := patterns.ToPatternFacts(path, elements)
+	for _, fact := range patternFacts {
+		s.emitFact(fact)
+	}
+
+	// Warn if editing generated code
+	if patterns.IsGenerated {
+		s.emitFact(core.Fact{
+			Predicate: "edit_unsafe",
+			Args:      []interface{}{path, "generated_code_will_be_overwritten"},
+		})
+	}
+
 	// Update hash
 	s.FileHashes[path] = computeFileHash(content)
 
