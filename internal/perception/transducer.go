@@ -405,6 +405,81 @@ var VerbCorpus = []VerbEntry{
 	},
 
 	// =========================================================================
+	// AUTOPOIESIS & TOOL GENERATION VERBS (Priority: 95)
+	// =========================================================================
+	{
+		Verb:     "/generate_tool",
+		Category: "/mutation",
+		Synonyms: []string{
+			"generate tool", "create tool", "make tool", "build tool",
+			"need a tool", "need tool", "make a tool for", "create a tool for",
+			"tool for", "generate a tool", "auto generate", "self generate",
+			"missing capability", "add capability", "extend capabilities",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)(create|make|generate|build)\s+(a\s+)?tool\s+(for|to|that)`),
+			regexp.MustCompile(`(?i)i\s+need\s+(a\s+)?tool\s+(for|to)`),
+			regexp.MustCompile(`(?i)can\s+you\s+(create|make|generate)\s+(a\s+)?tool`),
+			regexp.MustCompile(`(?i)we\s+need\s+(a\s+)?tool`),
+			regexp.MustCompile(`(?i)there'?s\s+no\s+tool\s+for`),
+			regexp.MustCompile(`(?i)missing\s+(a\s+)?tool`),
+			regexp.MustCompile(`(?i)add\s+(a\s+)?capability`),
+		},
+		Priority:  95,
+		ShardType: "tool_generator",
+	},
+	{
+		Verb:     "/refine_tool",
+		Category: "/mutation",
+		Synonyms: []string{
+			"refine tool", "improve tool", "fix tool", "enhance tool",
+			"update tool", "upgrade tool", "tool is slow", "tool is broken",
+			"tool doesn't work", "tool needs improvement", "make tool better",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)(refine|improve|fix|enhance|update|upgrade)\s+(the\s+)?tool`),
+			regexp.MustCompile(`(?i)tool\s+(is|isn'?t|doesn'?t)\s+(working|fast|good)`),
+			regexp.MustCompile(`(?i)make\s+(the\s+)?tool\s+(better|faster|work)`),
+			regexp.MustCompile(`(?i)the\s+tool\s+(needs?|should)`),
+		},
+		Priority:  90,
+		ShardType: "tool_generator",
+	},
+	{
+		Verb:     "/list_tools",
+		Category: "/query",
+		Synonyms: []string{
+			"list tools", "show tools", "what tools", "my tools",
+			"available tools", "generated tools", "tool list",
+			"tools I have", "tools we have", "existing tools",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)(list|show|display)\s+(all\s+)?(my\s+|the\s+)?tools`),
+			regexp.MustCompile(`(?i)what\s+tools\s+(do\s+)?(i|we)\s+have`),
+			regexp.MustCompile(`(?i)available\s+tools`),
+			regexp.MustCompile(`(?i)generated\s+tools`),
+		},
+		Priority:  75,
+		ShardType: "tool_generator",
+	},
+	{
+		Verb:     "/tool_status",
+		Category: "/query",
+		Synonyms: []string{
+			"tool status", "tool quality", "tool performance", "how is tool",
+			"tool health", "tool metrics", "tool learnings", "tool stats",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)tool\s+(status|quality|performance|health|metrics)`),
+			regexp.MustCompile(`(?i)how\s+(is|are)\s+(the\s+)?tool(s)?`),
+			regexp.MustCompile(`(?i)tool\s+learnings`),
+			regexp.MustCompile(`(?i)what\s+did\s+(the\s+)?tool\s+learn`),
+		},
+		Priority:  70,
+		ShardType: "tool_generator",
+	},
+
+	// =========================================================================
 	// EXECUTION VERBS (Priority: 85)
 	// =========================================================================
 	{
