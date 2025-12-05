@@ -9,6 +9,15 @@
 Decl file_exists(FilePath).
 Decl package_has_dep(DepName).
 
+# Test file detection - populated by Go runtime based on file naming patterns
+Decl is_test_file(FilePath).
+
+# Test package - populated by Go runtime with packages containing tests
+Decl test_package(PackagePath).
+
+# File has public API - populated by Go runtime based on AST analysis
+Decl file_has_public_api(FilePath).
+
 test_framework(/gotest) :-
     file_exists("go.mod").
 
@@ -55,9 +64,8 @@ tester_action(/tdd_loop) :-
 # =============================================================================
 # SECTION 3: TDD STATE MACHINE EXTENSIONS
 # =============================================================================
+# Uses predicates from schemas.gl: test_state, retry_count
 
-Decl test_state(State).
-Decl retry_count(Count).
 Decl max_retries(Max).
 
 # Test generation needed when file modified without coverage
@@ -80,14 +88,14 @@ next_tester_action(/run_tests, Pkg) :-
     test_package(Pkg).
 
 # Analyze failures
-next_tester_action(/analyze_failure) :-
+next_tester_action(/analyze_failure, "") :-
     test_state(/failing),
     retry_count(N),
     max_retries(Max),
     N < Max.
 
 # Escalate after max retries
-next_tester_action(/escalate) :-
+next_tester_action(/escalate, "") :-
     test_state(/failing),
     retry_count(N),
     max_retries(Max),
@@ -140,14 +148,14 @@ coverage_warning(File, Pct, Goal) :-
 Decl failed_test(TestName, FilePath, Message).
 Decl test_output(Output).
 
-# Count failures
+# Count failures - requires fn:count builtin (not yet implemented)
 # failure_count(N) :-
 #    fn:count(failed_test(_, _, _), N).
 
-# Critical failure threshold
-critical_failure_state() :-
-    failure_count(N),
-    N > 10.
+# Critical failure threshold - requires aggregate counting
+# critical_failure_state() :-
+#     failure_count(N),
+#     N > 10.
 
 # =============================================================================
 # SECTION 7: AUTOPOIESIS - LEARNING FROM TEST FAILURES
