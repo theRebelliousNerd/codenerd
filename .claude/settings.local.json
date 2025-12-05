@@ -17,7 +17,8 @@
       "Bash(git status:*)",
       "Bash(dir /b \"c:\\CodeProjects\\codeNERD\\internal\\shards\")",
       "Skill(mangle-programming)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(./nerd.exe:*)"
     ],
     "deny": [],
     "ask": []

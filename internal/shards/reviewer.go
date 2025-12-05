@@ -622,6 +622,9 @@ func (r *ReviewerShard) reviewDiff(ctx context.Context, task *ReviewerTask) (*Re
 func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content string) []ReviewFinding {
 	findings := make([]ReviewFinding, 0)
 
+	// Code DOM safety checks (check kernel facts first)
+	findings = append(findings, r.checkCodeDOMSafety(filePath)...)
+
 	// Security checks
 	findings = append(findings, r.checkSecurity(filePath, content)...)
 
@@ -641,6 +644,158 @@ func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content strin
 
 	// Check against learned anti-patterns
 	findings = append(findings, r.checkLearnedPatterns(filePath, content)...)
+
+	return findings
+}
+
+// checkCodeDOMSafety checks Code DOM predicates for safety concerns.
+func (r *ReviewerShard) checkCodeDOMSafety(filePath string) []ReviewFinding {
+	findings := make([]ReviewFinding, 0)
+
+	if r.kernel == nil {
+		return findings
+	}
+
+	// Check if file is generated code
+	generatedResults, _ := r.kernel.Query("generated_code")
+	for _, fact := range generatedResults {
+		if len(fact.Args) >= 3 {
+			if file, ok := fact.Args[0].(string); ok && file == filePath {
+				generator := "unknown"
+				marker := ""
+				if g, ok := fact.Args[1].(string); ok {
+					generator = g
+				}
+				if m, ok := fact.Args[2].(string); ok {
+					marker = m
+				}
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Line:       1,
+					Severity:   "warning",
+					Category:   "generated",
+					RuleID:     "CDOM001",
+					Message:    fmt.Sprintf("Generated code (%s) - changes will be lost on regeneration", generator),
+					Suggestion: fmt.Sprintf("Modify the generator source instead. Marker: %s", marker),
+				})
+			}
+		}
+	}
+
+	// Check for breaking change risk
+	breakingResults, _ := r.kernel.Query("breaking_change_risk")
+	for _, fact := range breakingResults {
+		if len(fact.Args) >= 3 {
+			ref, _ := fact.Args[0].(string)
+			level, _ := fact.Args[1].(string)
+			reason, _ := fact.Args[2].(string)
+
+			if strings.Contains(ref, filePath) {
+				severity := "info"
+				if level == "/critical" {
+					severity = "critical"
+				} else if level == "/high" {
+					severity = "error"
+				} else if level == "/medium" {
+					severity = "warning"
+				}
+
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Severity:   severity,
+					Category:   "breaking_change",
+					RuleID:     "CDOM002",
+					Message:    fmt.Sprintf("Breaking change risk: %s", reason),
+					Suggestion: "Review downstream consumers and update tests",
+				})
+			}
+		}
+	}
+
+	// Check for API client functions that need integration tests
+	apiClientResults, _ := r.kernel.Query("api_client_function")
+	for _, fact := range apiClientResults {
+		if len(fact.Args) >= 3 {
+			if file, ok := fact.Args[1].(string); ok && file == filePath {
+				funcName := "unknown"
+				pattern := ""
+				if ref, ok := fact.Args[0].(string); ok {
+					funcName = ref
+				}
+				if p, ok := fact.Args[2].(string); ok {
+					pattern = p
+				}
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Severity:   "info",
+					Category:   "api",
+					RuleID:     "CDOM003",
+					Message:    fmt.Sprintf("API client function detected (%s): %s", pattern, funcName),
+					Suggestion: "Ensure proper error handling, timeouts, and consider integration tests",
+				})
+			}
+		}
+	}
+
+	// Check for API handler functions
+	apiHandlerResults, _ := r.kernel.Query("api_handler_function")
+	for _, fact := range apiHandlerResults {
+		if len(fact.Args) >= 3 {
+			if file, ok := fact.Args[1].(string); ok && file == filePath {
+				funcName := "unknown"
+				framework := ""
+				if ref, ok := fact.Args[0].(string); ok {
+					funcName = ref
+				}
+				if f, ok := fact.Args[2].(string); ok {
+					framework = f
+				}
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Severity:   "info",
+					Category:   "api",
+					RuleID:     "CDOM004",
+					Message:    fmt.Sprintf("API handler detected (%s framework): %s", framework, funcName),
+					Suggestion: "Validate inputs, handle errors appropriately, check authentication",
+				})
+			}
+		}
+	}
+
+	// Check for mock update suggestions
+	mockResults, _ := r.kernel.Query("suggest_update_mocks")
+	for _, fact := range mockResults {
+		if len(fact.Args) >= 1 {
+			if file, ok := fact.Args[0].(string); ok && file == filePath {
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Severity:   "warning",
+					Category:   "testing",
+					RuleID:     "CDOM005",
+					Message:    "Signature change detected - mock files may need updating",
+					Suggestion: "Run 'mockgen' or update mock implementations",
+				})
+			}
+		}
+	}
+
+	// Check for CGo code
+	cgoResults, _ := r.kernel.Query("cgo_code")
+	for _, fact := range cgoResults {
+		if len(fact.Args) >= 1 {
+			if file, ok := fact.Args[0].(string); ok && file == filePath {
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Line:       1,
+					Severity:   "warning",
+					Category:   "cgo",
+					RuleID:     "CDOM006",
+					Message:    "CGo code detected - requires careful memory management review",
+					Suggestion: "Verify proper memory allocation/deallocation and type conversions",
+				})
+			}
+		}
+	}
 
 	return findings
 }

@@ -1566,3 +1566,144 @@ activation(Ref, -50) :-
     code_element(Ref, _, File, _, _),
     file_topology(File, _, _, _, _),
     !in_scope(File).
+
+# -----------------------------------------------------------------------------
+# 22.8 Edit Safety & Risk Assessment Rules
+# -----------------------------------------------------------------------------
+
+# Public function has external callers (exported = can be called from outside)
+has_external_callers(Ref) :-
+    code_element(Ref, /function, _, _, _),
+    element_visibility(Ref, /public).
+
+has_external_callers(Ref) :-
+    code_element(Ref, /method, _, _, _),
+    element_visibility(Ref, /public).
+
+# Breaking change risk: HIGH for public API functions
+breaking_change_risk(Ref, /high, "public_api") :-
+    has_external_callers(Ref),
+    api_handler_function(Ref, _, _).
+
+# Breaking change risk: HIGH for public interface methods
+breaking_change_risk(Ref, /high, "interface_contract") :-
+    code_element(Ref, /method, _, _, _),
+    element_visibility(Ref, /public),
+    element_parent(Ref, InterfaceRef),
+    code_element(InterfaceRef, /interface, _, _, _).
+
+# Breaking change risk: MEDIUM for public functions in libraries
+breaking_change_risk(Ref, /medium, "public_function") :-
+    has_external_callers(Ref),
+    !api_handler_function(Ref, _, _).
+
+# Breaking change risk: LOW for private elements
+breaking_change_risk(Ref, /low, "private") :-
+    code_element(Ref, _, _, _, _),
+    element_visibility(Ref, /private).
+
+# Breaking change risk: CRITICAL for generated code
+breaking_change_risk(Ref, /critical, "generated_will_be_overwritten") :-
+    code_element(Ref, _, File, _, _),
+    generated_code(File, _, _).
+
+# Edit unsafe: generated code will be overwritten
+edit_unsafe(Ref, "generated_code") :-
+    code_element(Ref, _, File, _, _),
+    generated_code(File, _, _).
+
+# Edit unsafe: CGo requires special handling
+edit_unsafe(Ref, "cgo_code") :-
+    code_element(Ref, _, File, _, _),
+    cgo_code(File).
+
+# Edit unsafe: file has hash mismatch (concurrent modification)
+edit_unsafe(Ref, "concurrent_modification") :-
+    code_element(Ref, _, File, _, _),
+    file_hash_mismatch(File, _, _).
+
+# Edit unsafe: element is stale
+edit_unsafe(Ref, "stale_reference") :-
+    element_stale(Ref, _).
+
+# -----------------------------------------------------------------------------
+# 22.9 Mock & Interface Rules
+# -----------------------------------------------------------------------------
+
+# Struct implements interface if it has methods matching interface methods
+# (Simplified: if struct has methods and interface exists in same package)
+interface_impl(StructRef, InterfaceRef) :-
+    code_element(StructRef, /struct, File, _, _),
+    code_element(InterfaceRef, /interface, File, _, _),
+    element_parent(MethodRef, StructRef),
+    code_element(MethodRef, /method, _, _, _).
+
+# Test file mocks source file if it's a _test.go in same package
+mock_file(TestFile, SourceFile) :-
+    file_topology(TestFile, _, /go, _, _),
+    file_topology(SourceFile, _, /go, _, _),
+    TestFile != SourceFile.
+    # Note: Actual mock detection needs content analysis in Go runtime
+
+# Suggest updating mocks when source function signature changes
+suggest_update_mocks(Ref) :-
+    code_element(Ref, /function, File, _, _),
+    element_visibility(Ref, /public),
+    element_modified(Ref, _, _),
+    mock_file(TestFile, File).
+
+suggest_update_mocks(Ref) :-
+    code_element(Ref, /method, File, _, _),
+    element_visibility(Ref, /public),
+    element_modified(Ref, _, _),
+    mock_file(TestFile, File).
+
+# -----------------------------------------------------------------------------
+# 22.10 Scope Staleness Detection
+# -----------------------------------------------------------------------------
+
+# File modified externally: hash doesn't match what we loaded
+file_modified_externally(Path) :-
+    file_hash_mismatch(Path, _, _).
+
+# Scope needs refresh when any in-scope file was modified
+needs_scope_refresh() :-
+    active_file(ActiveFile),
+    in_scope(File),
+    modified(File).
+
+needs_scope_refresh() :-
+    file_modified_externally(_).
+
+# Element edit blocked due to concurrent modification
+element_edit_blocked(Ref, "concurrent_modification") :-
+    code_element(Ref, _, File, _, _),
+    file_modified_externally(File).
+
+# Element edit blocked due to generated code
+element_edit_blocked(Ref, "generated_code") :-
+    code_element(Ref, _, File, _, _),
+    generated_code(File, _, _).
+
+# Element edit blocked due to parse error
+element_edit_blocked(Ref, "parse_error") :-
+    code_element(Ref, _, File, _, _),
+    parse_error(File, _, _).
+
+# -----------------------------------------------------------------------------
+# 22.11 API Client/Handler Awareness
+# -----------------------------------------------------------------------------
+
+# API client functions should be tested carefully
+requires_integration_test(Ref) :-
+    api_client_function(Ref, _, _).
+
+# API handlers need contract validation
+requires_contract_check(Ref) :-
+    api_handler_function(Ref, _, _),
+    element_modified(Ref, _, _).
+
+# Warn when editing API client without corresponding test
+api_edit_warning(Ref, "no_integration_test") :-
+    api_client_function(Ref, _, _),
+    element_modified(Ref, _, _).

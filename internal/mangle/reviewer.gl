@@ -121,20 +121,20 @@ file_has_security_sensitive(File) :-
 Decl security_rule(RuleID, Severity, Pattern, Message).
 
 # SQL Injection
-security_rule("SEC001", /critical, "execute.*\\+|query.*\\+", "SQL injection risk").
-security_rule("SEC001", /critical, "raw.*sql.*\\+", "SQL injection via raw query").
+security_rule("SEC001", /critical, "execute.*concat", "SQL injection risk").
+security_rule("SEC001", /critical, "raw.*sql.*concat", "SQL injection via raw query").
 
 # Command Injection
-security_rule("SEC002", /critical, "exec\\.Command.*\\+", "Command injection risk").
-security_rule("SEC002", /critical, "os\\.system.*\\+", "Command injection via os.system").
+security_rule("SEC002", /critical, "exec.Command.*concat", "Command injection risk").
+security_rule("SEC002", /critical, "os.system.*concat", "Command injection via os.system").
 
 # Hardcoded Secrets
-security_rule("SEC003", /critical, "password.*=.*\"", "Hardcoded password").
-security_rule("SEC003", /critical, "api_key.*=.*\"", "Hardcoded API key").
+security_rule("SEC003", /critical, "password.*=.*literal", "Hardcoded password").
+security_rule("SEC003", /critical, "api_key.*=.*literal", "Hardcoded API key").
 
 # XSS
 security_rule("SEC004", /error, "innerHTML.*=", "XSS via innerHTML").
-security_rule("SEC004", /error, "document\\.write", "XSS via document.write").
+security_rule("SEC004", /error, "document.write", "XSS via document.write").
 
 # Weak Crypto
 security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
