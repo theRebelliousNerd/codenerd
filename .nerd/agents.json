@@ -1,61 +1,61 @@
 {
   "version": "1.5.0",
-  "created_at": "2025-12-05T03:30:27.4482379-05:00",
+  "created_at": "2025-12-05T12:03:15.8321278-05:00",
   "agents": [
     {
       "name": "GoExpert",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\goexpert_knowledge.db",
-      "kb_size": 68,
-      "created_at": "2025-12-05T03:28:39.2876189-05:00",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\goexpert_knowledge.db",
+      "kb_size": 69,
+      "created_at": "2025-12-05T11:53:53.4592258-05:00",
       "status": "ready"
     },
     {
       "name": "RodExpert",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\rodexpert_knowledge.db",
-      "kb_size": 259,
-      "created_at": "2025-12-05T03:29:06.5163365-05:00",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\rodexpert_knowledge.db",
+      "kb_size": 359,
+      "created_at": "2025-12-05T11:56:28.6628147-05:00",
       "status": "ready"
     },
     {
       "name": "MangleExpert",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\mangleexpert_knowledge.db",
-      "kb_size": 8,
-      "created_at": "2025-12-05T03:29:14.5568068-05:00",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\mangleexpert_knowledge.db",
+      "kb_size": 382,
+      "created_at": "2025-12-05T11:59:23.426153-05:00",
       "status": "ready"
     },
     {
       "name": "BubbleTeaExpert",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\bubbleteaexpert_knowledge.db",
-      "kb_size": 7,
-      "created_at": "2025-12-05T03:29:29.5934903-05:00",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\bubbleteaexpert_knowledge.db",
+      "kb_size": 246,
+      "created_at": "2025-12-05T12:02:17.9207637-05:00",
       "status": "ready"
     },
     {
       "name": "CobraExpert",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\cobraexpert_knowledge.db",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\cobraexpert_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T03:29:37.1194032-05:00",
+      "created_at": "2025-12-05T12:02:32.4549926-05:00",
       "status": "ready"
     },
     {
       "name": "SecurityAuditor",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\securityauditor_knowledge.db",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\securityauditor_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T03:29:51.6485097-05:00",
+      "created_at": "2025-12-05T12:02:39.9913125-05:00",
       "status": "ready"
     },
     {
       "name": "TestArchitect",
       "type": "persistent",
-      "knowledge_path": "c:\\CodeProjects\\codeNERD\\.nerd\\shards\\testarchitect_knowledge.db",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\.nerd\\shards\\testarchitect_knowledge.db",
       "kb_size": 6,
-      "created_at": "2025-12-05T03:30:06.1768467-05:00",
+      "created_at": "2025-12-05T12:02:54.5322173-05:00",
       "status": "ready"
     }
   ]
