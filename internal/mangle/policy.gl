@@ -397,6 +397,89 @@ next_action(/generate_tool) :-
     missing_tool_for(_, _).
 
 # =============================================================================
+# SECTION 12B: OUROBOROS LOOP - TOOL SELF-GENERATION
+# =============================================================================
+# The Ouroboros Loop: Detection → Specification → Safety → Compile → Register → Execute
+# Named after the ancient symbol of a serpent eating its own tail.
+
+# Tool exists in registry
+tool_exists(ToolName) :-
+    tool_registered(ToolName, _).
+
+# Tool is ready for execution (compiled and registered)
+tool_ready(ToolName) :-
+    tool_exists(ToolName),
+    tool_hash(ToolName, _).
+
+# Capability is available if any tool provides it
+capability_available(Cap) :-
+    tool_capability(_, Cap).
+
+# Need new tool when capability missing and user explicitly requests it
+explicit_tool_request(Cap) :-
+    user_intent(_, /mutation, /generate_tool, Cap, _).
+
+# Need new tool when repeated failures suggest capability gap
+capability_gap_detected(Cap) :-
+    task_failure_reason(_, "missing_capability", Cap),
+    task_failure_count(Cap, N),
+    N >= 2.
+
+# Tool generation is permitted (safety gate)
+tool_generation_permitted(Cap) :-
+    missing_tool_for(_, Cap),
+    !tool_generation_blocked(Cap).
+
+# Block tool generation for dangerous capabilities
+tool_generation_blocked(Cap) :-
+    dangerous_capability(Cap).
+
+# Define dangerous capabilities that should never be auto-generated
+dangerous_capability(/exec_arbitrary).
+dangerous_capability(/network_unconstrained).
+dangerous_capability(/system_admin).
+dangerous_capability(/credential_access).
+
+# Ouroboros next actions
+next_action(/ouroboros_detect) :-
+    capability_gap_detected(_).
+
+next_action(/ouroboros_generate) :-
+    tool_generation_permitted(_),
+    !active_generation(_).
+
+next_action(/ouroboros_compile) :-
+    tool_source_ready(ToolName),
+    tool_safety_verified(ToolName),
+    !tool_compiled(ToolName).
+
+next_action(/ouroboros_register) :-
+    tool_compiled(ToolName),
+    !tool_registered(ToolName, _).
+
+# Track active tool generation (prevent parallel generations)
+active_generation(ToolName) :-
+    generation_state(ToolName, /in_progress).
+
+# Tool lifecycle states
+tool_lifecycle(ToolName, /detected) :-
+    missing_tool_for(_, ToolName).
+
+tool_lifecycle(ToolName, /generating) :-
+    generation_state(ToolName, /in_progress).
+
+tool_lifecycle(ToolName, /safety_check) :-
+    tool_source_ready(ToolName),
+    !tool_safety_verified(ToolName).
+
+tool_lifecycle(ToolName, /compiling) :-
+    tool_safety_verified(ToolName),
+    !tool_compiled(ToolName).
+
+tool_lifecycle(ToolName, /ready) :-
+    tool_ready(ToolName).
+
+# =============================================================================
 # SECTION 13: GIT-AWARE SAFETY / CHESTERTON'S FENCE (§21)
 # =============================================================================
 
