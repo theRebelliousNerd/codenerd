@@ -62,6 +62,29 @@ type MemoryConfig struct {
 
 	// Session management
 	SessionTTL string `yaml:"session_ttl"`
+
+	// Context Window Management (§8.2 Semantic Compression)
+	ContextWindow ContextWindowConfig `yaml:"context_window"`
+}
+
+// ContextWindowConfig configures the semantic compression context window.
+type ContextWindowConfig struct {
+	// Maximum tokens for the context window (default: 128000)
+	MaxTokens int `yaml:"max_tokens" json:"max_tokens"`
+
+	// Token budget allocation percentages
+	CoreReservePercent     int `yaml:"core_reserve_percent" json:"core_reserve_percent"`      // % for constitutional facts (default: 5)
+	AtomReservePercent     int `yaml:"atom_reserve_percent" json:"atom_reserve_percent"`      // % for high-activation atoms (default: 30)
+	HistoryReservePercent  int `yaml:"history_reserve_percent" json:"history_reserve_percent"` // % for compressed history (default: 15)
+	WorkingReservePercent  int `yaml:"working_reserve_percent" json:"working_reserve_percent"` // % for working memory (default: 50)
+
+	// Recent turn window (how many turns to keep with full metadata)
+	RecentTurnWindow int `yaml:"recent_turn_window" json:"recent_turn_window"`
+
+	// Compression settings
+	CompressionThreshold   float64 `yaml:"compression_threshold" json:"compression_threshold"`       // Trigger at this % usage (default: 0.80)
+	TargetCompressionRatio float64 `yaml:"target_compression_ratio" json:"target_compression_ratio"` // Target ratio (default: 100.0)
+	ActivationThreshold    float64 `yaml:"activation_threshold" json:"activation_threshold"`         // Min score to include (default: 30.0)
 }
 
 // IntegrationsConfig configures external service integrations.
@@ -143,6 +166,17 @@ func DefaultConfig() *Config {
 			WorkingMemorySize: 10000,
 			DatabasePath:      "data/codenerd.db",
 			SessionTTL:        "24h",
+			ContextWindow: ContextWindowConfig{
+				MaxTokens:              128000,
+				CoreReservePercent:     5,
+				AtomReservePercent:     30,
+				HistoryReservePercent:  15,
+				WorkingReservePercent:  50,
+				RecentTurnWindow:       5,
+				CompressionThreshold:   0.80,
+				TargetCompressionRatio: 100.0,
+				ActivationThreshold:    30.0,
+			},
 		},
 
 		Integrations: IntegrationsConfig{
@@ -370,6 +404,61 @@ type UserConfig struct {
 
 	// UI settings
 	Theme string `json:"theme,omitempty"`
+
+	// Context7 API key
+	Context7APIKey string `json:"context7_api_key,omitempty"`
+
+	// Context Window Configuration (§8.2 Semantic Compression)
+	// This controls the token budget for context compression
+	ContextWindow *ContextWindowConfig `json:"context_window,omitempty"`
+}
+
+// GetContextWindowConfig returns the context window config with defaults.
+func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
+	if c.ContextWindow != nil {
+		cfg := *c.ContextWindow
+		// Apply defaults for zero values
+		if cfg.MaxTokens == 0 {
+			cfg.MaxTokens = 128000
+		}
+		if cfg.CoreReservePercent == 0 {
+			cfg.CoreReservePercent = 5
+		}
+		if cfg.AtomReservePercent == 0 {
+			cfg.AtomReservePercent = 30
+		}
+		if cfg.HistoryReservePercent == 0 {
+			cfg.HistoryReservePercent = 15
+		}
+		if cfg.WorkingReservePercent == 0 {
+			cfg.WorkingReservePercent = 50
+		}
+		if cfg.RecentTurnWindow == 0 {
+			cfg.RecentTurnWindow = 5
+		}
+		if cfg.CompressionThreshold == 0 {
+			cfg.CompressionThreshold = 0.80
+		}
+		if cfg.TargetCompressionRatio == 0 {
+			cfg.TargetCompressionRatio = 100.0
+		}
+		if cfg.ActivationThreshold == 0 {
+			cfg.ActivationThreshold = 30.0
+		}
+		return cfg
+	}
+	// Return defaults
+	return ContextWindowConfig{
+		MaxTokens:              128000,
+		CoreReservePercent:     5,
+		AtomReservePercent:     30,
+		HistoryReservePercent:  15,
+		WorkingReservePercent:  50,
+		RecentTurnWindow:       5,
+		CompressionThreshold:   0.80,
+		TargetCompressionRatio: 100.0,
+		ActivationThreshold:    30.0,
+	}
 }
 
 // DefaultUserConfigPath returns the default path to .nerd/config.json.
