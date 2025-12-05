@@ -4,3 +4,14 @@ knowledge.db-journal
 sessions/
 cache/
 *.log
+
+# Autopoiesis internal directories (always ignore)
+tools/.compiled/
+tools/.learnings/
+tools/.profiles/
+tools/.traces/
+
+# Keep tools/ source and agents/ tracked (user may want to commit generated tools)
+# Uncomment below to ignore tool source code:
+# tools/*.go
+# agents/
