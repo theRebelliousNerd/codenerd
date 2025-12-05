@@ -107,12 +107,19 @@ dir_contains("/src", "main.go").
 ```
 .nerd/
 ├── profile.gl          # Generated Mangle facts
+├── profile.json        # Project metadata
 ├── state.json          # Session state
+├── .gitignore          # Git ignore rules
 ├── sessions/           # Session histories
 ├── shards/             # Shard knowledge DBs
-├── campaigns/          # Campaign checkpoints
-└── tools/              # Generated tools
+├── cache/              # Temporary cache
+├── tools/              # Autopoiesis generated tools
+├── agents/             # Persistent agent definitions
+└── campaigns/          # Campaign checkpoints
 ```
+
+All directories are created by `/init`. The `tools/` and `agents/` directories
+are NOT gitignored by default so users can commit generated tools.
 
 ## Force Reinit
 

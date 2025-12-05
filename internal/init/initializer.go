@@ -931,9 +931,12 @@ func (i *Initializer) createDirectoryStructure() (string, error) {
 
 	dirs := []string{
 		nerdDir,
-		filepath.Join(nerdDir, "shards"),   // Knowledge shards for specialists
-		filepath.Join(nerdDir, "sessions"), // Session history
-		filepath.Join(nerdDir, "cache"),    // Temporary cache
+		filepath.Join(nerdDir, "shards"),    // Knowledge shards for specialists
+		filepath.Join(nerdDir, "sessions"),  // Session history
+		filepath.Join(nerdDir, "cache"),     // Temporary cache
+		filepath.Join(nerdDir, "tools"),     // Autopoiesis generated tools
+		filepath.Join(nerdDir, "agents"),    // Persistent agent definitions
+		filepath.Join(nerdDir, "campaigns"), // Campaign checkpoints
 	}
 
 	for _, dir := range dirs {
@@ -950,6 +953,11 @@ knowledge.db-journal
 sessions/
 cache/
 *.log
+
+# Keep tools/ and agents/ tracked (user may want to commit generated tools)
+# Uncomment below to ignore:
+# tools/
+# agents/
 `
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to create .gitignore: %w", err)
