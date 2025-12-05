@@ -651,6 +651,12 @@ Decl tool_compiled(ToolName).
 # State: /pending, /in_progress, /completed, /failed
 Decl generation_state(ToolName, State).
 
+# has_active_generation - helper for safe negation (true if any generation in progress)
+Decl has_active_generation().
+
+# is_tool_registered(ToolName) - helper for safe negation in tool registration check
+Decl is_tool_registered(ToolName).
+
 # missing_tool_for(Intent, Capability) - detected capability gap
 Decl missing_tool_for(Intent, Capability).
 
