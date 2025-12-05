@@ -50,6 +50,10 @@ type Orchestrator struct {
 	patterns    *PatternDetector    // Detect recurring issues
 	refiner     *ToolRefiner        // Improve suboptimal tools
 	learnings   *LearningStore      // Persist learnings
+
+	// Reasoning Trace and Logging System
+	traces      *TraceCollector     // Capture reasoning during generation
+	logInjector *LogInjector        // Inject mandatory logging into tools
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -68,6 +72,7 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 
 	toolGen := NewToolGenerator(client, config.ToolsDir)
 	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
+	tracesDir := filepath.Join(config.ToolsDir, ".traces")
 
 	return &Orchestrator{
 		config:      config,
@@ -83,6 +88,10 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		patterns:    NewPatternDetector(),
 		refiner:     NewToolRefiner(client, toolGen),
 		learnings:   NewLearningStore(learningsDir),
+
+		// Initialize reasoning trace and logging system
+		traces:      NewTraceCollector(tracesDir, client),
+		logInjector: NewLogInjector(DefaultLoggingRequirements()),
 	}
 }
 
@@ -568,6 +577,126 @@ func (o *Orchestrator) ExecuteAndEvaluate(ctx context.Context, toolName string, 
 	o.RecordExecution(ctx, feedback)
 
 	return output, feedback.Quality, err
+}
+
+// =============================================================================
+// REASONING TRACE WRAPPERS
+// =============================================================================
+// These methods expose the trace system for capturing tool generation reasoning.
+
+// StartToolTrace begins capturing reasoning for a tool generation
+func (o *Orchestrator) StartToolTrace(toolName string, need *ToolNeed, userRequest string) *ReasoningTrace {
+	return o.traces.StartTrace(toolName, need, userRequest)
+}
+
+// RecordTracePrompt records the prompts sent to the LLM
+func (o *Orchestrator) RecordTracePrompt(trace *ReasoningTrace, systemPrompt, userPrompt string) {
+	o.traces.RecordPrompt(trace, systemPrompt, userPrompt)
+}
+
+// RecordTraceResponse records the LLM response and extracts reasoning
+func (o *Orchestrator) RecordTraceResponse(ctx context.Context, trace *ReasoningTrace, response string, tokensUsed int, duration time.Duration) {
+	o.traces.RecordResponse(ctx, trace, response, tokensUsed, duration)
+}
+
+// FinalizeTrace marks a generation trace as complete
+func (o *Orchestrator) FinalizeTrace(trace *ReasoningTrace, success bool, code string, failureReason string) {
+	o.traces.FinalizeTrace(trace, success, code, failureReason)
+}
+
+// UpdateTraceWithFeedback adds execution feedback to a tool's trace
+func (o *Orchestrator) UpdateTraceWithFeedback(toolName string, quality float64, issues []string, notes []string) {
+	o.traces.UpdateWithFeedback(toolName, quality, issues, notes)
+}
+
+// GetToolTraces retrieves all reasoning traces for a tool
+func (o *Orchestrator) GetToolTraces(toolName string) []*ReasoningTrace {
+	return o.traces.GetToolTraces(toolName)
+}
+
+// GetAllTraces returns all reasoning traces
+func (o *Orchestrator) GetAllTraces() []*ReasoningTrace {
+	return o.traces.GetAllTraces()
+}
+
+// AnalyzeGenerations performs broad analysis across all tool generations
+func (o *Orchestrator) AnalyzeGenerations(ctx context.Context) (*GenerationAudit, error) {
+	return o.traces.AnalyzeGenerations(ctx)
+}
+
+// =============================================================================
+// LOGGING INJECTION WRAPPERS
+// =============================================================================
+// These methods expose the logging injection system for mandatory tool logging.
+
+// InjectLogging adds mandatory logging to generated tool code
+func (o *Orchestrator) InjectLogging(code string, toolName string) (string, error) {
+	return o.logInjector.InjectLogging(code, toolName)
+}
+
+// ValidateLogging checks that required logging is present in tool code
+func (o *Orchestrator) ValidateLogging(code string) *LoggingValidation {
+	return o.logInjector.ValidateLogging(code)
+}
+
+// GenerateToolWithTracing generates a tool with full reasoning trace capture
+func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*GeneratedTool, *ReasoningTrace, error) {
+	// Start trace
+	trace := o.StartToolTrace(need.Name, need, userRequest)
+
+	// Generate tool (the toolgen will populate trace details)
+	tool, err := o.toolGen.GenerateTool(ctx, need)
+	if err != nil {
+		o.FinalizeTrace(trace, false, "", err.Error())
+		return nil, trace, err
+	}
+
+	// Inject mandatory logging into generated code
+	loggedCode, logErr := o.InjectLogging(tool.Code, tool.Name)
+	if logErr == nil {
+		tool.Code = loggedCode
+	}
+
+	// Validate logging
+	validation := o.ValidateLogging(tool.Code)
+	if !validation.Valid {
+		trace.PostExecutionNotes = append(trace.PostExecutionNotes,
+			fmt.Sprintf("Logging validation failed: missing %v", validation.Missing))
+	}
+
+	// Finalize trace
+	o.FinalizeTrace(trace, true, tool.Code, "")
+
+	return tool, trace, nil
+}
+
+// ExecuteOuroborosLoopWithTracing runs the full loop with reasoning trace capture
+func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*LoopResult, *ReasoningTrace) {
+	// Start trace
+	trace := o.StartToolTrace(need.Name, need, userRequest)
+
+	// Execute the loop
+	result := o.ouroboros.Execute(ctx, need)
+
+	// Inject logging if successful
+	if result.Success && result.ToolHandle != nil {
+		// The tool is already compiled, but we record for future generations
+		trace.PostExecutionNotes = append(trace.PostExecutionNotes,
+			"Tool compiled and registered successfully")
+	}
+
+	// Finalize trace
+	failureReason := ""
+	if result.Error != nil {
+		failureReason = result.Error.Error()
+	}
+	code := ""
+	if result.ToolHandle != nil {
+		code = fmt.Sprintf("[compiled binary at %s]", result.ToolHandle.BinaryPath)
+	}
+	o.FinalizeTrace(trace, result.Success, code, failureReason)
+
+	return result, trace
 }
 
 // =============================================================================
