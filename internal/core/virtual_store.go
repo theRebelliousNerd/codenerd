@@ -33,15 +33,15 @@ const (
 	ActionDelegate      ActionType = "delegate"
 
 	// Code DOM Actions (semantic code element operations)
-	ActionOpenFile     ActionType = "open_file"      // Open file, load 1-hop scope
-	ActionGetElements  ActionType = "get_elements"   // Query elements in scope
-	ActionGetElement   ActionType = "get_element"    // Get single element by ref
-	ActionEditElement  ActionType = "edit_element"   // Replace element body by ref
-	ActionRefreshScope ActionType = "refresh_scope"  // Re-project after changes
-	ActionCloseScope   ActionType = "close_scope"    // Close current scope
-	ActionEditLines    ActionType = "edit_lines"     // Line-based file editing
-	ActionInsertLines  ActionType = "insert_lines"   // Insert lines at position
-	ActionDeleteLines  ActionType = "delete_lines"   // Delete line range
+	ActionOpenFile     ActionType = "open_file"     // Open file, load 1-hop scope
+	ActionGetElements  ActionType = "get_elements"  // Query elements in scope
+	ActionGetElement   ActionType = "get_element"   // Get single element by ref
+	ActionEditElement  ActionType = "edit_element"  // Replace element body by ref
+	ActionRefreshScope ActionType = "refresh_scope" // Re-project after changes
+	ActionCloseScope   ActionType = "close_scope"   // Close current scope
+	ActionEditLines    ActionType = "edit_lines"    // Line-based file editing
+	ActionInsertLines  ActionType = "insert_lines"  // Insert lines at position
+	ActionDeleteLines  ActionType = "delete_lines"  // Delete line range
 )
 
 // ActionRequest represents a request to execute an action.
@@ -531,6 +531,14 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 
 	// Remaining args go into payload
 	for i := 2; i < len(action.Args); i++ {
+		// If the argument is a map, merge it into the payload
+		if argMap, ok := action.Args[i].(map[string]interface{}); ok {
+			for k, v := range argMap {
+				req.Payload[k] = v
+			}
+			continue
+		}
+
 		key := fmt.Sprintf("arg%d", i-2)
 		req.Payload[key] = action.Args[i]
 	}
