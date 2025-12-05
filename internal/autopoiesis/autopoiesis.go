@@ -42,17 +42,31 @@ type Orchestrator struct {
 	toolGen     *ToolGenerator
 	persistence *PersistenceAnalyzer
 	agentCreate *AgentCreator
+	ouroboros   *OuroborosLoop  // The Ouroboros Loop for tool self-generation
 	client      LLMClient
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
 func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
+	// Create Ouroboros config from autopoiesis config
+	ouroborosConfig := OuroborosConfig{
+		ToolsDir:        config.ToolsDir,
+		CompiledDir:     filepath.Join(config.ToolsDir, ".compiled"),
+		MaxToolSize:     100 * 1024, // 100KB
+		CompileTimeout:  30 * time.Second,
+		ExecuteTimeout:  60 * time.Second,
+		AllowNetworking: false,
+		AllowFileSystem: true,
+		AllowExec:       false,
+	}
+
 	return &Orchestrator{
 		config:      config,
 		complexity:  NewComplexityAnalyzer(client),
 		toolGen:     NewToolGenerator(client, config.ToolsDir),
 		persistence: NewPersistenceAnalyzer(client),
 		agentCreate: NewAgentCreator(client, config.AgentsDir),
+		ouroboros:   NewOuroborosLoop(client, ouroborosConfig),
 		client:      client,
 	}
 }
@@ -369,6 +383,42 @@ func (o *Orchestrator) WriteAndRegisterTool(tool *GeneratedTool) error {
 		return err
 	}
 	return o.toolGen.RegisterTool(tool)
+}
+
+// =============================================================================
+// OUROBOROS LOOP WRAPPERS
+// =============================================================================
+// These methods expose the Ouroboros Loop for full tool self-generation.
+
+// ExecuteOuroborosLoop runs the complete tool self-generation cycle
+func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed) *LoopResult {
+	return o.ouroboros.Execute(ctx, need)
+}
+
+// ExecuteGeneratedTool runs a previously generated and compiled tool
+func (o *Orchestrator) ExecuteGeneratedTool(ctx context.Context, toolName string, input string) (string, error) {
+	return o.ouroboros.ExecuteTool(ctx, toolName, input)
+}
+
+// GetOuroborosStats returns statistics about tool generation
+func (o *Orchestrator) GetOuroborosStats() OuroborosStats {
+	return o.ouroboros.GetStats()
+}
+
+// ListGeneratedTools returns all registered generated tools
+func (o *Orchestrator) ListGeneratedTools() []*RuntimeTool {
+	return o.ouroboros.registry.List()
+}
+
+// HasGeneratedTool checks if a tool exists in the registry
+func (o *Orchestrator) HasGeneratedTool(name string) bool {
+	_, exists := o.ouroboros.registry.Get(name)
+	return exists
+}
+
+// CheckToolSafety validates tool code without compiling
+func (o *Orchestrator) CheckToolSafety(code string) *SafetyReport {
+	return o.ouroboros.safetyChecker.Check(code)
 }
 
 // =============================================================================
