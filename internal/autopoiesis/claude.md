@@ -4,24 +4,25 @@ This package implements autopoiesis (self-creation) - the ability for codeNERD t
 
 ## Architecture
 
-Autopoiesis provides six core capabilities:
+Autopoiesis provides seven core capabilities:
 1. **Complexity Analysis** - Detect when campaigns are needed
 2. **Tool Generation** - Create new tools when capabilities are missing
 3. **Persistence Analysis** - Identify when persistent agents are needed
 4. **Ouroboros Loop** - Full tool self-generation cycle with safety verification
 5. **Feedback & Learning** - Evaluate tool quality and improve over time
 6. **Reasoning Traces** - Capture LLM reasoning for optimization and debugging
+7. **Tool Quality Profiles** - LLM-defined per-tool performance expectations
 
 ## File Structure
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `autopoiesis.go` | ~750 | Main orchestrator |
+| `autopoiesis.go` | ~1100 | Main orchestrator with profile integration |
 | `complexity.go` | ~300 | Task complexity analysis |
 | `toolgen.go` | ~600 | LLM-based tool generation |
 | `persistence.go` | ~400 | Persistent agent detection |
 | `ouroboros.go` | ~550 | Full Ouroboros Loop with safety/compile/execute |
-| `feedback.go` | ~700 | Quality evaluation, pattern detection, learning |
+| `feedback.go` | ~1350 | Quality evaluation, profiles, pattern detection, learning |
 | `traces.go` | ~970 | Reasoning traces, audit logs, mandatory logging |
 
 ## The Ouroboros Loop
@@ -86,6 +87,84 @@ Execute Tool → Evaluate Quality → Detect Patterns → Refine Tool
 | `add_caching` | Same data fetched repeatedly |
 | `parallelize` | Independent requests made sequentially |
 
+## Tool Quality Profiles
+
+Each tool has different performance expectations. A background indexer taking 5 minutes is fine; a calculator taking 5 minutes is broken. The LLM defines these expectations during tool generation.
+
+### Tool Types
+
+| Type | Description | Duration Expectation |
+|------|-------------|---------------------|
+| `quick_calculation` | Simple computation | < 1 second |
+| `data_fetch` | API call, may paginate | 5-30 seconds |
+| `background_task` | Long-running process | Minutes OK |
+| `recursive_analysis` | Codebase traversal | Minutes OK |
+| `realtime_query` | Fast, frequent calls | < 500ms |
+| `one_time_setup` | Run once | Can be slow |
+| `batch_processor` | Many items | Scales with input |
+| `monitor` | Status checks | < 2 seconds |
+
+### ToolQualityProfile
+```go
+type ToolQualityProfile struct {
+    ToolName    string              `json:"tool_name"`
+    ToolType    ToolType            `json:"tool_type"`
+    Description string              `json:"description"`
+    Performance PerformanceExpectations `json:"performance"`
+    Output      OutputExpectations  `json:"output"`
+    UsagePattern UsagePattern       `json:"usage_pattern"`
+    Caching     CachingConfig       `json:"caching"`
+    CustomDimensions []CustomDimension `json:"custom_dimensions"`
+}
+
+type PerformanceExpectations struct {
+    ExpectedDurationMin time.Duration  // Faster = suspicious
+    ExpectedDurationMax time.Duration  // Slower = problem
+    AcceptableDuration  time.Duration  // Target
+    TimeoutDuration     time.Duration  // Give up
+    MaxRetries          int
+    ScalesWithInputSize bool
+}
+
+type OutputExpectations struct {
+    ExpectedMinSize     int       // Smaller = suspicious
+    ExpectedMaxSize     int       // Larger = issue
+    ExpectedTypicalSize int       // Normal size
+    ExpectedFormat      string    // json, text, csv
+    ExpectsPagination   bool
+    RequiredFields      []string  // Must be in output
+    MustContain         []string  // Must appear
+    MustNotContain      []string  // Error indicators
+}
+```
+
+### Profile-Aware Evaluation
+
+```go
+// Generate tool with profile
+tool, profile, trace, _ := orchestrator.GenerateToolWithProfile(ctx, need, "user request")
+
+// Execute with profile-aware evaluation
+output, quality, _ := orchestrator.ExecuteAndEvaluateWithProfile(ctx, toolName, input)
+
+// Quality assessment uses profile expectations:
+// - Duration compared against profile.Performance
+// - Output size compared against profile.Output
+// - Custom dimensions extracted and scored
+```
+
+### Example: Calculator vs Background Indexer
+
+**Calculator Tool** (quick_calculation):
+- AcceptableDuration: 100ms
+- ExpectedDurationMax: 1s
+- 5-minute execution → Quality score: 0.1 (broken!)
+
+**Indexer Tool** (background_task):
+- AcceptableDuration: 2m
+- ExpectedDurationMax: 10m
+- 5-minute execution → Quality score: 0.8 (acceptable)
+
 ## Key Types
 
 ### Orchestrator
@@ -95,23 +174,34 @@ type Orchestrator struct {
     toolGen     *ToolGenerator
     persistence *PersistenceAnalyzer
     ouroboros   *OuroborosLoop
-    evaluator   *QualityEvaluator   // NEW
-    patterns    *PatternDetector    // NEW
-    refiner     *ToolRefiner        // NEW
-    learnings   *LearningStore      // NEW
+    evaluator   *QualityEvaluator
+    patterns    *PatternDetector
+    refiner     *ToolRefiner
+    learnings   *LearningStore
+    profiles    *ProfileStore       // Tool quality profiles
+    traces      *TraceCollector
+    logInjector *LogInjector
 }
 
 // Generation
 func (o *Orchestrator) ExecuteOuroborosLoop(ctx, need) *LoopResult
 func (o *Orchestrator) ExecuteGeneratedTool(ctx, name, input) (string, error)
 
-// Feedback (NEW)
+// Feedback & Evaluation
 func (o *Orchestrator) RecordExecution(ctx, feedback)
 func (o *Orchestrator) EvaluateToolQuality(ctx, feedback) *QualityAssessment
 func (o *Orchestrator) GetToolPatterns(toolName) []*DetectedPattern
 func (o *Orchestrator) ShouldRefineTool(toolName) (bool, []ImprovementSuggestion)
 func (o *Orchestrator) RefineTool(ctx, toolName, code) (*RefinementResult, error)
 func (o *Orchestrator) ExecuteAndEvaluate(ctx, name, input) (string, *QualityAssessment, error)
+
+// Quality Profiles
+func (o *Orchestrator) GetToolProfile(toolName) *ToolQualityProfile
+func (o *Orchestrator) SetToolProfile(profile *ToolQualityProfile)
+func (o *Orchestrator) GenerateToolProfile(ctx, name, desc, code) (*ToolQualityProfile, error)
+func (o *Orchestrator) EvaluateWithProfile(ctx, feedback) *QualityAssessment
+func (o *Orchestrator) ExecuteAndEvaluateWithProfile(ctx, name, input) (string, *QualityAssessment, error)
+func (o *Orchestrator) GenerateToolWithProfile(ctx, need, req) (*GeneratedTool, *ToolQualityProfile, *ReasoningTrace, error)
 ```
 
 ### QualityAssessment
@@ -234,8 +324,10 @@ Scenario: A tool fetches docs but only gets 10% of available data.
 │   ├── context7_docs_test.go   # Generated tests
 │   ├── .compiled/
 │   │   └── context7_docs       # Compiled binary
-│   └── .learnings/
-│       └── tool_learnings.json # Persisted learnings
+│   ├── .learnings/
+│   │   └── tool_learnings.json # Persisted learnings
+│   └── .profiles/
+│       └── quality_profiles.json # Tool quality profiles
 ```
 
 ## Safety Features
@@ -398,6 +490,8 @@ audit, _ := orchestrator.AnalyzeGenerations(ctx)
 │   │   └── context7_docs       # Compiled binary
 │   ├── .learnings/
 │   │   └── tool_learnings.json # Persisted learnings
+│   ├── .profiles/
+│   │   └── quality_profiles.json # Tool quality profiles
 │   └── .traces/
 │       └── reasoning_traces.json # Reasoning traces
 ```
