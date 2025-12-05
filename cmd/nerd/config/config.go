@@ -21,6 +21,15 @@ func DefaultConfig() Config {
 
 // ConfigDir returns the directory where config is stored
 func ConfigDir() (string, error) {
+	// Prefer project-local .nerd directory if present or creatable
+	if cwd, err := os.Getwd(); err == nil {
+		localDir := filepath.Join(cwd, ".nerd")
+		if stat, err := os.Stat(localDir); (err == nil && stat.IsDir()) || os.IsNotExist(err) {
+			return localDir, nil
+		}
+	}
+
+	// Fallback to home-level config
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

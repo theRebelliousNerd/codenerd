@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -63,10 +65,14 @@ type chatModel struct {
 	awaitingClarification bool
 	clarificationState    *ClarificationState
 	selectedOption        int // For option picker
+	awaitingPatch         bool
+	pendingPatchLines     []string
 
 	// Session State
 	sessionID string
 	turnCount int
+	// Agent creation wizard
+	awaitingAgentDefinition bool
 
 	// Backend
 	client     perception.LLMClient
@@ -86,6 +92,35 @@ type chatMessage struct {
 	time    time.Time
 }
 
+type nerdAgent struct {
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	KnowledgePath string `json:"knowledge_path"`
+	KBSize        int    `json:"kb_size"`
+	Status        string `json:"status"`
+}
+
+type nerdRegistry struct {
+	Version   string      `json:"version"`
+	CreatedAt string      `json:"created_at"`
+	Agents    []nerdAgent `json:"agents"`
+}
+
+type nerdPreferences struct {
+	RequireTests     bool   `json:"require_tests"`
+	RequireReview    bool   `json:"require_review"`
+	Verbosity        string `json:"verbosity"`
+	ExplanationLevel string `json:"explanation_level"`
+}
+
+type nerdSession struct {
+	SessionID    string `json:"session_id"`
+	StartedAt    string `json:"started_at"`
+	LastActiveAt string `json:"last_active_at"`
+	TurnCount    int    `json:"turn_count"`
+	Suspended    bool   `json:"suspended"`
+}
+
 // Messages for tea updates
 type (
 	responseMsg        string
@@ -99,6 +134,8 @@ type (
 func initChat() chatModel {
 	// Load configuration
 	cfg, _ := config.Load()
+
+	initialMessages := []chatMessage{}
 
 	// Initialize styles
 	styles := ui.DefaultStyles()
@@ -150,6 +187,13 @@ func initChat() chatModel {
 	if apiKey == "" {
 		apiKey = cfg.APIKey
 	}
+	if apiKey == "" {
+		initialMessages = append(initialMessages, chatMessage{
+			role:    "assistant",
+			content: "⚠️ No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
+			time:    time.Now(),
+		})
+	}
 
 	// Initialize backend components
 	llmClient := perception.NewZAIClient(apiKey)
@@ -162,11 +206,16 @@ func initChat() chatModel {
 	emitter := articulation.NewEmitter()
 	scanner := world.NewScanner()
 
+	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
+
 	// Initialize split-pane view (Glass Box Interface)
 	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
 	logicPane := ui.NewLogicPane(styles, 30, 20)
 
-	return chatModel{
+	// Preload workspace facts from .nerd/profile.gl if present
+	// (Already done in hydrateNerdState)
+
+	model := chatModel{
 		textinput:             ti,
 		viewport:              vp,
 		spinner:               sp,
@@ -187,11 +236,155 @@ func initChat() chatModel {
 		emitter:               emitter,
 		scanner:               scanner,
 		workspace:             workspace,
-		sessionID:             fmt.Sprintf("sess_%d", time.Now().UnixNano()),
-		turnCount:             0,
+		sessionID:             resolveSessionID(loadedSession),
+		turnCount:             resolveTurnCount(loadedSession),
 		awaitingClarification: false,
 		selectedOption:        0,
 	}
+
+	if len(initialMessages) > 0 {
+		model.history = append(model.history, initialMessages...)
+		model.viewport.SetContent(model.renderHistory())
+	}
+
+	return model
+}
+
+func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.ShardManager, initialMessages *[]chatMessage) (*nerdSession, *nerdPreferences) {
+	nerdDir := filepath.Join(workspace, ".nerd")
+
+	// Load profile facts
+	profilePath := filepath.Join(nerdDir, "profile.gl")
+	if info, err := os.Stat(profilePath); err == nil && !info.IsDir() {
+		if err := kernel.LoadFactsFromFile(profilePath); err != nil {
+			*initialMessages = append(*initialMessages, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("⚠️ Failed to load .nerd/profile.gl: %v", err),
+				time:    time.Now(),
+			})
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		*initialMessages = append(*initialMessages, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("⚠️ Unable to access .nerd/profile.gl: %v", err),
+			time:    time.Now(),
+		})
+	}
+
+	// Load preferences
+	var prefs *nerdPreferences
+	prefPath := filepath.Join(nerdDir, "preferences.json")
+	if data, err := os.ReadFile(prefPath); err == nil {
+		var p nerdPreferences
+		if err := json.Unmarshal(data, &p); err == nil {
+			prefs = &p
+		} else {
+			*initialMessages = append(*initialMessages, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("⚠️ Failed to parse .nerd/preferences.json: %v", err),
+				time:    time.Now(),
+			})
+		}
+	}
+
+	// Load session info
+	var session *nerdSession
+	sessionPath := filepath.Join(nerdDir, "session.json")
+	if data, err := os.ReadFile(sessionPath); err == nil {
+		var s nerdSession
+		if err := json.Unmarshal(data, &s); err == nil {
+			session = &s
+		} else {
+			*initialMessages = append(*initialMessages, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("⚠️ Failed to parse .nerd/session.json: %v", err),
+				time:    time.Now(),
+			})
+		}
+	}
+
+	// Load agents registry and hydrate shard profiles
+	agentsPath := filepath.Join(nerdDir, "agents.json")
+	if data, err := os.ReadFile(agentsPath); err == nil {
+		var reg nerdRegistry
+		if err := json.Unmarshal(data, &reg); err == nil {
+			for _, agent := range reg.Agents {
+				cfg := core.DefaultSpecialistConfig(agent.Name, agent.KnowledgePath)
+				if agent.Type != "" {
+					cfg.Type = core.ShardType(agent.Type)
+				}
+				shardMgr.DefineProfile(agent.Name, cfg)
+			}
+		} else {
+			*initialMessages = append(*initialMessages, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("⚠️ Failed to parse .nerd/agents.json: %v", err),
+				time:    time.Now(),
+			})
+		}
+	}
+
+	return session, prefs
+}
+
+func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSize int, status string) error {
+	nerdDir := filepath.Join(workspace, ".nerd")
+	if err := os.MkdirAll(filepath.Join(nerdDir, "shards"), 0755); err != nil {
+		return err
+	}
+
+	agentsPath := filepath.Join(nerdDir, "agents.json")
+	reg := nerdRegistry{
+		Version:   "1.0",
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Agents:    []nerdAgent{},
+	}
+
+	if data, err := os.ReadFile(agentsPath); err == nil {
+		_ = json.Unmarshal(data, &reg)
+	}
+
+	// Upsert
+	found := false
+	for i, a := range reg.Agents {
+		if strings.EqualFold(a.Name, name) {
+			reg.Agents[i].Type = agentType
+			reg.Agents[i].KnowledgePath = knowledgePath
+			reg.Agents[i].KBSize = kbSize
+			reg.Agents[i].Status = status
+			found = true
+			break
+		}
+	}
+	if !found {
+		reg.Agents = append(reg.Agents, nerdAgent{
+			Name:          name,
+			Type:          agentType,
+			KnowledgePath: knowledgePath,
+			KBSize:        kbSize,
+			Status:        status,
+		})
+	}
+
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(agentsPath, data, 0644)
+}
+
+func resolveSessionID(session *nerdSession) string {
+	if session != nil && strings.TrimSpace(session.SessionID) != "" {
+		return session.SessionID
+	}
+	return fmt.Sprintf("sess_%d", time.Now().UnixNano())
+}
+
+func resolveTurnCount(session *nerdSession) int {
+	if session != nil && session.TurnCount > 0 {
+		return session.TurnCount
+	}
+	return 0
 }
 
 func (m chatModel) Init() tea.Cmd {
@@ -524,6 +717,29 @@ func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Patch ingestion mode
+	if m.awaitingPatch {
+		// Accumulate lines until user types --END--
+		if input == "--END--" {
+			patch := strings.Join(m.pendingPatchLines, "\n")
+			m.pendingPatchLines = nil
+			m.awaitingPatch = false
+			m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: applyPatchResult(m.workspace, patch),
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		m.pendingPatchLines = append(m.pendingPatchLines, input)
+		m.textinput.Reset()
+		return m, nil
+	}
+
 	// Check for special commands
 	if strings.HasPrefix(input, "/") {
 		return m.handleCommand(input)
@@ -544,6 +760,16 @@ func (m chatModel) handleSubmit() (tea.Model, tea.Cmd) {
 	m.viewport.GotoBottom()
 
 	// Start loading
+	if m.awaitingAgentDefinition {
+		m.awaitingAgentDefinition = false
+		m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+		m.isLoading = true
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.createAgentFromPrompt(input),
+		)
+	}
+
 	m.isLoading = true
 
 	// Process in background
@@ -655,12 +881,13 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 					time:    time.Now(),
 				})
 			} else {
+				// Ensure config directory exists (Save already creates it) and inform user where it lives
 				// Re-initialize client
 				m.client = perception.NewZAIClient(key)
 				m.transducer = perception.NewRealTransducer(m.client)
 				m.history = append(m.history, chatMessage{
 					role:    "assistant",
-					content: "✅ API key saved and client updated.",
+					content: "✅ API key saved to ~/.codenerd/config.json and client updated.",
 					time:    time.Now(),
 				})
 			}
@@ -734,6 +961,217 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 		return m, nil
 
+	case "/read":
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/read <path>`",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		target := strings.Join(parts[1:], " ")
+		content, err := readFileContent(m.workspace, target, 8000)
+		resp := ""
+		if err != nil {
+			resp = fmt.Sprintf("Error reading `%s`: %v", target, err)
+		} else {
+			resp = fmt.Sprintf("### %s\n```\n%s\n```", target, content)
+		}
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: resp,
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/mkdir":
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/mkdir <path>`",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		target := strings.Join(parts[1:], " ")
+		if err := makeDir(m.workspace, target); err != nil {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("Error creating directory `%s`: %v", target, err),
+				time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("✅ Created directory `%s`", target),
+				time:    time.Now(),
+			})
+		}
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/write":
+		if len(parts) < 3 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/write <path> <content>`",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		target := parts[1]
+		content := strings.Join(parts[2:], " ")
+		if err := writeFileContent(m.workspace, target, content); err != nil {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("Error writing `%s`: %v", target, err),
+				time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("✅ Wrote `%s` (%d bytes)", target, len(content)),
+				time:    time.Now(),
+			})
+		}
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/search":
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/search <pattern> [path]` (path defaults to workspace)",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		pattern := parts[1]
+		root := m.workspace
+		if len(parts) >= 3 {
+			root = resolvePath(m.workspace, strings.Join(parts[2:], " "))
+		}
+		matches, err := searchInFiles(root, pattern, 20)
+		var resp strings.Builder
+		if err != nil {
+			resp.WriteString(fmt.Sprintf("Search error: %v", err))
+		} else if len(matches) == 0 {
+			resp.WriteString(fmt.Sprintf("No matches for `%s` in `%s`", pattern, root))
+		} else {
+			resp.WriteString(fmt.Sprintf("Matches for `%s`:\n", pattern))
+			for _, mpath := range matches {
+				resp.WriteString(fmt.Sprintf("- %s\n", mpath))
+			}
+		}
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: resp.String(),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/patch":
+		// Enter patch collection mode: user will paste a unified diff, end with a line containing only `--END--`
+		m.awaitingAgentDefinition = false
+		m.textinput.Placeholder = "Paste unified diff, end with a line containing --END--"
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: "🔧 Paste your unified diff now. End input with a line containing `--END--`.",
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.awaitingPatch = true
+		return m, nil
+
+	case "/edit":
+		if len(parts) < 3 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/edit <path> <content>`",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		target := parts[1]
+		content := strings.Join(parts[2:], " ")
+		if err := writeFileContent(m.workspace, target, content); err != nil {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("Error editing `%s`: %v", target, err),
+				time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("✅ Wrote `%s` (%d bytes)", target, len(content)),
+				time:    time.Now(),
+			})
+		}
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case "/append":
+		if len(parts) < 3 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/append <path> <content>`",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		target := parts[1]
+		content := strings.Join(parts[2:], " ")
+		if err := appendFileContent(m.workspace, target, content); err != nil {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("Error appending `%s`: %v", target, err),
+				time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("✅ Appended to `%s` (+%d bytes)", target, len(content)),
+				time:    time.Now(),
+			})
+		}
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
 	case "/init":
 		// Run comprehensive initialization in background
 		m.history = append(m.history, chatMessage{
@@ -764,9 +1202,11 @@ _This may take a minute for large codebases..._`,
 
 	case "/define-agent":
 		if len(parts) < 2 {
+			m.awaitingAgentDefinition = true
+			m.textinput.Placeholder = "Describe the specialist you want (domain, tasks, constraints)..."
 			m.history = append(m.history, chatMessage{
 				role:    "assistant",
-				content: "Usage: `/define-agent <name> [--topic <topic>]`\n\nExample:\n```\n/define-agent RustExpert --topic \"Tokio async runtime\"\n```",
+				content: "🧠 Creating a specialist agent.\n\nTell me what you need (domain, tasks, constraints). I’ll propose a name/topic and wire up its knowledge shard.",
 				time:    time.Now(),
 			})
 			m.textinput.Reset()
@@ -787,19 +1227,20 @@ _This may take a minute for large codebases..._`,
 		// Define the agent profile (Type 4: User Configured)
 		config := core.DefaultSpecialistConfig(agentName, fmt.Sprintf(".nerd/shards/%s_knowledge.db", agentName))
 		m.shardMgr.DefineProfile(agentName, config)
+		_ = persistAgentProfile(m.workspace, agentName, "persistent", config.KnowledgePath, 0, "ready")
 
 		response := fmt.Sprintf(`## Agent Defined: %s
 
 **Type**: 4 (User Configured - Persistent Specialist)
 **Topic**: %s
-**Knowledge Path**: .nerd/shards/%s_knowledge.db
+**Knowledge Path**: %s
 **Model**: High Reasoning (glm4)
 
 The agent will undergo deep research on first spawn to build its knowledge base.
 
 **Next steps:**
 - Run research: `+"`/spawn researcher %s research`"+`
-- Use the agent: `+"`/spawn %s <task>`", agentName, topic, agentName, topic, agentName)
+- Use the agent: `+"`/spawn %s <task>`", agentName, topic, config.KnowledgePath, topic, agentName)
 
 		m.history = append(m.history, chatMessage{
 			role:    "assistant",
@@ -1160,90 +1601,353 @@ func (m chatModel) processInput(input string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		// Parse intent via transducer
+		var warnings []string
+
+		// 1. PERCEPTION (Transducer)
 		intent, err := m.transducer.ParseIntent(ctx, input)
 		if err != nil {
 			return errorMsg(fmt.Errorf("perception error: %w", err))
 		}
-
-		// Load workspace facts
-		fileFacts, err := m.scanner.ScanWorkspace(m.workspace)
-		if err != nil {
-			// Non-fatal, continue without workspace facts
-			fileFacts = nil
+		if strings.TrimSpace(intent.Response) == "" {
+			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
 		}
 
-		// Load facts into kernel
+		// 2. CONTEXT LOADING (Scanner)
+		// Load workspace facts only if intent requires it (optimization)
+		if intent.Category == "/query" || intent.Category == "/mutation" {
+			fileFacts, err := m.scanner.ScanWorkspace(m.workspace)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("⚠️ Workspace scan skipped: %v", err))
+			} else if len(fileFacts) > 0 {
+				_ = m.kernel.LoadFacts(fileFacts)
+			}
+		}
+
+		// 3. STATE UPDATE (Kernel)
 		if err := m.kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
 			return errorMsg(fmt.Errorf("kernel load error: %w", err))
 		}
-		if len(fileFacts) > 0 {
-			_ = m.kernel.LoadFacts(fileFacts)
-		}
-
-		// Load shard facts
 		_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
 
-		// Query for actions
+		// 4. DECISION & ACTION (Kernel -> Executor)
+		// Query for actions derived from the intent
 		actions, _ := m.kernel.Query("next_action")
 
-		// Build the dual payload for articulation
+		// Execute Info-Gathering Actions (Pre-Articulation)
+		// This implements the OODA "Act" phase for info retrieval
+		var executionResults []core.Fact
 		var mangleUpdates []string
+
 		for _, action := range actions {
 			mangleUpdates = append(mangleUpdates, action.Predicate)
+
+			// Handle File System Reads
+			if action.Predicate == "/fs_read" {
+				target := intent.Target // Simple mapping for now
+				if target != "" && target != "none" {
+					content, err := readFileContent(m.workspace, target, 8000)
+					if err == nil {
+						// Feed result back to kernel
+						resFact := core.Fact{
+							Predicate: "file_content",
+							Args:      []interface{}{target, content},
+						}
+						executionResults = append(executionResults, resFact)
+						// Also allow articulation to see it
+						warnings = append(warnings, fmt.Sprintf("📖 Read file: %s (%d bytes)", target, len(content)))
+					} else {
+						warnings = append(warnings, fmt.Sprintf("❌ Failed to read file %s: %v", target, err))
+					}
+				}
+			}
+
+			// Handle Search
+			if action.Predicate == "/search_files" {
+				matches, err := searchInFiles(m.workspace, intent.Target, 10)
+				if err == nil {
+					resFact := core.Fact{
+						Predicate: "search_results",
+						Args:      []interface{}{intent.Target, strings.Join(matches, ",")},
+					}
+					executionResults = append(executionResults, resFact)
+					warnings = append(warnings, fmt.Sprintf("🔍 Found %d matches for '%s'", len(matches), intent.Target))
+				}
+			}
+
+			// Autopoiesis: Tool Generation Stub
+			if action.Predicate == "/generate_tool" {
+				warnings = append(warnings, "⚠️ Autopoiesis Triggered: System detected missing tool capability. Tool generation not yet implemented in this runtime.")
+			}
 		}
 
-		// Generate surface response
-		var surfaceResponse string
-		if len(actions) > 0 {
-			surfaceResponse = fmt.Sprintf("Processed: %s → %s\n\n%s", intent.Verb, intent.Target, intent.Response)
-		} else {
-			// Use the piggybacked response directly
-			surfaceResponse = intent.Response
+		// Feed execution results back into kernel for re-evaluation
+		if len(executionResults) > 0 {
+			_ = m.kernel.LoadFacts(executionResults)
+			// Re-query context to inject (now that we have new facts)
 		}
 
-		payload := articulation.PiggybackEnvelope{
-			Surface: surfaceResponse,
-			Control: articulation.ControlPacket{
-				IntentClassification: articulation.IntentClassification{
-					Category:   intent.Category,
-					Verb:       intent.Verb,
-					Target:     intent.Target,
-					Constraint: intent.Constraint,
-					Confidence: intent.Confidence,
-				},
-				MangleUpdates: mangleUpdates,
-			},
+		// 5. CONTEXT SELECTION (Spreading Activation)
+		contextFacts, _ := m.kernel.Query("context_to_inject")
+
+		// 6. ARTICULATION (Response Generation)
+		systemPrompts, _ := m.kernel.Query("final_system_prompt")
+		systemPrompt := ""
+		if len(systemPrompts) > 0 && len(systemPrompts[0].Args) > 0 {
+			systemPrompt = fmt.Sprintf("%v", systemPrompts[0].Args[0])
 		}
 
-		// Format response
-		response := formatResponse(intent, payload)
+		response, err := articulateWithContext(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt)
+		if err != nil {
+			return errorMsg(err)
+		}
 
 		return responseMsg(response)
 	}
 }
 
+func (m chatModel) createAgentFromPrompt(description string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+
+		systemPrompt := "You design specialist software agents. Respond in English. Return JSON with fields: name (CamelCase, no spaces), topic (<=80 chars), knowledge_path (path string). Keep responses compact."
+		userPrompt := fmt.Sprintf("Workspace: %s\nSpecialist description: %s", m.workspace, description)
+
+		raw, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return errorMsg(fmt.Errorf("agent creation failed: %w", err))
+		}
+
+		var out struct {
+			Name          string `json:"name"`
+			Topic         string `json:"topic"`
+			KnowledgePath string `json:"knowledge_path"`
+		}
+
+		if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &out); err != nil {
+			return errorMsg(fmt.Errorf("agent creation: invalid JSON from LLM: %w (got: %s)", err, raw))
+		}
+
+		name := strings.TrimSpace(out.Name)
+		if name == "" {
+			return errorMsg(fmt.Errorf("agent creation: LLM returned empty name"))
+		}
+		topic := strings.TrimSpace(out.Topic)
+		kp := strings.TrimSpace(out.KnowledgePath)
+		if kp == "" {
+			kp = filepath.Join(".nerd", "shards", fmt.Sprintf("%s_knowledge.db", name))
+		}
+
+		cfg := core.DefaultSpecialistConfig(name, kp)
+		m.shardMgr.DefineProfile(name, cfg)
+		_ = persistAgentProfile(m.workspace, name, "persistent", kp, 0, "ready")
+
+		surface := fmt.Sprintf("## Agent Created: %s\n\n**Topic**: %s\n**Knowledge Path**: %s\n\nNext: `/spawn %s <task>`", name, topic, kp, name)
+		return responseMsg(surface)
+	}
+}
+
 func formatResponse(intent perception.Intent, payload articulation.PiggybackEnvelope) string {
+	// Keep logic artifacts internal; return only the conversational surface text.
+	return strings.TrimSpace(payload.Surface)
+}
+
+func payloadForArticulation(intent perception.Intent, mangleUpdates []string) articulation.PiggybackEnvelope {
+	return articulation.PiggybackEnvelope{
+		Surface: "",
+		Control: articulation.ControlPacket{
+			IntentClassification: articulation.IntentClassification{
+				Category:   intent.Category,
+				Verb:       intent.Verb,
+				Target:     intent.Target,
+				Constraint: intent.Constraint,
+				Confidence: intent.Confidence,
+			},
+			MangleUpdates: mangleUpdates,
+		},
+	}
+}
+
+func articulateWithContext(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (string, error) {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("**Intent**: `%s` → `%s`\n\n", intent.Verb, intent.Target))
-
-	// Show reasoning trace
-	// Show intent classification
-	sb.WriteString(fmt.Sprintf("Confidence: %.2f\n\n", payload.Control.IntentClassification.Confidence))
-
-	// Show mangle updates
-	if len(payload.Control.MangleUpdates) > 0 {
-		sb.WriteString("**Mangle Facts:**\n```datalog\n")
-		for _, update := range payload.Control.MangleUpdates {
-			sb.WriteString(update + "\n")
-		}
-		sb.WriteString("```\n\n")
+	if systemPrompt != "" {
+		sb.WriteString("System Instructions:\n")
+		sb.WriteString(systemPrompt)
+		sb.WriteString("\n\n")
 	}
 
-	sb.WriteString("✅ " + payload.Surface)
+	if len(contextFacts) > 0 {
+		sb.WriteString("Context Facts:\n")
+		for _, f := range contextFacts {
+			sb.WriteString("- " + f.String() + "\n")
+		}
+		sb.WriteString("\n")
+	}
 
-	return sb.String()
+	if len(warnings) > 0 {
+		sb.WriteString("Warnings:\n")
+		for _, w := range warnings {
+			sb.WriteString("- " + w + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("Intent: %s -> %s\n\n", intent.Verb, intent.Target))
+	sb.WriteString("You MUST respond only with JSON (no extra text). Schema:\n")
+	sb.WriteString("{\n")
+	sb.WriteString(`  "surface_response": "text visible to user",` + "\n")
+	sb.WriteString(`  "control_packet": {` + "\n")
+	sb.WriteString(`    "intent_classification": { "category": "mutation|query|instruction", "verb": "...", "target": "...", "confidence": 0.0 },` + "\n")
+	sb.WriteString(`    "reasoning_trace": "optional",` + "\n")
+	sb.WriteString(`    "mangle_updates": [ "atom(...)" ],` + "\n")
+	sb.WriteString(`    "memory_operations": [ { "op": "promote_to_long_term|forget|note", "key": "k", "value": "v" } ],` + "\n")
+	sb.WriteString(`    "self_correction": { "triggered": false, "hypothesis": "" }` + "\n")
+	sb.WriteString("  }\n")
+	sb.WriteString("}\n\n")
+	sb.WriteString("Use only the context facts above. Do not invent filesystem access or knowledge not present in the facts. Output JSON only.")
+
+	raw, err := client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+	if err != nil {
+		return "", fmt.Errorf("articulation failed: %w", err)
+	}
+
+	type llmPayload struct {
+		SurfaceResponse string `json:"surface_response"`
+		ControlPacket   struct {
+			IntentClassification articulation.IntentClassification `json:"intent_classification"`
+			MangleUpdates        []string                          `json:"mangle_updates"`
+			MemoryOperations     []articulation.MemoryOperation    `json:"memory_operations"`
+			SelfCorrection       map[string]interface{}            `json:"self_correction"`
+			ReasoningTrace       string                            `json:"reasoning_trace"`
+		} `json:"control_packet"`
+	}
+
+	var parsed llmPayload
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &parsed); err != nil || parsed.SurfaceResponse == "" {
+		return "", fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, raw)
+	}
+
+	// Apply control data from LLM
+	if parsed.ControlPacket.IntentClassification.Category != "" {
+		payload.Control.IntentClassification = parsed.ControlPacket.IntentClassification
+	}
+	if len(parsed.ControlPacket.MangleUpdates) > 0 {
+		payload.Control.MangleUpdates = parsed.ControlPacket.MangleUpdates
+	}
+	if len(parsed.ControlPacket.MemoryOperations) > 0 {
+		payload.Control.MemoryOperations = parsed.ControlPacket.MemoryOperations
+	}
+
+	payload.Surface = parsed.SurfaceResponse
+	return formatResponse(intent, payload), nil
+}
+
+func appendFileContent(workspace, path, content string) error {
+	full := resolvePath(workspace, path)
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
+}
+
+func applyPatchResult(workspace, patch string) string {
+	fullPatch := patch
+	if !strings.HasPrefix(strings.TrimSpace(patch), "*** Begin Patch") {
+		fullPatch = "*** Begin Patch\n" + patch + "\n*** End Patch\n"
+	}
+	tmpPath := filepath.Join(workspace, ".nerd", "last_patch.txt")
+	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err == nil {
+		_ = os.WriteFile(tmpPath, []byte(fullPatch), 0644)
+	}
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Content -Path '"+filepath.Join(workspace, ".nerd", "patch.ps1")+"' -Value $args[0]", fullPatch)
+	_ = cmd.Run()
+	if err := runApplyPatch(fullPatch); err != nil {
+		return fmt.Sprintf("Patch failed: %v", err)
+	}
+	return "✅ Patch applied."
+}
+
+func runApplyPatch(patch string) error {
+	// Try git apply first, fallback to 'patch' if available
+	cmd := exec.Command("git", "apply", "--whitespace=nowarn")
+	cmd.Stdin = strings.NewReader(patch)
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("patch"); err == nil {
+		cmd = exec.Command("patch", "-p0")
+		cmd.Stdin = strings.NewReader(patch)
+		return cmd.Run()
+	}
+	return fmt.Errorf("git apply and patch both unavailable")
+}
+
+func resolvePath(workspace, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(workspace, path)
+}
+
+func readFileContent(workspace, path string, maxBytes int) (string, error) {
+	full := resolvePath(workspace, path)
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxBytes {
+		data = data[:maxBytes]
+	}
+	return string(data), nil
+}
+
+func writeFileContent(workspace, path, content string) error {
+	full := resolvePath(workspace, path)
+	dir := filepath.Dir(full)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(full, []byte(content), 0644)
+}
+
+func makeDir(workspace, path string) error {
+	full := resolvePath(workspace, path)
+	return os.MkdirAll(full, 0755)
+}
+
+func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
+	matches := make([]string, 0)
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(matches) >= maxHits {
+			return filepath.SkipDir
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if strings.Contains(string(data), pattern) {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	return matches, err
 }
 
 func (m chatModel) renderHistory() string {

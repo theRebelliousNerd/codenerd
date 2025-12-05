@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const defaultSystemPrompt = "You are codeNERD. Respond in English. Be concise. When summarizing code, ground answers only in provided text. Do not claim to browse the filesystem or network; only use supplied content."
+
 // LLMClient defines the interface for LLM providers.
 type LLMClient interface {
 	Complete(ctx context.Context, prompt string) (string, error)
@@ -30,19 +32,21 @@ type ZAIClient struct {
 
 // ZAIConfig holds configuration for ZAI client.
 type ZAIConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey       string
+	BaseURL      string
+	Model        string
+	Timeout      time.Duration
+	SystemPrompt string
 }
 
 // DefaultZAIConfig returns sensible defaults.
 func DefaultZAIConfig(apiKey string) ZAIConfig {
 	return ZAIConfig{
-		APIKey:  apiKey,
-		BaseURL: "https://api.zukijourney.com/v1",
-		Model:   "claude-sonnet-4-20250514",
-		Timeout: 120 * time.Second,
+		APIKey:       apiKey,
+		BaseURL:      "https://api.z.ai/api/coding/paas/v4",
+		Model:        "GLM-4.6",
+		Timeout:      120 * time.Second,
+		SystemPrompt: defaultSystemPrompt,
 	}
 }
 
@@ -113,6 +117,12 @@ func (c *ZAIClient) Complete(ctx context.Context, prompt string) (string, error)
 func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if c.apiKey == "" {
 		return "", fmt.Errorf("API key not configured")
+	}
+
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	} else {
+		systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
 	}
 
 	// Rate limiting: Ensure at least 500ms between requests
