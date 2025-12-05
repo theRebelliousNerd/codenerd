@@ -64,11 +64,7 @@ detected_language(File, /c) :-
 # =============================================================================
 # SECTION 3: IMPACT ANALYSIS BEFORE WRITE
 # =============================================================================
-
-Decl pending_edit(FilePath, Content).
-Decl test_coverage(FilePath).
-Decl impacted(FilePath).
-Decl dependency_link(Caller, Callee, ImportPath).
+# Uses predicates from schemas.gl: pending_edit, test_coverage, impacted, dependency_link
 
 # Transitive impact calculation
 impacted(X) :- dependency_link(X, Y, _), modified(Y).
@@ -81,17 +77,19 @@ coder_block_write(File, "uncovered_impact") :-
     dependency_link(Dependent, File, _),
     !test_coverage(Dependent).
 
-# Safe to write check
+# Helper for safe negation: true if any block exists for file
+has_coder_block(File) :-
+    coder_block_write(File, _).
+
+# Safe to write check (uses helper for safe negation)
 coder_safe_to_write(File) :-
     pending_edit(File, _),
-    !coder_block_write(File, _).
+    !has_coder_block(File).
 
 # =============================================================================
 # SECTION 4: BUILD STATE TRACKING
 # =============================================================================
-
-Decl build_state(State).
-Decl diagnostic(Severity, FilePath, Line, Code, Message).
+# Uses predicates from schemas.gl: build_state, diagnostic
 
 # Block commit on build errors (per Cortex 1.5.0 Section 2.2)
 block_commit("build_errors") :-
@@ -103,14 +101,17 @@ block_commit("build_errors") :-
 # =============================================================================
 # SECTION 5: NEXT ACTION DERIVATION
 # =============================================================================
+# Uses predicate from schemas.gl: coder_state
 
-Decl coder_state(State).
+# Helper: file has content loaded (for safe negation)
+has_file_content(File) :-
+    file_content(File, _).
 
 # Derive next action based on state
 next_coder_action(/read_context) :-
     coder_state(/idle),
     coder_task(_, _, Target, _),
-    !file_content(Target, _).
+    !has_file_content(Target).
 
 next_coder_action(/generate_code) :-
     coder_state(/context_ready),
@@ -177,8 +178,7 @@ coder_block_action(/edit, "forbidden_path") :-
     pending_edit(Path, _),
     !path_in_workspace(Path).
 
-# Binary file detection (populated by Go runtime)
-Decl is_binary_file(Path).
+# Binary file detection - uses is_binary_file from schemas.gl
 
 # Block binary file modifications
 coder_block_action(/edit, "binary_file") :-

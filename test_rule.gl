@@ -1,8 +1,0 @@
-Decl agenda_dependency(ItemID, DepID).
-Decl agenda_item(ItemID, A, B, Status, C).
-Decl has_incomplete_dependency(ItemID).
-
-has_incomplete_dependency(ItemID) :-
-    agenda_dependency(ItemID, DepID),
-    agenda_item(DepID, _, _, Status, _),
-    Status != /completed.
