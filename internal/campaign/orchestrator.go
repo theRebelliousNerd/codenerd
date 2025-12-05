@@ -574,7 +574,7 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 	return map[string]interface{}{"research_result": result}, nil
 }
 
-// executeFileTask creates or modifies a file using LLM.
+// executeFileTask creates or modifies a file using the Coder shard.
 func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, error) {
 	// Get target path from artifacts
 	var targetPath string
@@ -582,7 +582,25 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		targetPath = task.Artifacts[0].Path
 	}
 
-	// Use LLM to generate file content
+	// Build task string for coder shard
+	action := "create"
+	if task.Type == TaskTypeFileModify {
+		action = "modify"
+	}
+	shardTask := fmt.Sprintf("%s file:%s instruction:%s", action, targetPath, task.Description)
+
+	// Delegate to coder shard
+	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
+	if err != nil {
+		// Fallback to direct LLM if shard fails
+		return o.executeFileTaskFallback(ctx, task, targetPath)
+	}
+
+	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
+}
+
+// executeFileTaskFallback uses direct LLM when shard is unavailable.
+func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
 	prompt := fmt.Sprintf(`Generate the following file:
 Task: %s
 Target Path: %s
@@ -594,7 +612,6 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 		return nil, err
 	}
 
-	// Write file
 	fullPath := filepath.Join(o.workspace, targetPath)
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return nil, err
@@ -607,26 +624,56 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 	return map[string]interface{}{"path": fullPath, "size": len(content)}, nil
 }
 
-// executeTestWriteTask writes tests for existing code.
+// executeTestWriteTask writes tests for existing code using the Tester shard.
 func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (any, error) {
-	// Similar to file task but specialized for tests
-	return o.executeFileTask(ctx, task)
+	// Get target file from artifacts
+	var targetPath string
+	if len(task.Artifacts) > 0 {
+		targetPath = task.Artifacts[0].Path
+	}
+
+	// Build task string for tester shard
+	shardTask := fmt.Sprintf("generate_tests file:%s", targetPath)
+
+	// Delegate to tester shard
+	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
+	if err != nil {
+		// Fallback to coder shard for test generation
+		return o.executeFileTask(ctx, task)
+	}
+
+	return map[string]interface{}{"tester_result": result, "target": targetPath}, nil
 }
 
-// executeTestRunTask runs tests.
+// executeTestRunTask runs tests using the Tester shard.
 func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any, error) {
-	// Run tests via executor
-	cmd := tactile.ShellCommand{
-		Binary:           "go",
-		Arguments:        []string{"test", "./..."},
-		WorkingDirectory: o.workspace,
-		TimeoutSeconds:   300, // 5 minutes
+	// Get target from artifacts or use default
+	target := "./..."
+	if len(task.Artifacts) > 0 {
+		target = task.Artifacts[0].Path
 	}
-	output, err := o.executor.Execute(ctx, cmd)
+
+	// Build task string for tester shard
+	shardTask := fmt.Sprintf("run_tests package:%s", target)
+
+	// Delegate to tester shard
+	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
 	if err != nil {
-		return map[string]interface{}{"output": output, "passed": false}, err
+		// Fallback to direct execution
+		cmd := tactile.ShellCommand{
+			Binary:           "go",
+			Arguments:        []string{"test", "./..."},
+			WorkingDirectory: o.workspace,
+			TimeoutSeconds:   300,
+		}
+		output, execErr := o.executor.Execute(ctx, cmd)
+		if execErr != nil {
+			return map[string]interface{}{"output": output, "passed": false}, execErr
+		}
+		return map[string]interface{}{"output": output, "passed": true}, nil
 	}
-	return map[string]interface{}{"output": output, "passed": true}, nil
+
+	return map[string]interface{}{"tester_result": result, "target": target}, nil
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).
@@ -656,9 +703,25 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 	return map[string]interface{}{"shard_result": result}, nil
 }
 
-// executeRefactorTask refactors existing code.
+// executeRefactorTask refactors existing code using the Coder shard.
 func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any, error) {
-	return o.executeFileTask(ctx, task)
+	// Get target files from artifacts
+	var targetPath string
+	if len(task.Artifacts) > 0 {
+		targetPath = task.Artifacts[0].Path
+	}
+
+	// Build task string for coder shard
+	shardTask := fmt.Sprintf("refactor file:%s instruction:%s", targetPath, task.Description)
+
+	// Delegate to coder shard
+	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
+	if err != nil {
+		// Fallback to generic file task
+		return o.executeFileTask(ctx, task)
+	}
+
+	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
 }
 
 // executeIntegrateTask integrates components.

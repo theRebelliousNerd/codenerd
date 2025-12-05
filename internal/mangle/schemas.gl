@@ -235,8 +235,10 @@ Decl preference_signal(Pattern).
 # derived_rule(Pattern, Fact)
 Decl derived_rule(Pattern, Fact).
 
-# promote_to_long_term(Fact) - derived predicate
-Decl promote_to_long_term(Fact).
+# promote_to_long_term(FactType, FactValue) - derived predicate for Autopoiesis (§8.3)
+# FactType is a name constant (e.g., /style_preference, /avoid_pattern)
+# FactValue is the specific value to learn
+Decl promote_to_long_term(FactType, FactValue).
 
 # =============================================================================
 # SECTION 17: BROWSER SPATIAL REASONING (§9.0)

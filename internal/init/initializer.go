@@ -874,34 +874,46 @@ func (i *Initializer) saveProfile(path string, profile ProjectProfile) error {
 func (i *Initializer) generateFactsFile(path string, profile ProjectProfile) (int, error) {
 	var facts []string
 
-	// Project identity facts
+	// Helper to escape strings for Mangle
+	escapeString := func(s string) string {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		s = strings.ReplaceAll(s, `"`, `\"`)
+		s = strings.ReplaceAll(s, "\n", " ")
+		s = strings.ReplaceAll(s, "\r", "")
+		return s
+	}
+
+	// Project identity facts - use escaped strings
 	facts = append(facts, fmt.Sprintf(`project_profile("%s", "%s", "%s").`,
-		profile.ProjectID, profile.Name, profile.Description))
+		escapeString(profile.ProjectID),
+		escapeString(profile.Name),
+		escapeString(profile.Description)))
 
-	if profile.Language != "" {
-		facts = append(facts, fmt.Sprintf(`project_language(/%s).`, profile.Language))
+	// Use sanitized name constants for language/framework/architecture
+	if profile.Language != "" && profile.Language != "unknown" {
+		facts = append(facts, fmt.Sprintf(`project_language(/%s).`, sanitizeForMangle(profile.Language)))
 	}
 
-	if profile.Framework != "" {
-		facts = append(facts, fmt.Sprintf(`project_framework(/%s).`, profile.Framework))
+	if profile.Framework != "" && profile.Framework != "unknown" {
+		facts = append(facts, fmt.Sprintf(`project_framework(/%s).`, sanitizeForMangle(profile.Framework)))
 	}
 
-	if profile.Architecture != "" {
-		facts = append(facts, fmt.Sprintf(`project_architecture(/%s).`, profile.Architecture))
+	if profile.Architecture != "" && profile.Architecture != "unknown" {
+		facts = append(facts, fmt.Sprintf(`project_architecture(/%s).`, sanitizeForMangle(profile.Architecture)))
 	}
 
 	if profile.BuildSystem != "" {
-		facts = append(facts, fmt.Sprintf(`build_system(/%s).`, profile.BuildSystem))
+		facts = append(facts, fmt.Sprintf(`build_system(/%s).`, sanitizeForMangle(profile.BuildSystem)))
 	}
 
-	// Pattern facts
+	// Pattern facts - sanitize each pattern
 	for _, pattern := range profile.Patterns {
-		facts = append(facts, fmt.Sprintf(`architectural_pattern(/%s).`, pattern))
+		facts = append(facts, fmt.Sprintf(`architectural_pattern(/%s).`, sanitizeForMangle(pattern)))
 	}
 
-	// Entry point facts
+	// Entry point facts - use escaped strings for paths
 	for _, entry := range profile.EntryPoints {
-		facts = append(facts, fmt.Sprintf(`entry_point("%s").`, entry))
+		facts = append(facts, fmt.Sprintf(`entry_point("%s").`, escapeString(entry)))
 	}
 
 	// Write facts file
@@ -975,6 +987,24 @@ type SessionState struct {
 	ActiveStrategy string   `json:"active_strategy,omitempty"`
 	ActiveGoals    []string `json:"active_goals,omitempty"`
 	WorkingFacts   []string `json:"working_facts,omitempty"`
+
+	// Conversation history (stored separately in sessions/ folder)
+	HistoryFile string `json:"history_file,omitempty"`
+}
+
+// ChatMessage represents a single message in the conversation.
+type ChatMessage struct {
+	Role    string    `json:"role"`    // "user" or "assistant"
+	Content string    `json:"content"`
+	Time    time.Time `json:"time"`
+}
+
+// SessionHistory represents the full conversation history for a session.
+type SessionHistory struct {
+	SessionID string        `json:"session_id"`
+	Messages  []ChatMessage `json:"messages"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 // initSessionState creates the initial session state file.
@@ -1052,6 +1082,77 @@ func SaveSessionState(workspace string, state *SessionState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// SaveSessionHistory saves the conversation history to the sessions folder.
+func SaveSessionHistory(workspace string, sessionID string, messages []ChatMessage) error {
+	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create sessions directory: %w", err)
+	}
+
+	historyFile := filepath.Join(sessionsDir, sessionID+".json")
+	history := SessionHistory{
+		SessionID: sessionID,
+		Messages:  messages,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// If file exists, preserve CreatedAt
+	if existing, err := LoadSessionHistory(workspace, sessionID); err == nil {
+		history.CreatedAt = existing.CreatedAt
+	}
+
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(historyFile, data, 0644)
+}
+
+// LoadSessionHistory loads the conversation history for a session.
+func LoadSessionHistory(workspace string, sessionID string) (*SessionHistory, error) {
+	historyFile := filepath.Join(workspace, ".nerd", "sessions", sessionID+".json")
+	data, err := os.ReadFile(historyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var history SessionHistory
+	if err := json.Unmarshal(data, &history); err != nil {
+		return nil, err
+	}
+	return &history, nil
+}
+
+// ListSessionHistories returns all available session histories.
+func ListSessionHistories(workspace string) ([]string, error) {
+	sessionsDir := filepath.Join(workspace, ".nerd", "sessions")
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var sessions []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			sessions = append(sessions, strings.TrimSuffix(entry.Name(), ".json"))
+		}
+	}
+	return sessions, nil
+}
+
+// GetLatestSession returns the most recent session ID.
+func GetLatestSession(workspace string) (string, error) {
+	state, err := LoadSessionState(workspace)
+	if err != nil {
+		return "", err
+	}
+	return state.SessionID, nil
+}
+
 // IsInitialized checks if the workspace has been initialized.
 func IsInitialized(workspace string) bool {
 	nerdDir := filepath.Join(workspace, ".nerd")
@@ -1084,4 +1185,44 @@ func cleanNameConstant(s string) string {
 		return s[1:]
 	}
 	return s
+}
+
+// sanitizeForMangle converts a string to a valid Mangle name constant.
+// Mangle name constants must be lowercase alphanumeric with underscores.
+func sanitizeForMangle(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+
+	// Convert to lowercase
+	s = strings.ToLower(s)
+
+	// Replace spaces and special characters with underscores
+	var result strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			result.WriteRune(c)
+		} else if c == ' ' || c == '-' || c == '.' || c == '/' {
+			result.WriteRune('_')
+		}
+		// Skip other characters
+	}
+
+	// Ensure it doesn't start with a number
+	sanitized := result.String()
+	if len(sanitized) > 0 && sanitized[0] >= '0' && sanitized[0] <= '9' {
+		sanitized = "n" + sanitized
+	}
+
+	// Remove consecutive underscores and trim
+	for strings.Contains(sanitized, "__") {
+		sanitized = strings.ReplaceAll(sanitized, "__", "_")
+	}
+	sanitized = strings.Trim(sanitized, "_")
+
+	if sanitized == "" {
+		return "unknown"
+	}
+
+	return sanitized
 }

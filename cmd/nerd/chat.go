@@ -11,6 +11,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
+	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
 	"context"
@@ -92,6 +93,12 @@ type chatModel struct {
 	campaignOrch      *campaign.Orchestrator
 	campaignProgress  *campaign.Progress
 	showCampaignPanel bool
+
+	// Learning Store for Autopoiesis (§8.3)
+	learningStore *store.LearningStore
+
+	// Local knowledge database for research persistence
+	localDB *store.LocalStore
 }
 
 type chatMessage struct {
@@ -142,6 +149,12 @@ type (
 	campaignProgressMsg  *campaign.Progress
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     error
+
+	// Init messages
+	initCompleteMsg struct {
+		result        *nerdinit.InitResult
+		learningStore *store.LearningStore
+	}
 )
 
 // initChat initializes the interactive chat model
@@ -219,11 +232,42 @@ func initChat() chatModel {
 	shardMgr.SetLLMClient(llmClient)
 
 	// Register Shard Factories (External Injection)
-	shardMgr.RegisterShard("coder", shards.NewCoderShard)
-	shardMgr.RegisterShard("reviewer", shards.NewReviewerShard)
-	shardMgr.RegisterShard("tester", shards.NewTesterShard)
+	// Each shard gets its own kernel, VirtualStore, and LLM client injected
+	virtualStore := core.NewVirtualStore(executor)
+
+	// Initialize local knowledge database for research persistence
+	// This enables knowledge atoms to persist across sessions
+	var localDB *store.LocalStore
+	knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
+	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
+		localDB = db
+	}
+
+	shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := shards.NewCoderShard()
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient)
+		return shard
+	})
+	shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := shards.NewReviewerShard()
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient)
+		return shard
+	})
+	shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := shards.NewTesterShard()
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient)
+		return shard
+	})
 	shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
-		return shards.NewResearcherShard()
+		shard := shards.NewResearcherShard()
+		shard.SetLLMClient(llmClient)
+		if localDB != nil {
+			shard.SetLocalDB(localDB)
+		}
+		return shard
 	})
 
 	ctx := context.Background()
@@ -287,6 +331,7 @@ func initChat() chatModel {
 		turnCount:             resolveTurnCount(loadedSession),
 		awaitingClarification: false,
 		selectedOption:        0,
+		localDB:               localDB,
 	}
 
 	if len(initialMessages) > 0 {
@@ -341,6 +386,27 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 		var s nerdSession
 		if err := json.Unmarshal(data, &s); err == nil {
 			session = &s
+
+			// Load conversation history for this session
+			if session.SessionID != "" {
+				if history, err := nerdinit.LoadSessionHistory(workspace, session.SessionID); err == nil {
+					// Convert and prepend history to initialMessages
+					for _, msg := range history.Messages {
+						*initialMessages = append(*initialMessages, chatMessage{
+							role:    msg.Role,
+							content: msg.Content,
+							time:    msg.Time,
+						})
+					}
+					if len(history.Messages) > 0 {
+						*initialMessages = append(*initialMessages, chatMessage{
+							role:    "assistant",
+							content: fmt.Sprintf("📜 *Restored %d messages from previous session*", len(history.Messages)),
+							time:    time.Now(),
+						})
+					}
+				}
+			}
 		} else {
 			*initialMessages = append(*initialMessages, chatMessage{
 				role:    "assistant",
@@ -372,6 +438,46 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 	}
 
 	return session, prefs
+}
+
+// saveSessionState saves the current session state and history.
+func (m *chatModel) saveSessionState() {
+	if m.workspace == "" || m.sessionID == "" {
+		return
+	}
+
+	// Only save if initialized
+	if !nerdinit.IsInitialized(m.workspace) {
+		return
+	}
+
+	// Update session state
+	state := &nerdinit.SessionState{
+		SessionID:    m.sessionID,
+		StartedAt:    time.Now(), // Will be overwritten if exists
+		LastActiveAt: time.Now(),
+		TurnCount:    m.turnCount,
+		HistoryFile:  m.sessionID + ".json",
+	}
+
+	// Preserve original StartedAt if session exists
+	if existing, err := nerdinit.LoadSessionState(m.workspace); err == nil {
+		state.StartedAt = existing.StartedAt
+	}
+
+	// Save session state
+	_ = nerdinit.SaveSessionState(m.workspace, state)
+
+	// Convert and save conversation history
+	messages := make([]nerdinit.ChatMessage, len(m.history))
+	for i, msg := range m.history {
+		messages[i] = nerdinit.ChatMessage{
+			Role:    msg.role,
+			Content: msg.content,
+			Time:    msg.time,
+		}
+	}
+	_ = nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages)
 }
 
 func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSize int, status string) error {
@@ -592,6 +698,8 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
+		// Persist session after each response
+		m.saveSessionState()
 
 	case clarificationMsg:
 		// Enter clarification mode (Pause)
@@ -682,6 +790,53 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 
 		m.viewport.GotoBottom()
+
+	case initCompleteMsg:
+		m.isLoading = false
+		// Set up learning store and connect to shard manager via adapter
+		if msg.learningStore != nil {
+			m.learningStore = msg.learningStore
+			adapter := &learningStoreAdapter{store: msg.learningStore}
+			m.shardMgr.SetLearningStore(adapter)
+		}
+		// Build summary message from result
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: m.renderInitComplete(msg.result),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		// Persist session after init
+		m.saveSessionState()
+
+	case scanCompleteMsg:
+		m.isLoading = false
+		if msg.err != nil {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: fmt.Sprintf("❌ **Scan failed:** %v", msg.err),
+				time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, chatMessage{
+				role: "assistant",
+				content: fmt.Sprintf(`✅ **Scan complete**
+
+| Metric | Value |
+|--------|-------|
+| Files indexed | %d |
+| Directories | %d |
+| Facts generated | %d |
+| Duration | %.2fs |
+
+The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.directoryCount, msg.factCount, msg.duration.Seconds()),
+				time: time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
@@ -890,6 +1045,55 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.history = []chatMessage{}
 		m.viewport.SetContent("")
 		m.textinput.Reset()
+		// Save empty history
+		m.saveSessionState()
+		return m, nil
+
+	case "/new-session":
+		// Start a completely new session with fresh ID
+		m.history = []chatMessage{}
+		m.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+		m.turnCount = 0
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🆕 Started new session: `%s`\n\nPrevious history saved.", m.sessionID),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		m.saveSessionState()
+		return m, nil
+
+	case "/sessions":
+		// List available sessions
+		sessions, err := nerdinit.ListSessionHistories(m.workspace)
+		if err != nil || len(sessions) == 0 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "No saved sessions found.",
+				time:    time.Now(),
+			})
+		} else {
+			var sb strings.Builder
+			sb.WriteString("## 📜 Saved Sessions\n\n")
+			for _, sess := range sessions {
+				current := ""
+				if sess == m.sessionID {
+					current = " *(current)*"
+				}
+				sb.WriteString(fmt.Sprintf("- `%s`%s\n", sess, current))
+			}
+			sb.WriteString("\n*Use `/load-session <id>` to restore a session*")
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: sb.String(),
+				time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
 		return m, nil
 
 	case "/help":
@@ -899,8 +1103,12 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 |---------|-------------|
 | /help | Show this help message |
 | /clear | Clear chat history |
+| /new-session | Start a fresh session (preserves old) |
+| /sessions | List saved sessions |
 | /status | Show system status |
 | /init | Initialize codeNERD in the workspace |
+| /init --force | Reinitialize (preserves learned preferences) |
+| /scan | Refresh codebase index without full reinit |
 | /config set-key <key> | Set API key |
 | /config set-theme <theme> | Set theme (light/dark) |
 | /spawn <type> <task> | Spawn a shard agent |
@@ -1282,6 +1490,30 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "/init":
+		// Check if already initialized
+		if nerdinit.IsInitialized(m.workspace) {
+			// Check for --force flag
+			forceReinit := len(parts) > 1 && parts[1] == "--force"
+			if !forceReinit {
+				m.history = append(m.history, chatMessage{
+					role: "assistant",
+					content: `⚠️ **Workspace already initialized**
+
+The ` + "`.nerd/`" + ` directory already exists with a project profile.
+
+Options:
+- Use ` + "`/init --force`" + ` to reinitialize (preserves learned preferences)
+- Use ` + "`/scan`" + ` to refresh the codebase index
+- Use ` + "`/agents`" + ` to see available agents`,
+					time: time.Now(),
+				})
+				m.textinput.Reset()
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				return m, nil
+			}
+		}
+
 		// Run comprehensive initialization in background
 		m.history = append(m.history, chatMessage{
 			role: "assistant",
@@ -1295,6 +1527,7 @@ This comprehensive initialization will:
 5. 🤖 Determine & create Type 3 agents
 6. 📚 Build knowledge bases for each agent
 7. ⚙️ Initialize preferences & session state
+8. 📖 Initialize learning store for Autopoiesis
 
 _This may take a minute for large codebases..._`,
 			time: time.Now(),
@@ -1307,6 +1540,43 @@ _This may take a minute for large codebases..._`,
 		return m, tea.Batch(
 			m.spinner.Tick,
 			m.runInit(),
+		)
+
+	case "/scan":
+		// Refresh codebase index without full reinit
+		if !nerdinit.IsInitialized(m.workspace) {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "⚠️ Workspace not initialized. Run `/init` first to set up the `.nerd/` directory.",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		m.history = append(m.history, chatMessage{
+			role: "assistant",
+			content: `🔍 **Scanning codebase...**
+
+Refreshing the codebase index:
+1. 📁 Scanning file structure
+2. 🌳 Extracting AST symbols
+3. 🔗 Updating dependency graph
+4. 🧠 Asserting facts to kernel
+
+_This may take a moment for large codebases..._`,
+			time: time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.runScan(),
 		)
 
 	case "/define-agent":
@@ -2818,50 +3088,151 @@ func (m chatModel) runInit() tea.Cmd {
 			}
 		}
 
-		// Build the summary message
-		var sb strings.Builder
-		sb.WriteString("## ✅ Initialization Complete\n\n")
-
-		sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
-		sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
-		if result.Profile.Framework != "" {
-			sb.WriteString(fmt.Sprintf("**Framework**: %s\n", result.Profile.Framework))
-		}
-		sb.WriteString(fmt.Sprintf("**Architecture**: %s\n", result.Profile.Architecture))
-		sb.WriteString(fmt.Sprintf("**Files Analyzed**: %d\n", result.Profile.FileCount))
-		sb.WriteString(fmt.Sprintf("**Directories**: %d\n", result.Profile.DirectoryCount))
-		sb.WriteString(fmt.Sprintf("**Facts Generated**: %d\n\n", result.FactsGenerated))
-
-		// Show created agents
-		if len(result.CreatedAgents) > 0 {
-			sb.WriteString("### 🤖 Type 3 Agents Created\n\n")
-			sb.WriteString("| Agent | Knowledge Atoms | Status |\n")
-			sb.WriteString("|-------|-----------------|--------|\n")
-			for _, agent := range result.CreatedAgents {
-				sb.WriteString(fmt.Sprintf("| %s | %d | %s |\n", agent.Name, agent.KBSize, agent.Status))
-			}
-			sb.WriteString("\n")
+		// Initialize learning store for Autopoiesis (§8.3)
+		shardsDir := nerdDir + "/shards"
+		learningStore, lsErr := store.NewLearningStore(shardsDir)
+		if lsErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Learning store init failed: %v", lsErr))
 		}
 
-		// Show warnings if any
-		if len(result.Warnings) > 0 {
-			sb.WriteString("### ⚠️ Warnings\n\n")
-			for _, w := range result.Warnings {
-				sb.WriteString(fmt.Sprintf("- %s\n", w))
-			}
-			sb.WriteString("\n")
+		// Return init result with learning store (may be nil if failed)
+		return initCompleteMsg{
+			result:        result,
+			learningStore: learningStore,
 		}
-
-		sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
-
-		sb.WriteString("### 💡 Next Steps\n\n")
-		sb.WriteString("- View agents: `/agents`\n")
-		sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
-		sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
-		sb.WriteString("- Query the codebase: Just ask questions!\n")
-
-		return responseMsg(sb.String())
 	}
+}
+
+// scanCompleteMsg is sent when scan completes
+type scanCompleteMsg struct {
+	fileCount      int
+	directoryCount int
+	factCount      int
+	duration       time.Duration
+	err            error
+}
+
+// runScan performs a codebase rescan without full reinitialization
+func (m chatModel) runScan() tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+
+		// Scan the workspace
+		facts, err := m.scanner.ScanWorkspace(m.workspace)
+		if err != nil {
+			return scanCompleteMsg{err: err}
+		}
+
+		// Load facts into kernel
+		if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
+			return scanCompleteMsg{err: loadErr}
+		}
+
+		// Also reload profile.gl if it exists
+		factsPath := filepath.Join(m.workspace, ".nerd", "profile.gl")
+		if _, statErr := os.Stat(factsPath); statErr == nil {
+			_ = m.kernel.LoadFactsFromFile(factsPath)
+		}
+
+		// Count files and directories from facts
+		fileCount := 0
+		dirCount := 0
+		for _, f := range facts {
+			switch f.Predicate {
+			case "file_topology":
+				fileCount++
+			case "directory":
+				dirCount++
+			}
+		}
+
+		return scanCompleteMsg{
+			fileCount:      fileCount,
+			directoryCount: dirCount,
+			factCount:      len(facts),
+			duration:       time.Since(startTime),
+		}
+	}
+}
+
+// learningStoreAdapter wraps store.LearningStore to implement core.LearningStore interface.
+type learningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.Load(shardType)
+	if err != nil {
+		return nil, err
+	}
+	// Convert store.Learning to core.ShardLearning
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *learningStoreAdapter) Close() error {
+	return a.store.Close()
+}
+
+// renderInitComplete builds a summary message for initialization completion.
+func (m chatModel) renderInitComplete(result *nerdinit.InitResult) string {
+	var sb strings.Builder
+	sb.WriteString("## ✅ Initialization Complete\n\n")
+
+	sb.WriteString(fmt.Sprintf("**Project**: %s\n", result.Profile.Name))
+	sb.WriteString(fmt.Sprintf("**Language**: %s\n", result.Profile.Language))
+	if result.Profile.Framework != "" {
+		sb.WriteString(fmt.Sprintf("**Framework**: %s\n", result.Profile.Framework))
+	}
+	sb.WriteString(fmt.Sprintf("**Architecture**: %s\n", result.Profile.Architecture))
+	sb.WriteString(fmt.Sprintf("**Files Analyzed**: %d\n", result.Profile.FileCount))
+	sb.WriteString(fmt.Sprintf("**Directories**: %d\n", result.Profile.DirectoryCount))
+	sb.WriteString(fmt.Sprintf("**Facts Generated**: %d\n\n", result.FactsGenerated))
+
+	// Show created agents
+	if len(result.CreatedAgents) > 0 {
+		sb.WriteString("### 🤖 Type 3 Agents Created\n\n")
+		sb.WriteString("| Agent | Knowledge Atoms | Status |\n")
+		sb.WriteString("|-------|-----------------|--------|\n")
+		for _, agent := range result.CreatedAgents {
+			sb.WriteString(fmt.Sprintf("| %s | %d | %s |\n", agent.Name, agent.KBSize, agent.Status))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Show warnings if any
+	if len(result.Warnings) > 0 {
+		sb.WriteString("### ⚠️ Warnings\n\n")
+		for _, w := range result.Warnings {
+			sb.WriteString(fmt.Sprintf("- %s\n", w))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("**Duration**: %.2fs\n\n", result.Duration.Seconds()))
+
+	sb.WriteString("### 💡 Next Steps\n\n")
+	sb.WriteString("- View agents: `/agents`\n")
+	sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
+	sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
+	sb.WriteString("- Query the codebase: Just ask questions!\n")
+
+	return sb.String()
 }
 
 // getDefinedProfiles returns user-defined agent profiles

@@ -501,7 +501,7 @@ active_strategy(/campaign_execution) :-
 has_incomplete_hard_dep(PhaseID) :-
     phase_dependency(PhaseID, DepPhaseID, /hard),
     campaign_phase(DepPhaseID, _, _, _, Status, _),
-    Status != /completed.
+    Status != /completed .
 
 # A phase is eligible when all hard dependencies are complete
 phase_eligible(PhaseID) :-
@@ -547,7 +547,7 @@ has_blocking_task_dep(TaskID) :-
     task_dependency(TaskID, BlockerID),
     campaign_task(BlockerID, _, _, Status, _),
     Status != /completed,
-    Status != /skipped.
+    Status != /skipped .
 
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
@@ -669,7 +669,7 @@ has_passed_checkpoint(PhaseID, CheckType) :-
 has_incomplete_phase_task(PhaseID) :-
     campaign_task(_, PhaseID, _, Status, _),
     Status != /completed,
-    Status != /skipped.
+    Status != /skipped .
 
 all_phase_tasks_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, _, _),
@@ -689,16 +689,22 @@ phase_blocked(PhaseID, "checkpoint_failed") :-
 # 19.6 Replanning Triggers
 # -----------------------------------------------------------------------------
 
-# Helper: count failed tasks
-failed_task_count(CampaignID, Count) :-
+# Helper: identify failed tasks (for counting in Go runtime)
+failed_campaign_task(CampaignID, TaskID) :-
     current_campaign(CampaignID),
-    Count = count({ TaskID : campaign_task(TaskID, _, _, /failed, _) }).
+    campaign_task(TaskID, PhaseID, Desc, /failed, TaskType),
+    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
 
-# Trigger replan on repeated failures (> 3)
+# Trigger replan on repeated failures (threshold checked in Go runtime)
+# The Go runtime counts failed_campaign_task facts and triggers replan if > 3
 replan_needed(CampaignID, "task_failure_cascade") :-
     current_campaign(CampaignID),
-    failed_task_count(CampaignID, Count),
-    Count > 3.
+    failed_campaign_task(CampaignID, TaskID1),
+    failed_campaign_task(CampaignID, TaskID2),
+    failed_campaign_task(CampaignID, TaskID3),
+    TaskID1 != TaskID2,
+    TaskID2 != TaskID3,
+    TaskID1 != TaskID3.
 
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, "user_instruction") :-
@@ -721,7 +727,7 @@ next_action(/pause_and_replan) :-
 has_incomplete_phase(CampaignID) :-
     campaign_phase(_, CampaignID, _, _, Status, _),
     Status != /completed,
-    Status != /skipped.
+    Status != /skipped .
 
 # Campaign complete when all phases complete
 campaign_complete(CampaignID) :-
@@ -753,11 +759,15 @@ campaign_blocked(CampaignID, "all_tasks_blocked") :-
 # 19.9 Autopoiesis During Campaign
 # -----------------------------------------------------------------------------
 
-# Learn from phase completion
-promote_to_long_term(pattern(PhaseType, /success)) :-
-    campaign_phase(PhaseID, _, _, _, /completed, _),
-    phase_objective(PhaseID, PhaseType, _, _),
-    phase_checkpoint(PhaseID, _, /true, _, _).
+# Track successful phase types for learning (Go runtime extracts from kernel)
+phase_success_pattern(PhaseType) :-
+    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, /completed, Profile),
+    phase_objective(PhaseID, PhaseType, Desc, Priority),
+    phase_checkpoint(PhaseID, CheckpointID, /true, ValidatedAt, ValidatorShard).
+
+# Learn from phase completion - promotes success pattern for phase type
+promote_to_long_term(/phase_success, PhaseType) :-
+    phase_success_pattern(PhaseType).
 
 # Learn from task failures for future avoidance
 campaign_learning(CampaignID, /failure_pattern, TaskType, ErrorMsg, Now) :-

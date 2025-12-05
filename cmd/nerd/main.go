@@ -33,6 +33,8 @@ var (
 	timeout   time.Duration
 	// System shards
 	disableSystemShards []string
+	// Init flags
+	forceInit bool
 
 	// Logger
 	logger *zap.Logger
@@ -185,6 +187,23 @@ Run this once when starting to use codeNERD with a new project.`,
 	RunE: runInit,
 }
 
+// scanCmd refreshes the codebase index without full reinitialization
+var scanCmd = &cobra.Command{
+	Use:   "scan",
+	Short: "Refresh the codebase index",
+	Long: `Scans the workspace and refreshes the Mangle kernel with fresh facts.
+
+This is a lighter alternative to 'nerd init --force' that:
+  1. Scans the file structure
+  2. Extracts AST symbols and dependencies
+  3. Updates the kernel with fresh file_topology facts
+  4. Reloads profile.gl facts
+
+Use this when files have changed and you want to update the kernel without
+recreating agent knowledge bases.`,
+	RunE: runScan,
+}
+
 // whyCmd explains the reasoning behind the last action
 var whyCmd = &cobra.Command{
 	Use:   "why [predicate]",
@@ -284,6 +303,9 @@ func init() {
 	// System shard controls
 	runCmd.Flags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
 
+	// Init flags
+	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Force reinitialize (preserves learned preferences)")
+
 	// Browser subcommands
 	browserCmd.AddCommand(browserLaunchCmd)
 	browserCmd.AddCommand(browserSessionCmd)
@@ -308,6 +330,7 @@ func init() {
 	rootCmd.AddCommand(queryCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(whyCmd)
 	rootCmd.AddCommand(campaignCmd)
 }
@@ -678,10 +701,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if already initialized
-	if nerdinit.IsInitialized(cwd) {
+	if nerdinit.IsInitialized(cwd) && !forceInit {
 		fmt.Println("Project already initialized. Use 'nerd status' to view project info.")
-		fmt.Println("To reinitialize, delete the .nerd/ directory first.")
+		fmt.Println("To reinitialize, use 'nerd init --force' (preserves learned preferences).")
 		return nil
+	}
+
+	if forceInit {
+		fmt.Println("🔄 Force reinitializing workspace...")
 	}
 
 	// Configure initializer
@@ -707,6 +734,65 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if !result.Success {
 		return fmt.Errorf("initialization completed with errors")
 	}
+
+	return nil
+}
+
+// runScan refreshes the codebase index
+func runScan(cmd *cobra.Command, args []string) error {
+	// Resolve workspace
+	cwd := workspace
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+
+	// Check if initialized
+	if !nerdinit.IsInitialized(cwd) {
+		fmt.Println("Project not initialized. Run 'nerd init' first.")
+		return nil
+	}
+
+	fmt.Println("🔍 Scanning codebase...")
+
+	// Create scanner
+	scanner := world.NewScanner()
+
+	// Scan workspace
+	facts, err := scanner.ScanWorkspace(cwd)
+	if err != nil {
+		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	// Initialize kernel and load facts
+	kernel := core.NewRealKernel()
+	if err := kernel.LoadFacts(facts); err != nil {
+		return fmt.Errorf("failed to load facts: %w", err)
+	}
+
+	// Also reload profile.gl if it exists
+	factsPath := filepath.Join(cwd, ".nerd", "profile.gl")
+	if _, statErr := os.Stat(factsPath); statErr == nil {
+		if err := kernel.LoadFactsFromFile(factsPath); err != nil {
+			fmt.Printf("⚠️ Warning: failed to load profile.gl: %v\n", err)
+		}
+	}
+
+	// Count files and directories
+	fileCount := 0
+	dirCount := 0
+	for _, f := range facts {
+		switch f.Predicate {
+		case "file_topology":
+			fileCount++
+		case "directory":
+			dirCount++
+		}
+	}
+
+	fmt.Println("✅ Scan complete")
+	fmt.Printf("   Files indexed:    %d\n", fileCount)
+	fmt.Printf("   Directories:      %d\n", dirCount)
+	fmt.Printf("   Facts generated:  %d\n", len(facts))
 
 	return nil
 }
