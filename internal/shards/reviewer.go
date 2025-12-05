@@ -72,41 +72,41 @@ const (
 
 // ReviewFinding represents a single issue found during review.
 type ReviewFinding struct {
-	File       string `json:"file"`
-	Line       int    `json:"line"`
-	Column     int    `json:"column,omitempty"`
-	EndLine    int    `json:"end_line,omitempty"`
-	Severity   string `json:"severity"` // "critical", "error", "warning", "info", "suggestion"
-	Category   string `json:"category"` // "security", "style", "performance", "maintainability", "bug"
-	RuleID     string `json:"rule_id"`
-	Message    string `json:"message"`
-	Suggestion string `json:"suggestion,omitempty"`
+	File        string `json:"file"`
+	Line        int    `json:"line"`
+	Column      int    `json:"column,omitempty"`
+	EndLine     int    `json:"end_line,omitempty"`
+	Severity    string `json:"severity"` // "critical", "error", "warning", "info", "suggestion"
+	Category    string `json:"category"` // "security", "style", "performance", "maintainability", "bug"
+	RuleID      string `json:"rule_id"`
+	Message     string `json:"message"`
+	Suggestion  string `json:"suggestion,omitempty"`
 	CodeSnippet string `json:"code_snippet,omitempty"`
 }
 
 // ReviewResult represents the outcome of a code review.
 type ReviewResult struct {
-	Files        []string        `json:"files"`
-	Findings     []ReviewFinding `json:"findings"`
-	Severity     ReviewSeverity  `json:"severity"`
-	Summary      string          `json:"summary"`
-	Duration     time.Duration   `json:"duration"`
-	BlockCommit  bool            `json:"block_commit"`
-	Metrics      *CodeMetrics    `json:"metrics,omitempty"`
+	Files       []string        `json:"files"`
+	Findings    []ReviewFinding `json:"findings"`
+	Severity    ReviewSeverity  `json:"severity"`
+	Summary     string          `json:"summary"`
+	Duration    time.Duration   `json:"duration"`
+	BlockCommit bool            `json:"block_commit"`
+	Metrics     *CodeMetrics    `json:"metrics,omitempty"`
 }
 
 // CodeMetrics holds code complexity metrics.
 type CodeMetrics struct {
-	TotalLines       int     `json:"total_lines"`
-	CodeLines        int     `json:"code_lines"`
-	CommentLines     int     `json:"comment_lines"`
-	BlankLines       int     `json:"blank_lines"`
-	CyclomaticAvg    float64 `json:"cyclomatic_avg"`
-	CyclomaticMax    int     `json:"cyclomatic_max"`
-	MaxNesting       int     `json:"max_nesting"`
-	FunctionCount    int     `json:"function_count"`
-	LongFunctions    int     `json:"long_functions"` // Functions > 50 lines
-	DuplicateBlocks  int     `json:"duplicate_blocks"`
+	TotalLines      int     `json:"total_lines"`
+	CodeLines       int     `json:"code_lines"`
+	CommentLines    int     `json:"comment_lines"`
+	BlankLines      int     `json:"blank_lines"`
+	CyclomaticAvg   float64 `json:"cyclomatic_avg"`
+	CyclomaticMax   int     `json:"cyclomatic_max"`
+	MaxNesting      int     `json:"max_nesting"`
+	FunctionCount   int     `json:"function_count"`
+	LongFunctions   int     `json:"long_functions"` // Functions > 50 lines
+	DuplicateBlocks int     `json:"duplicate_blocks"`
 }
 
 // =============================================================================
@@ -127,18 +127,18 @@ type ReviewerShard struct {
 	reviewerConfig ReviewerConfig
 
 	// Components (required)
-	kernel       *core.RealKernel      // Own kernel instance for logic-driven review
-	llmClient    perception.LLMClient  // LLM for semantic analysis
-	virtualStore *core.VirtualStore    // Action routing
+	kernel       *core.RealKernel     // Own kernel instance for logic-driven review
+	llmClient    perception.LLMClient // LLM for semantic analysis
+	virtualStore *core.VirtualStore   // Action routing
 
 	// State tracking
-	startTime   time.Time
-	findings    []ReviewFinding
-	severity    ReviewSeverity
+	startTime time.Time
+	findings  []ReviewFinding
+	severity  ReviewSeverity
 
 	// Autopoiesis tracking (§8.3)
-	approvedPatterns    map[string]int // Patterns that pass review
-	flaggedPatterns     map[string]int // Patterns that get flagged repeatedly
+	approvedPatterns    map[string]int    // Patterns that pass review
+	flaggedPatterns     map[string]int    // Patterns that get flagged repeatedly
 	learnedAntiPatterns map[string]string // Anti-patterns learned from rejections
 }
 
@@ -308,10 +308,10 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 
 // ReviewerTask represents a parsed review task.
 type ReviewerTask struct {
-	Action   string   // "review", "security_scan", "style_check", "complexity", "diff"
-	Files    []string // Files to review
-	DiffRef  string   // Git diff reference (e.g., "HEAD~1")
-	Options  map[string]string
+	Action  string   // "review", "security_scan", "style_check", "complexity", "diff"
+	Files   []string // Files to review
+	DiffRef string   // Git diff reference (e.g., "HEAD~1")
+	Options map[string]string
 }
 
 // parseTask extracts action and parameters from task string.
@@ -558,7 +558,7 @@ func (r *ReviewerShard) complexityAnalysis(ctx context.Context, task *ReviewerTa
 
 	result.Severity = r.calculateOverallSeverity(result.Findings)
 	result.Duration = time.Since(startTime)
-	result.Summary = fmt.Sprintf("Complexity analysis complete")
+	result.Summary = "Complexity analysis complete"
 
 	return result, nil
 }
@@ -737,13 +737,13 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 
 			if sp.Pattern.MatchString(line) {
 				findings = append(findings, ReviewFinding{
-					File:       filePath,
-					Line:       lineNum + 1,
-					Severity:   sp.Severity,
-					Category:   "security",
-					RuleID:     sp.RuleID,
-					Message:    sp.Message,
-					Suggestion: sp.Suggestion,
+					File:        filePath,
+					Line:        lineNum + 1,
+					Severity:    sp.Severity,
+					Category:    "security",
+					RuleID:      sp.RuleID,
+					Message:     sp.Message,
+					Suggestion:  sp.Suggestion,
 					CodeSnippet: strings.TrimSpace(line),
 				})
 			}

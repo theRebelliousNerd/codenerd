@@ -37,16 +37,16 @@ func DefaultToolGeneratorConfig() ToolGeneratorConfig {
 
 // ToolGeneratorResult represents the output of a tool generation task.
 type ToolGeneratorResult struct {
-	Action      string                         `json:"action"`       // generate, refine, list, status
-	Success     bool                           `json:"success"`
-	ToolName    string                         `json:"tool_name,omitempty"`
-	Message     string                         `json:"message"`
-	LoopResult  *autopoiesis.LoopResult        `json:"loop_result,omitempty"`
-	Profile     *autopoiesis.ToolQualityProfile `json:"profile,omitempty"`
-	Tools       []*autopoiesis.RuntimeTool     `json:"tools,omitempty"`
-	Learnings   []*autopoiesis.ToolLearning    `json:"learnings,omitempty"`
-	Facts       []core.Fact                    `json:"facts,omitempty"`
-	Duration    time.Duration                  `json:"duration"`
+	Action     string                          `json:"action"` // generate, refine, list, status
+	Success    bool                            `json:"success"`
+	ToolName   string                          `json:"tool_name,omitempty"`
+	Message    string                          `json:"message"`
+	LoopResult *autopoiesis.LoopResult         `json:"loop_result,omitempty"`
+	Profile    *autopoiesis.ToolQualityProfile `json:"profile,omitempty"`
+	Tools      []*autopoiesis.RuntimeTool      `json:"tools,omitempty"`
+	Learnings  []*autopoiesis.ToolLearning     `json:"learnings,omitempty"`
+	Facts      []core.Fact                     `json:"facts,omitempty"`
+	Duration   time.Duration                   `json:"duration"`
 }
 
 // ToolGeneratorShard handles autopoiesis tool generation and management.
@@ -309,13 +309,13 @@ func (s *ToolGeneratorShard) handleRefine(ctx context.Context, task string) (*To
 
 	result.Success = refinementResult.Success
 	if refinementResult.Success {
-		result.Message = fmt.Sprintf("Successfully refined tool '%s' with %d improvements",
-			toolName, len(suggestions))
+		result.Message = fmt.Sprintf("Successfully refined tool '%s' with %d improvements: %s",
+			toolName, len(suggestions), strings.Join(refinementResult.Changes, "; "))
 		result.Facts = append(result.Facts,
 			core.Fact{Predicate: "tool_refined", Args: []interface{}{toolName, time.Now().Unix()}},
 		)
 	} else {
-		result.Message = refinementResult.Message
+		result.Message = fmt.Sprintf("Refinement failed: %s", strings.Join(refinementResult.Changes, "; "))
 	}
 
 	return result, nil
@@ -323,6 +323,13 @@ func (s *ToolGeneratorShard) handleRefine(ctx context.Context, task string) (*To
 
 // handleList handles tool listing requests.
 func (s *ToolGeneratorShard) handleList(ctx context.Context) (*ToolGeneratorResult, error) {
+	// Check context for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	s.mu.RLock()
 	orch := s.orchestrator
 	s.mu.RUnlock()
@@ -356,6 +363,13 @@ func (s *ToolGeneratorShard) handleList(ctx context.Context) (*ToolGeneratorResu
 
 // handleStatus handles tool status queries.
 func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*ToolGeneratorResult, error) {
+	// Check context for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	s.mu.RLock()
 	orch := s.orchestrator
 	s.mu.RUnlock()

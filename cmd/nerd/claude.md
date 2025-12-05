@@ -22,7 +22,9 @@ The CLI is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) f
 ## Key Types
 
 ### chatModel
+
 The central TUI model containing:
+
 - **UI Components**: textinput, viewport, spinner, styles
 - **State**: history, loading state, dimensions
 - **Backend**: LLM client, kernel, shard manager, transducer
@@ -30,6 +32,7 @@ The central TUI model containing:
 - **Autopoiesis**: Self-modification orchestrator
 
 ### Message Types
+
 - `responseMsg` - LLM response
 - `errorMsg` - Error handling
 - `campaignStartedMsg` - Campaign lifecycle
@@ -70,6 +73,7 @@ The central TUI model containing:
 ## Testing
 
 Run tests with:
+
 ```bash
 go test ./cmd/nerd/...
 ```

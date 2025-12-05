@@ -9,7 +9,12 @@
       "Bash(python:*)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(while read file)",
+      "Bash(done)",
+      "Bash(tree:*)",
+      "Bash(xargs -I {} bash -c \"test -f ''''{}/claude.md'''' && echo ''''{}'''' && head -3 ''''{}/claude.md''''\")",
+      "Bash(git status:*)"
     ],
     "deny": [],
     "ask": []
