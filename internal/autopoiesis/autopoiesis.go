@@ -44,6 +44,12 @@ type Orchestrator struct {
 	agentCreate *AgentCreator
 	ouroboros   *OuroborosLoop  // The Ouroboros Loop for tool self-generation
 	client      LLMClient
+
+	// Feedback and Learning System
+	evaluator   *QualityEvaluator   // Assess tool output quality
+	patterns    *PatternDetector    // Detect recurring issues
+	refiner     *ToolRefiner        // Improve suboptimal tools
+	learnings   *LearningStore      // Persist learnings
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -60,14 +66,23 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		AllowExec:       false,
 	}
 
+	toolGen := NewToolGenerator(client, config.ToolsDir)
+	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
+
 	return &Orchestrator{
 		config:      config,
 		complexity:  NewComplexityAnalyzer(client),
-		toolGen:     NewToolGenerator(client, config.ToolsDir),
+		toolGen:     toolGen,
 		persistence: NewPersistenceAnalyzer(client),
 		agentCreate: NewAgentCreator(client, config.AgentsDir),
 		ouroboros:   NewOuroborosLoop(client, ouroborosConfig),
 		client:      client,
+
+		// Initialize feedback and learning system
+		evaluator:   NewQualityEvaluator(client),
+		patterns:    NewPatternDetector(),
+		refiner:     NewToolRefiner(client, toolGen),
+		learnings:   NewLearningStore(learningsDir),
 	}
 }
 
@@ -419,6 +434,140 @@ func (o *Orchestrator) HasGeneratedTool(name string) bool {
 // CheckToolSafety validates tool code without compiling
 func (o *Orchestrator) CheckToolSafety(code string) *SafetyReport {
 	return o.ouroboros.safetyChecker.Check(code)
+}
+
+// =============================================================================
+// FEEDBACK AND LEARNING WRAPPERS
+// =============================================================================
+// These methods expose the feedback loop for tool execution evaluation and improvement.
+
+// RecordExecution records a tool execution and evaluates its quality
+func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionFeedback) {
+	// Evaluate quality
+	if feedback.Quality == nil {
+		feedback.Quality = o.evaluator.Evaluate(ctx, feedback)
+	}
+
+	// Record in pattern detector
+	o.patterns.RecordExecution(*feedback)
+
+	// Get patterns for this tool
+	patterns := o.patterns.GetToolPatterns(feedback.ToolName)
+
+	// Update learning store
+	o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+}
+
+// EvaluateToolQuality assesses the quality of a tool execution
+func (o *Orchestrator) EvaluateToolQuality(ctx context.Context, feedback *ExecutionFeedback) *QualityAssessment {
+	return o.evaluator.Evaluate(ctx, feedback)
+}
+
+// EvaluateToolQualityWithLLM uses LLM for deeper quality assessment
+func (o *Orchestrator) EvaluateToolQualityWithLLM(ctx context.Context, feedback *ExecutionFeedback) (*QualityAssessment, error) {
+	return o.evaluator.EvaluateWithLLM(ctx, feedback)
+}
+
+// GetToolPatterns returns detected issues patterns for a tool
+func (o *Orchestrator) GetToolPatterns(toolName string) []*DetectedPattern {
+	return o.patterns.GetToolPatterns(toolName)
+}
+
+// GetAllPatterns returns all detected patterns above confidence threshold
+func (o *Orchestrator) GetAllPatterns(minConfidence float64) []*DetectedPattern {
+	return o.patterns.GetPatterns(minConfidence)
+}
+
+// ShouldRefineTool checks if a tool needs improvement based on learnings
+func (o *Orchestrator) ShouldRefineTool(toolName string) (bool, []ImprovementSuggestion) {
+	learning := o.learnings.GetLearning(toolName)
+	if learning == nil {
+		return false, nil
+	}
+
+	// Check if quality is poor
+	if learning.AverageQuality < 0.5 && learning.TotalExecutions >= 3 {
+		patterns := o.patterns.GetToolPatterns(toolName)
+		suggestions := []ImprovementSuggestion{}
+		for _, p := range patterns {
+			suggestions = append(suggestions, p.Suggestions...)
+		}
+		return true, suggestions
+	}
+
+	// Check for known issues that are fixable
+	if len(learning.KnownIssues) > 0 {
+		patterns := o.patterns.GetToolPatterns(toolName)
+		for _, p := range patterns {
+			if p.Confidence > 0.7 && len(p.Suggestions) > 0 {
+				return true, p.Suggestions
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// RefineTool generates an improved version of a tool
+func (o *Orchestrator) RefineTool(ctx context.Context, toolName string, originalCode string) (*RefinementResult, error) {
+	// Gather feedback history
+	patterns := o.patterns.GetToolPatterns(toolName)
+
+	// Collect all suggestions
+	suggestions := []ImprovementSuggestion{}
+	for _, p := range patterns {
+		suggestions = append(suggestions, p.Suggestions...)
+	}
+
+	req := RefinementRequest{
+		ToolName:     toolName,
+		OriginalCode: originalCode,
+		Patterns:     patterns,
+		Suggestions:  suggestions,
+	}
+
+	return o.refiner.Refine(ctx, req)
+}
+
+// GetToolLearning retrieves accumulated learnings for a tool
+func (o *Orchestrator) GetToolLearning(toolName string) *ToolLearning {
+	return o.learnings.GetLearning(toolName)
+}
+
+// GetAllLearnings returns all accumulated tool learnings
+func (o *Orchestrator) GetAllLearnings() []*ToolLearning {
+	return o.learnings.GetAllLearnings()
+}
+
+// GenerateLearningFacts creates Mangle facts from all learnings
+func (o *Orchestrator) GenerateLearningFacts() []string {
+	return o.learnings.GenerateMangleFacts()
+}
+
+// ExecuteAndEvaluate runs a tool and automatically evaluates quality
+func (o *Orchestrator) ExecuteAndEvaluate(ctx context.Context, toolName string, input string) (string, *QualityAssessment, error) {
+	start := time.Now()
+
+	output, err := o.ouroboros.ExecuteTool(ctx, toolName, input)
+
+	feedback := &ExecutionFeedback{
+		ToolName:   toolName,
+		Timestamp:  start,
+		Input:      input,
+		Output:     output,
+		OutputSize: len(output),
+		Duration:   time.Since(start),
+		Success:    err == nil,
+	}
+
+	if err != nil {
+		feedback.ErrorMsg = err.Error()
+	}
+
+	// Evaluate and record
+	o.RecordExecution(ctx, feedback)
+
+	return output, feedback.Quality, err
 }
 
 // =============================================================================
