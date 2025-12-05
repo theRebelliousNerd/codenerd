@@ -21,6 +21,11 @@ const (
 	RLIMIT_NPROC = 6 // Linux-specific
 )
 
+// getMaxRSSBytes converts Maxrss to bytes (Linux uses KB).
+func getMaxRSSBytes(rusage *syscall.Rusage) int64 {
+	return int64(rusage.Maxrss) * 1024
+}
+
 // createRlimits generates rlimit values from ResourceLimits (Linux version).
 // Returns a map of resource type to rlimit struct.
 func createRlimits(limits *ResourceLimits) map[int]syscall.Rlimit {

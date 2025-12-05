@@ -6,6 +6,11 @@ import (
 	"syscall"
 )
 
+// getMaxRSSBytes converts Maxrss to bytes (macOS uses bytes).
+func getMaxRSSBytes(rusage *syscall.Rusage) int64 {
+	return int64(rusage.Maxrss)
+}
+
 // createRlimits generates rlimit values from ResourceLimits (macOS version).
 // Returns a map of resource type to rlimit struct.
 // Note: macOS doesn't have RLIMIT_NPROC, and some limits behave differently.

@@ -22,7 +22,7 @@ func getProcessResourceUsage(cmd *exec.Cmd) *ResourceUsage {
 	return &ResourceUsage{
 		UserTimeMs:                 rusage.Utime.Sec*1000 + int64(rusage.Utime.Usec/1000),
 		SystemTimeMs:               rusage.Stime.Sec*1000 + int64(rusage.Stime.Usec/1000),
-		MaxRSSBytes:                rusage.Maxrss * 1024, // Maxrss is in KB on Linux, bytes on macOS
+		MaxRSSBytes:                getMaxRSSBytes(rusage),
 		VoluntaryContextSwitches:   int64(rusage.Nvcsw),
 		InvoluntaryContextSwitches: int64(rusage.Nivcsw),
 		DiskReadBytes:              int64(rusage.Inblock) * 512, // Block size is typically 512 bytes
