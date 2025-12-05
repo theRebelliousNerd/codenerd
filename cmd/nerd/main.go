@@ -340,6 +340,7 @@ func init() {
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(whyCmd)
 	rootCmd.AddCommand(campaignCmd)
+	rootCmd.AddCommand(checkMangleCmd)
 }
 
 func main() {
