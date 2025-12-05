@@ -928,12 +928,20 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 // createDirectoryStructure creates the .nerd/ directory and subdirectories.
 func (i *Initializer) createDirectoryStructure() (string, error) {
 	nerdDir := filepath.Join(i.config.Workspace, ".nerd")
+	toolsDir := filepath.Join(nerdDir, "tools")
 
 	dirs := []string{
 		nerdDir,
-		filepath.Join(nerdDir, "shards"),   // Knowledge shards for specialists
-		filepath.Join(nerdDir, "sessions"), // Session history
-		filepath.Join(nerdDir, "cache"),    // Temporary cache
+		filepath.Join(nerdDir, "shards"),    // Knowledge shards for specialists
+		filepath.Join(nerdDir, "sessions"),  // Session history
+		filepath.Join(nerdDir, "cache"),     // Temporary cache
+		toolsDir,                            // Autopoiesis generated tools
+		filepath.Join(toolsDir, ".compiled"),  // Compiled tool binaries
+		filepath.Join(toolsDir, ".learnings"), // Tool execution learnings
+		filepath.Join(toolsDir, ".profiles"),  // Tool quality profiles
+		filepath.Join(toolsDir, ".traces"),    // Reasoning traces for tool generation
+		filepath.Join(nerdDir, "agents"),    // Persistent agent definitions
+		filepath.Join(nerdDir, "campaigns"), // Campaign checkpoints
 	}
 
 	for _, dir := range dirs {
@@ -950,6 +958,17 @@ knowledge.db-journal
 sessions/
 cache/
 *.log
+
+# Autopoiesis internal directories (always ignore)
+tools/.compiled/
+tools/.learnings/
+tools/.profiles/
+tools/.traces/
+
+# Keep tools/ source and agents/ tracked (user may want to commit generated tools)
+# Uncomment below to ignore tool source code:
+# tools/*.go
+# agents/
 `
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to create .gitignore: %w", err)
