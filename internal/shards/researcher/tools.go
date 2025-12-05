@@ -1,7 +1,7 @@
-// Package shards implements research tools for the ResearcherShard.
+// Package researcher implements research tools for the ResearcherShard.
 // These tools provide real research capabilities: browser automation,
 // web search, GitHub API, and caching.
-package shards
+package researcher
 
 import (
 	"codenerd/internal/browser"
@@ -792,7 +792,9 @@ func truncateContent(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	// Use min to ensure we don't exceed string bounds
+	cutoff := min(len(s), maxLen)
+	return s[:cutoff] + "..."
 }
 
 // extractMainContent extracts main content from HTML (simplified).
@@ -845,8 +847,8 @@ type Context7Tool struct {
 	apiKey  string
 
 	// Configurable limits for knowledge ingestion
-	maxTokens   int // Max tokens to fetch per library (0 = no limit)
-	maxSnippets int // Max snippets per request (API may cap this)
+	maxTokens   int  // Max tokens to fetch per library (0 = no limit)
+	maxSnippets int  // Max snippets per request (API may cap this)
 	paginate    bool // Whether to fetch all pages
 }
 
@@ -881,7 +883,7 @@ type Context7CodeSnippet struct {
 	CodeDescription string `json:"codeDescription"`
 	CodeLanguage    string `json:"codeLanguage"`
 	CodeTokens      int    `json:"codeTokens"`
-	CodeID          string `json:"codeId"`   // GitHub URL to source
+	CodeID          string `json:"codeId"`    // GitHub URL to source
 	PageTitle       string `json:"pageTitle"` // Parent page title
 	CodeList        []struct {
 		Language string `json:"language"`

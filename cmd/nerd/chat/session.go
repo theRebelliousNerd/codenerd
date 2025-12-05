@@ -12,6 +12,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
+	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
@@ -140,7 +141,7 @@ func InitChat(cfg Config) Model {
 		return shard
 	})
 	shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := shards.NewResearcherShard()
+		shard := researcher.NewResearcherShard()
 		shard.SetLLMClient(llmClient)
 		if localDB != nil {
 			shard.SetLocalDB(localDB)
