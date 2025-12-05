@@ -665,3 +665,106 @@ Decl task_failure_reason(TaskID, ReasonType, Detail).
 
 # task_failure_count(Capability, Count) - tracks repeated failures
 Decl task_failure_count(Capability, Count).
+
+# =============================================================================
+# SECTION 29: TOOL LEARNING / REFINEMENT (Autopoiesis)
+# =============================================================================
+# Predicates for tool quality tracking and refinement
+
+# refinement_state(ToolName, State) - tracks refinement lifecycle
+# State: /idle, /in_progress, /completed, /failed
+Decl refinement_state(ToolName, State).
+
+# tool_known_issue(ToolName, IssueType) - known issues with a tool
+# IssueType: /pagination, /incomplete, /rate_limit, /timeout
+Decl tool_known_issue(ToolName, IssueType).
+
+# issue_occurrence_count(ToolName, IssueType, Count) - how often issue occurs
+Decl issue_occurrence_count(ToolName, IssueType, Count).
+
+# capability_similar_to(Capability, SimilarCapability) - capability relationships
+Decl capability_similar_to(Capability, SimilarCapability).
+
+# tool_refined(ToolName, OldVersion, NewVersion) - refinement history
+Decl tool_refined(ToolName, OldVersion, NewVersion).
+
+# version_quality(ToolName, Version, QualityScore) - quality per version
+Decl version_quality(ToolName, Version, QualityScore).
+
+# tool_quality_poor(ToolName) - derived: tool has low quality
+Decl tool_quality_poor(ToolName).
+
+# refinement_count(ToolName, Count) - number of refinements attempted
+Decl refinement_count(ToolName, Count).
+
+# tool_learning(ToolName, Executions, Successes, Failures) - execution stats
+Decl tool_learning(ToolName, Executions, Successes, Failures).
+
+# active_generation(ToolName) - tool is being generated
+Decl active_generation(ToolName).
+
+# =============================================================================
+# SECTION 30: CODER SHARD HELPERS
+# =============================================================================
+
+# file_content(FilePath, Content) - cached file content
+Decl file_content(FilePath, Content).
+
+# coder_state(State) - current coder state
+# State: /idle, /context_ready, /code_generated, /edit_applied, /build_passed, /build_failed
+Decl coder_state(State).
+
+# pending_edit(FilePath, Content) - pending edits
+Decl pending_edit(FilePath, Content).
+
+# coder_block_write(FilePath, Reason) - derived: write is blocked
+Decl coder_block_write(FilePath, Reason).
+
+# coder_safe_to_write(FilePath) - derived: safe to write
+Decl coder_safe_to_write(FilePath).
+
+# is_binary_file(FilePath) - file is binary (cannot edit)
+Decl is_binary_file(FilePath).
+
+# build_state(State) - current build state
+# State: /passing, /failing, /unknown
+Decl build_state(State).
+
+# =============================================================================
+# SECTION 31: REVIEWER SHARD HELPERS
+# =============================================================================
+
+# file_line_count(FilePath, LineCount) - line count per file
+Decl file_line_count(FilePath, LineCount).
+
+# finding_count(Severity, Count) - count of findings by severity
+Decl finding_count(Severity, Count).
+
+# style_rule(RuleID, RuleName, Threshold) - style rule definitions
+Decl style_rule(RuleID, RuleName, Threshold).
+
+# =============================================================================
+# SECTION 32: SAFE NEGATION HELPERS
+# =============================================================================
+# These helpers support safe negation patterns in Mangle rules
+
+# has_block_commit() - helper: true if any block_commit exists
+Decl has_block_commit().
+
+# has_active_refinement() - helper: true if any refinement in progress
+Decl has_active_refinement().
+
+# has_eligible_phase() - helper: true if any phase is eligible
+Decl has_eligible_phase().
+
+# has_next_campaign_task() - helper: true if there's a next task
+Decl has_next_campaign_task().
+
+# has_in_progress_phase() - helper: true if any phase in progress
+Decl has_in_progress_phase().
+
+# has_incomplete_phase(CampaignID) - helper: campaign has incomplete phases
+Decl has_incomplete_phase(CampaignID).
+
+# has_incomplete_phase_task(PhaseID) - helper: phase has incomplete tasks
+Decl has_incomplete_phase_task(PhaseID).

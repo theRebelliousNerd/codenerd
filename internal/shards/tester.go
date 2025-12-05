@@ -57,15 +57,15 @@ func DefaultTesterConfig() TesterConfig {
 
 // TestResult represents the outcome of a test run.
 type TestResult struct {
-	Passed       bool               `json:"passed"`
-	Output       string             `json:"output"`
-	Coverage     float64            `json:"coverage"`
-	FailedTests  []FailedTest       `json:"failed_tests"`
-	PassedTests  []string           `json:"passed_tests"`
-	Duration     time.Duration      `json:"duration"`
-	Diagnostics  []core.Diagnostic  `json:"diagnostics"`
-	Retries      int                `json:"retries"`
-	Framework    string             `json:"framework"`
+	Passed      bool              `json:"passed"`
+	Output      string            `json:"output"`
+	Coverage    float64           `json:"coverage"`
+	FailedTests []FailedTest      `json:"failed_tests"`
+	PassedTests []string          `json:"passed_tests"`
+	Duration    time.Duration     `json:"duration"`
+	Diagnostics []core.Diagnostic `json:"diagnostics"`
+	Retries     int               `json:"retries"`
+	Framework   string            `json:"framework"`
 }
 
 // FailedTest represents a single failed test.
@@ -80,10 +80,10 @@ type FailedTest struct {
 
 // GeneratedTest represents a newly generated test.
 type GeneratedTest struct {
-	FilePath     string `json:"file_path"`
-	TargetFile   string `json:"target_file"`
-	Content      string `json:"content"`
-	TestCount    int    `json:"test_count"`
+	FilePath        string   `json:"file_path"`
+	TargetFile      string   `json:"target_file"`
+	Content         string   `json:"content"`
+	TestCount       int      `json:"test_count"`
 	FunctionsTested []string `json:"functions_tested"`
 }
 
@@ -106,18 +106,17 @@ type TesterShard struct {
 	testerConfig TesterConfig
 
 	// Components (required)
-	kernel       *core.RealKernel      // Own kernel instance for logic-driven testing
-	llmClient    perception.LLMClient  // LLM for test generation
-	virtualStore *core.VirtualStore    // Action routing
+	kernel       *core.RealKernel     // Own kernel instance for logic-driven testing
+	llmClient    perception.LLMClient // LLM for test generation
+	virtualStore *core.VirtualStore   // Action routing
 
 	// TDD Loop integration
-	tddLoop      *core.TDDLoop
+	tddLoop *core.TDDLoop
 
 	// State tracking
-	startTime      time.Time
-	testHistory    []TestResult
-	coverage       float64
-	diagnostics    []core.Diagnostic
+	startTime   time.Time
+	testHistory []TestResult
+	diagnostics []core.Diagnostic
 
 	// Autopoiesis tracking (§8.3)
 	successPatterns map[string]int // Patterns that pass tests
@@ -289,11 +288,11 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 
 // TesterTask represents a parsed test task.
 type TesterTask struct {
-	Action   string   // "run_tests", "generate_tests", "coverage", "tdd"
-	Target   string   // File path, package, or function
-	File     string   // Specific file (for function tests)
-	Function string   // Specific function
-	Package  string   // Package path
+	Action   string // "run_tests", "generate_tests", "coverage", "tdd"
+	Target   string // File path, package, or function
+	File     string // Specific file (for function tests)
+	Function string // Specific function
+	Package  string // Package path
 	Options  map[string]string
 }
 

@@ -198,6 +198,10 @@ promote_to_long_term(/approved_style, Pattern) :-
 Decl review_complete(Files, Severity).
 Decl security_issue(File, Line, RuleID, Message).
 
+# Helper for safe negation - true if any block_commit exists
+has_block_commit() :-
+    block_commit(_).
+
 # Overall review status
 review_passed(Files) :-
     review_complete(Files, /clean).
@@ -207,7 +211,7 @@ review_passed(Files) :-
 
 review_passed(Files) :-
     review_complete(Files, /warning),
-    !block_commit(_).
+    !has_block_commit().
 
 review_failed(Files) :-
     review_complete(Files, /error).
@@ -217,7 +221,7 @@ review_failed(Files) :-
 
 review_blocked(Files) :-
     review_complete(Files, _),
-    block_commit(_).
+    has_block_commit().
 
 # =============================================================================
 # SECTION 9: STYLE RULES

@@ -550,11 +550,15 @@ tool_needs_refinement(ToolName) :-
 # Next action for refinement
 next_action(/refine_tool) :-
     tool_needs_refinement(_),
-    !active_refinement(_).
+    !has_active_refinement().
 
 # Prevent parallel refinements
 active_refinement(ToolName) :-
     refinement_state(ToolName, /in_progress).
+
+# Helper for safe negation - true if any refinement is in progress
+has_active_refinement() :-
+    active_refinement(_).
 
 # Learning pattern signals
 learning_pattern_detected(ToolName, IssueType) :-
@@ -953,8 +957,20 @@ next_action(/pause_and_replan) :-
     replan_needed(_, _).
 
 # -----------------------------------------------------------------------------
-# 19.7 Campaign Completion
+# 19.7 Campaign Helpers for Safe Negation
 # -----------------------------------------------------------------------------
+
+# Helper: true if any phase is eligible to start
+has_eligible_phase() :-
+    phase_eligible(_).
+
+# Helper: true if any phase is in progress
+has_in_progress_phase() :-
+    campaign_phase(_, _, _, _, /in_progress, _).
+
+# Helper: true if there's a next campaign task available
+has_next_campaign_task() :-
+    next_campaign_task(_).
 
 # Helper: check if any phase is not complete
 has_incomplete_phase(CampaignID) :-
@@ -977,7 +993,7 @@ next_action(/campaign_complete) :-
 # Campaign blocked if no eligible phases and none in progress
 campaign_blocked(CampaignID, "no_eligible_phases") :-
     current_campaign(CampaignID),
-    !phase_eligible(_),
+    !has_eligible_phase(),
     !has_in_progress_phase(),
     has_incomplete_phase(CampaignID).
 
@@ -985,7 +1001,7 @@ campaign_blocked(CampaignID, "no_eligible_phases") :-
 campaign_blocked(CampaignID, "all_tasks_blocked") :-
     current_campaign(CampaignID),
     current_phase(PhaseID),
-    !next_campaign_task(_),
+    !has_next_campaign_task(),
     has_incomplete_phase_task(PhaseID).
 
 # -----------------------------------------------------------------------------
