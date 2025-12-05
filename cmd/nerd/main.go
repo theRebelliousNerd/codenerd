@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +28,8 @@ var (
 	apiKey    string
 	workspace string
 	timeout   time.Duration
+	// System shards
+	disableSystemShards []string
 
 	// Logger
 	logger *zap.Logger
@@ -210,6 +213,9 @@ func init() {
 	defineAgentCmd.MarkFlagRequired("name")
 	defineAgentCmd.MarkFlagRequired("topic")
 
+	// System shard controls
+	runCmd.Flags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
+
 	// Browser subcommands
 	browserCmd.AddCommand(browserLaunchCmd)
 	browserCmd.AddCommand(browserSessionCmd)
@@ -266,6 +272,26 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	virtualStore := core.NewVirtualStore(executor)
 	shardManager := core.NewShardManager()
 	shardManager.SetParentKernel(kernel)
+	shardManager.SetLLMClient(llmClient)
+	disabled := make(map[string]struct{})
+	for _, name := range disableSystemShards {
+		disabled[name] = struct{}{}
+	}
+	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
+		for _, token := range strings.Split(env, ",") {
+			name := strings.TrimSpace(token)
+			if name != "" {
+				disabled[name] = struct{}{}
+			}
+		}
+	}
+	for name := range disabled {
+		logger.Debug("Disabling system shard", zap.String("name", name))
+		shardManager.DisableSystemShard(name)
+	}
+	if err := shardManager.StartSystemShards(ctx); err != nil {
+		return fmt.Errorf("failed to start system shards: %w", err)
+	}
 	emitter := articulation.NewEmitter()
 
 	// 2. Perception Layer: Transduce Input -> Intent

@@ -154,6 +154,7 @@ type BaseShardAgent struct {
 	state        ShardState
 	kernel       *RealKernel
 	virtualStore *VirtualStore
+	llmClient    LLMClient
 
 	startTime time.Time
 	stopCh    chan struct{}
@@ -185,6 +186,20 @@ func (s *BaseShardAgent) GetState() ShardState {
 // GetConfig returns the shard configuration.
 func (s *BaseShardAgent) GetConfig() ShardConfig {
 	return s.config
+}
+
+// SetLLMClient wires an LLM client into the shard (used by LLM-enabled shards).
+func (s *BaseShardAgent) SetLLMClient(client LLMClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.llmClient = client
+}
+
+// llm returns the configured LLM client (may be nil).
+func (s *BaseShardAgent) llm() LLMClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.llmClient
 }
 
 // SetState sets the shard state.
@@ -249,6 +264,12 @@ type ShardManager struct {
 	// Concurrency control
 	maxConcurrent int
 	semaphore     chan struct{}
+
+	// System shard lifecycle management (Type 1)
+	systemShardCancels map[string]context.CancelFunc
+
+	// Shared LLM client for shards (optional)
+	llmClient LLMClient
 }
 
 // NewShardManager creates a new shard manager.
@@ -264,9 +285,107 @@ func NewShardManager() *ShardManager {
 
 	// Register default shard factories
 	sm.registerDefaultFactories()
+	// Register built-in system shard profiles and factories
+	sm.registerSystemShardProfiles()
 
 	return sm
 }
+
+// System shard identifiers (Type 1 permanent shards).
+const (
+	SystemShardPerception = "perception_firewall"
+	SystemShardWorldModel = "world_model_ingestor"
+	SystemShardExecutive  = "executive_policy"
+	SystemShardSafety     = "constitution_gate"
+	SystemShardRouter     = "tactile_router"
+	SystemShardPlanner    = "session_planner"
+)
+
+// registerSystemShardProfiles registers the built-in system shards with their specific personas.
+func (sm *ShardManager) registerSystemShardProfiles() {
+	configs := map[string]struct {
+		Prompt      string
+		Permissions []ShardPermission
+	}{
+		SystemShardPerception: {
+			Prompt: perceptionSystemPrompt,
+			Permissions: []ShardPermission{PermissionReadFile, PermissionAskUser},
+		},
+		SystemShardWorldModel: {
+			Prompt: worldModelSystemPrompt,
+			Permissions: []ShardPermission{PermissionReadFile, PermissionExecCmd, PermissionCodeGraph},
+		},
+		SystemShardExecutive: {
+			Prompt: executiveSystemPrompt,
+			Permissions: []ShardPermission{PermissionReadFile, PermissionCodeGraph, PermissionAskUser},
+		},
+		SystemShardSafety: {
+			Prompt: safetySystemPrompt,
+			Permissions: []ShardPermission{PermissionAskUser},
+		},
+		SystemShardRouter: {
+			Prompt: routerSystemPrompt,
+			Permissions: []ShardPermission{PermissionExecCmd, PermissionNetwork, PermissionBrowser},
+		},
+		SystemShardPlanner: {
+			Prompt: plannerSystemPrompt,
+			Permissions: []ShardPermission{PermissionAskUser, PermissionReadFile},
+		},
+	}
+
+	for name, cfg := range configs {
+		// 1. Define the profile
+		profile := ShardConfig{
+			Name:        name,
+			Type:        ShardTypeSystem,
+			Permissions: cfg.Permissions,
+			Timeout:     24 * time.Hour, // Permanent
+			MemoryLimit: 5000,
+			Model:       ModelConfig{Capability: CapabilityBalanced},
+		}
+		sm.profiles[name] = profile
+
+		// 2. Register the factory with the specific prompt
+		// We capture the loop variable 'cfg' by value in the closure
+		prompt := cfg.Prompt
+		sm.shardFactories[ShardType(name)] = func(id string, config ShardConfig) ShardAgent {
+			return NewSystemShard(id, config, prompt)
+		}
+	}
+}
+
+// Role-specific system prompts
+const (
+	perceptionSystemPrompt = `You are the Perception Firewall shard. Goals:
+- Transduce NL to structured intent, focus_resolution, ambiguity_flag atoms.
+- NEVER execute actions; only propose facts/clarifications.
+- Surface missing info and ask for clarifications when confidence < 0.85.`
+
+	worldModelSystemPrompt = `You are the World Model Ingestor shard. Goals:
+- Maintain file_topology, diagnostics, symbol_graph, dependency_link facts.
+- Highlight windowing/chunking needs for large files.
+- Emit impact/risk notes for downstream policy. Do not execute actions.`
+
+	executiveSystemPrompt = `You are the Executive Policy shard. Goals:
+- Derive next_action from strategy selection, TDD/repair loop, impact guard.
+- Respect commit/test barriers; emit blocked reasons when unsafe.
+- Provide concise rationale for chosen action. No tool execution.`
+
+	safetySystemPrompt = `You are the Constitution Gate shard. Goals:
+- Enforce permission_gate, network_policy, dangerous_action overrides.
+- Require confirmations for sensitive actions; emit security_violation facts.
+- Never allow execution; only gate and explain decisions.`
+
+	routerSystemPrompt = `You are the Tactile Router shard. Goals:
+- Plan allowed tool/virtual predicate calls with allowlists/timeouts.
+- Surface required parameters and safety checks; never execute tools yourself.
+- Emit exec_request facts for safe routes only.`
+
+	plannerSystemPrompt = `You are the Session Planner shard. Goals:
+- Maintain long-running agenda/backlog, checkpoints, retries/budgets.
+- Suggest next milestone and clarification/escalation points.
+- Keep plans concise and update status facts; do not execute actions.`
+)
 
 // NewShardManagerWithConfig creates a shard manager with custom concurrency.
 func NewShardManagerWithConfig(maxConcurrent int) *ShardManager {
@@ -280,7 +399,7 @@ func NewShardManagerWithConfig(maxConcurrent int) *ShardManager {
 func (sm *ShardManager) registerDefaultFactories() {
 	// Type 1: System Level (Permanent)
 	sm.shardFactories[ShardTypeSystem] = func(id string, config ShardConfig) ShardAgent {
-		return NewBaseShardAgent(id, config)
+		return NewSystemShard(id, config)
 	}
 
 	// Type 2: Ephemeral (LLM Created, Non-Persistent)
@@ -295,29 +414,15 @@ func (sm *ShardManager) registerDefaultFactories() {
 
 	// Type 4: User Configured (Persistent Expert)
 	sm.shardFactories[ShardTypeUser] = func(id string, config ShardConfig) ShardAgent {
-		return &CoderShard{BaseShardAgent: NewBaseShardAgent(id, config)}
+		// Default to base agent if no specific factory is registered for "user"
+		// In practice, the profile name (e.g., "RustExpert") acts as the type key
+		return NewBaseShardAgent(id, config)
 	}
 
 	// ========================
 	// Backwards-compatible aliases for legacy shard type strings
 	// ========================
 	sm.shardFactories["generalist"] = sm.shardFactories[ShardTypeEphemeral]
-
-	sm.shardFactories["coder"] = func(id string, config ShardConfig) ShardAgent {
-		return &CoderShard{BaseShardAgent: NewBaseShardAgent(id, config)}
-	}
-
-	sm.shardFactories["researcher"] = func(id string, config ShardConfig) ShardAgent {
-		return &ResearcherShard{BaseShardAgent: NewBaseShardAgent(id, config)}
-	}
-
-	sm.shardFactories["reviewer"] = func(id string, config ShardConfig) ShardAgent {
-		return &ReviewerShard{BaseShardAgent: NewBaseShardAgent(id, config)}
-	}
-
-	sm.shardFactories["tester"] = func(id string, config ShardConfig) ShardAgent {
-		return &TesterShard{BaseShardAgent: NewBaseShardAgent(id, config)}
-	}
 }
 
 // SetParentKernel sets the parent kernel for fact propagation.
@@ -325,6 +430,13 @@ func (sm *ShardManager) SetParentKernel(kernel Kernel) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.parentKernel = kernel
+}
+
+// SetLLMClient sets the shared LLM client provided to spawned shards.
+func (sm *ShardManager) SetLLMClient(client LLMClient) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.llmClient = client
 }
 
 // RegisterShard registers a custom shard type with a factory function.
@@ -391,6 +503,7 @@ func (sm *ShardManager) Spawn(ctx context.Context, shardType string, task string
 	} else {
 		shard = NewBaseShardAgent(id, config)
 	}
+	sm.injectLLMClient(shard)
 
 	// Register as active
 	sm.mu.Lock()
@@ -465,6 +578,7 @@ func (sm *ShardManager) SpawnAsync(ctx context.Context, shardType string, task s
 	} else {
 		shard = NewBaseShardAgent(id, config)
 	}
+	sm.injectLLMClient(shard)
 
 	sm.mu.Lock()
 	sm.activeShards[id] = shard
@@ -506,6 +620,19 @@ func (sm *ShardManager) GetResult(shardID string) (*ShardResult, bool) {
 	return result, ok
 }
 
+// injectLLMClient wires the shared LLM client into shards that support it.
+func (sm *ShardManager) injectLLMClient(shard ShardAgent) {
+	sm.mu.RLock()
+	client := sm.llmClient
+	sm.mu.RUnlock()
+	if client == nil {
+		return
+	}
+	if llmAware, ok := shard.(interface{ SetLLMClient(LLMClient) }); ok {
+		llmAware.SetLLMClient(client)
+	}
+}
+
 // GetActiveShards returns all currently active shards.
 func (sm *ShardManager) GetActiveShards() []ShardAgent {
 	sm.mu.RLock()
@@ -522,6 +649,11 @@ func (sm *ShardManager) GetActiveShards() []ShardAgent {
 func (sm *ShardManager) StopAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	for _, cancel := range sm.systemShardCancels {
+		cancel()
+	}
+	sm.systemShardCancels = make(map[string]context.CancelFunc)
 
 	for _, shard := range sm.activeShards {
 		_ = shard.Stop()
@@ -549,64 +681,6 @@ func (sm *ShardManager) PropagateFactsToParent(result *ShardResult) error {
 		Predicate: "delegation_result",
 		Args:      []interface{}{result.ShardID, result.Output, result.Error == nil},
 	})
-}
-
-// ========== Specialized Shard Implementations ==========
-
-// CoderShard is specialized for code writing and modification.
-type CoderShard struct {
-	*BaseShardAgent
-}
-
-func (s *CoderShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(ShardStateRunning)
-	defer s.SetState(ShardStateCompleted)
-
-	// Coder shard logic
-	// Would integrate with code graph, AST analysis, etc.
-	return fmt.Sprintf("Coder shard executed: %s", task), nil
-}
-
-// ResearcherShard is specialized for deep research tasks.
-type ResearcherShard struct {
-	*BaseShardAgent
-}
-
-func (s *ResearcherShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(ShardStateRunning)
-	defer s.SetState(ShardStateCompleted)
-
-	// Researcher shard logic
-	// Would integrate with scraper service, knowledge base
-	return fmt.Sprintf("Researcher shard executed: %s", task), nil
-}
-
-// ReviewerShard is specialized for code review tasks.
-type ReviewerShard struct {
-	*BaseShardAgent
-}
-
-func (s *ReviewerShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(ShardStateRunning)
-	defer s.SetState(ShardStateCompleted)
-
-	// Reviewer shard logic
-	// Would analyze code for best practices, security, etc.
-	return fmt.Sprintf("Reviewer shard executed: %s", task), nil
-}
-
-// TesterShard is specialized for test generation and execution.
-type TesterShard struct {
-	*BaseShardAgent
-}
-
-func (s *TesterShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(ShardStateRunning)
-	defer s.SetState(ShardStateCompleted)
-
-	// Tester shard logic
-	// Would integrate with TDD loop
-	return fmt.Sprintf("Tester shard executed: %s", task), nil
 }
 
 // ========== Shard Facts ==========

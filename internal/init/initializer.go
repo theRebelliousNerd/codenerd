@@ -38,21 +38,21 @@ type InitProgress struct {
 
 // AgentCreationUpdate provides details about agent creation progress.
 type AgentCreationUpdate struct {
-	AgentName   string
-	AgentType   string
-	Status      string // "creating", "researching", "ready", "failed"
-	KBSize      int    // Knowledge base size (facts/atoms)
+	AgentName string
+	AgentType string
+	Status    string // "creating", "researching", "ready", "failed"
+	KBSize    int    // Knowledge base size (facts/atoms)
 }
 
 // RecommendedAgent represents an agent recommended by the Researcher.
 type RecommendedAgent struct {
-	Name          string   `json:"name"`
-	Type          string   `json:"type"`           // Type 3 category
-	Description   string   `json:"description"`
-	Topics        []string `json:"topics"`         // Research topics for KB
-	Permissions   []string `json:"permissions"`
-	Priority      int      `json:"priority"`       // Higher = more important
-	Reason        string   `json:"reason"`         // Why this agent is needed
+	Name        string   `json:"name"`
+	Type        string   `json:"type"` // Type 3 category
+	Description string   `json:"description"`
+	Topics      []string `json:"topics"` // Research topics for KB
+	Permissions []string `json:"permissions"`
+	Priority    int      `json:"priority"` // Higher = more important
+	Reason      string   `json:"reason"`   // Why this agent is needed
 }
 
 // InitConfig holds configuration for initialization.
@@ -101,12 +101,12 @@ type ProjectProfile struct {
 	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
 
 	// Paths
-	EntryPoints    []string `json:"entry_points,omitempty"`
+	EntryPoints     []string `json:"entry_points,omitempty"`
 	TestDirectories []string `json:"test_directories,omitempty"`
-	ConfigFiles    []string `json:"config_files,omitempty"`
+	ConfigFiles     []string `json:"config_files,omitempty"`
 
 	// Stats
-	FileCount   int `json:"file_count"`
+	FileCount      int `json:"file_count"`
 	DirectoryCount int `json:"directory_count"`
 }
 
@@ -120,33 +120,33 @@ type DependencyInfo struct {
 // UserPreferences represents user coding preferences (learned via autopoiesis).
 type UserPreferences struct {
 	// Code style
-	TestStyle        string `json:"test_style,omitempty"`         // "table_driven", "subtest", etc.
-	ErrorHandling    string `json:"error_handling,omitempty"`     // "wrap", "sentinel", etc.
-	NamingConvention string `json:"naming_convention,omitempty"`  // "camelCase", "snake_case"
+	TestStyle        string `json:"test_style,omitempty"`        // "table_driven", "subtest", etc.
+	ErrorHandling    string `json:"error_handling,omitempty"`    // "wrap", "sentinel", etc.
+	NamingConvention string `json:"naming_convention,omitempty"` // "camelCase", "snake_case"
 
 	// Behavior
-	CommitStyle      string `json:"commit_style,omitempty"`       // "conventional", "descriptive"
-	BranchStrategy   string `json:"branch_strategy,omitempty"`    // "gitflow", "trunk"
+	CommitStyle    string `json:"commit_style,omitempty"`    // "conventional", "descriptive"
+	BranchStrategy string `json:"branch_strategy,omitempty"` // "gitflow", "trunk"
 
 	// Safety
-	RequireTests     bool   `json:"require_tests"`                // Require tests before commits
-	RequireReview    bool   `json:"require_review"`               // Require review before merges
+	RequireTests  bool `json:"require_tests"`  // Require tests before commits
+	RequireReview bool `json:"require_review"` // Require review before merges
 
 	// Communication
-	Verbosity        string `json:"verbosity,omitempty"`          // "concise", "detailed"
-	ExplanationLevel string `json:"explanation_level,omitempty"`  // "beginner", "expert"
+	Verbosity        string `json:"verbosity,omitempty"`         // "concise", "detailed"
+	ExplanationLevel string `json:"explanation_level,omitempty"` // "beginner", "expert"
 }
 
 // InitResult represents the result of initialization.
 type InitResult struct {
-	Success        bool              `json:"success"`
-	Profile        ProjectProfile    `json:"profile"`
-	Preferences    UserPreferences   `json:"preferences"`
-	NerdDir        string            `json:"nerd_dir"`
-	FilesCreated   []string          `json:"files_created"`
-	FactsGenerated int               `json:"facts_generated"`
-	Duration       time.Duration     `json:"duration"`
-	Warnings       []string          `json:"warnings,omitempty"`
+	Success        bool            `json:"success"`
+	Profile        ProjectProfile  `json:"profile"`
+	Preferences    UserPreferences `json:"preferences"`
+	NerdDir        string          `json:"nerd_dir"`
+	FilesCreated   []string        `json:"files_created"`
+	FactsGenerated int             `json:"facts_generated"`
+	Duration       time.Duration   `json:"duration"`
+	Warnings       []string        `json:"warnings,omitempty"`
 
 	// Type 3 Agent Creation Results
 	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitempty"`
@@ -166,15 +166,15 @@ type CreatedAgent struct {
 
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
-	config       InitConfig
-	researcher   *shards.ResearcherShard
-	scanner      *world.Scanner
-	localDB      *store.LocalStore
-	shardMgr     *core.ShardManager
-	kernel       *core.RealKernel
+	config     InitConfig
+	researcher *shards.ResearcherShard
+	scanner    *world.Scanner
+	localDB    *store.LocalStore
+	shardMgr   *core.ShardManager
+	kernel     *core.RealKernel
 
 	// Concurrency
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 	createdAgents []CreatedAgent
 }
 
@@ -194,6 +194,9 @@ func NewInitializer(config InitConfig) *Initializer {
 	} else {
 		init.shardMgr = core.NewShardManager()
 	}
+	if config.LLMClient != nil {
+		init.shardMgr.SetLLMClient(config.LLMClient)
+	}
 
 	return init
 }
@@ -210,15 +213,20 @@ func NewInitializer(config InitConfig) *Initializer {
 func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	startTime := time.Now()
 	result := &InitResult{
-		FilesCreated:   make([]string, 0),
-		Warnings:       make([]string, 0),
-		AgentKBs:       make(map[string]int),
-		CreatedAgents:  make([]CreatedAgent, 0),
+		FilesCreated:  make([]string, 0),
+		Warnings:      make([]string, 0),
+		AgentKBs:      make(map[string]int),
+		CreatedAgents: make([]CreatedAgent, 0),
 	}
 
 	i.sendProgress("setup", "Initializing codeNERD...", 0.0)
 	fmt.Println("🚀 Initializing codeNERD...")
 	fmt.Printf("   Workspace: %s\n\n", i.config.Workspace)
+
+	// Ensure system shards are running before heavy lifting.
+	if err := i.shardMgr.StartSystemShards(ctx); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to start system shards: %v", err))
+	}
 
 	// =========================================================================
 	// PHASE 1: Directory Structure & Database Setup
@@ -779,9 +787,9 @@ func (i *Initializer) createDirectoryStructure() (string, error) {
 
 	dirs := []string{
 		nerdDir,
-		filepath.Join(nerdDir, "shards"),    // Knowledge shards for specialists
-		filepath.Join(nerdDir, "sessions"),  // Session history
-		filepath.Join(nerdDir, "cache"),     // Temporary cache
+		filepath.Join(nerdDir, "shards"),   // Knowledge shards for specialists
+		filepath.Join(nerdDir, "sessions"), // Session history
+		filepath.Join(nerdDir, "cache"),    // Temporary cache
 	}
 
 	for _, dir := range dirs {
@@ -952,21 +960,21 @@ func (i *Initializer) savePreferences(path string, prefs UserPreferences) error 
 
 // SessionState represents the current session state.
 type SessionState struct {
-	SessionID       string    `json:"session_id"`
-	StartedAt       time.Time `json:"started_at"`
-	LastActiveAt    time.Time `json:"last_active_at"`
-	TurnCount       int       `json:"turn_count"`
+	SessionID    string    `json:"session_id"`
+	StartedAt    time.Time `json:"started_at"`
+	LastActiveAt time.Time `json:"last_active_at"`
+	TurnCount    int       `json:"turn_count"`
 
 	// Suspension state (for pause/resume)
-	Suspended       bool      `json:"suspended"`
+	Suspended       bool       `json:"suspended"`
 	SuspendedAt     *time.Time `json:"suspended_at,omitempty"`
-	PendingQuestion string    `json:"pending_question,omitempty"`
-	PendingOptions  []string  `json:"pending_options,omitempty"`
+	PendingQuestion string     `json:"pending_question,omitempty"`
+	PendingOptions  []string   `json:"pending_options,omitempty"`
 
 	// Context state
-	ActiveStrategy  string    `json:"active_strategy,omitempty"`
-	ActiveGoals     []string  `json:"active_goals,omitempty"`
-	WorkingFacts    []string  `json:"working_facts,omitempty"`
+	ActiveStrategy string   `json:"active_strategy,omitempty"`
+	ActiveGoals    []string `json:"active_goals,omitempty"`
+	WorkingFacts   []string `json:"working_facts,omitempty"`
 }
 
 // initSessionState creates the initial session state file.

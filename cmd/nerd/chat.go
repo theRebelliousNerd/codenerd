@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
+	"codenerd/internal/shards"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
 	"context"
@@ -202,6 +203,39 @@ func initChat() chatModel {
 	executor := tactile.NewSafeExecutor()
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
+	shardMgr.SetLLMClient(llmClient)
+
+	// Register Shard Factories (External Injection)
+	shardMgr.RegisterShard("coder", shards.NewCoderShard)
+	shardMgr.RegisterShard("reviewer", shards.NewReviewerShard)
+	shardMgr.RegisterShard("tester", shards.NewTesterShard)
+	shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
+		return shards.NewResearcherShard()
+	})
+
+	ctx := context.Background()
+	disabled := make(map[string]struct{})
+	for _, name := range disableSystemShards {
+		disabled[name] = struct{}{}
+	}
+	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
+		for _, token := range strings.Split(env, ",") {
+			name := strings.TrimSpace(token)
+			if name != "" {
+				disabled[name] = struct{}{}
+			}
+		}
+	}
+	for name := range disabled {
+		shardMgr.DisableSystemShard(name)
+	}
+	if err := shardMgr.StartSystemShards(ctx); err != nil {
+		initialMessages = append(initialMessages, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("⚠️ Failed to start system shards: %v", err),
+			time:    time.Now(),
+		})
+	}
 	shadowMode := core.NewShadowMode(kernel)
 	emitter := articulation.NewEmitter()
 	scanner := world.NewScanner()

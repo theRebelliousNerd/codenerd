@@ -170,6 +170,48 @@ func TestShardManagerToFacts(t *testing.T) {
 	}
 }
 
+func TestSystemShardProfilesRegistered(t *testing.T) {
+	sm := NewShardManager()
+
+	for name := range defaultSystemShardConfigs() {
+		if _, ok := sm.profiles[name]; !ok {
+			t.Fatalf("system shard profile %s not registered", name)
+		}
+		if _, ok := sm.shardFactories[ShardType(name)]; !ok {
+			t.Fatalf("system shard factory %s not registered", name)
+		}
+	}
+}
+
+func TestStartSystemShards(t *testing.T) {
+	sm := NewShardManager()
+	sm.SetLLMClient(mockLLMClient{})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := sm.StartSystemShards(ctx); err != nil {
+		t.Fatalf("StartSystemShards() error = %v", err)
+	}
+
+	// Expect at least one system shard to be active shortly after start.
+	time.Sleep(50 * time.Millisecond)
+	active := sm.GetActiveShards()
+	if len(active) == 0 {
+		t.Error("expected system shards to be active after StartSystemShards")
+	}
+}
+
+// mockLLMClient implements core.LLMClient for testing.
+type mockLLMClient struct{}
+
+func (m mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "ok", nil
+}
+
+func (m mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return "ok", nil
+}
+
 func TestDefaultGeneralistConfig(t *testing.T) {
 	config := DefaultGeneralistConfig("TestGen")
 
