@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -383,7 +384,12 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	shardManager.SetParentKernel(kernel)
 	shardManager.SetLLMClient(llmClient)
 
-	// Register system shard factories with dependency injection
+	shardManager.SetLLMClient(llmClient)
+
+	// Register all shard factories (base + specialists)
+	shards.RegisterAllShardFactories(shardManager)
+
+	// Overwrite system shard factories with dependency-injected versions
 	shardManager.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewPerceptionFirewallShard()
 		shard.SetKernel(kernel)
@@ -420,7 +426,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
-	shards.RegisterSystemShardProfiles(shardManager)
+	// shards.RegisterSystemShardProfiles(shardManager) - called by RegisterAllShardFactories
 
 	disabled := make(map[string]struct{})
 	for _, name := range disableSystemShards {
@@ -532,12 +538,18 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	topic, _ := cmd.Flags().GetString("topic")
 
+	// Validate name to prevent path traversal/injection
+	if !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(name) {
+		return fmt.Errorf("invalid agent name: must be alphanumeric (dash/underscore allowed)")
+	}
+
 	logger.Info("Defining specialist agent",
 		zap.String("name", name),
 		zap.String("topic", topic))
 
 	// Create shard manager and define profile
 	shardManager := core.NewShardManager()
+	shards.RegisterAllShardFactories(shardManager)
 	config := core.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
 
 	shardManager.DefineProfile(name, config)
@@ -574,6 +586,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 		zap.String("task", task))
 
 	shardManager := core.NewShardManager()
+	shards.RegisterAllShardFactories(shardManager)
 	result, err := shardManager.Spawn(ctx, shardType, task)
 	if err != nil {
 		return fmt.Errorf("spawn failed: %w", err)

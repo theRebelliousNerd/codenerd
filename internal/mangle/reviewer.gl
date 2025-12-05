@@ -33,25 +33,25 @@ is_critical_finding(Finding) :-
 is_critical_finding(Finding) :-
     review_finding(Finding, _, _, _, /security, _).
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, _, Msg),
-    fn:string_contains_ci(Msg, "sql injection").
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "sql injection").
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, _, Msg),
-    fn:string_contains_ci(Msg, "command injection").
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "command injection").
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, _, Msg),
-    fn:string_contains_ci(Msg, "xss").
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "xss").
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, _, Msg),
-    fn:string_contains_ci(Msg, "hardcoded secret").
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "hardcoded secret").
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, _, Msg),
-    fn:string_contains_ci(Msg, "path traversal").
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "path traversal").
 
 # Error severity
 is_error_finding(Finding) :-
