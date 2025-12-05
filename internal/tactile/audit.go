@@ -731,16 +731,21 @@ func (a *OutputAnalyzer) AnalyzeBuildOutput(output string) BuildAnalysis {
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
 
 		// Go compiler error pattern: file.go:line:col: message
-		if strings.Contains(line, ".go:") && (strings.Contains(line, "error") || strings.Contains(line, "warning") || strings.Contains(line, "undefined")) {
-			parts := strings.SplitN(line, ":", 4)
-			if len(parts) >= 4 {
-				lineNum := int64(0)
-				colNum := int64(0)
-				fmt.Sscanf(parts[1], "%d", &lineNum)
-				fmt.Sscanf(parts[2], "%d", &colNum)
+		// Match any line with file.go:number:number: pattern (standard Go error format)
+		parts := strings.SplitN(line, ":", 4)
+		if len(parts) >= 4 && strings.HasSuffix(parts[0], ".go") {
+			lineNum := int64(0)
+			colNum := int64(0)
+			_, err1 := fmt.Sscanf(parts[1], "%d", &lineNum)
+			_, err2 := fmt.Sscanf(parts[2], "%d", &colNum)
 
+			// Only process if we successfully parsed line and column numbers
+			if err1 == nil && err2 == nil && lineNum > 0 {
 				severity := "error"
 				if strings.Contains(parts[3], "warning") {
 					severity = "warning"

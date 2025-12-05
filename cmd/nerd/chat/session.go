@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/researcher"
+	"codenerd/internal/shards/system"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/world"
@@ -156,6 +157,63 @@ func InitChat(cfg Config) Model {
 		}
 		return shard
 	})
+
+	// =========================================================================
+	// Type 1: System Shards (Permanent, Continuous)
+	// =========================================================================
+	// System shards form the OODA loop and run continuously in the background.
+	// They require dependency injection for kernel, LLM client, and virtual store.
+
+	// Perception Firewall - AUTO-START, LLM-primary (NL → atoms transduction)
+	shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewPerceptionFirewallShard()
+		shard.SetKernel(kernel)
+		shard.SetLLMClient(llmClient)
+		return shard
+	})
+
+	// World Model Ingestor - ON-DEMAND, Hybrid (file_topology, symbol_graph)
+	shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewWorldModelIngestorShard()
+		shard.SetKernel(kernel)
+		return shard
+	})
+
+	// Executive Policy - AUTO-START, Logic-primary (next_action derivation)
+	shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewExecutivePolicyShard()
+		shard.SetKernel(kernel)
+		shard.SetLLMClient(llmClient) // For autopoiesis edge cases
+		return shard
+	})
+
+	// Constitution Gate - AUTO-START, Logic-primary (safety enforcement)
+	shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewConstitutionGateShard()
+		shard.SetKernel(kernel)
+		shard.SetLLMClient(llmClient) // For autopoiesis rule proposals
+		return shard
+	})
+
+	// Tactile Router - ON-DEMAND, Logic-primary (action → tool routing)
+	shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewTactileRouterShard()
+		shard.SetKernel(kernel)
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient) // For autopoiesis routing gaps
+		return shard
+	})
+
+	// Session Planner - ON-DEMAND, LLM-primary (goal decomposition)
+	shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewSessionPlannerShard()
+		shard.SetKernel(kernel)
+		shard.SetLLMClient(llmClient)
+		return shard
+	})
+
+	// Define system shard profiles (configurations)
+	shards.RegisterSystemShardProfiles(shardMgr)
 
 	ctx := context.Background()
 	disabled := make(map[string]struct{})

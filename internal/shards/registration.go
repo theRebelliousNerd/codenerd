@@ -166,6 +166,13 @@ func defineShardProfiles(sm *core.ShardManager) {
 	defineSystemShardProfiles(sm)
 }
 
+// RegisterSystemShardProfiles registers Type 1 system shard profiles.
+// This is exported for use by session initialization when factories are
+// registered manually with dependency injection.
+func RegisterSystemShardProfiles(sm *core.ShardManager) {
+	defineSystemShardProfiles(sm)
+}
+
 // defineSystemShardProfiles registers Type 1 system shard profiles.
 func defineSystemShardProfiles(sm *core.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
