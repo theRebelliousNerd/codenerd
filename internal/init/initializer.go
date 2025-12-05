@@ -503,6 +503,99 @@ func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []Recommen
 		})
 	}
 
+	// Dependency-specific agents
+	depNames := make(map[string]bool)
+	for _, dep := range profile.Dependencies {
+		depNames[dep.Name] = true
+	}
+
+	// Browser automation experts
+	if depNames["rod"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "RodExpert",
+			Type:        "persistent",
+			Description: "Expert in Rod browser automation, selectors, and CDP protocol",
+			Topics:      []string{"rod browser automation", "CDP protocol", "web scraping", "headless chrome", "page selectors"},
+			Permissions: []string{"read_file", "browser", "exec_cmd"},
+			Priority:    95,
+			Reason:      "Rod browser automation detected - specialized expertise beneficial",
+		})
+	}
+	if depNames["chromedp"] || depNames["puppeteer"] || depNames["playwright"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "BrowserAutomationExpert",
+			Type:        "persistent",
+			Description: "Expert in browser automation patterns and CDP",
+			Topics:      []string{"browser automation", "CDP protocol", "page navigation", "element interaction"},
+			Permissions: []string{"read_file", "browser"},
+			Priority:    90,
+			Reason:      "Browser automation library detected",
+		})
+	}
+
+	// Logic/Datalog experts
+	if depNames["mangle"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "MangleExpert",
+			Type:        "persistent",
+			Description: "Expert in Google Mangle/Datalog, logic programming, and rule systems",
+			Topics:      []string{"datalog", "mangle syntax", "logic programming", "horn clauses", "fact derivation", "negation as failure"},
+			Permissions: []string{"read_file", "code_graph"},
+			Priority:    95,
+			Reason:      "Mangle/Datalog detected - logic programming expertise critical",
+		})
+	}
+
+	// LLM integration experts
+	if depNames["openai"] || depNames["anthropic"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "LLMIntegrationExpert",
+			Type:        "persistent",
+			Description: "Expert in LLM API integration, prompt engineering, and token optimization",
+			Topics:      []string{"LLM APIs", "prompt engineering", "token optimization", "streaming responses", "function calling"},
+			Permissions: []string{"read_file", "network"},
+			Priority:    90,
+			Reason:      "LLM API integration detected - expertise improves reliability",
+		})
+	}
+
+	// CLI/TUI experts
+	if depNames["bubbletea"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "BubbleTeaExpert",
+			Type:        "persistent",
+			Description: "Expert in Bubbletea TUI framework, Elm architecture, and terminal rendering",
+			Topics:      []string{"bubbletea", "elm architecture", "terminal UI", "lipgloss styling", "bubbles components"},
+			Permissions: []string{"read_file", "code_graph"},
+			Priority:    85,
+			Reason:      "Bubbletea TUI framework detected",
+		})
+	}
+	if depNames["cobra"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "CobraExpert",
+			Type:        "persistent",
+			Description: "Expert in Cobra CLI framework, command structure, and flag handling",
+			Topics:      []string{"cobra CLI", "command patterns", "flag handling", "CLI best practices"},
+			Permissions: []string{"read_file"},
+			Priority:    75,
+			Reason:      "Cobra CLI framework detected",
+		})
+	}
+
+	// Database experts
+	if depNames["gorm"] || depNames["sqlx"] || depNames["sql"] || depNames["prisma"] || depNames["typeorm"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "DatabaseExpert",
+			Type:        "persistent",
+			Description: "Expert in database patterns, ORM usage, and query optimization",
+			Topics:      []string{"database design", "ORM patterns", "SQL optimization", "migrations", "connection pooling"},
+			Permissions: []string{"read_file", "code_graph"},
+			Priority:    80,
+			Reason:      "Database ORM/driver detected",
+		})
+	}
+
 	// Always include core agents
 	agents = append(agents,
 		RecommendedAgent{
@@ -850,6 +943,14 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 		}
 	}
 
+	// Fallback: file-based language detection if kernel didn't provide it
+	if profile.Language == "" || profile.Language == "unknown" {
+		profile.Language = i.detectLanguageFromFiles()
+	}
+
+	// Detect dependencies for agent recommendations
+	profile.Dependencies = i.detectDependencies()
+
 	// Set defaults for any missing values
 	if profile.Language == "" {
 		profile.Language = "unknown"
@@ -859,6 +960,111 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 	}
 
 	return profile
+}
+
+// detectLanguageFromFiles detects the primary language by looking for config files.
+func (i *Initializer) detectLanguageFromFiles() string {
+	workspace := i.config.Workspace
+
+	// Check for language-specific config files
+	checks := []struct {
+		file     string
+		language string
+	}{
+		{"go.mod", "go"},
+		{"Cargo.toml", "rust"},
+		{"package.json", "typescript"}, // Could be JS, but TS is more common now
+		{"pyproject.toml", "python"},
+		{"requirements.txt", "python"},
+		{"setup.py", "python"},
+		{"pom.xml", "java"},
+		{"build.gradle", "java"},
+		{"*.csproj", "csharp"},
+		{"mix.exs", "elixir"},
+		{"Gemfile", "ruby"},
+	}
+
+	for _, check := range checks {
+		pattern := filepath.Join(workspace, check.file)
+		matches, err := filepath.Glob(pattern)
+		if err == nil && len(matches) > 0 {
+			return check.language
+		}
+	}
+
+	return "unknown"
+}
+
+// detectDependencies scans project files for key dependencies.
+func (i *Initializer) detectDependencies() []DependencyInfo {
+	deps := []DependencyInfo{}
+	workspace := i.config.Workspace
+
+	// Check go.mod for Go dependencies
+	goModPath := filepath.Join(workspace, "go.mod")
+	if data, err := os.ReadFile(goModPath); err == nil {
+		content := string(data)
+
+		// Key Go dependencies to detect
+		goDeps := map[string]string{
+			"github.com/go-rod/rod":              "rod",
+			"github.com/chromedp/chromedp":       "chromedp",
+			"github.com/playwright-community":    "playwright",
+			"google/mangle":                      "mangle",
+			"github.com/sashabaranov/go-openai":  "openai",
+			"github.com/anthropics/anthropic":    "anthropic",
+			"github.com/charmbracelet/bubbletea": "bubbletea",
+			"github.com/spf13/cobra":             "cobra",
+			"github.com/gin-gonic/gin":           "gin",
+			"github.com/labstack/echo":           "echo",
+			"github.com/gofiber/fiber":           "fiber",
+			"gorm.io/gorm":                       "gorm",
+			"github.com/jmoiron/sqlx":            "sqlx",
+			"database/sql":                       "sql",
+			"github.com/gorilla/mux":             "gorilla",
+			"net/http":                           "http",
+		}
+
+		for pkg, name := range goDeps {
+			if strings.Contains(content, pkg) {
+				deps = append(deps, DependencyInfo{
+					Name: name,
+					Type: "direct",
+				})
+			}
+		}
+	}
+
+	// Check package.json for Node dependencies
+	pkgPath := filepath.Join(workspace, "package.json")
+	if data, err := os.ReadFile(pkgPath); err == nil {
+		content := string(data)
+
+		nodeDeps := map[string]string{
+			"\"puppeteer\"":  "puppeteer",
+			"\"playwright\"": "playwright",
+			"\"openai\"":     "openai",
+			"\"@anthropic\"": "anthropic",
+			"\"react\"":      "react",
+			"\"vue\"":        "vue",
+			"\"next\"":       "nextjs",
+			"\"express\"":    "express",
+			"\"fastify\"":    "fastify",
+			"\"prisma\"":     "prisma",
+			"\"typeorm\"":    "typeorm",
+		}
+
+		for pkg, name := range nodeDeps {
+			if strings.Contains(content, pkg) {
+				deps = append(deps, DependencyInfo{
+					Name: name,
+					Type: "direct",
+				})
+			}
+		}
+	}
+
+	return deps
 }
 
 // saveProfile writes the project profile to disk.

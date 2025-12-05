@@ -177,8 +177,9 @@ recurring_issue_pattern(Pattern, Category) :-
     N >= 3.
 
 # Learn project-specific anti-patterns
-promote_to_long_term(anti_pattern(Pattern, Category)) :-
-    recurring_issue_pattern(Pattern, Category).
+# Note: Category is implicitly tracked via recurring_issue_pattern
+promote_to_long_term(/anti_pattern, Pattern) :-
+    recurring_issue_pattern(Pattern, _).
 
 # Track patterns that pass review
 approved_pattern(Pattern) :-
@@ -187,7 +188,7 @@ approved_pattern(Pattern) :-
     N >= 3.
 
 # Promote approved styles
-promote_to_long_term(approved_style(Pattern)) :-
+promote_to_long_term(/approved_style, Pattern) :-
     approved_pattern(Pattern).
 
 # =============================================================================
