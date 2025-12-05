@@ -621,6 +621,16 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 
+	case campaignErrorMsg:
+		m.isLoading = false
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("## ❌ Campaign Error\n\n%v", msg),
+			time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
 	case errorMsg:
 		m.isLoading = false
 		// Check if this is a clarification request disguised as an error
@@ -671,14 +681,6 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 
-	case campaignErrorMsg:
-		m.isLoading = false
-		m.history = append(m.history, chatMessage{
-			role:    "assistant",
-			content: fmt.Sprintf("## ❌ Campaign Error\n\n%v", msg),
-			time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 	}
 
@@ -1737,22 +1739,22 @@ Usage: ` + "`/campaign <subcommand> [args]`" + `
 			}
 
 			// Parse campaign type if specified
-			campaignType := campaign.TypeFeature
+			campaignType := campaign.CampaignTypeFeature
 			goal := strings.Join(parts[2:], " ")
 
 			for i, p := range parts {
 				if p == "--type" && i+1 < len(parts) {
 					switch parts[i+1] {
 					case "greenfield":
-						campaignType = campaign.TypeGreenfield
+						campaignType = campaign.CampaignTypeGreenfield
 					case "feature":
-						campaignType = campaign.TypeFeature
+						campaignType = campaign.CampaignTypeFeature
 					case "migration":
-						campaignType = campaign.TypeMigration
+						campaignType = campaign.CampaignTypeMigration
 					case "stabilization":
-						campaignType = campaign.TypeStabilization
+						campaignType = campaign.CampaignTypeAudit
 					case "refactor":
-						campaignType = campaign.TypeRefactor
+						campaignType = campaign.CampaignTypeRemediation
 					}
 					// Remove type flag from goal
 					goal = strings.Join(append(parts[2:i], parts[i+2:]...), " ")
@@ -2052,6 +2054,8 @@ func (m chatModel) createAgentFromPrompt(description string) tea.Cmd {
 
 func formatResponse(intent perception.Intent, payload articulation.PiggybackEnvelope) string {
 	// Keep logic artifacts internal; return only the conversational surface text.
+	// Log intent for debugging if needed
+	_ = intent.Verb // Mark as used
 	return strings.TrimSpace(payload.Surface)
 }
 
@@ -3013,14 +3017,13 @@ func (m chatModel) startCampaign(goal string, campaignType campaign.CampaignType
 		defer cancel()
 
 		// Create decomposer to break down the goal
-		decomposer := campaign.NewDecomposer(m.kernel, m.client)
+		decomposer := campaign.NewDecomposer(m.kernel, m.client, m.workspace)
 
 		// Build request
 		req := campaign.DecomposeRequest{
-			Goal:        goal,
-			Type:        campaignType,
-			Workspace:   m.workspace,
-			SourceFiles: []string{}, // Will scan workspace
+			Goal:         goal,
+			CampaignType: campaignType,
+			SourcePaths:  []string{}, // Will scan workspace
 		}
 
 		// Decompose the goal into a campaign
@@ -3030,13 +3033,17 @@ func (m chatModel) startCampaign(goal string, campaignType campaign.CampaignType
 		}
 
 		// Create orchestrator
-		orch := campaign.NewOrchestrator(
-			result.Campaign,
-			m.kernel,
-			m.client,
-			m.executor,
-			m.workspace,
-		)
+		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+			Workspace:    m.workspace,
+			Kernel:       m.kernel,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			Executor:     m.executor,
+		})
+
+		if err := orch.SetCampaign(result.Campaign); err != nil {
+			return campaignErrorMsg(fmt.Errorf("failed to set campaign: %w", err))
+		}
 
 		// Store references
 		m.activeCampaign = result.Campaign
@@ -3072,17 +3079,18 @@ func (m chatModel) resumeCampaign() tea.Cmd {
 
 		return campaignProgressMsg(&campaign.Progress{
 			CampaignID:      m.activeCampaign.ID,
-			Status:          campaign.StatusActive,
-			CurrentPhase:    m.activeCampaign.CompletedPhases,
+			CampaignStatus:  string(campaign.StatusActive),
+			CurrentPhase:    fmt.Sprintf("%d", m.activeCampaign.CompletedPhases), // Approximate
+			CompletedPhases: m.activeCampaign.CompletedPhases,
 			TotalPhases:     m.activeCampaign.TotalPhases,
 			CompletedTasks:  m.activeCampaign.CompletedTasks,
 			TotalTasks:      m.activeCampaign.TotalTasks,
-			CompletedPhases: m.activeCampaign.CompletedPhases,
+			CampaignTitle:   m.activeCampaign.Title,
+			OverallProgress: float64(m.activeCampaign.CompletedTasks) / float64(m.activeCampaign.TotalTasks),
 		})
 	}
 }
 
-// renderCampaignStarted generates the display for a newly started campaign
 func (m chatModel) renderCampaignStarted(c *campaign.Campaign) string {
 	var sb strings.Builder
 
@@ -3308,17 +3316,18 @@ func renderProgressBar(progress float64, width int) string {
 // getStatusIcon returns an icon for campaign/phase/task status
 func getStatusIcon(status string) string {
 	switch status {
-	case string(campaign.StatusPending), string(campaign.TaskPending), string(campaign.PhasePending):
-		return "○"
-	case string(campaign.StatusActive), string(campaign.TaskInProgress), string(campaign.PhaseActive):
+	case string(campaign.StatusActive), string(campaign.TaskInProgress): // PhaseInProgress is same string
 		return "●"
-	case string(campaign.StatusCompleted), string(campaign.TaskCompleted), string(campaign.PhaseCompleted):
+	case string(campaign.StatusCompleted):
+		// TaskCompleted and PhaseCompleted map to same string "/completed"
 		return "✓"
 	case string(campaign.StatusPaused):
 		return "⏸"
-	case string(campaign.StatusFailed), string(campaign.TaskFailed):
+	case string(campaign.StatusFailed):
+		// TaskFailed and PhaseFailed map to same string "/failed"
 		return "✗"
-	case string(campaign.TaskSkipped), string(campaign.PhaseSkipped):
+	case string(campaign.TaskSkipped):
+		// PhaseSkipped maps to same string "/skipped"
 		return "⊘"
 	case string(campaign.TaskBlocked):
 		return "⊗"

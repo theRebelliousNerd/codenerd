@@ -308,27 +308,27 @@ func (sm *ShardManager) registerSystemShardProfiles() {
 		Permissions []ShardPermission
 	}{
 		SystemShardPerception: {
-			Prompt: perceptionSystemPrompt,
+			Prompt:      perceptionSystemPrompt,
 			Permissions: []ShardPermission{PermissionReadFile, PermissionAskUser},
 		},
 		SystemShardWorldModel: {
-			Prompt: worldModelSystemPrompt,
+			Prompt:      worldModelSystemPrompt,
 			Permissions: []ShardPermission{PermissionReadFile, PermissionExecCmd, PermissionCodeGraph},
 		},
 		SystemShardExecutive: {
-			Prompt: executiveSystemPrompt,
+			Prompt:      executiveSystemPrompt,
 			Permissions: []ShardPermission{PermissionReadFile, PermissionCodeGraph, PermissionAskUser},
 		},
 		SystemShardSafety: {
-			Prompt: safetySystemPrompt,
+			Prompt:      safetySystemPrompt,
 			Permissions: []ShardPermission{PermissionAskUser},
 		},
 		SystemShardRouter: {
-			Prompt: routerSystemPrompt,
+			Prompt:      routerSystemPrompt,
 			Permissions: []ShardPermission{PermissionExecCmd, PermissionNetwork, PermissionBrowser},
 		},
 		SystemShardPlanner: {
-			Prompt: plannerSystemPrompt,
+			Prompt:      plannerSystemPrompt,
 			Permissions: []ShardPermission{PermissionAskUser, PermissionReadFile},
 		},
 	}
@@ -399,7 +399,8 @@ func NewShardManagerWithConfig(maxConcurrent int) *ShardManager {
 func (sm *ShardManager) registerDefaultFactories() {
 	// Type 1: System Level (Permanent)
 	sm.shardFactories[ShardTypeSystem] = func(id string, config ShardConfig) ShardAgent {
-		return NewSystemShard(id, config)
+		// Pass default empty prompt, NewSystemShard handles defaults
+		return NewSystemShard(id, config, "")
 	}
 
 	// Type 2: Ephemeral (LLM Created, Non-Persistent)
@@ -465,6 +466,18 @@ func (sm *ShardManager) GetProfile(name string) (ShardConfig, bool) {
 func (sm *ShardManager) generateID(shardType string) string {
 	id := atomic.AddUint64(&sm.counter, 1)
 	return fmt.Sprintf("shard-%s-%d", shardType, id)
+}
+
+// defaultSystemShardConfigs returns the map of system shard names for testing.
+func defaultSystemShardConfigs() map[string]struct{} {
+	return map[string]struct{}{
+		SystemShardPerception: {},
+		SystemShardWorldModel: {},
+		SystemShardExecutive:  {},
+		SystemShardSafety:     {},
+		SystemShardRouter:     {},
+		SystemShardPlanner:    {},
+	}
 }
 
 // Spawn spawns a new shard agent and executes the task.
@@ -657,6 +670,80 @@ func (sm *ShardManager) StopAll() {
 
 	for _, shard := range sm.activeShards {
 		_ = shard.Stop()
+	}
+}
+
+// StartSystemShards starts all registered system shards.
+func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.systemShardCancels == nil {
+		sm.systemShardCancels = make(map[string]context.CancelFunc)
+	}
+
+	for name, config := range sm.profiles {
+		if config.Type == ShardTypeSystem {
+			// Check if already running
+			if _, exists := sm.systemShardCancels[name]; exists {
+				continue
+			}
+
+			// Create a cancellable context for this shard
+			shardCtx, cancel := context.WithCancel(ctx)
+			sm.systemShardCancels[name] = cancel
+
+			// Spawn manually to keep track of it, but bypass standard activeShards limit if needed?
+			// Use SpawnAsync logic but tailored for system shards
+			factory, ok := sm.shardFactories[ShardType(name)]
+			// Fallback to generic system factory if specific one not found
+			if !ok {
+				factory = sm.shardFactories[ShardTypeSystem]
+			}
+
+			// If still no factory, skip
+			if factory == nil {
+				cancel()
+				delete(sm.systemShardCancels, name)
+				continue
+			}
+
+			id := sm.generateID(name)
+			shard := factory(id, config)
+			sm.activeShards[id] = shard // Add to active shards map?
+			// System shards might need special handling in activeShards if they are permanent.
+			// The current Spawn implementation removes from activeShards on completion.
+			// System shards don't complete until simplified.
+
+			// We need to inject LLM client too (can't call injectLLMClient since we are holding lock)
+			// Copy-paste inject logic or unlock briefly (risky).
+			// Better: extract inject logic to method that takes shard and client, doesn't lock.
+			if client := sm.llmClient; client != nil {
+				if llmAware, ok := shard.(interface{ SetLLMClient(LLMClient) }); ok {
+					llmAware.SetLLMClient(client)
+				}
+			}
+
+			go func(s ShardAgent, c context.Context, sid string) {
+				_, _ = s.Execute(c, "Maintain system homeostasis")
+
+				sm.mu.Lock()
+				delete(sm.activeShards, sid)
+				sm.mu.Unlock()
+			}(shard, shardCtx, id)
+		}
+	}
+	return nil
+}
+
+// DisableSystemShard stops a specific system shard.
+func (sm *ShardManager) DisableSystemShard(name string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if cancel, ok := sm.systemShardCancels[name]; ok {
+		cancel()
+		delete(sm.systemShardCancels, name)
 	}
 }
 
