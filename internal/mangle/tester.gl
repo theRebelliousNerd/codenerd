@@ -71,13 +71,13 @@ next_tester_action(/generate_test, File) :-
     needs_test_generation(File).
 
 # Run tests action
-next_tester_action(/run_tests, Package) :-
+next_tester_action(/run_tests, Pkg) :-
     test_state(/unknown),
-    test_package(Package).
+    test_package(Pkg).
 
-next_tester_action(/run_tests, Package) :-
+next_tester_action(/run_tests, Pkg) :-
     test_state(/idle),
-    test_package(Package).
+    test_package(Pkg).
 
 # Analyze failures
 next_tester_action(/analyze_failure) :-
@@ -118,26 +118,20 @@ coverage_warning(File, Pct, Goal) :-
 # SECTION 5: TEST FILE IDENTIFICATION
 # =============================================================================
 
-is_test_file(File) :-
-    fn:string_ends_with(File, "_test.go").
-
-is_test_file(File) :-
-    fn:string_ends_with(File, ".test.ts").
-
-is_test_file(File) :-
-    fn:string_ends_with(File, ".test.js").
-
-is_test_file(File) :-
-    fn:string_starts_with(fn:basename(File), "test_").
-
-is_test_file(File) :-
-    fn:string_ends_with(File, "_test.rs").
-
-is_test_file(File) :-
-    fn:string_contains(File, "/tests/").
-
-is_test_file(File) :-
-    fn:string_contains(File, "/__tests__/").
+# is_test_file(File) :-
+#    fn:string_ends_with(File, "_test.go").
+# is_test_file(File) :-
+#    fn:string_ends_with(File, ".test.ts").
+# is_test_file(File) :-
+#    fn:string_ends_with(File, ".test.js").
+# is_test_file(File) :-
+#    fn:string_starts_with(fn:basename(File), "test_").
+# is_test_file(File) :-
+#    fn:string_ends_with(File, "_test.rs").
+# is_test_file(File) :-
+#    fn:string_contains(File, "/tests/").
+# is_test_file(File) :-
+#    fn:string_contains(File, "/__tests__/").
 
 # =============================================================================
 # SECTION 6: FAILED TEST TRACKING
@@ -147,11 +141,11 @@ Decl failed_test(TestName, FilePath, Message).
 Decl test_output(Output).
 
 # Count failures
-failure_count(N) :-
-    fn:count(failed_test(_, _, _), N).
+# failure_count(N) :-
+#    fn:count(failed_test(_, _, _), N).
 
 # Critical failure threshold
-critical_failure_state :-
+critical_failure_state() :-
     failure_count(N),
     N > 10.
 
@@ -200,6 +194,6 @@ block_commit("low_coverage") :-
 
 # Require tests for critical files
 require_tests(File) :-
-    file_topology(File, _, _, _, false),
+    file_topology(File, _, _, _, /false),
     file_has_public_api(File),
     !test_coverage(File).

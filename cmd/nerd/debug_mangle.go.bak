@@ -1,0 +1,47 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/google/mangle/parse"
+)
+
+func main() {
+	schemas, _ := os.ReadFile("internal/mangle/schemas.gl")
+	policy, _ := os.ReadFile("internal/mangle/policy.gl")
+
+	var sb strings.Builder
+	sb.Write(schemas)
+	sb.WriteString("\n")
+	sb.Write(policy)
+
+	baseLen := strings.Count(sb.String(), "\n")
+	fmt.Printf("Base lines: %d\n", baseLen)
+
+	// Simulate appending each shard
+	shards, _ := filepath.Glob("internal/mangle/*.gl")
+	for _, shard := range shards {
+		name := filepath.Base(shard)
+		if name == "schemas.gl" || name == "policy.gl" {
+			continue
+		}
+
+		content, _ := os.ReadFile(shard)
+
+		var testSB strings.Builder
+		testSB.WriteString(sb.String())
+		testSB.WriteString("\n\n# Appended Policy\n") // Simulate Kernel.AppendPolicy
+		testSB.Write(content)
+
+		fullProgram := testSB.String()
+		_, err := parse.Unit(strings.NewReader(fullProgram))
+		if err != nil {
+			fmt.Printf("ERROR in %s: %v\n", name, err)
+		} else {
+			fmt.Printf("OK: %s (Total lines: %d)\n", name, strings.Count(fullProgram, "\n"))
+		}
+	}
+}
