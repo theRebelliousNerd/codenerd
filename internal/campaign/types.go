@@ -21,12 +21,12 @@ import (
 type CampaignType string
 
 const (
-	CampaignTypeGreenfield   CampaignType = "/greenfield"   // Build from scratch
-	CampaignTypeFeature      CampaignType = "/feature"      // Add major feature
-	CampaignTypeAudit        CampaignType = "/audit"        // Stability/security audit
-	CampaignTypeMigration    CampaignType = "/migration"    // Technology migration
-	CampaignTypeRemediation  CampaignType = "/remediation"  // Fix issues across codebase
-	CampaignTypeCustom       CampaignType = "/custom"       // User-defined campaign
+	CampaignTypeGreenfield  CampaignType = "/greenfield"  // Build from scratch
+	CampaignTypeFeature     CampaignType = "/feature"     // Add major feature
+	CampaignTypeAudit       CampaignType = "/audit"       // Stability/security audit
+	CampaignTypeMigration   CampaignType = "/migration"   // Technology migration
+	CampaignTypeRemediation CampaignType = "/remediation" // Fix issues across codebase
+	CampaignTypeCustom      CampaignType = "/custom"      // User-defined campaign
 )
 
 // CampaignStatus represents the current status of a campaign.
@@ -69,17 +69,17 @@ const (
 type TaskType string
 
 const (
-	TaskTypeFileCreate  TaskType = "/file_create"  // Create a new file
-	TaskTypeFileModify  TaskType = "/file_modify"  // Modify existing file
-	TaskTypeTestWrite   TaskType = "/test_write"   // Write tests
-	TaskTypeTestRun     TaskType = "/test_run"     // Run tests
-	TaskTypeResearch    TaskType = "/research"     // Deep research (spawns researcher shard)
-	TaskTypeShardSpawn  TaskType = "/shard_spawn"  // Spawn a shard agent
-	TaskTypeToolCreate  TaskType = "/tool_create"  // Create a new tool (autopoiesis)
-	TaskTypeVerify      TaskType = "/verify"       // Verification step
-	TaskTypeDocument    TaskType = "/document"     // Documentation
-	TaskTypeRefactor    TaskType = "/refactor"     // Refactoring
-	TaskTypeIntegrate   TaskType = "/integrate"    // Integration step
+	TaskTypeFileCreate TaskType = "/file_create" // Create a new file
+	TaskTypeFileModify TaskType = "/file_modify" // Modify existing file
+	TaskTypeTestWrite  TaskType = "/test_write"  // Write tests
+	TaskTypeTestRun    TaskType = "/test_run"    // Run tests
+	TaskTypeResearch   TaskType = "/research"    // Deep research (spawns researcher shard)
+	TaskTypeShardSpawn TaskType = "/shard_spawn" // Spawn a shard agent
+	TaskTypeToolCreate TaskType = "/tool_create" // Create a new tool (autopoiesis)
+	TaskTypeVerify     TaskType = "/verify"      // Verification step
+	TaskTypeDocument   TaskType = "/document"    // Documentation
+	TaskTypeRefactor   TaskType = "/refactor"    // Refactoring
+	TaskTypeIntegrate  TaskType = "/integrate"   // Integration step
 )
 
 // TaskPriority represents task priority levels.
@@ -130,7 +130,7 @@ type Campaign struct {
 	ID             string         `json:"id"`
 	Type           CampaignType   `json:"type"`
 	Title          string         `json:"title"`
-	Goal           string         `json:"goal"`           // High-level goal description
+	Goal           string         `json:"goal"`            // High-level goal description
 	SourceMaterial []string       `json:"source_material"` // Paths to spec docs
 	Status         CampaignStatus `json:"status"`
 	CreatedAt      time.Time      `json:"created_at"`
@@ -147,8 +147,8 @@ type Campaign struct {
 	TotalTasks      int `json:"total_tasks"`
 
 	// Context management
-	ContextBudget     int     `json:"context_budget"`     // Total token budget
-	ContextUsed       int     `json:"context_used"`       // Currently used tokens
+	ContextBudget      int     `json:"context_budget"`      // Total token budget
+	ContextUsed        int     `json:"context_used"`        // Currently used tokens
 	ContextUtilization float64 `json:"context_utilization"` // 0.0-1.0
 
 	// Revision tracking
@@ -185,9 +185,9 @@ type Phase struct {
 	Checkpoints []Checkpoint `json:"checkpoints,omitempty"`
 
 	// Compression (after completion)
-	CompressedSummary   string    `json:"compressed_summary,omitempty"`
-	OriginalAtomCount   int       `json:"original_atom_count,omitempty"`
-	CompressedAt        time.Time `json:"compressed_at,omitempty"`
+	CompressedSummary string    `json:"compressed_summary,omitempty"`
+	OriginalAtomCount int       `json:"original_atom_count,omitempty"`
+	CompressedAt      time.Time `json:"compressed_at,omitempty"`
 }
 
 // PhaseObjective describes what a phase aims to accomplish.
@@ -219,13 +219,13 @@ type Task struct {
 	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
 
 	// Provenance
-	InferredFrom   string  `json:"inferred_from,omitempty"`   // What this was derived from
-	InferenceConf  float64 `json:"inference_confidence"`      // Confidence of inference
+	InferredFrom    string  `json:"inferred_from,omitempty"` // What this was derived from
+	InferenceConf   float64 `json:"inference_confidence"`    // Confidence of inference
 	InferenceReason string  `json:"inference_reason,omitempty"`
 
 	// Execution tracking
-	Attempts []TaskAttempt `json:"attempts,omitempty"`
-	LastError string       `json:"last_error,omitempty"`
+	Attempts  []TaskAttempt `json:"attempts,omitempty"`
+	LastError string        `json:"last_error,omitempty"`
 }
 
 // TaskArtifact represents an artifact produced by a task.
@@ -278,11 +278,11 @@ type SourceDocument struct {
 
 // Requirement represents a requirement extracted from source documents.
 type Requirement struct {
-	ID          string `json:"id"`
-	CampaignID  string `json:"campaign_id"`
-	Description string `json:"description"`
-	Priority    string `json:"priority"`
-	Source      string `json:"source"` // Which document this came from
+	ID          string   `json:"id"`
+	CampaignID  string   `json:"campaign_id"`
+	Description string   `json:"description"`
+	Priority    string   `json:"priority"`
+	Source      string   `json:"source"`               // Which document this came from
 	CoveredBy   []string `json:"covered_by,omitempty"` // Task IDs that cover this
 }
 
@@ -305,21 +305,23 @@ type ShardResult struct {
 
 // Progress represents campaign progress for display.
 type Progress struct {
-	CampaignID       string  `json:"campaign_id"`
-	CampaignTitle    string  `json:"campaign_title"`
-	CampaignStatus   string  `json:"campaign_status"`
-	CurrentPhase     string  `json:"current_phase"`
-	CurrentPhaseIdx  int     `json:"current_phase_idx"`
-	TotalPhases      int     `json:"total_phases"`
-	PhaseProgress    float64 `json:"phase_progress"`    // 0.0-1.0
-	OverallProgress  float64 `json:"overall_progress"`  // 0.0-1.0
-	CurrentTask      string  `json:"current_task"`
-	CompletedTasks   int     `json:"completed_tasks"`
-	TotalTasks       int     `json:"total_tasks"`
-	ActiveShards     []string `json:"active_shards"`
-	ContextUsage     float64  `json:"context_usage"` // 0.0-1.0
-	Learnings        int      `json:"learnings_count"`
-	Replans          int      `json:"replans_count"`
+	CampaignID      string   `json:"campaign_id"`
+	CampaignTitle   string   `json:"campaign_title"`
+	CampaignStatus  string   `json:"campaign_status"`
+	CurrentPhase    string   `json:"current_phase"`
+	CurrentPhaseIdx int      `json:"current_phase_idx"`
+	CompletedPhases int      `json:"completed_phases"`
+	TotalPhases     int      `json:"total_phases"`
+	PhaseProgress   float64  `json:"phase_progress"`   // 0.0-1.0
+	OverallProgress float64  `json:"overall_progress"` // 0.0-1.0
+	CurrentTask     string   `json:"current_task"`
+	CompletedTasks  int      `json:"completed_tasks"`
+	TotalTasks      int      `json:"total_tasks"`
+	ActiveShards    []string `json:"active_shards"`
+	ContextUsage    float64  `json:"context_usage"` // 0.0-1.0
+	Learnings       int      `json:"learnings_count"`
+	Replans         int      `json:"replans_count"`
+	Errors          []string `json:"errors,omitempty"`
 }
 
 // ReplanTrigger represents a reason to replan the campaign.

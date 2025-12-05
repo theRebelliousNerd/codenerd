@@ -891,7 +891,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("\n🚀 Starting campaign execution...")
-	fmt.Println("   Press Ctrl+C to pause\n")
+	fmt.Println("   Press Ctrl+C to pause")
 
 	// Start event listener
 	go func() {
@@ -1153,7 +1153,7 @@ func runCampaignList(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║                    CAMPAIGNS                              ║")
-	fmt.Println("╚═══════════════════════════════════════════════════════════╝\n")
+	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {

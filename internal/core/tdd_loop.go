@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-// LLMClient defines the interface for LLM interactions.
-type LLMClient interface {
-	Complete(ctx context.Context, prompt string) (string, error)
-}
-
 // TDDState represents the current state of the TDD repair loop.
 type TDDState string
 
