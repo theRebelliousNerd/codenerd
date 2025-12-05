@@ -6,8 +6,654 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// =============================================================================
+// VERB CORPUS - Comprehensive Natural Language Understanding
+// =============================================================================
+// This corpus provides reliable mapping from natural language to intent verbs.
+// Each verb has synonyms, patterns, and category information for robust parsing.
+
+// VerbEntry defines a canonical verb with its synonyms and patterns.
+type VerbEntry struct {
+	Verb       string           // Canonical verb (e.g., "/review")
+	Category   string           // Default category (/query, /mutation, /instruction)
+	Synonyms   []string         // Words that map to this verb
+	Patterns   []*regexp.Regexp // Regex patterns that indicate this verb
+	Priority   int              // Higher priority wins in ambiguous cases
+	ShardType  string           // Which shard handles this (reviewer, coder, tester, researcher)
+}
+
+// VerbCorpus is the comprehensive mapping of natural language to verbs.
+var VerbCorpus = []VerbEntry{
+	// =========================================================================
+	// CODE REVIEW & ANALYSIS VERBS (Priority: 100)
+	// =========================================================================
+	{
+		Verb:     "/review",
+		Category: "/query",
+		Synonyms: []string{
+			"review", "code review", "pr review", "pull request review",
+			"check code", "check my code", "look at code", "look over",
+			"audit", "audit code", "code audit", "critique", "evaluate",
+			"assess", "assess code", "inspect", "inspect code", "examine",
+			"vet", "vet code", "proofread", "look through", "go through",
+			"take a look", "have a look", "give feedback", "feedback on",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)review\s+(this|the|my|our)?\s*(file|code|changes?|diff|pr|pull\s*request)?`),
+			regexp.MustCompile(`(?i)can\s+you\s+review`),
+			regexp.MustCompile(`(?i)please\s+review`),
+			regexp.MustCompile(`(?i)code\s+review`),
+			regexp.MustCompile(`(?i)review\s+for\s+(bugs?|issues?|problems?|errors?)`),
+			regexp.MustCompile(`(?i)check\s+(this|the|my)?\s*(code|file)`),
+			regexp.MustCompile(`(?i)look\s+(at|over|through)\s+(this|the|my)?\s*(code|file)?`),
+			regexp.MustCompile(`(?i)what\s+do\s+you\s+think\s+(of|about)\s+(this|the|my)?\s*(code)?`),
+			regexp.MustCompile(`(?i)give\s+(me\s+)?feedback`),
+		},
+		Priority:  100,
+		ShardType: "reviewer",
+	},
+	{
+		Verb:     "/security",
+		Category: "/query",
+		Synonyms: []string{
+			"security", "security scan", "security check", "security audit",
+			"security review", "vulnerability", "vulnerabilities", "vuln scan",
+			"security analysis", "penetration", "pentest", "find vulnerabilities",
+			"check security", "check for vulnerabilities", "security issues",
+			"injection", "xss", "csrf", "sql injection", "owasp",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)security\s+(scan|check|audit|review|analysis)`),
+			regexp.MustCompile(`(?i)check\s+(for\s+)?(security|vulnerabilities|vulns)`),
+			regexp.MustCompile(`(?i)find\s+(security\s+)?(vulnerabilities|issues|bugs)`),
+			regexp.MustCompile(`(?i)scan\s+for\s+(vulnerabilities|security)`),
+			regexp.MustCompile(`(?i)(is|are)\s+(this|it|the)\s+(code\s+)?secure`),
+			regexp.MustCompile(`(?i)any\s+(security\s+)?(vulnerabilities|issues)`),
+			regexp.MustCompile(`(?i)owasp|injection|xss|csrf`),
+		},
+		Priority:  105,
+		ShardType: "reviewer",
+	},
+	{
+		Verb:     "/analyze",
+		Category: "/query",
+		Synonyms: []string{
+			"analyze", "analyse", "analysis", "static analysis",
+			"complexity", "complexity analysis", "cyclomatic", "metrics",
+			"code metrics", "code quality", "quality check", "lint",
+			"linting", "style check", "code style", "smell", "code smell",
+			"dead code", "unused", "duplicates", "duplication",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)analy[sz]e\s+(this|the|my)?\s*(code|file|codebase)?`),
+			regexp.MustCompile(`(?i)(code\s+)?(complexity|metrics|quality)`),
+			regexp.MustCompile(`(?i)static\s+analysis`),
+			regexp.MustCompile(`(?i)code\s+smell`),
+			regexp.MustCompile(`(?i)find\s+(dead\s+code|unused|duplicates?)`),
+			regexp.MustCompile(`(?i)lint(ing)?`),
+			regexp.MustCompile(`(?i)style\s+check`),
+		},
+		Priority:  95,
+		ShardType: "reviewer",
+	},
+
+	// =========================================================================
+	// EXPLANATION & UNDERSTANDING VERBS (Priority: 80)
+	// =========================================================================
+	{
+		Verb:     "/explain",
+		Category: "/query",
+		Synonyms: []string{
+			"explain", "describe", "what is", "what's", "what are",
+			"how does", "how do", "tell me about", "tell me",
+			"help me understand", "understand", "clarify", "elaborate",
+			"walk me through", "walk through", "break down", "breakdown",
+			"summarize", "summary", "overview", "document", "documentation",
+			"why", "why does", "why is", "meaning", "purpose",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)^(what|how|why|when|where|who)\s+`),
+			regexp.MustCompile(`(?i)explain\s+(this|the|how|what|why)?`),
+			regexp.MustCompile(`(?i)tell\s+me\s+(about|how|what|why)`),
+			regexp.MustCompile(`(?i)help\s+me\s+understand`),
+			regexp.MustCompile(`(?i)walk\s+(me\s+)?through`),
+			regexp.MustCompile(`(?i)what\s+(is|are|does|do)\s+`),
+			regexp.MustCompile(`(?i)how\s+(does|do|is|are|can|should)\s+`),
+			regexp.MustCompile(`(?i)can\s+you\s+explain`),
+			regexp.MustCompile(`(?i)i\s+don'?t\s+understand`),
+			regexp.MustCompile(`(?i)what'?s\s+(the|this|going\s+on)`),
+		},
+		Priority:  80,
+		ShardType: "",
+	},
+	{
+		Verb:     "/explore",
+		Category: "/query",
+		Synonyms: []string{
+			"explore", "browse", "navigate", "show me", "show",
+			"list", "list files", "list functions", "list classes",
+			"where is", "where are", "locate", "find file", "find function",
+			"structure", "architecture", "layout", "codebase", "overview",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)show\s+(me\s+)?(the\s+)?(structure|architecture|layout|files?)`),
+			regexp.MustCompile(`(?i)explore\s+(the\s+)?(codebase|project|code)?`),
+			regexp.MustCompile(`(?i)list\s+(all\s+)?(files?|functions?|classes?|methods?)`),
+			regexp.MustCompile(`(?i)where\s+(is|are|can\s+i\s+find)`),
+			regexp.MustCompile(`(?i)navigate\s+to`),
+			regexp.MustCompile(`(?i)codebase\s+(structure|overview|layout)`),
+		},
+		Priority:  75,
+		ShardType: "researcher",
+	},
+
+	// =========================================================================
+	// SEARCH & DISCOVERY VERBS (Priority: 85)
+	// =========================================================================
+	{
+		Verb:     "/search",
+		Category: "/query",
+		Synonyms: []string{
+			"search", "find", "look for", "looking for", "grep",
+			"search for", "find all", "find where", "locate",
+			"occurrences", "references", "usages", "usage",
+			"who uses", "what uses", "called from", "calls to",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)search\s+(for\s+)?`),
+			regexp.MustCompile(`(?i)find\s+(all\s+)?(occurrences?|references?|usages?|uses?)`),
+			regexp.MustCompile(`(?i)grep\s+`),
+			regexp.MustCompile(`(?i)where\s+(is|are)\s+.+\s+(used|called|defined|declared)`),
+			regexp.MustCompile(`(?i)who\s+(uses?|calls?)`),
+			regexp.MustCompile(`(?i)looking\s+for`),
+		},
+		Priority:  85,
+		ShardType: "researcher",
+	},
+	{
+		Verb:     "/read",
+		Category: "/query",
+		Synonyms: []string{
+			"read", "open", "view", "display", "show file",
+			"cat", "print", "output", "contents", "show contents",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)read\s+(the\s+)?(file|contents?)?`),
+			regexp.MustCompile(`(?i)show\s+(me\s+)?(the\s+)?(file|contents?)`),
+			regexp.MustCompile(`(?i)open\s+(the\s+)?file`),
+			regexp.MustCompile(`(?i)display\s+(the\s+)?`),
+			regexp.MustCompile(`(?i)what('?s| is)\s+in\s+(the\s+)?file`),
+		},
+		Priority:  70,
+		ShardType: "",
+	},
+
+	// =========================================================================
+	// MUTATION VERBS - CODE CHANGES (Priority: 90)
+	// =========================================================================
+	{
+		Verb:     "/fix",
+		Category: "/mutation",
+		Synonyms: []string{
+			"fix", "repair", "correct", "patch", "resolve",
+			"fix bug", "fix error", "fix issue", "bug fix",
+			"hotfix", "quick fix", "fix this", "fix it",
+			"make it work", "get it working", "solve",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)fix\s+(this|the|my|that|a)?\s*(bug|error|issue|problem)?`),
+			regexp.MustCompile(`(?i)repair\s+`),
+			regexp.MustCompile(`(?i)resolve\s+(this|the)?\s*(issue|error|bug)?`),
+			regexp.MustCompile(`(?i)patch\s+`),
+			regexp.MustCompile(`(?i)make\s+(it|this)\s+work`),
+			regexp.MustCompile(`(?i)get\s+(it|this)\s+working`),
+			regexp.MustCompile(`(?i)this\s+(is\s+)?(broken|not\s+working)`),
+			regexp.MustCompile(`(?i)doesn'?t\s+work`),
+		},
+		Priority:  90,
+		ShardType: "coder",
+	},
+	{
+		Verb:     "/refactor",
+		Category: "/mutation",
+		Synonyms: []string{
+			"refactor", "refactoring", "restructure", "reorganize",
+			"clean up", "cleanup", "improve", "optimize", "optimise",
+			"simplify", "modernize", "modularize", "extract",
+			"rename", "move", "split", "merge", "consolidate",
+			"dry", "don't repeat yourself", "deduplicate",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)refactor\s+`),
+			regexp.MustCompile(`(?i)clean\s*up\s+`),
+			regexp.MustCompile(`(?i)improve\s+(the\s+)?(code|quality|readability|performance)`),
+			regexp.MustCompile(`(?i)simplify\s+`),
+			regexp.MustCompile(`(?i)optimize\s+`),
+			regexp.MustCompile(`(?i)extract\s+(method|function|class|interface)`),
+			regexp.MustCompile(`(?i)rename\s+`),
+			regexp.MustCompile(`(?i)move\s+(this|the)?\s*(to|into)`),
+			regexp.MustCompile(`(?i)split\s+(this|the)?`),
+			regexp.MustCompile(`(?i)merge\s+(these|the)?`),
+			regexp.MustCompile(`(?i)make\s+(this|it)\s+(cleaner|simpler|better|more\s+readable)`),
+		},
+		Priority:  88,
+		ShardType: "coder",
+	},
+	{
+		Verb:     "/create",
+		Category: "/mutation",
+		Synonyms: []string{
+			"create", "new", "make", "add", "write",
+			"implement", "build", "scaffold", "generate",
+			"create file", "new file", "add file",
+			"create function", "add function", "new function",
+			"create class", "add class", "new class",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)create\s+(a\s+)?(new\s+)?`),
+			regexp.MustCompile(`(?i)add\s+(a\s+)?(new\s+)?`),
+			regexp.MustCompile(`(?i)make\s+(a\s+)?(new\s+)?`),
+			regexp.MustCompile(`(?i)write\s+(a\s+)?(new\s+)?`),
+			regexp.MustCompile(`(?i)implement\s+`),
+			regexp.MustCompile(`(?i)build\s+(a\s+)?(new\s+)?`),
+			regexp.MustCompile(`(?i)scaffold\s+`),
+			regexp.MustCompile(`(?i)generate\s+`),
+			regexp.MustCompile(`(?i)new\s+(file|function|class|method|component)`),
+		},
+		Priority:  85,
+		ShardType: "coder",
+	},
+	{
+		Verb:     "/delete",
+		Category: "/mutation",
+		Synonyms: []string{
+			"delete", "remove", "drop", "eliminate", "erase",
+			"get rid of", "discard", "trash", "kill", "nuke",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)delete\s+`),
+			regexp.MustCompile(`(?i)remove\s+`),
+			regexp.MustCompile(`(?i)get\s+rid\s+of`),
+			regexp.MustCompile(`(?i)eliminate\s+`),
+		},
+		Priority:  85,
+		ShardType: "coder",
+	},
+	{
+		Verb:     "/write",
+		Category: "/mutation",
+		Synonyms: []string{
+			"write", "save", "store", "output to file",
+			"write to", "save to", "export",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)write\s+(to\s+)?(file|disk)?`),
+			regexp.MustCompile(`(?i)save\s+(to\s+)?`),
+			regexp.MustCompile(`(?i)export\s+`),
+		},
+		Priority:  70,
+		ShardType: "coder",
+	},
+
+	// =========================================================================
+	// DEBUGGING VERBS (Priority: 92)
+	// =========================================================================
+	{
+		Verb:     "/debug",
+		Category: "/query",
+		Synonyms: []string{
+			"debug", "debugging", "trace", "diagnose", "troubleshoot",
+			"investigate", "root cause", "why is this", "what's wrong",
+			"what went wrong", "error", "exception", "stack trace",
+			"breakpoint", "step through", "log", "logging",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)debug\s+`),
+			regexp.MustCompile(`(?i)troubleshoot\s+`),
+			regexp.MustCompile(`(?i)diagnose\s+`),
+			regexp.MustCompile(`(?i)investigate\s+`),
+			regexp.MustCompile(`(?i)what'?s\s+wrong`),
+			regexp.MustCompile(`(?i)why\s+(is|does|did)\s+(this|it)\s+(fail|error|crash|break)`),
+			regexp.MustCompile(`(?i)root\s+cause`),
+			regexp.MustCompile(`(?i)(this|it)\s+(error|exception|crash)`),
+			regexp.MustCompile(`(?i)stack\s+trace`),
+			regexp.MustCompile(`(?i)i\s+(got|have|see)\s+(an?\s+)?(error|exception)`),
+		},
+		Priority:  92,
+		ShardType: "coder",
+	},
+
+	// =========================================================================
+	// TESTING VERBS (Priority: 88)
+	// =========================================================================
+	{
+		Verb:     "/test",
+		Category: "/mutation",
+		Synonyms: []string{
+			"test", "testing", "unit test", "integration test",
+			"write test", "add test", "create test", "run test",
+			"run tests", "test coverage", "coverage", "verify",
+			"validate", "check", "tdd", "test driven",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)(write|add|create)\s+(a\s+)?(unit\s+)?tests?`),
+			regexp.MustCompile(`(?i)run\s+(the\s+)?tests?`),
+			regexp.MustCompile(`(?i)test\s+(this|the|coverage)?`),
+			regexp.MustCompile(`(?i)add\s+test\s+coverage`),
+			regexp.MustCompile(`(?i)verify\s+`),
+			regexp.MustCompile(`(?i)tdd`),
+			regexp.MustCompile(`(?i)make\s+sure\s+(it|this)\s+works`),
+		},
+		Priority:  88,
+		ShardType: "tester",
+	},
+
+	// =========================================================================
+	// RESEARCH & LEARNING VERBS (Priority: 75)
+	// =========================================================================
+	{
+		Verb:     "/research",
+		Category: "/query",
+		Synonyms: []string{
+			"research", "learn", "study", "investigate",
+			"look up", "lookup", "find out", "discover",
+			"documentation", "docs", "api", "reference",
+			"how to", "tutorial", "guide", "example",
+			"best practice", "best practices", "pattern",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)research\s+`),
+			regexp.MustCompile(`(?i)look\s*up\s+`),
+			regexp.MustCompile(`(?i)find\s+out\s+(about|how)`),
+			regexp.MustCompile(`(?i)learn\s+(about|how)`),
+			regexp.MustCompile(`(?i)(show|find)\s+(me\s+)?(the\s+)?docs`),
+			regexp.MustCompile(`(?i)documentation\s+(for|about|on)`),
+			regexp.MustCompile(`(?i)how\s+(do\s+i|to|can\s+i)`),
+			regexp.MustCompile(`(?i)best\s+practice`),
+			regexp.MustCompile(`(?i)example\s+of`),
+		},
+		Priority:  75,
+		ShardType: "researcher",
+	},
+
+	// =========================================================================
+	// INITIALIZATION & SETUP VERBS (Priority: 70)
+	// =========================================================================
+	{
+		Verb:     "/init",
+		Category: "/mutation",
+		Synonyms: []string{
+			"init", "initialize", "initialise", "setup", "set up",
+			"bootstrap", "scaffold", "start", "begin", "create project",
+			"new project", "configure", "config",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)^init(iali[sz]e)?$`),
+			regexp.MustCompile(`(?i)set\s*up\s+`),
+			regexp.MustCompile(`(?i)bootstrap\s+`),
+			regexp.MustCompile(`(?i)scaffold\s+(a\s+)?(new\s+)?project`),
+			regexp.MustCompile(`(?i)create\s+(a\s+)?new\s+project`),
+			regexp.MustCompile(`(?i)start\s+(a\s+)?new\s+project`),
+			regexp.MustCompile(`(?i)configure\s+`),
+		},
+		Priority:  70,
+		ShardType: "researcher",
+	},
+
+	// =========================================================================
+	// EXECUTION VERBS (Priority: 85)
+	// =========================================================================
+	{
+		Verb:     "/run",
+		Category: "/mutation",
+		Synonyms: []string{
+			"run", "execute", "exec", "start", "launch",
+			"invoke", "call", "trigger", "fire",
+			"run command", "run script", "run program",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)run\s+(the\s+)?(command|script|program|app)?`),
+			regexp.MustCompile(`(?i)execute\s+`),
+			regexp.MustCompile(`(?i)start\s+(the\s+)?(server|app|program)`),
+			regexp.MustCompile(`(?i)launch\s+`),
+		},
+		Priority:  85,
+		ShardType: "",
+	},
+
+	// =========================================================================
+	// CONFIGURATION VERBS (Priority: 65)
+	// =========================================================================
+	{
+		Verb:     "/configure",
+		Category: "/instruction",
+		Synonyms: []string{
+			"configure", "config", "settings", "preferences",
+			"set", "change setting", "update setting", "modify setting",
+			"always", "never", "prefer", "use", "default",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)configure\s+`),
+			regexp.MustCompile(`(?i)change\s+(the\s+)?setting`),
+			regexp.MustCompile(`(?i)set\s+(the\s+)?`),
+			regexp.MustCompile(`(?i)^always\s+`),
+			regexp.MustCompile(`(?i)^never\s+`),
+			regexp.MustCompile(`(?i)^prefer\s+`),
+			regexp.MustCompile(`(?i)^use\s+`),
+			regexp.MustCompile(`(?i)by\s+default`),
+		},
+		Priority:  65,
+		ShardType: "",
+	},
+
+	// =========================================================================
+	// GIT & VERSION CONTROL VERBS (Priority: 80)
+	// =========================================================================
+	{
+		Verb:     "/commit",
+		Category: "/mutation",
+		Synonyms: []string{
+			"commit", "git commit", "save changes", "check in",
+			"checkin", "stage", "add to git",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)commit\s+(the\s+)?(changes?)?`),
+			regexp.MustCompile(`(?i)git\s+commit`),
+			regexp.MustCompile(`(?i)stage\s+(the\s+)?(changes?|files?)?`),
+		},
+		Priority:  80,
+		ShardType: "coder",
+	},
+	{
+		Verb:     "/diff",
+		Category: "/query",
+		Synonyms: []string{
+			"diff", "difference", "compare", "changes",
+			"what changed", "show changes", "git diff",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)diff\s+`),
+			regexp.MustCompile(`(?i)show\s+(the\s+)?changes`),
+			regexp.MustCompile(`(?i)what\s+(has\s+)?changed`),
+			regexp.MustCompile(`(?i)compare\s+`),
+			regexp.MustCompile(`(?i)git\s+diff`),
+		},
+		Priority:  80,
+		ShardType: "",
+	},
+
+	// =========================================================================
+	// DOCUMENTATION VERBS (Priority: 70)
+	// =========================================================================
+	{
+		Verb:     "/document",
+		Category: "/mutation",
+		Synonyms: []string{
+			"document", "documentation", "docstring", "jsdoc",
+			"add docs", "add documentation", "write docs",
+			"comment", "add comments", "annotate",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)document\s+(this|the)?`),
+			regexp.MustCompile(`(?i)(add|write)\s+(the\s+)?doc(s|umentation)?`),
+			regexp.MustCompile(`(?i)add\s+(a\s+)?docstring`),
+			regexp.MustCompile(`(?i)add\s+comments?`),
+			regexp.MustCompile(`(?i)annotate\s+`),
+		},
+		Priority:  70,
+		ShardType: "coder",
+	},
+
+	// =========================================================================
+	// CAMPAIGN / LARGE TASK VERBS (Priority: 95)
+	// =========================================================================
+	{
+		Verb:     "/campaign",
+		Category: "/mutation",
+		Synonyms: []string{
+			"campaign", "project", "epic", "feature",
+			"large task", "big task", "multi-step", "multi step",
+			"implement feature", "build feature", "develop",
+		},
+		Patterns: []*regexp.Regexp{
+			regexp.MustCompile(`(?i)start\s+(a\s+)?campaign`),
+			regexp.MustCompile(`(?i)implement\s+(a\s+)?(full|complete|entire)\s+`),
+			regexp.MustCompile(`(?i)build\s+(out\s+)?(a\s+)?(full|complete|entire)\s+`),
+			regexp.MustCompile(`(?i)(this|that)\s+is\s+(a\s+)?(big|large|complex)`),
+		},
+		Priority:  95,
+		ShardType: "coder",
+	},
+}
+
+// CategoryPatterns maps phrases to categories when verb is ambiguous.
+var CategoryPatterns = map[string][]*regexp.Regexp{
+	"/mutation": {
+		regexp.MustCompile(`(?i)^(please\s+)?(can\s+you\s+)?(make|change|update|modify|edit|fix|add|remove|delete|create|write|implement|refactor)`),
+		regexp.MustCompile(`(?i)i\s+(want|need|would\s+like)\s+(you\s+)?to\s+`),
+		regexp.MustCompile(`(?i)^(add|remove|delete|create|fix|change|update|modify)\s+`),
+	},
+	"/query": {
+		regexp.MustCompile(`(?i)^(what|how|why|when|where|which|who|is|are|does|do|can|could|would|should)\s+`),
+		regexp.MustCompile(`(?i)^(show|explain|describe|tell|list|find|search|look)`),
+		regexp.MustCompile(`(?i)\?$`),
+	},
+	"/instruction": {
+		regexp.MustCompile(`(?i)^(always|never|prefer|remember|from\s+now\s+on|going\s+forward)`),
+		regexp.MustCompile(`(?i)^(use|don'?t\s+use|avoid|include|exclude)\s+.+\s+(by\s+default|always|whenever)`),
+	},
+}
+
+// TargetPatterns help extract the target from natural language.
+var TargetPatterns = []*regexp.Regexp{
+	// File paths
+	regexp.MustCompile(`(?i)(?:file|in)\s+["\x60]?([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)["\x60]?`),
+	regexp.MustCompile(`(?i)["\x60]([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)["\x60]`),
+	regexp.MustCompile(`(?i)(?:^|\s)([a-zA-Z0-9_-]+/[a-zA-Z0-9_./-]+)`),
+	// Function/class names
+	regexp.MustCompile(`(?i)(?:function|method|class|struct|interface)\s+["\x60]?(\w+)["\x60]?`),
+	regexp.MustCompile(`(?i)(?:the|this)\s+(\w+)\s+(?:function|method|class)`),
+	// Generic quoted targets
+	regexp.MustCompile(`["\x60]([^"\x60]+)["\x60]`),
+}
+
+// ConstraintPatterns extract constraints from natural language.
+var ConstraintPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(?:for|using|with|in)\s+(go|golang|python|javascript|typescript|rust|java|c\+\+|ruby)`),
+	regexp.MustCompile(`(?i)(?:but|without|except|excluding)\s+(.+?)(?:\s*$|\s+and\s+)`),
+	regexp.MustCompile(`(?i)(?:only|just)\s+(.+?)(?:\s*$|\s+and\s+)`),
+	regexp.MustCompile(`(?i)(?:security|performance|style|quality)\s+(?:only|focus)`),
+}
+
+// matchVerbFromCorpus finds the best matching verb from the corpus.
+func matchVerbFromCorpus(input string) (verb string, category string, confidence float64, shardType string) {
+	lower := strings.ToLower(input)
+	bestScore := 0.0
+	bestVerb := "/explain"
+	bestCategory := "/query"
+	bestShard := ""
+
+	for _, entry := range VerbCorpus {
+		score := 0.0
+
+		// Check patterns (highest weight)
+		for _, pattern := range entry.Patterns {
+			if pattern.MatchString(lower) {
+				score += 50.0 + float64(entry.Priority)/10.0
+				break
+			}
+		}
+
+		// Check synonyms
+		for _, synonym := range entry.Synonyms {
+			if strings.Contains(lower, synonym) {
+				synLen := float64(len(synonym))
+				score += 20.0 + synLen/2.0 + float64(entry.Priority)/20.0
+				break
+			}
+		}
+
+		// Apply priority bonus
+		score += float64(entry.Priority) / 50.0
+
+		if score > bestScore {
+			bestScore = score
+			bestVerb = entry.Verb
+			bestCategory = entry.Category
+			bestShard = entry.ShardType
+		}
+	}
+
+	// Normalize confidence
+	confidence = bestScore / 100.0
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
+	if confidence < 0.3 {
+		confidence = 0.3 // Minimum baseline
+	}
+
+	return bestVerb, bestCategory, confidence, bestShard
+}
+
+// extractTarget attempts to extract the target from natural language.
+func extractTarget(input string) string {
+	for _, pattern := range TargetPatterns {
+		matches := pattern.FindStringSubmatch(input)
+		if len(matches) > 1 {
+			return matches[1]
+		}
+	}
+	return "none"
+}
+
+// extractConstraint attempts to extract constraints from natural language.
+func extractConstraint(input string) string {
+	for _, pattern := range ConstraintPatterns {
+		matches := pattern.FindStringSubmatch(input)
+		if len(matches) > 1 {
+			return matches[1]
+		}
+	}
+	return "none"
+}
+
+// refineCategory checks if category patterns override the verb's default category.
+func refineCategory(input string, defaultCategory string) string {
+	lower := strings.ToLower(input)
+	for cat, patterns := range CategoryPatterns {
+		for _, pattern := range patterns {
+			if pattern.MatchString(lower) {
+				return cat
+			}
+		}
+	}
+	return defaultCategory
+}
 
 // Intent represents the parsed user intent (Cortex 1.5.0 §3.1).
 type Intent struct {
@@ -112,6 +758,7 @@ type SelfCorrection struct {
 }
 
 // Cortex 1.5.0 Piggyback Protocol System Prompt
+// Updated with comprehensive verb taxonomy for reliable intent classification.
 const transducerSystemPrompt = `You are Cortex. You possess a Dual Consciousness.
 
 Public Self: You converse with the user naturally.
@@ -120,15 +767,63 @@ Inner Self: You continuously update your internal Logic Kernel.
 CRITICAL PROTOCOL:
 You must NEVER output raw text. You must ALWAYS output a JSON object containing "surface_response" and "control_packet".
 
+## VERB TAXONOMY (Comprehensive)
+
+### Code Review & Analysis (Category: /query, Shard: reviewer)
+- /review: code review, pr review, check my code, look over, audit, evaluate, inspect, critique, assess, vet, proofread, feedback
+- /security: security scan, vulnerability check, security audit, find vulnerabilities, owasp, injection, xss, csrf
+- /analyze: static analysis, complexity, metrics, code quality, lint, style check, code smell, dead code
+
+### Understanding (Category: /query)
+- /explain: explain, describe, what is, how does, tell me, help understand, clarify, walk through, summarize
+- /explore: browse, navigate, show structure, list files, codebase overview, architecture
+- /search: find, grep, look for, locate, occurrences, references, usages
+- /read: open file, view, display, show contents
+
+### Code Changes (Category: /mutation, Shard: coder)
+- /fix: fix, repair, correct, patch, resolve, bug fix, make it work
+- /refactor: refactor, clean up, improve, optimize, simplify, extract, rename, restructure
+- /create: create, new, make, add, write, implement, build, scaffold, generate
+- /delete: delete, remove, drop, eliminate, get rid of
+- /write: write to file, save, export
+
+### Debugging (Category: /query, Shard: coder)
+- /debug: debug, trace, diagnose, troubleshoot, investigate, root cause, what's wrong, stack trace
+
+### Testing (Category: /mutation, Shard: tester)
+- /test: test, unit test, run tests, test coverage, verify, validate, tdd
+
+### Research (Category: /query, Shard: researcher)
+- /research: research, learn, look up, documentation, docs, api reference, best practice, how to
+
+### Setup (Category: /mutation)
+- /init: initialize, setup, bootstrap, scaffold project, configure
+
+### Execution (Category: /mutation)
+- /run: run, execute, start, launch
+
+### Configuration (Category: /instruction)
+- /configure: configure, settings, always, never, prefer, by default
+
+### Version Control (Category: /mutation, Shard: coder)
+- /commit: commit, git commit, stage, check in
+- /diff: diff, compare, what changed
+
+### Documentation (Category: /mutation, Shard: coder)
+- /document: document, docstring, add docs, add comments
+
+### Campaigns (Category: /mutation)
+- /campaign: campaign, epic, large feature, multi-step task
+
 The JSON Schema is:
 {
   "surface_response": "The natural language text shown to the user.",
   "control_packet": {
     "intent_classification": {
       "category": "/query|/mutation|/instruction",
-      "verb": "/explain|/refactor|/debug|/generate|/init|/research|/fix|/test|/delete|/create|/search|/configure|/read|/write",
-      "target": "primary target string or 'none'",
-      "constraint": "any constraints or 'none'",
+      "verb": "one of the verbs above (e.g., /review, /security, /analyze, /explain, /fix, /refactor, /create, /delete, /debug, /test, /research, /init, /run, /configure, /commit, /diff, /document, /campaign, /explore, /search, /read, /write)",
+      "target": "primary target string - extract file paths, function names, or 'codebase' for broad requests, or 'none'",
+      "constraint": "any constraints (e.g., 'security only', 'go files', 'without tests') or 'none'",
       "confidence": 0.0-1.0
     },
     "mangle_updates": [
@@ -144,6 +839,16 @@ The JSON Schema is:
     }
   }
 }
+
+CLASSIFICATION GUIDELINES:
+1. For "review this file" → verb: /review, target: the file path
+2. For "can you check my code for security issues" → verb: /security, target: codebase
+3. For "what does this function do" → verb: /explain
+4. For "fix the bug in auth.go" → verb: /fix, target: auth.go
+5. For "refactor this to be cleaner" → verb: /refactor
+6. For "is this code secure" → verb: /security
+7. For "review the codebase" → verb: /review, target: codebase
+8. For "check for vulnerabilities" → verb: /security
 
 Your control_packet must reflect the true state of the world.
 If the user asks for something impossible, your Surface Self says 'I can't do that,' while your Inner Self emits ambiguity_flag(/impossible_request).`
@@ -314,17 +1019,24 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 
 // parseSimple is a fallback parser using pipe-delimited format.
 func (t *RealTransducer) parseSimple(ctx context.Context, input string) (Intent, error) {
+	// Build verb list from corpus
+	verbs := make([]string, 0, len(VerbCorpus))
+	for _, entry := range VerbCorpus {
+		verbs = append(verbs, entry.Verb)
+	}
+	verbList := strings.Join(verbs, ", ")
+
 	prompt := fmt.Sprintf(`Parse to: Category|Verb|Target|Constraint
 Categories: /query, /mutation, /instruction
-Verbs: /explain, /refactor, /debug, /generate, /init, /research, /fix, /test, /delete, /create, /search
+Verbs: %s
 
 Input: "%s"
 
-Output ONLY pipes, no explanation:`, input)
+Output ONLY pipes, no explanation:`, verbList, input)
 
 	resp, err := t.client.Complete(ctx, prompt)
 	if err != nil {
-		// Ultimate fallback - heuristic parsing
+		// Ultimate fallback - heuristic parsing using corpus
 		return t.heuristicParse(input), nil
 	}
 
@@ -342,53 +1054,42 @@ Output ONLY pipes, no explanation:`, input)
 	}, nil
 }
 
-// heuristicParse uses keyword matching as ultimate fallback.
+// heuristicParse uses the comprehensive verb corpus for reliable offline parsing.
+// This is the ultimate fallback when LLM is unavailable.
 func (t *RealTransducer) heuristicParse(input string) Intent {
-	lower := strings.ToLower(input)
+	// Use the comprehensive corpus matching
+	verb, category, confidence, _ := matchVerbFromCorpus(input)
 
-	// Determine category
-	category := "/query"
-	if containsAny(lower, []string{"refactor", "fix", "delete", "create", "add", "update", "remove", "change"}) {
-		category = "/mutation"
-	} else if containsAny(lower, []string{"always", "never", "prefer", "configure", "set"}) {
-		category = "/instruction"
+	// Refine category based on input patterns
+	category = refineCategory(input, category)
+
+	// Extract target from natural language
+	target := extractTarget(input)
+	if target == "none" {
+		// Use input as target if no specific target found
+		target = input
 	}
 
-	// Determine verb
-	verb := "/explain"
-	verbMap := map[string]string{
-		"refactor":   "/refactor",
-		"debug":      "/debug",
-		"fix":        "/fix",
-		"generate":   "/generate",
-		"create":     "/create",
-		"init":       "/init",
-		"initialize": "/init",
-		"research":   "/research",
-		"test":       "/test",
-		"delete":     "/delete",
-		"remove":     "/delete",
-		"search":     "/search",
-		"find":       "/search",
-		"explain":    "/explain",
-		"how":        "/explain",
-		"what":       "/explain",
-	}
-
-	for keyword, v := range verbMap {
-		if strings.Contains(lower, keyword) {
-			verb = v
-			break
-		}
-	}
+	// Extract constraint
+	constraint := extractConstraint(input)
 
 	return Intent{
 		Category:   category,
 		Verb:       verb,
-		Target:     input, // Use full input as target
-		Constraint: "none",
-		Confidence: 0.5, // Low confidence for heuristic
+		Target:     target,
+		Constraint: constraint,
+		Confidence: confidence,
 	}
+}
+
+// GetShardTypeForVerb returns the recommended shard type for a given verb.
+func GetShardTypeForVerb(verb string) string {
+	for _, entry := range VerbCorpus {
+		if entry.Verb == verb {
+			return entry.ShardType
+		}
+	}
+	return ""
 }
 
 // ResolveFocus attempts to resolve a fuzzy reference to a concrete path/symbol.

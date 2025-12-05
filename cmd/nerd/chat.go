@@ -1146,6 +1146,24 @@ func (m chatModel) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /approve | Review pending mutations (Interactive Diff) |
 | /quit, /exit, /q | Exit the CLI |
 
+## Quick Actions (Convenience Commands)
+| Command | Description |
+|---------|-------------|
+| /review [file] | Code review (all files if no arg) |
+| /security [file] | Security vulnerability scan |
+| /analyze [file] | Code complexity/quality analysis |
+| /test [file] | Run tests |
+| /fix <issue> | Fix a bug or issue |
+| /refactor <target> | Refactor code |
+
+## Natural Language
+You can also just type naturally! Examples:
+- "review this file" → triggers code review
+- "check for security issues" → security scan
+- "what does this function do" → explanation
+- "fix the bug in auth.go" → fix attempt
+- "refactor the handler" → refactoring
+
 ## Campaign Orchestration
 | Command | Description |
 |---------|-------------|
@@ -1738,6 +1756,157 @@ The agent will undergo deep research on first spawn to build its knowledge base.
 			m.spawnShard(shardType, task),
 		)
 
+	case "/review":
+		// Convenience command for code review
+		target := "all"
+		if len(parts) > 1 {
+			target = "file:" + strings.Join(parts[1:], " ")
+		}
+		task := "review " + target
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔍 Starting code review: %s", target),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("reviewer", task),
+		)
+
+	case "/security":
+		// Convenience command for security scan
+		target := "all"
+		if len(parts) > 1 {
+			target = "file:" + strings.Join(parts[1:], " ")
+		}
+		task := "security_scan " + target
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔒 Starting security scan: %s", target),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("reviewer", task),
+		)
+
+	case "/analyze":
+		// Convenience command for code analysis (complexity, style, etc.)
+		target := "all"
+		if len(parts) > 1 {
+			target = "file:" + strings.Join(parts[1:], " ")
+		}
+		task := "complexity " + target
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("📊 Starting code analysis: %s", target),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("reviewer", task),
+		)
+
+	case "/test":
+		// Convenience command for running tests
+		task := "run_tests"
+		if len(parts) > 1 {
+			task = "run_tests file:" + strings.Join(parts[1:], " ")
+		}
+
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: "🧪 Running tests...",
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("tester", task),
+		)
+
+	case "/fix":
+		// Convenience command for fixing issues
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/fix <description or file:path>`\n\nExamples:\n```\n/fix the null pointer in auth.go\n/fix file:src/main.go\n```",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		task := strings.Join(parts[1:], " ")
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔧 Attempting fix: %s", task),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("coder", "fix "+task),
+		)
+
+	case "/refactor":
+		// Convenience command for refactoring
+		if len(parts) < 2 {
+			m.history = append(m.history, chatMessage{
+				role:    "assistant",
+				content: "Usage: `/refactor <file or description>`\n\nExamples:\n```\n/refactor src/main.go\n/refactor the authentication module\n```",
+				time:    time.Now(),
+			})
+			m.textinput.Reset()
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		task := strings.Join(parts[1:], " ")
+		m.history = append(m.history, chatMessage{
+			role:    "assistant",
+			content: fmt.Sprintf("🔄 Refactoring: %s", task),
+			time:    time.Now(),
+		})
+		m.textinput.Reset()
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.spawnShard("coder", "refactor "+task),
+		)
+
 	case "/query":
 		if len(parts) < 2 {
 			m.history = append(m.history, chatMessage{
@@ -2209,6 +2378,24 @@ func (m chatModel) processInput(input string) tea.Cmd {
 		}
 		if strings.TrimSpace(intent.Response) == "" {
 			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
+		}
+
+		// 1.5 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
+		// This implements automatic shard spawning from natural language
+		shardType := perception.GetShardTypeForVerb(intent.Verb)
+		if shardType != "" && intent.Confidence >= 0.5 {
+			// Format task based on verb and target
+			task := formatShardTask(intent.Verb, intent.Target, intent.Constraint, m.workspace)
+
+			// Spawn the shard and return its result
+			result, spawnErr := m.shardMgr.Spawn(ctx, shardType, task)
+			if spawnErr != nil {
+				return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
+			}
+
+			// Format a rich response combining LLM surface response and shard result
+			response := formatDelegatedResponse(intent, shardType, task, result)
+			return responseMsg(response)
 		}
 
 		// 2. CONTEXT LOADING (Scanner)
@@ -3339,6 +3526,121 @@ func (m chatModel) loadType3Agents() []nerdinit.CreatedAgent {
 	}
 
 	return registry.Agents
+}
+
+// =============================================================================
+// SHARD DELEGATION HELPERS
+// =============================================================================
+
+// formatShardTask converts an intent into a task string for a shard.
+// Different shard types expect different task formats.
+func formatShardTask(verb, target, constraint, workspace string) string {
+	// Normalize target
+	if target == "" || target == "none" {
+		target = "codebase"
+	}
+
+	// Handle file paths - make them relative to workspace if needed
+	if strings.HasPrefix(target, workspace) {
+		target = strings.TrimPrefix(target, workspace+"/")
+	}
+
+	switch verb {
+	case "/review":
+		if target == "codebase" {
+			return "review all"
+		}
+		return fmt.Sprintf("review file:%s", target)
+
+	case "/security":
+		if target == "codebase" {
+			return "security_scan all"
+		}
+		return fmt.Sprintf("security_scan file:%s", target)
+
+	case "/analyze":
+		if target == "codebase" {
+			return "complexity all"
+		}
+		return fmt.Sprintf("complexity file:%s", target)
+
+	case "/fix":
+		return fmt.Sprintf("fix issue in %s", target)
+
+	case "/refactor":
+		return fmt.Sprintf("refactor %s", target)
+
+	case "/create":
+		return fmt.Sprintf("create %s", target)
+
+	case "/test":
+		if strings.Contains(target, "run") || target == "codebase" {
+			return "run_tests"
+		}
+		return fmt.Sprintf("write_tests for %s", target)
+
+	case "/debug":
+		return fmt.Sprintf("debug %s", target)
+
+	case "/research":
+		return fmt.Sprintf("research %s", target)
+
+	case "/explore":
+		return fmt.Sprintf("explore %s", target)
+
+	case "/document":
+		return fmt.Sprintf("document %s", target)
+
+	case "/diff":
+		return fmt.Sprintf("review diff:%s", target)
+
+	default:
+		// Generic task format
+		if constraint != "none" && constraint != "" {
+			return fmt.Sprintf("%s %s with constraint: %s", verb, target, constraint)
+		}
+		return fmt.Sprintf("%s %s", verb, target)
+	}
+}
+
+// formatDelegatedResponse creates a user-friendly response from shard execution.
+func formatDelegatedResponse(intent perception.Intent, shardType, task, result string) string {
+	// Build header based on verb
+	var header string
+	switch intent.Verb {
+	case "/review":
+		header = "## Code Review Results"
+	case "/security":
+		header = "## Security Analysis Results"
+	case "/analyze":
+		header = "## Code Analysis Results"
+	case "/fix":
+		header = "## Fix Applied"
+	case "/refactor":
+		header = "## Refactoring Complete"
+	case "/test":
+		header = "## Test Results"
+	case "/debug":
+		header = "## Debug Analysis"
+	case "/research":
+		header = "## Research Findings"
+	default:
+		header = fmt.Sprintf("## %s Results", strings.Title(strings.TrimPrefix(intent.Verb, "/")))
+	}
+
+	// Include the LLM's surface response if meaningful
+	surfaceNote := ""
+	if intent.Response != "" && len(intent.Response) < 500 {
+		surfaceNote = fmt.Sprintf("\n\n> %s\n", intent.Response)
+	}
+
+	return fmt.Sprintf(`%s
+%s
+**Target**: %s
+**Agent**: %s
+
+### Output
+%s`, header, surfaceNote, intent.Target, shardType, result)
 }
 
 // spawnShard spawns a shard agent for a task
