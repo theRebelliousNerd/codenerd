@@ -342,16 +342,20 @@ preference_signal(Pattern) :-
     N >= 3.
 
 # Promote to long-term memory
-promote_to_long_term(Fact) :-
+promote_to_long_term(FactType, FactValue) :-
     preference_signal(Pattern),
-    derived_rule(Pattern, Fact).
+    derived_rule(Pattern, FactType, FactValue).
 
 # Autopoiesis: Missing Tool Detection
+# Helper: derive when we HAVE a capability (for safe negation)
+has_capability(Cap) :-
+    tool_capabilities(_, Cap).
+
 # Derive missing_tool_for if user intent requires a capability we don't have
 missing_tool_for(IntentID, Cap) :-
     user_intent(IntentID, _, _, _, _),
     goal_requires(_, Cap),
-    !tool_capabilities(_, Cap).
+    !has_capability(Cap).
 
 # Trigger tool generation if tool is missing
 next_action(/generate_tool) :-
@@ -510,7 +514,9 @@ phase_eligible(PhaseID) :-
     !has_incomplete_hard_dep(PhaseID).
 
 # Helper: check if there's an earlier eligible phase
-has_earlier_phase(PhaseID, Order) :-
+# Note: Order is bound by looking up PhaseID's order within the rule
+has_earlier_phase(PhaseID) :-
+    campaign_phase(PhaseID, _, _, Order, _, _),
     phase_eligible(OtherPhaseID),
     OtherPhaseID != PhaseID,
     campaign_phase(OtherPhaseID, _, _, OtherOrder, _, _),
@@ -523,8 +529,7 @@ current_phase(PhaseID) :-
 
 current_phase(PhaseID) :-
     phase_eligible(PhaseID),
-    campaign_phase(PhaseID, _, _, Order, _, _),
-    !has_earlier_phase(PhaseID, Order),
+    !has_earlier_phase(PhaseID),
     !has_in_progress_phase().
 
 # Helper: check if any phase is in progress
@@ -789,9 +794,11 @@ phase_tool_permitted(Tool) :-
 
 # Block tools not in phase profile during active campaign
 # (This is advisory - Go runtime can override for safety)
+# Note: Tool is bound via tool_capabilities before negation check
 tool_advisory_block(Tool, "not_in_phase_profile") :-
     current_campaign(_),
     current_phase(_),
+    tool_capabilities(Tool, _),
     !phase_tool_permitted(Tool).
 
 # =============================================================================

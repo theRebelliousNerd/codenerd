@@ -2,10 +2,32 @@
   "project_id": "proj_264e2ff7bc1",
   "name": "codeNERD",
   "description": "",
-  "created_at": "2025-12-05T00:47:01.0687859-05:00",
-  "updated_at": "2025-12-05T00:47:01.0687859-05:00",
-  "language": "unknown",
+  "created_at": "2025-12-05T01:07:15.0551879-05:00",
+  "updated_at": "2025-12-05T01:07:15.0551879-05:00",
+  "language": "go",
   "architecture": "unknown",
+  "dependencies": [
+    {
+      "name": "bubbletea",
+      "version": "",
+      "type": "direct"
+    },
+    {
+      "name": "cobra",
+      "version": "",
+      "type": "direct"
+    },
+    {
+      "name": "rod",
+      "version": "",
+      "type": "direct"
+    },
+    {
+      "name": "mangle",
+      "version": "",
+      "type": "direct"
+    }
+  ],
   "file_count": 58,
   "directory_count": 20
 }

@@ -170,6 +170,9 @@ Decl active_goal(Goal).
 # Cap: /read, /write, /execute, /navigate, /click, /type, /analyze, /dependencies
 Decl tool_capabilities(Tool, Cap).
 
+# has_capability(Cap) - helper for safe negation in missing tool detection
+Decl has_capability(Cap).
+
 # goal_requires(Goal, Cap)
 Decl goal_requires(Goal, Cap).
 
@@ -183,6 +186,12 @@ Decl context_atom(Fact).
 # active_strategy(Strategy)
 # Strategy: /tdd_repair_loop, /breadth_first_survey, /project_init, /refactor_guard
 Decl active_strategy(Strategy).
+
+# target_is_large(Target) - true if target references multiple files/features (Go builtin)
+Decl target_is_large(Target).
+
+# target_is_complex(Target) - true if target requires multiple phases (Go builtin)
+Decl target_is_complex(Target).
 
 # =============================================================================
 # SECTION 14: IMPACT ANALYSIS (§3.3)
@@ -232,8 +241,8 @@ Decl rejection_count(Pattern, Count).
 # preference_signal(Pattern) - derived predicate
 Decl preference_signal(Pattern).
 
-# derived_rule(Pattern, Fact)
-Decl derived_rule(Pattern, Fact).
+# derived_rule(Pattern, FactType, FactValue) - maps rejection patterns to facts for promotion
+Decl derived_rule(Pattern, FactType, FactValue).
 
 # promote_to_long_term(FactType, FactValue) - derived predicate for Autopoiesis (§8.3)
 # FactType is a name constant (e.g., /style_preference, /avoid_pattern)
@@ -329,6 +338,9 @@ Decl churn_rate(FilePath, ChangeFrequency).
 
 # current_user(UserName)
 Decl current_user(UserName).
+
+# current_time(Timestamp) - current system time for learning timestamps
+Decl current_time(Timestamp).
 
 # recent_change_by_other(FilePath) - derived predicate
 # True if file was changed < 2 days ago by a different author
@@ -500,6 +512,9 @@ Decl task_error(TaskID, ErrorType, ErrorMessage).
 # RequiredTools: comma-separated tools (e.g., "fs_read,fs_write,exec_cmd")
 # FocusPatterns: glob patterns for files to activate (e.g., "internal/core/*")
 Decl context_profile(ProfileID, RequiredSchemas, RequiredTools, FocusPatterns).
+
+# tool_in_list(Tool, ToolList) - helper predicate to check if tool is in comma-separated list
+Decl tool_in_list(Tool, ToolList).
 
 # phase_context_atom(PhaseID, FactPredicate, ActivationBoost)
 # Specific facts that should be boosted for this phase

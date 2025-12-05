@@ -330,6 +330,47 @@ Transducer  Spreading  Mangle   Virtual
  (LLM)     Activation  Engine    Store
 ```
 
+### Pattern 4: Autopoiesis (Self-Learning)
+
+The system learns from user interactions without retraining:
+
+**Rejection Tracking:**
+```go
+// In shard execution
+if err := c.applyEdits(ctx, result.Edits); err != nil {
+    c.trackRejection(coderTask.Action, err.Error())  // Track pattern
+    return "", err
+}
+c.trackAcceptance(coderTask.Action)  // Track success
+```
+
+**Mangle Pattern Detection:**
+```mangle
+# 3 rejections = pattern signal
+preference_signal(Pattern) :-
+    rejection_count(Pattern, N), N >= 3.
+
+# Promote to long-term memory
+promote_to_long_term(FactType, FactValue) :-
+    preference_signal(Pattern),
+    derived_rule(Pattern, FactType, FactValue).
+```
+
+**The Ouroboros Loop (Tool Self-Generation):**
+```mangle
+# Detect missing capability
+missing_tool_for(IntentID, Cap) :-
+    user_intent(IntentID, _, _, _, _),
+    goal_requires(_, Cap),
+    !has_capability(Cap).
+
+# Trigger tool generation
+next_action(/generate_tool) :-
+    missing_tool_for(_, _).
+```
+
+For complete specification, see [references/autopoiesis.md](references/autopoiesis.md)
+
 ## Mangle Logic Files
 
 Existing logic files to extend:
@@ -508,3 +549,5 @@ For detailed specifications, consult the reference documentation:
 - [references/mangle-schemas.md](references/mangle-schemas.md) - Complete Mangle schema reference
 - [references/implementation-guide.md](references/implementation-guide.md) - Go implementation patterns and component details
 - [references/piggyback-protocol.md](references/piggyback-protocol.md) - Dual-channel steganographic control protocol specification
+- [references/campaign-orchestrator.md](references/campaign-orchestrator.md) - Multi-phase goal execution and context paging system
+- [references/autopoiesis.md](references/autopoiesis.md) - Self-creation, runtime learning, and the Ouroboros Loop

@@ -171,7 +171,7 @@ recurring_failure_pattern(Pattern) :-
     N >= 3.
 
 # Learn to avoid patterns that cause failures
-promote_to_long_term(avoid_pattern(Pattern)) :-
+promote_to_long_term(/avoid_pattern, Pattern) :-
     recurring_failure_pattern(Pattern).
 
 # Track successful test patterns
@@ -181,7 +181,7 @@ successful_test_pattern(Pattern) :-
     N >= 5.
 
 # Promote test templates that work well
-promote_to_long_term(test_template(Pattern)) :-
+promote_to_long_term(/test_template, Pattern) :-
     successful_test_pattern(Pattern).
 
 # =============================================================================
