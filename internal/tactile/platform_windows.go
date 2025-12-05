@@ -30,18 +30,18 @@ const (
 	JOB_OBJECT_ALL_ACCESS              = 0x1F001F
 
 	// Job object limit flags
-	JOB_OBJECT_LIMIT_PROCESS_TIME         = 0x00000002
-	JOB_OBJECT_LIMIT_JOB_TIME             = 0x00000004
-	JOB_OBJECT_LIMIT_ACTIVE_PROCESS       = 0x00000008
-	JOB_OBJECT_LIMIT_PROCESS_MEMORY       = 0x00000100
-	JOB_OBJECT_LIMIT_JOB_MEMORY           = 0x00000200
-	JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE    = 0x00002000
-	JOB_OBJECT_LIMIT_BREAKAWAY_OK         = 0x00000800
-	JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK  = 0x00001000
+	JOB_OBJECT_LIMIT_PROCESS_TIME        = 0x00000002
+	JOB_OBJECT_LIMIT_JOB_TIME            = 0x00000004
+	JOB_OBJECT_LIMIT_ACTIVE_PROCESS      = 0x00000008
+	JOB_OBJECT_LIMIT_PROCESS_MEMORY      = 0x00000100
+	JOB_OBJECT_LIMIT_JOB_MEMORY          = 0x00000200
+	JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE   = 0x00002000
+	JOB_OBJECT_LIMIT_BREAKAWAY_OK        = 0x00000800
+	JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x00001000
 
 	// Job object info classes
-	JobObjectBasicLimitInformation     = 2
-	JobObjectExtendedLimitInformation  = 9
+	JobObjectBasicLimitInformation      = 2
+	JobObjectExtendedLimitInformation   = 9
 	JobObjectBasicAccountingInformation = 1
 )
 
@@ -89,14 +89,14 @@ type JOBOBJECT_BASIC_ACCOUNTING_INFORMATION struct {
 
 // Windows kernel32 functions
 var (
-	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
-	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
-	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
-	procSetInformationJobObject    = kernel32.NewProc("SetInformationJobObject")
-	procQueryInformationJobObject  = kernel32.NewProc("QueryInformationJobObject")
-	procTerminateJobObject         = kernel32.NewProc("TerminateJobObject")
-	procGetProcessMemoryInfo       = kernel32.NewProc("K32GetProcessMemoryInfo")
-	procGetProcessIoCounters       = kernel32.NewProc("GetProcessIoCounters")
+	kernel32                      = syscall.NewLazyDLL("kernel32.dll")
+	procCreateJobObjectW          = kernel32.NewProc("CreateJobObjectW")
+	procAssignProcessToJobObject  = kernel32.NewProc("AssignProcessToJobObject")
+	procSetInformationJobObject   = kernel32.NewProc("SetInformationJobObject")
+	procQueryInformationJobObject = kernel32.NewProc("QueryInformationJobObject")
+	procTerminateJobObject        = kernel32.NewProc("TerminateJobObject")
+	procGetProcessMemoryInfo      = kernel32.NewProc("K32GetProcessMemoryInfo")
+	procGetProcessIoCounters      = kernel32.NewProc("GetProcessIoCounters")
 )
 
 // PROCESS_MEMORY_COUNTERS for memory info
@@ -690,3 +690,8 @@ func (e *WindowsContainerExecutor) Capabilities() ExecutorCapabilities {
 	caps.SupportsResourceLimits = e.available
 	return caps
 }
+
+// Keep unused functions alive for future Windows implementation
+var _ = killProcessGroup
+var _ = setupProcessGroup
+var _ = createRlimits
