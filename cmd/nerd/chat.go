@@ -7,6 +7,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
+	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
@@ -99,6 +100,9 @@ type chatModel struct {
 
 	// Local knowledge database for research persistence
 	localDB *store.LocalStore
+
+	// Semantic Compression (§8.2) - Infinite Context
+	compressor *ctxcompress.Compressor
 }
 
 type chatMessage struct {
@@ -305,6 +309,17 @@ func initChat() chatModel {
 	emitter := articulation.NewEmitter()
 	scanner := world.NewScanner()
 
+	// Initialize Semantic Compression (§8.2)
+	ctxCfg := cfg.GetContextWindowConfig()
+	compressor := ctxcompress.NewCompressorWithParams(
+		kernel, localDB, llmClient,
+		ctxCfg.MaxTokens,
+		ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
+		ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
+		ctxCfg.RecentTurnWindow,
+		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
+	)
+
 	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
 	// Initialize split-pane view (Glass Box Interface)
@@ -340,6 +355,7 @@ func initChat() chatModel {
 		awaitingClarification: false,
 		selectedOption:        0,
 		localDB:               localDB,
+		compressor:            compressor,
 	}
 
 	if len(initialMessages) > 0 {

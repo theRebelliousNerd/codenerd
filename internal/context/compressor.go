@@ -80,6 +80,34 @@ func NewCompressorWithConfig(kernel *core.RealKernel, localStorage *store.LocalS
 		PredicatePriorities:    DefaultConfig().PredicatePriorities,
 	}
 
+	return newCompressorWithCompressorConfig(kernel, localStorage, llmClient, compCfg)
+}
+
+// NewCompressorWithParams creates a compressor with explicit parameters.
+// This is useful when the caller doesn't have access to internal/config types.
+func NewCompressorWithParams(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient,
+	maxTokens int, corePercent, atomPercent, historyPercent, workingPercent int,
+	recentWindow int, compressionThreshold, targetRatio, activationThreshold float64) *Compressor {
+
+	compCfg := CompressorConfig{
+		TotalBudget:            maxTokens,
+		CoreReserve:            maxTokens * corePercent / 100,
+		AtomReserve:            maxTokens * atomPercent / 100,
+		HistoryReserve:         maxTokens * historyPercent / 100,
+		WorkingReserve:         maxTokens * workingPercent / 100,
+		RecentTurnWindow:       recentWindow,
+		CompressionThreshold:   compressionThreshold,
+		TargetCompressionRatio: targetRatio,
+		ActivationThreshold:    activationThreshold,
+		PredicatePriorities:    DefaultConfig().PredicatePriorities,
+	}
+
+	return newCompressorWithCompressorConfig(kernel, localStorage, llmClient, compCfg)
+}
+
+// newCompressorWithCompressorConfig is the internal constructor.
+func newCompressorWithCompressorConfig(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient, compCfg CompressorConfig) *Compressor {
+
 	return &Compressor{
 		kernel:     kernel,
 		store:      localStorage,
