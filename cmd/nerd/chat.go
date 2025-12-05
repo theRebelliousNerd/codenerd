@@ -6,6 +6,7 @@ import (
 	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
+	"codenerd/internal/autopoiesis"
 	"codenerd/internal/campaign"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -103,6 +104,9 @@ type chatModel struct {
 
 	// Semantic Compression (§8.2) - Infinite Context
 	compressor *ctxcompress.Compressor
+
+	// Autopoiesis (§8.3) - Self-Modification
+	autopoiesis *autopoiesis.Orchestrator
 }
 
 type chatMessage struct {
@@ -320,6 +324,10 @@ func initChat() chatModel {
 		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 	)
 
+	// Initialize Autopoiesis (§8.3) - Self-Modification Capabilities
+	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
+	autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
+
 	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
 	// Initialize split-pane view (Glass Box Interface)
@@ -356,6 +364,7 @@ func initChat() chatModel {
 		selectedOption:        0,
 		localDB:               localDB,
 		compressor:            compressor,
+		autopoiesis:           autopoiesisOrch,
 	}
 
 	if len(initialMessages) > 0 {
@@ -2398,6 +2407,30 @@ func (m chatModel) processInput(input string) tea.Cmd {
 			return responseMsg(response)
 		}
 
+		// 1.6 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
+		// This implements §8.3: Self-modification capabilities
+		if m.autopoiesis != nil {
+			autoResult := m.autopoiesis.QuickAnalyze(ctx, input, intent.Target)
+
+			// Auto-trigger campaign for complex tasks
+			if autoResult.NeedsCampaign && autoResult.ComplexityLevel >= autopoiesis.ComplexityComplex {
+				needsCampaign, reason := m.autopoiesis.ShouldTriggerCampaign(ctx, input, intent.Target)
+				if needsCampaign && m.activeCampaign == nil {
+					warnings = append(warnings, fmt.Sprintf("🎯 Complex task detected: %s", reason))
+					warnings = append(warnings, "💡 Consider using `/campaign start` for multi-phase execution")
+				}
+			}
+
+			// Check for persistent agent needs
+			if autoResult.NeedsPersistent {
+				needsPersist, persistNeed := m.autopoiesis.ShouldCreatePersistentAgent(ctx, input)
+				if needsPersist && persistNeed != nil {
+					warnings = append(warnings, fmt.Sprintf("🤖 Persistent agent recommended: %s (%s)", persistNeed.AgentType, persistNeed.Purpose))
+					warnings = append(warnings, "💡 Use `/define-agent` to create a persistent specialist")
+				}
+			}
+		}
+
 		// 2. CONTEXT LOADING (Scanner)
 		// Load workspace facts only if intent requires it (optimization)
 		if intent.Category == "/query" || intent.Category == "/mutation" {
@@ -2460,9 +2493,32 @@ func (m chatModel) processInput(input string) tea.Cmd {
 				}
 			}
 
-			// Autopoiesis: Tool Generation Stub
-			if action.Predicate == "/generate_tool" {
-				warnings = append(warnings, "⚠️ Autopoiesis Triggered: System detected missing tool capability. Tool generation not yet implemented in this runtime.")
+			// Autopoiesis: Tool Generation (§8.3)
+			if action.Predicate == "/generate_tool" && m.autopoiesis != nil {
+				// Detect tool need from the input
+				toolNeed, detectErr := m.autopoiesis.DetectToolNeed(ctx, input)
+				if detectErr == nil && toolNeed != nil {
+					warnings = append(warnings, fmt.Sprintf("🔧 Tool need detected: %s (confidence: %.2f)", toolNeed.Name, toolNeed.Confidence))
+
+					// Generate the tool if confidence is high enough
+					if toolNeed.Confidence >= 0.6 {
+						genTool, genErr := m.autopoiesis.GenerateTool(ctx, toolNeed)
+						if genErr == nil && genTool != nil {
+							warnings = append(warnings, fmt.Sprintf("✨ Generated tool: %s", genTool.Name))
+							if genTool.Validated {
+								warnings = append(warnings, "✅ Tool code validated successfully")
+							} else if len(genTool.Errors) > 0 {
+								warnings = append(warnings, fmt.Sprintf("⚠️ Tool validation warnings: %v", genTool.Errors))
+							}
+						} else if genErr != nil {
+							warnings = append(warnings, fmt.Sprintf("❌ Tool generation failed: %v", genErr))
+						}
+					} else {
+						warnings = append(warnings, "💭 Tool need confidence too low for auto-generation")
+					}
+				} else {
+					warnings = append(warnings, "🔍 Autopoiesis: Analyzing for missing tool capabilities...")
+				}
 			}
 		}
 
