@@ -11,6 +11,77 @@ type Config struct {
 	APIKey         string `json:"api_key"`
 	Theme          string `json:"theme"`           // "light" or "dark"
 	Context7APIKey string `json:"context7_api_key"` // Context7 API key for research
+
+	// Context Window Configuration (§8.2 Semantic Compression)
+	ContextWindow *ContextWindowConfig `json:"context_window,omitempty"`
+}
+
+// ContextWindowConfig configures the semantic compression context window.
+type ContextWindowConfig struct {
+	// Maximum tokens for the context window (default: 128000)
+	MaxTokens int `json:"max_tokens"`
+
+	// Token budget allocation percentages
+	CoreReservePercent    int `json:"core_reserve_percent"`    // % for constitutional facts (default: 5)
+	AtomReservePercent    int `json:"atom_reserve_percent"`    // % for high-activation atoms (default: 30)
+	HistoryReservePercent int `json:"history_reserve_percent"` // % for compressed history (default: 15)
+	WorkingReservePercent int `json:"working_reserve_percent"` // % for working memory (default: 50)
+
+	// Recent turn window (how many turns to keep with full metadata)
+	RecentTurnWindow int `json:"recent_turn_window"`
+
+	// Compression settings
+	CompressionThreshold   float64 `json:"compression_threshold"`    // Trigger at this % usage (default: 0.80)
+	TargetCompressionRatio float64 `json:"target_compression_ratio"` // Target ratio (default: 100.0)
+	ActivationThreshold    float64 `json:"activation_threshold"`     // Min score to include (default: 30.0)
+}
+
+// GetContextWindowConfig returns the context window config with defaults.
+func (c *Config) GetContextWindowConfig() ContextWindowConfig {
+	if c.ContextWindow != nil {
+		cfg := *c.ContextWindow
+		// Apply defaults for zero values
+		if cfg.MaxTokens == 0 {
+			cfg.MaxTokens = 128000
+		}
+		if cfg.CoreReservePercent == 0 {
+			cfg.CoreReservePercent = 5
+		}
+		if cfg.AtomReservePercent == 0 {
+			cfg.AtomReservePercent = 30
+		}
+		if cfg.HistoryReservePercent == 0 {
+			cfg.HistoryReservePercent = 15
+		}
+		if cfg.WorkingReservePercent == 0 {
+			cfg.WorkingReservePercent = 50
+		}
+		if cfg.RecentTurnWindow == 0 {
+			cfg.RecentTurnWindow = 5
+		}
+		if cfg.CompressionThreshold == 0 {
+			cfg.CompressionThreshold = 0.80
+		}
+		if cfg.TargetCompressionRatio == 0 {
+			cfg.TargetCompressionRatio = 100.0
+		}
+		if cfg.ActivationThreshold == 0 {
+			cfg.ActivationThreshold = 30.0
+		}
+		return cfg
+	}
+	// Return defaults
+	return ContextWindowConfig{
+		MaxTokens:              128000,
+		CoreReservePercent:     5,
+		AtomReservePercent:     30,
+		HistoryReservePercent:  15,
+		WorkingReservePercent:  50,
+		RecentTurnWindow:       5,
+		CompressionThreshold:   0.80,
+		TargetCompressionRatio: 100.0,
+		ActivationThreshold:    30.0,
+	}
 }
 
 // DefaultConfig returns the default configuration
