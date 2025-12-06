@@ -97,6 +97,9 @@ type CoderShard struct {
 	// Learnings for autopoiesis
 	rejectionCount map[string]int
 	acceptanceCount map[string]int
+
+	// Policy loading guard (prevents duplicate Decl errors)
+	policyLoaded bool
 }
 
 // NewCoderShard creates a new Coder shard.
@@ -203,8 +206,11 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	if c.kernel == nil {
 		c.kernel = core.NewRealKernel()
 	}
-	// Load coder-specific policy
-	_ = c.kernel.LoadPolicyFile("coder.gl")
+	// Load coder-specific policy (only once to avoid duplicate Decl errors)
+	if !c.policyLoaded {
+		_ = c.kernel.LoadPolicyFile("coder.gl")
+		c.policyLoaded = true
+	}
 
 	// Parse the task
 	coderTask := c.parseTask(task)
