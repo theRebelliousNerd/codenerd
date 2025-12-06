@@ -37,7 +37,17 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
 		}
 
-		// 1.5 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
+		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
+		// This implements autonomous multi-step execution without campaigns
+		isMultiStep := detectMultiStepTask(input, intent)
+		if isMultiStep {
+			steps := decomposeTask(input, intent, m.workspace)
+			if len(steps) > 1 {
+				return m.executeMultiStepTask(ctx, intent, steps)
+			}
+		}
+
+		// 1.6 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
 		// This implements automatic shard spawning from natural language
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
 		if shardType != "" && intent.Confidence >= 0.5 {
@@ -55,7 +65,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			return responseMsg(response)
 		}
 
-		// 1.55 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
+		// 1.7 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
 		// no shard and a valid perception response, return the perception response
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
@@ -63,7 +73,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			return responseMsg(intent.Response)
 		}
 
-		// 1.6 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
+		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
 		// This implements §8.3: Self-modification capabilities
 		if m.autopoiesis != nil {
 			autoResult := m.autopoiesis.QuickAnalyze(ctx, input, intent.Target)
@@ -101,6 +111,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 3. STATE UPDATE (Kernel)
 		if err := m.kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
 			return errorMsg(fmt.Errorf("kernel load error: %w", err))
+		}
+		// Fix Bug #7: Update system facts (Time, etc.)
+		if err := m.kernel.UpdateSystemFacts(); err != nil {
+			return errorMsg(fmt.Errorf("system facts update error: %w", err))
 		}
 		_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
 
@@ -227,6 +241,46 @@ func (m Model) processInput(input string) tea.Cmd {
 			allMangleUpdates := mangleUpdates
 			if len(artOutput.MangleUpdates) > 0 {
 				allMangleUpdates = append(allMangleUpdates, artOutput.MangleUpdates...)
+
+				// STRATIFIED TRUST (Bug #15 Fix): Validate learned facts
+				// Learned facts must be proposed as candidate_action() and validated
+				var newFacts []core.Fact
+				var learnedFacts []core.Fact
+
+				for _, s := range artOutput.MangleUpdates {
+					if f, err := core.ParseSingleFact(s); err == nil {
+						// Check if this is a learned action proposal
+						if strings.HasPrefix(f.Predicate, "candidate_action") {
+							learnedFacts = append(learnedFacts, f)
+						} else {
+							// System-level facts are loaded directly
+							newFacts = append(newFacts, f)
+						}
+					}
+				}
+
+				// Load system facts immediately
+				if len(newFacts) > 0 {
+					_ = m.kernel.LoadFacts(newFacts)
+				}
+
+				// Learned facts go through validation
+				if len(learnedFacts) > 0 {
+					// Load candidate proposals
+					_ = m.kernel.LoadFacts(learnedFacts)
+
+					// Query for final_action (validated by Constitution)
+					validatedActions, _ := m.kernel.Query("final_action")
+					if len(validatedActions) > 0 {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", len(validatedActions)))
+					}
+
+					// Query for denied actions (audit trail)
+					deniedActions, _ := m.kernel.Query("action_denied")
+					if len(deniedActions) > 0 {
+						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", len(deniedActions)))
+					}
+				}
 			}
 
 			controlPacket := &perception.ControlPacket{
@@ -266,6 +320,63 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		return responseMsg(response)
+	}
+}
+
+// executeMultiStepTask runs multiple task steps in sequence
+func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Intent, steps []TaskStep) tea.Cmd {
+	return func() tea.Msg {
+		var results []string
+		var stepResults = make(map[int]string) // Store results for dependency checking
+
+		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
+
+		for i, step := range steps {
+			// Check dependencies
+			canExecute := true
+			for _, depIdx := range step.DependsOn {
+				if _, exists := stepResults[depIdx]; !exists {
+					canExecute = false
+					break
+				}
+			}
+
+			if !canExecute {
+				results = append(results, fmt.Sprintf("\n### Step %d: SKIPPED (dependencies not met)\n", i+1))
+				continue
+			}
+
+			// Execute step
+			results = append(results, fmt.Sprintf("\n### Step %d: %s\n**Target**: %s\n**Agent**: %s\n",
+				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
+
+			if step.ShardType != "" {
+				result, err := m.shardMgr.Spawn(ctx, step.ShardType, step.Task)
+				if err != nil {
+					results = append(results, fmt.Sprintf("**Status**: ❌ Failed\n**Error**: %v\n", err))
+					// Don't continue to dependent steps if this fails
+					continue
+				}
+
+				// Store result for dependencies
+				stepResults[i] = result
+
+				// Truncate very long results
+				if len(result) > 1000 {
+					result = result[:1000] + "\n... (truncated)"
+				}
+
+				results = append(results, fmt.Sprintf("**Status**: ✅ Complete\n```\n%s\n```\n", result))
+			} else {
+				results = append(results, "**Status**: ⚠️ No shard handler\n")
+			}
+		}
+
+		// Summary
+		successCount := len(stepResults)
+		results = append(results, fmt.Sprintf("\n---\n**Summary**: %d/%d steps completed successfully\n", successCount, len(steps)))
+
+		return responseMsg(strings.Join(results, ""))
 	}
 }
 

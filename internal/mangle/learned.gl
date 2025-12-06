@@ -1,0 +1,23 @@
+# =============================================================================
+# LEARNED LOGIC (Autopoiesis Layer)
+# =============================================================================
+# This file contains agent-learned rules and patterns.
+#
+# SECURITY MODEL: Stratified Trust (§Bug #15 Fix)
+# - This namespace can ONLY propose candidate_action/1 predicates
+# - The Constitution (policy.gl) MUST validate all candidates via safety_check/1
+# - Learned rules CANNOT override system-level safety predicates
+# - All predicates here use the "candidate_" prefix to prevent namespace collision
+#
+# The Bridge Rule (in policy.gl):
+#   final_action(X) :- candidate_action(X), permitted(X).
+#
+# This ensures learned logic can suggest, but never execute without approval.
+# =============================================================================
+
+# Placeholder for future learned rules
+# Example learned pattern (commented for safety):
+# candidate_action(/suggest_refactor) :-
+#     code_smell(/long_method, File),
+#     file_size(File, Size),
+#     Size > 200.

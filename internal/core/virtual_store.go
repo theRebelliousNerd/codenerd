@@ -764,7 +764,10 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	}
 	path := v.resolvePath(req.Target)
 
-	data, err := os.ReadFile(path)
+	// Enforce max file size to prevent OOM (Bug #6 Fix)
+	const MaxFileSize = 100 * 1024 // 100KB limit for full content loading
+
+	info, err := os.Stat(path)
 	if err != nil {
 		return ActionResult{
 			Success: false,
@@ -775,27 +778,74 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
-	content := string(data)
+	var data []byte
+	var truncated bool
 
-	// Add file topology fact
-	info, _ := os.Stat(path)
-	modTime := int64(0)
-	if info != nil {
-		modTime = info.ModTime().Unix()
+	if info.Size() > MaxFileSize {
+		// Read only the first MaxFileSize bytes
+		f, err := os.Open(path)
+		if err != nil {
+			return ActionResult{
+				Success: false,
+				Error:   err.Error(),
+				FactsToAdd: []Fact{
+					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+				},
+			}, nil
+		}
+		defer f.Close()
+
+		data = make([]byte, MaxFileSize)
+		n, err := f.Read(data)
+		if err != nil && err.Error() != "EOF" {
+			return ActionResult{
+				Success: false,
+				Error:   err.Error(),
+				FactsToAdd: []Fact{
+					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+				},
+			}, nil
+		}
+		data = data[:n]
+		truncated = true
+	} else {
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return ActionResult{
+				Success: false,
+				Error:   err.Error(),
+				FactsToAdd: []Fact{
+					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+				},
+			}, nil
+		}
+	}
+
+	content := string(data)
+	modTime := info.ModTime().Unix()
+
+	facts := []Fact{
+		{Predicate: "file_content", Args: []interface{}{path, content}},
+		{Predicate: "file_read", Args: []interface{}{path, info.Size()}},
+	}
+
+	if truncated {
+		facts = append(facts, Fact{
+			Predicate: "file_truncated",
+			Args:      []interface{}{path, int64(MaxFileSize)},
+		})
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  content,
 		Metadata: map[string]interface{}{
-			"path":     path,
-			"size":     len(data),
-			"modified": modTime,
+			"path":      path,
+			"size":      info.Size(),
+			"modified":  modTime,
+			"truncated": truncated,
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "file_content", Args: []interface{}{path, content}},
-			{Predicate: "file_read", Args: []interface{}{path, len(data)}},
-		},
+		FactsToAdd: facts,
 	}, nil
 }
 

@@ -608,6 +608,11 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("kernel load error: %w", err)
 	}
 
+	// Update system facts (Time, etc.) - Fix for Bug #7
+	if err := kernel.UpdateSystemFacts(); err != nil {
+		return fmt.Errorf("system facts update error: %w", err)
+	}
+
 	// 5. Query Executive Policy (Decide)
 	logger.Debug("Querying executive policy")
 	var output string

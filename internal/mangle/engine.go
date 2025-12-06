@@ -688,18 +688,46 @@ func parseQueryShape(query string) (*queryShape, error) {
 	}, nil
 }
 
+// isIdentifier checks if a string is a valid Mangle identifier.
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	// Simple check: starts with lowercase, alphanumeric + underscore
+	// Mangle identifier: [a-z][a-zA-Z0-9_]*
+	c := s[0]
+	if !((c >= 'a' && c <= 'z') || c == '_') {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func convertValueToBaseTerm(value interface{}) (ast.BaseTerm, error) {
 	switch v := value.(type) {
 	case ast.BaseTerm:
 		return v, nil
 	case string:
 		if strings.HasPrefix(v, "/") {
-			// Name constant
+			// Already a Name constant
 			name, err := ast.Name(v)
 			if err != nil {
 				return nil, err
 			}
 			return name, nil
+		}
+		// Auto-Atomizer: Promote identifier-like strings to Atoms
+		if isIdentifier(v) {
+			// ast.Name expects the leading slash
+			name, err := ast.Name("/" + v)
+			if err == nil {
+				return name, nil
+			}
 		}
 		return ast.String(v), nil
 	case fmt.Stringer:
