@@ -15,7 +15,7 @@ import (
 )
 
 // ============================================================================
-// LSP Server for Mangle (.gl) Files - Cortex 1.5.0
+// LSP Server for Mangle (.mg) Files - Cortex 1.5.0
 // Implements Language Server Protocol for IDE integration
 // ============================================================================
 
@@ -577,7 +577,7 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 // Index Workspace
 // ============================================================================
 
-// IndexWorkspace indexes all .gl files in a directory.
+// IndexWorkspace indexes all .mg files in a directory.
 func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
 	return filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -598,7 +598,7 @@ func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
 			return nil
 		}
 
-		if strings.HasSuffix(path, ".gl") || strings.HasSuffix(path, ".mangle") {
+		if strings.HasSuffix(path, ".mg") || strings.HasSuffix(path, ".mangle") {
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return nil // Skip files we can't read

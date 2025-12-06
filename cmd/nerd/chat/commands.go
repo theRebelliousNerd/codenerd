@@ -97,6 +97,8 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /init | Initialize codeNERD in the workspace |
 | /init --force | Reinitialize (preserves learned preferences) |
 | /scan | Refresh codebase index without full reinit |
+| /config wizard | Full interactive configuration dialogue |
+| /config show | Show current configuration |
 | /config set-key <key> | Set API key |
 | /config set-theme <theme> | Set theme (light/dark) |
 | /read <path> | Read file contents |
@@ -221,8 +223,44 @@ or you can create them on-demand with /tool generate.
 	case "/config":
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: `Configuration commands:
+
+| Command | Description |
+|---------|-------------|
+| /config wizard | Full interactive configuration dialogue |
+| /config set-key <key> | Set API key |
+| /config set-theme <theme> | Set theme (light/dark) |
+| /config show | Show current configuration |`,
+				Time: time.Now(),
+			})
+		} else if parts[1] == "wizard" {
+			// Enter config wizard mode
+			m.awaitingConfigWizard = true
+			m.configWizard = NewConfigWizard()
+			m.textinput.Placeholder = "Press Enter to start..."
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: `## codeNERD Configuration Wizard
+
+This wizard will guide you through configuring:
+
+1. **LLM Provider** - Choose between Z.AI, Anthropic, OpenAI, Gemini, or xAI
+2. **Model Selection** - Pick the model for your provider
+3. **Per-Shard Config** - Customize settings for coder, tester, reviewer, researcher
+4. **Embedding Engine** - Configure Ollama or GenAI for semantic search
+5. **Context Window** - Set token limits and compression settings
+6. **Resource Limits** - Configure concurrent shards and memory
+
+Press **Enter** to begin...`,
+				Time: time.Now(),
+			})
+		} else if parts[1] == "show" {
+			// Show current configuration
+			content := m.renderCurrentConfig()
+			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: "Usage: `/config set-key <key>` or `/config set-theme <theme>`",
+				Content: content,
 				Time:    time.Now(),
 			})
 		} else if parts[1] == "set-key" && len(parts) >= 3 {

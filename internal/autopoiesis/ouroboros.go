@@ -763,7 +763,7 @@ func main() {
 		} else {
 			// No input and not piped, print usage and exit
 			fmt.Fprintf(os.Stderr, "Usage: %s <primary_input> [additional_args...]\n", os.Args[0])
-			fmt.Fprintf(os.Stderr, "Or pipe JSON for agent use: echo '{\"input\": \"file.gl\", \"args\": [\"--verbose\"]}' | %s\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "Or pipe JSON for agent use: echo '{\"input\": \"file.mg\", \"args\": [\"--verbose\"]}' | %s\n", os.Args[0])
 			os.Exit(1)
 		}
 	}

@@ -398,7 +398,7 @@ func (m Model) runInit() tea.Cmd {
 
 		// Load all generated facts into the kernel
 		nerdDir := m.workspace + "/.nerd"
-		factsPath := nerdDir + "/profile.gl"
+		factsPath := nerdDir + "/profile.mg"
 		if _, statErr := os.Stat(factsPath); statErr == nil {
 			// Load Mangle facts from file
 			if err := m.kernel.LoadFactsFromFile(factsPath); err != nil {
@@ -452,8 +452,8 @@ func (m Model) runScan() tea.Cmd {
 			return scanCompleteMsg{err: loadErr}
 		}
 
-		// Also reload profile.gl if it exists
-		factsPath := filepath.Join(m.workspace, ".nerd", "profile.gl")
+		// Also reload profile.mg if it exists
+		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
 		if _, statErr := os.Stat(factsPath); statErr == nil {
 			_ = m.kernel.LoadFactsFromFile(factsPath)
 		}

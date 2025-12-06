@@ -219,7 +219,7 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	}
 	// Load coder-specific policy (only once to avoid duplicate Decl errors)
 	if !c.policyLoaded {
-		_ = c.kernel.LoadPolicyFile("coder.gl")
+		_ = c.kernel.LoadPolicyFile("coder.mg")
 		c.policyLoaded = true
 	}
 

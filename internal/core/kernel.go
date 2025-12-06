@@ -98,6 +98,7 @@ type Kernel interface {
 	QueryAll() (map[string][]Fact, error)
 	Assert(fact Fact) error
 	Retract(predicate string) error
+	RetractFact(fact Fact) error // Retract a specific fact by predicate and first argument
 }
 
 // RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
@@ -108,7 +109,7 @@ type RealKernel struct {
 	programInfo     *analysis.ProgramInfo
 	schemas         string
 	policy          string
-	learned         string // Learned rules (autopoiesis) - loaded from learned.gl
+	learned         string // Learned rules (autopoiesis) - loaded from learned.mg
 	schemaValidator *mangle.SchemaValidator
 	initialized     bool
 	manglePath      string // Path to mangle files directory
@@ -156,9 +157,9 @@ func (k *RealKernel) loadMangleFiles() {
 			continue
 		}
 
-		schemasPath := filepath.Join(basePath, "schemas.gl")
-		policyPath := filepath.Join(basePath, "policy.gl")
-		learnedPath := filepath.Join(basePath, "learned.gl")
+		schemasPath := filepath.Join(basePath, "schemas.mg")
+		policyPath := filepath.Join(basePath, "policy.mg")
+		learnedPath := filepath.Join(basePath, "learned.mg")
 
 		if data, err := os.ReadFile(schemasPath); err == nil {
 			k.schemas = string(data)
@@ -241,6 +242,60 @@ func (k *RealKernel) Retract(predicate string) error {
 	}
 	k.facts = filtered
 	return k.rebuild()
+}
+
+// RetractFact removes a specific fact by matching predicate and first argument.
+// This enables selective fact removal (e.g., removing all facts for a specific tool).
+func (k *RealKernel) RetractFact(fact Fact) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if len(fact.Args) == 0 {
+		return fmt.Errorf("fact must have at least one argument for matching")
+	}
+
+	filtered := make([]Fact, 0)
+	for _, f := range k.facts {
+		// Keep facts that don't match predicate OR don't match first argument
+		if f.Predicate != fact.Predicate {
+			filtered = append(filtered, f)
+			continue
+		}
+		// Same predicate - check first argument
+		if len(f.Args) > 0 && len(fact.Args) > 0 {
+			if !argsEqual(f.Args[0], fact.Args[0]) {
+				filtered = append(filtered, f)
+			}
+			// Matching predicate and first arg - don't add (retract it)
+		} else {
+			filtered = append(filtered, f)
+		}
+	}
+	k.facts = filtered
+	return k.rebuild()
+}
+
+// argsEqual compares two fact arguments for equality.
+func argsEqual(a, b interface{}) bool {
+	switch av := a.(type) {
+	case string:
+		if bv, ok := b.(string); ok {
+			return av == bv
+		}
+	case int64:
+		if bv, ok := b.(int64); ok {
+			return av == bv
+		}
+	case float64:
+		if bv, ok := b.(float64); ok {
+			return av == bv
+		}
+	case bool:
+		if bv, ok := b.(bool); ok {
+			return av == bv
+		}
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 // rebuildProgram parses schemas+policy and caches programInfo.
@@ -592,7 +647,7 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	return nil
 }
 
-// HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.gl.
+// HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.mg.
 // This is the primary method for Autopoiesis to add new learned rules.
 // It validates the rule, loads it into memory, and writes it to disk for persistence.
 func (k *RealKernel) HotLoadLearnedRule(rule string) error {
@@ -601,13 +656,13 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 		return err
 	}
 
-	// 2. Persist to learned.gl file
+	// 2. Persist to learned.mg file
 	return k.appendToLearnedFile(rule)
 }
 
-// appendToLearnedFile appends a rule to learned.gl on disk.
+// appendToLearnedFile appends a rule to learned.mg on disk.
 func (k *RealKernel) appendToLearnedFile(rule string) error {
-	// Find learned.gl path
+	// Find learned.mg path
 	searchPaths := []string{
 		k.manglePath,
 		"internal/mangle",
@@ -620,7 +675,7 @@ func (k *RealKernel) appendToLearnedFile(rule string) error {
 		if basePath == "" {
 			continue
 		}
-		path := filepath.Join(basePath, "learned.gl")
+		path := filepath.Join(basePath, "learned.mg")
 		if _, err := os.Stat(path); err == nil {
 			learnedPath = path
 			break
@@ -628,13 +683,13 @@ func (k *RealKernel) appendToLearnedFile(rule string) error {
 	}
 
 	if learnedPath == "" {
-		return fmt.Errorf("learned.gl file not found")
+		return fmt.Errorf("learned.mg file not found")
 	}
 
 	// Append rule to file
 	f, err := os.OpenFile(learnedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open learned.gl: %w", err)
+		return fmt.Errorf("failed to open learned.mg: %w", err)
 	}
 	defer f.Close()
 
@@ -642,7 +697,7 @@ func (k *RealKernel) appendToLearnedFile(rule string) error {
 	_, err = f.WriteString(fmt.Sprintf("\n# Autopoiesis-learned rule (added %s)\n%s\n",
 		time.Now().Format("2006-01-02 15:04:05"), rule))
 	if err != nil {
-		return fmt.Errorf("failed to write to learned.gl: %w", err)
+		return fmt.Errorf("failed to write to learned.mg: %w", err)
 	}
 
 	return nil
@@ -729,7 +784,7 @@ func (k *RealKernel) GetDerivedFacts() (map[string][]Fact, error) {
 	return k.QueryAll()
 }
 
-// LoadFactsFromFile loads facts from a .gl file into the kernel.
+// LoadFactsFromFile loads facts from a .mg file into the kernel.
 // This parses the file and extracts EDB facts to load.
 func (k *RealKernel) LoadFactsFromFile(path string) error {
 	data, err := os.ReadFile(path)

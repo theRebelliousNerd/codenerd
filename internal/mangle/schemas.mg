@@ -246,8 +246,13 @@ Decl appeal_granted(ActionID, ActionType, Approver, Timestamp).
 # appeal_denied(ActionID, ActionType, Reason, Timestamp) - appeal rejected
 Decl appeal_denied(ActionID, ActionType, Reason, Timestamp).
 
-# temporary_override(ActionType, DurationSeconds, Timestamp) - temporary permission
-Decl temporary_override(ActionType, DurationSeconds, Timestamp).
+# temporary_override(ActionType, ExpirationTimestamp) - temporary permission with expiration
+# NOTE: Changed from (ActionType, DurationSeconds, OverrideTime) to store computed expiration
+# This avoids arithmetic in Mangle rules (+ operator not supported in rule bodies)
+Decl temporary_override(ActionType, ExpirationTimestamp).
+
+# has_temporary_override(ActionType) - helper predicate for safe negation
+Decl has_temporary_override(ActionType).
 
 # user_requests_appeal(ActionID, Justification, Requester) - user appeal request
 Decl user_requests_appeal(ActionID, Justification, Requester).
@@ -257,6 +262,21 @@ Decl active_override(ActionType, Approver, ExpiresAt).
 
 # appeal_history(ActionID, Granted, Approver, Timestamp) - appeal audit trail
 Decl appeal_history(ActionID, Granted, Approver, Timestamp).
+
+# suggest_appeal(ActionID) - derived: suggest user can appeal this action
+Decl suggest_appeal(ActionID).
+
+# appeal_needs_review(ActionID, ActionType, Justification) - pending appeal requires review
+Decl appeal_needs_review(ActionID, ActionType, Justification).
+
+# has_active_override(ActionType) - helper: true if override is active
+Decl has_active_override(ActionType).
+
+# excessive_appeal_denials() - helper: true if too many denials (autopoiesis signal)
+Decl excessive_appeal_denials().
+
+# appeal_pattern_detected(ActionType) - pattern detected for learning
+Decl appeal_pattern_detected(ActionType).
 
 # =============================================================================
 # SECTION 11B: STRATIFIED TRUST - AUTOPOIESIS (Bug #15 Fix)
@@ -797,6 +817,13 @@ Decl task_failure_reason(TaskID, ReasonType, Detail).
 # task_failure_count(Capability, Count) - tracks repeated failures
 Decl task_failure_count(Capability, Count).
 
+# tool_generation_blocked(Capability) - capability blocked from generation
+Decl tool_generation_blocked(Capability).
+
+# tool_lifecycle(ToolName, State) - tool lifecycle tracking
+# State: /detected, /generating, /compiled, /deployed, /deprecated
+Decl tool_lifecycle(ToolName, State).
+
 # =============================================================================
 # SECTION 29: TOOL LEARNING / REFINEMENT (Autopoiesis)
 # =============================================================================
@@ -853,6 +880,18 @@ Decl tool_execution_count(ToolName, Count).
 # tool_last_execution(ToolName, Timestamp) - last execution time
 Decl tool_last_execution(ToolName, Timestamp).
 
+# tool_quality_acceptable(ToolName) - derived: tool has acceptable quality
+Decl tool_quality_acceptable(ToolName).
+
+# tool_quality_good(ToolName) - derived: tool has good quality
+Decl tool_quality_good(ToolName).
+
+# tool_generation_hint(ToolName, Hint) - hints for tool generation
+Decl tool_generation_hint(ToolName, Hint).
+
+# escalate_to_user(Subject, Reason) - escalation needed for user decision
+Decl escalate_to_user(Subject, Reason).
+
 # =============================================================================
 # SECTION 30: CODER SHARD HELPERS
 # =============================================================================
@@ -902,6 +941,9 @@ Decl permission_denied(Action, Reason).
 # checks_passed() - derived: positive confirmation of checks (Bug 10)
 Decl checks_passed().
 
+# safe_to_commit() - derived: all checks pass, safe to commit
+Decl safe_to_commit().
+
 # file_truncated(Path, MaxSize) - file content truncated (Bug 6)
 Decl file_truncated(Path, MaxSize).
 
@@ -930,6 +972,21 @@ Decl has_incomplete_phase(CampaignID).
 
 # has_incomplete_phase_task(PhaseID) - helper: phase has incomplete tasks
 Decl has_incomplete_phase_task(PhaseID).
+
+# has_incomplete_hard_dep(TaskID) - helper: task has incomplete hard dependencies
+Decl has_incomplete_hard_dep(TaskID).
+
+# has_earlier_phase(PhaseID) - helper: there are earlier phases to complete
+Decl has_earlier_phase(PhaseID).
+
+# has_earlier_task(PhaseID, TaskID) - helper: there are earlier tasks in phase
+Decl has_earlier_task(PhaseID, TaskID).
+
+# all_phase_tasks_complete(PhaseID) - derived: all tasks in phase are complete
+Decl all_phase_tasks_complete(PhaseID).
+
+# campaign_complete(CampaignID) - derived: entire campaign is complete
+Decl campaign_complete(CampaignID).
 
 # =============================================================================
 # SECTION 33: SYSTEM SHARD COORDINATION

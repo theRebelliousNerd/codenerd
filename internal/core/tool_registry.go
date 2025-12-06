@@ -170,15 +170,26 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 
 	delete(tr.tools, name)
 
-	// Retract facts from kernel
+	// Retract only facts for this specific tool (not all tool facts)
 	if tr.kernel != nil {
-		_ = tr.kernel.Retract("registered_tool")
-		_ = tr.kernel.Retract("tool_registered")
-		_ = tr.kernel.Retract("tool_hash")
+		var errs []error
 
-		// Re-inject all remaining tools
-		for _, tool := range tr.tools {
-			_ = tr.injectToolFacts(tool)
+		// Retract facts specific to this tool using the tool name as first argument
+		if err := tr.kernel.RetractFact(Fact{Predicate: "registered_tool", Args: []interface{}{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract registered_tool: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_registered", Args: []interface{}{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_registered: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_hash", Args: []interface{}{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_hash: %w", err))
+		}
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_capability", Args: []interface{}{name}}); err != nil {
+			errs = append(errs, fmt.Errorf("failed to retract tool_capability: %w", err))
+		}
+
+		if len(errs) > 0 {
+			return fmt.Errorf("errors retracting tool facts: %v", errs)
 		}
 	}
 
@@ -228,13 +239,17 @@ func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
 	return nil
 }
 
-// SyncFromOuroboros synchronizes tools from an Ouroboros registry
+// SyncFromOuroboros synchronizes tools from an Ouroboros registry.
+// Continues syncing even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 	if toolExecutor == nil {
 		return nil
 	}
 
 	tools := toolExecutor.ListTools()
+	var errs []error
+	syncedCount := 0
+
 	for _, toolInfo := range tools {
 		tool := &Tool{
 			Name:          toolInfo.Name,
@@ -247,14 +262,20 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 		}
 
 		if err := tr.RegisterToolWithInfo(tool); err != nil {
-			return fmt.Errorf("failed to sync tool %s: %w", tool.Name, err)
+			errs = append(errs, fmt.Errorf("tool %s: %w", tool.Name, err))
+		} else {
+			syncedCount++
 		}
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("synced %d tools, %d failed: %v", syncedCount, len(errs), errs)
+	}
 	return nil
 }
 
-// RestoreFromDisk restores the registry from a directory of compiled tools
+// RestoreFromDisk restores the registry from a directory of compiled tools.
+// Continues restoring even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 	entries, err := os.ReadDir(compiledDir)
 	if err != nil {
@@ -263,6 +284,9 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		}
 		return fmt.Errorf("failed to read compiled tools directory: %w", err)
 	}
+
+	var errs []error
+	restoredCount := 0
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -286,10 +310,15 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		}
 
 		if err := tr.RegisterToolWithInfo(tool); err != nil {
-			return fmt.Errorf("failed to restore tool %s: %w", name, err)
+			errs = append(errs, fmt.Errorf("tool %s: %w", name, err))
+		} else {
+			restoredCount++
 		}
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
+	}
 	return nil
 }
 

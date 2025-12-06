@@ -55,7 +55,7 @@ type ProofTreeTracer struct {
 	ruleIndex  map[string][]RuleSpec       // Index of rules by head predicate
 }
 
-// RuleSpec describes a rule from policy.gl for tracing purposes.
+// RuleSpec describes a rule from policy.mg for tracing purposes.
 type RuleSpec struct {
 	Name       string   // Rule identifier
 	HeadPred   string   // Head predicate
@@ -92,7 +92,7 @@ func (t *ProofTreeTracer) IndexRules() {
 		pred := decl.DeclaredAtom.Predicate.Symbol
 
 		// Check if this predicate has derivation rules (IDB)
-		// This is a simplified indexing - full implementation would parse policy.gl
+		// This is a simplified indexing - full implementation would parse policy.mg
 		if _, ok := t.ruleIndex[pred]; !ok {
 			t.ruleIndex[pred] = []RuleSpec{}
 		}
@@ -212,7 +212,7 @@ func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, pa
 
 // classifyFact determines if a fact is from EDB or IDB.
 func (t *ProofTreeTracer) classifyFact(fact Fact) (DerivationSource, string) {
-	// EDB predicates (base facts from schemas.gl)
+	// EDB predicates (base facts from schemas.mg)
 	edbPredicates := map[string]bool{
 		"file_topology":    true,
 		"file_content":     true,
@@ -231,7 +231,7 @@ func (t *ProofTreeTracer) classifyFact(fact Fact) (DerivationSource, string) {
 		return SourceEDB, ""
 	}
 
-	// IDB predicates (derived by rules in policy.gl)
+	// IDB predicates (derived by rules in policy.mg)
 	idbRules := map[string]string{
 		"next_action":           "strategy_selector",
 		"permitted":             "permission_gate",

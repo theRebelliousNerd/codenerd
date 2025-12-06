@@ -324,7 +324,7 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 	}
 	// Load reviewer-specific policy (only once to avoid duplicate Decl errors)
 	if !r.policyLoaded {
-		_ = r.kernel.LoadPolicyFile("reviewer.gl")
+		_ = r.kernel.LoadPolicyFile("reviewer.mg")
 		r.policyLoaded = true
 	}
 
@@ -475,6 +475,9 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 	fileContents := make(map[string]string)
 	reviewedFiles := make([]string, 0)
 
+	// Track dependency contexts for all files
+	depContexts := make(map[string]*DependencyContext)
+
 	for _, filePath := range task.Files {
 		// Skip ignored patterns
 		if r.shouldIgnore(filePath) {
@@ -493,12 +496,20 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 			continue
 		}
 
+		// Fetch 1-hop dependencies for context-aware review
+		depCtx, _ := r.getOneHopDependencies(ctx, filePath)
+		if depCtx != nil && (len(depCtx.Upstream) > 0 || len(depCtx.Downstream) > 0) {
+			depContexts[filePath] = depCtx
+			fmt.Printf("[ReviewerShard:%s] Found %d upstream, %d downstream deps for %s\n",
+				r.id, len(depCtx.Upstream), len(depCtx.Downstream), filePath)
+		}
+
 		// Store for specialist detection
 		fileContents[filePath] = content
 		reviewedFiles = append(reviewedFiles, filePath)
 
-		// Run all checks
-		findings := r.analyzeFile(ctx, filePath, content)
+		// Run all checks (now with dependency context)
+		findings := r.analyzeFileWithDeps(ctx, filePath, content, depCtx)
 		result.Findings = append(result.Findings, findings...)
 
 		// Check finding limit
@@ -697,8 +708,13 @@ func (r *ReviewerShard) reviewDiff(ctx context.Context, task *ReviewerTask) (*Re
 // FILE ANALYSIS
 // =============================================================================
 
-// analyzeFile runs all analysis checks on a file.
+// analyzeFile runs all analysis checks on a file (no dependency context).
 func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content string) []ReviewFinding {
+	return r.analyzeFileWithDeps(ctx, filePath, content, nil)
+}
+
+// analyzeFileWithDeps runs all analysis checks on a file with optional dependency context.
+func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext) []ReviewFinding {
 	findings := make([]ReviewFinding, 0)
 
 	// Code DOM safety checks (check kernel facts first)
@@ -716,9 +732,9 @@ func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content strin
 	// Custom rules checks (user-defined patterns)
 	findings = append(findings, r.checkCustomRules(filePath, content)...)
 
-	// LLM-powered semantic analysis (if available)
+	// LLM-powered semantic analysis (if available) - now with dependency context
 	if r.llmClient != nil {
-		llmFindings, err := r.llmAnalysis(ctx, filePath, content)
+		llmFindings, err := r.llmAnalysisWithDeps(ctx, filePath, content, depCtx)
 		if err == nil {
 			findings = append(findings, llmFindings...)
 		} else {
@@ -1202,8 +1218,13 @@ func (r *ReviewerShard) checkLearnedPatterns(filePath, content string) []ReviewF
 	return findings
 }
 
-// llmAnalysis uses LLM for semantic code analysis.
+// llmAnalysis uses LLM for semantic code analysis (no dependency context).
 func (r *ReviewerShard) llmAnalysis(ctx context.Context, filePath, content string) ([]ReviewFinding, error) {
+	return r.llmAnalysisWithDeps(ctx, filePath, content, nil)
+}
+
+// llmAnalysisWithDeps uses LLM for semantic code analysis with dependency context.
+func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext) ([]ReviewFinding, error) {
 	findings := make([]ReviewFinding, 0)
 
 	// Truncate very long files for LLM
@@ -1211,19 +1232,43 @@ func (r *ReviewerShard) llmAnalysis(ctx context.Context, filePath, content strin
 		content = content[:10000] + "\n... (truncated)"
 	}
 
+	// Build dependency context section for the prompt
+	depContextStr := ""
+	if depCtx != nil && len(depCtx.Contents) > 0 {
+		var depBuilder strings.Builder
+		depBuilder.WriteString("\n\n## Dependency Context (1-hop)\n")
+
+		if len(depCtx.Upstream) > 0 {
+			depBuilder.WriteString(fmt.Sprintf("Files this imports (%d): %s\n",
+				len(depCtx.Upstream), strings.Join(depCtx.Upstream, ", ")))
+		}
+		if len(depCtx.Downstream) > 0 {
+			depBuilder.WriteString(fmt.Sprintf("Files that import this (%d): %s\n",
+				len(depCtx.Downstream), strings.Join(depCtx.Downstream, ", ")))
+		}
+
+		depBuilder.WriteString("\n### Related File Contents:\n")
+		for depFile, depContent := range depCtx.Contents {
+			depBuilder.WriteString(fmt.Sprintf("\n--- %s ---\n```\n%s\n```\n", depFile, depContent))
+		}
+		depContextStr = depBuilder.String()
+	}
+
 	systemPrompt := `You are a senior code reviewer. Analyze the code for:
 1. Security vulnerabilities (SQL injection, XSS, command injection, etc.)
 2. Logic errors and potential bugs
 3. Code smells and maintainability issues
 4. Performance issues
+5. Interface contract violations with dependencies (if dependency context provided)
+6. Breaking changes that could affect downstream consumers
 
 Return findings as JSON array:
-[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability", "message": "...", "suggestion": "..."}]
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface", "message": "...", "suggestion": "..."}]
 
 Only report significant issues. Return empty array [] if code is clean.`
 
-	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```",
-		r.detectLanguage(filePath), filePath, content)
+	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
+		r.detectLanguage(filePath), filePath, content, depContextStr)
 
 	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
@@ -1267,8 +1312,12 @@ Only report significant issues. Return empty array [] if code is clean.`
 // =============================================================================
 
 // calculateMetrics calculates code complexity metrics.
+// Cyclomatic complexity is calculated per-function: CC = 1 + decision_points
 func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *CodeMetrics {
 	metrics := &CodeMetrics{}
+
+	// Track per-function cyclomatic complexities for proper max/avg calculation
+	var functionComplexities []int
 
 	for _, filePath := range files {
 		content, err := r.readFile(ctx, filePath)
@@ -1279,12 +1328,14 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 		lines := strings.Split(content, "\n")
 		metrics.TotalLines += len(lines)
 
-		// Count line types
+		// Count line types and track complexity per function
 		inMultiLineComment := false
 		currentNesting := 0
 		maxNestingInFile := 0
 		currentFunctionLines := 0
+		currentFunctionCC := 1 // Cyclomatic complexity starts at 1 for each function
 		inFunction := false
+		braceDepth := 0        // Track brace depth to detect function end
 
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
@@ -1318,31 +1369,53 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 			metrics.CodeLines++
 
 			// Track nesting (rough estimate)
-			currentNesting += strings.Count(line, "{") - strings.Count(line, "}")
+			openBraces := strings.Count(line, "{")
+			closeBraces := strings.Count(line, "}")
+			currentNesting += openBraces - closeBraces
 			if currentNesting > maxNestingInFile {
 				maxNestingInFile = currentNesting
 			}
 
 			// Track function boundaries (Go/C-style)
-			if strings.Contains(line, "func ") || strings.Contains(line, "function ") ||
-				strings.Contains(line, "def ") || strings.Contains(line, "fn ") {
-				if inFunction && currentFunctionLines > 50 {
-					metrics.LongFunctions++
+			isFuncDecl := strings.Contains(line, "func ") || strings.Contains(line, "function ") ||
+				strings.Contains(line, "def ") || strings.Contains(line, "fn ")
+
+			if isFuncDecl {
+				// Finish previous function if any
+				if inFunction {
+					if currentFunctionLines > 50 {
+						metrics.LongFunctions++
+					}
+					functionComplexities = append(functionComplexities, currentFunctionCC)
 				}
+				// Start new function
 				metrics.FunctionCount++
 				inFunction = true
 				currentFunctionLines = 0
+				currentFunctionCC = 1 // Reset CC for new function
+				braceDepth = 0
 			}
 
 			if inFunction {
 				currentFunctionLines++
-			}
 
-			// Cyclomatic complexity indicators
-			if strings.Contains(line, "if ") || strings.Contains(line, "else ") ||
-				strings.Contains(line, "for ") || strings.Contains(line, "while ") ||
-				strings.Contains(line, "case ") || strings.Contains(line, "catch ") {
-				metrics.CyclomaticMax++ // Simplified - just counting decision points
+				// Track brace depth to detect function end
+				braceDepth += openBraces - closeBraces
+
+				// Count decision points for cyclomatic complexity
+				// Each adds 1 to complexity: if, else if, for, while, case, catch, &&, ||, ?:
+				currentFunctionCC += countDecisionPoints(line)
+
+				// Function ended (brace depth returned to 0 after being > 0)
+				if braceDepth <= 0 && currentFunctionLines > 1 {
+					if currentFunctionLines > 50 {
+						metrics.LongFunctions++
+					}
+					functionComplexities = append(functionComplexities, currentFunctionCC)
+					inFunction = false
+					currentFunctionCC = 1
+					currentFunctionLines = 0
+				}
 			}
 		}
 
@@ -1350,18 +1423,54 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 			metrics.MaxNesting = maxNestingInFile
 		}
 
-		// Check last function
-		if inFunction && currentFunctionLines > 50 {
-			metrics.LongFunctions++
+		// Check last function (if file ended while still in function)
+		if inFunction {
+			if currentFunctionLines > 50 {
+				metrics.LongFunctions++
+			}
+			functionComplexities = append(functionComplexities, currentFunctionCC)
 		}
 	}
 
-	// Calculate average cyclomatic complexity
-	if metrics.FunctionCount > 0 {
-		metrics.CyclomaticAvg = float64(metrics.CyclomaticMax) / float64(metrics.FunctionCount)
+	// Calculate max and average cyclomatic complexity from per-function values
+	if len(functionComplexities) > 0 {
+		totalCC := 0
+		for _, cc := range functionComplexities {
+			totalCC += cc
+			if cc > metrics.CyclomaticMax {
+				metrics.CyclomaticMax = cc
+			}
+		}
+		metrics.CyclomaticAvg = float64(totalCC) / float64(len(functionComplexities))
 	}
 
 	return metrics
+}
+
+// countDecisionPoints counts cyclomatic complexity decision points in a line.
+// Each decision point adds 1 to complexity.
+func countDecisionPoints(line string) int {
+	count := 0
+
+	// Decision keywords (each adds 1 to CC)
+	decisionKeywords := []string{
+		"if ", "else if ", "elif ",   // Conditionals
+		"for ", "while ", "loop ",     // Loops
+		"case ", "catch ", "except ",  // Switch cases, exception handlers
+		"?",                            // Ternary operator
+	}
+
+	for _, keyword := range decisionKeywords {
+		count += strings.Count(line, keyword)
+	}
+
+	// Logical operators (each adds 1 to CC since they create additional paths)
+	count += strings.Count(line, " && ")
+	count += strings.Count(line, " || ")
+	count += strings.Count(line, " and ")
+	count += strings.Count(line, " or ")
+
+	return count
 }
 
 // =============================================================================
@@ -1956,7 +2065,7 @@ var knownTechnologies = []TechnologyPattern{
 	},
 	{
 		ShardName:    "mangle",
-		FilePatterns: []string{".gl", "mangle", "policy", "schema"},
+		FilePatterns: []string{".mg", "mangle", "policy", "schema"},
 		ImportHints:  []string{},
 		ContentHints: []string{"Decl ", ":-", "fn:", "let "},
 		TaskHints:    []string{"add policy rule", "define predicate", "fix constraint"},
@@ -2081,4 +2190,158 @@ func (r *ReviewerShard) detectSpecialists(files []string, contents map[string]st
 	}
 
 	return recommendations
+}
+
+// =============================================================================
+// ONE-HOP DEPENDENCY FETCHING
+// =============================================================================
+// Fetches upstream (imports) and downstream (importers) files for review context.
+
+// DependencyContext holds 1-hop dependency files for a reviewed file.
+type DependencyContext struct {
+	TargetFile  string            // The file being reviewed
+	Upstream    []string          // Files this file imports
+	Downstream  []string          // Files that import this file
+	Contents    map[string]string // Content of dependency files (truncated for context)
+}
+
+// getOneHopDependencies queries the kernel for dependency_link facts
+// to find upstream (what this file imports) and downstream (what imports this file).
+func (r *ReviewerShard) getOneHopDependencies(ctx context.Context, filePath string) (*DependencyContext, error) {
+	depCtx := &DependencyContext{
+		TargetFile: filePath,
+		Upstream:   make([]string, 0),
+		Downstream: make([]string, 0),
+		Contents:   make(map[string]string),
+	}
+
+	if r.kernel == nil {
+		return depCtx, nil // No kernel, return empty context
+	}
+
+	// Query dependency_link facts: dependency_link(CallerID, CalleeID, ImportPath)
+	// For upstream: find where this file/package is the Caller
+	// For downstream: find where this file/package is the Callee
+	depLinks, err := r.kernel.Query("dependency_link")
+	if err != nil {
+		return depCtx, nil // Query failed, return empty context
+	}
+
+	// Normalize the target file path for matching
+	normalizedTarget := normalizePath(filePath)
+
+	for _, fact := range depLinks {
+		if len(fact.Args) < 3 {
+			continue
+		}
+
+		caller, _ := fact.Args[0].(string)
+		callee, _ := fact.Args[1].(string)
+
+		// Check if this file is the caller (find what it imports - upstream)
+		if pathMatches(caller, normalizedTarget) {
+			// callee is something this file imports
+			if depFile := resolveDepToFile(callee); depFile != "" {
+				depCtx.Upstream = append(depCtx.Upstream, depFile)
+			}
+		}
+
+		// Check if this file is the callee (find what imports it - downstream)
+		if pathMatches(callee, normalizedTarget) {
+			// caller imports this file
+			if depFile := resolveDepToFile(caller); depFile != "" {
+				depCtx.Downstream = append(depCtx.Downstream, depFile)
+			}
+		}
+	}
+
+	// Deduplicate
+	depCtx.Upstream = deduplicateStrings(depCtx.Upstream)
+	depCtx.Downstream = deduplicateStrings(depCtx.Downstream)
+
+	// Load truncated content for each dependency (limit to avoid context explosion)
+	maxDeps := 5 // Limit to 5 upstream + 5 downstream
+	allDeps := make([]string, 0)
+	for i, dep := range depCtx.Upstream {
+		if i >= maxDeps {
+			break
+		}
+		allDeps = append(allDeps, dep)
+	}
+	for i, dep := range depCtx.Downstream {
+		if i >= maxDeps {
+			break
+		}
+		allDeps = append(allDeps, dep)
+	}
+
+	for _, dep := range allDeps {
+		content, err := r.readFile(ctx, dep)
+		if err != nil {
+			continue
+		}
+		// Truncate to first 100 lines for context
+		lines := strings.Split(content, "\n")
+		if len(lines) > 100 {
+			content = strings.Join(lines[:100], "\n") + "\n// ... (truncated)"
+		}
+		depCtx.Contents[dep] = content
+	}
+
+	return depCtx, nil
+}
+
+// normalizePath normalizes a file path for comparison.
+func normalizePath(path string) string {
+	// Convert backslashes to forward slashes and lowercase
+	path = strings.ReplaceAll(path, "\\", "/")
+	return strings.ToLower(path)
+}
+
+// pathMatches checks if a dependency reference matches a file path.
+func pathMatches(depRef, normalizedPath string) bool {
+	// dependency_link uses formats like "pkg:packagename" or file paths
+	depRef = strings.ToLower(depRef)
+
+	// Direct file path match
+	if strings.Contains(normalizedPath, depRef) || strings.Contains(depRef, normalizedPath) {
+		return true
+	}
+
+	// Package-based match: extract package from path
+	// e.g., "pkg:core" matches "internal/core/foo.go"
+	if strings.HasPrefix(depRef, "pkg:") {
+		pkgName := strings.TrimPrefix(depRef, "pkg:")
+		return strings.Contains(normalizedPath, "/"+pkgName+"/") ||
+		       strings.HasSuffix(normalizedPath, "/"+pkgName)
+	}
+
+	return false
+}
+
+// resolveDepToFile attempts to resolve a dependency reference to a file path.
+func resolveDepToFile(depRef string) string {
+	// If it's already a file path, return it
+	if strings.HasSuffix(depRef, ".go") || strings.HasSuffix(depRef, ".py") ||
+		strings.HasSuffix(depRef, ".ts") || strings.HasSuffix(depRef, ".js") ||
+		strings.HasSuffix(depRef, ".rs") {
+		return depRef
+	}
+
+	// For pkg: references, we can't directly resolve to files without more context
+	// Return empty - the caller will need to use other mechanisms
+	return ""
+}
+
+// deduplicateStrings removes duplicates from a string slice.
+func deduplicateStrings(slice []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+	for _, s := range slice {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
 }

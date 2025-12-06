@@ -204,7 +204,7 @@ This is a lighter alternative to 'nerd init --force' that:
   1. Scans the file structure
   2. Extracts AST symbols and dependencies
   3. Updates the kernel with fresh file_topology facts
-  4. Reloads profile.gl facts
+  4. Reloads profile.mg facts
 
 Use this when files have changed and you want to update the kernel without
 recreating agent knowledge bases.`,
@@ -355,10 +355,10 @@ func init() {
 //
 // Overview:
 // This file implements the `check-mangle` command for the codeNERD CLI.
-// Its primary responsibility is to validate the syntax of Google Mangle (.gl) files.
+// Its primary responsibility is to validate the syntax of Google Mangle (.mg) files.
 //
 // Key Features & Business Value:
-// - Syntax Validation: Parse .gl files and report syntax errors using the official parser.
+// - Syntax Validation: Parse .mg files and report syntax errors using the official parser.
 // - Glob Support: Process multiple files via shell globs or recursive directory scanning.
 // - CI/CD Integration: Return non-zero exit codes on failure for pipeline compatibility.
 //
@@ -384,7 +384,7 @@ func init() {
 //   - **Logic:** Iterate args, read files, parse, print verification status.
 //
 // Usage:
-// `nerd check-mangle internal/mangle/*.gl`
+// `nerd check-mangle internal/mangle/*.mg`
 //
 // References:
 // - internal/mangle/grammar.go
@@ -393,7 +393,7 @@ func init() {
 
 var checkMangleCmd = &cobra.Command{
 	Use:   "check-mangle [file...]",
-	Short: "Check Mangle syntax in .gl files",
+	Short: "Check Mangle syntax in .mg files",
 	Long:  `Validates the syntax of Google Mangle (Datalog) logic files.`,
 	Args:  cobra.MinimumNArgs(1),
 	RunE:  runCheckMangle,
@@ -448,11 +448,11 @@ func checkFile(engine *mangle.Engine, path string) error {
 		return err
 	}
 
-	// Try to load schemas.gl first if it exists, to provide context
+	// Try to load schemas.mg first if it exists, to provide context
 	// We assume a standard location or relative path; for now hardcode likely location
 	// In a real tool, this would be a flag --schema or --include
-	excludePath := "internal/mangle/schemas.gl"
-	if _, err := os.Stat(excludePath); err == nil && filepath.Base(path) != "schemas.gl" {
+	excludePath := "internal/mangle/schemas.mg"
+	if _, err := os.Stat(excludePath); err == nil && filepath.Base(path) != "schemas.mg" {
 		schemaData, err := os.ReadFile(excludePath)
 		if err == nil {
 			if err := tmpEngine.LoadSchemaString(string(schemaData)); err != nil {
@@ -899,7 +899,7 @@ func browserSnapshot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create snapshots dir: %w", err)
 	}
 
-	snapshotFile := filepath.Join(factsDir, fmt.Sprintf("%s_%d.gl", sessionID, time.Now().Unix()))
+	snapshotFile := filepath.Join(factsDir, fmt.Sprintf("%s_%d.mg", sessionID, time.Now().Unix()))
 
 	// Query for all DOM-related predicates
 	domPredicates := []string{
@@ -1117,11 +1117,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load facts: %w", err)
 	}
 
-	// Also reload profile.gl if it exists
-	factsPath := filepath.Join(cwd, ".nerd", "profile.gl")
+	// Also reload profile.mg if it exists
+	factsPath := filepath.Join(cwd, ".nerd", "profile.mg")
 	if _, statErr := os.Stat(factsPath); statErr == nil {
 		if err := kernel.LoadFactsFromFile(factsPath); err != nil {
-			fmt.Printf("⚠️ Warning: failed to load profile.gl: %v\n", err)
+			fmt.Printf("⚠️ Warning: failed to load profile.mg: %v\n", err)
 		}
 	}
 

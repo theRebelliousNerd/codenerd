@@ -11,15 +11,21 @@ import (
 // ToolDefinition represents a tool template available for specialist shards
 type ToolDefinition struct {
 	Name          string   `json:"name"`
-	DisplayName   string   `json:"display_name"`   // Human-readable name (optional)
-	Category      string   `json:"category"`       // build, test, lint, format, deps, git, docker, security, etc
+	DisplayName   string   `json:"display_name,omitempty"`   // Human-readable name (optional)
+	Category      string   `json:"category"`                 // build, test, lint, format, deps, git, docker, security, etc
 	Description   string   `json:"description"`
-	Command       string   `json:"command"`        // Actual command to execute
-	WorkingDir    string   `json:"working_dir"`    // Where to run it (default ".")
-	InputType     string   `json:"input_type"`     // stdin, args, file, none
-	OutputType    string   `json:"output_type"`    // stdout, file, json
-	ShardAffinity string   `json:"shard_affinity"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard)
-	Conditions    []string `json:"conditions"`     // Required conditions (e.g., "go.mod exists", "docker available")
+	Command       string   `json:"command"`                  // Actual command to execute
+	WorkingDir    string   `json:"working_dir,omitempty"`    // Where to run it (default ".")
+	InputType     string   `json:"input_type,omitempty"`     // stdin, args, file, none
+	OutputType    string   `json:"output_type,omitempty"`    // stdout, file, json
+	ShardAffinity string   `json:"shard_affinity,omitempty"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard)
+	Conditions    []string `json:"conditions,omitempty"`     // Required conditions (e.g., "go.mod exists", "docker available")
+
+	// Legacy fields for compatibility with existing code in agents.go
+	Purpose    string  `json:"purpose,omitempty"`
+	Priority   float64 `json:"priority,omitempty"`
+	Technology string  `json:"technology,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
 }
 
 // GetLanguageTools returns tool definitions for a language

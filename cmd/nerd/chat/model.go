@@ -131,6 +131,10 @@ type Model struct {
 	// Agent Wizard State
 	agentWizard *AgentWizardState
 
+	// Config Wizard State
+	awaitingConfigWizard bool
+	configWizard         *ConfigWizardState
+
 	// ==========================================================================
 	// CONVERSATIONAL CONTEXT (Fix for follow-up questions)
 	// ==========================================================================
@@ -696,6 +700,11 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	// Start loading
 	if m.awaitingAgentDefinition {
 		return m.handleAgentWizardInput(input)
+	}
+
+	// Config wizard mode
+	if m.awaitingConfigWizard {
+		return m.handleConfigWizardInput(input)
 	}
 
 	m.isLoading = true

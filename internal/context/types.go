@@ -52,9 +52,9 @@ func DefaultConfig() CompressorConfig {
 		// Compress at 80% usage, target 100:1 ratio
 		CompressionThreshold:   0.80,
 		TargetCompressionRatio: 100.0,
-		ActivationThreshold:    30.0, // Matches policy.gl: Score > 30
+		ActivationThreshold:    30.0, // Matches policy.mg: Score > 30
 
-		// Predicate priorities (matches policy.gl spreading activation)
+		// Predicate priorities (matches policy.mg spreading activation)
 		PredicatePriorities: map[string]int{
 			// Core intent & focus
 			"user_intent":       100,

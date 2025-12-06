@@ -14,7 +14,7 @@ import (
 // =============================================================================
 // Prevents the agent from hallucinating predicates in learned rules that have
 // no data source. All predicates used in rule bodies MUST be declared in
-// schemas.gl or already exist in learned.gl.
+// schemas.mg or already exist in learned.mg.
 //
 // Example BAD rule (will be rejected):
 //   candidate_action(/monitor_server) :- server_health(/degraded).
@@ -38,7 +38,7 @@ func NewSchemaValidator(schemasText, learnedText string) *SchemaValidator {
 	}
 }
 
-// LoadDeclaredPredicates parses schemas.gl and extracts all Decl statements.
+// LoadDeclaredPredicates parses schemas.mg and extracts all Decl statements.
 func (sv *SchemaValidator) LoadDeclaredPredicates() error {
 	// Parse schemas to extract declarations
 	if sv.schemasText != "" {
@@ -47,7 +47,7 @@ func (sv *SchemaValidator) LoadDeclaredPredicates() error {
 		}
 	}
 
-	// Also extract any predicates defined as heads in learned.gl
+	// Also extract any predicates defined as heads in learned.mg
 	if sv.learnedText != "" {
 		if err := sv.extractHeadPredicatesFromText(sv.learnedText); err != nil {
 			return fmt.Errorf("failed to parse learned rules: %w", err)

@@ -98,10 +98,10 @@ next_action(/complete) :-
 # SECTION 4: FOCUS RESOLUTION & CLARIFICATION (§1.2)
 # =============================================================================
 
-# Clarification threshold - block execution if confidence < 0.85
+# Clarification threshold - block execution if confidence < 85 (on 0-100 scale)
 clarification_needed(Ref) :-
     focus_resolution(Ref, _, _, Score),
-    Score < 0.85.
+    Score < 85.
 
 # Block action derivation when clarification is needed
 next_action(/interrogative_mode) :-
@@ -255,17 +255,22 @@ suggest_appeal(ActionID) :-
 appeal_needs_review(ActionID, ActionType, Justification) :-
     appeal_pending(ActionID, ActionType, Justification, _).
 
-# Override is currently active for an action type
-has_active_override(ActionType) :-
-    appeal_granted(_, ActionType, _, Timestamp),
-    temporary_override(ActionType, Duration, OverrideTime),
-    current_time(Now),
-    Now < OverrideTime + Duration.
+# Helper: check if an action type has a temporary override configured
+has_temporary_override(ActionType) :-
+    temporary_override(ActionType, _).
 
-# Permanent override (no expiration)
+# Override is currently active for an action type
+# NOTE: temporary_override now stores ExpirationTimestamp directly (no arithmetic needed)
 has_active_override(ActionType) :-
     appeal_granted(_, ActionType, _, _),
-    !temporary_override(ActionType, _, _).
+    temporary_override(ActionType, Expiration),
+    current_time(Now),
+    Now < Expiration.
+
+# Permanent override (no expiration) - use helper to avoid unbound variable in negation
+has_active_override(ActionType) :-
+    appeal_granted(_, ActionType, _, _),
+    !has_temporary_override(ActionType).
 
 # Appeal granted should permit the action
 permitted(ActionType) :-
@@ -623,22 +628,22 @@ tool_lifecycle(ToolName, /ready) :-
 # =============================================================================
 # Learning from tool executions to improve future generations.
 
-# Tool quality tracking
+# Tool quality tracking (quality on 0-100 scale)
 tool_quality_poor(ToolName) :-
-    tool_learning(ToolName, Executions, SuccessRate, AvgQuality),
+    tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality < 0.5.
+    AvgQuality < 50.
 
 tool_quality_acceptable(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 0.5,
-    AvgQuality < 0.8.
+    AvgQuality >= 50,
+    AvgQuality < 80.
 
 tool_quality_good(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 0.8.
+    AvgQuality >= 80.
 
 # Trigger refinement for poor quality tools
 tool_needs_refinement(ToolName) :-
@@ -790,12 +795,12 @@ next_action(/resume_task) :-
 # SECTION 17: KNOWLEDGE ATOM INTEGRATION (§24)
 # =============================================================================
 
-# Knowledge atoms inform strategy selection
+# When high-confidence knowledge about the domain exists
+# Knowledge atoms inform strategy selection (confidence on 0-100 scale)
 active_strategy(/domain_expert) :-
-    knowledge_atom(_, Concept, _, Confidence),
-    Confidence > 0.8,
-    user_intent(_, _, _, Target, _).
-    # When high-confidence knowledge about the domain exists
+    knowledge_atom(_, _, _, Confidence),
+    Confidence > 80,
+    user_intent(_, _, _, _, _).
 
 # =============================================================================
 # SECTION 17B: LEARNED KNOWLEDGE APPLICATION
@@ -806,9 +811,9 @@ active_strategy(/domain_expert) :-
 # 1. User preferences influence tool selection
 # If user prefers a language, boost activation for related tools
 activation(Tool, 85) :-
-    learned_preference(/prefer_language, LangArgs),
+    learned_preference(/prefer_language, _),
     tool_capabilities(Tool, /code_generation),
-    tool_language(Tool, Lang).
+    tool_language(Tool, _).
 
 # 2. Learned constraints become safety checks
 # Constraints from knowledge.db feed into constitutional logic
@@ -1250,10 +1255,10 @@ pending_intent(IntentID) :-
 intent_processed(IntentID) :-
     processed_intent(IntentID).
 
-# Focus needs resolution if confidence is low
+# Focus needs resolution if confidence is low (score on 0-100 scale)
 focus_needs_resolution(Ref) :-
     focus_resolution(Ref, _, _, Score),
-    Score < 0.70.
+    Score < 70.
 
 # Intent ready for executive processing
 intent_ready_for_executive(IntentID) :-
@@ -1503,15 +1508,15 @@ propose_new_rule(ShardName) :-
     unhandled_case_count(ShardName, Count),
     Count >= 3.
 
-# Proposed rule needs human approval if low confidence
+# Proposed rule needs human approval if low confidence (confidence on 0-100 scale)
 rule_needs_approval(RuleID) :-
     proposed_rule(RuleID, _, _, Confidence),
-    Confidence < 0.80.
+    Confidence < 80.
 
-# Auto-apply rule if high confidence
+# Auto-apply rule if high confidence (confidence on 0-100 scale)
 auto_apply_rule(RuleID) :-
     proposed_rule(RuleID, _, _, Confidence),
-    Confidence >= 0.80,
+    Confidence >= 80,
     !rule_applied(RuleID).
 
 # Helper for safe negation
@@ -2095,15 +2100,15 @@ propose_new_rule(/verification_policy) :-
 # 24.1 Trace Quality Tracking
 # -----------------------------------------------------------------------------
 
-# Low quality trace (needs review)
+# Low quality trace (needs review) - score on 0-100 scale
 low_quality_trace(TraceID) :-
     trace_quality(TraceID, Score),
-    Score < 0.5.
+    Score < 50.
 
-# High quality trace (good for learning)
+# High quality trace (good for learning) - score on 0-100 scale
 high_quality_trace(TraceID) :-
     trace_quality(TraceID, Score),
-    Score >= 0.8.
+    Score >= 80.
 
 # -----------------------------------------------------------------------------
 # 24.2 Shard Performance Patterns
