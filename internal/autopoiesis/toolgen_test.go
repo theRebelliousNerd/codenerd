@@ -415,8 +415,14 @@ func TestGetTestValue(t *testing.T) {
 		{"bool", false, "false"},
 		{"map[string]any", true, `map[string]any{"key": "value"}`},
 		{"[]string", true, `[]string{"item1", "item2"}`},
-		{"*MyType", true, "nil"},
-		{"[]CustomType", true, "nil"},
+		{"*MyType", true, "&MyType{}"},              // Pointer to struct gets address-of
+		{"*MyType", false, "nil"},                   // Invalid pointer is nil
+		{"[]CustomType", true, "[]CustomType{"},     // Slice with element value
+		{"[]CustomType", false, "[]CustomType{}"},   // Empty slice
+		{"map[string]int", true, `"count": 42`}, // Map with key-value pair
+		{"chan string", true, "make(chan string"},   // Channel creation
+		{"*string", true, `s := "test"`},            // Pointer to primitive
+		{"*int", true, `i := 42`},                   // Pointer to int
 	}
 
 	for _, tt := range tests {
