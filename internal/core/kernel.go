@@ -585,11 +585,82 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
 	}
 
-	// 5. If successful, apply to Real Kernel
-	k.policy = k.policy + "\n\n# HotLoaded Rule\n" + rule
+	// 5. If successful, apply to Real Kernel (in-memory)
+	k.learned = k.learned + "\n\n# HotLoaded Rule\n" + rule
 	k.policyDirty = true
 
 	return nil
+}
+
+// HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.gl.
+// This is the primary method for Autopoiesis to add new learned rules.
+// It validates the rule, loads it into memory, and writes it to disk for persistence.
+func (k *RealKernel) HotLoadLearnedRule(rule string) error {
+	// 1. Validate using sandbox (same as HotLoadRule)
+	if err := k.HotLoadRule(rule); err != nil {
+		return err
+	}
+
+	// 2. Persist to learned.gl file
+	return k.appendToLearnedFile(rule)
+}
+
+// appendToLearnedFile appends a rule to learned.gl on disk.
+func (k *RealKernel) appendToLearnedFile(rule string) error {
+	// Find learned.gl path
+	searchPaths := []string{
+		k.manglePath,
+		"internal/mangle",
+		"../internal/mangle",
+		"../../internal/mangle",
+	}
+
+	var learnedPath string
+	for _, basePath := range searchPaths {
+		if basePath == "" {
+			continue
+		}
+		path := filepath.Join(basePath, "learned.gl")
+		if _, err := os.Stat(path); err == nil {
+			learnedPath = path
+			break
+		}
+	}
+
+	if learnedPath == "" {
+		return fmt.Errorf("learned.gl file not found")
+	}
+
+	// Append rule to file
+	f, err := os.OpenFile(learnedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open learned.gl: %w", err)
+	}
+	defer f.Close()
+
+	// Write rule with proper formatting
+	_, err = f.WriteString(fmt.Sprintf("\n# Autopoiesis-learned rule (added %s)\n%s\n",
+		time.Now().Format("2006-01-02 15:04:05"), rule))
+	if err != nil {
+		return fmt.Errorf("failed to write to learned.gl: %w", err)
+	}
+
+	return nil
+}
+
+// GetLearned returns the current learned rules.
+func (k *RealKernel) GetLearned() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.learned
+}
+
+// SetLearned allows loading custom learned rules (for testing).
+func (k *RealKernel) SetLearned(learned string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.learned = learned
+	k.policyDirty = true
 }
 
 // GetSchemas returns the current schemas.

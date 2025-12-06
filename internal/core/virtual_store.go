@@ -2385,6 +2385,39 @@ func (v *VirtualStore) HasLearned(predicate string) (bool, error) {
 	return len(facts) > 0, nil
 }
 
+// HydrateKnowledgeGraph loads knowledge graph entries from LocalStore and hydrates
+// the kernel with knowledge_link facts. This can be called independently or as part
+// of HydrateLearnings for targeted knowledge graph updates.
+func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		return 0, nil // No database, nothing to hydrate
+	}
+	if kernel == nil {
+		return 0, fmt.Errorf("no kernel configured")
+	}
+
+	// Create assertion function that wraps kernel.Assert
+	assertFunc := func(predicate string, args []interface{}) error {
+		return kernel.Assert(Fact{
+			Predicate: predicate,
+			Args:      args,
+		})
+	}
+
+	// Delegate to LocalStore's HydrateKnowledgeGraph
+	count, err := db.HydrateKnowledgeGraph(assertFunc)
+	if err != nil {
+		return 0, fmt.Errorf("failed to hydrate knowledge graph: %w", err)
+	}
+
+	return count, nil
+}
+
 // HydrateLearnings loads all learned facts from knowledge.db and asserts them into the kernel.
 // This should be called during OODA Observe phase to make learned knowledge available to rules.
 func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
@@ -2441,14 +2474,10 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 		}
 	}
 
-	// 4. Load knowledge graph links
-	links, err := v.QueryKnowledgeGraph("", "both")
+	// 4. Load knowledge graph links (now delegates to dedicated method)
+	kgCount, err := v.HydrateKnowledgeGraph(ctx)
 	if err == nil {
-		for _, fact := range links {
-			if err := kernel.Assert(fact); err == nil {
-				count++
-			}
-		}
+		count += kgCount
 	}
 
 	// 5. Load recent activations (top 50 with score > 0.3)

@@ -7,6 +7,7 @@ package shards
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/store"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -94,9 +95,10 @@ type CoderShard struct {
 	editHistory []CodeEdit
 	diagnostics []core.Diagnostic
 
-	// Learnings for autopoiesis
-	rejectionCount map[string]int
+	// Learnings for autopoiesis (in-memory, synced to LearningStore)
+	rejectionCount  map[string]int
 	acceptanceCount map[string]int
+	learningStore   *store.LearningStore
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
@@ -145,6 +147,15 @@ func (c *CoderShard) SetVirtualStore(vs *core.VirtualStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.virtualStore = vs
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis.
+func (c *CoderShard) SetLearningStore(ls *store.LearningStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.learningStore = ls
+	// Load existing patterns from store
+	c.loadLearnedPatterns()
 }
 
 // GetID returns the shard ID.
@@ -699,10 +710,10 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 	// Build user prompt
 	userPrompt := c.buildUserPrompt(task, fileContext)
 
-	// Call LLM
-	response, err := c.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	// Call LLM with retry
+	response, err := c.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
-		return nil, fmt.Errorf("LLM request failed: %w", err)
+		return nil, fmt.Errorf("LLM request failed after retries: %w", err)
 	}
 
 	// Parse response into edits
@@ -1182,6 +1193,11 @@ func (c *CoderShard) trackRejection(action, reason string) {
 	defer c.mu.Unlock()
 	key := fmt.Sprintf("%s:%s", action, reason)
 	c.rejectionCount[key]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if c.learningStore != nil && c.rejectionCount[key] >= 2 {
+		_ = c.learningStore.Save("coder", "avoid_pattern", []any{action, reason}, "")
+	}
 }
 
 // trackAcceptance tracks an acceptance pattern for autopoiesis.
@@ -1189,6 +1205,130 @@ func (c *CoderShard) trackAcceptance(action string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.acceptanceCount[action]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if c.learningStore != nil && c.acceptanceCount[action] >= 3 {
+		_ = c.learningStore.Save("coder", "preferred_pattern", []any{action}, "")
+	}
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (c *CoderShard) loadLearnedPatterns() {
+	if c.learningStore == nil {
+		return
+	}
+
+	// Load rejection patterns
+	rejectionLearnings, err := c.learningStore.LoadByPredicate("coder", "avoid_pattern")
+	if err == nil {
+		for _, learning := range rejectionLearnings {
+			if len(learning.FactArgs) >= 2 {
+				action, _ := learning.FactArgs[0].(string)
+				reason, _ := learning.FactArgs[1].(string)
+				key := fmt.Sprintf("%s:%s", action, reason)
+				// Initialize with threshold count to avoid re-learning
+				c.rejectionCount[key] = 2
+			}
+		}
+	}
+
+	// Load acceptance patterns
+	acceptanceLearnings, err := c.learningStore.LoadByPredicate("coder", "preferred_pattern")
+	if err == nil {
+		for _, learning := range acceptanceLearnings {
+			if len(learning.FactArgs) >= 1 {
+				action, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count
+				c.acceptanceCount[action] = 3
+			}
+		}
+	}
+}
+
+// llmCompleteWithRetry calls LLM with exponential backoff retry logic.
+func (c *CoderShard) llmCompleteWithRetry(ctx context.Context, systemPrompt, userPrompt string, maxRetries int) (string, error) {
+	if c.llmClient == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	var lastErr error
+	baseDelay := 500 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Add attempt number to context if retrying
+		if attempt > 0 {
+			fmt.Printf("[CoderShard:%s] LLM retry attempt %d/%d\n", c.id, attempt+1, maxRetries)
+
+			// Exponential backoff: 500ms, 1s, 2s
+			delay := baseDelay * time.Duration(1<<uint(attempt))
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+
+		response, err := c.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err == nil {
+			return response, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !isRetryableError(err) {
+			return "", fmt.Errorf("non-retryable error: %w", err)
+		}
+	}
+
+	return "", fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// isRetryableError determines if an error should be retried.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+
+	// Network errors - retryable
+	retryablePatterns := []string{
+		"timeout",
+		"connection",
+		"network",
+		"temporary",
+		"rate limit",
+		"503",
+		"502",
+		"429",
+		"context deadline exceeded",
+	}
+
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// Auth errors - not retryable
+	nonRetryablePatterns := []string{
+		"unauthorized",
+		"forbidden",
+		"invalid api key",
+		"401",
+		"403",
+	}
+
+	for _, pattern := range nonRetryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return false
+		}
+	}
+
+	// Default: retry
+	return true
 }
 
 // resolvePath resolves a relative path to absolute.

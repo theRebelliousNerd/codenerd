@@ -4,6 +4,7 @@ package shards
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"os/exec"
@@ -65,6 +66,7 @@ type TestResult struct {
 	Diagnostics []core.Diagnostic `json:"diagnostics"`
 	Retries     int               `json:"retries"`
 	Framework   string            `json:"framework"`
+	TestType    string            `json:"test_type"` // "unit", "integration", "e2e", or "unknown"
 }
 
 // FailedTest represents a single failed test.
@@ -117,9 +119,13 @@ type TesterShard struct {
 	testHistory []TestResult
 	diagnostics []core.Diagnostic
 
-	// Autopoiesis tracking (§8.3)
-	successPatterns map[string]int // Patterns that pass tests
-	failurePatterns map[string]int // Patterns that repeatedly fail
+	// Autopoiesis tracking (§8.3) - in-memory, synced to LearningStore
+	successPatterns map[string]int      // Patterns that pass tests
+	failurePatterns map[string]int      // Patterns that repeatedly fail
+	learningStore   *store.LearningStore // Persistent learning storage
+
+	// Policy loading guard (prevents duplicate Decl errors)
+	policyLoaded bool
 }
 
 // NewTesterShard creates a new Tester shard with default configuration.
@@ -167,6 +173,15 @@ func (t *TesterShard) SetVirtualStore(vs *core.VirtualStore) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.virtualStore = vs
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis.
+func (t *TesterShard) SetLearningStore(ls *store.LearningStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.learningStore = ls
+	// Load existing patterns from store
+	t.loadLearnedPatterns()
 }
 
 // =============================================================================
@@ -217,6 +232,8 @@ func (t *TesterShard) Stop() error {
 //   - "generate_tests file:PATH" or "generate_tests function:NAME in:FILE"
 //   - "coverage file:PATH"
 //   - "tdd file:PATH" (full TDD repair loop)
+//   - "regenerate_mocks file:PATH" (regenerate mocks for an interface)
+//   - "detect_stale_mocks file:PATH" (check for stale mocks in test file)
 func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) {
 	t.mu.Lock()
 	t.state = core.ShardStateRunning
@@ -236,8 +253,11 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 	if t.kernel == nil {
 		t.kernel = core.NewRealKernel()
 	}
-	// Load tester-specific policy
-	_ = t.kernel.LoadPolicyFile("tester.gl")
+	// Load tester-specific policy (only once to avoid duplicate Decl errors)
+	if !t.policyLoaded {
+		_ = t.kernel.LoadPolicyFile("tester.gl")
+		t.policyLoaded = true
+	}
 
 	// Parse the task
 	parsedTask, err := t.parseTask(task)
@@ -259,6 +279,10 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 		result, err = t.runCoverage(ctx, parsedTask)
 	case "tdd":
 		result, err = t.runTDDLoop(ctx, parsedTask)
+	case "regenerate_mocks":
+		return t.handleRegenerateMocks(ctx, parsedTask)
+	case "detect_stale_mocks":
+		return t.handleDetectStaleMocks(ctx, parsedTask)
 	default:
 		// Default to run_tests
 		result, err = t.runTests(ctx, parsedTask)
@@ -322,6 +346,10 @@ func (t *TesterShard) parseTask(task string) (*TesterTask, error) {
 		parsed.Action = "coverage"
 	case "tdd", "tdd_loop", "repair":
 		parsed.Action = "tdd"
+	case "regenerate_mocks", "regen_mocks", "update_mocks":
+		parsed.Action = "regenerate_mocks"
+	case "detect_stale_mocks", "check_mocks", "stale_mocks":
+		parsed.Action = "detect_stale_mocks"
 	default:
 		// Assume run_tests if action is a file path
 		if strings.Contains(action, ".") || strings.Contains(action, "/") {
@@ -434,6 +462,12 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 		Duration:    duration,
 		Output:      output,
 		Diagnostics: make([]core.Diagnostic, 0),
+		TestType:    "unknown",
+	}
+
+	// Detect test type from target file
+	if task.Target != "" && task.Target != "./..." {
+		result.TestType = t.detectTestType(ctx, task.Target)
 	}
 
 	// Determine pass/fail
@@ -441,6 +475,21 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 		result.Passed = false
 		result.FailedTests = t.parseFailedTests(output, framework)
 		result.Diagnostics = t.parseDiagnostics(output)
+
+		// Check for stale mock errors and attempt regeneration
+		if t.isMockError(output) && task.Target != "" {
+			fmt.Printf("[TesterShard] Detected mock-related test failure, checking for stale mocks...\n")
+			staleMocks, mockErr := t.detectStaleMocks(ctx, task.Target)
+			if mockErr == nil && len(staleMocks) > 0 {
+				fmt.Printf("[TesterShard] Found %d stale mock(s), attempting regeneration...\n", len(staleMocks))
+				for _, interfacePath := range staleMocks {
+					regenErr := t.regenerateMock(ctx, interfacePath)
+					if regenErr != nil {
+						fmt.Printf("[TesterShard] Warning: failed to regenerate mock for %s: %v\n", interfacePath, regenErr)
+					}
+				}
+			}
+		}
 
 		// Track failure patterns for Autopoiesis
 		t.trackFailurePattern(result)
@@ -504,6 +553,12 @@ func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestR
 		Output:    output,
 		Passed:    !t.containsFailure(output),
 		Coverage:  t.parseCoverage(output, framework),
+		TestType:  "unknown",
+	}
+
+	// Detect test type from target file
+	if task.Target != "" && task.Target != "./..." {
+		result.TestType = t.detectTestType(ctx, task.Target)
 	}
 
 	return result, nil
@@ -558,6 +613,12 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 		Passed:      tddState == core.TDDStatePassing,
 		Retries:     retryCount,
 		Diagnostics: tddDiagnostics,
+		TestType:    "unknown",
+	}
+
+	// Detect test type from target file
+	if task.Target != "" && task.Target != "./..." {
+		result.TestType = t.detectTestType(ctx, task.Target)
 	}
 
 	// Get detailed output
@@ -626,10 +687,10 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 	systemPrompt := t.buildTestGenSystemPrompt(framework)
 	userPrompt := t.buildTestGenUserPrompt(sourceContent, task, framework)
 
-	// Call LLM
-	response, err := llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	// Call LLM with retry
+	response, err := t.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
-		return "", fmt.Errorf("LLM test generation failed: %w", err)
+		return "", fmt.Errorf("LLM test generation failed after retries: %w", err)
 	}
 
 	// Parse generated tests
@@ -1147,6 +1208,372 @@ func (t *TesterShard) parseDiagnostics(output string) []core.Diagnostic {
 }
 
 // =============================================================================
+// TEST TYPE DETECTION
+// =============================================================================
+
+// detectTestType analyzes a test file and returns its type: "unit", "integration", "e2e", or "unknown".
+// It examines build tags, imports, test names, and other patterns to classify the test.
+func (t *TesterShard) detectTestType(ctx context.Context, testFile string) string {
+	if testFile == "" {
+		return "unknown"
+	}
+
+	// Read file content
+	var content string
+	if t.virtualStore != nil {
+		action := core.Fact{
+			Predicate: "next_action",
+			Args:      []interface{}{"/read_file", testFile},
+		}
+		var err error
+		content, err = t.virtualStore.RouteAction(ctx, action)
+		if err != nil {
+			return "unknown"
+		}
+	} else {
+		return "unknown"
+	}
+
+	// Detect based on framework
+	framework := t.detectFramework(testFile)
+
+	switch framework {
+	case "gotest":
+		return t.detectGoTestType(content)
+	case "pytest":
+		return t.detectPytestType(content)
+	case "jest":
+		return t.detectJestTestType(content)
+	case "cargo":
+		return t.detectRustTestType(content)
+	default:
+		return t.detectGenericTestType(content)
+	}
+}
+
+// detectGoTestType detects test type for Go tests.
+func (t *TesterShard) detectGoTestType(content string) string {
+	lines := strings.Split(content, "\n")
+
+	// Check for build tags (must be at top of file)
+	for i := 0; i < 10 && i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		// Look for build constraint comments
+		if strings.HasPrefix(line, "// +build") || strings.HasPrefix(line, "//go:build") {
+			if strings.Contains(line, "integration") {
+				return "integration"
+			}
+			if strings.Contains(line, "e2e") {
+				return "e2e"
+			}
+		}
+	}
+
+	// Check filename patterns
+	lowerContent := strings.ToLower(content)
+	if strings.Contains(lowerContent, "_integration_test.go") {
+		return "integration"
+	}
+	if strings.Contains(lowerContent, "_e2e_test.go") {
+		return "e2e"
+	}
+
+	// Check imports for integration test indicators
+	integrationImports := []string{
+		"database/sql",
+		"github.com/docker/",
+		"github.com/testcontainers/",
+		"net/http/httptest", // Could be either, but often integration
+		"testing/fstest",
+		"io/ioutil",
+	}
+
+	e2eImports := []string{
+		"github.com/chromedp/",
+		"github.com/playwright-community/",
+		"github.com/tebeka/selenium",
+	}
+
+	for _, importPattern := range integrationImports {
+		if strings.Contains(content, importPattern) {
+			return "integration"
+		}
+	}
+
+	for _, importPattern := range e2eImports {
+		if strings.Contains(content, importPattern) {
+			return "e2e"
+		}
+	}
+
+	// Check for database-related test patterns
+	dbPatterns := []string{
+		"testDB", "testDatabase", "setupDB", "setupDatabase",
+		"db.Exec", "db.Query", "db.Prepare",
+		".Begin()", ".Commit()", ".Rollback()",
+		"sql.Open",
+	}
+
+	for _, pattern := range dbPatterns {
+		if strings.Contains(content, pattern) {
+			return "integration"
+		}
+	}
+
+	// Check for HTTP client patterns (integration)
+	httpPatterns := []string{
+		"http.NewRequest", "http.Client{", "httptest.NewServer",
+		"ListenAndServe", "http.Get(", "http.Post(",
+	}
+
+	for _, pattern := range httpPatterns {
+		if strings.Contains(content, pattern) {
+			return "integration"
+		}
+	}
+
+	// Check for file system operations (often integration)
+	fsPatterns := []string{
+		"os.Create", "os.Open", "ioutil.ReadFile", "ioutil.WriteFile",
+		"os.MkdirAll", "os.RemoveAll",
+	}
+
+	fsCount := 0
+	for _, pattern := range fsPatterns {
+		if strings.Contains(content, pattern) {
+			fsCount++
+		}
+	}
+	if fsCount >= 2 {
+		return "integration"
+	}
+
+	// Default to unit test if no integration patterns found
+	return "unit"
+}
+
+// detectPytestType detects test type for Python pytest tests.
+func (t *TesterShard) detectPytestType(content string) string {
+	lines := strings.Split(content, "\n")
+
+	// Check for pytest markers
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "@pytest.mark.integration") {
+			return "integration"
+		}
+		if strings.Contains(trimmed, "@pytest.mark.e2e") {
+			return "e2e"
+		}
+		if strings.Contains(trimmed, "@pytest.mark.unit") {
+			return "unit"
+		}
+	}
+
+	// Check filename patterns
+	if strings.Contains(content, "test_integration") || strings.Contains(content, "integration_test") {
+		return "integration"
+	}
+	if strings.Contains(content, "test_e2e") || strings.Contains(content, "e2e_test") {
+		return "e2e"
+	}
+
+	// Check imports for integration indicators
+	integrationImports := []string{
+		"import requests",
+		"from requests import",
+		"import psycopg2",
+		"import pymongo",
+		"import redis",
+		"from sqlalchemy import",
+		"import docker",
+		"from testcontainers import",
+	}
+
+	e2eImports := []string{
+		"from selenium import",
+		"from playwright import",
+		"import playwright",
+	}
+
+	lowerContent := strings.ToLower(content)
+	for _, importPattern := range integrationImports {
+		if strings.Contains(lowerContent, strings.ToLower(importPattern)) {
+			return "integration"
+		}
+	}
+
+	for _, importPattern := range e2eImports {
+		if strings.Contains(lowerContent, strings.ToLower(importPattern)) {
+			return "e2e"
+		}
+	}
+
+	// Check for database/network patterns
+	if strings.Contains(content, "db.session") || strings.Contains(content, "Session()") {
+		return "integration"
+	}
+
+	return "unit"
+}
+
+// detectJestTestType detects test type for JavaScript/TypeScript Jest tests.
+func (t *TesterShard) detectJestTestType(content string) string {
+	lines := strings.Split(content, "\n")
+
+	// Check for describe blocks with integration/e2e keywords
+	describeRegex := regexp.MustCompile(`describe\(['"]([^'"]+)['"]`)
+	for _, line := range lines {
+		matches := describeRegex.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			testName := strings.ToLower(matches[1])
+			if strings.Contains(testName, "integration") {
+				return "integration"
+			}
+			if strings.Contains(testName, "e2e") || strings.Contains(testName, "end-to-end") {
+				return "e2e"
+			}
+		}
+	}
+
+	// Check filename patterns
+	lowerContent := strings.ToLower(content)
+	if strings.Contains(lowerContent, ".integration.test.") || strings.Contains(lowerContent, ".integration.spec.") {
+		return "integration"
+	}
+	if strings.Contains(lowerContent, ".e2e.test.") || strings.Contains(lowerContent, ".e2e.spec.") {
+		return "e2e"
+	}
+
+	// Check imports for integration indicators
+	integrationImports := []string{
+		"import axios",
+		"from 'axios'",
+		"import fetch",
+		"import supertest",
+		"from 'supertest'",
+		"import mongodb",
+		"import pg",
+		"from 'pg'",
+		"import redis",
+		"@testcontainers/",
+	}
+
+	e2eImports := []string{
+		"import puppeteer",
+		"from 'puppeteer'",
+		"import playwright",
+		"from 'playwright'",
+		"@playwright/test",
+	}
+
+	for _, importPattern := range integrationImports {
+		if strings.Contains(lowerContent, strings.ToLower(importPattern)) {
+			return "integration"
+		}
+	}
+
+	for _, importPattern := range e2eImports {
+		if strings.Contains(lowerContent, strings.ToLower(importPattern)) {
+			return "e2e"
+		}
+	}
+
+	// Check for API call patterns
+	apiPatterns := []string{
+		".get(", ".post(", ".put(", ".delete(",
+		"axios.", "fetch(",
+	}
+
+	apiCount := 0
+	for _, pattern := range apiPatterns {
+		if strings.Contains(content, pattern) {
+			apiCount++
+		}
+	}
+	if apiCount >= 2 {
+		return "integration"
+	}
+
+	return "unit"
+}
+
+// detectRustTestType detects test type for Rust tests.
+func (t *TesterShard) detectRustTestType(content string) string {
+	lines := strings.Split(content, "\n")
+
+	// Check for test attributes
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "#[test]") {
+			// Look at next few lines for ignore attributes with integration tags
+			continue
+		}
+		if strings.Contains(trimmed, "#[ignore") && strings.Contains(trimmed, "integration") {
+			return "integration"
+		}
+		if strings.Contains(trimmed, "#[ignore") && strings.Contains(trimmed, "e2e") {
+			return "e2e"
+		}
+	}
+
+	// Check for integration test directories (tests/ vs src/)
+	if strings.Contains(content, "tests/integration") {
+		return "integration"
+	}
+	if strings.Contains(content, "tests/e2e") {
+		return "e2e"
+	}
+
+	// Check imports
+	integrationImports := []string{
+		"use sqlx::",
+		"use tokio_postgres::",
+		"use reqwest::",
+		"use testcontainers::",
+	}
+
+	for _, importPattern := range integrationImports {
+		if strings.Contains(content, importPattern) {
+			return "integration"
+		}
+	}
+
+	return "unit"
+}
+
+// detectGenericTestType provides fallback detection for other frameworks.
+func (t *TesterShard) detectGenericTestType(content string) string {
+	lowerContent := strings.ToLower(content)
+
+	// Check for common integration/e2e keywords
+	if strings.Contains(lowerContent, "integration") {
+		return "integration"
+	}
+	if strings.Contains(lowerContent, "e2e") || strings.Contains(lowerContent, "end-to-end") {
+		return "e2e"
+	}
+
+	// Check for common integration patterns
+	integrationPatterns := []string{
+		"database", "http", "api", "network", "docker", "container",
+	}
+
+	patternCount := 0
+	for _, pattern := range integrationPatterns {
+		if strings.Contains(lowerContent, pattern) {
+			patternCount++
+		}
+	}
+
+	if patternCount >= 2 {
+		return "integration"
+	}
+
+	return "unit"
+}
+
+// =============================================================================
 // FACT GENERATION
 // =============================================================================
 
@@ -1180,6 +1607,14 @@ func (t *TesterShard) generateFacts(result *TestResult) []core.Fact {
 		Predicate: "test_state",
 		Args:      []interface{}{stateAtom},
 	})
+
+	// Test type
+	if result.TestType != "" && result.TestType != "unknown" {
+		facts = append(facts, core.Fact{
+			Predicate: "test_type",
+			Args:      []interface{}{"/" + result.TestType},
+		})
+	}
 
 	// Test output
 	facts = append(facts, core.Fact{
@@ -1258,6 +1693,11 @@ func (t *TesterShard) trackFailurePattern(result *TestResult) {
 		// Create pattern key from failure message
 		pattern := normalizePattern(failed.Message)
 		t.failurePatterns[pattern]++
+
+		// Persist to LearningStore if count exceeds threshold
+		if t.learningStore != nil && t.failurePatterns[pattern] >= 3 {
+			_ = t.learningStore.Save("tester", "failure_pattern", []any{pattern, failed.Message}, "")
+		}
 	}
 }
 
@@ -1270,6 +1710,43 @@ func (t *TesterShard) trackSuccessPattern(result *TestResult) {
 		// Create pattern key from test name structure
 		pattern := normalizePattern(passed)
 		t.successPatterns[pattern]++
+
+		// Persist to LearningStore if count exceeds threshold
+		if t.learningStore != nil && t.successPatterns[pattern] >= 5 {
+			_ = t.learningStore.Save("tester", "success_pattern", []any{pattern, passed}, "")
+		}
+	}
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (t *TesterShard) loadLearnedPatterns() {
+	if t.learningStore == nil {
+		return
+	}
+
+	// Load failure patterns
+	failureLearnings, err := t.learningStore.LoadByPredicate("tester", "failure_pattern")
+	if err == nil {
+		for _, learning := range failureLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count to avoid re-learning
+				t.failurePatterns[pattern] = 3
+			}
+		}
+	}
+
+	// Load success patterns
+	successLearnings, err := t.learningStore.LoadByPredicate("tester", "success_pattern")
+	if err == nil {
+		for _, learning := range successLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count
+				t.successPatterns[pattern] = 5
+			}
+		}
 	}
 }
 
@@ -1286,7 +1763,13 @@ func (t *TesterShard) formatResult(result *TestResult) string {
 		status = "✗ FAILED"
 	}
 
-	sb.WriteString(fmt.Sprintf("%s (%s, %s)\n", status, result.Framework, result.Duration))
+	// Build framework and test type string
+	frameworkInfo := result.Framework
+	if result.TestType != "" && result.TestType != "unknown" {
+		frameworkInfo = fmt.Sprintf("%s [%s]", result.Framework, result.TestType)
+	}
+
+	sb.WriteString(fmt.Sprintf("%s (%s, %s)\n", status, frameworkInfo, result.Duration))
 
 	if result.Coverage > 0 {
 		coverageStatus := ""
@@ -1328,6 +1811,42 @@ func (t *TesterShard) formatResult(result *TestResult) string {
 // =============================================================================
 
 // NOTE: hashContent and detectLanguage are defined in coder.go (same package)
+
+// llmCompleteWithRetry calls LLM with exponential backoff retry logic.
+func (t *TesterShard) llmCompleteWithRetry(ctx context.Context, systemPrompt, userPrompt string, maxRetries int) (string, error) {
+	if t.llmClient == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	var lastErr error
+	baseDelay := 500 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Printf("[TesterShard:%s] LLM retry attempt %d/%d\n", t.id, attempt+1, maxRetries)
+
+			delay := baseDelay * time.Duration(1<<uint(attempt))
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+
+		response, err := t.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err == nil {
+			return response, nil
+		}
+
+		lastErr = err
+
+		if !isRetryableError(err) {
+			return "", fmt.Errorf("non-retryable error: %w", err)
+		}
+	}
+
+	return "", fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
 
 // normalizePattern normalizes a string into a pattern key.
 func normalizePattern(s string) string {

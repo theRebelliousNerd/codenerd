@@ -13,6 +13,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"sync"
@@ -233,6 +234,13 @@ type BaseSystemShard struct {
 	CostGuard   *CostGuard
 	Autopoiesis *AutopoiesisLoop
 
+	// Learning infrastructure for autopoiesis
+	learningStore   *store.LearningStore
+	patternSuccess  map[string]int // Track successful patterns
+	patternFailure  map[string]int // Track failed patterns
+	corrections     map[string]int // Track user corrections
+	learningEnabled bool
+
 	// Lifecycle
 	StartTime time.Time
 	StopCh    chan struct{}
@@ -241,13 +249,17 @@ type BaseSystemShard struct {
 // NewBaseSystemShard creates a base system shard with given ID and startup mode.
 func NewBaseSystemShard(id string, mode StartupMode) *BaseSystemShard {
 	return &BaseSystemShard{
-		ID:          id,
-		Config:      core.DefaultSystemConfig(id),
-		State:       core.ShardStateIdle,
-		StartupMode: mode,
-		CostGuard:   NewCostGuard(),
-		Autopoiesis: NewAutopoiesisLoop(),
-		StopCh:      make(chan struct{}),
+		ID:              id,
+		Config:          core.DefaultSystemConfig(id),
+		State:           core.ShardStateIdle,
+		StartupMode:     mode,
+		CostGuard:       NewCostGuard(),
+		Autopoiesis:     NewAutopoiesisLoop(),
+		patternSuccess:  make(map[string]int),
+		patternFailure:  make(map[string]int),
+		corrections:     make(map[string]int),
+		learningEnabled: true,
+		StopCh:          make(chan struct{}),
 	}
 }
 
@@ -320,6 +332,144 @@ func (b *BaseSystemShard) SetVirtualStore(vs *core.VirtualStore) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.VirtualStore = vs
+}
+
+// SetLearningStore sets the learning store and loads existing patterns.
+func (b *BaseSystemShard) SetLearningStore(ls *store.LearningStore) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.learningStore = ls
+	// Load existing patterns from store
+	b.loadLearnedPatterns()
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (b *BaseSystemShard) loadLearnedPatterns() {
+	if b.learningStore == nil {
+		return
+	}
+
+	// Load success patterns
+	successLearnings, err := b.learningStore.LoadByPredicate(b.ID, "success_pattern")
+	if err == nil {
+		for _, learning := range successLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count to avoid re-learning
+				b.patternSuccess[pattern] = 3
+			}
+		}
+	}
+
+	// Load failure patterns
+	failureLearnings, err := b.learningStore.LoadByPredicate(b.ID, "failure_pattern")
+	if err == nil {
+		for _, learning := range failureLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				b.patternFailure[pattern] = 3
+			}
+		}
+	}
+
+	// Load correction patterns
+	correctionLearnings, err := b.learningStore.LoadByPredicate(b.ID, "correction_pattern")
+	if err == nil {
+		for _, learning := range correctionLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				b.corrections[pattern] = 3
+			}
+		}
+	}
+}
+
+// trackSuccess tracks a successful pattern for autopoiesis.
+func (b *BaseSystemShard) trackSuccess(pattern string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.patternSuccess[pattern]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if b.learningStore != nil && b.patternSuccess[pattern] >= 3 {
+		_ = b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, "")
+	}
+}
+
+// trackFailure tracks a failed pattern for autopoiesis.
+func (b *BaseSystemShard) trackFailure(pattern string, reason string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := fmt.Sprintf("%s:%s", pattern, reason)
+	b.patternFailure[key]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if b.learningStore != nil && b.patternFailure[key] >= 2 {
+		_ = b.learningStore.Save(b.ID, "failure_pattern", []any{pattern, reason}, "")
+	}
+}
+
+// trackCorrection tracks a user correction for autopoiesis.
+func (b *BaseSystemShard) trackCorrection(original, corrected string) {
+	if !b.learningEnabled {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := fmt.Sprintf("%s→%s", original, corrected)
+	b.corrections[key]++
+
+	// Persist to LearningStore if count exceeds threshold
+	if b.learningStore != nil && b.corrections[key] >= 2 {
+		_ = b.learningStore.Save(b.ID, "correction_pattern", []any{original, corrected}, "")
+	}
+}
+
+// persistLearning forces immediate persistence of current learning state.
+func (b *BaseSystemShard) persistLearning() error {
+	if b.learningStore == nil {
+		return nil
+	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Persist all patterns above threshold
+	for pattern, count := range b.patternSuccess {
+		if count >= 3 {
+			if err := b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, ""); err != nil {
+				return err
+			}
+		}
+	}
+
+	for pattern, count := range b.patternFailure {
+		if count >= 2 {
+			if err := b.learningStore.Save(b.ID, "failure_pattern", []any{pattern}, ""); err != nil {
+				return err
+			}
+		}
+	}
+
+	for pattern, count := range b.corrections {
+		if count >= 2 {
+			if err := b.learningStore.Save(b.ID, "correction_pattern", []any{pattern}, ""); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // EmitHeartbeat emits a heartbeat fact to the kernel.

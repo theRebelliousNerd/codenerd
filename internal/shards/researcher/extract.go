@@ -248,6 +248,23 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 		result.Summary = fmt.Sprintf("Limited knowledge available for '%s'", topic)
 	}
 
+	// Autopoiesis: Track research quality
+	r.trackResearchQualityFromResult(normalizedTopic, result)
+
+	// Track source reliability for successful fetches
+	for _, atom := range result.Atoms {
+		if atom.SourceURL != "" && atom.Confidence >= 0.7 {
+			r.trackSourceSuccess(atom.SourceURL)
+		} else if atom.SourceURL != "" && atom.Confidence < 0.4 {
+			r.trackSourceFailure(atom.SourceURL)
+		}
+	}
+
+	// Track query failure if no results
+	if len(result.Atoms) == 0 {
+		r.trackQueryFailure(normalizedTopic)
+	}
+
 	return result, nil
 }
 
@@ -846,6 +863,40 @@ func (r *ResearcherShard) generateFacts(result *ResearchResult) []core.Fact {
 					})
 				}
 			}
+		}
+	}
+
+	// Autopoiesis: Promote learned patterns to long-term memory
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Promote high-quality topics
+	for topic, quality := range r.qualityScores {
+		if quality >= 0.7 {
+			facts = append(facts, core.Fact{
+				Predicate: "promote_to_long_term",
+				Args:      []interface{}{"high_quality_topic", topic, quality},
+			})
+		}
+	}
+
+	// Promote reliable sources
+	for source, count := range r.sourceReliability {
+		if count >= 3 {
+			facts = append(facts, core.Fact{
+				Predicate: "promote_to_long_term",
+				Args:      []interface{}{"reliable_source", source, count},
+			})
+		}
+	}
+
+	// Note unreliable sources
+	for source, count := range r.sourceFailures {
+		if count >= 2 {
+			facts = append(facts, core.Fact{
+				Predicate: "promote_to_long_term",
+				Args:      []interface{}{"unreliable_source", source, count},
+			})
 		}
 	}
 

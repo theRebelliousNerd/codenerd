@@ -63,12 +63,35 @@ func DefaultConstitutionConfig() ConstitutionConfig {
 
 // SecurityViolation represents a blocked action.
 type SecurityViolation struct {
-	Timestamp   time.Time
-	ActionType  string
-	Target      string
-	Reason      string
-	Context     map[string]string
+	Timestamp    time.Time
+	ActionType   string
+	Target       string
+	Reason       string
+	Context      map[string]string
 	WasEscalated bool
+	ActionID     string // Unique ID for appeal tracking
+}
+
+// AppealRequest represents a user's appeal of a blocked action.
+type AppealRequest struct {
+	ActionID      string
+	ActionType    string
+	Target        string
+	OriginalReason string
+	Justification string
+	Requester     string
+	RequestedAt   time.Time
+}
+
+// AppealDecision represents the outcome of an appeal.
+type AppealDecision struct {
+	ActionID    string
+	Granted     bool
+	Approver    string // "user" or "admin" or specific username
+	Reason      string
+	DecidedAt   time.Time
+	TemporaryOverride bool // If true, this is a one-time override
+	Duration    time.Duration // How long the override lasts (0 = permanent)
 }
 
 // ConstitutionGateShard is the safety enforcement system shard.
@@ -86,6 +109,11 @@ type ConstitutionGateShard struct {
 	// Audit trail
 	violations []SecurityViolation
 	permitted  []string // Actions that were permitted (for audit)
+
+	// Appeal system
+	pendingAppeals  map[string]*AppealRequest  // actionID -> appeal
+	appealHistory   []AppealDecision           // Complete appeal history
+	activeOverrides map[string]AppealDecision  // actionType -> active override
 
 	// State
 	running bool
@@ -111,6 +139,9 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 		config:          cfg,
 		violations:      make([]SecurityViolation, 0),
 		permitted:       make([]string, 0),
+		pendingAppeals:  make(map[string]*AppealRequest),
+		appealHistory:   make([]AppealDecision, 0),
+		activeOverrides: make(map[string]AppealDecision),
 	}
 
 	// Compile dangerous patterns
@@ -158,6 +189,12 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 			if err := c.processPendingActions(ctx); err != nil {
 				// Log error but continue - constitution must not crash
 				c.recordViolation("internal_error", "", err.Error(), nil)
+			}
+
+			// Process pending appeals from Mangle facts
+			if err := c.processPendingAppeals(ctx); err != nil {
+				// Log but don't crash on appeal processing errors
+				c.recordViolation("appeal_error", "", err.Error(), nil)
 			}
 
 			// Emit heartbeat
@@ -211,13 +248,19 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			c.permitted = append(c.permitted, actionType)
 			c.mu.Unlock()
 		} else {
-			// Record violation
-			c.recordViolation(actionType, target, reason, nil)
+			// Record violation and get action ID for appeals
+			actionID := c.recordViolation(actionType, target, reason, nil)
 
 			// Emit security_violation fact
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "security_violation",
 				Args:      []interface{}{actionType, reason, time.Now().Unix()},
+			})
+
+			// Emit appeal_available fact for Mangle policies
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "appeal_available",
+				Args:      []interface{}{actionID, actionType, target, reason},
 			})
 
 			// Check if we should escalate to user
@@ -235,6 +278,23 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 
 // checkPermitted determines if an action is permitted under constitutional rules.
 func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string) (bool, string) {
+	// 0. Check for active overrides from appeals
+	c.mu.RLock()
+	if override, exists := c.activeOverrides[actionType]; exists {
+		// Check if override is still valid
+		if !override.TemporaryOverride || time.Since(override.DecidedAt) < override.Duration {
+			c.mu.RUnlock()
+			return true, fmt.Sprintf("permitted via appeal override by %s", override.Approver)
+		}
+		// Override expired, remove it
+		c.mu.RUnlock()
+		c.mu.Lock()
+		delete(c.activeOverrides, actionType)
+		c.mu.Unlock()
+		c.mu.RLock()
+	}
+	c.mu.RUnlock()
+
 	// 1. Check for dangerous patterns in target
 	if c.isDangerous(target) {
 		return false, "matches dangerous command pattern"
@@ -333,16 +393,23 @@ func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, 
 }
 
 // recordViolation records a security violation for audit.
-func (c *ConstitutionGateShard) recordViolation(actionType, target, reason string, ctx map[string]string) {
+func (c *ConstitutionGateShard) recordViolation(actionType, target, reason string, ctx map[string]string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Generate unique action ID for appeal tracking
+	actionID := fmt.Sprintf("action_%d_%s", time.Now().UnixNano(), actionType)
+
 	c.violations = append(c.violations, SecurityViolation{
 		Timestamp:  time.Now(),
 		ActionType: actionType,
 		Target:     target,
 		Reason:     reason,
 		Context:    ctx,
+		ActionID:   actionID,
 	})
+
+	return actionID
 }
 
 // handleAutopoiesis uses LLM to propose new constitutional rules.
@@ -495,6 +562,198 @@ func (c *ConstitutionGateShard) AddDangerousPattern(pattern string) error {
 	defer c.mu.Unlock()
 	c.config.DangerousPatterns = append(c.config.DangerousPatterns, pattern)
 	c.dangerousPatterns = append(c.dangerousPatterns, re)
+	return nil
+}
+
+// SubmitAppeal submits an appeal for a blocked action.
+// Returns an error if the actionID doesn't exist or appeal already pending.
+func (c *ConstitutionGateShard) SubmitAppeal(actionID, justification, requester string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if appeal already exists
+	if _, exists := c.pendingAppeals[actionID]; exists {
+		return fmt.Errorf("appeal already pending for action %s", actionID)
+	}
+
+	// Find the violation
+	var violation *SecurityViolation
+	for i := range c.violations {
+		if c.violations[i].ActionID == actionID {
+			violation = &c.violations[i]
+			break
+		}
+	}
+
+	if violation == nil {
+		return fmt.Errorf("no violation found for action ID %s", actionID)
+	}
+
+	// Create appeal request
+	appeal := &AppealRequest{
+		ActionID:       actionID,
+		ActionType:     violation.ActionType,
+		Target:         violation.Target,
+		OriginalReason: violation.Reason,
+		Justification:  justification,
+		Requester:      requester,
+		RequestedAt:    time.Now(),
+	}
+
+	c.pendingAppeals[actionID] = appeal
+
+	// Emit Mangle fact for appeal
+	if c.Kernel != nil {
+		_ = c.Kernel.Assert(core.Fact{
+			Predicate: "appeal_pending",
+			Args:      []interface{}{actionID, violation.ActionType, justification, time.Now().Unix()},
+		})
+	}
+
+	return nil
+}
+
+// HandleAppeal processes an appeal request and returns the decision.
+// This method can be called by user interaction handlers or automated policy.
+func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID string, grant bool, approver string, temporary bool, duration time.Duration) error {
+	c.mu.Lock()
+	appeal, exists := c.pendingAppeals[actionID]
+	if !exists {
+		c.mu.Unlock()
+		return fmt.Errorf("no pending appeal for action ID %s", actionID)
+	}
+
+	// Remove from pending
+	delete(c.pendingAppeals, actionID)
+	c.mu.Unlock()
+
+	// Create decision
+	decision := AppealDecision{
+		ActionID:          actionID,
+		Granted:           grant,
+		Approver:          approver,
+		DecidedAt:         time.Now(),
+		TemporaryOverride: temporary,
+		Duration:          duration,
+	}
+
+	if grant {
+		decision.Reason = fmt.Sprintf("Appeal granted: %s", appeal.Justification)
+
+		// Add to active overrides if granted
+		c.mu.Lock()
+		c.activeOverrides[appeal.ActionType] = decision
+		c.mu.Unlock()
+
+		// Emit Mangle facts
+		if c.Kernel != nil {
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "appeal_granted",
+				Args:      []interface{}{actionID, appeal.ActionType, approver, time.Now().Unix()},
+			})
+
+			// If temporary, also emit duration info
+			if temporary {
+				_ = c.Kernel.Assert(core.Fact{
+					Predicate: "temporary_override",
+					Args:      []interface{}{appeal.ActionType, duration.Seconds(), time.Now().Unix()},
+				})
+			}
+		}
+	} else {
+		decision.Reason = "Appeal denied by approver"
+
+		// Emit denial fact
+		if c.Kernel != nil {
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "appeal_denied",
+				Args:      []interface{}{actionID, appeal.ActionType, decision.Reason, time.Now().Unix()},
+			})
+		}
+	}
+
+	// Record in history
+	c.mu.Lock()
+	c.appealHistory = append(c.appealHistory, decision)
+	c.mu.Unlock()
+
+	return nil
+}
+
+// GetPendingAppeals returns all pending appeals.
+func (c *ConstitutionGateShard) GetPendingAppeals() []*AppealRequest {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	appeals := make([]*AppealRequest, 0, len(c.pendingAppeals))
+	for _, appeal := range c.pendingAppeals {
+		appeals = append(appeals, appeal)
+	}
+	return appeals
+}
+
+// GetAppealHistory returns the complete appeal decision history.
+func (c *ConstitutionGateShard) GetAppealHistory() []AppealDecision {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	history := make([]AppealDecision, len(c.appealHistory))
+	copy(history, c.appealHistory)
+	return history
+}
+
+// GetActiveOverrides returns all currently active overrides.
+func (c *ConstitutionGateShard) GetActiveOverrides() map[string]AppealDecision {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	overrides := make(map[string]AppealDecision, len(c.activeOverrides))
+	for k, v := range c.activeOverrides {
+		overrides[k] = v
+	}
+	return overrides
+}
+
+// processPendingAppeals checks for appeal-related facts and processes them.
+// This is called from the main Execute loop to handle appeals that come through Mangle.
+func (c *ConstitutionGateShard) processPendingAppeals(ctx context.Context) error {
+	if c.Kernel == nil {
+		return nil
+	}
+
+	// Query for appeal requests that may have been asserted via Mangle
+	requests, err := c.Kernel.Query("user_requests_appeal")
+	if err != nil {
+		return nil // Not an error if predicate doesn't exist
+	}
+
+	for _, fact := range requests {
+		if len(fact.Args) < 2 {
+			continue
+		}
+
+		actionID, ok1 := fact.Args[0].(string)
+		justification, ok2 := fact.Args[1].(string)
+
+		if !ok1 || !ok2 {
+			continue
+		}
+
+		// Extract requester if available
+		requester := "user"
+		if len(fact.Args) >= 3 {
+			if r, ok := fact.Args[2].(string); ok {
+				requester = r
+			}
+		}
+
+		// Submit the appeal
+		_ = c.SubmitAppeal(actionID, justification, requester)
+
+		// Retract the request
+		_ = c.Kernel.Retract("user_requests_appeal")
+	}
+
 	return nil
 }
 
