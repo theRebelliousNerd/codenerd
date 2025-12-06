@@ -1001,15 +1001,17 @@ func (t *RealTransducer) ParseIntent(ctx context.Context, input string) (Intent,
 
 // parsePiggybackJSON parses the JSON response from the LLM.
 func parsePiggybackJSON(resp string) (PiggybackEnvelope, error) {
-	// Clean up response - remove markdown if present
-	resp = strings.TrimSpace(resp)
-	resp = strings.TrimPrefix(resp, "```json")
-	resp = strings.TrimPrefix(resp, "```")
-	resp = strings.TrimSuffix(resp, "```")
-	resp = strings.TrimSpace(resp)
+	// "JSON Fragility" Fix: Robust extraction
+	// Find the first '{' to start parsing
+	start := strings.Index(resp, "{")
+	if start == -1 {
+		return PiggybackEnvelope{}, fmt.Errorf("no JSON object found in response")
+	}
 
+	// Use json.NewDecoder to parse the first valid JSON object and ignore the rest
+	decoder := json.NewDecoder(strings.NewReader(resp[start:]))
 	var envelope PiggybackEnvelope
-	if err := json.Unmarshal([]byte(resp), &envelope); err != nil {
+	if err := decoder.Decode(&envelope); err != nil {
 		return PiggybackEnvelope{}, fmt.Errorf("failed to parse Piggyback JSON: %w", err)
 	}
 
