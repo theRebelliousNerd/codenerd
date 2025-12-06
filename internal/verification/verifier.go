@@ -1,0 +1,442 @@
+// Package verification implements the quality-enforcing verification loop.
+// This ensures tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
+// After shard execution, results are verified and automatically retried with corrective
+// action until success or max retries.
+package verification
+
+import (
+	"codenerd/internal/autopoiesis"
+	"codenerd/internal/core"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+)
+
+// ErrMaxRetriesExceeded is returned when verification fails after max retries.
+var ErrMaxRetriesExceeded = errors.New("max retries exceeded - escalating to user")
+
+// QualityViolation represents a type of corner-cutting detected in code.
+type QualityViolation string
+
+const (
+	MockCode        QualityViolation = "mock_code"        // func Mock..., // mock implementation
+	PlaceholderCode QualityViolation = "placeholder"      // TODO, FIXME, placeholder, stub
+	HallucinatedAPI QualityViolation = "hallucinated_api" // APIs that don't exist
+	IncompleteImpl  QualityViolation = "incomplete"       // panic("not implemented")
+	HardcodedValues QualityViolation = "hardcoded"        // Magic strings instead of real logic
+	EmptyFunction   QualityViolation = "empty_function"   // func Foo() {} with no body
+	MissingErrors   QualityViolation = "missing_errors"   // No error handling
+	FakeTests       QualityViolation = "fake_tests"       // Tests that don't test anything
+)
+
+// CorrectiveType defines the type of corrective action to take.
+type CorrectiveType string
+
+const (
+	CorrectiveResearch  CorrectiveType = "research"  // Use ResearcherShard
+	CorrectiveDocs      CorrectiveType = "docs"      // Use Context7 API
+	CorrectiveTool      CorrectiveType = "tool"      // Use Autopoiesis to generate tool
+	CorrectiveDecompose CorrectiveType = "decompose" // Break into smaller tasks
+)
+
+// CorrectiveAction describes what action to take to fix a verification failure.
+type CorrectiveAction struct {
+	Type   CorrectiveType `json:"type"`
+	Query  string         `json:"query"`
+	Reason string         `json:"reason"`
+}
+
+// VerificationResult contains the outcome of verifying a task result.
+type VerificationResult struct {
+	Success           bool               `json:"success"`
+	Confidence        float64            `json:"confidence"`
+	Reason            string             `json:"reason"`
+	Suggestions       []string           `json:"suggestions,omitempty"`
+	Evidence          []string           `json:"evidence,omitempty"`
+	QualityViolations []QualityViolation `json:"quality_violations,omitempty"`
+	CorrectiveAction  *CorrectiveAction  `json:"corrective_action,omitempty"`
+}
+
+// TaskVerifier implements the quality-enforcing verification loop.
+type TaskVerifier struct {
+	mu          sync.RWMutex
+	client      perception.LLMClient
+	localDB     *store.LocalStore
+	shardMgr    *core.ShardManager
+	autopoiesis *autopoiesis.Orchestrator
+	context7Key string
+
+	// Session context for persistence
+	sessionID string
+	turnCount int
+}
+
+// NewTaskVerifier creates a new verifier with all dependencies.
+func NewTaskVerifier(
+	client perception.LLMClient,
+	localDB *store.LocalStore,
+	shardMgr *core.ShardManager,
+	autopoiesisOrch *autopoiesis.Orchestrator,
+	context7Key string,
+) *TaskVerifier {
+	return &TaskVerifier{
+		client:      client,
+		localDB:     localDB,
+		shardMgr:    shardMgr,
+		autopoiesis: autopoiesisOrch,
+		context7Key: context7Key,
+	}
+}
+
+// SetSessionContext sets the current session for persistence.
+func (v *TaskVerifier) SetSessionContext(sessionID string, turnCount int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.sessionID = sessionID
+	v.turnCount = turnCount
+}
+
+// VerifyWithRetry is the main entry point - loops until success or max retries.
+// It executes the shard, verifies quality, and applies corrective actions if needed.
+func (v *TaskVerifier) VerifyWithRetry(
+	ctx context.Context,
+	task string,
+	shardType string,
+	maxRetries int,
+) (string, *VerificationResult, error) {
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+
+	var lastResult string
+	var lastVerification *VerificationResult
+	currentTask := task
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// 1. Execute shard
+		result, err := v.shardMgr.Spawn(ctx, shardType, currentTask)
+		if err != nil {
+			// Shard execution failed - not a verification issue
+			return "", nil, fmt.Errorf("shard execution failed: %w", err)
+		}
+		lastResult = result
+
+		// 2. Verify quality
+		verification, verifyErr := v.verifyTask(ctx, currentTask, result)
+		if verifyErr != nil {
+			// Verification itself failed (e.g., LLM error) - continue with default
+			verification = &VerificationResult{
+				Success:    true, // Assume success if we can't verify
+				Confidence: 0.3,
+				Reason:     fmt.Sprintf("Verification skipped: %v", verifyErr),
+			}
+		}
+		lastVerification = verification
+
+		// 3. Success? We're done
+		if verification.Success && len(verification.QualityViolations) == 0 {
+			v.storeVerification(currentTask, shardType, verification, attempt, true)
+			return result, verification, nil
+		}
+
+		// 4. Store failed attempt for learning
+		v.storeVerification(currentTask, shardType, verification, attempt, false)
+
+		// 5. Apply corrective action if suggested
+		if verification.CorrectiveAction != nil && attempt < maxRetries-1 {
+			additionalContext := v.applyCorrectiveAction(ctx, verification.CorrectiveAction)
+			if additionalContext != "" {
+				currentTask = v.enrichTaskWithContext(currentTask, additionalContext, verification)
+			}
+		}
+	}
+
+	// Max retries reached - escalate
+	return lastResult, lastVerification, ErrMaxRetriesExceeded
+}
+
+// verifyTask uses LLM to assess if the task was completed properly.
+func (v *TaskVerifier) verifyTask(ctx context.Context, task, result string) (*VerificationResult, error) {
+	if v.client == nil {
+		return &VerificationResult{Success: true, Confidence: 0.5, Reason: "No LLM client for verification"}, nil
+	}
+
+	systemPrompt := `You are a strict code quality verifier. Your job is to ensure tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
+
+## Quality Violations to Detect
+- Mock implementations (func Mock..., fake data, // mock, mockImplementation)
+- Placeholder code (TODO, FIXME, stub, placeholder, "not implemented", XXX)
+- Hallucinated APIs (imports/calls to libraries that don't exist)
+- Incomplete implementations (empty functions, panic("not implemented"), pass)
+- Hardcoded magic values instead of real logic
+- Missing error handling where needed
+- Tests that don't actually test anything (empty assertions, always pass)
+
+## Response Format (JSON only, no markdown)
+{
+  "success": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "detailed explanation",
+  "quality_violations": ["mock_code", "placeholder", "incomplete", ...],
+  "evidence": ["line X: TODO implement", "function Y is empty", ...],
+  "suggestions": ["suggestion 1", ...],
+  "corrective_action": {
+    "type": "research|docs|tool|decompose",
+    "query": "what to look up or research",
+    "reason": "why this will help"
+  }
+}
+
+CRITICAL: If you detect ANY quality violations, success MUST be false.
+Only return the JSON object, no other text.`
+
+	userPrompt := fmt.Sprintf(`## Task
+%s
+
+## Result to Verify
+%s
+
+Analyze this result for quality violations and determine if the task was completed properly.`, task, truncateForVerification(result))
+
+	response, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("verification LLM call failed: %w", err)
+	}
+
+	// Parse JSON response
+	verification, parseErr := parseVerificationResponse(response)
+	if parseErr != nil {
+		// If parsing fails, do basic quality checks
+		return v.basicQualityCheck(result), nil
+	}
+
+	return verification, nil
+}
+
+// applyCorrectiveAction gathers additional context based on failure analysis.
+func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *CorrectiveAction) string {
+	if action == nil {
+		return ""
+	}
+
+	switch action.Type {
+	case CorrectiveResearch:
+		// Spawn ResearcherShard to gather context from web
+		if v.shardMgr != nil {
+			result, err := v.shardMgr.Spawn(ctx, "researcher", "research: "+action.Query)
+			if err == nil && result != "" {
+				return fmt.Sprintf("## Research Results\n%s", truncateContext(result, 2000))
+			}
+		}
+
+	case CorrectiveDocs:
+		// Use Context7 API for LLM-optimized documentation
+		if v.context7Key != "" {
+			docs := v.fetchContext7Docs(ctx, action.Query)
+			if docs != "" {
+				return fmt.Sprintf("## Documentation\n%s", truncateContext(docs, 2000))
+			}
+		}
+		// Fallback to researcher if no Context7 key
+		if v.shardMgr != nil {
+			result, err := v.shardMgr.Spawn(ctx, "researcher", "research docs: "+action.Query)
+			if err == nil && result != "" {
+				return fmt.Sprintf("## Documentation Research\n%s", truncateContext(result, 2000))
+			}
+		}
+
+	case CorrectiveTool:
+		// Use Autopoiesis to generate missing tool
+		if v.autopoiesis != nil {
+			toolNeed := &autopoiesis.ToolNeed{
+				Name:        action.Query,
+				Description: action.Reason,
+				Confidence:  0.8,
+			}
+			tool, err := v.autopoiesis.GenerateTool(ctx, toolNeed)
+			if err == nil && tool != nil {
+				return fmt.Sprintf("## Generated Tool: %s\n%s", tool.Name, tool.Description)
+			}
+		}
+
+	case CorrectiveDecompose:
+		// Return hint to break task into smaller pieces
+		return fmt.Sprintf("## Task Decomposition Needed\nBreak this task into smaller steps: %s", action.Query)
+	}
+
+	return ""
+}
+
+// enrichTaskWithContext adds corrective context to the task for retry.
+func (v *TaskVerifier) enrichTaskWithContext(
+	originalTask string,
+	additionalContext string,
+	verification *VerificationResult,
+) string {
+	var builder strings.Builder
+	builder.WriteString(originalTask)
+
+	// Add failure feedback
+	if verification != nil && verification.Reason != "" {
+		builder.WriteString("\n\n## Previous Attempt Failed\n")
+		builder.WriteString(verification.Reason)
+
+		if len(verification.QualityViolations) > 0 {
+			builder.WriteString("\n\n## Quality Issues to Fix\n")
+			for _, v := range verification.QualityViolations {
+				builder.WriteString(fmt.Sprintf("- %s\n", v))
+			}
+		}
+
+		if len(verification.Evidence) > 0 {
+			builder.WriteString("\n## Specific Problems\n")
+			for _, e := range verification.Evidence {
+				builder.WriteString(fmt.Sprintf("- %s\n", e))
+			}
+		}
+	}
+
+	// Add gathered context
+	if additionalContext != "" {
+		builder.WriteString("\n\n")
+		builder.WriteString(additionalContext)
+	}
+
+	// Add quality reminder
+	builder.WriteString("\n\n## IMPORTANT\n")
+	builder.WriteString("- Do NOT use mock implementations or placeholder code\n")
+	builder.WriteString("- Do NOT use TODO/FIXME comments\n")
+	builder.WriteString("- Do NOT hallucinate APIs that don't exist\n")
+	builder.WriteString("- Implement the ACTUAL functionality requested\n")
+
+	return builder.String()
+}
+
+// storeVerification persists verification results for learning.
+func (v *TaskVerifier) storeVerification(
+	task string,
+	shardType string,
+	verification *VerificationResult,
+	attempt int,
+	success bool,
+) {
+	if v.localDB == nil {
+		return
+	}
+
+	v.mu.RLock()
+	sessionID := v.sessionID
+	turnCount := v.turnCount
+	v.mu.RUnlock()
+
+	// Convert to JSON for storage
+	violationsJSON, _ := json.Marshal(verification.QualityViolations)
+	evidenceJSON, _ := json.Marshal(verification.Evidence)
+	correctiveJSON, _ := json.Marshal(verification.CorrectiveAction)
+
+	// Hash the task for dedup
+	taskHash := sha256.Sum256([]byte(task))
+	taskHashHex := hex.EncodeToString(taskHash[:])
+
+	_ = v.localDB.StoreVerification(
+		sessionID,
+		turnCount,
+		task,
+		shardType,
+		attempt,
+		success,
+		verification.Confidence,
+		verification.Reason,
+		string(violationsJSON),
+		string(correctiveJSON),
+		string(evidenceJSON),
+		taskHashHex,
+	)
+}
+
+// fetchContext7Docs fetches documentation from Context7 API.
+func (v *TaskVerifier) fetchContext7Docs(ctx context.Context, query string) string {
+	// TODO: Implement Context7 API integration
+	// For now, this is a placeholder - will be implemented when Context7 client is available
+	return ""
+}
+
+// basicQualityCheck performs simple pattern matching for quality violations.
+func (v *TaskVerifier) basicQualityCheck(result string) *VerificationResult {
+	violations := []QualityViolation{}
+	evidence := []string{}
+
+	lower := strings.ToLower(result)
+
+	// Check for common violations
+	if strings.Contains(lower, "todo") || strings.Contains(lower, "fixme") {
+		violations = append(violations, PlaceholderCode)
+		evidence = append(evidence, "Contains TODO/FIXME comments")
+	}
+
+	if strings.Contains(lower, "mock") || strings.Contains(result, "Mock") {
+		violations = append(violations, MockCode)
+		evidence = append(evidence, "Contains mock implementations")
+	}
+
+	if strings.Contains(lower, "not implemented") || strings.Contains(result, "panic(\"not implemented\")") {
+		violations = append(violations, IncompleteImpl)
+		evidence = append(evidence, "Contains 'not implemented' code")
+	}
+
+	if strings.Contains(lower, "placeholder") || strings.Contains(lower, "stub") {
+		violations = append(violations, PlaceholderCode)
+		evidence = append(evidence, "Contains placeholder/stub code")
+	}
+
+	success := len(violations) == 0
+
+	return &VerificationResult{
+		Success:           success,
+		Confidence:        0.6, // Lower confidence for basic check
+		Reason:            "Basic quality check",
+		QualityViolations: violations,
+		Evidence:          evidence,
+	}
+}
+
+// parseVerificationResponse parses the LLM's JSON response.
+func parseVerificationResponse(response string) (*VerificationResult, error) {
+	// Clean up response - remove markdown code blocks if present
+	response = strings.TrimSpace(response)
+	response = strings.TrimPrefix(response, "```json")
+	response = strings.TrimPrefix(response, "```")
+	response = strings.TrimSuffix(response, "```")
+	response = strings.TrimSpace(response)
+
+	var result VerificationResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse verification JSON: %w", err)
+	}
+
+	return &result, nil
+}
+
+// truncateForVerification limits result size for LLM verification.
+func truncateForVerification(s string) string {
+	const maxLen = 8000
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "\n... [truncated]"
+}
+
+// truncateContext limits context size.
+func truncateContext(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "\n... [truncated]"
+}

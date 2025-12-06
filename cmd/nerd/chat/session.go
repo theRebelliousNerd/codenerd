@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/autopoiesis"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
@@ -121,6 +122,58 @@ func InitChat(cfg Config) Model {
 	knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
 	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
 		localDB = db
+	}
+
+	// Initialize embedding engine from config
+	// Supports Ollama (local) and GenAI (cloud) backends
+	var embeddingEngine embedding.EmbeddingEngine
+	embCfg := appCfg.GetEmbeddingConfig()
+	if embCfg.Provider != "" {
+		embConfig := embedding.Config{
+			Provider:       embCfg.Provider,
+			OllamaEndpoint: embCfg.OllamaEndpoint,
+			OllamaModel:    embCfg.OllamaModel,
+			GenAIAPIKey:    embCfg.GenAIAPIKey,
+			GenAIModel:     embCfg.GenAIModel,
+			TaskType:       embCfg.TaskType,
+		}
+
+		if engine, err := embedding.NewEngine(embConfig); err == nil {
+			embeddingEngine = engine
+			if localDB != nil {
+				localDB.SetEmbeddingEngine(engine)
+			}
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("✓ Embedding engine: %s", engine.Name()),
+				Time:    time.Now(),
+			})
+		} else {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ Embedding init failed: %v (using keyword search)", err),
+				Time:    time.Now(),
+			})
+		}
+	}
+	// Suppress unused variable warning - embeddingEngine will be used for shard DBs
+	_ = embeddingEngine
+
+	// Wire LocalDB to VirtualStore for virtual predicate queries
+	// This enables Mangle rules to query knowledge.db via VirtualStore FFI
+	if localDB != nil {
+		virtualStore.SetLocalDB(localDB)
+		virtualStore.SetKernel(kernel)
+
+		// Migrate old JSON sessions to SQLite for query access
+		// Safe to call multiple times - uses INSERT OR IGNORE
+		if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("✓ Migrated %d session turns to SQLite", migratedTurns),
+				Time:    time.Now(),
+			})
+		}
 	}
 
 	shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -412,6 +465,7 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 }
 
 // saveSessionState saves the current session state and history.
+// Implements dual persistence: JSON files + SQLite for redundancy and queryability.
 func (m *Model) saveSessionState() {
 	if m.workspace == "" || m.sessionID == "" {
 		return
@@ -436,10 +490,10 @@ func (m *Model) saveSessionState() {
 		state.StartedAt = existing.StartedAt
 	}
 
-	// Save session state
+	// Save session state (JSON)
 	_ = nerdinit.SaveSessionState(m.workspace, state)
 
-	// Convert and save conversation history
+	// Convert and save conversation history (JSON)
 	messages := make([]nerdinit.ChatMessage, len(m.history))
 	for i, msg := range m.history {
 		messages[i] = nerdinit.ChatMessage{
@@ -449,6 +503,102 @@ func (m *Model) saveSessionState() {
 		}
 	}
 	_ = nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages)
+
+	// ==========================================================================
+	// DUAL PERSISTENCE: Sync to SQLite (knowledge.db session_history table)
+	// ==========================================================================
+	// This enables Mangle queries against session history via virtual predicates
+	if m.localDB != nil {
+		m.syncSessionToSQLite()
+	}
+}
+
+// syncSessionToSQLite syncs conversation history to knowledge.db for query access.
+// Uses turn-based storage to avoid duplicates (SQLite table has unique constraint).
+func (m *Model) syncSessionToSQLite() {
+	if m.localDB == nil || len(m.history) == 0 {
+		return
+	}
+
+	// Process message pairs (user + assistant = 1 turn)
+	// History format: [user1, asst1, user2, asst2, ...]
+	for i := 0; i < len(m.history)-1; i += 2 {
+		userMsg := m.history[i]
+		asstMsg := m.history[i+1]
+
+		// Skip if not a proper user-assistant pair
+		if userMsg.Role != "user" || asstMsg.Role != "assistant" {
+			continue
+		}
+
+		turnNumber := i / 2
+
+		// Store to SQLite (StoreSessionTurn handles duplicates gracefully)
+		// Intent and atoms JSON are empty for now - can be populated by OODA loop
+		err := m.localDB.StoreSessionTurn(
+			m.sessionID,
+			turnNumber,
+			userMsg.Content,
+			"{}",           // intent_json placeholder
+			asstMsg.Content,
+			"[]",           // atoms_json placeholder
+		)
+		if err != nil {
+			// Log but don't fail - JSON is the primary store
+			// Duplicate key errors are expected and harmless
+			continue
+		}
+	}
+}
+
+// MigrateOldSessionsToSQLite migrates all existing JSON session files to SQLite.
+// This enables querying historical sessions via virtual predicates.
+// Safe to call multiple times - uses INSERT OR IGNORE for idempotency.
+func MigrateOldSessionsToSQLite(workspace string, localDB *store.LocalStore) (int, error) {
+	if localDB == nil {
+		return 0, nil
+	}
+
+	// List all session JSON files
+	sessionIDs, err := nerdinit.ListSessionHistories(workspace)
+	if err != nil {
+		return 0, err
+	}
+
+	migratedTurns := 0
+
+	for _, sessionID := range sessionIDs {
+		history, err := nerdinit.LoadSessionHistory(workspace, sessionID)
+		if err != nil {
+			continue // Skip corrupted sessions
+		}
+
+		// Process message pairs
+		for i := 0; i < len(history.Messages)-1; i += 2 {
+			userMsg := history.Messages[i]
+			asstMsg := history.Messages[i+1]
+
+			if userMsg.Role != "user" || asstMsg.Role != "assistant" {
+				continue
+			}
+
+			turnNumber := i / 2
+
+			err := localDB.StoreSessionTurn(
+				sessionID,
+				turnNumber,
+				userMsg.Content,
+				"{}",
+				asstMsg.Content,
+				"[]",
+			)
+			if err == nil {
+				migratedTurns++
+			}
+		}
+	}
+
+	return migratedTurns, nil
 }
 
 func persistAgentProfile(workspace, name, agentType, knowledgePath string, kbSize int, status string) error {

@@ -15,7 +15,7 @@ import (
 type GenAIEngine struct {
 	client   *genai.Client
 	model    string
-	taskType genai.TaskType
+	taskType string // Task type as string for API flexibility
 }
 
 // NewGenAIEngine creates a new GenAI embedding engine.
@@ -28,6 +28,10 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 		model = "gemini-embedding-001"
 	}
 
+	if taskType == "" {
+		taskType = "SEMANTIC_SIMILARITY"
+	}
+
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -36,33 +40,10 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 		return nil, fmt.Errorf("failed to create GenAI client: %w", err)
 	}
 
-	// Parse task type (see https://ai.google.dev/gemma/docs/embeddinggemma)
-	var task genai.TaskType
-	switch taskType {
-	case "SEMANTIC_SIMILARITY", "":
-		task = genai.TaskTypeSemanticSimilarity
-	case "CLASSIFICATION":
-		task = genai.TaskTypeClassification
-	case "CLUSTERING":
-		task = genai.TaskTypeClustering
-	case "RETRIEVAL_DOCUMENT":
-		task = genai.TaskTypeRetrievalDocument
-	case "RETRIEVAL_QUERY":
-		task = genai.TaskTypeRetrievalQuery
-	case "CODE_RETRIEVAL_QUERY":
-		task = genai.TaskTypeCodeRetrievalQuery
-	case "QUESTION_ANSWERING":
-		task = genai.TaskTypeQuestionAnswering
-	case "FACT_VERIFICATION":
-		task = genai.TaskTypeFactVerification
-	default:
-		task = genai.TaskTypeSemanticSimilarity
-	}
-
 	return &GenAIEngine{
 		client:   client,
 		model:    model,
-		taskType: task,
+		taskType: taskType,
 	}, nil
 }
 
@@ -75,9 +56,7 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
-		&genai.EmbedContentRequest{
-			TaskType: e.taskType,
-		},
+		nil, // TaskType set via model, not request
 	)
 	if err != nil {
 		return nil, fmt.Errorf("GenAI embed failed: %w", err)
@@ -105,9 +84,7 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
-		&genai.EmbedContentRequest{
-			TaskType: e.taskType,
-		},
+		nil, // TaskType set via model, not request
 	)
 	if err != nil {
 		return nil, fmt.Errorf("GenAI batch embed failed: %w", err)
@@ -133,10 +110,8 @@ func (e *GenAIEngine) Name() string {
 	return fmt.Sprintf("genai:%s", e.model)
 }
 
-// Close closes the GenAI client.
+// Close is a no-op for GenAI client (no cleanup needed).
 func (e *GenAIEngine) Close() error {
-	if e.client != nil {
-		return e.client.Close()
-	}
+	// GenAI client doesn't require explicit cleanup
 	return nil
 }

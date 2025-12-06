@@ -749,6 +749,63 @@ active_strategy(/domain_expert) :-
     # When high-confidence knowledge about the domain exists
 
 # =============================================================================
+# SECTION 17B: LEARNED KNOWLEDGE APPLICATION
+# =============================================================================
+# These rules leverage facts hydrated from knowledge.db by HydrateLearnings().
+# The hydration happens during OODA Observe phase.
+
+# 1. User preferences influence tool selection
+# If user prefers a language, boost activation for related tools
+activation(Tool, 85) :-
+    learned_preference(/prefer_language, LangArgs),
+    tool_capabilities(Tool, /code_generation),
+    tool_language(Tool, Lang).
+
+# 2. Learned constraints become safety checks
+# Constraints from knowledge.db feed into constitutional logic
+constraint_violation(Action, Reason) :-
+    learned_constraint(Predicate, Args),
+    action_violates(Action, Predicate, Args),
+    Reason = Args.
+
+# 3. User facts inform context
+# Facts about the user/project activate relevant context
+context_atom(Fact) :-
+    learned_fact(Pred, Args),
+    relevant_to_intent(Pred, Intent),
+    user_intent(_, _, _, _, Intent).
+
+# 4. Knowledge graph links spread activation
+# Entity relationships from knowledge_graph propagate energy
+activation(EntityB, 60) :-
+    knowledge_link(EntityA, /related_to, EntityB),
+    activation(EntityA, Score),
+    Score > 50.
+
+activation(EntityB, 70) :-
+    knowledge_link(EntityA, /depends_on, EntityB),
+    activation(EntityA, Score),
+    Score > 40.
+
+# 5. High-activation facts boost related content
+# Recent activations from activation_log inform focus
+context_priority(FactID, /high) :-
+    activation(FactID, Score),
+    Score > 70.
+
+# 6. Session continuity - recent turns inform context
+# Session history provides conversational context
+context_atom(UserInput) :-
+    session_turn(_, TurnNum, UserInput, _),
+    TurnNum > 0.
+
+# 7. Similar content retrieval for semantic search
+# Vector recall results inform related context
+related_context(Content) :-
+    similar_content(Rank, Content),
+    Rank < 5.
+
+# =============================================================================
 # SECTION 18: SHARD TYPE CLASSIFICATION (§6.1 Taxonomy)
 # =============================================================================
 

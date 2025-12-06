@@ -4,7 +4,6 @@
   "model": "glm-4.6",
   "theme": "light",
   "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461",
-  
   "embedding": {
     "provider": "genai",
     "genai_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
