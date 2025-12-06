@@ -4,7 +4,6 @@ package researcher
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
@@ -84,7 +83,7 @@ type ResearcherShard struct {
 	// Components
 	kernel    *core.RealKernel
 	scanner   *world.Scanner
-	llmClient perception.LLMClient
+	llmClient core.LLMClient
 	localDB   *store.LocalStore
 
 	// Research Toolkit (enhanced tools)
@@ -130,10 +129,21 @@ func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShar
 }
 
 // SetLLMClient sets the LLM client for intelligent extraction.
-func (r *ResearcherShard) SetLLMClient(client perception.LLMClient) {
+func (r *ResearcherShard) SetLLMClient(client core.LLMClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.llmClient = client
+}
+
+// SetParentKernel sets the kernel for fact extraction.
+func (r *ResearcherShard) SetParentKernel(k core.Kernel) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rk, ok := k.(*core.RealKernel); ok {
+		r.kernel = rk
+	} else {
+		panic("ResearcherShard requires *core.RealKernel")
+	}
 }
 
 // SetLocalDB sets the local database for knowledge persistence.
@@ -239,7 +249,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 			go func() {
 				defer wg.Done()
 
-				topicResult, err := r.conductWebResearch(ctx, topic, nil) // Don't pass keywords, topic is sufficient
+				topicResult, err := r.conductWebResearch(ctx, topic, nil, nil) // Don't pass keywords or urls, topic is sufficient
 				if err != nil {
 					fmt.Printf("[Researcher] Topic '%s' failed: %v\n", topic, err)
 					return
@@ -291,7 +301,7 @@ func (r *ResearcherShard) DeepResearch(ctx context.Context, topic string, keywor
 
 	// Add deep flag to topic to trigger web search
 	deepTopic := topic + " (deep)"
-	return r.conductWebResearch(ctx, deepTopic, keywords)
+	return r.conductWebResearch(ctx, deepTopic, keywords, nil)
 }
 
 // GetID returns the shard ID.
@@ -338,11 +348,14 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 	}()
 
 	// Parse task
-	topic, keywords := r.parseTask(task)
+	topic, keywords, urls := r.parseTask(task)
 
 	fmt.Printf("[Researcher] Starting Deep Research\n")
 	fmt.Printf("  Topic: %s\n", topic)
 	fmt.Printf("  Keywords: %v\n", keywords)
+	if len(urls) > 0 {
+		fmt.Printf("  Explicit URLs: %v\n", urls)
+	}
 
 	// Determine research mode
 	var result *ResearchResult
@@ -353,7 +366,7 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 		result, err = r.analyzeCodebase(ctx, topic)
 	} else {
 		// Mode 2: Web Research (for knowledge building)
-		result, err = r.conductWebResearch(ctx, topic, keywords)
+		result, err = r.conductWebResearch(ctx, topic, keywords, urls)
 	}
 
 	if err != nil {
@@ -377,17 +390,36 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 	return summary, nil
 }
 
-// parseTask extracts topic and keywords from the task string.
-func (r *ResearcherShard) parseTask(task string) (string, []string) {
+// parseTask extracts topic, keywords, and URLs from the task string.
+func (r *ResearcherShard) parseTask(task string) (string, []string, []string) {
 	// Format: "topic:TOPIC keywords:KW1,KW2" or just "TOPIC"
 	topic := task
 	var keywords []string
+	var urls []string
 
-	if strings.Contains(task, "topic:") {
+	// Extract URLs
+	// Match http/https and allow typical URL chars, stopping at space, comma, or end of line
+	// We strip trailing punctuation (.,;) manually after extraction if needed, but a stricter regex is better.
+	urlRegex := regexp.MustCompile(`https?://[^,\s]+[^.,;)\s]`)
+	rawUrls := urlRegex.FindAllString(task, -1)
+	
+	for _, u := range rawUrls {
+		// Clean trailing punctuation often caught in NLP text
+		u = strings.TrimRight(u, ".,;)")
+		urls = append(urls, u)
+	}
+
+	// Clean task string for topic extraction
+	cleanTask := urlRegex.ReplaceAllString(task, "")
+	cleanTask = strings.ReplaceAll(cleanTask, "  ", " ")
+
+	if strings.Contains(cleanTask, "topic:") {
 		re := regexp.MustCompile(`topic:([^\s]+)`)
-		if matches := re.FindStringSubmatch(task); len(matches) > 1 {
+		if matches := re.FindStringSubmatch(cleanTask); len(matches) > 1 {
 			topic = matches[1]
 		}
+	} else {
+		topic = strings.TrimSpace(cleanTask)
 	}
 
 	if strings.Contains(task, "keywords:") {
@@ -402,7 +434,7 @@ func (r *ResearcherShard) parseTask(task string) (string, []string) {
 		keywords = strings.Fields(strings.ToLower(topic))
 	}
 
-	return topic, keywords
+	return topic, keywords, urls
 }
 
 // isCodebaseTask checks if this is a codebase analysis task.

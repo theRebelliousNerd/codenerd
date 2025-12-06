@@ -14,7 +14,7 @@ import (
 )
 
 // conductWebResearch performs deep web research on a topic using multi-strategy approach.
-func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, keywords []string) (*ResearchResult, error) {
+func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, keywords []string, urls []string) (*ResearchResult, error) {
 	result := &ResearchResult{
 		Query:    topic,
 		Keywords: keywords,
@@ -35,8 +35,69 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 	// Use wait group for parallel research strategies
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	atomsChan := make(chan []KnowledgeAtom, 5)
+	atomsChan := make(chan []KnowledgeAtom, 10)
 	context7Found := false // Track if Context7 returned results
+
+	// STRATEGY -1: Explicit URLs (from wizard or task)
+	if len(urls) > 0 {
+		fmt.Printf("[Researcher] Scraping %d explicit URLs...\n", len(urls))
+		for _, url := range urls {
+			r.mu.Lock()
+			if r.visitedURLs[url] {
+				r.mu.Unlock()
+				continue
+			}
+			r.visitedURLs[url] = true
+			r.mu.Unlock()
+
+			wg.Add(1)
+			go func(u string) {
+				defer wg.Done()
+
+				// Check for GitHub URL to use specialized fetcher (supports llms.txt/Context7 standard)
+				if strings.Contains(u, "github.com/") {
+					// Remove protocol for splitting
+					cleanU := strings.TrimPrefix(u, "https://")
+					cleanU = strings.TrimPrefix(cleanU, "http://")
+					parts := strings.Split(cleanU, "/")
+					
+					if len(parts) >= 3 && parts[0] == "github.com" {
+						owner := parts[1]
+						repo := parts[2]
+						// Clean repo name of potential .git suffix or trailing slash
+						repo = strings.TrimSuffix(repo, ".git")
+						
+						source := KnowledgeSource{
+							Name:       repo,
+							Type:       "github",
+							RepoOwner:  owner,
+							RepoName:   repo,
+							PackageURL: "github.com/" + owner + "/" + repo,
+						}
+						
+						fmt.Printf("[Researcher] Detected GitHub repo: %s/%s\n", owner, repo)
+						atoms, err := r.fetchGitHubDocs(ctx, source, keywords)
+						if err == nil && len(atoms) > 0 {
+							fmt.Printf("[Researcher] Scraped %d atoms from GitHub %s\n", len(atoms), u)
+							atomsChan <- atoms
+							return
+						} else if err != nil {
+							fmt.Printf("[Researcher] GitHub fetch failed: %v, falling back to generic scraper\n", err)
+						}
+					}
+				}
+
+				// Generic scraper for non-GitHub URLs or fallback
+				atoms, err := r.fetchAndExtract(ctx, u, keywords)
+				if err == nil && len(atoms) > 0 {
+					fmt.Printf("[Researcher] Scraped %d atoms from %s\n", len(atoms), u)
+					atomsChan <- atoms
+				} else {
+					fmt.Printf("[Researcher] Failed to scrape %s: %v\n", u, err)
+				}
+			}(url)
+		}
+	}
 
 	// STRATEGY 0 (PRIMARY): Context7 - LLM-optimized documentation
 	// This is the preferred source - curated docs designed for AI consumption
@@ -485,27 +546,49 @@ func (r *ResearcherShard) parseReadmeContent(name, content string) []KnowledgeAt
 		}
 	}
 
-	// Extract sections (## headings with content)
-	sectionRegex := regexp.MustCompile(`(?m)^##\s+(.+?)\n([\s\S]*?)(?=^##|\z)`)
-	sectionMatches := sectionRegex.FindAllStringSubmatch(content, 10)
-	for _, match := range sectionMatches {
-		if len(match) > 2 {
-			sectionTitle := strings.TrimSpace(match[1])
-			sectionContent := strings.TrimSpace(match[2])
-			if len(sectionContent) > 50 && len(sectionContent) < 3000 {
-				// Skip common non-informative sections
-				lowerTitle := strings.ToLower(sectionTitle)
-				if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" {
-					continue
-				}
-				atoms = append(atoms, KnowledgeAtom{
-					Title:       sectionTitle,
-					Content:     r.truncate(sectionContent, 1000),
-					Concept:     "documentation_section",
-					Confidence:  0.85,
-					ExtractedAt: time.Now(),
-				})
+	// Extract sections (## headings)
+	// Go regex doesn't support lookaheads, so we split by "\n## " manually
+	// Normalize line endings first
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	
+	// Split by "## " at start of line (or start of file)
+	// We add a newline prefix to match the loop logic easier if it starts with ##
+	if strings.HasPrefix(normalized, "## ") {
+		normalized = "\n" + normalized
+	}
+	
+	sections := strings.Split(normalized, "\n## ")
+	
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		if section == "" {
+			continue
+		}
+		
+		// First line is title, rest is content
+		parts := strings.SplitN(section, "\n", 2)
+		title := strings.TrimSpace(parts[0])
+		
+		if len(parts) < 2 {
+			continue // Skip if no content
+		}
+		
+		body := strings.TrimSpace(parts[1])
+		
+		if len(body) > 50 && len(body) < 3000 {
+			// Skip common non-informative sections
+			lowerTitle := strings.ToLower(title)
+			if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" || lowerTitle == "badges" {
+				continue
 			}
+			
+			atoms = append(atoms, KnowledgeAtom{
+				Title:       title,
+				Content:     r.truncate(body, 1000),
+				Concept:     "documentation_section",
+				Confidence:  0.85,
+				ExtractedAt: time.Now(),
+			})
 		}
 	}
 

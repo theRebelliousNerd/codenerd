@@ -2,6 +2,7 @@ package context
 
 import (
 	"codenerd/internal/core"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -68,7 +69,7 @@ func NewActivationEngine(config CompressorConfig) *ActivationEngine {
 		symbolGraph:         make(map[string][]string),
 		sessionFacts:        make(map[string]bool),
 		sessionStarted:      time.Now(),
-		sessionID:           time.Now().Format("20060102-150405"),
+		sessionID:           fmt.Sprintf("sess_%d", time.Now().UnixNano()),
 	}
 }
 
@@ -671,7 +672,7 @@ func (ae *ActivationEngine) DecayRecency(maxAge time.Duration) {
 
 // NewSession starts a new session, resetting session-specific tracking.
 func (ae *ActivationEngine) NewSession() {
-	ae.sessionID = time.Now().Format("20060102-150405")
+	ae.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	ae.sessionStarted = time.Now()
 	ae.sessionFacts = make(map[string]bool)
 }

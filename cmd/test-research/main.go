@@ -1,78 +1,97 @@
-// Quick test of the research toolkit
+// Quick test of the research toolkit and new integrations
 package main
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	"codenerd/internal/core"
+	"codenerd/internal/perception"
 	"codenerd/internal/shards/researcher"
 )
 
 func main() {
-	fmt.Println("=== Testing Research Toolkit ===")
+	fmt.Println("=== Testing Research Toolkit Live ===")
+
+	// Setup environment
+	var context7Key string
+	
+	// 1. Try Env Var
+	if os.Getenv("CONTEXT7_API_KEY") != "" {
+		context7Key = os.Getenv("CONTEXT7_API_KEY")
+	} else {
+		// 2. Try Config File
+		cfg, err := perception.LoadConfigJSON(".nerd/config.json")
+		if err == nil && cfg.Context7APIKey != "" {
+			context7Key = cfg.Context7APIKey
+			fmt.Println("[Setup] Loaded Context7 key from .nerd/config.json")
+		}
+	}
+
+	if context7Key == "" {
+		fmt.Println("NOTE: CONTEXT7_API_KEY not set. Context7 tests will be skipped or fail gracefully.")
+	}
 
 	// Create researcher with toolkit
 	researcherShard := researcher.NewResearcherShard()
-	toolkit := researcherShard.GetToolkit()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Inject a real kernel
+	kernel := core.NewRealKernel()
+	researcherShard.SetParentKernel(kernel)
+	
+	if context7Key != "" {
+		researcherShard.SetContext7APIKey(context7Key)
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Test 1: GitHub fetch for Rod
-	fmt.Println("1. Testing GitHub fetch for go-rod/rod...")
-	atoms, err := toolkit.GitHub().FetchRepository(ctx, "go-rod", "rod", []string{"browser", "automation"})
+	// Test 1: Explicit URL Scraping (New Feature)
+	// We use a GitHub URL which should trigger the enhanced fetchGitHubDocs path
+	fmt.Println("\n1. Testing Explicit URL Scraping (GitHub)வுகளை")
+	task := "Research this repo: https://github.com/charmbracelet/bubbletea"
+	
+	resultStr, err := researcherShard.Execute(ctx, task)
 	if err != nil {
 		fmt.Printf("   Error: %v\n", err)
 	} else {
-		fmt.Printf("   Success: %d atoms fetched\n", len(atoms))
-		for i, atom := range atoms {
-			if i >= 3 {
-				fmt.Printf("   ... and %d more\n", len(atoms)-3)
-				break
-			}
-			fmt.Printf("   - [%s] %s (%.0f%%)\n", atom.Concept, truncate(atom.Title, 40), atom.Confidence*100)
+		fmt.Printf("   Success! Result Summary:\n%s\n", truncate(resultStr, 200))
+		
+		// Verify facts were loaded into kernel
+		facts, _ := kernel.Query("knowledge_atom")
+		fmt.Printf("   Kernel Facts: %d knowledge atoms loaded\n", len(facts))
+	}
+
+	// Test 2: Context7 Integration (via ResearchTopic)
+	fmt.Println("\n2. Testing Context7 Integration...")
+	// We manually invoke the tool to see if it triggers
+	toolkit := researcherShard.GetToolkit()
+	if toolkit.Context7() != nil {
+		// We try a search which uses Context7 if configured
+		atoms, err := toolkit.Context7().ResearchTopic(ctx, "next.js", []string{"react", "framework"})
+		if err != nil {
+			fmt.Printf("   Context7 Result: %v (Expected if no API key)\n", err)
+		} else {
+			fmt.Printf("   Context7 Success: fetched %d atoms\n", len(atoms))
 		}
 	}
 
-	// Test 2: Web search
-	fmt.Println("\n2. Testing web search for 'golang concurrency patterns'...")
-	results, err := toolkit.Search().Search(ctx, "golang concurrency patterns", 5)
-	if err != nil {
-		fmt.Printf("   Error: %v\n", err)
-	} else {
-		fmt.Printf("   Success: %d results found\n", len(results))
-		for i, r := range results {
-			if i >= 3 {
-				break
-			}
-			fmt.Printf("   - %s\n", truncate(r.Title, 60))
-		}
-	}
-
-	// Test 3: Cache verification
-	fmt.Println("\n3. Testing cache (fetching rod again)...")
-	start := time.Now()
-	atoms2, _ := toolkit.GitHub().FetchRepository(ctx, "go-rod", "rod", []string{"browser"})
-	fmt.Printf("   Second fetch: %d atoms in %v (should be cached)\n", len(atoms2), time.Since(start))
-
-	// Test 4: Parallel topic research
-	fmt.Println("\n4. Testing parallel topic research...")
-	topics := []string{"rod browser automation", "golang testing"}
-	result, err := researcherShard.ResearchTopicsParallel(ctx, topics)
-	if err != nil {
-		fmt.Printf("   Error: %v\n", err)
-	} else {
-		fmt.Printf("   Success: %d atoms from %d topics in %.2fs\n",
-			len(result.Atoms), len(topics), result.Duration.Seconds())
-	}
-
-	fmt.Println("\n=== Research Toolkit Test Complete ===")
+	fmt.Println("\n=== Live Test Complete ===")
 }
 
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	lines := 0
+	for i, char := range s {
+		if char == '\n' {
+			lines++
+		}
+		if i >= maxLen || lines >= 5 {
+			return s[:i] + "\n... (truncated)"
+		}
+	}
+	return s
 }

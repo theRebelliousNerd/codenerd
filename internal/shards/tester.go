@@ -4,7 +4,6 @@ package shards
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"context"
 	"fmt"
 	"os/exec"
@@ -107,7 +106,7 @@ type TesterShard struct {
 
 	// Components (required)
 	kernel       *core.RealKernel     // Own kernel instance for logic-driven testing
-	llmClient    perception.LLMClient // LLM for test generation
+	llmClient    core.LLMClient       // LLM for test generation
 	virtualStore *core.VirtualStore   // Action routing
 
 	// TDD Loop integration
@@ -146,17 +145,21 @@ func NewTesterShardWithConfig(testerConfig TesterConfig) *TesterShard {
 // =============================================================================
 
 // SetLLMClient sets the LLM client for test generation.
-func (t *TesterShard) SetLLMClient(client perception.LLMClient) {
+func (t *TesterShard) SetLLMClient(client core.LLMClient) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.llmClient = client
 }
 
-// SetKernel sets the Mangle kernel for logic-driven testing.
-func (t *TesterShard) SetKernel(k *core.RealKernel) {
+// SetParentKernel sets the Mangle kernel for logic-driven testing.
+func (t *TesterShard) SetParentKernel(k core.Kernel) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.kernel = k
+	if rk, ok := k.(*core.RealKernel); ok {
+		t.kernel = rk
+	} else {
+		panic("TesterShard requires *core.RealKernel")
+	}
 }
 
 // SetVirtualStore sets the virtual store for action routing.

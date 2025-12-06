@@ -40,9 +40,13 @@ func TestShardManagerSpawnUnknownType(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := sm.Spawn(ctx, "nonexistent", "task")
-	if err == nil {
-		t.Error("Spawn(nonexistent) should return error")
+	// Unknown types now fallback to default agent
+	id, err := sm.Spawn(ctx, "nonexistent", "task")
+	if err != nil {
+		t.Errorf("Spawn(nonexistent) should succeed with fallback, got error: %v", err)
+	}
+	if id == "" {
+		t.Error("Spawn(nonexistent) returned empty result")
 	}
 }
 
@@ -160,8 +164,8 @@ func TestDefaultSpecialistConfig(t *testing.T) {
 	if config.Name != "TestSpec" {
 		t.Errorf("Name = %q, want %q", config.Name, "TestSpec")
 	}
-	if config.Type != ShardTypeUser {
-		t.Errorf("Type = %v, want %v", config.Type, ShardTypeUser)
+	if config.Type != ShardTypePersistent {
+		t.Errorf("Type = %v, want %v", config.Type, ShardTypePersistent)
 	}
 	if config.KnowledgePath != "memory/test.db" {
 		t.Errorf("KnowledgePath = %q, want %q", config.KnowledgePath, "memory/test.db")

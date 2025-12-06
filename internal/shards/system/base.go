@@ -13,7 +13,6 @@ package system
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"context"
 	"fmt"
 	"sync"
@@ -226,7 +225,7 @@ type BaseSystemShard struct {
 
 	// Components
 	Kernel       *core.RealKernel
-	LLMClient    perception.LLMClient
+	LLMClient    core.LLMClient
 	VirtualStore *core.VirtualStore
 
 	// System shard specific
@@ -299,17 +298,21 @@ func (b *BaseSystemShard) Stop() error {
 }
 
 // SetLLMClient sets the LLM client.
-func (b *BaseSystemShard) SetLLMClient(client perception.LLMClient) {
+func (b *BaseSystemShard) SetLLMClient(client core.LLMClient) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.LLMClient = client
 }
 
-// SetKernel sets the Mangle kernel.
-func (b *BaseSystemShard) SetKernel(k *core.RealKernel) {
+// SetParentKernel sets the Mangle kernel.
+func (b *BaseSystemShard) SetParentKernel(k core.Kernel) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.Kernel = k
+	if rk, ok := k.(*core.RealKernel); ok {
+		b.Kernel = rk
+	} else {
+		panic("SystemShard requires *core.RealKernel")
+	}
 }
 
 // SetVirtualStore sets the virtual store.

@@ -167,7 +167,7 @@ func InitChat(cfg Config) Model {
 	// Perception Firewall - AUTO-START, LLM-primary (NL → atoms transduction)
 	shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewPerceptionFirewallShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
@@ -175,14 +175,14 @@ func InitChat(cfg Config) Model {
 	// World Model Ingestor - ON-DEMAND, Hybrid (file_topology, symbol_graph)
 	shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewWorldModelIngestorShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		return shard
 	})
 
 	// Executive Policy - AUTO-START, Logic-primary (next_action derivation)
 	shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewExecutivePolicyShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient) // For autopoiesis edge cases
 		return shard
 	})
@@ -190,7 +190,7 @@ func InitChat(cfg Config) Model {
 	// Constitution Gate - AUTO-START, Logic-primary (safety enforcement)
 	shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewConstitutionGateShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient) // For autopoiesis rule proposals
 		return shard
 	})
@@ -198,7 +198,7 @@ func InitChat(cfg Config) Model {
 	// Tactile Router - ON-DEMAND, Logic-primary (action → tool routing)
 	shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewTactileRouterShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient) // For autopoiesis routing gaps
 		return shard
@@ -207,7 +207,7 @@ func InitChat(cfg Config) Model {
 	// Session Planner - ON-DEMAND, LLM-primary (goal decomposition)
 	shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewSessionPlannerShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})

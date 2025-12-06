@@ -123,6 +123,9 @@ type Model struct {
 
 	// Autopoiesis (§8.3) - Self-Modification
 	autopoiesis *autopoiesis.Orchestrator
+
+	// Agent Wizard State
+	agentWizard *AgentWizardState
 }
 
 // Message represents a single message in the chat history
@@ -668,13 +671,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Start loading
 	if m.awaitingAgentDefinition {
-		m.awaitingAgentDefinition = false
-		m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
-		m.isLoading = true
-		return m, tea.Batch(
-			m.spinner.Tick,
-			m.createAgentFromPrompt(input),
-		)
+		return m.handleAgentWizardInput(input)
 	}
 
 	m.isLoading = true
