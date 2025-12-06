@@ -312,9 +312,16 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// Process turn asynchronously - don't block response
 			go func() {
+				// COMPRESSION: Semantic compression for infinite context (§8.2)
 				if _, err := m.compressor.ProcessTurn(ctx, turn); err != nil {
 					// Log compression errors but don't fail the turn
 					fmt.Printf("[Compressor] Warning: %v\n", err)
+				}
+
+				// KNOWLEDGE PERSISTENCE: Populate knowledge.db tables for learning
+				// This implements the missing learning loop identified in user feedback
+				if m.localDB != nil {
+					m.persistTurnToKnowledge(turn, intent, response)
 				}
 			}()
 		}
