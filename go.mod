@@ -10,9 +10,12 @@ require (
 	github.com/go-rod/rod v0.116.2
 	github.com/google/mangle v0.4.0
 	github.com/google/uuid v1.6.0
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
+	github.com/traefik/yaegi v0.16.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.38.0
+	google.golang.org/genai v1.37.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1
 )
@@ -55,7 +58,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect
@@ -71,7 +73,6 @@ require (
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/term v0.31.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
-	google.golang.org/genai v1.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect

@@ -228,6 +228,12 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 	p.intentsProcessed++
 	p.mu.Unlock()
 
+	// Track success for high-confidence parses (autopoiesis)
+	if intent.Confidence >= p.config.ConfidenceThreshold {
+		pattern := fmt.Sprintf("%s:%s", intent.Verb, intent.Category)
+		p.trackSuccess(pattern)
+	}
+
 	// Check confidence thresholds
 	if intent.Confidence < p.config.AmbiguityThreshold {
 		// Emit ambiguity_flag
@@ -235,6 +241,10 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 			Predicate: "ambiguity_flag",
 			Args:      []interface{}{intent.ID, intent.Confidence, time.Now().Unix()},
 		})
+
+		// Track ambiguity pattern (autopoiesis)
+		pattern := fmt.Sprintf("ambiguous:%s", intent.Verb)
+		p.trackFailure(pattern, "low_confidence")
 	}
 
 	if intent.Confidence < p.config.ConfidenceThreshold {
@@ -283,9 +293,11 @@ func (p *PerceptionFirewallShard) parseWithLLM(ctx context.Context, input string
 		return Intent{}, fmt.Errorf("LLM blocked: %s", reason)
 	}
 
-	prompt := fmt.Sprintf(perceptionUserPrompt, input)
+	// Build system prompt with learned patterns
+	systemPrompt := p.buildSystemPromptWithLearning()
+	userPrompt := fmt.Sprintf(perceptionUserPrompt, input)
 
-	result, err := p.GuardedLLMCall(ctx, perceptionSystemPrompt, prompt)
+	result, err := p.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return Intent{}, err
 	}
@@ -293,6 +305,36 @@ func (p *PerceptionFirewallShard) parseWithLLM(ctx context.Context, input string
 	// Parse JSON response
 	intent := p.parseIntentJSON(result, input)
 	return intent, nil
+}
+
+// buildSystemPromptWithLearning builds the system prompt with learned patterns.
+func (p *PerceptionFirewallShard) buildSystemPromptWithLearning() string {
+	basePrompt := perceptionSystemPrompt
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	// Add learned corrections if any
+	if len(p.corrections) > 0 {
+		basePrompt += "\n\nLEARNED CORRECTIONS (from user feedback):\n"
+		for pattern, count := range p.corrections {
+			if count >= 2 {
+				basePrompt += fmt.Sprintf("- %s\n", pattern)
+			}
+		}
+	}
+
+	// Add patterns to avoid
+	if len(p.patternFailure) > 0 {
+		basePrompt += "\n\nPATTERNS TO AVOID (low confidence/ambiguous):\n"
+		for pattern, count := range p.patternFailure {
+			if count >= 2 {
+				basePrompt += fmt.Sprintf("- %s\n", pattern)
+			}
+		}
+	}
+
+	return basePrompt
 }
 
 // parseIntentJSON extracts intent from LLM JSON output.
@@ -447,6 +489,68 @@ func (p *PerceptionFirewallShard) GetStats() map[string]int {
 		"intents_processed": p.intentsProcessed,
 		"clarifications":    p.clarifications,
 	}
+}
+
+// RecordCorrection allows external systems to record when a user corrects an intent.
+// This enables the perception firewall to learn from mistakes.
+func (p *PerceptionFirewallShard) RecordCorrection(originalIntent, correctedIntent Intent) {
+	// Track the correction pattern
+	original := fmt.Sprintf("%s:%s:%s", originalIntent.Verb, originalIntent.Category, originalIntent.Target)
+	corrected := fmt.Sprintf("%s:%s:%s", correctedIntent.Verb, correctedIntent.Category, correctedIntent.Target)
+	p.trackCorrection(original, corrected)
+
+	// Also track specific verb corrections
+	if originalIntent.Verb != correctedIntent.Verb {
+		p.trackCorrection(
+			fmt.Sprintf("verb:%s", originalIntent.Verb),
+			fmt.Sprintf("verb:%s", correctedIntent.Verb),
+		)
+	}
+
+	// Track category corrections
+	if originalIntent.Category != correctedIntent.Category {
+		p.trackCorrection(
+			fmt.Sprintf("category:%s", originalIntent.Category),
+			fmt.Sprintf("category:%s", correctedIntent.Category),
+		)
+	}
+}
+
+// GetLearnedPatterns returns learned patterns for inclusion in LLM prompts.
+func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	result := make(map[string][]string)
+
+	// Successful patterns
+	var successful []string
+	for pattern, count := range p.patternSuccess {
+		if count >= 3 {
+			successful = append(successful, pattern)
+		}
+	}
+	result["successful"] = successful
+
+	// Failed patterns
+	var failed []string
+	for pattern, count := range p.patternFailure {
+		if count >= 2 {
+			failed = append(failed, pattern)
+		}
+	}
+	result["failed"] = failed
+
+	// Corrections
+	var corrections []string
+	for pattern, count := range p.corrections {
+		if count >= 2 {
+			corrections = append(corrections, pattern)
+		}
+	}
+	result["corrections"] = corrections
+
+	return result
 }
 
 // perceptionSystemPrompt is the system prompt for intent parsing.

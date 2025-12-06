@@ -183,6 +183,10 @@ Decl visible_text(ID, Text).
 # State: /failing, /log_read, /cause_found, /patch_applied, /passing, /unknown
 Decl test_state(State).
 
+# test_type(Type)
+# Type: /unit, /integration, /e2e (detected from test file patterns)
+Decl test_type(Type).
+
 # retry_count(Count)
 Decl retry_count(Count).
 
@@ -225,6 +229,34 @@ Decl network_permitted(URL).
 
 # security_violation(ViolationType) - derived predicate
 Decl security_violation(ViolationType).
+
+# -----------------------------------------------------------------------------
+# SECTION 11A: APPEAL MECHANISM (Constitutional Appeals)
+# -----------------------------------------------------------------------------
+
+# appeal_available(ActionID, ActionType, Target, Reason) - action can be appealed
+Decl appeal_available(ActionID, ActionType, Target, Reason).
+
+# appeal_pending(ActionID, ActionType, Justification, Timestamp) - appeal submitted
+Decl appeal_pending(ActionID, ActionType, Justification, Timestamp).
+
+# appeal_granted(ActionID, ActionType, Approver, Timestamp) - appeal approved
+Decl appeal_granted(ActionID, ActionType, Approver, Timestamp).
+
+# appeal_denied(ActionID, ActionType, Reason, Timestamp) - appeal rejected
+Decl appeal_denied(ActionID, ActionType, Reason, Timestamp).
+
+# temporary_override(ActionType, DurationSeconds, Timestamp) - temporary permission
+Decl temporary_override(ActionType, DurationSeconds, Timestamp).
+
+# user_requests_appeal(ActionID, Justification, Requester) - user appeal request
+Decl user_requests_appeal(ActionID, Justification, Requester).
+
+# active_override(ActionType, Approver, ExpiresAt) - currently active override
+Decl active_override(ActionType, Approver, ExpiresAt).
+
+# appeal_history(ActionID, Granted, Approver, Timestamp) - appeal audit trail
+Decl appeal_history(ActionID, Granted, Approver, Timestamp).
 
 # =============================================================================
 # SECTION 11B: STRATIFIED TRUST - AUTOPOIESIS (Bug #15 Fix)
@@ -977,6 +1009,13 @@ Decl world_model_heartbeat(ShardID, FileCount, Timestamp).
 
 # session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp)
 Decl session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp).
+
+# plan_task(TaskID, Description, Status, ProgressPct) - individual task state
+# Status: /pending, /in_progress, /completed, /blocked
+Decl plan_task(TaskID, Description, Status, ProgressPct).
+
+# plan_progress(CampaignID, TotalTasks, CompletedTasks, ProgressPct) - overall plan progress
+Decl plan_progress(CampaignID, TotalTasks, CompletedTasks, ProgressPct).
 
 # -----------------------------------------------------------------------------
 # 33.6 Routing & Tool Management

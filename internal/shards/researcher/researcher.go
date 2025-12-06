@@ -97,6 +97,13 @@ type ResearcherShard struct {
 	startTime   time.Time
 	stopCh      chan struct{}
 	visitedURLs map[string]bool
+
+	// Autopoiesis - learning and pattern tracking for research quality
+	qualityScores      map[string]float64 // Track quality of research results by topic
+	sourceReliability  map[string]int     // Track which sources produce good results
+	sourceFailures     map[string]int     // Track which sources fail or produce poor results
+	failedQueries      map[string]int     // Track queries that fail to produce results
+	learningStore      core.LearningStore // Optional persistence for learnings
 }
 
 // NewResearcherShard creates a new researcher shard with default config.
@@ -119,12 +126,16 @@ func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShar
 				return nil
 			},
 		},
-		kernel:       core.NewRealKernel(),
-		scanner:      world.NewScanner(),
-		toolkit:      NewResearchToolkit(""), // Uses default cache dir
-		llmSemaphore: make(chan struct{}, 1), // Serialize LLM calls (1 at a time)
-		stopCh:       make(chan struct{}),
-		visitedURLs:  make(map[string]bool),
+		kernel:            core.NewRealKernel(),
+		scanner:           world.NewScanner(),
+		toolkit:           NewResearchToolkit(""), // Uses default cache dir
+		llmSemaphore:      make(chan struct{}, 1), // Serialize LLM calls (1 at a time)
+		stopCh:            make(chan struct{}),
+		visitedURLs:       make(map[string]bool),
+		qualityScores:     make(map[string]float64),
+		sourceReliability: make(map[string]int),
+		sourceFailures:    make(map[string]int),
+		failedQueries:     make(map[string]int),
 	}
 }
 
@@ -151,6 +162,13 @@ func (r *ResearcherShard) SetLocalDB(db *store.LocalStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.localDB = db
+}
+
+// SetLearningStore sets the learning store for autopoiesis persistence.
+func (r *ResearcherShard) SetLearningStore(ls core.LearningStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.learningStore = ls
 }
 
 // SetContext7APIKey sets the Context7 API key for LLM-optimized documentation.
@@ -280,6 +298,15 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 	// Persist to local DB if available
 	if r.localDB != nil {
 		r.persistKnowledge(result)
+	}
+
+	// Autopoiesis: Track overall batch quality
+	if len(topics) > 0 {
+		batchQuality := float64(len(result.Atoms)) / float64(len(topics)*10.0) // Expect ~10 atoms per topic
+		if batchQuality > 1.0 {
+			batchQuality = 1.0
+		}
+		r.trackResearchQuality(fmt.Sprintf("batch_%d_topics", len(topics)), batchQuality)
 	}
 
 	return result, nil
@@ -485,4 +512,157 @@ func (r *ResearcherShard) buildSummary(result *ResearchResult) string {
 	}
 
 	return sb.String()
+}
+
+// trackResearchQuality tracks the quality of research results for a given topic.
+// Quality scores are used to learn which topics the researcher performs well on
+// and which might need different strategies.
+func (r *ResearcherShard) trackResearchQuality(topic string, quality float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Update rolling average quality for this topic
+	if existing, ok := r.qualityScores[topic]; ok {
+		// Blend with existing score (70% old, 30% new)
+		r.qualityScores[topic] = existing*0.7 + quality*0.3
+	} else {
+		r.qualityScores[topic] = quality
+	}
+
+	// Persist to learning store if available
+	if r.learningStore != nil && quality >= 0.7 {
+		// High quality research - save as preferred topic
+		_ = r.learningStore.Save("researcher", "high_quality_topic", []any{topic, quality}, "")
+	} else if r.learningStore != nil && quality < 0.4 {
+		// Low quality - save as difficult topic for future improvement
+		_ = r.learningStore.Save("researcher", "difficult_topic", []any{topic, quality}, "")
+	}
+}
+
+// trackResearchQualityFromResult calculates and tracks quality based on research results.
+// Quality is determined by: number of atoms, average confidence, and diversity of sources.
+func (r *ResearcherShard) trackResearchQualityFromResult(topic string, result *ResearchResult) {
+	if result == nil {
+		return
+	}
+
+	quality := 0.0
+
+	// Factor 1: Atom count (more atoms = better, up to 0.4)
+	atomScore := float64(len(result.Atoms)) / 20.0 // 20 atoms = max score
+	if atomScore > 0.4 {
+		atomScore = 0.4
+	}
+	quality += atomScore
+
+	// Factor 2: Average confidence (up to 0.4)
+	if len(result.Atoms) > 0 {
+		totalConfidence := 0.0
+		for _, atom := range result.Atoms {
+			totalConfidence += atom.Confidence
+		}
+		avgConfidence := totalConfidence / float64(len(result.Atoms))
+		quality += avgConfidence * 0.4
+	}
+
+	// Factor 3: Source diversity (up to 0.2)
+	uniqueSources := make(map[string]bool)
+	for _, atom := range result.Atoms {
+		if atom.SourceURL != "" {
+			uniqueSources[atom.SourceURL] = true
+		}
+	}
+	sourceScore := float64(len(uniqueSources)) / 10.0 // 10 sources = max score
+	if sourceScore > 0.2 {
+		sourceScore = 0.2
+	}
+	quality += sourceScore
+
+	// Track the calculated quality
+	r.trackResearchQuality(topic, quality)
+}
+
+// trackSourceSuccess tracks successful research from a source URL.
+// Sources that consistently produce good results are prioritized in future research.
+func (r *ResearcherShard) trackSourceSuccess(sourceURL string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.sourceReliability[sourceURL]++
+
+	// Reset failure count on success
+	if _, exists := r.sourceFailures[sourceURL]; exists {
+		delete(r.sourceFailures, sourceURL)
+	}
+
+	// Persist highly reliable sources to learning store
+	if r.learningStore != nil && r.sourceReliability[sourceURL] >= 3 {
+		_ = r.learningStore.Save("researcher", "reliable_source", []any{sourceURL, r.sourceReliability[sourceURL]}, "")
+	}
+}
+
+// trackSourceFailure tracks failed or poor quality research from a source URL.
+// Sources that consistently fail are deprioritized or avoided in future research.
+func (r *ResearcherShard) trackSourceFailure(sourceURL string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.sourceFailures[sourceURL]++
+
+	// Persist problematic sources to learning store
+	if r.learningStore != nil && r.sourceFailures[sourceURL] >= 2 {
+		_ = r.learningStore.Save("researcher", "unreliable_source", []any{sourceURL, r.sourceFailures[sourceURL]}, "")
+	}
+}
+
+// trackQueryFailure tracks queries that fail to produce useful results.
+// This helps identify gaps in research capability and improve query formulation.
+func (r *ResearcherShard) trackQueryFailure(query string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failedQueries[query]++
+
+	// Persist persistent failures to learning store
+	if r.learningStore != nil && r.failedQueries[query] >= 2 {
+		_ = r.learningStore.Save("researcher", "failed_query", []any{query, r.failedQueries[query]}, "")
+	}
+}
+
+// GetQualityScore returns the quality score for a topic if available.
+func (r *ResearcherShard) GetQualityScore(topic string) (float64, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	score, ok := r.qualityScores[topic]
+	return score, ok
+}
+
+// GetSourceReliability returns the reliability count for a source.
+func (r *ResearcherShard) GetSourceReliability(sourceURL string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.sourceReliability[sourceURL]
+}
+
+// GetLearningStats returns statistics about the researcher's learning.
+func (r *ResearcherShard) GetLearningStats() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+	stats["quality_scores_count"] = len(r.qualityScores)
+	stats["reliable_sources_count"] = len(r.sourceReliability)
+	stats["failed_sources_count"] = len(r.sourceFailures)
+	stats["failed_queries_count"] = len(r.failedQueries)
+
+	// Calculate average quality
+	if len(r.qualityScores) > 0 {
+		sum := 0.0
+		for _, score := range r.qualityScores {
+			sum += score
+		}
+		stats["avg_quality"] = sum / float64(len(r.qualityScores))
+	}
+
+	return stats
 }

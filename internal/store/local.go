@@ -25,6 +25,7 @@ type LocalStore struct {
 	mu              sync.RWMutex
 	dbPath          string
 	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
+	traceStore      *TraceStore                // Dedicated trace store for self-learning
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -45,6 +46,14 @@ func NewLocalStore(path string) (*LocalStore, error) {
 		db.Close()
 		return nil, err
 	}
+
+	// Initialize trace store for self-learning
+	traceStore, err := NewTraceStore(db, path)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize trace store: %w", err)
+	}
+	store.traceStore = traceStore
 
 	return store, nil
 }
@@ -91,10 +100,34 @@ func (s *LocalStore) initialize() error {
 		priority INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+		access_count INTEGER DEFAULT 0,
 		UNIQUE(predicate, args)
 	);
 	CREATE INDEX IF NOT EXISTS idx_cold_predicate ON cold_storage(predicate);
 	CREATE INDEX IF NOT EXISTS idx_cold_type ON cold_storage(fact_type);
+	CREATE INDEX IF NOT EXISTS idx_cold_last_accessed ON cold_storage(last_accessed);
+	CREATE INDEX IF NOT EXISTS idx_cold_access_count ON cold_storage(access_count);
+	`
+
+	// Archival tier for very old or low-priority facts
+	archivedTable := `
+	CREATE TABLE IF NOT EXISTS archived_facts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		fact_type TEXT DEFAULT 'fact',
+		priority INTEGER DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME,
+		last_accessed DATETIME,
+		access_count INTEGER DEFAULT 0,
+		archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_archived_predicate ON archived_facts(predicate);
+	CREATE INDEX IF NOT EXISTS idx_archived_type ON archived_facts(fact_type);
+	CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_facts(archived_at);
 	`
 
 	// Activation log for spreading activation
@@ -177,13 +210,19 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
 	`
 
-	for _, table := range []string{vectorTable, graphTable, coldTable, activationTable, sessionTable, verificationTable, reasoningTracesTable} {
+	for _, table := range []string{vectorTable, graphTable, coldTable, archivedTable, activationTable, sessionTable, verificationTable, reasoningTracesTable} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// GetTraceStore returns the dedicated trace store for self-learning operations.
+// This allows external components to access trace persistence separately.
+func (s *LocalStore) GetTraceStore() *TraceStore {
+	return s.traceStore
 }
 
 // Close closes the database connection.
@@ -390,13 +429,29 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 
 // StoredFact represents a persisted fact.
 type StoredFact struct {
-	ID        int64
-	Predicate string
-	Args      []interface{}
-	FactType  string
-	Priority  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           int64
+	Predicate    string
+	Args         []interface{}
+	FactType     string
+	Priority     int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	LastAccessed time.Time
+	AccessCount  int
+}
+
+// ArchivedFact represents a fact moved to archival storage.
+type ArchivedFact struct {
+	ID           int64
+	Predicate    string
+	Args         []interface{}
+	FactType     string
+	Priority     int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	LastAccessed time.Time
+	AccessCount  int
+	ArchivedAt   time.Time
 }
 
 // StoreFact persists a fact to cold storage.
@@ -418,13 +473,13 @@ func (s *LocalStore) StoreFact(predicate string, args []interface{}, factType st
 	return err
 }
 
-// LoadFacts retrieves facts by predicate.
+// LoadFacts retrieves facts by predicate and updates access tracking.
 func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	rows, err := s.db.Query(
-		"SELECT id, predicate, args, fact_type, priority, created_at, updated_at FROM cold_storage WHERE predicate = ? ORDER BY priority DESC",
+		"SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage WHERE predicate = ? ORDER BY priority DESC",
 		predicate,
 	)
 	if err != nil {
@@ -433,20 +488,31 @@ func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
 	defer rows.Close()
 
 	var facts []StoredFact
+	var factIDs []int64
 	for rows.Next() {
 		var fact StoredFact
 		var argsJSON string
-		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt); err != nil {
+		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount); err != nil {
 			continue
 		}
 		json.Unmarshal([]byte(argsJSON), &fact.Args)
 		facts = append(facts, fact)
+		factIDs = append(factIDs, fact.ID)
+	}
+
+	// Update access tracking for retrieved facts
+	for _, id := range factIDs {
+		s.db.Exec(
+			"UPDATE cold_storage SET last_accessed = CURRENT_TIMESTAMP, access_count = access_count + 1 WHERE id = ?",
+			id,
+		)
 	}
 
 	return facts, nil
 }
 
 // LoadAllFacts retrieves all facts, optionally filtered by type.
+// Does not update access tracking (use LoadFacts for that).
 func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -455,10 +521,10 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 	var args []interface{}
 
 	if factType != "" {
-		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at FROM cold_storage WHERE fact_type = ? ORDER BY priority DESC"
+		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage WHERE fact_type = ? ORDER BY priority DESC"
 		args = []interface{}{factType}
 	} else {
-		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at FROM cold_storage ORDER BY priority DESC"
+		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage ORDER BY priority DESC"
 	}
 
 	rows, err := s.db.Query(query, args...)
@@ -471,7 +537,7 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 	for rows.Next() {
 		var fact StoredFact
 		var argsJSON string
-		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt); err != nil {
+		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount); err != nil {
 			continue
 		}
 		json.Unmarshal([]byte(argsJSON), &fact.Args)
@@ -489,6 +555,298 @@ func (s *LocalStore) DeleteFact(predicate string, args []interface{}) error {
 	argsJSON, _ := json.Marshal(args)
 	_, err := s.db.Exec("DELETE FROM cold_storage WHERE predicate = ? AND args = ?", predicate, string(argsJSON))
 	return err
+}
+
+// ========== Archival Tier Management ==========
+
+// ArchiveOldFacts moves old, rarely-accessed facts to archival storage.
+// Facts are archived if they meet ALL criteria:
+// - Older than olderThanDays
+// - Access count below maxAccessCount
+// Returns the number of facts archived.
+func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if olderThanDays <= 0 {
+		olderThanDays = 90 // Default to 90 days
+	}
+	if maxAccessCount < 0 {
+		maxAccessCount = 5 // Default: archive facts accessed 5 times or less
+	}
+
+	// Start transaction for atomic move
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Find facts to archive
+	rows, err := tx.Query(
+		`SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count
+		 FROM cold_storage
+		 WHERE datetime(last_accessed) < datetime('now', '-' || ? || ' days')
+		 AND access_count <= ?`,
+		olderThanDays, maxAccessCount,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query old facts: %w", err)
+	}
+	defer rows.Close()
+
+	var archivedCount int
+	var idsToDelete []int64
+
+	// Insert into archived_facts
+	for rows.Next() {
+		var id int64
+		var predicate, argsJSON, factType string
+		var priority, accessCount int
+		var createdAt, updatedAt, lastAccessed time.Time
+
+		if err := rows.Scan(&id, &predicate, &argsJSON, &factType, &priority, &createdAt, &updatedAt, &lastAccessed, &accessCount); err != nil {
+			continue
+		}
+
+		// Insert into archive
+		_, err := tx.Exec(
+			`INSERT OR REPLACE INTO archived_facts (predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			predicate, argsJSON, factType, priority, createdAt, updatedAt, lastAccessed, accessCount,
+		)
+		if err != nil {
+			continue
+		}
+
+		idsToDelete = append(idsToDelete, id)
+		archivedCount++
+	}
+
+	// Delete from cold_storage
+	for _, id := range idsToDelete {
+		_, err := tx.Exec("DELETE FROM cold_storage WHERE id = ?", id)
+		if err != nil {
+			return 0, fmt.Errorf("failed to delete archived fact: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit archive transaction: %w", err)
+	}
+
+	return archivedCount, nil
+}
+
+// GetArchivedFacts retrieves archived facts by predicate.
+func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		`SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
+		 FROM archived_facts
+		 WHERE predicate = ?
+		 ORDER BY archived_at DESC`,
+		predicate,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var facts []ArchivedFact
+	for rows.Next() {
+		var fact ArchivedFact
+		var argsJSON string
+		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount, &fact.ArchivedAt); err != nil {
+			continue
+		}
+		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		facts = append(facts, fact)
+	}
+
+	return facts, nil
+}
+
+// GetAllArchivedFacts retrieves all archived facts, optionally filtered by type.
+func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var query string
+	var args []interface{}
+
+	if factType != "" {
+		query = `SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
+				 FROM archived_facts WHERE fact_type = ? ORDER BY archived_at DESC`
+		args = []interface{}{factType}
+	} else {
+		query = `SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
+				 FROM archived_facts ORDER BY archived_at DESC`
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var facts []ArchivedFact
+	for rows.Next() {
+		var fact ArchivedFact
+		var argsJSON string
+		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount, &fact.ArchivedAt); err != nil {
+			continue
+		}
+		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		facts = append(facts, fact)
+	}
+
+	return facts, nil
+}
+
+// RestoreArchivedFact moves a fact from archive back to cold storage.
+func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	argsJSON, _ := json.Marshal(args)
+
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get archived fact
+	var id int64
+	var factType string
+	var priority, accessCount int
+	var createdAt, updatedAt, lastAccessed time.Time
+
+	err = tx.QueryRow(
+		"SELECT id, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM archived_facts WHERE predicate = ? AND args = ?",
+		predicate, string(argsJSON),
+	).Scan(&id, &factType, &priority, &createdAt, &updatedAt, &lastAccessed, &accessCount)
+	if err != nil {
+		return fmt.Errorf("fact not found in archive: %w", err)
+	}
+
+	// Insert back into cold_storage
+	_, err = tx.Exec(
+		`INSERT OR REPLACE INTO cold_storage (predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count)
+		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+		predicate, string(argsJSON), factType, priority, createdAt, updatedAt, accessCount,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to restore fact: %w", err)
+	}
+
+	// Delete from archive
+	_, err = tx.Exec("DELETE FROM archived_facts WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete from archive: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit restore transaction: %w", err)
+	}
+
+	return nil
+}
+
+// PurgeOldArchivedFacts permanently deletes archived facts older than specified days.
+// Use with caution - this is irreversible.
+func (s *LocalStore) PurgeOldArchivedFacts(olderThanDays int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if olderThanDays <= 0 {
+		return 0, fmt.Errorf("olderThanDays must be positive")
+	}
+
+	result, err := s.db.Exec(
+		`DELETE FROM archived_facts
+		 WHERE datetime(archived_at) < datetime('now', '-' || ? || ' days')`,
+		olderThanDays,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to purge old archived facts: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	return int(rowsAffected), nil
+}
+
+// MaintenanceCleanup performs periodic maintenance on the storage tiers.
+// Returns statistics about cleanup operations.
+func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceStats, error) {
+	stats := MaintenanceStats{}
+
+	// Archive old facts
+	if config.ArchiveOlderThanDays > 0 {
+		archived, err := s.ArchiveOldFacts(config.ArchiveOlderThanDays, config.MaxAccessCount)
+		if err != nil {
+			return stats, fmt.Errorf("archival failed: %w", err)
+		}
+		stats.FactsArchived = archived
+	}
+
+	// Purge very old archived facts
+	if config.PurgeArchivedOlderThanDays > 0 {
+		purged, err := s.PurgeOldArchivedFacts(config.PurgeArchivedOlderThanDays)
+		if err != nil {
+			return stats, fmt.Errorf("purge failed: %w", err)
+		}
+		stats.FactsPurged = purged
+	}
+
+	// Clean old activation logs
+	if config.CleanActivationLogDays > 0 {
+		s.mu.Lock()
+		result, err := s.db.Exec(
+			`DELETE FROM activation_log
+			 WHERE datetime(timestamp) < datetime('now', '-' || ? || ' days')`,
+			config.CleanActivationLogDays,
+		)
+		s.mu.Unlock()
+		if err == nil {
+			rows, _ := result.RowsAffected()
+			stats.ActivationLogsDeleted = int(rows)
+		}
+	}
+
+	// Vacuum database to reclaim space
+	if config.VacuumDatabase {
+		s.mu.Lock()
+		_, err := s.db.Exec("VACUUM")
+		s.mu.Unlock()
+		if err != nil {
+			return stats, fmt.Errorf("vacuum failed: %w", err)
+		}
+		stats.DatabaseVacuumed = true
+	}
+
+	return stats, nil
+}
+
+// MaintenanceConfig configures maintenance cleanup operations.
+type MaintenanceConfig struct {
+	ArchiveOlderThanDays       int  // Archive facts not accessed in N days
+	MaxAccessCount             int  // Only archive if access count <= this
+	PurgeArchivedOlderThanDays int  // Permanently delete archived facts older than N days
+	CleanActivationLogDays     int  // Delete activation logs older than N days
+	VacuumDatabase             bool // Run VACUUM to reclaim space
+}
+
+// MaintenanceStats reports results of maintenance operations.
+type MaintenanceStats struct {
+	FactsArchived         int
+	FactsPurged           int
+	ActivationLogsDeleted int
+	DatabaseVacuumed      bool
 }
 
 // ========== Spreading Activation ==========
@@ -717,50 +1075,15 @@ type VerificationRecord struct {
 }
 
 // ========== Reasoning Traces ==========
-
-// ReasoningTrace represents a captured LLM interaction for learning.
-// This mirrors perception.ReasoningTrace to avoid import cycles.
-type ReasoningTrace struct {
-	ID            string
-	ShardID       string
-	ShardType     string
-	ShardCategory string
-	SessionID     string
-	TaskContext   string
-	SystemPrompt  string
-	UserPrompt    string
-	Response      string
-	Model         string
-	TokensUsed    int
-	DurationMs    int64
-	Success       bool
-	ErrorMessage  string
-	QualityScore  float64
-	LearningNotes []string
-	CreatedAt     time.Time
-}
+// Note: ReasoningTrace type is defined in trace_store.go to avoid duplication
 
 // StoreReasoningTrace persists a reasoning trace.
 // Implements perception.TraceStore interface.
 // Accepts interface{} to avoid import cycles - uses reflection to extract fields.
 func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Try direct ReasoningTrace (from store package)
 	if rt, ok := trace.(*ReasoningTrace); ok {
-		notesJSON, _ := json.Marshal(rt.LearningNotes)
-		_, err := s.db.Exec(`
-			INSERT OR REPLACE INTO reasoning_traces
-			(id, shard_id, shard_type, shard_category, session_id, task_context,
-			 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-			 success, error_message, quality_score, learning_notes)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			rt.ID, rt.ShardID, rt.ShardType, rt.ShardCategory, rt.SessionID, rt.TaskContext,
-			rt.SystemPrompt, rt.UserPrompt, rt.Response, rt.Model, rt.TokensUsed, rt.DurationMs,
-			rt.Success, rt.ErrorMessage, rt.QualityScore, string(notesJSON),
-		)
-		return err
+		return s.traceStore.StoreReasoningTrace(rt)
 	}
 
 	// Use reflection to handle perception.ReasoningTrace without import cycle
@@ -773,7 +1096,7 @@ func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
 		return fmt.Errorf("invalid trace type: expected struct, got %v", v.Kind())
 	}
 
-	// Extract fields by name
+	// Extract fields by name using reflection
 	getField := func(name string) interface{} {
 		f := v.FieldByName(name)
 		if !f.IsValid() {
@@ -799,306 +1122,65 @@ func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
 	qualityScore, _ := getField("QualityScore").(float64)
 	learningNotes, _ := getField("LearningNotes").([]string)
 
-	notesJSON, _ := json.Marshal(learningNotes)
-
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO reasoning_traces
-		(id, shard_id, shard_type, shard_category, session_id, task_context,
-		 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		 success, error_message, quality_score, learning_notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	// Delegate to trace store
+	return s.traceStore.storeReasoningTraceRaw(
 		id, shardID, shardType, shardCategory, sessionID, taskContext,
-		systemPrompt, userPrompt, response, model, tokensUsed, durationMs,
-		success, errorMessage, qualityScore, string(notesJSON),
+		systemPrompt, userPrompt, response, model, errorMessage,
+		tokensUsed, durationMs, success, qualityScore, learningNotes,
 	)
-	return err
 }
 
 // GetShardTraces retrieves traces for a specific shard type.
 // Implements perception.ShardTraceReader interface.
 func (s *LocalStore) GetShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 50
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE shard_type = ?
-		ORDER BY created_at DESC
-		LIMIT ?`, shardType, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetShardTraces(shardType, limit)
 }
 
 // GetFailedShardTraces retrieves failed traces for a shard type.
 func (s *LocalStore) GetFailedShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE shard_type = ? AND success = 0
-		ORDER BY created_at DESC
-		LIMIT ?`, shardType, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetFailedShardTraces(shardType, limit)
 }
 
 // GetSimilarTaskTraces finds traces with similar task context.
 func (s *LocalStore) GetSimilarTaskTraces(shardType, taskPattern string, limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 10
-	}
-
-	// Simple pattern matching - in production could use FTS or vector similarity
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE shard_type = ? AND task_context LIKE ?
-		ORDER BY created_at DESC
-		LIMIT ?`, shardType, "%"+taskPattern+"%", limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetSimilarTaskTraces(shardType, taskPattern, limit)
 }
 
 // GetHighQualityTraces retrieves successful traces with high quality scores.
 func (s *LocalStore) GetHighQualityTraces(shardType string, minScore float64, limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 20
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE shard_type = ? AND success = 1 AND quality_score >= ?
-		ORDER BY quality_score DESC, created_at DESC
-		LIMIT ?`, shardType, minScore, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetHighQualityTraces(shardType, minScore, limit)
 }
 
 // GetRecentTraces retrieves recent traces across all shards.
 // Used by main agent for oversight.
 func (s *LocalStore) GetRecentTraces(limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 100
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		ORDER BY created_at DESC
-		LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetRecentTraces(limit)
 }
 
 // GetTracesBySession retrieves all traces for a specific session.
 func (s *LocalStore) GetTracesBySession(sessionID string) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE session_id = ?
-		ORDER BY created_at ASC`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetTracesBySession(sessionID)
 }
 
 // GetTracesByCategory retrieves traces by shard category.
 func (s *LocalStore) GetTracesByCategory(category string, limit int) ([]ReasoningTrace, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 {
-		limit = 50
-	}
-
-	rows, err := s.db.Query(`
-		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
-		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		       success, error_message, quality_score, learning_notes, created_at
-		FROM reasoning_traces
-		WHERE shard_category = ?
-		ORDER BY created_at DESC
-		LIMIT ?`, category, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return s.scanTraces(rows)
+	return s.traceStore.GetTracesByCategory(category, limit)
 }
 
 // UpdateTraceQuality updates the quality score and learning notes for a trace.
 func (s *LocalStore) UpdateTraceQuality(traceID string, score float64, notes []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	notesJSON, _ := json.Marshal(notes)
-
-	_, err := s.db.Exec(`
-		UPDATE reasoning_traces
-		SET quality_score = ?, learning_notes = ?
-		WHERE id = ?`, score, string(notesJSON), traceID)
-	return err
+	return s.traceStore.UpdateTraceQuality(traceID, score, notes)
 }
 
 // GetTraceStats returns statistics about reasoning traces.
 func (s *LocalStore) GetTraceStats() (map[string]interface{}, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	stats := make(map[string]interface{})
-
-	// Total traces
-	var totalCount int64
-	s.db.QueryRow("SELECT COUNT(*) FROM reasoning_traces").Scan(&totalCount)
-	stats["total_traces"] = totalCount
-
-	// Success rate
-	var successCount int64
-	s.db.QueryRow("SELECT COUNT(*) FROM reasoning_traces WHERE success = 1").Scan(&successCount)
-	if totalCount > 0 {
-		stats["success_rate"] = float64(successCount) / float64(totalCount)
-	}
-
-	// Average duration
-	var avgDuration float64
-	s.db.QueryRow("SELECT AVG(duration_ms) FROM reasoning_traces").Scan(&avgDuration)
-	stats["avg_duration_ms"] = avgDuration
-
-	// Traces by category
-	categoryStats := make(map[string]int64)
-	rows, err := s.db.Query("SELECT shard_category, COUNT(*) FROM reasoning_traces GROUP BY shard_category")
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var category string
-			var count int64
-			if rows.Scan(&category, &count) == nil {
-				categoryStats[category] = count
-			}
-		}
-	}
-	stats["by_category"] = categoryStats
-
-	// Traces by shard type
-	shardStats := make(map[string]int64)
-	rows2, err := s.db.Query("SELECT shard_type, COUNT(*) FROM reasoning_traces GROUP BY shard_type ORDER BY COUNT(*) DESC LIMIT 10")
-	if err == nil {
-		defer rows2.Close()
-		for rows2.Next() {
-			var shardType string
-			var count int64
-			if rows2.Scan(&shardType, &count) == nil {
-				shardStats[shardType] = count
-			}
-		}
-	}
-	stats["by_shard_type"] = shardStats
-
-	return stats, nil
+	return s.traceStore.GetTraceStats()
 }
 
-// scanTraces is a helper to scan trace rows into ReasoningTrace structs.
+// scanTraces is deprecated - functionality moved to TraceStore.
+// Kept for backward compatibility with any external code that might call it.
 func (s *LocalStore) scanTraces(rows *sql.Rows) ([]ReasoningTrace, error) {
-	var traces []ReasoningTrace
-	for rows.Next() {
-		var t ReasoningTrace
-		var notesJSON string
-		var model, taskContext, errorMessage sql.NullString
-		var tokensUsed sql.NullInt64
-		var qualityScore sql.NullFloat64
-
-		err := rows.Scan(
-			&t.ID, &t.ShardID, &t.ShardType, &t.ShardCategory, &t.SessionID, &taskContext,
-			&t.SystemPrompt, &t.UserPrompt, &t.Response, &model, &tokensUsed, &t.DurationMs,
-			&t.Success, &errorMessage, &qualityScore, &notesJSON, &t.CreatedAt,
-		)
-		if err != nil {
-			continue
-		}
-
-		if model.Valid {
-			t.Model = model.String
-		}
-		if taskContext.Valid {
-			t.TaskContext = taskContext.String
-		}
-		if errorMessage.Valid {
-			t.ErrorMessage = errorMessage.String
-		}
-		if tokensUsed.Valid {
-			t.TokensUsed = int(tokensUsed.Int64)
-		}
-		if qualityScore.Valid {
-			t.QualityScore = qualityScore.Float64
-		}
-		if notesJSON != "" {
-			json.Unmarshal([]byte(notesJSON), &t.LearningNotes)
-		}
-
-		traces = append(traces, t)
-	}
-
-	return traces, nil
+	return s.traceStore.scanTraces(rows)
 }
 
 // ========== Utility Functions ==========
@@ -1222,6 +1304,40 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 	}
 
 	return atoms, nil
+}
+
+// HydrateKnowledgeGraph loads all knowledge graph entries and converts them to
+// knowledge_link facts for injection into the Mangle kernel.
+// This method should be called during kernel initialization or when the knowledge
+// graph is updated to ensure facts are available to Mangle rules.
+func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, args []interface{}) error) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Query all knowledge graph entries
+	rows, err := s.db.Query(
+		`SELECT entity_a, relation, entity_b, weight FROM knowledge_graph ORDER BY weight DESC`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query knowledge graph: %w", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var entityA, relation, entityB string
+		var weight float64
+		if err := rows.Scan(&entityA, &relation, &entityB, &weight); err != nil {
+			continue // Skip malformed entries
+		}
+
+		// Convert to Mangle fact: knowledge_link(entity_a, relation, entity_b)
+		if err := assertFunc("knowledge_link", []interface{}{entityA, relation, entityB}); err == nil {
+			count++
+		}
+	}
+
+	return count, nil
 }
 
 // KnowledgeAtom represents a piece of knowledge stored for agents.

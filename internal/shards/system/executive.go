@@ -216,6 +216,10 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 			e.blockedActions = append(e.blockedActions, action)
 			e.blockCount++
 			e.mu.Unlock()
+
+			// Track blocked action pattern (autopoiesis)
+			pattern := fmt.Sprintf("blocked:%s", action.Action)
+			e.trackFailure(pattern, action.BlockReason)
 			continue
 		}
 
@@ -230,6 +234,10 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		e.decisionsCount++
 		e.lastDecision = time.Now()
 		e.mu.Unlock()
+
+		// Track successful action derivation (autopoiesis)
+		pattern := fmt.Sprintf("%s:%s", action.FromRule, action.Action)
+		e.trackSuccess(pattern)
 
 		// Emit debug trace if enabled
 		if e.config.DebugMode {
@@ -454,6 +462,27 @@ func (e *ExecutivePolicyShard) buildPolicyProposalPrompt(cases []UnhandledCase) 
 		}
 	}
 
+	// Add learned patterns
+	e.mu.RLock()
+	if len(e.patternSuccess) > 0 {
+		sb.WriteString("\nSUCCESSFUL PATTERNS (use as reference):\n")
+		for pattern, count := range e.patternSuccess {
+			if count >= 3 {
+				sb.WriteString(fmt.Sprintf("- %s\n", pattern))
+			}
+		}
+	}
+
+	if len(e.patternFailure) > 0 {
+		sb.WriteString("\nFAILED PATTERNS (avoid these):\n")
+		for pattern, count := range e.patternFailure {
+			if count >= 2 {
+				sb.WriteString(fmt.Sprintf("- %s\n", pattern))
+			}
+		}
+	}
+	e.mu.RUnlock()
+
 	sb.WriteString("\nPropose a Mangle policy rule to handle these cases.\n")
 	sb.WriteString("The rule should derive next_action or active_strategy.\n")
 	sb.WriteString("Format:\n")
@@ -520,6 +549,60 @@ func (e *ExecutivePolicyShard) GetMetrics() map[string]int {
 		"blocked":          e.blockCount,
 		"strategy_changes": e.strategyChanges,
 	}
+}
+
+// RecordActionOutcome records whether a derived action succeeded or failed.
+// This enables the executive to learn which action derivations work well.
+func (e *ExecutivePolicyShard) RecordActionOutcome(action string, fromRule string, succeeded bool, errorMsg string) {
+	pattern := fmt.Sprintf("%s:%s", fromRule, action)
+
+	if succeeded {
+		e.trackSuccess(pattern)
+	} else {
+		e.trackFailure(pattern, errorMsg)
+	}
+
+	// Also track strategy-level outcomes
+	e.mu.RLock()
+	strategies := e.activeStrategies
+	e.mu.RUnlock()
+
+	for _, strategy := range strategies {
+		strategyPattern := fmt.Sprintf("strategy:%s:%s", strategy.Name, action)
+		if succeeded {
+			e.trackSuccess(strategyPattern)
+		} else {
+			e.trackFailure(strategyPattern, errorMsg)
+		}
+	}
+}
+
+// GetLearnedPatterns returns learned patterns for strategy refinement.
+func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	result := make(map[string][]string)
+
+	// Successful action patterns
+	var successful []string
+	for pattern, count := range e.patternSuccess {
+		if count >= 3 {
+			successful = append(successful, pattern)
+		}
+	}
+	result["successful"] = successful
+
+	// Failed action patterns
+	var failed []string
+	for pattern, count := range e.patternFailure {
+		if count >= 2 {
+			failed = append(failed, pattern)
+		}
+	}
+	result["failed"] = failed
+
+	return result
 }
 
 // executiveAutopoiesisPrompt is the system prompt for proposing policy rules.

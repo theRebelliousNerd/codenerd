@@ -4,6 +4,7 @@ package shards
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/store"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,15 +21,16 @@ import (
 
 // ReviewerConfig holds configuration for the reviewer shard.
 type ReviewerConfig struct {
-	StyleGuide      string   // Path to style guide or preset name
-	SecurityRules   []string // Security patterns to check (OWASP categories)
-	MaxFindings     int      // Max findings before abort (default: 100)
-	BlockOnCritical bool     // Block commit if critical issues found (default: true)
-	IncludeMetrics  bool     // Include complexity metrics (default: true)
-	SeverityFilter  string   // Minimum severity to report: "info", "warning", "error", "critical"
-	WorkingDir      string   // Workspace directory
-	IgnorePatterns  []string // File patterns to ignore
-	MaxFileSize     int64    // Max file size to review in bytes (default: 1MB)
+	StyleGuide        string   // Path to style guide or preset name
+	SecurityRules     []string // Security patterns to check (OWASP categories)
+	MaxFindings       int      // Max findings before abort (default: 100)
+	BlockOnCritical   bool     // Block commit if critical issues found (default: true)
+	IncludeMetrics    bool     // Include complexity metrics (default: true)
+	SeverityFilter    string   // Minimum severity to report: "info", "warning", "error", "critical"
+	WorkingDir        string   // Workspace directory
+	IgnorePatterns    []string // File patterns to ignore
+	MaxFileSize       int64    // Max file size to review in bytes (default: 1MB)
+	CustomRulesPath   string   // Path to custom rules JSON file (default: .nerd/review-rules.json)
 }
 
 // DefaultReviewerConfig returns sensible defaults for code review.
@@ -51,7 +53,31 @@ func DefaultReviewerConfig() ReviewerConfig {
 		WorkingDir:      ".",
 		IgnorePatterns:  []string{"vendor/", "node_modules/", ".git/", "*.min.js"},
 		MaxFileSize:     1024 * 1024, // 1MB
+		CustomRulesPath: ".nerd/review-rules.json",
 	}
+}
+
+// =============================================================================
+// CUSTOM RULES
+// =============================================================================
+
+// CustomRule represents a user-defined review rule that can be loaded from JSON/YAML.
+type CustomRule struct {
+	ID          string   `json:"id"`                     // Unique rule identifier
+	Category    string   `json:"category"`               // security, style, bug, performance, maintainability
+	Severity    string   `json:"severity"`               // critical, error, warning, info
+	Pattern     string   `json:"pattern"`                // Regex pattern to match
+	Message     string   `json:"message"`                // Error message to display
+	Suggestion  string   `json:"suggestion,omitempty"`   // Optional suggestion for fix
+	Languages   []string `json:"languages,omitempty"`    // Language filter (empty = all)
+	Description string   `json:"description,omitempty"`  // Human-readable description
+	Enabled     bool     `json:"enabled"`                // Whether the rule is active
+}
+
+// CustomRulesFile represents the JSON structure for custom rules files.
+type CustomRulesFile struct {
+	Version string       `json:"version"` // Rules file format version
+	Rules   []CustomRule `json:"rules"`   // List of custom rules
 }
 
 // =============================================================================
@@ -147,10 +173,17 @@ type ReviewerShard struct {
 	findings  []ReviewFinding
 	severity  ReviewSeverity
 
-	// Autopoiesis tracking (§8.3)
-	approvedPatterns    map[string]int    // Patterns that pass review
-	flaggedPatterns     map[string]int    // Patterns that get flagged repeatedly
-	learnedAntiPatterns map[string]string // Anti-patterns learned from rejections
+	// Custom rules
+	customRules []CustomRule // User-defined custom review rules
+
+	// Autopoiesis tracking (§8.3) - in-memory, synced to LearningStore
+	approvedPatterns    map[string]int       // Patterns that pass review
+	flaggedPatterns     map[string]int       // Patterns that get flagged repeatedly
+	learnedAntiPatterns map[string]string    // Anti-patterns learned from rejections
+	learningStore       *store.LearningStore // Persistent learning storage
+
+	// Policy loading guard (prevents duplicate Decl errors)
+	policyLoaded bool
 }
 
 // NewReviewerShard creates a new Reviewer shard with default configuration.
@@ -160,16 +193,24 @@ func NewReviewerShard() *ReviewerShard {
 
 // NewReviewerShardWithConfig creates a reviewer shard with custom configuration.
 func NewReviewerShardWithConfig(reviewerConfig ReviewerConfig) *ReviewerShard {
-	return &ReviewerShard{
+	shard := &ReviewerShard{
 		config:              core.DefaultSpecialistConfig("reviewer", ""),
 		state:               core.ShardStateIdle,
 		reviewerConfig:      reviewerConfig,
 		findings:            make([]ReviewFinding, 0),
 		severity:            ReviewSeverityClean,
+		customRules:         make([]CustomRule, 0),
 		approvedPatterns:    make(map[string]int),
 		flaggedPatterns:     make(map[string]int),
 		learnedAntiPatterns: make(map[string]string),
 	}
+
+	// Attempt to load custom rules if path is configured
+	if reviewerConfig.CustomRulesPath != "" {
+		_ = shard.LoadCustomRules(reviewerConfig.CustomRulesPath)
+	}
+
+	return shard
 }
 
 // =============================================================================
@@ -199,6 +240,15 @@ func (r *ReviewerShard) SetVirtualStore(vs *core.VirtualStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.virtualStore = vs
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis.
+func (r *ReviewerShard) SetLearningStore(ls *store.LearningStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.learningStore = ls
+	// Load existing patterns from store
+	r.loadLearnedPatterns()
 }
 
 // =============================================================================
@@ -272,8 +322,11 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 	if r.kernel == nil {
 		r.kernel = core.NewRealKernel()
 	}
-	// Load reviewer-specific policy
-	_ = r.kernel.LoadPolicyFile("reviewer.gl")
+	// Load reviewer-specific policy (only once to avoid duplicate Decl errors)
+	if !r.policyLoaded {
+		_ = r.kernel.LoadPolicyFile("reviewer.gl")
+		r.policyLoaded = true
+	}
 
 	// Parse the task
 	parsedTask, err := r.parseTask(task)
@@ -660,11 +713,17 @@ func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content strin
 	// Bug pattern checks
 	findings = append(findings, r.checkBugPatterns(filePath, content)...)
 
+	// Custom rules checks (user-defined patterns)
+	findings = append(findings, r.checkCustomRules(filePath, content)...)
+
 	// LLM-powered semantic analysis (if available)
 	if r.llmClient != nil {
 		llmFindings, err := r.llmAnalysis(ctx, filePath, content)
 		if err == nil {
 			findings = append(findings, llmFindings...)
+		} else {
+			// Log LLM failure but continue with regex-based checks
+			fmt.Printf("[ReviewerShard:%s] LLM analysis failed for %s, continuing with regex checks: %v\n", r.id, filePath, err)
 		}
 	}
 
@@ -1166,9 +1225,9 @@ Only report significant issues. Return empty array [] if code is clean.`
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```",
 		r.detectLanguage(filePath), filePath, content)
 
-	response, err := r.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
-		return findings, err
+		return findings, fmt.Errorf("LLM analysis failed after retries: %w", err)
 	}
 
 	// Parse JSON response
@@ -1588,6 +1647,22 @@ func (r *ReviewerShard) trackReviewPatterns(result *ReviewResult) {
 		if finding.Severity == "critical" || finding.Severity == "error" {
 			pattern := normalizeReviewPattern(finding.Message)
 			r.flaggedPatterns[pattern]++
+
+			// Persist to LearningStore if count exceeds threshold
+			if r.learningStore != nil && r.flaggedPatterns[pattern] >= 3 {
+				_ = r.learningStore.Save("reviewer", "flagged_pattern", []any{pattern, finding.Category, finding.Severity}, "")
+			}
+		}
+
+		// Track approved patterns (clean code)
+		if result.Severity == ReviewSeverityClean || finding.Severity == "info" {
+			pattern := normalizeReviewPattern(finding.File)
+			r.approvedPatterns[pattern]++
+
+			// Persist to LearningStore if count exceeds threshold
+			if r.learningStore != nil && r.approvedPatterns[pattern] >= 5 {
+				_ = r.learningStore.Save("reviewer", "approved_pattern", []any{pattern}, "")
+			}
 		}
 	}
 }
@@ -1597,6 +1672,137 @@ func (r *ReviewerShard) LearnAntiPattern(pattern, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.learnedAntiPatterns[pattern] = reason
+
+	// Persist to LearningStore immediately for anti-patterns
+	if r.learningStore != nil {
+		_ = r.learningStore.Save("reviewer", "anti_pattern", []any{pattern, reason}, "")
+	}
+}
+
+// llmCompleteWithRetry calls LLM with exponential backoff retry logic.
+func (r *ReviewerShard) llmCompleteWithRetry(ctx context.Context, systemPrompt, userPrompt string, maxRetries int) (string, error) {
+	if r.llmClient == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	var lastErr error
+	baseDelay := 500 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Printf("[ReviewerShard:%s] LLM retry attempt %d/%d\n", r.id, attempt+1, maxRetries)
+
+			delay := baseDelay * time.Duration(1<<uint(attempt))
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+
+		response, err := r.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err == nil {
+			return response, nil
+		}
+
+		lastErr = err
+
+		if !isRetryableErrorReviewer(err) {
+			return "", fmt.Errorf("non-retryable error: %w", err)
+		}
+	}
+
+	return "", fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// isRetryableErrorReviewer determines if an error should be retried.
+func isRetryableErrorReviewer(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+
+	// Network errors - retryable
+	retryablePatterns := []string{
+		"timeout",
+		"connection",
+		"network",
+		"temporary",
+		"rate limit",
+		"503",
+		"502",
+		"429",
+		"context deadline exceeded",
+	}
+
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// Auth errors - not retryable
+	nonRetryablePatterns := []string{
+		"unauthorized",
+		"forbidden",
+		"invalid api key",
+		"401",
+		"403",
+	}
+
+	for _, pattern := range nonRetryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return false
+		}
+	}
+
+	// Default: retry
+	return true
+}
+
+// loadLearnedPatterns loads existing patterns from LearningStore on initialization.
+// Must be called with lock held.
+func (r *ReviewerShard) loadLearnedPatterns() {
+	if r.learningStore == nil {
+		return
+	}
+
+	// Load flagged patterns
+	flaggedLearnings, err := r.learningStore.LoadByPredicate("reviewer", "flagged_pattern")
+	if err == nil {
+		for _, learning := range flaggedLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count to avoid re-learning
+				r.flaggedPatterns[pattern] = 3
+			}
+		}
+	}
+
+	// Load approved patterns
+	approvedLearnings, err := r.learningStore.LoadByPredicate("reviewer", "approved_pattern")
+	if err == nil {
+		for _, learning := range approvedLearnings {
+			if len(learning.FactArgs) >= 1 {
+				pattern, _ := learning.FactArgs[0].(string)
+				// Initialize with threshold count
+				r.approvedPatterns[pattern] = 5
+			}
+		}
+	}
+
+	// Load anti-patterns
+	antiPatternLearnings, err := r.learningStore.LoadByPredicate("reviewer", "anti_pattern")
+	if err == nil {
+		for _, learning := range antiPatternLearnings {
+			if len(learning.FactArgs) >= 2 {
+				pattern, _ := learning.FactArgs[0].(string)
+				reason, _ := learning.FactArgs[1].(string)
+				r.learnedAntiPatterns[pattern] = reason
+			}
+		}
+	}
 }
 
 // normalizeReviewPattern normalizes a finding message into a pattern key.

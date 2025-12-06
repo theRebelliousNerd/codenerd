@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "rules": [
+    {
+      "id": "CUSTOM001",
+      "category": "security",
+      "severity": "critical",
+      "pattern": "(?i)eval\\s*\\(",
+      "message": "Use of eval() is prohibited - major security risk",
+      "suggestion": "Use safer alternatives like JSON.parse() or explicit function calls",
+      "languages": ["javascript", "typescript"],
+      "description": "Detects dangerous eval() usage",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM002",
+      "category": "bug",
+      "severity": "error",
+      "pattern": "fmt\\.Print[^l]",
+      "message": "Use of fmt.Print/Printf detected - prefer structured logging",
+      "suggestion": "Use log.Printf() or a structured logger like slog",
+      "languages": ["go"],
+      "description": "Enforce structured logging instead of fmt.Print",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM003",
+      "category": "style",
+      "severity": "warning",
+      "pattern": "var\\s+\\w+\\s+=\\s+new\\(",
+      "message": "Prefer := short variable declaration",
+      "suggestion": "Use := instead of var ... = new()",
+      "languages": ["go"],
+      "description": "Enforce Go idioms for variable declaration",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM004",
+      "category": "security",
+      "severity": "critical",
+      "pattern": "subprocess\\.call\\([^)]*shell\\s*=\\s*True",
+      "message": "Shell injection risk - subprocess with shell=True",
+      "suggestion": "Use shell=False and pass command as list",
+      "languages": ["python"],
+      "description": "Detects dangerous subprocess shell execution",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM005",
+      "category": "performance",
+      "severity": "info",
+      "pattern": "\\+\\=.*\\[\\]",
+      "message": "Inefficient list concatenation in loop",
+      "suggestion": "Consider using list comprehension or append to pre-allocated list",
+      "languages": ["python"],
+      "description": "Detect inefficient list building patterns",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM006",
+      "category": "maintainability",
+      "severity": "warning",
+      "pattern": "if\\s+\\w+\\s*==\\s*None:",
+      "message": "Use 'if x is None:' instead of 'if x == None:'",
+      "suggestion": "Replace == None with 'is None' for identity check",
+      "languages": ["python"],
+      "description": "Enforce Python idiom for None checks",
+      "enabled": true
+    },
+    {
+      "id": "CUSTOM007",
+      "category": "bug",
+      "severity": "error",
+      "pattern": "time\\.Sleep\\(.*\\*.*time\\.Second",
+      "message": "Potential duration overflow - multiplying time.Second",
+      "suggestion": "Use time.Duration(n) * time.Second or explicit duration",
+      "languages": ["go"],
+      "description": "Detect potential time duration overflow",
+      "enabled": false
+    }
+  ]
+}

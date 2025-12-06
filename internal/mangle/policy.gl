@@ -238,6 +238,51 @@ learned_proposal(Action) :-
 #     let Count = fn:Count().
 
 # =============================================================================
+# SECTION 7C: APPEAL MECHANISM (Constitutional Appeals)
+# =============================================================================
+# Allows users to appeal blocked actions with justification.
+# Appeals can be granted permanently or as temporary overrides.
+
+# Actions that were blocked and have appeal available can be reconsidered
+# if the appeal provides valid justification
+
+# Suggest appeal for ambiguous blocks (not dangerous patterns)
+suggest_appeal(ActionID) :-
+    appeal_available(ActionID, ActionType, Target, Reason),
+    !dangerous_action(ActionType).
+
+# Track appeals that need user review
+appeal_needs_review(ActionID, ActionType, Justification) :-
+    appeal_pending(ActionID, ActionType, Justification, _).
+
+# Override is currently active for an action type
+has_active_override(ActionType) :-
+    appeal_granted(_, ActionType, _, Timestamp),
+    temporary_override(ActionType, Duration, OverrideTime),
+    current_time(Now),
+    Now < OverrideTime + Duration.
+
+# Permanent override (no expiration)
+has_active_override(ActionType) :-
+    appeal_granted(_, ActionType, _, _),
+    !temporary_override(ActionType, _, _).
+
+# Appeal granted should permit the action
+permitted(ActionType) :-
+    has_active_override(ActionType).
+
+# Alert if too many appeals are being denied
+excessive_appeal_denials() :-
+    appeal_denied(_, _, _, _),
+    appeal_denied(_, _, _, _),
+    appeal_denied(_, _, _, _).
+
+# Signal need for policy review if appeals frequently granted
+appeal_pattern_detected(ActionType) :-
+    appeal_granted(_, ActionType, _, _),
+    appeal_granted(_, ActionType, _, _).
+
+# =============================================================================
 # SECTION 8: SHARD DELEGATION (§7.0)
 # =============================================================================
 

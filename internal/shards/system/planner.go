@@ -35,11 +35,27 @@ type AgendaItem struct {
 
 // Checkpoint represents a session checkpoint.
 type Checkpoint struct {
-	ID          string    `json:"id"`
-	Description string    `json:"description"`
-	Timestamp   time.Time `json:"timestamp"`
-	FactsCount  int       `json:"facts_count"`
-	ItemsRemaining int    `json:"items_remaining"`
+	ID             string    `json:"id"`
+	Description    string    `json:"description"`
+	Timestamp      time.Time `json:"timestamp"`
+	FactsCount     int       `json:"facts_count"`
+	ItemsRemaining int       `json:"items_remaining"`
+}
+
+// PlanView provides a structured view of the current plan.
+type PlanView struct {
+	CampaignID   string           `json:"campaign_id,omitempty"`
+	TotalTasks   int              `json:"total_tasks"`
+	Pending      int              `json:"pending"`
+	InProgress   int              `json:"in_progress"`
+	Completed    int              `json:"completed"`
+	Blocked      int              `json:"blocked"`
+	ProgressPct  float64          `json:"progress_pct"`
+	Tasks        []AgendaItem     `json:"tasks"`
+	Checkpoints  []Checkpoint     `json:"checkpoints"`
+	StartedAt    time.Time        `json:"started_at"`
+	LastActivity time.Time        `json:"last_activity"`
+	RuntimeSec   int              `json:"runtime_sec"`
 }
 
 // PlannerConfig holds configuration for the session planner.
@@ -469,6 +485,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 		}
 	}
 
+	// Emit summary status fact
 	_ = s.Kernel.Assert(core.Fact{
 		Predicate: "session_planner_status",
 		Args: []interface{}{
@@ -478,6 +495,45 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 			completed,
 			blocked,
 			time.Now().Unix(),
+		},
+	})
+
+	// Emit individual task facts for Mangle reasoning
+	for _, item := range s.agenda {
+		// Calculate progress percentage for this task
+		progressPct := 0
+		if item.Status == "completed" {
+			progressPct = 100
+		} else if item.Status == "in_progress" {
+			progressPct = 50 // Assume 50% for in-progress tasks
+		}
+
+		// Emit plan_task fact
+		_ = s.Kernel.Assert(core.Fact{
+			Predicate: "plan_task",
+			Args: []interface{}{
+				item.ID,
+				item.Description,
+				item.Status,
+				progressPct,
+			},
+		})
+	}
+
+	// Calculate overall progress
+	var progressPct float64
+	if len(s.agenda) > 0 {
+		progressPct = float64(completed) / float64(len(s.agenda)) * 100
+	}
+
+	// Emit plan_progress fact
+	_ = s.Kernel.Assert(core.Fact{
+		Predicate: "plan_progress",
+		Args: []interface{}{
+			s.activeCampaign,
+			len(s.agenda),
+			completed,
+			int(progressPct),
 		},
 	})
 }
@@ -535,6 +591,221 @@ func (s *SessionPlannerShard) AddTask(description string, priority int) string {
 	})
 
 	return item.ID
+}
+
+// GetCurrentPlan returns a structured view of the current plan.
+func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	view := &PlanView{
+		CampaignID:   s.activeCampaign,
+		TotalTasks:   len(s.agenda),
+		Tasks:        make([]AgendaItem, len(s.agenda)),
+		Checkpoints:  make([]Checkpoint, len(s.checkpoints)),
+		StartedAt:    s.StartTime,
+		LastActivity: s.lastActivity,
+	}
+
+	// Copy tasks and count by status
+	copy(view.Tasks, s.agenda)
+	for _, item := range s.agenda {
+		switch item.Status {
+		case "pending":
+			view.Pending++
+		case "in_progress":
+			view.InProgress++
+		case "completed":
+			view.Completed++
+		case "blocked":
+			view.Blocked++
+		}
+	}
+
+	// Calculate progress percentage
+	if view.TotalTasks > 0 {
+		view.ProgressPct = float64(view.Completed) / float64(view.TotalTasks) * 100
+	}
+
+	// Calculate runtime
+	view.RuntimeSec = int(time.Since(s.StartTime).Seconds())
+
+	// Copy checkpoints
+	copy(view.Checkpoints, s.checkpoints)
+
+	return view
+}
+
+// FormatPlanAsMarkdown formats the current plan as markdown for terminal display.
+func (s *SessionPlannerShard) FormatPlanAsMarkdown() string {
+	plan := s.GetCurrentPlan()
+	var sb strings.Builder
+
+	sb.WriteString("# Session Plan\n\n")
+
+	// Campaign info if applicable
+	if plan.CampaignID != "" {
+		sb.WriteString(fmt.Sprintf("**Campaign:** %s\n\n", plan.CampaignID))
+	}
+
+	// Progress summary
+	sb.WriteString("## Progress Summary\n\n")
+	sb.WriteString(fmt.Sprintf("- **Total Tasks:** %d\n", plan.TotalTasks))
+	sb.WriteString(fmt.Sprintf("- **Completed:** %d (%.1f%%)\n", plan.Completed, plan.ProgressPct))
+	sb.WriteString(fmt.Sprintf("- **In Progress:** %d\n", plan.InProgress))
+	sb.WriteString(fmt.Sprintf("- **Pending:** %d\n", plan.Pending))
+	sb.WriteString(fmt.Sprintf("- **Blocked:** %d\n", plan.Blocked))
+	sb.WriteString(fmt.Sprintf("- **Runtime:** %s\n", formatDuration(plan.RuntimeSec)))
+	sb.WriteString(fmt.Sprintf("- **Last Activity:** %s\n\n", formatRelativeTime(plan.LastActivity)))
+
+	// Progress bar
+	sb.WriteString("```\n")
+	sb.WriteString(generateProgressBar(plan.ProgressPct, 50))
+	sb.WriteString("\n```\n\n")
+
+	// Tasks by status
+	if len(plan.Tasks) > 0 {
+		// In Progress tasks
+		inProgressTasks := filterTasksByStatus(plan.Tasks, "in_progress")
+		if len(inProgressTasks) > 0 {
+			sb.WriteString("## In Progress\n\n")
+			for _, task := range inProgressTasks {
+				sb.WriteString(fmt.Sprintf("- **[%d]** %s\n", task.Priority, task.Description))
+				if len(task.Dependencies) > 0 {
+					sb.WriteString(fmt.Sprintf("  - Dependencies: %s\n", strings.Join(task.Dependencies, ", ")))
+				}
+			}
+			sb.WriteString("\n")
+		}
+
+		// Pending tasks
+		pendingTasks := filterTasksByStatus(plan.Tasks, "pending")
+		if len(pendingTasks) > 0 {
+			sb.WriteString("## Pending\n\n")
+			for _, task := range pendingTasks {
+				sb.WriteString(fmt.Sprintf("- **[%d]** %s", task.Priority, task.Description))
+				if task.EstimatedMin > 0 {
+					sb.WriteString(fmt.Sprintf(" (~%dm)", task.EstimatedMin))
+				}
+				sb.WriteString("\n")
+				if len(task.Dependencies) > 0 {
+					sb.WriteString(fmt.Sprintf("  - Dependencies: %s\n", strings.Join(task.Dependencies, ", ")))
+				}
+			}
+			sb.WriteString("\n")
+		}
+
+		// Blocked tasks
+		blockedTasks := filterTasksByStatus(plan.Tasks, "blocked")
+		if len(blockedTasks) > 0 {
+			sb.WriteString("## Blocked\n\n")
+			for _, task := range blockedTasks {
+				sb.WriteString(fmt.Sprintf("- **[%d]** %s\n", task.Priority, task.Description))
+			}
+			sb.WriteString("\n")
+		}
+
+		// Completed tasks (limited to last 5)
+		completedTasks := filterTasksByStatus(plan.Tasks, "completed")
+		if len(completedTasks) > 0 {
+			sb.WriteString("## Recently Completed\n\n")
+			displayCount := len(completedTasks)
+			if displayCount > 5 {
+				displayCount = 5
+			}
+			for i := len(completedTasks) - displayCount; i < len(completedTasks); i++ {
+				task := completedTasks[i]
+				sb.WriteString(fmt.Sprintf("- ✓ %s", task.Description))
+				if !task.CompletedAt.IsZero() {
+					sb.WriteString(fmt.Sprintf(" (%s)", formatRelativeTime(task.CompletedAt)))
+				}
+				sb.WriteString("\n")
+			}
+			if len(completedTasks) > 5 {
+				sb.WriteString(fmt.Sprintf("\n_...and %d more_\n", len(completedTasks)-5))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// Checkpoints
+	if len(plan.Checkpoints) > 0 {
+		sb.WriteString("## Checkpoints\n\n")
+		displayCount := len(plan.Checkpoints)
+		if displayCount > 3 {
+			displayCount = 3
+		}
+		for i := len(plan.Checkpoints) - displayCount; i < len(plan.Checkpoints); i++ {
+			cp := plan.Checkpoints[i]
+			sb.WriteString(fmt.Sprintf("- **%s** - %s (%d tasks remaining)\n",
+				cp.ID, formatRelativeTime(cp.Timestamp), cp.ItemsRemaining))
+		}
+		if len(plan.Checkpoints) > 3 {
+			sb.WriteString(fmt.Sprintf("\n_...and %d more_\n", len(plan.Checkpoints)-3))
+		}
+	}
+
+	return sb.String()
+}
+
+// FormatPlanAsJSON formats the current plan as JSON for programmatic access.
+func (s *SessionPlannerShard) FormatPlanAsJSON() string {
+	plan := s.GetCurrentPlan()
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"error": "failed to marshal plan: %s"}`, err.Error())
+	}
+	return string(data)
+}
+
+// Helper functions for formatting
+
+func filterTasksByStatus(tasks []AgendaItem, status string) []AgendaItem {
+	var result []AgendaItem
+	for _, task := range tasks {
+		if task.Status == status {
+			result = append(result, task)
+		}
+	}
+	return result
+}
+
+func formatDuration(seconds int) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm %ds", minutes, seconds%60)
+	}
+	hours := minutes / 60
+	return fmt.Sprintf("%dh %dm", hours, minutes%60)
+}
+
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	duration := time.Since(t)
+	if duration < time.Minute {
+		return "just now"
+	}
+	if duration < time.Hour {
+		return fmt.Sprintf("%dm ago", int(duration.Minutes()))
+	}
+	if duration < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(duration.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(duration.Hours()/24))
+}
+
+func generateProgressBar(percent float64, width int) string {
+	filled := int(percent / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	return fmt.Sprintf("[%s] %.1f%%", bar, percent)
 }
 
 // plannerSystemPrompt is the system prompt for goal decomposition.

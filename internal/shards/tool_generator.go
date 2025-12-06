@@ -141,6 +141,13 @@ func (s *ToolGeneratorShard) Stop() error {
 	return nil
 }
 
+// GetKernel returns the shard's kernel (for fact propagation).
+func (s *ToolGeneratorShard) GetKernel() *core.RealKernel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.kernel
+}
+
 // Execute executes a tool generation task.
 func (s *ToolGeneratorShard) Execute(ctx context.Context, task string) (string, error) {
 	s.mu.Lock()
