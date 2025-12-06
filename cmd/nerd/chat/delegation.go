@@ -160,6 +160,20 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 		defer cancel()
 
 		result, err := m.shardMgr.Spawn(ctx, shardType, task)
+
+		// Generate a shard ID for fact tracking
+		shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+
+		// CRITICAL FIX: Convert shard result to facts and inject into kernel
+		// This is the missing bridge that enables cross-turn context propagation
+		facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+		if m.kernel != nil && len(facts) > 0 {
+			if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
+				// Log but don't fail - the response should still be shown
+				fmt.Printf("[ShardFacts] Warning: failed to inject facts: %v\n", loadErr)
+			}
+		}
+
 		if err != nil {
 			return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
 		}

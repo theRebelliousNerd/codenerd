@@ -8,6 +8,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/verification"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -70,15 +71,88 @@ func articulateWithContext(ctx context.Context, client perception.LLMClient, int
 	return output.Surface, nil
 }
 
+// ConversationContext holds recent conversation history for LLM context injection.
+// This enables fluid conversation by providing the LLM with recent turns.
+type ConversationContext struct {
+	RecentTurns     []Message              // Last N conversation turns
+	LastShardResult *ShardResult           // Most recent shard output for follow-ups
+	TurnNumber      int                    // Current turn number
+}
+
 // articulateWithContextFull performs articulation and returns full structured output.
 // This enhanced version properly extracts all control packet data for the compressor.
 func articulateWithContextFull(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (*ArticulationOutput, error) {
+	// Use the new version with nil conversation context for backward compatibility
+	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil)
+}
+
+// articulateWithConversation performs articulation with full conversation context.
+// This is the new entry point that enables fluid conversational follow-ups.
+func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext) (*ArticulationOutput, error) {
 	var sb strings.Builder
 
 	if systemPrompt != "" {
 		sb.WriteString("System Instructions:\n")
 		sb.WriteString(systemPrompt)
 		sb.WriteString("\n\n")
+	}
+
+	// =========================================================================
+	// CONVERSATION HISTORY INJECTION (Critical for fluid chat)
+	// =========================================================================
+	// Include recent conversation turns so the LLM understands context.
+	// This enables follow-up questions like "what are the other suggestions?"
+	if convCtx != nil && len(convCtx.RecentTurns) > 0 {
+		sb.WriteString("## Recent Conversation History\n")
+		sb.WriteString("(Use this context to understand follow-up questions)\n\n")
+		for _, turn := range convCtx.RecentTurns {
+			if turn.Role == "user" {
+				sb.WriteString(fmt.Sprintf("**User**: %s\n", turn.Content))
+			} else {
+				// Truncate long assistant responses
+				content := turn.Content
+				if len(content) > 500 {
+					content = content[:500] + "\n... (truncated)"
+				}
+				sb.WriteString(fmt.Sprintf("**Assistant**: %s\n", content))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// =========================================================================
+	// LAST SHARD RESULT INJECTION (Critical for follow-up queries)
+	// =========================================================================
+	// If there's a recent shard result, include it so follow-ups work.
+	// This enables "what are the other warnings?" after a review.
+	if convCtx != nil && convCtx.LastShardResult != nil {
+		sr := convCtx.LastShardResult
+		sb.WriteString("## Last Shard Execution Result\n")
+		sb.WriteString(fmt.Sprintf("**Type**: %s\n", sr.ShardType))
+		sb.WriteString(fmt.Sprintf("**Task**: %s\n", sr.Task))
+		sb.WriteString(fmt.Sprintf("**Turn**: %d\n\n", sr.TurnNumber))
+
+		// Include structured findings if available (for reviewer)
+		if len(sr.Findings) > 0 {
+			sb.WriteString("### All Findings (use for follow-up queries)\n")
+			for i, finding := range sr.Findings {
+				sb.WriteString(fmt.Sprintf("%d. ", i+1))
+				for k, v := range finding {
+					sb.WriteString(fmt.Sprintf("%s=%v ", k, v))
+				}
+				sb.WriteString("\n")
+			}
+			sb.WriteString("\n")
+		}
+
+		// Include metrics if available
+		if len(sr.Metrics) > 0 {
+			sb.WriteString("### Metrics\n")
+			for k, v := range sr.Metrics {
+				sb.WriteString(fmt.Sprintf("- %s: %v\n", k, v))
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	if len(contextFacts) > 0 {
@@ -768,4 +842,91 @@ func (m Model) generateTool(description string) tea.Cmd {
 
 		return responseMsg(sb.String())
 	}
+}
+
+// =============================================================================
+// VERIFICATION HELPERS
+// =============================================================================
+
+// formatVerifiedResponse formats a response that passed verification.
+func formatVerifiedResponse(
+	intent perception.Intent,
+	shardType string,
+	task string,
+	result string,
+	verificationResult *verification.VerificationResult,
+) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("## %s Result\n\n", strings.Title(shardType)))
+
+	if verificationResult != nil {
+		sb.WriteString(fmt.Sprintf("**Verification**: ✅ Passed (confidence: %.0f%%)\n\n",
+			verificationResult.Confidence*100))
+	}
+
+	sb.WriteString("### Output\n\n")
+	// Truncate very long results
+	if len(result) > 2000 {
+		sb.WriteString(result[:2000])
+		sb.WriteString("\n\n... (truncated)\n")
+	} else {
+		sb.WriteString(result)
+	}
+
+	return sb.String()
+}
+
+// formatVerificationEscalation formats a response when verification fails after max retries.
+func formatVerificationEscalation(
+	task string,
+	shardType string,
+	verificationResult *verification.VerificationResult,
+) string {
+	var sb strings.Builder
+
+	sb.WriteString("## ⚠️ Task Escalation Required\n\n")
+	sb.WriteString("The task could not be completed to quality standards after multiple attempts.\n\n")
+
+	sb.WriteString("### Task\n")
+	sb.WriteString(task)
+	sb.WriteString("\n\n")
+
+	sb.WriteString(fmt.Sprintf("### Shard Used: %s\n\n", shardType))
+
+	if verificationResult != nil {
+		sb.WriteString("### Last Verification Result\n\n")
+		sb.WriteString(fmt.Sprintf("**Reason**: %s\n\n", verificationResult.Reason))
+
+		if len(verificationResult.QualityViolations) > 0 {
+			sb.WriteString("**Quality Violations Detected**:\n")
+			for _, v := range verificationResult.QualityViolations {
+				sb.WriteString(fmt.Sprintf("- %s\n", v))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(verificationResult.Evidence) > 0 {
+			sb.WriteString("**Evidence**:\n")
+			for _, e := range verificationResult.Evidence {
+				sb.WriteString(fmt.Sprintf("- %s\n", e))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(verificationResult.Suggestions) > 0 {
+			sb.WriteString("**Suggestions**:\n")
+			for _, s := range verificationResult.Suggestions {
+				sb.WriteString(fmt.Sprintf("- %s\n", s))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString("### Next Steps\n\n")
+	sb.WriteString("- Provide more specific requirements\n")
+	sb.WriteString("- Break the task into smaller steps\n")
+	sb.WriteString("- Try a different approach or shard\n")
+
+	return sb.String()
 }

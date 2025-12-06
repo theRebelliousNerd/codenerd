@@ -891,7 +891,10 @@ func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
 		match := true
 		for i, arg := range args {
 			if i < len(f.Args) && arg != "" {
-				if fmt.Sprintf("%v", f.Args[i]) != arg {
+				stored := fmt.Sprintf("%v", f.Args[i])
+				// Handle Mangle named constants (prefixed with /)
+				// Compare both the raw value and stripped version
+				if stored != arg && stored != "/"+arg && strings.TrimPrefix(stored, "/") != arg {
 					match = false
 					break
 				}

@@ -770,7 +770,7 @@ constraint_violation(Action, Reason) :-
 
 # 3. User facts inform context
 # Facts about the user/project activate relevant context
-context_atom(Fact) :-
+context_atom(fn:pair(Pred, Args)) :-
     learned_fact(Pred, Args),
     relevant_to_intent(Pred, Intent),
     user_intent(_, _, _, _, Intent).
@@ -1818,3 +1818,372 @@ requires_contract_check(Ref) :-
 api_edit_warning(Ref, "no_integration_test") :-
     api_client_function(Ref, _, _),
     element_modified(Ref, _, _).
+
+# =============================================================================
+# SECTION 23: VERIFICATION LOOP POLICY (Post-Execution Quality Enforcement)
+# =============================================================================
+# Implements the quality-enforcing verification loop that ensures tasks are
+# completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
+# Per plan: Execute → Verify → Corrective Action → Retry (max 3)
+
+# -----------------------------------------------------------------------------
+# 23.1 Verification State Management
+# -----------------------------------------------------------------------------
+
+# Task has any quality violation
+has_quality_violation(TaskID) :-
+    quality_violation(TaskID, _).
+
+# Task passed verification (successful with no violations)
+verification_succeeded(TaskID) :-
+    verification_attempt(TaskID, _, /success),
+    !has_quality_violation(TaskID).
+
+# Block further execution after max retries (3 attempts)
+verification_blocked(TaskID) :-
+    verification_attempt(TaskID, 3, /failure).
+
+# -----------------------------------------------------------------------------
+# 23.2 Corrective Action Triggers
+# -----------------------------------------------------------------------------
+
+# Task needs corrective action if verification failed and not blocked
+needs_corrective_action(TaskID) :-
+    verification_attempt(TaskID, AttemptNum, /failure),
+    AttemptNum < 3,
+    !verification_blocked(TaskID).
+
+# Specific corrective action based on violation type
+
+# Mock code → needs research for real implementation
+next_action(/corrective_research) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /mock_code),
+    needs_corrective_action(TaskID).
+
+# Placeholder code → needs research for proper implementation
+next_action(/corrective_research) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /placeholder),
+    needs_corrective_action(TaskID).
+
+# Hallucinated API → needs documentation lookup
+next_action(/corrective_docs) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /hallucinated_api),
+    needs_corrective_action(TaskID).
+
+# Incomplete implementation → may need decomposition
+next_action(/corrective_decompose) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /incomplete),
+    needs_corrective_action(TaskID).
+
+# Missing error handling → needs docs/examples
+next_action(/corrective_docs) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /missing_errors),
+    needs_corrective_action(TaskID).
+
+# Fake tests → needs research on testing patterns
+next_action(/corrective_research) :-
+    current_task(TaskID),
+    quality_violation(TaskID, /fake_tests),
+    needs_corrective_action(TaskID).
+
+# -----------------------------------------------------------------------------
+# 23.3 Escalation Logic
+# -----------------------------------------------------------------------------
+
+# Escalation required when max retries exceeded
+escalation_required(TaskID, "max_retries_exceeded") :-
+    verification_blocked(TaskID),
+    current_task(TaskID).
+
+# Escalation triggers next_action
+next_action(/escalate_to_user) :-
+    escalation_required(_, _).
+
+# Block all other actions during escalation
+block_all_actions("verification_escalation") :-
+    escalation_required(_, _).
+
+# -----------------------------------------------------------------------------
+# 23.4 Learning Signals from Quality Violations
+# -----------------------------------------------------------------------------
+
+# Learn to avoid mock code patterns
+learning_signal(/avoid_mock_code) :-
+    quality_violation(_, /mock_code).
+
+# Learn to avoid placeholder patterns
+learning_signal(/avoid_placeholders) :-
+    quality_violation(_, /placeholder).
+
+# Learn to avoid hallucinated APIs
+learning_signal(/avoid_hallucinated_api) :-
+    quality_violation(_, /hallucinated_api).
+
+# Learn to avoid incomplete implementations
+learning_signal(/avoid_incomplete) :-
+    quality_violation(_, /incomplete).
+
+# Learn to avoid fake tests
+learning_signal(/avoid_fake_tests) :-
+    quality_violation(_, /fake_tests).
+
+# Learn to include error handling
+learning_signal(/require_error_handling) :-
+    quality_violation(_, /missing_errors).
+
+# Promote learning signals to long-term memory after repeated violations
+promote_to_long_term(/quality_pattern, ViolationType) :-
+    quality_violation(Task1, ViolationType),
+    quality_violation(Task2, ViolationType),
+    quality_violation(Task3, ViolationType),
+    Task1 != Task2,
+    Task2 != Task3,
+    Task1 != Task3.
+
+# -----------------------------------------------------------------------------
+# 23.5 Shard Selection for Retries
+# -----------------------------------------------------------------------------
+
+# Prefer specialist shards for complex tasks after failure
+delegate_task(/specialist, TaskID, /pending) :-
+    current_task(TaskID),
+    verification_attempt(TaskID, AttemptNum, /failure),
+    AttemptNum >= 1,
+    shard_profile(_, /specialist, _).
+
+# Delegate to researcher when documentation is needed
+delegate_task(/researcher, Query, /pending) :-
+    current_task(TaskID),
+    corrective_query(TaskID, _, Query),
+    corrective_action_taken(TaskID, /research).
+
+# Delegate to researcher when docs lookup needed
+delegate_task(/researcher, Query, /pending) :-
+    current_task(TaskID),
+    corrective_query(TaskID, _, Query),
+    corrective_action_taken(TaskID, /docs).
+
+# -----------------------------------------------------------------------------
+# 23.6 Verification Strategy Selection
+# -----------------------------------------------------------------------------
+
+# Activate verification strategy when task has been executed
+active_strategy(/verification_loop) :-
+    current_task(TaskID),
+    verification_attempt(TaskID, _, _).
+
+# Block normal task execution when in verification failure state
+execution_blocked("verification_in_progress") :-
+    current_task(TaskID),
+    needs_corrective_action(TaskID).
+
+# -----------------------------------------------------------------------------
+# 23.7 Quality Gate Integration with Commit Barrier
+# -----------------------------------------------------------------------------
+
+# Block commit if any task has unresolved quality violations
+block_commit("Quality Violations") :-
+    has_quality_violation(_).
+
+# Block commit if verification is blocked (max retries reached)
+block_commit("Verification Failed") :-
+    verification_blocked(_).
+
+# -----------------------------------------------------------------------------
+# 23.8 Context Enrichment Tracking
+# -----------------------------------------------------------------------------
+
+# Track successful corrective actions for learning
+corrective_action_effective(TaskID, ActionType) :-
+    corrective_action_taken(TaskID, ActionType),
+    verification_attempt(TaskID, AttemptNum, /failure),
+    verification_attempt(TaskID, NextAttempt, /success),
+    NextAttempt > AttemptNum.
+
+# Learn from effective corrective actions
+learning_signal(/effective_correction, ActionType) :-
+    corrective_action_effective(_, ActionType).
+
+# -----------------------------------------------------------------------------
+# 23.9 Verification Metrics (for monitoring)
+# -----------------------------------------------------------------------------
+
+# Helper: track tasks that succeeded on first attempt
+first_attempt_success(TaskID) :-
+    verification_attempt(TaskID, 1, /success),
+    !has_quality_violation(TaskID).
+
+# Helper: track tasks that required retries
+required_retry(TaskID) :-
+    verification_attempt(TaskID, AttemptNum, /success),
+    AttemptNum > 1.
+
+# Helper: track specific violation types for analytics
+violation_type_count_high(ViolationType) :-
+    quality_violation(T1, ViolationType),
+    quality_violation(T2, ViolationType),
+    quality_violation(T3, ViolationType),
+    quality_violation(T4, ViolationType),
+    quality_violation(T5, ViolationType),
+    T1 != T2, T2 != T3, T3 != T4, T4 != T5.
+
+# Trigger rule proposal for high-frequency violations
+propose_new_rule(/verification_policy) :-
+    violation_type_count_high(_).
+
+# =============================================================================
+# SECTION 24: REASONING TRACE POLICY (Shard Learning from Traces)
+# =============================================================================
+# Rules for analyzing shard LLM traces and deriving learning signals.
+# Covers all 4 shard types: system, ephemeral, LLM-created, user-created specialists.
+
+# -----------------------------------------------------------------------------
+# 24.1 Trace Quality Tracking
+# -----------------------------------------------------------------------------
+
+# Low quality trace (needs review)
+low_quality_trace(TraceID) :-
+    trace_quality(TraceID, Score),
+    Score < 0.5.
+
+# High quality trace (good for learning)
+high_quality_trace(TraceID) :-
+    trace_quality(TraceID, Score),
+    Score >= 0.8.
+
+# -----------------------------------------------------------------------------
+# 24.2 Shard Performance Patterns
+# -----------------------------------------------------------------------------
+
+# Shard has high failure rate (3+ consecutive failures)
+shard_struggling(ShardType) :-
+    reasoning_trace(T1, ShardType, _, _, /false, _),
+    reasoning_trace(T2, ShardType, _, _, /false, _),
+    reasoning_trace(T3, ShardType, _, _, /false, _),
+    T1 != T2,
+    T2 != T3,
+    T1 != T3.
+
+# Shard is performing well (5+ consecutive successes)
+shard_performing_well(ShardType) :-
+    reasoning_trace(T1, ShardType, _, _, /true, _),
+    reasoning_trace(T2, ShardType, _, _, /true, _),
+    reasoning_trace(T3, ShardType, _, _, /true, _),
+    reasoning_trace(T4, ShardType, _, _, /true, _),
+    reasoning_trace(T5, ShardType, _, _, /true, _),
+    T1 != T2,
+    T2 != T3,
+    T3 != T4,
+    T4 != T5.
+
+# Detect slow reasoning (> 30 seconds)
+slow_reasoning_detected(ShardType) :-
+    reasoning_trace(_, ShardType, _, _, _, DurationMs),
+    DurationMs > 30000.
+
+# -----------------------------------------------------------------------------
+# 24.3 Learning Signals from Traces
+# -----------------------------------------------------------------------------
+
+# Learn from repeated failures - shard needs help
+learning_from_traces(/shard_needs_help, ShardType) :-
+    shard_struggling(ShardType).
+
+# Learn from success patterns
+learning_from_traces(/success_pattern, ShardType) :-
+    shard_performing_well(ShardType).
+
+# Learn from slow traces (performance issue)
+learning_from_traces(/slow_reasoning, ShardType) :-
+    slow_reasoning_detected(ShardType).
+
+# Promote learning signals to long-term memory
+promote_to_long_term(/shard_pattern, ShardType) :-
+    learning_from_traces(_, ShardType).
+
+# -----------------------------------------------------------------------------
+# 24.4 Cross-Shard Learning (Specialist vs Ephemeral)
+# -----------------------------------------------------------------------------
+
+# Specialist outperforms ephemeral for same task type
+specialist_outperforms(SpecialistName, TaskType) :-
+    reasoning_trace(T1, SpecialistName, /specialist, _, /true, _),
+    reasoning_trace(T2, /coder, /ephemeral, _, /false, _),
+    trace_task_type(T1, TaskType),
+    trace_task_type(T2, TaskType).
+
+# Suggest using specialist instead of ephemeral
+suggest_use_specialist(TaskType, SpecialistName) :-
+    specialist_outperforms(SpecialistName, TaskType).
+
+# Suggest switching shard when current one struggles
+shard_switch_suggestion(TaskType, CurrentShard, AlternateShard) :-
+    shard_struggling(CurrentShard),
+    shard_performing_well(AlternateShard),
+    shard_can_handle(AlternateShard, TaskType).
+
+# -----------------------------------------------------------------------------
+# 24.5 Trace-Based Context Enhancement
+# -----------------------------------------------------------------------------
+
+# Boost activation for successful trace patterns in current session
+activation(TraceID, 80) :-
+    high_quality_trace(TraceID),
+    reasoning_trace(TraceID, ShardType, _, SessionID, /true, _),
+    session_state(SessionID, /active, _).
+
+# Suppress failed trace patterns
+activation(TraceID, -30) :-
+    low_quality_trace(TraceID),
+    reasoning_trace(TraceID, _, _, _, /false, _).
+
+# -----------------------------------------------------------------------------
+# 24.6 Corrective Actions Based on Traces
+# -----------------------------------------------------------------------------
+
+# Escalate if multiple shards struggling
+escalation_needed(/system_health, /shard_performance, "Multiple shards struggling") :-
+    shard_struggling(Shard1),
+    shard_struggling(Shard2),
+    Shard1 != Shard2.
+
+# Suggest spawning researcher for failed traces with unknown errors
+delegate_task(/researcher, TaskContext, /pending) :-
+    reasoning_trace(TraceID, _, _, _, /false, _),
+    trace_error(TraceID, /unknown),
+    trace_task_type(TraceID, TaskContext).
+
+# -----------------------------------------------------------------------------
+# 24.7 System Shard Trace Monitoring
+# -----------------------------------------------------------------------------
+
+# System shard traces get special attention
+activation(TraceID, 90) :-
+    reasoning_trace(TraceID, _, /system, _, _, _).
+
+# Alert on system shard failures
+escalation_needed(/system_health, ShardType, "System shard failure") :-
+    reasoning_trace(_, ShardType, /system, _, /false, _).
+
+# -----------------------------------------------------------------------------
+# 24.8 Specialist Knowledge Hydration from Traces
+# -----------------------------------------------------------------------------
+
+# Specialist with good traces should be preferred for similar tasks
+delegate_task(SpecialistName, Task, /pending) :-
+    shard_performing_well(SpecialistName),
+    shard_profile(SpecialistName, /specialist, _),
+    trace_task_type(_, TaskType),
+    shard_can_handle(SpecialistName, TaskType),
+    user_intent(_, _, _, Task, _).
+
+# Learn which tasks specialists handle well
+shard_can_handle(ShardType, TaskType) :-
+    reasoning_trace(TraceID, ShardType, /specialist, _, /true, _),
+    trace_task_type(TraceID, TaskType),
+    high_quality_trace(TraceID).

@@ -18,7 +18,8 @@
       "Bash(dir /b \"c:\\CodeProjects\\codeNERD\\internal\\shards\")",
       "Skill(mangle-programming)",
       "Bash(go build:*)",
-      "Bash(./nerd.exe:*)"
+      "Bash(./nerd.exe:*)",
+      "Bash(timeout 30:*)"
     ],
     "deny": [],
     "ask": []

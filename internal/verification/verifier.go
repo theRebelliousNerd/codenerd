@@ -48,9 +48,19 @@ const (
 
 // CorrectiveAction describes what action to take to fix a verification failure.
 type CorrectiveAction struct {
-	Type   CorrectiveType `json:"type"`
-	Query  string         `json:"query"`
-	Reason string         `json:"reason"`
+	Type      CorrectiveType `json:"type"`
+	Query     string         `json:"query"`
+	Reason    string         `json:"reason"`
+	ShardHint string         `json:"shard_hint,omitempty"` // Suggested shard to use
+}
+
+// ShardSelectionResult contains the decision about which shard to use.
+type ShardSelectionResult struct {
+	ShardType   string   // Selected shard type
+	ShardName   string   // Specific shard name (for specialists)
+	Reason      string   // Why this shard was selected
+	Confidence  float64  // Confidence in this selection
+	Alternatives []string // Other shards that could work
 }
 
 // VerificationResult contains the outcome of verifying a task result.
@@ -105,6 +115,8 @@ func (v *TaskVerifier) SetSessionContext(sessionID string, turnCount int) {
 
 // VerifyWithRetry is the main entry point - loops until success or max retries.
 // It executes the shard, verifies quality, and applies corrective actions if needed.
+// Uses intelligent shard selection to pick the best shard for each retry across all 4 types:
+// system shards, LLM-created specialists, user-created specialists, and ephemeral shards.
 func (v *TaskVerifier) VerifyWithRetry(
 	ctx context.Context,
 	task string,
@@ -118,10 +130,11 @@ func (v *TaskVerifier) VerifyWithRetry(
 	var lastResult string
 	var lastVerification *VerificationResult
 	currentTask := task
+	currentShardType := shardType
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// 1. Execute shard
-		result, err := v.shardMgr.Spawn(ctx, shardType, currentTask)
+		// 1. Execute shard (uses selected shard type which may change between attempts)
+		result, err := v.shardMgr.Spawn(ctx, currentShardType, currentTask)
 		if err != nil {
 			// Shard execution failed - not a verification issue
 			return "", nil, fmt.Errorf("shard execution failed: %w", err)
@@ -142,14 +155,23 @@ func (v *TaskVerifier) VerifyWithRetry(
 
 		// 3. Success? We're done
 		if verification.Success && len(verification.QualityViolations) == 0 {
-			v.storeVerification(currentTask, shardType, verification, attempt, true)
+			v.storeVerification(currentTask, currentShardType, verification, attempt, true)
 			return result, verification, nil
 		}
 
 		// 4. Store failed attempt for learning
-		v.storeVerification(currentTask, shardType, verification, attempt, false)
+		v.storeVerification(currentTask, currentShardType, verification, attempt, false)
 
-		// 5. Apply corrective action if suggested
+		// 5. Intelligent shard selection for retry
+		// Consider all 4 types: system, LLM-created specialists, user-created specialists, ephemeral
+		if attempt < maxRetries-1 {
+			shardSelection := v.selectBestShard(ctx, currentTask, currentShardType, verification)
+			if shardSelection != nil && shardSelection.ShardType != "" {
+				currentShardType = shardSelection.ShardType
+			}
+		}
+
+		// 6. Apply corrective action if suggested
 		if verification.CorrectiveAction != nil && attempt < maxRetries-1 {
 			additionalContext := v.applyCorrectiveAction(ctx, verification.CorrectiveAction)
 			if additionalContext != "" {
@@ -162,13 +184,64 @@ func (v *TaskVerifier) VerifyWithRetry(
 	return lastResult, lastVerification, ErrMaxRetriesExceeded
 }
 
+// isReviewTask checks if the task is a review/analysis task (not implementation).
+func isReviewTask(task string) bool {
+	lower := strings.ToLower(task)
+	reviewKeywords := []string{
+		"review", "analyze", "security_scan", "complexity",
+		"audit", "inspect", "examine", "assess", "evaluate",
+	}
+	for _, kw := range reviewKeywords {
+		if strings.HasPrefix(lower, kw) || strings.Contains(lower, kw+" ") {
+			return true
+		}
+	}
+	return false
+}
+
 // verifyTask uses LLM to assess if the task was completed properly.
 func (v *TaskVerifier) verifyTask(ctx context.Context, task, result string) (*VerificationResult, error) {
 	if v.client == nil {
 		return &VerificationResult{Success: true, Confidence: 0.5, Reason: "No LLM client for verification"}, nil
 	}
 
-	systemPrompt := `You are a strict code quality verifier. Your job is to ensure tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
+	// Use different verification criteria for review vs implementation tasks
+	var systemPrompt string
+	if isReviewTask(task) {
+		// REVIEW TASK: Verify the review output is useful, not the code being reviewed
+		systemPrompt = `You are verifying a CODE REVIEW task. The shard was asked to review/analyze existing code.
+
+## What to Check (Review Quality)
+- Did the review provide useful analysis of the code?
+- Did it identify issues, patterns, or areas for improvement?
+- Is the review output coherent and actionable?
+
+## What NOT to Check
+- DO NOT fail because the CODE BEING REVIEWED is incomplete or has issues
+- The reviewer's job is to REPORT problems, not fix them
+- If the reviewer correctly identifies that code is incomplete, that's SUCCESS
+
+## Quality Violations for Reviews
+- Empty or meaningless review output
+- Review that doesn't actually analyze the code
+- Hallucinated file contents or made-up code snippets
+- Review that contradicts obvious facts about the code
+
+## Response Format (JSON only)
+{
+  "success": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "explanation of review quality",
+  "quality_violations": [],
+  "evidence": [],
+  "suggestions": []
+}
+
+IMPORTANT: A review that correctly reports incomplete code is SUCCESSFUL.
+Only return the JSON object, no other text.`
+	} else {
+		// IMPLEMENTATION TASK: Check for quality violations in generated code
+		systemPrompt = `You are a strict code quality verifier. Your job is to ensure tasks are completed PROPERLY - no shortcuts, no mock code, no corner-cutting.
 
 ## Quality Violations to Detect
 - Mock implementations (func Mock..., fake data, // mock, mockImplementation)
@@ -196,6 +269,7 @@ func (v *TaskVerifier) verifyTask(ctx context.Context, task, result string) (*Ve
 
 CRITICAL: If you detect ANY quality violations, success MUST be false.
 Only return the JSON object, no other text.`
+	}
 
 	userPrompt := fmt.Sprintf(`## Task
 %s
@@ -221,14 +295,33 @@ Analyze this result for quality violations and determine if the task was complet
 }
 
 // applyCorrectiveAction gathers additional context based on failure analysis.
+// Priority: 1) Existing specialist shards, 2) Context7 docs, 3) Researcher web search
 func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *CorrectiveAction) string {
 	if action == nil {
 		return ""
 	}
 
+	// FIRST: Check if we have a specialist shard that can help
+	// This avoids unnecessary Context7 API calls when we have local knowledge
+	if action.ShardHint != "" && v.shardMgr != nil {
+		if specialist := v.findMatchingSpecialist(action.ShardHint, action.Query); specialist != "" {
+			result, err := v.shardMgr.Spawn(ctx, specialist, action.Query)
+			if err == nil && result != "" {
+				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
+			}
+		}
+	}
+
 	switch action.Type {
 	case CorrectiveResearch:
-		// Spawn ResearcherShard to gather context from web
+		// Check for specialist before web research
+		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && v.shardMgr != nil {
+			result, err := v.shardMgr.Spawn(ctx, specialist, action.Query)
+			if err == nil && result != "" {
+				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
+			}
+		}
+		// Fallback to web research
 		if v.shardMgr != nil {
 			result, err := v.shardMgr.Spawn(ctx, "researcher", "research: "+action.Query)
 			if err == nil && result != "" {
@@ -237,14 +330,23 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		}
 
 	case CorrectiveDocs:
-		// Use Context7 API for LLM-optimized documentation
+		// PRIORITY 1: Check for specialist with pre-built knowledge
+		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && v.shardMgr != nil {
+			result, err := v.shardMgr.Spawn(ctx, specialist, "docs: "+action.Query)
+			if err == nil && result != "" {
+				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, truncateContext(result, 2000))
+			}
+		}
+
+		// PRIORITY 2: Context7 API (external LLM-optimized docs)
 		if v.context7Key != "" {
 			docs := v.fetchContext7Docs(ctx, action.Query)
 			if docs != "" {
 				return fmt.Sprintf("## Documentation\n%s", truncateContext(docs, 2000))
 			}
 		}
-		// Fallback to researcher if no Context7 key
+
+		// PRIORITY 3: Researcher web fallback
 		if v.shardMgr != nil {
 			result, err := v.shardMgr.Spawn(ctx, "researcher", "research docs: "+action.Query)
 			if err == nil && result != "" {
@@ -256,9 +358,9 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		// Use Autopoiesis to generate missing tool
 		if v.autopoiesis != nil {
 			toolNeed := &autopoiesis.ToolNeed{
-				Name:        action.Query,
-				Description: action.Reason,
-				Confidence:  0.8,
+				Name:       action.Query,
+				Purpose:    action.Reason,
+				Confidence: 0.8,
 			}
 			tool, err := v.autopoiesis.GenerateTool(ctx, toolNeed)
 			if err == nil && tool != nil {
@@ -269,6 +371,65 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 	case CorrectiveDecompose:
 		// Return hint to break task into smaller pieces
 		return fmt.Sprintf("## Task Decomposition Needed\nBreak this task into smaller steps: %s", action.Query)
+	}
+
+	return ""
+}
+
+// findMatchingSpecialist checks if we have a specialist shard that matches the query.
+// Returns the specialist name if found, empty string otherwise.
+func (v *TaskVerifier) findMatchingSpecialist(hint, query string) string {
+	if v.shardMgr == nil {
+		return ""
+	}
+
+	// Get available shards
+	available := v.shardMgr.ListAvailableShards()
+
+	// Technology keywords to match against specialist names
+	techKeywords := map[string][]string{
+		"rod":     {"browser", "rod", "cdp", "devtools", "scraping", "automation", "chromium"},
+		"golang":  {"go", "golang", "goroutine", "channel", "interface"},
+		"react":   {"react", "jsx", "tsx", "component", "hook", "usestate"},
+		"mangle":  {"mangle", "datalog", "logic", "predicate", "rule"},
+		"sql":     {"sql", "database", "query", "postgres", "sqlite", "mysql"},
+		"api":     {"api", "rest", "http", "endpoint", "handler"},
+		"testing": {"test", "spec", "coverage", "mock", "assert"},
+	}
+
+	queryLower := strings.ToLower(query)
+	hintLower := strings.ToLower(hint)
+
+	// First check if hint directly matches a specialist
+	if hint != "" {
+		for _, shard := range available {
+			if strings.EqualFold(shard.Name, hint) && shard.Type == "specialist" {
+				return shard.Name
+			}
+		}
+	}
+
+	// Then check query keywords against specialist knowledge domains
+	for _, shard := range available {
+		if shard.Type != "specialist" {
+			continue
+		}
+
+		shardLower := strings.ToLower(shard.Name)
+
+		// Check if shard name appears in query
+		if strings.Contains(queryLower, shardLower) || strings.Contains(hintLower, shardLower) {
+			return shard.Name
+		}
+
+		// Check tech keywords
+		if keywords, ok := techKeywords[shardLower]; ok {
+			for _, kw := range keywords {
+				if strings.Contains(queryLower, kw) {
+					return shard.Name
+				}
+			}
+		}
 	}
 
 	return ""
@@ -439,4 +600,160 @@ func truncateContext(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "\n... [truncated]"
+}
+
+// selectBestShard analyzes the failure and selects the best shard to fix it.
+// It considers all 4 shard types: system, LLM-created specialists, user-created specialists, and ephemeral.
+func (v *TaskVerifier) selectBestShard(
+	ctx context.Context,
+	task string,
+	originalShardType string,
+	verification *VerificationResult,
+) *ShardSelectionResult {
+	if v.shardMgr == nil || v.client == nil {
+		return &ShardSelectionResult{
+			ShardType:  originalShardType,
+			Reason:     "No shard manager or LLM client available",
+			Confidence: 0.5,
+		}
+	}
+
+	// Get all available shards from the manager
+	availableShards := v.shardMgr.ListAvailableShards()
+
+	// Build context for LLM decision
+	var violationList []string
+	for _, v := range verification.QualityViolations {
+		violationList = append(violationList, string(v))
+	}
+
+	systemPrompt := `You are a shard selection advisor. Given a failed task and available shards,
+select the BEST shard to fix the problem. Consider:
+
+1. SYSTEM SHARDS: Built-in shards for core operations (perception, execution, planning)
+2. SPECIALIST SHARDS: Pre-trained on specific domains (frameworks, languages, tools)
+3. EPHEMERAL SHARDS: General-purpose (coder, tester, reviewer, researcher)
+
+IMPORTANT: Prefer specialists if the task matches their domain - they have pre-loaded knowledge.
+
+Response format (JSON only):
+{
+  "selected_shard": "shard_name",
+  "shard_type": "system|specialist|ephemeral",
+  "reason": "why this shard is best for the failure",
+  "confidence": 0.0-1.0,
+  "alternatives": ["other", "options"]
+}`
+
+	userPrompt := fmt.Sprintf(`## Failed Task
+%s
+
+## Original Shard: %s
+
+## Quality Violations
+%v
+
+## Failure Reason
+%s
+
+## Evidence
+%v
+
+## Available Shards
+%v
+
+Select the best shard to fix this failure.`,
+		task,
+		originalShardType,
+		violationList,
+		verification.Reason,
+		verification.Evidence,
+		availableShards,
+	)
+
+	response, err := v.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		// Fallback to heuristic selection
+		return v.heuristicShardSelection(originalShardType, verification)
+	}
+
+	// Parse LLM response
+	return v.parseShardSelection(response, originalShardType)
+}
+
+// heuristicShardSelection uses simple rules when LLM is unavailable.
+func (v *TaskVerifier) heuristicShardSelection(
+	originalShardType string,
+	verification *VerificationResult,
+) *ShardSelectionResult {
+	// Check for specific violation patterns
+	for _, violation := range verification.QualityViolations {
+		switch violation {
+		case HallucinatedAPI:
+			// Need research to find real APIs
+			return &ShardSelectionResult{
+				ShardType:   "researcher",
+				Reason:      "Hallucinated API detected - researcher can find real documentation",
+				Confidence:  0.8,
+				Alternatives: []string{originalShardType},
+			}
+		case MissingErrors:
+			// Reviewer can identify error handling patterns
+			return &ShardSelectionResult{
+				ShardType:   "reviewer",
+				Reason:      "Missing error handling - reviewer can identify patterns",
+				Confidence:  0.7,
+				Alternatives: []string{"coder", originalShardType},
+			}
+		case FakeTests:
+			// Tester knows how to write real tests
+			return &ShardSelectionResult{
+				ShardType:   "tester",
+				Reason:      "Fake tests detected - tester shard specializes in real tests",
+				Confidence:  0.85,
+				Alternatives: []string{originalShardType},
+			}
+		}
+	}
+
+	// Default: retry with same shard but with more context
+	return &ShardSelectionResult{
+		ShardType:   originalShardType,
+		Reason:      "No specific shard better suited - retry with additional context",
+		Confidence:  0.6,
+		Alternatives: []string{"researcher"},
+	}
+}
+
+// parseShardSelection parses the LLM's shard selection response.
+func (v *TaskVerifier) parseShardSelection(response, fallback string) *ShardSelectionResult {
+	response = strings.TrimSpace(response)
+	response = strings.TrimPrefix(response, "```json")
+	response = strings.TrimPrefix(response, "```")
+	response = strings.TrimSuffix(response, "```")
+	response = strings.TrimSpace(response)
+
+	var result struct {
+		SelectedShard string   `json:"selected_shard"`
+		ShardType     string   `json:"shard_type"`
+		Reason        string   `json:"reason"`
+		Confidence    float64  `json:"confidence"`
+		Alternatives  []string `json:"alternatives"`
+	}
+
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return &ShardSelectionResult{
+			ShardType:  fallback,
+			Reason:     "Failed to parse shard selection",
+			Confidence: 0.5,
+		}
+	}
+
+	return &ShardSelectionResult{
+		ShardType:    result.SelectedShard,
+		ShardName:    result.SelectedShard,
+		Reason:       result.Reason,
+		Confidence:   result.Confidence,
+		Alternatives: result.Alternatives,
+	}
 }

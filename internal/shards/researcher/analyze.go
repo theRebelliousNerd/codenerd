@@ -32,7 +32,19 @@ type Dependency struct {
 
 // analyzeCodebase performs deep analysis of the local codebase.
 func (r *ResearcherShard) analyzeCodebase(ctx context.Context, workspace string) (*ResearchResult, error) {
+	// Extract workspace path from task string if it looks like a command
+	// e.g., "review file:internal\autopoiesis" -> extract just "internal\autopoiesis" or use cwd
+	workspace = r.extractWorkspacePath(workspace)
+
 	if workspace == "" || workspace == "." {
+		workspace, _ = os.Getwd()
+	}
+
+	// Validate workspace is an actual directory
+	info, err := os.Stat(workspace)
+	if err != nil || !info.IsDir() {
+		// Not a valid directory - fall back to current working directory
+		fmt.Printf("[Researcher] Invalid workspace '%s', using current directory\n", workspace)
 		workspace, _ = os.Getwd()
 	}
 
@@ -518,4 +530,55 @@ Summary (2-3 sentences):`, contextStr.String())
 	}
 
 	return strings.TrimSpace(summary), nil
+}
+
+// extractWorkspacePath extracts a valid workspace path from a task string.
+// Handles cases where the researcher is called with command-style tasks like "review file:path"
+// that aren't valid directory paths.
+func (r *ResearcherShard) extractWorkspacePath(task string) string {
+	task = strings.TrimSpace(task)
+
+	// If task is empty or ".", return as-is (will use cwd)
+	if task == "" || task == "." {
+		return task
+	}
+
+	// Check if it looks like a command with file: or files: prefix
+	// e.g., "review file:internal/autopoiesis" or "security_scan files:a.go,b.go"
+	if strings.Contains(task, "file:") {
+		// Extract path after file:
+		parts := strings.SplitN(task, "file:", 2)
+		if len(parts) > 1 {
+			path := strings.TrimSpace(parts[1])
+			// Remove any trailing command parts
+			if idx := strings.Index(path, " "); idx > 0 {
+				path = path[:idx]
+			}
+			// Check if extracted path is a valid directory
+			if info, err := os.Stat(path); err == nil && info.IsDir() {
+				return path
+			}
+			// If not a directory, extract parent directory
+			dir := filepath.Dir(path)
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				return dir
+			}
+		}
+	}
+
+	// Check if task is a valid directory path directly
+	if info, err := os.Stat(task); err == nil && info.IsDir() {
+		return task
+	}
+
+	// Check if first word is a valid directory
+	parts := strings.Fields(task)
+	if len(parts) > 0 {
+		if info, err := os.Stat(parts[0]); err == nil && info.IsDir() {
+			return parts[0]
+		}
+	}
+
+	// Not a valid directory - return empty to trigger fallback to cwd
+	return ""
 }

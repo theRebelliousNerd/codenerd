@@ -365,6 +365,45 @@ func ApplyConstitutionalOverride(envelope *PiggybackEnvelope, blocked []string, 
 }
 
 // =============================================================================
+// REASONING TRACE DIRECTIVE
+// =============================================================================
+// Standard directive appended to shard prompts to mandate structured reasoning
+// output. This enables trace capture and self-learning across all shard types.
+
+// ReasoningTraceDirective is the standard suffix for shard system prompts.
+// It instructs the LLM to include structured reasoning in its output.
+const ReasoningTraceDirective = `
+
+## REASONING TRACE (MANDATORY)
+You MUST include a "reasoning_trace" field in your output with your step-by-step thinking process:
+1. What is the task asking for?
+2. What approach will you take?
+3. What are the key considerations/constraints?
+4. What is your confidence level and why?
+
+Format your response as JSON with:
+{
+  "reasoning_trace": "Step-by-step reasoning...",
+  "result": <your actual output>
+}
+
+The reasoning_trace captures your thinking for learning and improvement.`
+
+// ShardReasoningDirective is a shorter directive for simpler shards.
+const ShardReasoningDirective = `
+
+## REASONING OUTPUT
+Include a brief "reasoning" field explaining your approach and confidence.`
+
+// AppendReasoningDirective appends the standard reasoning directive to a prompt.
+func AppendReasoningDirective(systemPrompt string, full bool) string {
+	if full {
+		return systemPrompt + ReasoningTraceDirective
+	}
+	return systemPrompt + ShardReasoningDirective
+}
+
+// =============================================================================
 // UTILITY FUNCTIONS
 // =============================================================================
 

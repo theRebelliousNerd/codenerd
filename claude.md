@@ -92,16 +92,74 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 - Push to GitHub regularly
 - Use conventional commits
 
+## Nomenclature
+
+### Shard Lifecycle Types
+
+| Type | Constant | Description | Memory | Creation |
+|------|----------|-------------|--------|----------|
+| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
+| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
+| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
+| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
+
+### Shard Implementations
+
+| Shard | File | Purpose |
+|-------|------|---------|
+| CoderShard | `internal/shards/coder.go` | Code generation, file edits, refactoring |
+| TesterShard | `internal/shards/tester.go` | Test execution, coverage analysis |
+| ReviewerShard | `internal/shards/reviewer.go` | Code review, security scan, metrics |
+| ResearcherShard | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
+| ToolGenerator | `internal/shards/tool_generator.go` | Ouroboros: self-generating tools |
+
+### System Shards (Type S)
+
+| Shard | Purpose |
+|-------|---------|
+| `perception_firewall` | NL → atoms transduction |
+| `world_model_ingestor` | file_topology, symbol_graph maintenance |
+| `executive_policy` | next_action derivation |
+| `constitution_gate` | Safety enforcement |
+| `tactile_router` | Action → tool routing |
+| `session_planner` | Agenda/campaign orchestration |
+
+### Memory Tiers
+
+| Tier | Storage | Lifespan | Content |
+|------|---------|----------|---------|
+| **RAM** | In-memory FactStore | Session | Working facts, active context |
+| **Vector** | SQLite + embeddings | Persistent | Semantic search, similar content |
+| **Graph** | knowledge_graph table | Persistent | Entity relationships |
+| **Cold** | cold_storage table | Permanent | Learned preferences, patterns |
+
+### Key Predicates
+
+| Predicate | Purpose |
+|-----------|---------|
+| `user_intent/5` | Seed for all logic (Category, Verb, Target, Constraint) |
+| `next_action/1` | Derived action to execute |
+| `permitted/1` | Constitutional safety gate |
+| `context_atom/1` | Facts selected for LLM injection |
+| `shard_executed/4` | Cross-turn shard result tracking |
+
+### Protocols
+
+| Protocol | Description |
+|----------|-------------|
+| **Piggyback** | Dual-channel output: surface (user) + control (kernel) |
+| **OODA Loop** | Observe → Orient → Decide → Act |
+| **TDD Repair** | Test fails → Read log → Find cause → Patch → Retest |
+| **Autopoiesis** | Self-learning from rejection patterns |
+| **Ouroboros** | Self-generating missing tools |
+
 ## Quick Reference
 
 **OODA Loop:** Observe (Transducer) → Orient (Spreading Activation) → Decide (Mangle Engine) → Act (Virtual Store)
 
-**Shard Types:**
-
-- Type A (Generalists): Spawn → Execute → Die. RAM only.
-- Type B (Specialists): Pre-populated with knowledge. SQLite-backed.
-
 **Constitutional Safety:** Every action requires `permitted(Action)` to derive. Default deny.
+
+**Fact Flow:** User Input → Transducer → `user_intent` fact → Kernel derives `next_action` → VirtualStore executes → Result facts → Articulation → Response
 
 ## Full Specifications
 

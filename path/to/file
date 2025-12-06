@@ -1,4 +1,8 @@
-// Example file content
+// Example file created based on instruction
+// Add your implementation here
+
 function example() {
-  console.log('Hello, World!');
+  // TODO: Implement functionality
 }
+
+module.exports = { example };
