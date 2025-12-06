@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,20 +36,38 @@ func formatShardTask(verb, target, constraint, workspace string) string {
 		}
 	}
 
+	// Discover files if target is broad (codebase, all files, etc.)
+	var fileList string
+	if target == "codebase" || strings.Contains(strings.ToLower(target), "all") || strings.Contains(target, "*") {
+		files := discoverFiles(workspace, constraint)
+		if len(files) > 0 {
+			fileList = strings.Join(files, ",")
+		}
+	}
+
 	switch verb {
 	case "/review":
+		if fileList != "" {
+			return fmt.Sprintf("review files:%s", fileList)
+		}
 		if target == "codebase" {
 			return "review all"
 		}
 		return fmt.Sprintf("review file:%s", target)
 
 	case "/security":
+		if fileList != "" {
+			return fmt.Sprintf("security_scan files:%s", fileList)
+		}
 		if target == "codebase" {
 			return "security_scan all"
 		}
 		return fmt.Sprintf("security_scan file:%s", target)
 
 	case "/analyze":
+		if fileList != "" {
+			return fmt.Sprintf("complexity files:%s", fileList)
+		}
 		if target == "codebase" {
 			return "complexity all"
 		}
@@ -225,4 +244,190 @@ func detectProjectType(workspace string) ProjectTypeInfo {
 
 func getUIStyles() ui.Styles {
 	return ui.DefaultStyles()
+}
+
+// =============================================================================
+// MULTI-STEP TASK HANDLING
+// =============================================================================
+
+// TaskStep represents a single step in a multi-step task
+type TaskStep struct {
+	Verb       string
+	Target     string
+	ShardType  string
+	Task       string
+	DependsOn  []int // Indices of steps that must complete first
+}
+
+// detectMultiStepTask checks if input requires multiple steps
+func detectMultiStepTask(input string, intent perception.Intent) bool {
+	lower := strings.ToLower(input)
+
+	// Multi-step indicators
+	multiStepKeywords := []string{
+		"and then", "after that", "next", "then",
+		"first", "second", "third", "finally",
+		"step 1", "step 2", "1.", "2.", "3.",
+		"also", "additionally", "furthermore",
+	}
+
+	for _, keyword := range multiStepKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+
+	// Check for multiple verbs in the input
+	verbCount := 0
+	for _, entry := range perception.VerbCorpus {
+		for _, synonym := range entry.Synonyms {
+			if strings.Contains(lower, synonym) {
+				verbCount++
+				if verbCount >= 2 {
+					return true
+				}
+			}
+		}
+	}
+
+	// Check for compound tasks (review + test, fix + test, etc.)
+	compoundPatterns := []string{
+		"review.*test", "fix.*test", "refactor.*test",
+		"create.*test", "implement.*test",
+	}
+
+	for _, pattern := range compoundPatterns {
+		if matched, _ := regexp.MatchString(pattern, lower); matched {
+			return true
+		}
+	}
+
+	return false
+}
+
+// decomposeTask breaks a complex task into discrete steps
+func decomposeTask(input string, intent perception.Intent, workspace string) []TaskStep {
+	var steps []TaskStep
+
+	lower := strings.ToLower(input)
+
+	// Pattern 1: "fix X and test it" or "create X and test"
+	if strings.Contains(lower, "test") && (intent.Verb == "/fix" || intent.Verb == "/create" || intent.Verb == "/refactor") {
+		// Step 1: Primary action
+		step1 := TaskStep{
+			Verb:      intent.Verb,
+			Target:    intent.Target,
+			ShardType: perception.GetShardTypeForVerb(intent.Verb),
+		}
+		step1.Task = formatShardTask(step1.Verb, step1.Target, intent.Constraint, workspace)
+		steps = append(steps, step1)
+
+		// Step 2: Testing
+		step2 := TaskStep{
+			Verb:      "/test",
+			Target:    intent.Target,
+			ShardType: "tester",
+			DependsOn: []int{0}, // Depends on step 1
+		}
+		step2.Task = formatShardTask(step2.Verb, step2.Target, "none", workspace)
+		steps = append(steps, step2)
+
+		return steps
+	}
+
+	// Pattern 2: "review codebase" or "review all files" - already handled by multi-file discovery
+	// Single step with multiple files
+	if intent.Verb == "/review" || intent.Verb == "/security" || intent.Verb == "/analyze" {
+		step := TaskStep{
+			Verb:      intent.Verb,
+			Target:    intent.Target,
+			ShardType: perception.GetShardTypeForVerb(intent.Verb),
+		}
+		step.Task = formatShardTask(step.Verb, step.Target, intent.Constraint, workspace)
+		steps = append(steps, step)
+		return steps
+	}
+
+	// Pattern 3: Explicit step markers ("first X, then Y")
+	// This is complex - for now, return single step
+	// Future: parse explicit step sequences
+
+	// Default: single step
+	if len(steps) == 0 {
+		step := TaskStep{
+			Verb:      intent.Verb,
+			Target:    intent.Target,
+			ShardType: perception.GetShardTypeForVerb(intent.Verb),
+		}
+		step.Task = formatShardTask(step.Verb, step.Target, intent.Constraint, workspace)
+		steps = append(steps, step)
+	}
+
+	return steps
+}
+
+// discoverFiles finds files in the workspace based on constraint filters
+func discoverFiles(workspace, constraint string) []string {
+	var files []string
+
+	// Determine file patterns based on constraint
+	var extensions []string
+	constraintLower := strings.ToLower(constraint)
+
+	switch {
+	case strings.Contains(constraintLower, "go"):
+		extensions = []string{".go"}
+	case strings.Contains(constraintLower, "python") || strings.Contains(constraintLower, "py"):
+		extensions = []string{".py"}
+	case strings.Contains(constraintLower, "javascript") || strings.Contains(constraintLower, "js"):
+		extensions = []string{".js", ".jsx", ".ts", ".tsx"}
+	case strings.Contains(constraintLower, "rust"):
+		extensions = []string{".rs"}
+	case strings.Contains(constraintLower, "java"):
+		extensions = []string{".java"}
+	default:
+		// Default: all common code file extensions
+		extensions = []string{".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".java", ".c", ".cpp", ".h"}
+	}
+
+	// Walk workspace and collect matching files
+	filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+
+		// Skip hidden directories and files
+		if strings.Contains(path, "/.") || strings.Contains(path, "\\.") {
+			return nil
+		}
+
+		// Skip vendor, node_modules, etc.
+		skipDirs := []string{"vendor", "node_modules", ".git", ".nerd", "dist", "build"}
+		for _, skip := range skipDirs {
+			if strings.Contains(path, string(filepath.Separator)+skip+string(filepath.Separator)) {
+				return nil
+			}
+		}
+
+		// Check if file matches extension filter
+		ext := filepath.Ext(path)
+		for _, allowedExt := range extensions {
+			if ext == allowedExt {
+				// Convert to relative path
+				if relPath, err := filepath.Rel(workspace, path); err == nil {
+					files = append(files, relPath)
+				}
+				break
+			}
+		}
+
+		return nil
+	})
+
+	// Limit to 50 files for safety (avoid overwhelming the shard)
+	if len(files) > 50 {
+		files = files[:50]
+	}
+
+	return files
 }

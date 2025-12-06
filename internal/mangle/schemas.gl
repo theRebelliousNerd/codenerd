@@ -156,6 +156,28 @@ Decl network_permitted(URL).
 Decl security_violation(ViolationType).
 
 # =============================================================================
+# SECTION 11B: STRATIFIED TRUST - AUTOPOIESIS (Bug #15 Fix)
+# =============================================================================
+
+# candidate_action(ActionType) - Learned logic proposals (from learned.gl)
+Decl candidate_action(ActionType).
+
+# final_action(ActionType) - Validated actions (Constitution approved)
+Decl final_action(ActionType).
+
+# safety_check(ActionType) - Runtime validation predicate
+Decl safety_check(ActionType).
+
+# action_denied(ActionType, Reason) - Blocked learned actions
+Decl action_denied(ActionType, Reason).
+
+# learned_proposal(ActionType) - Audit trail for learned suggestions
+Decl learned_proposal(ActionType).
+
+# blocked_learned_action_count(Count) - Metrics
+Decl blocked_learned_action_count(Count).
+
+# =============================================================================
 # SECTION 12: SPREADING ACTIVATION (§8.1)
 # =============================================================================
 
@@ -749,6 +771,9 @@ Decl is_binary_file(FilePath).
 # State: /passing, /failing, /unknown
 Decl build_state(State).
 
+# build_result(Success, Output) - result of build action (added for Bug 10)
+Decl build_result(Success, Output).
+
 # =============================================================================
 # SECTION 31: REVIEWER SHARD HELPERS
 # =============================================================================
@@ -761,6 +786,15 @@ Decl finding_count(Severity, Count).
 
 # style_rule(RuleID, RuleName, Threshold) - style rule definitions
 Decl style_rule(RuleID, RuleName, Threshold).
+
+# permission_denied(Action, Reason) - derived: why permission was denied (Bug 12)
+Decl permission_denied(Action, Reason).
+
+# checks_passed() - derived: positive confirmation of checks (Bug 10)
+Decl checks_passed().
+
+# file_truncated(Path, MaxSize) - file content truncated (Bug 6)
+Decl file_truncated(Path, MaxSize).
 
 # =============================================================================
 # SECTION 32: SAFE NEGATION HELPERS

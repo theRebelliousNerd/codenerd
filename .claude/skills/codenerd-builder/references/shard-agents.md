@@ -436,7 +436,7 @@ type CoderShard struct {
 
 **Purpose:** Deep web research to build knowledge shards
 **Type:** Type 3 (Persistent) or Type 4 (User-configured)
-**Implementation:** [internal/shards/researcher.go](internal/shards/researcher.go)
+**Implementation:** [internal/shards/researcher/](internal/shards/researcher/)
 
 ```go
 type ResearcherShard struct {

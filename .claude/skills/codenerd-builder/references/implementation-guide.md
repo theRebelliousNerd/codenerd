@@ -66,79 +66,61 @@ codeNERD/
 package core
 
 import (
+    "fmt"
+    "strings"
+    "sync"
+
+    "github.com/google/mangle/analysis"
+    "github.com/google/mangle/ast"
+    _ "github.com/google/mangle/builtin" // Critical: Register standard functions (fn:plus, etc.)
     "github.com/google/mangle/engine"
     "github.com/google/mangle/factstore"
-    "github.com/google/mangle/analysis"
+    "github.com/google/mangle/parse"
 )
 
-type Kernel struct {
-    Store        *VirtualStore
-    Engine       *engine.Engine
-    Program      *analysis.ProgramInfo
-    ShardManager *ShardManager
-    Config       *KernelConfig
+// RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
+type RealKernel struct {
+    mu          sync.RWMutex
+    facts       []Fact
+    store       factstore.FactStore
+    programInfo *analysis.ProgramInfo
+    schemas     string
+    policy      string
+    initialized bool
 }
 
-type KernelConfig struct {
-    MaxRetries        int
-    ContextBudget     int  // Max tokens for context
-    ClarificationThreshold float64
+func NewRealKernel() *RealKernel {
+    return &RealKernel{
+        facts: make([]Fact, 0),
+        store: factstore.NewSimpleInMemoryStore(),
+    }
 }
 
-func NewKernel(cfg *KernelConfig) (*Kernel, error) {
-    store := NewVirtualStore()
+// evaluate populates the store with facts and evaluates to fixpoint.
+// Uses cached programInfo for efficiency.
+func (k *RealKernel) evaluate() error {
+    // ... (rebuildProgram logic if dirty) ...
 
-    // Load core logic files
-    program, err := loadLogicFiles([]string{
-        "internal/mangle/schemas.gl",
-        "internal/mangle/policy.gl",
-    })
+    // Create fresh store and populate with EDB facts
+    k.store = factstore.NewSimpleInMemoryStore()
+    for _, f := range k.facts {
+        atom, err := f.ToAtom()
+        if err != nil {
+            return err
+        }
+        k.store.Add(atom)
+    }
+
+    // DECIDE: Run Mangle to fixpoint
+    // Use EvalProgramWithStats which updates the store in-place with derived facts (IDB).
+    // This fixes the "Split Brain" issue where decisions were lost.
+    _, err := engine.EvalProgramWithStats(k.programInfo, k.store)
     if err != nil {
-        return nil, err
+        return fmt.Errorf("failed to evaluate program: %w", err)
     }
 
-    return &Kernel{
-        Store:        store,
-        Program:      program,
-        ShardManager: NewShardManager(),
-        Config:       cfg,
-    }, nil
-}
-
-// Run executes the OODA loop
-func (k *Kernel) Run(userInput string) (*Response, error) {
-    // 1. OBSERVE: Transduce input to atoms
-    atoms, err := k.Perceive(userInput)
-    if err != nil {
-        return nil, err
-    }
-
-    // 2. ORIENT: Add atoms and run spreading activation
-    k.Store.AddFacts(atoms)
-    k.runSpreadingActivation()
-
-    // 3. DECIDE: Run Mangle to fixpoint
-    engine.EvalProgram(k.Program, k.Store)
-
-    // 4. Check for clarification needs
-    if k.needsClarification() {
-        return k.generateClarificationRequest()
-    }
-
-    // 5. ACT: Execute derived actions
-    actions := k.Store.GetFacts("next_action")
-    results, err := k.executeActions(actions)
-    if err != nil {
-        return nil, err
-    }
-
-    // 6. ARTICULATE: Generate response
-    return k.Articulate(results)
-}
-
-func (k *Kernel) needsClarification() bool {
-    facts := k.Store.GetFacts("clarification_needed")
-    return len(facts) > 0
+    k.initialized = true
+    return nil
 }
 ```
 

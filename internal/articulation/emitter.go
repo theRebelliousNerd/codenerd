@@ -13,10 +13,14 @@ import (
 // The Articulation layer handles LLM output → structured data extraction.
 // This implements the "Corpus Callosum" between surface text and logic atoms.
 
-// PiggybackEnvelope represents the Dual-Payload JSON Schema (v1.1.0).
+// PiggybackEnvelope represents the Dual-Payload JSON Schema (v1.2.0 - Thought-First).
+// THOUGHT-FIRST ORDERING (Bug #14 Fix): control_packet MUST appear before surface_response
+// in JSON to prevent "Premature Articulation" - where the LLM says it did something before
+// actually emitting the action to the kernel. If generation fails mid-stream, the user
+// sees nothing (or partial JSON) instead of a false promise.
 type PiggybackEnvelope struct {
+	Control ControlPacket `json:"control_packet"` // MUST be first in JSON output
 	Surface string        `json:"surface_response"`
-	Control ControlPacket `json:"control_packet"`
 }
 
 // ControlPacket contains the logic atoms and system state updates.

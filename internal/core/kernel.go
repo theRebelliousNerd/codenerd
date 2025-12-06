@@ -1,11 +1,13 @@
 package core
 
 import (
+	"codenerd/internal/mangle"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
@@ -100,15 +102,17 @@ type Kernel interface {
 
 // RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
 type RealKernel struct {
-	mu          sync.RWMutex
-	facts       []Fact
-	store       factstore.FactStore
-	programInfo *analysis.ProgramInfo
-	schemas     string
-	policy      string
-	initialized bool
-	manglePath  string // Path to mangle files directory
-	policyDirty bool   // True when schemas/policy changed and need reparse
+	mu              sync.RWMutex
+	facts           []Fact
+	store           factstore.FactStore
+	programInfo     *analysis.ProgramInfo
+	schemas         string
+	policy          string
+	learned         string // Learned rules (autopoiesis) - loaded from learned.gl
+	schemaValidator *mangle.SchemaValidator
+	initialized     bool
+	manglePath      string // Path to mangle files directory
+	policyDirty     bool   // True when schemas/policy changed and need reparse
 }
 
 // NewRealKernel creates a new kernel instance.
@@ -154,6 +158,7 @@ func (k *RealKernel) loadMangleFiles() {
 
 		schemasPath := filepath.Join(basePath, "schemas.gl")
 		policyPath := filepath.Join(basePath, "policy.gl")
+		learnedPath := filepath.Join(basePath, "learned.gl")
 
 		if data, err := os.ReadFile(schemasPath); err == nil {
 			k.schemas = string(data)
@@ -161,9 +166,22 @@ func (k *RealKernel) loadMangleFiles() {
 		if data, err := os.ReadFile(policyPath); err == nil {
 			k.policy = string(data)
 		}
+		// Load learned rules (stratified trust layer)
+		if data, err := os.ReadFile(learnedPath); err == nil {
+			k.learned = string(data)
+		}
 
 		if k.schemas != "" && k.policy != "" {
 			break
+		}
+	}
+
+	// Initialize schema validator (Bug #18 Fix - Schema Drift Prevention)
+	if k.schemas != "" {
+		k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned)
+		if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
+			// Log but don't fail - validator is defensive, not critical
+			fmt.Printf("[Kernel] Warning: failed to load schema validator: %v\n", err)
 		}
 	}
 }
@@ -228,7 +246,8 @@ func (k *RealKernel) Retract(predicate string) error {
 // rebuildProgram parses schemas+policy and caches programInfo.
 // This is only called when policyDirty is true.
 func (k *RealKernel) rebuildProgram() error {
-	// Construct program from schemas + policy (no facts)
+	// Construct program from schemas + policy + learned (no facts)
+	// STRATIFIED TRUST: Load order ensures Constitution has priority
 	var sb strings.Builder
 
 	if k.schemas != "" {
@@ -238,6 +257,13 @@ func (k *RealKernel) rebuildProgram() error {
 
 	if k.policy != "" {
 		sb.WriteString(k.policy)
+		sb.WriteString("\n")
+	}
+
+	// Load learned rules AFTER constitution (stratified trust)
+	if k.learned != "" {
+		sb.WriteString("# Learned Rules (Autopoiesis Layer - Stratified Trust)\n")
+		sb.WriteString(k.learned)
 	}
 
 	programStr := sb.String()
@@ -280,7 +306,10 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	// Evaluate to fixpoint using cached programInfo
-	_, err := engine.EvalProgramWithStats(k.programInfo, k.store)
+	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
+	// Prevent fact explosions from recursive learned rules
+	_, err := engine.EvalProgramWithStats(k.programInfo, k.store,
+		engine.WithCreatedFactLimit(50000)) // Hard cap: max 50K derived facts
 	if err != nil {
 		return fmt.Errorf("failed to evaluate program: %w", err)
 	}
@@ -356,6 +385,21 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	return results, nil
 }
 
+// ParseSingleFact parses a single fact string safely.
+func ParseSingleFact(content string) (Fact, error) {
+	facts, err := ParseFactsFromString(content)
+	if err != nil {
+		return Fact{}, err
+	}
+	if len(facts) == 0 {
+		return Fact{}, fmt.Errorf("no facts found")
+	}
+	if len(facts) > 1 {
+		return Fact{}, fmt.Errorf("multiple facts found")
+	}
+	return facts[0], nil
+}
+
 // atomToFact converts a Mangle AST Atom back to our Fact type.
 func atomToFact(a ast.Atom) Fact {
 	args := make([]interface{}, len(a.Args))
@@ -406,6 +450,73 @@ func (k *RealKernel) SetSchemas(schemas string) {
 	k.policyDirty = true
 }
 
+// =============================================================================
+// SCHEMA VALIDATION (Bug #18 Fix - Schema Drift Prevention)
+// =============================================================================
+
+// ValidateLearnedRule validates that a learned rule only uses declared predicates.
+// This prevents "Schema Drift" where the agent invents predicates with no data source.
+func (k *RealKernel) ValidateLearnedRule(ruleText string) error {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.schemaValidator == nil {
+		// Validator not initialized - allow (defensive)
+		return nil
+	}
+
+	return k.schemaValidator.ValidateRule(ruleText)
+}
+
+// ValidateLearnedRules validates multiple learned rules.
+// Returns a list of errors (one per invalid rule).
+func (k *RealKernel) ValidateLearnedRules(rules []string) []error {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.schemaValidator == nil {
+		return nil
+	}
+
+	return k.schemaValidator.ValidateRules(rules)
+}
+
+// ValidateLearnedProgram validates an entire learned program text.
+func (k *RealKernel) ValidateLearnedProgram(programText string) error {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.schemaValidator == nil {
+		return nil
+	}
+
+	return k.schemaValidator.ValidateProgram(programText)
+}
+
+// IsPredicateDeclared checks if a predicate is declared in schemas.
+func (k *RealKernel) IsPredicateDeclared(predicate string) bool {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.schemaValidator == nil {
+		return false
+	}
+
+	return k.schemaValidator.IsDeclared(predicate)
+}
+
+// GetDeclaredPredicates returns all declared predicate names.
+func (k *RealKernel) GetDeclaredPredicates() []string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.schemaValidator == nil {
+		return nil
+	}
+
+	return k.schemaValidator.GetDeclaredPredicates()
+}
+
 // SetPolicy allows loading custom policy rules (for shard specialization).
 func (k *RealKernel) SetPolicy(policy string) {
 	k.mu.Lock()
@@ -445,12 +556,39 @@ func (k *RealKernel) LoadPolicyFile(path string) error {
 
 // HotLoadRule dynamically loads a single Mangle rule at runtime.
 // This is used by Autopoiesis to add new rules without restarting.
+// FIX for Bug #8 (Suicide Rule): Uses a "Sandbox Compiler" to validate the rule
+// before accepting it, preventing invalid rules from bricking the kernel.
 func (k *RealKernel) HotLoadRule(rule string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
 	if rule == "" {
 		return fmt.Errorf("empty rule")
 	}
-	// Append the rule to policy
-	k.AppendPolicy(rule)
+
+	// 1. Create a Sandbox Kernel (Memory only)
+	sandbox := &RealKernel{
+		store:       factstore.NewSimpleInMemoryStore(),
+		policyDirty: true,
+	}
+
+	// 2. Load CURRENT schemas and policy into sandbox
+	sandbox.schemas = k.schemas
+	sandbox.policy = k.policy
+
+	// 3. Apply the NEW rule to the sandbox
+	sandbox.policy = sandbox.policy + "\n\n# Sandbox Validation\n" + rule
+
+	// 4. Try to compile (rebuildProgram)
+	// This will fail with StratificationError if the rule creates a paradox
+	if err := sandbox.rebuildProgram(); err != nil {
+		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
+	}
+
+	// 5. If successful, apply to Real Kernel
+	k.policy = k.policy + "\n\n# HotLoaded Rule\n" + rule
+	k.policyDirty = true
+
 	return nil
 }
 
@@ -504,12 +642,20 @@ func (k *RealKernel) FactCount() int {
 }
 
 // GetAllFacts returns a copy of all facts in the kernel.
+// SAFE FOR PERSISTENCE: This returns only the EDB (Base Facts) explicitly loaded.
+// It does NOT return derived facts (IDB). Use this for saving state (Fix for Bug #9).
 func (k *RealKernel) GetAllFacts() []Fact {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	result := make([]Fact, len(k.facts))
 	copy(result, k.facts)
 	return result
+}
+
+// GetDerivedFacts returns all facts derived by rules (IDB).
+// WARNING: Do NOT persist these. They should be re-derived on boot.
+func (k *RealKernel) GetDerivedFacts() (map[string][]Fact, error) {
+	return k.QueryAll()
 }
 
 // LoadFactsFromFile loads facts from a .gl file into the kernel.
@@ -529,169 +675,54 @@ func (k *RealKernel) LoadFactsFromFile(path string) error {
 	return k.LoadFacts(facts)
 }
 
+// UpdateSystemFacts updates transient system facts like time.
+// This should be called ONCE per turn/request to avoid infinite loops
+// in logic that depends on changing time (Fix for Bug #7).
+func (k *RealKernel) UpdateSystemFacts() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	// 1. Retract old system facts
+	newFacts := make([]Fact, 0, len(k.facts)+1)
+	for _, f := range k.facts {
+		if f.Predicate != "current_time" {
+			newFacts = append(newFacts, f)
+		}
+	}
+	k.facts = newFacts
+
+	// 2. Add fresh system facts
+	now := time.Now().Unix()
+	k.facts = append(k.facts, Fact{
+		Predicate: "current_time",
+		Args:      []interface{}{now},
+	})
+
+	// 3. Re-evaluate
+	// We use evaluate() directly since we already hold the lock
+	return k.evaluate()
+}
+
 // ParseFactsFromString parses Mangle fact statements from a string.
-// Extracts lines that look like: predicate(arg1, arg2, ...).
+// Uses the official Mangle parser to ensure safety (Fix for Bug #11).
 func ParseFactsFromString(content string) ([]Fact, error) {
+	// Use the official parser to parse the content as a Unit
+	unit, err := parse.Unit(strings.NewReader(content))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse facts string: %w", err)
+	}
+
 	facts := make([]Fact, 0)
-	lines := strings.Split(content, "\n")
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
-			continue
+	for _, clause := range unit.Clauses {
+		// A fact is a clause with no body
+		if len(clause.Premises) > 0 {
+			continue // Skip rules
 		}
 
-		// Skip rule definitions (contain :-)
-		if strings.Contains(line, ":-") {
-			continue
-		}
-
-		// Skip declarations (start with Decl)
-		if strings.HasPrefix(line, "Decl ") {
-			continue
-		}
-
-		// Try to parse as a fact: predicate(args).
-		fact, err := parseSingleFact(line)
-		if err == nil && fact.Predicate != "" {
-			facts = append(facts, fact)
-		}
+		// Convert the head atom to our Fact type
+		facts = append(facts, atomToFact(clause.Head))
 	}
 
 	return facts, nil
 }
 
-// parseSingleFact parses a single fact line like: predicate(arg1, arg2).
-func parseSingleFact(line string) (Fact, error) {
-	// Remove trailing period and whitespace
-	line = strings.TrimSuffix(strings.TrimSpace(line), ".")
-	line = strings.TrimSpace(line)
-
-	if line == "" {
-		return Fact{}, fmt.Errorf("empty line")
-	}
-
-	// Find the opening parenthesis
-	parenIdx := strings.Index(line, "(")
-	if parenIdx == -1 {
-		return Fact{}, fmt.Errorf("no opening parenthesis")
-	}
-
-	// Extract predicate name
-	predicate := strings.TrimSpace(line[:parenIdx])
-	if predicate == "" {
-		return Fact{}, fmt.Errorf("empty predicate")
-	}
-
-	// Extract arguments (everything between parentheses)
-	closeIdx := strings.LastIndex(line, ")")
-	if closeIdx == -1 || closeIdx <= parenIdx {
-		return Fact{}, fmt.Errorf("no closing parenthesis")
-	}
-
-	argsStr := line[parenIdx+1 : closeIdx]
-	args := parseFactArgs(argsStr)
-
-	return Fact{
-		Predicate: predicate,
-		Args:      args,
-	}, nil
-}
-
-// parseFactArgs parses the arguments string into individual values.
-func parseFactArgs(argsStr string) []interface{} {
-	args := make([]interface{}, 0)
-
-	// Handle empty args
-	if strings.TrimSpace(argsStr) == "" {
-		return args
-	}
-
-	// Split by comma, respecting quoted strings
-	parts := splitRespectingQuotes(argsStr)
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		// Parse the argument value
-		args = append(args, parseArgValue(part))
-	}
-
-	return args
-}
-
-// splitRespectingQuotes splits a string by comma while respecting quoted strings.
-func splitRespectingQuotes(s string) []string {
-	var result []string
-	var current strings.Builder
-	inQuotes := false
-	quoteChar := rune(0)
-
-	for _, ch := range s {
-		switch {
-		case (ch == '"' || ch == '\'') && !inQuotes:
-			inQuotes = true
-			quoteChar = ch
-			current.WriteRune(ch)
-		case ch == quoteChar && inQuotes:
-			inQuotes = false
-			current.WriteRune(ch)
-		case ch == ',' && !inQuotes:
-			result = append(result, current.String())
-			current.Reset()
-		default:
-			current.WriteRune(ch)
-		}
-	}
-
-	// Don't forget the last part
-	if current.Len() > 0 {
-		result = append(result, current.String())
-	}
-
-	return result
-}
-
-// parseArgValue converts a string argument to the appropriate Go type.
-func parseArgValue(s string) interface{} {
-	s = strings.TrimSpace(s)
-
-	// Name constant (starts with /)
-	if strings.HasPrefix(s, "/") {
-		return s
-	}
-
-	// Quoted string
-	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
-		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
-		return s[1 : len(s)-1]
-	}
-
-	// Boolean
-	if s == "true" || s == "/true" {
-		return true
-	}
-	if s == "false" || s == "/false" {
-		return false
-	}
-
-	// Try integer
-	var intVal int64
-	if _, err := fmt.Sscanf(s, "%d", &intVal); err == nil {
-		return intVal
-	}
-
-	// Try float
-	var floatVal float64
-	if _, err := fmt.Sscanf(s, "%f", &floatVal); err == nil {
-		return floatVal
-	}
-
-	// Default to string
-	return s
-}

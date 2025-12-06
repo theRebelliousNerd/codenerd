@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -45,8 +46,8 @@ type ZAIConfig struct {
 func DefaultZAIConfig(apiKey string) ZAIConfig {
 	return ZAIConfig{
 		APIKey:       apiKey,
-		BaseURL:      "https://api.z.ai/api/coding/paas/v4",
-		Model:        "GLM-4.6",
+		BaseURL:      "https://api.z.ai/api/coding/paas/v4", // Coding-optimized endpoint
+		Model:        "glm-4.6",
 		Timeout:      120 * time.Second,
 		SystemPrompt: defaultSystemPrompt,
 	}
@@ -70,12 +71,41 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 	}
 }
 
-// ZAIRequest represents the API request structure.
+// ZAIRequest represents the API request structure (Enhanced for v1.2.0).
 type ZAIRequest struct {
-	Model       string       `json:"model"`
-	Messages    []ZAIMessage `json:"messages"`
-	MaxTokens   int          `json:"max_tokens,omitempty"`
-	Temperature float64      `json:"temperature,omitempty"`
+	Model          string             `json:"model"`
+	Messages       []ZAIMessage       `json:"messages"`
+	MaxTokens      int                `json:"max_tokens,omitempty"`
+	Temperature    float64            `json:"temperature,omitempty"`
+	TopP           float64            `json:"top_p,omitempty"`
+	Stream         bool               `json:"stream,omitempty"`
+	StreamOptions  *ZAIStreamOptions  `json:"stream_options,omitempty"`
+	ResponseFormat *ZAIResponseFormat `json:"response_format,omitempty"` // Structured output
+	Thinking       *ZAIThinking       `json:"thinking,omitempty"`        // Extended reasoning
+}
+
+// ZAIStreamOptions configures streaming behavior.
+type ZAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// ZAIResponseFormat enforces structured output (JSON schema).
+type ZAIResponseFormat struct {
+	Type       string          `json:"type"` // "json_schema"
+	JSONSchema *ZAIJSONSchema  `json:"json_schema,omitempty"`
+}
+
+// ZAIJSONSchema defines the structured output schema.
+type ZAIJSONSchema struct {
+	Name   string                 `json:"name"`
+	Strict bool                   `json:"strict"`
+	Schema map[string]interface{} `json:"schema"`
+}
+
+// ZAIThinking enables extended reasoning mode.
+type ZAIThinking struct {
+	Type         string `json:"type"`          // "enabled"
+	BudgetTokens int    `json:"budget_tokens,omitempty"` // Optional token budget
 }
 
 // ZAIMessage represents a message in the conversation.
@@ -84,7 +114,7 @@ type ZAIMessage struct {
 	Content string `json:"content"`
 }
 
-// ZAIResponse represents the API response structure.
+// ZAIResponse represents the API response structure (Enhanced for v1.2.0).
 type ZAIResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
@@ -96,12 +126,18 @@ type ZAIResponse struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"message"`
+		Delta *struct { // For streaming
+			Role    string `json:"role,omitempty"`
+			Content string `json:"content,omitempty"`
+		} `json:"delta,omitempty"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+		// Thinking mode tokens
+		ThinkingTokens int `json:"thinking_tokens,omitempty"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -116,7 +152,19 @@ func (c *ZAIClient) Complete(ctx context.Context, prompt string) (string, error)
 }
 
 // CompleteWithSystem sends a prompt with a system message.
+// ENHANCED (v1.2.0): Automatically uses structured output + thinking mode for Piggyback Protocol.
 func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Detect if this is a Piggyback Protocol request (contains articulation instructions)
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+	               strings.Contains(systemPrompt, "surface_response") ||
+	               strings.Contains(userPrompt, "PiggybackEnvelope")
+
+	// Use enhanced method for Piggyback Protocol
+	if isPiggyback {
+		return c.CompleteWithStructuredOutput(ctx, systemPrompt, userPrompt, true) // Enable thinking
+	}
+
+	// Fallback to basic completion for other requests
 	if c.apiKey == "" {
 		return "", fmt.Errorf("API key not configured")
 	}
@@ -229,6 +277,324 @@ func (c *ZAIClient) SetModel(model string) {
 // GetModel returns the current model.
 func (c *ZAIClient) GetModel() string {
 	return c.model
+}
+
+// =============================================================================
+// Z.AI ENHANCED FEATURES (v1.2.0)
+// =============================================================================
+
+// BuildPiggybackEnvelopeSchema creates the JSON schema for structured output.
+// This enforces the PiggybackEnvelope format at the API level, eliminating
+// JSON parsing errors and guaranteeing thought-first ordering (Bug #14 fix).
+func BuildPiggybackEnvelopeSchema() *ZAIResponseFormat {
+	return &ZAIResponseFormat{
+		Type: "json_schema",
+		JSONSchema: &ZAIJSONSchema{
+			Name:   "PiggybackEnvelope",
+			Strict: true,
+			Schema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"control_packet": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"intent_classification": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"category":   map[string]interface{}{"type": "string"},
+									"verb":       map[string]interface{}{"type": "string"},
+									"target":     map[string]interface{}{"type": "string"},
+									"constraint": map[string]interface{}{"type": "string"},
+									"confidence": map[string]interface{}{"type": "number"},
+								},
+								"required":             []string{"category", "verb", "target", "constraint", "confidence"},
+								"additionalProperties": false,
+							},
+							"mangle_updates": map[string]interface{}{
+								"type": "array",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"memory_operations": map[string]interface{}{
+								"type": "array",
+								"items": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"op":    map[string]interface{}{"type": "string"},
+										"key":   map[string]interface{}{"type": "string"},
+										"value": map[string]interface{}{"type": "string"},
+									},
+									"required":             []string{"op", "key", "value"},
+									"additionalProperties": false,
+								},
+							},
+							"self_correction": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"triggered":  map[string]interface{}{"type": "boolean"},
+									"hypothesis": map[string]interface{}{"type": "string"},
+								},
+								"required":             []string{"triggered", "hypothesis"},
+								"additionalProperties": false,
+							},
+						},
+						"required":             []string{"intent_classification", "mangle_updates", "memory_operations", "self_correction"},
+						"additionalProperties": false,
+					},
+					"surface_response": map[string]interface{}{
+						"type": "string",
+					},
+				},
+				"required":             []string{"control_packet", "surface_response"},
+				"additionalProperties": false,
+			},
+		},
+	}
+}
+
+// CompleteWithStructuredOutput sends a request with JSON schema enforcement.
+// This is the preferred method for Piggyback Protocol interactions.
+func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (string, error) {
+	if c.apiKey == "" {
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	} else {
+		systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
+	}
+
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 600*time.Millisecond {
+		time.Sleep(600*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+
+	messages := make([]ZAIMessage, 0)
+	if systemPrompt != "" {
+		messages = append(messages, ZAIMessage{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	}
+	messages = append(messages, ZAIMessage{
+		Role:    "user",
+		Content: userPrompt,
+	})
+
+	reqBody := ZAIRequest{
+		Model:          c.model,
+		Messages:       messages,
+		MaxTokens:      4096,
+		Temperature:    0.1,
+		TopP:           0.9,
+		ResponseFormat: BuildPiggybackEnvelopeSchema(), // Structured output
+	}
+
+	// Enable thinking mode if requested
+	if enableThinking {
+		reqBody.Thinking = &ZAIThinking{
+			Type:         "enabled",
+			BudgetTokens: 5000, // Allow up to 5K tokens for reasoning
+		}
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Retry loop
+	maxRetries := 3
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var zaiResp ZAIResponse
+		if err := json.Unmarshal(body, &zaiResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if zaiResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", zaiResp.Error.Message)
+		}
+
+		if len(zaiResp.Choices) == 0 {
+			return "", fmt.Errorf("no choices in response")
+		}
+
+		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
+	}
+
+	return "", fmt.Errorf("all retries exhausted: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a request with streaming enabled.
+// Returns a channel that receives content chunks as they arrive.
+// The control_packet MUST be buffered and extracted before streaming surface_response.
+func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		if c.apiKey == "" {
+			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		if strings.TrimSpace(systemPrompt) == "" {
+			systemPrompt = defaultSystemPrompt
+		} else {
+			systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
+		}
+
+		// Rate limiting
+		c.mu.Lock()
+		elapsed := time.Since(c.lastRequest)
+		if elapsed < 600*time.Millisecond {
+			time.Sleep(600*time.Millisecond - elapsed)
+		}
+		c.lastRequest = time.Now()
+		c.mu.Unlock()
+
+		messages := make([]ZAIMessage, 0)
+		if systemPrompt != "" {
+			messages = append(messages, ZAIMessage{
+				Role:    "system",
+				Content: systemPrompt,
+			})
+		}
+		messages = append(messages, ZAIMessage{
+			Role:    "user",
+			Content: userPrompt,
+		})
+
+		reqBody := ZAIRequest{
+			Model:          c.model,
+			Messages:       messages,
+			MaxTokens:      4096,
+			Temperature:    0.1,
+			TopP:           0.9,
+			Stream:         true,
+			StreamOptions:  &ZAIStreamOptions{IncludeUsage: true},
+			ResponseFormat: BuildPiggybackEnvelopeSchema(), // Structured output with streaming
+		}
+
+		if enableThinking {
+			reqBody.Thinking = &ZAIThinking{
+				Type:         "enabled",
+				BudgetTokens: 5000,
+			}
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to create request: %w", err)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			errorChan <- fmt.Errorf("request failed: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return
+		}
+
+		// Read SSE stream
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// SSE format: "data: {...}"
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				break
+			}
+
+			var chunk ZAIResponse
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue // Skip malformed chunks
+			}
+
+			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
+				content := chunk.Choices[0].Delta.Content
+				if content != "" {
+					select {
+					case contentChan <- content:
+					case <-ctx.Done():
+						errorChan <- ctx.Err()
+						return
+					}
+				}
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			errorChan <- fmt.Errorf("stream error: %w", err)
+		}
+	}()
+
+	return contentChan, errorChan
 }
 
 // AnthropicClient implements LLMClient for direct Anthropic API.

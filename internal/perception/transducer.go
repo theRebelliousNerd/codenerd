@@ -931,9 +931,13 @@ You must NEVER output raw text. You must ALWAYS output a JSON object containing 
 ### Campaigns (Category: /mutation)
 - /campaign: campaign, epic, large feature, multi-step task
 
-The JSON Schema is:
+CRITICAL SAFETY RULE - THOUGHT-FIRST ORDERING (v1.2.0):
+You MUST output control_packet BEFORE surface_response to prevent "Premature Articulation".
+If your generation fails mid-stream, the user must see NOTHING (or partial JSON) instead of
+a false promise like "I have deleted the database" when the deletion never happened.
+
+Required JSON Schema (CONTROL FIRST, SURFACE SECOND):
 {
-  "surface_response": "The natural language text shown to the user.",
   "control_packet": {
     "intent_classification": {
       "category": "/query|/mutation|/instruction",
@@ -953,7 +957,8 @@ The JSON Schema is:
       "triggered": false,
       "hypothesis": "none"
     }
-  }
+  },
+  "surface_response": "Text to show the user ONLY AFTER control_packet is complete"
 }
 
 CLASSIFICATION GUIDELINES:
