@@ -461,13 +461,14 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.textinput.Reset()
 		return m, nil
 
-	case "/define-agent":
+	case "/define-agent", "/agent":
 		// Enter agent definition wizard
 		m.awaitingAgentDefinition = true
-		m.textinput.Placeholder = "Describe the specialist agent (e.g., 'Expert in Kubernetes deployment and Helm charts')..."
+		m.agentWizard = &AgentWizardState{Step: 0} // Start at step 0 (Name)
+		m.textinput.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: "**Agent Definition Wizard**\n\nDescribe the specialist agent you want to create. Include:\n- Domain of expertise\n- Key technologies/frameworks\n- Primary responsibilities\n\nExample: *\"Expert in React performance optimization, profiling, and bundle size reduction\"*",
+			Content: "**Agent Creation Wizard**\n\nLet's define a new specialist agent.\n\n**Step 1:** What should we name this agent? (Alphanumeric, e.g., `RustExpert`, `SecurityAuditor`)",
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())

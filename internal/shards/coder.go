@@ -7,7 +7,6 @@ package shards
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -87,7 +86,7 @@ type CoderShard struct {
 
 	// Components - each shard has its own kernel
 	kernel       *core.RealKernel
-	llmClient    perception.LLMClient
+	llmClient    core.LLMClient
 	virtualStore *core.VirtualStore
 
 	// State tracking
@@ -121,17 +120,21 @@ func NewCoderShardWithConfig(coderConfig CoderConfig) *CoderShard {
 }
 
 // SetLLMClient sets the LLM client for code generation.
-func (c *CoderShard) SetLLMClient(client perception.LLMClient) {
+func (c *CoderShard) SetLLMClient(client core.LLMClient) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.llmClient = client
 }
 
-// SetKernel sets the Mangle kernel for fact storage and policy evaluation.
-func (c *CoderShard) SetKernel(k *core.RealKernel) {
+// SetParentKernel sets the Mangle kernel for fact storage and policy evaluation.
+func (c *CoderShard) SetParentKernel(k core.Kernel) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.kernel = k
+	if rk, ok := k.(*core.RealKernel); ok {
+		c.kernel = rk
+	} else {
+		panic("CoderShard requires *core.RealKernel")
+	}
 }
 
 // SetVirtualStore sets the virtual store for action routing.

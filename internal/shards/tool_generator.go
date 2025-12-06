@@ -7,7 +7,6 @@ package shards
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -63,7 +62,7 @@ type ToolGeneratorShard struct {
 
 	// Components
 	kernel       *core.RealKernel
-	llmClient    perception.LLMClient
+	llmClient    core.LLMClient
 	orchestrator *autopoiesis.Orchestrator
 
 	// State tracking
@@ -100,13 +99,19 @@ func (s *ToolGeneratorShard) GetConfig() core.ShardConfig {
 	return s.config
 }
 
-// GetKernel returns the shard's kernel for fact propagation.
-func (s *ToolGeneratorShard) GetKernel() *core.RealKernel {
-	return s.kernel
+// SetParentKernel sets the shard's kernel for fact propagation.
+func (s *ToolGeneratorShard) SetParentKernel(k core.Kernel) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if rk, ok := k.(*core.RealKernel); ok {
+		s.kernel = rk
+	} else {
+		panic("ToolGeneratorShard requires *core.RealKernel")
+	}
 }
 
 // SetLLMClient sets the LLM client for generation.
-func (s *ToolGeneratorShard) SetLLMClient(client perception.LLMClient) {
+func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.llmClient = client

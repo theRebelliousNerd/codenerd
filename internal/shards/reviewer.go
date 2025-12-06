@@ -4,7 +4,6 @@ package shards
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/perception"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -128,7 +127,7 @@ type ReviewerShard struct {
 
 	// Components (required)
 	kernel       *core.RealKernel     // Own kernel instance for logic-driven review
-	llmClient    perception.LLMClient // LLM for semantic analysis
+	llmClient    core.LLMClient       // LLM for semantic analysis
 	virtualStore *core.VirtualStore   // Action routing
 
 	// State tracking
@@ -166,17 +165,21 @@ func NewReviewerShardWithConfig(reviewerConfig ReviewerConfig) *ReviewerShard {
 // =============================================================================
 
 // SetLLMClient sets the LLM client for semantic analysis.
-func (r *ReviewerShard) SetLLMClient(client perception.LLMClient) {
+func (r *ReviewerShard) SetLLMClient(client core.LLMClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.llmClient = client
 }
 
-// SetKernel sets the Mangle kernel for logic-driven review.
-func (r *ReviewerShard) SetKernel(k *core.RealKernel) {
+// SetParentKernel sets the Mangle kernel for logic-driven review.
+func (r *ReviewerShard) SetParentKernel(k core.Kernel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.kernel = k
+	if rk, ok := k.(*core.RealKernel); ok {
+		r.kernel = rk
+	} else {
+		panic("ReviewerShard requires *core.RealKernel")
+	}
 }
 
 // SetVirtualStore sets the virtual store for action routing.

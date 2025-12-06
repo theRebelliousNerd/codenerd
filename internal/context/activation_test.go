@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewActivationEngine(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 	if engine == nil {
 		t.Fatal("NewActivationEngine() returned nil")
@@ -23,7 +23,7 @@ func TestNewActivationEngine(t *testing.T) {
 }
 
 func TestScoreFacts(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	config.PredicatePriorities = map[string]int{
 		"user_intent":     100,
 		"file_topology":   80,
@@ -64,7 +64,7 @@ func TestScoreFacts(t *testing.T) {
 }
 
 func TestFilterByThreshold(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	config.ActivationThreshold = 50.0
 
 	engine := NewActivationEngine(config)
@@ -89,7 +89,7 @@ func TestFilterByThreshold(t *testing.T) {
 }
 
 func TestSelectWithinBudget(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	scored := []ScoredFact{
@@ -114,7 +114,7 @@ func TestSelectWithinBudget(t *testing.T) {
 }
 
 func TestUpdateFocusedPaths(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
@@ -137,7 +137,7 @@ func TestUpdateFocusedPaths(t *testing.T) {
 }
 
 func TestRecordFactTimestamp(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	fact := core.Fact{Predicate: "test_fact", Args: []interface{}{"arg1"}}
@@ -154,7 +154,7 @@ func TestRecordFactTimestamp(t *testing.T) {
 }
 
 func TestAddDependency(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	dependent := core.Fact{Predicate: "handler", Args: []interface{}{"h1"}}
@@ -175,7 +175,7 @@ func TestAddDependency(t *testing.T) {
 }
 
 func TestComputeRecencyScore(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Create a fact with recent timestamp
@@ -205,7 +205,7 @@ func TestComputeRecencyScore(t *testing.T) {
 }
 
 func TestComputeRelevanceScoreWithIntent(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Set up intent
@@ -229,7 +229,7 @@ func TestComputeRelevanceScoreWithIntent(t *testing.T) {
 }
 
 func TestComputeCampaignScore(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Without campaign context, score should be 0
@@ -256,7 +256,7 @@ func TestComputeCampaignScore(t *testing.T) {
 }
 
 func TestComputeSessionScore(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Fact not in session
@@ -277,7 +277,7 @@ func TestComputeSessionScore(t *testing.T) {
 }
 
 func TestBuildSymbolGraph(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
@@ -300,7 +300,7 @@ func TestBuildSymbolGraph(t *testing.T) {
 }
 
 func TestApplyIntentActivation(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	config.ActivationThreshold = 30.0
 	config.PredicatePriorities = map[string]int{
 		"user_intent":   100,
@@ -334,7 +334,7 @@ func TestApplyIntentActivation(t *testing.T) {
 }
 
 func TestClearState(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Add some state
@@ -364,7 +364,7 @@ func TestClearState(t *testing.T) {
 }
 
 func TestNewSession(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Add session facts
@@ -372,6 +372,9 @@ func TestNewSession(t *testing.T) {
 	engine.RecordFactTimestamp(fact)
 
 	oldSessionID := engine.sessionID
+
+	// Sleep to ensure timestamp change
+	time.Sleep(time.Millisecond)
 
 	// Start new session
 	engine.NewSession()
@@ -386,7 +389,7 @@ func TestNewSession(t *testing.T) {
 }
 
 func TestGetSessionStats(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Add some data
@@ -405,7 +408,7 @@ func TestGetSessionStats(t *testing.T) {
 }
 
 func TestDecayRecency(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
 	// Add fact with old timestamp
@@ -429,7 +432,7 @@ func TestDecayRecency(t *testing.T) {
 }
 
 func TestSpreadFromSeeds(t *testing.T) {
-	config := DefaultCompressorConfig()
+	config := DefaultConfig()
 	config.PredicatePriorities = map[string]int{
 		"user_intent":     100,
 		"file_topology":   50,

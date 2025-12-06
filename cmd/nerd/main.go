@@ -393,37 +393,37 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	// Overwrite system shard factories with dependency-injected versions
 	shardManager.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewPerceptionFirewallShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardManager.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewWorldModelIngestorShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		return shard
 	})
 	shardManager.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewExecutivePolicyShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardManager.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewConstitutionGateShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardManager.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewTactileRouterShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardManager.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewSessionPlannerShard()
-		shard.SetKernel(kernel)
+		shard.SetParentKernel(kernel)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})

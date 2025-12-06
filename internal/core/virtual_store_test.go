@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -442,8 +443,8 @@ func TestVirtualStore_GetAuditMetrics(t *testing.T) {
 	metrics := vs.GetAuditMetrics()
 
 	// Should return empty metrics initially
-	if metrics.TotalCommands != 0 {
-		t.Errorf("Expected TotalCommands 0, got %d", metrics.TotalCommands)
+	if metrics.TotalExecutions != 0 {
+		t.Errorf("Expected TotalExecutions 0, got %d", metrics.TotalExecutions)
 	}
 }
 
@@ -670,7 +671,7 @@ func TestConstitutionalRule(t *testing.T) {
 		Description: "Test rule description",
 		Check: func(req ActionRequest) error {
 			if req.Target == "blocked" {
-				return strings.NewReader("blocked").(*strings.Reader) // This would fail
+				return fmt.Errorf("blocked")
 			}
 			return nil
 		},
