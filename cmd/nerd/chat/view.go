@@ -170,7 +170,7 @@ func (m Model) renderFooter() string {
 	}
 
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s%s * %s * Enter: send * Ctrl+L: logic * Ctrl+P: campaign * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, timestamp))
+	help := m.styles.Muted.Render(fmt.Sprintf("%s%s * %s * Enter: send * Alt+L: logic * Alt+C: campaign * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, timestamp))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
