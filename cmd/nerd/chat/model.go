@@ -207,45 +207,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 
-		case tea.KeyCtrlL:
-			// Toggle logic pane (Glass Box Interface)
-			m.showLogic = !m.showLogic
-			if m.showLogic {
-				m.paneMode = ui.ModeSplitPane
-				m.splitPane.SetMode(ui.ModeSplitPane)
-			} else {
-				m.paneMode = ui.ModeSinglePane
-				m.splitPane.SetMode(ui.ModeSinglePane)
-			}
-			return m, nil
-
-		case tea.KeyCtrlG:
-			// Cycle through pane modes: Single -> Split -> Full Logic -> Single
-			switch m.paneMode {
-			case ui.ModeSinglePane:
-				m.paneMode = ui.ModeSplitPane
-				m.showLogic = true
-			case ui.ModeSplitPane:
-				m.paneMode = ui.ModeFullLogic
-			case ui.ModeFullLogic:
-				m.paneMode = ui.ModeSinglePane
-				m.showLogic = false
-			}
-			m.splitPane.SetMode(m.paneMode)
-			return m, nil
-
-		case tea.KeyCtrlR:
-			// Toggle focus between chat and logic pane (when in split mode)
-			if m.paneMode == ui.ModeSplitPane {
-				m.splitPane.ToggleFocus()
-			}
-			return m, nil
-
-		case tea.KeyCtrlP:
-			// Toggle campaign progress panel
-			m.showCampaignPanel = !m.showCampaignPanel
-			return m, nil
-
 		case tea.KeyEnter:
 			// Enter sends the message
 			if !m.isLoading {
@@ -281,6 +242,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Handle Alt key bindings
+		if msg.Alt && len(msg.Runes) > 0 {
+			switch msg.Runes[0] {
+			case 'l':
+				// Toggle logic pane (Alt+L)
+				m.showLogic = !m.showLogic
+				if m.showLogic {
+					m.paneMode = ui.ModeSplitPane
+					m.splitPane.SetMode(ui.ModeSplitPane)
+				} else {
+					m.paneMode = ui.ModeSinglePane
+					m.splitPane.SetMode(ui.ModeSinglePane)
+				}
+				return m, nil
+
+			case 'g':
+				// Cycle through pane modes (Alt+G)
+				switch m.paneMode {
+				case ui.ModeSinglePane:
+					m.paneMode = ui.ModeSplitPane
+					m.showLogic = true
+				case ui.ModeSplitPane:
+					m.paneMode = ui.ModeFullLogic
+				case ui.ModeFullLogic:
+					m.paneMode = ui.ModeSinglePane
+					m.showLogic = false
+				}
+				m.splitPane.SetMode(m.paneMode)
+				return m, nil
+
+			case 'w':
+				// Toggle focus (Alt+W)
+				if m.paneMode == ui.ModeSplitPane {
+					m.splitPane.ToggleFocus()
+				}
+				return m, nil
+
+			case 'c':
+				// Toggle campaign progress panel (Alt+C)
+				m.showCampaignPanel = !m.showCampaignPanel
+				return m, nil
+			}
+		}
+
 		// Handle regular key input
 		if !m.isLoading {
 			m.textinput, tiCmd = m.textinput.Update(msg)
@@ -303,7 +308,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Height = msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
 		}
 
-		m.textinput.Width = msg.Width - 4
+		// Reduce input width to accommodate border (2) + padding (2) + safety margin
+		m.textinput.Width = msg.Width - 8
 
 		// Update split pane dimensions
 		if m.splitPane != nil {
