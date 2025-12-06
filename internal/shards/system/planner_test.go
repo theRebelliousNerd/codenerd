@@ -7,57 +7,9 @@ import (
 	"time"
 )
 
-// mockKernel is a simple mock implementation for testing
-type mockKernel struct {
-	facts []core.Fact
-}
-
-func (m *mockKernel) LoadFacts(facts []core.Fact) error {
-	m.facts = append(m.facts, facts...)
-	return nil
-}
-
-func (m *mockKernel) Query(predicate string) ([]core.Fact, error) {
-	var results []core.Fact
-	for _, f := range m.facts {
-		if f.Predicate == predicate {
-			results = append(results, f)
-		}
-	}
-	return results, nil
-}
-
-func (m *mockKernel) QueryAll() (map[string][]core.Fact, error) {
-	factMap := make(map[string][]core.Fact)
-	for _, f := range m.facts {
-		factMap[f.Predicate] = append(factMap[f.Predicate], f)
-	}
-	return factMap, nil
-}
-
-func (m *mockKernel) Assert(fact core.Fact) error {
-	m.facts = append(m.facts, fact)
-	return nil
-}
-
-func (m *mockKernel) Retract(predicate string) error {
-	var newFacts []core.Fact
-	for _, f := range m.facts {
-		if f.Predicate != predicate {
-			newFacts = append(newFacts, f)
-		}
-	}
-	m.facts = newFacts
-	return nil
-}
-
-func (m *mockKernel) Derive() error {
-	return nil
-}
-
 func TestPlanView(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = &mockKernel{}
+	planner.Kernel = core.NewRealKernel()
 
 	// Add some tasks
 	planner.AddTask("Implement feature A", 1)
@@ -86,24 +38,21 @@ func TestPlanView(t *testing.T) {
 
 func TestPlanViewWithProgress(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = &mockKernel{}
+	planner.Kernel = core.NewRealKernel()
 
 	// Add tasks
-	id1 := planner.AddTask("Task 1", 1)
-	id2 := planner.AddTask("Task 2", 2)
+	planner.AddTask("Task 1", 1)
+	planner.AddTask("Task 2", 2)
 	planner.AddTask("Task 3", 3)
 
-	// Mark one as completed
+	// Manually update statuses (simulating task completion)
 	planner.mu.Lock()
-	for i := range planner.agenda {
-		if planner.agenda[i].ID == id1 {
-			planner.agenda[i].Status = "completed"
-			planner.agenda[i].CompletedAt = time.Now()
-		}
-		if planner.agenda[i].ID == id2 {
-			planner.agenda[i].Status = "in_progress"
-			planner.agenda[i].StartedAt = time.Now()
-		}
+	if len(planner.agenda) >= 3 {
+		planner.agenda[0].Status = "completed"
+		planner.agenda[0].CompletedAt = time.Now()
+		planner.agenda[1].Status = "in_progress"
+		planner.agenda[1].StartedAt = time.Now()
+		// Task 3 stays pending
 	}
 	planner.mu.Unlock()
 
@@ -130,7 +79,7 @@ func TestPlanViewWithProgress(t *testing.T) {
 
 func TestFormatPlanAsMarkdown(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = &mockKernel{}
+	planner.Kernel = core.NewRealKernel()
 
 	// Add some tasks
 	planner.AddTask("Implement feature A", 1)
@@ -155,14 +104,14 @@ func TestFormatPlanAsMarkdown(t *testing.T) {
 		t.Error("Expected markdown to contain task description")
 	}
 
-	if !strings.Contains(markdown, "Total Tasks: 2") {
+	if !strings.Contains(markdown, "**Total Tasks:** 2") {
 		t.Error("Expected markdown to show total tasks")
 	}
 }
 
 func TestFormatPlanAsJSON(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = &mockKernel{}
+	planner.Kernel = core.NewRealKernel()
 
 	// Add a task
 	planner.AddTask("Test task", 1)
