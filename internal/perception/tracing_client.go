@@ -1,0 +1,303 @@
+package perception
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// ReasoningTrace captures a complete LLM interaction for learning and analysis.
+type ReasoningTrace struct {
+	ID           string    `json:"id"`
+	ShardID      string    `json:"shard_id"`
+	ShardType    string    `json:"shard_type"`
+	ShardCategory string   `json:"shard_category"` // system, ephemeral, specialist
+	SessionID    string    `json:"session_id"`
+	TaskContext  string    `json:"task_context"`
+
+	// LLM Interaction
+	SystemPrompt string `json:"system_prompt"`
+	UserPrompt   string `json:"user_prompt"`
+	Response     string `json:"response"`
+
+	// Metadata
+	Model      string `json:"model,omitempty"`
+	TokensUsed int    `json:"tokens_used,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
+
+	// Outcome (filled after shard completes)
+	Success      bool   `json:"success"`
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// Learning metadata (filled after analysis)
+	QualityScore  float64  `json:"quality_score,omitempty"`
+	LearningNotes []string `json:"learning_notes,omitempty"`
+
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// TraceStore defines the interface for storing reasoning traces.
+// This abstraction allows different storage backends.
+type TraceStore interface {
+	StoreReasoningTrace(trace *ReasoningTrace) error
+}
+
+// TracingLLMClient wraps any LLMClient and captures all interactions.
+// All shard LLM calls flow through this wrapper for comprehensive tracing.
+type TracingLLMClient struct {
+	underlying LLMClient
+	store      TraceStore
+
+	// Current context (set before each shard execution)
+	shardID       string
+	shardType     string
+	shardCategory string // system, ephemeral, specialist
+	sessionID     string
+	taskContext   string
+
+	mu sync.RWMutex
+}
+
+// NewTracingLLMClient creates a tracing wrapper around an existing LLM client.
+func NewTracingLLMClient(underlying LLMClient, store TraceStore) *TracingLLMClient {
+	return &TracingLLMClient{
+		underlying: underlying,
+		store:      store,
+	}
+}
+
+// SetShardContext sets the current shard context for trace attribution.
+// Called by ShardManager before each shard execution.
+func (tc *TracingLLMClient) SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.shardID = shardID
+	tc.shardType = shardType
+	tc.shardCategory = shardCategory
+	tc.sessionID = sessionID
+	tc.taskContext = taskContext
+}
+
+// ClearShardContext clears the current shard context after execution.
+func (tc *TracingLLMClient) ClearShardContext() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.shardID = ""
+	tc.shardType = ""
+	tc.shardCategory = ""
+	tc.taskContext = ""
+}
+
+// GetCurrentContext returns the current shard context (for debugging/testing).
+func (tc *TracingLLMClient) GetCurrentContext() (shardID, shardType, shardCategory, sessionID, taskContext string) {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.shardID, tc.shardType, tc.shardCategory, tc.sessionID, tc.taskContext
+}
+
+// Complete implements LLMClient.Complete with tracing.
+func (tc *TracingLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return tc.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem implements LLMClient.CompleteWithSystem with tracing.
+func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Capture current context
+	tc.mu.RLock()
+	shardID := tc.shardID
+	shardType := tc.shardType
+	shardCategory := tc.shardCategory
+	sessionID := tc.sessionID
+	taskContext := tc.taskContext
+	tc.mu.RUnlock()
+
+	start := time.Now()
+
+	// Make the actual LLM call
+	response, err := tc.underlying.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+
+	duration := time.Since(start)
+
+	// Create trace
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       shardID,
+		ShardType:     shardType,
+		ShardCategory: shardCategory,
+		SessionID:     sessionID,
+		TaskContext:   taskContext,
+		SystemPrompt:  systemPrompt,
+		UserPrompt:    userPrompt,
+		Response:      response,
+		DurationMs:    duration.Milliseconds(),
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+	}
+
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+
+	// Store trace asynchronously to not block execution
+	if tc.store != nil {
+		go func() {
+			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
+				// Log error but don't fail the operation
+				// In production, this would go to a structured logger
+				fmt.Printf("Warning: failed to store reasoning trace: %v\n", storeErr)
+			}
+		}()
+	}
+
+	return response, err
+}
+
+// GetUnderlying returns the wrapped LLM client.
+// Use sparingly - prefer going through the tracing wrapper.
+func (tc *TracingLLMClient) GetUnderlying() LLMClient {
+	return tc.underlying
+}
+
+// ShardTraceAccessor provides shards with access to their own historical traces.
+// This enables self-learning by querying past reasoning patterns.
+type ShardTraceAccessor interface {
+	// GetMyTraces retrieves recent traces for this shard type
+	GetMyTraces(limit int) ([]ReasoningTrace, error)
+
+	// GetMyFailedTraces retrieves failed traces for learning from errors
+	GetMyFailedTraces(limit int) ([]ReasoningTrace, error)
+
+	// GetSimilarTasks finds traces for tasks similar to the given pattern
+	GetSimilarTasks(taskPattern string, limit int) ([]ReasoningTrace, error)
+
+	// GetSuccessfulPatterns retrieves high-quality successful traces
+	GetSuccessfulPatterns(limit int) ([]ReasoningTrace, error)
+}
+
+// ShardTraceStore implements ShardTraceAccessor for a specific shard type.
+// Created by ShardManager and injected into each shard instance.
+type ShardTraceStore struct {
+	store     ShardTraceReader
+	shardType string
+}
+
+// ShardTraceReader defines the read operations needed for shard self-access.
+type ShardTraceReader interface {
+	GetShardTraces(shardType string, limit int) ([]ReasoningTrace, error)
+	GetFailedShardTraces(shardType string, limit int) ([]ReasoningTrace, error)
+	GetSimilarTaskTraces(shardType, taskPattern string, limit int) ([]ReasoningTrace, error)
+	GetHighQualityTraces(shardType string, minScore float64, limit int) ([]ReasoningTrace, error)
+}
+
+// NewShardTraceStore creates a trace store scoped to a specific shard type.
+func NewShardTraceStore(store ShardTraceReader, shardType string) *ShardTraceStore {
+	return &ShardTraceStore{
+		store:     store,
+		shardType: shardType,
+	}
+}
+
+// GetMyTraces retrieves recent traces for this shard type.
+func (sts *ShardTraceStore) GetMyTraces(limit int) ([]ReasoningTrace, error) {
+	if sts.store == nil {
+		return nil, nil
+	}
+	return sts.store.GetShardTraces(sts.shardType, limit)
+}
+
+// GetMyFailedTraces retrieves failed traces for learning from errors.
+func (sts *ShardTraceStore) GetMyFailedTraces(limit int) ([]ReasoningTrace, error) {
+	if sts.store == nil {
+		return nil, nil
+	}
+	return sts.store.GetFailedShardTraces(sts.shardType, limit)
+}
+
+// GetSimilarTasks finds traces for tasks similar to the given pattern.
+func (sts *ShardTraceStore) GetSimilarTasks(taskPattern string, limit int) ([]ReasoningTrace, error) {
+	if sts.store == nil {
+		return nil, nil
+	}
+	return sts.store.GetSimilarTaskTraces(sts.shardType, taskPattern, limit)
+}
+
+// GetSuccessfulPatterns retrieves high-quality successful traces.
+func (sts *ShardTraceStore) GetSuccessfulPatterns(limit int) ([]ReasoningTrace, error) {
+	if sts.store == nil {
+		return nil, nil
+	}
+	return sts.store.GetHighQualityTraces(sts.shardType, 0.8, limit)
+}
+
+// ExtractLearnings analyzes traces and extracts actionable learnings.
+// This is a helper function shards can use to learn from their history.
+func ExtractLearnings(traces []ReasoningTrace) []string {
+	var learnings []string
+
+	successCount := 0
+	failCount := 0
+	var avgDuration int64
+
+	for _, t := range traces {
+		avgDuration += t.DurationMs
+		if t.Success {
+			successCount++
+			if t.QualityScore >= 0.8 {
+				// High quality success - extract the approach
+				learnings = append(learnings, fmt.Sprintf("SUCCESS: %s", summarizeApproach(t)))
+			}
+		} else {
+			failCount++
+			// Learn from failure
+			learnings = append(learnings, fmt.Sprintf("AVOID: %s (error: %s)", t.TaskContext, t.ErrorMessage))
+		}
+	}
+
+	if len(traces) > 0 {
+		avgDuration /= int64(len(traces))
+		successRate := float64(successCount) / float64(len(traces)) * 100
+
+		learnings = append(learnings, fmt.Sprintf("STATS: %.0f%% success rate, avg %dms latency", successRate, avgDuration))
+	}
+
+	return learnings
+}
+
+// summarizeApproach extracts a brief summary of the approach from a trace.
+func summarizeApproach(t ReasoningTrace) string {
+	// Truncate long responses for summary
+	response := t.Response
+	if len(response) > 200 {
+		response = response[:200] + "..."
+	}
+	return response
+}
+
+// CategoryFromShardType determines the shard category based on type name.
+func CategoryFromShardType(typeName string) string {
+	// System shards (built-in, always-on)
+	systemShards := map[string]bool{
+		"perception_firewall": true,
+		"constitution_gate":   true,
+		"executive_policy":    true,
+		"cost_guard":          true,
+	}
+	if systemShards[typeName] {
+		return "system"
+	}
+
+	// Ephemeral shards (built-in factories)
+	ephemeralShards := map[string]bool{
+		"coder":      true,
+		"tester":     true,
+		"reviewer":   true,
+		"researcher": true,
+	}
+	if ephemeralShards[typeName] {
+		return "ephemeral"
+	}
+
+	// Everything else is a specialist (LLM-created or user-created)
+	return "specialist"
+}

@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"fmt"
 	"strings"
@@ -124,8 +125,31 @@ type Model struct {
 	// Autopoiesis (§8.3) - Self-Modification
 	autopoiesis *autopoiesis.Orchestrator
 
+	// Verification Loop (Quality-Enforcing)
+	verifier *verification.TaskVerifier
+
 	// Agent Wizard State
 	agentWizard *AgentWizardState
+
+	// ==========================================================================
+	// CONVERSATIONAL CONTEXT (Fix for follow-up questions)
+	// ==========================================================================
+	// Stores the last shard result so follow-up questions can reference it.
+	// This enables "what are the other suggestions?" after a review.
+	lastShardResult *ShardResult
+}
+
+// ShardResult stores the full output from a shard execution for follow-up queries.
+// This enables conversational follow-ups like "show me more" or "what are the warnings?".
+type ShardResult struct {
+	ShardType   string                 // "reviewer", "coder", "tester", "researcher"
+	Task        string                 // Original task sent to the shard
+	RawOutput   string                 // Full untruncated output
+	Timestamp   time.Time              // When the shard executed
+	TurnNumber  int                    // Which turn this was
+	Findings    []map[string]any       // Structured findings (for reviewer)
+	Metrics     map[string]any         // Metrics (for reviewer)
+	ExtraData   map[string]any         // Any additional structured data
 }
 
 // Message represents a single message in the chat history
@@ -691,4 +715,83 @@ func RunInteractiveChat(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+// storeShardResult saves shard execution results for follow-up queries.
+// This enables conversational follow-ups like "show me more" or "what are the warnings?".
+func (m *Model) storeShardResult(shardType, task, result string, facts []core.Fact) {
+	m.lastShardResult = &ShardResult{
+		ShardType:  shardType,
+		Task:       task,
+		RawOutput:  result,
+		Timestamp:  time.Now(),
+		TurnNumber: m.turnCount,
+		Findings:   extractFindings(result),
+		Metrics:    extractMetrics(result),
+		ExtraData:  make(map[string]any),
+	}
+
+	// Store facts for later reference
+	if len(facts) > 0 {
+		factStrings := make([]string, len(facts))
+		for i, f := range facts {
+			factStrings[i] = f.String()
+		}
+		m.lastShardResult.ExtraData["facts"] = factStrings
+	}
+}
+
+// extractFindings parses structured findings from reviewer output.
+func extractFindings(result string) []map[string]any {
+	var findings []map[string]any
+	// Simple line-based extraction - look for patterns like "- [ERROR] file:line: message"
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "- [") || strings.HasPrefix(line, "• [") ||
+			strings.Contains(line, "[WARN]") || strings.Contains(line, "[INFO]") ||
+			strings.Contains(line, "[CRIT]") || strings.Contains(line, "[ERR]") {
+			finding := map[string]any{
+				"raw": line,
+			}
+			// Extract severity
+			if strings.Contains(line, "[CRIT]") || strings.Contains(line, "[CRITICAL]") {
+				finding["severity"] = "critical"
+			} else if strings.Contains(line, "[ERR]") || strings.Contains(line, "[ERROR]") {
+				finding["severity"] = "error"
+			} else if strings.Contains(line, "[WARN]") || strings.Contains(line, "[WARNING]") {
+				finding["severity"] = "warning"
+			} else if strings.Contains(line, "[INFO]") {
+				finding["severity"] = "info"
+			}
+			findings = append(findings, finding)
+		}
+	}
+	return findings
+}
+
+// extractMetrics parses metrics section from output.
+func extractMetrics(result string) map[string]any {
+	metrics := make(map[string]any)
+	// Look for common metric patterns
+	lines := strings.Split(result, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "lines") || strings.Contains(line, "functions") ||
+			strings.Contains(line, "complexity") || strings.Contains(line, "nesting") {
+			// Parse "Key: Value" or "Key = Value" patterns
+			for _, sep := range []string{": ", "= ", "="} {
+				if strings.Contains(line, sep) {
+					parts := strings.SplitN(line, sep, 2)
+					if len(parts) == 2 {
+						key := strings.TrimSpace(parts[0])
+						value := strings.TrimSpace(parts[1])
+						metrics[key] = value
+					}
+					break
+				}
+			}
+		}
+	}
+	return metrics
 }

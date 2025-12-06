@@ -797,6 +797,11 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
+	// Handle directories - list contents instead of reading as file
+	if info.IsDir() {
+		return v.handleReadDirectory(ctx, path)
+	}
+
 	var data []byte
 	var truncated bool
 
@@ -865,6 +870,81 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 			"truncated": truncated,
 		},
 		FactsToAdd: facts,
+	}, nil
+}
+
+// handleReadDirectory reads a directory and returns a summary of its contents.
+// This is called when handleReadFile detects the target is a directory.
+func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "dir_read_error", Args: []interface{}{dirPath, err.Error()}},
+			},
+		}, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Directory: %s\n\n", dirPath))
+
+	// Categorize entries
+	var dirs, files []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name()+"/")
+		} else {
+			files = append(files, entry.Name())
+		}
+	}
+
+	// List directories first
+	if len(dirs) > 0 {
+		sb.WriteString("Subdirectories:\n")
+		for _, d := range dirs {
+			sb.WriteString(fmt.Sprintf("  %s\n", d))
+		}
+		sb.WriteString("\n")
+	}
+
+	// List files
+	if len(files) > 0 {
+		sb.WriteString("Files:\n")
+		for _, f := range files {
+			// Get file info for size
+			info, err := os.Stat(filepath.Join(dirPath, f))
+			if err == nil {
+				sb.WriteString(fmt.Sprintf("  %s (%d bytes)\n", f, info.Size()))
+			} else {
+				sb.WriteString(fmt.Sprintf("  %s\n", f))
+			}
+		}
+	}
+
+	// Add summary
+	sb.WriteString(fmt.Sprintf("\nTotal: %d directories, %d files\n", len(dirs), len(files)))
+
+	content := sb.String()
+
+	return ActionResult{
+		Success: true,
+		Output:  content,
+		Metadata: map[string]interface{}{
+			"path":        dirPath,
+			"is_dir":      true,
+			"dir_count":   len(dirs),
+			"file_count":  len(files),
+			"total_count": len(entries),
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "dir_read", Args: []interface{}{dirPath, int64(len(entries))}},
+		},
 	}, nil
 }
 

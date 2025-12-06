@@ -265,10 +265,14 @@ func TestEngineQueryFacts(t *testing.T) {
 	}
 
 	// Add facts
-	_ = engine.AddFact("record", "a", "apple")
-	_ = engine.AddFact("record", "b", "banana")
+	if err := engine.AddFact("record", "a", "apple"); err != nil {
+		t.Fatalf("AddFact(a) error = %v", err)
+	}
+	if err := engine.AddFact("record", "b", "banana"); err != nil {
+		t.Fatalf("AddFact(b) error = %v", err)
+	}
 
-	// Query specific
+	// Query specific - handles Mangle named constant prefix (/)
 	facts := engine.QueryFacts("record", "a")
 	if len(facts) != 1 {
 		t.Errorf("QueryFacts() returned %d facts, want 1", len(facts))

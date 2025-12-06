@@ -28,6 +28,17 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		var warnings []string
 
+		// =====================================================================
+		// 0. FOLLOW-UP DETECTION (Pre-Perception)
+		// =====================================================================
+		// Check if this is a follow-up question about the last shard result.
+		// This must happen BEFORE perception to inject proper context.
+		isFollowUp, followUpType := detectFollowUpQuestion(input, m.lastShardResult)
+		if isFollowUp && m.lastShardResult != nil {
+			// Handle follow-up directly with conversation context
+			return m.handleFollowUpQuestion(ctx, input, followUpType)
+		}
+
 		// 1. PERCEPTION (Transducer)
 		intent, err := m.transducer.ParseIntent(ctx, input)
 		if err != nil {
@@ -49,13 +60,59 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1.6 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
 		// This implements automatic shard spawning from natural language
+		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
 		if shardType != "" && intent.Confidence >= 0.5 {
 			// Format task based on verb and target
 			task := formatShardTask(intent.Verb, intent.Target, intent.Constraint, m.workspace)
 
-			// Spawn the shard and return its result
+			// Use verification loop if available (quality-enforcing retry)
+			if m.verifier != nil {
+				// Set session context for verification persistence
+				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
+
+				result, verification, verifyErr := m.verifier.VerifyWithRetry(ctx, task, shardType, 3)
+
+				// CRITICAL FIX: Inject verified shard results as facts for cross-turn context
+				shardID := fmt.Sprintf("%s-verified-%d", shardType, time.Now().UnixNano())
+				facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, verifyErr)
+				if m.kernel != nil && len(facts) > 0 {
+					_ = m.kernel.LoadFacts(facts)
+				}
+
+				// CONVERSATION CONTEXT FIX: Store shard result for follow-up queries
+				m.storeShardResult(shardType, task, result, facts)
+
+				if verifyErr != nil {
+					// Check if max retries exceeded - escalate to user
+					if verifyErr.Error() == "max retries exceeded - escalating to user" {
+						response := formatVerificationEscalation(task, shardType, verification)
+						return responseMsg(response)
+					}
+					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
+				}
+
+				// Format response with verification confidence
+				response := formatVerifiedResponse(intent, shardType, task, result, verification)
+				return responseMsg(response)
+			}
+
+			// Fallback: Direct shard spawn without verification
 			result, spawnErr := m.shardMgr.Spawn(ctx, shardType, task)
+
+			// CRITICAL FIX: Inject shard results as facts for cross-turn context
+			// This enables the main agent to reference shard outputs in future turns
+			shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+			facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, spawnErr)
+			if m.kernel != nil && len(facts) > 0 {
+				if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
+					warnings = append(warnings, fmt.Sprintf("[ShardFacts] Warning: %v", loadErr))
+				}
+			}
+
+			// CONVERSATION CONTEXT FIX: Store shard result for follow-up queries
+			m.storeShardResult(shardType, task, result, facts)
+
 			if spawnErr != nil {
 				return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
 			}
@@ -208,8 +265,17 @@ func (m Model) processInput(input string) tea.Cmd {
 			systemPrompt = fmt.Sprintf("%v", systemPrompts[0].Args[0])
 		}
 
+		// Build conversation context for fluid chat experience
+		// This enables the LLM to understand recent turns and reference previous outputs
+		convCtx := &ConversationContext{
+			RecentTurns:     m.getRecentTurns(4), // Last 4 turns for context
+			LastShardResult: m.lastShardResult,
+			TurnNumber:      m.turnCount,
+		}
+
 		// Use full articulation output to capture MemoryOperations
-		artOutput, err := articulateWithContextFull(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt)
+		// Now with conversation context for fluid follow-up handling
+		artOutput, err := articulateWithConversation(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx)
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -359,6 +425,14 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 			if step.ShardType != "" {
 				result, err := m.shardMgr.Spawn(ctx, step.ShardType, step.Task)
+
+				// CRITICAL FIX: Inject multi-step shard results as facts
+				shardID := fmt.Sprintf("%s-step%d-%d", step.ShardType, i, time.Now().UnixNano())
+				facts := m.shardMgr.ResultToFacts(shardID, step.ShardType, step.Task, result, err)
+				if m.kernel != nil && len(facts) > 0 {
+					_ = m.kernel.LoadFacts(facts)
+				}
+
 				if err != nil {
 					results = append(results, fmt.Sprintf("**Status**: ❌ Failed\n**Error**: %v\n", err))
 					// Don't continue to dependent steps if this fails
@@ -385,6 +459,269 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 
 		return responseMsg(strings.Join(results, ""))
 	}
+}
+
+// =============================================================================
+// FOLLOW-UP DETECTION AND HANDLING
+// =============================================================================
+
+// FollowUpType indicates the type of follow-up question detected.
+type FollowUpType string
+
+const (
+	FollowUpNone       FollowUpType = ""
+	FollowUpShowMore   FollowUpType = "show_more"    // "what are the other suggestions?"
+	FollowUpExplain    FollowUpType = "explain"      // "explain the first warning"
+	FollowUpFilter     FollowUpType = "filter"       // "show only critical issues"
+	FollowUpDetails    FollowUpType = "details"      // "tell me more about X"
+	FollowUpGeneric    FollowUpType = "generic"      // Generic follow-up
+)
+
+// detectFollowUpQuestion checks if the input is a follow-up about the last shard result.
+// Returns true and the follow-up type if detected.
+func detectFollowUpQuestion(input string, lastResult *ShardResult) (bool, FollowUpType) {
+	if lastResult == nil {
+		return false, FollowUpNone
+	}
+
+	lower := strings.ToLower(input)
+
+	// Patterns that indicate follow-up questions about previous output
+	showMorePatterns := []string{
+		"what are the other",
+		"show me the other",
+		"show all",
+		"list all",
+		"what other",
+		"more details",
+		"full list",
+		"complete list",
+		"all the warnings",
+		"all warnings",
+		"all the suggestions",
+		"all suggestions",
+		"all the findings",
+		"all findings",
+		"rest of",
+		"remaining",
+	}
+
+	explainPatterns := []string{
+		"explain the",
+		"what does",
+		"why is",
+		"tell me about",
+		"what is the",
+		"can you explain",
+	}
+
+	filterPatterns := []string{
+		"show only",
+		"filter by",
+		"just the",
+		"only show",
+		"only the",
+	}
+
+	detailPatterns := []string{
+		"more about",
+		"details on",
+		"elaborate on",
+		"expand on",
+	}
+
+	// Check patterns
+	for _, p := range showMorePatterns {
+		if strings.Contains(lower, p) {
+			return true, FollowUpShowMore
+		}
+	}
+
+	for _, p := range explainPatterns {
+		if strings.Contains(lower, p) {
+			return true, FollowUpExplain
+		}
+	}
+
+	for _, p := range filterPatterns {
+		if strings.Contains(lower, p) {
+			return true, FollowUpFilter
+		}
+	}
+
+	for _, p := range detailPatterns {
+		if strings.Contains(lower, p) {
+			return true, FollowUpDetails
+		}
+	}
+
+	// Generic follow-up detection (pronouns referring to previous context)
+	genericPatterns := []string{
+		"those", "these", "that", "this",
+		"the above", "mentioned", "previous",
+	}
+	for _, p := range genericPatterns {
+		if strings.Contains(lower, p) {
+			// Only trigger if it's a short question (likely referential)
+			if len(input) < 100 {
+				return true, FollowUpGeneric
+			}
+		}
+	}
+
+	return false, FollowUpNone
+}
+
+// handleFollowUpQuestion processes a follow-up question using conversation context.
+func (m Model) handleFollowUpQuestion(ctx context.Context, input string, followUpType FollowUpType) tea.Msg {
+	sr := m.lastShardResult
+	if sr == nil {
+		return responseMsg("I don't have any previous results to reference. Could you provide more context?")
+	}
+
+	// Build conversation context with recent history
+	convCtx := &ConversationContext{
+		RecentTurns:     m.getRecentTurns(6), // Last 6 turns
+		LastShardResult: sr,
+		TurnNumber:      m.turnCount,
+	}
+
+	// For "show more" type questions about reviewer findings, we can answer directly
+	if followUpType == FollowUpShowMore && sr.ShardType == "reviewer" && len(sr.Findings) > 0 {
+		return m.formatAllFindings(sr, input)
+	}
+
+	// For other follow-ups, use LLM with full context
+	intent := perception.Intent{
+		Category:   "/query",
+		Verb:       "/explain",
+		Target:     "previous_output",
+		Constraint: string(followUpType),
+		Confidence: 0.9,
+		Response:   "", // Will be generated
+	}
+
+	// Get context facts from kernel
+	contextFacts, _ := m.kernel.Query("context_to_inject")
+
+	// Build the follow-up prompt with conversation context
+	systemPrompt := `You are answering a follow-up question about a previous shard execution result.
+The user is asking about details from the last operation. Use the "Last Shard Execution Result"
+section above to provide accurate, specific answers. Reference the actual findings, warnings,
+or metrics from that result.`
+
+	artOutput, err := articulateWithConversation(ctx, m.client, intent,
+		payloadForArticulation(intent, nil), contextFacts, nil, systemPrompt, convCtx)
+	if err != nil {
+		return errorMsg(fmt.Errorf("follow-up articulation failed: %w", err))
+	}
+
+	return responseMsg(artOutput.Surface)
+}
+
+// formatAllFindings formats all findings from a shard result for display.
+func (m Model) formatAllFindings(sr *ShardResult, query string) tea.Msg {
+	var sb strings.Builder
+	lower := strings.ToLower(query)
+
+	sb.WriteString(fmt.Sprintf("## All Findings from %s\n\n", strings.Title(sr.ShardType)))
+	sb.WriteString(fmt.Sprintf("**Task**: %s\n\n", sr.Task))
+
+	// Determine filter based on query
+	showWarnings := strings.Contains(lower, "warning")
+	showInfo := strings.Contains(lower, "info") || strings.Contains(lower, "suggestion")
+	showErrors := strings.Contains(lower, "error") || strings.Contains(lower, "critical")
+	showAll := !showWarnings && !showInfo && !showErrors
+
+	// Group findings by severity
+	var critical, errors, warnings, infos []map[string]any
+	for _, f := range sr.Findings {
+		sev, _ := f["severity"].(string)
+		switch strings.ToLower(sev) {
+		case "critical":
+			critical = append(critical, f)
+		case "error":
+			errors = append(errors, f)
+		case "warning":
+			warnings = append(warnings, f)
+		case "info":
+			infos = append(infos, f)
+		default:
+			infos = append(infos, f) // Default to info
+		}
+	}
+
+	// Format each group
+	if (showAll || showErrors) && len(critical) > 0 {
+		sb.WriteString("### Critical Issues\n")
+		for _, f := range critical {
+			formatFinding(&sb, f)
+		}
+		sb.WriteString("\n")
+	}
+
+	if (showAll || showErrors) && len(errors) > 0 {
+		sb.WriteString("### Errors\n")
+		for _, f := range errors {
+			formatFinding(&sb, f)
+		}
+		sb.WriteString("\n")
+	}
+
+	if (showAll || showWarnings) && len(warnings) > 0 {
+		sb.WriteString("### Warnings\n")
+		for _, f := range warnings {
+			formatFinding(&sb, f)
+		}
+		sb.WriteString("\n")
+	}
+
+	if (showAll || showInfo) && len(infos) > 0 {
+		sb.WriteString("### Info/Suggestions\n")
+		for _, f := range infos {
+			formatFinding(&sb, f)
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add metrics if available
+	if len(sr.Metrics) > 0 {
+		sb.WriteString("### Metrics\n")
+		for k, v := range sr.Metrics {
+			sb.WriteString(fmt.Sprintf("- **%s**: %v\n", k, v))
+		}
+	}
+
+	return responseMsg(sb.String())
+}
+
+// formatFinding formats a single finding for display.
+func formatFinding(sb *strings.Builder, f map[string]any) {
+	file, _ := f["file"].(string)
+	line, _ := f["line"].(float64)
+	msg, _ := f["message"].(string)
+	category, _ := f["category"].(string)
+
+	if file != "" && line > 0 {
+		sb.WriteString(fmt.Sprintf("- **%s:%d** - %s", file, int(line), msg))
+	} else if file != "" {
+		sb.WriteString(fmt.Sprintf("- **%s** - %s", file, msg))
+	} else {
+		sb.WriteString(fmt.Sprintf("- %s", msg))
+	}
+
+	if category != "" {
+		sb.WriteString(fmt.Sprintf(" [%s]", category))
+	}
+	sb.WriteString("\n")
+}
+
+// getRecentTurns returns the last N conversation turns.
+func (m Model) getRecentTurns(n int) []Message {
+	if len(m.history) <= n {
+		return m.history
+	}
+	return m.history[len(m.history)-n:]
 }
 
 func (m Model) createAgentFromPrompt(description string) tea.Cmd {

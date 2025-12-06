@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/shards/system"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
 	"encoding/json"
@@ -104,13 +105,15 @@ func InitChat(cfg Config) Model {
 	}
 
 	// Initialize backend components
-	llmClient := perception.NewZAIClient(apiKey)
-	transducer := perception.NewRealTransducer(llmClient)
+	baseLLMClient := perception.NewZAIClient(apiKey)
+	transducer := perception.NewRealTransducer(baseLLMClient)
 	kernel := core.NewRealKernel()
 	executor := tactile.NewSafeExecutor()
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
-	shardMgr.SetLLMClient(llmClient)
+
+	// Note: LLM client will be set after TracingLLMClient is created below
+	// We need localDB first for the tracing store
 
 	// Register Shard Factories (External Injection)
 	// Each shard gets its own kernel, VirtualStore, and LLM client injected
@@ -174,6 +177,31 @@ func InitChat(cfg Config) Model {
 				Time:    time.Now(),
 			})
 		}
+	}
+
+	// ==========================================================================
+	// REASONING TRACE CAPTURE (Task 4)
+	// ==========================================================================
+	// Wrap the LLM client with TracingLLMClient to capture all shard reasoning.
+	// Traces are stored in SQLite and made available to shards for self-learning.
+	var llmClient perception.LLMClient = baseLLMClient
+	if localDB != nil {
+		// Create trace store adapter that implements perception.TraceStore
+		traceStore := NewLocalStoreTraceAdapter(localDB)
+		tracingClient := perception.NewTracingLLMClient(baseLLMClient, traceStore)
+		llmClient = tracingClient
+
+		// Wire tracing client to ShardManager for context-aware trace attribution
+		shardMgr.SetLLMClient(tracingClient)
+
+		initialMessages = append(initialMessages, Message{
+			Role:    "assistant",
+			Content: "✓ Reasoning trace capture enabled",
+			Time:    time.Now(),
+		})
+	} else {
+		// Fallback: no tracing, use base client directly
+		shardMgr.SetLLMClient(baseLLMClient)
 	}
 
 	shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -314,6 +342,20 @@ func InitChat(cfg Config) Model {
 	kernelAdapter := core.NewKernelAdapter(kernel)
 	autopoiesisOrch.SetKernel(kernelAdapter)
 
+	// Initialize Verification Loop (Quality-Enforcing)
+	// This ensures tasks are completed PROPERLY with automatic retry and corrective action
+	context7Key := appCfg.Context7APIKey
+	if context7Key == "" {
+		context7Key = os.Getenv("CONTEXT7_API_KEY")
+	}
+	taskVerifier := verification.NewTaskVerifier(
+		llmClient,
+		localDB,
+		shardMgr,
+		autopoiesisOrch,
+		context7Key,
+	)
+
 	// Wire tool executor to VirtualStore for shard access to generated tools
 	// This enables the Ouroboros Loop's generated tools to be executed via VirtualStore
 	toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
@@ -356,6 +398,7 @@ func InitChat(cfg Config) Model {
 		localDB:               localDB,
 		compressor:            compressor,
 		autopoiesis:           autopoiesisOrch,
+		verifier:              taskVerifier,
 	}
 
 	if len(initialMessages) > 0 {
@@ -659,4 +702,31 @@ func resolveTurnCount(session *Session) int {
 		return session.TurnCount
 	}
 	return 0
+}
+
+// =============================================================================
+// TRACE STORE ADAPTER
+// =============================================================================
+// Adapts store.LocalStore to implement perception.TraceStore interface for
+// reasoning trace persistence.
+
+// LocalStoreTraceAdapter wraps LocalStore to implement perception.TraceStore.
+type LocalStoreTraceAdapter struct {
+	store *store.LocalStore
+}
+
+// NewLocalStoreTraceAdapter creates a new trace store adapter.
+func NewLocalStoreTraceAdapter(s *store.LocalStore) *LocalStoreTraceAdapter {
+	return &LocalStoreTraceAdapter{store: s}
+}
+
+// StoreReasoningTrace implements perception.TraceStore.
+// Note: perception.TraceStore expects StoreReasoningTrace(*ReasoningTrace)
+// but store.LocalStore.StoreReasoningTrace takes interface{}.
+func (a *LocalStoreTraceAdapter) StoreReasoningTrace(trace *perception.ReasoningTrace) error {
+	if a.store == nil || trace == nil {
+		return nil
+	}
+	// Pass the trace directly - LocalStore accepts interface{} and handles conversion
+	return a.store.StoreReasoningTrace(trace)
 }

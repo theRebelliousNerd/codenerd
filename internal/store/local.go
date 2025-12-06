@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -124,7 +125,59 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_session ON session_history(session_id);
 	`
 
-	for _, table := range []string{vectorTable, graphTable, coldTable, activationTable, sessionTable} {
+	// Task verification history for learning from retry loops
+	verificationTable := `
+	CREATE TABLE IF NOT EXISTS task_verifications (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		task TEXT NOT NULL,
+		shard_type TEXT NOT NULL,
+		attempt_number INTEGER NOT NULL,
+		success BOOLEAN NOT NULL,
+		confidence REAL,
+		reason TEXT,
+		quality_violations TEXT,
+		corrective_action TEXT,
+		evidence TEXT,
+		result_hash TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_verifications_session ON task_verifications(session_id);
+	CREATE INDEX IF NOT EXISTS idx_verifications_success ON task_verifications(success);
+	CREATE INDEX IF NOT EXISTS idx_verifications_shard ON task_verifications(shard_type);
+	`
+
+	// Reasoning traces for shard LLM interactions (Task 4)
+	reasoningTracesTable := `
+	CREATE TABLE IF NOT EXISTS reasoning_traces (
+		id TEXT PRIMARY KEY,
+		shard_id TEXT NOT NULL,
+		shard_type TEXT NOT NULL,
+		shard_category TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		task_context TEXT,
+		system_prompt TEXT NOT NULL,
+		user_prompt TEXT NOT NULL,
+		response TEXT NOT NULL,
+		model TEXT,
+		tokens_used INTEGER,
+		duration_ms INTEGER,
+		success BOOLEAN NOT NULL,
+		error_message TEXT,
+		quality_score REAL,
+		learning_notes TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_traces_shard_type ON reasoning_traces(shard_type);
+	CREATE INDEX IF NOT EXISTS idx_traces_session ON reasoning_traces(session_id);
+	CREATE INDEX IF NOT EXISTS idx_traces_shard_id ON reasoning_traces(shard_id);
+	CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
+	CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
+	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
+	`
+
+	for _, table := range []string{vectorTable, graphTable, coldTable, activationTable, sessionTable, verificationTable, reasoningTracesTable} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
@@ -546,6 +599,506 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 	}
 
 	return history, nil
+}
+
+// ========== Task Verification ==========
+
+// StoreVerification records a verification attempt for learning.
+func (s *LocalStore) StoreVerification(
+	sessionID string,
+	turnNumber int,
+	task string,
+	shardType string,
+	attemptNumber int,
+	success bool,
+	confidence float64,
+	reason string,
+	violationsJSON string,
+	correctiveJSON string,
+	evidenceJSON string,
+	resultHash string,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO task_verifications
+		 (session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID, turnNumber, task, shardType, attemptNumber, success, confidence, reason, violationsJSON, correctiveJSON, evidenceJSON, resultHash,
+	)
+	return err
+}
+
+// GetVerificationHistory retrieves verification attempts for a session.
+func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]VerificationRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash, created_at
+		 FROM task_verifications
+		 WHERE session_id = ?
+		 ORDER BY created_at DESC
+		 LIMIT ?`,
+		sessionID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []VerificationRecord
+	for rows.Next() {
+		var rec VerificationRecord
+		if err := rows.Scan(
+			&rec.ID, &rec.SessionID, &rec.TurnNumber, &rec.Task, &rec.ShardType,
+			&rec.AttemptNumber, &rec.Success, &rec.Confidence, &rec.Reason,
+			&rec.ViolationsJSON, &rec.CorrectiveJSON, &rec.EvidenceJSON, &rec.ResultHash, &rec.CreatedAt,
+		); err != nil {
+			continue
+		}
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// GetQualityViolationStats retrieves statistics on quality violations for learning.
+func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		`SELECT quality_violations, COUNT(*) as count
+		 FROM task_verifications
+		 WHERE success = 0 AND quality_violations != '[]'
+		 GROUP BY quality_violations
+		 ORDER BY count DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make(map[string]int)
+	for rows.Next() {
+		var violations string
+		var count int
+		if err := rows.Scan(&violations, &count); err != nil {
+			continue
+		}
+		stats[violations] = count
+	}
+
+	return stats, nil
+}
+
+// VerificationRecord represents a stored verification attempt.
+type VerificationRecord struct {
+	ID             int64
+	SessionID      string
+	TurnNumber     int
+	Task           string
+	ShardType      string
+	AttemptNumber  int
+	Success        bool
+	Confidence     float64
+	Reason         string
+	ViolationsJSON string
+	CorrectiveJSON string
+	EvidenceJSON   string
+	ResultHash     string
+	CreatedAt      time.Time
+}
+
+// ========== Reasoning Traces ==========
+
+// ReasoningTrace represents a captured LLM interaction for learning.
+// This mirrors perception.ReasoningTrace to avoid import cycles.
+type ReasoningTrace struct {
+	ID            string
+	ShardID       string
+	ShardType     string
+	ShardCategory string
+	SessionID     string
+	TaskContext   string
+	SystemPrompt  string
+	UserPrompt    string
+	Response      string
+	Model         string
+	TokensUsed    int
+	DurationMs    int64
+	Success       bool
+	ErrorMessage  string
+	QualityScore  float64
+	LearningNotes []string
+	CreatedAt     time.Time
+}
+
+// StoreReasoningTrace persists a reasoning trace.
+// Implements perception.TraceStore interface.
+// Accepts interface{} to avoid import cycles - uses reflection to extract fields.
+func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Try direct ReasoningTrace (from store package)
+	if rt, ok := trace.(*ReasoningTrace); ok {
+		notesJSON, _ := json.Marshal(rt.LearningNotes)
+		_, err := s.db.Exec(`
+			INSERT OR REPLACE INTO reasoning_traces
+			(id, shard_id, shard_type, shard_category, session_id, task_context,
+			 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+			 success, error_message, quality_score, learning_notes)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			rt.ID, rt.ShardID, rt.ShardType, rt.ShardCategory, rt.SessionID, rt.TaskContext,
+			rt.SystemPrompt, rt.UserPrompt, rt.Response, rt.Model, rt.TokensUsed, rt.DurationMs,
+			rt.Success, rt.ErrorMessage, rt.QualityScore, string(notesJSON),
+		)
+		return err
+	}
+
+	// Use reflection to handle perception.ReasoningTrace without import cycle
+	// This allows any struct with the same field names to work
+	v := reflect.ValueOf(trace)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return fmt.Errorf("invalid trace type: expected struct, got %v", v.Kind())
+	}
+
+	// Extract fields by name
+	getField := func(name string) interface{} {
+		f := v.FieldByName(name)
+		if !f.IsValid() {
+			return nil
+		}
+		return f.Interface()
+	}
+
+	id, _ := getField("ID").(string)
+	shardID, _ := getField("ShardID").(string)
+	shardType, _ := getField("ShardType").(string)
+	shardCategory, _ := getField("ShardCategory").(string)
+	sessionID, _ := getField("SessionID").(string)
+	taskContext, _ := getField("TaskContext").(string)
+	systemPrompt, _ := getField("SystemPrompt").(string)
+	userPrompt, _ := getField("UserPrompt").(string)
+	response, _ := getField("Response").(string)
+	model, _ := getField("Model").(string)
+	tokensUsed, _ := getField("TokensUsed").(int)
+	durationMs, _ := getField("DurationMs").(int64)
+	success, _ := getField("Success").(bool)
+	errorMessage, _ := getField("ErrorMessage").(string)
+	qualityScore, _ := getField("QualityScore").(float64)
+	learningNotes, _ := getField("LearningNotes").([]string)
+
+	notesJSON, _ := json.Marshal(learningNotes)
+
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO reasoning_traces
+		(id, shard_id, shard_type, shard_category, session_id, task_context,
+		 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		 success, error_message, quality_score, learning_notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, shardID, shardType, shardCategory, sessionID, taskContext,
+		systemPrompt, userPrompt, response, model, tokensUsed, durationMs,
+		success, errorMessage, qualityScore, string(notesJSON),
+	)
+	return err
+}
+
+// GetShardTraces retrieves traces for a specific shard type.
+// Implements perception.ShardTraceReader interface.
+func (s *LocalStore) GetShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE shard_type = ?
+		ORDER BY created_at DESC
+		LIMIT ?`, shardType, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetFailedShardTraces retrieves failed traces for a shard type.
+func (s *LocalStore) GetFailedShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE shard_type = ? AND success = 0
+		ORDER BY created_at DESC
+		LIMIT ?`, shardType, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetSimilarTaskTraces finds traces with similar task context.
+func (s *LocalStore) GetSimilarTaskTraces(shardType, taskPattern string, limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Simple pattern matching - in production could use FTS or vector similarity
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE shard_type = ? AND task_context LIKE ?
+		ORDER BY created_at DESC
+		LIMIT ?`, shardType, "%"+taskPattern+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetHighQualityTraces retrieves successful traces with high quality scores.
+func (s *LocalStore) GetHighQualityTraces(shardType string, minScore float64, limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE shard_type = ? AND success = 1 AND quality_score >= ?
+		ORDER BY quality_score DESC, created_at DESC
+		LIMIT ?`, shardType, minScore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetRecentTraces retrieves recent traces across all shards.
+// Used by main agent for oversight.
+func (s *LocalStore) GetRecentTraces(limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		ORDER BY created_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetTracesBySession retrieves all traces for a specific session.
+func (s *LocalStore) GetTracesBySession(sessionID string) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE session_id = ?
+		ORDER BY created_at ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// GetTracesByCategory retrieves traces by shard category.
+func (s *LocalStore) GetTracesByCategory(category string, limit int) ([]ReasoningTrace, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := s.db.Query(`
+		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
+		       system_prompt, user_prompt, response, model, tokens_used, duration_ms,
+		       success, error_message, quality_score, learning_notes, created_at
+		FROM reasoning_traces
+		WHERE shard_category = ?
+		ORDER BY created_at DESC
+		LIMIT ?`, category, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanTraces(rows)
+}
+
+// UpdateTraceQuality updates the quality score and learning notes for a trace.
+func (s *LocalStore) UpdateTraceQuality(traceID string, score float64, notes []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	notesJSON, _ := json.Marshal(notes)
+
+	_, err := s.db.Exec(`
+		UPDATE reasoning_traces
+		SET quality_score = ?, learning_notes = ?
+		WHERE id = ?`, score, string(notesJSON), traceID)
+	return err
+}
+
+// GetTraceStats returns statistics about reasoning traces.
+func (s *LocalStore) GetTraceStats() (map[string]interface{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+
+	// Total traces
+	var totalCount int64
+	s.db.QueryRow("SELECT COUNT(*) FROM reasoning_traces").Scan(&totalCount)
+	stats["total_traces"] = totalCount
+
+	// Success rate
+	var successCount int64
+	s.db.QueryRow("SELECT COUNT(*) FROM reasoning_traces WHERE success = 1").Scan(&successCount)
+	if totalCount > 0 {
+		stats["success_rate"] = float64(successCount) / float64(totalCount)
+	}
+
+	// Average duration
+	var avgDuration float64
+	s.db.QueryRow("SELECT AVG(duration_ms) FROM reasoning_traces").Scan(&avgDuration)
+	stats["avg_duration_ms"] = avgDuration
+
+	// Traces by category
+	categoryStats := make(map[string]int64)
+	rows, err := s.db.Query("SELECT shard_category, COUNT(*) FROM reasoning_traces GROUP BY shard_category")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var category string
+			var count int64
+			if rows.Scan(&category, &count) == nil {
+				categoryStats[category] = count
+			}
+		}
+	}
+	stats["by_category"] = categoryStats
+
+	// Traces by shard type
+	shardStats := make(map[string]int64)
+	rows2, err := s.db.Query("SELECT shard_type, COUNT(*) FROM reasoning_traces GROUP BY shard_type ORDER BY COUNT(*) DESC LIMIT 10")
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var shardType string
+			var count int64
+			if rows2.Scan(&shardType, &count) == nil {
+				shardStats[shardType] = count
+			}
+		}
+	}
+	stats["by_shard_type"] = shardStats
+
+	return stats, nil
+}
+
+// scanTraces is a helper to scan trace rows into ReasoningTrace structs.
+func (s *LocalStore) scanTraces(rows *sql.Rows) ([]ReasoningTrace, error) {
+	var traces []ReasoningTrace
+	for rows.Next() {
+		var t ReasoningTrace
+		var notesJSON string
+		var model, taskContext, errorMessage sql.NullString
+		var tokensUsed sql.NullInt64
+		var qualityScore sql.NullFloat64
+
+		err := rows.Scan(
+			&t.ID, &t.ShardID, &t.ShardType, &t.ShardCategory, &t.SessionID, &taskContext,
+			&t.SystemPrompt, &t.UserPrompt, &t.Response, &model, &tokensUsed, &t.DurationMs,
+			&t.Success, &errorMessage, &qualityScore, &notesJSON, &t.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		if model.Valid {
+			t.Model = model.String
+		}
+		if taskContext.Valid {
+			t.TaskContext = taskContext.String
+		}
+		if errorMessage.Valid {
+			t.ErrorMessage = errorMessage.String
+		}
+		if tokensUsed.Valid {
+			t.TokensUsed = int(tokensUsed.Int64)
+		}
+		if qualityScore.Valid {
+			t.QualityScore = qualityScore.Float64
+		}
+		if notesJSON != "" {
+			json.Unmarshal([]byte(notesJSON), &t.LearningNotes)
+		}
+
+		traces = append(traces, t)
+	}
+
+	return traces, nil
 }
 
 // ========== Utility Functions ==========

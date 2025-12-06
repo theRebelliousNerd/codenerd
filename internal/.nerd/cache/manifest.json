@@ -1,0 +1,632 @@
+{
+  "internal\\README.md": {
+    "hash": "17790253de2995f87ec7311f672d03d21ad71205dda81b17b5e3f558bec79203",
+    "mod_time": 1764990342,
+    "size": 7728
+  },
+  "internal\\articulation\\emitter.go": {
+    "hash": "f0345d8250a0f9b3ceba7d61ee3959c5464e0b4ab6d907bca420ccb0d1ba84e4",
+    "mod_time": 1765048296,
+    "size": 14543
+  },
+  "internal\\autopoiesis\\CLAUDE.md": {
+    "hash": "5dc1d49f517a5dc2b24bff80096151b085c4e4ef4e17e37a8b13cb51a399638a",
+    "mod_time": 1764950321,
+    "size": 17408
+  },
+  "internal\\autopoiesis\\autopoiesis.go": {
+    "hash": "e39b778dc053efffdef59f7af3cbada22acd26a30095a2ce2e8a5e43eb2a9f9c",
+    "mod_time": 1764995497,
+    "size": 56029
+  },
+  "internal\\autopoiesis\\complexity.go": {
+    "hash": "6fd459b52d066e3086245e1cb2734d4480b199e9ee583bf243fe00681298a424",
+    "mod_time": 1764946944,
+    "size": 10894
+  },
+  "internal\\autopoiesis\\complexity_test.go": {
+    "hash": "cf5ff32ba90decf19091c8a9597dbf4ec9bf8ae5db997f07ae0ab31988bbafb2",
+    "mod_time": 1764978497,
+    "size": 15697
+  },
+  "internal\\autopoiesis\\feedback.go": {
+    "hash": "51b97097f740c19c6267036c2019fdf08c45a405bbd7b0c711167e62ef3aa6b2",
+    "mod_time": 1764950074,
+    "size": 12788
+  },
+  "internal\\autopoiesis\\feedback_test.go": {
+    "hash": "f4ef5ff67ee9a288a875a04638d66d4cb62ef57f5c9489bf998a730e93ab8203",
+    "mod_time": 1764978497,
+    "size": 19846
+  },
+  "internal\\autopoiesis\\ouroboros.go": {
+    "hash": "dbd585b3d58a9ed471a69edb55e3ba41adb5943ad41fdfadeb580cbc9501b979",
+    "mod_time": 1764995260,
+    "size": 30778
+  },
+  "internal\\autopoiesis\\ouroboros_test.go": {
+    "hash": "368a070dc5950279d1b44be497d7f4b77e6fcf3cedd61307d2f71121f7f8e244",
+    "mod_time": 1764978497,
+    "size": 14939
+  },
+  "internal\\autopoiesis\\patterns.go": {
+    "hash": "f724981f710c9b39f676323dbc5ba290afc8f8677e2db4be1361a77865494d24",
+    "mod_time": 1764950231,
+    "size": 3807
+  },
+  "internal\\autopoiesis\\persistence.go": {
+    "hash": "5ab8e7f5ca4ddd62ae8ca9af32453b8610a731ea786ef8733e9677630bc81572",
+    "mod_time": 1764946944,
+    "size": 18377
+  },
+  "internal\\autopoiesis\\profiles.go": {
+    "hash": "750a97ea3932abaf3e71a5e48d0800cd9d0b5a477742b25eed975a4c11736d1e",
+    "mod_time": 1764950294,
+    "size": 12707
+  },
+  "internal\\autopoiesis\\quality.go": {
+    "hash": "be72cee5ce236f3a96ca1fc98eed31d1ff0e8b1b990646c81c1333dd8dbe7dcd",
+    "mod_time": 1764950202,
+    "size": 25905
+  },
+  "internal\\autopoiesis\\quality_test.go": {
+    "hash": "d4d978521b776ff38adb94facdeca7696942a4fc89e2cce2f2bdf30b04b77810",
+    "mod_time": 1764978497,
+    "size": 13544
+  },
+  "internal\\autopoiesis\\toolgen.go": {
+    "hash": "93aa9724138654019b4527ac2934aaba79d01561c560170a283e1c22e73ed1b6",
+    "mod_time": 1764983421,
+    "size": 40701
+  },
+  "internal\\autopoiesis\\toolgen_test.go": {
+    "hash": "9b249fa2b0b7f98fad3c91d0792f1a1941f0133f7f7cd38f69e4ef1e24b93536",
+    "mod_time": 1764983421,
+    "size": 17979
+  },
+  "internal\\autopoiesis\\traces.go": {
+    "hash": "33b02a21f1bf3d788804e5b6783a3a9bcbfd9248ac3b93e6e720e37c9bb212dd",
+    "mod_time": 1764946944,
+    "size": 32969
+  },
+  "internal\\autopoiesis\\yaegi_executor.go": {
+    "hash": "4d9d7ced89c82a094a1979b34d2cf7b017d80e8f003d4a9dc1f00d6751644090",
+    "mod_time": 1765033590,
+    "size": 6691
+  },
+  "internal\\browser\\honeypot.go": {
+    "hash": "8475c6112b9c13c2f5c5982fb808b7275f374544b1d49d4a5e702acacc8cf898",
+    "mod_time": 1764879808,
+    "size": 14791
+  },
+  "internal\\browser\\session_manager.go": {
+    "hash": "940de09ddbb39b8e78f126e2b8210f070aef3432fc04d0d6d63bf4ae8e25d430",
+    "mod_time": 1764879727,
+    "size": 33740
+  },
+  "internal\\campaign\\checkpoint.go": {
+    "hash": "12e83315a82cde1f49a551064c96a37ddc94e5aa7d4aa4c23936a7b31b6b0407",
+    "mod_time": 1764906919,
+    "size": 8087
+  },
+  "internal\\campaign\\claude.md": {
+    "hash": "d0f88056d88d1b51dfe467e32ca0a44ba722f6ed4ee0b242ecd2e5ba3082f7e7",
+    "mod_time": 1764946944,
+    "size": 2700
+  },
+  "internal\\campaign\\context_pager.go": {
+    "hash": "13622009ecdd471a678ea325a5f700782752470c90d19fd1dfb26d4175f9fe10",
+    "mod_time": 1764906919,
+    "size": 9222
+  },
+  "internal\\campaign\\decomposer.go": {
+    "hash": "10787c926037d618d81d856e71fb6225b316bcd8fc1c6c3fd14e6aabb94f4a50",
+    "mod_time": 1764906919,
+    "size": 21088
+  },
+  "internal\\campaign\\orchestrator.go": {
+    "hash": "7809c665604a024ea5c461e43d931e3332477416cd279d8cc1a2ec892c7e29f7",
+    "mod_time": 1764910943,
+    "size": 25640
+  },
+  "internal\\campaign\\replan.go": {
+    "hash": "00828e0502834cf193e45b6f4e1bef71e0376f073d29d13b9404f58ed74b65dd",
+    "mod_time": 1764906919,
+    "size": 13008
+  },
+  "internal\\campaign\\types.go": {
+    "hash": "716296050e3df76b9515e21a1361f548260f2ac649e2f606206b29a6022ec01b",
+    "mod_time": 1764907654,
+    "size": 17808
+  },
+  "internal\\campaign\\types_test.go": {
+    "hash": "945bfc2b0d60d1c4c8f29467227924dd46570d5449d5416a6d080d8314e425cd",
+    "mod_time": 1764983421,
+    "size": 14669
+  },
+  "internal\\config\\config.go": {
+    "hash": "542d557bbf4d706b73fc761bbfb2ca9f6f90d8a9d1e1f201c2774b542d04f4a2",
+    "mod_time": 1765044783,
+    "size": 26465
+  },
+  "internal\\context\\activation.go": {
+    "hash": "2b2835351899d97abde6d923b560211e79100a3d035bcfd650b2a46c01b75710",
+    "mod_time": 1764992534,
+    "size": 20793
+  },
+  "internal\\context\\activation_test.go": {
+    "hash": "b61c9efca38ace580f344f697af29e3f6bf7d3d46ce518917640e3d902a5ec01",
+    "mod_time": 1764992634,
+    "size": 15396
+  },
+  "internal\\context\\compressor.go": {
+    "hash": "77765712e3047ad8cdf50d6a82a6194087ea9108126b4791386054971ec294dd",
+    "mod_time": 1764923036,
+    "size": 18465
+  },
+  "internal\\context\\serializer.go": {
+    "hash": "7f78be3cb3c1afe29202f66c3fca7ea4ab81c8693bfe2dac9b7e316193e72b0d",
+    "mod_time": 1764922591,
+    "size": 14136
+  },
+  "internal\\context\\tokens.go": {
+    "hash": "e0634095f3b8c1178533fa4d0576307ed22c1faeff24b9471bbc36f2e0d50328",
+    "mod_time": 1764922533,
+    "size": 7392
+  },
+  "internal\\context\\types.go": {
+    "hash": "e5fe1f8149f195db19959a07b01658106d7589b405aa7bd11ccef4476a22c675",
+    "mod_time": 1764922494,
+    "size": 9406
+  },
+  "internal\\core\\README.md": {
+    "hash": "7fa69fa313cbab2d0bc3b24084929d18ccc8ff01e0237497d3588ce4c73b838f",
+    "mod_time": 1764990478,
+    "size": 12604
+  },
+  "internal\\core\\claude.md": {
+    "hash": "3db65a14a696b2b3fad6497a99a190891559ae1815beea6b88254f37d4ce1348",
+    "mod_time": 1764946944,
+    "size": 2540
+  },
+  "internal\\core\\debug_program.gl": {
+    "hash": "dff03d4edaa0000935753890cae14c7fc7feea5dcd62852983769398ecf731e6",
+    "mod_time": 1764964460,
+    "size": 94866
+  },
+  "internal\\core\\debug_unix.gl": {
+    "hash": "c652c45b58afa40a7aa016bfbbd55223a660087ca68082d649e53414b904ac8f",
+    "mod_time": 1764964525,
+    "size": 92340
+  },
+  "internal\\core\\kernel.go": {
+    "hash": "1b5290aa46affc9cd10dbda26df361497c4a0aa5e02a8f882d4770bfed96799d",
+    "mod_time": 1765033537,
+    "size": 19743
+  },
+  "internal\\core\\kernel_adapter.go": {
+    "hash": "6343bd4902742c142183f1a2be1ef17fc0974bf811670d1eefa4f045f3d12126",
+    "mod_time": 1764961186,
+    "size": 1959
+  },
+  "internal\\core\\kernel_test.go": {
+    "hash": "1cab61da92ceae0e70f74613a50d095398da01358afa3b2f3a8b0706ed30ec83",
+    "mod_time": 1764880652,
+    "size": 5033
+  },
+  "internal\\core\\learning.go": {
+    "hash": "2118aadf8821f530b2aad501706f15be287505ed0bc6bb5024e05875d4b29e6c",
+    "mod_time": 1764986906,
+    "size": 552
+  },
+  "internal\\core\\llm_client.go": {
+    "hash": "5e970a8a86065c812eed98a274dbd50ff343561a46af1bba665cf52713f2159a",
+    "mod_time": 1765048027,
+    "size": 1048
+  },
+  "internal\\core\\shadow_mode.go": {
+    "hash": "af913dbd2525418d4b0a8a23d393bc4fdaee6f8964b05b3b434953a843b7abc5",
+    "mod_time": 1764889964,
+    "size": 13916
+  },
+  "internal\\core\\shard_manager.go": {
+    "hash": "7e6023ab38b653036232e6645002f3774e87657b66f1586cb272fb19da09621a",
+    "mod_time": 1765048077,
+    "size": 23217
+  },
+  "internal\\core\\shard_manager_test.go": {
+    "hash": "b7f96ff4d3e0ca8c159f4b5a410550fd3969c5d460025cc99983ff020b5e227d",
+    "mod_time": 1764992583,
+    "size": 6402
+  },
+  "internal\\core\\system_shard.go": {
+    "hash": "9910833c77deefebd9a25516675c112812381fb263f46e2bd73b140c0366153d",
+    "mod_time": 1764906223,
+    "size": 2071
+  },
+  "internal\\core\\tdd_loop.go": {
+    "hash": "b0dcf32d6cd42e4ebf1785d7c3f9cc22971cfe94a466f4352db5b9cb0a373e05",
+    "mod_time": 1764907188,
+    "size": 18883
+  },
+  "internal\\core\\virtual_store.go": {
+    "hash": "74987bddea7b4452b488bca1b695dd959ec051a5f40d5a31db41b6032914b2fe",
+    "mod_time": 1765049038,
+    "size": 70597
+  },
+  "internal\\core\\virtual_store_test.go": {
+    "hash": "9ca501aa5ad64ee6755be952004d0089a13830b6d2073193361f264b7a00e289",
+    "mod_time": 1764992511,
+    "size": 17802
+  },
+  "internal\\embedding\\engine.go": {
+    "hash": "9dc776754db885893c4427d4e42beae8de159bf0da630c9d3629f20ab108f9df",
+    "mod_time": 1765043850,
+    "size": 4539
+  },
+  "internal\\embedding\\genai.go": {
+    "hash": "f8c100b6cacbf01100d9d3bae21610a56d2a849b2f1f2c3b36b92be592101909",
+    "mod_time": 1765044941,
+    "size": 2970
+  },
+  "internal\\embedding\\ollama.go": {
+    "hash": "cb6bf98201e4fd2aaabbf6de33d822ffa6d53ca27c599c36cd972ac84a8378ab",
+    "mod_time": 1765043852,
+    "size": 3255
+  },
+  "internal\\embedding\\task_selector.go": {
+    "hash": "1e457ddc3556a8c943b5eea45f38b02c22eb7ff817c526c4284f7384decb7194",
+    "mod_time": 1765043952,
+    "size": 4573
+  },
+  "internal\\init\\CLAUDE.md": {
+    "hash": "1c8ffa0694f46b933b4c70428788db961c55c4213ad74b6c3aa94e9f0a09a0d2",
+    "mod_time": 1764950557,
+    "size": 9671
+  },
+  "internal\\init\\agents.go": {
+    "hash": "3628776e73e315885d9ef42539ef1a893af567bfd57f74b6dc7c9fc218e476df",
+    "mod_time": 1764950575,
+    "size": 19125
+  },
+  "internal\\init\\initializer.go": {
+    "hash": "794eb0c28c97df41fca8cbc6e84bb6facd73614ce666fa9e7b3f5dc6c0cf83ef",
+    "mod_time": 1764950530,
+    "size": 23718
+  },
+  "internal\\init\\profile.go": {
+    "hash": "52a36b509b5127a266bf2d814709524a2012509e7c7580f2726418dcd9b1afd8",
+    "mod_time": 1764950589,
+    "size": 16576
+  },
+  "internal\\init\\scanner.go": {
+    "hash": "22109ef0769de48bae147e9f08728dae5f9251df768ae93cd3dcc422dd51e92f",
+    "mod_time": 1764950039,
+    "size": 5068
+  },
+  "internal\\mangle\\claude.md": {
+    "hash": "de4b378147d6f34c8239b5239fa0905dd8043df0c133e6de693fe928ebdb9da1",
+    "mod_time": 1764946944,
+    "size": 2550
+  },
+  "internal\\mangle\\coder.gl": {
+    "hash": "94cb559be171387e670fe1094583f03df1b1adc22afda7768e6e02545a93345d",
+    "mod_time": 1764983300,
+    "size": 6278
+  },
+  "internal\\mangle\\engine.go": {
+    "hash": "eef7ff9a4bcb345f21da4b77fed065814fb58388faeca4944da80ffd77fd101d",
+    "mod_time": 1765000192,
+    "size": 23776
+  },
+  "internal\\mangle\\engine_test.go": {
+    "hash": "4d80566885b177cbde3d00465181d9127e796d7a9e7cb6e21faaf903c2803ba5",
+    "mod_time": 1764881361,
+    "size": 7093
+  },
+  "internal\\mangle\\grammar.go": {
+    "hash": "27619d8ddee70ff133eec5baba9d9f8640a1994cc6e31031634cabef363bf1f8",
+    "mod_time": 1764946944,
+    "size": 20290
+  },
+  "internal\\mangle\\learned.gl": {
+    "hash": "3af48ac6d30beb2cb3e4f5c432e94b0f76dcb569f456d17d838368a7ad1dd09c",
+    "mod_time": 1765033099,
+    "size": 1092
+  },
+  "internal\\mangle\\lsp.go": {
+    "hash": "7af27f066f9a8b9482428cf2c3269d4818516e83ddccf9fc427790108e5ab7c9",
+    "mod_time": 1764920983,
+    "size": 24542
+  },
+  "internal\\mangle\\mangle_validation_test.go": {
+    "hash": "471c244b47726eabfe2faec50939f27a32045852f44d9365de9cc786b1ea82de",
+    "mod_time": 1764977676,
+    "size": 32216
+  },
+  "internal\\mangle\\policy.gl": {
+    "hash": "cfa7335fedb1f31a38e4cd613dc675bdb3604ec4af9985129febd7c67e8a99cf",
+    "mod_time": 1765048166,
+    "size": 78468
+  },
+  "internal\\mangle\\proof_tree.go": {
+    "hash": "db00487b3fcc0396082c7cdd5c1f18074c6db95a80f85a83c46222426a061923",
+    "mod_time": 1764920836,
+    "size": 13681
+  },
+  "internal\\mangle\\reviewer.gl": {
+    "hash": "0782d7b9c48ce13331b63890f75aaf223ddcb85c240c9900f8b7bb6e8712abd0",
+    "mod_time": 1764977676,
+    "size": 7868
+  },
+  "internal\\mangle\\schema_validator.go": {
+    "hash": "c5f0e44d9af271be3693895723749b75c1de73c2d2d949441f9980f392684193",
+    "mod_time": 1765033401,
+    "size": 6808
+  },
+  "internal\\mangle\\schemas.gl": {
+    "hash": "0e907e12d26e7ade1a32d84ee44c1b57445251188d6b31a8d202f0dcfe49b2fb",
+    "mod_time": 1765048119,
+    "size": 68744
+  },
+  "internal\\mangle\\tester.gl": {
+    "hash": "57cf3f45224bd76d53cc32007632788c34e9ed280478d7419b470fabcccdebb9",
+    "mod_time": 1764977676,
+    "size": 6274
+  },
+  "internal\\perception\\claude.md": {
+    "hash": "c53f855e6254e40a3f2ea1b48cef63934a6eb1c36844f16178cb06c8a89dfaf3",
+    "mod_time": 1764946944,
+    "size": 2578
+  },
+  "internal\\perception\\client.go": {
+    "hash": "5d8d348c5b6662e331aea901df1c65e5e1050a08b1de22b55de2d3da39efcbc0",
+    "mod_time": 1765034580,
+    "size": 43122
+  },
+  "internal\\perception\\tracing_client.go": {
+    "hash": "a53c4a22f59178c2785e7f567d99799cb746e180096893723de7c5753b81bd1a",
+    "mod_time": 1765047898,
+    "size": 9739
+  },
+  "internal\\perception\\transducer.go": {
+    "hash": "8aa02c1579777900567115ac13b22f8c23fe12ec7a202b07599f9f5198a6ee2a",
+    "mod_time": 1765033351,
+    "size": 50970
+  },
+  "internal\\perception\\transducer_json_test.go": {
+    "hash": "f927fdedc5d0465bffd74528d8af9b1956848a8e2f5a0f1742b51426e400bb20",
+    "mod_time": 1764983430,
+    "size": 1810
+  },
+  "internal\\perception\\transducer_live_test.go": {
+    "hash": "dbc13481019f739e3e35e18470f3690387eadc906ef71ca251af9a8c4ccb4fd3",
+    "mod_time": 1764887992,
+    "size": 2674
+  },
+  "internal\\shards\\README.md": {
+    "hash": "a7f92f8dcb98816c0c452f6c344a4422e94726283ce3bd6155e6bf950ab5fbd9",
+    "mod_time": 1764990475,
+    "size": 8837
+  },
+  "internal\\shards\\claude.md": {
+    "hash": "18e2d4ea7ca49d5e434bb7b152a454de59d593b1174a29808e74d97c17f15870",
+    "mod_time": 1764946944,
+    "size": 2370
+  },
+  "internal\\shards\\coder.go": {
+    "hash": "c65a002e1bc6064c0785ef26bc3e003c2ade4cdc044f1772cbbc1f81dee97d3d",
+    "mod_time": 1765048626,
+    "size": 35671
+  },
+  "internal\\shards\\registration.go": {
+    "hash": "9b8eaeec09c3a92da2b24c504b0ee3055a7d4cd5ec207e5f905c3b1219791cb7",
+    "mod_time": 1764962391,
+    "size": 8626
+  },
+  "internal\\shards\\researcher\\CLAUDE.md": {
+    "hash": "649c6e23e552982b4ce4e651b261f6513ea0cd34cf945eea020efa3ff57261b6",
+    "mod_time": 1764950720,
+    "size": 9384
+  },
+  "internal\\shards\\researcher\\analyze.go": {
+    "hash": "22da8f5dc1110f8ae411adb6b8544f2b0f70c5682fa08ed6cac64fac03843a0a",
+    "mod_time": 1765048988,
+    "size": 17404
+  },
+  "internal\\shards\\researcher\\analyze_test.go": {
+    "hash": "a9a01f89405bb0d1d016da4ee253a02b61db422d44a11e6b74bfe85388450b2f",
+    "mod_time": 1765049454,
+    "size": 4271
+  },
+  "internal\\shards\\researcher\\extract.go": {
+    "hash": "4d9adce06e3ae72db129b0b34ea533536f28bb6483d67367c6d118d7acc122ef",
+    "mod_time": 1764992316,
+    "size": 27193
+  },
+  "internal\\shards\\researcher\\researcher.go": {
+    "hash": "b126b93205c105d4d1fe4389b2e8c26f33d88b152aaa3f0aabce294b3268aceb",
+    "mod_time": 1764992314,
+    "size": 14942
+  },
+  "internal\\shards\\researcher\\scraper.go": {
+    "hash": "6c7fbe2fa7d8497943485d4872f9cd32845c556856eea5dd899d0da9f7bc4078",
+    "mod_time": 1764950369,
+    "size": 9585
+  },
+  "internal\\shards\\researcher\\tools.go": {
+    "hash": "8606933ae19700a6106c44704fb4c3df85d4b484ced4005edc06904caccbc70d",
+    "mod_time": 1764950416,
+    "size": 42185
+  },
+  "internal\\shards\\reviewer.go": {
+    "hash": "b75564bc450b7f2ebf911399e4aab2c201c28d2b27ab0ccd1fca76ab5a9e88c1",
+    "mod_time": 1764992316,
+    "size": 47817
+  },
+  "internal\\shards\\system\\base.go": {
+    "hash": "875fc462f4021b513a3e05b86a801865bc416f48685a68c9aa2d788266633c1c",
+    "mod_time": 1764992321,
+    "size": 10014
+  },
+  "internal\\shards\\system\\constitution.go": {
+    "hash": "3620c6e13ae7792e20dc51410a5bac2d8d3360401863ba474d2531856e89875c",
+    "mod_time": 1764960910,
+    "size": 15497
+  },
+  "internal\\shards\\system\\executive.go": {
+    "hash": "33e4efe8851deaecbeccfc8759affec6b21361347e0f9d6f64de7ff47e2b28c8",
+    "mod_time": 1764961165,
+    "size": 14824
+  },
+  "internal\\shards\\system\\perception.go": {
+    "hash": "7f832cf5af6a14370a26b0f0157f9fe497a611e30d6f4bf3c0a7efc52a2954e3",
+    "mod_time": 1764961392,
+    "size": 13870
+  },
+  "internal\\shards\\system\\planner.go": {
+    "hash": "cb2d6faf2da64b904d642a7b67b06decad204928c2bab9e295c60d31038b9951",
+    "mod_time": 1764961472,
+    "size": 14781
+  },
+  "internal\\shards\\system\\router.go": {
+    "hash": "9fa11a5baf17b88c8ab8bec2b5e5868cb2b931fa30295df1dbdbd2d7f78f35f0",
+    "mod_time": 1764962632,
+    "size": 16998
+  },
+  "internal\\shards\\system\\world_model.go": {
+    "hash": "f64a84aaa5823b0cf0a6848d5a20334264b38a82fec43b79b86032b5050a2ea8",
+    "mod_time": 1764961283,
+    "size": 15787
+  },
+  "internal\\shards\\tester.go": {
+    "hash": "562f8e97758ad317156b19732a329fa710a8afd8ac6af1c15a358df39dc4754b",
+    "mod_time": 1764992318,
+    "size": 38539
+  },
+  "internal\\shards\\tool_generator.go": {
+    "hash": "c6242956b2ea4e28410f4b86f9ab435a50e71d5cba0e1560e963d5b58f99794d",
+    "mod_time": 1764992321,
+    "size": 15520
+  },
+  "internal\\store\\learning.go": {
+    "hash": "633e617dd8f3dbe69cfa480d54edd5b8ce99ae46d61fc6411b236e26904cbb53",
+    "mod_time": 1764911302,
+    "size": 7971
+  },
+  "internal\\store\\local.go": {
+    "hash": "f28af4fb33ec765e94886b9f2beb92d4c2bfb211d93c0e08ea952dcdb3fc7c2e",
+    "mod_time": 1765048426,
+    "size": 35625
+  },
+  "internal\\store\\vector_store.go": {
+    "hash": "9352326118a21433edc809587cd1d8a6ade5983d083f1fa0e9f50d142a186722",
+    "mod_time": 1765043923,
+    "size": 7500
+  },
+  "internal\\tactile\\audit.go": {
+    "hash": "f55955a22c350f41ad1f26bc01a5a8be5677cd1032c2ac710312428e97ac939d",
+    "mod_time": 1764962288,
+    "size": 21096
+  },
+  "internal\\tactile\\direct.go": {
+    "hash": "4675bb1ee0cd949bbfcb079879a236e4a8cc99541f66b5d1ded0e35e3217b487",
+    "mod_time": 1764961820,
+    "size": 8437
+  },
+  "internal\\tactile\\docker.go": {
+    "hash": "5e3a72b355b68edfedf24411e31820f4cf94d3d673db884841c6ed8475a04b1b",
+    "mod_time": 1764961336,
+    "size": 10812
+  },
+  "internal\\tactile\\executor.go": {
+    "hash": "23738dd92c0f6c8cd0d6ecb85ad9d77a716809dc2d12c766b4f0192eed532437",
+    "mod_time": 1764961830,
+    "size": 3670
+  },
+  "internal\\tactile\\executor_interface.go": {
+    "hash": "4a213f2eab5fc5609deffc722ebdceb3acb8e3113ec342edbcc9f4506a3955f1",
+    "mod_time": 1764961917,
+    "size": 1753
+  },
+  "internal\\tactile\\factory.go": {
+    "hash": "a51a4c1bb1132b532a7cd5db643f40d69652e882fd77358294237d959f88ad3a",
+    "mod_time": 1764961885,
+    "size": 11341
+  },
+  "internal\\tactile\\files.go": {
+    "hash": "814b6b69f8003f1508a00f99c2b391e790d3af64f2eeb0c29bb802c9401d8505",
+    "mod_time": 1764964083,
+    "size": 15580
+  },
+  "internal\\tactile\\platform_darwin.go": {
+    "hash": "395f5dd9e8986a019979f971f5d4c3b11bd117c126f1b652b282d1d95cad597a",
+    "mod_time": 1764978628,
+    "size": 1286
+  },
+  "internal\\tactile\\platform_linux.go": {
+    "hash": "d29cb87cc1578fdfe9e93c258ed239e2d1f9dc970e3219b52bf004e2e1cbe257",
+    "mod_time": 1764978628,
+    "size": 32775
+  },
+  "internal\\tactile\\platform_unix.go": {
+    "hash": "a6674bfe210061f34a681cadff740e9af4753b28fa06321ca933dfdb8d783796",
+    "mod_time": 1764978628,
+    "size": 3236
+  },
+  "internal\\tactile\\platform_windows.go": {
+    "hash": "3a3321150c04dc7e046c9de409043a8048d4d9e6fdd34c135c1ad58a1d752f68",
+    "mod_time": 1764978025,
+    "size": 20122
+  },
+  "internal\\tactile\\tactile_test.go": {
+    "hash": "04642812701b04dd2accd9ff44bd7fba7b67afcbcfcdf85de10b1eb00281f721",
+    "mod_time": 1764962381,
+    "size": 19743
+  },
+  "internal\\tactile\\types.go": {
+    "hash": "12bda3c813379973988519686834e02aa90db7fc2119756db788621b1dc31221",
+    "mod_time": 1764961178,
+    "size": 14549
+  },
+  "internal\\verification\\verifier.go": {
+    "hash": "8249e9c1ea13feb29158b8c4414fdf463e064d2d86321c27895d1153a66013b7",
+    "mod_time": 1765047068,
+    "size": 20921
+  },
+  "internal\\world\\ast.go": {
+    "hash": "8323b66176ed6c307f511d391c66cf8866bb04a5b6348b5332ae899f1eebd9a0",
+    "mod_time": 1764892602,
+    "size": 8500
+  },
+  "internal\\world\\cache.go": {
+    "hash": "77704ccfd52e21db367584bf278f8b6c30612a237259ff1b5e7d4f9888870a0c",
+    "mod_time": 1764983462,
+    "size": 2262
+  },
+  "internal\\world\\code_elements.go": {
+    "hash": "3236b271428c106e42ac660b1c3deb263586af0bb780ab867192290c5169c785",
+    "mod_time": 1764965739,
+    "size": 18579
+  },
+  "internal\\world\\fs.go": {
+    "hash": "004ebf14ba84afbb6c7db80ba3144ad0214a05925f6c87a0624f8a5101e7bbf8",
+    "mod_time": 1764983300,
+    "size": 7688
+  },
+  "internal\\world\\fs_cache_test.go": {
+    "hash": "c909121bcaf5491c8a04ee095770dbd65c1ead860fa8e37452ec88c643cb5356",
+    "mod_time": 1764983426,
+    "size": 5709
+  },
+  "internal\\world\\fs_test.go": {
+    "hash": "2c9c5ba1727c00e86538325fc8bd78ca72b3c96821ae15d160d3349011a6c013",
+    "mod_time": 1764977676,
+    "size": 10570
+  },
+  "internal\\world\\scope.go": {
+    "hash": "89f42289d0010c503c44c1afe439da1a13684ed6ce7a6b004f21288bfefedfff",
+    "mod_time": 1764965766,
+    "size": 22295
+  }
+}
