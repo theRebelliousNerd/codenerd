@@ -20,6 +20,30 @@ import (
 // Shard B: Vector/Associative Memory (semantic search)
 // Shard C: Knowledge Graph (relational links)
 // Shard D: Cold Storage (persistent facts and preferences)
+//
+// Storage Tiers:
+// - Cold Storage: Active facts with access tracking (last_accessed, access_count)
+// - Archival Storage: Old, rarely-accessed facts moved from cold storage
+//
+// Usage Example:
+//   // Store facts
+//   store.StoreFact("user_preference", []interface{}{"theme", "dark"}, "preference", 10)
+//
+//   // Load facts (automatically tracks access)
+//   facts, _ := store.LoadFacts("user_preference")
+//
+//   // Periodic maintenance - archive old facts
+//   config := MaintenanceConfig{
+//     ArchiveOlderThanDays: 90,        // Archive facts not accessed in 90 days
+//     MaxAccessCount: 5,               // Only if accessed <= 5 times
+//     PurgeArchivedOlderThanDays: 365, // Delete archived facts older than 1 year
+//     CleanActivationLogDays: 30,      // Clean activation logs older than 30 days
+//     VacuumDatabase: true,            // Reclaim disk space
+//   }
+//   stats, _ := store.MaintenanceCleanup(config)
+//
+//   // Restore archived fact if needed
+//   store.RestoreArchivedFact("user_preference", []interface{}{"theme", "dark"})
 type LocalStore struct {
 	db              *sql.DB
 	mu              sync.RWMutex
