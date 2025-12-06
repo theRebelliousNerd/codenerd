@@ -15,7 +15,7 @@ import (
 // AtomValidator validates Mangle atom syntax.
 // This implements the "Grammar Constrained Decoding" concept from the spec.
 type AtomValidator struct {
-	// ValidPredicates is the set of known predicates from schemas.gl
+	// ValidPredicates is the set of known predicates from schemas.mg
 	ValidPredicates map[string]PredicateSpec
 
 	// ValidNameConstants is the set of valid /name constants
@@ -83,7 +83,7 @@ func NewAtomValidator() *AtomValidator {
 	return v
 }
 
-// loadCorePredicates loads the core predicates from schemas.gl.
+// loadCorePredicates loads the core predicates from schemas.mg.
 func (v *AtomValidator) loadCorePredicates() {
 	// Intent & Focus (§3)
 	v.ValidPredicates["user_intent"] = PredicateSpec{

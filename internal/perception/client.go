@@ -1349,6 +1349,210 @@ func (c *XAIClient) GetModel() string {
 }
 
 // ============================================================================
+// OpenRouter Client (Multi-Provider Gateway)
+// ============================================================================
+
+// OpenRouterClient implements LLMClient for OpenRouter API.
+// OpenRouter provides access to multiple LLM providers through a single API.
+type OpenRouterClient struct {
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
+	lastRequest time.Time
+	siteURL     string // Optional: Your site URL for rankings
+	siteName    string // Optional: Your app name for rankings
+}
+
+// OpenRouterConfig holds configuration for OpenRouter client.
+type OpenRouterConfig struct {
+	APIKey   string
+	BaseURL  string
+	Model    string
+	Timeout  time.Duration
+	SiteURL  string // Optional
+	SiteName string // Optional
+}
+
+// Popular OpenRouter models (use provider/model format)
+// Full list at: https://openrouter.ai/models
+var OpenRouterModels = []string{
+	// Anthropic
+	"anthropic/claude-3.5-sonnet",
+	"anthropic/claude-3.5-haiku",
+	"anthropic/claude-3-opus",
+	// OpenAI
+	"openai/gpt-4o",
+	"openai/gpt-4o-mini",
+	"openai/o1-preview",
+	"openai/o1-mini",
+	// Google
+	"google/gemini-2.0-flash-exp:free",
+	"google/gemini-pro-1.5",
+	// Meta
+	"meta-llama/llama-3.1-405b-instruct",
+	"meta-llama/llama-3.1-70b-instruct",
+	// Mistral
+	"mistralai/mistral-large",
+	"mistralai/codestral-latest",
+	// DeepSeek
+	"deepseek/deepseek-chat",
+	"deepseek/deepseek-coder",
+	// Qwen
+	"qwen/qwen-2.5-72b-instruct",
+	"qwen/qwen-2.5-coder-32b-instruct",
+}
+
+// DefaultOpenRouterConfig returns sensible defaults.
+func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
+	return OpenRouterConfig{
+		APIKey:   apiKey,
+		BaseURL:  "https://openrouter.ai/api/v1",
+		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
+		Timeout:  120 * time.Second,
+		SiteName: "codeNERD",
+	}
+}
+
+// NewOpenRouterClient creates a new OpenRouter client.
+func NewOpenRouterClient(apiKey string) *OpenRouterClient {
+	config := DefaultOpenRouterConfig(apiKey)
+	return NewOpenRouterClientWithConfig(config)
+}
+
+// NewOpenRouterClientWithConfig creates a new OpenRouter client with custom config.
+func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
+	return &OpenRouterClient{
+		apiKey:   config.APIKey,
+		baseURL:  config.BaseURL,
+		model:    config.Model,
+		siteURL:  config.SiteURL,
+		siteName: config.SiteName,
+		httpClient: &http.Client{
+			Timeout: config.Timeout,
+		},
+	}
+}
+
+// OpenRouter uses OpenAI-compatible request/response format
+type OpenRouterRequest = OpenAIRequest
+type OpenRouterMessage = OpenAIMessage
+type OpenRouterResponse = OpenAIResponse
+
+// Complete sends a prompt and returns the completion.
+func (c *OpenRouterClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+// CompleteWithSystem sends a prompt with a system message.
+func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if c.apiKey == "" {
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+
+	messages := []OpenRouterMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	}
+
+	reqBody := OpenRouterRequest{
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   4096,
+		Temperature: 0.1,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Retry loop for rate limits
+	maxRetries := 3
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		// OpenRouter-specific headers
+		req.Header.Set("HTTP-Referer", c.siteURL)
+		req.Header.Set("X-Title", c.siteName)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var orResp OpenRouterResponse
+		if err := json.Unmarshal(body, &orResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if orResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", orResp.Error.Message)
+		}
+
+		if len(orResp.Choices) == 0 {
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		return strings.TrimSpace(orResp.Choices[0].Message.Content), nil
+	}
+
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// SetModel changes the model used for completions.
+func (c *OpenRouterClient) SetModel(model string) {
+	c.model = model
+}
+
+// GetModel returns the current model.
+func (c *OpenRouterClient) GetModel() string {
+	return c.model
+}
+
+// ============================================================================
 // Provider Selection
 // ============================================================================
 
@@ -1356,11 +1560,12 @@ func (c *XAIClient) GetModel() string {
 type Provider string
 
 const (
-	ProviderZAI       Provider = "zai"
-	ProviderAnthropic Provider = "anthropic"
-	ProviderOpenAI    Provider = "openai"
-	ProviderGemini    Provider = "gemini"
-	ProviderXAI       Provider = "xai"
+	ProviderZAI        Provider = "zai"
+	ProviderAnthropic  Provider = "anthropic"
+	ProviderOpenAI     Provider = "openai"
+	ProviderGemini     Provider = "gemini"
+	ProviderXAI        Provider = "xai"
+	ProviderOpenRouter Provider = "openrouter"
 )
 
 // ProviderConfig holds the resolved provider and API key.
@@ -1388,15 +1593,16 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 	}
 
 	var cfg struct {
-		Provider        string `json:"provider"`
-		APIKey          string `json:"api_key"`
-		AnthropicAPIKey string `json:"anthropic_api_key"`
-		OpenAIAPIKey    string `json:"openai_api_key"`
-		GeminiAPIKey    string `json:"gemini_api_key"`
-		XAIAPIKey       string `json:"xai_api_key"`
-		ZAIAPIKey       string `json:"zai_api_key"`
-		Model           string `json:"model"`
-		Context7APIKey  string `json:"context7_api_key"`
+		Provider         string `json:"provider"`
+		APIKey           string `json:"api_key"`
+		AnthropicAPIKey  string `json:"anthropic_api_key"`
+		OpenAIAPIKey     string `json:"openai_api_key"`
+		GeminiAPIKey     string `json:"gemini_api_key"`
+		XAIAPIKey        string `json:"xai_api_key"`
+		ZAIAPIKey        string `json:"zai_api_key"`
+		OpenRouterAPIKey string `json:"openrouter_api_key"`
+		Model            string `json:"model"`
+		Context7APIKey   string `json:"context7_api_key"`
 	}
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -1421,6 +1627,8 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 			apiKey = cfg.XAIAPIKey
 		case ProviderZAI:
 			apiKey = cfg.ZAIAPIKey
+		case ProviderOpenRouter:
+			apiKey = cfg.OpenRouterAPIKey
 		}
 	}
 
@@ -1441,6 +1649,9 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		} else if cfg.ZAIAPIKey != "" {
 			provider = ProviderZAI
 			apiKey = cfg.ZAIAPIKey
+		} else if cfg.OpenRouterAPIKey != "" {
+			provider = ProviderOpenRouter
+			apiKey = cfg.OpenRouterAPIKey
 		} else if cfg.APIKey != "" {
 			// Legacy: single api_key field (assume zai)
 			provider = ProviderZAI
@@ -1485,6 +1696,7 @@ func DetectProvider() (*ProviderConfig, error) {
 		{"GEMINI_API_KEY", ProviderGemini},
 		{"XAI_API_KEY", ProviderXAI},
 		{"ZAI_API_KEY", ProviderZAI},
+		{"OPENROUTER_API_KEY", ProviderOpenRouter},
 	}
 
 	for _, p := range providers {
@@ -1541,6 +1753,13 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 
 	case ProviderZAI:
 		client := NewZAIClient(config.APIKey)
+		if config.Model != "" {
+			client.SetModel(config.Model)
+		}
+		return client, nil
+
+	case ProviderOpenRouter:
+		client := NewOpenRouterClient(config.APIKey)
 		if config.Model != "" {
 			client.SetModel(config.Model)
 		}

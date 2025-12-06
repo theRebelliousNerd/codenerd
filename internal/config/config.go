@@ -225,8 +225,8 @@ func DefaultConfig() *Config {
 		},
 
 		Mangle: MangleConfig{
-			SchemaPath:   "internal/mangle/schemas.gl",
-			PolicyPath:   "internal/mangle/policy.gl",
+			SchemaPath:   "internal/mangle/schemas.mg",
+			PolicyPath:   "internal/mangle/policy.mg",
 			FactLimit:    1000000,
 			QueryTimeout: "30s",
 		},
@@ -431,6 +431,10 @@ func (c *Config) applyEnvOverrides() {
 		c.LLM.APIKey = key
 		c.LLM.Provider = "xai"
 	}
+	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+		c.LLM.APIKey = key
+		c.LLM.Provider = "openrouter"
+	}
 
 	// Integration URLs from environment
 	if url := os.Getenv("CODEGRAPH_URL"); url != "" {
@@ -550,7 +554,7 @@ func (c *Config) GetSessionTTL() time.Duration {
 }
 
 // ValidProviders lists all supported LLM providers.
-var ValidProviders = []string{"zai", "anthropic", "openai", "gemini", "xai"}
+var ValidProviders = []string{"zai", "anthropic", "openai", "gemini", "xai", "openrouter"}
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
@@ -594,22 +598,24 @@ func (c *Config) IsScraperEnabled() bool {
 // UserConfig holds user-specific settings from .nerd/config.json.
 //
 // Supported models by provider:
-//   - anthropic: claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
-//   - openai:    gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
-//   - gemini:    gemini-3-pro-preview (default), gemini-2.5-pro, gemini-2.5-flash
-//   - xai:       grok-2-latest (default), grok-2, grok-beta
-//   - zai:       GLM-4.6 (default)
+//   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
+//   - openai:      gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
+//   - gemini:      gemini-3-pro-preview (default), gemini-2.5-pro, gemini-2.5-flash
+//   - xai:         grok-2-latest (default), grok-2, grok-beta
+//   - zai:         GLM-4.6 (default)
+//   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.
 type UserConfig struct {
 	// Provider selection (anthropic, openai, gemini, xai, zai)
 	Provider string `json:"provider,omitempty"`
 
 	// API keys for each provider
-	APIKey          string `json:"api_key,omitempty"`           // Legacy: single key
-	AnthropicAPIKey string `json:"anthropic_api_key,omitempty"` // Anthropic/Claude
-	OpenAIAPIKey    string `json:"openai_api_key,omitempty"`    // OpenAI/Codex
-	GeminiAPIKey    string `json:"gemini_api_key,omitempty"`    // Google Gemini
-	XAIAPIKey       string `json:"xai_api_key,omitempty"`       // xAI/Grok
-	ZAIAPIKey       string `json:"zai_api_key,omitempty"`       // Z.AI
+	APIKey           string `json:"api_key,omitempty"`            // Legacy: single key
+	AnthropicAPIKey  string `json:"anthropic_api_key,omitempty"`  // Anthropic/Claude
+	OpenAIAPIKey     string `json:"openai_api_key,omitempty"`     // OpenAI/Codex
+	GeminiAPIKey     string `json:"gemini_api_key,omitempty"`     // Google Gemini
+	XAIAPIKey        string `json:"xai_api_key,omitempty"`        // xAI/Grok
+	ZAIAPIKey        string `json:"zai_api_key,omitempty"`        // Z.AI
+	OpenRouterAPIKey string `json:"openrouter_api_key,omitempty"` // OpenRouter (multi-provider)
 
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
@@ -782,6 +788,10 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 			if c.ZAIAPIKey != "" {
 				return "zai", c.ZAIAPIKey
 			}
+		case "openrouter":
+			if c.OpenRouterAPIKey != "" {
+				return "openrouter", c.OpenRouterAPIKey
+			}
 		}
 	}
 
@@ -800,6 +810,9 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	}
 	if c.ZAIAPIKey != "" {
 		return "zai", c.ZAIAPIKey
+	}
+	if c.OpenRouterAPIKey != "" {
+		return "openrouter", c.OpenRouterAPIKey
 	}
 
 	// Legacy: single api_key field (assume zai for backward compatibility)

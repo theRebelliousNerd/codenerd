@@ -186,7 +186,7 @@ func (e *Engine) RecomputeRules() error {
 	return nil
 }
 
-// LoadSchema loads and compiles a Mangle schema file (.mg or .gl).
+// LoadSchema loads and compiles a Mangle schema file (.mg).
 func (e *Engine) LoadSchema(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

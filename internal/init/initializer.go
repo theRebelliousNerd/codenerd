@@ -333,7 +333,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	i.sendProgress("facts", "Generating Mangle facts...", 0.45)
 	fmt.Println("\n🧠 Phase 5: Generating Mangle Facts")
 
-	factsPath := filepath.Join(nerdDir, "profile.gl")
+	factsPath := filepath.Join(nerdDir, "profile.mg")
 	factsCount, err := i.generateFactsFile(factsPath, profile)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate facts: %v", err))

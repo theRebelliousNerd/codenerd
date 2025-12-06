@@ -13,20 +13,20 @@ import (
 	"github.com/google/mangle/parse"
 )
 
-// TestSchemasGLParsesWithoutError validates that schemas.gl is syntactically correct.
+// TestSchemasGLParsesWithoutError validates that schemas.mg is syntactically correct.
 func TestSchemasGLParsesWithoutError(t *testing.T) {
-	schemasPath := findMangleFile(t, "schemas.gl")
+	schemasPath := findMangleFile(t, "schemas.mg")
 	data, err := os.ReadFile(schemasPath)
 	if err != nil {
-		t.Fatalf("Failed to read schemas.gl: %v", err)
+		t.Fatalf("Failed to read schemas.mg: %v", err)
 	}
 
 	unit, err := parse.Unit(strings.NewReader(string(data)))
 	if err != nil {
-		t.Fatalf("Failed to parse schemas.gl: %v", err)
+		t.Fatalf("Failed to parse schemas.mg: %v", err)
 	}
 
-	t.Logf("schemas.gl parsed successfully: %d declarations, %d clauses",
+	t.Logf("schemas.mg parsed successfully: %d declarations, %d clauses",
 		len(unit.Decls), len(unit.Clauses))
 
 	// Verify we have the expected core declarations
@@ -49,45 +49,45 @@ func TestSchemasGLParsesWithoutError(t *testing.T) {
 
 	for _, expected := range expectedDecls {
 		if !declNames[expected] {
-			t.Errorf("Expected declaration %q not found in schemas.gl", expected)
+			t.Errorf("Expected declaration %q not found in schemas.mg", expected)
 		}
 	}
 }
 
-// TestPolicyGLParsesWithoutError validates that policy.gl is syntactically correct.
+// TestPolicyGLParsesWithoutError validates that policy.mg is syntactically correct.
 func TestPolicyGLParsesWithoutError(t *testing.T) {
-	policyPath := findMangleFile(t, "policy.gl")
+	policyPath := findMangleFile(t, "policy.mg")
 	data, err := os.ReadFile(policyPath)
 	if err != nil {
-		t.Fatalf("Failed to read policy.gl: %v", err)
+		t.Fatalf("Failed to read policy.mg: %v", err)
 	}
 
 	unit, err := parse.Unit(strings.NewReader(string(data)))
 	if err != nil {
-		t.Fatalf("Failed to parse policy.gl: %v", err)
+		t.Fatalf("Failed to parse policy.mg: %v", err)
 	}
 
-	t.Logf("policy.gl parsed successfully: %d declarations, %d clauses",
+	t.Logf("policy.mg parsed successfully: %d declarations, %d clauses",
 		len(unit.Decls), len(unit.Clauses))
 
 	if len(unit.Clauses) == 0 {
-		t.Error("policy.gl should contain rules (clauses)")
+		t.Error("policy.mg should contain rules (clauses)")
 	}
 }
 
 // TestSchemasPlusPolicyAnalyzeTogether validates schemas+policy analyze together.
 func TestSchemasPlusPolicyAnalyzeTogether(t *testing.T) {
-	schemasPath := findMangleFile(t, "schemas.gl")
-	policyPath := findMangleFile(t, "policy.gl")
+	schemasPath := findMangleFile(t, "schemas.mg")
+	policyPath := findMangleFile(t, "policy.mg")
 
 	schemasData, err := os.ReadFile(schemasPath)
 	if err != nil {
-		t.Fatalf("Failed to read schemas.gl: %v", err)
+		t.Fatalf("Failed to read schemas.mg: %v", err)
 	}
 
 	policyData, err := os.ReadFile(policyPath)
 	if err != nil {
-		t.Fatalf("Failed to read policy.gl: %v", err)
+		t.Fatalf("Failed to read policy.mg: %v", err)
 	}
 
 	// Combine schemas and policy
@@ -132,57 +132,57 @@ func TestSchemasPlusPolicyAnalyzeTogether(t *testing.T) {
 	}
 }
 
-// TestCoderGLParsesWithoutError validates coder.gl syntax.
+// TestCoderGLParsesWithoutError validates coder.mg syntax.
 func TestCoderGLParsesWithoutError(t *testing.T) {
-	coderPath := findMangleFile(t, "coder.gl")
+	coderPath := findMangleFile(t, "coder.mg")
 	data, err := os.ReadFile(coderPath)
 	if err != nil {
-		t.Skipf("coder.gl not found (optional): %v", err)
+		t.Skipf("coder.mg not found (optional): %v", err)
 	}
 
 	_, err = parse.Unit(strings.NewReader(string(data)))
 	if err != nil {
-		t.Fatalf("Failed to parse coder.gl: %v", err)
+		t.Fatalf("Failed to parse coder.mg: %v", err)
 	}
 
-	t.Log("coder.gl parsed successfully")
+	t.Log("coder.mg parsed successfully")
 }
 
-// TestTesterGLParsesWithoutError validates tester.gl syntax.
+// TestTesterGLParsesWithoutError validates tester.mg syntax.
 func TestTesterGLParsesWithoutError(t *testing.T) {
-	testerPath := findMangleFile(t, "tester.gl")
+	testerPath := findMangleFile(t, "tester.mg")
 	data, err := os.ReadFile(testerPath)
 	if err != nil {
-		t.Skipf("tester.gl not found (optional): %v", err)
+		t.Skipf("tester.mg not found (optional): %v", err)
 	}
 
 	_, err = parse.Unit(strings.NewReader(string(data)))
 	if err != nil {
-		t.Fatalf("Failed to parse tester.gl: %v", err)
+		t.Fatalf("Failed to parse tester.mg: %v", err)
 	}
 
-	t.Log("tester.gl parsed successfully")
+	t.Log("tester.mg parsed successfully")
 }
 
-// TestReviewerGLParsesWithoutError validates reviewer.gl syntax.
+// TestReviewerGLParsesWithoutError validates reviewer.mg syntax.
 func TestReviewerGLParsesWithoutError(t *testing.T) {
-	reviewerPath := findMangleFile(t, "reviewer.gl")
+	reviewerPath := findMangleFile(t, "reviewer.mg")
 	data, err := os.ReadFile(reviewerPath)
 	if err != nil {
-		t.Skipf("reviewer.gl not found (optional): %v", err)
+		t.Skipf("reviewer.mg not found (optional): %v", err)
 	}
 
 	_, err = parse.Unit(strings.NewReader(string(data)))
 	if err != nil {
-		t.Fatalf("Failed to parse reviewer.gl: %v", err)
+		t.Fatalf("Failed to parse reviewer.mg: %v", err)
 	}
 
-	t.Log("reviewer.gl parsed successfully")
+	t.Log("reviewer.mg parsed successfully")
 }
 
-// TestAllGLFilesCombinedAnalysis tests that all .gl files work together.
+// TestAllGLFilesCombinedAnalysis tests that all .mg files work together.
 func TestAllGLFilesCombinedAnalysis(t *testing.T) {
-	glFiles := []string{"schemas.gl", "policy.gl", "coder.gl", "tester.gl", "reviewer.gl"}
+	glFiles := []string{"schemas.mg", "policy.mg", "coder.mg", "tester.mg", "reviewer.mg"}
 
 	var combined strings.Builder
 	loadedFiles := 0
@@ -200,12 +200,12 @@ func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 	}
 
 	if loadedFiles < 2 {
-		t.Skip("Not enough .gl files found for combined analysis")
+		t.Skip("Not enough .mg files found for combined analysis")
 	}
 
 	unit, err := parse.Unit(strings.NewReader(combined.String()))
 	if err != nil {
-		t.Fatalf("Failed to parse combined .gl files: %v", err)
+		t.Fatalf("Failed to parse combined .mg files: %v", err)
 	}
 
 	programInfo, err := analysis.AnalyzeOneUnit(unit, nil)
@@ -213,7 +213,7 @@ func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 		t.Fatalf("Failed to analyze combined program: %v", err)
 	}
 
-	t.Logf("All %d .gl files analyzed together: %d predicates, %d rules",
+	t.Logf("All %d .mg files analyzed together: %d predicates, %d rules",
 		loadedFiles, len(programInfo.Decls), len(programInfo.Rules))
 }
 
@@ -225,7 +225,7 @@ Decl test_state(State).
 Decl retry_count(Count).
 Decl next_action(Action).
 
-# TDD Rules from policy.gl
+# TDD Rules from policy.mg
 next_action(/read_error_log) :-
     test_state(/failing),
     retry_count(N), N < 3.
@@ -764,15 +764,15 @@ func TestEngineWithRealPolicy(t *testing.T) {
 	}
 
 	// Load schemas
-	schemasPath := findMangleFile(t, "schemas.gl")
+	schemasPath := findMangleFile(t, "schemas.mg")
 	if err := eng.LoadSchema(schemasPath); err != nil {
-		t.Fatalf("Failed to load schemas.gl: %v", err)
+		t.Fatalf("Failed to load schemas.mg: %v", err)
 	}
 
 	// Load policy
-	policyPath := findMangleFile(t, "policy.gl")
+	policyPath := findMangleFile(t, "policy.mg")
 	if err := eng.LoadSchema(policyPath); err != nil {
-		t.Fatalf("Failed to load policy.gl: %v", err)
+		t.Fatalf("Failed to load policy.mg: %v", err)
 	}
 
 	// Add test facts

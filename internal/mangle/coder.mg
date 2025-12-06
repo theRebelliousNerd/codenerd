@@ -64,23 +64,25 @@ detected_language(File, /c) :-
 # =============================================================================
 # SECTION 3: IMPACT ANALYSIS BEFORE WRITE
 # =============================================================================
-# Uses predicates from schemas.gl: pending_edit, test_coverage, impacted, dependency_link
+# Uses predicates from schemas.mg: pending_edit, test_coverage, dependency_link
+# Note: Uses coder-local bounded impact analysis to avoid infinite recursion
 
 # "Recursive Logic Bomb" Fix: Bounded recursion depth
 # Instead of infinite transitive closure, we check up to 3 levels of impact.
-impacted_1(X) :- dependency_link(X, Y, _), modified(Y).
-impacted_2(X) :- dependency_link(X, Z, _), impacted_1(Z).
-impacted_3(X) :- dependency_link(X, Z, _), impacted_2(Z).
+# Named with coder_ prefix to avoid conflict with policy.mg's impacted/1
+coder_impacted_1(X) :- dependency_link(X, Y, _), modified(Y).
+coder_impacted_2(X) :- dependency_link(X, Z, _), coder_impacted_1(Z).
+coder_impacted_3(X) :- dependency_link(X, Z, _), coder_impacted_2(Z).
 
-# Union of all levels
-impacted(X) :- impacted_1(X).
-impacted(X) :- impacted_2(X).
-impacted(X) :- impacted_3(X).
+# Union of all levels (coder-local bounded version)
+coder_impacted(X) :- coder_impacted_1(X).
+coder_impacted(X) :- coder_impacted_2(X).
+coder_impacted(X) :- coder_impacted_3(X).
 
 # Block write if impacted files lack test coverage
 coder_block_write(File, "uncovered_impact") :-
     pending_edit(File, _),
-    impacted(Dependent),
+    coder_impacted(Dependent),
     dependency_link(Dependent, File, _),
     !test_coverage(Dependent).
 

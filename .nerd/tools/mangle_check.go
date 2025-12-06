@@ -26,7 +26,7 @@ import (
 // Recommended Model: 2.5 Pro (due to integration with internal Mangle)
 //
 // Overview:
-// This file implements the standalone `mangle-check` tool, designed to validate Google Mangle logic files (.gl).
+// This file implements the standalone `mangle-check` tool, designed to validate Google Mangle logic files (.mg).
 // It adheres to the new flexible interface for Ouroboros-generated tools, functioning as both a CLI application
 // and an agent-integrated tool. This demonstrates the enhanced capabilities of the Ouroboros tool builder.
 //
@@ -58,14 +58,14 @@ import (
 //   - Logic: Interprets `input` and `args` as file patterns, performs Mangle validation, and returns results.
 // - `checkMangleFile(engine *mangle.Engine, path string)`:
 //   - Purpose: Validates a single Mangle file.
-//   - Logic: Initializes a Mangle engine, pre-loads `schemas.gl`, and attempts to load the target file.
+//   - Logic: Initializes a Mangle engine, pre-loads `schemas.mg`, and attempts to load the target file.
 //
 // Usage (Agent execution):
 // The agent will call this tool via the `core.VirtualStore`'s `ActionExecCmd`, passing JSON input
-// (e.g., `{"input": "path/to/file.gl", "args": []}`).
+// (e.g., `{"input": "path/to/file.mg", "args": []}`).
 //
 // Usage (Standalone CLI):
-// `mangle-check.exe path/to/file.gl internal/mangle/*.gl`
+// `mangle-check.exe path/to/file.mg internal/mangle/*.mg`
 //
 // --- END OF PRD HEADER ---
 
@@ -135,10 +135,10 @@ func checkMangleFile(engine *mangle.Engine, path string) error {
 		return err
 	}
 
-	// Try to load schemas.gl first if it exists, to provide context
+	// Try to load schemas.mg first if it exists, to provide context
 	// We assume a standard location relative to the project root
-	schemasPath := "internal/mangle/schemas.gl"
-	if _, err := os.Stat(schemasPath); err == nil && filepath.Base(path) != "schemas.gl" {
+	schemasPath := "internal/mangle/schemas.mg"
+	if _, err := os.Stat(schemasPath); err == nil && filepath.Base(path) != "schemas.mg" {
 		schemaData, err := os.ReadFile(schemasPath)
 		if err == nil {
 			if err := tmpEngine.LoadSchemaString(string(schemaData)); err != nil {

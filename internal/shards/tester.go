@@ -255,7 +255,7 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 	}
 	// Load tester-specific policy (only once to avoid duplicate Decl errors)
 	if !t.policyLoaded {
-		_ = t.kernel.LoadPolicyFile("tester.gl")
+		_ = t.kernel.LoadPolicyFile("tester.mg")
 		t.policyLoaded = true
 	}
 

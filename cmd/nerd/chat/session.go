@@ -367,7 +367,7 @@ func InitChat(cfg Config) Model {
 	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
 	logicPane := ui.NewLogicPane(styles, 30, 20)
 
-	// Preload workspace facts from .nerd/profile.gl if present
+	// Preload workspace facts from .nerd/profile.mg if present
 	// (Already done in hydrateNerdState)
 
 	model := Model{
@@ -413,19 +413,19 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 	nerdDir := filepath.Join(workspace, ".nerd")
 
 	// Load profile facts
-	profilePath := filepath.Join(nerdDir, "profile.gl")
+	profilePath := filepath.Join(nerdDir, "profile.mg")
 	if info, err := os.Stat(profilePath); err == nil && !info.IsDir() {
 		if err := kernel.LoadFactsFromFile(profilePath); err != nil {
 			*initialMessages = append(*initialMessages, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to load .nerd/profile.gl: %v", err),
+				Content: fmt.Sprintf("Failed to load .nerd/profile.mg: %v", err),
 				Time:    time.Now(),
 			})
 		}
 	} else if err != nil && !os.IsNotExist(err) {
 		*initialMessages = append(*initialMessages, Message{
 			Role:    "assistant",
-			Content: fmt.Sprintf("Unable to access .nerd/profile.gl: %v", err),
+			Content: fmt.Sprintf("Unable to access .nerd/profile.mg: %v", err),
 			Time:    time.Now(),
 		})
 	}

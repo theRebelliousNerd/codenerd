@@ -240,7 +240,7 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 }
 
 // computeBaseScore returns the base priority score for a predicate.
-// This implements the predicate priority system from policy.gl §1.
+// This implements the predicate priority system from policy.mg §1.
 func (ae *ActivationEngine) computeBaseScore(fact core.Fact) float64 {
 	if priority, ok := ae.config.PredicatePriorities[fact.Predicate]; ok {
 		return float64(priority)

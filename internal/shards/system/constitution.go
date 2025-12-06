@@ -652,11 +652,13 @@ func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID strin
 				Args:      []interface{}{actionID, appeal.ActionType, approver, time.Now().Unix()},
 			})
 
-			// If temporary, also emit duration info
+			// If temporary, emit expiration timestamp (computed: now + duration)
+			// NOTE: We store expiration directly to avoid arithmetic in Mangle rules
 			if temporary {
+				expirationTime := time.Now().Unix() + int64(duration.Seconds())
 				_ = c.Kernel.Assert(core.Fact{
 					Predicate: "temporary_override",
-					Args:      []interface{}{appeal.ActionType, duration.Seconds(), time.Now().Unix()},
+					Args:      []interface{}{appeal.ActionType, expirationTime},
 				})
 			}
 		}

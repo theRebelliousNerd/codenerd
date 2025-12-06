@@ -19,11 +19,11 @@
 # LEARNED RULES - CANDIDATE ACTIONS (Stratified Trust Layer)
 # =============================================================================
 # These rules propose actions to the Constitution for validation.
-# They cannot execute directly - must pass safety_check/1 in policy.gl.
+# They cannot execute directly - must pass safety_check/1 in policy.mg.
 
 # Example 1: Suggest refactoring for long functions
 candidate_action(/suggest_refactor) :-
-    code_element(Ref, /function, File, StartLine, EndLine),
+    code_element(_, /function, File, _, _),
     file_line_count(File, TotalLines),
     TotalLines > 150,
     !test_coverage(File).
