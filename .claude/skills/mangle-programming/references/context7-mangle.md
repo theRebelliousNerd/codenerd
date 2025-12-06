@@ -1,7 +1,8 @@
 # Mangle Context7 Reference
 
-**Source**: Context7 Documentation (November 2025)
-**Version**: Mangle v0.4.0+
+**Source**: Context7 Documentation
+**Version**: Mangle v0.4.0 (Released November 1, 2024)
+**Last Updated**: December 2025
 
 Comprehensive patterns and examples from Context7's up-to-date Mangle documentation.
 

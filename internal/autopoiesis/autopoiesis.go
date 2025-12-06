@@ -997,6 +997,16 @@ func (o *Orchestrator) ListGeneratedTools() []*RuntimeTool {
 	return o.ouroboros.registry.List()
 }
 
+// ListTools returns tool info for all registered tools (for chat UI)
+func (o *Orchestrator) ListTools() []ToolInfo {
+	return o.ouroboros.ListTools()
+}
+
+// GetToolInfo returns info about a specific tool (for chat UI)
+func (o *Orchestrator) GetToolInfo(name string) (*ToolInfo, bool) {
+	return o.ouroboros.GetTool(name)
+}
+
 // HasGeneratedTool checks if a tool exists in the registry
 func (o *Orchestrator) HasGeneratedTool(name string) bool {
 	_, exists := o.ouroboros.registry.Get(name)

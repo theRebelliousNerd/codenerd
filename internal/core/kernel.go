@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
+	_ "github.com/google/mangle/builtin"
 	"github.com/google/mangle/engine"
 	"github.com/google/mangle/factstore"
 	"github.com/google/mangle/parse"
@@ -279,7 +280,7 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	// Evaluate to fixpoint using cached programInfo
-	_, err := engine.EvalStratifiedProgramWithStats(k.programInfo, nil, nil, k.store)
+	_, err := engine.EvalProgramWithStats(k.programInfo, k.store)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate program: %w", err)
 	}

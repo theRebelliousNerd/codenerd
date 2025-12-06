@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/tactile"
 )
@@ -31,6 +32,9 @@ const (
 	ActionAskUser       ActionType = "ask_user"
 	ActionEscalate      ActionType = "escalate"
 	ActionDelegate      ActionType = "delegate"
+
+	// Autopoiesis Actions (generated tool execution)
+	ActionExecTool ActionType = "exec_tool" // Execute a generated tool
 
 	// Code DOM Actions (semantic code element operations)
 	ActionOpenFile     ActionType = "open_file"     // Open file, load 1-hop scope
@@ -133,6 +137,29 @@ type CodeScope interface {
 	RefreshWithRetry(maxRetries int) error
 }
 
+// ToolExecutor is an interface for executing generated tools.
+// This breaks the import cycle - implemented by autopoiesis.OuroborosLoop.
+type ToolExecutor interface {
+	// ExecuteTool runs a registered tool with the given input
+	ExecuteTool(ctx context.Context, toolName string, input string) (string, error)
+
+	// ListTools returns all registered tools
+	ListTools() []ToolInfo
+
+	// GetTool returns info about a specific tool
+	GetTool(name string) (*ToolInfo, bool)
+}
+
+// ToolInfo contains information about a registered tool
+type ToolInfo struct {
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	BinaryPath   string    `json:"binary_path"`
+	Hash         string    `json:"hash"`
+	RegisteredAt time.Time `json:"registered_at"`
+	ExecuteCount int64     `json:"execute_count"`
+}
+
 // FileEditor is an interface for file operations with audit logging.
 // This breaks the import cycle - implemented by tactile.FileEditor.
 type FileEditor interface {
@@ -210,6 +237,9 @@ type VirtualStore struct {
 	// Code DOM - semantic code element operations
 	codeScope  CodeScope
 	fileEditor FileEditor
+
+	// Autopoiesis - tool execution
+	toolExecutor ToolExecutor
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -370,6 +400,20 @@ func (v *VirtualStore) SetFileEditor(editor FileEditor) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.fileEditor = editor
+}
+
+// SetToolExecutor sets the tool executor for generated tool execution.
+func (v *VirtualStore) SetToolExecutor(executor ToolExecutor) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.toolExecutor = executor
+}
+
+// GetToolExecutor returns the current tool executor.
+func (v *VirtualStore) GetToolExecutor() ToolExecutor {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.toolExecutor
 }
 
 // initConstitution initializes the constitutional safety rules.
@@ -599,6 +643,10 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleInsertLines(ctx, req)
 	case ActionDeleteLines:
 		return v.handleDeleteLines(ctx, req)
+
+	// Autopoiesis actions
+	case ActionExecTool:
+		return v.handleExecTool(ctx, req)
 
 	default:
 		return ActionResult{}, fmt.Errorf("unknown action type: %s", req.Type)
@@ -1853,6 +1901,73 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		FactsToAdd: []Fact{
 			{Predicate: "lines_deleted", Args: []interface{}{path, int64(startLine), int64(endLine), req.SessionID}},
 			{Predicate: "modified", Args: []interface{}{path}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// AUTOPOIESIS HANDLERS - GENERATED TOOL EXECUTION
+// =============================================================================
+
+// handleExecTool executes a generated tool from the Ouroboros registry.
+func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	toolExec := v.toolExecutor
+	v.mu.RUnlock()
+
+	if toolExec == nil {
+		return ActionResult{
+			Success: false,
+			Error:   "tool executor not configured",
+			FactsToAdd: []Fact{
+				{Predicate: "tool_exec_failed", Args: []interface{}{req.Target, "no_executor"}},
+			},
+		}, nil
+	}
+
+	toolName := req.Target
+	input, _ := req.Payload["input"].(string)
+
+	// Check if tool exists first
+	toolInfo, exists := toolExec.GetTool(toolName)
+	if !exists {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("tool not found: %s", toolName),
+			FactsToAdd: []Fact{
+				{Predicate: "tool_not_found", Args: []interface{}{toolName}},
+			},
+		}, nil
+	}
+
+	// Execute the tool
+	output, err := toolExec.ExecuteTool(ctx, toolName, input)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Output:  output, // Might have partial output
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "tool_exec_failed", Args: []interface{}{toolName, err.Error()}},
+			},
+		}, nil
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  output,
+		Metadata: map[string]interface{}{
+			"tool_name":     toolName,
+			"tool_hash":     toolInfo.Hash,
+			"execute_count": toolInfo.ExecuteCount + 1,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "tool_executed", Args: []interface{}{toolName, output}},
+			{Predicate: "tool_exec_success", Args: []interface{}{toolName}},
 		},
 	}, nil
 }

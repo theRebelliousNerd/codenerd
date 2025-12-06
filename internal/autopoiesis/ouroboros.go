@@ -55,6 +55,9 @@ type OuroborosConfig struct {
 	AllowNetworking bool          // Whether tools can use networking
 	AllowFileSystem bool          // Whether tools can access filesystem
 	AllowExec       bool          // Whether tools can execute commands
+	TargetOS        string        // Target operating system (GOOS)
+	TargetArch      string        // Target architecture (GOARCH)
+	WorkspaceRoot   string        // Absolute path to the main codeNERD workspace root
 }
 
 // DefaultOuroborosConfig returns safe default configuration
@@ -68,6 +71,9 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		AllowNetworking: false,
 		AllowFileSystem: true, // Read-only by default
 		AllowExec:       false,
+		TargetOS:        os.Getenv("GOOS"),
+		TargetArch:      os.Getenv("GOARCH"),
+		WorkspaceRoot:   workspaceRoot,
 	}
 }
 
@@ -83,13 +89,32 @@ type OuroborosStats struct {
 
 // NewOuroborosLoop creates a new Ouroboros Loop instance
 func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
-	return &OuroborosLoop{
+	// Set defaults for OS/Arch if missing
+	if config.TargetOS == "" {
+		config.TargetOS = "windows" // Default to user's OS environment assumption or runtime
+		if os.Getenv("GOOS") != "" {
+			config.TargetOS = os.Getenv("GOOS")
+		}
+	}
+	if config.TargetArch == "" {
+		config.TargetArch = "amd64"
+		if os.Getenv("GOARCH") != "" {
+			config.TargetArch = os.Getenv("GOARCH")
+		}
+	}
+
+	loop := &OuroborosLoop{
 		toolGen:       NewToolGenerator(client, config.ToolsDir),
 		safetyChecker: NewSafetyChecker(config),
 		compiler:      NewToolCompiler(config),
 		registry:      NewRuntimeRegistry(),
 		config:        config,
 	}
+
+	// Restore registry from disk
+	loop.registry.Restore(config.ToolsDir, config.CompiledDir)
+
+	return loop
 }
 
 // =============================================================================
@@ -234,6 +259,49 @@ func (o *OuroborosLoop) GetStats() OuroborosStats {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.stats
+}
+
+// ListTools returns all registered tools for the ToolExecutor interface
+func (o *OuroborosLoop) ListTools() []ToolInfo {
+	tools := o.registry.List()
+	result := make([]ToolInfo, len(tools))
+	for i, t := range tools {
+		result[i] = ToolInfo{
+			Name:         t.Name,
+			Description:  t.Description,
+			BinaryPath:   t.BinaryPath,
+			Hash:         t.Hash,
+			RegisteredAt: t.RegisteredAt,
+			ExecuteCount: t.ExecuteCount,
+		}
+	}
+	return result
+}
+
+// GetTool returns info about a specific tool for the ToolExecutor interface
+func (o *OuroborosLoop) GetTool(name string) (*ToolInfo, bool) {
+	rt, exists := o.registry.Get(name)
+	if !exists {
+		return nil, false
+	}
+	return &ToolInfo{
+		Name:         rt.Name,
+		Description:  rt.Description,
+		BinaryPath:   rt.BinaryPath,
+		Hash:         rt.Hash,
+		RegisteredAt: rt.RegisteredAt,
+		ExecuteCount: rt.ExecuteCount,
+	}, true
+}
+
+// ToolInfo contains information about a registered tool (mirrors core.ToolInfo)
+type ToolInfo struct {
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	BinaryPath   string    `json:"binary_path"`
+	Hash         string    `json:"hash"`
+	RegisteredAt time.Time `json:"registered_at"`
+	ExecuteCount int64     `json:"execute_count"`
 }
 
 // =============================================================================
@@ -535,25 +603,70 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	}
 
 	// Initialize go module
-	modContent := fmt.Sprintf("module %s\n\ngo 1.21\n", tool.Name)
+	modContent := fmt.Sprintf("module %s\n\ngo 1.24\n", tool.Name)
 	modPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(modPath, []byte(modContent), 0644); err != nil {
 		return result, fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
-	// Output path for compiled binary
-	outputPath := filepath.Join(tc.config.CompiledDir, tool.Name)
+	// Add replace directive for the main 'codenerd' module if the tool uses internal packages
+	// We assume the tool generated imports from the main 'codenerd' module.
+	// The workspaceRoot is available from the OuroborosConfig.
+	mainModulePath := tc.config.WorkspaceRoot // Assumes WorkspaceRoot is set in OuroborosConfig
+	if mainModulePath == "" {
+		mainModulePath = os.Getenv("CODE_NERD_WORKSPACE_ROOT") // Fallback
+	}
+	if mainModulePath != "" {
+		replaceCmd := exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath))
+		replaceCmd.Dir = tmpDir
+		replaceOutput, err := replaceCmd.CombinedOutput()
+		if err != nil {
+			result.Errors = append(result.Errors, string(replaceOutput))
+			return result, fmt.Errorf("go mod edit -replace failed: %w\n%s", err, replaceOutput)
+		}
+	}
+	
+	// Run go mod tidy to resolve dependencies and create go.sum
+	tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
+	tidyCmd.Dir = tmpDir
+	tidyOutput, err := tidyCmd.CombinedOutput()
+	if err != nil {
+		result.Errors = append(result.Errors, string(tidyOutput))
+		return result, fmt.Errorf("go mod tidy failed: %w\n%s", err, tidyOutput)
+	}
+
+	// Output path for compiled binary (append .exe if windows)
+	ext := ""
+	if tc.config.TargetOS == "windows" {
+		ext = ".exe"
+	}
+	outputPath := filepath.Join(tc.config.CompiledDir, tool.Name+ext)
 
 	// Create compile context with timeout
 	compileCtx, cancel := context.WithTimeout(ctx, tc.config.CompileTimeout)
 	defer cancel()
 
+	// Prepare build flags for static binary and optimization
+	ldflags := "-s -w" // Strip symbol table and debug info
+	if tc.config.TargetOS == "linux" {
+		ldflags += " -extldflags '-static'" // Force static linking on Linux
+	}
+
 	// Run go build
-	cmd := exec.CommandContext(compileCtx, "go", "build", "-o", outputPath, ".")
+	args := []string{"build", "-ldflags", ldflags, "-o", outputPath, "."}
+	cmd := exec.CommandContext(compileCtx, "go", args...)
 	cmd.Dir = tmpDir
-	cmd.Env = append(os.Environ(),
-		"CGO_ENABLED=0", // Disable CGO for safety
-	)
+	
+	// Setup environment for cross-compilation
+	env := os.Environ()
+	env = append(env, "CGO_ENABLED=0") // Force pure Go / static
+	if tc.config.TargetOS != "" {
+		env = append(env, "GOOS="+tc.config.TargetOS)
+	}
+	if tc.config.TargetArch != "" {
+		env = append(env, "GOARCH="+tc.config.TargetArch)
+	}
+	cmd.Env = env
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -576,73 +689,116 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	return result, nil
 }
 
-// wrapAsMain wraps the tool code as a standalone main package
+// wrapAsMain wraps the tool code as a standalone main package.
+// It creates a main function that can either read a JSON payload from stdin
+// (for agent invocation) or parse command-line arguments (for direct CLI use).
+// The generated tool code must implement func RunTool(input string, args []string) (string, error).
 func (tc *ToolCompiler) wrapAsMain(tool *GeneratedTool) string {
-	// If already has main package, return as-is
+	// If the generated code is already a full package main, return it as-is.
+	// This allows highly customized CLI tools to bypass the standard wrapper.
+	// The safety checker should ensure these are still safe.
 	if strings.Contains(tool.Code, "package main") {
 		return tool.Code
 	}
 
-	// Otherwise, wrap it with a main function that reads stdin and writes stdout
 	wrapper := `package main
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
-// ToolInput is the input format for the tool
+// ToolInput is the input format for the tool when executed by the agent.
 type ToolInput struct {
-	Input string ` + "`json:\"input\"`" + `
+	Input string   ` + "`json:\"input\"`" + ` // Primary input (e.g., first CLI arg, or main JSON payload)
+	Args  []string ` + "`json:\"args\"`" + `   // Additional arguments (e.g., remaining CLI args)
 }
 
-// ToolOutput is the output format from the tool
+// ToolOutput is the output format from the tool.
 type ToolOutput struct {
 	Output string ` + "`json:\"output\"`" + `
 	Error  string ` + "`json:\"error,omitempty\"`" + `
 }
 
+// RunTool is the entry point for the tool's core logic.
+// The tool's generated code MUST define this function (e.g., func RunTool(input string, args []string) (string, error)).
+// It will be appended below this wrapper.
+
 func main() {
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		fmt.Fprintln(os.Stderr, "no input")
-		os.Exit(1)
+	var primaryInput string
+	var cliArgs []string
+
+	// Determine if stdin is being piped (implies agent execution with JSON payload)
+	fi, _ := os.Stdin.Stat()
+	isPiped := (fi.Mode() & os.ModeCharDevice) == 0
+
+	if isPiped {
+		// Agent execution: Read JSON from stdin
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			// No input from stdin, can proceed with empty primaryInput and cliArgs if tool handles it.
+		} else {
+			var agentInput ToolInput
+			rawInput := scanner.Bytes()
+			if jsonErr := json.Unmarshal(rawInput, &agentInput); jsonErr != nil {
+				// If JSON unmarshal fails, treat the whole line as raw primaryInput
+				primaryInput = strings.TrimSpace(string(rawInput))
+				// No additional cliArgs in this case
+			} else {
+				primaryInput = agentInput.Input
+				cliArgs = agentInput.Args
+			}
+		}
+	} else {
+		// CLI execution: Read arguments from os.Args
+		if len(os.Args) > 1 {
+			primaryInput = os.Args[1] // First argument is treated as primary input
+			if len(os.Args) > 2 {
+				cliArgs = os.Args[2:] // Remaining arguments are additional CLI args
+			}
+		} else {
+			// No input and not piped, print usage and exit
+			fmt.Fprintf(os.Stderr, "Usage: %s <primary_input> [additional_args...]\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "Or pipe JSON for agent use: echo '{\"input\": \"file.gl\", \"args\": [\"--verbose\"]}' | %s\n", os.Args[0])
+			os.Exit(1)
+		}
 	}
 
-	var input ToolInput
-	if err := json.Unmarshal(scanner.Bytes(), &input); err != nil {
-		output := ToolOutput{Error: fmt.Sprintf("invalid input: %v", err)}
-		json.NewEncoder(os.Stdout).Encode(output)
-		os.Exit(1)
-	}
-
-	result, err := runTool(input.Input)
+	// Execute the actual tool logic
+	result, runErr := RunTool(primaryInput, cliArgs)
+	
+	// Prepare output structure for agent consumption (always JSON)
 	output := ToolOutput{Output: result}
-	if err != nil {
-		output.Error = err.Error()
+	if runErr != nil {
+		output.Error = runErr.Error()
 	}
 
-	json.NewEncoder(os.Stdout).Encode(output)
-}
+	jsonEncoder := json.NewEncoder(os.Stdout)
+	jsonEncoder.SetIndent("", "  ") // Pretty print for human readability
+	jsonEncoder.Encode(output)
 
-// runTool executes the actual tool logic
-func runTool(input string) (string, error) {
-	// Insert generated tool code here
-	%s
+	if runErr != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 `
-
-	// Extract the main function logic from the generated code
-	// This is a simplified extraction - in practice you'd parse the AST
-	funcBody := extractFunctionBody(tool.Code, tool.Name)
-	if funcBody == "" {
-		// Fall back to just returning the input
-		funcBody = "return input, nil"
+	// The generated tool code is expected to define `RunTool(input string, cliArgs []string) (string, error)`.
+	// It should also start with `package tools` as it will be part of the generated `main` package here.
+	toolCodeWithPackage := tool.Code
+	if !strings.HasPrefix(toolCodeWithPackage, "package ") {
+		toolCodeWithPackage = "package tools\n\n" + toolCodeWithPackage
+	} else if strings.HasPrefix(toolCodeWithPackage, "package main") {
+		// Replace "package main" with "package tools" if the tool code explicitly defines main,
+		// as it will now be part of the wrapper's main package.
+		toolCodeWithPackage = regexp.MustCompile(`^package main\s`).ReplaceAllString(toolCodeWithPackage, "package tools\n")
 	}
 
-	return fmt.Sprintf(wrapper, funcBody)
+	return wrapper + "\n" + toolCodeWithPackage
 }
 
 // extractFunctionBody extracts the body of the main tool function
@@ -725,6 +881,55 @@ func (r *RuntimeRegistry) List() []*RuntimeTool {
 		tools = append(tools, tool)
 	}
 	return tools
+}
+
+// Restore rebuilds the registry from disk
+func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// List all binaries in compiled dir
+	entries, err := os.ReadDir(compiledDir)
+	if err != nil {
+		return // Directory might not exist yet
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		// Strip extension (e.g. .exe on Windows)
+		name = strings.TrimSuffix(name, ".exe")
+
+		// Check if source exists
+		srcPath := filepath.Join(toolsDir, name+".go")
+		if _, err := os.Stat(srcPath); err != nil {
+			continue // Orphaned binary
+		}
+
+		// Create runtime tool
+		binaryPath := filepath.Join(compiledDir, entry.Name())
+		
+		// Calculate hash
+		hash := ""
+		if content, err := os.ReadFile(binaryPath); err == nil {
+			h := sha256.Sum256(content)
+			hash = hex.EncodeToString(h[:])
+		}
+
+		rt := &RuntimeTool{
+			Name:         name,
+			Description:  "Restored from disk", // We could parse source to get better desc
+			BinaryPath:   binaryPath,
+			Hash:         hash,
+			Schema:       ToolSchema{Name: name}, // Basic schema
+			RegisteredAt: time.Now(),
+		}
+
+		r.tools[name] = rt
+	}
 }
 
 // Execute runs the tool with the given input

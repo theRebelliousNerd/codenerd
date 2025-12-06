@@ -703,6 +703,25 @@ Decl tool_learning(ToolName, Executions, SuccessRate, AvgQuality).
 # active_generation(ToolName) - tool is being generated
 Decl active_generation(ToolName).
 
+# Tool Execution Tracking (for VirtualStore integration)
+# tool_executed(ToolName, Output) - tool was executed successfully
+Decl tool_executed(ToolName, Output).
+
+# tool_exec_success(ToolName) - marks successful tool execution
+Decl tool_exec_success(ToolName).
+
+# tool_exec_failed(ToolName, Reason) - marks failed tool execution
+Decl tool_exec_failed(ToolName, Reason).
+
+# tool_not_found(ToolName) - tool was requested but not in registry
+Decl tool_not_found(ToolName).
+
+# tool_execution_count(ToolName, Count) - total executions per tool
+Decl tool_execution_count(ToolName, Count).
+
+# tool_last_execution(ToolName, Timestamp) - last execution time
+Decl tool_last_execution(ToolName, Timestamp).
+
 # =============================================================================
 # SECTION 30: CODER SHARD HELPERS
 # =============================================================================
