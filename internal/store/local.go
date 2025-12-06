@@ -1,6 +1,7 @@
 package store
 
 import (
+	"codenerd/internal/embedding"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -19,9 +20,10 @@ import (
 // Shard C: Knowledge Graph (relational links)
 // Shard D: Cold Storage (persistent facts and preferences)
 type LocalStore struct {
-	db     *sql.DB
-	mu     sync.RWMutex
-	dbPath string
+	db              *sql.DB
+	mu              sync.RWMutex
+	dbPath          string
+	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -106,6 +108,7 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Session history for context
+	// UNIQUE constraint on (session_id, turn_number) enables idempotent sync
 	sessionTable := `
 	CREATE TABLE IF NOT EXISTS session_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,7 +118,8 @@ func (s *LocalStore) initialize() error {
 		intent_json TEXT,
 		response TEXT,
 		atoms_json TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, turn_number)
 	);
 	CREATE INDEX IF NOT EXISTS idx_session ON session_history(session_id);
 	`
@@ -488,12 +492,13 @@ func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[stri
 // ========== Session History ==========
 
 // StoreSessionTurn records a conversation turn.
+// Uses INSERT OR IGNORE for idempotent syncing (duplicate turns are silently skipped).
 func (s *LocalStore) StoreSessionTurn(sessionID string, turnNumber int, userInput, intentJSON, response, atomsJSON string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(
-		`INSERT INTO session_history (session_id, turn_number, user_input, intent_json, response, atoms_json)
+		`INSERT OR IGNORE INTO session_history (session_id, turn_number, user_input, intent_json, response, atoms_json)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		sessionID, turnNumber, userInput, intentJSON, response, atomsJSON,
 	)

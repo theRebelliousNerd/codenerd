@@ -14,6 +14,19 @@ type Config struct {
 
 	// Context Window Configuration (§8.2 Semantic Compression)
 	ContextWindow *ContextWindowConfig `json:"context_window,omitempty"`
+
+	// Embedding engine configuration
+	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+}
+
+// EmbeddingConfig configures the vector embedding engine.
+type EmbeddingConfig struct {
+	Provider       string `json:"provider"`        // "ollama" or "genai"
+	OllamaEndpoint string `json:"ollama_endpoint"` // Default: "http://localhost:11434"
+	OllamaModel    string `json:"ollama_model"`    // Default: "embeddinggemma"
+	GenAIAPIKey    string `json:"genai_api_key"`
+	GenAIModel     string `json:"genai_model"`     // Default: "gemini-embedding-001"
+	TaskType       string `json:"task_type"`       // Default: "SEMANTIC_SIMILARITY"
 }
 
 // ContextWindowConfig configures the semantic compression context window.
@@ -81,6 +94,38 @@ func (c *Config) GetContextWindowConfig() ContextWindowConfig {
 		CompressionThreshold:   0.80,
 		TargetCompressionRatio: 100.0,
 		ActivationThreshold:    30.0,
+	}
+}
+
+// GetEmbeddingConfig returns the embedding config with defaults.
+func (c *Config) GetEmbeddingConfig() EmbeddingConfig {
+	if c.Embedding != nil {
+		cfg := *c.Embedding
+		// Apply defaults for zero values
+		if cfg.Provider == "" {
+			cfg.Provider = "ollama"
+		}
+		if cfg.OllamaEndpoint == "" {
+			cfg.OllamaEndpoint = "http://localhost:11434"
+		}
+		if cfg.OllamaModel == "" {
+			cfg.OllamaModel = "embeddinggemma"
+		}
+		if cfg.GenAIModel == "" {
+			cfg.GenAIModel = "gemini-embedding-001"
+		}
+		if cfg.TaskType == "" {
+			cfg.TaskType = "SEMANTIC_SIMILARITY"
+		}
+		return cfg
+	}
+	// Return defaults (Ollama for local processing)
+	return EmbeddingConfig{
+		Provider:       "ollama",
+		OllamaEndpoint: "http://localhost:11434",
+		OllamaModel:    "embeddinggemma",
+		GenAIModel:     "gemini-embedding-001",
+		TaskType:       "SEMANTIC_SIMILARITY",
 	}
 }
 

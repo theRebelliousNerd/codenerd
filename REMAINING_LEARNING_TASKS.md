@@ -2,7 +2,20 @@
 
 **Priority**: CRITICAL - Complete the learning loop from "Execute → Store → Learn → Apply"
 
-**Status**: Foundation built (knowledge persistence + embeddings), 4 tasks remain
+**Status**: ✅ Embedding integration COMPLETE! 4 tasks remain
+
+## ✅ COMPLETED - Task 5: Embedding System Integration
+
+**Completed**: 2025-12-06
+
+- ✅ Added EmbeddingConfig to both config packages (cmd/nerd/config + internal/config)
+- ✅ Updated LocalStore with embeddingEngine field
+- ✅ Session.go initializes embedding engine from config
+- ✅ Persistence.go uses StoreVectorWithEmbedding for semantic storage
+- ✅ Added TUI commands: `/embedding set`, `/embedding stats`, `/embedding reembed`
+- ✅ Config updated with GenAI API key
+
+---
 
 ---
 

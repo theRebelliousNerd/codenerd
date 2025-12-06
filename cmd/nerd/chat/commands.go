@@ -7,6 +7,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
 	nerdinit "codenerd/internal/init"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -258,6 +259,128 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				m.history = append(m.history, Message{
 					Role:    "assistant",
 					Content: "Invalid theme. Use 'light' or 'dark'.",
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, nil
+
+	case "/embedding":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: `Embedding commands:
+  /embedding set <provider> [api-key]  - Set embedding provider (ollama or genai)
+  /embedding stats                      - Show embedding statistics
+  /embedding reembed                    - Re-generate all embeddings`,
+				Time: time.Now(),
+			})
+		} else {
+			switch parts[1] {
+			case "set":
+				if len(parts) < 3 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "Usage: /embedding set <ollama|genai> [api-key]",
+						Time:    time.Now(),
+					})
+				} else {
+					provider := parts[2]
+					cfg, _ := config.Load()
+					if cfg.Embedding == nil {
+						cfg.Embedding = &config.EmbeddingConfig{}
+					}
+					cfg.Embedding.Provider = provider
+					if provider == "ollama" {
+						cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
+						cfg.Embedding.OllamaModel = "embeddinggemma"
+					} else if provider == "genai" && len(parts) >= 4 {
+						cfg.Embedding.GenAIAPIKey = parts[3]
+						cfg.Embedding.GenAIModel = "gemini-embedding-001"
+					}
+					if err := config.Save(cfg); err != nil {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Failed to save config: %v", err),
+							Time:    time.Now(),
+						})
+					} else {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("✓ Embedding provider set to: %s\nRestart to apply changes.", provider),
+							Time:    time.Now(),
+						})
+					}
+				}
+			case "stats":
+				if m.localDB != nil {
+					stats, err := m.localDB.GetVectorStats()
+					if err != nil {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Failed to get stats: %v", err),
+							Time:    time.Now(),
+						})
+					} else {
+						m.history = append(m.history, Message{
+							Role: "assistant",
+							Content: fmt.Sprintf(`Embedding Statistics:
+  Total Vectors: %v
+  With Embeddings: %v
+  Without Embeddings: %v
+  Engine: %v
+  Dimensions: %v`,
+								stats["total_vectors"],
+								stats["with_embeddings"],
+								stats["without_embeddings"],
+								stats["embedding_engine"],
+								stats["embedding_dimensions"]),
+							Time: time.Now(),
+						})
+					}
+				} else {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "No knowledge database available.",
+						Time:    time.Now(),
+					})
+				}
+			case "reembed":
+				if m.localDB != nil {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "Re-embedding all vectors... (this may take a moment)",
+						Time:    time.Now(),
+					})
+					ctx := context.Background()
+					if err := m.localDB.ReembedAllVectors(ctx); err != nil {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Re-embedding failed: %v", err),
+							Time:    time.Now(),
+						})
+					} else {
+						stats, _ := m.localDB.GetVectorStats()
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("✓ Re-embedding complete! Vectors with embeddings: %v", stats["with_embeddings"]),
+							Time:    time.Now(),
+						})
+					}
+				} else {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "No knowledge database available.",
+						Time:    time.Now(),
+					})
+				}
+			default:
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Unknown embedding command. Use /embedding for help.",
 					Time:    time.Now(),
 				})
 			}

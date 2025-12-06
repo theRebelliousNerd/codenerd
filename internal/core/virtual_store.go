@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 )
 
@@ -240,6 +241,10 @@ type VirtualStore struct {
 
 	// Autopoiesis - tool execution
 	toolExecutor ToolExecutor
+
+	// Knowledge persistence - LocalStore for knowledge.db queries
+	// Enables virtual predicates to query learned facts, session history, etc.
+	localDB *store.LocalStore
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -414,6 +419,20 @@ func (v *VirtualStore) GetToolExecutor() ToolExecutor {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.toolExecutor
+}
+
+// SetLocalDB sets the knowledge database for virtual predicate queries.
+func (v *VirtualStore) SetLocalDB(db *store.LocalStore) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.localDB = db
+}
+
+// GetLocalDB returns the current knowledge database.
+func (v *VirtualStore) GetLocalDB() *store.LocalStore {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.localDB
 }
 
 // initConstitution initializes the constitutional safety rules.
@@ -2108,4 +2127,259 @@ func (a *TactileFileEditorAdapter) convertResult(r *tactile.FileResult) *FileEdi
 		Facts:         facts,
 		Error:         r.Error,
 	}
+}
+
+// =============================================================================
+// VIRTUAL PREDICATES - Knowledge Query Handlers
+// =============================================================================
+// These methods implement virtual predicates for the Mangle kernel,
+// enabling logic rules to query the knowledge.db (LocalStore).
+// Used during OODA Observe phase to hydrate learned facts into the kernel.
+
+// QueryLearned queries cold_storage for learned facts by predicate name.
+// Implements: query_learned(Predicate, Args) Bound
+func (v *VirtualStore) QueryLearned(predicate string) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	storedFacts, err := db.LoadFacts(predicate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query learned facts: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(storedFacts))
+	for _, sf := range storedFacts {
+		facts = append(facts, Fact{
+			Predicate: sf.Predicate,
+			Args:      sf.Args,
+		})
+	}
+	return facts, nil
+}
+
+// QueryAllLearned queries all facts from cold_storage.
+// Returns facts grouped by fact_type (preference, constraint, fact).
+func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	storedFacts, err := db.LoadAllFacts(factType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all learned facts: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(storedFacts))
+	for _, sf := range storedFacts {
+		facts = append(facts, Fact{
+			Predicate: sf.Predicate,
+			Args:      sf.Args,
+		})
+	}
+	return facts, nil
+}
+
+// QueryKnowledgeGraph queries the knowledge graph for entity relationships.
+// Implements: query_knowledge_graph(EntityA, Relation, EntityB) Bound
+func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	links, err := db.QueryLinks(entity, direction)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query knowledge graph: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(links))
+	for _, link := range links {
+		facts = append(facts, Fact{
+			Predicate: "knowledge_link",
+			Args:      []interface{}{link.EntityA, link.Relation, link.EntityB},
+		})
+	}
+	return facts, nil
+}
+
+// QueryActivations queries the activation log for recent activation scores.
+// Implements: query_activations(FactID, Score) Bound
+func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	activations, err := db.GetRecentActivations(limit, minScore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query activations: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(activations))
+	for factID, score := range activations {
+		facts = append(facts, Fact{
+			Predicate: "activation",
+			Args:      []interface{}{factID, score},
+		})
+	}
+	return facts, nil
+}
+
+// RecallSimilar performs semantic search on the vectors table.
+// Implements: recall_similar(Query, TopK, Results) Bound
+func (v *VirtualStore) RecallSimilar(query string, topK int) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	entries, err := db.VectorRecall(query, topK)
+	if err != nil {
+		return nil, fmt.Errorf("failed semantic recall: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(entries))
+	for i, entry := range entries {
+		facts = append(facts, Fact{
+			Predicate: "similar_content",
+			Args:      []interface{}{i, entry.Content},
+		})
+	}
+	return facts, nil
+}
+
+// QuerySession queries session history for conversation turns.
+// Implements: query_session(SessionID, TurnNumber, UserInput) Bound
+func (v *VirtualStore) QuerySession(sessionID string, limit int) ([]Fact, error) {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	history, err := db.GetSessionHistory(sessionID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query session: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(history))
+	for _, turn := range history {
+		turnNum, _ := turn["turn_number"].(int64)
+		userInput, _ := turn["user_input"].(string)
+		response, _ := turn["response"].(string)
+		facts = append(facts, Fact{
+			Predicate: "session_turn",
+			Args:      []interface{}{sessionID, turnNum, userInput, response},
+		})
+	}
+	return facts, nil
+}
+
+// HasLearned checks if any facts with the given predicate exist in cold_storage.
+// Implements: has_learned(Predicate) Bound
+func (v *VirtualStore) HasLearned(predicate string) (bool, error) {
+	facts, err := v.QueryLearned(predicate)
+	if err != nil {
+		return false, err
+	}
+	return len(facts) > 0, nil
+}
+
+// HydrateLearnings loads all learned facts from knowledge.db and asserts them into the kernel.
+// This should be called during OODA Observe phase to make learned knowledge available to rules.
+func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		return 0, nil // No database, nothing to hydrate
+	}
+	if kernel == nil {
+		return 0, fmt.Errorf("no kernel configured")
+	}
+
+	count := 0
+
+	// 1. Load all preferences (highest priority)
+	preferences, err := v.QueryAllLearned("preference")
+	if err == nil {
+		for _, fact := range preferences {
+			if err := kernel.Assert(Fact{
+				Predicate: "learned_preference",
+				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
+			}); err == nil {
+				count++
+			}
+		}
+	}
+
+	// 2. Load all user facts
+	userFacts, err := v.QueryAllLearned("user_fact")
+	if err == nil {
+		for _, fact := range userFacts {
+			if err := kernel.Assert(Fact{
+				Predicate: "learned_fact",
+				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
+			}); err == nil {
+				count++
+			}
+		}
+	}
+
+	// 3. Load all constraints
+	constraints, err := v.QueryAllLearned("constraint")
+	if err == nil {
+		for _, fact := range constraints {
+			if err := kernel.Assert(Fact{
+				Predicate: "learned_constraint",
+				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
+			}); err == nil {
+				count++
+			}
+		}
+	}
+
+	// 4. Load knowledge graph links
+	links, err := v.QueryKnowledgeGraph("", "both")
+	if err == nil {
+		for _, fact := range links {
+			if err := kernel.Assert(fact); err == nil {
+				count++
+			}
+		}
+	}
+
+	// 5. Load recent activations (top 50 with score > 0.3)
+	activations, err := v.QueryActivations(50, 0.3)
+	if err == nil {
+		for _, fact := range activations {
+			if err := kernel.Assert(fact); err == nil {
+				count++
+			}
+		}
+	}
+
+	return count, nil
 }

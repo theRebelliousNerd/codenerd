@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/core"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/perception"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -50,26 +51,31 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 		fmt.Printf("[Knowledge] Warning: Failed to store session turn: %v\n", err)
 	}
 
-	// 2. VECTORS: Store user input and response for semantic search
-	// This enables the agent to recall similar past conversations
+	// 2. VECTORS: Store user input and response with semantic embeddings
+	// Uses StoreVectorWithEmbedding for true semantic search when embedding engine available
+	ctx := context.Background()
 	userMeta := map[string]interface{}{
-		"type":       "user_input",
-		"session_id": sessionID,
-		"turn":       turnNumber,
-		"verb":       intent.Verb,
-		"category":   intent.Category,
+		"type":         "user_input",
+		"session_id":   sessionID,
+		"turn":         turnNumber,
+		"verb":         intent.Verb,
+		"category":     intent.Category,
+		"content_type": "conversation", // For intelligent task type selection
 	}
-	if err := m.localDB.StoreVector(turn.UserInput, userMeta); err != nil {
-		fmt.Printf("[Knowledge] Warning: Failed to store user input vector: %v\n", err)
+	if err := m.localDB.StoreVectorWithEmbedding(ctx, turn.UserInput, userMeta); err != nil {
+		// Fallback to keyword-only storage if embedding fails
+		m.localDB.StoreVector(turn.UserInput, userMeta)
 	}
 
 	responseMeta := map[string]interface{}{
-		"type":       "assistant_response",
-		"session_id": sessionID,
-		"turn":       turnNumber,
+		"type":         "assistant_response",
+		"session_id":   sessionID,
+		"turn":         turnNumber,
+		"content_type": "conversation",
 	}
-	if err := m.localDB.StoreVector(response, responseMeta); err != nil {
-		fmt.Printf("[Knowledge] Warning: Failed to store response vector: %v\n", err)
+	if err := m.localDB.StoreVectorWithEmbedding(ctx, response, responseMeta); err != nil {
+		// Fallback to keyword-only storage if embedding fails
+		m.localDB.StoreVector(response, responseMeta)
 	}
 
 	// 3. KNOWLEDGE GRAPH: Extract relationships from memory operations

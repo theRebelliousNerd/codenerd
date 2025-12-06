@@ -82,6 +82,83 @@ Decl knowledge_link(EntityA, Relation, EntityB).
 Decl new_fact(FactID).
 
 # =============================================================================
+# SECTION 7B: VIRTUAL PREDICATES FOR KNOWLEDGE QUERIES (Bound)
+# =============================================================================
+# These predicates are resolved by VirtualStore FFI to query knowledge.db
+# Bound predicates are computed on-demand by the Go runtime
+
+# query_learned(Predicate, Args) Bound.
+# Queries cold_storage for learned facts by predicate name
+Decl query_learned(Predicate, Args) Bound.
+
+# query_session(SessionID, TurnNumber, UserInput) Bound.
+# Queries session_history for conversation turns
+Decl query_session(SessionID, TurnNumber, UserInput) Bound.
+
+# recall_similar(Query, TopK, Results) Bound.
+# Performs semantic search on vectors table, returns top K similar
+Decl recall_similar(Query, TopK, Results) Bound.
+
+# query_knowledge_graph(EntityA, Relation, EntityB) Bound.
+# Queries knowledge_graph table for entity relationships
+Decl query_knowledge_graph(EntityA, Relation, EntityB) Bound.
+
+# query_activations(FactID, Score) Bound.
+# Queries activation_log for recent activation scores
+Decl query_activations(FactID, Score) Bound.
+
+# has_learned(Predicate) Bound.
+# Check if any facts with this predicate exist in cold_storage
+Decl has_learned(Predicate) Bound.
+
+# =============================================================================
+# SECTION 7C: HYDRATED KNOWLEDGE FACTS (asserted by HydrateLearnings)
+# =============================================================================
+# These EDB predicates are populated by VirtualStore.HydrateLearnings() during
+# the OODA Observe phase. They make learned knowledge available to Mangle rules.
+
+# learned_preference(Predicate, Args) - User preferences from cold_storage
+Decl learned_preference(Predicate, Args).
+
+# learned_fact(Predicate, Args) - User facts from cold_storage
+Decl learned_fact(Predicate, Args).
+
+# learned_constraint(Predicate, Args) - User constraints from cold_storage
+Decl learned_constraint(Predicate, Args).
+
+# activation(FactID, Score) - Recent activation scores
+Decl activation(FactID, Score).
+
+# session_turn(SessionID, TurnNumber, UserInput, Response) - Conversation history
+Decl session_turn(SessionID, TurnNumber, UserInput, Response).
+
+# similar_content(Rank, Content) - Semantic search results
+Decl similar_content(Rank, Content).
+
+# =============================================================================
+# SECTION 7D: HELPER PREDICATES FOR LEARNED KNOWLEDGE RULES
+# =============================================================================
+# These support the IDB rules in policy.gl SECTION 17B
+
+# tool_language(Tool, Language) - Maps tools to programming languages
+Decl tool_language(Tool, Language).
+
+# action_violates(Action, Predicate, Args) - Check if action violates a constraint
+Decl action_violates(Action, Predicate, Args).
+
+# relevant_to_intent(Predicate, Intent) - Maps predicates to user intents
+Decl relevant_to_intent(Predicate, Intent).
+
+# context_priority(FactID, Priority) - Priority level for context inclusion
+Decl context_priority(FactID, Priority).
+
+# related_context(Content) - Content related to current context
+Decl related_context(Content).
+
+# constraint_violation(Action, Reason) - Detected constraint violations
+Decl constraint_violation(Action, Reason).
+
+# =============================================================================
 # SECTION 8: BROWSER PHYSICS (§9.0)
 # =============================================================================
 
