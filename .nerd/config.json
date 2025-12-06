@@ -3,5 +3,12 @@
   "zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
   "model": "glm-4.6",
   "theme": "light",
-  "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461"
+  "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461",
+  
+  "embedding": {
+    "provider": "genai",
+    "genai_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
+    "genai_model": "gemini-embedding-001",
+    "task_type": "SEMANTIC_SIMILARITY"
+  }
 }
