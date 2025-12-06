@@ -528,6 +528,46 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 	sb.WriteString(fmt.Sprintf("**Directories**: %d\n", result.Profile.DirectoryCount))
 	sb.WriteString(fmt.Sprintf("**Facts Generated**: %d\n\n", result.FactsGenerated))
 
+	// Show detected technologies
+	if len(result.Profile.Dependencies) > 0 {
+		sb.WriteString("### Detected Technologies\n\n")
+
+		// Group dependencies by type
+		var mainDeps, devDeps []string
+		for _, dep := range result.Profile.Dependencies {
+			depStr := dep.Name
+			if dep.Version != "" {
+				depStr += fmt.Sprintf(" (%s)", dep.Version)
+			}
+
+			if dep.Type == "dev" {
+				devDeps = append(devDeps, depStr)
+			} else {
+				mainDeps = append(mainDeps, depStr)
+			}
+		}
+
+		if len(mainDeps) > 0 {
+			sb.WriteString("**Dependencies**:\n")
+			for i, dep := range mainDeps {
+				if i >= 10 {
+					sb.WriteString(fmt.Sprintf("... and %d more\n", len(mainDeps)-10))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("- %s\n", dep))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(devDeps) > 0 && len(devDeps) <= 5 {
+			sb.WriteString("**Dev Dependencies**:\n")
+			for _, dep := range devDeps {
+				sb.WriteString(fmt.Sprintf("- %s\n", dep))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
 	// Show created agents
 	if len(result.CreatedAgents) > 0 {
 		sb.WriteString("### Type 3 Agents Created\n\n")
@@ -538,6 +578,14 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 		}
 		sb.WriteString("\n")
 	}
+
+	// Tool capabilities note
+	sb.WriteString("### Tool Generation\n\n")
+	sb.WriteString("codeNERD can generate custom tools on-demand via the Ouroboros Loop:\n")
+	sb.WriteString("- Tools are created automatically when capabilities are missing\n")
+	sb.WriteString("- Each tool is compiled, safety-checked, and registered for use\n")
+	sb.WriteString("- Use `/tool list` to see generated tools\n")
+	sb.WriteString("- Use `/tool generate <description>` to create new tools\n\n")
 
 	// Show warnings if any
 	if len(result.Warnings) > 0 {
@@ -554,6 +602,7 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 	sb.WriteString("- View agents: `/agents`\n")
 	sb.WriteString("- Spawn an agent: `/spawn <agent> <task>`\n")
 	sb.WriteString("- Define custom agents: `/define-agent <name>`\n")
+	sb.WriteString("- View available tools: `/tool list`\n")
 	sb.WriteString("- Query the codebase: Just ask questions!\n")
 
 	return sb.String()

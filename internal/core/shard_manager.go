@@ -68,6 +68,10 @@ type ShardConfig struct {
 	MemoryLimit int               // Abstract memory unit limit
 	Model       ModelConfig       // LLM requirements
 	KnowledgePath string          // Path to local knowledge DB (Type B only)
+
+	// Tool associations (for specialist shards)
+	Tools          []string          // List of tool names this shard can use
+	ToolPreferences map[string]string // Action -> preferred tool mapping
 }
 
 // DefaultGeneralistConfig returns config for a Type A generalist.

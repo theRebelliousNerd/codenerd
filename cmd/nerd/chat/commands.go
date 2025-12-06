@@ -93,7 +93,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /clear | Clear chat history |
 | /new-session | Start a fresh session (preserves old) |
 | /sessions | List saved sessions |
-| /status | Show system status |
+| /status | Show system status (includes tools) |
 | /init | Initialize codeNERD in the workspace |
 | /init --force | Reinitialize (preserves learned preferences) |
 | /scan | Refresh codebase index without full reinit |
@@ -126,10 +126,18 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /campaign pause | Pause current campaign |
 | /campaign resume | Resume paused campaign |
 | /campaign list | List all campaigns |
-| /tool list | List generated tools |
+
+### Tool Management (Autopoiesis)
+
+| Command | Description |
+|---------|-------------|
+| /tool list | List all generated tools |
 | /tool run <name> <input> | Execute a generated tool |
 | /tool info <name> | Show details about a tool |
-| /tool generate <description> | Generate a new tool |
+| /tool generate <description> | Generate a new tool via Ouroboros Loop |
+
+Note: Tools are generated automatically when capabilities are missing,
+or you can create them on-demand with /tool generate.
 
 ### Keyboard Shortcuts
 
@@ -1134,6 +1142,9 @@ func (m Model) buildStatusReport() string {
 	if m.activeCampaign != nil {
 		sb.WriteString(fmt.Sprintf("- Active Campaign: %s\n", m.activeCampaign.Goal))
 	}
+	if m.autopoiesis != nil {
+		sb.WriteString("- Autopoiesis: Active\n")
+	}
 	sb.WriteString("\n")
 
 	// Query fact counts
@@ -1147,6 +1158,29 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- reviewer\n")
 	sb.WriteString("- tester\n")
 	sb.WriteString("- researcher\n")
+
+	// List generated tools
+	if m.autopoiesis != nil {
+		tools := m.autopoiesis.ListTools()
+		sb.WriteString("\n### Generated Tools\n")
+		if len(tools) == 0 {
+			sb.WriteString("- No tools generated yet\n")
+			sb.WriteString("- Tools are created on-demand when capabilities are missing\n")
+			sb.WriteString("- Use `/tool generate <description>` to create a tool\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("- Total Tools: %d\n", len(tools)))
+			sb.WriteString("- Recent Tools:\n")
+			count := 0
+			for _, tool := range tools {
+				if count >= 5 {
+					sb.WriteString(fmt.Sprintf("  ... and %d more (use `/tool list` for full list)\n", len(tools)-5))
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  - `%s`: %d executions\n", tool.Name, tool.ExecuteCount))
+				count++
+			}
+		}
+	}
 
 	return sb.String()
 }
