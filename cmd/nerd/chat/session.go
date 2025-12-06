@@ -261,6 +261,11 @@ func InitChat(cfg Config) Model {
 	kernelAdapter := core.NewKernelAdapter(kernel)
 	autopoiesisOrch.SetKernel(kernelAdapter)
 
+	// Wire tool executor to VirtualStore for shard access to generated tools
+	// This enables the Ouroboros Loop's generated tools to be executed via VirtualStore
+	toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
+	virtualStore.SetToolExecutor(toolExecutor)
+
 	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
 	// Initialize split-pane view (Glass Box Interface)

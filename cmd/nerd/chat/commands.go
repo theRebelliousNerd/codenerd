@@ -125,6 +125,10 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /campaign pause | Pause current campaign |
 | /campaign resume | Resume paused campaign |
 | /campaign list | List all campaigns |
+| /tool list | List generated tools |
+| /tool run <name> <input> | Execute a generated tool |
+| /tool info <name> | Show details about a tool |
+| /tool generate <description> | Generate a new tool |
 
 ### Keyboard Shortcuts
 
@@ -877,6 +881,96 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				m.history = append(m.history, Message{
 					Role:    "assistant",
 					Content: content,
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, nil
+
+	case "/tool":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/tool <list|run|info|generate> [args]`\n\n- `/tool list` - List all generated tools\n- `/tool run <name> <input>` - Execute a tool\n- `/tool info <name>` - Show tool details\n- `/tool generate <description>` - Generate a new tool",
+				Time:    time.Now(),
+			})
+		} else {
+			subCmd := parts[1]
+			switch subCmd {
+			case "list":
+				content := m.renderToolList()
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: content,
+					Time:    time.Now(),
+				})
+			case "run":
+				if len(parts) < 3 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "Usage: `/tool run <name> [input]`",
+						Time:    time.Now(),
+					})
+				} else {
+					toolName := parts[2]
+					toolInput := ""
+					if len(parts) > 3 {
+						toolInput = strings.Join(parts[3:], " ")
+					}
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Executing tool `%s`...", toolName),
+						Time:    time.Now(),
+					})
+					m.viewport.SetContent(m.renderHistory())
+					m.viewport.GotoBottom()
+					m.textinput.Reset()
+					m.isLoading = true
+					return m, tea.Batch(m.spinner.Tick, m.runTool(toolName, toolInput))
+				}
+			case "info":
+				if len(parts) < 3 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "Usage: `/tool info <name>`",
+						Time:    time.Now(),
+					})
+				} else {
+					toolName := parts[2]
+					content := m.renderToolInfo(toolName)
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: content,
+						Time:    time.Now(),
+					})
+				}
+			case "generate":
+				if len(parts) < 3 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "Usage: `/tool generate <description>`\n\nExample: `/tool generate a tool that validates JSON syntax`",
+						Time:    time.Now(),
+					})
+				} else {
+					description := strings.Join(parts[2:], " ")
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Generating tool from description: %s\n\nThis will use the Ouroboros Loop to create, compile, and register the tool.", description),
+						Time:    time.Now(),
+					})
+					m.viewport.SetContent(m.renderHistory())
+					m.viewport.GotoBottom()
+					m.textinput.Reset()
+					m.isLoading = true
+					return m, tea.Batch(m.spinner.Tick, m.generateTool(description))
+				}
+			default:
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Unknown tool subcommand: %s. Use list, run, info, or generate.", subCmd),
 					Time:    time.Now(),
 				})
 			}

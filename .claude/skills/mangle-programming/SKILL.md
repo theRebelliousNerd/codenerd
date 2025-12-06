@@ -3,7 +3,8 @@ name: mangle-programming
 description: Master Google's Mangle declarative programming language for deductive database programming, constraint-like reasoning, and software analysis. From basic facts to production deployment, graph traversal to vulnerability detection, theoretical foundations to optimization. Complete encyclopedic reference with progressive disclosure architecture.
 license: Apache-2.0
 version: 0.4.0
-last_updated: 2025-11-24
+mangle_version: 0.4.0 (November 1, 2024)
+last_updated: 2025-12-05
 ---
 
 # Mangle Programming: The Complete Reference
@@ -136,9 +137,19 @@ This skill uses **progressive disclosure**: Start with quick references below, t
   - gRPC service integration
   - Monitoring and observability
 
+### Go API Reference
+
+- [GO_API_REFERENCE](references/GO_API_REFERENCE.md) - Complete Go package documentation
+  - AST types (Constant, Atom, Variable, Clause)
+  - Parse, Analysis, and Engine packages
+  - FactStore implementations
+  - json2struct and proto2struct converters
+  - Mangle-service gRPC demo
+  - Common integration patterns
+
 ### Up-to-Date API Reference
 
-- [context7-mangle](references/context7-mangle.md) - Context7 comprehensive patterns (November 2025)
+- [context7-mangle](references/context7-mangle.md) - Context7 comprehensive patterns (Mangle v0.4.0)
   - Installation (Go and Rust implementations)
   - Interpreter usage and REPL commands
   - Complete data types and structured data
@@ -321,6 +332,110 @@ GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest
 ::show all          # Show all predicates
 ::help              # Help
 Ctrl-D              # Exit
+```
+
+## Validation Scripts
+
+This skill includes validation tools for Mangle programs and Go integration code.
+
+### validate_mangle.py - Mangle Syntax Validator
+
+Comprehensive validation for Mangle source files:
+
+```bash
+# Basic validation
+python3 scripts/validate_mangle.py program.mg
+
+# Strict mode (checks undeclared predicates)
+python3 scripts/validate_mangle.py program.mg --strict
+
+# Validate inline code
+python3 scripts/validate_mangle.py --check-string "parent(/a, /b)."
+
+# Verbose output (shows stratification info)
+python3 scripts/validate_mangle.py program.mg --verbose
+```
+
+**Checks performed:**
+
+- Syntax validation (periods, balanced brackets, arrow operators)
+- Declaration syntax (Decl with .Type<> and modes)
+- Aggregation pipelines (|> do fn: let)
+- Safety constraints (head variables bound in body)
+- Negation safety (variables bound before negation)
+- Built-in function validation (fn:Count, fn:Sum, etc.)
+- Stratification analysis
+
+### validate_go_mangle.py - Go Integration Validator
+
+Validates Go code that uses the Mangle library:
+
+```bash
+# Validate single file
+python3 scripts/validate_go_mangle.py internal/mangle/engine.go
+
+# Validate directory
+python3 scripts/validate_go_mangle.py internal/
+
+# Validate entire codebase
+python3 scripts/validate_go_mangle.py --codebase /path/to/project
+```
+
+**Checks performed:**
+
+- Correct github.com/google/mangle/* imports
+- Proper AST type handling (Constant.Type checks)
+- Engine API usage patterns (EvalProgram, QueryContext)
+- Error handling for parse/analysis operations
+- Fact/Atom construction correctness
+- codeNERD-specific patterns (VirtualStore, ToAtom)
+
+### generate_template.py - Template Generator
+
+Generate boilerplate Mangle files:
+
+```bash
+python3 scripts/generate_template.py schema > schemas.gl
+python3 scripts/generate_template.py policy > policy.gl
+```
+
+## Asset Templates
+
+Ready-to-use templates and examples in `assets/`:
+
+### Starter Templates
+
+| Asset | Purpose |
+|-------|---------|
+| [starter-schema.gl](assets/starter-schema.gl) | Schema template with EDB declarations |
+| [starter-policy.gl](assets/starter-policy.gl) | Policy template with common IDB rules |
+| [codenerd-schemas.gl](assets/codenerd-schemas.gl) | codeNERD neuro-symbolic architecture schemas |
+
+### Example Programs
+
+| Asset | Demonstrates |
+|-------|--------------|
+| [vulnerability-scanner.mg](assets/examples/vulnerability-scanner.mg) | Dependency analysis, CVE propagation |
+| [access-control.mg](assets/examples/access-control.mg) | RBAC, role hierarchy, permissions |
+| [aggregation-patterns.mg](assets/examples/aggregation-patterns.mg) | All aggregation patterns |
+
+### Go Integration Boilerplate
+
+| Asset | Purpose |
+|-------|---------|
+| [go-integration/main.go](assets/go-integration/main.go) | Complete Go embedding example |
+| [go-integration/go.mod](assets/go-integration/go.mod) | Go module definition |
+
+**Quick Start**:
+
+```bash
+# Copy Go boilerplate
+cp -r assets/go-integration/ myproject/
+cd myproject && go mod tidy && go run main.go
+
+# Start new Mangle project
+cp assets/starter-schema.gl schemas.gl
+cp assets/starter-policy.gl policy.gl
 ```
 
 ## Comparison with Alternatives

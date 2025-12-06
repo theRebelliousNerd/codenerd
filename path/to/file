@@ -1,0 +1,4 @@
+// Example file content
+function example() {
+  console.log('Hello, World!');
+}
