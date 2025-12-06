@@ -20,21 +20,52 @@ func NewScanner() *Scanner {
 
 func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 	var facts []core.Fact
+	cache := NewFileCache(root)
+	defer cache.Save()
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
-				return filepath.SkipDir // Skip hidden dirs like .git
+			name := info.Name()
+			// "Blind Spot" Fix: Allow specific hidden directories
+			if strings.HasPrefix(name, ".") && name != "." {
+				// Allowlist for hidden configuration directories
+				allowed := map[string]bool{
+					".github":   true,
+					".vscode":   true,
+					".circleci": true,
+					".config":   true,
+					".nerd":     false, // Internal, usually skip
+					".git":      false, // Always skip
+				}
+
+				if allow, exists := allowed[name]; exists {
+					if !allow {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				
+				// Default block for other hidden dirs
+				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		hash, err := calculateHash(path)
-		if err != nil {
-			return err
+		// "Hash-Thrashing" Fix: Use Cache
+		var hash string
+		cachedHash, hit := cache.Get(path, info)
+		if hit {
+			hash = cachedHash
+		} else {
+			h, err := calculateHash(path)
+			if err != nil {
+				return err
+			}
+			hash = h
+			cache.Update(path, info, hash)
 		}
 
 		ext := filepath.Ext(path)
@@ -102,6 +133,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		Facts:     make([]core.Fact, 0),
 		Languages: make(map[string]int),
 	}
+	cache := NewFileCache(root)
+	defer cache.Save()
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		// Check for context cancellation
@@ -116,8 +149,25 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		}
 
 		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
-				return filepath.SkipDir // Skip hidden dirs like .git
+			name := info.Name()
+			// "Blind Spot" Fix: Allow specific hidden directories
+			if strings.HasPrefix(name, ".") && name != "." {
+				allowed := map[string]bool{
+					".github":   true,
+					".vscode":   true,
+					".circleci": true,
+					".config":   true,
+					".nerd":     false,
+					".git":      false,
+				}
+
+				if allow, exists := allowed[name]; exists {
+					if !allow {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				return filepath.SkipDir
 			}
 			result.DirectoryCount++
 			return nil
@@ -125,10 +175,19 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 		result.FileCount++
 
-		hash, err := calculateHash(path)
-		if err != nil {
-			// Skip files we can't hash but don't fail
-			return nil
+		// "Hash-Thrashing" Fix: Use Cache
+		var hash string
+		cachedHash, hit := cache.Get(path, info)
+		if hit {
+			hash = cachedHash
+		} else {
+			h, err := calculateHash(path)
+			if err != nil {
+				// Skip files we can't hash but don't fail
+				return nil
+			}
+			hash = h
+			cache.Update(path, info, hash)
 		}
 
 		ext := filepath.Ext(path)
