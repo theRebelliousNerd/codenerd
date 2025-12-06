@@ -51,13 +51,15 @@ type AgentCreationUpdate struct {
 
 // RecommendedAgent represents an agent recommended by the Researcher.
 type RecommendedAgent struct {
-	Name        string   `json:"name"`
-	Type        string   `json:"type"` // Type 3 category
-	Description string   `json:"description"`
-	Topics      []string `json:"topics"` // Research topics for KB
-	Permissions []string `json:"permissions"`
-	Priority    int      `json:"priority"` // Higher = more important
-	Reason      string   `json:"reason"`   // Why this agent is needed
+	Name            string            `json:"name"`
+	Type            string            `json:"type"` // Type 3 category
+	Description     string            `json:"description"`
+	Topics          []string          `json:"topics"` // Research topics for KB
+	Permissions     []string          `json:"permissions"`
+	Priority        int               `json:"priority"` // Higher = more important
+	Reason          string            `json:"reason"`   // Why this agent is needed
+	Tools           []string          `json:"tools,omitempty"`
+	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
 }
 
 // InitConfig holds configuration for initialization.
@@ -162,12 +164,14 @@ type InitResult struct {
 
 // CreatedAgent represents a Type 3 agent that was created during init.
 type CreatedAgent struct {
-	Name          string    `json:"name"`
-	Type          string    `json:"type"`
-	KnowledgePath string    `json:"knowledge_path"`
-	KBSize        int       `json:"kb_size"`
-	CreatedAt     time.Time `json:"created_at"`
-	Status        string    `json:"status"` // "ready", "partial", "failed"
+	Name            string            `json:"name"`
+	Type            string            `json:"type"`
+	KnowledgePath   string            `json:"knowledge_path"`
+	KBSize          int               `json:"kb_size"`
+	CreatedAt       time.Time         `json:"created_at"`
+	Status          string            `json:"status"` // "ready", "partial", "failed"
+	Tools           []string          `json:"tools,omitempty"`
+	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
 }
 
 // Initializer handles the cold-start initialization process.
@@ -414,9 +418,29 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// =========================================================================
+	// PHASE 7e: Generate Project-Specific Tools
+	// =========================================================================
+	i.sendProgress("tool_generation", "Generating project-specific tools...", 0.86)
+	fmt.Println("\n🛠️  Phase 7e: Generating Project-Specific Tools")
+
+	generatedTools, err := i.generateProjectTools(ctx, nerdDir, profile)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to generate tools: %v", err))
+	} else if len(generatedTools) > 0 {
+		fmt.Printf("   ✓ Generated %d tools\n", len(generatedTools))
+		// Store tool names in result for summary
+		if result.AgentKBs == nil {
+			result.AgentKBs = make(map[string]int)
+		}
+		result.AgentKBs["_generated_tools"] = len(generatedTools)
+	} else {
+		fmt.Println("   ⓘ No tools generated (may be skipped or not needed)")
+	}
+
+	// =========================================================================
 	// PHASE 8: Initialize Preferences
 	// =========================================================================
-	i.sendProgress("preferences", "Initializing preferences...", 0.85)
+	i.sendProgress("preferences", "Initializing preferences...", 0.88)
 	fmt.Println("\n⚙️ Phase 8: Initializing Preferences")
 
 	preferences := i.initPreferences()
@@ -443,7 +467,36 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// =========================================================================
-	// PHASE 10: Generate Agent Registry
+	// PHASE 10: Generate Tool Definitions
+	// =========================================================================
+	i.sendProgress("tools", "Generating tool definitions...", 0.92)
+	fmt.Println("\n🔧 Phase 10: Generating Tool Definitions")
+
+	detectedTech := []string{profile.Language}
+	if profile.Framework != "" && profile.Framework != "unknown" {
+		detectedTech = append(detectedTech, profile.Framework)
+	}
+
+	tools := GenerateToolsForProject(detectedTech)
+	if err := SaveToolsToFile(nerdDir, tools); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save tools: %v", err))
+	} else {
+		toolsFile := filepath.Join(nerdDir, "tools", "available_tools.json")
+		result.FilesCreated = append(result.FilesCreated, toolsFile)
+		fmt.Printf("   ✓ Generated %d tool definitions\n", len(tools))
+
+		// Print tool breakdown by category
+		categories := make(map[string]int)
+		for _, tool := range tools {
+			categories[tool.Category]++
+		}
+		for cat, count := range categories {
+			fmt.Printf("      - %s: %d\n", cat, count)
+		}
+	}
+
+	// =========================================================================
+	// PHASE 11: Generate Agent Registry
 	// =========================================================================
 	i.sendProgress("registry", "Generating agent registry...", 0.95)
 
@@ -491,6 +544,8 @@ func (i *Initializer) sendProgress(phase, message string, percent float64) {
 // registerAgentsWithShardManager - see agents.go
 // saveAgentRegistry - see agents.go
 // createCoreShardKnowledgeBases - see agents.go
+// generateProjectTools - see agents.go
+// determineRequiredTools - see agents.go
 // createDirectoryStructure - see scanner.go
 // detectLanguageFromFiles - see scanner.go
 // detectDependencies - see scanner.go
@@ -538,6 +593,12 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 		for _, agent := range result.CreatedAgents {
 			fmt.Printf("   • %s (%d KB atoms) - %s\n", agent.Name, agent.KBSize, agent.Status)
 		}
+	}
+
+	// Show generated tools
+	if toolCount, ok := result.AgentKBs["_generated_tools"]; ok && toolCount > 0 {
+		fmt.Printf("\n🛠️  Generated Tools: %d\n", toolCount)
+		fmt.Printf("   Tools are ready to use in .nerd/tools/\n")
 	}
 
 	fmt.Printf("\n📂 Files Created: %d\n", len(result.FilesCreated))

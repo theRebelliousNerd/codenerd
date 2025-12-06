@@ -242,6 +242,9 @@ type VirtualStore struct {
 	// Autopoiesis - tool execution
 	toolExecutor ToolExecutor
 
+	// Tool registry - integration with kernel and shards
+	toolRegistry *ToolRegistry
+
 	// Knowledge persistence - LocalStore for knowledge.db queries
 	// Enables virtual predicates to query learned facts, session history, etc.
 	localDB *store.LocalStore
@@ -280,6 +283,7 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		workingDir:     config.WorkingDir,
 		allowedEnvVars: config.AllowedEnvVars,
 		shardManager:   NewShardManager(),
+		toolRegistry:   NewToolRegistry(config.WorkingDir),
 	}
 
 	// Initialize modern executor with audit logging
@@ -363,6 +367,11 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.kernel = k
+
+	// Also set kernel on tool registry
+	if v.toolRegistry != nil {
+		v.toolRegistry.SetKernel(k)
+	}
 }
 
 // SetShardManager sets the shard manager for delegation.
@@ -412,6 +421,11 @@ func (v *VirtualStore) SetToolExecutor(executor ToolExecutor) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.toolExecutor = executor
+
+	// Sync tools from executor to registry
+	if v.toolRegistry != nil && executor != nil {
+		_ = v.toolRegistry.SyncFromOuroboros(executor)
+	}
 }
 
 // GetToolExecutor returns the current tool executor.
@@ -419,6 +433,39 @@ func (v *VirtualStore) GetToolExecutor() ToolExecutor {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.toolExecutor
+}
+
+// GetToolRegistry returns the tool registry.
+func (v *VirtualStore) GetToolRegistry() *ToolRegistry {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.toolRegistry
+}
+
+// RegisterTool registers a tool with the registry and injects facts into the kernel.
+func (v *VirtualStore) RegisterTool(name, command, shardAffinity string) error {
+	v.mu.RLock()
+	registry := v.toolRegistry
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return fmt.Errorf("tool registry not initialized")
+	}
+
+	return registry.RegisterTool(name, command, shardAffinity)
+}
+
+// GetToolsForShard returns all tools available for a specific shard type.
+func (v *VirtualStore) GetToolsForShard(shardType string) []*Tool {
+	v.mu.RLock()
+	registry := v.toolRegistry
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return nil
+	}
+
+	return registry.GetToolsForShard(shardType)
 }
 
 // SetLocalDB sets the knowledge database for virtual predicate queries.
@@ -2066,6 +2113,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 
 	v.mu.RLock()
 	toolExec := v.toolExecutor
+	registry := v.toolRegistry
 	v.mu.RUnlock()
 
 	if toolExec == nil {
@@ -2081,7 +2129,13 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 	toolName := req.Target
 	input, _ := req.Payload["input"].(string)
 
-	// Check if tool exists first
+	// Check if tool exists in registry first
+	var registeredTool *Tool
+	if registry != nil {
+		registeredTool, _ = registry.GetTool(toolName)
+	}
+
+	// Check if tool exists in executor
 	toolInfo, exists := toolExec.GetTool(toolName)
 	if !exists {
 		return ActionResult{
@@ -2095,6 +2149,12 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 
 	// Execute the tool
 	output, err := toolExec.ExecuteTool(ctx, toolName, input)
+
+	// Update execution count in registry
+	if registeredTool != nil && registry != nil {
+		registeredTool.ExecuteCount++
+	}
+
 	if err != nil {
 		return ActionResult{
 			Success: false,
@@ -2106,14 +2166,21 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
+	metadata := map[string]interface{}{
+		"tool_name":     toolName,
+		"tool_hash":     toolInfo.Hash,
+		"execute_count": toolInfo.ExecuteCount + 1,
+	}
+
+	if registeredTool != nil {
+		metadata["shard_affinity"] = registeredTool.ShardAffinity
+		metadata["command"] = registeredTool.Command
+	}
+
 	return ActionResult{
-		Success: true,
-		Output:  output,
-		Metadata: map[string]interface{}{
-			"tool_name":     toolName,
-			"tool_hash":     toolInfo.Hash,
-			"execute_count": toolInfo.ExecuteCount + 1,
-		},
+		Success:  true,
+		Output:   output,
+		Metadata: metadata,
 		FactsToAdd: []Fact{
 			{Predicate: "tool_executed", Args: []interface{}{toolName, output}},
 			{Predicate: "tool_exec_success", Args: []interface{}{toolName}},

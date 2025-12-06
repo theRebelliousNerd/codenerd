@@ -538,6 +538,10 @@ tool_ready(ToolName) :-
     tool_exists(ToolName),
     tool_hash(ToolName, _).
 
+# Tool is available (registered and ready)
+tool_available(ToolName) :-
+    registered_tool(ToolName, _, _).
+
 # Capability is available if any tool provides it
 capability_available(Cap) :-
     tool_capability(_, Cap).

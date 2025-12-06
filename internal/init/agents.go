@@ -3,6 +3,7 @@ package init
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/shards"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
 	"context"
@@ -205,6 +206,13 @@ func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []Recommen
 		},
 	)
 
+	// Assign tools to all agents based on their type and project language
+	for idx := range agents {
+		tools, prefs := GetToolsForAgentType(agents[idx].Name, profile.Language)
+		agents[idx].Tools = tools
+		agents[idx].ToolPreferences = prefs
+	}
+
 	return agents
 }
 
@@ -238,12 +246,14 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 		i.sendAgentProgress(agent.Name, agent.Type, "ready", kbSize)
 
 		createdAgent := CreatedAgent{
-			Name:          agent.Name,
-			Type:          agent.Type,
-			KnowledgePath: kbPath,
-			KBSize:        kbSize,
-			CreatedAt:     time.Now(),
-			Status:        "ready",
+			Name:            agent.Name,
+			Type:            agent.Type,
+			KnowledgePath:   kbPath,
+			KBSize:          kbSize,
+			CreatedAt:       time.Now(),
+			Status:          "ready",
+			Tools:           agent.Tools,
+			ToolPreferences: agent.ToolPreferences,
 		}
 		created = append(created, createdAgent)
 
@@ -382,11 +392,11 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 	for _, agent := range agents {
 		// Create shard config for the agent
 		config := core.ShardConfig{
-			Name:          agent.Name,
-			Type:          core.ShardTypePersistent,
-			KnowledgePath: agent.KnowledgePath,
-			Timeout:       30 * time.Minute,
-			MemoryLimit:   10000,
+			Name:            agent.Name,
+			Type:            core.ShardTypePersistent,
+			KnowledgePath:   agent.KnowledgePath,
+			Timeout:         30 * time.Minute,
+			MemoryLimit:     10000,
 			Permissions: []core.ShardPermission{
 				core.PermissionReadFile,
 				core.PermissionCodeGraph,
@@ -394,6 +404,8 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 			Model: core.ModelConfig{
 				Capability: core.CapabilityBalanced,
 			},
+			Tools:           agent.Tools,
+			ToolPreferences: agent.ToolPreferences,
 		}
 
 		// Register the profile with shard manager
@@ -530,4 +542,344 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 	}
 
 	return results, nil
+}
+
+// ToolGenerationRequest represents a tool to be generated during init using Ouroboros.
+type ToolGenerationRequest struct {
+	Name        string
+	Purpose     string
+	Priority    float64
+	Technology  string // Language/framework that triggered this tool
+	Reason      string
+}
+
+// generateProjectTools generates tools based on detected technologies during init.
+func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, profile ProjectProfile) ([]string, error) {
+	toolsDir := filepath.Join(nerdDir, "tools")
+	generatedTools := make([]string, 0)
+
+	// Determine which tools to generate based on project profile
+	toolDefs := i.determineRequiredTools(profile)
+
+	if len(toolDefs) == 0 {
+		return generatedTools, nil
+	}
+
+	fmt.Printf("\n🔧 Generating %d project-specific tools...\n", len(toolDefs))
+
+	// Create ToolGenerator shard if LLM client available
+	if i.config.LLMClient == nil {
+		fmt.Println("   ⚠️  Skipping tool generation (no LLM client)")
+		return generatedTools, nil
+	}
+
+	// Initialize ToolGenerator
+	toolGenConfig := core.DefaultGeneralistConfig("init_tool_generator")
+	toolGenShard := shards.NewToolGeneratorShard("init_tool_generator", toolGenConfig)
+	toolGenShard.SetLLMClient(i.config.LLMClient)
+	toolGenShard.SetParentKernel(i.kernel)
+
+	// Generate each tool
+	for idx, toolDef := range toolDefs {
+		// Show progress
+		i.sendProgress("tool_generation",
+			fmt.Sprintf("Generating tool %d/%d: %s", idx+1, len(toolDefs), toolDef.Name),
+			0.70+float64(idx)/float64(len(toolDefs))*0.10)
+
+		fmt.Printf("   • %s - %s\n", toolDef.Name, toolDef.Purpose)
+
+		// Create task for tool generation
+		task := fmt.Sprintf("generate tool for %s", toolDef.Purpose)
+
+		// Execute tool generation
+		result, err := toolGenShard.Execute(ctx, task)
+		if err != nil {
+			fmt.Printf("     ⚠️  Failed: %v\n", err)
+			continue
+		}
+
+		// Parse result to check success
+		var genResult map[string]interface{}
+		if err := json.Unmarshal([]byte(result), &genResult); err == nil {
+			if success, ok := genResult["success"].(bool); ok && success {
+				fmt.Printf("     ✓ Generated successfully\n")
+				generatedTools = append(generatedTools, toolDef.Name)
+
+				// Store metadata about generated tool
+				toolMetaPath := filepath.Join(toolsDir, fmt.Sprintf("%s.meta.json", toolDef.Name))
+				metadata := map[string]interface{}{
+					"name":       toolDef.Name,
+					"purpose":    toolDef.Purpose,
+					"technology": toolDef.Technology,
+					"reason":     toolDef.Reason,
+					"generated":  time.Now().Unix(),
+					"priority":   toolDef.Priority,
+				}
+				if metaData, err := json.MarshalIndent(metadata, "", "  "); err == nil {
+					os.WriteFile(toolMetaPath, metaData, 0644)
+				}
+			} else {
+				fmt.Printf("     ⚠️  Generation failed\n")
+			}
+		}
+	}
+
+	return generatedTools, nil
+}
+
+// determineRequiredTools determines which tools to generate based on project technologies.
+func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGenerationRequest {
+	tools := make([]ToolGenerationRequest, 0)
+
+	// Language-specific tools
+	switch strings.ToLower(profile.Language) {
+	case "go", "golang":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "go_build_tool",
+				Purpose:    "build Go projects with proper flags and caching",
+				Priority:   1.0,
+				Technology: "go",
+				Reason:     "Essential for Go project compilation",
+			},
+			{
+				Name:       "go_test_tool",
+				Purpose:    "run Go tests with coverage and race detection",
+				Priority:   1.0,
+				Technology: "go",
+				Reason:     "Essential for Go project testing",
+			},
+			{
+				Name:       "go_lint_tool",
+				Purpose:    "run golangci-lint with project-specific configuration",
+				Priority:   0.8,
+				Technology: "go",
+				Reason:     "Code quality enforcement for Go",
+			},
+			{
+				Name:       "go_mod_tidy_tool",
+				Purpose:    "clean and organize Go module dependencies",
+				Priority:   0.7,
+				Technology: "go",
+				Reason:     "Dependency management for Go modules",
+			},
+		}...)
+
+	case "python":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "pytest_tool",
+				Purpose:    "run pytest with coverage and parallel execution",
+				Priority:   1.0,
+				Technology: "python",
+				Reason:     "Essential for Python testing",
+			},
+			{
+				Name:       "pip_install_tool",
+				Purpose:    "install Python dependencies from requirements.txt or pyproject.toml",
+				Priority:   0.9,
+				Technology: "python",
+				Reason:     "Dependency management for Python",
+			},
+			{
+				Name:       "black_format_tool",
+				Purpose:    "format Python code with Black",
+				Priority:   0.7,
+				Technology: "python",
+				Reason:     "Code formatting for Python",
+			},
+			{
+				Name:       "mypy_check_tool",
+				Purpose:    "run mypy type checking on Python code",
+				Priority:   0.8,
+				Technology: "python",
+				Reason:     "Type safety for Python",
+			},
+		}...)
+
+	case "typescript", "javascript":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "npm_build_tool",
+				Purpose:    "build TypeScript/JavaScript projects with npm",
+				Priority:   1.0,
+				Technology: "typescript",
+				Reason:     "Essential for TS/JS project compilation",
+			},
+			{
+				Name:       "jest_test_tool",
+				Purpose:    "run Jest tests with coverage",
+				Priority:   1.0,
+				Technology: "typescript",
+				Reason:     "Essential for TS/JS testing",
+			},
+			{
+				Name:       "eslint_tool",
+				Purpose:    "run ESLint for code quality",
+				Priority:   0.8,
+				Technology: "typescript",
+				Reason:     "Code quality for TS/JS",
+			},
+			{
+				Name:       "npm_install_tool",
+				Purpose:    "install npm dependencies",
+				Priority:   0.9,
+				Technology: "typescript",
+				Reason:     "Dependency management for npm",
+			},
+		}...)
+
+	case "rust":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "cargo_build_tool",
+				Purpose:    "build Rust projects with cargo",
+				Priority:   1.0,
+				Technology: "rust",
+				Reason:     "Essential for Rust compilation",
+			},
+			{
+				Name:       "cargo_test_tool",
+				Purpose:    "run Rust tests with cargo",
+				Priority:   1.0,
+				Technology: "rust",
+				Reason:     "Essential for Rust testing",
+			},
+			{
+				Name:       "cargo_clippy_tool",
+				Purpose:    "run clippy lints on Rust code",
+				Priority:   0.8,
+				Technology: "rust",
+				Reason:     "Code quality for Rust",
+			},
+		}...)
+	}
+
+	// Framework-specific tools
+	switch strings.ToLower(profile.Framework) {
+	case "react", "nextjs":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "react_dev_server_tool",
+				Purpose:    "start React development server",
+				Priority:   0.9,
+				Technology: profile.Framework,
+				Reason:     "Development workflow for React",
+			},
+			{
+				Name:       "react_build_tool",
+				Purpose:    "build React app for production",
+				Priority:   0.8,
+				Technology: profile.Framework,
+				Reason:     "Production build for React",
+			},
+		}...)
+
+	case "gin", "echo", "fiber":
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "api_test_tool",
+				Purpose:    "run API endpoint tests with proper setup/teardown",
+				Priority:   0.9,
+				Technology: profile.Framework,
+				Reason:     fmt.Sprintf("API testing for %s framework", profile.Framework),
+			},
+		}...)
+	}
+
+	// Dependency-specific tools
+	depNames := make(map[string]bool)
+	for _, dep := range profile.Dependencies {
+		depNames[dep.Name] = true
+	}
+
+	if depNames["docker"] {
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "docker_build_tool",
+				Purpose:    "build Docker images for the project",
+				Priority:   0.8,
+				Technology: "docker",
+				Reason:     "Container workflow detected",
+			},
+			{
+				Name:       "docker_compose_tool",
+				Purpose:    "manage docker-compose services",
+				Priority:   0.7,
+				Technology: "docker",
+				Reason:     "Multi-container workflow detected",
+			},
+		}...)
+	}
+
+	if depNames["rod"] || depNames["chromedp"] || depNames["playwright"] || depNames["puppeteer"] {
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "browser_test_tool",
+				Purpose:    "run browser automation tests",
+				Priority:   0.8,
+				Technology: "browser-automation",
+				Reason:     "Browser automation detected",
+			},
+		}...)
+	}
+
+	if depNames["gorm"] || depNames["sqlx"] || depNames["prisma"] || depNames["typeorm"] {
+		tools = append(tools, []ToolGenerationRequest{
+			{
+				Name:       "db_migrate_tool",
+				Purpose:    "run database migrations",
+				Priority:   0.8,
+				Technology: "database",
+				Reason:     "Database ORM detected",
+			},
+			{
+				Name:       "db_seed_tool",
+				Purpose:    "seed database with test data",
+				Priority:   0.6,
+				Technology: "database",
+				Reason:     "Database workflow detected",
+			},
+		}...)
+	}
+
+	// Build system detection
+	if profile.BuildSystem != "" {
+		switch strings.ToLower(profile.BuildSystem) {
+		case "makefile":
+			tools = append(tools, ToolGenerationRequest{
+				Name:       "make_tool",
+				Purpose:    "run Makefile targets",
+				Priority:   0.7,
+				Technology: "make",
+				Reason:     "Makefile build system detected",
+			})
+		case "gradle":
+			tools = append(tools, ToolGenerationRequest{
+				Name:       "gradle_build_tool",
+				Purpose:    "build projects with Gradle",
+				Priority:   0.9,
+				Technology: "gradle",
+				Reason:     "Gradle build system detected",
+			})
+		}
+	}
+
+	// Sort by priority (highest first)
+	// Simple bubble sort since list is small
+	for i := 0; i < len(tools)-1; i++ {
+		for j := 0; j < len(tools)-i-1; j++ {
+			if tools[j].Priority < tools[j+1].Priority {
+				tools[j], tools[j+1] = tools[j+1], tools[j]
+			}
+		}
+	}
+
+	// Limit to top 8 tools to avoid overwhelming during init
+	maxTools := 8
+	if len(tools) > maxTools {
+		tools = tools[:maxTools]
+	}
+
+	return tools
 }

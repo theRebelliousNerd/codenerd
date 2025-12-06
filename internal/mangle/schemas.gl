@@ -746,6 +746,13 @@ Decl replan_needed(CampaignID, Reason).
 # tool_registered(ToolName, RegisteredAt) - tracks registered tools
 Decl tool_registered(ToolName, RegisteredAt).
 
+# registered_tool(ToolName, Command, ShardAffinity) - tool registration details
+# ShardAffinity: /coder, /tester, /reviewer, /researcher, /generalist, /all
+Decl registered_tool(ToolName, Command, ShardAffinity).
+
+# tool_available(ToolName) - derived: tool is registered and ready
+Decl tool_available(ToolName).
+
 # tool_exists(ToolName) - derived: tool is in registry
 Decl tool_exists(ToolName).
 
