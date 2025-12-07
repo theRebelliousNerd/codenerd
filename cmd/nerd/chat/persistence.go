@@ -26,6 +26,11 @@ import (
 // 4. cold_storage - Learned Mangle facts
 // 5. knowledge_atoms - High-level semantic insights
 func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.Intent, response string) {
+	if m.localDB == nil {
+		fmt.Printf("[Knowledge] Warning: knowledge database not configured; skipping persistence\n")
+		return
+	}
+
 	// Get session ID from Model
 	sessionID := m.sessionID
 	if sessionID == "" {

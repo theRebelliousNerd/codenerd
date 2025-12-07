@@ -28,6 +28,17 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		var warnings []string
 
+		// Baseline counts for system action facts so we can surface new ones.
+		baseRoutingCount, baseExecCount := 0, 0
+		if m.kernel != nil {
+			if facts, err := m.kernel.Query("routing_result"); err == nil {
+				baseRoutingCount = len(facts)
+			}
+			if facts, err := m.kernel.Query("execution_result"); err == nil {
+				baseExecCount = len(facts)
+			}
+		}
+
 		// =====================================================================
 		// 0. FOLLOW-UP DETECTION (Pre-Perception)
 		// =====================================================================
@@ -64,6 +75,24 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		if strings.TrimSpace(intent.Response) == "" {
 			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
+		}
+
+		// Seed the shared kernel immediately so system shards can begin deriving actions.
+		if m.kernel != nil {
+			intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
+			intentFact := core.Fact{
+				Predicate: "user_intent",
+				Args: []interface{}{
+					intentID,
+					intent.Category,
+					intent.Verb,
+					intent.Target,
+					intent.Constraint,
+				},
+			}
+			if err := m.kernel.Assert(intentFact); err != nil {
+				warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
+			}
 		}
 
 		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
@@ -109,14 +138,14 @@ func (m Model) processInput(input string) tea.Cmd {
 					// Check if max retries exceeded - escalate to user
 					if verifyErr.Error() == "max retries exceeded - escalating to user" {
 						response := formatVerificationEscalation(task, shardType, verification)
-						return responseMsg(response)
+						return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 					}
 					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
 				}
 
 				// Format response with verification confidence
 				response := formatVerifiedResponse(intent, shardType, task, result, verification)
-				return responseMsg(response)
+				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 			}
 
 			// Fallback: Direct shard spawn without verification (with session context)
@@ -141,7 +170,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// Format a rich response combining LLM surface response and shard result
 			response := formatDelegatedResponse(intent, shardType, task, result)
-			return responseMsg(response)
+			return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
 		// 1.7 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
@@ -149,7 +178,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
 		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
-			return responseMsg(intent.Response)
+			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
 		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
@@ -194,9 +223,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 3. STATE UPDATE (Kernel)
-		if err := m.kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
-			return errorMsg(fmt.Errorf("kernel load error: %w", err))
-		}
+		// user_intent was asserted earlier; now refresh system facts and shard facts.
 		// Fix Bug #7: Update system facts (Time, etc.)
 		if err := m.kernel.UpdateSystemFacts(); err != nil {
 			return errorMsg(fmt.Errorf("system facts update error: %w", err))
@@ -441,8 +468,83 @@ func (m Model) processInput(input string) tea.Cmd {
 			}()
 		}
 
-		return responseMsg(response)
+		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 	}
+}
+
+// collectSystemSummary waits briefly for newly derived routing/execution facts and formats them.
+func (m Model) collectSystemSummary(ctx context.Context, baseRouting, baseExec int) string {
+	if m.kernel == nil {
+		return ""
+	}
+	routingNew, execNew := m.waitForSystemResults(ctx, baseRouting, baseExec, 1500*time.Millisecond)
+	return formatSystemResults(routingNew, execNew)
+}
+
+// waitForSystemResults polls for new routing_result/execution_result facts diffed from baselines.
+func (m Model) waitForSystemResults(ctx context.Context, baseRouting, baseExec int, timeout time.Duration) ([]core.Fact, []core.Fact) {
+	if m.kernel == nil {
+		return nil, nil
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	timeoutCh := time.After(timeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, nil
+		case <-timeoutCh:
+			return m.diffFacts("routing_result", baseRouting), m.diffFacts("execution_result", baseExec)
+		case <-ticker.C:
+			routing := m.diffFacts("routing_result", baseRouting)
+			exec := m.diffFacts("execution_result", baseExec)
+			if len(routing) > 0 || len(exec) > 0 {
+				return routing, exec
+			}
+		}
+	}
+}
+
+// diffFacts returns facts beyond the baseline index for a predicate.
+func (m Model) diffFacts(predicate string, baseline int) []core.Fact {
+	facts, err := m.kernel.Query(predicate)
+	if err != nil || len(facts) <= baseline {
+		return nil
+	}
+	return facts[baseline:]
+}
+
+// formatSystemResults renders system action outputs for the chat surface.
+func formatSystemResults(routing, exec []core.Fact) string {
+	if len(routing) == 0 && len(exec) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("System actions:\n")
+	for _, f := range routing {
+		if len(f.Args) >= 3 {
+			sb.WriteString(fmt.Sprintf("- %v: %v (%v)\n", f.Args[0], f.Args[1], f.Args[2]))
+		}
+	}
+	for _, f := range exec {
+		if len(f.Args) >= 4 {
+			sb.WriteString(fmt.Sprintf("- %v %v -> success=%v; %v\n", f.Args[0], f.Args[1], f.Args[2], f.Args[3]))
+		}
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+// appendSystemSummary appends system action summaries to a response, if present.
+func (m Model) appendSystemSummary(response, summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return response
+	}
+	if strings.HasSuffix(response, "\n") {
+		return response + summary
+	}
+	return response + "\n\n" + summary
 }
 
 // executeMultiStepTask runs multiple task steps in sequence

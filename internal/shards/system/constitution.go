@@ -26,10 +26,10 @@ import (
 // ConstitutionConfig holds configuration for the constitution gate.
 type ConstitutionConfig struct {
 	// Safety thresholds
-	StrictMode           bool     // Block all actions not explicitly permitted (default: true)
-	AllowedDomains       []string // Network allowlist
-	DangerousPatterns    []string // Command patterns that trigger dangerous_action
-	EscalateOnAmbiguity  bool     // Ask user for ambiguous cases (default: true)
+	StrictMode          bool     // Block all actions not explicitly permitted (default: true)
+	AllowedDomains      []string // Network allowlist
+	DangerousPatterns   []string // Command patterns that trigger dangerous_action
+	EscalateOnAmbiguity bool     // Ask user for ambiguous cases (default: true)
 
 	// Performance
 	TickInterval time.Duration // How often to check pending actions (default: 50ms)
@@ -74,24 +74,24 @@ type SecurityViolation struct {
 
 // AppealRequest represents a user's appeal of a blocked action.
 type AppealRequest struct {
-	ActionID      string
-	ActionType    string
-	Target        string
+	ActionID       string
+	ActionType     string
+	Target         string
 	OriginalReason string
-	Justification string
-	Requester     string
-	RequestedAt   time.Time
+	Justification  string
+	Requester      string
+	RequestedAt    time.Time
 }
 
 // AppealDecision represents the outcome of an appeal.
 type AppealDecision struct {
-	ActionID    string
-	Granted     bool
-	Approver    string // "user" or "admin" or specific username
-	Reason      string
-	DecidedAt   time.Time
-	TemporaryOverride bool // If true, this is a one-time override
-	Duration    time.Duration // How long the override lasts (0 = permanent)
+	ActionID          string
+	Granted           bool
+	Approver          string // "user" or "admin" or specific username
+	Reason            string
+	DecidedAt         time.Time
+	TemporaryOverride bool          // If true, this is a one-time override
+	Duration          time.Duration // How long the override lasts (0 = permanent)
 }
 
 // ConstitutionGateShard is the safety enforcement system shard.
@@ -111,9 +111,9 @@ type ConstitutionGateShard struct {
 	permitted  []string // Actions that were permitted (for audit)
 
 	// Appeal system
-	pendingAppeals  map[string]*AppealRequest  // actionID -> appeal
-	appealHistory   []AppealDecision           // Complete appeal history
-	activeOverrides map[string]AppealDecision  // actionType -> active override
+	pendingAppeals  map[string]*AppealRequest // actionID -> appeal
+	appealHistory   []AppealDecision          // Complete appeal history
+	activeOverrides map[string]AppealDecision // actionType -> active override
 
 	// State
 	running bool
@@ -270,7 +270,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		}
 
 		// Clear the pending action regardless of result
-		_ = c.Kernel.Retract("pending_action")
+		_ = c.Kernel.RetractFact(fact)
 	}
 
 	return nil

@@ -84,18 +84,18 @@ func DefaultRouterConfig() RouterConfig {
 
 // ToolCall represents a pending tool invocation.
 type ToolCall struct {
-	ID         string
-	Tool       string
-	Action     string
-	Target     string
-	Payload    map[string]interface{}
-	Timeout    time.Duration
-	QueuedAt   time.Time
-	StartedAt  time.Time
+	ID          string
+	Tool        string
+	Action      string
+	Target      string
+	Payload     map[string]interface{}
+	Timeout     time.Duration
+	QueuedAt    time.Time
+	StartedAt   time.Time
 	CompletedAt time.Time
-	Status     string // pending, executing, completed, failed, timeout
-	Result     string
-	Error      string
+	Status      string // pending, executing, completed, failed, timeout
+	Result      string
+	Error       string
 }
 
 // TactileRouterShard routes permitted actions to tools.
@@ -111,9 +111,9 @@ type TactileRouterShard struct {
 	rateLimiters map[string]*rateLimiter
 
 	// Tracking
-	pendingCalls  []ToolCall
+	pendingCalls   []ToolCall
 	completedCalls []ToolCall
-	lastActivity  time.Time
+	lastActivity   time.Time
 
 	// State
 	running bool
@@ -388,7 +388,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		}
 
 		// Clear the permitted action
-		_ = r.Kernel.Retract("action_permitted")
+		_ = r.Kernel.RetractFact(fact)
 	}
 
 	return nil

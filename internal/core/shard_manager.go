@@ -799,9 +799,13 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 }
 
 func (sm *ShardManager) GetResult(id string) (ShardResult, bool) {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	res, ok := sm.results[id]
+	if ok {
+		// clean up to prevent unbounded growth
+		delete(sm.results, id)
+	}
 	return res, ok
 }
 

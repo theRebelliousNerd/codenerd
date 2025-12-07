@@ -1,1 +1,23 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+nerd
+nerd_new
+nerd_test
+query-kb
+
+# Debug and Logs
+debug_output*.txt
+*.log
 nul
+
+# Directories
+.claude/
+.gemini/
+Docs/
+
+# Markdown Docs (except README)
+*.md
+!README.md

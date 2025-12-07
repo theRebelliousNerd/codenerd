@@ -221,7 +221,8 @@ type VirtualStore struct {
 	shardManager *ShardManager
 
 	// Kernel feedback loop
-	kernel Kernel
+	kernel  Kernel
+	dreamer *Dreamer
 
 	// Constitutional logic (safety layer)
 	constitution []ConstitutionalRule
@@ -231,6 +232,9 @@ type VirtualStore struct {
 
 	// Allowed environment variables
 	allowedEnvVars []string
+
+	// Allowed binaries for exec_cmd (defense in depth)
+	allowedBinaries []string
 
 	// Use modern executor for command execution
 	useModernExecutor bool
@@ -263,6 +267,7 @@ func DefaultVirtualStoreConfig() VirtualStoreConfig {
 		WorkingDir:     ".",
 		AllowedEnvVars: []string{"PATH", "HOME", "GOPATH", "GOROOT"},
 		AllowedBinaries: []string{
+			"bash", "sh", "pwsh", "powershell", "cmd",
 			"go", "git", "grep", "ls", "mkdir", "cp", "mv",
 			"npm", "npx", "node", "python", "python3", "pip",
 			"cargo", "rustc", "make", "cmake",
@@ -279,11 +284,12 @@ func NewVirtualStore(executor *tactile.SafeExecutor) *VirtualStore {
 // NewVirtualStoreWithConfig creates a new VirtualStore with custom config.
 func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualStoreConfig) *VirtualStore {
 	vs := &VirtualStore{
-		executor:       executor,
-		workingDir:     config.WorkingDir,
-		allowedEnvVars: config.AllowedEnvVars,
-		shardManager:   NewShardManager(),
-		toolRegistry:   NewToolRegistry(config.WorkingDir),
+		executor:        executor,
+		workingDir:      config.WorkingDir,
+		allowedEnvVars:  config.AllowedEnvVars,
+		allowedBinaries: config.AllowedBinaries,
+		shardManager:    NewShardManager(),
+		toolRegistry:    NewToolRegistry(config.WorkingDir),
 	}
 
 	// Initialize modern executor with audit logging
@@ -367,6 +373,15 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.kernel = k
+
+	// Wire dreamer to the real kernel when available
+	if realKernel, ok := k.(*RealKernel); ok {
+		if v.dreamer == nil {
+			v.dreamer = NewDreamer(realKernel)
+		} else {
+			v.dreamer.SetKernel(realKernel)
+		}
+	}
 
 	// Also set kernel on tool registry
 	if v.toolRegistry != nil {
@@ -580,6 +595,23 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		return "", fmt.Errorf("failed to parse action fact: %w", err)
 	}
 
+	// Speculative dreaming: block obviously unsafe actions before constitutional checks.
+	if v.dreamer != nil {
+		dream := v.dreamer.SimulateAction(ctx, req)
+		if dream.Unsafe {
+			v.injectFact(Fact{
+				Predicate: "dream_block",
+				Args: []interface{}{
+					dream.ActionID,
+					string(req.Type),
+					req.Target,
+					dream.Reason,
+				},
+			})
+			return "", fmt.Errorf("precognition block: %s", dream.Reason)
+		}
+	}
+
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {
 		v.injectFact(Fact{
@@ -587,6 +619,19 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
 		})
 		return "", err
+	}
+
+	// Kernel-level permission gate (default deny if kernel says not permitted)
+	if v.kernel != nil {
+		permitted := v.checkKernelPermitted(string(req.Type))
+		if !permitted {
+			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
+			v.injectFact(Fact{
+				Predicate: "security_violation",
+				Args:      []interface{}{string(req.Type), req.Target, err.Error()},
+			})
+			return "", err
+		}
 	}
 
 	// Route to appropriate handler
@@ -738,6 +783,22 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 	timeout := 30
 	if t, ok := req.Payload["timeout"].(int); ok {
 		timeout = t
+	}
+
+	// Quick traversal guard on the command text itself
+	if strings.Contains(req.Target, "..") {
+		return ActionResult{
+			Success: false,
+			Error:   "path traversal detected in command",
+		}, nil
+	}
+
+	// Enforce binary allowlist (defense in depth)
+	if !v.isBinaryAllowed(binary) {
+		return ActionResult{
+			Success: false,
+			Error:   fmt.Sprintf("binary %s not allowed", binary),
+		}, nil
 	}
 
 	// Use modern executor if enabled (auto-generates audit facts)
@@ -1565,6 +1626,18 @@ func (v *VirtualStore) resolvePath(path string) string {
 	return filepath.Join(v.workingDir, path)
 }
 
+func (v *VirtualStore) isBinaryAllowed(binary string) bool {
+	if binary == "" {
+		return false
+	}
+	for _, b := range v.allowedBinaries {
+		if strings.EqualFold(b, binary) {
+			return true
+		}
+	}
+	return false
+}
+
 func (v *VirtualStore) getAllowedEnv() []string {
 	env := make([]string, 0)
 	for _, key := range v.allowedEnvVars {
@@ -1615,6 +1688,36 @@ func errString(err error) string {
 // QueryPermitted checks if an action is permitted by the constitutional logic.
 func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 	return v.checkConstitution(req) == nil
+}
+
+// checkKernelPermitted consults kernel-derived permitted/1 facts.
+func (v *VirtualStore) checkKernelPermitted(actionType string) bool {
+	v.mu.RLock()
+	k := v.kernel
+	v.mu.RUnlock()
+
+	if k == nil {
+		return true
+	}
+
+	results, err := k.Query("permitted")
+	if err != nil {
+		return true // fail open to avoid accidental full block
+	}
+
+	want := "/" + actionType
+	alt := actionType
+
+	for _, f := range results {
+		if len(f.Args) == 0 {
+			continue
+		}
+		arg := fmt.Sprintf("%v", f.Args[0])
+		if arg == want || arg == alt {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================
@@ -2493,6 +2596,14 @@ func (v *VirtualStore) HasLearned(predicate string) (bool, error) {
 	return len(facts) > 0, nil
 }
 
+// toAtomOrString converts string to MangleAtom if it starts with /.
+func toAtomOrString(v interface{}) interface{} {
+	if s, ok := v.(string); ok && strings.HasPrefix(s, "/") {
+		return MangleAtom(s)
+	}
+	return v
+}
+
 // HydrateKnowledgeGraph loads knowledge graph entries from LocalStore and hydrates
 // the kernel with knowledge_link facts. This can be called independently or as part
 // of HydrateLearnings for targeted knowledge graph updates.
@@ -2511,9 +2622,14 @@ func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
 
 	// Create assertion function that wraps kernel.Assert
 	assertFunc := func(predicate string, args []interface{}) error {
+		// Convert args to MangleAtom if needed
+		safeArgs := make([]interface{}, len(args))
+		for i, arg := range args {
+			safeArgs[i] = toAtomOrString(arg)
+		}
 		return kernel.Assert(Fact{
 			Predicate: predicate,
-			Args:      args,
+			Args:      safeArgs,
 		})
 	}
 
@@ -2543,14 +2659,28 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 
 	count := 0
 
+	// Helper to assert with atom conversion
+	assertLearned := func(metaPred string, fact Fact) error {
+		// Convert args
+		safeArgs := make([]interface{}, len(fact.Args))
+		for i, arg := range fact.Args {
+			safeArgs[i] = toAtomOrString(arg)
+		}
+
+		// The predicate itself might be an atom if referenced as data
+		predArg := toAtomOrString(fact.Predicate)
+
+		return kernel.Assert(Fact{
+			Predicate: metaPred,
+			Args:      []interface{}{predArg, safeArgs},
+		})
+	}
+
 	// 1. Load all preferences (highest priority)
 	preferences, err := v.QueryAllLearned("preference")
 	if err == nil {
 		for _, fact := range preferences {
-			if err := kernel.Assert(Fact{
-				Predicate: "learned_preference",
-				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
-			}); err == nil {
+			if err := assertLearned("learned_preference", fact); err == nil {
 				count++
 			}
 		}
@@ -2560,10 +2690,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	userFacts, err := v.QueryAllLearned("user_fact")
 	if err == nil {
 		for _, fact := range userFacts {
-			if err := kernel.Assert(Fact{
-				Predicate: "learned_fact",
-				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
-			}); err == nil {
+			if err := assertLearned("learned_fact", fact); err == nil {
 				count++
 			}
 		}
@@ -2573,10 +2700,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	constraints, err := v.QueryAllLearned("constraint")
 	if err == nil {
 		for _, fact := range constraints {
-			if err := kernel.Assert(Fact{
-				Predicate: "learned_constraint",
-				Args:      []interface{}{fact.Predicate, fmt.Sprintf("%v", fact.Args)},
-			}); err == nil {
+			if err := assertLearned("learned_constraint", fact); err == nil {
 				count++
 			}
 		}
@@ -2592,7 +2716,15 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	activations, err := v.QueryActivations(50, 0.3)
 	if err == nil {
 		for _, fact := range activations {
-			if err := kernel.Assert(fact); err == nil {
+			// Activations are direct facts, not meta-facts
+			safeArgs := make([]interface{}, len(fact.Args))
+			for i, arg := range fact.Args {
+				safeArgs[i] = toAtomOrString(arg)
+			}
+			if err := kernel.Assert(Fact{
+				Predicate: fact.Predicate,
+				Args:      safeArgs,
+			}); err == nil {
 				count++
 			}
 		}

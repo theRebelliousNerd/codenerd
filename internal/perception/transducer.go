@@ -293,9 +293,9 @@ func (i Intent) ToFact() core.Fact {
 	return core.Fact{
 		Predicate: "user_intent",
 		Args: []interface{}{
-			"/current_intent", // ID as name constant
-			i.Category,
-			i.Verb,
+			core.MangleAtom("/current_intent"), // ID as name constant
+			core.MangleAtom(i.Category),
+			core.MangleAtom(i.Verb),
 			i.Target,
 			i.Constraint,
 		},

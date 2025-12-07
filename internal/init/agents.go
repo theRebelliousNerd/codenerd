@@ -3,8 +3,8 @@ package init
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/shards"
 	"codenerd/internal/shards/researcher"
+	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	"context"
 	"encoding/json"
@@ -409,7 +409,7 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 		}
 
 		// Register the profile with shard manager
-		i.shardMgr.DefineProfile(agent.Name, config)
+	i.shardMgr.DefineProfile(agent.Name, config)
 	}
 }
 
@@ -448,40 +448,19 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			Name:        "coder",
 			Description: "Code generation and modification specialist",
 			Topics:      []string{"code generation", "refactoring", "file editing", "impact analysis"},
-			Concepts: []struct{ Key, Value string }{
-				{"role", "I am the Coder shard. I generate, modify, and refactor code following project conventions."},
-				{"capability_generate", "I can generate new code files, functions, and modules."},
-				{"capability_modify", "I can modify existing code with precise edits."},
-				{"capability_refactor", "I can refactor code for better structure and readability."},
-				{"safety_rule", "I always check impact radius before making changes."},
-				{"safety_rule", "I never modify files without understanding their purpose."},
-			},
+			Concepts: []struct{ Key, Value string }{{"role", "I am the Coder shard. I generate, modify, and refactor code following project conventions."}, {"capability_generate", "I can generate new code files, functions, and modules."}, {"capability_modify", "I can modify existing code with precise edits."}, {"capability_refactor", "I can refactor code for better structure and readability."}, {"safety_rule", "I always check impact radius before making changes."}, {"safety_rule", "I never modify files without understanding their purpose."}},
 		},
 		{
 			Name:        "reviewer",
 			Description: "Code review and security analysis specialist",
 			Topics:      []string{"code review", "security audit", "style checking", "best practices"},
-			Concepts: []struct{ Key, Value string }{
-				{"role", "I am the Reviewer shard. I review code for quality, security, and style issues."},
-				{"capability_review", "I can perform comprehensive code reviews."},
-				{"capability_security", "I can detect security vulnerabilities (OWASP top 10)."},
-				{"capability_style", "I can check code style and consistency."},
-				{"safety_rule", "Critical security issues block commit."},
-				{"safety_rule", "I provide constructive feedback with suggestions."},
-			},
+			Concepts: []struct{ Key, Value string }{{"role", "I am the Reviewer shard. I review code for quality, security, and style issues."}, {"capability_review", "I can perform comprehensive code reviews."}, {"capability_security", "I can detect security vulnerabilities (OWASP top 10)."}, {"capability_style", "I can check code style and consistency."}, {"safety_rule", "Critical security issues block commit."}, {"safety_rule", "I provide constructive feedback with suggestions."}},
 		},
 		{
 			Name:        "tester",
 			Description: "Testing and TDD loop specialist",
 			Topics:      []string{"unit testing", "TDD", "test coverage", "test generation"},
-			Concepts: []struct{ Key, Value string }{
-				{"role", "I am the Tester shard. I manage tests, TDD loops, and coverage."},
-				{"capability_generate", "I can generate unit tests for functions and modules."},
-				{"capability_run", "I can execute tests and parse results."},
-				{"capability_tdd", "I can run TDD repair loops to fix failing tests."},
-				{"safety_rule", "Tests must pass before code is considered complete."},
-				{"safety_rule", "Coverage below goal triggers test generation."},
-			},
+			Concepts: []struct{ Key, Value string }{{"role", "I am the Tester shard. I manage tests, TDD loops, and coverage."}, {"capability_generate", "I can generate unit tests for functions and modules."}, {"capability_run", "I can execute tests and parse results."}, {"capability_tdd", "I can run TDD repair loops to fix failing tests."}, {"safety_rule", "Tests must pass before code is considered complete."}, {"safety_rule", "Coverage below goal triggers test generation."}},
 		},
 	}
 
@@ -575,7 +554,7 @@ func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, 
 
 	// Initialize ToolGenerator
 	toolGenConfig := core.DefaultGeneralistConfig("init_tool_generator")
-	toolGenShard := shards.NewToolGeneratorShard("init_tool_generator", toolGenConfig)
+	toolGenShard := tool_generator.NewToolGeneratorShard("init_tool_generator", toolGenConfig)
 	toolGenShard.SetLLMClient(i.config.LLMClient)
 	toolGenShard.SetParentKernel(i.kernel)
 
@@ -663,7 +642,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "go",
 				Reason:     "Dependency management for Go modules",
 			},
-		}...)
+		}...) 
 
 	case "python":
 		tools = append(tools, []ToolGenerationRequest{
@@ -695,7 +674,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "python",
 				Reason:     "Type safety for Python",
 			},
-		}...)
+		}...) 
 
 	case "typescript", "javascript":
 		tools = append(tools, []ToolGenerationRequest{
@@ -727,7 +706,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "typescript",
 				Reason:     "Dependency management for npm",
 			},
-		}...)
+		}...) 
 
 	case "rust":
 		tools = append(tools, []ToolGenerationRequest{
@@ -752,7 +731,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "rust",
 				Reason:     "Code quality for Rust",
 			},
-		}...)
+		}...) 
 	}
 
 	// Framework-specific tools
@@ -773,7 +752,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: profile.Framework,
 				Reason:     "Production build for React",
 			},
-		}...)
+		}...) 
 
 	case "gin", "echo", "fiber":
 		tools = append(tools, []ToolGenerationRequest{
@@ -784,7 +763,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: profile.Framework,
 				Reason:     fmt.Sprintf("API testing for %s framework", profile.Framework),
 			},
-		}...)
+		}...) 
 	}
 
 	// Dependency-specific tools
@@ -809,7 +788,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "docker",
 				Reason:     "Multi-container workflow detected",
 			},
-		}...)
+		}...) 
 	}
 
 	if depNames["rod"] || depNames["chromedp"] || depNames["playwright"] || depNames["puppeteer"] {
@@ -821,7 +800,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "browser-automation",
 				Reason:     "Browser automation detected",
 			},
-		}...)
+		}...) 
 	}
 
 	if depNames["gorm"] || depNames["sqlx"] || depNames["prisma"] || depNames["typeorm"] {
@@ -840,7 +819,7 @@ func (i *Initializer) determineRequiredTools(profile ProjectProfile) []ToolGener
 				Technology: "database",
 				Reason:     "Database workflow detected",
 			},
-		}...)
+		}...) 
 	}
 
 	// Build system detection

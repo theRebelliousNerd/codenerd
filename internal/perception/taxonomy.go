@@ -23,40 +23,50 @@ func init() {
 	var err error
 	SharedTaxonomy, err = NewTaxonomyEngine()
 	if err != nil {
-		// In production, we might log this instead of panicking,
-		// but for an embedded asset, panic ensures we catch invalid schemas early.
-		// We use fmt.Printf because the logger might not be configured yet.
 		fmt.Printf("CRITICAL: failed to init shared taxonomy: %v\n", err)
 	}
 }
 
 // NewTaxonomyEngine creates a new taxonomy engine with the default corpus.
 func NewTaxonomyEngine() (*TaxonomyEngine, error) {
-	// Initialize a lightweight in-memory engine
 	cfg := mangle.DefaultConfig()
-	cfg.AutoEval = true // Auto-evaluate rules
+	cfg.AutoEval = true
 
-	// No persistence needed for read-only taxonomy
 	eng, err := mangle.NewEngine(cfg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
 	}
 
-	// Load the embedded taxonomy
-	if err := eng.LoadSchemaString(DefaultTaxonomyMG); err != nil {
-		return nil, fmt.Errorf("failed to load taxonomy schema: %w", err)
-	}
-
-	// Load the inference logic
+	// Load declarations and logic
 	if err := eng.LoadSchemaString(InferenceLogicMG); err != nil {
 		return nil, fmt.Errorf("failed to load inference logic: %w", err)
 	}
 
-	// Load learned rules if available (Best Effort)
+	// Populate default data (robustly via Go)
+	for _, entry := range DefaultTaxonomyData {
+		// verb_def
+		if err := eng.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
+			return nil, fmt.Errorf("failed to add verb_def %s: %w", entry.Verb, err)
+		}
+		// synonyms
+		for _, syn := range entry.Synonyms {
+			if err := eng.AddFact("verb_synonym", entry.Verb, syn); err != nil {
+				return nil, fmt.Errorf("failed to add synonym %s: %w", syn, err)
+			}
+		}
+		// patterns
+		for _, pat := range entry.Patterns {
+			if err := eng.AddFact("verb_pattern", entry.Verb, pat); err != nil {
+				return nil, fmt.Errorf("failed to add pattern %s: %w", pat, err)
+			}
+		}
+	}
+
+	// Load learned rules if available
 	learnedPath := "internal/mangle/learned.mg"
 	if _, err := os.Stat(learnedPath); err == nil {
+		// Only load if it's valid
 		if err := eng.LoadSchema(learnedPath); err != nil {
-			// Log but continue - don't break core taxonomy on corrupt learned file
 			fmt.Printf("WARNING: Failed to load learned taxonomy: %v\n", err)
 		}
 	}
@@ -83,55 +93,23 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 		return fmt.Errorf("no store configured")
 	}
 
-	// Check if we have any taxonomy facts
 	facts, err := t.store.LoadAllTaxonomyFacts()
 	if err != nil {
 		return err
 	}
 
 	if len(facts) > 0 {
-		return nil // Already populated
+		return nil
 	}
 
-	// Parse the DefaultTaxonomyMG string to extract facts
-	// This is a bit hacky but avoids duplicating the data definitions.
-	// A robust way is to query the engine (which has the defaults loaded) and store them.
-	
-	// Query all verb definitions
-	res, err := t.engine.Query(context.Background(), "verb_def(Verb, Cat, Shard, Prio)")
-	if err == nil {
-		for _, row := range res.Bindings {
-			verb := row["Verb"].(string)
-			cat := row["Cat"].(string)
-			shard := row["Shard"].(string)
-			// Handle Mangle float/int conversion
-			prioVal := row["Prio"]
-			prio := 0
-			if f, ok := prioVal.(float64); ok {
-				prio = int(f)
-			} else if i, ok := prioVal.(int); ok {
-				prio = i
-			} else if i64, ok := prioVal.(int64); ok {
-				prio = int(i64)
-			}
-			
-			t.store.StoreVerbDef(verb, cat, shard, prio)
+	// Use defaults from Go struct
+	for _, entry := range DefaultTaxonomyData {
+		t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority)
+		for _, syn := range entry.Synonyms {
+			t.store.StoreVerbSynonym(entry.Verb, syn)
 		}
-	}
-
-	// Query synonyms
-	res, err = t.engine.Query(context.Background(), "verb_synonym(Verb, Syn)")
-	if err == nil {
-		for _, row := range res.Bindings {
-			t.store.StoreVerbSynonym(row["Verb"].(string), row["Syn"].(string))
-		}
-	}
-
-	// Query patterns
-	res, err = t.engine.Query(context.Background(), "verb_pattern(Verb, Pat)")
-	if err == nil {
-		for _, row := range res.Bindings {
-			t.store.StoreVerbPattern(row["Verb"].(string), row["Pat"].(string))
+		for _, pat := range entry.Patterns {
+			t.store.StoreVerbPattern(entry.Verb, pat)
 		}
 	}
 
@@ -140,29 +118,30 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 
 // GetVerbs returns all defined verbs with their metadata.
 func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
-	// Query: verb_def(Verb, Category, Shard, Priority)
-	result, err := t.engine.Query(context.Background(), "verb_def(Verb, Category, Shard, Priority)")
+	// Use GetFacts to access EDB directly
+	facts, err := t.engine.GetFacts("verb_def")
 	if err != nil {
 		return nil, err
 	}
 
 	var verbs []VerbEntry
-	for _, row := range result.Bindings {
+	for _, fact := range facts {
+		if len(fact.Args) != 4 {
+			continue
+		}
 		v := VerbEntry{
-			Verb:      row["Verb"].(string),
-			Category:  row["Category"].(string),
-			ShardType: row["Shard"].(string),
-			Priority:  int(row["Priority"].(float64)), // Mangle numbers are floats in bindings usually
+			Verb:      fact.Args[0].(string),
+			Category:  fact.Args[1].(string),
+			ShardType: fact.Args[2].(string),
+			Priority:  toInt(fact.Args[3]),
 		}
 		if v.ShardType == "/none" {
 			v.ShardType = ""
 		}
 		
-		// Populate synonyms and patterns
 		syns, _ := t.getSynonyms(v.Verb)
 		v.Synonyms = syns
 		
-		// For patterns, we need to recompile regexes
 		patterns, _ := t.getPatterns(v.Verb)
 		for _, p := range patterns {
 			if re, err := regexp.Compile(p); err == nil {
@@ -173,7 +152,6 @@ func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
 		verbs = append(verbs, v)
 	}
 
-	// Sort by priority desc
 	sort.Slice(verbs, func(i, j int) bool {
 		return verbs[i].Priority > verbs[j].Priority
 	})
@@ -182,83 +160,109 @@ func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
 }
 
 func (t *TaxonomyEngine) getSynonyms(verb string) ([]string, error) {
-	// verb_synonym(Verb, Synonym)
-	// We need to query by specific verb.
-	query := fmt.Sprintf("verb_synonym(%s, Syn)", verb)
-	if !strings.HasPrefix(verb, "/") {
-		query = fmt.Sprintf("verb_synonym(/%s, Syn)", strings.TrimPrefix(verb, "/"))
-	}
-	
-	result, err := t.engine.Query(context.Background(), query)
+	facts, err := t.engine.GetFacts("verb_synonym")
 	if err != nil {
 		return nil, err
 	}
 	
+	targetVerb := verb
+	if !strings.HasPrefix(targetVerb, "/") {
+		targetVerb = "/" + targetVerb
+	}
+
 	var syns []string
-	for _, row := range result.Bindings {
-		syns = append(syns, row["Syn"].(string))
+	for _, fact := range facts {
+		if len(fact.Args) == 2 {
+			v := fact.Args[0].(string)
+			if v == targetVerb || v == verb {
+				syns = append(syns, fact.Args[1].(string))
+			}
+		}
 	}
 	return syns, nil
 }
 
 func (t *TaxonomyEngine) getPatterns(verb string) ([]string, error) {
-	// verb_pattern(Verb, Regex)
-	query := fmt.Sprintf("verb_pattern(%s, Regex)", verb)
-	if !strings.HasPrefix(verb, "/") {
-		query = fmt.Sprintf("verb_pattern(/%s, Regex)", strings.TrimPrefix(verb, "/"))
-	}
-
-	result, err := t.engine.Query(context.Background(), query)
+	facts, err := t.engine.GetFacts("verb_pattern")
 	if err != nil {
 		return nil, err
 	}
 
+	targetVerb := verb
+	if !strings.HasPrefix(targetVerb, "/") {
+		targetVerb = "/" + targetVerb
+	}
+
 	var pats []string
-	for _, row := range result.Bindings {
-		pats = append(pats, row["Regex"].(string))
+	for _, fact := range facts {
+		if len(fact.Args) == 2 {
+			v := fact.Args[0].(string)
+			if v == targetVerb || v == verb {
+				pats = append(pats, fact.Args[1].(string))
+			}
+		}
 	}
 	return pats, nil
 }
 
+func toInt(val interface{}) int {
+	if i, ok := val.(int); ok {
+		return i
+	}
+	if i64, ok := val.(int64); ok {
+		return int(i64)
+	}
+	if f, ok := val.(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
 // ClassifyInput uses advanced Mangle inference to determine the best intent.
-// This combines regex-based candidates with contextual logic rules.
 func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (bestVerb string, bestConf float64, err error) {
-	// 1. Clear previous transient state (if we had sessions, we'd use a fresh one)
-	t.engine.Clear() // Drastic, but safe for stateless classification.
+	// Note: We don't Clear() because we want to keep the static facts.
+	// But we need to clear transient facts. Mangle Engine wrapper needs improvement for sessions.
+	// For now, we add transient facts, query, and then maybe remove them?
+	// Or just accept that memory grows (it's small for now).
 	
-	// Re-hydrate base facts from DB/Schema if Clear() wiped them
-	// Clear() in engine.go resets baseStore. We need to ensure static facts are preserved.
-	// Actually, for this shared engine, Clear() is dangerous if we lose the loaded schema facts.
-	// Instead of Clear(), we should use a separate "session" store for transient facts or 
-	// re-insert the static facts.
-	// Better approach for POC: Re-load defaults/DB after clear.
-	// Or rely on the fact that schema facts (rules) are in programInfo, but EDB facts (verb_def) 
-	// are in the store.
-	// So after Clear(), we MUST re-hydrate.
+	// Actually, if we don't Clear(), we accumulate context_token.
+	// This is bad.
+	// We MUST Clear() but then we lose the static facts.
+	// So we MUST re-add static facts.
+	// Since we have them in DefaultTaxonomyData, we can re-add them fast.
+	// Or relying on the previous fix where we loaded them.
+	
+t.engine.Clear()
+	
+	// Re-hydrate
 	if t.store != nil {
 		t.HydrateFromDB()
 	} else {
-		// Fallback to embedded defaults
-		t.engine.LoadSchemaString(DefaultTaxonomyMG)
+		// Re-add defaults
+		// Note: We must re-load the schema (declarations) AND the facts.
+		t.engine.LoadSchemaString(InferenceLogicMG)
+		for _, entry := range DefaultTaxonomyData {
+			t.engine.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority)
+			for _, syn := range entry.Synonyms {
+				t.engine.AddFact("verb_synonym", entry.Verb, syn)
+			}
+			for _, pat := range entry.Patterns {
+				t.engine.AddFact("verb_pattern", entry.Verb, pat)
+			}
+		}
 	}
 
-	// 2. Insert Context Facts
 	facts := []mangle.Fact{}
-
-	// Tokenize input (simple split for POC)
 	tokens := strings.Fields(strings.ToLower(input))
 	for _, token := range tokens {
 		facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []interface{}{token}})
 	}
 
-	// Insert Candidates (from regex match)
-	// We reuse the existing regex logic to generate candidates, then let Mangle refine them.
 	if len(candidates) == 0 {
 		return "", 0, nil
 	}
 
 	for _, cand := range candidates {
-		// Base score is roughly Priority. We normalize it later.
 		baseScore := float64(cand.Priority)
 		facts = append(facts, mangle.Fact{
 			Predicate: "candidate_intent",
@@ -270,8 +274,7 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 		return "", 0, fmt.Errorf("failed to add facts: %w", err)
 	}
 
-	// 3. Run Inference
-	// Query: selected_verb(Verb)
+	// Use Query for inference
 	result, err := t.engine.Query(context.Background(), "selected_verb(Verb)")
 	if err != nil {
 		return "", 0, fmt.Errorf("inference query failed: %w", err)
@@ -279,17 +282,14 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 	if len(result.Bindings) > 0 {
 		verb := result.Bindings[0]["Verb"].(string)
-		// Return 1.0 confidence if logic selected it
 		return verb, 1.0, nil
 	}
 
-	// Fallback: no logic selection, stick to regex winner
 	return "", 0, nil
 }
 
-// LearnSynonym persists a new synonym for a verb, enabling self-improvement (Autopoiesis).
+// LearnSynonym persists a new synonym for a verb.
 func (t *TaxonomyEngine) LearnSynonym(verb, synonym string) error {
-	// 1. Validate verb exists
 	valid := false
 	verbs, _ := t.GetVerbs()
 	for _, v := range verbs {
@@ -302,14 +302,12 @@ func (t *TaxonomyEngine) LearnSynonym(verb, synonym string) error {
 		return fmt.Errorf("unknown verb: %s", verb)
 	}
 
-	// 2. Update DB if available (Primary Persistence)
 	if t.store != nil {
 		if err := t.store.StoreVerbSynonym(verb, synonym); err != nil {
 			return fmt.Errorf("failed to persist synonym to DB: %w", err)
 		}
 	}
 
-	// 3. Append to learned.mg (Backup / Human Readable)
 	fact := fmt.Sprintf("\nverb_synonym(%s, \"%s\").", verb, synonym)
 	path := "internal/mangle/learned.mg"
 	
@@ -321,22 +319,21 @@ func (t *TaxonomyEngine) LearnSynonym(verb, synonym string) error {
 		fmt.Printf("WARNING: Failed to write to learned.mg: %v\n", err)
 	}
 
-	// 4. Reload schema/engine to apply immediately
-	// If we have a store, re-hydration handles it. If not, LoadSchemaString.
+	// Reload to apply
+	// If store, rehydrate. If not, add fact manually.
 	if t.store != nil {
 		return t.HydrateFromDB()
 	}
 	return t.engine.LoadSchemaString(fact)
 }
 
-// GenerateSystemPromptSection generates the "VERB TAXONOMY" section for the LLM prompt.
+// GenerateSystemPromptSection generates the "VERB TAXONOMY" section.
 func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 	verbs, err := t.GetVerbs()
 	if err != nil {
 		return "", err
 	}
 
-	// Group by category/shard for readability
 	type Group struct {
 		Name  string
 		Verbs []VerbEntry
@@ -365,7 +362,6 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 		g := groups[key]
 		sb.WriteString(fmt.Sprintf("### %s\n", key))
 		for _, v := range g.Verbs {
-			// Format: - /verb: synonym1, synonym2, ...
 			sb.WriteString(fmt.Sprintf("- %s: %s\n", v.Verb, strings.Join(v.Synonyms, ", ")))
 		}
 		sb.WriteString("\n")
@@ -374,224 +370,108 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 	return sb.String(), nil
 }
 
-// DefaultTaxonomyMG contains the Mangle definitions for the verb corpus.
-const DefaultTaxonomyMG = `
-Decl verb_def(Verb.Type<n>, Category.Type<n>, Shard.Type<n>, Priority.Type<int>).
-Decl verb_synonym(Verb.Type<n>, Synonym.Type<string>).
-Decl verb_pattern(Verb.Type<n>, Regex.Type<string>).
+// DefaultTaxonomyData defines the corpus in Go structures to avoid parsing fragility.
+type TaxonomyDef struct {
+	Verb      string
+	Category  string
+	ShardType string
+	Priority  int
+	Synonyms  []string
+	Patterns  []string
+}
 
-# =========================================================================
-# CODE REVIEW & ANALYSIS (Reviewer)
-# =========================================================================
-
-# /review
-verb_def(/review, /query, /reviewer, 100).
-verb_synonym(/review, "review").
-verb_synonym(/review, "code review").
-verb_synonym(/review, "pr review").
-verb_synonym(/review, "check code").
-verb_synonym(/review, "audit").
-verb_synonym(/review, "evaluate").
-verb_synonym(/review, "critique").
-verb_pattern(/review, "(?i)review\s+(this|the|my|our)?\s*(file|code|changes?|diff|pr|pull\s*request)?").
-verb_pattern(/review, "(?i)can\s+you\s+review").
-verb_pattern(/review, "(?i)check\s+(this|the|my)?\s*(code|file)").
-
-# /security
-verb_def(/security, /query, /reviewer, 105).
-verb_synonym(/security, "security").
-verb_synonym(/security, "security scan").
-verb_synonym(/security, "vulnerability").
-verb_synonym(/security, "injection").
-verb_synonym(/security, "xss").
-verb_pattern(/security, "(?i)security\s+(scan|check|audit|review|analysis)").
-verb_pattern(/security, "(?i)check\s+(for\s+)?(security|vulnerabilities|vulns)").
-verb_pattern(/security, "(?i)find\s+(security\s+)?(vulnerabilities|issues|bugs)").
-
-# /analyze
-verb_def(/analyze, /query, /reviewer, 95).
-verb_synonym(/analyze, "analyze").
-verb_synonym(/analyze, "complexity").
-verb_synonym(/analyze, "metrics").
-verb_synonym(/analyze, "lint").
-verb_synonym(/analyze, "code smell").
-verb_pattern(/analyze, "(?i)analy[sz]e\s+(this|the|my)?\s*(code|file|codebase)?").
-verb_pattern(/analyze, "(?i)(code\s+)?(complexity|metrics|quality)").
-verb_pattern(/analyze, "(?i)static\s+analysis").
-
-# =========================================================================
-# UNDERSTANDING (Researcher/None)
-# =========================================================================
-
-# /explain
-verb_def(/explain, /query, /none, 80).
-verb_synonym(/explain, "explain").
-verb_synonym(/explain, "describe").
-verb_synonym(/explain, "what is").
-verb_synonym(/explain, "how does").
-verb_synonym(/explain, "help me understand").
-verb_pattern(/explain, "(?i)explain\s+(this|the|how|what|why)?").
-verb_pattern(/explain, "(?i)tell\s+me\s+(about|how|what|why)").
-verb_pattern(/explain, "(?i)help\s+me\s+understand").
-
-# /explore
-verb_def(/explore, /query, /researcher, 75).
-verb_synonym(/explore, "explore").
-verb_synonym(/explore, "browse").
-verb_synonym(/explore, "show structure").
-verb_synonym(/explore, "list files").
-verb_pattern(/explore, "(?i)show\s+(me\s+)?(the\s+)?(structure|architecture|layout|files?)").
-verb_pattern(/explore, "(?i)explore\s+(the\s+)?(codebase|project|code)?").
-
-# /search
-verb_def(/search, /query, /researcher, 85).
-verb_synonym(/search, "search").
-verb_synonym(/search, "find").
-verb_synonym(/search, "grep").
-verb_synonym(/search, "occurrences").
-verb_pattern(/search, "(?i)search\s+(for\s+)?").
-verb_pattern(/search, "(?i)find\s+(all\s+)?(occurrences?|references?|usages?|uses?)").
-verb_pattern(/search, "(?i)grep\s+").
-
-# =========================================================================
-# MUTATION (Coder)
-# =========================================================================
-
-# /fix
-verb_def(/fix, /mutation, /coder, 90).
-verb_synonym(/fix, "fix").
-verb_synonym(/fix, "repair").
-verb_synonym(/fix, "patch").
-verb_synonym(/fix, "resolve").
-verb_synonym(/fix, "bug fix").
-verb_pattern(/fix, "(?i)fix\s+(this|the|my|that|a)?\s*(bug|error|issue|problem)?").
-verb_pattern(/fix, "(?i)repair\s+").
-verb_pattern(/fix, "(?i)resolve\s+(this|the)?\s*(issue|error|bug)?").
-
-# /refactor
-verb_def(/refactor, /mutation, /coder, 88).
-verb_synonym(/refactor, "refactor").
-verb_synonym(/refactor, "clean up").
-verb_synonym(/refactor, "improve").
-verb_synonym(/refactor, "optimize").
-verb_synonym(/refactor, "simplify").
-verb_pattern(/refactor, "(?i)refactor\s+").
-verb_pattern(/refactor, "(?i)clean\s*up\s+").
-verb_pattern(/refactor, "(?i)improve\s+(the\s+)?(code|quality|readability|performance)").
-
-# /create
-verb_def(/create, /mutation, /coder, 85).
-verb_synonym(/create, "create").
-verb_synonym(/create, "new").
-verb_synonym(/create, "add").
-verb_synonym(/create, "implement").
-verb_synonym(/create, "generate").
-verb_pattern(/create, "(?i)create\s+(a\s+)?(new\s+)?").
-verb_pattern(/create, "(?i)add\s+(a\s+)?(new\s+)?").
-verb_pattern(/create, "(?i)implement\s+").
-
-# /write
-verb_def(/write, /mutation, /coder, 70).
-verb_synonym(/write, "write").
-verb_synonym(/write, "save").
-verb_synonym(/write, "export").
-verb_pattern(/write, "(?i)write\s+(to\s+)?(file|disk)?").
-verb_pattern(/write, "(?i)save\s+(to\s+)?").
-
-# /delete
-verb_def(/delete, /mutation, /coder, 85).
-verb_synonym(/delete, "delete").
-verb_synonym(/delete, "remove").
-verb_synonym(/delete, "drop").
-verb_pattern(/delete, "(?i)delete\s+").
-verb_pattern(/delete, "(?i)remove\s+").
-
-# =========================================================================
-# DEBUGGING (Coder)
-# =========================================================================
-
-# /debug
-verb_def(/debug, /query, /coder, 92).
-verb_synonym(/debug, "debug").
-verb_synonym(/debug, "troubleshoot").
-verb_synonym(/debug, "diagnose").
-verb_synonym(/debug, "root cause").
-verb_pattern(/debug, "(?i)debug\s+").
-verb_pattern(/debug, "(?i)troubleshoot\s+").
-verb_pattern(/debug, "(?i)why\s+(is|does|did)\s+(this|it)\s+(fail|error|crash|break)").
-
-# =========================================================================
-# TESTING (Tester)
-# =========================================================================
-
-# /test
-verb_def(/test, /mutation, /tester, 88).
-verb_synonym(/test, "test").
-verb_synonym(/test, "unit test").
-verb_synonym(/test, "run tests").
-verb_synonym(/test, "coverage").
-verb_pattern(/test, "(?i)(write|add|create)\s+(a\s+)?(unit\s+)?tests?").
-verb_pattern(/test, "(?i)run\s+(the\s+)?tests?").
-verb_pattern(/test, "(?i)test\s+(this|the|coverage)?").
-
-# =========================================================================
-# RESEARCH (Researcher)
-# =========================================================================
-
-# /research
-verb_def(/research, /query, /researcher, 75).
-verb_synonym(/research, "research").
-verb_synonym(/research, "learn").
-verb_synonym(/research, "docs").
-verb_synonym(/research, "documentation").
-verb_pattern(/research, "(?i)research\s+").
-verb_pattern(/research, "(?i)learn\s+(about|how)").
-verb_pattern(/research, "(?i)(show|find)\s+(me\s+)?(the\s+)?docs").
-
-# =========================================================================
-# SETUP & CONFIG
-# =========================================================================
-
-# /init
-verb_def(/init, /mutation, /researcher, 70).
-verb_synonym(/init, "init").
-verb_synonym(/init, "setup").
-verb_synonym(/init, "bootstrap").
-verb_pattern(/init, "(?i)^init(iali[sz]e)?$").
-verb_pattern(/init, "(?i)set\s*up\s+").
-
-# /configure
-verb_def(/configure, /instruction, /none, 65).
-verb_synonym(/configure, "configure").
-verb_synonym(/configure, "config").
-verb_synonym(/configure, "settings").
-verb_pattern(/configure, "(?i)configure\s+").
-verb_pattern(/configure, "(?i)change\s+(the\s+)?setting").
-
-# =========================================================================
-# CAMPAIGN
-# =========================================================================
-
-# /campaign
-verb_def(/campaign, /mutation, /coder, 95).
-verb_synonym(/campaign, "campaign").
-verb_synonym(/campaign, "epic").
-verb_synonym(/campaign, "feature").
-verb_pattern(/campaign, "(?i)start\s+(a\s+)?campaign").
-verb_pattern(/campaign, "(?i)implement\s+(a\s+)?(full|complete|entire)\s+").
-
-# =========================================================================
-# AUTOPOIESIS (Tool Generation)
-# =========================================================================
-
-# /generate_tool
-verb_def(/generate_tool, /mutation, /tool_generator, 95).
-verb_synonym(/generate_tool, "generate tool").
-verb_synonym(/generate_tool, "create tool").
-verb_synonym(/generate_tool, "need a tool").
-verb_pattern(/generate_tool, "(?i)(create|make|generate|build)\s+(a\s+)?tool\s+(for|to|that)").
-verb_pattern(/generate_tool, "(?i)i\s+need\s+(a\s+)?tool\s+(for|to)").
-`
+var DefaultTaxonomyData = []TaxonomyDef{
+	{
+		Verb: "/review", Category: "/query", ShardType: "/reviewer", Priority: 100,
+		Synonyms: []string{"review", "code review", "audit", "evaluate", "critique", "check code"},
+		Patterns: []string{"(?i)review.*(file|code|changes)", "(?i)check.*code"},
+	},
+	{
+		Verb: "/security", Category: "/query", ShardType: "/reviewer", Priority: 105,
+		Synonyms: []string{"security", "vulnerability", "injection", "xss", "scan"},
+		Patterns: []string{"(?i)security.*scan", "(?i)check.*for.*vuln", "(?i)find.*vuln"},
+	},
+	{
+		Verb: "/analyze", Category: "/query", ShardType: "/reviewer", Priority: 95,
+		Synonyms: []string{"analyze", "complexity", "lint", "code smell"},
+		Patterns: []string{"(?i)analy[sz]e.*code"},
+	},
+	{
+		Verb: "/explain", Category: "/query", ShardType: "/none", Priority: 80,
+		Synonyms: []string{"explain", "describe", "what is", "how does"},
+		Patterns: []string{"(?i)explain.*this", "(?i)tell.*me.*about"},
+	},
+	{
+		Verb: "/explore", Category: "/query", ShardType: "/researcher", Priority: 75,
+		Synonyms: []string{"explore", "browse", "structure", "list files"},
+		Patterns: []string{"(?i)show.*structure"},
+	},
+	{
+		Verb: "/search", Category: "/query", ShardType: "/researcher", Priority: 85,
+		Synonyms: []string{"search", "find", "grep", "occurrences"},
+		Patterns: []string{"(?i)search.*for", "(?i)find.*all"},
+	},
+	{
+		Verb: "/fix", Category: "/mutation", ShardType: "/coder", Priority: 90,
+		Synonyms: []string{"fix", "repair", "patch", "resolve", "bug fix"},
+		Patterns: []string{"(?i)fix.*bug", "(?i)resolve.*issue"},
+	},
+	{
+		Verb: "/refactor", Category: "/mutation", ShardType: "/coder", Priority: 88,
+		Synonyms: []string{"refactor", "clean up", "improve", "optimize"},
+		Patterns: []string{"(?i)refactor", "(?i)clean.*up"},
+	},
+	{
+		Verb: "/create", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"create", "new", "add", "implement", "generate"},
+		Patterns: []string{"(?i)create.*new", "(?i)add.*new", "(?i)implement"},
+	},
+	{
+		Verb: "/write", Category: "/mutation", ShardType: "/coder", Priority: 70,
+		Synonyms: []string{"write", "save", "export"},
+		Patterns: []string{"(?i)write.*to"},
+	},
+	{
+		Verb: "/delete", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"delete", "remove", "drop"},
+		Patterns: []string{"(?i)delete", "(?i)remove"},
+	},
+	{
+		Verb: "/debug", Category: "/query", ShardType: "/coder", Priority: 92,
+		Synonyms: []string{"debug", "troubleshoot", "diagnose", "root cause"},
+		Patterns: []string{"(?i)debug", "(?i)why.*fail"},
+	},
+	{
+		Verb: "/test", Category: "/mutation", ShardType: "/tester", Priority: 88,
+		Synonyms: []string{"test", "unit test", "run tests", "coverage"},
+		Patterns: []string{"(?i)run.*test", "(?i)test.*coverage"},
+	},
+	{
+		Verb: "/research", Category: "/query", ShardType: "/researcher", Priority: 75,
+		Synonyms: []string{"research", "learn", "docs", "documentation"},
+		Patterns: []string{"(?i)research", "(?i)learn.*about"},
+	},
+	{
+		Verb: "/init", Category: "/mutation", ShardType: "/researcher", Priority: 70,
+		Synonyms: []string{"init", "setup", "bootstrap"},
+		Patterns: []string{"(?i)^init"},
+	},
+	{
+		Verb: "/configure", Category: "/instruction", ShardType: "/none", Priority: 65,
+		Synonyms: []string{"configure", "config", "settings"},
+		Patterns: []string{"(?i)configure"},
+	},
+	{
+		Verb: "/campaign", Category: "/mutation", ShardType: "/coder", Priority: 95,
+		Synonyms: []string{"campaign", "epic", "feature"},
+		Patterns: []string{"(?i)start.*campaign"},
+	},
+	{
+		Verb: "/generate_tool", Category: "/mutation", ShardType: "/tool_generator", Priority: 95,
+		Synonyms: []string{"generate tool", "create tool", "need a tool"},
+		Patterns: []string{"(?i)create.*tool"},
+	},
+}
 
 // InferenceLogicMG contains the advanced patterns for context-aware classification.
 const InferenceLogicMG = `
@@ -599,108 +479,78 @@ const InferenceLogicMG = `
 # This module takes raw intent candidates (from regex/LLM) and refines them
 # using contextual logic and safety constraints.
 
-Decl candidate_intent(Verb.Type<n>, RawScore.Type<float>).
-Decl context_token(Token.Type<string>).
-# Decl system_state(Key.Type<string>, Value.Type<string>).
+Decl candidate_intent(Verb, RawScore).
+Decl context_token(Token).
 
-# Output: Refined Score
-Decl refined_score(Verb.Type<n>, Score.Type<float>).
+Decl boost(Verb, Amount).
+Decl penalty(Verb, Amount).
 
-# Base score from candidate
-refined_score(Verb, Score) :-
-    candidate_intent(Verb, Score).
+# EDB Declarations for data loaded from Go
+Decl verb_def(Verb, Category, Shard, Priority).
+Decl verb_synonym(Verb, Synonym).
+Decl verb_pattern(Verb, Regex).
 
-# -----------------------------------------------------------------------------
-# CONTEXTUAL BOOSTING
-# -----------------------------------------------------------------------------
+# Intermediate score generation
+Decl potential_score(Verb, Score).
 
-# Security Boost: If "security" or "vuln" appears, boost /security
-# Even if regex matched /review, context implies /security is better.
-boost(Verb, 0.3) :-
-    candidate_intent(Verb, _),
-    Verb == /security,
-    context_token("security").
+# 1. Base Score
+potential_score(Verb, Score) :- candidate_intent(Verb, Score).
 
-boost(Verb, 0.3) :-
-    candidate_intent(Verb, _),
-    Verb == /security,
-    context_token("vulnerability").
-
-# Testing Boost: If "coverage" appears, prefer /test over /review
-boost(Verb, 0.2) :-
-    candidate_intent(Verb, _),
-    Verb == /test,
-    context_token("coverage").
-
-# Debugging Boost: If "error" or "panic" appears, prefer /debug over /fix
-# fixing is the goal, but debugging is the immediate action.
-boost(Verb, 0.15) :-
-    candidate_intent(Verb, _),
-    Verb == /debug,
-    context_token("panic").
-
-boost(Verb, 0.15) :-
-    candidate_intent(Verb, _),
-    Verb == /debug,
-    context_token("stacktrace").
-
-# -----------------------------------------------------------------------------
-# SAFETY CONSTRAINTS (Penalties)
-# -----------------------------------------------------------------------------
-
-# Safety: Don't /delete if we are in a "learning" mode or context implies "safe"
-penalty(Verb, 0.5) :-
-    candidate_intent(Verb, _),
-    Verb == /delete,
-    context_token("safe").
-
-# Ambiguity: If "fix" and "test" both appear, "fix" usually dominates,
-# but if "verify" is present, "test" should win.
-boost(Verb, 0.2) :-
-    candidate_intent(Verb, _),
-    Verb == /test,
-    context_token("verify").
-
-# -----------------------------------------------------------------------------
-# FINAL AGGREGATION
-# -----------------------------------------------------------------------------
-
-Decl final_adjustment(Verb.Type<n>, Delta.Type<float>).
-
-final_adjustment(Verb, D) :-
-    boost(Verb, Amount) |>
-    do fn:group_by(Verb),
-    let D = fn:Sum(Amount).
-
-final_adjustment(Verb, D) :-
-    penalty(Verb, Amount) |>
-    do fn:group_by(Verb),
-    let P = fn:Sum(Amount) |>
-    let D = fn:negate(P). # Negative delta
-
-# Calculate Final Score
-Decl final_intent_score(Verb.Type<n>, Score.Type<float>).
-
-final_intent_score(Verb, Final) :-
+# 2. Boosted Scores (Rule-based)
+potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
-    !final_adjustment(Verb, _) |> # No adjustments
-    let Final = Base.
+    Verb = /security,
+    context_token("security"),
+    NewScore = fn:plus(Base, 0.3).
 
-final_intent_score(Verb, Final) :-
+potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
-    final_adjustment(Verb, Delta) |> 
-    let Final = fn:plus(Base, Delta).
+    Verb = /security,
+    context_token("vulnerability"),
+    NewScore = fn:plus(Base, 0.3).
 
-# Select Best (Max)
-Decl best_intent_score(MaxScore.Type<float>).
-best_intent_score(M) :-
-    final_intent_score(_, S) |>
-    do fn:group_by(),
-    let M = fn:Max(S).
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    Verb = /test,
+    context_token("coverage"),
+    NewScore = fn:plus(Base, 0.2).
 
-Decl selected_verb(Verb.Type<n>).
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    Verb = /debug,
+    context_token("panic"),
+    NewScore = fn:plus(Base, 0.15).
+
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    Verb = /debug,
+    context_token("stacktrace"),
+    NewScore = fn:plus(Base, 0.15).
+
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    Verb = /test,
+    context_token("verify"),
+    NewScore = fn:plus(Base, 0.2).
+
+# 3. Relational Max Score Selection
+# Define a predicate that finds scores that are NOT max
+Decl has_greater_score(Score).
+has_greater_score(S) :-
+    potential_score(_, S),
+    potential_score(_, Other),
+    Other > S.
+
+# Define max score as one that has no greater score
+Decl best_score(MaxScore).
+best_score(S) :-
+    potential_score(_, S),
+    !has_greater_score(S).
+
+# Select verb matching the max score
+Decl selected_verb(Verb).
 selected_verb(Verb) :-
-    final_intent_score(Verb, Score),
-    best_intent_score(Max),
-    Score == Max.
+    potential_score(Verb, S),
+    best_score(Max),
+    S = Max.
 `
