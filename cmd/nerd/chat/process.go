@@ -184,6 +184,12 @@ func (m Model) processInput(input string) tea.Cmd {
 				warnings = append(warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
 			} else if len(fileFacts) > 0 {
 				_ = m.kernel.LoadFacts(fileFacts)
+				// Persist file topology into knowledge.db for hydration-driven queries
+				if m.virtualStore != nil {
+					if err := m.virtualStore.PersistFactsToKnowledge(fileFacts, "fact", 5); err != nil {
+						warnings = append(warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
+					}
+				}
 			}
 		}
 
@@ -196,6 +202,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("system facts update error: %w", err))
 		}
 		_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
+		// Hydrate learned facts from knowledge.db so logic can use persisted context
+		if m.virtualStore != nil {
+			if _, err := m.virtualStore.HydrateLearnings(ctx); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Hydrate learnings warning: %v", err))
+			}
+		}
 
 		// 4. DECISION & ACTION (Kernel -> Executor)
 		// Query for actions derived from the intent
@@ -479,11 +491,6 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				// Store result for dependencies
 				stepResults[i] = result
 
-				// Truncate very long results
-				if len(result) > 1000 {
-					result = result[:1000] + "\n... (truncated)"
-				}
-
 				results = append(results, fmt.Sprintf("**Status**: ✅ Complete\n```\n%s\n```\n", result))
 			} else {
 				results = append(results, "**Status**: ⚠️ No shard handler\n")
@@ -506,12 +513,12 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 type FollowUpType string
 
 const (
-	FollowUpNone       FollowUpType = ""
-	FollowUpShowMore   FollowUpType = "show_more"    // "what are the other suggestions?"
-	FollowUpExplain    FollowUpType = "explain"      // "explain the first warning"
-	FollowUpFilter     FollowUpType = "filter"       // "show only critical issues"
-	FollowUpDetails    FollowUpType = "details"      // "tell me more about X"
-	FollowUpGeneric    FollowUpType = "generic"      // Generic follow-up
+	FollowUpNone     FollowUpType = ""
+	FollowUpShowMore FollowUpType = "show_more" // "what are the other suggestions?"
+	FollowUpExplain  FollowUpType = "explain"   // "explain the first warning"
+	FollowUpFilter   FollowUpType = "filter"    // "show only critical issues"
+	FollowUpDetails  FollowUpType = "details"   // "tell me more about X"
+	FollowUpGeneric  FollowUpType = "generic"   // Generic follow-up
 )
 
 // detectFollowUpQuestion checks if the input is a follow-up about the last shard result.

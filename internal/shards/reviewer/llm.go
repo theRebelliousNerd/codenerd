@@ -51,18 +51,22 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 	// Build session context from Blackboard (cross-shard awareness)
 	sessionContext := r.buildSessionContextPrompt()
 
-	systemPrompt := fmt.Sprintf(`You are a senior code reviewer. Analyze the code for:
-1. Security vulnerabilities (SQL injection, XSS, command injection, etc.)
-2. Logic errors and potential bugs
-3. Code smells and maintainability issues
-4. Performance issues
-5. Interface contract violations with dependencies (if dependency context provided)
-6. Breaking changes that could affect downstream consumers
+	systemPrompt := fmt.Sprintf(`You are a principal engineer performing a holistic code review. Analyze the code for:
+1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
+2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
+3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
+4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
+5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
+6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
+7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
+8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
+9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
+10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
 %s
 Return findings as JSON array:
-[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface", "message": "...", "suggestion": "..."}]
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation", "message": "...", "suggestion": "..."}]
 
-Only report significant issues. Return empty array [] if code is clean.`, sessionContext)
+Prefer precise, non-duplicative, actionable findings with a single root cause each. Return [] if the code is clean. Do not omit issues due to brevity; be concise but complete.`, sessionContext)
 
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, depContextStr)

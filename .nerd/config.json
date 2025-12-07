@@ -1,10 +1,10 @@
 {
-  "_disabled_provider": "zai",
-  "_disabled_zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
-  "_disabled_model": "glm-4.6",
-  "provider": "genai",
-  "genai_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
-  "model": "gemini-3-pro-preview",
+  "provider": "zai",
+  "zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
+  "model": "glm-4.6",
+  "_disabled_provider": "genai",
+  "_disabled_genai_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
+  "_disabled_model": "gemini-3-pro-preview",
   "theme": "light",
   "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461",
   "embedding": {
@@ -14,9 +14,9 @@
     "task_type": "SEMANTIC_SIMILARITY"
   },
   "context_window": {
-    "max_tokens": 800000,
+    "max_tokens": 160000,
     "compression_threshold": 0.8,
-    "recent_turn_window": 12,
+    "recent_turn_window": 8,
     "core_reserve_percent": 5,
     "atom_reserve_percent": 25,
     "history_reserve_percent": 20,

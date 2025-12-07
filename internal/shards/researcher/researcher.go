@@ -98,12 +98,15 @@ type ResearcherShard struct {
 	stopCh      chan struct{}
 	visitedURLs map[string]bool
 
+	// Workspace context for local queries
+	workspaceRoot string
+
 	// Autopoiesis - learning and pattern tracking for research quality
-	qualityScores      map[string]float64 // Track quality of research results by topic
-	sourceReliability  map[string]int     // Track which sources produce good results
-	sourceFailures     map[string]int     // Track which sources fail or produce poor results
-	failedQueries      map[string]int     // Track queries that fail to produce results
-	learningStore      core.LearningStore // Optional persistence for learnings
+	qualityScores     map[string]float64 // Track quality of research results by topic
+	sourceReliability map[string]int     // Track which sources produce good results
+	sourceFailures    map[string]int     // Track which sources fail or produce poor results
+	failedQueries     map[string]int     // Track queries that fail to produce results
+	learningStore     core.LearningStore // Optional persistence for learnings
 }
 
 // NewResearcherShard creates a new researcher shard with default config.
@@ -169,6 +172,13 @@ func (r *ResearcherShard) SetLearningStore(ls core.LearningStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.learningStore = ls
+}
+
+// SetWorkspaceRoot provides the workspace root for local dependency/search queries.
+func (r *ResearcherShard) SetWorkspaceRoot(root string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workspaceRoot = root
 }
 
 // SetContext7APIKey sets the Context7 API key for LLM-optimized documentation.
@@ -429,7 +439,7 @@ func (r *ResearcherShard) parseTask(task string) (string, []string, []string) {
 	// We strip trailing punctuation (.,;) manually after extraction if needed, but a stricter regex is better.
 	urlRegex := regexp.MustCompile(`https?://[^,\s]+[^.,;)\s]`)
 	rawUrls := urlRegex.FindAllString(task, -1)
-	
+
 	for _, u := range rawUrls {
 		// Clean trailing punctuation often caught in NLP text
 		u = strings.TrimRight(u, ".,;)")
@@ -438,22 +448,34 @@ func (r *ResearcherShard) parseTask(task string) (string, []string, []string) {
 
 	// Clean task string for topic extraction
 	cleanTask := urlRegex.ReplaceAllString(task, "")
-	cleanTask = strings.ReplaceAll(cleanTask, "  ", " ")
+	cleanTask = strings.TrimSpace(strings.ReplaceAll(cleanTask, "  ", " "))
 
-	if strings.Contains(cleanTask, "topic:") {
-		re := regexp.MustCompile(`topic:([^\s]+)`)
+	// Extract keywords first and strip them from the task to avoid contaminating topic parsing
+	if strings.Contains(strings.ToLower(cleanTask), "keywords:") {
+		re := regexp.MustCompile(`(?i)keywords:\s*([^\n]+)`)
 		if matches := re.FindStringSubmatch(cleanTask); len(matches) > 1 {
-			topic = matches[1]
+			keywordBlock := strings.TrimSpace(matches[1])
+			keywordParts := strings.FieldsFunc(keywordBlock, func(r rune) bool {
+				return r == ',' || r == ';'
+			})
+			for _, kw := range keywordParts {
+				trimmed := strings.TrimSpace(kw)
+				if trimmed != "" {
+					keywords = append(keywords, trimmed)
+				}
+			}
+			cleanTask = strings.TrimSpace(strings.Replace(cleanTask, matches[0], "", 1))
+		}
+	}
+
+	// Extract topic (allow multi-word up to end of string)
+	if strings.Contains(strings.ToLower(cleanTask), "topic:") {
+		re := regexp.MustCompile(`(?i)topic:\s*([^\n]+)`)
+		if matches := re.FindStringSubmatch(cleanTask); len(matches) > 1 {
+			topic = strings.TrimSpace(matches[1])
 		}
 	} else {
 		topic = strings.TrimSpace(cleanTask)
-	}
-
-	if strings.Contains(task, "keywords:") {
-		re := regexp.MustCompile(`keywords:([^\s]+)`)
-		if matches := re.FindStringSubmatch(task); len(matches) > 1 {
-			keywords = strings.Split(matches[1], ",")
-		}
 	}
 
 	// If no explicit keywords, extract from topic

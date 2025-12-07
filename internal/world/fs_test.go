@@ -80,9 +80,9 @@ func TestScanDirectory(t *testing.T) {
 
 	// Create test files
 	testFiles := map[string]string{
-		"main.go":          "package main",
-		"main_test.go":     "package main",
-		"pkg/utils.go":     "package pkg",
+		"main.go":           "package main",
+		"main_test.go":      "package main",
+		"pkg/utils.go":      "package pkg",
 		"pkg/utils_test.go": "package pkg",
 	}
 
@@ -252,6 +252,13 @@ func TestIsTestFile(t *testing.T) {
 		// Rust tests
 		{"tests/integration.rs", true},
 		{"src/main.rs", false},
+
+		// Directory name should not cause false positives
+		{"src/latest/utils.ts", false},
+		{"src/contest/helpers.py", false},
+
+		// __tests__ directory should still count
+		{"src/__tests__/example.ts", true},
 	}
 
 	for _, tt := range tests {

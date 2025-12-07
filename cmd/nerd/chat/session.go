@@ -171,6 +171,35 @@ func InitChat(cfg Config) Model {
 		virtualStore.SetLocalDB(localDB)
 		virtualStore.SetKernel(kernel)
 
+		// WIRE TAXONOMY ENGINE TO DB (Persistence & Rehydration)
+		taxStore := perception.NewTaxonomyStore(localDB)
+		perception.SharedTaxonomy.SetStore(taxStore)
+
+		// 1. Ensure DB is populated with defaults if empty
+		if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ Taxonomy defaults init failed: %v", err),
+				Time:    time.Now(),
+			})
+		}
+
+		// 2. Rehydrate engine from DB (loads learned rules too)
+		if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ Taxonomy rehydration failed: %v", err),
+				Time:    time.Now(),
+			})
+		} else {
+			// Optional: Confirm success
+			// initialMessages = append(initialMessages, Message{
+			// 	Role:    "assistant",
+			// 	Content: "✓ Taxonomy rehydrated from knowledge.db",
+			// 	Time:    time.Now(),
+			// })
+		}
+
 		// Migrate old JSON sessions to SQLite for query access
 		// Safe to call multiple times - uses INSERT OR IGNORE
 		if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
@@ -231,6 +260,8 @@ func InitChat(cfg Config) Model {
 		if localDB != nil {
 			shard.SetLocalDB(localDB)
 		}
+		// Provide workspace root so local dependency queries avoid external calls
+		shard.SetWorkspaceRoot(workspace)
 		// Set Context7 API key from config or environment
 		context7Key := appCfg.Context7APIKey
 		if context7Key == "" {
@@ -260,6 +291,8 @@ func InitChat(cfg Config) Model {
 	shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewWorldModelIngestorShard()
 		shard.SetParentKernel(kernel)
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient)
 		return shard
 	})
 
@@ -397,6 +430,7 @@ func InitChat(cfg Config) Model {
 		transducer:            transducer,
 		executor:              executor,
 		emitter:               emitter,
+		virtualStore:          virtualStore,
 		scanner:               scanner,
 		workspace:             workspace,
 		sessionID:             resolveSessionID(loadedSession),
@@ -592,9 +626,9 @@ func (m *Model) syncSessionToSQLite() {
 			m.sessionID,
 			turnNumber,
 			userMsg.Content,
-			"{}",           // intent_json placeholder
+			"{}", // intent_json placeholder
 			asstMsg.Content,
-			"[]",           // atoms_json placeholder
+			"[]", // atoms_json placeholder
 		)
 		if err != nil {
 			// Log but don't fail - JSON is the primary store

@@ -6,7 +6,11 @@ import (
 	"codenerd/internal/core"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -31,6 +35,22 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 
 	// Check for deep research flag
 	isDeepResearch := strings.Contains(topic, "(deep)")
+
+	// Workspace-first: detect local queries and answer from the repo before hitting the network
+	skipRemote := false
+	if r.isWorkspaceQuery(normalizedTopic) {
+		atoms, err := r.workspaceReferenceSearch(ctx, normalizedTopic)
+		if err != nil {
+			fmt.Printf("[Researcher] Workspace search fallback: %v\n", err)
+		} else if len(atoms) > 0 {
+			fmt.Printf("[Researcher] Workspace search found %d references; skipping remote sources\n", len(atoms))
+			result.Atoms = append(result.Atoms, atoms...)
+			result.PagesScraped++
+			skipRemote = true
+		} else {
+			fmt.Printf("[Researcher] Workspace search produced no matches; continuing with remote strategies\n")
+		}
+	}
 
 	// Use wait group for parallel research strategies
 	var wg sync.WaitGroup
@@ -60,13 +80,13 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 					cleanU := strings.TrimPrefix(u, "https://")
 					cleanU = strings.TrimPrefix(cleanU, "http://")
 					parts := strings.Split(cleanU, "/")
-					
+
 					if len(parts) >= 3 && parts[0] == "github.com" {
 						owner := parts[1]
 						repo := parts[2]
 						// Clean repo name of potential .git suffix or trailing slash
 						repo = strings.TrimSuffix(repo, ".git")
-						
+
 						source := KnowledgeSource{
 							Name:       repo,
 							Type:       "github",
@@ -74,7 +94,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 							RepoName:   repo,
 							PackageURL: "github.com/" + owner + "/" + repo,
 						}
-						
+
 						fmt.Printf("[Researcher] Detected GitHub repo: %s/%s\n", owner, repo)
 						atoms, err := r.fetchGitHubDocs(ctx, source, keywords)
 						if err == nil && len(atoms) > 0 {
@@ -101,7 +121,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 
 	// STRATEGY 0 (PRIMARY): Context7 - LLM-optimized documentation
 	// This is the preferred source - curated docs designed for AI consumption
-	if r.toolkit != nil && r.toolkit.Context7() != nil && r.toolkit.Context7().IsConfigured() {
+	if !skipRemote && r.toolkit != nil && r.toolkit.Context7() != nil && r.toolkit.Context7().IsConfigured() {
 		fmt.Printf("[Researcher] Querying Context7 for: %s\n", normalizedTopic)
 		atoms, err := r.toolkit.Context7().ResearchTopic(ctx, normalizedTopic, keywords)
 		if err == nil && len(atoms) > 0 {
@@ -132,7 +152,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 				}
 			}()
 		}
-	} else {
+	} else if !skipRemote {
 		// Context7 not available or no results - use fallback strategies
 
 		// Strategy 1: Check if we have a known source for this topic
@@ -221,7 +241,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 	result.FactsGenerated = len(result.Atoms)
 
 	// Extended research: use generateSearchURLs and fetchAndExtract for deep research
-	if isDeepResearch && len(result.Atoms) < 5 {
+	if isDeepResearch && len(result.Atoms) < 5 && !skipRemote {
 		urls := r.generateSearchURLs(normalizedTopic, keywords)
 		for _, url := range urls {
 			if len(result.Atoms) >= 20 { // Cap at 20 atoms
@@ -266,6 +286,214 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 	}
 
 	return result, nil
+}
+
+// isWorkspaceQuery detects whether the topic is targeting local files/symbols.
+func (r *ResearcherShard) isWorkspaceQuery(topic string) bool {
+	if topic == "" {
+		return false
+	}
+
+	lower := strings.ToLower(topic)
+
+	// Direct file hints
+	if strings.Contains(lower, ".go") || strings.Contains(lower, ".md") || strings.Contains(lower, ".ts") {
+		return true
+	}
+
+	// Repo topology hints
+	if strings.Contains(lower, "internal/") || strings.Contains(lower, "internal\\") ||
+		strings.Contains(lower, "cmd/") || strings.Contains(lower, "pkg/") {
+		return true
+	}
+
+	// Natural language hints
+	if strings.Contains(lower, "file") && (strings.Contains(lower, "/") || strings.Contains(lower, "\\")) {
+		return true
+	}
+
+	return false
+}
+
+// workspaceReferenceSearch performs a ripgrep-based search in the workspace to answer local dependency questions.
+func (r *ResearcherShard) workspaceReferenceSearch(ctx context.Context, topic string) ([]KnowledgeAtom, error) {
+	r.mu.RLock()
+	root := r.workspaceRoot
+	r.mu.RUnlock()
+
+	if root == "" {
+		return nil, fmt.Errorf("workspace root not configured")
+	}
+
+	targets := r.extractWorkspaceTargets(topic)
+	if len(targets) == 0 {
+		return nil, nil
+	}
+
+	args := []string{"--no-heading", "--line-number", "--ignore-case"}
+	for _, t := range targets {
+		args = append(args, "-e", t)
+	}
+	args = append(args, root)
+
+	cmd := exec.CommandContext(ctx, "rg", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil && len(output) == 0 {
+		if errors.Is(err, exec.ErrNotFound) {
+			return r.workspaceReferenceSearchFallback(ctx, root, targets)
+		}
+		return nil, fmt.Errorf("rg search failed: %w", err)
+	}
+
+	return r.parseWorkspaceMatches(string(output), topic), nil
+}
+
+// workspaceReferenceSearchFallback scans files manually if rg is unavailable.
+func (r *ResearcherShard) workspaceReferenceSearchFallback(ctx context.Context, root string, targets []string) ([]KnowledgeAtom, error) {
+	fmt.Printf("[Researcher] ripgrep not found; using fallback scanner for workspace references\n")
+	var atoms []KnowledgeAtom
+	lowerTargets := make([]string, len(targets))
+	for i, t := range targets {
+		lowerTargets[i] = strings.ToLower(t)
+	}
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			// Skip hidden dirs to avoid slow scans
+			if strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil // skip unreadable files
+		}
+		contentLower := strings.ToLower(string(data))
+		for _, target := range lowerTargets {
+			if strings.Contains(contentLower, target) {
+				snippet := r.truncate(strings.TrimSpace(string(data)), 120)
+				atoms = append(atoms, KnowledgeAtom{
+					SourceURL:   path,
+					Title:       fmt.Sprintf("Workspace reference: %s", target),
+					Content:     snippet,
+					Concept:     "workspace_reference",
+					Confidence:  0.8,
+					ExtractedAt: time.Now(),
+				})
+				if len(atoms) >= 50 {
+					return context.Canceled // stop early, treat as completion
+				}
+				break
+			}
+		}
+		return nil
+	})
+
+	if err != nil && !errors.Is(err, context.Canceled) {
+		return atoms, err
+	}
+	return atoms, nil
+}
+
+// parseWorkspaceMatches converts ripgrep output into knowledge atoms.
+func (r *ResearcherShard) parseWorkspaceMatches(output, topic string) []KnowledgeAtom {
+	lines := strings.Split(output, "\n")
+	atoms := make([]KnowledgeAtom, 0, len(lines))
+	targets := r.extractWorkspaceTargets(topic)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		path := parts[0]
+		lineNum := parts[1]
+		snippet := strings.TrimSpace(parts[2])
+		title := fmt.Sprintf("Workspace reference: %s", filepath.Base(path))
+
+		if len(targets) > 0 {
+			title = fmt.Sprintf("Workspace reference: %s", targets[0])
+		}
+
+		atoms = append(atoms, KnowledgeAtom{
+			SourceURL:   path,
+			Title:       title,
+			Content:     fmt.Sprintf("%s:%s %s", path, lineNum, snippet),
+			Concept:     "workspace_reference",
+			Confidence:  0.9,
+			ExtractedAt: time.Now(),
+			Metadata: map[string]interface{}{
+				"line":  lineNum,
+				"query": topic,
+			},
+		})
+
+		if len(atoms) >= 50 {
+			break // avoid flooding downstream logic
+		}
+	}
+
+	return atoms
+}
+
+// extractWorkspaceTargets extracts filenames or symbols from the topic.
+func (r *ResearcherShard) extractWorkspaceTargets(topic string) []string {
+	re := regexp.MustCompile(`[\w.\-/\\]+\\.[A-Za-z0-9]+`)
+	matches := re.FindAllString(topic, -1)
+	seen := make(map[string]bool)
+	var targets []string
+
+	for _, m := range matches {
+		base := filepath.Base(filepath.ToSlash(strings.TrimSpace(m)))
+		if base == "" {
+			continue
+		}
+		if !seen[base] {
+			seen[base] = true
+			targets = append(targets, base)
+		}
+		// Also add basename without extension for broader matches
+		if ext := filepath.Ext(base); ext != "" {
+			name := strings.TrimSuffix(base, ext)
+			if name != "" && !seen[name] {
+				seen[name] = true
+				targets = append(targets, name)
+			}
+		}
+	}
+
+	// Fallback: use longest token if no explicit filename found
+	if len(targets) == 0 {
+		fields := strings.FieldsFunc(topic, func(r rune) bool {
+			return r == ' ' || r == ',' || r == ';'
+		})
+		longest := ""
+		for _, f := range fields {
+			if len(f) > len(longest) && len(f) >= 5 {
+				longest = f
+			}
+		}
+		if longest != "" {
+			targets = append(targets, longest)
+		}
+	}
+
+	return targets
 }
 
 // fetchGitHubDocs fetches README and docs from GitHub using raw URLs (no API key needed)
@@ -567,38 +795,38 @@ func (r *ResearcherShard) parseReadmeContent(name, content string) []KnowledgeAt
 	// Go regex doesn't support lookaheads, so we split by "\n## " manually
 	// Normalize line endings first
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
-	
+
 	// Split by "## " at start of line (or start of file)
 	// We add a newline prefix to match the loop logic easier if it starts with ##
 	if strings.HasPrefix(normalized, "## ") {
 		normalized = "\n" + normalized
 	}
-	
+
 	sections := strings.Split(normalized, "\n## ")
-	
+
 	for _, section := range sections {
 		section = strings.TrimSpace(section)
 		if section == "" {
 			continue
 		}
-		
+
 		// First line is title, rest is content
 		parts := strings.SplitN(section, "\n", 2)
 		title := strings.TrimSpace(parts[0])
-		
+
 		if len(parts) < 2 {
 			continue // Skip if no content
 		}
-		
+
 		body := strings.TrimSpace(parts[1])
-		
+
 		if len(body) > 50 && len(body) < 3000 {
 			// Skip common non-informative sections
 			lowerTitle := strings.ToLower(title)
 			if lowerTitle == "license" || lowerTitle == "contributing" || lowerTitle == "changelog" || lowerTitle == "badges" {
 				continue
 			}
-			
+
 			atoms = append(atoms, KnowledgeAtom{
 				Title:       title,
 				Content:     r.truncate(body, 1000),
