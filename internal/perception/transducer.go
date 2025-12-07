@@ -144,43 +144,41 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 	// 3. Fallback to best regex score if Mangle didn't decide
 	if len(candidates) > 0 {
 		// Candidates are not sorted by score in getRegexCandidates, find max
-		// Actually, getRegexCandidates should return scores.
-		// Refactoring to handle the candidate selection logic here.
-		
 		bestScore := 0.0
 		var bestCand VerbEntry
 		
-		// Recalculate scores or restructure getRegexCandidates? 
-		// Let's just keep the logic simple: getCandidates returns structs with Priority.
-		// But we need the MATCH score (pattern vs synonym).
-		
-		// Re-implementing the scoring loop here for the fallback to ensure it matches legacy behavior exactly
+		// Re-implementing the scoring loop here for the fallback
+		// We iterate over the pre-filtered candidates for efficiency
 		lower := strings.ToLower(input)
-		for _, entry := range VerbCorpus {
+		for _, entry := range candidates {
 			score := 0.0
+			// Re-evaluate match type for scoring
 			// Check patterns (highest weight)
+			patternMatched := false
 			for _, pattern := range entry.Patterns {
 				if pattern.MatchString(lower) {
 					score += 50.0 + float64(entry.Priority)/10.0
+					patternMatched = true
 					break
 				}
 			}
-			// Check synonyms
-			for _, synonym := range entry.Synonyms {
-				if strings.Contains(lower, synonym) {
-					synLen := float64(len(synonym))
-					score += 20.0 + synLen/2.0 + float64(entry.Priority)/20.0
-					break
+			// Check synonyms (lower weight)
+			if !patternMatched {
+				for _, synonym := range entry.Synonyms {
+					if strings.Contains(lower, synonym) {
+						synLen := float64(len(synonym))
+						score += 20.0 + synLen/2.0 + float64(entry.Priority)/20.0
+						break
+					}
 				}
 			}
+			
 			// Apply priority bonus
 			score += float64(entry.Priority) / 50.0
 
 			if score > bestScore {
 				bestScore = score
-				bestVerb = entry.Verb
-				category = entry.Category
-				shardType = entry.ShardType
+				bestCand = entry
 			}
 		}
 		
@@ -192,7 +190,11 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 		if confidence < 0.3 {
 			confidence = 0.3 // Minimum baseline
 		}
-		return bestVerb, category, confidence, shardType
+		
+		// Return the best candidate found
+		if bestScore > 0 {
+			return bestCand.Verb, bestCand.Category, confidence, bestCand.ShardType
+		}
 	}
 
 	return "/explain", "/query", 0.3, ""
