@@ -23,6 +23,133 @@ import (
 // Functions for formatting tasks, spawning shards, and handling delegation
 // from natural language to specialized agents.
 
+// formatShardTaskWithContext formats the task with prior shard context (blackboard pattern).
+// This enables cross-shard communication: reviewer findings flow to coder, test results to debugger, etc.
+func formatShardTaskWithContext(verb, target, constraint, workspace string, priorResult *ShardResult) string {
+	baseTask := formatShardTask(verb, target, constraint, workspace)
+
+	// No prior context - return base task
+	if priorResult == nil {
+		return baseTask
+	}
+
+	// Inject context based on verb and prior shard type
+	switch verb {
+	case "/fix":
+		// If fixing after a review, include the specific findings
+		if priorResult.ShardType == "reviewer" && len(priorResult.Findings) > 0 {
+			findingsStr := formatFindingsForTask(priorResult.Findings, target)
+			if findingsStr != "" {
+				// Determine target file from prior result if current target is generic
+				actualTarget := target
+				if actualTarget == "codebase" || actualTarget == "none" || actualTarget == "" {
+					// Extract file from findings or task
+					if file := extractFileFromFindings(priorResult.Findings); file != "" {
+						actualTarget = file
+					}
+				}
+				return fmt.Sprintf("fix file:%s findings:[%s]", actualTarget, findingsStr)
+			}
+		}
+		// If fixing after a test failure, include test errors
+		if priorResult.ShardType == "tester" && priorResult.RawOutput != "" {
+			return fmt.Sprintf("fix file:%s test_errors:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+		}
+
+	case "/refactor":
+		// If refactoring after a review, include improvement suggestions
+		if priorResult.ShardType == "reviewer" && len(priorResult.Findings) > 0 {
+			suggestions := filterFindingsBySeverity(priorResult.Findings, []string{"info", "warning"})
+			if len(suggestions) > 0 {
+				return fmt.Sprintf("refactor file:%s suggestions:[%s]", target, formatFindingsForTask(suggestions, target))
+			}
+		}
+
+	case "/test":
+		// If testing after a fix, include what was fixed
+		if priorResult.ShardType == "coder" {
+			return fmt.Sprintf("write_tests for %s after_fix context:[%s]", target, truncateForTask(priorResult.RawOutput, 300))
+		}
+
+	case "/debug":
+		// Include prior test or error context
+		if priorResult.ShardType == "tester" || priorResult.ShardType == "reviewer" {
+			return fmt.Sprintf("debug %s context:[%s]", target, truncateForTask(priorResult.RawOutput, 500))
+		}
+	}
+
+	return baseTask
+}
+
+// formatFindingsForTask converts findings to a compact string for task injection
+func formatFindingsForTask(findings []map[string]any, targetFile string) string {
+	var parts []string
+	for _, f := range findings {
+		file, _ := f["file"].(string)
+		// Filter to target file if specified
+		if targetFile != "" && targetFile != "codebase" && file != "" && !strings.HasSuffix(file, targetFile) {
+			continue
+		}
+		line, _ := f["line"].(float64)
+		msg, _ := f["message"].(string)
+		sev, _ := f["severity"].(string)
+
+		if msg != "" {
+			if line > 0 {
+				parts = append(parts, fmt.Sprintf("%s@L%d:%s", sev, int(line), truncateForTask(msg, 100)))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s:%s", sev, truncateForTask(msg, 100)))
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// extractFileFromFindings extracts the primary file from findings
+func extractFileFromFindings(findings []map[string]any) string {
+	fileCount := make(map[string]int)
+	for _, f := range findings {
+		if file, ok := f["file"].(string); ok && file != "" {
+			fileCount[file]++
+		}
+	}
+	// Return most common file
+	maxFile := ""
+	maxCount := 0
+	for file, count := range fileCount {
+		if count > maxCount {
+			maxCount = count
+			maxFile = file
+		}
+	}
+	return maxFile
+}
+
+// filterFindingsBySeverity filters findings to only include specified severities
+func filterFindingsBySeverity(findings []map[string]any, severities []string) []map[string]any {
+	var result []map[string]any
+	sevSet := make(map[string]bool)
+	for _, s := range severities {
+		sevSet[strings.ToLower(s)] = true
+	}
+	for _, f := range findings {
+		if sev, ok := f["severity"].(string); ok && sevSet[strings.ToLower(sev)] {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
+// truncateForTask truncates a string for embedding in task strings
+func truncateForTask(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
+}
+
 func formatShardTask(verb, target, constraint, workspace string) string {
 	// Normalize target
 	if target == "" || target == "none" {

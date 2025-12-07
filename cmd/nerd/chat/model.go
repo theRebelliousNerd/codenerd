@@ -12,6 +12,8 @@
 package chat
 
 import (
+	"context"
+
 	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
@@ -123,7 +125,9 @@ type Model struct {
 	compressor *ctxcompress.Compressor
 
 	// Autopoiesis (§8.3) - Self-Modification
-	autopoiesis *autopoiesis.Orchestrator
+	autopoiesis           *autopoiesis.Orchestrator
+	autopoiesisCancel     context.CancelFunc // Cancels kernel listener goroutine
+	autopoiesisListenerCh <-chan struct{}    // Closed when listener stops
 
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
@@ -141,6 +145,13 @@ type Model struct {
 	// Stores the last shard result so follow-up questions can reference it.
 	// This enables "what are the other suggestions?" after a review.
 	lastShardResult *ShardResult
+
+	// ==========================================================================
+	// SESSION CONTEXT HISTORY (Blackboard Pattern)
+	// ==========================================================================
+	// Maintains sliding window of shard results for cross-shard context.
+	// Enables: reviewer→coder, tester→debugger, coder→tester flows.
+	shardResultHistory []*ShardResult // Last N shard results (sliding window)
 }
 
 // ShardResult stores the full output from a shard execution for follow-up queries.
@@ -728,8 +739,9 @@ func RunInteractiveChat(cfg Config) error {
 
 // storeShardResult saves shard execution results for follow-up queries.
 // This enables conversational follow-ups like "show me more" or "what are the warnings?".
+// Also maintains a sliding window history for cross-shard context (blackboard pattern).
 func (m *Model) storeShardResult(shardType, task, result string, facts []core.Fact) {
-	m.lastShardResult = &ShardResult{
+	sr := &ShardResult{
 		ShardType:  shardType,
 		Task:       task,
 		RawOutput:  result,
@@ -746,8 +758,596 @@ func (m *Model) storeShardResult(shardType, task, result string, facts []core.Fa
 		for i, f := range facts {
 			factStrings[i] = f.String()
 		}
-		m.lastShardResult.ExtraData["facts"] = factStrings
+		sr.ExtraData["facts"] = factStrings
 	}
+
+	// Set as most recent result
+	m.lastShardResult = sr
+
+	// Add to history (sliding window of last 10 results)
+	m.shardResultHistory = append(m.shardResultHistory, sr)
+	const maxHistorySize = 10
+	if len(m.shardResultHistory) > maxHistorySize {
+		m.shardResultHistory = m.shardResultHistory[len(m.shardResultHistory)-maxHistorySize:]
+	}
+}
+
+// buildSessionContext creates a SessionContext for shard injection (Blackboard Pattern).
+// This provides shards with comprehensive session context including:
+// - Compressed history, recent findings, recent actions (original)
+// - World model facts (impacted files, diagnostics, symbols, dependencies)
+// - User intent and focus resolutions
+// - Campaign context (if active)
+// - Git state for Chesterton's Fence
+// - Test state for TDD loop awareness
+// - Cross-shard execution history
+// - Domain knowledge atoms
+// - Constitutional constraints
+func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
+	sessionCtx := &core.SessionContext{
+		ExtraContext: make(map[string]string),
+	}
+
+	// ==========================================================================
+	// CORE CONTEXT (Original)
+	// ==========================================================================
+
+	// Get compressed history from compressor
+	if m.compressor != nil {
+		if ctxStr, err := m.compressor.GetContextString(ctx); err == nil {
+			sessionCtx.CompressedHistory = ctxStr
+		}
+	}
+
+	// Extract recent findings from shard history
+	for _, sr := range m.shardResultHistory {
+		if sr.ShardType == "reviewer" || sr.ShardType == "tester" {
+			for _, f := range sr.Findings {
+				if msg, ok := f["raw"].(string); ok {
+					sessionCtx.RecentFindings = append(sessionCtx.RecentFindings, msg)
+				}
+			}
+		}
+		// Track recent actions
+		sessionCtx.RecentActions = append(sessionCtx.RecentActions,
+			fmt.Sprintf("[%s] %s", sr.ShardType, truncateForContext(sr.Task, 50)))
+	}
+
+	// Limit findings to last 20
+	if len(sessionCtx.RecentFindings) > 20 {
+		sessionCtx.RecentFindings = sessionCtx.RecentFindings[len(sessionCtx.RecentFindings)-20:]
+	}
+
+	// Limit actions to last 10
+	if len(sessionCtx.RecentActions) > 10 {
+		sessionCtx.RecentActions = sessionCtx.RecentActions[len(sessionCtx.RecentActions)-10:]
+	}
+
+	// ==========================================================================
+	// WORLD MODEL / EDB FACTS (from kernel)
+	// ==========================================================================
+	if m.kernel != nil {
+		// Get impacted files (transitive impact from modified files)
+		sessionCtx.ImpactedFiles = m.queryKernelStrings("impacted")
+
+		// Get current diagnostics (errors/warnings)
+		sessionCtx.CurrentDiagnostics = m.queryDiagnostics()
+
+		// Get relevant symbols in scope
+		sessionCtx.SymbolContext = m.querySymbolContext()
+
+		// Get 1-hop dependencies for active files
+		if len(sessionCtx.ActiveFiles) > 0 {
+			sessionCtx.DependencyContext = m.queryDependencyContext(sessionCtx.ActiveFiles)
+		}
+
+		// Get focus resolutions
+		sessionCtx.FocusResolutions = m.queryFocusResolutions()
+	}
+
+	// ==========================================================================
+	// CAMPAIGN CONTEXT (if active)
+	// ==========================================================================
+	if m.activeCampaign != nil {
+		sessionCtx.CampaignActive = true
+		// Get current phase from progress or derive from phases
+		if m.campaignProgress != nil {
+			sessionCtx.CampaignPhase = m.campaignProgress.CurrentPhase
+		} else {
+			sessionCtx.CampaignPhase = m.getCurrentPhaseName()
+		}
+		sessionCtx.CampaignGoal = m.getCampaignPhaseGoal()
+		sessionCtx.TaskDependencies = m.getCampaignTaskDeps()
+		sessionCtx.LinkedRequirements = m.getCampaignLinkedReqs()
+	}
+
+	// ==========================================================================
+	// GIT STATE / CHESTERTON'S FENCE
+	// ==========================================================================
+	m.populateGitContext(sessionCtx)
+
+	// ==========================================================================
+	// TEST STATE (TDD LOOP)
+	// ==========================================================================
+	m.populateTestState(sessionCtx)
+
+	// ==========================================================================
+	// CROSS-SHARD EXECUTION HISTORY
+	// ==========================================================================
+	sessionCtx.PriorShardOutputs = m.buildPriorShardSummaries()
+
+	// ==========================================================================
+	// DOMAIN KNOWLEDGE (Type B Specialists)
+	// ==========================================================================
+	if m.learningStore != nil {
+		sessionCtx.KnowledgeAtoms = m.queryKnowledgeAtoms()
+		sessionCtx.SpecialistHints = m.querySpecialistHints()
+	}
+
+	// ==========================================================================
+	// CONSTITUTIONAL CONSTRAINTS
+	// ==========================================================================
+	if m.kernel != nil {
+		sessionCtx.AllowedActions = m.queryAllowedActions()
+		sessionCtx.BlockedActions = m.queryBlockedActions()
+		sessionCtx.SafetyWarnings = m.querySafetyWarnings()
+	}
+
+	return sessionCtx
+}
+
+// =============================================================================
+// KERNEL QUERY HELPERS FOR SESSION CONTEXT
+// =============================================================================
+
+// queryKernelStrings queries a predicate and returns all first-arg strings.
+func (m *Model) queryKernelStrings(predicate string) []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query(predicate)
+	if err != nil {
+		return nil
+	}
+	var strs []string
+	for _, fact := range results {
+		if len(fact.Args) > 0 {
+			if s, ok := fact.Args[0].(string); ok {
+				strs = append(strs, s)
+			}
+		}
+	}
+	return strs
+}
+
+// queryDiagnostics extracts current diagnostics from the kernel.
+func (m *Model) queryDiagnostics() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("diagnostic")
+	if err != nil {
+		return nil
+	}
+	var diagnostics []string
+	for _, fact := range results {
+		// diagnostic(Severity, FilePath, Line, ErrorCode, Message)
+		if len(fact.Args) >= 5 {
+			severity, _ := fact.Args[0].(string)
+			file, _ := fact.Args[1].(string)
+			line, _ := fact.Args[2].(int64)
+			msg, _ := fact.Args[4].(string)
+			diagnostics = append(diagnostics,
+				fmt.Sprintf("[%s] %s:%d: %s", severity, file, line, msg))
+		}
+	}
+	// Limit to most recent 10
+	if len(diagnostics) > 10 {
+		diagnostics = diagnostics[len(diagnostics)-10:]
+	}
+	return diagnostics
+}
+
+// querySymbolContext gets relevant symbols from symbol_graph.
+func (m *Model) querySymbolContext() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("symbol_graph")
+	if err != nil {
+		return nil
+	}
+	var symbols []string
+	for _, fact := range results {
+		// symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
+		if len(fact.Args) >= 5 {
+			symbolID, _ := fact.Args[0].(string)
+			symType, _ := fact.Args[1].(string)
+			visibility, _ := fact.Args[2].(string)
+			signature, _ := fact.Args[4].(string)
+			if visibility == "/public" || visibility == "/exported" {
+				symbols = append(symbols,
+					fmt.Sprintf("%s %s: %s", symType, symbolID, truncateForContext(signature, 60)))
+			}
+		}
+	}
+	// Limit to 15 most relevant
+	if len(symbols) > 15 {
+		symbols = symbols[:15]
+	}
+	return symbols
+}
+
+// queryDependencyContext gets 1-hop dependencies for target files.
+func (m *Model) queryDependencyContext(files []string) []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("dependency_link")
+	if err != nil {
+		return nil
+	}
+	var deps []string
+	fileSet := make(map[string]bool)
+	for _, f := range files {
+		fileSet[f] = true
+	}
+	for _, fact := range results {
+		// dependency_link(CallerID, CalleeID, ImportPath)
+		if len(fact.Args) >= 3 {
+			caller, _ := fact.Args[0].(string)
+			callee, _ := fact.Args[1].(string)
+			importPath, _ := fact.Args[2].(string)
+			// Check if caller or callee is in our active files
+			if fileSet[caller] {
+				deps = append(deps, fmt.Sprintf("%s imports %s", caller, importPath))
+			}
+			if fileSet[callee] {
+				deps = append(deps, fmt.Sprintf("%s imported by %s", callee, caller))
+			}
+		}
+	}
+	// Limit to 10
+	if len(deps) > 10 {
+		deps = deps[:10]
+	}
+	return deps
+}
+
+// queryFocusResolutions gets resolved paths from fuzzy references.
+func (m *Model) queryFocusResolutions() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("focus_resolution")
+	if err != nil {
+		return nil
+	}
+	var resolutions []string
+	for _, fact := range results {
+		// focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence)
+		if len(fact.Args) >= 4 {
+			rawRef, _ := fact.Args[0].(string)
+			resolved, _ := fact.Args[1].(string)
+			confidence, _ := fact.Args[3].(float64)
+			resolutions = append(resolutions,
+				fmt.Sprintf("'%s' -> %s (%.0f%%)", rawRef, resolved, confidence*100))
+		}
+	}
+	return resolutions
+}
+
+// getCurrentPhaseName derives the current phase name from campaign phases.
+func (m *Model) getCurrentPhaseName() string {
+	if m.activeCampaign == nil {
+		return ""
+	}
+	// Find phase with /in_progress status
+	for _, phase := range m.activeCampaign.Phases {
+		if phase.Status == campaign.PhaseInProgress {
+			return phase.Name
+		}
+	}
+	// Fallback: find first pending phase
+	for _, phase := range m.activeCampaign.Phases {
+		if phase.Status == campaign.PhasePending {
+			return phase.Name
+		}
+	}
+	// Fallback: return first phase name
+	if len(m.activeCampaign.Phases) > 0 {
+		return m.activeCampaign.Phases[0].Name
+	}
+	return ""
+}
+
+// getCampaignPhaseGoal returns the current phase's goal description.
+func (m *Model) getCampaignPhaseGoal() string {
+	if m.activeCampaign == nil {
+		return ""
+	}
+	currentPhaseName := m.getCurrentPhaseName()
+	for _, phase := range m.activeCampaign.Phases {
+		if phase.Name == currentPhaseName {
+			// Use first objective's description if available
+			if len(phase.Objectives) > 0 {
+				return phase.Objectives[0].Description
+			}
+			return phase.Name
+		}
+	}
+	return currentPhaseName
+}
+
+// getCampaignTaskDeps returns dependencies for the current task.
+func (m *Model) getCampaignTaskDeps() []string {
+	if m.activeCampaign == nil || m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("has_blocking_task_dep")
+	if err != nil {
+		return nil
+	}
+	var deps []string
+	for _, fact := range results {
+		if len(fact.Args) >= 1 {
+			if dep, ok := fact.Args[0].(string); ok {
+				deps = append(deps, dep)
+			}
+		}
+	}
+	return deps
+}
+
+// getCampaignLinkedReqs returns requirements linked to current task.
+func (m *Model) getCampaignLinkedReqs() []string {
+	if m.activeCampaign == nil || m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("requirement_task_link")
+	if err != nil {
+		return nil
+	}
+	var reqs []string
+	for _, fact := range results {
+		// requirement_task_link(RequirementID, TaskID, Strength)
+		if len(fact.Args) >= 2 {
+			if req, ok := fact.Args[0].(string); ok {
+				reqs = append(reqs, req)
+			}
+		}
+	}
+	return reqs
+}
+
+// populateGitContext fills in git state for Chesterton's Fence.
+func (m *Model) populateGitContext(sessionCtx *core.SessionContext) {
+	if m.kernel == nil {
+		return
+	}
+
+	// Query git_branch fact
+	if results, err := m.kernel.Query("git_branch"); err == nil && len(results) > 0 {
+		if len(results[0].Args) >= 1 {
+			if branch, ok := results[0].Args[0].(string); ok {
+				sessionCtx.GitBranch = branch
+			}
+		}
+	}
+
+	// Query modified files
+	sessionCtx.GitModifiedFiles = m.queryKernelStrings("modified")
+
+	// Query recent commits (for Chesterton's Fence)
+	if results, err := m.kernel.Query("recent_commit"); err == nil {
+		for _, fact := range results {
+			// recent_commit(Hash, Message, Author, Timestamp)
+			if len(fact.Args) >= 2 {
+				msg, _ := fact.Args[1].(string)
+				sessionCtx.GitRecentCommits = append(sessionCtx.GitRecentCommits,
+					truncateForContext(msg, 80))
+			}
+		}
+	}
+	// Limit to 5 commits
+	if len(sessionCtx.GitRecentCommits) > 5 {
+		sessionCtx.GitRecentCommits = sessionCtx.GitRecentCommits[:5]
+	}
+
+	// Count unstaged changes
+	sessionCtx.GitUnstagedCount = len(sessionCtx.GitModifiedFiles)
+}
+
+// populateTestState fills in TDD loop state.
+func (m *Model) populateTestState(sessionCtx *core.SessionContext) {
+	if m.kernel == nil {
+		sessionCtx.TestState = "unknown"
+		return
+	}
+
+	// Query test_state fact
+	if results, err := m.kernel.Query("test_state"); err == nil && len(results) > 0 {
+		if len(results[0].Args) >= 1 {
+			if state, ok := results[0].Args[0].(string); ok {
+				sessionCtx.TestState = state
+			}
+		}
+	} else {
+		sessionCtx.TestState = "unknown"
+	}
+
+	// Query failing tests
+	if results, err := m.kernel.Query("failing_test"); err == nil {
+		for _, fact := range results {
+			// failing_test(TestName, ErrorMessage)
+			if len(fact.Args) >= 2 {
+				testName, _ := fact.Args[0].(string)
+				errMsg, _ := fact.Args[1].(string)
+				sessionCtx.FailingTests = append(sessionCtx.FailingTests,
+					fmt.Sprintf("%s: %s", testName, truncateForContext(errMsg, 60)))
+			}
+		}
+	}
+
+	// Query retry count
+	if results, err := m.kernel.Query("retry_count"); err == nil && len(results) > 0 {
+		if len(results[0].Args) >= 1 {
+			if count, ok := results[0].Args[0].(int64); ok {
+				sessionCtx.TDDRetryCount = int(count)
+			}
+		}
+	}
+}
+
+// buildPriorShardSummaries creates summaries of recent shard executions.
+func (m *Model) buildPriorShardSummaries() []core.ShardSummary {
+	var summaries []core.ShardSummary
+	for _, sr := range m.shardResultHistory {
+		summaries = append(summaries, core.ShardSummary{
+			ShardType: sr.ShardType,
+			Task:      truncateForContext(sr.Task, 50),
+			Summary:   extractShardSummary(sr),
+			Timestamp: sr.Timestamp,
+			Success:   sr.ExtraData["error"] == nil,
+		})
+	}
+	// Limit to last 5
+	if len(summaries) > 5 {
+		summaries = summaries[len(summaries)-5:]
+	}
+	return summaries
+}
+
+// extractShardSummary extracts a one-line summary from shard result.
+func extractShardSummary(sr *ShardResult) string {
+	// Try to find a summary line
+	lines := strings.Split(sr.RawOutput, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Look for status lines
+		if strings.Contains(line, "PASSED") || strings.Contains(line, "FAILED") ||
+			strings.Contains(line, "complete") || strings.Contains(line, "created") ||
+			strings.Contains(line, "modified") || strings.Contains(line, "reviewed") {
+			return truncateForContext(line, 80)
+		}
+	}
+	// Fallback: first non-empty line
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) > 10 {
+			return truncateForContext(line, 80)
+		}
+	}
+	return truncateForContext(sr.RawOutput, 80)
+}
+
+// queryKnowledgeAtoms gets relevant domain knowledge from learning store.
+func (m *Model) queryKnowledgeAtoms() []string {
+	if m.learningStore == nil {
+		return nil
+	}
+	// Query knowledge atoms from learning store
+	learnings, err := m.learningStore.LoadByPredicate("knowledge", "atom")
+	if err != nil {
+		return nil
+	}
+	var atoms []string
+	for _, learning := range learnings {
+		if len(learning.FactArgs) >= 2 {
+			domain, _ := learning.FactArgs[0].(string)
+			fact, _ := learning.FactArgs[1].(string)
+			atoms = append(atoms, fmt.Sprintf("[%s] %s", domain, fact))
+		}
+	}
+	// Limit to 10
+	if len(atoms) > 10 {
+		atoms = atoms[:10]
+	}
+	return atoms
+}
+
+// querySpecialistHints gets hints from specialist knowledge base.
+func (m *Model) querySpecialistHints() []string {
+	if m.learningStore == nil {
+		return nil
+	}
+	learnings, err := m.learningStore.LoadByPredicate("specialist", "hint")
+	if err != nil {
+		return nil
+	}
+	var hints []string
+	for _, learning := range learnings {
+		if len(learning.FactArgs) >= 1 {
+			if hint, ok := learning.FactArgs[0].(string); ok {
+				hints = append(hints, hint)
+			}
+		}
+	}
+	// Limit to 5
+	if len(hints) > 5 {
+		hints = hints[:5]
+	}
+	return hints
+}
+
+// queryAllowedActions gets permitted actions from constitutional rules.
+func (m *Model) queryAllowedActions() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("permitted")
+	if err != nil {
+		return nil
+	}
+	var actions []string
+	for _, fact := range results {
+		if len(fact.Args) >= 1 {
+			if action, ok := fact.Args[0].(string); ok {
+				actions = append(actions, action)
+			}
+		}
+	}
+	return actions
+}
+
+// queryBlockedActions gets denied actions from constitutional rules.
+func (m *Model) queryBlockedActions() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("blocked_action")
+	if err != nil {
+		return nil
+	}
+	var actions []string
+	for _, fact := range results {
+		if len(fact.Args) >= 1 {
+			if action, ok := fact.Args[0].(string); ok {
+				actions = append(actions, action)
+			}
+		}
+	}
+	return actions
+}
+
+// querySafetyWarnings gets active safety concerns.
+func (m *Model) querySafetyWarnings() []string {
+	if m.kernel == nil {
+		return nil
+	}
+	results, err := m.kernel.Query("safety_warning")
+	if err != nil {
+		return nil
+	}
+	var warnings []string
+	for _, fact := range results {
+		if len(fact.Args) >= 1 {
+			if warning, ok := fact.Args[0].(string); ok {
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+	return warnings
 }
 
 // extractFindings parses structured findings from reviewer output.

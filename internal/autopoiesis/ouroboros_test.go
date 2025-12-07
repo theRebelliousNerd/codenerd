@@ -59,8 +59,8 @@ func TestDefaultOuroborosConfig(t *testing.T) {
 	if !config.AllowFileSystem {
 		t.Error("AllowFileSystem should be true by default")
 	}
-	if config.AllowExec {
-		t.Error("AllowExec should be false by default")
+	if !config.AllowExec {
+		t.Error("AllowExec should be true by default")
 	}
 }
 
@@ -169,7 +169,7 @@ func TestSafetyChecker_Check_ForbiddenImports(t *testing.T) {
 		{"runtime/cgo", "runtime/cgo", true},
 		{"plugin", "plugin", true},
 		{"debug/pprof", "debug/pprof", true},
-		{"os/exec", "os/exec", true}, // AllowExec is false by default
+		{"os/exec", "os/exec", false}, // AllowExec is true by default
 		{"net", "net", true},         // AllowNetworking is false by default
 		{"net/http", "net/http", true},
 		{"fmt", "fmt", false},           // Safe

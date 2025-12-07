@@ -1059,28 +1059,29 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 	now := time.Now()
 	facts := make([]mangle.Fact, 0, len(nodes)*3)
 	for _, n := range nodes {
+		// Include sessionID in all facts to associate DOM with specific browser session
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
-			Args:      []interface{}{n.ID, n.Tag, n.Text, n.Parent},
+			Args:      []interface{}{sessionID, n.ID, n.Tag, n.Text, n.Parent},
 			Timestamp: now,
 		})
 		if n.Text != "" {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_text",
-				Args:      []interface{}{n.ID, n.Text},
+				Args:      []interface{}{sessionID, n.ID, n.Text},
 				Timestamp: now,
 			})
 		}
 		for k, v := range n.Attrs {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_attr",
-				Args:      []interface{}{n.ID, k, v},
+				Args:      []interface{}{sessionID, n.ID, k, v},
 				Timestamp: now,
 			})
 		}
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_layout",
-			Args:      []interface{}{n.ID, n.Layout.X, n.Layout.Y, n.Layout.Width, n.Layout.Height, fmt.Sprintf("%v", n.Layout.Visible)},
+			Args:      []interface{}{sessionID, n.ID, n.Layout.X, n.Layout.Y, n.Layout.Width, n.Layout.Height, fmt.Sprintf("%v", n.Layout.Visible)},
 			Timestamp: now,
 		})
 	}

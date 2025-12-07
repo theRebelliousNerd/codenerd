@@ -39,8 +39,26 @@ func (m Model) processInput(input string) tea.Cmd {
 			return m.handleFollowUpQuestion(ctx, input, followUpType)
 		}
 
-		// 1. PERCEPTION (Transducer)
-		intent, err := m.transducer.ParseIntent(ctx, input)
+		// 1. PERCEPTION (Transducer) - with conversation history for context
+		// Convert history to perception.ConversationTurn format
+		// Use ALL history until compression kicks in, then use recent window only
+		var historyForPerception []perception.ConversationTurn
+		var recentTurns []Message
+		if m.compressor != nil && m.compressor.IsCompressionActive() {
+			// Compression active: use recent window (compressed context handles the rest)
+			recentTurns = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
+		} else {
+			// No compression yet: pass ALL history so LLM has full context
+			recentTurns = m.history
+		}
+		for _, msg := range recentTurns {
+			historyForPerception = append(historyForPerception, perception.ConversationTurn{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		intent, err := m.transducer.ParseIntentWithContext(ctx, input, historyForPerception)
 		if err != nil {
 			return errorMsg(fmt.Errorf("perception error: %w", err))
 		}
@@ -63,8 +81,12 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
 		if shardType != "" && intent.Confidence >= 0.5 {
-			// Format task based on verb and target
-			task := formatShardTask(intent.Verb, intent.Target, intent.Constraint, m.workspace)
+			// Format task based on verb and target, with prior shard context (blackboard pattern)
+			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
+			task := formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
+
+			// Build session context for shard injection (Blackboard Pattern)
+			sessionCtx := m.buildSessionContext(ctx)
 
 			// Use verification loop if available (quality-enforcing retry)
 			if m.verifier != nil {
@@ -97,8 +119,8 @@ func (m Model) processInput(input string) tea.Cmd {
 				return responseMsg(response)
 			}
 
-			// Fallback: Direct shard spawn without verification
-			result, spawnErr := m.shardMgr.Spawn(ctx, shardType, task)
+			// Fallback: Direct shard spawn without verification (with session context)
+			result, spawnErr := m.shardMgr.SpawnWithContext(ctx, shardType, task, sessionCtx)
 
 			// CRITICAL FIX: Inject shard results as facts for cross-turn context
 			// This enables the main agent to reference shard outputs in future turns
@@ -267,10 +289,25 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// Build conversation context for fluid chat experience
 		// This enables the LLM to understand recent turns and reference previous outputs
+		// Now includes compressed session context (Blackboard Pattern + Infinite Context)
+		var compressedCtx string
+		var recentTurnsForArticulation []Message
+		if m.compressor != nil && m.compressor.IsCompressionActive() {
+			// Compression active: use recent window + compressed context for older turns
+			if ctxStr, err := m.compressor.GetContextString(ctx); err == nil {
+				compressedCtx = ctxStr
+			}
+			recentTurnsForArticulation = m.getRecentTurns(m.compressor.GetRecentTurnWindow())
+		} else {
+			// No compression yet: pass ALL history so LLM has full context
+			recentTurnsForArticulation = m.history
+		}
 		convCtx := &ConversationContext{
-			RecentTurns:     m.getRecentTurns(4), // Last 4 turns for context
+			RecentTurns:     recentTurnsForArticulation,
 			LastShardResult: m.lastShardResult,
 			TurnNumber:      m.turnCount,
+			ShardHistory:    m.shardResultHistory, // Blackboard: all recent shard results
+			CompressedCtx:   compressedCtx,        // Infinite context: compressed session (empty if not active)
 		}
 
 		// Use full articulation output to capture MemoryOperations
@@ -579,11 +616,19 @@ func (m Model) handleFollowUpQuestion(ctx context.Context, input string, followU
 		return responseMsg("I don't have any previous results to reference. Could you provide more context?")
 	}
 
-	// Build conversation context with recent history
+	// Build conversation context with recent history (includes blackboard + compressed context)
+	var compressedCtx string
+	if m.compressor != nil {
+		if ctxStr, err := m.compressor.GetContextString(ctx); err == nil {
+			compressedCtx = ctxStr
+		}
+	}
 	convCtx := &ConversationContext{
 		RecentTurns:     m.getRecentTurns(6), // Last 6 turns
 		LastShardResult: sr,
 		TurnNumber:      m.turnCount,
+		ShardHistory:    m.shardResultHistory, // Blackboard
+		CompressedCtx:   compressedCtx,        // Infinite context
 	}
 
 	// For "show more" type questions about reviewer findings, we can answer directly

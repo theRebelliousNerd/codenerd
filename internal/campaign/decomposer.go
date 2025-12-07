@@ -122,6 +122,12 @@ func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID strin
 	content := make(map[string]string)
 
 	for _, path := range paths {
+		// Check for cancellation between file reads
+		select {
+		case <-ctx.Done():
+			return docs, content, ctx.Err()
+		default:
+		}
 		// Resolve path
 		fullPath := path
 		if !filepath.IsAbs(path) {
@@ -581,14 +587,30 @@ func (d *Decomposer) detectCircularDependencies(campaignID string) []string {
 func (d *Decomposer) detectUnreachableTasks(campaignID string) []string {
 	issues := make([]string, 0)
 
-	// Get all tasks
+	// Get phases belonging to this campaign
+	phaseFacts, _ := d.kernel.Query("campaign_phase")
+	campaignPhases := make(map[string]bool) // phaseID -> belongs to campaign
+	for _, fact := range phaseFacts {
+		if len(fact.Args) >= 2 {
+			if factCampaignID, ok := fact.Args[1].(string); ok && factCampaignID == campaignID {
+				phaseID := fmt.Sprintf("%v", fact.Args[0])
+				campaignPhases[phaseID] = true
+			}
+		}
+	}
+
+	// Get tasks for this campaign (filter by phase membership)
 	taskFacts, _ := d.kernel.Query("campaign_task")
 	tasks := make(map[string]bool) // taskID -> exists
 
 	for _, fact := range taskFacts {
 		if len(fact.Args) >= 2 {
 			taskID := fmt.Sprintf("%v", fact.Args[0])
-			tasks[taskID] = true
+			phaseID := fmt.Sprintf("%v", fact.Args[1])
+			// Only include tasks belonging to this campaign's phases
+			if campaignPhases[phaseID] {
+				tasks[taskID] = true
+			}
 		}
 	}
 

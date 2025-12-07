@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,6 +60,94 @@ type ModelConfig struct {
 	Capability ModelCapability
 }
 
+// StructuredIntent represents the parsed user intent from the perception transducer.
+type StructuredIntent struct {
+	ID         string // Unique intent ID
+	Category   string // /query, /mutation, /instruction
+	Verb       string // /explain, /refactor, /debug, /generate
+	Target     string // File, symbol, or concept target
+	Constraint string // Additional constraints
+}
+
+// ShardSummary represents a compressed summary of a prior shard execution.
+type ShardSummary struct {
+	ShardType string    // "reviewer", "coder", "tester", "researcher"
+	Task      string    // Original task (truncated)
+	Summary   string    // Compressed output summary
+	Timestamp time.Time // When executed
+	Success   bool      // Whether it succeeded
+}
+
+// SessionContext holds compressed session context for shard injection (Blackboard Pattern).
+// This enables shards to understand the full session history without token explosion.
+// Extended to include all context types specified in the codeNERD architecture.
+type SessionContext struct {
+	// ==========================================================================
+	// CORE CONTEXT (Original)
+	// ==========================================================================
+	CompressedHistory string            // Semantically compressed session (from compressor)
+	RecentFindings    []string          // Recent reviewer/tester findings
+	RecentActions     []string          // Recent shard actions taken
+	ActiveFiles       []string          // Files currently in focus
+	ExtraContext      map[string]string // Additional context key-values
+
+	// ==========================================================================
+	// WORLD MODEL / EDB FACTS
+	// ==========================================================================
+	ImpactedFiles      []string // Files transitively affected by current changes (impacted/1)
+	CurrentDiagnostics []string // Active errors/warnings from diagnostic/5
+	SymbolContext      []string // Relevant symbols in scope (symbol_graph)
+	DependencyContext  []string // 1-hop dependencies for target file(s)
+
+	// ==========================================================================
+	// USER INTENT & FOCUS
+	// ==========================================================================
+	UserIntent       *StructuredIntent // Parsed intent from perception transducer
+	FocusResolutions []string          // Resolved paths from fuzzy references
+
+	// ==========================================================================
+	// CAMPAIGN CONTEXT (Multi-Phase Goals)
+	// ==========================================================================
+	CampaignActive  bool     // Whether a campaign is in progress
+	CampaignPhase   string   // Current phase name/ID
+	CampaignGoal    string   // Current phase objective
+	TaskDependencies []string // What this task depends on (blocking tasks)
+	LinkedRequirements []string // Requirements/specs this task fulfills
+
+	// ==========================================================================
+	// GIT STATE / CHESTERTON'S FENCE
+	// ==========================================================================
+	GitBranch        string   // Current branch name
+	GitModifiedFiles []string // Uncommitted/modified files
+	GitRecentCommits []string // Recent commit messages (for Chesterton's Fence)
+	GitUnstagedCount int      // Number of unstaged changes
+
+	// ==========================================================================
+	// TEST STATE (TDD LOOP)
+	// ==========================================================================
+	TestState      string   // /passing, /failing, /pending, /unknown
+	FailingTests   []string // Names/paths of failing tests
+	TDDRetryCount  int      // Current TDD repair loop iteration
+
+	// ==========================================================================
+	// CROSS-SHARD EXECUTION HISTORY
+	// ==========================================================================
+	PriorShardOutputs []ShardSummary // Recent shard executions with summaries
+
+	// ==========================================================================
+	// DOMAIN KNOWLEDGE (Type B Specialists)
+	// ==========================================================================
+	KnowledgeAtoms []string // Relevant domain expertise facts
+	SpecialistHints []string // Hints from specialist knowledge base
+
+	// ==========================================================================
+	// CONSTITUTIONAL CONSTRAINTS
+	// ==========================================================================
+	AllowedActions []string // Permitted actions for this shard
+	BlockedActions []string // Explicitly denied actions
+	SafetyWarnings []string // Active safety concerns
+}
+
 // ShardConfig holds configuration for a shard.
 type ShardConfig struct {
 	Name        string
@@ -72,6 +161,9 @@ type ShardConfig struct {
 	// Tool associations (for specialist shards)
 	Tools          []string          // List of tool names this shard can use
 	ToolPreferences map[string]string // Action -> preferred tool mapping
+
+	// Session context (Blackboard Pattern)
+	SessionContext *SessionContext // Compressed session context for LLM injection
 }
 
 // DefaultGeneralistConfig returns config for a Type A generalist.
@@ -246,6 +338,157 @@ func (b *BaseShardAgent) llm() LLMClient {
 	return b.llmClient
 }
 
+// buildSessionContextPrompt builds comprehensive session context for cross-shard awareness (Blackboard Pattern).
+// This is available to all shards including Type U (User-defined) specialists.
+// Subclasses can call this to inject session context into their LLM prompts.
+func (b *BaseShardAgent) buildSessionContextPrompt() string {
+	if b.config.SessionContext == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	ctx := b.config.SessionContext
+
+	// ==========================================================================
+	// CURRENT DIAGNOSTICS
+	// ==========================================================================
+	if len(ctx.CurrentDiagnostics) > 0 {
+		sb.WriteString("\nCURRENT BUILD/LINT ISSUES:\n")
+		for _, diag := range ctx.CurrentDiagnostics {
+			sb.WriteString(fmt.Sprintf("  %s\n", diag))
+		}
+	}
+
+	// ==========================================================================
+	// TEST STATE
+	// ==========================================================================
+	if ctx.TestState == "/failing" || len(ctx.FailingTests) > 0 {
+		sb.WriteString("\nTEST STATE: FAILING\n")
+		if ctx.TDDRetryCount > 0 {
+			sb.WriteString(fmt.Sprintf("  TDD Retry: %d\n", ctx.TDDRetryCount))
+		}
+		for _, test := range ctx.FailingTests {
+			sb.WriteString(fmt.Sprintf("  - %s\n", test))
+		}
+	}
+
+	// ==========================================================================
+	// RECENT FINDINGS (from reviewer/tester)
+	// ==========================================================================
+	if len(ctx.RecentFindings) > 0 {
+		sb.WriteString("\nRECENT FINDINGS:\n")
+		for _, finding := range ctx.RecentFindings {
+			sb.WriteString(fmt.Sprintf("  - %s\n", finding))
+		}
+	}
+
+	// ==========================================================================
+	// IMPACTED FILES
+	// ==========================================================================
+	if len(ctx.ImpactedFiles) > 0 {
+		sb.WriteString("\nIMPACTED FILES:\n")
+		for _, file := range ctx.ImpactedFiles {
+			sb.WriteString(fmt.Sprintf("  - %s\n", file))
+		}
+	}
+
+	// ==========================================================================
+	// GIT CONTEXT
+	// ==========================================================================
+	if ctx.GitBranch != "" || len(ctx.GitRecentCommits) > 0 {
+		sb.WriteString("\nGIT CONTEXT:\n")
+		if ctx.GitBranch != "" {
+			sb.WriteString(fmt.Sprintf("  Branch: %s\n", ctx.GitBranch))
+		}
+		if len(ctx.GitRecentCommits) > 0 {
+			sb.WriteString("  Recent commits:\n")
+			for _, commit := range ctx.GitRecentCommits {
+				sb.WriteString(fmt.Sprintf("    - %s\n", commit))
+			}
+		}
+	}
+
+	// ==========================================================================
+	// CAMPAIGN CONTEXT
+	// ==========================================================================
+	if ctx.CampaignActive {
+		sb.WriteString("\nCAMPAIGN CONTEXT:\n")
+		if ctx.CampaignPhase != "" {
+			sb.WriteString(fmt.Sprintf("  Phase: %s\n", ctx.CampaignPhase))
+		}
+		if ctx.CampaignGoal != "" {
+			sb.WriteString(fmt.Sprintf("  Goal: %s\n", ctx.CampaignGoal))
+		}
+	}
+
+	// ==========================================================================
+	// PRIOR SHARD OUTPUTS
+	// ==========================================================================
+	if len(ctx.PriorShardOutputs) > 0 {
+		sb.WriteString("\nPRIOR SHARD RESULTS:\n")
+		for _, output := range ctx.PriorShardOutputs {
+			status := "SUCCESS"
+			if !output.Success {
+				status = "FAILED"
+			}
+			sb.WriteString(fmt.Sprintf("  [%s] %s: %s - %s\n",
+				output.ShardType, status, output.Task, output.Summary))
+		}
+	}
+
+	// ==========================================================================
+	// RECENT SESSION ACTIONS
+	// ==========================================================================
+	if len(ctx.RecentActions) > 0 {
+		sb.WriteString("\nSESSION ACTIONS:\n")
+		for _, action := range ctx.RecentActions {
+			sb.WriteString(fmt.Sprintf("  - %s\n", action))
+		}
+	}
+
+	// ==========================================================================
+	// DOMAIN KNOWLEDGE (Type B Specialist Hints)
+	// ==========================================================================
+	if len(ctx.KnowledgeAtoms) > 0 || len(ctx.SpecialistHints) > 0 {
+		sb.WriteString("\nDOMAIN KNOWLEDGE:\n")
+		for _, atom := range ctx.KnowledgeAtoms {
+			sb.WriteString(fmt.Sprintf("  - %s\n", atom))
+		}
+		for _, hint := range ctx.SpecialistHints {
+			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
+		}
+	}
+
+	// ==========================================================================
+	// SAFETY CONSTRAINTS
+	// ==========================================================================
+	if len(ctx.BlockedActions) > 0 || len(ctx.SafetyWarnings) > 0 {
+		sb.WriteString("\nSAFETY CONSTRAINTS:\n")
+		for _, blocked := range ctx.BlockedActions {
+			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", blocked))
+		}
+		for _, warning := range ctx.SafetyWarnings {
+			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", warning))
+		}
+	}
+
+	// ==========================================================================
+	// COMPRESSED SESSION HISTORY
+	// ==========================================================================
+	if ctx.CompressedHistory != "" && len(ctx.CompressedHistory) < 1500 {
+		sb.WriteString("\nSESSION HISTORY (compressed):\n")
+		sb.WriteString(ctx.CompressedHistory)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// GetSessionContext returns the session context for subclasses.
+func (b *BaseShardAgent) GetSessionContext() *SessionContext {
+	return b.config.SessionContext
+}
+
 // =============================================================================
 // SHARD MANAGER
 // =============================================================================
@@ -416,7 +659,13 @@ func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 
 // Spawn creates and executes a shard synchronously.
 func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (string, error) {
-	id, err := sm.SpawnAsync(ctx, typeName, task)
+	return sm.SpawnWithContext(ctx, typeName, task, nil)
+}
+
+// SpawnWithContext creates and executes a shard with session context (Blackboard Pattern).
+// The sessionCtx provides compressed history and recent findings for cross-shard awareness.
+func (sm *ShardManager) SpawnWithContext(ctx context.Context, typeName, task string, sessionCtx *SessionContext) (string, error) {
+	id, err := sm.SpawnAsyncWithContext(ctx, typeName, task, sessionCtx)
 	if err != nil {
 		return "", err
 	}
@@ -443,6 +692,11 @@ func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (strin
 
 // SpawnAsync creates and executes a shard asynchronously.
 func (sm *ShardManager) SpawnAsync(ctx context.Context, typeName, task string) (string, error) {
+	return sm.SpawnAsyncWithContext(ctx, typeName, task, nil)
+}
+
+// SpawnAsyncWithContext creates and executes a shard asynchronously with session context.
+func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, task string, sessionCtx *SessionContext) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -457,6 +711,11 @@ func (sm *ShardManager) SpawnAsync(ctx context.Context, typeName, task string) (
 		if typeName == "ephemeral" {
 			config.Type = ShardTypeEphemeral
 		}
+	}
+
+	// Inject session context into config (Blackboard Pattern)
+	if sessionCtx != nil {
+		config.SessionContext = sessionCtx
 	}
 
 	// 2. Resolve Factory

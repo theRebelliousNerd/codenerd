@@ -70,7 +70,7 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		ExecuteTimeout:  60 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true, // Read-only by default
-		AllowExec:       false,
+		AllowExec:       true,
 		TargetOS:        os.Getenv("GOOS"),
 		TargetArch:      os.Getenv("GOARCH"),
 		WorkspaceRoot:   workspaceRoot,

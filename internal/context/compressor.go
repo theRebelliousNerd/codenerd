@@ -245,13 +245,9 @@ func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 }
 
 // shouldCompress returns true if compression should be triggered.
+// Compression is purely token-budget driven - we only compress when
+// approaching the context window limit, not based on arbitrary turn counts.
 func (c *Compressor) shouldCompress() bool {
-	// Compress if we have more turns than the window allows
-	if len(c.recentTurns) > c.config.RecentTurnWindow*2 {
-		return true
-	}
-
-	// Compress based on token budget
 	return c.budget.ShouldCompress()
 }
 
@@ -489,6 +485,29 @@ func (c *Compressor) GetCompressionRatio() float64 {
 		return 1.0
 	}
 	return float64(c.totalOriginalTokens) / float64(c.totalCompressedTokens)
+}
+
+// IsCompressionActive returns true if callers should use compressed context
+// instead of raw conversation history. This is token-budget driven:
+// - Returns false when we have room for raw history (use full context)
+// - Returns true when approaching token limit (switch to compressed)
+func (c *Compressor) IsCompressionActive() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// If we have compressed segments, always use compressed context
+	if len(c.rollingSummary.Segments) > 0 {
+		return true
+	}
+
+	// If approaching token limit, signal that we should use compressed context
+	// This prevents the "dump 50 messages" problem on rehydrated sessions
+	return c.budget.ShouldCompress()
+}
+
+// GetRecentTurnWindow returns the configured recent turn window size.
+func (c *Compressor) GetRecentTurnWindow() int {
+	return c.config.RecentTurnWindow
 }
 
 // GetState returns the full compressed state for persistence.

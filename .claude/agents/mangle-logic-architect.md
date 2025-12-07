@@ -865,3 +865,186 @@ shortest(X, Y, MinLen) :-
 ```mangle
 Decl predicate(Arg1.Type<int>, Arg2.Type<string>, Arg3.Type<n>).
 ```
+
+---
+
+## Theoretical Foundations for Debugging
+
+Understanding *why* AI agents fail helps prevent and diagnose issues. These concepts explain the fundamental mismatch between probabilistic generation and deterministic logic.
+
+### The Closed World Assumption (CWA)
+
+Datalog operates under the **Closed World Assumption**: anything not known to be true is false.
+
+LLMs operate under an "Open World" bias derived from natural language: just because something isn't mentioned doesn't mean it's false.
+
+**Failure Pattern:** Agents try to handle "unknown" or "null" values:
+
+```mangle
+# WRONG - Mangle has no NULL concept
+result(X) :- data(X), X != null.  # Invalid - null doesn't exist
+
+# REALITY - Missing facts simply don't match
+result(X) :- data(X).  # If data(X) isn't asserted, it's false
+```
+
+The CWA means:
+- If `admin(/alice)` is not asserted, then `admin(/alice)` is false
+- There is no "unknown" state - only true or false
+- Negation (`not`) works because of CWA - we can enumerate what's NOT true
+
+### The Fixpoint Blind Spot
+
+AI models are autoregressive (predict next token based on previous tokens). This is a linear, sequential process.
+
+Datalog evaluation is a **Least Fixed Point (LFP)** calculation:
+- Apply operator T_P repeatedly: `I_{k+1} = T_P(I_k) ∪ I_k`
+- Stop when `I_{k+1} = I_k` (no new facts derived)
+
+**Implication:** AI cannot "see" if a rule is monotonic or will converge.
+
+**The Paradox Rule:**
+```mangle
+# WRONG - No fixpoint exists
+p(X) :- q(X), not p(X).
+# If p(X) is false → body succeeds → p(X) becomes true
+# If p(X) is true → body fails → p(X) should be false
+# This oscillates forever - Mangle rejects it
+```
+
+The AI sees valid syntax; the Mangle engine sees a logical contradiction. This clash is fundamental to differing models of computation (Probabilistic vs. Logical).
+
+### Why Recursion Fails Silently
+
+Semi-naive evaluation continues until no new facts are generated. Unbounded recursion never terminates:
+
+```mangle
+# WRONG - Infinite generation
+next_id(ID) :- current_id(Old), ID = fn:plus(Old, 1).
+current_id(ID) :- next_id(ID).
+# Result: Infinite loop. Mangle computes ALL true facts, not just "the answer."
+```
+
+AI agents assume "lazy" evaluation or that the program stops when finding "the answer." Mangle computes the **entire model**.
+
+---
+
+## Debugging Guide: The Silent Failures
+
+### The "Empty Set" Problem
+
+When AI-generated code runs but returns nothing, suspect **Atom/String mismatches**.
+
+**This is the #1 silent killer of Mangle logic.**
+
+```mangle
+# Facts stored with atoms
+status(/alice, /active).
+
+# Query with strings - RETURNS NOTHING
+?status("alice", "active").  # Empty result - types don't match!
+
+# Correct query with atoms
+?status(/alice, /active).    # Returns the fact
+```
+
+**Debugging checklist:**
+1. Check if constants use `/prefix` (atoms) vs `"quotes"` (strings)
+2. Inspect the FactStore data types directly
+3. Verify the schema declarations match the actual data
+
+### Semantic Versioning Trap
+
+String comparison fails for version numbers:
+
+```mangle
+# WRONG - String comparison is lexicographic
+vulnerable(Lib) :- version(Lib, Ver), Ver < "2.14.0".
+# Problem: "2.2" > "2.14" in string comparison!
+
+# CORRECT - Parse version components or use structured comparison
+vulnerable(Lib) :-
+    version(Lib, Major, Minor, Patch),
+    Major = 2,
+    Minor < 14.
+```
+
+AI agents default to string comparisons because that's how most languages handle versions informally.
+
+---
+
+## Production Workflow: Solver-in-the-Loop
+
+The only viable way to use AI for Mangle generation is to wrap the LLM in a feedback loop with the Mangle compiler.
+
+### Validation Pipeline
+
+1. **Generate:** AI produces Mangle code
+2. **Parse:** Attempt to parse using `mangle/parse`
+3. **Feedback:** If parsing fails (e.g., "unknown token .decl"), feed error back to AI
+4. **Analyze:** Use `analysis.Analyze()` to check safety and stratification before runtime
+5. **Test:** Run with known facts and verify expected derivations
+
+### Explicit Context Prompting
+
+Prompt engineering for Mangle must be "Few-Shot" by definition. Always provide:
+- "Use `/atom` for constants, not strings"
+- "Use `|>` for aggregation"
+- "Ensure all negated variables are bound by positive atoms first"
+
+Without explicit instructions, the statistical weight of SQL and Prolog in the model's training data will overpower sparse Mangle knowledge.
+
+---
+
+## Go Integration: Advanced Patterns
+
+### The Binding Pattern Problem
+
+When implementing external predicates via callbacks, you must handle "binding patterns" - which arguments are bound (constants) vs free (variables).
+
+```go
+// Callback signature requires binding pattern logic
+func myPredicate(query engine.Query, cb func(engine.Fact)) error {
+    // Check which arguments are bound vs free
+    // If query.Args[0] is a constant: search by that value
+    // If query.Args[0] is a variable: enumerate all values
+
+    // AI agents consistently miss this distinction
+    return nil
+}
+```
+
+This binding pattern logic is central to Datalog optimization but usually absent in AI-generated code.
+
+### EvalProgram vs EvalProgramNaive
+
+```go
+// Naive evaluation - simpler but less optimized
+engine.EvalProgramNaive(program, store)
+
+// Full evaluation - requires ProgramInfo from analysis
+programInfo, err := analysis.Analyze(units, nil)
+if err != nil {
+    // Handle safety/stratification errors BEFORE runtime
+    log.Fatal(err)
+}
+eng, err := engine.New(programInfo, store)
+```
+
+AI agents often skip the `analysis.Analyze()` step, leading to runtime failures that should have been caught at compile time.
+
+### The Value Type System
+
+```go
+// WRONG - AI tries to add facts as strings
+store.Add("parent", "alice", "bob")  // Type error!
+
+// CORRECT - Must use proper value types
+f, _ := factstore.MakeFact("/parent", []engine.Value{
+    engine.Atom("alice"),   // Note: Atom, not String
+    engine.Atom("bob"),
+})
+store.Add(f)
+```
+
+The distinct types `engine.Value`, `engine.Atom`, `engine.Number`, `engine.String` must be used explicitly.

@@ -97,7 +97,7 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		ExecuteTimeout:  60 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true,
-		AllowExec:       false,
+		AllowExec:       true,
 	}
 
 	toolGen := NewToolGenerator(client, config.ToolsDir)
@@ -195,6 +195,137 @@ func (o *Orchestrator) assertMissingTool(intentID, capability string) {
 func (o *Orchestrator) assertToolLearning(toolName string, executions int, successRate, avgQuality float64) {
 	// tool_learning(ToolName, Executions, SuccessRate, AvgQuality)
 	_ = o.assertToKernel("tool_learning", toolName, executions, successRate, avgQuality)
+}
+
+// =============================================================================
+// KERNEL-MEDIATED TOOL GENERATION
+// =============================================================================
+// Process tool generation requests delegated via Mangle policy.
+// This enables campaign orchestration and other systems to trigger tool
+// generation by asserting facts, without direct coupling.
+
+// ProcessKernelDelegations queries for pending delegate_task(/tool_generator, ...)
+// facts and processes each one by generating the requested tool.
+// Returns the number of tools generated.
+func (o *Orchestrator) ProcessKernelDelegations(ctx context.Context) (int, error) {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+
+	if kernel == nil {
+		return 0, nil // No kernel attached
+	}
+
+	// Query for pending tool generator delegations
+	// delegate_task(/tool_generator, Capability, /pending)
+	facts, err := kernel.QueryPredicate("delegate_task")
+	if err != nil {
+		return 0, fmt.Errorf("failed to query delegate_task: %w", err)
+	}
+
+	generated := 0
+	for _, fact := range facts {
+		// Check if this is a tool_generator delegation
+		if len(fact.Args) < 3 {
+			continue
+		}
+
+		// First arg should be the shard type (string "/tool_generator" or name constant)
+		shardType, ok := fact.Args[0].(string)
+		if !ok {
+			continue
+		}
+		if shardType != "/tool_generator" && shardType != "tool_generator" {
+			continue
+		}
+
+		// Second arg is the capability/tool name
+		capability, ok := fact.Args[1].(string)
+		if !ok {
+			continue
+		}
+
+		// Third arg is the status - only process pending
+		status, ok := fact.Args[2].(string)
+		if !ok {
+			continue
+		}
+		if status != "/pending" && status != "pending" {
+			continue
+		}
+
+		// Generate the tool
+		if err := o.generateToolFromDelegation(ctx, capability); err != nil {
+			// Assert failure fact
+			_ = o.assertToKernel("tool_generation_failed", capability, err.Error())
+			continue
+		}
+
+		generated++
+	}
+
+	return generated, nil
+}
+
+// generateToolFromDelegation generates a tool for a kernel-delegated capability request.
+func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capability string) error {
+	// Create a tool need from the capability
+	need := &ToolNeed{
+		Name:       capability,
+		Purpose:    fmt.Sprintf("Auto-generate tool for capability: %s", capability),
+		Reasoning:  "kernel_delegation",
+		Confidence: 1.0, // Kernel delegations are authoritative
+		Priority:   1.0, // Kernel delegations are high priority
+	}
+
+	// Use the ouroboros loop to generate the tool
+	result := o.ouroboros.Execute(ctx, need)
+	if !result.Success {
+		if result.Error != nil {
+			return fmt.Errorf("failed to generate tool %s: %w", capability, result.Error)
+		}
+		return fmt.Errorf("failed to generate tool %s at stage %v", capability, result.Stage)
+	}
+
+	// Assert success to kernel
+	if result.ToolHandle != nil {
+		o.assertToolRegistered(result.ToolHandle)
+		// Also assert delegation completion
+		_ = o.assertToKernel("tool_delegation_complete", capability, result.ToolHandle.Name)
+	}
+
+	return nil
+}
+
+// StartKernelListener starts a background goroutine that periodically
+// checks for kernel delegations and processes them.
+// Returns a channel that will be closed when the listener stops.
+func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Process any pending delegations
+				if n, err := o.ProcessKernelDelegations(ctx); err != nil {
+					// Log error but continue
+					fmt.Fprintf(os.Stderr, "autopoiesis: kernel delegation error: %v\n", err)
+				} else if n > 0 {
+					fmt.Fprintf(os.Stderr, "autopoiesis: processed %d kernel delegations\n", n)
+				}
+			}
+		}
+	}()
+
+	return done
 }
 
 // assertToolKnownIssue asserts tool_known_issue fact to kernel.

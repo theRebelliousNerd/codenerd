@@ -19,7 +19,8 @@
       "Skill(mangle-programming)",
       "Bash(go build:*)",
       "Bash(./nerd.exe:*)",
-      "Bash(timeout 30:*)"
+      "Bash(timeout 30:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
