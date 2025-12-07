@@ -6,6 +6,7 @@
 package autopoiesis
 
 import (
+	internalconfig "codenerd/internal/config"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,20 +45,40 @@ type KernelInterface interface {
 
 // Config holds configuration for the autopoiesis system
 type Config struct {
-	ToolsDir      string // Directory for generated tools
-	AgentsDir     string // Directory for agent definitions
+	ToolsDir      string  // Directory for generated tools
+	AgentsDir     string  // Directory for agent definitions
 	MinConfidence float64 // Minimum confidence to trigger autopoiesis
-	EnableLLM     bool   // Whether to use LLM for analysis
+	EnableLLM     bool    // Whether to use LLM for analysis
+	TargetOS      string  // Target GOOS for tool compilation
+	TargetArch    string  // Target GOARCH for tool compilation
+	WorkspaceRoot string  // Absolute workspace root for module replacement
 }
 
 // DefaultConfig returns default configuration
 func DefaultConfig(workspaceRoot string) Config {
-	return Config{
+	toolDefaults := internalconfig.DefaultToolGenerationConfig()
+
+	cfg := Config{
 		ToolsDir:      filepath.Join(workspaceRoot, ".nerd", "tools"),
 		AgentsDir:     filepath.Join(workspaceRoot, ".nerd", "agents"),
 		MinConfidence: 0.6,
 		EnableLLM:     true,
+		TargetOS:      toolDefaults.TargetOS,
+		TargetArch:    toolDefaults.TargetArch,
+		WorkspaceRoot: workspaceRoot,
 	}
+
+	if userCfg, err := internalconfig.LoadUserConfig(internalconfig.DefaultUserConfigPath()); err == nil && userCfg != nil {
+		tg := userCfg.GetToolGenerationConfig()
+		if tg.TargetOS != "" {
+			cfg.TargetOS = tg.TargetOS
+		}
+		if tg.TargetArch != "" {
+			cfg.TargetArch = tg.TargetArch
+		}
+	}
+
+	return cfg
 }
 
 // Orchestrator coordinates all autopoiesis capabilities
@@ -68,22 +89,22 @@ type Orchestrator struct {
 	toolGen     *ToolGenerator
 	persistence *PersistenceAnalyzer
 	agentCreate *AgentCreator
-	ouroboros   *OuroborosLoop  // The Ouroboros Loop for tool self-generation
+	ouroboros   *OuroborosLoop // The Ouroboros Loop for tool self-generation
 	client      LLMClient
 
 	// Kernel Integration - Bridge to Mangle Logic Core
-	kernel      KernelInterface     // The Mangle kernel for fact assertion/query
+	kernel KernelInterface // The Mangle kernel for fact assertion/query
 
 	// Feedback and Learning System
-	evaluator   *QualityEvaluator   // Assess tool output quality
-	patterns    *PatternDetector    // Detect recurring issues
-	refiner     *ToolRefiner        // Improve suboptimal tools
-	learnings   *LearningStore      // Persist learnings
-	profiles    *ProfileStore       // Tool-specific quality profiles
+	evaluator *QualityEvaluator // Assess tool output quality
+	patterns  *PatternDetector  // Detect recurring issues
+	refiner   *ToolRefiner      // Improve suboptimal tools
+	learnings *LearningStore    // Persist learnings
+	profiles  *ProfileStore     // Tool-specific quality profiles
 
 	// Reasoning Trace and Logging System
-	traces      *TraceCollector     // Capture reasoning during generation
-	logInjector *LogInjector        // Inject mandatory logging into tools
+	traces      *TraceCollector // Capture reasoning during generation
+	logInjector *LogInjector    // Inject mandatory logging into tools
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -98,6 +119,9 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		AllowNetworking: false,
 		AllowFileSystem: true,
 		AllowExec:       true,
+		TargetOS:        config.TargetOS,
+		TargetArch:      config.TargetArch,
+		WorkspaceRoot:   config.WorkspaceRoot,
 	}
 
 	toolGen := NewToolGenerator(client, config.ToolsDir)
@@ -116,11 +140,11 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		client:      client,
 
 		// Initialize feedback and learning system
-		evaluator:   NewQualityEvaluator(client, profileStore),
-		patterns:    NewPatternDetector(),
-		refiner:     NewToolRefiner(client, toolGen),
-		learnings:   NewLearningStore(learningsDir),
-		profiles:    profileStore,
+		evaluator: NewQualityEvaluator(client, profileStore),
+		patterns:  NewPatternDetector(),
+		refiner:   NewToolRefiner(client, toolGen),
+		learnings: NewLearningStore(learningsDir),
+		profiles:  profileStore,
 
 		// Initialize reasoning trace and logging system
 		traces:      NewTraceCollector(tracesDir, client),
@@ -281,8 +305,8 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 	// Use the ouroboros loop to generate the tool
 	result := o.ouroboros.Execute(ctx, need)
 	if !result.Success {
-		if result.Error != nil {
-			return fmt.Errorf("failed to generate tool %s: %w", capability, result.Error)
+		if result.Error != "" {
+			return fmt.Errorf("failed to generate tool %s: %s", capability, result.Error)
 		}
 		return fmt.Errorf("failed to generate tool %s at stage %v", capability, result.Stage)
 	}
@@ -510,15 +534,15 @@ func (o *Orchestrator) ShouldRefineToolByKernel(toolName string) bool {
 // AnalysisResult contains the complete autopoiesis analysis
 type AnalysisResult struct {
 	// Complexity analysis
-	Complexity     ComplexityResult
-	NeedsCampaign  bool
+	Complexity      ComplexityResult
+	NeedsCampaign   bool
 	SuggestedPhases []string
 
 	// Tool generation
 	ToolNeeds []ToolNeed
 
 	// Persistence analysis
-	Persistence    PersistenceResult
+	Persistence     PersistenceResult
 	NeedsPersistent bool
 	SuggestedAgents []AgentSpec
 
@@ -807,14 +831,14 @@ type AgentMemory struct {
 
 // Learning represents something the agent has learned
 type Learning struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"` // "preference", "pattern", "feedback"
-	Content     string    `json:"content"`
-	Source      string    `json:"source"`
-	Confidence  float64   `json:"confidence"`
-	LearnedAt   time.Time `json:"learned_at"`
-	LastUsed    time.Time `json:"last_used"`
-	UseCount    int       `json:"use_count"`
+	ID         string    `json:"id"`
+	Type       string    `json:"type"` // "preference", "pattern", "feedback"
+	Content    string    `json:"content"`
+	Source     string    `json:"source"`
+	Confidence float64   `json:"confidence"`
+	LearnedAt  time.Time `json:"learned_at"`
+	LastUsed   time.Time `json:"last_used"`
+	UseCount   int       `json:"use_count"`
 }
 
 // LearnedPattern represents a pattern the agent has identified
@@ -1408,8 +1432,8 @@ func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need
 
 	// Finalize trace
 	failureReason := ""
-	if result.Error != nil {
-		failureReason = result.Error.Error()
+	if result.Error != "" {
+		failureReason = result.Error
 	}
 	code := ""
 	if result.ToolHandle != nil {

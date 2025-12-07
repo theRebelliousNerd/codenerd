@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Scanner handles file system indexing.
@@ -20,8 +21,13 @@ func NewScanner() *Scanner {
 
 func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 	var facts []core.Fact
+	var mu sync.Mutex // Protects facts slice
 	cache := NewFileCache(root)
 	defer cache.Save()
+
+	// Worker pool for hashing
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 20) // Limit concurrency to 20
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -54,44 +60,57 @@ func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 			return nil
 		}
 
-		// "Hash-Thrashing" Fix: Use Cache
-		var hash string
-		cachedHash, hit := cache.Get(path, info)
-		if hit {
-			hash = cachedHash
-		} else {
-			h, err := calculateHash(path)
-			if err != nil {
-				return err
+		wg.Add(1)
+		go func(path string, info os.FileInfo) {
+			defer wg.Done()
+			sem <- struct{}{} // Acquire token
+			defer func() { <-sem }() // Release token
+
+			// "Hash-Thrashing" Fix: Use Cache
+			var hash string
+			cachedHash, hit := cache.Get(path, info)
+			if hit {
+				hash = cachedHash
+			} else {
+				h, err := calculateHash(path)
+				if err != nil {
+					// Skip on error
+					return
+				}
+				hash = h
+				cache.Update(path, info, hash)
 			}
-			hash = h
-			cache.Update(path, info, hash)
-		}
 
-		lang := detectLanguage(filepath.Ext(path), path)
+			lang := detectLanguage(filepath.Ext(path), path)
 
-		// Cortex 1.5.0: IsTestFile Logic (match ScanDirectory format)
-		isTest := isTestFile(path)
-		isTestStr := "/false"
-		if isTest {
-			isTestStr = "/true"
-		}
+			// Cortex 1.5.0: IsTestFile Logic (match ScanDirectory format)
+			isTest := isTestFile(path)
+			isTestStr := "/false"
+			if isTest {
+				isTestStr = "/true"
+			}
 
-		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
-		fact := core.Fact{
-			Predicate: "file_topology",
-			Args: []interface{}{
-				path,
-				hash,
-				"/" + lang,
-				info.ModTime().Unix(),
-				isTestStr,
-			},
-		}
-		facts = append(facts, fact)
+			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
+			fact := core.Fact{
+				Predicate: "file_topology",
+				Args: []interface{}{
+					path,
+					hash,
+					core.MangleAtom("/" + lang),
+					info.ModTime().Unix(),
+					core.MangleAtom(isTestStr),
+				},
+			}
+			
+			mu.Lock()
+			facts = append(facts, fact)
+			mu.Unlock()
+		}(path, info)
+
 		return nil
 	})
 
+	wg.Wait()
 	return facts, err
 }
 
@@ -130,8 +149,12 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		Facts:     make([]core.Fact, 0),
 		Languages: make(map[string]int),
 	}
+	var mu sync.Mutex // Protects result
 	cache := NewFileCache(root)
 	defer cache.Save()
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 20) // Limit concurrency
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		// Check for context cancellation
@@ -166,58 +189,69 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				}
 				return filepath.SkipDir
 			}
+			mu.Lock()
 			result.DirectoryCount++
+			mu.Unlock()
 			return nil
 		}
 
-		result.FileCount++
+		wg.Add(1)
+		go func(path string, info os.FileInfo) {
+			defer wg.Done()
+			sem <- struct{}{} // Acquire token
+			defer func() { <-sem }() // Release token
 
-		// "Hash-Thrashing" Fix: Use Cache
-		var hash string
-		cachedHash, hit := cache.Get(path, info)
-		if hit {
-			hash = cachedHash
-		} else {
-			h, err := calculateHash(path)
-			if err != nil {
-				// Skip files we can't hash but don't fail
-				return nil
+			// "Hash-Thrashing" Fix: Use Cache
+			var hash string
+			cachedHash, hit := cache.Get(path, info)
+			if hit {
+				hash = cachedHash
+			} else {
+				h, err := calculateHash(path)
+				if err != nil {
+					// Skip files we can't hash but don't fail
+					return
+				}
+				hash = h
+				cache.Update(path, info, hash)
 			}
-			hash = h
-			cache.Update(path, info, hash)
-		}
 
-		ext := filepath.Ext(path)
-		lang := detectLanguage(ext, path)
-		result.Languages[lang]++
+			ext := filepath.Ext(path)
+			lang := detectLanguage(ext, path)
 
-		// Cortex 1.5.0: IsTestFile Logic
-		isTest := isTestFile(path)
-		if isTest {
-			result.TestFileCount++
-		}
+			// Cortex 1.5.0: IsTestFile Logic
+			isTest := isTestFile(path)
+			isTestStr := "/false"
+			if isTest {
+				isTestStr = "/true"
+			}
 
-		isTestStr := "false"
-		if isTest {
-			isTestStr = "true"
-		}
+			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
+			fact := core.Fact{
+				Predicate: "file_topology",
+				Args: []interface{}{
+					path,
+					hash,
+					core.MangleAtom("/" + lang),
+					info.ModTime().Unix(),
+					core.MangleAtom(isTestStr),
+				},
+			}
 
-		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
-		fact := core.Fact{
-			Predicate: "file_topology",
-			Args: []interface{}{
-				path,
-				hash,
-				"/" + lang,
-				info.ModTime().Unix(),
-				"/" + isTestStr,
-			},
-		}
-		result.Facts = append(result.Facts, fact)
+			mu.Lock()
+			result.FileCount++
+			result.Languages[lang]++
+			if isTest {
+				result.TestFileCount++
+			}
+			result.Facts = append(result.Facts, fact)
+			mu.Unlock()
+		}(path, info)
 
 		return nil
 	})
 
+	wg.Wait()
 	return result, err
 }
 

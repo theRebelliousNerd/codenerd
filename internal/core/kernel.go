@@ -23,11 +23,17 @@ type Fact struct {
 	Args      []interface{}
 }
 
+// MangleAtom represents a Mangle name constant (starting with /).
+// This explicit type avoids ambiguity between strings and atoms.
+type MangleAtom string
+
 // String returns the Datalog string representation of the fact.
 func (f Fact) String() string {
 	var args []string
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
+		case MangleAtom:
+			args = append(args, string(v))
 		case string:
 			// Handle Mangle name constants (start with /)
 			if strings.HasPrefix(v, "/") {
@@ -59,6 +65,12 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 	var terms []ast.BaseTerm
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
+		case MangleAtom:
+			c, err := ast.Name(string(v))
+			if err != nil {
+				return ast.Atom{}, err
+			}
+			terms = append(terms, c)
 		case string:
 			if strings.HasPrefix(v, "/") {
 				// Name constant
@@ -732,6 +744,32 @@ func (k *RealKernel) GetPolicy() string {
 	return k.policy
 }
 
+// GetFactsSnapshot returns a copy of currently asserted facts.
+func (k *RealKernel) GetFactsSnapshot() []Fact {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	facts := make([]Fact, len(k.facts))
+	copy(facts, k.facts)
+	return facts
+}
+
+// Clone creates a new kernel with the same schemas, policy, learned rules, and facts.
+// The cloned kernel shares no mutable state with the original.
+func (k *RealKernel) Clone() *RealKernel {
+	clone := NewRealKernel()
+	clone.SetSchemas(k.GetSchemas())
+	clone.SetPolicy(k.GetPolicy())
+	clone.SetLearned(k.GetLearned())
+
+	// Copy facts into the clone
+	facts := k.GetFactsSnapshot()
+	if len(facts) > 0 {
+		_ = clone.LoadFacts(facts)
+	}
+
+	return clone
+}
+
 // Clear resets the kernel to empty state (keeps cached programInfo).
 func (k *RealKernel) Clear() {
 	k.mu.Lock()
@@ -851,4 +889,3 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 
 	return facts, nil
 }
-

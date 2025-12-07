@@ -1206,8 +1206,8 @@ func (m Model) generateTool(description string) tea.Cmd {
 			sb.WriteString("### Tool Registered Successfully!\n\n")
 			sb.WriteString(fmt.Sprintf("Tool `%s` is now available.\n\n", result.ToolName))
 			sb.WriteString(fmt.Sprintf("*Use `/tool run %s <input>` to execute*\n", result.ToolName))
-		} else if result.Error != nil {
-			sb.WriteString(fmt.Sprintf("### Generation Failed\n\n**Error**: %v\n", result.Error))
+		} else if result.Error != "" {
+			sb.WriteString(fmt.Sprintf("### Generation Failed\n\n**Error**: %s\n", result.Error))
 		}
 
 		return responseMsg(sb.String())

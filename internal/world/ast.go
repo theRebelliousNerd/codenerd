@@ -3,16 +3,13 @@ package world
 import (
 	"codenerd/internal/core"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"regexp"
 	"strings"
 )
 
 // ASTParser handles code parsing.
-type ASTParser struct{
+type ASTParser struct {
 	tsParser *TreeSitterParser
 }
 
@@ -36,83 +33,9 @@ func (p *ASTParser) Parse(path string) ([]core.Fact, error) {
 }
 
 func (p *ASTParser) parseGo(path string) ([]core.Fact, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return nil, err
-	}
-
-	var facts []core.Fact
-	pkgName := node.Name.Name
-
-	// 1. Package Symbol
-	facts = append(facts, core.Fact{
-		Predicate: "symbol_graph",
-		Args: []interface{}{
-			fmt.Sprintf("pkg:%s", pkgName),
-			"package",
-			"public",
-			path,
-			"package " + pkgName,
-		},
-	})
-
-	// 2. Imports (Dependencies)
-	for _, imp := range node.Imports {
-		importPath := strings.Trim(imp.Path.Value, "\"")
-		facts = append(facts, core.Fact{
-			Predicate: "dependency_link",
-			Args: []interface{}{
-				fmt.Sprintf("pkg:%s", pkgName),
-				fmt.Sprintf("pkg:%s", importPath), // Simplified ID
-				importPath,
-			},
-		})
-	}
-
-	// 3. Declarations
-	for _, decl := range node.Decls {
-		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
-			// Function declaration
-			name := funcDecl.Name.Name
-			id := fmt.Sprintf("func:%s.%s", pkgName, name)
-			signature := fmt.Sprintf("func %s", name) // Simplified signature
-
-			facts = append(facts, core.Fact{
-				Predicate: "symbol_graph",
-				Args: []interface{}{
-					id,
-					"function",
-					"public", // Simplified visibility
-					path,
-					signature,
-				},
-			})
-		} else if genDecl, ok := decl.(*ast.GenDecl); ok {
-			// Type declaration
-			if genDecl.Tok == token.TYPE {
-				for _, spec := range genDecl.Specs {
-					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-						name := typeSpec.Name.Name
-						id := fmt.Sprintf("type:%s.%s", pkgName, name)
-
-						facts = append(facts, core.Fact{
-							Predicate: "symbol_graph",
-							Args: []interface{}{
-								id,
-								"type",
-								"public",
-								path,
-								fmt.Sprintf("type %s", name),
-							},
-						})
-					}
-				}
-			}
-		}
-	}
-
-	return facts, nil
+	// Delegate to Cartographer for holographic mapping
+	c := NewCartographer()
+	return c.MapFile(path)
 }
 
 // parsePython implements tree-sitter-based parsing for Python with regex fallback

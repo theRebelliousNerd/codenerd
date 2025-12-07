@@ -1,6 +1,7 @@
 package coder
 
 import (
+	"codenerd/internal/articulation"
 	"context"
 	"fmt"
 	"strings"
@@ -50,7 +51,7 @@ func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
 	// Build session context from Blackboard (cross-shard awareness)
 	sessionContext := c.buildSessionContextPrompt()
 
-	return fmt.Sprintf(`You are an expert %s programmer. Generate clean, idiomatic, well-documented code.
+	prompt := fmt.Sprintf(`You are an expert %s programmer. Generate clean, idiomatic, well-documented code.
 
 RULES:
 1. Follow language-specific best practices and idioms
@@ -69,6 +70,8 @@ Return your response as JSON with this structure:
 
 For modifications, include the COMPLETE new file content, not a diff.
 `, langName, codeDOMContext, sessionContext)
+
+	return articulation.AppendReasoningDirective(prompt, true)
 }
 
 // buildSessionContextPrompt builds comprehensive session context for cross-shard awareness (Blackboard Pattern).

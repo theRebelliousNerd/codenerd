@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/shards/reviewer"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/shards/tester"
+	"codenerd/internal/shards/tool_generator"
 )
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
@@ -40,7 +41,7 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 
 	// Register ToolGenerator shard factory (autopoiesis)
 	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := NewToolGeneratorShard(id, config)
+		shard := tool_generator.NewToolGeneratorShard(id, config)
 		return shard
 	})
 
@@ -66,6 +67,11 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
 	sm.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
 		return system.NewConstitutionGateShard()
+	})
+
+	// Register Legislator - ON-DEMAND, Logic-primary (learned constraints)
+	sm.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
+		return system.NewLegislatorShard()
 	})
 
 	// Register Tactile Router - ON-DEMAND, Logic-primary

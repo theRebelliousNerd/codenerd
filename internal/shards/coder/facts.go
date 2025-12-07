@@ -27,7 +27,7 @@ func (c *CoderShard) generateFacts(result *CoderResult) []core.Fact {
 			Args: []interface{}{
 				edit.File,
 				hash,
-				"/" + edit.Language,
+				core.MangleAtom("/" + edit.Language),
 				time.Now().Unix(),
 				isTestFile(edit.File),
 			},
@@ -38,12 +38,12 @@ func (c *CoderShard) generateFacts(result *CoderResult) []core.Fact {
 	if result.BuildPassed {
 		facts = append(facts, core.Fact{
 			Predicate: "build_state",
-			Args:      []interface{}{"/passing"},
+			Args:      []interface{}{core.MangleAtom("/passing")},
 		})
 	} else {
 		facts = append(facts, core.Fact{
 			Predicate: "build_state",
-			Args:      []interface{}{"/failing"},
+			Args:      []interface{}{core.MangleAtom("/failing")},
 		})
 	}
 

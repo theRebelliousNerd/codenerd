@@ -21,6 +21,12 @@ func (c *CoderShard) parseCodeResponse(response string, task CoderTask) []CodeEd
 		Rationale string `json:"rationale"`
 	}
 
+	// Check for wrapped response (ReasoningTraceDirective)
+	var wrapper struct {
+		ReasoningTrace string          `json:"reasoning_trace"`
+		Result         json.RawMessage `json:"result"`
+	}
+
 	// Find JSON in response (may be wrapped in markdown code blocks)
 	jsonStr := response
 	if idx := strings.Index(response, "{"); idx != -1 {
@@ -28,6 +34,13 @@ func (c *CoderShard) parseCodeResponse(response string, task CoderTask) []CodeEd
 		if endIdx > idx {
 			jsonStr = response[idx : endIdx+1]
 		}
+	}
+
+	// Try parsing as wrapper first
+	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.Result) > 0 {
+		jsonStr = string(wrapper.Result)
+		// Note: reasoning trace is available in wrapper.ReasoningTrace
+		// TODO: Persist reasoning trace if needed
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &jsonResp); err == nil && jsonResp.Content != "" {

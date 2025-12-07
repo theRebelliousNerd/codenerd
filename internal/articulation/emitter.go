@@ -62,9 +62,9 @@ type SelfCorrection struct {
 // LLM Raw Output → Parse → Validate → Extract → Return structured result
 type ResponseProcessor struct {
 	// Validation settings
-	RequireValidJSON    bool
+	RequireValidJSON     bool
 	AllowMarkdownWrapped bool
-	MaxSurfaceLength    int
+	MaxSurfaceLength     int
 
 	// Statistics for monitoring
 	stats ProcessorStats
@@ -88,7 +88,7 @@ type ArticulationResult struct {
 	Control ControlPacket
 
 	// Parsing metadata
-	ParseMethod string  // "json", "fallback", "repair"
+	ParseMethod string // "json", "fallback", "repair"
 	Confidence  float64
 	Warnings    []string
 
@@ -99,9 +99,9 @@ type ArticulationResult struct {
 // NewResponseProcessor creates a new processor with default settings.
 func NewResponseProcessor() *ResponseProcessor {
 	return &ResponseProcessor{
-		RequireValidJSON:    false, // Allow fallback parsing
+		RequireValidJSON:     false, // Allow fallback parsing
 		AllowMarkdownWrapped: true,
-		MaxSurfaceLength:    50000,
+		MaxSurfaceLength:     50000,
 	}
 }
 
@@ -183,7 +183,16 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 
 	var envelope PiggybackEnvelope
 	if err := json.Unmarshal([]byte(s), &envelope); err != nil {
-		return PiggybackEnvelope{}, err
+		// Be tolerant of leading text or trailing decorations by decoding the
+		// first JSON object we can find (streaming decoder stops at end of object).
+		if idx := strings.Index(s, "{"); idx >= 0 {
+			decoder := json.NewDecoder(strings.NewReader(s[idx:]))
+			if derr := decoder.Decode(&envelope); derr != nil {
+				return PiggybackEnvelope{}, err
+			}
+		} else {
+			return PiggybackEnvelope{}, err
+		}
 	}
 
 	// Validate required fields

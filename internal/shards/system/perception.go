@@ -118,18 +118,18 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 // buildVerbPatterns creates regex patterns for fallback parsing.
 func buildVerbPatterns() map[string]*regexp.Regexp {
 	patterns := map[string]string{
-		"explain":    `(?i)(explain|describe|what is|how does|tell me about)`,
-		"review":     `(?i)(review|check|analyze|audit|inspect)`,
-		"fix":        `(?i)(fix|repair|resolve|correct|patch)`,
-		"refactor":   `(?i)(refactor|clean up|improve|optimize)`,
-		"create":     `(?i)(create|make|generate|build|write|add)`,
-		"delete":     `(?i)(delete|remove|drop|clear)`,
-		"test":       `(?i)(test|verify|validate|check)`,
-		"search":     `(?i)(search|find|look for|locate|grep)`,
-		"debug":      `(?i)(debug|troubleshoot|diagnose|trace)`,
-		"implement":  `(?i)(implement|build|develop|code)`,
-		"run":        `(?i)(run|execute|start|launch)`,
-		"research":   `(?i)(research|investigate|explore|learn about)`,
+		"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
+		"review":    `(?i)(review|check|analyze|audit|inspect)`,
+		"fix":       `(?i)(fix|repair|resolve|correct|patch)`,
+		"refactor":  `(?i)(refactor|clean up|improve|optimize)`,
+		"create":    `(?i)(create|make|generate|build|write|add)`,
+		"delete":    `(?i)(delete|remove|drop|clear)`,
+		"test":      `(?i)(test|verify|validate|check)`,
+		"search":    `(?i)(search|find|look for|locate|grep)`,
+		"debug":     `(?i)(debug|troubleshoot|diagnose|trace)`,
+		"implement": `(?i)(implement|build|develop|code)`,
+		"run":       `(?i)(run|execute|start|launch)`,
+		"research":  `(?i)(research|investigate|explore|learn about)`,
 	}
 
 	result := make(map[string]*regexp.Regexp)
@@ -432,18 +432,22 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 	}
 
 	// Symbol reference (needs symbol_graph lookup)
-	// Query the kernel for matching symbols
-	results, err := p.Kernel.Query(fmt.Sprintf("symbol_graph(\"%s\", _, _, _, _)", target))
-	if err == nil && len(results) > 0 {
-		// Found symbol
-		if len(results[0].Args) > 3 {
-			if path, ok := results[0].Args[3].(string); ok {
-				resolution.ResolvedPath = path
-				resolution.SymbolName = target
-				resolution.Confidence = 0.85
+	// Query the kernel for matching symbols (predicate only; filter in Go)
+	results, err := p.Kernel.Query("symbol_graph")
+	if err == nil {
+		for _, fact := range results {
+			if len(fact.Args) < 4 {
+				continue
+			}
+			if name, ok := fact.Args[0].(string); ok && strings.EqualFold(name, target) {
+				if path, ok := fact.Args[3].(string); ok {
+					resolution.ResolvedPath = path
+					resolution.SymbolName = target
+					resolution.Confidence = 0.85
+					return resolution
+				}
 			}
 		}
-		return resolution
 	}
 
 	// Partial match via file_topology

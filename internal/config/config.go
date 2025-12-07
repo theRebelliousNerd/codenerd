@@ -34,6 +34,9 @@ type Config struct {
 	// Execution settings
 	Execution ExecutionConfig `yaml:"execution"`
 
+	// Tool Generation settings
+	ToolGeneration ToolGenerationConfig `yaml:"tool_generation" json:"tool_generation"`
+
 	// Logging
 	Logging LoggingConfig `yaml:"logging"`
 
@@ -106,10 +109,10 @@ type ContextWindowConfig struct {
 	MaxTokens int `yaml:"max_tokens" json:"max_tokens"`
 
 	// Token budget allocation percentages
-	CoreReservePercent     int `yaml:"core_reserve_percent" json:"core_reserve_percent"`      // % for constitutional facts (default: 5)
-	AtomReservePercent     int `yaml:"atom_reserve_percent" json:"atom_reserve_percent"`      // % for high-activation atoms (default: 30)
-	HistoryReservePercent  int `yaml:"history_reserve_percent" json:"history_reserve_percent"` // % for compressed history (default: 15)
-	WorkingReservePercent  int `yaml:"working_reserve_percent" json:"working_reserve_percent"` // % for working memory (default: 50)
+	CoreReservePercent    int `yaml:"core_reserve_percent" json:"core_reserve_percent"`       // % for constitutional facts (default: 5)
+	AtomReservePercent    int `yaml:"atom_reserve_percent" json:"atom_reserve_percent"`       // % for high-activation atoms (default: 30)
+	HistoryReservePercent int `yaml:"history_reserve_percent" json:"history_reserve_percent"` // % for compressed history (default: 15)
+	WorkingReservePercent int `yaml:"working_reserve_percent" json:"working_reserve_percent"` // % for working memory (default: 50)
 
 	// Recent turn window (how many turns to keep with full metadata)
 	RecentTurnWindow int `yaml:"recent_turn_window" json:"recent_turn_window"`
@@ -153,6 +156,20 @@ type ScraperIntegration struct {
 	Timeout string `yaml:"timeout"`
 }
 
+// ToolGenerationConfig configures the Ouroboros tool generation settings.
+type ToolGenerationConfig struct {
+	TargetOS   string `yaml:"target_os" json:"target_os"`     // e.g., "windows", "linux", "darwin"
+	TargetArch string `yaml:"target_arch" json:"target_arch"` // e.g., "amd64", "arm64"
+}
+
+// DefaultToolGenerationConfig returns default tool generation targets.
+func DefaultToolGenerationConfig() ToolGenerationConfig {
+	return ToolGenerationConfig{
+		TargetOS:   "windows",
+		TargetArch: "amd64",
+	}
+}
+
 // ExecutionConfig configures the tactile interface.
 type ExecutionConfig struct {
 	// Allowed binaries (Constitutional Logic)
@@ -170,7 +187,7 @@ type ExecutionConfig struct {
 
 // LoggingConfig configures logging.
 type LoggingConfig struct {
-	Level  string `yaml:"level"` // debug, info, warn, error
+	Level  string `yaml:"level"`  // debug, info, warn, error
 	Format string `yaml:"format"` // json, text
 	File   string `yaml:"file"`
 }
@@ -183,9 +200,9 @@ type LoggingConfig struct {
 // Each shard type (coder, tester, reviewer, researcher) can have custom settings.
 type ShardProfile struct {
 	// Model Configuration
-	Model       string  `yaml:"model" json:"model"`               // "claude-sonnet-4", "claude-opus-4", etc.
-	Temperature float64 `yaml:"temperature" json:"temperature"`   // 0.0-1.0
-	TopP        float64 `yaml:"top_p" json:"top_p"`              // 0.0-1.0
+	Model       string  `yaml:"model" json:"model"`             // "claude-sonnet-4", "claude-opus-4", etc.
+	Temperature float64 `yaml:"temperature" json:"temperature"` // 0.0-1.0
+	TopP        float64 `yaml:"top_p" json:"top_p"`             // 0.0-1.0
 
 	// Context Limits (per-shard)
 	MaxContextTokens int `yaml:"max_context_tokens" json:"max_context_tokens"` // Shard-specific context limit
@@ -204,11 +221,11 @@ type ShardProfile struct {
 
 // CoreLimits enforces system-wide resource constraints.
 type CoreLimits struct {
-	MaxTotalMemoryMB      int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"`             // Total RAM limit
-	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`         // Max parallel shards
-	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"`   // Auto-save interval
-	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`             // EDB size limit
-	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`     // Mangle gas limit (Bug #17)
+	MaxTotalMemoryMB      int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"`           // Total RAM limit
+	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`       // Max parallel shards
+	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"` // Auto-save interval
+	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
+	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
 }
 
 // DefaultConfig returns the default configuration.
@@ -219,7 +236,7 @@ func DefaultConfig() *Config {
 
 		LLM: LLMConfig{
 			Provider: "zai",
-			Model:    "glm-4.6",  // Z.AI GLM-4.6 - Default for codeNERD
+			Model:    "glm-4.6", // Z.AI GLM-4.6 - Default for codeNERD
 			BaseURL:  "https://api.z.ai/api/coding/paas/v4",
 			Timeout:  "120s",
 		},
@@ -250,11 +267,11 @@ func DefaultConfig() *Config {
 
 		// Embedding engine defaults (Ollama for local, fast embeddings)
 		Embedding: EmbeddingConfig{
-			Provider:       "ollama",                  // Default to local Ollama
-			OllamaEndpoint: "http://localhost:11434",  // Ollama default port
-			OllamaModel:    "embeddinggemma",          // embeddinggemma for local embeddings
-			GenAIModel:     "gemini-embedding-001",    // GenAI default model
-			TaskType:       "SEMANTIC_SIMILARITY",     // Default task type
+			Provider:       "ollama",                 // Default to local Ollama
+			OllamaEndpoint: "http://localhost:11434", // Ollama default port
+			OllamaModel:    "embeddinggemma",         // embeddinggemma for local embeddings
+			GenAIModel:     "gemini-embedding-001",   // GenAI default model
+			TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
 		},
 
 		Integrations: IntegrationsConfig{
@@ -285,6 +302,8 @@ func DefaultConfig() *Config {
 			WorkingDirectory: ".",
 			AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
 		},
+
+		ToolGeneration: DefaultToolGenerationConfig(),
 
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -633,6 +652,9 @@ type UserConfig struct {
 	// Embedding engine configuration
 	// Use this to configure semantic vector search
 	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
+
+	// Tool Generation settings
+	ToolGeneration *ToolGenerationConfig `json:"tool_generation,omitempty"`
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
@@ -713,6 +735,20 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		GenAIModel:     "gemini-embedding-001",
 		TaskType:       "SEMANTIC_SIMILARITY",
 	}
+}
+
+// GetToolGenerationConfig returns tool generation settings with defaults applied.
+func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
+	cfg := DefaultToolGenerationConfig()
+	if c != nil && c.ToolGeneration != nil {
+		if c.ToolGeneration.TargetOS != "" {
+			cfg.TargetOS = c.ToolGeneration.TargetOS
+		}
+		if c.ToolGeneration.TargetArch != "" {
+			cfg.TargetArch = c.ToolGeneration.TargetArch
+		}
+	}
+	return cfg
 }
 
 // DefaultUserConfigPath returns the default path to .nerd/config.json.

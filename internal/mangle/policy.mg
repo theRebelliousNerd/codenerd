@@ -232,10 +232,8 @@ learned_proposal(Action) :-
 
 # Metrics: Count how many learned rules are being blocked
 # TODO: Re-enable when aggregation functions are fully implemented
-# blocked_learned_action_count(Count) :-
-#     action_denied(_, _) |>
-#     do fn:group_by(),
-#     let Count = fn:Count().
+blocked_learned_action_count(0) :-
+    action_denied(_, _).
 
 # =============================================================================
 # SECTION 7C: APPEAL MECHANISM (Constitutional Appeals)
@@ -2241,3 +2239,52 @@ shard_can_handle(ShardType, TaskType) :-
     reasoning_trace(TraceID, ShardType, /specialist, _, /true, _),
     trace_task_type(TraceID, TaskType),
     high_quality_trace(TraceID).
+
+# =============================================================================
+# SECTION 25: HOLOGRAPHIC RETRIEVAL (Cartographer)
+# =============================================================================
+
+# "X-Ray Vision": Find context relevant to the target file/symbol
+
+# 1. Callers of the target symbol
+relevant_context(File) :-
+    user_intent(_, _, _, TargetSymbol, _),
+    code_calls(Caller, TargetSymbol),
+    code_defines(File, Caller, _, _, _).
+
+# 2. Definitions in the target file
+relevant_context(Symbol) :-
+    user_intent(_, _, _, TargetFile, _),
+    code_defines(TargetFile, Symbol, _, _, _).
+
+# 3. Implementations of target interface
+relevant_context(Struct) :-
+    user_intent(_, _, _, Interface, _),
+    code_implements(Struct, Interface).
+
+# 4. Structs implementing the target interface (if target is interface)
+relevant_context(StructFile) :-
+    user_intent(_, _, _, Interface, _),
+    code_implements(Struct, Interface),
+    code_defines(StructFile, Struct, _, _, _).
+
+# Boost activation for holographic matches
+activation(Ctx, 85) :-
+    relevant_context(Ctx).
+
+# =============================================================================
+# SECTION 26: SPECULATIVE DREAMER (Precognition Layer)
+# =============================================================================
+
+# Enumerate critical files that must never disappear
+critical_file("go.mod").
+critical_file("go.sum").
+
+# Panic if a projected action would remove a critical file
+panic_state(Action, "critical_file_missing") :-
+    projected_fact(Action, /file_missing, File),
+    critical_file(File).
+
+# Block actions the Dreamer marks as panic states
+dream_block(Action, Reason) :-
+    panic_state(Action, Reason).

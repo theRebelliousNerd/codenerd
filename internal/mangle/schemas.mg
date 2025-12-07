@@ -1476,7 +1476,45 @@ Decl requires_contract_check(Ref).
 Decl api_edit_warning(Ref, Reason).
 
 # =============================================================================
-# SECTION 34B: SHARD EXECUTION CONTEXT (Cross-Turn Propagation)
+# SECTION 37: HOLOGRAPHIC CODE GRAPH (Cartographer)
+# =============================================================================
+# Rich structural facts extracted by Cartographer (§NextGen-1)
+
+# code_defines(File, Symbol, Type, StartLine, EndLine)
+# Type: /function, /struct, /interface, /type
+Decl code_defines(File, Symbol, Type, StartLine, EndLine).
+
+# code_calls(Caller, Callee)
+# Represents dynamic call graph
+Decl code_calls(Caller, Callee).
+
+# code_implements(Struct, Interface)
+# Represents structural typing relationships
+Decl code_implements(Struct, Interface).
+
+# =============================================================================
+# SECTION 38: SPECULATIVE DREAMER (Precognition Layer)
+# =============================================================================
+# Projected facts produced by the Dreamer to simulate action effects.
+
+# projected_action(ActionID, ActionType, Target)
+Decl projected_action(ActionID, ActionType, Target).
+
+# projected_fact(ActionID, FactType, Value)
+# FactType: /file_missing, /file_exists, /modified
+Decl projected_fact(ActionID, FactType, Value).
+
+# panic_state(ActionID, Reason) - Derived: future state violates invariant
+Decl panic_state(ActionID, Reason).
+
+# dream_block(ActionID, Reason) - Derived: action blocked by Dreamer
+Decl dream_block(ActionID, Reason).
+
+# critical_file(Path) - Enumerates files whose deletion is catastrophic
+Decl critical_file(Path).
+
+# =============================================================================
+# SECTION 39: EXTENDED METRICS (Aggregation)
 # =============================================================================
 # These facts capture shard execution results and make them available to the
 # main agent's context in subsequent turns. Solves the "lost context" problem

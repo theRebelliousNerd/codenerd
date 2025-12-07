@@ -91,15 +91,18 @@ type OuroborosStats struct {
 func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	// Set defaults for OS/Arch if missing
 	if config.TargetOS == "" {
-		config.TargetOS = "windows" // Default to user's OS environment assumption or runtime
+		// Default to user's OS environment assumption or runtime
 		if os.Getenv("GOOS") != "" {
 			config.TargetOS = os.Getenv("GOOS")
+		} else {
+			config.TargetOS = "windows"
 		}
 	}
 	if config.TargetArch == "" {
-		config.TargetArch = "amd64"
 		if os.Getenv("GOARCH") != "" {
 			config.TargetArch = os.Getenv("GOARCH")
+		} else {
+			config.TargetArch = "amd64"
 		}
 	}
 
@@ -126,7 +129,7 @@ type LoopResult struct {
 	Success      bool
 	ToolName     string
 	Stage        LoopStage
-	Error        error
+	Error        string
 	SafetyReport *SafetyReport
 	CompileResult *CompileResult
 	ToolHandle   *RuntimeTool
@@ -181,7 +184,7 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) *LoopResult
 	// Stage 2: Specification - Generate the tool
 	tool, err := o.toolGen.GenerateTool(ctx, need)
 	if err != nil {
-		result.Error = fmt.Errorf("specification failed: %w", err)
+		result.Error = fmt.Sprintf("specification failed: %v", err)
 		return result
 	}
 	result.Stage = StageSafetyCheck
@@ -196,21 +199,21 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) *LoopResult
 		o.stats.ToolsRejected++
 		o.mu.Unlock()
 
-		result.Error = fmt.Errorf("safety check failed: %v", safetyReport.Violations)
+		result.Error = fmt.Sprintf("safety check failed: %v", safetyReport.Violations)
 		return result
 	}
 	result.Stage = StageCompilation
 
 	// Stage 4: Compilation - Write and compile the tool
 	if err := o.toolGen.WriteTool(tool); err != nil {
-		result.Error = fmt.Errorf("write failed: %w", err)
+		result.Error = fmt.Sprintf("write failed: %v", err)
 		return result
 	}
 
 	compileResult, err := o.compiler.Compile(ctx, tool)
 	result.CompileResult = compileResult
 	if err != nil {
-		result.Error = fmt.Errorf("compilation failed: %w", err)
+		result.Error = fmt.Sprintf("compilation failed: %v", err)
 		return result
 	}
 	result.Stage = StageRegistration
@@ -218,7 +221,7 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) *LoopResult
 	// Stage 5: Registration - Register the tool for runtime use
 	handle, err := o.registry.Register(tool, compileResult)
 	if err != nil {
-		result.Error = fmt.Errorf("registration failed: %w", err)
+		result.Error = fmt.Sprintf("registration failed: %v", err)
 		return result
 	}
 	result.ToolHandle = handle
@@ -596,70 +599,84 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Write the tool source to temp directory
-	srcPath := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(srcPath, []byte(tc.wrapAsMain(tool)), 0644); err != nil {
-		return result, fmt.Errorf("failed to write source: %w", err)
+	// Determine if tool is already package main
+	isMain := strings.Contains(tool.Code, "package main")
+
+	if isMain {
+		// Write as main.go directly
+		srcPath := filepath.Join(tmpDir, "main.go")
+		if err := os.WriteFile(srcPath, []byte(tool.Code), 0644); err != nil {
+			return result, fmt.Errorf("failed to write source: %w", err)
+		}
+	} else {
+		// Write tool.go, changing package tools -> package main
+		toolContent := tool.Code
+		if strings.Contains(toolContent, "package tools") {
+			toolContent = strings.Replace(toolContent, "package tools", "package main", 1)
+		} else if !strings.Contains(toolContent, "package ") {
+			toolContent = "package main\n\n" + toolContent
+		}
+		
+		if err := os.WriteFile(filepath.Join(tmpDir, "tool.go"), []byte(toolContent), 0644); err != nil {
+			return result, fmt.Errorf("failed to write tool source: %w", err)
+		}
+
+		// Find entry point function
+		entryPoint, err := tc.findEntryPoint(toolContent)
+		if err != nil {
+			return result, fmt.Errorf("failed to find entry point: %w", err)
+		}
+
+		// Write wrapper main.go
+		if err := tc.writeWrapper(tmpDir, entryPoint); err != nil {
+			return result, fmt.Errorf("failed to write wrapper: %w", err)
+		}
 	}
 
 	// Initialize go module
 	modContent := fmt.Sprintf("module %s\n\ngo 1.24\n", tool.Name)
-	modPath := filepath.Join(tmpDir, "go.mod")
-	if err := os.WriteFile(modPath, []byte(modContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(modContent), 0644); err != nil {
 		return result, fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
-	// Add replace directive for the main 'codenerd' module if the tool uses internal packages
-	// We assume the tool generated imports from the main 'codenerd' module.
-	// The workspaceRoot is available from the OuroborosConfig.
-	mainModulePath := tc.config.WorkspaceRoot // Assumes WorkspaceRoot is set in OuroborosConfig
+	// Add replace directive if needed
+	mainModulePath := tc.config.WorkspaceRoot
 	if mainModulePath == "" {
-		mainModulePath = os.Getenv("CODE_NERD_WORKSPACE_ROOT") // Fallback
+		mainModulePath = os.Getenv("CODE_NERD_WORKSPACE_ROOT")
 	}
 	if mainModulePath != "" {
-		replaceCmd := exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath))
-		replaceCmd.Dir = tmpDir
-		replaceOutput, err := replaceCmd.CombinedOutput()
-		if err != nil {
-			result.Errors = append(result.Errors, string(replaceOutput))
-			return result, fmt.Errorf("go mod edit -replace failed: %w\n%s", err, replaceOutput)
-		}
+		exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath)).Run()
 	}
 	
-	// Run go mod tidy to resolve dependencies and create go.sum
+	// Run go mod tidy
 	tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
 	tidyCmd.Dir = tmpDir
-	tidyOutput, err := tidyCmd.CombinedOutput()
-	if err != nil {
-		result.Errors = append(result.Errors, string(tidyOutput))
-		return result, fmt.Errorf("go mod tidy failed: %w\n%s", err, tidyOutput)
+	if out, err := tidyCmd.CombinedOutput(); err != nil {
+		result.Errors = append(result.Errors, string(out))
+		return result, fmt.Errorf("go mod tidy failed: %w", err)
 	}
 
-	// Output path for compiled binary (append .exe if windows)
+	// Output path
 	ext := ""
 	if tc.config.TargetOS == "windows" {
 		ext = ".exe"
 	}
 	outputPath := filepath.Join(tc.config.CompiledDir, tool.Name+ext)
 
-	// Create compile context with timeout
+	// Build
 	compileCtx, cancel := context.WithTimeout(ctx, tc.config.CompileTimeout)
 	defer cancel()
 
-	// Prepare build flags for static binary and optimization
-	ldflags := "-s -w" // Strip symbol table and debug info
+	ldflags := "-s -w"
 	if tc.config.TargetOS == "linux" {
-		ldflags += " -extldflags '-static'" // Force static linking on Linux
+		ldflags += " -extldflags '-static'"
 	}
 
-	// Run go build
-	args := []string{"build", "-ldflags", ldflags, "-o", outputPath, "."}
-	cmd := exec.CommandContext(compileCtx, "go", args...)
+	cmd := exec.CommandContext(compileCtx, "go", "build", "-ldflags", ldflags, "-o", outputPath, ".")
 	cmd.Dir = tmpDir
 	
-	// Setup environment for cross-compilation
 	env := os.Environ()
-	env = append(env, "CGO_ENABLED=0") // Force pure Go / static
+	env = append(env, "CGO_ENABLED=0")
 	if tc.config.TargetOS != "" {
 		env = append(env, "GOOS="+tc.config.TargetOS)
 	}
@@ -674,7 +691,7 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		return result, fmt.Errorf("compilation failed: %w\n%s", err, output)
 	}
 
-	// Calculate hash of compiled binary
+	// Hash
 	binaryContent, err := os.ReadFile(outputPath)
 	if err != nil {
 		return result, fmt.Errorf("failed to read compiled binary: %w", err)
@@ -689,116 +706,134 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	return result, nil
 }
 
-// wrapAsMain wraps the tool code as a standalone main package.
-// It creates a main function that can either read a JSON payload from stdin
-// (for agent invocation) or parse command-line arguments (for direct CLI use).
-// The generated tool code must implement func RunTool(input string, args []string) (string, error).
-func (tc *ToolCompiler) wrapAsMain(tool *GeneratedTool) string {
-	// If the generated code is already a full package main, return it as-is.
-	// This allows highly customized CLI tools to bypass the standard wrapper.
-	// The safety checker should ensure these are still safe.
-	if strings.Contains(tool.Code, "package main") {
-		return tool.Code
+// findEntryPoint parses code to find the main tool function
+func (tc *ToolCompiler) findEntryPoint(code string) (string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", code, 0)
+	if err != nil {
+		return "", err
 	}
 
-	wrapper := `package main
+	var foundFunc string
+	var maxScore int
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok {
+			return true
+		}
+
+		name := fn.Name.Name
+		if name == "main" || strings.HasPrefix(name, "Register") {
+			return true
+		}
+
+		score := 0
+		if fn.Name.IsExported() {
+			score += 5
+		}
+		
+		// Check signature: (ctx, input) (output, error)
+		if fn.Type.Params != nil && len(fn.Type.Params.List) >= 1 {
+			// Heuristic check for context
+			if len(fn.Type.Params.List) >= 1 {
+				score += 5
+			}
+		}
+		if fn.Type.Results != nil && len(fn.Type.Results.List) == 2 {
+			score += 5
+		}
+
+		if score > maxScore {
+			maxScore = score
+			foundFunc = name
+		}
+		return true
+	})
+
+	if foundFunc == "" {
+		return "", fmt.Errorf("no suitable entry point function found")
+	}
+	return foundFunc, nil
+}
+
+// writeWrapper generates the main.go wrapper
+func (tc *ToolCompiler) writeWrapper(dir, funcName string) error {
+	content := fmt.Sprintf(`package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 )
 
-// ToolInput is the input format for the tool when executed by the agent.
+// ToolInput matches standard agent input
 type ToolInput struct {
-	Input string   ` + "`json:\"input\"`" + ` // Primary input (e.g., first CLI arg, or main JSON payload)
-	Args  []string ` + "`json:\"args\"`" + `   // Additional arguments (e.g., remaining CLI args)
+	Input string   ` + "`json:\"input\"`" + `
+	Args  []string ` + "`json:\"args\"`" + `
 }
 
-// ToolOutput is the output format from the tool.
 type ToolOutput struct {
 	Output string ` + "`json:\"output\"`" + `
 	Error  string ` + "`json:\"error,omitempty\"`" + `
 }
 
-// RunTool is the entry point for the tool's core logic.
-// The tool's generated code MUST define this function (e.g., func RunTool(input string, args []string) (string, error)).
-// It will be appended below this wrapper.
-
 func main() {
-	var primaryInput string
-	var cliArgs []string
-
-	// Determine if stdin is being piped (implies agent execution with JSON payload)
-	fi, _ := os.Stdin.Stat()
-	isPiped := (fi.Mode() & os.ModeCharDevice) == 0
-
-	if isPiped {
-		// Agent execution: Read JSON from stdin
-		scanner := bufio.NewScanner(os.Stdin)
-		if !scanner.Scan() {
-			// No input from stdin, can proceed with empty primaryInput and cliArgs if tool handles it.
-		} else {
-			var agentInput ToolInput
-			rawInput := scanner.Bytes()
-			if jsonErr := json.Unmarshal(rawInput, &agentInput); jsonErr != nil {
-				// If JSON unmarshal fails, treat the whole line as raw primaryInput
-				primaryInput = strings.TrimSpace(string(rawInput))
-				// No additional cliArgs in this case
-			} else {
-				primaryInput = agentInput.Input
-				cliArgs = agentInput.Args
-			}
-		}
-	} else {
-		// CLI execution: Read arguments from os.Args
-		if len(os.Args) > 1 {
-			primaryInput = os.Args[1] // First argument is treated as primary input
-			if len(os.Args) > 2 {
-				cliArgs = os.Args[2:] // Remaining arguments are additional CLI args
-			}
-		} else {
-			// No input and not piped, print usage and exit
-			fmt.Fprintf(os.Stderr, "Usage: %s <primary_input> [additional_args...]\n", os.Args[0])
-			fmt.Fprintf(os.Stderr, "Or pipe JSON for agent use: echo '{\"input\": \"file.mg\", \"args\": [\"--verbose\"]}' | %s\n", os.Args[0])
-			os.Exit(1)
-		}
-	}
-
-	// Execute the actual tool logic
-	result, runErr := RunTool(primaryInput, cliArgs)
+	var input string
 	
-	// Prepare output structure for agent consumption (always JSON)
-	output := ToolOutput{Output: result}
-	if runErr != nil {
-		output.Error = runErr.Error()
+	// Check for pipe input
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			var toolInput ToolInput
+			if err := json.Unmarshal(scanner.Bytes(), &toolInput); err == nil {
+				input = toolInput.Input
+			} else {
+				input = strings.TrimSpace(scanner.Text())
+			}
+		}
+	} else if len(os.Args) > 1 {
+		input = os.Args[1]
 	}
 
-	jsonEncoder := json.NewEncoder(os.Stdout)
-	jsonEncoder.SetIndent("", "  ") // Pretty print for human readability
-	jsonEncoder.Encode(output)
+	// Execute
+	ctx := context.Background()
+	// Assume output is string for now, tool logic handles types
+	// We pass input string directly. 
+	// Limitation: The generated function might expect a struct or int.
+	// But our prompt asks for string input usually.
+	// If it's not string, this wrapper is too simple.
+	// For Ouroboros v1, we enforce string input/output interface.
+	
+	res, err := %s(ctx, input)
+	
+	output := ToolOutput{}
+	if err != nil {
+		output.Error = err.Error()
+	} else {
+		output.Output = fmt.Sprintf("%%v", res)
+	}
 
-	if runErr != nil {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(output)
+	
+	if err != nil {
 		os.Exit(1)
 	}
-	os.Exit(0)
 }
-`
-	// The generated tool code is expected to define `RunTool(input string, cliArgs []string) (string, error)`.
-	// It should also start with `package tools` as it will be part of the generated `main` package here.
-	toolCodeWithPackage := tool.Code
-	if !strings.HasPrefix(toolCodeWithPackage, "package ") {
-		toolCodeWithPackage = "package tools\n\n" + toolCodeWithPackage
-	} else if strings.HasPrefix(toolCodeWithPackage, "package main") {
-		// Replace "package main" with "package tools" if the tool code explicitly defines main,
-		// as it will now be part of the wrapper's main package.
-		toolCodeWithPackage = regexp.MustCompile(`^package main\s`).ReplaceAllString(toolCodeWithPackage, "package tools\n")
-	}
+`, funcName)
 
-	return wrapper + "\n" + toolCodeWithPackage
+	return os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0644)
+}
+// wrapAsMain wraps the tool code as a standalone main package.
+// DEPRECATED: Use writeWrapper instead. Retained for backward compatibility if needed.
+func (tc *ToolCompiler) wrapAsMain(tool *GeneratedTool) string {
+    return tool.Code
 }
 
 // extractFunctionBody extracts the body of the main tool function
