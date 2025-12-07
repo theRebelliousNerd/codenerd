@@ -116,6 +116,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /review [path] | Code review (current dir or specified) |
 | /security [path] | Security analysis |
 | /analyze [path] | Complexity analysis |
+| /clarify <goal> | Socratic requirements interrogation |
 | /test [target] | Generate/run tests |
 | /fix <issue> | Fix an issue |
 | /refactor <target> | Refactor code |
@@ -130,6 +131,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /campaign pause | Pause current campaign |
 | /campaign resume | Resume paused campaign |
 | /campaign list | List all campaigns |
+| /launchcampaign <goal> | Clarify and auto-start a hands-free campaign |
 
 ### Tool Management (Autopoiesis)
 
@@ -198,6 +200,52 @@ or you can create them on-demand with /tool generate.
 		m.viewport.GotoBottom()
 		m.textinput.Reset()
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
+
+	case "/clarify":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/clarify <goal>`\n\nExample: `/clarify build a campaign to harden auth`",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textinput.Reset()
+			return m, nil
+		}
+		task := strings.TrimSpace(strings.TrimPrefix(input, "/clarify"))
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Requirements Interrogator engaged. Drafting clarifying questions...",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, tea.Batch(m.spinner.Tick, m.spawnShard("requirements_interrogator", task))
+
+	case "/launchcampaign":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/launchcampaign <goal>`\n\nThis will run clarifications, then auto-start a campaign hands-free if possible.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textinput.Reset()
+			return m, nil
+		}
+		goal := strings.TrimSpace(strings.TrimPrefix(input, "/launchcampaign"))
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Launching auto-campaign: running clarifier and then starting the campaign...",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, tea.Batch(m.spinner.Tick, m.runLaunchCampaign(goal))
 
 	case "/init":
 		// Check for --force flag
@@ -1291,6 +1339,7 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- Shard Manager: Active\n")
 	sb.WriteString("- Dreamer: Precog safety enabled\n")
 	sb.WriteString("- Legislator: Available via `/legislate`\n")
+	sb.WriteString("- Requirements Interrogator: Available via `/clarify`\n")
 	if m.activeCampaign != nil {
 		sb.WriteString(fmt.Sprintf("- Active Campaign: %s\n", m.activeCampaign.Goal))
 	}
@@ -1311,6 +1360,7 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- tester\n")
 	sb.WriteString("- researcher\n")
 	sb.WriteString("- legislator\n")
+	sb.WriteString("- requirements_interrogator\n")
 
 	// List generated tools
 	if m.autopoiesis != nil {

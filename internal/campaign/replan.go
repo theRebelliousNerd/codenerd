@@ -200,6 +200,169 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	return nil
 }
 
+// RefineNextPhase performs rolling-wave planning: after completing a phase, we
+// refresh the next phase based on the latest artifacts and failures.
+func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, completedPhase *Phase) error {
+	if campaign == nil || completedPhase == nil {
+		return nil
+	}
+
+	// Identify the next phase by order
+	var nextPhase *Phase
+	for i := range campaign.Phases {
+		if campaign.Phases[i].Order == completedPhase.Order+1 {
+			nextPhase = &campaign.Phases[i]
+			break
+		}
+	}
+	if nextPhase == nil {
+		return nil // No further phases to refine
+	}
+
+	// Summaries for prompt
+	var completedTasksSummary strings.Builder
+	for _, t := range completedPhase.Tasks {
+		completedTasksSummary.WriteString(fmt.Sprintf("- %s [%s]\n", t.Description, t.Status))
+	}
+
+	var upcomingTasks strings.Builder
+	for _, t := range nextPhase.Tasks {
+		upcomingTasks.WriteString(fmt.Sprintf("- %s (%s)\n", t.Description, t.Type))
+	}
+
+	prompt := fmt.Sprintf(`You are the planning kernel for codeNERD. A phase just completed; refine the next phase tasks to reflect the latest reality.
+
+Campaign Goal: %s
+Completed Phase: %s (order %d)
+Completed Tasks:
+%s
+
+Upcoming Phase: %s (order %d)
+Current Tasks:
+%s
+
+Return JSON only:
+{
+  "tasks": [
+    {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove"}
+  ],
+  "summary": "one-line change summary"
+}`, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
+
+	resp, err := r.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return err
+	}
+
+	resp = cleanJSONResponse(resp)
+	var changes struct {
+		Tasks []struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+			Type        string `json:"type"`
+			Priority    string `json:"priority"`
+			Action      string `json:"action"`
+		} `json:"tasks"`
+		Summary string `json:"summary"`
+	}
+
+	if err := json.Unmarshal([]byte(resp), &changes); err != nil {
+		return fmt.Errorf("failed to parse refinement response: %w", err)
+	}
+
+	// Apply changes
+	for _, t := range changes.Tasks {
+		action := strings.ToLower(strings.TrimSpace(t.Action))
+		switch action {
+		case "remove":
+			for i := range nextPhase.Tasks {
+				if nextPhase.Tasks[i].ID == t.TaskID {
+					nextPhase.Tasks = append(nextPhase.Tasks[:i], nextPhase.Tasks[i+1:]...)
+					break
+				}
+			}
+		case "add":
+			newID := t.TaskID
+			if newID == "" {
+				newID = fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], nextPhase.Order, len(nextPhase.Tasks))
+			}
+			task := Task{
+				ID:          newID,
+				PhaseID:     nextPhase.ID,
+				Description: t.Description,
+				Status:      TaskPending,
+				Type:        TaskType(t.Type),
+				Priority:    TaskPriority(defaultPriority(t.Priority)),
+			}
+			nextPhase.Tasks = append(nextPhase.Tasks, task)
+		default: // update
+			updated := false
+			for i := range nextPhase.Tasks {
+				if nextPhase.Tasks[i].ID == t.TaskID {
+					if t.Description != "" {
+						nextPhase.Tasks[i].Description = t.Description
+					}
+					if t.Type != "" {
+						nextPhase.Tasks[i].Type = TaskType(t.Type)
+					}
+					if t.Priority != "" {
+						nextPhase.Tasks[i].Priority = TaskPriority(defaultPriority(t.Priority))
+					}
+					updated = true
+					break
+				}
+			}
+			if !updated && t.Description != "" {
+				newID := t.TaskID
+				if newID == "" {
+					newID = fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], nextPhase.Order, len(nextPhase.Tasks))
+				}
+				nextPhase.Tasks = append(nextPhase.Tasks, Task{
+					ID:          newID,
+					PhaseID:     nextPhase.ID,
+					Description: t.Description,
+					Status:      TaskPending,
+					Type:        TaskType(t.Type),
+					Priority:    TaskPriority(defaultPriority(t.Priority)),
+				})
+			}
+		}
+	}
+
+	// Recompute totals
+	var totalTasks, completedTasks int
+	for i := range campaign.Phases {
+		for _, t := range campaign.Phases[i].Tasks {
+			totalTasks++
+			if t.Status == TaskCompleted || t.Status == TaskSkipped {
+				completedTasks++
+			}
+		}
+	}
+	campaign.TotalTasks = totalTasks
+	campaign.CompletedTasks = completedTasks
+	campaign.RevisionNumber++
+	campaign.LastRevision = changes.Summary
+
+	// Refresh facts in kernel
+	if err := r.kernel.LoadFacts(campaign.ToFacts()); err != nil {
+		return err
+	}
+	r.kernel.Assert(core.Fact{
+		Predicate: "plan_revision",
+		Args:      []interface{}{campaign.ID, campaign.RevisionNumber, changes.Summary, time.Now().Unix()},
+	})
+
+	return nil
+}
+
+func defaultPriority(p string) string {
+	if p == "" {
+		return string(PriorityNormal)
+	}
+	return p
+}
+
 // getFailedTasks returns all failed tasks in the campaign.
 func (r *Replanner) getFailedTasks(campaign *Campaign) []Task {
 	var failed []Task
@@ -340,14 +503,14 @@ JSON only:`,
 	// Parse response
 	resp = cleanJSONResponse(resp)
 	var parsed struct {
-		Success            bool   `json:"success"`
-		ChangeSummary      string `json:"change_summary"`
-		RetryTasks         []struct {
+		Success       bool   `json:"success"`
+		ChangeSummary string `json:"change_summary"`
+		RetryTasks    []struct {
 			TaskID      string `json:"task_id"`
 			NewApproach string `json:"new_approach"`
 		} `json:"retry_tasks"`
-		SkipTasks          []string `json:"skip_tasks"`
-		AddTasks           []struct {
+		SkipTasks []string `json:"skip_tasks"`
+		AddTasks  []struct {
 			PhaseID     string `json:"phase_id"`
 			Description string `json:"description"`
 			Type        string `json:"type"`

@@ -4,8 +4,11 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/tactile"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -48,6 +51,15 @@ func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method Verifi
 func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, string, error) {
 	// Detect project type and run appropriate test command
 	testCmdStr := cr.detectTestCommand()
+	isGoTest := strings.HasPrefix(testCmdStr, "go test")
+	isNpmTest := strings.HasPrefix(testCmdStr, "npm test")
+	if isGoTest && !strings.Contains(testCmdStr, "-json") {
+		testCmdStr = testCmdStr + " -json"
+	}
+	if isNpmTest && !strings.Contains(testCmdStr, "--") {
+		// Try to request JSON where supported (e.g., jest). This is best-effort.
+		testCmdStr = testCmdStr + " -- --json --outputFile=.nerd/npm-test.json"
+	}
 	parts := strings.Fields(testCmdStr)
 
 	cmd := tactile.ShellCommand{
@@ -68,11 +80,34 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 	}
 
 	// Count passed/failed from output
+	if isGoTest {
+		passedCount, failedCount, duration := cr.parseGoTestJSON(output)
+		if failedCount > 0 {
+			return false, fmt.Sprintf("Tests: %d passed, %d failed (%.2fs)\n%s", passedCount, failedCount, duration.Seconds(), output), nil
+		}
+		return true, fmt.Sprintf("All %d tests passed (%.2fs)", passedCount, duration.Seconds()), nil
+	}
+
+	if isNpmTest {
+		passedCount, failedCount := cr.parseTestOutput(output)
+		// Also try to read the JSON file if it exists
+		jsonPath := filepath.Join(cr.workspace, ".nerd", "npm-test.json")
+		if data, err := os.ReadFile(jsonPath); err == nil {
+			p, f := cr.parseJestJSON(data)
+			if p+f > 0 {
+				passedCount, failedCount = p, f
+			}
+		}
+		if failedCount > 0 {
+			return false, fmt.Sprintf("Tests: %d passed, %d failed\n%s", passedCount, failedCount, output), nil
+		}
+		return true, fmt.Sprintf("All %d tests passed", passedCount), nil
+	}
+
 	passedCount, failedCount := cr.parseTestOutput(output)
 	if failedCount > 0 {
 		return false, fmt.Sprintf("Tests: %d passed, %d failed\n%s", passedCount, failedCount, output), nil
 	}
-
 	return true, fmt.Sprintf("All %d tests passed", passedCount), nil
 }
 
@@ -238,6 +273,53 @@ func (cr *CheckpointRunner) parseTestOutput(output string) (passed, failed int) 
 	return passed, failed
 }
 
+// parseGoTestJSON parses go test -json output for pass/fail counts.
+func (cr *CheckpointRunner) parseGoTestJSON(output string) (passed, failed int, duration time.Duration) {
+	type goTestEvent struct {
+		Action  string  `json:"Action"`
+		Test    string  `json:"Test"`
+		Elapsed float64 `json:"Elapsed"`
+	}
+
+	dec := json.NewDecoder(strings.NewReader(output))
+	for dec.More() {
+		var evt goTestEvent
+		if err := dec.Decode(&evt); err != nil {
+			// Fall back to heuristic if JSON framing breaks
+			p, f := cr.parseTestOutput(output)
+			return p, f, 0
+		}
+		switch evt.Action {
+		case "pass":
+			if evt.Test != "" {
+				passed++
+				duration += time.Duration(evt.Elapsed * float64(time.Second))
+			}
+		case "fail":
+			if evt.Test != "" {
+				failed++
+				duration += time.Duration(evt.Elapsed * float64(time.Second))
+			} else {
+				// package-level failure
+				failed++
+			}
+		}
+	}
+	return passed, failed, duration
+}
+
+// parseJestJSON parses a Jest-style JSON report if available.
+func (cr *CheckpointRunner) parseJestJSON(data []byte) (passed, failed int) {
+	var report struct {
+		NumPassedTests int `json:"numPassedTests"`
+		NumFailedTests int `json:"numFailedTests"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return 0, 0
+	}
+	return report.NumPassedTests, report.NumFailedTests
+}
+
 // RunAll runs all checkpoints for a phase.
 func (cr *CheckpointRunner) RunAll(ctx context.Context, phase *Phase) ([]Checkpoint, error) {
 	checkpoints := make([]Checkpoint, 0)
@@ -270,7 +352,9 @@ func (cr *CheckpointRunner) RunQuick(ctx context.Context) (bool, string, error) 
 
 // fileExists checks if a file exists in the workspace.
 func fileExists(workspace, file string) bool {
-	cmd := exec.Command("test", "-f", file)
-	cmd.Dir = workspace
-	return cmd.Run() == nil
+	path := filepath.Join(workspace, file)
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return false
 }

@@ -127,18 +127,21 @@ const (
 
 // Campaign represents a long-running, multi-phase goal.
 type Campaign struct {
-	ID             string         `json:"id"`
-	Type           CampaignType   `json:"type"`
-	Title          string         `json:"title"`
-	Goal           string         `json:"goal"`            // High-level goal description
-	SourceMaterial []string       `json:"source_material"` // Paths to spec docs
-	Status         CampaignStatus `json:"status"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	Confidence     float64        `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
+	ID             string           `json:"id"`
+	Type           CampaignType     `json:"type"`
+	Title          string           `json:"title"`
+	Goal           string           `json:"goal"`            // High-level goal description
+	SourceMaterial []string         `json:"source_material"` // Paths to spec docs
+	SourceDocs     []SourceDocument `json:"source_docs,omitempty"`
+	KnowledgeBase  string           `json:"knowledge_base,omitempty"` // Path to campaign knowledge DB
+	Status         CampaignStatus   `json:"status"`
+	CreatedAt      time.Time        `json:"created_at"`
+	UpdatedAt      time.Time        `json:"updated_at"`
+	Confidence     float64          `json:"confidence"` // LLM's confidence in the plan (0.0-1.0)
 
 	// Structure
-	Phases []Phase `json:"phases"`
+	Phases          []Phase          `json:"phases"`
+	ContextProfiles []ContextProfile `json:"context_profiles,omitempty"`
 
 	// Progress
 	CompletedPhases int `json:"completed_phases"`
@@ -276,6 +279,14 @@ type SourceDocument struct {
 	Summary    string    `json:"summary,omitempty"`
 }
 
+// FileMetadata captures lightweight document metadata for selection and retrieval.
+type FileMetadata struct {
+	Path       string    `json:"path"`
+	Type       string    `json:"type"`
+	SizeBytes  int64     `json:"size_bytes"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
+
 // Requirement represents a requirement extracted from source documents.
 type Requirement struct {
 	ID          string   `json:"id"`
@@ -343,10 +354,15 @@ type PlanValidationIssue struct {
 func (c *Campaign) ToFacts() []core.Fact {
 	facts := make([]core.Fact, 0)
 
+	source := ""
+	if len(c.SourceMaterial) > 0 {
+		source = c.SourceMaterial[0]
+	}
+
 	// Main campaign fact
 	facts = append(facts, core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{c.ID, string(c.Type), c.Title, c.SourceMaterial[0], string(c.Status)},
+		Args:      []interface{}{c.ID, string(c.Type), c.Title, source, string(c.Status)},
 	})
 
 	// Campaign metadata
@@ -366,6 +382,24 @@ func (c *Campaign) ToFacts() []core.Fact {
 		Predicate: "campaign_progress",
 		Args:      []interface{}{c.ID, c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks},
 	})
+
+	// Context profiles
+	for _, profile := range c.ContextProfiles {
+		facts = append(facts, profile.ToFacts()...)
+	}
+
+	// Context profiles
+	for _, profile := range c.ContextProfiles {
+		facts = append(facts, profile.ToFacts()...)
+	}
+
+	// Source documents
+	for _, doc := range c.SourceDocs {
+		facts = append(facts, core.Fact{
+			Predicate: "source_document",
+			Args:      []interface{}{c.ID, doc.Path, doc.Type, doc.ParsedAt.Unix()},
+		})
+	}
 
 	// Phases
 	for _, phase := range c.Phases {

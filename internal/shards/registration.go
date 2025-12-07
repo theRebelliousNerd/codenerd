@@ -39,6 +39,11 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 		return shard
 	})
 
+	// Register Requirements Interrogator (Socratic clarifier)
+	sm.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
+		return NewRequirementsInterrogatorShard()
+	})
+
 	// Register ToolGenerator shard factory (autopoiesis)
 	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := tool_generator.NewToolGeneratorShard(id, config)

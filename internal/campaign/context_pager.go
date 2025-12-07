@@ -16,11 +16,11 @@ type ContextPager struct {
 	llmClient perception.LLMClient
 
 	// Context window budget (approximate token counts)
-	totalBudget    int // Total tokens available
-	coreReserve    int // Always-present facts (campaign identity, rules)
-	phaseReserve   int // Current phase context
-	historyReserve int // Compressed phase summaries
-	workingReserve int // Current task execution
+	totalBudget     int // Total tokens available
+	coreReserve     int // Always-present facts (campaign identity, rules)
+	phaseReserve    int // Current phase context
+	historyReserve  int // Compressed phase summaries
+	workingReserve  int // Current task execution
 	prefetchReserve int // Upcoming task hints
 
 	// Tracking
@@ -109,15 +109,16 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 }
 
 // CompressPhase summarizes and stores a completed phase's context.
-func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) error {
+// Returns the summary, original atom count, and timestamp for persistence.
+func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string, int, time.Time, error) {
 	if phase == nil {
-		return nil
+		return "", 0, time.Time{}, nil
 	}
 
 	// 1. Gather facts from this phase
 	phaseAtoms, err := cp.kernel.Query("phase_context_atom")
 	if err != nil {
-		return err
+		return "", 0, time.Time{}, err
 	}
 
 	// Filter to this phase
@@ -168,6 +169,12 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 		Args:      []interface{}{phase.ID, summary, len(phaseFacts), now.Unix()},
 	})
 
+	// 4b. Retract phase-specific context atoms now that they've been compressed
+	_ = cp.kernel.RetractFact(core.Fact{
+		Predicate: "phase_context_atom",
+		Args:      []interface{}{phase.ID},
+	})
+
 	// 5. Reduce activation of phase-specific facts
 	for _, fact := range phaseFacts {
 		if len(fact.Args) >= 2 {
@@ -182,7 +189,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	// 6. Update compressed summary in the phase struct
 	// (This should be done by the orchestrator, not here)
 
-	return nil
+	return summary, len(phaseFacts), now, nil
 }
 
 // PrefetchNextTasks loads hints for upcoming tasks.

@@ -26,6 +26,17 @@ func (m Model) processInput(input string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
+		trimmed := strings.TrimSpace(input)
+
+		// If we are waiting for clarifier answers for a future launch, just accumulate the answers.
+		if m.launchClarifyPending && trimmed != "" && !strings.HasPrefix(trimmed, "/") {
+			if m.launchClarifyAnswers != "" {
+				m.launchClarifyAnswers += "\n"
+			}
+			m.launchClarifyAnswers += input
+			// Continue normal processing (do not auto-start)
+		}
+
 		var warnings []string
 
 		// Baseline counts for system action facts so we can surface new ones.
@@ -92,6 +103,22 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 			if err := m.kernel.Assert(intentFact); err != nil {
 				warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
+			}
+		}
+
+		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
+		if m.shouldAutoClarify(&intent, input) {
+			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
+				m.lastClarifyInput = input
+				m.launchClarifyPending = true
+				m.launchClarifyGoal = input
+				m.launchClarifyAnswers = ""
+				return responseMsg(m.appendSystemSummary(
+					res+"\n\nReply with answers, then use `/launchcampaign <goal>` when you are ready to start.",
+					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+				))
+			} else if err != nil {
+				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
 			}
 		}
 
@@ -192,6 +219,18 @@ func (m Model) processInput(input string) tea.Cmd {
 				if needsCampaign && m.activeCampaign == nil {
 					warnings = append(warnings, fmt.Sprintf("Complex task detected: %s", reason))
 					warnings = append(warnings, "Consider using `/campaign start` for multi-phase execution")
+					warnings = append(warnings, "Use `/clarify <goal>` to gather requirements before starting the campaign")
+
+					// Automatically run the Requirements Interrogator once to elicit details
+					if clarifierMsg, err := m.runClarifierShard(ctx, input); err == nil && clarifierMsg != "" {
+						// Return immediately with clarifying questions; user can answer then start campaign
+						return responseMsg(m.appendSystemSummary(
+							clarifierMsg+"\n\nReply with answers, then run `/campaign start <goal>` to kick off the plan.",
+							m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+						))
+					} else if err != nil {
+						warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
+					}
 				}
 			}
 
@@ -470,6 +509,46 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 	}
+}
+
+// runClarifierShard invokes the requirements_interrogator shard synchronously to gather clarifying questions.
+func (m Model) runClarifierShard(ctx context.Context, goal string) (string, error) {
+	if m.shardMgr == nil {
+		return "", fmt.Errorf("shard manager not initialized")
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	result, err := m.shardMgr.Spawn(cctx, "requirements_interrogator", goal)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+// shouldAutoClarify heuristically decides when to trigger the clarifier shard without a command.
+func (m Model) shouldAutoClarify(intent *perception.Intent, input string) bool {
+	// Avoid loops on the same input
+	if strings.TrimSpace(input) != "" && strings.EqualFold(strings.TrimSpace(input), strings.TrimSpace(m.lastClarifyInput)) {
+		return false
+	}
+
+	lower := strings.ToLower(input)
+
+	looksLikeCampaign := strings.Contains(lower, "campaign") ||
+		strings.Contains(lower, "plan") ||
+		strings.Contains(lower, "roadmap") ||
+		strings.Contains(lower, "project") ||
+		strings.Contains(lower, "initiative") ||
+		strings.Contains(lower, "blueprint") ||
+		strings.Contains(lower, "feature")
+
+	needsDetails := intent != nil && (intent.Target == "" || intent.Constraint == "" || intent.Verb == "/generate" || intent.Verb == "/scaffold")
+
+	isBuildish := intent != nil && (intent.Category == "/mutation" || intent.Category == "/instruction")
+
+	return isBuildish && (looksLikeCampaign || needsDetails)
 }
 
 // collectSystemSummary waits briefly for newly derived routing/execution facts and formats them.

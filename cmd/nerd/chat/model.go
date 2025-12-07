@@ -146,6 +146,12 @@ type Model struct {
 	// Stores the last shard result so follow-up questions can reference it.
 	// This enables "what are the other suggestions?" after a review.
 	lastShardResult *ShardResult
+	// Tracks last auto-clarifier input to avoid loops
+	lastClarifyInput string
+	// Pending launchcampaign flow
+	launchClarifyPending bool
+	launchClarifyGoal    string
+	launchClarifyAnswers string
 
 	// ==========================================================================
 	// SESSION CONTEXT HISTORY (Blackboard Pattern)
