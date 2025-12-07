@@ -7,6 +7,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/perception"
 	"context"
 	"fmt"
 	"strings"
@@ -1098,6 +1099,45 @@ Press **Enter** to begin...`,
 				m.history = append(m.history, Message{
 					Role:    "assistant",
 					Content: content,
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, nil
+
+	case "/learn":
+		if len(parts) < 3 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/learn <verb> <synonym>`\nExample: `/learn /test verify`",
+				Time:    time.Now(),
+			})
+		} else {
+			verb := parts[1]
+			synonym := strings.Join(parts[2:], " ")
+			
+			// Use the shared taxonomy engine
+			if perception.SharedTaxonomy != nil {
+				if err := perception.SharedTaxonomy.LearnSynonym(verb, synonym); err != nil {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Failed to learn synonym: %v", err),
+						Time:    time.Now(),
+					})
+				} else {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("✓ Learned that **%q** implies **%s**.\nThis knowledge has been persisted to the graph and applied immediately.", synonym, verb),
+						Time:    time.Now(),
+					})
+				}
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Taxonomy engine is not available.",
 					Time:    time.Now(),
 				})
 			}
