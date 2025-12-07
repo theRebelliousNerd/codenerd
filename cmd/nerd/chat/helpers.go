@@ -73,10 +73,13 @@ func articulateWithContext(ctx context.Context, client perception.LLMClient, int
 
 // ConversationContext holds recent conversation history for LLM context injection.
 // This enables fluid conversation by providing the LLM with recent turns.
+// Implements the Blackboard Pattern for cross-shard and cross-turn context propagation.
 type ConversationContext struct {
-	RecentTurns     []Message              // Last N conversation turns
-	LastShardResult *ShardResult           // Most recent shard output for follow-ups
-	TurnNumber      int                    // Current turn number
+	RecentTurns     []Message      // Last N conversation turns
+	LastShardResult *ShardResult   // Most recent shard output for follow-ups
+	TurnNumber      int            // Current turn number
+	ShardHistory    []*ShardResult // Sliding window of past shard results (blackboard)
+	CompressedCtx   string         // Semantically compressed session context from compressor
 }
 
 // articulateWithContextFull performs articulation and returns full structured output.
@@ -153,6 +156,38 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 			}
 			sb.WriteString("\n")
 		}
+	}
+
+	// =========================================================================
+	// SHARD HISTORY INJECTION (Blackboard Pattern)
+	// =========================================================================
+	// Include summarized history of recent shard executions for cross-shard context.
+	// This enables flows like: reviewer→coder, tester→debugger, coder→tester.
+	if convCtx != nil && len(convCtx.ShardHistory) > 1 {
+		sb.WriteString("## Shard Execution History (Blackboard)\n")
+		sb.WriteString("(Previous shard results for cross-shard context)\n\n")
+		// Skip the last one since it's already shown above as LastShardResult
+		for i := 0; i < len(convCtx.ShardHistory)-1; i++ {
+			sr := convCtx.ShardHistory[i]
+			sb.WriteString(fmt.Sprintf("- **Turn %d [%s]**: %s", sr.TurnNumber, sr.ShardType, truncateForContext(sr.Task, 50)))
+			if len(sr.Findings) > 0 {
+				sb.WriteString(fmt.Sprintf(" → %d findings", len(sr.Findings)))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// =========================================================================
+	// COMPRESSED SESSION CONTEXT INJECTION (Infinite Context)
+	// =========================================================================
+	// Inject the semantically compressed context from the compressor.
+	// This provides >100:1 compressed session history as Mangle atoms.
+	if convCtx != nil && convCtx.CompressedCtx != "" {
+		sb.WriteString("## Compressed Session Context\n")
+		sb.WriteString("(Semantic compression of prior turns - use for long-range context)\n\n")
+		sb.WriteString(convCtx.CompressedCtx)
+		sb.WriteString("\n\n")
 	}
 
 	if len(contextFacts) > 0 {
@@ -978,4 +1013,15 @@ func formatVerificationEscalation(
 	sb.WriteString("- Try a different approach or shard\n")
 
 	return sb.String()
+}
+
+// truncateForContext truncates a string for inclusion in context prompts.
+// Removes newlines and truncates to maxLen characters.
+func truncateForContext(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
 }

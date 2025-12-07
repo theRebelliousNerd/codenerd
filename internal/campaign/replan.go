@@ -294,8 +294,15 @@ func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedT
 
 // proposeReplans asks LLM to propose fixes for the campaign.
 func (r *Replanner) proposeReplans(ctx context.Context, campaign *Campaign, context string) (*ReplanResult, error) {
+	// Include campaign metadata for better LLM context
 	prompt := fmt.Sprintf(`A campaign needs replanning. Analyze the issues and propose fixes.
 
+Campaign Metadata:
+Campaign: %s (ID: %s)
+Goal: %s
+Phases: %d, Completed Tasks: %d/%d
+
+Current State:
 %s
 
 For each failed/blocked task, determine:
@@ -320,7 +327,10 @@ Output JSON:
   ]
 }
 
-JSON only:`, context)
+JSON only:`,
+		campaign.Title, campaign.ID, campaign.Goal,
+		len(campaign.Phases), campaign.CompletedTasks, campaign.TotalTasks,
+		context)
 
 	resp, err := r.llmClient.Complete(ctx, prompt)
 	if err != nil {

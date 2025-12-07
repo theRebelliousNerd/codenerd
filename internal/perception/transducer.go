@@ -763,6 +763,13 @@ type Intent struct {
 	Response   string   // Natural language response (Piggyback Protocol)
 }
 
+// ConversationTurn represents a single turn in conversation history.
+// Used to pass context to the perception layer.
+type ConversationTurn struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
 // ToFact converts the intent to a Mangle Fact.
 func (i Intent) ToFact() core.Fact {
 	return core.Fact{
@@ -975,8 +982,37 @@ Your control_packet must reflect the true state of the world.
 If the user asks for something impossible, your Surface Self says 'I can't do that,' while your Inner Self emits ambiguity_flag(/impossible_request).`
 
 // ParseIntent parses user input into a structured Intent using the Piggyback Protocol.
+// This is the legacy method without conversation context. Consider using ParseIntentWithContext instead.
 func (t *RealTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
-	userPrompt := fmt.Sprintf(`User Input: "%s"`, input)
+	return t.ParseIntentWithContext(ctx, input, nil)
+}
+
+// ParseIntentWithContext parses user input with conversation history for context.
+// This enables fluid conversational follow-ups by providing the LLM with recent turns.
+func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
+	var sb strings.Builder
+
+	// Inject conversation history if available (critical for follow-ups)
+	if len(history) > 0 {
+		sb.WriteString("## Recent Conversation History\n")
+		sb.WriteString("Use this context to understand follow-up questions and references to previous messages.\n\n")
+		for _, turn := range history {
+			if turn.Role == "user" {
+				sb.WriteString(fmt.Sprintf("User: %s\n", turn.Content))
+			} else {
+				// Truncate long assistant responses to save tokens
+				content := turn.Content
+				if len(content) > 400 {
+					content = content[:400] + "... (truncated)"
+				}
+				sb.WriteString(fmt.Sprintf("Assistant: %s\n", content))
+			}
+		}
+		sb.WriteString("\n---\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf(`User Input: "%s"`, input))
+	userPrompt := sb.String()
 
 	resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
 	if err != nil {

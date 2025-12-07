@@ -92,6 +92,11 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 - Push to GitHub regularly
 - Use conventional commits
 
+### Model Configuration
+
+- Config file: `.nerd/config.json`
+- Gemini 3 Pro model ID: `gemini-3-pro-preview` (yes, Gemini 3 exists as of Dec 2024)
+
 ## Nomenclature
 
 ### Shard Lifecycle Types

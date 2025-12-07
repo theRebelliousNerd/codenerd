@@ -666,3 +666,113 @@ func (r *ResearcherShard) GetLearningStats() map[string]interface{} {
 
 	return stats
 }
+
+// =============================================================================
+// SESSION CONTEXT (BLACKBOARD PATTERN)
+// =============================================================================
+
+// buildSessionContextPrompt builds comprehensive session context for cross-shard awareness (Blackboard Pattern).
+// This injects all available context into the LLM prompt to enable informed research.
+func (r *ResearcherShard) buildSessionContextPrompt() string {
+	if r.config.SessionContext == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	ctx := r.config.SessionContext
+
+	// ==========================================================================
+	// USER INTENT (What to Research)
+	// ==========================================================================
+	if ctx.UserIntent != nil {
+		sb.WriteString("\nRESEARCH INTENT:\n")
+		if ctx.UserIntent.Category != "" {
+			sb.WriteString(fmt.Sprintf("  Category: %s\n", ctx.UserIntent.Category))
+		}
+		if ctx.UserIntent.Verb != "" {
+			sb.WriteString(fmt.Sprintf("  Action: %s\n", ctx.UserIntent.Verb))
+		}
+		if ctx.UserIntent.Target != "" {
+			sb.WriteString(fmt.Sprintf("  Target: %s\n", ctx.UserIntent.Target))
+		}
+	}
+
+	// ==========================================================================
+	// PRIOR SHARD OUTPUTS (Context for Research)
+	// ==========================================================================
+	if len(ctx.PriorShardOutputs) > 0 {
+		sb.WriteString("\nPRIOR SHARD CONTEXT:\n")
+		for _, output := range ctx.PriorShardOutputs {
+			status := "SUCCESS"
+			if !output.Success {
+				status = "FAILED"
+			}
+			sb.WriteString(fmt.Sprintf("  [%s] %s: %s - %s\n",
+				output.ShardType, status, output.Task, output.Summary))
+		}
+	}
+
+	// ==========================================================================
+	// CAMPAIGN CONTEXT (Research Scope)
+	// ==========================================================================
+	if ctx.CampaignActive {
+		sb.WriteString("\nCAMPAIGN CONTEXT:\n")
+		if ctx.CampaignPhase != "" {
+			sb.WriteString(fmt.Sprintf("  Phase: %s\n", ctx.CampaignPhase))
+		}
+		if ctx.CampaignGoal != "" {
+			sb.WriteString(fmt.Sprintf("  Goal: %s\n", ctx.CampaignGoal))
+		}
+		if len(ctx.LinkedRequirements) > 0 {
+			sb.WriteString("  Research for requirements: ")
+			sb.WriteString(strings.Join(ctx.LinkedRequirements, ", "))
+			sb.WriteString("\n")
+		}
+	}
+
+	// ==========================================================================
+	// SYMBOL CONTEXT (What Exists in Codebase)
+	// ==========================================================================
+	if len(ctx.SymbolContext) > 0 {
+		sb.WriteString("\nCODEBASE SYMBOLS (for research context):\n")
+		for _, sym := range ctx.SymbolContext {
+			sb.WriteString(fmt.Sprintf("  - %s\n", sym))
+		}
+	}
+
+	// ==========================================================================
+	// RECENT SESSION ACTIONS
+	// ==========================================================================
+	if len(ctx.RecentActions) > 0 {
+		sb.WriteString("\nSESSION ACTIONS:\n")
+		for _, action := range ctx.RecentActions {
+			sb.WriteString(fmt.Sprintf("  - %s\n", action))
+		}
+	}
+
+	// ==========================================================================
+	// EXISTING DOMAIN KNOWLEDGE (Build Upon)
+	// ==========================================================================
+	if len(ctx.KnowledgeAtoms) > 0 {
+		sb.WriteString("\nEXISTING KNOWLEDGE (build upon):\n")
+		for _, atom := range ctx.KnowledgeAtoms {
+			sb.WriteString(fmt.Sprintf("  - %s\n", atom))
+		}
+	}
+	if len(ctx.SpecialistHints) > 0 {
+		for _, hint := range ctx.SpecialistHints {
+			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
+		}
+	}
+
+	// ==========================================================================
+	// COMPRESSED SESSION HISTORY
+	// ==========================================================================
+	if ctx.CompressedHistory != "" && len(ctx.CompressedHistory) < 1500 {
+		sb.WriteString("\nSESSION HISTORY (compressed):\n")
+		sb.WriteString(ctx.CompressedHistory)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}

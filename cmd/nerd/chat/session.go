@@ -13,8 +13,11 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
+	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/researcher"
+	"codenerd/internal/shards/reviewer"
 	"codenerd/internal/shards/system"
+	"codenerd/internal/shards/tester"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/verification"
@@ -205,19 +208,19 @@ func InitChat(cfg Config) Model {
 	}
 
 	shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := shards.NewCoderShard()
+		shard := coder.NewCoderShard()
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := shards.NewReviewerShard()
+		shard := reviewer.NewReviewerShard()
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
 		return shard
 	})
 	shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := shards.NewTesterShard()
+		shard := tester.NewTesterShard()
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
 		return shard
@@ -342,6 +345,11 @@ func InitChat(cfg Config) Model {
 	kernelAdapter := core.NewKernelAdapter(kernel)
 	autopoiesisOrch.SetKernel(kernelAdapter)
 
+	// Start kernel listener for delegate_task(/tool_generator, ...) facts
+	// This enables campaign orchestration to trigger tool generation via Mangle policy
+	autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
+	autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
+
 	// Initialize Verification Loop (Quality-Enforcing)
 	// This ensures tasks are completed PROPERLY with automatic retry and corrective action
 	context7Key := appCfg.Context7APIKey
@@ -398,6 +406,8 @@ func InitChat(cfg Config) Model {
 		localDB:               localDB,
 		compressor:            compressor,
 		autopoiesis:           autopoiesisOrch,
+		autopoiesisCancel:     autopoiesisCancel,
+		autopoiesisListenerCh: autopoiesisListenerCh,
 		verifier:              taskVerifier,
 	}
 

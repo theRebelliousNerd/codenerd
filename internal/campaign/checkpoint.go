@@ -98,9 +98,16 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 
 // runManualReviewCheckpoint requires user confirmation.
 func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return false, "", ctx.Err()
+	default:
+	}
+
 	// In non-interactive mode, we can't do manual review
-	// Return true with a note that review was skipped
-	return true, "Manual review skipped (non-interactive mode)", nil
+	// Return true with a note that review was skipped, including phase context
+	return true, fmt.Sprintf("Manual review for phase '%s' skipped (non-interactive mode)", phase.Name), nil
 }
 
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.

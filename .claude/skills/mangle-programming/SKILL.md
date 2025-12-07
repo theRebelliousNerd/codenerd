@@ -1,10 +1,10 @@
 ---
 name: mangle-programming
-description: Master Google's Mangle declarative programming language for deductive database programming, constraint-like reasoning, and software analysis. From basic facts to production deployment, graph traversal to vulnerability detection, theoretical foundations to optimization. Complete encyclopedic reference with progressive disclosure architecture.
+description: Master Google's Mangle declarative programming language for deductive database programming, constraint-like reasoning, and software analysis. From basic facts to production deployment, graph traversal to vulnerability detection, theoretical foundations to optimization. Includes comprehensive AI failure mode prevention (atom/string confusion, aggregation syntax, safety violations, stratification errors). Complete encyclopedic reference with progressive disclosure architecture.
 license: Apache-2.0
-version: 0.4.0
+version: 0.5.0
 mangle_version: 0.4.0 (November 1, 2024)
-last_updated: 2025-12-05
+last_updated: 2025-12-06
 ---
 
 # Mangle Programming: The Complete Reference
@@ -32,6 +32,19 @@ sibling(X, Y) :- parent(P, X), parent(P, Y), X != Y.
 - `:-` - Rule implication ("if")
 - `,` - Conjunction (AND)
 - `.` - Statement terminator (REQUIRED)
+
+## CRITICAL: Before Writing Mangle Code
+
+**Read [150-AI_FAILURE_MODES](references/150-AI_FAILURE_MODES.md) first.** Mangle has unique semantics that conflict with AI training on Python/SQL/Prolog. Common silent failures:
+
+| Pattern | WRONG | CORRECT |
+|---------|-------|---------|
+| Constants | `"active"` | `/active` |
+| Aggregation | `sum(X)` | `\|> let S = fn:Sum(X)` |
+| Grouping | `GROUP BY X` | `\|> do fn:group_by(X)` |
+| Declaration | `.decl p(x:int)` | `Decl p(X.Type<int>).` |
+| Negation | `not foo(X)` alone | `gen(X), not foo(X)` |
+| Struct access | `R.field` | `:match_field(R, /field, V)` |
 
 ## When to Use Mangle
 
@@ -68,6 +81,15 @@ This skill uses **progressive disclosure**: Start with quick references below, t
   - Deductive database principles
   - Evaluation models (bottom-up, semi-naive)
   - When Mangle vs Prolog vs SQL vs Datalog
+
+- [150-AI_FAILURE_MODES](references/150-AI_FAILURE_MODES.md) - **CRITICAL: Read before writing Mangle**
+  - Atom vs String confusion (silent failures)
+  - Aggregation syntax (|> do fn:group_by pattern)
+  - Declaration syntax (Decl vs .decl)
+  - Safety violations (unbounded negation)
+  - Stratification errors (negative cycles)
+  - Infinite recursion pitfalls
+  - Go integration anti-patterns
 
 **200-Series: Language Reference**
 - [200-SYNTAX_REFERENCE](references/200-SYNTAX_REFERENCE.md) - Complete language specification
@@ -243,11 +265,12 @@ volunteer_name(Id, Name) :-
 
 ### Path 1: Beginner (0-2 hours)
 
-1. Read SKILL.md (this file) - Quick Start
-2. Read [000-ORIENTATION](references/000-ORIENTATION.md) - Understand the library
-3. Read [100-FUNDAMENTALS](references/100-FUNDAMENTALS.md) - Sections 1-3 only
-4. Try examples from [300-PATTERN_LIBRARY](references/300-PATTERN_LIBRARY.md) - Basic patterns
-5. Install and run: `GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest`
+1. Read SKILL.md (this file) - Quick Start and Critical section
+2. Read [150-AI_FAILURE_MODES](references/150-AI_FAILURE_MODES.md) - **Avoid common mistakes**
+3. Read [000-ORIENTATION](references/000-ORIENTATION.md) - Understand the library
+4. Read [100-FUNDAMENTALS](references/100-FUNDAMENTALS.md) - Sections 1-3 only
+5. Try examples from [300-PATTERN_LIBRARY](references/300-PATTERN_LIBRARY.md) - Basic patterns
+6. Install and run: `GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest`
 
 ### Path 2: Intermediate (2-8 hours)
 
@@ -277,27 +300,99 @@ volunteer_name(Id, Name) :-
 
 ## Common Pitfalls (Avoid These)
 
-### Pitfall 1: Forgetting periods
+**IMPORTANT**: These are the most frequent AI coding failures. See [150-AI_FAILURE_MODES](references/150-AI_FAILURE_MODES.md) for comprehensive coverage.
+
+### Pitfall 1: Atom vs String Confusion (CRITICAL - Silent Failure)
 
 ```mangle
-# WRONG
+# WRONG - "active" is a string, not an atom
+status(User, "active").
+active_users(U) :- status(U, "active").  # Matches, but wrong type
+
+# CORRECT - /active is an atom (interned constant)
+status(User, /active).
+active_users(U) :- status(U, /active).
+```
+
+**Rule**: Use `/atom` for identifiers, enums, statuses. Use `"string"` only for human-readable text.
+
+### Pitfall 2: Forgetting Periods
+
+```mangle
+# WRONG - Missing statement terminator
 parent(/a, /b)
 
 # CORRECT
 parent(/a, /b).
 ```
 
-### Pitfall 2: Unbound variables in negation
+### Pitfall 3: Wrong Aggregation Syntax
 
 ```mangle
-# WRONG - X not bound first
-bad(X) :- !foo(X).
+# WRONG - SQL-style implicit grouping
+region_sales(Region, Total) :-
+    sales(Region, Amount),
+    Total = sum(Amount).
 
-# CORRECT - X bound by candidate first
-good(X) :- candidate(X), !foo(X).
+# WRONG - Missing `do` keyword
+region_sales(Region, Total) :-
+    sales(Region, Amount) |>
+    fn:group_by(Region),
+    let Total = fn:Sum(Amount).
+
+# CORRECT - Full pipeline syntax
+region_sales(Region, Total) :-
+    sales(Region, Amount) |>
+    do fn:group_by(Region),
+    let Total = fn:Sum(Amount).
 ```
 
-### Pitfall 3: Cartesian products
+### Pitfall 4: Wrong Declaration Syntax
+
+```mangle
+# WRONG - Soufflé syntax
+.decl dependency(app: string, lib: string)
+
+# CORRECT - Mangle syntax
+Decl dependency(App.Type<string>, Lib.Type<string>).
+```
+
+### Pitfall 5: Unbound Variables in Negation
+
+```mangle
+# WRONG - X not bound first (WILL CRASH)
+bad(X) :- not foo(X).
+
+# CORRECT - X bound by candidate first
+good(X) :- candidate(X), not foo(X).
+```
+
+### Pitfall 6: Stratification Violations
+
+```mangle
+# WRONG - Negative cycle (winning -> losing -> not winning)
+winning(X) :- move(X, Y), losing(Y).
+losing(X) :- not winning(X).
+
+# CORRECT - Break the cycle with base case
+losing(X) :- position(X), not has_move(X).
+has_move(X) :- move(X, _).
+winning(X) :- move(X, Y), losing(Y).
+```
+
+### Pitfall 7: Infinite Recursion
+
+```mangle
+# WRONG - Unbounded counter generation (infinite loop)
+next_id(ID) :- current_id(Old), ID = fn:plus(Old, 1).
+current_id(ID) :- next_id(ID).
+
+# CORRECT - Recursion bounded by finite domain
+reachable(X, Y) :- edge(X, Y).
+reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+```
+
+### Pitfall 8: Cartesian Products
 
 ```mangle
 # INEFFICIENT (10K x 10K = 100M intermediate results)
@@ -307,7 +402,7 @@ slow(X, Y) :- table1(X), table2(Y), filter(X, Y).
 fast(X, Y) :- filter(X, Y), table1(X), table2(Y).
 ```
 
-### Pitfall 4: Missing structured data accessors
+### Pitfall 9: Missing Structured Data Accessors
 
 ```mangle
 # WRONG - direct field access does not work
@@ -315,6 +410,20 @@ bad(Name) :- record({/name: Name}).
 
 # CORRECT - use :match_field
 good(Name) :- record(R), :match_field(R, /name, Name).
+```
+
+### Pitfall 10: Go Integration Type Errors
+
+```go
+// WRONG - String-based API doesn't exist
+store.Add("parent", "alice", "bob")
+
+// CORRECT - Must use engine.Value types
+f, _ := factstore.MakeFact("/parent", []engine.Value{
+    engine.Atom("alice"),
+    engine.Atom("bob"),
+})
+store.Add(f)
 ```
 
 ## Installation & REPL

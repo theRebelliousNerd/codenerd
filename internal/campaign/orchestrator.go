@@ -470,6 +470,13 @@ func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
 
 // startNextPhase starts the next eligible phase.
 func (o *Orchestrator) startNextPhase(ctx context.Context) error {
+	// Check for cancellation before starting phase transition
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	facts, err := o.kernel.Query("phase_eligible")
 	if err != nil || len(facts) == 0 {
 		return fmt.Errorf("no eligible phases")
@@ -560,6 +567,8 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 		return o.executeIntegrateTask(ctx, task)
 	case TaskTypeDocument:
 		return o.executeDocumentTask(ctx, task)
+	case TaskTypeToolCreate:
+		return o.executeToolCreateTask(ctx, task)
 	default:
 		return o.executeGenericTask(ctx, task)
 	}
@@ -678,7 +687,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 
 // executeVerifyTask runs verification (build, lint, etc.).
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
-	// Run build
+	// Run build verification for this task
 	cmd := tactile.ShellCommand{
 		Binary:           "go",
 		Arguments:        []string{"build", "./..."},
@@ -687,9 +696,17 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	}
 	output, err := o.executor.Execute(ctx, cmd)
 	if err != nil {
-		return map[string]interface{}{"output": output, "verified": false}, err
+		return map[string]interface{}{
+			"task_id":  task.ID,
+			"output":   output,
+			"verified": false,
+		}, err
 	}
-	return map[string]interface{}{"output": output, "verified": true}, nil
+	return map[string]interface{}{
+		"task_id":  task.ID,
+		"output":   output,
+		"verified": true,
+	}, nil
 }
 
 // executeShardSpawnTask spawns a specialized shard.
@@ -734,6 +751,99 @@ func (o *Orchestrator) executeDocumentTask(ctx context.Context, task *Task) (any
 	return o.executeFileTask(ctx, task)
 }
 
+// executeToolCreateTask triggers tool generation via kernel-mediated autopoiesis.
+// It asserts missing_tool_for fact to the kernel, which derives delegate_task(/tool_generator, ...).
+// The autopoiesis orchestrator listens for these derived facts and generates the tool.
+func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (any, error) {
+	// Extract tool capability from task description or artifacts
+	// For tool creation, the Path field contains the tool/capability name
+	capability := task.Description
+	if len(task.Artifacts) > 0 && task.Artifacts[0].Path != "" {
+		capability = task.Artifacts[0].Path
+	}
+
+	// Generate intent ID for this tool creation request
+	intentID := fmt.Sprintf("campaign_%s_task_%s", o.campaign.ID, task.ID)
+
+	// Assert missing_tool_for to kernel - this triggers the policy rules:
+	// 1. delegate_task(/tool_generator, Cap, /pending) derives
+	// 2. next_action(/generate_tool) derives
+	// 3. Autopoiesis orchestrator picks up the delegation
+	err := o.kernel.Assert(core.Fact{
+		Predicate: "missing_tool_for",
+		Args:      []interface{}{intentID, capability},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to assert missing_tool_for: %w", err)
+	}
+
+	// Also assert goal_requires so the policy can derive properly
+	err = o.kernel.Assert(core.Fact{
+		Predicate: "goal_requires",
+		Args:      []interface{}{o.campaign.Goal, capability},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to assert goal_requires: %w", err)
+	}
+
+	// Emit event for visibility
+	o.emitEvent("tool_generation_requested", "", task.ID, capability, map[string]interface{}{
+		"intent_id":  intentID,
+		"capability": capability,
+	})
+
+	// Poll for tool_ready or tool_registered fact (with timeout)
+	timeout := time.After(5 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timeout:
+			// Tool generation timed out - return partial success
+			// The tool may still be generating in the background
+			return map[string]interface{}{
+				"status":     "pending",
+				"capability": capability,
+				"message":    "tool generation initiated but not yet complete",
+			}, nil
+		case <-ticker.C:
+			// Check if tool is now registered
+			facts, err := o.kernel.Query("tool_registered")
+			if err == nil {
+				for _, fact := range facts {
+					if len(fact.Args) > 0 {
+						if toolName, ok := fact.Args[0].(string); ok && toolName == capability {
+							return map[string]interface{}{
+								"status":     "complete",
+								"capability": capability,
+								"tool_name":  toolName,
+							}, nil
+						}
+					}
+				}
+			}
+
+			// Also check has_capability
+			capFacts, capErr := o.kernel.Query("has_capability")
+			if capErr == nil {
+				for _, fact := range capFacts {
+					if len(fact.Args) > 0 {
+						if cap, ok := fact.Args[0].(string); ok && cap == capability {
+							return map[string]interface{}{
+								"status":     "complete",
+								"capability": capability,
+							}, nil
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
 	result, err := o.shardMgr.Spawn(ctx, "coder", task.Description)
@@ -771,6 +881,22 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 	o.mu.Lock()
 	o.campaign.CompletedTasks++
 	o.mu.Unlock()
+
+	// Record task result for learning and audit trail
+	resultSummary := ""
+	if result != nil {
+		if data, err := json.Marshal(result); err == nil {
+			resultSummary = string(data)
+			// Truncate if too long
+			if len(resultSummary) > 1000 {
+				resultSummary = resultSummary[:1000] + "..."
+			}
+		}
+	}
+	o.kernel.Assert(core.Fact{
+		Predicate: "task_result",
+		Args:      []interface{}{task.ID, "/success", resultSummary},
+	})
 }
 
 // handleTaskFailure handles task execution failure.
@@ -866,18 +992,41 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) err
 
 // applyLearnings applies autopoiesis learnings from task execution.
 func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result any) {
+	// Check for cancellation before applying learnings
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	// Query for learnings to apply
 	facts, err := o.kernel.Query("promote_to_long_term")
 	if err != nil {
 		return
 	}
 
+	// Summarize result for learning context
+	resultContext := ""
+	if result != nil {
+		if data, err := json.Marshal(result); err == nil {
+			resultContext = string(data)
+			if len(resultContext) > 500 {
+				resultContext = resultContext[:500] + "..."
+			}
+		}
+	}
+
 	o.mu.Lock()
 	for _, fact := range facts {
+		// Combine task description with result context for richer learning
+		factStr := task.Description
+		if resultContext != "" {
+			factStr = fmt.Sprintf("%s [result: %s]", task.Description, resultContext)
+		}
 		learning := Learning{
 			Type:      "/success_pattern",
 			Pattern:   fmt.Sprintf("%v", fact.Args[0]),
-			Fact:      task.Description,
+			Fact:      factStr,
 			AppliedAt: time.Now(),
 		}
 		o.campaign.Learnings = append(o.campaign.Learnings, learning)
