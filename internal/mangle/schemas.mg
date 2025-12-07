@@ -624,6 +624,10 @@ Decl phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity).
 #           /shard_spawn, /tool_create, /verify, /document, /refactor, /integrate
 # Status: /pending, /in_progress, /completed, /failed, /skipped, /blocked
 Decl campaign_task(TaskID, PhaseID, Description, Status, TaskType).
+# eligible_task(TaskID) - derived: runnable tasks (deps met, no conflicts)
+Decl eligible_task(TaskID).
+# task_conflict(TaskID, OtherTaskID) - optional: tasks that must not run together
+Decl task_conflict(TaskID, OtherTaskID).
 
 # task_priority(TaskID, Priority)
 # Priority: /critical, /high, /normal, /low
@@ -712,6 +716,10 @@ Decl plan_validation_issue(CampaignID, IssueType, Description).
 # campaign_shard(CampaignID, ShardID, ShardType, Task, Status)
 # Tracks shards spawned as part of campaign execution
 Decl campaign_shard(CampaignID, ShardID, ShardType, Task, Status).
+
+# campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints)
+# Captures the raw goal and clarifier responses used to launch a campaign
+Decl campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints).
 
 # shard_result(ShardID, ResultType, ResultData, Timestamp)
 # ResultType: /success, /failure, /partial, /knowledge

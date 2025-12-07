@@ -953,6 +953,21 @@ has_blocking_task_dep(TaskID) :-
     /completed != Status,
     /skipped != Status.
 
+# Helper: check if task conflicts with an in-progress task
+task_conflict_active(TaskID) :-
+    task_conflict(TaskID, OtherTaskID),
+    campaign_task(OtherTaskID, _, _, /in_progress, _).
+
+task_conflict_active(TaskID) :-
+    task_conflict(OtherTaskID, TaskID),
+    campaign_task(OtherTaskID, _, _, /in_progress, _).
+
+# Optional conflict heuristic: same artifact path -> conflict
+task_conflict(TaskID, OtherTaskID) :-
+    TaskID != OtherTaskID,
+    task_artifact(TaskID, _, Path, _),
+    task_artifact(OtherTaskID, _, Path, _).
+
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
     campaign_task(OtherTaskID, PhaseID, _, /pending, _),
@@ -970,11 +985,17 @@ priority_higher(/high, /normal).
 priority_higher(/high, /low).
 priority_higher(/normal, /low).
 
-# Next task: highest priority pending task in current phase without blockers
-next_campaign_task(TaskID) :-
+# Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
+eligible_task(TaskID) :-
     current_phase(PhaseID),
     campaign_task(TaskID, PhaseID, _, /pending, _),
-    !has_blocking_task_dep(TaskID).
+    !has_blocking_task_dep(TaskID),
+    !has_earlier_task(TaskID, PhaseID),
+    !task_conflict_active(TaskID).
+
+# Next task remains available for single-dispatch clients
+next_campaign_task(TaskID) :-
+    eligible_task(TaskID).
 
 # Derive next_action based on campaign task type
 next_action(/campaign_create_file) :-

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/core"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -65,6 +67,43 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 
 		return campaignStartedMsg(result.Campaign)
 	}
+}
+
+// runLaunchCampaign runs clarifier then auto-starts a campaign using the goal plus clarifier answers (if provided).
+func (m *Model) runLaunchCampaign(goal string) tea.Cmd {
+	return func() tea.Msg {
+		finalGoal := goal
+		clarifier := strings.TrimSpace(m.launchClarifyAnswers)
+		if clarifier != "" {
+			finalGoal = fmt.Sprintf("%s\n\nClarifier responses:\n%s", goal, clarifier)
+		}
+		// Persist intent capture
+		m.captureCampaignIntent(finalGoal, clarifier)
+		// Reset clarifier state
+		m.launchClarifyPending = false
+		m.launchClarifyGoal = ""
+		m.launchClarifyAnswers = ""
+
+		return m.startCampaign(finalGoal)()
+	}
+}
+
+// captureCampaignIntent stores clarifier answers into kernel facts for downstream logic.
+func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
+	if m.kernel == nil {
+		return
+	}
+	campaignID := fmt.Sprintf("campaign_%d", time.Now().UnixNano())
+	_ = m.kernel.Assert(core.Fact{
+		Predicate: "campaign_intent_capture",
+		Args: []interface{}{
+			campaignID,
+			goal,
+			clarifierAnswers,
+			"hands_free",
+			"{}",
+		},
+	})
 }
 
 // resumeCampaign continues execution of a paused campaign
