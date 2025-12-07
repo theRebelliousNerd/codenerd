@@ -14,6 +14,8 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -168,6 +170,7 @@ type Phase struct {
 	CampaignID     string      `json:"campaign_id"`
 	Name           string      `json:"name"`
 	Order          int         `json:"order"` // Execution order (0-based)
+	Category       string      `json:"category"`
 	Status         PhaseStatus `json:"status"`
 	ContextProfile string      `json:"context_profile"` // ID of the context profile
 
@@ -214,6 +217,7 @@ type Task struct {
 	Status      TaskStatus   `json:"status"`
 	Type        TaskType     `json:"type"`
 	Priority    TaskPriority `json:"priority"`
+	Order       int          `json:"order"`
 
 	// Dependencies
 	DependsOn []string `json:"depends_on,omitempty"` // Task IDs this depends on
@@ -281,10 +285,14 @@ type SourceDocument struct {
 
 // FileMetadata captures lightweight document metadata for selection and retrieval.
 type FileMetadata struct {
-	Path       string    `json:"path"`
-	Type       string    `json:"type"`
-	SizeBytes  int64     `json:"size_bytes"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Path            string    `json:"path"`
+	Type            string    `json:"type"`
+	SizeBytes       int64     `json:"size_bytes"`
+	ModifiedAt      time.Time `json:"modified_at"`
+	Tags            []string  `json:"tags,omitempty"`
+	Layer           string    `json:"layer,omitempty"`
+	LayerConfidence float64   `json:"layer_confidence,omitempty"`
+	LayerReason     string    `json:"layer_reason,omitempty"`
 }
 
 // Requirement represents a requirement extracted from source documents.
@@ -384,13 +392,8 @@ func (c *Campaign) ToFacts() []core.Fact {
 	})
 
 	// Context profiles
-	for _, profile := range c.ContextProfiles {
-		facts = append(facts, profile.ToFacts()...)
-	}
-
-	// Context profiles
-	for _, profile := range c.ContextProfiles {
-		facts = append(facts, profile.ToFacts()...)
+	for i := range c.ContextProfiles {
+		facts = append(facts, c.ContextProfiles[i].ToFacts()...)
 	}
 
 	// Source documents
@@ -402,8 +405,8 @@ func (c *Campaign) ToFacts() []core.Fact {
 	}
 
 	// Phases
-	for _, phase := range c.Phases {
-		facts = append(facts, phase.ToFacts()...)
+	for i := range c.Phases {
+		facts = append(facts, c.Phases[i].ToFacts()...)
 	}
 
 	return facts
@@ -418,6 +421,16 @@ func (p *Phase) ToFacts() []core.Fact {
 		Predicate: "campaign_phase",
 		Args:      []interface{}{p.ID, p.CampaignID, p.Name, p.Order, string(p.Status), p.ContextProfile},
 	})
+
+	// Phase category for build topology enforcement
+	category := normalizeCategory(p.Category)
+	p.Category = category
+	if category != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "phase_category",
+			Args:      []interface{}{p.ID, category},
+		})
+	}
 
 	// Phase objectives
 	for _, obj := range p.Objectives {
@@ -442,8 +455,11 @@ func (p *Phase) ToFacts() []core.Fact {
 	})
 
 	// Tasks
-	for _, task := range p.Tasks {
-		facts = append(facts, task.ToFacts()...)
+	for idx := range p.Tasks {
+		if p.Tasks[idx].Order == 0 {
+			p.Tasks[idx].Order = idx
+		}
+		facts = append(facts, p.Tasks[idx].ToFacts()...)
 	}
 
 	// Compression (if completed)
@@ -473,6 +489,12 @@ func (t *Task) ToFacts() []core.Fact {
 		Args:      []interface{}{t.ID, string(t.Priority)},
 	})
 
+	// Task order (stable deterministic ordering)
+	facts = append(facts, core.Fact{
+		Predicate: "task_order",
+		Args:      []interface{}{t.ID, t.Order},
+	})
+
 	// Task dependencies
 	for _, depID := range t.DependsOn {
 		facts = append(facts, core.Fact{
@@ -483,9 +505,10 @@ func (t *Task) ToFacts() []core.Fact {
 
 	// Artifacts
 	for _, artifact := range t.Artifacts {
+		path := normalizePath(artifact.Path)
 		facts = append(facts, core.Fact{
 			Predicate: "task_artifact",
-			Args:      []interface{}{t.ID, artifact.Type, artifact.Path, artifact.Hash},
+			Args:      []interface{}{t.ID, artifact.Type, path, artifact.Hash},
 		})
 	}
 
@@ -539,4 +562,24 @@ func joinStrings(strs []string) string {
 		result += s
 	}
 	return result
+}
+
+// normalizeCategory coerces category strings into canonical /atom form with a default.
+func normalizeCategory(category string) string {
+	cat := strings.TrimSpace(strings.ToLower(category))
+	if cat == "" {
+		return "/service"
+	}
+	if !strings.HasPrefix(cat, "/") {
+		cat = "/" + cat
+	}
+	return cat
+}
+
+// normalizePath cleans filesystem paths and converts separators to slash form.
+func normalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(p))
 }

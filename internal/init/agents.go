@@ -273,6 +273,10 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 	if err != nil {
 		return 0, fmt.Errorf("failed to create agent DB: %w", err)
 	}
+	if err := i.ensureEmbeddingEngine(); err != nil {
+		return 0, err
+	}
+	agentDB.SetEmbeddingEngine(i.embedEngine)
 	defer agentDB.Close()
 
 	kbSize := 0
@@ -471,6 +475,10 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		if err != nil {
 			continue
 		}
+		if err := i.ensureEmbeddingEngine(); err != nil {
+			return nil, err
+		}
+		shardDB.SetEmbeddingEngine(i.embedEngine)
 
 		atomCount := 0
 

@@ -82,3 +82,5 @@ require (
 )
 
 replace codenerd => C:\CodeProjects\codeNERD\internal\shards\tool_generator
+
+replace modernc.org/sqlite => ./modernc-sqlite-vec

@@ -607,6 +607,18 @@ Decl campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile).
 # VerificationMethod: /tests_pass, /builds, /manual_review, /shard_validation, /none
 Decl phase_objective(PhaseID, ObjectiveType, Description, VerificationMethod).
 
+# phase_category(PhaseID, Category) - architectural layer classification for build topology
+Decl phase_category(PhaseID, Category).
+
+# build_phase_type(Category, Priority) - canonical build layers (lower number executes first)
+Decl build_phase_type(Category, Priority).
+
+# phase_synonym(Category, Alias) - natural language aliases for categories
+Decl phase_synonym(Category, Alias).
+
+# phase_precedence(PhaseID, PriorityScore) - derived precedence per phase
+Decl phase_precedence(PhaseID, PriorityScore).
+
 # phase_dependency(PhaseID, DependsOnPhaseID, DependencyType)
 # DependencyType: /hard (must complete), /soft (preferred), /artifact (needs output)
 Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType).
@@ -614,6 +626,12 @@ Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType).
 # phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity)
 # EstimatedComplexity: /low, /medium, /high, /critical
 Decl phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity).
+
+# architectural_violation(DownstreamPhase, UpstreamPhase, Reason) - build order inversion detection
+Decl architectural_violation(DownstreamPhase, UpstreamPhase, Reason).
+
+# suspicious_gap(DownstreamPhase, UpstreamPhase) - warns on skipping layers
+Decl suspicious_gap(DownstreamPhase, UpstreamPhase).
 
 # -----------------------------------------------------------------------------
 # 27.3 Task Granularity (Atomic Work Units)
@@ -632,6 +650,9 @@ Decl task_conflict(TaskID, OtherTaskID).
 # task_priority(TaskID, Priority)
 # Priority: /critical, /high, /normal, /low
 Decl task_priority(TaskID, Priority).
+
+# task_order(TaskID, OrderIndex) - stable ordering for deterministic scheduling
+Decl task_order(TaskID, OrderIndex).
 
 # task_dependency(TaskID, DependsOnTaskID)
 Decl task_dependency(TaskID, DependsOnTaskID).
@@ -733,6 +754,41 @@ Decl shard_result(ShardID, ResultType, ResultData, Timestamp).
 # DocType: /spec, /requirements, /design, /readme, /api_doc, /tutorial
 Decl source_document(CampaignID, DocPath, DocType, ParsedAt).
 
+# doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt)
+Decl doc_metadata(CampaignID, Path, DocType, SizeBytes, ModifiedAt).
+# goal_topic(CampaignID, Topic) - topics extracted from goal text for selection
+Decl goal_topic(CampaignID, Topic).
+
+# doc_tag(Path, Tag)
+Decl doc_tag(Path, Tag).
+
+# doc_reference(FromPath, ToPath)
+Decl doc_reference(FromPath, ToPath).
+
+# doc_layer(Path, Layer, Confidence) - architectural layer classification
+Decl doc_layer(Path, Layer, Confidence).
+
+# layer_priority(Layer, Priority) - execution ordering for layers (lower runs first)
+Decl layer_priority(Layer, Priority).
+
+# layer_distance(LayerA, LayerB, Distance) - computed layer separation
+Decl layer_distance(LayerA, LayerB, Distance).
+
+# doc_conflict(DocPath, LayerA, LayerB) - detects docs spanning distant layers
+Decl doc_conflict(DocPath, LayerA, LayerB).
+
+# active_layer(Layer) - derived: layer has confident docs
+Decl active_layer(Layer).
+
+# proposed_phase(Layer) - derived: active layer becomes a phase candidate
+Decl proposed_phase(Layer).
+
+# phase_dependency_generated(PhaseA, PhaseB) - derived ordering from taxonomy
+Decl phase_dependency_generated(PhaseA, PhaseB).
+
+# phase_context_scope(Phase, DocPath) - derived: docs allowed for a phase
+Decl phase_context_scope(Phase, DocPath).
+
 # source_requirement(CampaignID, ReqID, Description, Priority, Source)
 # Requirements extracted from source documents
 Decl source_requirement(CampaignID, ReqID, Description, Priority, Source).
@@ -763,8 +819,23 @@ Decl phase_blocked(PhaseID, Reason).
 # campaign_blocked(CampaignID, Reason) - derived: campaign cannot proceed
 Decl campaign_blocked(CampaignID, Reason).
 
+# validation_error(EntityID, IssueType, Message) - derived: validation issues found
+Decl validation_error(EntityID, IssueType, Message).
+
 # replan_needed(CampaignID, Reason) - derived: campaign needs replanning
 Decl replan_needed(CampaignID, Reason).
+
+# phase_stuck(PhaseID) - derived: in-progress phase with no runnable work
+Decl phase_stuck(PhaseID).
+
+# has_pending_tasks(PhaseID) - helper for safe negation
+Decl has_pending_tasks(PhaseID).
+
+# has_running_tasks(PhaseID) - helper for safe negation
+Decl has_running_tasks(PhaseID).
+
+# debug_why_blocked(TaskID, Dependency) - helper to explain blocking
+Decl debug_why_blocked(TaskID, Dependency).
 
 # =============================================================================
 # SECTION 28: OUROBOROS / TOOL SELF-GENERATION (§8.3)

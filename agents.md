@@ -1,658 +1,1569 @@
-# codeNERD
+---
+name: codenerd-builder
+description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, ShardAgents, Virtual Predicates, TDD loops, and the Piggyback Protocol. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
+---
 
-A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic architecture.
+# codeNERD Builder
 
-**Kernel:** Google Mangle (Datalog) | **Runtime:** Go | **Philosophy:** Logic determines Reality; the Model merely describes it.
+Build the codeNERD high-assurance Logic-First CLI coding agent.
 
-## Vision
+## Core Philosophy
 
-The current generation of AI coding agents makes a category error: they ask LLMs to handle everything—creativity AND planning, insight AND memory, problem-solving AND self-correction—when LLMs excel at the former but struggle with the latter. codeNERD separates these concerns: the LLM remains the creative center where problems are understood, solutions are synthesized, and novel approaches emerge, while a deterministic Mangle kernel handles the executive functions that LLMs cannot reliably perform—planning, long-term memory, skill retention, and self-reflection. This architecture liberates the LLM to focus purely on what it does best while the harness ensures those creative outputs are channeled safely and consistently. The north star is an autonomous agent that pairs unbounded creative problem-solving with formal correctness guarantees: months-long sessions without context exhaustion, learned preferences without retraining, and parallel sub-agents—all orchestrated by logic, not luck. We are building the first coding agent where creative power and deterministic safety coexist by design.
+Current AI agents make a category error: they ask LLMs to handle everything—creativity AND planning, insight AND memory, problem-solving AND self-correction—when LLMs excel at the former but struggle with the latter. codeNERD separates these concerns through a **Creative-Executive Partnership**:
 
-## Core Principle: Inversion of Control
+- **LLM as Creative Center**: The model is the source of problem-solving, solution synthesis, goal-crafting, and insight. It understands problems deeply, generates novel approaches, and crafts creative solutions.
+- **Logic as Executive**: Planning, long-term memory, orchestration, skill retention, and safety derive from deterministic Mangle rules. The harness handles what LLMs cannot reliably perform.
+- **Transduction Interface**: NL↔Logic atom conversion channels the LLM's creative outputs through formal structure, ensuring creativity flows safely into execution.
 
-codeNERD inverts the traditional agent hierarchy:
+This architecture **liberates** the LLM to focus purely on what it does best, while the harness ensures those creative outputs are channeled safely and consistently. The result: creative power and deterministic safety coexist by design.
 
-- **LLM as Creative Center** - Problem-solving, solution synthesis, goal-crafting, and insight remain with the model
-- **Logic as Executive** - Planning, memory, orchestration, and safety derive from deterministic Mangle rules
-- **Transduction Interface** - NL↔Logic atom conversion channels creativity through formal structure
-
-## Project Structure
+## Architecture Overview
 
 ```text
-cmd/nerd/           # CLI entrypoint
-internal/
-├── core/           # Kernel, VirtualStore, ShardManager
-├── perception/     # NL → Mangle atom transduction
-├── articulation/   # Mangle atom → NL transduction
-├── shards/         # CoderShard, TesterShard, ReviewerShard, ResearcherShard
-├── mangle/         # .gl schema and policy files
-├── store/          # Memory tiers (RAM, Vector, Graph, Cold)
-├── campaign/       # Multi-phase goal orchestration
-└── world/          # Filesystem and AST projection
+[ Terminal / User ]
+       |
+[ Perception Transducer (LLM) ] --> [ Mangle Atoms ]
+       |
+[ Cortex Kernel ]
+       |
+       +-> [ FactStore (RAM) ]: Working Memory
+       +-> [ Mangle Engine ]: Logic CPU
+       +-> [ Virtual Store (FFI) ]
+             +-> Filesystem Shard
+             +-> Vector DB Shard
+             +-> MCP/A2A Adapters
+             +-> [ Shard Manager ]
+                   +-> CoderShard
+                   +-> TesterShard
+                   +-> ReviewerShard
+                   +-> ResearcherShard
+       |
+[ Articulation Transducer (LLM) ] --> [ User Response ]
 ```
 
-## Skills
+## Implementation Workflow
+
+### 1. Perception Transducer Implementation
+
+The Perception Transducer converts user input into Mangle atoms. Key schemas:
+
+**user_intent** - The seed for all logic:
+
+```mangle
+Decl user_intent(
+    ID.Type<n>,
+    Category.Type<n>,      # /query, /mutation, /instruction
+    Verb.Type<n>,          # /explain, /refactor, /debug, /generate
+    Target.Type<string>,
+    Constraint.Type<string>
+).
+```
+
+**focus_resolution** - Ground fuzzy references to concrete paths:
+
+```mangle
+Decl focus_resolution(
+    RawReference.Type<string>,
+    ResolvedPath.Type<string>,
+    SymbolName.Type<string>,
+    Confidence.Type<float>
+).
 
-Use skills to get specialized knowledge for different tasks. Invoke with `/skill:<name>`.
+# Clarification threshold - blocks execution if uncertain
+clarification_needed(Ref) :-
+    focus_resolution(Ref, _, _, Score),
+    Score < 0.85.
+```
+
+Implementation location: [internal/perception/transducer.go](internal/perception/transducer.go)
+
+### 2. World Model (EDB) Implementation
+
+The Extensional Database maintains the "Ground Truth" of the codebase:
 
-### codenerd-builder
+**file_topology** - Fact-Based Filesystem:
 
-**When:** Implementing codeNERD components - kernel, transducers, shards, virtual predicates, TDD loops, Piggyback Protocol, or any neuro-symbolic architecture work.
+```mangle
+Decl file_topology(
+    Path.Type<string>,
+    Hash.Type<string>,       # SHA-256
+    Language.Type<n>,        # /go, /python, /ts
+    LastModified.Type<int>,
+    IsTestFile.Type<bool>
+).
+```
+
+**symbol_graph** - AST Projection:
+
+```mangle
+Decl symbol_graph(
+    SymbolID.Type<string>,
+    Type.Type<n>,            # /function, /class, /interface
+    Visibility.Type<n>,
+    DefinedAt.Type<string>,
+    Signature.Type<string>
+).
+
+Decl dependency_link(
+    CallerID.Type<string>,
+    CalleeID.Type<string>,
+    ImportPath.Type<string>
+).
 
-### mangle-programming
+# Transitive Impact Analysis
+impacted(X) :- dependency_link(X, Y, _), modified(Y).
+impacted(X) :- dependency_link(X, Z, _), impacted(Z).
+```
+
+**diagnostic** - Linter-Logic Bridge:
+
+```mangle
+Decl diagnostic(
+    Severity.Type<n>,      # /panic, /error, /warning
+    FilePath.Type<string>,
+    Line.Type<int>,
+    ErrorCode.Type<string>,
+    Message.Type<string>
+).
+
+# The Commit Barrier - blocks git commit if errors exist
+block_commit("Build Broken") :-
+    diagnostic(/error, _, _, _, _).
+```
+
+Implementation locations:
+
+- [internal/world/fs.go](internal/world/fs.go) - Filesystem projection
+- [internal/world/ast.go](internal/world/ast.go) - AST projection
+
+### 3. Executive Policy (IDB) Implementation
+
+The Intensional Database contains rules that derive next actions:
+
+**TDD Repair Loop**:
 
-**When:** Writing or debugging Mangle logic - schemas, rules, queries, aggregations, recursive closures, or understanding Datalog semantics. Complete language reference from basics to production optimization.
+```mangle
+next_action(/read_error_log) :-
+    test_state(/failing),
+    retry_count(N), N < 3.
 
-### research-builder
+next_action(/analyze_root_cause) :-
+    test_state(/log_read).
 
-**When:** Building knowledge ingestion systems - ResearcherShard, llms.txt parsing, Context7-style processing, knowledge atom extraction, 4-tier memory persistence, or specialist hydration.
+next_action(/generate_patch) :-
+    test_state(/cause_found).
+
+next_action(/run_tests) :-
+    test_state(/patch_applied).
+
+# Surrender after max retries
+next_action(/escalate_to_user) :-
+    test_state(/failing),
+    retry_count(N), N >= 3.
+```
+
+**Constitutional Safety**:
+
+```mangle
+permitted(Action) :- safe_action(Action).
+
+permitted(Action) :-
+    dangerous_action(Action),
+    admin_override(User),
+    signed_approval(Action).
+
+dangerous_action(Action) :-
+    action_type(Action, /exec_cmd),
+    cmd_string(Action, Cmd),
+    fn:string_contains(Cmd, "rm").
+```
+
+Implementation location: [internal/core/kernel.go](internal/core/kernel.go)
+
+### 4. Virtual Predicates (FFI) Implementation
+
+Virtual Predicates abstract external APIs into logic:
+
+```go
+// In virtual_store.go
+func (s *VirtualStore) GetFacts(pred ast.PredicateSym) []ast.Atom {
+    switch pred.Symbol {
+    case "mcp_tool_result":
+        return s.callMCPTool(pred)
+    case "file_content":
+        return s.readFileContent(pred)
+    case "shell_exec_result":
+        return s.executeShell(pred)
+    default:
+        return s.MemStore.GetFacts(pred)
+    }
+}
+```
+
+Implementation location: [internal/core/virtual_store.go](internal/core/virtual_store.go)
+
+### 5. ShardAgent Implementation
+
+ShardAgents are ephemeral sub-kernels for parallel task execution:
+
+**Shard Types**:
+
+- **Type A (Ephemeral Generalists)**: Spawn -> Execute -> Die. RAM only.
+- **Type B (Persistent Specialists)**: Pre-populated with domain knowledge.
+
+```mangle
+Decl delegate_task(
+    ShardType.Type<n>,
+    TaskDescription.Type<string>,
+    Result.Type<string>
+).
+
+Decl shard_lifecycle(
+    ShardID.Type<n>,
+    ShardType.Type<n>,       # /generalist, /specialist
+    MountStrategy.Type<n>,   # /ram, /sqlite
+    KnowledgeBase.Type<string>,
+    Permissions.Type<string>
+).
+```
+
+Implementation locations:
+
+- [internal/core/shard_manager.go](internal/core/shard_manager.go)
+- [internal/shards/coder.go](internal/shards/coder.go)
+- [internal/shards/tester.go](internal/shards/tester.go)
+- [internal/shards/reviewer.go](internal/shards/reviewer.go)
+- [internal/shards/researcher.go](internal/shards/researcher.go)
+
+### 6. Piggyback Protocol Implementation
+
+The **Piggyback Protocol** is the Corpus Callosum of the Neuro-Symbolic architecture—the invisible bridge between what the agent says and what it truly believes.
+
+**The Dual-Channel Architecture:**
+
+- **Surface Stream**: Natural language for the user (visible)
+- **Control Stream**: Logic atoms for the kernel (hidden)
+
+```json
+{
+  "surface_response": "I fixed the authentication bug.",
+  "control_packet": {
+    "intent_classification": {
+      "category": "mutation",
+      "confidence": 0.95
+    },
+    "mangle_updates": [
+      "task_status(/auth_fix, /complete)",
+      "file_state(/auth.go, /modified)",
+      "diagnostic(/error, \"auth.go\", 42, \"E001\", \"fixed\")"
+    ],
+    "memory_operations": [
+      { "op": "promote_to_long_term", "key": "preference:code_style", "value": "concise" }
+    ],
+    "self_correction": null
+  }
+}
+```
+
+**Key Capabilities:**
+
+1. **Semantic Compression** - Chat history compressed to atoms (>100:1 ratio)
+2. **Constitutional Override** - Kernel can block/rewrite unsafe surface responses
+3. **Grammar-Constrained Decoding** - Forces valid JSON at inference level
+4. **Self-Correction** - Abductive hypotheses trigger automatic recovery
+
+**The Hidden Injection:**
+
+```text
+CRITICAL PROTOCOL:
+You must NEVER output raw text. You must ALWAYS output a JSON object
+containing surface_response and control_packet.
+Your control_packet must reflect the true state of the world, even if the
+surface_response is polite.
+```
+
+For complete specification, see [references/piggyback-protocol.md](references/piggyback-protocol.md)
+
+Implementation location: [internal/articulation/emitter.go](internal/articulation/emitter.go)
+
+### 7. Spreading Activation (Context Selection)
+
+Replace vector RAG with logic-directed context:
+
+```mangle
+# Base Activation (Recency)
+activation(Fact, 100) :- new_fact(Fact).
+
+# Spreading Activation (Dependency)
+activation(Tool, 80) :-
+    active_goal(Goal),
+    tool_capabilities(Tool, Cap),
+    goal_requires(Goal, Cap).
+
+# Recursive Spread
+activation(FileB, 50) :-
+    activation(FileA, Score),
+    Score > 40,
+    dependency_link(FileA, FileB, _).
 
-### rod-builder
+# Context Pruning
+context_atom(Fact) :-
+    activation(Fact, Score),
+    Score > 30.
+```
+
+## Key Implementation Patterns
 
-**When:** Implementing browser automation - web scraping, CDP event handling, session management, DOM projection, or the semantic browser peripheral.
-
-### skill-creator
-
-**When:** Creating or updating skills - designing SKILL.md structure, bundled resources, reference organization, or skill metadata.
-
-## Key Implementation Files
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management |
-| Policy | [internal/mangle/policy.gl](internal/mangle/policy.gl) | IDB rules (20 sections) |
-| Schemas | [internal/mangle/schemas.gl](internal/mangle/schemas.gl) | EDB declarations |
-| VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
-| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle |
-| Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
-| Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
-
-## Development Guidelines
-
-### Mangle Rules
-
-- All predicates require `Decl` in schemas.gl before use
-- Variables are UPPERCASE, constants are `/lowercase`
-- Negation requires all variables bound elsewhere (safety)
-- End every statement with `.`
-
-### Go Patterns
-
-- Shards implement the `Shard` interface with `Execute(ctx, task) (string, error)`
-- Facts use `ToAtom()` to convert Go structs to Mangle AST
-- Virtual predicates abstract external APIs into logic queries
-
-### Testing
-
-- Run `go test ./...` before committing
-- Build with `go build -o nerd.exe ./cmd/nerd`
-
-### Git
-
-- Push to GitHub regularly
-- Use conventional commits
-
-### Model Configuration
-
-- Config file: `.nerd/config.json`
-- Gemini 3 Pro model ID: `gemini-3-pro-preview` (yes, Gemini 3 exists as of Dec 2024)
-
-## Nomenclature
-
-### Shard Lifecycle Types
-
-| Type | Constant | Description | Memory | Creation |
-|------|----------|-------------|--------|----------|
-| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
-| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
-| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
-| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
-
-### Shard Implementations
-
-| Shard | File | Purpose |
-|-------|------|---------|
-| CoderShard | `internal/shards/coder.go` | Code generation, file edits, refactoring |
-| TesterShard | `internal/shards/tester.go` | Test execution, coverage analysis |
-| ReviewerShard | `internal/shards/reviewer.go` | Code review, security scan, metrics |
-| ResearcherShard | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
-| ToolGenerator | `internal/shards/tool_generator.go` | Ouroboros: self-generating tools |
-
-### System Shards (Type S)
-
-| Shard | Purpose |
-|-------|---------|
-| `perception_firewall` | NL → atoms transduction |
-| `world_model_ingestor` | file_topology, symbol_graph maintenance |
-| `executive_policy` | next_action derivation |
-| `constitution_gate` | Safety enforcement |
-| `tactile_router` | Action → tool routing |
-| `session_planner` | Agenda/campaign orchestration |
-
-### Memory Tiers
-
-| Tier | Storage | Lifespan | Content |
-|------|---------|----------|---------|
-| **RAM** | In-memory FactStore | Session | Working facts, active context |
-| **Vector** | SQLite + embeddings | Persistent | Semantic search, similar content |
-| **Graph** | knowledge_graph table | Persistent | Entity relationships |
-| **Cold** | cold_storage table | Permanent | Learned preferences, patterns |
-
-### Key Predicates
-
-| Predicate | Purpose |
-|-----------|---------|
-| `user_intent/5` | Seed for all logic (Category, Verb, Target, Constraint) |
-| `next_action/1` | Derived action to execute |
-| `permitted/1` | Constitutional safety gate |
-| `context_atom/1` | Facts selected for LLM injection |
-| `shard_executed/4` | Cross-turn shard result tracking |
-
-### Protocols
-
-| Protocol | Description |
-|----------|-------------|
-| **Piggyback** | Dual-channel output: surface (user) + control (kernel) |
-| **OODA Loop** | Observe → Orient → Decide → Act |
-| **TDD Repair** | Test fails → Read log → Find cause → Patch → Retest |
-| **Autopoiesis** | Self-learning from rejection patterns |
-| **Ouroboros** | Self-generating missing tools |
-
-## Quick Reference
-
-**OODA Loop:** Observe (Transducer) → Orient (Spreading Activation) → Decide (Mangle Engine) → Act (Virtual Store)
-
-**Constitutional Safety:** Every action requires `permitted(Action)` to derive. Default deny.
-
-**Fact Flow:** User Input → Transducer → `user_intent` fact → Kernel derives `next_action` → VirtualStore executes → Result facts → Articulation → Response
-
-## Full Specifications
-
-For detailed architecture and implementation specs, see:
-
-- [.claude/skills/codenerd-builder/references/](.claude/skills/codenerd-builder/references/) - Full architecture docs
-- [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
-
-## **1\. Executive Introduction: The Collision of Probabilistic Generation and Deterministic Rigor**
-
-The contemporary software engineering landscape is witnessing a collision between two fundamentally opposing paradigms: the probabilistic, statistical generation of code by Large Language Models (LLMs) and the strict, deterministic rigor of deductive logic programming systems like Google Mangle. As an expert Mangle Logic Architect, one observes this friction not merely as a collection of syntax errors, but as a profound incompatibility between the "approximate" nature of current AI reasoning and the "absolute" requirements of Datalog-based systems. This report provides an exhaustive, multi-dimensional analysis of how and why AI coding agents fail when tasked with engineering solutions in Mangle, a language that demands global logical consistency, variable safety, and stratified negation—concepts that often elude the localized pattern-matching capabilities of Transformer-based architectures.
-
-Mangle is not simply another query language; it is an extension of Datalog designed for deductive database programming, incorporating aggregation, function calls, and optional type checking within a Go-based ecosystem.1 Unlike SQL, which is often permissive with implicit casting and order-agnostic execution plans, Mangle relies on bottom-up semi-naive evaluation and fixpoint semantics.3 A program in Mangle describes a logical truth that must be derived iteratively until stability is reached. For an AI agent trained primarily on imperative languages (Python, Java) or relational algebra (SQL), the transition to this declarative, fixpoint-based logic presents a series of "uncanny valleys" where code looks correct but fails catastrophically at the semantic level.
-
-This report is structured to serve as a definitive guide for Datalog Engineers and Architects who must verify, debug, and rewrite AI-generated Mangle code. We will dissect the failures across four critical axes: Syntactic Hallucination, Semantic Safety Violations, Algorithmic Non-Termination, and Integration Impedance Mismatch. Through this analysis, we establish that while AI agents can assist with boilerplate, the architectural core of a Mangle application requires human oversight rooted in formal logic.
-
-## ---
-
-**2\. The Low-Resource Conundrum: Why AI Agents Hallucinate Mangle Syntax**
-
-The primary driver of AI failure in Mangle programming is the extreme scarcity of training data. Unlike Python or SQL, which are represented by billions of tokens in common crawl datasets, Mangle is an experimental, "low-resource" language hosted on GitHub with limited public footprint.1 This data void forces LLMs to rely on "transfer learning" from related dialects—specifically Prolog, Soufflé, and Datomic—resulting in a hybrid syntax that is syntactically confident but structurally invalid.
-
-### **2.1 The Atom/String Dissonance**
-
-One of the most immediate and pervasive failures observed in AI-generated Mangle code is the mishandling of **Atoms**. In Mangle, an atom is a distinct data type representing a unique, interned identifier, syntactically denoted by a forward slash (e.g., /employee, /active).5 This is a critical distinction from string literals ("active") or Prolog atoms (lowercase active).
-
-AI agents, heavily biased towards standard Prolog or JSON-like structures, consistently fail to respect this distinction. They frequently generate code that treats status flags or enum-like values as strings or bare identifiers.
-
-**Table 1: The Atom Hallucination Spectrum**
-
-| Concept | Correct Mangle Syntax | Common AI Hallucination | Underlying Training Bias |
-| :---- | :---- | :---- | :---- |
-| **Interned Constant** | /active | 'active' or "active" | Python/SQL string dominance. |
-| **Enum Value** | /status/pending | status.pending or :pending | Java Enums or Clojure Keywords.6 |
-| **Predicate Name** | my\_pred(Arg) | my\_pred(Arg) | (Generally correct, but often confused with atoms). |
-| **Variable Binding** | State \= /done | State \= "done" | Failure to distinguish type system constraints. |
-
-When an agent generates status(X, "active") instead of status(X, /active), the error is not merely cosmetic. In Mangle's type system, these are distinct primitives. If the underlying fact store or Decl specifies an Atom type, the program will fail to compile or, worse, run silently without matching any facts, leading to empty result sets that are difficult to debug. The agent's internal model does not "understand" interning; it sees "active" and /active as semantically equivalent, whereas the Mangle engine sees them as disjoint types.5
-
-### **2.2 The Pipe Operator (|\>) and Functional Transforms**
-
-Mangle differentiates itself from standard Datalog by introducing the pipe operator |\> to handle aggregations and transformations.3 This allows for a functional programming style within the logic rule body, specifically for operations like grouping, sorting, or mapping.
-
-AI agents often struggle with this hybrid syntax. Their training data includes:
-
-1. **Standard Datalog:** Pure logic rules, no pipes.  
-2. **Elixir/F\#:** Pipes used for function chaining data |\> func1 |\> func2.  
-3. **Bash:** Pipes for stream processing cmd1 | cmd2.
-
-When an AI attempts to write a Mangle aggregation, it often hallucinates a "SQL-like" or "Soufflé-like" syntax that ignores the pipe entirely.
-
-**Scenario:** Calculate the total sales per region.
-
-* **AI Generated Hallucination (SQL/Soufflé Bias):**  
-  Code snippet  
-  // INVALID: Mangle does not support implicit grouping or Soufflé's inline aggregates  
-  region\_sales(Region, Total) :-  
-    sales(Region, Amount),  
-    Total \= sum(Amount). 
-
-  *Analysis:* The agent assumes that by mentioning Region in the head, the engine will automatically group by it. This is how SQL GROUP BY works mentally, but it is not how Mangle executes.  
-* **Correct Mangle Implementation:**  
-  Code snippet  
-  region\_sales(Region, Total) :-  
-    sales(Region, Amount)
-
-|\> do fn:group\_by(Region, Total \= fn:Sum(Amount)).  
-\`\`\`  
-Analysis: The correct syntax requires an explicit transformation step using |\> and the fn:group\_by function.5 The AI fails to predict the do keyword or the specific fn: namespace, often hallucinating generic sum() or count() functions that do not exist in the Mangle runtime.
-
-### **2.3 Type Declaration (Decl) Confusion**
-
-Mangle allows for optional type checking using the Decl keyword, which uses a specific syntax: Decl predicate\_name(ArgName.Type\<type\_name\>)..3 This syntax is highly idiosyncratic and rarely appears in general training corpora.
-
-AI agents frequently conflate this with:
-
-* **Soufflé:** .decl name(x:number).8  
-* **Go:** type Name struct {... }.  
-* **TypeScript:** name: number.
-
-**Predicted Failure:**
-
-Code snippet
-
-// AI Generated Type Declaration (Invalid)  
-.decl direct\_dep(app: string, lib: string)
-
-**Correct Syntax:**
-
-Code snippet
-
-Decl direct\_dep(App.Type\<string\>, Lib.Type\<string\>).
-
-The implication of this failure is significant. Mangle's type checker is a "gatekeeper." If the Decl is malformed, the program is rejected before evaluation begins. The AI, unaware of the specific grammar, essentially "guesses" the declaration syntax based on higher-probability tokens from Soufflé or C++, leading to immediate compilation errors.9
-
-## ---
-
-**3\. Semantic Logic Failures: The Safety and Stratification Trap**
-
-While syntax errors are caught by the parser, semantic errors in logic programming are far more insidious. Mangle operates on **semi-naive evaluation** and **fixpoint semantics**.3 A program is valid only if it is "safe" (all variables bounded) and "stratified" (no negation cycles). AI agents, which lack an internal solver or dependency graph model, consistently violate these principles.
-
-### **3.1 The Safety Violation: Unbounded Domains**
-
-In Datalog, every variable in the head of a rule must be "grounded" or "bound" by a positive atom in the body. You cannot derive p(X) if X could be *anything*.
-
-* **The AI Mental Model:** The AI thinks in terms of constraints, similar to SQL WHERE clauses. "Find users who are not admins."  
-* **The AI Generation:**  
-  Code snippet  
-  // UNSAFE RULE  
-  non\_admin(User) :- not admin(User).
-
-* **The Mangle Engine Reality:** The engine asks, "Where do I get the values for User to test against admin?" The variable User is unsafe. It represents an infinite domain. The program crashes or is rejected.11  
-* **The Expert Correction:**  
-  Code snippet  
-  non\_admin(User) :- user(User), not admin(User).
-
-  We must introduce a "generator" predicate user(User) that provides a finite set of candidates. AI agents frequently miss this generator because "not admin" is semantically complete in natural language. The requirement for a positive binding atom is a specific constraint of the evaluation algorithm (bottom-up) that the probabilistic model ignores.12
-
-### **3.2 Stratified Negation and Dependency Cycles**
-
-Mangle prohibits recursion through negation. If A depends on not B, and B depends on A, the logic is unstratified—there is no stable truth value.
-
-Case Study: Game State Analysis  
-An AI is asked to model a game where a position is "winning" if there is a move to a "losing" position.
-
-* **AI Generated Logic:**  
-  Code snippet  
-  winning(X) :- move(X, Y), losing(Y).  
-  losing(X) :- not winning(X).
-
-* **Structural Analysis:**  
-  1. winning depends on losing.  
-  2. losing depends on not winning.  
-  3. This creates a negative cycle: winning \-\> losing \-\> (not) winning.
-
-To an LLM, this looks like a perfect translation of the minimax algorithm descriptions found in its training data. However, Mangle rejects this because it cannot assign strata (layers) to evaluation. The engine needs to fully compute winning before it can compute losing, but winning requires losing.
-
-**Deep Insight:** Humans solve this by ensuring the graph is acyclic (e.g., using a turn counter or ensuring the game is finite and loop-free, or using a specialized solver). Mangle's semi-naive evaluation cannot handle the paradox. The AI "hallucinates" that the logic is sound because the English sentence makes sense, failing to model the global dependency graph required for compilation.13
-
-### **3.3 Cartesian Products and Selectivity**
-
-Mangle optimizations often rely on **selectivity**—ordering goals in the rule body so that the most restrictive predicates run first. This minimizes the size of intermediate relations.
-
-* **Inefficient AI Generation:**  
-  Code snippet  
-  // "Find interactions between high-value users"  
-  risky\_interaction(U1, U2) :-  
-    interaction(U1, U2),    // huge table (1M rows)  
-    high\_value(U1),         // small table (100 rows)  
-    high\_value(U2).         // small table (100 rows)
-
-  *Analysis:* The engine might attempt to join the massive interaction table first. While advanced optimizers can reorder this, explicit Datalog typically benefits from manual ordering or specific hints.  
-* **Optimized Mangle:**  
-  Code snippet  
-  risky\_interaction(U1, U2) :-  
-    high\_value(U1),         // Filter first  
-    high\_value(U2),         // Filter second  
-    interaction(U1, U2).    // Verify relationship
-
-  AI agents generally ignore clause ordering, treating the body as a boolean AND set (commutative) rather than an ordered execution plan. In Mangle, poor ordering can lead to intermediate Cartesian products that exhaust memory, even if the logic is theoretically correct.11
-
-### **3.4 Infinite Recursion in Fixpoint Evaluation**
-
-Semi-naive evaluation continues until no new facts are generated. If an AI writes a rule that generates new values indefinitely, the program never terminates.
-
-* **The Counter Fallacy:**  
-  Code snippet  
-  // AI attempting to generate IDs  
-  next\_id(ID) :- current\_id(Old), ID \= Old \+ 1\.  
-  current\_id(ID) :- next\_id(ID).
-
-* **Result:** Infinite loop. The AI assumes "lazy" evaluation or that the program will stop when it finds "the answer." Mangle computes the *entire* model. It will keep incrementing ID until the heat death of the universe (or a memory overflow). AI agents struggle to understand that Datalog computes *all* true facts, not just the one requested.15
-
-## ---
-
-**4\. Algorithmic Architecture: Integration with Go**
-
-Mangle is rarely used in isolation; it is designed to be embedded in Go applications via github.com/google/mangle/engine. The interface between the logic engine and the host language is another major failure point for AI.
-
-### **4.1 Fact Store and Predicate Pushdown**
-
-The engine package allows for "external predicates"—Go functions that appear as Mangle relations. This is essential for performance when querying large datasets that shouldn't be fully loaded into memory.
-
-**AI Failure Mode:** The AI will assume that engine.Load magically connects Mangle predicates to Go structs. It ignores the boilerplate required to map engine.Value types to Go native types.
-
-* **Complex Requirement:** The user asks, "How do I query my SQL database from Mangle?"  
-* **AI Answer:** It likely hallucinates a built-in SQL connector or generates generic Go code that ignores the InclusionChecker or ExternalPredicateCallback interfaces.3  
-* **Reality:** The developer must implement a callback that accepts engine.Value, translates it to a SQL query, and returns a stream of facts. The AI lacks the specific API knowledge of EvalExternalQuery modes (check vs. search) required to implement this correctly.3
-
-### **4.2 Deployment and Compilation**
-
-The AI often suggests running Mangle via a CLI interpreter (mg), but for production, users need the Go library.
-
-Expert Integration Advice:  
-To correctly embed Mangle, one must use the engine package.
-
-Go
-
-import (  
-    "github.com/google/mangle/engine"  
-    "github.com/google/mangle/factstore"  
-)
-
-func runMangle() {  
-    // 1\. Initialize Store  
-    store := factstore.NewSimple()  
-      
-    // 2\. Load Rules (AI often forgets to parse the rules first)  
-    // Actual code would involve parsing the string into \*ast.Program  
-      
-    // 3\. Evaluate  
-    // AI often hallucinates "engine.Run()"   
-    // Correct API involves EvalProgramNaive or EvalProgram with options  
-    engine.EvalProgramNaive(program, store)  
+### Pattern 1: The Hallucination Firewall
+
+Every action must be logically permitted:
+
+```go
+func (k *Kernel) Execute(action Action) error {
+    if !k.Mangle.Query("permitted(?)", action.Name) {
+        return ErrAccessDenied
+    }
+    return k.VirtualStore.Dispatch(action)
+}
+```
+
+### Pattern 2: Grammar-Constrained Decoding
+
+Force valid Mangle syntax output:
+
+- Use structured output schemas
+- Implement repair loops for malformed atoms
+- Validate against Mangle EBNF before committing
+
+### Pattern 3: The OODA Loop
+
+```
+Observe -> Orient -> Decide -> Act
+   |          |         |        |
+   v          v         v        v
+Transducer  Spreading  Mangle   Virtual
+ (LLM)     Activation  Engine    Store
+```
+
+### Pattern 4: Autopoiesis (Self-Learning)
+
+The system learns from user interactions without retraining:
+
+**Rejection Tracking:**
+
+```go
+// In shard execution
+if err := c.applyEdits(ctx, result.Edits); err != nil {
+    c.trackRejection(coderTask.Action, err.Error())  // Track pattern
+    return "", err
+}
+c.trackAcceptance(coderTask.Action)  // Track success
+```
+
+**Mangle Pattern Detection:**
+
+```mangle
+# 3 rejections = pattern signal
+preference_signal(Pattern) :-
+    rejection_count(Pattern, N), N >= 3.
+
+# Promote to long-term memory
+promote_to_long_term(FactType, FactValue) :-
+    preference_signal(Pattern),
+    derived_rule(Pattern, FactType, FactValue).
+```
+
+**The Ouroboros Loop (Tool Self-Generation):**
+
+```mangle
+# Detect missing capability
+missing_tool_for(IntentID, Cap) :-
+    user_intent(IntentID, _, _, _, _),
+    goal_requires(_, Cap),
+    !has_capability(Cap).
+
+# Trigger tool generation
+next_action(/generate_tool) :-
+    missing_tool_for(_, _).
+```
+
+For complete specification, see [references/autopoiesis.md](references/autopoiesis.md)
+
+## Mangle Logic Files
+
+Existing logic files to extend:
+
+- [internal/mangle/schemas.gl](internal/mangle/schemas.gl) - Core schema declarations
+- [internal/mangle/policy.gl](internal/mangle/policy.gl) - Constitutional rules
+- [internal/mangle/coder.gl](internal/mangle/coder.gl) - Coder shard logic
+- [internal/mangle/tester.gl](internal/mangle/tester.gl) - Tester shard logic
+- [internal/mangle/reviewer.gl](internal/mangle/reviewer.gl) - Reviewer shard logic
+
+## 8. Campaign Orchestration (Multi-Phase Goals)
+
+Campaigns handle long-running, multi-phase goal execution:
+
+**Campaign Types**:
+
+- `/greenfield` - Build from scratch
+- `/feature` - Add major feature
+- `/audit` - Stability/security audit
+- `/migration` - Technology migration
+- `/remediation` - Fix issues across codebase
+
+**The Decomposer** - LLM + Mangle collaboration:
+
+1. Ingest source documents (specs, requirements)
+2. Extract requirements via LLM
+3. Propose phases and tasks
+4. Validate via Mangle (circular deps, unreachable tasks)
+5. Refine if issues found
+6. Link requirements to tasks
+
+**Context Pager** - Phase-aware context management:
+
+```go
+// Budget allocation
+totalBudget:     100000 // 100k tokens
+coreReserve:     5000   // 5% - core facts
+phaseReserve:    30000  // 30% - current phase
+historyReserve:  15000  // 15% - compressed history
+workingReserve:  40000  // 40% - working memory
+prefetchReserve: 10000  // 10% - upcoming tasks
+```
+
+**Campaign Policy Rules** ([internal/mangle/policy.gl:479](internal/mangle/policy.gl#L479)):
+
+```mangle
+# Phase eligibility - all hard deps complete
+phase_eligible(PhaseID) :-
+    campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
+    current_campaign(CampaignID),
+    !has_incomplete_hard_dep(PhaseID).
+
+# Next task - highest priority without blockers
+next_campaign_task(TaskID) :-
+    current_phase(PhaseID),
+    campaign_task(TaskID, PhaseID, _, /pending, _),
+    !has_blocking_task_dep(TaskID).
+
+# Replan on cascade failures
+replan_needed(CampaignID, "task_failure_cascade") :-
+    failed_campaign_task(CampaignID, TaskID1),
+    failed_campaign_task(CampaignID, TaskID2),
+    failed_campaign_task(CampaignID, TaskID3),
+    TaskID1 != TaskID2, TaskID2 != TaskID3, TaskID1 != TaskID3.
+```
+
+Implementation locations:
+
+- [internal/campaign/orchestrator.go](internal/campaign/orchestrator.go) - Main orchestration loop
+- [internal/campaign/decomposer.go](internal/campaign/decomposer.go) - Plan decomposition
+- [internal/campaign/context_pager.go](internal/campaign/context_pager.go) - Context management
+- [internal/campaign/types.go](internal/campaign/types.go) - All campaign types with ToFacts()
+
+## 9. Actual Kernel Implementation
+
+The kernel is implemented in [internal/core/kernel.go](internal/core/kernel.go):
+
+```go
+type RealKernel struct {
+    mu          sync.RWMutex
+    facts       []Fact
+    store       factstore.FactStore
+    programInfo *analysis.ProgramInfo
+    schemas     string  // From schemas.gl
+    policy      string  // From policy.gl
 }
 
-AI agents typically fail to construct valid ast.Program objects or handle the programInfo struct required by EvalProgram.3 They confuse the parsing library (/parse) with the execution engine (/engine), generating code that imports non-existent packages.
-
-## ---
-
-**5\. Case Study: The Software Supply Chain (SBOM) Failure**
-
-To synthesize these failure modes, let us analyze a realistic use case: A user asks an AI to write a Mangle program to detect transitive dependencies on vulnerable libraries (e.g., Log4j).
-
-**The Prompt:** "Write a Mangle program to find all apps that depend on a vulnerable version of log4j, transitively."
-
-**The AI's Likely Output (Annotated with Failures):**
-
-Code snippet
-
-// Syntax: Uses string literals for atoms.  
-vulnerable("log4j", "2.14.0").
-
-// Syntax: Declares type using SQL/Souffle syntax  
-.decl depends(app: string, lib: string)
-
-// Logic: Infinite Recursion Risk (No base case check) & Join Order  
-depends(App, Lib) :-   
-    depends(App, Mid),      // Recursive goal first (inefficient/dangerous)  
-    direct\_dep(Mid, Lib).   // Join 
-
-depends(App, Lib) :- direct\_dep(App, Lib).
-
-// Semantics: Safety Violation  
-affected(App) :-   
-    depends(App, Lib),   
-    vulnerable(Lib, Ver),  
-    Ver \= "2.14.0",          // String equality check  
-    not whitelist(App).      // 'App' must be bound by 'depends' first
-
-**The Architect's Analysis of the AI Code:**
-
-1. **Atom Misuse:** vulnerable("log4j",...) treats the library name as a string. In high-performance Datalog, this should be an atom /log4j to leverage interning.  
-2. **Invalid Declaration:** .decl is Soufflé syntax. Mangle uses Decl depends(App.Type\<string\>, Lib.Type\<string\>).  
-3. **Recursive Efficiency:** Putting depends(App, Mid) first in the recursive rule is inefficient for semi-naive evaluation if direct\_dep is large. It's better to drive the search from known facts.  
-4. **Safety Error:** not whitelist(App) is safe *only if* depends(App, Lib) successfully binds App. However, if the depends rule is broken (e.g., infinite recursion), affected never evaluates. Moreover, strictly speaking, safety requires the positive atom to *precede* the negation in the optimizer's view, though Mangle's reordering might handle this, relying on it is bad practice.  
-5. **Version Logic:** String comparison "2.14.0" fails for semantic versioning (e.g., is "2.2" \< "2.14"? String compare says "2.2" \> "2.14"). The AI fails to implement a proper version comparator or structural type.
-
-**The Expert Mangle Solution:**
-
-Code snippet
-
-// 1\. Use Atoms for identifiers  
-vulnerable(/log4j, "2.14.0").
-
-// 2\. Correct Declaration  
-Decl depends(App.Type\<string\>, Lib.Type\<string\>).
-
-// 3\. Base Case First (Best Practice)  
-depends(App, Lib) :- direct\_dep(App, Lib).
-
-// 4\. Recursive Step (Optimized)  
-depends(App, Lib) :-   
-    direct\_dep(App, Mid),   
-    depends(Mid, Lib).
-
-// 5\. Aggregation/Analysis  
-affected\_apps(App) :-   
-    depends(App, Lib),  
-    vulnerable(Lib, VulnVer),  
-    // Ensure we match the exact library atom  
-    Lib \= /log4j,  
-    // Safe negation: App is bound by depends  
-    not exempted(App).
-
-## ---
-
-**6\. Functional Aggregation: The group\_by Paradox**
-
-Mangle's |\> operator is the definitive feature that separates it from pure Datalog, yet it is the feature AI agents understand least.
-
-**The Requirement:** "Count the number of dependencies per application."
-
-**AI Hallucination:**
-
-Code snippet
-
-count\_deps(App, Count) :-  
-    depends(App, Lib),  
-    Count \= count(Lib). // SQL-style implicit aggregation
-
-*Why this fails:* Mangle does not support inline aggregation in the rule body like this. It requires the relation to be *piped* to a transformation function.
-
-**Correct Mangle:**
-
-Code snippet
-
-count\_deps(App, Count) :-  
-    depends(App, Lib)
-
-|\> do fn:group\_by(App, Count \= fn:Count(Lib)).
-
-*Architecture Note:* The |\> operator passes the result of the body (depends(App, Lib)) to the do clause. The fn:group\_by takes the grouping key (App) and the reduction expression. This "post-processing" model is alien to agents trained on standard Prolog where aggregation often requires collecting all solutions into a list first (findall/3).
-
-## ---
-
-**7\. Strategic Recommendations for Datalog Engineers**
-
-Given the high probability of AI failure, organizations adopting Mangle must implement rigorous validation protocols. We cannot rely on "Copilots" to produce correct Mangle code "Zero-Shot."
-
-### **7.1 The "Solver-in-the-Loop" Workflow**
-
-The only viable way to use AI for Mangle generation is to wrap the LLM in a feedback loop with the Mangle compiler.
-
-1. **Generate:** AI produces Mangle code.  
-2. **Verify:** The system attempts to parse the code using mangle/parse.  
-3. **Feedback:** If parsing fails (e.g., "unknown token.decl"), the error is fed back to the AI.  
-4. **Safety Check:** Use the engine's analysis tools to check for safety and stratification errors before runtime.
-
-### **7.2 Explicit Context Prompting**
-
-Prompt engineering for Mangle must be "Few-Shot" by definition. You must provide the syntax guide in the prompt context.
-
-* "Use /atom for constants, not strings."  
-* "Use |\> for aggregation."  
-* "Ensure all negated variables are bound."
-
-Without these explicit instructions, the statistical weight of SQL and Prolog in the model's training data will overpower the sparse Mangle knowledge.
-
-### **7.3 Debugging the "Empty Set"**
-
-When AI-generated code runs but returns nothing, suspect **Atom/String mismatches**. If the facts are stored as /foo but the rule queries "foo", the intersection is empty. This is the \#1 silent killer of Mangle logic. Always inspect the FactStore data types directly.
-
-## ---
-
-**8\. Conclusion: The Necessity of Human Architecture**
-
-Google Mangle represents a powerful fusion of deductive reasoning and functional transformation. However, it sits in a blind spot for current Artificial Intelligence. The language's reliance on strict global consistency (stratification, safety), combined with its unique syntactic markers (/, |\>, Decl), creates a hostile environment for probabilistic code generators.
-
-The "Mangle Logic Architect" cannot be replaced by an LLM. The architect's role shifts from writing every line of code to acting as a rigorous verifier—checking the structural integrity of the dependency graph, ensuring the semantic validity of types, and guiding the integration with the host Go environment. Until AI models evolve from pattern matchers to true logical solvers, Mangle will remain a domain where human expertise is the only safeguard against the chaos of hallucinated logic.
-
-## ---
-
-**9\. Appendix: Comprehensive Syntax & Semantic Reference**
-
-### **9.1 Syntax Comparison Table**
-
-| Feature | Mangle | Prolog | Soufflé | AI Failure Risk |
-| :---- | :---- | :---- | :---- | :---- |
-| **Rule Definition** | head :- body. | head :- body. | head :- body. | Low (Common syntax) |
-| **Variable** | Uppercased | Uppercased | lowercase | Medium (Soufflé confusion) |
-| **Atom** | /atom | atom | "string" | **Critical (Type errors)** |
-| **Map/Dict** | {/k: V} | N/A | N/A | High (JSON confusion) |
-| **List** | \`\` | \`\` | \`\` (Record) | Low |
-| **Aggregation** | \` | \> do fn:group\_by\` | findall/3 | min x : {... } |
-| **Type Decl** | Decl p(A.Type\<int\>). | N/A | .decl p(x:number) | High (Syntax mismatch) |
-
-### **9.2 Optimization Checklist for Mangle Programs**
-
-1. **Filter Early:** Place simple checks (/status/active) before complex joins (depends\_on).  
-2. **Bound Negation:** Always precede not foo(X) with generator(X).  
-3. **Avoid Strings:** Use Atoms /name for enumerated values to save memory and improve join speed.  
-4. **Watch Recursion:** Ensure every recursive rule has a base case and moves closer to termination (e.g., graph traversal on a DAG).
-
-*End of Report.*
-
-## ---
-
-**10\. Deep Dive: Theoretical Underpinnings of AI Failure in Fixpoint Semantics**
-
-To fully understand *why* AI agents fail, we must look beyond syntax into the theoretical computer science that underpins Mangle: **Fixpoint Semantics**.
-
-### **10.1 The Fixpoint Blind Spot**
-
-AI models, specifically Transformers, are autoregressive. They predict the next token $t\_{i+1}$ based on $P(t\_{i+1} | t\_0...t\_i)$. This is a linear, sequential process.  
-Datalog evaluation is a Least Fixed Point (LFP) calculation. It applies an operator $T\_P$ repeatedly:  
-$I\_{k+1} \= T\_P(I\_k) \\cup I\_k$  
-The evaluation stops when $I\_{k+1} \= I\_k$.  
-The AI simulates the *code* that describes the operator, but it cannot simulate the *execution* of the fixpoint iteration.
-
-* **Implication:** The AI cannot "see" if a rule is monotonic. It cannot detect if $T\_P$ will ever converge.  
-* **Example:**  
-  Code snippet  
-  p(X) :- q(X), not p(X).
-
-  This rule describes an operator that flips values. If p(X) is false, it becomes true. If it is true, the body fails. There is no fixpoint. The AI sees valid syntax; the Mangle engine sees a logical contradiction. The clash is fundamental to the differing models of computation (Probabilistic vs. Logical).
-
-### **10.2 The Data Structure Disconnect**
-
-Mangle allows complex data structures (Maps, Lists, Structs) to be stored as values.
-
-* **Facts:** user\_data(/u1, {/age: 30, /role: /admin}).  
-* Query: user\_data(U, Map), fn:map\_get(Map, /role, Role).  
-  AI agents often treat these maps as JSON objects, attempting to access them with dot notation (Map.role) or Python style (Map\['role'\]). Mangle requires specific functional accessors (fn:map\_get). This reflects a deeper misunderstanding: in Datalog, data is usually flat (normalized). Mangle's nested data support is a deviation that AI agents—trained on normalized SQL or unstructured JSON—struggle to navigate correctly.
-
-### **10.3 The "Closed World Assumption" (CWA)**
-
-Datalog operates under the Closed World Assumption: anything not known to be true is false.  
-LLMs operate under an "Open World" bias derived from natural language: just because something isn't mentioned doesn't mean it's false.
-
-* **Failure:** The AI might try to write rules that handle "unknown" or "null" values (if x is null). Mangle (typically) does not have NULLs in the SQL sense; a missing fact simply doesn't exist. AI attempts to write p(X) :- q(X), X\!= null are redundant or syntactically invalid, revealing the agent's failure to grasp the CWA.
-
-## ---
-
-**11\. Expanded Integration Guide: Embedding Mangle in Go**
-
-For the professional engineer, the value of Mangle is in its embeddability. This section expands on the implementation details that AI agents consistently miss.
-
-### **11.1 Defining the Fact Store**
-
-You cannot run Mangle without a store.
-
-Go
-
-// Real Go Code for Mangle Integration  
-import (  
-    "context"  
-    "fmt"  
-    "github.com/google/mangle/factstore"  
-    "github.com/google/mangle/engine"  
-    "github.com/google/mangle/parse"  
-)
-
-func main() {  
-    // 1\. Create a concurrent-safe fact store  
-    // AI often forgets the store or uses a nil pointer  
-    store := factstore.NewSimple() 
-
-    // 2\. Add explicit facts (The "EDB" \- Extensional Database)  
-    // Fact: parent(/alice, /bob)  
-    f, \_ := factstore.MakeFact("/parent",engine.Value{  
-        engine.Atom("alice"),   
-        engine.Atom("bob"),  
-    })  
-    store.Add(f)
-
-    // 3\. Parse Rules  
-    rawRules := \`ancestor(X, Y) :- parent(X, Y).\`  
-    parsed, err := parse.Parse("my\_prog", rawRules)  
-    if err\!= nil {  
-        panic(err)  
+// Key methods:
+// - LoadFacts(facts []Fact) - Add to EDB and rebuild
+// - Query(predicate string) - Query derived facts
+// - Assert(fact Fact) - Add single fact dynamically
+// - Retract(predicate string) - Remove all facts of predicate
+```
+
+**Fact struct with ToAtom()**:
+
+```go
+type Fact struct {
+    Predicate string
+    Args      []interface{}
+}
+
+func (f Fact) ToAtom() (ast.Atom, error) {
+    // Converts Go types to Mangle AST terms
+    // Handles: strings, name constants (/foo), ints, floats, bools
+}
+```
+
+## 10. Shard Implementation Pattern
+
+Each shard follows this pattern (see [internal/shards/coder.go](internal/shards/coder.go)):
+
+```go
+type CoderShard struct {
+    id           string
+    config       core.ShardConfig
+    state        core.ShardState
+    kernel       *core.RealKernel      // Own kernel instance
+    llmClient    perception.LLMClient
+    virtualStore *core.VirtualStore
+
+    // Autopoiesis tracking
+    rejectionCount  map[string]int
+    acceptanceCount map[string]int
+}
+
+func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
+    // 1. Load shard-specific policy
+    c.kernel.LoadPolicyFile("coder.gl")
+
+    // 2. Parse task into structured form
+    coderTask := c.parseTask(task)
+
+    // 3. Assert task facts to kernel
+    c.assertTaskFacts(coderTask)
+
+    // 4. Check impact via Mangle query
+    if blocked, reason := c.checkImpact(target); blocked {
+        return "", fmt.Errorf("blocked: %s", reason)
     }
 
-    // 4\. Solve (The "IDB" \- Intensional Database)  
-    // AI often hallucinates the method name here  
-    engine.EvalProgramNaive(parsed, store)  
-      
-    // 5\. Query Results  
-    // We must manually inspect the store or use a callback  
-    // The AI typically assumes a SQL-like "return result"  
+    // 5. Generate code via LLM
+    result := c.generateCode(ctx, coderTask, fileContext)
+
+    // 6. Apply edits via VirtualStore
+    c.applyEdits(ctx, result.Edits)
+
+    // 7. Generate facts for propagation back to parent
+    result.Facts = c.generateFacts(result)
 }
+```
 
-**Insight:** The interaction involves creating engine.Atom explicitly. The AI will likely write store.Add("parent", "alice", "bob"), which is invalid Go (type mismatch). The distinct types engine.Value, engine.Atom, engine.Number must be used.
+## 11. Policy File Structure
 
-### **11.2 The "Pushdown" Optimization**
+The policy file ([internal/mangle/policy.gl](internal/mangle/policy.gl)) has 20 sections:
 
-For large datasets, we don't want to load all facts into factstore.Simple. We use InclusionChecker.
+1. **Spreading Activation** (§1) - Context selection
+2. **Strategy Selection** (§2) - Dynamic workflow dispatch
+3. **TDD Repair Loop** (§3) - Write→Test→Analyze→Fix
+4. **Focus Resolution** (§4) - Clarification threshold
+5. **Impact Analysis** (§5) - Refactoring guard
+6. **Commit Barrier** (§6) - Block commit on errors
+7. **Constitutional Safety** (§7) - Permission gates
+8. **Shard Delegation** (§8) - Task routing
+9. **Browser Physics** (§9) - DOM spatial reasoning
+10. **Tool Capability Mapping** (§10) - Action mappings
+11. **Abductive Reasoning** (§11) - Missing hypothesis detection
+12. **Autopoiesis** (§12) - Learning patterns
+13. **Git-Aware Safety** (§13) - Chesterton's Fence
+14. **Shadow Mode** (§14) - Counterfactual reasoning
+15. **Interactive Diff** (§15) - Mutation approval
+16. **Session State** (§16) - Clarification loop
+17. **Knowledge Atoms** (§17) - Domain expertise
+18. **Shard Types** (§18) - Classification
+19. **Campaign Orchestration** (§19) - Multi-phase execution
+20. **Campaign Triggers** (§20) - Campaign start detection
 
-* **Concept:** When Mangle needs parent(X, Y), it calls a Go function.  
-* **AI Failure:** The AI cannot generate the complex callback signature required for engine.WithExternalPredicates. It requires understanding how to map Mangle's unification request (which arguments are bound? which are free?) to a backend query (e.g., SQL SELECT).  
-* **Code Reality:**  
-  Go  
-  // Callback signature is complex  
-  func myPredicate(query engine.Query, cb func(engine.Fact)) error {  
-      // Check if query.Args is a constant or variable  
-      // AI fails to handle this "Binding Pattern" logic  
-      return nil  
-  }
+## Resources
 
-  This binding pattern logic is central to Datalog optimization but usually absent in AI-generated code.
+For detailed specifications, consult the reference documentation:
+
+- [references/architecture.md](references/architecture.md) - Theoretical foundations and neuro-symbolic principles
+- [references/mangle-schemas.md](references/mangle-schemas.md) - Complete Mangle schema reference
+- [references/implementation-guide.md](references/implementation-guide.md) - Go implementation patterns and component details
+- [references/piggyback-protocol.md](references/piggyback-protocol.md) - Dual-channel steganographic control protocol specification
+- [references/campaign-orchestrator.md](references/campaign-orchestrator.md) - Multi-phase goal execution and context paging system
+- [references/autopoiesis.md](references/autopoiesis.md) - Self-creation, runtime learning, and the Ouroboros Loop
+- [references/shard-agents.md](references/shard-agents.md) - All four shard types, ShardManager API, and built-in implementations
+
+# Mangle Expert: PhD-Level Reference
+
+You are an expert in **Google Mangle**, a declarative deductive database language extending Datalog with practical features for software analysis, security evaluation, and multi-source data integration.
+
+## Core Philosophy
+
+Mangle occupies a unique position in the logic programming landscape:
+
+- **Bottom-up evaluation** (like Datalog) vs top-down (like Prolog)
+- **Stratified negation** for safe non-monotonic reasoning
+- **First-class aggregation** via transform pipelines
+- **Typed structured data** (maps, structs, lists)
+
+## Quick Reference: Essential Syntax
+
+```mangle
+# Facts (EDB - Extensional Database)
+parent(/oedipus, /antigone).
+vulnerable("log4j", "2.14.0", "CVE-2021-44228").
+
+# Rules (IDB - Intensional Database) - "Head is true if Body is true"
+sibling(X, Y) :- parent(P, X), parent(P, Y), X != Y.
+
+# Query (REPL only)
+?sibling(/antigone, X)
+
+# Key syntax:
+# /name     - Named constant (atom)
+# UPPERCASE - Variables
+# :-        - Rule implication ("if")
+# ,         - Conjunction (AND)
+# .         - Statement terminator (REQUIRED!)
+```
+
+---
+
+## 1. Complete Data Types
+
+### Named Constants (Atoms)
+
+```mangle
+/oedipus
+/critical_severity
+/crates.io/fnv
+/home.cern/news/computing/30-years-free-and-open-web
+```
+
+### Numbers
+
+```mangle
+42, -17, 0            # 64-bit signed integers
+3.14, -2.5, 1.0e6     # 64-bit IEEE 754 floats
+```
+
+### Strings
+
+```mangle
+"normal string"
+"with \"quotes\""
+"newline \n tab \t backslash \\"
+`
+Multi-line strings
+use backticks
+`
+b"\x80\x81\x82\n"     # Byte strings
+```
+
+### Lists
+
+```mangle
+[]                    # Empty
+[1, 2, 3]
+[/a, /b, /c]
+[[1, 2], [3, 4]]      # Nested
+```
+
+### Maps & Structs
+
+```mangle
+[/a: /foo, /b: /bar]                    # Map
+{/name: "Alice", /age: 30}              # Struct
+{/x: 1, /y: 2, /nested: {/z: 3}}        # Nested struct
+```
+
+### Pairs & Tuples
+
+```mangle
+fn:pair("key", "value")
+fn:tuple(1, 2, "three", /four)
+```
+
+---
+
+## 2. Type System
+
+### Type Declarations
+
+```mangle
+Decl employee(ID.Type<int>, Name.Type<string>, Dept.Type<n>).
+Decl config(Data.Type<{/host: string, /port: int}>).
+Decl flexible(Value.Type<int | string>).        # Union type
+Decl tags(ID.Type<int>, Tags.Type<[string]>).   # List type
+```
+
+### Type Expressions
+
+```mangle
+Type<int>              # Integer
+Type<float>            # Float
+Type<string>           # String
+Type<n>                # Name (atom)
+Type<[T]>              # List of T
+Type<{/k: v}>          # Struct/Map
+Type<T1 | T2>          # Union type
+Type<Any>              # Any type
+/any                   # Universal type
+fn:Singleton(/foo)     # Singleton type
+fn:Union(/name, /string)  # Union type expression
+```
+
+### Gradual Typing
+
+Types are optional - untyped facts are valid. Type checking occurs at runtime when declarations exist.
+
+---
+
+## 3. Operators & Comparisons
+
+### Rule Operators
+
+```mangle
+:-    # Rule implication (if) - preferred
+<-    # Alternative implication syntax
+,     # Conjunction (AND)
+!     # Negation (requires stratification)
+|>    # Transform pipeline
+```
+
+### Comparison Operators
+
+```mangle
+=     # Unification / equality
+!=    # Inequality
+<     # Less than (numeric)
+<=    # Less or equal (numeric)
+>     # Greater than (numeric)
+>=    # Greater or equal (numeric)
+```
+
+---
+
+## 4. Transform Pipelines & Aggregation
+
+### General Form
+
+```mangle
+result(GroupVars, AggResults) :-
+    body_atoms |>
+    do fn:transform1() |>
+    do fn:transform2() |>
+    let AggVar1 = fn:aggregate1(),
+    let AggVar2 = fn:aggregate2().
+```
+
+### Grouping
+
+```mangle
+# Group by single variable
+count_per_category(Cat, N) :-
+    item(Cat, _) |>
+    do fn:group_by(Cat),
+    let N = fn:Count().
+
+# Group by multiple variables
+stats(Region, Product, Count) :-
+    sale(Region, Product, Amount) |>
+    do fn:group_by(Region, Product),
+    let Count = fn:Count().
+
+# No grouping (global aggregate)
+total_count(N) :-
+    item(_, _) |>
+    do fn:group_by(),
+    let N = fn:Count().
+```
+
+### Aggregation Functions
+
+```mangle
+fn:Count()           # Count elements in group
+fn:Sum(Variable)     # Sum numeric values
+fn:Min(Variable)     # Minimum value
+fn:Max(Variable)     # Maximum value
+```
+
+### Arithmetic Functions
+
+```mangle
+fn:plus(A, B)        # A + B
+fn:minus(A, B)       # A - B
+fn:multiply(A, B)    # A * B
+fn:divide(A, B)      # A / B
+fn:modulo(A, B)      # A % B
+fn:negate(A)         # -A
+fn:abs(A)            # |A|
+```
+
+### Complete Aggregation Example
+
+```mangle
+category_stats(Cat, Count, Total, Min, Max, Avg) :-
+    item(Cat, Value) |>
+    do fn:group_by(Cat),
+    let Count = fn:Count(),
+    let Total = fn:Sum(Value),
+    let Min = fn:Min(Value),
+    let Max = fn:Max(Value) |>
+    let Avg = fn:divide(Total, Count).
+```
+
+---
+
+## 5. Structured Data Access
+
+### Struct/Map Field Access
+
+```mangle
+# Using :match_field
+record_name(ID, Name) :-
+    person_record(ID, Info),
+    :match_field(Info, /name, Name).
+
+# Using :match_entry (equivalent)
+record_name(ID, Name) :-
+    person_record(ID, Info),
+    :match_entry(Info, /name, Name).
+```
+
+### List Operations
+
+```mangle
+fn:list:get(List, Index)         # Get by index (0-based)
+:match_cons(List, Head, Tail)    # Destructure [Head|Tail]
+:match_nil(List)                 # Check if empty
+:list:member(Elem, List)         # Membership check
+fn:list_cons(Head, Tail)         # Construct [Head|Tail]
+fn:list_append(List1, List2)     # Concatenate
+fn:list_length(List)             # Length
+```
+
+### String Operations
+
+```mangle
+fn:string_concat(S1, S2)
+fn:string_length(S)
+fn:string_contains(S, Substring)
+```
+
+---
+
+## 6. Recursion Patterns
+
+### Transitive Closure (Reachability)
+
+```mangle
+# Base case: direct edge
+reachable(X, Y) :- edge(X, Y).
+# Recursive case: indirect path
+reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+```
+
+### Path Construction
+
+```mangle
+# Simple paths with node list
+path(X, Y, [X, Y]) :- edge(X, Y).
+path(X, Z, [X|Rest]) :- edge(X, Y), path(Y, Z, Rest).
+```
+
+### Path with Cost Accumulation
+
+```mangle
+path_cost(X, Y, Cost) :- edge(X, Y, Cost).
+path_cost(X, Z, TotalCost) :-
+    edge(X, Y, Cost1),
+    path_cost(Y, Z, Cost2) |>
+    let TotalCost = fn:plus(Cost1, Cost2).
+```
+
+### Shortest Path
+
+```mangle
+shortest(X, Y, MinLen) :-
+    path_len(X, Y, Len) |>
+    do fn:group_by(X, Y),
+    let MinLen = fn:Min(Len).
+```
+
+### Cycle Detection
+
+```mangle
+cycle_edge(X, Y) :- edge(X, Y), reachable(Y, X).
+has_cycle(X) :- cycle_edge(X, _).
+```
+
+### Dependency Closure (Bill of Materials)
+
+```mangle
+depends(P, Lib) :- depends_direct(P, Lib).
+depends(P, Lib) :- depends_direct(P, Q), depends(Q, Lib).
+
+# With quantity multiplication
+bom(Product, Part, TotalQty) :-
+    assembly(Product, SubAssy, Qty1),
+    bom(SubAssy, Part, Qty2) |>
+    let TotalQty = fn:multiply(Qty1, Qty2).
+```
+
+### Mutual Recursion
+
+```mangle
+even(0).
+even(N) :- N > 0, M = fn:minus(N, 1), odd(M).
+
+odd(1).
+odd(N) :- N > 1, M = fn:minus(N, 1), even(M).
+```
+
+---
+
+## 7. Negation Patterns
+
+### Set Difference
+
+```mangle
+safe(X) :- candidate(X), !excluded(X).
+```
+
+### Universal Quantification (All)
+
+```mangle
+# "All dependencies satisfied" = "no unsatisfied dependency"
+all_deps_satisfied(Task) :-
+    task(Task),
+    !has_unsatisfied_dep(Task).
+
+has_unsatisfied_dep(Task) :-
+    depends_on(Task, Dep),
+    !completed(Dep).
+```
+
+### Handling Empty Groups
+
+```mangle
+# Find projects WITH developers
+project_with_developers(ProjectID) <-
+    project_assignment(ProjectID, _, /software_development, _).
+
+# Find projects WITHOUT developers
+project_without_developers(ProjectID) <-
+    project_name(ProjectID, _),
+    !project_with_developers(ProjectID).
+```
+
+---
+
+## 8. Safety Constraints
+
+### Variable Safety
+
+Every variable in rule head must appear in:
+
+1. A positive body atom, OR
+2. A unification `Var = constant`
+
+```mangle
+# SAFE
+rule(X, Y) :- foo(X), bar(Y).
+rule(X, Y) :- foo(X), Y = 42.
+
+# UNSAFE - Y never bound
+rule(X, Y) :- foo(X).
+```
+
+### Negation Safety
+
+Variables in negated atom must be bound by positive atoms FIRST:
+
+```mangle
+# SAFE - X bound by candidate before negation
+safe(X) :- candidate(X), !excluded(X).
+
+# UNSAFE - X never bound
+unsafe(X) :- !foo(X).
+```
+
+### Aggregation Safety
+
+Grouping variables must appear in body atoms:
+
+```mangle
+# SAFE - Cat appears in body
+count_per_cat(Cat, N) :-
+    item(Cat, _) |>
+    do fn:group_by(Cat),
+    let N = fn:Count().
+
+# UNSAFE - Cat never appears
+bad(Cat, N) :-
+    item(_, _) |>
+    do fn:group_by(Cat),  # Can't group by unbound variable
+    let N = fn:Count().
+```
+
+---
+
+## 9. Mathematical Foundations
+
+### Herbrand Semantics
+
+- **Herbrand Universe**: Set of all ground terms constructible from constants
+- **Herbrand Base**: Set of all ground atoms over Herbrand universe
+- **Herbrand Interpretation**: Subset of Herbrand base (facts deemed true)
+- **Minimal Model**: Smallest interpretation satisfying all rules
+
+### Fixed-Point Semantics
+
+**Immediate Consequence Operator**: T_P(I) = {head | head :- body in P, body true in I}
+
+**Properties**:
+
+- Monotonic: I ⊆ J → T_P(I) ⊆ T_P(J)
+- Continuous (finite case)
+
+**Least Fixpoint** (Tarski's Theorem):
+
+```
+lfp(T_P) = T_P^ω(∅) = ∪_{i=0}^∞ T_P^i(∅)
+```
+
+### Semi-Naive Evaluation
+
+```
+Δ₀ = EDB (base facts)
+For each stratum S (in order):
+    i = 0
+    repeat:
+        Δᵢ₊₁ = apply rules to Δᵢ (using all facts)
+        Δᵢ₊₁ = Δᵢ₊₁ \ (all previously derived facts)
+        i++
+    until Δᵢ = ∅ (fixpoint reached)
+```
+
+**Key insight**: Only NEW facts trigger re-evaluation (efficiency).
+
+### Stratification Theory
+
+**Dependency Graph**:
+
+- Nodes: Predicates
+- Positive edges: p uses q in positive position
+- Negative edges: p uses ¬q
+
+**Valid Stratification**: Partition predicates into strata S₀, S₁, ..., Sₙ such that:
+
+- Positive edges: within or forward strata (i → j where i ≤ j)
+- Negative edges: strictly backward (i → j where i > j)
+
+**Perfect Model Semantics**: Evaluate strata bottom-up, each to fixpoint.
+
+### Complexity Analysis
+
+**Data Complexity** (fixed program, variable data):
+
+- Positive Datalog: P-complete
+- Stratified Datalog (Mangle): P-complete
+
+**Combined Complexity** (variable program and data):
+
+- Positive Datalog: EXPTIME-complete
+- Stratified Datalog: EXPTIME-complete
+
+---
+
+## 10. Comparison with Related Systems
+
+| Feature | Mangle | Prolog | SQL | Datalog | Z3/SMT |
+|---------|--------|--------|-----|---------|--------|
+| **Evaluation** | Bottom-up | Top-down | Set-based | Bottom-up | Constraint |
+| **Recursion** | Native | Native | CTE only | Native | Limited |
+| **Aggregation** | Transforms | Bagof/setof | GROUP BY | Limited | No |
+| **Negation** | Stratified | NAF | NOT EXISTS | Stratified | Full |
+| **Optimization** | No | No | No | No | Yes |
+| **Best for** | Graph analysis | AI/search | CRUD | Knowledge base | Constraints |
+
+---
+
+## 11. REPL Commands
+
+```
+<decl>.            Add type declaration
+<clause>.          Add clause, evaluate
+?<predicate>       Query predicate
+?<goal>            Query with pattern
+::load <path>      Load source file
+::help             Show help
+::pop              Reset to previous state
+::show <pred>      Show predicate info
+::show all         Show all predicates
+Ctrl-D             Exit
+```
+
+---
+
+## 12. Common Pitfalls
+
+### Pitfall 1: Forgetting periods
+
+```mangle
+# WRONG
+parent(/a, /b)
+
+# CORRECT
+parent(/a, /b).
+```
+
+### Pitfall 2: Unbound variables in negation
+
+```mangle
+# WRONG - X not bound first
+bad(X) :- !foo(X).
+
+# CORRECT - X bound by candidate first
+good(X) :- candidate(X), !foo(X).
+```
+
+### Pitfall 3: Cartesian products
+
+```mangle
+# INEFFICIENT (10K x 10K = 100M intermediate)
+slow(X, Y) :- table1(X), table2(Y), filter(X, Y).
+
+# EFFICIENT (filter first)
+fast(X, Y) :- filter(X, Y), table1(X), table2(Y).
+```
+
+### Pitfall 4: Direct struct field access
+
+```mangle
+# WRONG - pattern matching doesn't work this way
+bad(Name) :- record({/name: Name}).
+
+# CORRECT - use :match_field
+good(Name) :- record(R), :match_field(R, /name, Name).
+```
+
+### Pitfall 5: Infinite recursion
+
+```mangle
+# DANGER - unbounded growth
+count_up(N) :- count_up(M), N = fn:plus(M, 1).
+
+# SAFE - bounded by existing data
+reachable(X, Y) :- edge(X, Y).
+reachable(X, Z) :- reachable(X, Y), edge(Y, Z).
+```
+
+---
+
+## 13. Production Patterns
+
+### Vulnerability Scanner
+
+```mangle
+# Transitive dependency tracking
+contains_jar(P, Name, Version) :-
+    contains_jar_directly(P, Name, Version).
+contains_jar(P, Name, Version) :-
+    project_depends(P, Q),
+    contains_jar(Q, Name, Version).
+
+# Vulnerable version detection
+projects_with_vulnerable_log4j(P) :-
+    projects(P),
+    contains_jar(P, "log4j", Version),
+    Version != "2.17.1",
+    Version != "2.12.4",
+    Version != "2.3.2".
+
+# Count affected projects
+count_vulnerable(Num) :-
+    projects_with_vulnerable_log4j(P) |>
+    do fn:group_by(),
+    let Num = fn:Count().
+```
+
+### Access Control Policy
+
+```mangle
+# Role hierarchy
+has_role(User, Role) :- assigned_role(User, Role).
+has_role(User, SuperRole) :-
+    has_role(User, Role),
+    role_inherits(SuperRole, Role).
+
+# Permission derivation
+permitted(User, Action, Resource) :-
+    has_role(User, Role),
+    role_permits(Role, Action, Resource).
+
+# Deny overrides allow
+denied(User, Action, Resource) :-
+    explicit_deny(User, Action, Resource).
+
+final_permitted(User, Action, Resource) :-
+    permitted(User, Action, Resource),
+    !denied(User, Action, Resource).
+```
+
+### Impact Analysis
+
+```mangle
+# Symbol dependencies
+calls(Caller, Callee) :- direct_call(Caller, Callee).
+calls(Caller, Callee) :- direct_call(Caller, Mid), calls(Mid, Callee).
+
+# Modified file impact
+impacted(File) :- modified(File).
+impacted(File) :-
+    impacted(ModFile),
+    imports(File, ModFile).
+
+# Test coverage requirement
+needs_test(File) :-
+    impacted(File),
+    is_source_file(File),
+    !is_test_file(File).
+```
+
+---
+
+## 14. Installation & Resources
+
+### Go Implementation (Recommended)
+
+```bash
+GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest
+~/bin/mg  # Start REPL
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/google/mangle
+cd mangle
+go get -t ./...
+go build ./...
+go test ./...
+```
+
+### Resources
+
+- GitHub: <https://github.com/google/mangle>
+- Documentation: <https://mangle.readthedocs.io>
+- Go Packages: <https://pkg.go.dev/github.com/google/mangle>
+- Demo Service: <https://github.com/burakemir/mangle-service>
+
+---
+
+## Grammar Reference (EBNF)
+
+```ebnf
+Program     ::= (Decl | Clause)*
+Decl        ::= 'Decl' Atom '.'
+Clause      ::= Atom (':-' Atom (',' Atom)*)? '.'
+Atom        ::= PredicateSym '(' Term (',' Term)* ')'
+             |  '!' Atom
+             |  Term Op Term
+Term        ::= Const | Var | List | Map | Transform
+Const       ::= Name | Int | Float | String
+Name        ::= '/' Identifier
+Var         ::= UppercaseIdentifier
+List        ::= '[' (Term (',' Term)*)? ']'
+Map         ::= '{' (Name ':' Term (',' Name ':' Term)*)? '}'
+Transform   ::= Term '|>' TransformOp
+TransformOp ::= 'do' Function | 'let' Var '=' Function
+Op          ::= '=' | '!=' | '<' | '<=' | '>' | '>='
+```
+
+---
+
+**Remember**: In Mangle, logic determines reality. Write declarative rules that describe WHAT is true, not HOW to compute it. The engine handles evaluation order, optimization, and termination.
+
+# **The Asymptotic Deviation: A Comprehensive Analysis of Systemic Failures in AI-Generated Golang Code**
+
+## **1\. The Architectural Divergence: Probabilistic Models in a Deterministic Runtime**
+
+The intersection of generative artificial intelligence and software engineering has precipitated a paradigm shift in code velocity, promising to automate the tedious and elevate the architectural. However, as organizations increasingly integrate Large Language Models (LLMs) and autonomous coding agents into their development lifecycles, a distinct and troubling friction has emerged within the ecosystem of the Go programming language (Golang). Unlike the dynamic, permissive environments of Python or JavaScript, where AI-generated imprecision often results in immediate, debuggable runtime exceptions, Go presents a unique risk profile defined by rigid type safety, explicit error handling, and a sophisticated concurrency model based on Communicating Sequential Processes (CSP).
+
+This report posits that the fundamental architecture of modern LLMs—probabilistic, pattern-matching engines optimized for semantic coherence—is structurally ill-suited for the strict, structural, and temporal requirements of idiomatic Go. We identify a "Competence-Confidence Gap" where AI agents generate syntactically flawless Go code that harbors catastrophic latent defects. These defects are not merely cosmetic; they represent a systemic inability of current models to reason about the "happens-before" memory guarantees required by the Go runtime, leading to non-deterministic concurrency failures, insidious memory leaks, and a degradation of security postures through iterative refinement.
+
+The analysis presented herein is exhaustive, drawing upon empirical data from multi-language benchmarks such as HumanEval-X and MultiPL-E, academic security audits regarding iterative code generation, and forensic analysis of common failure modes in production-grade Go systems. We examine the specific mechanics of where AI fails—from the "forgotten sender" in channel orchestration to the "hallucinated dependency" in supply chain security—and articulate the broader implications for technical leadership navigating the adoption of AI in high-reliability infrastructure.
+
+### **1.1 The Theoretical Mismatch: Statistical mimicry vs. CSP**
+
+To understand why AI agents struggle specifically with Go, one must first analyze the training data imbalance and the nature of the language itself. Go is a language of extreme explicitness. It rejects "magic" in favor of visible control flow. Its primary differentiator, the goroutine-channel model, requires the developer to visualize the execution state of multiple independent processes over time.
+
+LLMs, conversely, do not "visualize" execution; they predict the next token based on statistical likelihood derived from a massive corpus of text. A significant portion of this corpus consists of languages with thread-based concurrency (Java, C++) or async/await patterns (Python, JavaScript/TypeScript). When an AI agent attempts to generate concurrent Go code, it often hallucinates a hybrid model—syntactically using Go's go keyword and chan types, but semantically applying the logic of shared-memory threading or promise-based asynchrony.
+
+The result is code that compiles perfectly but violates the fundamental tenets of Go's memory model. As we will explore in subsequent sections, this leads to a prevalence of race conditions and deadlocks that defy standard static analysis because the *intent* of the code (derived from non-Go patterns) clashes with the *reality* of the Go scheduler. The agent "knows" the syntax of a channel send (ch \<- val), but it lacks the cognitive model to understand that without a receiver, this operation is a blocking call that will permanently park the goroutine, creating a resource leak that persists until the process terminates.
+
+### **1.2 The Compilation-Correctness Gap**
+
+Empirical evidence highlights a stark disparity between AI proficiency in Go versus other major languages. Analysis of benchmarks such as DevQualityEval reveals that while models like GPT-4 or Claude 3.5 Sonnet might achieve high compilation rates for Java or Python, their success rate with Go is measurably lower, often dropping significantly when evaluating functional correctness alongside compilation.1
+
+The data suggests a "Compilation-Correctness Gap." In dynamic languages, the interpreter allows code to run until it hits a logic error. In Go, the compiler acts as a strict gatekeeper. However, once the AI satisfies the compiler—often by using interface{} (any) types or ignoring error returns—the resulting binary is often fragile. The strictness of the compiler paradoxically trains the AI to optimize for *compilability* rather than *correctness*. The agent learns to satisfy the type checker by any means necessary, often introducing anti-patterns like panicking on errors or silencing them with \_, patterns that are technically valid but operationally disastrous.
+
+This divergence is further exacerbated by the versioning history of Go. The training corpora of most LLMs contain a mix of pre-module (GOPATH) code, pre-generics code (Go 1.17 and earlier), and modern code. Agents frequently conflate these eras, generating code that mixes deprecated package management techniques with modern syntax, or attempting to use generics in ways that mimic C++ templates, which Go does not support. This historical confusion creates a unique vector of failure where the generated code is a "chimera" of Go versions, unmaintainable by human engineers.
 
 ## ---
 
-**12\. Final Synthesis: The Path Forward**
+**2\. The Concurrency Crisis: Failures in Lifecycle Management**
 
-The integration of AI coding agents into the Mangle ecosystem is not impossible, but it is currently fraught with fundamental errors. The failures are not random; they are predictable consequences of the architectural gap between:
+The single most significant failure domain for AI coding agents in Go is concurrency. Go’s concurrency primitives—goroutines and channels—are powerful but dangerous. They require the developer to manage the *lifecycle* of every concurrent process explicitly. If a goroutine is started, the developer must know exactly how and when it will stop. AI agents, lacking a temporal understanding of program execution, consistently fail this requirement.
 
-1. **The LLM:** Probabilistic, Approximate, Local, Open-World, trained on Python/SQL.  
-2. **Mangle:** Deterministic, Exact, Global, Closed-World, based on Fixpoint Logic.
+### **2.1 The "Forgotten Sender" and Goroutine Leaks**
 
-To bridge this gap, Datalog Engineers must treat AI output as "pseudo-code" that requires rigorous translation into valid Mangle syntax. We must build tooling that exposes the *compiler's* reasoning to the *agent*, creating a feedback loop that forces the probabilistic model to conform to the deterministic reality of the engine. Until then, the Mangle Logic Architect remains the indispensable guarantor of truth in the system.
+A pervasive failure mode identified in AI-generated Go code is the "Goroutine Leak." Unlike garbage-collected memory, a goroutine that is blocked indefinitely is never reclaimed by the runtime. It remains on the stack, consuming 2KB (or more) of memory and adding pressure to the scheduler. In long-running services, this leads to a gradual accumulation of memory usage until the application crashes with an Out of Memory (OOM) error.
+
+The "Forgotten Sender" is the archetype of this failure. AI agents frequently generate patterns where a goroutine is spawned to send a result to a channel, but the agent fails to account for the possibility that the receiver might abandon the operation.
+
+**The Mechanics of the Failure**
+
+Consider a scenario where an agent is asked to implement a function that queries multiple APIs and returns the first response, respecting a timeout. The AI typically generates a solution involving a select statement, a time.After channel, and a worker goroutine.
+
+The logic proceeds as follows: the main goroutine spawns a worker. The worker performs the network call and sends the result to an unbuffered channel. The main goroutine waits on select. If the timeout fires first, the main function returns. Crucially, the AI fails to realize that the worker goroutine is still running. When the worker finally finishes its network call, it attempts to send to the unbuffered channel. Since the main function has returned and no one is listening, the worker blocks forever.
+
+This is not a syntax error. It is a semantic failure to understand the relationship between the parent and child processes. The AI operates on a "fire and forget" mental model common in other languages, failing to recognize that in Go, you cannot simply walk away from a blocking channel operation.2
+
+**Table 1: Frequency and Severity of Concurrency Anti-Patterns in AI-Generated Go Code**
+
+| Vulnerability Type | Frequency | Severity | Root Cause |
+| :---- | :---- | :---- | :---- |
+| **Goroutine Leak (Forgotten Sender)** | High | Critical | Lack of lifecycle modeling; assumption of automatic cleanup. |
+| **Nil Channel Deadlock** | Medium | Critical | Misunderstanding of nil channel blocking semantics. |
+| **Race Condition (Map Access)** | High | Critical | Assumption of implicit thread-safety (Java/Python bias). |
+| **Wait Group Misplacement** | High | High | Failure to understand execution order of scheduler. |
+| **Context Severance** | Medium | Medium | Treating Context as a data bag rather than control flow. |
+
+### **2.2 The Misplacement of Synchronization Primitives**
+
+The sync.WaitGroup is a fundamental primitive for waiting for a collection of goroutines to finish. Its usage requires a strict ordering of operations: Add must be called before the goroutine starts, and Done must be called when it exits.
+
+AI agents demonstrate a persistent inability to reason about the non-deterministic nature of the Go scheduler. A recurring bug involves the placement of wg.Add(1). Agents frequently place wg.Add(1) *inside* the goroutine closure rather than in the parent scope before the go statement.
+
+**The Scheduler Race**
+
+When wg.Add(1) is placed inside the goroutine, a race condition is introduced between the main thread reaching wg.Wait() and the new goroutine starting execution. If the scheduler prioritizes the main thread (which is common), wg.Wait() executes while the internal counter is still zero. The WaitGroup assumes no work is pending and returns immediately. The program exits before the goroutines have even initialized.
+
+This error reveals that the AI model associates the Add operation with the *task* being performed, grouping it logically with the work, rather than understanding it as a *synchronization barrier* that must be established prior to the concurrency.4
+
+### **2.3 Deadlocks and the "Self-Embrace"**
+
+Deadlocks in AI-generated code often stem from a misunderstanding of channel blocking semantics. A common anti-pattern observed is the "Self-Deadlock," or circular dependency.
+
+Agents often attempt to send to and receive from the same unbuffered channel within the same execution flow, or create a cycle of dependencies between two channels (A waits for B, B waits for A). For instance, in an attempt to "pipeline" data, an agent might create a single goroutine that writes to a channel and then immediately tries to read from it for verification, blocking itself indefinitely because the channel has no buffer to hold the message.
+
+Furthermore, agents struggle with the "Channel Axioms"—specifically that sending to a closed channel causes a panic, and receiving from a nil channel blocks forever. AI generated code often includes aggressive cleanup logic, adding defer close(ch) in both producers and consumers "just to be safe." This violation of the "single owner" principle leads to runtime panics when a channel is closed twice or sent to after closure.6
+
+### **2.4 The "Nil Channel" Trap**
+
+In Go, a nil channel is a valid construct that blocks forever when read from or written to. This is useful for specific patterns (like disabling a case in a select statement) but fatal if accidental. AI agents often initialize channels to nil (the zero value) and forget to initialize them with make.
+
+In many other languages, accessing a null object throws a Null Pointer Exception immediately. In Go, the program simply stops progressing at that point, often without any error log or stack trace. The AI, trained on languages where null causes crashes, fails to predict this "silent hang" behavior. Debugging these AI-induced deadlocks is notoriously difficult because the application appears to be running normally (consuming no CPU) but is functionally comatose.6
+
+## ---
+
+**3\. The Security Paradox: Iterative Degradation and Supply Chain Risks**
+
+The security posture of AI-generated Go code is precarious. While agents are capable of reciting the OWASP Top 10, their practical implementation of defenses in Go is frequently flawed. Moreover, recent research has uncovered a disturbing phenomenon where the security of code actually *decreases* as users interact with the agent to refine it.
+
+### **3.1 The Mechanics of Iterative Security Degradation**
+
+A groundbreaking study titled "Security Degradation in Iterative AI Code Generation" 8 provides quantifiable evidence of a "security regression loop." The research indicates that when a user asks an AI agent to "fix," "optimize," or "refactor" a piece of code, the agent often achieves the goal by stripping away security guardrails.
+
+**The Loop of Vulnerability:**
+
+1. **Initial Generation:** The agent produces a function that is reasonably secure but perhaps verbose or slow.  
+2. **Refinement Prompt:** The user asks, "Make this code more efficient" or "Simplify this logic."  
+3. **Degradation:** To satisfy the user's request for simplicity or speed, the agent removes "clutter"—which happens to be the input validation, the bounds checks, or the explicit error handling.
+
+In the specific context of Go, this often manifests as the removal of if err\!= nil checks. Go's error handling is verbose. An agent tasked with "cleaning up" code will statistically gravitate towards removing these checks to make the code look cleaner, mimicking the "happy path" density of languages with exceptions.
+
+The study found a **37.6% increase in critical vulnerabilities** after just five rounds of iterative improvement. For Go developers, this implies that the longer one converses with an agent about a specific function, the more likely that function is to panic or behave insecurely in production.8
+
+### **3.2 Supply Chain Hallucinations: The "Slopsquatting" Vector**
+
+One of the most insidious risks introduced by AI coding agents is "Package Hallucination." LLMs, being probabilistic token predictors, often invent package names that *sound* plausible but do not exist. In the Go ecosystem, where imports are decentralized URLs (e.g., github.com/user/repo), this presents a specific "Slopsquatting" vulnerability.10
+
+**The Mechanism:**
+
+An agent might generate an import like github.com/secure-go/crypto-utils because it has seen similar naming conventions in its training data. If this package does not exist, an attacker can scan for these hallucinated names, register the repository on GitHub, and upload malicious code.
+
+When a developer copies the AI-generated code and runs go mod tidy, the Go toolchain resolves the URL, finds the attacker's repository, and downloads the payload. Research indicates that models perform poorly at distinguishing between "real" obscure packages and "plausible" fake ones. When asked to "solve the Sawtooth programming problem," an LLM might import a non-existent package sawtooth-go.10
+
+This is a democratized attack vector. Attackers do not need to compromise the AI model; they only need to predict the statistical likelihood of specific hallucinations. We anticipate the rise of "Hallucination Squatting" as a standardized industry, turning AI assistants into unwitting accomplices in malware distribution.
+
+### **3.3 SQL Injection and the Dynamic Query Problem**
+
+Despite the widespread availability of parameterized queries in database/sql, AI agents frequently revert to string concatenation for building SQL queries. This is likely due to the prevalence of string concatenation examples in the vast corpus of insecure legacy code (often PHP or older Java) scraped from the internet.
+
+**The Go-Specific Challenge:**
+
+Go lacks a built-in, expressive dynamic query builder. Building a query where the WHERE clause changes based on optional input requires verbose string manipulation or the use of third-party libraries like squirrel. AI agents, struggling with this complexity, often choose the path of least resistance:
+
+Go
+
+// Common AI Pattern  
+query := "SELECT \* FROM users WHERE 1=1"  
+if name\!= "" {  
+   query \+= " AND name \= '" \+ name \+ "'" // Vulnerable  
+}
+
+This introduces classic SQL Injection vulnerabilities. Even when agents use ORMs like GORM, they often misuse the "raw SQL" features (db.Raw()) or fail to sanitize inputs properly before passing them to the ORM, operating under the false assumption that the library handles all safety magically regardless of how the query string is constructed.11
+
+### **3.4 Cryptographic Incompetence**
+
+AI agents demonstrate a tenuous grasp of modern cryptographic best practices in Go. They frequently suggest md5 or sha1 for hashing passwords or file integrity checks, simply because these appear frequently in older tutorials within the training set.
+
+A more subtle error is the misuse of randomness. Agents consistently confuse math/rand (pseudo-random, deterministic if seeded with a constant or time) with crypto/rand (cryptographically secure). When asked to generate a secure token or session ID, an agent will often output code using math/rand, rendering the "security" predictable and useless. This distinction is critical in Go, yet AI models frequently gloss over it, prioritizing the simpler API of the math library.11
+
+## ---
+
+**4\. Idiomatic Drift: The Struggle with Design Philosophy**
+
+Go is a language of extreme simplicity and explicitness. It resists "magic" and implicit behavior. AI models, however, are trained on a polyglot corpus and often attempt to force patterns from Python, Java, or JavaScript into Go. This results in "Idiomatic Drift"—code that compiles but is structurally alien to the Go ecosystem, making it fragile and difficult to maintain.
+
+### **4.1 The Panic vs. Error Handling Schism**
+
+Go's error handling philosophy is clear: "Errors are values." They should be returned and handled, not thrown. panic is reserved for truly unrecoverable state corruption (like a nil pointer in the runtime or a broken configuration at startup).
+
+**The AI Failure Mode:**
+
+AI agents often treat panic as an exception mechanism, influenced by throw/catch semantics in other languages. They generate library code that panics on mundane errors, such as "file not found" or "invalid input."
+
+In a Go server environment, a panic in a single goroutine (if not recovered) crashes the *entire* binary, bringing down the service for all users. AI agents fail to distinguish between "library code" (which should always return errors) and "main application code" (which might panic on startup). Analysis of AI-generated snippets shows a high propensity to use panic(err) inside helper functions, violating the core Go convention that libraries should be robust and let the caller decide how to handle failure.14
+
+### **4.2 Slice Traps and Memory mismanagement**
+
+Slices in Go are descriptors (headers) pointing to an underlying array. They are powerful but dangerous if their memory model is misunderstood.
+
+**The Reference Trap:**
+
+AI agents often generate code that reads a massive file into memory (e.g., 100MB), creates a small slice of that data (e.g., the first 10 bytes), and returns that small slice. They fail to understand that the small slice keeps the *entire* underlying 100MB array in memory, preventing garbage collection. This "memory leak via slice" is a subtle bug that AI agents almost never diagnose or prevent. The correct fix—copying the data to a new, smaller slice—is rarely generated without explicit prompting.17
+
+**Append Semantics:**
+
+Agents also confuse the pass-by-value nature of the slice header. They write functions that append to a slice passed as an argument but fail to return the new slice header or use a pointer to the slice. The result is that the caller sees no change to the slice, leading to data loss bugs that are difficult to trace.17
+
+### **4.3 Interface Pollution**
+
+"Accept interfaces, return structs" is a core Go proverb. AI agents, however, tend to over-abstract. They often define massive interfaces with dozens of methods (like Java interfaces) rather than small, composable ones (like io.Reader).
+
+Furthermore, they frequently use interface{} (the empty interface, or any in newer Go) to bypass the type system entirely. This leads to code that is functionally dynamically typed, losing all the compile-time safety benefits of Go. This "Java-fication" or "Python-ification" of Go code makes it idiomatially incorrect and imposes a heavy maintenance burden.18
+
+## ---
+
+**5\. Context Mismanagement: The Semantic Disconnect**
+
+The context package is a standard in Go for managing deadlines, cancellation, and request-scoped values. It is a concept that does not map 1:1 to other popular languages in the training corpus (like Python's asyncio or JavaScript's AbortController in quite the same pervasive way). Consequently, it is a frequent source of AI error.
+
+### **5.1 The "Bag of Globals" Fallacy**
+
+AI agents frequently treat context.Context as an optional bag of values rather than a strict control flow primitive.
+
+Broken Cancellation Chains:  
+A common failure pattern is the "Context Severance." Agents often create a new context.Background() inside a sub-function or a goroutine, rather than propagating the parent context passed into the function. This breaks the cancellation chain. If the parent request is canceled (e.g., user disconnects), the heavy background work continues because the sub-function is listening to a fresh, un-cancelable context. This wastes resources and defeats the purpose of the pattern.19  
+The Value Bag Abuse:  
+Agents sometimes use context.WithValue to pass critical business parameters (like user IDs or configuration flags) that should be explicit function arguments. This violates the Go design principle that context values should be restricted to request-scoped data (like trace IDs) and makes the code opaque and hard to test.20
+
+### **5.2 The "Fake Timeout"**
+
+Research highlights a specific hallucination regarding timeouts. When asked to "add a timeout to this function," AI agents often wrap the function call in a context.WithTimeout block but fail to modify the underlying operation to *respect* that context.
+
+For example, an agent might wrap a long calculation in a goroutine and use a select to wait for ctx.Done(). While the *wrapper* returns early on timeout, the *calculation goroutine* is not canceled and continues to run in the background, burning CPU. The code *looks* safe—it returns on time—but it leaks resources. The AI fails to instrument the inner loop of the calculation to check ctx.Done(), demonstrating a superficial understanding of how cancellation actually works in the Go runtime.21
+
+## ---
+
+**6\. Benchmarking the Deficit: Empirical Evidence**
+
+To quantify the magnitude of these failures, we analyze data from comparative benchmarks such as HumanEval, MultiPL-E, and DevQualityEval.
+
+### **6.1 The Compilation-Correctness Gap**
+
+Data from DevQualityEval 1 reveals a troubling trend. While AI models might generate compilable Java code approximately 60% of the time, the rate for Go is significantly lower, often dropping below 50% for complex tasks.
+
+More importantly, there is a "Correctness Gap." Even when Go code compiles, it passes functional tests at a lower rate than Python or Java. This suggests that AI finds it easier to satisfy the Go type checker than to implement the correct logic. The rigid syntax of Go acts as a filter for syntax errors but disguises logic errors. The AI spends its "cognitive budget" on getting the braces and types right, leaving less capacity for logical soundness.
+
+### **6.2 MultiPL-E Performance Analysis**
+
+On the MultiPL-E benchmark (a multilingual translation of HumanEval), Go consistently ranks below Python and JavaScript in Pass@1 rates.
+
+* **Python:** Models typically score highest (e.g., 60-80% pass@1 for top models) due to the massive volume of Python training data and its permissive runtime.  
+* **Go:** Scores are consistently lower (e.g., 40-60% pass@1).
+
+**Table 2: Comparative Benchmark Performance (Pass@1 Rates)**
+
+| Benchmark | Python Performance | Go Performance | Key Differentiator |
+| :---- | :---- | :---- | :---- |
+| **HumanEval** | High | N/A (Python only) | Origin of training bias. |
+| **MultiPL-E** | High | Low-Medium | Go's strict syntax and concurrency confuse the model. |
+| **DevQualityEval** | Medium | Low | Go compilation failures are frequent; logic often flawed. |
+
+This data confirms that current LLMs are not "native speakers" of Go. They are translating concepts from other languages, and much is lost in translation.22
+
+## ---
+
+**7\. Operational Recommendations and Strategic Mitigation**
+
+The evidence is clear: AI coding agents are currently "Junior Developers" at best when writing Go. They know the syntax, but they lack the experience to avoid the language's sharp edges—specifically concurrency and memory management. For organizations committed to using AI in their Go development, a strategy of "Defensive Adoption" is required.
+
+### **7.1 Mandatory Concurrency Audits**
+
+Any AI-generated code that involves the keywords go, chan, select, or sync must trigger a mandatory, rigorous manual review. This review should not just check for logic, but specifically for **Liveness Properties**:
+
+* **Termination:** Does every goroutine have a guaranteed exit path?  
+* **Buffer Safety:** Are channels buffered appropriately to prevent sender blocking?  
+* **Locking:** Are all shared maps protected by mutexes?
+
+### **7.2 Automated Static Analysis Barriers**
+
+Standard linters are insufficient. Organizations should integrate deep static analysis tools into the CI/CD pipeline that are capable of detecting concurrency bugs.
+
+* **GCatch:** A tool specifically designed to catch blocking bugs in Go channels.25  
+* **Go Race Detector:** All tests must be run with \-race. AI-generated code should never be merged without passing a race detection suite.  
+* **Gosec:** To catch the security vulnerabilities and hardcoded secrets often hallucinated by agents.
+
+### **7.3 Supply Chain Hardening**
+
+To mitigate the risk of package hallucination, organizations must disable the ability for agents to auto-install dependencies.
+
+* **Allow-Listing:** Configure the build system to only allow go get from a pre-approved list of domains and organizations.  
+* **Proxy Verification:** Use a Go module proxy (like Athens or Artifactory) that blocks access to newly registered or suspicious repositories.
+
+### **7.4 Prompt Engineering for Go**
+
+Development teams should be trained to prompt AI specifically for Go constraints. Prompts should explicitly request:
+
+* "Use explicit error handling, do not panic."  
+* "Ensure all goroutines are managed by a Context for cancellation."  
+* "Use parameterized SQL queries."  
+* "Check for goroutine leaks."
+
+### **7.5 Conclusion**
+
+The future of AI in Go is promising, but currently, it requires a "Human-in-the-Loop" architecture. The human developer's role shifts from writing syntax to acting as the **Architect of Liveness** and the **Guardian of Security**. We must treat AI-generated Go code not as a finished product, but as a potentially hazardous material that requires strict containment and verification protocols before it can be integrated into the foundation of our systems. The "Asymptotic Deviation" between AI capability and Go's strict requirements is a gap that only human expertise can currently bridge.
+
+1
+
+#### **Works cited**
+
+1. Comparing LLM benchmarks for software development \- Symflower, accessed December 6, 2025, [https://symflower.com/en/company/blog/2024/comparing-llm-benchmarks/](https://symflower.com/en/company/blog/2024/comparing-llm-benchmarks/)  
+2. An example of a goroutine leak and how to debug one | by Alena Varkockova \- Medium, accessed December 6, 2025, [https://alenkacz.medium.com/an-example-of-a-goroutine-leak-and-how-to-debug-one-a0697cf677a3](https://alenkacz.medium.com/an-example-of-a-goroutine-leak-and-how-to-debug-one-a0697cf677a3)  
+3. Goroutine Leaks \- The Forgotten Sender \- Ardan Labs, accessed December 6, 2025, [https://www.ardanlabs.com/blog/2018/11/goroutine-leaks-the-forgotten-sender.html](https://www.ardanlabs.com/blog/2018/11/goroutine-leaks-the-forgotten-sender.html)  
+4. Go Wiki: Code Review: Go Concurrency \- The Go Programming Language, accessed December 6, 2025, [https://go.dev/wiki/CodeReviewConcurrency](https://go.dev/wiki/CodeReviewConcurrency)  
+5. system-pclub/go-concurrency-bugs: Collected Concurrency Bugs in Our ASPLOS Paper \- GitHub, accessed December 6, 2025, [https://github.com/system-pclub/go-concurrency-bugs](https://github.com/system-pclub/go-concurrency-bugs)  
+6. 5 Common Go Concurrency Mistakes That'll Trip You Up \- DEV Community, accessed December 6, 2025, [https://dev.to/shrsv/5-common-go-concurrency-mistakes-thatll-trip-you-up-3il9](https://dev.to/shrsv/5-common-go-concurrency-mistakes-thatll-trip-you-up-3il9)  
+7. Well-Known Concurrency Problems and How Go Handles Them | HackerNoon, accessed December 6, 2025, [https://hackernoon.com/well-known-concurrency-problems-and-how-go-handles-them](https://hackernoon.com/well-known-concurrency-problems-and-how-go-handles-them)  
+8. Security Degradation in Iterative AI Code Generation \-- A Systematic Analysis of the Paradox, accessed December 6, 2025, [https://www.researchgate.net/publication/392716752\_Security\_Degradation\_in\_Iterative\_AI\_Code\_Generation\_--\_A\_Systematic\_Analysis\_of\_the\_Paradox](https://www.researchgate.net/publication/392716752_Security_Degradation_in_Iterative_AI_Code_Generation_--_A_Systematic_Analysis_of_the_Paradox)  
+9. \[2506.11022\] Security Degradation in Iterative AI Code Generation \-- A Systematic Analysis of the Paradox \- arXiv, accessed December 6, 2025, [https://arxiv.org/abs/2506.11022](https://arxiv.org/abs/2506.11022)  
+10. Importing Phantoms: Measuring LLM Package Hallucination Vulnerabilities \- arXiv, accessed December 6, 2025, [https://arxiv.org/html/2501.19012v1](https://arxiv.org/html/2501.19012v1)  
+11. AI-Generated Code Security Risks: What Developers Must Know \- Veracode, accessed December 6, 2025, [https://www.veracode.com/blog/ai-generated-code-security-risks/](https://www.veracode.com/blog/ai-generated-code-security-risks/)  
+12. Understanding Security Risks in AI-Generated Code | CSA, accessed December 6, 2025, [https://cloudsecurityalliance.org/blog/2025/07/09/understanding-security-risks-in-ai-generated-code](https://cloudsecurityalliance.org/blog/2025/07/09/understanding-security-risks-in-ai-generated-code)  
+13. Golang SQL Injection Guide: Examples and Prevention \- StackHawk, accessed December 6, 2025, [https://www.stackhawk.com/blog/golang-sql-injection-guide-examples-and-prevention/](https://www.stackhawk.com/blog/golang-sql-injection-guide-examples-and-prevention/)  
+14. Panic vs. Error: When to Use Which in Golang? \- DEV Community, accessed December 6, 2025, [https://dev.to/mx\_tech/panic-vs-error-when-to-use-which-in-golang-3mlp](https://dev.to/mx_tech/panic-vs-error-when-to-use-which-in-golang-3mlp)  
+15. Panic vs. Error in Golang: When to Use Which? | by Moksh S | Medium, accessed December 6, 2025, [https://medium.com/@moksh.9/panic-vs-error-in-golang-when-to-use-which-a21f060d7708](https://medium.com/@moksh.9/panic-vs-error-in-golang-when-to-use-which-a21f060d7708)  
+16. When to Use Panic? Deep Dive into Go Error Handling Best Practices | GoFrame \- A powerful framework for faster, easier, and more efficient project development, accessed December 6, 2025, [https://goframe.org/en/articles/when-to-use-panic-in-go](https://goframe.org/en/articles/when-to-use-panic-in-go)  
+17. Common Slice Mistakes in Go and How to Avoid Them \- freeCodeCamp, accessed December 6, 2025, [https://www.freecodecamp.org/news/common-slice-mistakes-in-go/](https://www.freecodecamp.org/news/common-slice-mistakes-in-go/)  
+18. Go is a good fit for agents | Hacker News, accessed December 6, 2025, [https://news.ycombinator.com/item?id=44179889](https://news.ycombinator.com/item?id=44179889)  
+19. goroutine leak in example of book The Go Programming Language \[closed\] \- Stack Overflow, accessed December 6, 2025, [https://stackoverflow.com/questions/68142086/goroutine-leak-in-example-of-book-the-go-programming-language](https://stackoverflow.com/questions/68142086/goroutine-leak-in-example-of-book-the-go-programming-language)  
+20. The Risks of Code Assistant LLMs: Harmful Content, Misuse and Deception, accessed December 6, 2025, [https://unit42.paloaltonetworks.com/code-assistant-llms/](https://unit42.paloaltonetworks.com/code-assistant-llms/)  
+21. How to stop a goroutine stuck on a network call without goroutine leaks : r/golang \- Reddit, accessed December 6, 2025, [https://www.reddit.com/r/golang/comments/1neuni8/how\_to\_stop\_a\_goroutine\_stuck\_on\_a\_network\_call/](https://www.reddit.com/r/golang/comments/1neuni8/how_to_stop_a_goroutine_stuck_on_a_network_call/)  
+22. LLM Benchmarks 2025 \- Complete Evaluation Suite, accessed December 6, 2025, [https://llm-stats.com/benchmarks](https://llm-stats.com/benchmarks)  
+23. Python 3.14 vs Go: Concurrency Benchmark on M1 Mac (Updated with Go 1.25.3) \- Medium, accessed December 6, 2025, [https://medium.com/@sharadhimarpalli/python-3-14-vs-go-concurrency-benchmark-on-m1-mac-updated-with-go-1-25-3-9024d86e53ff](https://medium.com/@sharadhimarpalli/python-3-14-vs-go-concurrency-benchmark-on-m1-mac-updated-with-go-1-25-3-9024d86e53ff)  
+24. MultiPL-E: A Scalable and Extensible Approach to Benchmarking Neural Code Generation \- arXiv, accessed December 6, 2025, [https://arxiv.org/pdf/2208.08227](https://arxiv.org/pdf/2208.08227)  
+25. Automatically Detecting and Fixing Concurrency Bugs in Go Software Systems \- Linhai Song, accessed December 6, 2025, [https://songlh.github.io/paper/gcatch.pdf](https://songlh.github.io/paper/gcatch.pdf)  
+26. The Future of AI Agents: Why Go is the Perfect Language for the Agent Era \- Rafiul Alam, accessed December 6, 2025, [https://alamrafiul.com/blogs/future-of-ai-agents-golang/](https://alamrafiul.com/blogs/future-of-ai-agents-golang/)  
+27. Navigating the dangers and pitfalls of AI agent development \- Kore.ai, accessed December 6, 2025, [https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development](https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development)  
+28. How to Find and Fix Goroutine Leaks in Go | HackerNoon, accessed December 6, 2025, [https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go](https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go)

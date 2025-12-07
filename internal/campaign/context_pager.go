@@ -80,6 +80,16 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		cp.boostPattern(pattern, 120)
 	}
 
+	// 2b. Boost docs scoped for this phase via topology planner
+	if scoped := cp.scopedDocsForPhase(phase.Name); len(scoped) > 0 {
+		for _, doc := range scoped {
+			cp.kernel.Assert(core.Fact{
+				Predicate: "phase_context_atom",
+				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
+			})
+		}
+	}
+
 	// 3. Load phase context atoms
 	for _, task := range phase.Tasks {
 		// Boost task artifacts
@@ -301,6 +311,55 @@ func (cp *ContextPager) estimatePhaseTokens(phase *Phase) int {
 	}
 
 	return tokens
+}
+
+// scopedDocsForPhase returns allowed docs for a phase name based on phase_context_scope.
+func (cp *ContextPager) scopedDocsForPhase(phaseName string) []string {
+	if cp.kernel == nil || phaseName == "" {
+		return nil
+	}
+
+	target := normalizeLayerName(phaseName)
+	if target == "" {
+		return nil
+	}
+
+	facts, err := cp.kernel.Query("phase_context_scope")
+	if err != nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	scoped := make([]string, 0)
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		phaseVal := normalizeLayerName(fmt.Sprintf("%v", fact.Args[0]))
+		if phaseVal != target {
+			continue
+		}
+		doc := fmt.Sprintf("%v", fact.Args[1])
+		if doc == "" {
+			continue
+		}
+		if _, exists := seen[doc]; exists {
+			continue
+		}
+		seen[doc] = struct{}{}
+		scoped = append(scoped, doc)
+	}
+
+	return scoped
+}
+
+func normalizeLayerName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, "/")
+	name = strings.ToLower(name)
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	return name
 }
 
 // contains checks if a slice contains a string.

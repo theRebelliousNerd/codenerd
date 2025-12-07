@@ -172,6 +172,10 @@ func (k *RealKernel) loadMangleFiles() {
 		schemasPath := filepath.Join(basePath, "schemas.mg")
 		policyPath := filepath.Join(basePath, "policy.mg")
 		learnedPath := filepath.Join(basePath, "learned.mg")
+		docTaxonomyPath := filepath.Join(basePath, "doc_taxonomy.mg")
+		topologyPlannerPath := filepath.Join(basePath, "topology_planner.mg")
+		buildTopologyPath := filepath.Join(basePath, "build_topology.mg")
+		selectionPolicyPath := filepath.Join(basePath, "selection_policy.mg")
 
 		if data, err := os.ReadFile(schemasPath); err == nil {
 			k.schemas = string(data)
@@ -179,10 +183,26 @@ func (k *RealKernel) loadMangleFiles() {
 		if data, err := os.ReadFile(policyPath); err == nil {
 			k.policy = string(data)
 		}
+		// Load optional document taxonomy rules
+		if data, err := os.ReadFile(docTaxonomyPath); err == nil {
+			k.policy += "\n\n" + string(data)
+		}
+		// Load optional topology planner rules
+		if data, err := os.ReadFile(topologyPlannerPath); err == nil {
+			k.policy += "\n\n" + string(data)
+		}
+		// Load optional build topology enforcement rules
+		if data, err := os.ReadFile(buildTopologyPath); err == nil {
+			k.policy += "\n\n" + string(data)
+		}
 		// Load optional campaign-specific rules
 		campaignRulesPath := filepath.Join(basePath, "campaign_rules.mg")
 		if data, err := os.ReadFile(campaignRulesPath); err == nil {
 			// Append to policy so it's parsed together
+			k.policy += "\n\n" + string(data)
+		}
+		// Load optional selection policy rules
+		if data, err := os.ReadFile(selectionPolicyPath); err == nil {
 			k.policy += "\n\n" + string(data)
 		}
 		// Load learned rules (stratified trust layer)
