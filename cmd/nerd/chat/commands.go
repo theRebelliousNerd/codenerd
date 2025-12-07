@@ -112,6 +112,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /define-agent | Define a new specialist agent |
 | /agents | List defined agents |
 | /spawn <type> <task> | Spawn a shard agent |
+| /legislate <constraint> | Synthesize & ratify a safety rule |
 | /review [path] | Code review (current dir or specified) |
 | /security [path] | Security analysis |
 | /analyze [path] | Complexity analysis |
@@ -174,6 +175,29 @@ or you can create them on-demand with /tool generate.
 		m.viewport.GotoBottom()
 		m.textinput.Reset()
 		return m, nil
+
+	case "/legislate":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/legislate <constraint>`\n\nExample: `/legislate Stop using fmt.Printf; use log.Info instead.`",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textinput.Reset()
+			return m, nil
+		}
+		task := strings.TrimSpace(strings.TrimPrefix(input, "/legislate"))
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Legislator engaged. Compiling and ratifying rule...",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
 
 	case "/init":
 		// Check for --force flag
@@ -1118,7 +1142,7 @@ Press **Enter** to begin...`,
 		} else {
 			verb := parts[1]
 			synonym := strings.Join(parts[2:], " ")
-			
+
 			// Use the shared taxonomy engine
 			if perception.SharedTaxonomy != nil {
 				if err := perception.SharedTaxonomy.LearnSynonym(verb, synonym); err != nil {
@@ -1265,6 +1289,8 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- Kernel: Active\n")
 	sb.WriteString("- Transducer: Active\n")
 	sb.WriteString("- Shard Manager: Active\n")
+	sb.WriteString("- Dreamer: Precog safety enabled\n")
+	sb.WriteString("- Legislator: Available via `/legislate`\n")
 	if m.activeCampaign != nil {
 		sb.WriteString(fmt.Sprintf("- Active Campaign: %s\n", m.activeCampaign.Goal))
 	}
@@ -1284,6 +1310,7 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString("- reviewer\n")
 	sb.WriteString("- tester\n")
 	sb.WriteString("- researcher\n")
+	sb.WriteString("- legislator\n")
 
 	// List generated tools
 	if m.autopoiesis != nil {

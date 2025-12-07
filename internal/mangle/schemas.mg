@@ -1513,6 +1513,9 @@ Decl dream_block(ActionID, Reason).
 # critical_file(Path) - Enumerates files whose deletion is catastrophic
 Decl critical_file(Path).
 
+# critical_path_prefix(Prefix) - Paths that should never be removed recursively
+Decl critical_path_prefix(Prefix).
+
 # =============================================================================
 # SECTION 39: EXTENDED METRICS (Aggregation)
 # =============================================================================
