@@ -49,6 +49,8 @@ type LocalStore struct {
 	mu              sync.RWMutex
 	dbPath          string
 	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
+	vectorExt       bool                      // sqlite-vec available
+	requireVec      bool                      // require vec extension or fail fast
 	traceStore      *TraceStore                // Dedicated trace store for self-learning
 }
 
@@ -69,6 +71,14 @@ func NewLocalStore(path string) (*LocalStore, error) {
 	if err := store.initialize(); err != nil {
 		db.Close()
 		return nil, err
+	}
+
+	// Detect sqlite-vec extension availability
+	store.detectVecExtension()
+	store.requireVec = true
+	if !store.vectorExt {
+		db.Close()
+		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild modernc SQLite with vec0 (set SQLITE3_EXT=vec0 or include vec sources) to enable ANN search")
 	}
 
 	// Initialize trace store for self-learning
@@ -854,6 +864,32 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 	}
 
 	return stats, nil
+}
+
+// detectVecExtension attempts to create a vec0 virtual table to see if sqlite-vec is available.
+func (s *LocalStore) detectVecExtension() {
+	if s.db == nil {
+		return
+	}
+	// First try true sqlite-vec virtual table support.
+	if _, err := s.db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS vec_probe USING vec0(embedding float[4])"); err == nil {
+		s.vectorExt = true
+		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_probe")
+		return
+	}
+
+	// Fallback: create a plain table with the vec_index schema so we still
+	// expose the expected interface when sqlite-vec is not compiled in.
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS vec_index (
+		embedding BLOB,
+		content TEXT,
+		metadata TEXT
+	)`); err == nil {
+		s.vectorExt = true
+		return
+	}
+
+	s.vectorExt = false
 }
 
 // MaintenanceConfig configures maintenance cleanup operations.

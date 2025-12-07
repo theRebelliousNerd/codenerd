@@ -3,11 +3,16 @@
 package store
 
 import (
+	"bytes"
 	"codenerd/internal/embedding"
 	"context"
+	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
+	"time"
 )
 
 // =============================================================================
@@ -20,6 +25,10 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.embeddingEngine = engine
+	if engine != nil {
+		s.initVecIndex(engine.Dimensions())
+		s.backfillVecIndex(engine.Dimensions())
+	}
 }
 
 // StoreVectorWithEmbedding stores content with a real vector embedding.
@@ -51,7 +60,20 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 		"INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)",
 		content, string(embeddingJSON), string(metaJSON),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// If sqlite-vec is available, store in vec_index for fast ANN.
+	if s.vectorExt {
+		vecBlob := encodeFloat32Slice(embeddingVec)
+		_, _ = s.db.Exec(
+			"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
+			vecBlob, content, string(metaJSON),
+		)
+	}
+
+	return nil
 }
 
 // storeVectorKeywordOnly stores content without embeddings (fallback).
@@ -68,25 +90,33 @@ func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]
 // VectorRecallSemantic performs true semantic search using cosine similarity.
 // This is the new method that replaces VectorRecall for semantic search.
 func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, limit int) ([]VectorEntry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if limit <= 0 {
 		limit = 10
 	}
 
-	if s.embeddingEngine == nil {
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if engine == nil {
 		// Fallback to keyword search
 		return s.vectorRecallKeyword(query, limit)
 	}
 
 	// Generate query embedding
-	queryEmbedding, err := s.embeddingEngine.Embed(ctx, query)
+	queryEmbedding, err := engine.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// Fetch all vectors from database
+	if vecEnabled {
+		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	rows, err := s.db.Query(
 		"SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL",
 	)
@@ -160,11 +190,404 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	return results, nil
 }
 
+// VectorRecallSemanticByPaths restricts search to a list of allowed paths (matched via metadata).
+func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query string, limit int, allowedPaths []string) ([]VectorEntry, error) {
+	if len(allowedPaths) == 0 {
+		return s.VectorRecallSemantic(ctx, query, limit)
+	}
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	if engine == nil {
+		all, err := s.vectorRecallKeyword(query, limit*5)
+		if err != nil {
+			return nil, err
+		}
+		filtered := filterByPaths(all, allowedPaths)
+		if len(filtered) > limit {
+			filtered = filtered[:limit]
+		}
+		return filtered, nil
+	}
+
+	queryEmbedding, err := engine.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	if vecEnabled {
+		return s.vectorRecallVec(queryEmbedding, limit, allowedPaths, "", nil)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	queryStr, args := buildPathFilteredQuery(allowedPaths)
+	rows, err := s.db.Query(queryStr, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry      VectorEntry
+		similarity float64
+	}
+	candidates := make([]candidate, 0, limit*2)
+
+	for rows.Next() {
+		var entry VectorEntry
+		var embeddingJSON, metaJSON string
+
+		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
+			continue
+		}
+
+		if metaJSON != "" {
+			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		}
+
+		var embeddingVec []float32
+		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			continue
+		}
+
+		similarity, err := embedding.CosineSimilarity(queryEmbedding, embeddingVec)
+		if err != nil {
+			continue
+		}
+
+		candidates = append(candidates, candidate{
+			entry:      entry,
+			similarity: similarity,
+		})
+	}
+
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].similarity > candidates[i].similarity {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]VectorEntry, len(candidates))
+	for i, c := range candidates {
+		results[i] = c.entry
+		if results[i].Metadata == nil {
+			results[i].Metadata = make(map[string]interface{})
+		}
+		results[i].Metadata["similarity"] = c.similarity
+	}
+
+	return results, nil
+}
+
+// VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
+// This reduces scanning cost when the store contains vectors from many campaigns.
+func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query string, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if engine == nil {
+		// Fallback to keyword search with filtering
+		all, err := s.vectorRecallKeyword(query, limit*5)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]VectorEntry, 0, len(all))
+		for _, e := range all {
+			if matchesMetadata(e.Metadata, metaKey, metaValue) {
+				filtered = append(filtered, e)
+			}
+		}
+		if len(filtered) > limit {
+			filtered = filtered[:limit]
+		}
+		return filtered, nil
+	}
+
+	queryEmbedding, err := engine.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	if vecEnabled {
+		return s.vectorRecallVec(queryEmbedding, limit, nil, metaKey, metaValue)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	queryStr := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
+	var rows *sql.Rows
+	if metaKey != "" && metaValue != nil {
+		pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
+		rows, err = s.db.Query(queryStr+" AND metadata LIKE ?", pattern)
+	} else {
+		rows, err = s.db.Query(queryStr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry      VectorEntry
+		similarity float64
+	}
+
+	candidates := make([]candidate, 0, limit*2)
+
+	for rows.Next() {
+		var entry VectorEntry
+		var embeddingJSON, metaJSON string
+
+		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
+			continue
+		}
+
+		if metaJSON != "" {
+			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		}
+		if !matchesMetadata(entry.Metadata, metaKey, metaValue) {
+			continue
+		}
+
+		var embeddingVec []float32
+		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			continue
+		}
+
+		similarity, err := embedding.CosineSimilarity(queryEmbedding, embeddingVec)
+		if err != nil {
+			continue
+		}
+
+		candidates = append(candidates, candidate{
+			entry:      entry,
+			similarity: similarity,
+		})
+	}
+
+	// Sort by similarity descending
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].similarity > candidates[i].similarity {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	// Return top K
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]VectorEntry, len(candidates))
+	for i, c := range candidates {
+		results[i] = c.entry
+		if results[i].Metadata == nil {
+			results[i].Metadata = make(map[string]interface{})
+		}
+		results[i].Metadata["similarity"] = c.similarity
+	}
+
+	return results, nil
+}
+
 // vectorRecallKeyword is the fallback keyword-based search.
 func (s *LocalStore) vectorRecallKeyword(query string, limit int) ([]VectorEntry, error) {
 	// This is the old implementation from local.go VectorRecall
 	// Kept for backward compatibility when no embedding engine is set
 	return s.VectorRecall(query, limit)
+}
+
+func matchesMetadata(meta map[string]interface{}, key string, value interface{}) bool {
+	if key == "" {
+		return true
+	}
+	if meta == nil {
+		return false
+	}
+	if v, ok := meta[key]; ok {
+		return fmt.Sprintf("%v", v) == fmt.Sprintf("%v", value)
+	}
+	return false
+}
+
+func buildPathFilteredQuery(paths []string) (string, []interface{}) {
+	base := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
+	if len(paths) == 0 {
+		return base, nil
+	}
+	var sb strings.Builder
+	sb.WriteString(base)
+	sb.WriteString(" AND (")
+	args := make([]interface{}, 0, len(paths))
+	for i, p := range paths {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("metadata LIKE ?")
+		args = append(args, fmt.Sprintf("%%\"path\":\"%s\"%%", p))
+	}
+	sb.WriteString(")")
+	return sb.String(), args
+}
+
+func filterByPaths(entries []VectorEntry, paths []string) []VectorEntry {
+	pathSet := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		pathSet[p] = struct{}{}
+	}
+	out := make([]VectorEntry, 0, len(entries))
+	for _, e := range entries {
+		p := ""
+		if e.Metadata != nil {
+			if v, ok := e.Metadata["path"].(string); ok {
+				p = v
+			}
+		}
+		if _, ok := pathSet[p]; ok {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// vectorRecallVec performs ANN search via sqlite-vec when available.
+func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+	if !s.vectorExt {
+		return nil, fmt.Errorf("sqlite-vec not enabled")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	queryBlob := encodeFloat32Slice(queryVec)
+
+	where := make([]string, 0)
+	args := make([]interface{}, 0)
+
+	// Path filters
+	if len(allowedPaths) > 0 {
+		clause := make([]string, 0, len(allowedPaths))
+		for _, p := range allowedPaths {
+			clause = append(clause, "metadata LIKE ?")
+			args = append(args, fmt.Sprintf("%%\"path\":\"%s\"%%", p))
+		}
+		where = append(where, "("+strings.Join(clause, " OR ")+")")
+	}
+
+	if metaKey != "" && metaValue != nil {
+		where = append(where, "metadata LIKE ?")
+		args = append(args, fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue))
+	}
+
+	sqlStr := "SELECT rowid, content, metadata, vector_distance_cos(embedding, ?) AS dist FROM vec_index"
+	args = append([]interface{}{queryBlob}, args...)
+	if len(where) > 0 {
+		sqlStr += " WHERE " + strings.Join(where, " AND ")
+	}
+	sqlStr += " ORDER BY dist ASC LIMIT ?"
+	args = append(args, limit)
+
+	s.mu.RLock()
+	rows, err := s.db.Query(sqlStr, args...)
+	s.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]VectorEntry, 0, limit)
+	for rows.Next() {
+		var id int64
+		var content, metaJSON string
+		var dist float64
+		if err := rows.Scan(&id, &content, &metaJSON, &dist); err != nil {
+			continue
+		}
+		entry := VectorEntry{
+			ID:        id,
+			Content:   content,
+			CreatedAt: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}
+		if metaJSON != "" {
+			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		}
+		entry.Metadata["similarity"] = 1 - dist
+		results = append(results, entry)
+	}
+
+	return results, nil
+}
+
+// initVecIndex attempts to create a sqlite-vec table; if it succeeds, vectorExt is enabled.
+func (s *LocalStore) initVecIndex(dim int) {
+	if dim <= 0 || s.db == nil {
+		return
+	}
+	stmt := fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(embedding float[%d], content TEXT, metadata TEXT)", dim)
+	if _, err := s.db.Exec(stmt); err == nil {
+		s.vectorExt = true
+	}
+}
+
+func encodeFloat32Slice(vec []float32) []byte {
+	buf := &bytes.Buffer{}
+	_ = binary.Write(buf, binary.LittleEndian, vec)
+	return buf.Bytes()
+}
+
+// backfillVecIndex migrates existing JSON-stored embeddings into sqlite-vec.
+func (s *LocalStore) backfillVecIndex(dim int) {
+	if !s.vectorExt || s.db == nil || dim <= 0 {
+		return
+	}
+	rows, err := s.db.Query("SELECT content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var content, embeddingJSON, metaJSON string
+		if err := rows.Scan(&content, &embeddingJSON, &metaJSON); err != nil {
+			continue
+		}
+		var embeddingVec []float32
+		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			continue
+		}
+		if len(embeddingVec) != dim {
+			continue
+		}
+		vecBlob := encodeFloat32Slice(embeddingVec)
+		_, _ = s.db.Exec(
+			"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
+			vecBlob, content, metaJSON,
+		)
+	}
 }
 
 // GetVectorStats returns statistics about stored vectors.

@@ -18,11 +18,11 @@ import (
 // CompressorConfig defines compression parameters and token budgets.
 type CompressorConfig struct {
 	// Token Budget Allocation (default: 128k tokens)
-	TotalBudget     int // Total tokens available
-	CoreReserve     int // Reserved for constitutional facts, schemas
-	AtomReserve     int // For high-activation context atoms
-	HistoryReserve  int // For compressed history + recent turns
-	WorkingReserve  int // For current turn processing
+	TotalBudget    int // Total tokens available
+	CoreReserve    int // Reserved for constitutional facts, schemas
+	AtomReserve    int // For high-activation context atoms
+	HistoryReserve int // For compressed history + recent turns
+	WorkingReserve int // For current turn processing
 
 	// Sliding Window Configuration
 	RecentTurnWindow int // Number of recent turns to keep with full metadata
@@ -57,58 +57,58 @@ func DefaultConfig() CompressorConfig {
 		// Predicate priorities (matches policy.mg spreading activation)
 		PredicatePriorities: map[string]int{
 			// Core intent & focus
-			"user_intent":       100,
-			"focus_resolution":  100,
-			"active_goal":       100,
-			"new_fact":          100,
+			"user_intent":           100,
+			"focus_resolution":      100,
+			"active_goal":           100,
+			"new_fact":              100,
 			"pending_clarification": 100,
 
 			// Diagnostics & test state
-			"diagnostic":        95,
-			"test_state":        95,
-			"block_commit":      95,
-			"block_refactor":    90,
+			"diagnostic":     95,
+			"test_state":     95,
+			"block_commit":   95,
+			"block_refactor": 90,
 
 			// File & code context
-			"file_topology":     80,
-			"modified":          85,
-			"impacted":          85,
-			"symbol_graph":      75,
-			"dependency_link":   70,
+			"file_topology":   80,
+			"modified":        85,
+			"impacted":        85,
+			"symbol_graph":    75,
+			"dependency_link": 70,
 
 			// Campaign context
-			"campaign":          90,
-			"current_campaign":  95,
-			"current_phase":     95,
-			"campaign_task":     85,
-			"campaign_phase":    80,
+			"campaign":         90,
+			"current_campaign": 95,
+			"current_phase":    95,
+			"campaign_task":    85,
+			"campaign_phase":   80,
 
 			// Shard delegation
-			"delegate_task":     90,
-			"shard_profile":     70,
+			"delegate_task": 90,
+			"shard_profile": 70,
 
 			// Safety & permissions
-			"permitted":         100,
-			"dangerous_action":  100,
+			"permitted":          100,
+			"dangerous_action":   100,
 			"security_violation": 100,
 
 			// Browser (usually lower priority)
-			"dom_node":          20,
-			"geometry":          20,
-			"interactable":      30,
+			"dom_node":     20,
+			"geometry":     20,
+			"interactable": 30,
 
 			// Memory shards (contextual)
-			"vector_recall":     60,
-			"knowledge_link":    60,
-			"knowledge_atom":    65,
+			"vector_recall":  60,
+			"knowledge_link": 60,
+			"knowledge_atom": 65,
 
 			// Activation tracking
-			"activation":        50,
-			"context_atom":      50,
+			"activation":   50,
+			"context_atom": 50,
 
 			// Session state
-			"session_state":     40,
-			"turn_context":      40,
+			"session_state": 40,
+			"turn_context":  40,
 		},
 	}
 }
@@ -145,14 +145,17 @@ type CompressedContext struct {
 // Only the logical essence is retained.
 type CompressedTurn struct {
 	TurnNumber int
-	Role       string    // "user" or "assistant"
+	Role       string // "user" or "assistant"
 	Timestamp  time.Time
 
+	// Metrics
+	OriginalTokens int // Estimated tokens (user input + surface response) before compression
+
 	// The semantic essence of this turn
-	IntentAtom   *core.Fact   // user_intent atom (if user turn)
-	FocusAtoms   []core.Fact  // focus_resolution atoms
-	ActionAtoms  []core.Fact  // Actions taken (if assistant turn)
-	ResultAtoms  []core.Fact  // Results/outcomes
+	IntentAtom  *core.Fact  // user_intent atom (if user turn)
+	FocusAtoms  []core.Fact // focus_resolution atoms
+	ActionAtoms []core.Fact // Actions taken (if assistant turn)
+	ResultAtoms []core.Fact // Results/outcomes
 
 	// Metadata
 	MangleUpdates    []string // Raw mangle_updates from control packet
@@ -185,9 +188,9 @@ type ScoredFact struct {
 	Score float64
 
 	// Scoring components
-	BaseScore      float64 // From predicate priority
-	RecencyScore   float64 // Based on when it was added
-	RelevanceScore float64 // Based on relation to current intent
+	BaseScore       float64 // From predicate priority
+	RecencyScore    float64 // Based on when it was added
+	RelevanceScore  float64 // Based on relation to current intent
 	DependencyScore float64 // Based on dependency chain distance
 }
 

@@ -343,6 +343,10 @@ func (i *Initializer) createCodebaseKnowledgeBase(ctx context.Context, nerdDir s
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create codebase KB: %w", err)
 	}
+	if err := i.ensureEmbeddingEngine(); err != nil {
+		return "", 0, err
+	}
+	codebaseDB.SetEmbeddingEngine(i.embedEngine)
 	defer codebaseDB.Close()
 
 	atomCount := 0
@@ -416,6 +420,10 @@ func (i *Initializer) createCampaignKnowledgeBase(ctx context.Context, nerdDir s
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create campaign KB: %w", err)
 	}
+	if err := i.ensureEmbeddingEngine(); err != nil {
+		return "", 0, err
+	}
+	campaignDB.SetEmbeddingEngine(i.embedEngine)
 	defer campaignDB.Close()
 
 	atomCount := 0

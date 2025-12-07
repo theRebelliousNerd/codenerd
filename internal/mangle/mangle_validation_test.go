@@ -182,7 +182,17 @@ func TestReviewerGLParsesWithoutError(t *testing.T) {
 
 // TestAllGLFilesCombinedAnalysis tests that all .mg files work together.
 func TestAllGLFilesCombinedAnalysis(t *testing.T) {
-	glFiles := []string{"schemas.mg", "policy.mg", "coder.mg", "tester.mg", "reviewer.mg"}
+	glFiles := []string{
+		"schemas.mg",
+		"policy.mg",
+		"doc_taxonomy.mg",
+		"topology_planner.mg",
+		"campaign_rules.mg",
+		"selection_policy.mg",
+		"coder.mg",
+		"tester.mg",
+		"reviewer.mg",
+	}
 
 	var combined strings.Builder
 	loadedFiles := 0

@@ -19,6 +19,7 @@ package init
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/embedding"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
@@ -182,6 +183,7 @@ type Initializer struct {
 	localDB    *store.LocalStore
 	shardMgr   *core.ShardManager
 	kernel     *core.RealKernel
+	embedEngine embedding.EmbeddingEngine
 
 	// Concurrency
 	mu            sync.RWMutex
@@ -202,6 +204,7 @@ func NewInitializer(config InitConfig) *Initializer {
 		scanner:       world.NewScanner(),
 		kernel:        core.NewRealKernel(),
 		createdAgents: make([]CreatedAgent, 0),
+		embedEngine:   nil,
 	}
 
 	// Use provided shard manager or create new one
@@ -215,6 +218,19 @@ func NewInitializer(config InitConfig) *Initializer {
 	}
 
 	return init
+}
+
+// ensureEmbeddingEngine initializes a shared embedding engine for sqlite-vec.
+func (i *Initializer) ensureEmbeddingEngine() error {
+	if i.embedEngine != nil {
+		return nil
+	}
+	engine, err := embedding.NewEngine(embedding.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("failed to initialize embedding engine (required for sqlite-vec): %w", err)
+	}
+	i.embedEngine = engine
+	return nil
 }
 
 // Initialize performs the full initialization process.
@@ -262,6 +278,10 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize database: %v", err))
 	} else {
+		if err := i.ensureEmbeddingEngine(); err != nil {
+			return nil, err
+		}
+		i.localDB.SetEmbeddingEngine(i.embedEngine)
 		result.FilesCreated = append(result.FilesCreated, dbPath)
 		i.researcher.SetLocalDB(i.localDB)
 		fmt.Println("✓ Initialized knowledge database")

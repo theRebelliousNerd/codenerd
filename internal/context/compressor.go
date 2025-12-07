@@ -174,10 +174,12 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	}
 
 	// 4. Create compressed turn (NO SURFACE TEXT)
+	originalTokens := c.counter.CountString(turn.SurfaceResponse) + c.counter.CountString(turn.UserInput)
 	compressed := CompressedTurn{
-		TurnNumber: turn.Number,
-		Role:       turn.Role,
-		Timestamp:  turn.Timestamp,
+		TurnNumber:     turn.Number,
+		Role:           turn.Role,
+		Timestamp:      turn.Timestamp,
+		OriginalTokens: originalTokens,
 	}
 
 	// Extract intent atom
@@ -201,10 +203,12 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	c.recentTurns = append(c.recentTurns, compressed)
 
 	// 6. Check if compression is needed
-	originalTokens := c.counter.CountString(turn.SurfaceResponse) + c.counter.CountString(turn.UserInput)
 	compressedTokens := c.counter.CountTurn(compressed)
 	c.totalOriginalTokens += originalTokens
 	c.totalCompressedTokens += compressedTokens
+
+	// Recalculate token budget so compression decisions reflect current usage.
+	c.recalcBudget(turn.Number, originalTokens)
 
 	if c.shouldCompress() {
 		if err := c.compress(ctx); err != nil {
@@ -251,6 +255,46 @@ func (c *Compressor) shouldCompress() bool {
 	return c.budget.ShouldCompress()
 }
 
+// recalcBudget recomputes token usage across core facts, context atoms,
+// history, and recent turns so compression thresholds work correctly.
+func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
+	// Gather context components
+	coreFacts := c.getCoreFacts()
+	allFacts := c.kernel.GetAllFacts()
+
+	var currentIntent *core.Fact
+	if intents, _ := c.kernel.Query("user_intent"); len(intents) > 0 {
+		currentIntent = &intents[len(intents)-1]
+	}
+
+	scoredFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+
+	start := len(c.recentTurns) - c.config.RecentTurnWindow
+	if start < 0 {
+		start = 0
+	}
+	recent := c.recentTurns[start:]
+
+	builder := NewContextBlockBuilder()
+	compressedCtx := builder.Build(
+		coreFacts,
+		scoredFacts,
+		c.rollingSummary.Text,
+		recent,
+		turnNumber,
+	)
+
+	usage := compressedCtx.TokenUsage
+
+	// Reset and set budget usage
+	c.budget.Reset()
+	c.budget.used.core = usage.Core
+	c.budget.used.atoms = usage.Atoms
+	c.budget.used.history = usage.History
+	c.budget.used.recent = usage.Recent
+	c.budget.used.working = workingTokens
+}
+
 // compress performs the actual compression.
 func (c *Compressor) compress(ctx context.Context) error {
 	if len(c.recentTurns) <= c.config.RecentTurnWindow {
@@ -260,6 +304,7 @@ func (c *Compressor) compress(ctx context.Context) error {
 	// Determine turns to compress (everything except recent window)
 	cutoff := len(c.recentTurns) - c.config.RecentTurnWindow
 	turnsToCompress := c.recentTurns[:cutoff]
+	keyAtoms := c.collectKeyAtoms(turnsToCompress, 64)
 
 	// Create summary using LLM
 	summary, err := c.generateSummary(ctx, turnsToCompress)
@@ -268,9 +313,31 @@ func (c *Compressor) compress(ctx context.Context) error {
 		summary = c.generateSimpleSummary(turnsToCompress)
 	}
 
-	// Calculate metrics
-	originalTokens := c.counter.CountTurns(turnsToCompress)
+	// Calculate metrics with original token estimates preserved per turn
+	originalTokens := c.countOriginalTokens(turnsToCompress)
+	if originalTokens == 0 {
+		originalTokens = c.counter.CountTurns(turnsToCompress)
+	}
 	compressedTokens := c.counter.CountString(summary)
+
+	// Enforce target compression ratio by preferring structured atoms or trimming
+	maxSummaryTokens := 0
+	if c.config.TargetCompressionRatio > 0 {
+		maxSummaryTokens = max(1, int(float64(originalTokens)/c.config.TargetCompressionRatio))
+	}
+	if maxSummaryTokens > 0 && compressedTokens > maxSummaryTokens {
+		serializedAtoms := c.serializer.SerializeFacts(keyAtoms)
+		atomTokens := c.counter.CountString(serializedAtoms)
+
+		if atomTokens > 0 && atomTokens <= maxSummaryTokens {
+			summary = serializedAtoms
+			compressedTokens = atomTokens
+		} else {
+			summary = c.trimToTokens(summary, maxSummaryTokens)
+			compressedTokens = c.counter.CountString(summary)
+		}
+	}
+
 	ratio := float64(originalTokens) / float64(max(compressedTokens, 1))
 
 	// Create segment
@@ -279,6 +346,7 @@ func (c *Compressor) compress(ctx context.Context) error {
 		StartTurn:        turnsToCompress[0].TurnNumber,
 		EndTurn:          turnsToCompress[len(turnsToCompress)-1].TurnNumber,
 		Summary:          summary,
+		KeyAtoms:         keyAtoms,
 		OriginalTokens:   originalTokens,
 		CompressedTokens: compressedTokens,
 		CompressionRatio: ratio,
@@ -367,7 +435,13 @@ func (c *Compressor) rebuildRollingSummaryText() {
 	for _, seg := range c.rollingSummary.Segments {
 		sb.WriteString(fmt.Sprintf("## Turns %d-%d\n", seg.StartTurn, seg.EndTurn))
 		sb.WriteString(seg.Summary)
-		sb.WriteString("\n\n")
+		sb.WriteString("\n")
+		if len(seg.KeyAtoms) > 0 {
+			sb.WriteString("# Key Atoms\n")
+			sb.WriteString(c.serializer.SerializeFacts(seg.KeyAtoms))
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
 	}
 
 	c.rollingSummary.Text = sb.String()
@@ -569,6 +643,78 @@ func (c *Compressor) Reset() {
 	c.activation.ClearState()
 	c.budget.Reset()
 	c.sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
+}
+
+// countOriginalTokens sums the pre-compression token estimates for turns.
+func (c *Compressor) countOriginalTokens(turns []CompressedTurn) int {
+	total := 0
+	for _, t := range turns {
+		if t.OriginalTokens > 0 {
+			total += t.OriginalTokens
+			continue
+		}
+		total += c.counter.CountTurn(t)
+	}
+	return total
+}
+
+// collectKeyAtoms extracts a bounded set of high-signal atoms to persist with the summary.
+func (c *Compressor) collectKeyAtoms(turns []CompressedTurn, limit int) []core.Fact {
+	seen := make(map[string]bool)
+	var atoms []core.Fact
+
+	add := func(f core.Fact) {
+		if len(atoms) >= limit {
+			return
+		}
+		key := f.String()
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		atoms = append(atoms, f)
+	}
+
+	for _, turn := range turns {
+		if turn.IntentAtom != nil {
+			add(*turn.IntentAtom)
+		}
+		for _, f := range turn.FocusAtoms {
+			add(f)
+		}
+		for i, f := range turn.ResultAtoms {
+			if i >= 5 { // keep summaries small; first few results capture state
+				break
+			}
+			add(f)
+		}
+		for _, f := range turn.ActionAtoms {
+			add(f)
+		}
+	}
+
+	return atoms
+}
+
+// trimToTokens truncates a string to fit within the approximate token budget.
+func (c *Compressor) trimToTokens(s string, maxTokens int) string {
+	if maxTokens <= 0 || c.counter.CountString(s) <= maxTokens {
+		return strings.TrimSpace(s)
+	}
+
+	runes := []rune(s)
+	low, high := 0, len(runes)
+	for low < high {
+		mid := (low + high) / 2
+		if c.counter.CountString(string(runes[:mid])) > maxTokens {
+			high = mid - 1
+		} else {
+			low = mid + 1
+		}
+	}
+
+	cut := max(1, high)
+	return strings.TrimSpace(string(runes[:cut]))
 }
 
 // min returns the minimum of two ints.
