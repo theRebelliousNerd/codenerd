@@ -344,12 +344,18 @@ func TestFileTopologyFactStructure(t *testing.T) {
 		t.Errorf("Hash length = %d, want 64 (SHA256 hex)", len(hash))
 	}
 
-	// Verify language arg
-	lang, ok := fact.Args[2].(string)
+	// Verify language arg (allow string or MangleAtom)
+	langStr, ok := fact.Args[2].(string)
 	if !ok {
-		t.Error("Args[2] (language) is not a string")
-	} else if lang != "/go" {
-		t.Errorf("Language = %q, want '/go'", lang)
+		if atom, okAtom := fact.Args[2].(core.MangleAtom); okAtom {
+			langStr = string(atom)
+			ok = true
+		}
+	}
+	if !ok {
+		t.Error("Args[2] (language) is not a string or atom")
+	} else if langStr != "/go" {
+		t.Errorf("Language = %q, want '/go'", langStr)
 	}
 
 	// Verify timestamp arg
@@ -361,11 +367,17 @@ func TestFileTopologyFactStructure(t *testing.T) {
 	}
 
 	// Verify isTest arg
-	isTest, ok := fact.Args[4].(string)
+	isTestStr, ok := fact.Args[4].(string)
 	if !ok {
-		t.Error("Args[4] (isTest) is not a string")
-	} else if isTest != "/false" {
-		t.Errorf("IsTest = %q, want '/false'", isTest)
+		if atom, okAtom := fact.Args[4].(core.MangleAtom); okAtom {
+			isTestStr = string(atom)
+			ok = true
+		}
+	}
+	if !ok {
+		t.Error("Args[4] (isTest) is not a string or atom")
+	} else if isTestStr != "/false" {
+		t.Errorf("IsTest = %q, want '/false'", isTestStr)
 	}
 }
 
@@ -397,10 +409,16 @@ func TestScanWorkspaceWithTestFile(t *testing.T) {
 
 	// Verify isTest is true
 	fact := result.Facts[0]
-	isTest, ok := fact.Args[4].(string)
+	isTestStr, ok := fact.Args[4].(string)
 	if !ok {
-		t.Error("Args[4] (isTest) is not a string")
-	} else if isTest != "/true" {
-		t.Errorf("IsTest = %q, want '/true' for test file", isTest)
+		if atom, okAtom := fact.Args[4].(core.MangleAtom); okAtom {
+			isTestStr = string(atom)
+			ok = true
+		}
+	}
+	if !ok {
+		t.Error("Args[4] (isTest) is not a string or atom")
+	} else if isTestStr != "/true" {
+		t.Errorf("IsTest = %q, want '/true' for test file", isTestStr)
 	}
 }
