@@ -13,6 +13,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/world"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -64,16 +65,16 @@ type Dependency struct {
 // WorldModelConfig holds configuration for the world model ingestor.
 type WorldModelConfig struct {
 	// Workspace
-	RootPath          string   // Workspace root
-	IncludePatterns   []string // File patterns to include
-	ExcludePatterns   []string // File patterns to exclude
+	RootPath        string   // Workspace root
+	IncludePatterns []string // File patterns to include
+	ExcludePatterns []string // File patterns to exclude
 
 	// Performance
-	TickInterval      time.Duration // How often to scan for changes
-	IdleTimeout       time.Duration // Auto-stop after no changes
-	MaxFilesPerScan   int           // Limit files per tick
-	HashOnlyLargeFiles bool         // Skip content analysis for large files
-	LargeFileThreshold int64        // Bytes threshold for "large"
+	TickInterval       time.Duration // How often to scan for changes
+	IdleTimeout        time.Duration // Auto-stop after no changes
+	MaxFilesPerScan    int           // Limit files per tick
+	HashOnlyLargeFiles bool          // Skip content analysis for large files
+	LargeFileThreshold int64         // Bytes threshold for "large"
 
 	// Features
 	EnableSymbolGraph  bool // Parse AST for symbols
@@ -120,6 +121,8 @@ type WorldModelIngestorShard struct {
 	dependencies []Dependency
 	diagnostics  []Diagnostic
 
+	parser *world.ASTParser
+
 	// Change tracking
 	lastScan     time.Time
 	changeCount  int
@@ -158,6 +161,7 @@ func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelInges
 		symbols:         make(map[string]Symbol),
 		dependencies:    make([]Dependency, 0),
 		diagnostics:     make([]Diagnostic, 0),
+		parser:          world.NewASTParser(),
 		lastActivity:    time.Now(),
 	}
 }
@@ -175,6 +179,9 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 		w.SetState(core.ShardStateCompleted)
 		w.mu.Lock()
 		w.running = false
+		if w.parser != nil {
+			w.parser.Close()
+		}
 		w.mu.Unlock()
 	}()
 
@@ -284,7 +291,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		}
 
 		// Process file
-		fileInfo, err := w.processFile(ctx, path, info)
+		fileInfo, facts, err := w.processFile(ctx, path, info)
 		if err != nil {
 			return nil // Skip errors
 		}
@@ -294,7 +301,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		w.mu.Unlock()
 
 		// Emit file_topology fact
-		_ = w.Kernel.Assert(core.Fact{
+		ft := core.Fact{
 			Predicate: "file_topology",
 			Args: []interface{}{
 				fileInfo.Path,
@@ -303,7 +310,12 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 				fileInfo.LastModified.Unix(),
 				fileInfo.IsTestFile,
 			},
-		})
+		}
+		_ = w.Kernel.Assert(ft)
+		facts = append(facts, ft)
+
+		// Persist to knowledge.db if available
+		w.persistToKnowledge(facts)
 
 		return nil
 	})
@@ -347,7 +359,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		}
 
 		// Process changed file
-		fileInfo, err := w.processFile(ctx, path, info)
+		fileInfo, facts, err := w.processFile(ctx, path, info)
 		if err != nil {
 			return nil
 		}
@@ -361,7 +373,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		changedFiles++
 
 		// Emit updated file_topology fact
-		_ = w.Kernel.Assert(core.Fact{
+		ft := core.Fact{
 			Predicate: "file_topology",
 			Args: []interface{}{
 				fileInfo.Path,
@@ -370,13 +382,18 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 				fileInfo.LastModified.Unix(),
 				fileInfo.IsTestFile,
 			},
-		})
+		}
+		_ = w.Kernel.Assert(ft)
+		facts = append(facts, ft)
 
 		// Mark file as modified for impact analysis
 		_ = w.Kernel.Assert(core.Fact{
 			Predicate: "modified",
 			Args:      []interface{}{fileInfo.Path},
 		})
+
+		// Persist updated facts to knowledge.db
+		w.persistToKnowledge(facts)
 
 		return nil
 	})
@@ -389,7 +406,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 }
 
 // processFile extracts information from a file.
-func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, info os.FileInfo) (FileInfo, error) {
+func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, info os.FileInfo) (FileInfo, []core.Fact, error) {
 	fi := FileInfo{
 		Path:         path,
 		LastModified: info.ModTime(),
@@ -397,6 +414,7 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 		Language:     detectLanguage(path),
 		IsTestFile:   isTestFile(path),
 	}
+	var facts []core.Fact
 
 	// Compute hash
 	if w.config.HashOnlyLargeFiles && info.Size() > w.config.LargeFileThreshold {
@@ -405,13 +423,26 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 	} else {
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return fi, err
+			return fi, facts, err
 		}
 		hash := sha256.Sum256(content)
 		fi.Hash = hex.EncodeToString(hash[:])
 	}
 
-	return fi, nil
+	// Parse AST for symbols/dependencies if enabled
+	if w.config.EnableSymbolGraph || w.config.EnableDependencies {
+		if w.parser != nil {
+			parsedFacts, err := w.parser.Parse(path)
+			if err == nil && len(parsedFacts) > 0 {
+				for _, f := range parsedFacts {
+					_ = w.Kernel.Assert(f)
+				}
+				facts = append(facts, parsedFacts...)
+			}
+		}
+	}
+
+	return fi, facts, nil
 }
 
 // detectLanguage determines the programming language from file extension.
@@ -535,10 +566,12 @@ func (w *WorldModelIngestorShard) applyInterpretation(output string) {
 			// Parse and emit the fact (simplified parsing)
 			if idx := strings.Index(factStr, "("); idx > 0 {
 				predicate := factStr[:idx]
-				_ = w.Kernel.Assert(core.Fact{
+				f := core.Fact{
 					Predicate: predicate,
 					Args:      []interface{}{factStr}, // Store full fact string
-				})
+				}
+				_ = w.Kernel.Assert(f)
+				w.persistToKnowledge([]core.Fact{f})
 			}
 		}
 	}
@@ -579,6 +612,33 @@ func (w *WorldModelIngestorShard) GetSymbols() map[string]Symbol {
 		result[k] = v
 	}
 	return result
+}
+
+// persistToKnowledge stores derived facts in knowledge.db via VirtualStore when available.
+func (w *WorldModelIngestorShard) persistToKnowledge(facts []core.Fact) {
+	if len(facts) == 0 || w.VirtualStore == nil {
+		return
+	}
+	if err := w.VirtualStore.PersistFactsToKnowledge(facts, "fact", 6); err != nil {
+		fmt.Printf("[WorldModel] Knowledge persistence warning: %v\n", err)
+	}
+	// Also project dependency links into knowledge_graph for fast lookup
+	for _, f := range facts {
+		if f.Predicate == "dependency_link" && len(f.Args) >= 2 {
+			a := fmt.Sprintf("%v", f.Args[0])
+			b := fmt.Sprintf("%v", f.Args[1])
+			rel := "depends_on"
+			if len(f.Args) >= 3 {
+				rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+			}
+			_ = w.VirtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "world_model"})
+		}
+		if f.Predicate == "symbol_graph" && len(f.Args) >= 4 {
+			symbolID := fmt.Sprintf("%v", f.Args[0])
+			filePath := fmt.Sprintf("%v", f.Args[3])
+			_ = w.VirtualStore.PersistLink(symbolID, "defined_in", filePath, 1.0, map[string]interface{}{"source": "world_model"})
+		}
+	}
 }
 
 // worldModelAutopoiesisPrompt is the system prompt for semantic interpretation.

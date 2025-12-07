@@ -9,7 +9,10 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/verification"
+	"codenerd/internal/world"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -486,11 +489,63 @@ func (m Model) runScan() tea.Cmd {
 		if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
 			return scanCompleteMsg{err: loadErr}
 		}
+		// Persist topology to knowledge DB and hydrate
+		if m.virtualStore != nil {
+			_ = m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5)
+		}
 
 		// Also reload profile.mg if it exists
 		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
 		if _, statErr := os.Stat(factsPath); statErr == nil {
 			_ = m.kernel.LoadFactsFromFile(factsPath)
+		}
+
+		// Deep parse: symbols and dependencies into kernel and knowledge.db
+		parser := world.NewASTParser()
+		defer parser.Close()
+		var parsed []core.Fact
+		for _, f := range facts {
+			if f.Predicate != "file_topology" || len(f.Args) < 1 {
+				continue
+			}
+			path, ok := f.Args[0].(string)
+			if !ok {
+				continue
+			}
+			astFacts, parseErr := parser.Parse(path)
+			if parseErr != nil {
+				continue
+			}
+			if len(astFacts) == 0 {
+				continue
+			}
+			parsed = append(parsed, astFacts...)
+			_ = m.kernel.LoadFacts(astFacts)
+		}
+
+		if len(parsed) > 0 && m.virtualStore != nil {
+			_ = m.virtualStore.PersistFactsToKnowledge(parsed, "fact", 6)
+			// Promote edges into knowledge_graph for fast recall
+			for _, f := range parsed {
+				switch f.Predicate {
+				case "dependency_link":
+					if len(f.Args) >= 2 {
+						a := fmt.Sprintf("%v", f.Args[0])
+						b := fmt.Sprintf("%v", f.Args[1])
+						rel := "depends_on"
+						if len(f.Args) >= 3 {
+							rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+						}
+						_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
+					}
+				case "symbol_graph":
+					if len(f.Args) >= 4 {
+						sid := fmt.Sprintf("%v", f.Args[0])
+						file := fmt.Sprintf("%v", f.Args[3])
+						_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
+					}
+				}
+			}
 		}
 
 		// Count files and directories from facts
@@ -512,6 +567,237 @@ func (m Model) runScan() tea.Cmd {
 			duration:       time.Since(startTime),
 		}
 	}
+}
+
+// runPartialScan scans specific file paths (non-recursive) and persists facts.
+func (m Model) runPartialScan(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		start := time.Now()
+		parser := world.NewASTParser()
+		defer parser.Close()
+
+		var totalFacts int
+		for _, raw := range paths {
+			path := strings.TrimSpace(raw)
+			if path == "" {
+				continue
+			}
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(m.workspace, path)
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.IsDir() {
+				continue
+			}
+
+			ft := buildFileTopologyFact(path, info)
+			_ = m.kernel.LoadFacts([]core.Fact{ft})
+			if m.virtualStore != nil {
+				_ = m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5)
+			}
+			totalFacts++
+
+			astFacts, parseErr := parser.Parse(path)
+			if parseErr == nil && len(astFacts) > 0 {
+				_ = m.kernel.LoadFacts(astFacts)
+				totalFacts += len(astFacts)
+				if m.virtualStore != nil {
+					_ = m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6)
+					for _, f := range astFacts {
+						switch f.Predicate {
+						case "dependency_link":
+							if len(f.Args) >= 2 {
+								a := fmt.Sprintf("%v", f.Args[0])
+								b := fmt.Sprintf("%v", f.Args[1])
+								rel := "depends_on"
+								if len(f.Args) >= 3 {
+									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+								}
+								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-path"})
+							}
+						case "symbol_graph":
+							if len(f.Args) >= 4 {
+								sid := fmt.Sprintf("%v", f.Args[0])
+								file := fmt.Sprintf("%v", f.Args[3])
+								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-path"})
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return scanCompleteMsg{
+			fileCount:      len(paths),
+			directoryCount: 0,
+			factCount:      totalFacts,
+			duration:       time.Since(start),
+		}
+	}
+}
+
+// runDirScan scans a directory recursively and persists facts (lighter than full init).
+func (m Model) runDirScan(dir string) tea.Cmd {
+	return func() tea.Msg {
+		start := time.Now()
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(m.workspace, dir)
+		}
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			return scanCompleteMsg{err: fmt.Errorf("invalid directory: %s", dir)}
+		}
+
+		parser := world.NewASTParser()
+		defer parser.Close()
+
+		fileCount := 0
+		dirCount := 0
+		factCount := 0
+
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			if d.IsDir() {
+				dirCount++
+				// skip hidden dirs
+				if strings.HasPrefix(d.Name(), ".") && path != dir {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			fileCount++
+			info, statErr := d.Info()
+			if statErr != nil {
+				return nil
+			}
+
+			ft := buildFileTopologyFact(path, info)
+			_ = m.kernel.LoadFacts([]core.Fact{ft})
+			if m.virtualStore != nil {
+				_ = m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5)
+			}
+			factCount++
+
+			astFacts, parseErr := parser.Parse(path)
+			if parseErr == nil && len(astFacts) > 0 {
+				_ = m.kernel.LoadFacts(astFacts)
+				factCount += len(astFacts)
+				if m.virtualStore != nil {
+					_ = m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6)
+					for _, f := range astFacts {
+						switch f.Predicate {
+						case "dependency_link":
+							if len(f.Args) >= 2 {
+								a := fmt.Sprintf("%v", f.Args[0])
+								b := fmt.Sprintf("%v", f.Args[1])
+								rel := "depends_on"
+								if len(f.Args) >= 3 {
+									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+								}
+								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-dir"})
+							}
+						case "symbol_graph":
+							if len(f.Args) >= 4 {
+								sid := fmt.Sprintf("%v", f.Args[0])
+								file := fmt.Sprintf("%v", f.Args[3])
+								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-dir"})
+							}
+						}
+					}
+				}
+			}
+			return nil
+		})
+
+		return scanCompleteMsg{
+			fileCount:      fileCount,
+			directoryCount: dirCount,
+			factCount:      factCount,
+			duration:       time.Since(start),
+		}
+	}
+}
+
+// buildFileTopologyFact constructs a file_topology fact with hash/lang/test flag.
+func buildFileTopologyFact(path string, info os.FileInfo) core.Fact {
+	data, _ := os.ReadFile(path)
+	hash := sha256.Sum256(data)
+	lang := detectLanguage(path)
+	isTest := "/false"
+	if isTestFile(path) {
+		isTest = "/true"
+	}
+	return core.Fact{
+		Predicate: "file_topology",
+		Args: []interface{}{
+			path,
+			hex.EncodeToString(hash[:]),
+			"/" + lang,
+			info.ModTime().Unix(),
+			isTest,
+		},
+	}
+}
+
+// detectLanguage is a lightweight extension-based detector.
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".js":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".java":
+		return "java"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".hpp", ".cc":
+		return "cpp"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".swift":
+		return "swift"
+	case ".kt":
+		return "kotlin"
+	case ".cs":
+		return "csharp"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md":
+		return "markdown"
+	default:
+		return "unknown"
+	}
+}
+
+// isTestFile determines if a path is a test file.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") {
+		return true
+	}
+	if strings.HasSuffix(base, ".test.js") || strings.HasSuffix(base, ".test.ts") || strings.HasSuffix(base, ".test.tsx") {
+		return true
+	}
+	if strings.HasSuffix(base, ".spec.js") || strings.HasSuffix(base, ".spec.ts") || strings.HasSuffix(base, ".spec.tsx") {
+		return true
+	}
+	if strings.HasSuffix(base, "Test.java") || strings.HasSuffix(base, "_test.rs") {
+		return true
+	}
+	return false
 }
 
 // learningStoreAdapter wraps store.LearningStore to implement core.LearningStore interface.
@@ -950,13 +1236,7 @@ func formatVerifiedResponse(
 	}
 
 	sb.WriteString("### Output\n\n")
-	// Truncate very long results
-	if len(result) > 2000 {
-		sb.WriteString(result[:2000])
-		sb.WriteString("\n\n... (truncated)\n")
-	} else {
-		sb.WriteString(result)
-	}
+	sb.WriteString(result)
 
 	return sb.String()
 }

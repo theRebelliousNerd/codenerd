@@ -47,7 +47,7 @@ func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 					}
 					return nil
 				}
-				
+
 				// Default block for other hidden dirs
 				return filepath.SkipDir
 			}
@@ -68,16 +68,13 @@ func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 			cache.Update(path, info, hash)
 		}
 
-		ext := filepath.Ext(path)
-		lang := strings.TrimPrefix(ext, ".")
-		if lang == "" {
-			lang = "unknown"
-		}
+		lang := detectLanguage(filepath.Ext(path), path)
 
-		// Cortex 1.5.0: IsTestFile Logic
-		isTest := "false"
-		if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "test.py") {
-			isTest = "true"
+		// Cortex 1.5.0: IsTestFile Logic (match ScanDirectory format)
+		isTest := isTestFile(path)
+		isTestStr := "/false"
+		if isTest {
+			isTestStr = "/true"
 		}
 
 		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
@@ -86,9 +83,9 @@ func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
 			Args: []interface{}{
 				path,
 				hash,
-				lang,
+				"/" + lang,
 				info.ModTime().Unix(),
-				isTest,
+				isTestStr,
 			},
 		}
 		facts = append(facts, fact)
@@ -319,9 +316,19 @@ func isTestFile(path string) bool {
 	if strings.HasSuffix(path, "_test.py") || strings.HasPrefix(base, "test_") {
 		return true
 	}
-	if strings.Contains(dir, "tests") || strings.Contains(dir, "test") {
+
+	dirParts := strings.Split(filepath.ToSlash(dir), "/")
+	inTestDir := false
+	for _, part := range dirParts {
+		if part == "tests" || part == "test" || part == "__tests__" {
+			inTestDir = true
+			break
+		}
+	}
+
+	if inTestDir {
 		ext := filepath.Ext(path)
-		if ext == ".py" || ext == ".js" || ext == ".ts" {
+		if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".tsx" || ext == ".rs" {
 			return true
 		}
 	}

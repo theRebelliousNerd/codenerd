@@ -2335,6 +2335,47 @@ func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
 	return facts, nil
 }
 
+// PersistFactsToKnowledge stores a batch of facts into knowledge.db cold_storage.
+// This is used to mirror on-disk/AST projections into the learning store so
+// HydrateLearnings can re-assert them for Mangle logic.
+func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, priority int) error {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil
+	}
+	if factType == "" {
+		factType = "fact"
+	}
+	if priority <= 0 {
+		priority = 5
+	}
+
+	for _, f := range facts {
+		if err := db.StoreFact(f.Predicate, f.Args, factType, priority); err != nil {
+			return fmt.Errorf("persist fact %s: %w", f.Predicate, err)
+		}
+	}
+	return nil
+}
+
+// PersistLink stores a relationship into the knowledge graph table.
+func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight float64, meta map[string]interface{}) error {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return nil
+	}
+	if weight <= 0 {
+		weight = 1.0
+	}
+	return db.StoreLink(entityA, relation, entityB, weight, meta)
+}
+
 // QueryKnowledgeGraph queries the knowledge graph for entity relationships.
 // Implements: query_knowledge_graph(EntityA, Relation, EntityB) Bound
 func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, error) {

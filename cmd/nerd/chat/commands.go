@@ -220,6 +220,54 @@ or you can create them on-demand with /tool generate.
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runScan())
 
+	case "/scan-path":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: /scan-path <file1>[,<file2>...]",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textinput.Reset()
+			return m, nil
+		}
+		targets := strings.Split(parts[1], ",")
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Scanning %d path(s)...", len(targets)),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.runPartialScan(targets))
+
+	case "/scan-dir":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: /scan-dir <directory>",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textinput.Reset()
+			return m, nil
+		}
+		dir := parts[1]
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Scanning directory: %s", dir),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.runDirScan(dir))
+
 	case "/config":
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{

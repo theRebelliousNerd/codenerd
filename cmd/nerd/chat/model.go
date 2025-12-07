@@ -99,15 +99,16 @@ type Model struct {
 	awaitingAgentDefinition bool
 
 	// Backend
-	client     perception.LLMClient
-	kernel     *core.RealKernel
-	shardMgr   *core.ShardManager
-	shadowMode *core.ShadowMode
-	transducer *perception.RealTransducer
-	executor   *tactile.SafeExecutor
-	emitter    *articulation.Emitter
-	scanner    *world.Scanner
-	workspace  string
+	client       perception.LLMClient
+	kernel       *core.RealKernel
+	shardMgr     *core.ShardManager
+	shadowMode   *core.ShadowMode
+	transducer   *perception.RealTransducer
+	executor     *tactile.SafeExecutor
+	emitter      *articulation.Emitter
+	virtualStore *core.VirtualStore
+	scanner      *world.Scanner
+	workspace    string
 
 	// Campaign Orchestration
 	activeCampaign    *campaign.Campaign
@@ -157,14 +158,14 @@ type Model struct {
 // ShardResult stores the full output from a shard execution for follow-up queries.
 // This enables conversational follow-ups like "show me more" or "what are the warnings?".
 type ShardResult struct {
-	ShardType   string                 // "reviewer", "coder", "tester", "researcher"
-	Task        string                 // Original task sent to the shard
-	RawOutput   string                 // Full untruncated output
-	Timestamp   time.Time              // When the shard executed
-	TurnNumber  int                    // Which turn this was
-	Findings    []map[string]any       // Structured findings (for reviewer)
-	Metrics     map[string]any         // Metrics (for reviewer)
-	ExtraData   map[string]any         // Any additional structured data
+	ShardType  string           // "reviewer", "coder", "tester", "researcher"
+	Task       string           // Original task sent to the shard
+	RawOutput  string           // Full untruncated output
+	Timestamp  time.Time        // When the shard executed
+	TurnNumber int              // Which turn this was
+	Findings   []map[string]any // Structured findings (for reviewer)
+	Metrics    map[string]any   // Metrics (for reviewer)
+	ExtraData  map[string]any   // Any additional structured data
 }
 
 // Message represents a single message in the chat history
