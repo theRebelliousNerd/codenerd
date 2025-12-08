@@ -31,6 +31,12 @@ func (ts *TaxonomyStore) StoreVerbPattern(verb, pattern string) error {
 	return ts.store.StoreFact("verb_pattern", []interface{}{verb, pattern}, "taxonomy", 100)
 }
 
+// StoreLearnedExemplar persists a learned usage pattern to the knowledge graph.
+func (ts *TaxonomyStore) StoreLearnedExemplar(pattern, verb, target, constraint string, confidence float64) error {
+	// We use "taxonomy" as the source so it gets picked up by LoadAllTaxonomyFacts.
+	return ts.store.StoreFact("learned_exemplar", []interface{}{pattern, verb, target, constraint, confidence}, "taxonomy", 100)
+}
+
 // LoadAllTaxonomyFacts loads all taxonomy-related facts from the database.
 func (ts *TaxonomyStore) LoadAllTaxonomyFacts() ([]mangle.Fact, error) {
 	storedFacts, err := ts.store.LoadAllFacts("taxonomy")
@@ -54,7 +60,7 @@ func (ts *TaxonomyStore) HydrateEngine(engine *mangle.Engine) error {
 	if err != nil {
 		return fmt.Errorf("failed to load taxonomy facts: %w", err)
 	}
-	
+
 	if len(facts) == 0 {
 		return nil
 	}

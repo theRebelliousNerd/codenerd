@@ -14,6 +14,7 @@ import (
 type TaxonomyEngine struct {
 	engine *mangle.Engine
 	store  *TaxonomyStore
+	client LLMClient
 }
 
 // SharedTaxonomy is the global instance loaded on init.
@@ -40,6 +41,26 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	// Load declarations and logic
 	if err := eng.LoadSchemaString(InferenceLogicMG); err != nil {
 		return nil, fmt.Errorf("failed to load inference logic: %w", err)
+	}
+
+	// Load Intent Definition Schema (Canonical Examples)
+	intentPath := "internal/mangle/schema/intent.mg"
+	if _, err := os.Stat(intentPath); err == nil {
+		if err := eng.LoadSchema(intentPath); err != nil {
+			return nil, fmt.Errorf("failed to load intent schema: %w", err)
+		}
+	} else {
+		fmt.Printf("WARNING: intent.mg not found at %s\n", intentPath)
+	}
+
+	// Load Learning Schema (Ouroboros)
+	learningSchemaPath := "internal/mangle/schema/learning.mg"
+	if _, err := os.Stat(learningSchemaPath); err == nil {
+		if err := eng.LoadSchema(learningSchemaPath); err != nil {
+			return nil, fmt.Errorf("failed to load learning schema: %w", err)
+		}
+	} else {
+		fmt.Printf("WARNING: learning.mg not found at %s\n", learningSchemaPath)
 	}
 
 	// Populate default data (robustly via Go)
@@ -138,10 +159,10 @@ func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
 		if v.ShardType == "/none" {
 			v.ShardType = ""
 		}
-		
+
 		syns, _ := t.getSynonyms(v.Verb)
 		v.Synonyms = syns
-		
+
 		patterns, _ := t.getPatterns(v.Verb)
 		for _, p := range patterns {
 			if re, err := regexp.Compile(p); err == nil {
@@ -164,7 +185,7 @@ func (t *TaxonomyEngine) getSynonyms(verb string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	targetVerb := verb
 	if !strings.HasPrefix(targetVerb, "/") {
 		targetVerb = "/" + targetVerb
@@ -224,16 +245,16 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	// But we need to clear transient facts. Mangle Engine wrapper needs improvement for sessions.
 	// For now, we add transient facts, query, and then maybe remove them?
 	// Or just accept that memory grows (it's small for now).
-	
+
 	// Actually, if we don't Clear(), we accumulate context_token.
 	// This is bad.
 	// We MUST Clear() but then we lose the static facts.
 	// So we MUST re-add static facts.
 	// Since we have them in DefaultTaxonomyData, we can re-add them fast.
 	// Or relying on the previous fix where we loaded them.
-	
-t.engine.Clear()
-	
+
+	t.engine.Clear()
+
 	// Re-hydrate
 	if t.store != nil {
 		t.HydrateFromDB()
@@ -257,6 +278,8 @@ t.engine.Clear()
 	for _, token := range tokens {
 		facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []interface{}{token}})
 	}
+	// Inject full input string for exact/fuzzy matching against learned patterns
+	facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []interface{}{input}})
 
 	if len(candidates) == 0 {
 		return "", 0, nil
@@ -288,43 +311,9 @@ t.engine.Clear()
 	return "", 0, nil
 }
 
-// LearnSynonym persists a new synonym for a verb.
-func (t *TaxonomyEngine) LearnSynonym(verb, synonym string) error {
-	valid := false
-	verbs, _ := t.GetVerbs()
-	for _, v := range verbs {
-		if v.Verb == verb {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return fmt.Errorf("unknown verb: %s", verb)
-	}
-
-	if t.store != nil {
-		if err := t.store.StoreVerbSynonym(verb, synonym); err != nil {
-			return fmt.Errorf("failed to persist synonym to DB: %w", err)
-		}
-	}
-
-	fact := fmt.Sprintf("\nverb_synonym(%s, \"%s\").", verb, synonym)
-	path := "internal/mangle/learned.mg"
-	
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		defer f.Close()
-		f.WriteString(fact)
-	} else {
-		fmt.Printf("WARNING: Failed to write to learned.mg: %v\n", err)
-	}
-
-	// Reload to apply
-	// If store, rehydrate. If not, add fact manually.
-	if t.store != nil {
-		return t.HydrateFromDB()
-	}
-	return t.engine.LoadSchemaString(fact)
+// SetClient provides the taxonomy engine with an LLM client for the "Critic" loop.
+func (t *TaxonomyEngine) SetClient(client LLMClient) {
+	t.client = client
 }
 
 // GenerateSystemPromptSection generates the "VERB TAXONOMY" section.
@@ -346,7 +335,7 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 		if v.ShardType == "" {
 			key = fmt.Sprintf("%s (General)", v.Category)
 		}
-		
+
 		if _, exists := groups[key]; !exists {
 			groups[key] = &Group{Name: key}
 			groupOrder = append(groupOrder, key)
@@ -363,6 +352,41 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 		sb.WriteString(fmt.Sprintf("### %s\n", key))
 		for _, v := range g.Verbs {
 			sb.WriteString(fmt.Sprintf("- %s: %s\n", v.Verb, strings.Join(v.Synonyms, ", ")))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Inject usage of Learned Patterns
+	results, _ := t.engine.Query(context.Background(), "learned_exemplar(P, V, T, C, _)")
+	if len(results.Bindings) > 0 {
+		sb.WriteString("### LEARNED USER PATTERNS (High Priority)\n")
+		sb.WriteString("| User Phrase | Mapped Action | Constraint |\n")
+		sb.WriteString("|-------------|---------------|------------|\n")
+		for _, row := range results.Bindings {
+			// Row is map[string]interface{}. Need to extract.
+			p, _ := row["P"].(string)
+			v, _ := row["V"].(string)
+			t, _ := row["T"].(string)
+			c, _ := row["C"].(string) // Constraint
+			sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, t, c))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Inject Canonical Examples (Phase 1 from user feedback)
+	// Query intent_definition(Sentence, Verb, Target)
+	// We need to check if intent_definition exists first to avoid query error if schema not loaded
+	// But if we fail, we just ignore.
+	canonResults, _ := t.engine.Query(context.Background(), "intent_definition(S, V, T)")
+	if len(canonResults.Bindings) > 0 {
+		sb.WriteString("### INTENT LIBRARY (Canonical Examples)\n")
+		sb.WriteString("| Canonical Request | Mangle Action |\n")
+		sb.WriteString("|-------------------|---------------|\n")
+		for _, row := range canonResults.Bindings {
+			s, _ := row["S"].(string)
+			v, _ := row["V"].(string)
+			t, _ := row["T"].(string)
+			sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, t))
 		}
 		sb.WriteString("\n")
 	}
@@ -481,6 +505,10 @@ const InferenceLogicMG = `
 
 Decl candidate_intent(Verb, RawScore).
 Decl context_token(Token).
+Decl user_input_string(Input).
+
+# Import learned patterns
+Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
 
 Decl boost(Verb, Amount).
 Decl penalty(Verb, Amount).
@@ -494,7 +522,18 @@ Decl verb_pattern(Verb, Regex).
 Decl potential_score(Verb, Score).
 
 # 1. Base Score
+# 1. Base Score
 potential_score(Verb, Score) :- candidate_intent(Verb, Score).
+
+# Learned Pattern Override (Highest Priority)
+# If the input matches a learned pattern, give it a massive boost.
+potential_score(Verb, 100.0) :-
+    user_input_string(Input),
+    learned_exemplar(Pattern, Verb, _, _, _),
+    # Simple case-insensitive exact match for now. 
+    # Mangle doesn't have robust fuzzy matching built-in yet, relying on LLM for fuzzy part.
+    # But this handles exact recurrence.
+    Input = Pattern.
 
 # 2. Boosted Scores (Rule-based)
 potential_score(Verb, NewScore) :-

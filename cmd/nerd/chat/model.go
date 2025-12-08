@@ -236,10 +236,12 @@ type (
 )
 
 // Init initializes the interactive chat model
+// Init initializes the interactive chat model
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
 		m.spinner.Tick,
+		m.checkWorkspaceSync(),
 	)
 }
 
@@ -727,11 +729,82 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	m.isLoading = true
 
+	// Check for negative feedback auto-trigger
+	if isNegativeFeedback(input) {
+		return m.triggerLearningLoop(input)
+	}
+
 	// Process in background
 	return m, tea.Batch(
 		m.spinner.Tick,
 		m.processInput(input),
 	)
+}
+
+// isNegativeFeedback checks for common frustration signals
+func isNegativeFeedback(input string) bool {
+	lower := strings.ToLower(input)
+	triggers := []string{
+		"bad bot", "wrong", "stop", "no that's not right",
+		"you didn't", "fail", "incorrect", "mistake",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// triggerLearningLoop initiates the Ouroboros self-correction process
+func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
+	// Add the user's complaint to history first so the Critic sees it
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: userInput,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textinput.Reset()
+
+	// Notify user we are paying attention
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: "I detect dissatisfaction. Invoking Meta-Cognitive Supervisor to analyze our interaction and learn from this mistake...",
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	m.isLoading = true
+
+	return m, func() tea.Msg {
+		// Convert history to traces
+		var traces []perception.ReasoningTrace
+		for _, msg := range m.history {
+			t := perception.ReasoningTrace{
+				UserPrompt: "...",
+				Response:   msg.Content,
+				Success:    true,
+			}
+			if msg.Role == "user" {
+				t.UserPrompt = msg.Content
+			}
+			traces = append(traces, t)
+		}
+
+		// Execute Learning
+		perception.SharedTaxonomy.SetClient(m.client)
+		fact, err := perception.SharedTaxonomy.LearnFromInteraction(context.Background(), traces)
+		if err != nil {
+			return responseMsg(fmt.Sprintf("Auto-learning failed: %v", err))
+		}
+		if fact == "" {
+			return responseMsg("I analyzed the interaction but couldn't identify a clear pattern to generalize yet. I will keep this in mind.")
+		}
+		return responseMsg(fmt.Sprintf("I have crystallized a new rule from this interaction:\n```\n%s\n```\nI will apply this correction in future turns.", fact))
+	}
 }
 
 // RunInteractiveChat starts the interactive chat session

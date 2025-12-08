@@ -57,5 +57,14 @@ func (ka *KernelAdapter) QueryBool(predicate string) bool {
 	return len(facts) > 0
 }
 
+// RetractFact implements autopoiesis.KernelInterface.
+func (ka *KernelAdapter) RetractFact(fact autopoiesis.KernelFact) error {
+	coreFact := Fact{
+		Predicate: fact.Predicate,
+		Args:      fact.Args,
+	}
+	return ka.kernel.RetractFact(coreFact)
+}
+
 // Ensure KernelAdapter implements KernelInterface at compile time.
 var _ autopoiesis.KernelInterface = (*KernelAdapter)(nil)

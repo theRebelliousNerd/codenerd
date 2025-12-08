@@ -71,17 +71,18 @@ const (
 type TaskType string
 
 const (
-	TaskTypeFileCreate TaskType = "/file_create" // Create a new file
-	TaskTypeFileModify TaskType = "/file_modify" // Modify existing file
-	TaskTypeTestWrite  TaskType = "/test_write"  // Write tests
-	TaskTypeTestRun    TaskType = "/test_run"    // Run tests
-	TaskTypeResearch   TaskType = "/research"    // Deep research (spawns researcher shard)
-	TaskTypeShardSpawn TaskType = "/shard_spawn" // Spawn a shard agent
-	TaskTypeToolCreate TaskType = "/tool_create" // Create a new tool (autopoiesis)
-	TaskTypeVerify     TaskType = "/verify"      // Verification step
-	TaskTypeDocument   TaskType = "/document"    // Documentation
-	TaskTypeRefactor   TaskType = "/refactor"    // Refactoring
-	TaskTypeIntegrate  TaskType = "/integrate"   // Integration step
+	TaskTypeFileCreate  TaskType = "/file_create"  // Create a new file
+	TaskTypeFileModify  TaskType = "/file_modify"  // Modify existing file
+	TaskTypeTestWrite   TaskType = "/test_write"   // Write tests
+	TaskTypeTestRun     TaskType = "/test_run"     // Run tests
+	TaskTypeResearch    TaskType = "/research"     // Deep research (spawns researcher shard)
+	TaskTypeShardSpawn  TaskType = "/shard_spawn"  // Spawn a shard agent
+	TaskTypeToolCreate  TaskType = "/tool_create"  // Create a new tool (autopoiesis)
+	TaskTypeVerify      TaskType = "/verify"       // Verification step
+	TaskTypeDocument    TaskType = "/document"     // Documentation
+	TaskTypeRefactor    TaskType = "/refactor"     // Refactoring
+	TaskTypeIntegrate   TaskType = "/integrate"    // Integration step
+	TaskTypeCampaignRef TaskType = "/campaign_ref" // Reference to a sub-campaign
 )
 
 // TaskPriority represents task priority levels.
@@ -221,6 +222,11 @@ type Task struct {
 
 	// Dependencies
 	DependsOn []string `json:"depends_on,omitempty"` // Task IDs this depends on
+	SoftDeps  []string `json:"soft_deps,omitempty"`  // Soft dependencies (preferred order)
+	Resources []string `json:"resources,omitempty"`  // Required resources (semaphores)
+
+	// Recursion
+	SubCampaignID string `json:"sub_campaign_id,omitempty"` // If set, this task is a sub-campaign
 
 	// Artifacts produced
 	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
@@ -500,6 +506,30 @@ func (t *Task) ToFacts() []core.Fact {
 		facts = append(facts, core.Fact{
 			Predicate: "task_dependency",
 			Args:      []interface{}{t.ID, depID},
+		})
+	}
+
+	// Soft dependencies
+	for _, depID := range t.SoftDeps {
+		facts = append(facts, core.Fact{
+			Predicate: "task_soft_dependency",
+			Args:      []interface{}{t.ID, depID},
+		})
+	}
+
+	// Resources
+	for _, res := range t.Resources {
+		facts = append(facts, core.Fact{
+			Predicate: "requires_resource",
+			Args:      []interface{}{t.ID, res},
+		})
+	}
+
+	// Recursion
+	if t.SubCampaignID != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "task_sub_campaign",
+			Args:      []interface{}{t.ID, t.SubCampaignID},
 		})
 	}
 

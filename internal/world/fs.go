@@ -13,105 +13,27 @@ import (
 )
 
 // Scanner handles file system indexing.
-type Scanner struct{}
+type Scanner struct {
+	parserPool sync.Pool
+}
 
 func NewScanner() *Scanner {
-	return &Scanner{}
+	return &Scanner{
+		parserPool: sync.Pool{
+			New: func() interface{} {
+				return NewTreeSitterParser()
+			},
+		},
+	}
 }
 
 func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
-	var facts []core.Fact
-	var mu sync.Mutex // Protects facts slice
-	cache := NewFileCache(root)
-	defer cache.Save()
-
-	// Worker pool for hashing
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 20) // Limit concurrency to 20
-
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			name := info.Name()
-			// "Blind Spot" Fix: Allow specific hidden directories
-			if strings.HasPrefix(name, ".") && name != "." {
-				// Allowlist for hidden configuration directories
-				allowed := map[string]bool{
-					".github":   true,
-					".vscode":   true,
-					".circleci": true,
-					".config":   true,
-					".nerd":     false, // Internal, usually skip
-					".git":      false, // Always skip
-				}
-
-				if allow, exists := allowed[name]; exists {
-					if !allow {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-
-				// Default block for other hidden dirs
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		wg.Add(1)
-		go func(path string, info os.FileInfo) {
-			defer wg.Done()
-			sem <- struct{}{} // Acquire token
-			defer func() { <-sem }() // Release token
-
-			// "Hash-Thrashing" Fix: Use Cache
-			var hash string
-			cachedHash, hit := cache.Get(path, info)
-			if hit {
-				hash = cachedHash
-			} else {
-				h, err := calculateHash(path)
-				if err != nil {
-					// Skip on error
-					return
-				}
-				hash = h
-				cache.Update(path, info, hash)
-			}
-
-			lang := detectLanguage(filepath.Ext(path), path)
-
-			// Cortex 1.5.0: IsTestFile Logic (match ScanDirectory format)
-			isTest := isTestFile(path)
-			isTestStr := "/false"
-			if isTest {
-				isTestStr = "/true"
-			}
-
-			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
-			fact := core.Fact{
-				Predicate: "file_topology",
-				Args: []interface{}{
-					path,
-					hash,
-					core.MangleAtom("/" + lang),
-					info.ModTime().Unix(),
-					core.MangleAtom(isTestStr),
-				},
-			}
-			
-			mu.Lock()
-			facts = append(facts, fact)
-			mu.Unlock()
-		}(path, info)
-
-		return nil
-	})
-
-	wg.Wait()
-	return facts, err
+	// Re-use ScanDirectory logic for consistency and deduplication
+	result, err := s.ScanDirectory(context.Background(), root)
+	if err != nil {
+		return nil, err
+	}
+	return result.Facts, nil
 }
 
 func calculateHash(path string) (string, error) {
@@ -191,6 +113,10 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			}
 			mu.Lock()
 			result.DirectoryCount++
+			result.Facts = append(result.Facts, core.Fact{
+				Predicate: "directory",
+				Args:      []interface{}{path, name},
+			})
 			mu.Unlock()
 			return nil
 		}
@@ -198,7 +124,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		wg.Add(1)
 		go func(path string, info os.FileInfo) {
 			defer wg.Done()
-			sem <- struct{}{} // Acquire token
+			sem <- struct{}{}        // Acquire token
 			defer func() { <-sem }() // Release token
 
 			// "Hash-Thrashing" Fix: Use Cache
@@ -238,6 +164,40 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				},
 			}
 
+			var additionalFacts []core.Fact
+			// If not a test file and supported language, extract symbols
+			if !isTest {
+				// Borrow a parser from the pool
+				parser := s.parserPool.Get().(*TreeSitterParser)
+				defer s.parserPool.Put(parser) // Return it when done
+
+				content, err := os.ReadFile(path)
+				if err == nil {
+					switch lang {
+					case "go":
+						if facts, err := parser.ParseGo(path, content); err == nil {
+							additionalFacts = append(additionalFacts, facts...)
+						}
+					case "python":
+						if facts, err := parser.ParsePython(path, content); err == nil {
+							additionalFacts = append(additionalFacts, facts...)
+						}
+					case "rust":
+						if facts, err := parser.ParseRust(path, content); err == nil {
+							additionalFacts = append(additionalFacts, facts...)
+						}
+					case "javascript":
+						if facts, err := parser.ParseJavaScript(path, content); err == nil {
+							additionalFacts = append(additionalFacts, facts...)
+						}
+					case "typescript":
+						if facts, err := parser.ParseTypeScript(path, content); err == nil {
+							additionalFacts = append(additionalFacts, facts...)
+						}
+					}
+				}
+			}
+
 			mu.Lock()
 			result.FileCount++
 			result.Languages[lang]++
@@ -245,6 +205,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				result.TestFileCount++
 			}
 			result.Facts = append(result.Facts, fact)
+			result.Facts = append(result.Facts, additionalFacts...)
 			mu.Unlock()
 		}(path, info)
 

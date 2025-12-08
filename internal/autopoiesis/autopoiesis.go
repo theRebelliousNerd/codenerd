@@ -36,6 +36,8 @@ type KernelInterface interface {
 	QueryPredicate(predicate string) ([]KernelFact, error)
 	// QueryBool returns true if any facts match the predicate
 	QueryBool(predicate string) bool
+	// RetractFact removes a fact from the kernel (matching predicate and first arg)
+	RetractFact(fact KernelFact) error
 }
 
 // =============================================================================
@@ -363,12 +365,27 @@ func (o *Orchestrator) assertToolKnownIssue(toolName string, issueType string) {
 func (o *Orchestrator) SyncLearningsToKernel() {
 	learnings := o.learnings.GetAllLearnings()
 	for _, learning := range learnings {
+		// Prune old learnings for this tool (functional update)
+		_ = o.kernel.RetractFact(KernelFact{
+			Predicate: "tool_learning",
+			Args:      []interface{}{learning.ToolName}, // Match by ToolName
+		})
+
+		// Assert new learning
 		o.assertToolLearning(
 			learning.ToolName,
 			learning.TotalExecutions,
 			learning.SuccessRate,
 			learning.AverageQuality,
 		)
+
+		// Prune known issues? Issues are cumulative, but maybe we want to refresh provided list
+		// For now, let's also retract known issues for this tool
+		_ = o.kernel.RetractFact(KernelFact{
+			Predicate: "tool_known_issue",
+			Args:      []interface{}{learning.ToolName},
+		})
+
 		for _, issue := range learning.KnownIssues {
 			o.assertToolKnownIssue(learning.ToolName, string(issue))
 		}

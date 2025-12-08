@@ -402,7 +402,7 @@ func (k *RealKernel) evaluate() error {
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
 	// Prevent fact explosions from recursive learned rules
 	_, err := engine.EvalProgramWithStats(k.programInfo, k.store,
-		engine.WithCreatedFactLimit(50000)) // Hard cap: max 50K derived facts
+		engine.WithCreatedFactLimit(500000)) // Hard cap: max 500K derived facts
 	if err != nil {
 		return fmt.Errorf("failed to evaluate program: %w", err)
 	}
@@ -780,18 +780,32 @@ func (k *RealKernel) GetFactsSnapshot() []Fact {
 }
 
 // Clone creates a new kernel with the same schemas, policy, learned rules, and facts.
-// The cloned kernel shares no mutable state with the original.
+// Optimized to avoid disk I/O and re-parsing by sharing the immutable programInfo.
 func (k *RealKernel) Clone() *RealKernel {
-	clone := NewRealKernel()
-	clone.SetSchemas(k.GetSchemas())
-	clone.SetPolicy(k.GetPolicy())
-	clone.SetLearned(k.GetLearned())
+	k.mu.RLock()
+	defer k.mu.RUnlock()
 
-	// Copy facts into the clone
-	facts := k.GetFactsSnapshot()
-	if len(facts) > 0 {
-		_ = clone.LoadFacts(facts)
+	// Create bare struct without triggering loadMangleFiles
+	clone := &RealKernel{
+		facts:           make([]Fact, len(k.facts)),
+		store:           factstore.NewSimpleInMemoryStore(),
+		schemas:         k.schemas,
+		policy:          k.policy,
+		learned:         k.learned,
+		manglePath:      k.manglePath,
+		programInfo:     k.programInfo,     // Share immutable analysis
+		schemaValidator: k.schemaValidator, // Share immutable validator
+		policyDirty:     k.policyDirty,     // Inherit dirty state (likely false)
+		initialized:     false,             // Will initialize on Evaluate
 	}
+
+	// copy(clone.facts, k.facts) - simpler to just re-assert if we want independence
+	// But for performance, deep copy the slice
+	copy(clone.facts, k.facts)
+
+	// Note: We do NOT define a shared ViewLayer here because Mangle needs
+	// a unified store for fixpoint. Fast copying of the slice is reasonably cheap
+	// (12GB RAM budget allows for this). The main win is skipping Parse/Analyze.
 
 	return clone
 }
