@@ -38,30 +38,31 @@ const (
 
 // DerivationTrace represents a complete proof tree for a query.
 type DerivationTrace struct {
-	Query     string            // Original query
-	RootNodes []*DerivationNode // Top-level derivation nodes
-	AllNodes  []*DerivationNode // All nodes in the tree (flat list)
-	Duration  time.Duration     // Time to compute
-	Timestamp time.Time         // When the trace was created
+	Query      string            // Original query
+	RootNodes  []*DerivationNode // Top-level derivation nodes
+	AllNodes   []*DerivationNode // All nodes in the tree (flat list)
+	Duration   time.Duration     // Time to compute
+	Timestamp  time.Time         // When the trace was created
+	TotalFacts int               // Total number of derived facts
 }
 
 // ProofTreeTracer tracks derivations during query execution.
 type ProofTreeTracer struct {
-	mu         sync.RWMutex
-	engine     *Engine
-	traces     map[string]*DerivationTrace // Cache of recent traces by query
-	maxCache   int                         // Max traces to cache
-	nodeIDSeq  int64                       // Sequence for generating node IDs
-	ruleIndex  map[string][]RuleSpec       // Index of rules by head predicate
+	mu        sync.RWMutex
+	engine    *Engine
+	traces    map[string]*DerivationTrace // Cache of recent traces by query
+	maxCache  int                         // Max traces to cache
+	nodeIDSeq int64                       // Sequence for generating node IDs
+	ruleIndex map[string][]RuleSpec       // Index of rules by head predicate
 }
 
 // RuleSpec describes a rule from policy.mg for tracing purposes.
 type RuleSpec struct {
-	Name       string   // Rule identifier
-	HeadPred   string   // Head predicate
-	BodyPreds  []string // Body predicates (premises)
-	IsRecursive bool    // Whether the rule is recursive
-	Source     string   // Source location (file:line)
+	Name        string   // Rule identifier
+	HeadPred    string   // Head predicate
+	BodyPreds   []string // Body predicates (premises)
+	IsRecursive bool     // Whether the rule is recursive
+	Source      string   // Source location (file:line)
 }
 
 // NewProofTreeTracer creates a new tracer for an engine.
@@ -233,17 +234,17 @@ func (t *ProofTreeTracer) classifyFact(fact Fact) (DerivationSource, string) {
 
 	// IDB predicates (derived by rules in policy.mg)
 	idbRules := map[string]string{
-		"next_action":           "strategy_selector",
-		"permitted":             "permission_gate",
-		"block_commit":          "commit_barrier",
-		"impacted":              "transitive_impact",
-		"clarification_needed":  "focus_threshold",
-		"unsafe_to_refactor":    "refactoring_guard",
-		"test_state":            "tdd_loop",
-		"context_atom":          "spreading_activation",
-		"missing_hypothesis":    "abductive_repair",
-		"delegate_task":         "shard_delegation",
-		"activation":            "activation_rules",
+		"next_action":          "strategy_selector",
+		"permitted":            "permission_gate",
+		"block_commit":         "commit_barrier",
+		"impacted":             "transitive_impact",
+		"clarification_needed": "focus_threshold",
+		"unsafe_to_refactor":   "refactoring_guard",
+		"test_state":           "tdd_loop",
+		"context_atom":         "spreading_activation",
+		"missing_hypothesis":   "abductive_repair",
+		"delegate_task":        "shard_delegation",
+		"activation":           "activation_rules",
 	}
 
 	if ruleName, ok := idbRules[fact.Predicate]; ok {

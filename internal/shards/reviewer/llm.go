@@ -13,12 +13,13 @@ import (
 // =============================================================================
 
 // llmAnalysis uses LLM for semantic code analysis (no dependency context).
-func (r *ReviewerShard) llmAnalysis(ctx context.Context, filePath, content string) ([]ReviewFinding, error) {
-	return r.llmAnalysisWithDeps(ctx, filePath, content, nil)
+func (r *ReviewerShard) llmAnalysis(ctx context.Context, filePath, content string) ([]ReviewFinding, string, error) {
+	return r.llmAnalysisWithDeps(ctx, filePath, content, nil, nil)
 }
 
-// llmAnalysisWithDeps uses LLM for semantic code analysis with dependency context.
-func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext) ([]ReviewFinding, error) {
+// llmAnalysisWithDeps uses LLM for semantic code analysis with dependency and architectural context.
+// Returns findings and the raw markdown analysis report.
+func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext, archCtx *ArchitectureAnalysis) ([]ReviewFinding, string, error) {
 	findings := make([]ReviewFinding, 0)
 
 	// Truncate very long files for LLM
@@ -27,29 +28,39 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 	}
 
 	// Build dependency context section for the prompt
-	depContextStr := ""
-	if depCtx != nil && len(depCtx.Contents) > 0 {
-		var depBuilder strings.Builder
-		depBuilder.WriteString("\n\n## Dependency Context (1-hop)\n")
+	var contextBuilder strings.Builder
 
+	// 1. Dependency Context
+	if depCtx != nil && len(depCtx.Contents) > 0 {
+		contextBuilder.WriteString("\n\n## Dependency Context (1-hop)\n")
 		if len(depCtx.Upstream) > 0 {
-			depBuilder.WriteString(fmt.Sprintf("Files this imports (%d): %s\n",
+			contextBuilder.WriteString(fmt.Sprintf("Files this imports (%d): %s\n",
 				len(depCtx.Upstream), strings.Join(depCtx.Upstream, ", ")))
 		}
 		if len(depCtx.Downstream) > 0 {
-			depBuilder.WriteString(fmt.Sprintf("Files that import this (%d): %s\n",
+			contextBuilder.WriteString(fmt.Sprintf("Files that import this (%d): %s\n",
 				len(depCtx.Downstream), strings.Join(depCtx.Downstream, ", ")))
 		}
-
-		depBuilder.WriteString("\n### Related File Contents:\n")
+		contextBuilder.WriteString("\n### Related File Contents:\n")
 		for depFile, depContent := range depCtx.Contents {
-			depBuilder.WriteString(fmt.Sprintf("\n--- %s ---\n```\n%s\n```\n", depFile, depContent))
+			contextBuilder.WriteString(fmt.Sprintf("\n--- %s ---\n```\n%s\n```\n", depFile, depContent))
 		}
-		depContextStr = depBuilder.String()
+	}
+
+	// 2. Holographic Architecture Context
+	if archCtx != nil {
+		contextBuilder.WriteString("\n\n## Holographic Architecture Context\n")
+		contextBuilder.WriteString(fmt.Sprintf("- Module: %s\n", archCtx.Module))
+		contextBuilder.WriteString(fmt.Sprintf("- Layer: %s\n", archCtx.Layer))
+		contextBuilder.WriteString(fmt.Sprintf("- Role: %s\n", archCtx.Role))
+		if len(archCtx.Related) > 0 {
+			contextBuilder.WriteString(fmt.Sprintf("- Semantically Related: %s\n", strings.Join(archCtx.Related, ", ")))
+		}
 	}
 
 	// Build session context from Blackboard (cross-shard awareness)
 	sessionContext := r.buildSessionContextPrompt()
+	depContextStr := contextBuilder.String()
 
 	systemPrompt := fmt.Sprintf(`You are a principal engineer performing a holistic code review. Analyze the code for:
 1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
@@ -62,18 +73,38 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
 9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
 10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
-%s
-Return findings as JSON array:
-[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation", "message": "...", "suggestion": "..."}]
+11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
+12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
 
-Prefer precise, non-duplicative, actionable findings with a single root cause each. Return [] if the code is clean. Do not omit issues due to brevity; be concise but complete.`, sessionContext)
+%s
+
+Format your response as a Markdown report with the following structure:
+
+# Review Report
+
+## Agent Summary
+(A concise 1-2 sentence summary for an AI agent to read)
+
+## Holographic Analysis
+(Assess the architectural impact based on the provided context)
+
+## Campaign Status
+(Assess alignment with the campaign goal, if active)
+
+## Findings
+Return a JSON array of findings in a code block:
+`+"```json"+`
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
+`+"```"+`
+
+Prefer precise, non-duplicative, actionable findings.`, sessionContext)
 
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, depContextStr)
 
 	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
-		return findings, fmt.Errorf("LLM analysis failed after retries: %w", err)
+		return findings, "", fmt.Errorf("LLM analysis failed after retries: %w", err)
 	}
 
 	// Parse JSON response
@@ -85,11 +116,31 @@ Prefer precise, non-duplicative, actionable findings with a single root cause ea
 		Suggestion string `json:"suggestion"`
 	}
 
-	// Extract JSON from response
-	jsonStart := strings.Index(response, "[")
-	jsonEnd := strings.LastIndex(response, "]")
-	if jsonStart != -1 && jsonEnd > jsonStart {
-		jsonStr := response[jsonStart : jsonEnd+1]
+	// Extract JSON from Markdown code block
+	var jsonStr string
+	if strings.Contains(response, "```json") {
+		parts := strings.Split(response, "```json")
+		if len(parts) > 1 {
+			jsonStr = strings.Split(parts[1], "```")[0]
+		}
+	} else if strings.Contains(response, "```") {
+		// Fallback for unlabeled blocks
+		parts := strings.Split(response, "```")
+		if len(parts) > 1 {
+			jsonStr = parts[1]
+		}
+	} else {
+		// Fallback: try to find array brackets directly
+		start := strings.Index(response, "[")
+		end := strings.LastIndex(response, "]")
+		if start != -1 && end > start {
+			jsonStr = response[start : end+1]
+		}
+	}
+
+	jsonStr = strings.TrimSpace(jsonStr)
+
+	if jsonStr != "" {
 		if err := json.Unmarshal([]byte(jsonStr), &llmFindings); err == nil {
 			for _, f := range llmFindings {
 				findings = append(findings, ReviewFinding{
@@ -102,10 +153,12 @@ Prefer precise, non-duplicative, actionable findings with a single root cause ea
 					Suggestion: f.Suggestion,
 				})
 			}
+		} else {
+			fmt.Printf("[ReviewerShard] Failed to parse JSON findings: %v\nJSON: %s\n", err, jsonStr)
 		}
 	}
 
-	return findings, nil
+	return findings, response, nil
 }
 
 // buildSessionContextPrompt builds comprehensive session context for cross-shard awareness (Blackboard Pattern).

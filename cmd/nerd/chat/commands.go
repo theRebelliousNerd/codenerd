@@ -31,6 +31,12 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/quit", "/exit", "/q":
 		return m, tea.Quit
 
+	case "/usage":
+		m.viewMode = UsageView
+		m.usagePage.SetSize(m.width, m.height)
+		m.usagePage.UpdateContent()
+		return m, nil
+
 	case "/clear":
 		m.history = []Message{}
 		m.viewport.SetContent("")
@@ -1046,19 +1052,15 @@ Press **Enter** to begin...`,
 				Content: "Usage: `/why <fact>` - Explains why a fact was derived",
 				Time:    time.Now(),
 			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
 		} else {
 			fact := strings.Join(parts[1:], " ")
-			explanation := m.buildDerivationTrace(fact)
-			m.history = append(m.history, Message{
-				Role:    "assistant",
-				Content: explanation,
-				Time:    time.Now(),
-			})
+			// Use fetchTrace to populate the logic pane
+			return m, m.fetchTrace(fact)
 		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		m.textarea.Reset()
-		return m, nil
 
 	case "/logic":
 		// Show current logic pane content

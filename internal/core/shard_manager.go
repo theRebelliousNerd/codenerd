@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/usage"
 	"context"
 	"fmt"
 	"strings"
@@ -108,10 +109,10 @@ type SessionContext struct {
 	// ==========================================================================
 	// CAMPAIGN CONTEXT (Multi-Phase Goals)
 	// ==========================================================================
-	CampaignActive  bool     // Whether a campaign is in progress
-	CampaignPhase   string   // Current phase name/ID
-	CampaignGoal    string   // Current phase objective
-	TaskDependencies []string // What this task depends on (blocking tasks)
+	CampaignActive     bool     // Whether a campaign is in progress
+	CampaignPhase      string   // Current phase name/ID
+	CampaignGoal       string   // Current phase objective
+	TaskDependencies   []string // What this task depends on (blocking tasks)
 	LinkedRequirements []string // Requirements/specs this task fulfills
 
 	// ==========================================================================
@@ -125,9 +126,9 @@ type SessionContext struct {
 	// ==========================================================================
 	// TEST STATE (TDD LOOP)
 	// ==========================================================================
-	TestState      string   // /passing, /failing, /pending, /unknown
-	FailingTests   []string // Names/paths of failing tests
-	TDDRetryCount  int      // Current TDD repair loop iteration
+	TestState     string   // /passing, /failing, /pending, /unknown
+	FailingTests  []string // Names/paths of failing tests
+	TDDRetryCount int      // Current TDD repair loop iteration
 
 	// ==========================================================================
 	// CROSS-SHARD EXECUTION HISTORY
@@ -137,7 +138,7 @@ type SessionContext struct {
 	// ==========================================================================
 	// DOMAIN KNOWLEDGE (Type B Specialists)
 	// ==========================================================================
-	KnowledgeAtoms []string // Relevant domain expertise facts
+	KnowledgeAtoms  []string // Relevant domain expertise facts
 	SpecialistHints []string // Hints from specialist knowledge base
 
 	// ==========================================================================
@@ -150,16 +151,16 @@ type SessionContext struct {
 
 // ShardConfig holds configuration for a shard.
 type ShardConfig struct {
-	Name        string
-	Type        ShardType
-	Permissions []ShardPermission // Allowed capabilities
-	Timeout     time.Duration     // Default execution timeout
-	MemoryLimit int               // Abstract memory unit limit
-	Model       ModelConfig       // LLM requirements
-	KnowledgePath string          // Path to local knowledge DB (Type B only)
+	Name          string
+	Type          ShardType
+	Permissions   []ShardPermission // Allowed capabilities
+	Timeout       time.Duration     // Default execution timeout
+	MemoryLimit   int               // Abstract memory unit limit
+	Model         ModelConfig       // LLM requirements
+	KnowledgePath string            // Path to local knowledge DB (Type B only)
 
 	// Tool associations (for specialist shards)
-	Tools          []string          // List of tool names this shard can use
+	Tools           []string          // List of tool names this shard can use
 	ToolPreferences map[string]string // Action -> preferred tool mapping
 
 	// Session context (Blackboard Pattern)
@@ -237,7 +238,7 @@ type ShardAgent interface {
 	GetState() ShardState
 	GetConfig() ShardConfig
 	Stop() error
-	
+
 	// Dependency Injection methods
 	SetParentKernel(k Kernel)
 	SetLLMClient(client LLMClient)
@@ -256,7 +257,7 @@ type BaseShardAgent struct {
 	config ShardConfig
 	state  ShardState
 	mu     sync.RWMutex
-	
+
 	// Dependencies
 	kernel    Kernel
 	llmClient LLMClient
@@ -547,12 +548,12 @@ func (sm *ShardManager) SetSessionID(sessionID string) {
 func (sm *ShardManager) categorizeShardType(typeName string, shardType ShardType) string {
 	// System shards (built-in, always-on)
 	systemShards := map[string]bool{
-		"perception_firewall": true,
-		"constitution_gate":   true,
-		"executive_policy":    true,
-		"cost_guard":          true,
-		"tactile_router":      true,
-		"session_planner":     true,
+		"perception_firewall":  true,
+		"constitution_gate":    true,
+		"executive_policy":     true,
+		"cost_guard":           true,
+		"tactile_router":       true,
+		"session_planner":      true,
 		"world_model_ingestor": true,
 	}
 	if systemShards[typeName] || shardType == ShardTypeSystem {
@@ -604,10 +605,10 @@ func (sm *ShardManager) GetProfile(name string) (ShardConfig, bool) {
 
 // ShardInfo contains information about an available shard for selection.
 type ShardInfo struct {
-	Name        string    `json:"name"`
-	Type        ShardType `json:"type"`
-	Description string    `json:"description,omitempty"`
-	HasKnowledge bool     `json:"has_knowledge"`
+	Name         string    `json:"name"`
+	Type         ShardType `json:"type"`
+	Description  string    `json:"description,omitempty"`
+	HasKnowledge bool      `json:"has_knowledge"`
 }
 
 // ListAvailableShards returns information about all available shards.
@@ -770,6 +771,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		sm.tracingClient.SetShardContext(id, typeName, shardCategory, sm.sessionID, task)
 	}
 
+	// Wrap context with shard metadata for usage tracking
+	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), "current-session") // TODO: pass actual session ID
+
 	// 4. Execute Async
 	go func() {
 		res, err := agent.Execute(ctx, task)
@@ -786,7 +790,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 func (sm *ShardManager) recordResult(id string, result string, err error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	// Clean up shard
 	delete(sm.shards, id)
 
@@ -833,14 +837,14 @@ func (sm *ShardManager) ToFacts() []Fact {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	facts := make([]Fact, 0)
-	
+
 	for name, cfg := range sm.profiles {
 		facts = append(facts, Fact{
 			Predicate: "shard_profile",
-			Args: []interface{}{name, string(cfg.Type)},
+			Args:      []interface{}{name, string(cfg.Type)},
 		})
 	}
-	
+
 	return facts
 }
 
@@ -848,7 +852,7 @@ func (sm *ShardManager) ToFacts() []Fact {
 func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	// Collect system shards to start
 	toStart := make([]string, 0)
-	
+
 	sm.mu.RLock()
 	for name, config := range sm.profiles {
 		if config.Type == ShardTypeSystem {
@@ -869,7 +873,7 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 			fmt.Printf("Failed to start system shard %s: %v\n", name, err)
 		}
 	}
-	
+
 	return nil
 }
 

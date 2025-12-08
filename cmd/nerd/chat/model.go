@@ -22,9 +22,11 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/usage"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"fmt"
@@ -57,6 +59,7 @@ const (
 	ChatView ViewMode = iota
 	ListView
 	FilePickerView
+	UsageView
 )
 
 // sessionItem is a list item for the session list
@@ -99,6 +102,12 @@ type Model struct {
 	logicPane *ui.LogicPane
 	showLogic bool
 	paneMode  ui.PaneMode
+
+	// Usage Page
+	usagePage ui.UsagePageModel
+
+	// Usage Tracking
+	usageTracker *usage.Tracker
 
 	// State
 	history   []Message
@@ -270,6 +279,7 @@ func (m Model) Init() tea.Cmd {
 		textarea.Blink,
 		m.spinner.Tick,
 		m.checkWorkspaceSync(),
+		tea.EnableMouseCellMotion,
 	)
 }
 
@@ -289,6 +299,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			if m.viewMode == ListView {
 				m.viewMode = ChatView // Escape list view
+				return m, nil
+			}
+			if m.viewMode == UsageView {
+				m.viewMode = ChatView // Escape usage view
 				return m, nil
 			}
 			// Only Quit if not in List View
@@ -322,6 +336,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 
+			return m, cmd
+		}
+
+		// Usage View Handling
+		if m.viewMode == UsageView {
+			var cmd tea.Cmd
+			m.usagePage, cmd = m.usagePage.Update(msg)
 			return m, cmd
 		}
 
@@ -400,14 +421,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case 'l':
 				// Toggle logic pane (Alt+L)
 				m.showLogic = !m.showLogic
+				var cmd tea.Cmd
 				if m.showLogic {
 					m.paneMode = ui.ModeSplitPane
 					m.splitPane.SetMode(ui.ModeSplitPane)
+					cmd = m.fetchTrace("") // Fetch default trace
 				} else {
 					m.paneMode = ui.ModeSinglePane
 					m.splitPane.SetMode(ui.ModeSinglePane)
 				}
-				return m, nil
+				return m, cmd
 
 			case 'g':
 				// Cycle through pane modes (Alt+G)
@@ -492,6 +515,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, spCmd = m.spinner.Update(msg)
 			return m, spCmd
 		}
+
+	case traceUpdateMsg:
+		if m.logicPane != nil {
+			m.logicPane.SetTraceMangle(msg.Trace)
+			// Auto-open logic pane relative to user preference?
+			// For now, keep it manual via Alt+L, but update content.
+		}
+		return m, nil
 
 	case responseMsg:
 		m.isLoading = false
@@ -1594,4 +1625,35 @@ func extractMetrics(result string) map[string]any {
 		}
 	}
 	return metrics
+}
+
+// traceUpdateMsg carries a new derivation trace
+type traceUpdateMsg struct {
+	Trace *mangle.DerivationTrace
+}
+
+// fetchTrace queries the kernel for the most recent interesting trace
+func (m Model) fetchTrace(query string) tea.Cmd {
+	return func() tea.Msg {
+		if m.kernel == nil {
+			return nil
+		}
+
+		// If query is empty, try to get the most recent derived context
+		targetQuery := query
+		if targetQuery == "" {
+			targetQuery = "context_atom(?params)"
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		trace, err := m.kernel.TraceQuery(ctx, targetQuery)
+		if err != nil {
+			// Fail silently or log?
+			return nil
+		}
+
+		return traceUpdateMsg{Trace: trace}
+	}
 }

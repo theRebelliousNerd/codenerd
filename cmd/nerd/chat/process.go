@@ -195,6 +195,41 @@ func (m Model) processInput(input string) tea.Cmd {
 				return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
 			}
 
+			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings
+			if shardType == "reviewer" || shardType == "tester" {
+				// Create a specialized prompt for interpreting the results
+				analysisPrompt := fmt.Sprintf(`
+You are Steven Moore, the CodeNERD. The %s shard just finished:
+
+TASK: %s
+
+RESULT:
+%s
+
+YOUR JOB:
+1. React to this result in your "Full Tilt" persona.
+2. If there are warnings/errors, explain them bluntly.
+3. If it looks good, celebrate.
+4. Suggest the immediate next step (e.g., "Refactor X", "Fix Y").
+
+Keep it concise but energetic. Use emojis.
+`, shardType, task, result)
+
+				// Call LLM for interpretation
+				interpResp, err := m.client.CompleteWithSystem(ctx, stevenMoorePersona, analysisPrompt)
+
+				var interpretation string
+				if err == nil {
+					interpretation = interpResp
+				} else {
+					interpretation = fmt.Sprintf("Analyze this yourself, I'm tired: %v", err)
+				}
+
+				// Combine the structured result (in a collapsible block) with the interpretation
+				response := fmt.Sprintf("%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, result)
+				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+			}
+
 			// Format a rich response combining LLM surface response and shard result
 			response := formatDelegatedResponse(intent, shardType, task, result)
 			return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))

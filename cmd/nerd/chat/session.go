@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/shards/tester"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/usage"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
@@ -422,10 +423,19 @@ func InitChat(cfg Config) Model {
 
 	// Initialize split-pane view (Glass Box Interface)
 	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
-	logicPane := ui.NewLogicPane(styles, 30, 20)
 
 	// Preload workspace facts from .nerd/profile.mg if present
 	// (Already done in hydrateNerdState)
+
+	// Initialize Usage Tracker
+	tracker, err := usage.NewTracker(workspace)
+	if err != nil {
+		initialMessages = append(initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("⚠ Usage tracking init failed: %v", err),
+			Time:    time.Now(),
+		})
+	}
 
 	model := Model{
 
@@ -436,8 +446,10 @@ func InitChat(cfg Config) Model {
 		filepicker:            fp,
 		styles:                styles,
 		renderer:              renderer,
+		usageTracker:          tracker,
+		usagePage:             ui.NewUsagePageModel(tracker, styles),
 		splitPane:             &splitPaneView,
-		logicPane:             &logicPane,
+		logicPane:             splitPaneView.RightPane,
 		showLogic:             false,
 		paneMode:              ui.ModeSinglePane,
 		history:               []Message{},

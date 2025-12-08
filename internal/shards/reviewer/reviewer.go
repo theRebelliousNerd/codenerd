@@ -20,16 +20,16 @@ import (
 
 // ReviewerConfig holds configuration for the reviewer shard.
 type ReviewerConfig struct {
-	StyleGuide        string   // Path to style guide or preset name
-	SecurityRules     []string // Security patterns to check (OWASP categories)
-	MaxFindings       int      // Max findings before abort (default: 100)
-	BlockOnCritical   bool     // Block commit if critical issues found (default: true)
-	IncludeMetrics    bool     // Include complexity metrics (default: true)
-	SeverityFilter    string   // Minimum severity to report: "info", "warning", "error", "critical"
-	WorkingDir        string   // Workspace directory
-	IgnorePatterns    []string // File patterns to ignore
-	MaxFileSize       int64    // Max file size to review in bytes (default: 1MB)
-	CustomRulesPath   string   // Path to custom rules JSON file (default: .nerd/review-rules.json)
+	StyleGuide      string   // Path to style guide or preset name
+	SecurityRules   []string // Security patterns to check (OWASP categories)
+	MaxFindings     int      // Max findings before abort (default: 100)
+	BlockOnCritical bool     // Block commit if critical issues found (default: true)
+	IncludeMetrics  bool     // Include complexity metrics (default: true)
+	SeverityFilter  string   // Minimum severity to report: "info", "warning", "error", "critical"
+	WorkingDir      string   // Workspace directory
+	IgnorePatterns  []string // File patterns to ignore
+	MaxFileSize     int64    // Max file size to review in bytes (default: 1MB)
+	CustomRulesPath string   // Path to custom rules JSON file (default: .nerd/review-rules.json)
 }
 
 // DefaultReviewerConfig returns sensible defaults for code review.
@@ -94,6 +94,9 @@ type ReviewResult struct {
 	Duration    time.Duration   `json:"duration"`
 	BlockCommit bool            `json:"block_commit"`
 	Metrics     *CodeMetrics    `json:"metrics,omitempty"`
+
+	// Textual analysis report from LLM (Markdown)
+	AnalysisReport string `json:"analysis_report,omitempty"`
 
 	// Specialist recommendations based on detected technologies
 	SpecialistRecommendations []SpecialistRecommendation `json:"specialist_recommendations,omitempty"`
@@ -444,6 +447,8 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 
 	// Track dependency contexts for all files
 	depContexts := make(map[string]*DependencyContext)
+	// Track architectural contexts for all files (Holographic View)
+	archContexts := make(map[string]*ArchitectureAnalysis)
 
 	for _, filePath := range task.Files {
 		// Skip ignored patterns
@@ -471,13 +476,23 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 				r.id, len(depCtx.Upstream), len(depCtx.Downstream), filePath)
 		}
 
+		// Perform Holographic Architecture Analysis
+		archCtx := r.analyzeArchitecture(ctx, filePath)
+		archContexts[filePath] = archCtx
+
 		// Store for specialist detection
 		fileContents[filePath] = content
 		reviewedFiles = append(reviewedFiles, filePath)
 
-		// Run all checks (now with dependency context)
-		findings := r.analyzeFileWithDeps(ctx, filePath, content, depCtx)
+		// Run all checks (now with dependency AND architectural context)
+		findings, report := r.analyzeFileWithDeps(ctx, filePath, content, depCtx, archCtx)
 		result.Findings = append(result.Findings, findings...)
+		if report != "" {
+			if result.AnalysisReport != "" {
+				result.AnalysisReport += "\n---\n"
+			}
+			result.AnalysisReport += fmt.Sprintf("# Report for %s\n%s", filePath, report)
+		}
 
 		// Check finding limit
 		if len(result.Findings) >= r.reviewerConfig.MaxFindings {
@@ -507,6 +522,31 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 
 	// Track patterns for Autopoiesis
 	r.trackReviewPatterns(result)
+
+	// --- NEW: Context-Aware Filtering & Persistence ---
+	// 1. Assert file topology facts (e.g., is it a test file?)
+	for _, f := range result.Files {
+		r.assertFileFacts(f)
+	}
+
+	// 2. Filter findings using Mangle rules (suppression logic)
+	activeFindings, err := r.filterFindingsWithMangle(result.Findings)
+	if err == nil {
+		// Log suppressed count
+		if len(activeFindings) < len(result.Findings) {
+			fmt.Printf("[ReviewerShard:%s] Suppressed %d findings via Mangle rules\n", r.id, len(result.Findings)-len(activeFindings))
+		}
+		result.Findings = activeFindings
+	} else {
+		fmt.Printf("[ReviewerShard:%s] Failed to filter with Mangle, using raw findings: %v\n", r.id, err)
+	}
+
+	// 3. Persist findings to database
+	r.persistFindings(result.Findings)
+
+	// Recalculate severity after filtering
+	result.Severity = r.calculateOverallSeverity(result.Findings)
+	result.Summary = r.generateSummary(result)
 
 	return result, nil
 }
@@ -659,8 +699,14 @@ func (r *ReviewerShard) reviewDiff(ctx context.Context, task *ReviewerTask) (*Re
 			continue
 		}
 
-		findings := r.analyzeFile(ctx, filePath, content)
+		findings, report := r.analyzeFile(ctx, filePath, content)
 		result.Findings = append(result.Findings, findings...)
+		if report != "" {
+			if result.AnalysisReport != "" {
+				result.AnalysisReport += "\n---\n"
+			}
+			result.AnalysisReport += fmt.Sprintf("# Report for %s\n%s", filePath, report)
+		}
 	}
 
 	result.Severity = r.calculateOverallSeverity(result.Findings)
@@ -676,13 +722,82 @@ func (r *ReviewerShard) reviewDiff(ctx context.Context, task *ReviewerTask) (*Re
 // =============================================================================
 
 // analyzeFile runs all analysis checks on a file (no dependency context).
-func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content string) []ReviewFinding {
-	return r.analyzeFileWithDeps(ctx, filePath, content, nil)
+func (r *ReviewerShard) analyzeFile(ctx context.Context, filePath, content string) ([]ReviewFinding, string) {
+	return r.analyzeFileWithDeps(ctx, filePath, content, nil, nil)
 }
 
-// analyzeFileWithDeps runs all analysis checks on a file with optional dependency context.
-func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext) []ReviewFinding {
+// ArchitectureAnalysis holds the "Holographic" view of the code.
+type ArchitectureAnalysis struct {
+	Module      string   `json:"module"`       // The module this file belongs to
+	Layer       string   `json:"layer"`        // e.g., "core", "api", "data"
+	Related     []string `json:"related"`      // Semantically related entities
+	Role        string   `json:"role"`         // Deduced role (adapter, service, model)
+	SystemValue string   `json:"system_value"` // High-level system purpose
+}
+
+// analyzeArchitecture performs a "Holographic" analysis using the knowledge graph.
+func (r *ReviewerShard) analyzeArchitecture(ctx context.Context, filePath string) *ArchitectureAnalysis {
+	analysis := &ArchitectureAnalysis{
+		Module: "unknown",
+		Layer:  "unknown",
+		Role:   "unknown",
+	}
+
+	if r.virtualStore == nil {
+		return analysis
+	}
+
+	localDB := r.virtualStore.GetLocalDB()
+	if localDB == nil {
+		return analysis
+	}
+
+	// 1. Determine Module/Layer from path
+	// Simple heuristic fallback if graph is empty
+	parts := strings.Split(filePath, "/")
+	if len(parts) > 1 {
+		for i, part := range parts {
+			if part == "internal" || part == "pkg" || part == "cmd" {
+				if i+1 < len(parts) {
+					analysis.Module = parts[i+1]
+				}
+				analysis.Layer = part
+				break
+			}
+		}
+	}
+
+	// 2. Query Knowledge Graph for relationships
+	// Using "contains" or "defines" relations
+	links, err := localDB.QueryLinks(filePath, "incoming")
+	if err == nil {
+		for _, link := range links {
+			if link.Relation == "defines" || link.Relation == "contains" {
+				// The container (directory/package) is the entity A
+				analysis.Module = link.EntityA
+			}
+		}
+	}
+
+	// 3. Find related entities (semantic neighbors)
+	// Using "imports" or "calls"
+	outgoing, err := localDB.QueryLinks(filePath, "outgoing")
+	if err == nil {
+		for _, link := range outgoing {
+			if link.Relation == "imports" || link.Relation == "depends_on" {
+				analysis.Related = append(analysis.Related, link.EntityB)
+			}
+		}
+	}
+
+	return analysis
+}
+
+// analyzeFileWithDeps runs all analysis checks on a file with optional dependency and architectural context.
+// Returns findings and the LLM analysis report (if any).
+func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, content string, depCtx *DependencyContext, archCtx *ArchitectureAnalysis) ([]ReviewFinding, string) {
 	findings := make([]ReviewFinding, 0)
+	var report string
 
 	// Code DOM safety checks (check kernel facts first)
 	findings = append(findings, r.checkCodeDOMSafety(filePath)...)
@@ -699,9 +814,11 @@ func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, conte
 	// Custom rules checks (user-defined patterns)
 	findings = append(findings, r.checkCustomRules(filePath, content)...)
 
-	// LLM-powered semantic analysis (if available) - now with dependency context
+	// LLM-powered semantic analysis (if available) - now with dependency and architectural context
 	if r.llmClient != nil {
-		llmFindings, err := r.llmAnalysisWithDeps(ctx, filePath, content, depCtx)
+		var err error
+		var llmFindings []ReviewFinding
+		llmFindings, report, err = r.llmAnalysisWithDeps(ctx, filePath, content, depCtx, archCtx)
 		if err == nil {
 			findings = append(findings, llmFindings...)
 		} else {
@@ -713,7 +830,7 @@ func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, conte
 	// Check against learned anti-patterns
 	findings = append(findings, r.checkLearnedPatterns(filePath, content)...)
 
-	return findings
+	return findings, report
 }
 
 // =============================================================================
@@ -865,4 +982,104 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// =============================================================================
+// PERSISTENCE & FILTERING HELPERS
+// =============================================================================
+
+// assertFileFacts asserts file topology facts to the kernel (e.g., for test file detection).
+func (r *ReviewerShard) assertFileFacts(filePath string) {
+	if r.kernel == nil {
+		return
+	}
+
+	isTest := strings.HasSuffix(filePath, "_test.go") || strings.Contains(filePath, "test/")
+	testVal := "/false"
+	if isTest {
+		testVal = "/true"
+	}
+
+	// file_topology(Path, Hash, Language, LastModified, IsTestFile)
+	// Using placeholders for Hash/Time as they aren't critical for suppression rules yet
+	fact := core.Fact{
+		Predicate: "file_topology",
+		Args:      []interface{}{filePath, "unknown_hash", r.detectLanguage(filePath), "unknown_time", testVal},
+	}
+	_ = r.kernel.Assert(fact)
+}
+
+// filterFindingsWithMangle asserts findings to Mangle and queries back only the active ones.
+func (r *ReviewerShard) filterFindingsWithMangle(findings []ReviewFinding) ([]ReviewFinding, error) {
+	if r.kernel == nil {
+		return findings, nil
+	}
+
+	// 1. Assert raw findings
+	for _, f := range findings {
+		fact := core.Fact{
+			Predicate: "raw_finding",
+			Args:      []interface{}{f.File, f.Line, f.Severity, f.Category, f.RuleID, f.Message},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+
+	// 2. Query active findings
+	results, err := r.kernel.Query("active_finding")
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Reconstruct list
+	var active []ReviewFinding
+	for _, res := range results {
+		if len(res.Args) < 6 {
+			continue
+		}
+		f := ReviewFinding{
+			File:     res.Args[0].(string),
+			Line:     toStartInt(res.Args[1]),
+			Severity: res.Args[2].(string),
+			Category: res.Args[3].(string),
+			RuleID:   res.Args[4].(string),
+			Message:  res.Args[5].(string),
+		}
+		active = append(active, f)
+	}
+
+	return active, nil
+}
+
+// persistFindings stores findings in the LocalStore.
+func (r *ReviewerShard) persistFindings(findings []ReviewFinding) {
+	if r.virtualStore == nil || r.virtualStore.GetLocalDB() == nil {
+		return
+	}
+	localDB := r.virtualStore.GetLocalDB()
+	root := r.reviewerConfig.WorkingDir
+
+	for _, f := range findings {
+		// Use the DTO defined in store package
+		sf := store.StoredReviewFinding{
+			FilePath:    f.File,
+			Line:        f.Line,
+			Severity:    f.Severity,
+			Category:    f.Category,
+			RuleID:      f.RuleID,
+			Message:     f.Message,
+			ProjectRoot: root,
+		}
+		_ = localDB.StoreReviewFinding(sf)
+	}
+}
+
+// Helper to safely convert interface{} to int
+func toStartInt(v interface{}) int {
+	if i, ok := v.(int); ok {
+		return i
+	}
+	if f, ok := v.(float64); ok {
+		return int(f)
+	}
+	return 0
 }

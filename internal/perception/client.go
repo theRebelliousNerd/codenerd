@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -91,8 +92,8 @@ type ZAIStreamOptions struct {
 
 // ZAIResponseFormat enforces structured output (JSON schema).
 type ZAIResponseFormat struct {
-	Type       string          `json:"type"` // "json_schema"
-	JSONSchema *ZAIJSONSchema  `json:"json_schema,omitempty"`
+	Type       string         `json:"type"` // "json_schema"
+	JSONSchema *ZAIJSONSchema `json:"json_schema,omitempty"`
 }
 
 // ZAIJSONSchema defines the structured output schema.
@@ -104,7 +105,7 @@ type ZAIJSONSchema struct {
 
 // ZAIThinking enables extended reasoning mode.
 type ZAIThinking struct {
-	Type         string `json:"type"`          // "enabled"
+	Type         string `json:"type"`                    // "enabled"
 	BudgetTokens int    `json:"budget_tokens,omitempty"` // Optional token budget
 }
 
@@ -156,8 +157,8 @@ func (c *ZAIClient) Complete(ctx context.Context, prompt string) (string, error)
 func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	// Detect if this is a Piggyback Protocol request (contains articulation instructions)
 	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-	               strings.Contains(systemPrompt, "surface_response") ||
-	               strings.Contains(userPrompt, "PiggybackEnvelope")
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope")
 
 	// Use enhanced method for Piggyback Protocol
 	if isPiggyback {
@@ -261,6 +262,17 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		if len(zaiResp.Choices) == 0 {
 			return "", fmt.Errorf("no completion returned")
+		}
+
+		// Track usage if available
+		if tracker := usage.FromContext(ctx); tracker != nil {
+			tracker.Track(ctx,
+				c.model,
+				"zai",
+				zaiResp.Usage.PromptTokens,
+				zaiResp.Usage.CompletionTokens,
+				"chat",
+			)
 		}
 
 		return strings.TrimSpace(zaiResp.Choices[0].Message.Content), nil
@@ -767,11 +779,11 @@ func (c *AnthropicClient) GetModel() string {
 
 // OpenAIClient implements LLMClient for OpenAI API.
 type OpenAIClient struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *http.Client
-	mu         sync.Mutex
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
 	lastRequest time.Time
 }
 
@@ -973,11 +985,11 @@ func (c *OpenAIClient) GetModel() string {
 
 // GeminiClient implements LLMClient for Google Gemini API.
 type GeminiClient struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *http.Client
-	mu         sync.Mutex
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
 	lastRequest time.Time
 }
 
@@ -1019,8 +1031,8 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 
 // GeminiRequest represents the Gemini API request.
 type GeminiRequest struct {
-	Contents         []GeminiContent        `json:"contents"`
-	SystemInstruction *GeminiContent        `json:"systemInstruction,omitempty"`
+	Contents          []GeminiContent        `json:"contents"`
+	SystemInstruction *GeminiContent         `json:"systemInstruction,omitempty"`
 	GenerationConfig  GeminiGenerationConfig `json:"generationConfig,omitempty"`
 }
 
@@ -1190,11 +1202,11 @@ func (c *GeminiClient) GetModel() string {
 
 // XAIClient implements LLMClient for xAI (Grok) API.
 type XAIClient struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *http.Client
-	mu         sync.Mutex
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
 	lastRequest time.Time
 }
 

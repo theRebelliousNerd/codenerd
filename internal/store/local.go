@@ -243,7 +243,24 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
 	`
 
-	for _, table := range []string{vectorTable, graphTable, coldTable, archivedTable, activationTable, sessionTable, verificationTable, reasoningTracesTable} {
+	// Review Findings (for persistent history and analysis)
+	reviewFindingsTable := `
+	CREATE TABLE IF NOT EXISTS review_findings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		reviewed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		file_path TEXT NOT NULL,
+		line INTEGER,
+		severity TEXT,
+		category TEXT,
+		rule_id TEXT,
+		message TEXT,
+		project_root TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_findings_path ON review_findings(file_path);
+	CREATE INDEX IF NOT EXISTS idx_findings_severity ON review_findings(severity);
+	`
+
+	for _, table := range []string{vectorTable, graphTable, coldTable, archivedTable, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
@@ -261,6 +278,11 @@ func (s *LocalStore) GetTraceStore() *TraceStore {
 // Close closes the database connection.
 func (s *LocalStore) Close() error {
 	return s.db.Close()
+}
+
+// GetDB returns the underlying SQL database connection.
+func (s *LocalStore) GetDB() *sql.DB {
+	return s.db
 }
 
 // ========== Shard B: Vector/Associative Memory ==========
@@ -1395,4 +1417,31 @@ type KnowledgeAtom struct {
 	Content    string
 	Confidence float64
 	CreatedAt  string
+}
+
+// ========== Review Findings Storage ==========
+
+// StoredReviewFinding represents a review finding to be persisted.
+// Defined here to avoid circular dependency with reviewer package.
+type StoredReviewFinding struct {
+	FilePath    string
+	Line        int
+	Severity    string
+	Category    string
+	RuleID      string
+	Message     string
+	ProjectRoot string
+}
+
+// StoreReviewFinding persists a review finding to the database.
+func (s *LocalStore) StoreReviewFinding(f StoredReviewFinding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO review_findings (file_path, line, severity, category, rule_id, message, project_root)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		f.FilePath, f.Line, f.Severity, f.Category, f.RuleID, f.Message, f.ProjectRoot,
+	)
+	return err
 }
