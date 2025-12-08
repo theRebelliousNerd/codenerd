@@ -284,6 +284,8 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
+		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
+
 		result, err := m.shardMgr.Spawn(ctx, shardType, task)
 
 		// Generate a shard ID for fact tracking
@@ -311,6 +313,7 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 ### Result
 %s`, shardType, task, result)
 
+		m.ReportStatus(fmt.Sprintf("%s complete", shardType))
 		return responseMsg(response)
 	}
 }
