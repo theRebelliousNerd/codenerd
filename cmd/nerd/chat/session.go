@@ -228,7 +228,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 
-		// Initialize Browser Manager with cancellable context
+		// Initialize Browser Manager (lazy start - only connects when first used)
 		log("Initializing browser manager...")
 		browserCfg := browser.DefaultConfig()
 		browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
@@ -236,17 +236,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		var browserCtxCancel context.CancelFunc
 		if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
 			browserMgr = browser.NewSessionManager(browserCfg, engine)
-			// Create cancellable context for browser manager goroutine
-			var browserCtx context.Context
-			browserCtx, browserCtxCancel = context.WithCancel(context.Background())
-			go func() {
-				if err := browserMgr.Start(browserCtx); err != nil {
-					// Only log if not cancelled
-					if browserCtx.Err() == nil {
-						// Log silently - browser start failed
-					}
-				}
-			}()
+			// Create cancellable context for browser manager - Start() is called lazily on first use
+			_, browserCtxCancel = context.WithCancel(context.Background())
 		}
 
 		log("Creating virtual store...")

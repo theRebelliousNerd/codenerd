@@ -241,7 +241,7 @@ func (m *SessionManager) Start(ctx context.Context) error {
 
 	m.browser = browser
 	m.controlURL = controlURL
-	log.Printf("Browser connected at %s", controlURL)
+	// Note: Browser connected - no log output to avoid TUI interference
 	return nil
 }
 
@@ -287,7 +287,7 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 		m.browser = nil
 	}
 	m.controlURL = ""
-	log.Printf("Browser shutdown complete")
+	// Note: Browser shutdown complete - no log output to avoid TUI interference
 	return err
 }
 
