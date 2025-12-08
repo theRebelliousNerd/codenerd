@@ -40,12 +40,12 @@ type SelfCorrection = articulation.SelfCorrection
 
 // VerbEntry defines a canonical verb with its synonyms and patterns.
 type VerbEntry struct {
-	Verb       string           // Canonical verb (e.g., "/review")
-	Category   string           // Default category (/query, /mutation, /instruction)
-	Synonyms   []string         // Words that map to this verb
-	Patterns   []*regexp.Regexp // Regex patterns that indicate this verb
-	Priority   int              // Higher priority wins in ambiguous cases
-	ShardType  string           // Which shard handles this (reviewer, coder, tester, researcher)
+	Verb      string           // Canonical verb (e.g., "/review")
+	Category  string           // Default category (/query, /mutation, /instruction)
+	Synonyms  []string         // Words that map to this verb
+	Patterns  []*regexp.Regexp // Regex patterns that indicate this verb
+	Priority  int              // Higher priority wins in ambiguous cases
+	ShardType string           // Which shard handles this (reviewer, coder, tester, researcher)
 }
 
 // VerbCorpus is the comprehensive mapping of natural language to verbs.
@@ -146,7 +146,7 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 		// Candidates are not sorted by score in getRegexCandidates, find max
 		bestScore := 0.0
 		var bestCand VerbEntry
-		
+
 		// Re-implementing the scoring loop here for the fallback
 		// We iterate over the pre-filtered candidates for efficiency
 		lower := strings.ToLower(input)
@@ -172,7 +172,7 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 					}
 				}
 			}
-			
+
 			// Apply priority bonus
 			score += float64(entry.Priority) / 50.0
 
@@ -181,7 +181,7 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 				bestCand = entry
 			}
 		}
-		
+
 		// Normalize confidence
 		confidence = bestScore / 100.0
 		if confidence > 1.0 {
@@ -190,7 +190,7 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 		if confidence < 0.3 {
 			confidence = 0.3 // Minimum baseline
 		}
-		
+
 		// Return the best candidate found
 		if bestScore > 0 {
 			return bestCand.Verb, bestCand.Category, confidence, bestCand.ShardType
@@ -408,53 +408,29 @@ When greeting or asked about capabilities, describe these abilities naturally. M
 CRITICAL PROTOCOL:
 You must NEVER output raw text. You must ALWAYS output a JSON object containing "surface_response" and "control_packet".
 
-## VERB TAXONOMY (Comprehensive)
+## INTENT LIBRARY (Match User to Canonical Examples)
+Instead of guessing verbs, match the user's request to the closest CANONICAL EXAMPLE.
 
-### Code Review & Analysis (Category: /query, Shard: reviewer)
-- /review: code review, pr review, check my code, look over, audit, evaluate, inspect, critique, assess, vet, proofread, feedback
-- /security: security scan, vulnerability check, security audit, find vulnerabilities, owasp, injection, xss, csrf
-- /analyze: static analysis, complexity, metrics, code quality, lint, style check, code smell, dead code
+| Canonical Request (The "Archetype") | Mangle Action (The "Logic") |
+|-------------------------------------|-----------------------------|
+| "Review this file for bugs." | {verb: "/review", target: "context_file", category: "/query"} |
+| "Check my code for security issues." | {verb: "/security", target: "codebase", category: "/query"} |
+| "Fix the compilation error." | {verb: "/fix", constraint: "compiler_error", category: "/mutation"} |
+| "Refactor this function to be cleaner." | {verb: "/refactor", target: "focused_symbol", category: "/mutation"} |
+| "What does this function do?" | {verb: "/explain", target: "focused_symbol", category: "/query"} |
+| "Run the tests." | {verb: "/test", target: "context_file", category: "/mutation"} |
+| "Generate unit tests for this." | {verb: "/test", target: "context_file", category: "/mutation"} |
+| "Deploy to production." | {verb: "/deploy", target: "production", category: "/mutation"} |
+| "Research how to use X." | {verb: "/research", target: "X", category: "/query"} |
+| "Create a new file called main.go." | {verb: "/create", target: "main.go", category: "/mutation"} |
+| "Delete the database." | {verb: "/delete", target: "database", category: "/mutation"} |
+| "Start a campaign to rewrite auth." | {verb: "/campaign", target: "rewrite auth", category: "/mutation"} |
+| "Configure the agent to be verbose." | {verb: "/configure", target: "verbosity", category: "/instruction"} |
 
-### Understanding (Category: /query)
-- /explain: explain, describe, what is, how does, tell me, help understand, clarify, walk through, summarize
-- /explore: browse, navigate, show structure, list files, codebase overview, architecture
-- /search: find, grep, look for, locate, occurrences, references, usages
-- /read: open file, view, display, show contents
-
-### Code Changes (Category: /mutation, Shard: coder)
-- /fix: fix, repair, correct, patch, resolve, bug fix, make it work
-- /refactor: refactor, clean up, improve, optimize, simplify, extract, rename, restructure
-- /create: create, new, make, add, write, implement, build, scaffold, generate
-- /delete: delete, remove, drop, eliminate, get rid of
-- /write: write to file, save, export
-
-### Debugging (Category: /query, Shard: coder)
-- /debug: debug, trace, diagnose, troubleshoot, investigate, root cause, what's wrong, stack trace
-
-### Testing (Category: /mutation, Shard: tester)
-- /test: test, unit test, run tests, test coverage, verify, validate, tdd
-
-### Research (Category: /query, Shard: researcher)
-- /research: research, learn, look up, documentation, docs, api reference, best practice, how to
-
-### Setup (Category: /mutation)
-- /init: initialize, setup, bootstrap, scaffold project, configure
-
-### Execution (Category: /mutation)
-- /run: run, execute, start, launch
-
-### Configuration (Category: /instruction)
-- /configure: configure, settings, always, never, prefer, by default
-
-### Version Control (Category: /mutation, Shard: coder)
-- /commit: commit, git commit, stage, check in
-- /diff: diff, compare, what changed
-
-### Documentation (Category: /mutation, Shard: coder)
-- /document: document, docstring, add docs, add comments
-
-### Campaigns (Category: /mutation)
-- /campaign: campaign, epic, large feature, multi-step task
+### Mangle Inference Rules
+1. If the user's request matches a Canonical Example, use that example's Action.
+2. If the user's request is ambiguous, output: ambiguity_flag(/ambiguous_intent).
+3. If the user's request violates a safety rule, use the Mangle Kernel to validate it.
 
 CRITICAL SAFETY RULE - THOUGHT-FIRST ORDERING (v1.2.0):
 You MUST output control_packet BEFORE surface_response to prevent "Premature Articulation".
@@ -596,7 +572,7 @@ func (t *RealTransducer) ValidateMangleAtoms(atoms []string) ([]string, []mangle
 
 // ParseIntentWithGCD parses user input with Grammar-Constrained Decoding.
 // This implements the repair loop described in §6.2 of the spec.
-func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, maxRetries int) (Intent, []string, error) {
+func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []ConversationTurn, maxRetries int) (Intent, []string, error) {
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
@@ -605,7 +581,28 @@ func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, m
 	var lastErr error
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		userPrompt := fmt.Sprintf(`User Input: "%s"`, input)
+		var sb strings.Builder
+
+		// Inject conversation history if available (critical for follow-ups)
+		if len(history) > 0 {
+			sb.WriteString("## Recent Conversation History\n")
+			sb.WriteString("Use this context to understand follow-up questions and references to previous messages.\n\n")
+			for _, turn := range history {
+				if turn.Role == "user" {
+					sb.WriteString(fmt.Sprintf("User: %s\n", turn.Content))
+				} else {
+					content := turn.Content
+					if len(content) > 400 {
+						content = content[:400] + "... (truncated)"
+					}
+					sb.WriteString(fmt.Sprintf("Assistant: %s\n", content))
+				}
+			}
+			sb.WriteString("\n---\n\n")
+		}
+
+		sb.WriteString(fmt.Sprintf(`User Input: "%s"`, input))
+		userPrompt := sb.String()
 
 		// Add repair context if this is a retry
 		if attempt > 0 && lastErr != nil {

@@ -47,21 +47,24 @@ type ReplanResult struct {
 }
 
 // Replan adapts the campaign plan based on current state and failures.
-func (r *Replanner) Replan(ctx context.Context, campaign *Campaign) error {
+// failedTaskID is optional; if provided, replanning is scoped to that task's subtree.
+func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID string) error {
 	// 1. Gather context about what went wrong
 	failedTasks := r.getFailedTasks(campaign)
 	blockedTasks := r.getBlockedTasks(campaign)
 	replanTriggers := r.getReplanTriggers(campaign.ID)
 
-	if len(failedTasks) == 0 && len(blockedTasks) == 0 && len(replanTriggers) == 0 {
+	if len(failedTasks) == 0 && len(blockedTasks) == 0 && len(replanTriggers) == 0 && failedTaskID == "" {
 		return nil // Nothing to replan
 	}
 
 	// 2. Build context for LLM
+	// If failedTaskID is set, we could filter context to relevant subtree,
+	// but for now we provide full context for global consistency.
 	contextSummary := r.buildReplanContext(campaign, failedTasks, blockedTasks, replanTriggers)
 
 	// 3. Ask LLM to propose fixes
-	fixes, err := r.proposeReplans(ctx, campaign, contextSummary)
+	fixes, err := r.proposeReplans(ctx, campaign, contextSummary, failedTaskID)
 	if err != nil {
 		return fmt.Errorf("failed to propose replans: %w", err)
 	}
@@ -456,9 +459,10 @@ func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedT
 }
 
 // proposeReplans asks LLM to propose fixes for the campaign.
-func (r *Replanner) proposeReplans(ctx context.Context, campaign *Campaign, context string) (*ReplanResult, error) {
+func (r *Replanner) proposeReplans(ctx context.Context, campaign *Campaign, context string, scopeTaskID string) (*ReplanResult, error) {
 	// Include campaign metadata for better LLM context
 	prompt := fmt.Sprintf(`A campaign needs replanning. Analyze the issues and propose fixes.
+Scope: %s
 
 Campaign Metadata:
 Campaign: %s (ID: %s)
@@ -490,8 +494,10 @@ Output JSON:
   ]
 }
 
-JSON only:`,
+	JSON only:`,
+		scopeTaskID,
 		campaign.Title, campaign.ID, campaign.Goal,
+
 		len(campaign.Phases), campaign.CompletedTasks, campaign.TotalTasks,
 		context)
 

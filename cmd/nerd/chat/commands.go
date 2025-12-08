@@ -770,6 +770,51 @@ Press **Enter** to begin...`,
 		m.textinput.Reset()
 		return m, nil
 
+	case "/learn":
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Invoking Meta-Cognitive Supervisor (The Critic)... Analyzing recent turns for learning opportunities.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textinput.Reset()
+
+		return m, func() tea.Msg {
+			// Trigger the Ouroboros Loop
+			// We need to fetch recent traces. Since we don't have direct access to ReasoningTraces in the Model struct
+			// (we only have Message history), we should ideally rely on the TraceStore if available.
+			// But for now, we can construct traces from the session history or rely on the TaxonomyEngine's access if we passed it in.
+
+			// Actually, perception.SharedTaxonomy is available globally.
+			// And we have m.client.
+
+			// We need to convert m.history (Message) to perception.ReasoningTrace for the learner
+			var traces []perception.ReasoningTrace
+			for _, msg := range m.history {
+				// Convert TUI message to Trace format (simplified)
+				t := perception.ReasoningTrace{
+					UserPrompt: "...", // We don't have perfect mapping here, simplified for now
+					Response:   msg.Content,
+					Success:    true, // Assumed
+				}
+				if msg.Role == "user" {
+					t.UserPrompt = msg.Content
+				}
+				traces = append(traces, t)
+			}
+
+			perception.SharedTaxonomy.SetClient(m.client)
+			fact, err := perception.SharedTaxonomy.LearnFromInteraction(context.Background(), traces)
+			if err != nil {
+				return responseMsg(fmt.Sprintf("Learning failed: %v", err))
+			}
+			if fact == "" {
+				return responseMsg("No new patterns detected in recent interactions.")
+			}
+			return responseMsg(fmt.Sprintf("Successfully learned and crystallized new pattern:\n```\n%s\n```", fact))
+		}
+
 	case "/agents":
 		// List defined agents
 		agents := m.loadType3Agents()
@@ -1171,45 +1216,6 @@ Press **Enter** to begin...`,
 				m.history = append(m.history, Message{
 					Role:    "assistant",
 					Content: content,
-					Time:    time.Now(),
-				})
-			}
-		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		m.textinput.Reset()
-		return m, nil
-
-	case "/learn":
-		if len(parts) < 3 {
-			m.history = append(m.history, Message{
-				Role:    "assistant",
-				Content: "Usage: `/learn <verb> <synonym>`\nExample: `/learn /test verify`",
-				Time:    time.Now(),
-			})
-		} else {
-			verb := parts[1]
-			synonym := strings.Join(parts[2:], " ")
-
-			// Use the shared taxonomy engine
-			if perception.SharedTaxonomy != nil {
-				if err := perception.SharedTaxonomy.LearnSynonym(verb, synonym); err != nil {
-					m.history = append(m.history, Message{
-						Role:    "assistant",
-						Content: fmt.Sprintf("Failed to learn synonym: %v", err),
-						Time:    time.Now(),
-					})
-				} else {
-					m.history = append(m.history, Message{
-						Role:    "assistant",
-						Content: fmt.Sprintf("✓ Learned that **%q** implies **%s**.\nThis knowledge has been persisted to the graph and applied immediately.", synonym, verb),
-						Time:    time.Now(),
-					})
-				}
-			} else {
-				m.history = append(m.history, Message{
-					Role:    "assistant",
-					Content: "Taxonomy engine is not available.",
 					Time:    time.Now(),
 				})
 			}

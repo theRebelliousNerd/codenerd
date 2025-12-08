@@ -642,11 +642,15 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		}
 
 		var runnable []*Task
+
+		// Calculate adaptive concurrency limit
+		currentLimit := o.determineConcurrencyLimit(active, phase)
+
 		// Schedule eligible tasks up to the concurrency limit
-		if len(active) < o.maxParallelTasks {
+		if len(active) < currentLimit {
 			runnable = o.getEligibleTasks(phase)
 			for _, task := range runnable {
-				if len(active) >= o.maxParallelTasks {
+				if len(active) >= currentLimit {
 					break
 				}
 				if active[task.ID] || task.Status != TaskPending {
@@ -766,6 +770,8 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 		return o.executeDocumentTask(ctx, task)
 	case TaskTypeToolCreate:
 		return o.executeToolCreateTask(ctx, task)
+	case TaskTypeCampaignRef:
+		return o.executeCampaignRefTask(ctx, task)
 	default:
 		return o.executeGenericTask(ctx, task)
 	}
@@ -1041,6 +1047,28 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 	}
 }
 
+// executeCampaignRefTask handles a sub-campaign reference.
+// Currently it validates the sub-campaign ID and logs the intent.
+// In a full fractal implementation, this would spawn a child Orchestrator.
+func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (any, error) {
+	if task.SubCampaignID == "" {
+		return nil, fmt.Errorf("task %s has type /campaign_ref but no sub_campaign_id", task.ID)
+	}
+
+	o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), nil)
+
+	// In the future, this would look like:
+	// childOrch := NewOrchestrator(o.kernel, o.llmClient, ...)
+	// childOrch.LoadCampaign(task.SubCampaignID)
+	// err := childOrch.Run(ctx)
+
+	// For now, we treat it as a pointer that is "satisfied" if the sub-campaign exists or is acknowledged.
+	return map[string]interface{}{
+		"sub_campaign_id": task.SubCampaignID,
+		"status":          "linked",
+	}, nil
+}
+
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
 	result, err := o.shardMgr.Spawn(ctx, "coder", task.Description)
@@ -1142,7 +1170,7 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	facts, _ := o.kernel.Query("replan_needed")
 	if len(facts) > 0 {
 		o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
-		if err := o.replanner.Replan(ctx, o.campaign); err != nil {
+		if err := o.replanner.Replan(ctx, o.campaign, task.ID); err != nil {
 			o.emitEvent("replan_failed", "", "", err.Error(), nil)
 		} else {
 			o.mu.Lock()
@@ -1293,4 +1321,77 @@ func (o *Orchestrator) updateCampaignStatus(status CampaignStatus) {
 		Predicate: "campaign",
 		Args:      []interface{}{campaignID, cType, title, source, string(status)},
 	})
+}
+
+// determineConcurrencyLimit calculates the dynamic parallelism limit based on active workload.
+func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *Phase) int {
+	// Base limit from config
+	limit := o.maxParallelTasks
+
+	// Count active task types
+	var researchCount, refactorCount, testCount int
+	for taskID := range active {
+		// Find task in phase
+		for _, t := range phase.Tasks {
+			if t.ID == taskID {
+				switch t.Type {
+				case TaskTypeResearch, TaskTypeDocument:
+					researchCount++
+				case TaskTypeRefactor, TaskTypeIntegrate:
+					refactorCount++
+				case TaskTypeTestRun, TaskTypeVerify:
+					testCount++
+				}
+				break
+			}
+		}
+	}
+
+	// Adaptive Logic:
+	// 1. Refactoring is high-risk/CPU-heavy -> Throttle down
+	if refactorCount > 0 {
+		return 1 // Serial execution for refactoring to prevent race conditions/clobbering
+	}
+
+	// 2. Integration is complex -> Low parallelism
+	// (Handled by Refactor count above if we treat them similar, or separate)
+
+	// 3. Research/Tests are IO-bound -> Warning: Research spawns Shards which use memory.
+	// We can scale up, but let's be conservative.
+	if researchCount > 0 || testCount > 0 {
+		// Boost limit for IO heavy work
+		limit = o.maxParallelTasks * 2
+		if limit > 10 {
+			limit = 10
+		}
+	}
+
+	return limit
+}
+
+// HandleNewRequirement processes a dynamic requirement injection from an external system (e.g., Autopoiesis).
+// It wraps ReplanForNewRequirement.
+func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement string) error {
+	o.emitEvent("new_requirement_received", "", "", requirement, nil)
+
+	// Pause temporarily to safely modify plan
+	o.mu.Lock()
+	wasPaused := o.isPaused
+	o.isPaused = true
+	o.mu.Unlock()
+
+	defer func() {
+		o.mu.Lock()
+		o.isPaused = wasPaused
+		o.mu.Unlock()
+	}()
+
+	// Call the previously unwired Replanner method
+	if err := o.replanner.ReplanForNewRequirement(ctx, o.campaign, requirement); err != nil {
+		o.emitEvent("new_requirement_failed", "", "", err.Error(), nil)
+		return err
+	}
+
+	o.emitEvent("new_requirement_integrated", "", "", "Plan updated with new requirement", nil)
+	return nil
 }

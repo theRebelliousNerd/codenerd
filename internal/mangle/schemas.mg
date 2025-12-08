@@ -30,6 +30,9 @@ Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis).
 # IsTestFile: /true, /false
 Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
 
+# directory(Path, Name)
+Decl directory(Path, Name).
+
 # modified(FilePath) - marks a file as modified
 Decl modified(FilePath).
 
@@ -1866,3 +1869,4 @@ Decl query_traces(ShardType, Limit, TraceID, Success, DurationMs).
 # query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration)
 # Retrieves aggregate stats for a shard type
 Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration).
+

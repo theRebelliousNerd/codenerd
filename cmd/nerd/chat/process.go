@@ -998,3 +998,51 @@ func (m Model) createAgentFromPrompt(description string) tea.Cmd {
 		return responseMsg(surface)
 	}
 }
+
+// =============================================================================
+// BACKGROUND SYNC
+// =============================================================================
+
+// checkWorkspaceSync performs a background scan of the workspace on startup.
+// It ensures that even with a "Warm Start" from cache, the system eventually
+// synchronizes with the actual file system state.
+func (m Model) checkWorkspaceSync() tea.Cmd {
+	return func() tea.Msg {
+		if m.scanner == nil {
+			return nil
+		}
+
+		start := time.Now()
+		facts, err := m.scanner.ScanWorkspace(m.workspace)
+		if err != nil {
+			return scanCompleteMsg{err: err}
+		}
+
+		// Update kernel with fresh facts
+		// This overwrites any stale facts from the cached profile
+		if m.kernel != nil {
+			_ = m.kernel.LoadFacts(facts)
+		}
+
+		// Persist to knowledge.db (for future warm starts)
+		if m.virtualStore != nil {
+			_ = m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5)
+		}
+
+		// Calculate stats
+		dirCount := 0
+		for _, f := range facts {
+			if f.Predicate == "directory" {
+				dirCount++
+			}
+		}
+
+		return scanCompleteMsg{
+			fileCount:      len(facts) - dirCount, // Approximation
+			directoryCount: dirCount,
+			factCount:      len(facts),
+			duration:       time.Since(start),
+			err:            nil,
+		}
+	}
+}

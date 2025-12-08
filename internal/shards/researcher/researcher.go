@@ -490,7 +490,9 @@ func (r *ResearcherShard) parseTask(task string) (string, []string, []string) {
 func (r *ResearcherShard) isCodebaseTask(task string) bool {
 	codebaseKeywords := []string{
 		"init", "initialize", "codebase", "project", "analyze",
-		"scan", "index", "inventory",
+		"init", "initialize", "codebase", "project", "analyze",
+		"scan", "index", "inventory", "workspace", "structure",
+		"directory", "directories", "folder", "folders",
 	}
 	lower := strings.ToLower(task)
 	for _, kw := range codebaseKeywords {

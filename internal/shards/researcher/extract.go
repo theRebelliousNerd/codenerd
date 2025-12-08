@@ -312,6 +312,11 @@ func (r *ResearcherShard) isWorkspaceQuery(topic string) bool {
 		return true
 	}
 
+	// Explicit workspace references
+	if strings.Contains(lower, "workspace") || strings.Contains(lower, "directory") || strings.Contains(lower, "folder") {
+		return true
+	}
+
 	return false
 }
 

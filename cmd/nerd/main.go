@@ -3,6 +3,7 @@ package main
 import (
 	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
+	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
@@ -505,8 +506,16 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	llmClient := perception.NewZAIClient(key)
 	transducer := perception.NewRealTransducer(llmClient)
 
+	// Autopoiesis (Tools & Agents)
+	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
+	poiesis := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
+
 	scanner := world.NewScanner()
 	kernel := core.NewRealKernel()
+
+	// Attach Kernel to Autopoiesis
+	poiesis.SetKernel(&KernelAdapter{RealKernel: kernel})
+
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	shardManager := core.NewShardManager()
@@ -626,12 +635,25 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		task := fmt.Sprintf("%v", fact.Args[1])
 		logger.Info("Delegating to shard", zap.String("type", shardType), zap.String("task", task))
 
-		result, err := shardManager.Spawn(ctx, shardType, task)
-		if err != nil {
-			output = fmt.Sprintf("Shard execution failed: %v", err)
+		// Special handling for System Components
+		if shardType == "/tool_generator" || shardType == "tool_generator" {
+			// Autopoiesis: Tool Generation
+			count, err := poiesis.ProcessKernelDelegations(ctx)
+			if err != nil {
+				output = fmt.Sprintf("Tool generation failed: %v", err)
+			} else {
+				output = fmt.Sprintf("Autopoiesis: Generated %d tools", count)
+			}
 		} else {
-			output = fmt.Sprintf("Shard Result: %s", result)
+			// Standard Shard
+			result, err := shardManager.Spawn(ctx, shardType, task)
+			if err != nil {
+				output = fmt.Sprintf("Shard execution failed: %v", err)
+			} else {
+				output = fmt.Sprintf("Shard Result: %s", result)
+			}
 		}
+
 	} else {
 		// Query next_action
 		actionFacts, _ := kernel.Query("next_action")
@@ -1128,19 +1150,39 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// Count files and directories
 	fileCount := 0
 	dirCount := 0
+	langStats := make(map[string]int)
+	symbolCount := 0
+
 	for _, f := range facts {
 		switch f.Predicate {
 		case "file_topology":
 			fileCount++
+			if len(f.Args) > 2 {
+				// file_topology(Path, Hash, /Lang, ...)
+				if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
+					lang := strings.TrimPrefix(string(langAtom), "/")
+					langStats[lang]++
+				}
+			}
 		case "directory":
 			dirCount++
+		case "symbol_graph":
+			symbolCount++
 		}
 	}
 
 	fmt.Println("✅ Scan complete")
 	fmt.Printf("   Files indexed:    %d\n", fileCount)
 	fmt.Printf("   Directories:      %d\n", dirCount)
+	fmt.Printf("   Symbols extracted: %d\n", symbolCount)
 	fmt.Printf("   Facts generated:  %d\n", len(facts))
+
+	if len(langStats) > 0 {
+		fmt.Println("\n   Language Breakdown:")
+		for lang, count := range langStats {
+			fmt.Printf("     %-12s: %d\n", lang, count)
+		}
+	}
 
 	return nil
 }
@@ -1635,4 +1677,39 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// KernelAdapter adapts core.RealKernel to autopoiesis.KernelInterface
+type KernelAdapter struct {
+	RealKernel *core.RealKernel
+}
+
+func (k *KernelAdapter) AssertFact(f autopoiesis.KernelFact) error {
+	return k.RealKernel.Assert(core.Fact{
+		Predicate: f.Predicate,
+		Args:      f.Args,
+	})
+}
+
+func (k *KernelAdapter) QueryPredicate(predicate string) ([]autopoiesis.KernelFact, error) {
+	facts, err := k.RealKernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]autopoiesis.KernelFact, len(facts))
+	for i, f := range facts {
+		results[i] = autopoiesis.KernelFact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return results, nil
+}
+
+func (k *KernelAdapter) QueryBool(predicate string) bool {
+	facts, err := k.RealKernel.Query(predicate)
+	if err != nil {
+		return false
+	}
+	return len(facts) > 0
 }
