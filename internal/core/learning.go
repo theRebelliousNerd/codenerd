@@ -11,6 +11,7 @@ type ShardLearning struct {
 type LearningStore interface {
 	Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error
 	Load(shardType string) ([]ShardLearning, error)
+	LoadByPredicate(shardType, predicate string) ([]ShardLearning, error)
 	DecayConfidence(shardType string, decayFactor float64) error
 	Close() error
 }

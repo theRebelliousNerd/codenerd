@@ -62,6 +62,16 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		llmClient = perception.NewTracingLLMClient(baseLLMClient, traceStore)
 	}
 
+	// Learning Layer - Autopoiesis persistence (§8.3)
+	learningStorePath := filepath.Join(workspace, ".nerd", "shards")
+	var learningStore *store.LearningStore
+	if ls, err := store.NewLearningStore(learningStorePath); err == nil {
+		learningStore = ls
+	} else {
+		// Non-fatal, but worth logging
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize learning store: %v\n", err)
+	}
+
 	transducer := perception.NewRealTransducer(llmClient)
 	kernel := core.NewRealKernel()
 	// Force initial evaluation to boot the Mangle engine (even with 0 facts)
@@ -75,6 +85,9 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	if localDB != nil {
 		virtualStore.SetLocalDB(localDB)
 		virtualStore.SetKernel(kernel)
+	}
+	if learningStore != nil {
+		virtualStore.SetLearningStore(learningStore)
 	}
 
 	shardManager := core.NewShardManager()
@@ -108,6 +121,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		Kernel:       kernel,
 		LLMClient:    llmClient,
 		VirtualStore: virtualStore,
+		Workspace:    workspace,
 	}
 	shards.RegisterAllShardFactories(shardManager, regCtx)
 

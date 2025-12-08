@@ -2,11 +2,63 @@
 package system
 
 import (
+	"codenerd/internal/core"
 	"codenerd/internal/store"
 	"os"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite" // SQLite driver registration
 )
+
+// learningStoreAdapter wraps store.LearningStore to implement core.LearningStore interface.
+type learningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.Load(shardType)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.LoadByPredicate(shardType, predicate)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *learningStoreAdapter) Close() error {
+	return a.store.Close()
+}
 
 func TestBaseSystemShard_LearningInfrastructure(t *testing.T) {
 	// Create temp directory for test database
@@ -20,9 +72,10 @@ func TestBaseSystemShard_LearningInfrastructure(t *testing.T) {
 	}
 	defer ls.Close()
 
-	// Create base shard
+	// Create base shard with adapter
+	adapter := &learningStoreAdapter{store: ls}
 	base := NewBaseSystemShard("test_shard", StartupAuto)
-	base.SetLearningStore(ls)
+	base.SetLearningStore(adapter)
 
 	// Test tracking success
 	base.trackSuccess("test_pattern_1")
@@ -60,7 +113,7 @@ func TestBaseSystemShard_LearningInfrastructure(t *testing.T) {
 
 	// Verify persistence by loading in new shard
 	base2 := NewBaseSystemShard("test_shard", StartupAuto)
-	base2.SetLearningStore(ls)
+	base2.SetLearningStore(adapter)
 
 	// Check that patterns were loaded
 	if count, ok := base2.patternSuccess["test_pattern_1"]; !ok || count != 3 {
@@ -163,8 +216,9 @@ func TestLearningStore_Integration(t *testing.T) {
 	defer ls.Close()
 
 	// Create perception shard with learning
+	adapter := &learningStoreAdapter{store: ls}
 	perception := NewPerceptionFirewallShard()
-	perception.SetLearningStore(ls)
+	perception.SetLearningStore(adapter)
 
 	// Track patterns
 	perception.trackSuccess("explain:query")
@@ -185,7 +239,7 @@ func TestLearningStore_Integration(t *testing.T) {
 
 	// Load in new shard
 	perception2 := NewPerceptionFirewallShard()
-	perception2.SetLearningStore(ls)
+	perception2.SetLearningStore(adapter)
 
 	// Verify patterns loaded
 	if count, ok := perception2.patternSuccess["explain:query"]; !ok || count != 3 {

@@ -147,10 +147,10 @@ type ReviewerShard struct {
 	customRules []CustomRule // User-defined custom review rules
 
 	// Autopoiesis tracking (§8.3) - in-memory, synced to LearningStore
-	approvedPatterns    map[string]int       // Patterns that pass review
-	flaggedPatterns     map[string]int       // Patterns that get flagged repeatedly
-	learnedAntiPatterns map[string]string    // Anti-patterns learned from rejections
-	learningStore       *store.LearningStore // Persistent learning storage
+	approvedPatterns    map[string]int     // Patterns that pass review
+	flaggedPatterns     map[string]int     // Patterns that get flagged repeatedly
+	learnedAntiPatterns map[string]string  // Anti-patterns learned from rejections
+	learningStore       core.LearningStore // Persistent learning storage
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
@@ -213,7 +213,7 @@ func (r *ReviewerShard) SetVirtualStore(vs *core.VirtualStore) {
 }
 
 // SetLearningStore sets the learning store for persistent autopoiesis.
-func (r *ReviewerShard) SetLearningStore(ls *store.LearningStore) {
+func (r *ReviewerShard) SetLearningStore(ls core.LearningStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.learningStore = ls

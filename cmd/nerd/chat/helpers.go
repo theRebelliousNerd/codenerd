@@ -400,7 +400,7 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 
 		// Create the comprehensive initializer with all components
 		progressCh := make(chan nerdinit.InitProgress, 10)
-		
+
 		// Forward progress to status bar
 		go func() {
 			for p := range progressCh {
@@ -852,6 +852,23 @@ func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, err
 
 func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
 	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.LoadByPredicate(shardType, predicate)
+	if err != nil {
+		return nil, err
+	}
+	// Convert store.Learning to core.ShardLearning
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
 }
 
 func (a *learningStoreAdapter) Close() error {

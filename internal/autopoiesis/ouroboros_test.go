@@ -118,11 +118,11 @@ func TestNewSafetyChecker(t *testing.T) {
 	if checker == nil {
 		t.Fatal("NewSafetyChecker returned nil")
 	}
-	if len(checker.forbiddenImports) == 0 {
-		t.Error("forbiddenImports should not be empty")
+	if len(checker.allowedPkgs) == 0 {
+		t.Error("allowedPkgs should not be empty")
 	}
-	if len(checker.forbiddenCalls) == 0 {
-		t.Error("forbiddenCalls should not be empty")
+	if checker.policy == "" {
+		t.Error("policy should be loaded")
 	}
 }
 
@@ -150,8 +150,8 @@ func SafeTool(ctx context.Context, input string) (string, error) {
 	if !report.Safe {
 		t.Errorf("Expected safe code, got violations: %v", report.Violations)
 	}
-	if report.Score < 0.9 {
-		t.Errorf("Expected high safety score, got %f", report.Score)
+	if report.Score != 1.0 {
+		t.Errorf("Expected perfect safety score, got %f", report.Score)
 	}
 }
 
@@ -169,11 +169,10 @@ func TestSafetyChecker_Check_ForbiddenImports(t *testing.T) {
 		{"runtime/cgo", "runtime/cgo", true},
 		{"plugin", "plugin", true},
 		{"debug/pprof", "debug/pprof", true},
-		{"os/exec", "os/exec", false}, // AllowExec is true by default
-		{"net", "net", true},         // AllowNetworking is false by default
-		{"net/http", "net/http", true},
-		{"fmt", "fmt", false},           // Safe
-		{"encoding/json", "encoding/json", false}, // Safe
+		{"net/http disallowed by default", "net/http", true},
+		{"fmt", "fmt", false},
+		{"encoding/json", "encoding/json", false},
+		{"os/exec allowed by config", "os/exec", false},
 	}
 
 	for _, tt := range tests {
@@ -188,112 +187,59 @@ func Test() { _ = "` + tt.importPkg + `" }
 				t.Errorf("Expected %s import to be blocked", tt.importPkg)
 			}
 			if !tt.shouldFail && !report.Safe {
-				t.Errorf("Expected %s import to be allowed, got violations: %v",
-					tt.importPkg, report.Violations)
+				t.Errorf("Expected %s import to be allowed, got violations: %v", tt.importPkg, report.Violations)
 			}
 		})
 	}
 }
 
-func TestSafetyChecker_Check_DangerousCalls(t *testing.T) {
-	config := OuroborosConfig{AllowFileSystem: true}
-	checker := NewSafetyChecker(config)
-
-	tests := []struct {
-		name     string
-		code     string
-		wantSafe bool
-		severity string
-	}{
-		{
-			name: "os.RemoveAll",
-			code: `package tools
-import "os"
-func Delete() { os.RemoveAll("/tmp") }`,
-			wantSafe: false,
-			severity: "blocking",
-		},
-		{
-			name: "os.Remove",
-			code: `package tools
-import "os"
-func Delete() { os.Remove("/tmp/file") }`,
-			wantSafe: true, // Warning only, not blocking
-			severity: "warning",
-		},
-		{
-			name: "unsafe.Pointer",
-			code: `package tools
-import "unsafe"
-func Dangerous() { _ = unsafe.Pointer(nil) }`,
-			wantSafe: false,
-			severity: "blocking",
-		},
-		{
-			name: "os.Setenv",
-			code: `package tools
-import "os"
-func SetEnv() { os.Setenv("KEY", "value") }`,
-			wantSafe: true, // Warning only
-			severity: "warning",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			report := checker.Check(tt.code)
-
-			if tt.wantSafe && !report.Safe {
-				t.Errorf("Expected code to be safe (with warnings), got unsafe: %v",
-					report.Violations)
-			}
-			if !tt.wantSafe && report.Safe {
-				t.Errorf("Expected code to be unsafe")
-			}
-		})
-	}
-}
-
-func TestSafetyChecker_Check_CGO(t *testing.T) {
+func TestSafetyChecker_Check_Panic(t *testing.T) {
 	config := DefaultOuroborosConfig("/tmp/workspace")
 	checker := NewSafetyChecker(config)
 
-	cgoPatterns := []string{
-		`package tools
-import "C"
-func UseCGO() {}`,
-		`package tools
-// #cgo CFLAGS: -I.
-import "C"
-func UseCGO() {}`,
-		`package tools
-/*
-#include <stdio.h>
-*/
-import "C"
-func UseCGO() {}`,
+	code := `package tools
+func Boom() { panic("boom") }`
+
+	report := checker.Check(code)
+	if report.Safe {
+		t.Fatal("panic should be blocked")
 	}
-
-	for i, code := range cgoPatterns {
-		t.Run(string(rune('A'+i)), func(t *testing.T) {
-			report := checker.Check(code)
-
-			if report.Safe {
-				t.Error("Expected CGO code to be blocked")
-			}
-
-			foundCGOViolation := false
-			for _, v := range report.Violations {
-				if v.Type == ViolationCGO {
-					foundCGOViolation = true
-					break
-				}
-			}
-			if !foundCGOViolation {
-				t.Error("Expected ViolationCGO in violations")
-			}
-		})
+	found := false
+	for _, v := range report.Violations {
+		if v.Type == ViolationPanic {
+			found = true
+			break
+		}
 	}
+	if !found {
+		t.Fatalf("expected ViolationPanic in violations: %+v", report.Violations)
+	}
+}
+
+func TestSafetyChecker_Check_GoroutineCancellation(t *testing.T) {
+	config := DefaultOuroborosConfig("/tmp/workspace")
+	checker := NewSafetyChecker(config)
+
+	t.Run("missing cancellation", func(t *testing.T) {
+		code := `package tools
+func Work() { go doThing() }
+func doThing() {}`
+		report := checker.Check(code)
+		if report.Safe {
+			t.Fatalf("expected goroutine without cancellation to be unsafe")
+		}
+	})
+
+	t.Run("with context", func(t *testing.T) {
+		code := `package tools
+import "context"
+func Work(ctx context.Context) { go doThing(ctx) }
+func doThing(ctx context.Context) {}`
+		report := checker.Check(code)
+		if !report.Safe {
+			t.Fatalf("expected goroutine with context to be safe, got %v", report.Violations)
+		}
+	})
 }
 
 func TestSafetyChecker_Check_ParseError(t *testing.T) {
@@ -316,30 +262,22 @@ func broken( {
 	}
 }
 
-func TestSafetyChecker_CalculateScore(t *testing.T) {
+func TestSafetyChecker_ScoreBinary(t *testing.T) {
 	config := DefaultOuroborosConfig("/tmp/workspace")
 	checker := NewSafetyChecker(config)
 
-	// Safe code should have score ~1.0
-	safeCode := `package tools
-func Safe() {}
-`
-	report := checker.Check(safeCode)
-	if report.Score < 0.9 {
-		t.Errorf("Safe code score = %f, want >= 0.9", report.Score)
+	safe := `package tools
+func ok() {}`
+	report := checker.Check(safe)
+	if report.Score != 1.0 {
+		t.Fatalf("expected safe score 1.0, got %f", report.Score)
 	}
 
-	// Code with warnings should have reduced score
-	warningCode := `package tools
-import "os"
-func Warn() { os.Setenv("x", "y") }
-`
-	report = checker.Check(warningCode)
-	if report.Score >= 1.0 {
-		t.Error("Code with warnings should have score < 1.0")
-	}
-	if !report.Safe {
-		t.Error("Code with only warnings should still be safe")
+	unsafe := `package tools
+func bad() { panic("nope") }`
+	report = checker.Check(unsafe)
+	if report.Score != 0.0 {
+		t.Fatalf("expected unsafe score 0.0, got %f", report.Score)
 	}
 }
 
@@ -354,6 +292,10 @@ func TestViolationType_String(t *testing.T) {
 		{ViolationReflection, "reflection"},
 		{ViolationCGO, "cgo"},
 		{ViolationExec, "exec"},
+		{ViolationPanic, "panic"},
+		{ViolationGoroutineLeak, "goroutine_leak"},
+		{ViolationParseError, "parse_error"},
+		{ViolationPolicy, "policy_violation"},
 		{ViolationType(99), "unknown"},
 	}
 

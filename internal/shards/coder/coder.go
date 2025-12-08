@@ -6,7 +6,6 @@ package coder
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"strings"
@@ -103,7 +102,7 @@ type CoderShard struct {
 	// Learnings for autopoiesis (in-memory, synced to LearningStore)
 	rejectionCount  map[string]int
 	acceptanceCount map[string]int
-	learningStore   *store.LearningStore
+	learningStore   core.LearningStore
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
@@ -159,7 +158,7 @@ func (c *CoderShard) SetVirtualStore(vs *core.VirtualStore) {
 }
 
 // SetLearningStore sets the learning store for persistent autopoiesis.
-func (c *CoderShard) SetLearningStore(ls *store.LearningStore) {
+func (c *CoderShard) SetLearningStore(ls core.LearningStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.learningStore = ls

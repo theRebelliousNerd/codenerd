@@ -4,7 +4,6 @@ package tester
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"sync"
@@ -126,9 +125,9 @@ type TesterShard struct {
 	diagnostics []core.Diagnostic
 
 	// Autopoiesis tracking (§8.3) - in-memory, synced to LearningStore
-	successPatterns map[string]int       // Patterns that pass tests
-	failurePatterns map[string]int       // Patterns that repeatedly fail
-	learningStore   *store.LearningStore // Persistent learning storage
+	successPatterns map[string]int     // Patterns that pass tests
+	failurePatterns map[string]int     // Patterns that repeatedly fail
+	learningStore   core.LearningStore // Persistent learning storage
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
@@ -182,7 +181,7 @@ func (t *TesterShard) SetVirtualStore(vs *core.VirtualStore) {
 }
 
 // SetLearningStore sets the learning store for persistent autopoiesis.
-func (t *TesterShard) SetLearningStore(ls *store.LearningStore) {
+func (t *TesterShard) SetLearningStore(ls core.LearningStore) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.learningStore = ls
