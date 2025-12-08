@@ -515,8 +515,44 @@ var DefaultTaxonomyData = []TaxonomyDef{
 	},
 	{
 		Verb: "/generate_tool", Category: "/mutation", ShardType: "/tool_generator", Priority: 95,
-		Synonyms: []string{"generate tool", "create tool", "need a tool"},
-		Patterns: []string{"(?i)create.*tool"},
+		Synonyms: []string{"generate tool", "create tool", "need a tool", "build tool", "make tool", "implement tool"},
+		Patterns: []string{"(?i)create.*tool", "(?i)build.*tool", "(?i)make.*tool", "(?i)need.*tool", "(?i)tool.*for"},
+	},
+	// --- NEW DIRECT-RESPONSE VERBS ---
+	{
+		Verb: "/stats", Category: "/query", ShardType: "/none", Priority: 85,
+		Synonyms: []string{"stats", "statistics", "count", "breakdown", "how many", "file types", "totals", "metrics"},
+		Patterns: []string{"(?i)how many", "(?i)breakdown", "(?i)file types", "(?i)count.*files", "(?i)statistics", "(?i)codebase.*size"},
+	},
+	{
+		Verb: "/help", Category: "/query", ShardType: "/none", Priority: 60,
+		Synonyms: []string{"help", "capabilities", "can you", "what can", "features", "commands", "abilities"},
+		Patterns: []string{"(?i)what.*can.*you", "(?i)help.*me", "(?i)your.*capabilities", "(?i)available.*commands"},
+	},
+	{
+		Verb: "/greet", Category: "/query", ShardType: "/none", Priority: 50,
+		Synonyms: []string{"hello", "hi", "hey", "greetings", "good morning", "good evening"},
+		Patterns: []string{"(?i)^hello", "(?i)^hi$", "(?i)^hey", "(?i)good morning", "(?i)good evening"},
+	},
+	{
+		Verb: "/knowledge", Category: "/query", ShardType: "/none", Priority: 70,
+		Synonyms: []string{"knowledge", "memory", "remember", "learned", "preferences", "facts"},
+		Patterns: []string{"(?i)what.*remember", "(?i)what.*know", "(?i)your.*memory", "(?i)learned.*from"},
+	},
+	{
+		Verb: "/shadow", Category: "/query", ShardType: "/none", Priority: 80,
+		Synonyms: []string{"shadow", "what if", "simulate", "hypothetical", "dry run", "preview"},
+		Patterns: []string{"(?i)what.*if", "(?i)simulate", "(?i)dry.*run", "(?i)preview.*change", "(?i)would.*happen"},
+	},
+	{
+		Verb: "/git", Category: "/mutation", ShardType: "/none", Priority: 75,
+		Synonyms: []string{"git", "commit", "push", "pull", "branch", "merge", "status"},
+		Patterns: []string{"(?i)git.*status", "(?i)commit.*changes", "(?i)push.*to", "(?i)create.*branch"},
+	},
+	{
+		Verb: "/read", Category: "/query", ShardType: "/none", Priority: 82,
+		Synonyms: []string{"read", "show", "display", "open", "view", "cat"},
+		Patterns: []string{"(?i)read.*file", "(?i)show.*contents", "(?i)display.*file", "(?i)open.*file"},
 	},
 }
 
