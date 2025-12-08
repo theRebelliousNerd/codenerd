@@ -3,10 +3,10 @@
 *.dll
 *.so
 *.dylib
-nerd
-nerd_new
-nerd_test
-query-kb
+/nerd
+/nerd_new
+/nerd_test
+/query-kb
 
 # Debug and Logs
 debug_output*.txt
