@@ -141,12 +141,13 @@ func (d *DiffApprovalView) PrevMutation() {
 
 // NextHunk moves to the next hunk in the current diff
 func (d *DiffApprovalView) NextHunk() {
-	if d.CurrentIndex < len(d.Mutations) {
-		m := d.Mutations[d.CurrentIndex]
-		if m.Diff != nil && d.SelectedHunk < len(m.Diff.Hunks)-1 {
-			d.SelectedHunk++
-			d.updateContent()
-		}
+	if len(d.Mutations) == 0 || d.CurrentIndex >= len(d.Mutations) {
+		return
+	}
+	m := d.Mutations[d.CurrentIndex]
+	if m.Diff != nil && d.SelectedHunk < len(m.Diff.Hunks)-1 {
+		d.SelectedHunk++
+		d.updateContent()
 	}
 }
 

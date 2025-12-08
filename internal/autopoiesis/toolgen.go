@@ -275,6 +275,127 @@ func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*Gen
 	return tool, nil
 }
 
+// RegenerateWithFeedback generates a new version of a tool incorporating error feedback.
+// This is used by the Ouroboros retry loop when safety checks fail.
+func (tg *ToolGenerator) RegenerateWithFeedback(
+	ctx context.Context,
+	need *ToolNeed,
+	previousTool *GeneratedTool,
+	violations []SafetyViolation,
+) (*GeneratedTool, error) {
+	// Format violations for LLM feedback
+	feedback := FormatViolationsForFeedback(violations)
+
+	// Create enhanced need with feedback context
+	enhancedNeed := &ToolNeed{
+		Name:       need.Name,
+		Purpose:    need.Purpose,
+		InputType:  need.InputType,
+		OutputType: need.OutputType,
+		Triggers:   need.Triggers,
+		Priority:   need.Priority,
+		Confidence: need.Confidence * 0.9, // Reduce confidence on retry
+		Reasoning:  need.Reasoning,
+	}
+
+	// Generate new code with feedback-aware system prompt
+	code, err := tg.regenerateToolCodeWithFeedback(ctx, enhancedNeed, previousTool.Code, feedback)
+	if err != nil {
+		return nil, fmt.Errorf("failed to regenerate tool code: %w", err)
+	}
+
+	// Generate test code (always succeeds - has internal fallbacks)
+	testCode, _ := tg.generateTestCode(ctx, enhancedNeed, code)
+
+	// Generate schema
+	schema := tg.generateSchema(enhancedNeed)
+
+	// Determine file path
+	filePath := filepath.Join(tg.toolsDir, fmt.Sprintf("%s.go", enhancedNeed.Name))
+
+	tool := &GeneratedTool{
+		Name:        enhancedNeed.Name,
+		Package:     "tools",
+		Description: enhancedNeed.Purpose,
+		Code:        code,
+		TestCode:    testCode,
+		Schema:      schema,
+		FilePath:    filePath,
+		Validated:   false,
+	}
+
+	// Validate the generated code
+	if err := tg.validateCode(tool); err != nil {
+		tool.Errors = append(tool.Errors, err.Error())
+	} else {
+		tool.Validated = true
+	}
+
+	return tool, nil
+}
+
+// regenerateToolCodeWithFeedback uses LLM to regenerate code with safety violation feedback.
+func (tg *ToolGenerator) regenerateToolCodeWithFeedback(
+	ctx context.Context,
+	need *ToolNeed,
+	previousCode string,
+	feedback string,
+) (string, error) {
+	systemPrompt := `You are a Go code generator for the codeNERD agent system.
+Your previous code had safety violations. You must fix these issues.
+
+CRITICAL SAFETY REQUIREMENTS:
+- Do NOT use unsafe imports (os/exec, syscall, unsafe, plugin, runtime/cgo)
+- Do NOT use panic() - return errors instead
+- If using goroutines, always pass a cancelable context
+- Only use explicitly allowed packages (fmt, strings, bytes, context, encoding/*, errors, etc.)
+- Prefer error returns over panic
+- Use context.Context for cancellation
+
+Generate clean, idiomatic Go code that follows these conventions:
+- Use standard library where possible
+- Include proper error handling with error returns
+- Add clear comments
+- Make functions testable
+- Follow Go naming conventions
+
+The tool should be a standalone function that can be called by the agent.
+Include a Register function to add the tool to the tool registry.`
+
+	userPrompt := fmt.Sprintf(`Your previous code had safety violations that need to be fixed.
+
+--- SAFETY VIOLATIONS ---
+%s
+
+--- PREVIOUS CODE (DO NOT REPEAT THESE MISTAKES) ---
+%s
+
+--- TOOL SPECIFICATIONS ---
+Tool Name: %s
+Purpose: %s
+Input Type: %s
+Output Type: %s
+
+Generate CORRECTED Go code that:
+1. Fixes ALL the safety violations listed above
+2. Uses only safe imports (no os/exec, syscall, unsafe, plugin)
+3. Returns errors instead of using panic()
+4. Passes context to goroutines for cancellation
+5. Is in package "tools"
+
+Generate complete, compilable, SAFE Go code:`,
+		feedback, previousCode,
+		need.Name, need.Purpose, need.InputType, need.OutputType)
+
+	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract code block from response
+	return extractCodeBlock(code, "go"), nil
+}
+
 // generateToolCode uses LLM to generate the actual Go code
 func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (string, error) {
 	systemPrompt := `You are a Go code generator for the codeNERD agent system.

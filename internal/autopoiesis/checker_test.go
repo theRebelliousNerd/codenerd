@@ -71,6 +71,12 @@ func main() {
 			violation:   ViolationPanic,
 			descContain: "panic",
 		},
+		{
+			name: "Empty Function",
+			code: `package main
+func ok() {}`,
+			shouldPass: true,
+		},
 	}
 
 	for _, tt := range tests {

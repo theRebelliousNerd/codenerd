@@ -153,6 +153,12 @@ func InitChat(cfg Config) Model {	// Load configuration
 // performSystemBoot performs the heavy backend initialization in a background thread
 func performSystemBoot(cfg config.Config, disableSystemShards []string, workspace string) tea.Cmd {
 	return func() tea.Msg {
+		bootStart := time.Now()
+		log := func(step string) {
+			fmt.Printf("\r\033[K[boot] %s (%.1fs)", step, time.Since(bootStart).Seconds())
+		}
+
+		log("Loading config...")
 		appCfg, _ := config.Load()
 		initialMessages := []Message{}
 
@@ -172,11 +178,13 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		}
 
 		// Initialize backend components
+		log("Creating LLM client...")
 		baseLLMClient := perception.NewZAIClient(apiKey)
 		transducer := perception.NewRealTransducer(baseLLMClient)
 
 		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally?
 		// We verified NewRealKernel calls evaluate().
+		log("Booting Mangle kernel...")
 		kernel := core.NewRealKernel()
 
 		// If NewRealKernel didn't error (it returns *RealKernel), we check if it's usable.
@@ -184,15 +192,18 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		// Let's assume it initializes generic state.
 		// But we should explicitely Evaluate if needed or trust NewRealKernel.
 		// The original code called kernel.Evaluate() explicitly.
+		log("Evaluating kernel rules...")
 		if err := kernel.Evaluate(); err != nil {
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
 		}
 
+		log("Creating executor & shard manager...")
 		executor := tactile.NewSafeExecutor()
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 
 		// Initialize Browser Manager
+		log("Initializing browser manager...")
 		browserCfg := browser.DefaultConfig()
 		browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
 		var browserMgr *browser.SessionManager
@@ -205,8 +216,10 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			}()
 		}
 
+		log("Creating virtual store...")
 		virtualStore := core.NewVirtualStore(executor)
 
+		log("Opening knowledge database...")
 		var localDB *store.LocalStore
 		knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
 		if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
@@ -214,6 +227,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		}
 
 		// Initialize embedding engine
+		log("Initializing embedding engine...")
 		var embeddingEngine embedding.EmbeddingEngine
 		embCfg := appCfg.GetEmbeddingConfig()
 		if embCfg.Provider != "" {
@@ -246,9 +260,11 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		_ = embeddingEngine
 
 		if localDB != nil {
+			log("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
 			virtualStore.SetKernel(kernel)
 
+			log("Initializing taxonomy store...")
 			taxStore := perception.NewTaxonomyStore(localDB)
 			perception.SharedTaxonomy.SetStore(taxStore)
 
@@ -261,6 +277,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			}
 
 			// HEAVY OPERATION: Rehydration
+			log("Hydrating taxonomy from DB...")
 			if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
@@ -269,6 +286,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 				})
 			}
 
+			log("Migrating old sessions...")
 			if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
@@ -278,6 +296,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			}
 		}
 
+		log("Configuring LLM client...")
 		var llmClient perception.LLMClient = baseLLMClient
 		if localDB != nil {
 			traceStore := NewLocalStoreTraceAdapter(localDB)
@@ -293,6 +312,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			shardMgr.SetLLMClient(baseLLMClient)
 		}
 
+		log("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
 			shard.SetVirtualStore(virtualStore)
@@ -374,6 +394,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		shards.RegisterSystemShardProfiles(shardMgr)
 
 		// HEAVY OPERATION: Start System Shards (Async but setup overhead)
+		log("Starting system shards...")
 		ctx := context.Background()
 		disabled := make(map[string]struct{})
 		for _, name := range disableSystemShards {
@@ -398,10 +419,12 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			})
 		}
 
+		log("Creating shadow mode & scanner...")
 		shadowMode := core.NewShadowMode(kernel)
 		emitter := articulation.NewEmitter()
 		scanner := world.NewScanner()
 
+		log("Initializing context compressor...")
 		ctxCfg := appCfg.GetContextWindowConfig()
 		compressor := ctxcompress.NewCompressorWithParams(
 			kernel, localDB, llmClient,
@@ -412,6 +435,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 			ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 		)
 
+		log("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
 		kernelAdapter := core.NewAutopoiesisBridge(kernel)
@@ -420,6 +444,7 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
 
+		log("Creating task verifier...")
 		context7Key := appCfg.Context7APIKey
 		if context7Key == "" {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
@@ -435,8 +460,10 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
 		virtualStore.SetToolExecutor(toolExecutor)
 
+		log("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
+		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
 			components: &SystemComponents{
 				Kernel:                kernel,
