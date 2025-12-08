@@ -246,7 +246,7 @@ func defineShardProfiles(sm *core.ShardManager) {
 			core.PermissionCodeGraph,
 		},
 		Timeout:     10 * 60 * 1000000000, // 10 minutes
-		MemoryLimit: 5000,
+		MemoryLimit: 12000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},
@@ -261,7 +261,7 @@ func defineShardProfiles(sm *core.ShardManager) {
 			core.PermissionCodeGraph,
 		},
 		Timeout:     5 * 60 * 1000000000, // 5 minutes
-		MemoryLimit: 3000,
+		MemoryLimit: 8000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},
@@ -277,7 +277,7 @@ func defineShardProfiles(sm *core.ShardManager) {
 			core.PermissionExecCmd,
 		},
 		Timeout:     15 * 60 * 1000000000, // 15 minutes
-		MemoryLimit: 3000,
+		MemoryLimit: 8000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityBalanced,
 		},
@@ -293,7 +293,7 @@ func defineShardProfiles(sm *core.ShardManager) {
 			core.PermissionResearch,
 		},
 		Timeout:     10 * 60 * 1000000000, // 10 minutes
-		MemoryLimit: 5000,
+		MemoryLimit: 12000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityBalanced,
 		},
@@ -310,7 +310,7 @@ func defineShardProfiles(sm *core.ShardManager) {
 			core.PermissionCodeGraph,
 		},
 		Timeout:     30 * 60 * 1000000000, // 30 minutes (tool generation can take time)
-		MemoryLimit: 10000,
+		MemoryLimit: 20000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},
@@ -338,7 +338,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionAskUser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours (permanent)
-		MemoryLimit: 5000,
+		MemoryLimit: 9000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityBalanced,
 		},
@@ -354,7 +354,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionCodeGraph,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
-		MemoryLimit: 10000,
+		MemoryLimit: 20000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighSpeed,
 		},
@@ -370,7 +370,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionAskUser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
-		MemoryLimit: 3000,
+		MemoryLimit: 7000,
 		Model:       core.ModelConfig{}, // No LLM needed for core logic
 	})
 
@@ -382,7 +382,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionAskUser, // Only for escalation
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
-		MemoryLimit: 1000,
+		MemoryLimit: 2500,
 		Model:       core.ModelConfig{}, // No LLM - safety MUST be deterministic
 	})
 
@@ -396,7 +396,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionBrowser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
-		MemoryLimit: 2000,
+		MemoryLimit: 6000,
 		Model:       core.ModelConfig{}, // No LLM needed
 	})
 
@@ -409,7 +409,7 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 			core.PermissionReadFile,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
-		MemoryLimit: 8000,
+		MemoryLimit: 16000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},

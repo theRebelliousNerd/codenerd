@@ -249,7 +249,7 @@ func DefaultConfig() *Config {
 		},
 
 		Memory: MemoryConfig{
-			WorkingMemorySize: 10000,
+			WorkingMemorySize: 20000,
 			DatabasePath:      "data/codenerd.db",
 			SessionTTL:        "24h",
 			ContextWindow: ContextWindowConfig{
@@ -313,11 +313,11 @@ func DefaultConfig() *Config {
 
 		// Core resource limits (enforced system-wide)
 		CoreLimits: CoreLimits{
-			MaxTotalMemoryMB:      2048,   // 2GB RAM limit
+			MaxTotalMemoryMB:      12288,  // 12GB RAM limit
 			MaxConcurrentShards:   4,      // Max 4 parallel shards
 			MaxSessionDurationMin: 120,    // 2 hour sessions
-			MaxFactsInKernel:      100000, // 100k facts max in main kernel
-			MaxDerivedFactsLimit:  50000,  // Bug #17: Mangle gas limit
+			MaxFactsInKernel:      250000, // Increase working-set ceiling with larger RAM
+			MaxDerivedFactsLimit:  100000, // Mangle gas limit scales with fact budget
 		},
 
 		// Default shard settings (fallback for undefined shard types)
@@ -329,7 +329,7 @@ func DefaultConfig() *Config {
 			MaxOutputTokens:       4000,
 			MaxExecutionTimeSec:   300, // 5 min
 			MaxRetries:            3,
-			MaxFactsInShardKernel: 10000,
+			MaxFactsInShardKernel: 20000,
 			EnableLearning:        true,
 		},
 
@@ -343,7 +343,7 @@ func DefaultConfig() *Config {
 				MaxOutputTokens:       6000,
 				MaxExecutionTimeSec:   600, // 10 min
 				MaxRetries:            3,
-				MaxFactsInShardKernel: 15000,
+				MaxFactsInShardKernel: 30000,
 				EnableLearning:        true,
 			},
 			"tester": {
@@ -354,7 +354,7 @@ func DefaultConfig() *Config {
 				MaxOutputTokens:       4000,
 				MaxExecutionTimeSec:   300,
 				MaxRetries:            3,
-				MaxFactsInShardKernel: 10000,
+				MaxFactsInShardKernel: 20000,
 				EnableLearning:        true,
 			},
 			"reviewer": {
@@ -365,7 +365,7 @@ func DefaultConfig() *Config {
 				MaxOutputTokens:       8000,
 				MaxExecutionTimeSec:   900, // 15 min
 				MaxRetries:            2,
-				MaxFactsInShardKernel: 20000,
+				MaxFactsInShardKernel: 30000,
 				EnableLearning:        false, // No learning for safety-critical
 			},
 			"researcher": {
@@ -376,7 +376,7 @@ func DefaultConfig() *Config {
 				MaxOutputTokens:       5000,
 				MaxExecutionTimeSec:   600, // 10 min for deep research
 				MaxRetries:            3,
-				MaxFactsInShardKernel: 15000,
+				MaxFactsInShardKernel: 25000,
 				EnableLearning:        true,
 			},
 		},

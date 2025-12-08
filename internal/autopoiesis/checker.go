@@ -308,25 +308,31 @@ func buildFactIndex(facts []mangle.Fact) factIndex {
 func describeViolation(value interface{}, idx factIndex) SafetyViolation {
 	switch v := value.(type) {
 	case string:
-		if _, ok := idx.imports[v]; ok {
+		// Mangle may return atoms with "/" prefix - strip it for lookups
+		lookupKey := v
+		if strings.HasPrefix(v, "/") {
+			lookupKey = v[1:]
+		}
+
+		if _, ok := idx.imports[lookupKey]; ok {
 			return SafetyViolation{
 				Type:        ViolationForbiddenImport,
-				Description: fmt.Sprintf("import %q is not on the allowlist", v),
+				Description: fmt.Sprintf("import %q is not on the allowlist", lookupKey),
 				Severity:    SeverityBlocking,
 			}
 		}
-		if _, ok := idx.panicFuncs[v]; ok {
+		if _, ok := idx.panicFuncs[lookupKey]; ok {
 			return SafetyViolation{
 				Type:        ViolationPanic,
-				Location:    v,
+				Location:    lookupKey,
 				Description: "panic is not permitted in generated code; return an error instead",
 				Severity:    SeverityBlocking,
 			}
 		}
-		if _, ok := idx.goroutineLines[v]; ok {
+		if _, ok := idx.goroutineLines[lookupKey]; ok {
 			return SafetyViolation{
 				Type:        ViolationGoroutineLeak,
-				Location:    fmt.Sprintf("line:%s", v),
+				Location:    fmt.Sprintf("line:%s", lookupKey),
 				Description: "goroutine spawn must accept a cancelable context",
 				Severity:    SeverityBlocking,
 			}
@@ -476,4 +482,39 @@ func (v *astFactVisitor) funcLiteralLabel(lit *ast.FuncLit) string {
 	pos := v.emitter.fset.Position(lit.Pos())
 	// Use _ to differentiate system generated names
 	return fmt.Sprintf("func_literal_%d", pos.Line)
+}
+
+// FormatViolationsForFeedback creates a human-readable description of violations
+// suitable for feeding back to an LLM for code regeneration.
+func FormatViolationsForFeedback(violations []SafetyViolation) string {
+	if len(violations) == 0 {
+		return "No violations detected."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Safety violations detected:\n\n")
+	for i, v := range violations {
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s", i+1, v.Type.String(), v.Description))
+		if v.Location != "" {
+			sb.WriteString(fmt.Sprintf(" (at %s)", v.Location))
+		}
+		sb.WriteString(fmt.Sprintf(" [Severity: %s]\n", severityString(v.Severity)))
+	}
+	return sb.String()
+}
+
+// severityString converts ViolationSeverity to a human-readable string.
+func severityString(s ViolationSeverity) string {
+	switch s {
+	case SeverityInfo:
+		return "info"
+	case SeverityWarning:
+		return "warning"
+	case SeverityCritical:
+		return "critical"
+	case SeverityBlocking:
+		return "blocking"
+	default:
+		return "unknown"
+	}
 }

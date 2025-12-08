@@ -29,9 +29,14 @@ type CampaignPageModel struct {
 // NewCampaignPageModel creates a new campaign page.
 func NewCampaignPageModel() CampaignPageModel {
 	p := progress.New(progress.WithDefaultGradient())
+	vp := viewport.New(80, 20) // Initialize with reasonable default size
+	vp.SetContent("")
 	return CampaignPageModel{
+		viewport: vp,
 		progress: p,
 		styles:   DefaultStyles(),
+		width:    80,
+		height:   20,
 	}
 }
 

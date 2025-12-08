@@ -161,7 +161,10 @@ func (p *LogicPane) ToggleActivation() {
 
 // SelectNext selects the next node
 func (p *LogicPane) SelectNext() {
-	if len(p.Nodes) > 0 && p.SelectedNode < len(p.Nodes)-1 {
+	if len(p.Nodes) == 0 {
+		return
+	}
+	if p.SelectedNode < len(p.Nodes)-1 {
 		p.SelectedNode++
 		p.Viewport.SetContent(p.renderContent())
 	}
@@ -169,6 +172,9 @@ func (p *LogicPane) SelectNext() {
 
 // SelectPrev selects the previous node
 func (p *LogicPane) SelectPrev() {
+	if len(p.Nodes) == 0 {
+		return
+	}
 	if p.SelectedNode > 0 {
 		p.SelectedNode--
 		p.Viewport.SetContent(p.renderContent())
@@ -177,10 +183,11 @@ func (p *LogicPane) SelectPrev() {
 
 // ToggleExpand toggles expansion of the selected node
 func (p *LogicPane) ToggleExpand() {
-	if len(p.Nodes) > 0 && p.SelectedNode < len(p.Nodes) {
-		p.Nodes[p.SelectedNode].Expanded = !p.Nodes[p.SelectedNode].Expanded
-		p.Viewport.SetContent(p.renderContent())
+	if len(p.Nodes) == 0 || p.SelectedNode < 0 || p.SelectedNode >= len(p.Nodes) {
+		return
 	}
+	p.Nodes[p.SelectedNode].Expanded = !p.Nodes[p.SelectedNode].Expanded
+	p.Viewport.SetContent(p.renderContent())
 }
 
 // flattenNodes creates a navigable flat list from the tree
@@ -443,10 +450,16 @@ func (s *SplitPaneView) Render(leftContent string) string {
 		return leftContent
 
 	case ModeFullLogic:
+		if s.RightPane == nil {
+			return leftContent
+		}
 		s.RightPane.SetSize(s.Width-4, s.Height-4)
 		return s.RightPane.renderContent()
 
 	case ModeSplitPane:
+		if s.RightPane == nil {
+			return leftContent
+		}
 		return s.renderSplit(leftContent)
 
 	default:

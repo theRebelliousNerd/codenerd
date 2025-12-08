@@ -1154,7 +1154,7 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 
 	m.isLoading = true
 
-	return m, func() tea.Msg {
+	learningCmd := func() tea.Msg {
 		// Convert history to traces
 		var traces []perception.ReasoningTrace
 		for _, msg := range m.history {
@@ -1180,6 +1180,8 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 		}
 		return responseMsg(fmt.Sprintf("I have crystallized a new rule from this interaction:\n```\n%s\n```\nI will apply this correction in future turns.", fact))
 	}
+
+	return m, tea.Batch(m.spinner.Tick, learningCmd)
 }
 
 // RunInteractiveChat starts the interactive chat session

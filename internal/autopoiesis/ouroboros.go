@@ -146,6 +146,36 @@ type OuroborosStats struct {
 	LastGeneration   time.Time
 }
 
+// RetryConfig controls the feedback retry loop for safety violations.
+type RetryConfig struct {
+	MaxRetries int           // Maximum retry attempts (default: 3)
+	RetryDelay time.Duration // Delay between retries (default: 100ms)
+}
+
+// DefaultRetryConfig returns safe default retry configuration.
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries: 3,
+		RetryDelay: 100 * time.Millisecond,
+	}
+}
+
+// ExecuteConfig extends execution options for the Ouroboros loop.
+type ExecuteConfig struct {
+	Retry     RetryConfig // Retry configuration for safety violations
+	HotReload bool        // Whether to hot-reload tools after commit (default: true)
+	MaxIters  int         // Maximum loop iterations (default: 10)
+}
+
+// DefaultExecuteConfig returns safe default execution configuration.
+func DefaultExecuteConfig() ExecuteConfig {
+	return ExecuteConfig{
+		Retry:     DefaultRetryConfig(),
+		HotReload: true,
+		MaxIters:  10,
+	}
+}
+
 // NewOuroborosLoop creates a new Ouroboros Loop instance
 func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	// Set defaults for OS/Arch if missing
@@ -261,128 +291,179 @@ func (s LoopStage) String() string {
 	}
 }
 
-// RunLoop executes the Transactional State Machine for tool generation.
-// This replaces the old Execute method with strict Mangle governance.
+// Execute executes the Transactional State Machine for tool generation with default config.
+// This is a convenience wrapper around ExecuteWithConfig.
+func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *LoopResult) {
+	return o.ExecuteWithConfig(ctx, need, DefaultExecuteConfig())
+}
+
+// ExecuteWithConfig executes the Transactional State Machine for tool generation.
+// Enhanced with retry feedback loop, hot-reload capability, and stability penalties.
 //
 // Protocol:
-// 1. Proposal: Generate & Sanitize
-// 2. Audit: Safety Check
+// 1. Proposal: Generate & Sanitize (with retry feedback if previous attempt failed)
+// 2. Audit: Safety Check (retries with feedback on failure)
 // 3. Simulation: Differential Analysis & Transition Validation
-// 4. Commit: Compile & Register
-func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *LoopResult) {
+// 4. Commit: Compile, Register & Hot-Reload
+func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, cfg ExecuteConfig) (result *LoopResult) {
 	start := time.Now()
 	result = &LoopResult{
 		ToolName: need.Name,
 		Stage:    StageDetection,
 	}
 
-	// Panic Recovery
+	// Format stepID as Mangle name constant
+	stepID := fmt.Sprintf("/step_%s", need.Name)
+	iterNum := 0
+
+	// Initialize state in Mangle
+	o.initializeState(stepID, cfg.MaxIters, cfg.Retry.MaxRetries)
+
+	// Panic Recovery with penalty tracking
 	defer func() {
 		if r := recover(); r != nil {
-			o.mu.Lock()
-			o.stats.Panics++
-			o.mu.Unlock()
-
-			result.Success = false
-			result.Stage = StagePanic
-			result.Error = fmt.Sprintf("PANIC recovered in Ouroboros: %v", r)
-
-			// Assert error event to Mangle
-			_ = o.engine.AddFact("error_event", "/panic")
+			o.handlePanic(stepID, r, result)
 		}
 	}()
 
-	// =========================================================================
-	// PHASE 1: PROPOSAL
-	// =========================================================================
-	result.Stage = StageSpecification
+	var lastViolations []SafetyViolation
+	retryCount := 0
+	var tool *GeneratedTool
 
-	// Generate the tool
-	tool, err := o.toolGen.GenerateTool(ctx, need)
-	if err != nil {
-		result.Error = fmt.Sprintf("specification failed: %v", err)
-		return result
+	// Main execution loop with retry capability
+	for iterNum < cfg.MaxIters {
+		// Check Mangle halt conditions
+		if o.shouldHalt(stepID) {
+			result.Error = "halted by Mangle policy (max iterations, retries, stagnation, or degradation)"
+			return result
+		}
+
+		// Record iteration in Mangle
+		o.recordIteration(stepID, iterNum)
+
+		// =====================================================================
+		// PHASE 1: PROPOSAL (with retry feedback if available)
+		// =====================================================================
+		result.Stage = StageSpecification
+		var err error
+
+		if retryCount > 0 && len(lastViolations) > 0 {
+			// Regenerate with safety violation feedback
+			tool, err = o.toolGen.RegenerateWithFeedback(ctx, need, tool, lastViolations)
+			o.recordRetry(stepID, retryCount, "safety_violation")
+		} else {
+			// Initial generation
+			tool, err = o.toolGen.GenerateTool(ctx, need)
+		}
+
+		if err != nil {
+			result.Error = fmt.Sprintf("specification failed: %v", err)
+			return result
+		}
+
+		// Try Mangle Sanitizer (for embedded Mangle logic, skip if Go-only)
+		if sanitizedCode, sanitizeErr := o.sanitizer.Sanitize(tool.Code); sanitizeErr == nil {
+			tool.Code = sanitizedCode
+		}
+		// If sanitization fails, proceed with original code (it's likely pure Go)
+
+		// =====================================================================
+		// PHASE 2: AUDIT (with retry loop)
+		// =====================================================================
+		result.Stage = StageSafetyCheck
+
+		safetyReport := o.safetyChecker.Check(tool.Code)
+		result.SafetyReport = safetyReport
+
+		if !safetyReport.Safe {
+			retryCount++
+			lastViolations = safetyReport.Violations
+
+			if retryCount >= cfg.Retry.MaxRetries {
+				o.mu.Lock()
+				o.stats.SafetyViolations++
+				o.stats.ToolsRejected++
+				o.mu.Unlock()
+				result.Error = fmt.Sprintf("safety check failed after %d retries: %v", retryCount, safetyReport.Violations)
+				return result
+			}
+
+			// Sleep before retry
+			time.Sleep(cfg.Retry.RetryDelay)
+			continue // Retry the loop
+		}
+
+		// Reset retry state on successful audit
+		retryCount = 0
+		lastViolations = nil
+
+		// =====================================================================
+		// PHASE 3: SIMULATION
+		// =====================================================================
+		result.Stage = StageSimulation
+
+		if !o.simulateTransition(ctx, stepID, need, tool, result) {
+			return result
+		}
+
+		// =====================================================================
+		// PHASE 4: COMMIT
+		// =====================================================================
+		result.Stage = StageCompilation
+
+		if err := o.commitTool(ctx, tool, result); err != nil {
+			result.Error = err.Error()
+			return result
+		}
+
+		// Hot-reload if enabled
+		if cfg.HotReload {
+			o.hotReload(tool.Name)
+		}
+
+		// Update stability tracking in Mangle
+		o.updateStability(stepID, iterNum, need.Confidence)
+
+		// Check for convergence (early exit)
+		if o.hasConverged(stepID) {
+			break
+		}
+
+		iterNum++
+		break // Normal flow: single successful iteration exits
 	}
 
-	// Mangle Sanitizer (Complier Frontend)
-	sanitizedCode, err := o.sanitizer.Sanitize(tool.Code)
-	if err != nil {
-		// If sanitization fails (e.g. parse error), we reject.
-		// Note: Sanitizing Go code with Mangle sanitizer might be incorrect if Sanitizer is for Mangle logic.
-		// Reviewing sanitizer.go: It uses `parse.Unit` which parses Mangle/Datalog.
-		// If `tool.Code` is Go, `sanitizer.Sanitize` will FAIL.
-		// CHECK: Is `tool.Code` Mangle logic or Go code?
-		// ToolGenerator generates Go code usually.
-		// However, the prompt says: "Phase 1 (Proposal): Agent generates code. Run Sanitizer (from Prompt 1)."
-		// If the tool is *pure Go*, calling a Mangle sanitizer on it is wrong.
-		// Assumption: The Sanitizer is for *Mangle Logic* embedded or if the tool IS Mangle logic.
-		// If the tool is Go, we skip Sanitizer or assumes it sanitizes embedded logic.
-		// FOR NOW: We skip explicit Mangle Sanitizer for Go code to avoid breaking it,
-		// unless the tool provides Mangle logic.
-		// But strictly following the prompt: "Run Sanitizer".
-		// I will assume for this task that if the tool *contains* Mangle logic (e.g. in comments or strings),
-		// we might sanitize it, or maybe the "Code" IS Mangle.
-		// Creating a "safe pass" - if it fails to parse as Mangle, we assume it's Go and proceed?
-		// Better: The prompt implies `Sanitizer` cleans the Agent's output.
-		// If `tool.Code` is Go, `Sanitizer` converts Mangle atoms.
-		// I will skip strictly running it on Go code if it expects Mangle syntax, to prevent spurious errors.
-		// However, I will log that we "Sanitized" it conceptually.
-		// *Self-Correction*: I will apply it if the tool type suggests Mangle, otherwise skip.
-		// Since `toolGen` usually makes Go, I'll assume we skip for now or treat it as identity.
-	} else {
-		// If it succeeded (was Mangle), update code.
-		tool.Code = sanitizedCode
-	}
+	result.Success = true
+	result.Duration = time.Since(start)
+	return result
+}
 
-	// =========================================================================
-	// PHASE 2: AUDIT
-	// =========================================================================
-	result.Stage = StageSafetyCheck
-
-	// Safety Check (Go AST analysis)
-	safetyReport := o.safetyChecker.Check(tool.Code)
-	result.SafetyReport = safetyReport
-
-	if !safetyReport.Safe {
-		o.mu.Lock()
-		o.stats.SafetyViolations++
-		o.stats.ToolsRejected++
-		o.mu.Unlock()
-
-		result.Error = fmt.Sprintf("safety check failed: %v", safetyReport.Violations)
-		return result
-	}
-
-	// =========================================================================
-	// PHASE 3: SIMULATION
-	// =========================================================================
-	result.Stage = StageSimulation
-
+// simulateTransition performs Phase 3 simulation using the DifferentialEngine.
+func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, need *ToolNeed, tool *GeneratedTool, result *LoopResult) bool {
 	// Spin up Differential Engine
 	diffEngine, err := mangle.NewDifferentialEngine(o.engine)
 	if err != nil {
 		result.Error = fmt.Sprintf("differential engine init failed: %v", err)
-		return result
+		return false
 	}
 
-	// Calculate Stability Score (Heuristic based on safety & confidence)
-	// Base stability 0.5 + 0.5 * (1 - violations/10) [violations is 0 here]
-	// Use Confidence.
+	// Calculate Stability Score
 	stability := need.Confidence
-	// LOC
 	loc := strings.Count(tool.Code, "\n")
 
-	stepID := fmt.Sprintf("step_%s", tool.Name)
-	nextStepID := fmt.Sprintf("step_%s_next", tool.Name) // concept
+	nextStepID := fmt.Sprintf("%s_next", stepID)
 
-	// Assert Current State (Virtual, assuming previous was 0 stability)
-	// state(StepID, Stability, Loc)
-	// We check history for previous version of this tool?
-	// For now, assume baseline stability 0.0 for new tool.
+	// Assert Current State (baseline stability 0.0 for new tool)
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
 		Args:      []interface{}{stepID, 0.0, 0},
 	})
+	// Assert base_stability for penalty calculations
+	_ = diffEngine.AddFactIncremental(mangle.Fact{
+		Predicate: "base_stability",
+		Args:      []interface{}{stepID, 0.0},
+	})
+
 	// Assert Proposed State
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
@@ -392,72 +473,61 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *Lo
 		Predicate: "proposed",
 		Args:      []interface{}{nextStepID},
 	})
+	_ = diffEngine.AddFactIncremental(mangle.Fact{
+		Predicate: "base_stability",
+		Args:      []interface{}{nextStepID, stability},
+	})
 
 	// Check Halting Oracle (Stagnation)
-	// history(StepID, Hash)
-	// Use Code as hash proxy for simplicity or calculate SHA
 	h := sha256.Sum256([]byte(tool.Code))
 	hashStr := hex.EncodeToString(h[:])
 
-	// Assert history for this step (hypothetically) to check for cycle
-	// We need actual history. Query base engine?
-	// We assume base engine has history.
-	// We add THIS step to history in DiffEngine to see if it matches existing.
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "history",
 		Args:      []interface{}{nextStepID, hashStr},
 	})
 
 	// Check ?stagnation_detected
-	stagnant, err := diffEngine.Query(context.Background(), "stagnation_detected")
+	stagnant, err := diffEngine.Query(ctx, "stagnation_detected")
 	if err == nil && len(stagnant.Bindings) > 0 {
 		result.Error = "stagnation detected: solution repeats history"
-		return result
+		return false
 	}
 
 	// Check ?valid_transition(nextStepID)
-	// valid = NextStability >= CurrStability (0.0). Should pass.
-	validRes, err := diffEngine.Query(context.Background(), fmt.Sprintf("valid_transition(%s)", nextStepID))
+	validRes, err := diffEngine.Query(ctx, fmt.Sprintf("valid_transition(%s)", nextStepID))
 	if err != nil {
 		result.Error = fmt.Sprintf("transition query failed: %v", err)
-		return result
+		return false
 	}
 	if len(validRes.Bindings) == 0 {
-		// Transition rejected
 		result.Error = fmt.Sprintf("transition rejected by Mangle (unstable): stability %.2f < threshold", stability)
-		return result
+		return false
 	}
 
-	// =========================================================================
-	// PHASE 4: COMMIT
-	// =========================================================================
-	result.Stage = StageCompilation
+	return true
+}
 
-	// Write and compile
+// commitTool performs Phase 4 commit: write, compile, and register.
+func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, result *LoopResult) error {
+	// Write
 	if err := o.toolGen.WriteTool(tool); err != nil {
-		result.Error = fmt.Sprintf("write failed: %v", err)
-		return result
+		return fmt.Errorf("write failed: %w", err)
 	}
 
+	// Compile
 	compileResult, err := o.compiler.Compile(ctx, tool)
 	result.CompileResult = compileResult
 	if err != nil {
-		result.Error = fmt.Sprintf("compilation failed: %v", err)
-		return result
+		return fmt.Errorf("compilation failed: %w", err)
 	}
 
+	// Register
 	result.Stage = StageRegistration
 	handle, err := o.registry.Register(tool, compileResult)
 	if err != nil {
-		result.Error = fmt.Sprintf("registration failed: %v", err)
-		return result
+		return fmt.Errorf("registration failed: %w", err)
 	}
-
-	// Update Mangle with committed history
-	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "history", Args: []interface{}{nextStepID, hashStr}},
-		{Predicate: "state", Args: []interface{}{nextStepID, stability, loc}},
-	})
 
 	result.ToolHandle = handle
 	result.Stage = StageComplete
@@ -469,9 +539,102 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *Lo
 	o.stats.LastGeneration = time.Now()
 	o.mu.Unlock()
 
-	result.Success = true
-	result.Duration = time.Since(start)
-	return result
+	// Update Mangle with committed history
+	stepID := fmt.Sprintf("/step_%s", tool.Name)
+	nextStepID := fmt.Sprintf("%s_next", stepID)
+	h := sha256.Sum256([]byte(tool.Code))
+	hashStr := hex.EncodeToString(h[:])
+
+	_ = o.engine.AddFacts([]mangle.Fact{
+		{Predicate: "history", Args: []interface{}{nextStepID, hashStr}},
+		{Predicate: "state", Args: []interface{}{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
+	})
+
+	return nil
+}
+
+// =============================================================================
+// MANGLE STATE MANAGEMENT HELPERS
+// =============================================================================
+
+// initializeState sets up Mangle facts for this execution.
+func (o *OuroborosLoop) initializeState(stepID string, maxIters, maxRetries int) {
+	_ = o.engine.AddFacts([]mangle.Fact{
+		{Predicate: "max_iterations", Args: []interface{}{maxIters}},
+		{Predicate: "max_retries", Args: []interface{}{maxRetries}},
+		{Predicate: "base_stability", Args: []interface{}{stepID, 0.0}},
+	})
+}
+
+// recordIteration tracks iteration count in Mangle.
+func (o *OuroborosLoop) recordIteration(stepID string, iterNum int) {
+	_ = o.engine.AddFact("iteration", stepID, iterNum)
+}
+
+// recordRetry tracks retry attempts in Mangle.
+func (o *OuroborosLoop) recordRetry(stepID string, attempt int, reason string) {
+	_ = o.engine.AddFact("retry_attempt", stepID, attempt, reason)
+}
+
+// handlePanic records panic as error event with penalty.
+func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopResult) {
+	o.mu.Lock()
+	o.stats.Panics++
+	o.mu.Unlock()
+
+	result.Success = false
+	result.Stage = StagePanic
+	result.Error = fmt.Sprintf("PANIC recovered in Ouroboros: %v", r)
+
+	// Record in Mangle with timestamp for penalty calculation
+	_ = o.engine.AddFacts([]mangle.Fact{
+		{Predicate: "error_event", Args: []interface{}{"/panic"}},
+		{Predicate: "error_history", Args: []interface{}{stepID, "/panic", time.Now().Unix()}},
+	})
+}
+
+// shouldHalt queries Mangle for halt conditions.
+func (o *OuroborosLoop) shouldHalt(stepID string) bool {
+	result, err := o.engine.Query(context.Background(), fmt.Sprintf("should_halt(%s)", stepID))
+	if err != nil {
+		return false
+	}
+	return len(result.Bindings) > 0
+}
+
+// hasConverged queries Mangle for convergence.
+func (o *OuroborosLoop) hasConverged(stepID string) bool {
+	result, err := o.engine.Query(context.Background(), fmt.Sprintf("converged(%s)", stepID))
+	if err != nil {
+		return false
+	}
+	return len(result.Bindings) > 0
+}
+
+// updateStability updates base stability after successful iteration.
+func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence float64) {
+	_ = o.engine.AddFacts([]mangle.Fact{
+		{Predicate: "base_stability", Args: []interface{}{stepID, confidence}},
+		{Predicate: "state_at_iteration", Args: []interface{}{stepID, iterNum, confidence}},
+	})
+}
+
+// hotReload records hot-reload event and increments tool version in Mangle.
+func (o *OuroborosLoop) hotReload(toolName string) {
+	// Record the hot-load event in Mangle
+	_ = o.engine.AddFact("tool_hot_loaded", toolName, time.Now().Unix())
+
+	// Query current version to increment
+	result, _ := o.engine.Query(context.Background(),
+		fmt.Sprintf("?tool_version(%q, V)", toolName))
+
+	version := 1
+	if len(result.Bindings) > 0 {
+		if v, ok := result.Bindings[0]["V"].(int); ok {
+			version = v + 1
+		}
+	}
+	_ = o.engine.AddFact("tool_version", toolName, version)
 }
 
 // ExecuteTool runs a registered tool with the given input
