@@ -86,11 +86,11 @@ potential_score(Verb, S) :-
     S = fn:plus(Base, Amount).
 
 # 3. Penalized Scores (Apply Penalty)
-# S = Base - Amount (using negate)
+# S = Base - Amount (using minus 0, Amount)
 potential_score(Verb, S) :-
     candidate_intent(Verb, Base),
     penalty(Verb, Amount),
-    Neg = fn:negate(Amount),
+    Neg = fn:minus(0, Amount),
     S = fn:plus(Base, Neg).
 
 # 4. Relational Max Logic

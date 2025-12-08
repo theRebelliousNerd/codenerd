@@ -73,17 +73,17 @@ func (t *eventThrottler) Allow(key string) bool {
 
 // Config holds browser configuration.
 type Config struct {
-	DebuggerURL         string        `json:"debugger_url"`
-	Launch              []string      `json:"launch"`
-	Headless            bool          `json:"headless"`
-	ViewportWidth       int           `json:"viewport_width"`
-	ViewportHeight      int           `json:"viewport_height"`
-	NavigationTimeoutMs int           `json:"navigation_timeout_ms"`
-	SessionStore        string        `json:"session_store"`
-	EventLoggingLevel   string        `json:"event_logging_level"` // minimal, normal, verbose
-	EnableDOMIngestion  bool          `json:"enable_dom_ingestion"`
-	EnableHeaderIngestion bool        `json:"enable_header_ingestion"`
-	EventThrottleMs     int           `json:"event_throttle_ms"`
+	DebuggerURL           string   `json:"debugger_url"`
+	Launch                []string `json:"launch"`
+	Headless              bool     `json:"headless"`
+	ViewportWidth         int      `json:"viewport_width"`
+	ViewportHeight        int      `json:"viewport_height"`
+	NavigationTimeoutMs   int      `json:"navigation_timeout_ms"`
+	SessionStore          string   `json:"session_store"`
+	EventLoggingLevel     string   `json:"event_logging_level"` // minimal, normal, verbose
+	EnableDOMIngestion    bool     `json:"enable_dom_ingestion"`
+	EnableHeaderIngestion bool     `json:"enable_header_ingestion"`
+	EventThrottleMs       int      `json:"event_throttle_ms"`
 }
 
 // DefaultConfig returns sensible defaults.
@@ -176,6 +176,9 @@ func NewSessionManagerWithSink(cfg Config, sink EngineSink) *SessionManager {
 
 // Start connects to an existing Chrome or launches a new one.
 func (m *SessionManager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// If we already have a browser, verify it's still alive
 	if m.browser != nil {
 		_, err := m.browser.Version()
@@ -186,12 +189,10 @@ func (m *SessionManager) Start(ctx context.Context) error {
 		_ = m.browser.Close()
 		m.browser = nil
 		m.controlURL = ""
-		m.mu.Lock()
 		m.sessions = make(map[string]*sessionRecord)
-		m.mu.Unlock()
 	}
 
-	if err := m.loadSessions(); err != nil {
+	if err := m.loadSessionsLocked(); err != nil {
 		return fmt.Errorf("load sessions: %w", err)
 	}
 
@@ -244,6 +245,16 @@ func (m *SessionManager) Start(ctx context.Context) error {
 	return nil
 }
 
+func (m *SessionManager) ensureStarted(ctx context.Context) error {
+	m.mu.RLock()
+	if m.browser != nil {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+	return m.Start(ctx)
+}
+
 // ControlURL returns the WebSocket debugger URL.
 func (m *SessionManager) ControlURL() string {
 	m.mu.RLock()
@@ -294,6 +305,9 @@ func (m *SessionManager) List() []Session {
 
 // CreateSession opens a new page and tracks it.
 func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Session, error) {
+	if err := m.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	if m.browser == nil {
 		return nil, errors.New("browser not connected")
 	}
@@ -342,6 +356,9 @@ func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Sessio
 
 // Attach binds to an existing target by TargetID.
 func (m *SessionManager) Attach(ctx context.Context, targetID string) (*Session, error) {
+	if err := m.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	if m.browser == nil {
 		return nil, errors.New("browser not connected")
 	}
@@ -547,6 +564,9 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 
 // ForkSession clones cookies + storage from an existing session into a new incognito context.
 func (m *SessionManager) ForkSession(ctx context.Context, sessionID, url string) (*Session, error) {
+	if err := m.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	srcPage, ok := m.Page(sessionID)
 	if !ok {
 		return nil, fmt.Errorf("unknown session: %s", sessionID)
@@ -614,6 +634,9 @@ func (m *SessionManager) ForkSession(ctx context.Context, sessionID, url string)
 
 // Navigate navigates to a URL.
 func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) error {
+	if err := m.ensureStarted(ctx); err != nil {
+		return err
+	}
 	page, ok := m.Page(sessionID)
 	if !ok {
 		return fmt.Errorf("unknown session: %s", sessionID)
@@ -623,6 +646,9 @@ func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) er
 
 // Click clicks an element.
 func (m *SessionManager) Click(ctx context.Context, sessionID, selector string) error {
+	if err := m.ensureStarted(ctx); err != nil {
+		return err
+	}
 	page, ok := m.Page(sessionID)
 	if !ok {
 		return fmt.Errorf("unknown session: %s", sessionID)
@@ -636,6 +662,9 @@ func (m *SessionManager) Click(ctx context.Context, sessionID, selector string) 
 
 // Type types text into an element.
 func (m *SessionManager) Type(ctx context.Context, sessionID, selector, text string) error {
+	if err := m.ensureStarted(ctx); err != nil {
+		return err
+	}
 	page, ok := m.Page(sessionID)
 	if !ok {
 		return fmt.Errorf("unknown session: %s", sessionID)
@@ -649,6 +678,9 @@ func (m *SessionManager) Type(ctx context.Context, sessionID, selector, text str
 
 // Screenshot captures a screenshot.
 func (m *SessionManager) Screenshot(ctx context.Context, sessionID string, fullPage bool) ([]byte, error) {
+	if err := m.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	page, ok := m.Page(sessionID)
 	if !ok {
 		return nil, fmt.Errorf("unknown session: %s", sessionID)
@@ -1090,6 +1122,9 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 
 // SnapshotDOM triggers a one-off DOM capture for the given session.
 func (m *SessionManager) SnapshotDOM(ctx context.Context, sessionID string) error {
+	if err := m.ensureStarted(ctx); err != nil {
+		return err
+	}
 	page, ok := m.Page(sessionID)
 	if !ok {
 		return fmt.Errorf("unknown session: %s", sessionID)
@@ -1167,8 +1202,8 @@ func (m *SessionManager) persistSessions() error {
 	return os.WriteFile(m.cfg.SessionStore, data, 0o644)
 }
 
-// loadSessions loads persisted metadata.
-func (m *SessionManager) loadSessions() error {
+// loadSessionsLocked loads persisted metadata. Caller must hold lock.
+func (m *SessionManager) loadSessionsLocked() error {
 	if m.cfg.SessionStore == "" {
 		return nil
 	}
@@ -1186,8 +1221,6 @@ func (m *SessionManager) loadSessions() error {
 		return err
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, s := range sessions {
 		s.Status = "detached"
 		m.sessions[s.ID] = &sessionRecord{meta: s, page: nil}

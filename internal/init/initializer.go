@@ -269,6 +269,12 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory structure: %w", err)
 	}
+	
+	// Create Mangle overlay templates
+	if err := i.createMangleTemplates(nerdDir); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create mangle templates: %v", err))
+	}
+
 	result.NerdDir = nerdDir
 	fmt.Println("✓ Created .nerd/ directory structure")
 
@@ -590,6 +596,43 @@ func (i *Initializer) sendProgress(phase, message string, percent float64) {
 // generateSessionID - see profile.go
 // cleanNameConstant - see profile.go
 // sanitizeForMangle - see profile.go
+
+// createMangleTemplates creates placeholder files for user extensions.
+func (i *Initializer) createMangleTemplates(nerdDir string) error {
+	mangleDir := filepath.Join(nerdDir, "mangle")
+
+	// extensions.mg - For new schema definitions
+	extPath := filepath.Join(mangleDir, "extensions.mg")
+	extContent := `# User Schema Extensions
+# Define project-specific predicates here.
+# These will be loaded AFTER the core schemas.
+
+# Example:
+# Decl project_metadata(Key, Value).
+# Decl deploy_target(Env, URL).
+`
+	if err := os.WriteFile(extPath, []byte(extContent), 0644); err != nil {
+		return err
+	}
+
+	// policy_overrides.mg - For custom rules
+	policyPath := filepath.Join(mangleDir, "policy_overrides.mg")
+	policyContent := `# User Policy Overrides
+# Define project-specific rules here.
+# These can extend or override core behavior.
+
+# Example: Allow deleting .tmp files even if modified
+# permitted(Action) :- 
+#     action_type(Action, /delete_file),
+#     target_path(Action, Path),
+#     fn:string_suffix(Path, ".tmp").
+`
+	if err := os.WriteFile(policyPath, []byte(policyContent), 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // printSummary prints the initialization summary.
 func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {

@@ -64,6 +64,11 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	transducer := perception.NewRealTransducer(llmClient)
 	kernel := core.NewRealKernel()
+	// Force initial evaluation to boot the Mangle engine (even with 0 facts)
+	// This is CRITICAL to prevent "kernel not initialized" errors when shards query it early.
+	if err := kernel.Evaluate(); err != nil {
+		return nil, fmt.Errorf("failed to boot kernel: %w", err)
+	}
 
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
@@ -95,10 +100,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// We need a Mangle engine for the browser manager
 	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
 		browserMgr = browser.NewSessionManager(browserCfg, engine)
-		// Start browser session manager
-		if err := browserMgr.Start(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to start browser manager: %v\n", err)
-		}
+		// Browser will be started lazily when needed
 	}
 
 	// 5. Register Shards (The Critical Fix)

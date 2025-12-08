@@ -384,7 +384,7 @@ func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
 	return matches, err
 }
 
-func (m Model) runInit() tea.Cmd {
+func (m Model) runInitialization(force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
