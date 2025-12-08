@@ -3,11 +3,11 @@
 package chat
 
 import (
-	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
+	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
@@ -49,8 +49,12 @@ import (
 // managing persistent configuration.
 
 // InitChat initializes the interactive chat model (Lightweight UI only)
-func InitChat(cfg Config) Model {	// Load configuration
-	appCfg, _ := config.Load()
+func InitChat(cfg Config) Model {
+	// Load configuration from unified .nerd/config.json
+	appCfg, _ := config.GlobalConfig()
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
 
 	// Initialize styles
 	styles := ui.DefaultStyles()
@@ -153,7 +157,7 @@ func InitChat(cfg Config) Model {	// Load configuration
 }
 
 // performSystemBoot performs the heavy backend initialization in a background thread
-func performSystemBoot(cfg config.Config, disableSystemShards []string, workspace string) tea.Cmd {
+func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Cmd {
 	return func() tea.Msg {
 		bootStart := time.Now()
 		log := func(step string) {
@@ -161,7 +165,14 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		}
 
 		log("Loading config...")
-		appCfg, _ := config.Load()
+		// Use the passed-in config or reload from disk
+		appCfg := cfg
+		if appCfg == nil {
+			appCfg, _ = config.GlobalConfig()
+			if appCfg == nil {
+				appCfg = config.DefaultUserConfig()
+			}
+		}
 		initialMessages := []Message{}
 
 		// Initialize LLM client using the perception package's provider detection

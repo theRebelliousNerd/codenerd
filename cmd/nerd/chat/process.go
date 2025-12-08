@@ -1036,7 +1036,8 @@ func (m Model) createAgentFromPrompt(description string) tea.Cmd {
 		topic := strings.TrimSpace(out.Topic)
 		kp := strings.TrimSpace(out.KnowledgePath)
 		if kp == "" {
-			kp = filepath.Join(".nerd", "shards", fmt.Sprintf("%s_knowledge.db", name))
+			// Use workspace root for .nerd path to avoid creating in wrong directory
+			kp = filepath.Join(m.workspace, ".nerd", "shards", fmt.Sprintf("%s_knowledge.db", name))
 		}
 
 		cfg := core.DefaultSpecialistConfig(name, kp)

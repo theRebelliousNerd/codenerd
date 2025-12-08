@@ -193,16 +193,21 @@ type Initializer struct {
 // NewInitializer creates a new initializer.
 func NewInitializer(config InitConfig) *Initializer {
 	researcher := researcher.NewResearcherShard()
+	researcher.SetWorkspaceRoot(config.Workspace) // Ensure .nerd paths resolve correctly
+
 	// Set Context7 API key if configured
 	if config.Context7APIKey != "" {
 		researcher.SetContext7APIKey(config.Context7APIKey)
 	}
 
+	kernel := core.NewRealKernel()
+	kernel.SetWorkspace(config.Workspace) // Ensure .nerd paths resolve correctly
+
 	init := &Initializer{
 		config:        config,
 		researcher:    researcher,
 		scanner:       world.NewScanner(),
-		kernel:        core.NewRealKernel(),
+		kernel:        kernel,
 		createdAgents: make([]CreatedAgent, 0),
 		embedEngine:   nil,
 	}
