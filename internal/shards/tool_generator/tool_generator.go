@@ -67,6 +67,9 @@ type ToolGeneratorShard struct {
 	llmClient    core.LLMClient
 	orchestrator *autopoiesis.Orchestrator
 
+	// Workspace root (explicit, avoids FindWorkspaceRoot issues)
+	workspaceRoot string
+
 	// State tracking
 	startTime time.Time
 	stopCh    chan struct{}
@@ -112,6 +115,14 @@ func (s *ToolGeneratorShard) SetParentKernel(k core.Kernel) {
 	}
 }
 
+// SetWorkspaceRoot sets the explicit workspace root path.
+// This MUST be called before SetLLMClient to ensure tools are created in the correct location.
+func (s *ToolGeneratorShard) SetWorkspaceRoot(root string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workspaceRoot = root
+}
+
 // SetLLMClient sets the LLM client for generation.
 func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 	s.mu.Lock()
@@ -120,9 +131,14 @@ func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 
 	// Initialize orchestrator with LLM client
 	if s.orchestrator == nil {
-		workspace, err := config.FindWorkspaceRoot()
-		if err != nil {
-			workspace, _ = os.Getwd()
+		// Use explicit workspace if set, otherwise fall back to FindWorkspaceRoot
+		workspace := s.workspaceRoot
+		if workspace == "" {
+			var err error
+			workspace, err = config.FindWorkspaceRoot()
+			if err != nil {
+				workspace, _ = os.Getwd()
+			}
 		}
 		autoConfig := autopoiesis.DefaultConfig(workspace)
 
