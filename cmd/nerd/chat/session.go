@@ -12,7 +12,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
-	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
@@ -228,17 +227,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 
-		// Initialize Browser Manager (lazy start - only connects when first used)
-		log("Initializing browser manager...")
-		browserCfg := browser.DefaultConfig()
-		browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
-		var browserMgr *browser.SessionManager
+		// Browser Manager is created on-demand when needed (not at boot)
+		// This avoids spawning Chrome during normal TUI usage
+		var browserMgr *browser.SessionManager // nil until needed
 		var browserCtxCancel context.CancelFunc
-		if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
-			browserMgr = browser.NewSessionManager(browserCfg, engine)
-			// Create cancellable context for browser manager - Start() is called lazily on first use
-			_, browserCtxCancel = context.WithCancel(context.Background())
-		}
 
 		log("Creating virtual store...")
 		virtualStore := core.NewVirtualStore(executor)
@@ -483,6 +475,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
 		virtualStore.SetToolExecutor(toolExecutor)
+
+		// Hydrate tools from disk and available_tools.json
+		log("Hydrating tools from .nerd/tools/...")
+		if err := hydrateAllTools(virtualStore, nerdDir); err != nil {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ Tool hydration warning: %v", err),
+				Time:    time.Now(),
+			})
+		}
 
 		log("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)

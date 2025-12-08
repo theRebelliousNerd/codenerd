@@ -322,6 +322,55 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 	return nil
 }
 
+// StaticToolDef represents a tool definition loaded from available_tools.json.
+// This mirrors init.ToolDefinition but avoids import cycles.
+type StaticToolDef struct {
+	Name          string
+	Category      string
+	Description   string
+	Command       string
+	ShardAffinity string
+}
+
+// RestoreFromStaticDefs loads tools from a slice of StaticToolDef into the registry.
+// This is used to hydrate tools from available_tools.json at session boot.
+// Continues restoring even if individual tools fail, collecting all errors.
+func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
+	var errs []error
+	restoredCount := 0
+
+	for _, def := range defs {
+		// Normalize shard affinity to Mangle name constant format
+		affinity := def.ShardAffinity
+		if affinity == "" {
+			affinity = "/all"
+		} else if !strings.HasPrefix(affinity, "/") {
+			// Convert "CoderShard" -> "/codershard"
+			affinity = "/" + strings.ToLower(strings.TrimSuffix(affinity, "Shard"))
+		}
+
+		tool := &Tool{
+			Name:          def.Name,
+			Command:       def.Command,
+			ShardAffinity: affinity,
+			Description:   def.Description,
+			Capabilities:  []string{def.Category}, // Category becomes capability
+			RegisteredAt:  time.Now(),
+		}
+
+		if err := tr.RegisterToolWithInfo(tool); err != nil {
+			errs = append(errs, fmt.Errorf("tool %s: %w", def.Name, err))
+		} else {
+			restoredCount++
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
+	}
+	return nil
+}
+
 // isCommandName checks if a string is a command name (not a path)
 func isCommandName(s string) bool {
 	return !filepath.IsAbs(s) && !strings.Contains(s, string(filepath.Separator))
