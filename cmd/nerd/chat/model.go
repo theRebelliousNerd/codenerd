@@ -60,6 +60,7 @@ const (
 	ListView
 	FilePickerView
 	UsageView
+	CampaignPage
 )
 
 // sessionItem is a list item for the session list
@@ -105,6 +106,9 @@ type Model struct {
 
 	// Usage Page
 	usagePage ui.UsagePageModel
+
+	// Campaign Page
+	campaignPage ui.CampaignPageModel
 
 	// Usage Tracking
 	usageTracker *usage.Tracker
@@ -339,10 +343,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Usage View Handling
 		if m.viewMode == UsageView {
 			var cmd tea.Cmd
 			m.usagePage, cmd = m.usagePage.Update(msg)
+			return m, cmd
+		}
+
+		// Campaign Page Handling
+		if m.viewMode == CampaignPage {
+			// Direct Control Plane
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ChatView
+				return m, nil
+			case " ":
+				// Toggle Pause/Resume
+				if m.activeCampaign != nil && m.campaignOrch != nil {
+					if m.activeCampaign.Status == campaign.StatusPaused {
+						m.campaignOrch.Resume()
+					} else {
+						m.campaignOrch.Pause()
+					}
+					// Force status update visibility immediately
+					m.campaignPage.UpdateContent(m.campaignProgress, m.activeCampaign)
+				}
+				return m, nil
+			}
+
+			// Forward other keys (scrolling) to the page model
+			var cmd tea.Cmd
+			m.campaignPage, cmd = m.campaignPage.Update(msg)
 			return m, cmd
 		}
 
@@ -488,7 +518,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update split pane dimensions
 		if m.splitPane != nil {
-			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
+			m.list.SetSize(msg.Width, msg.Height)
+			m.filepicker.Height = msg.Height - 15
+			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
+			m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
+			m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
+
 		}
 		if m.logicPane != nil {
 			m.logicPane.SetSize(msg.Width/3, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
@@ -609,6 +644,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeCampaign != nil {
 			m.activeCampaign.CompletedPhases = msg.CompletedPhases
 			m.activeCampaign.CompletedTasks = msg.CompletedTasks
+		}
+
+		// Update Campaign Page
+		if m.activeCampaign != nil {
+			prog := campaign.Progress(*msg)
+			m.campaignPage.UpdateContent(&prog, m.activeCampaign)
 		}
 
 	case campaignCompletedMsg:

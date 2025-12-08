@@ -85,6 +85,11 @@ func (m Model) View() string {
 		return m.styles.Content.Render(m.usagePage.View())
 	}
 
+	// Handle Campaign Page Mode
+	if m.viewMode == CampaignPage {
+		return m.styles.Content.Render(m.campaignPage.View())
+	}
+
 	// Header
 	header := m.renderHeader()
 

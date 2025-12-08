@@ -18,8 +18,6 @@ import (
 )
 
 // =============================================================================
-// SHARD DELEGATION
-// =============================================================================
 // Functions for formatting tasks, spawning shards, and handling delegation
 // from natural language to specialized agents.
 
@@ -393,11 +391,11 @@ func getUIStyles() ui.Styles {
 
 // TaskStep represents a single step in a multi-step task
 type TaskStep struct {
-	Verb       string
-	Target     string
-	ShardType  string
-	Task       string
-	DependsOn  []int // Indices of steps that must complete first
+	Verb      string
+	Target    string
+	ShardType string
+	Task      string
+	DependsOn []int // Indices of steps that must complete first
 }
 
 // detectMultiStepTask checks if input requires multiple steps
