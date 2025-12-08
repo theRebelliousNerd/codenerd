@@ -984,6 +984,10 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.browserCtxCancel = c.BrowserCtxCancel
 		}
 
+		// Update textarea placeholder now that boot is complete
+		m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
+		m.textarea.Focus()
+
 		// Append any initial messages generated during boot
 		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
 			m.history = append(m.history, msg.components.InitialMessages...)
