@@ -488,8 +488,24 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 	args := make([]ast.BaseTerm, len(fact.Args))
 	for i, raw := range fact.Args {
 		var expectedType ast.ConstantType = -1 // -1 means unknown/any
-		if decl != nil && len(decl.DeclaredArgs) > i {
-			expectedType = decl.DeclaredArgs[i].Type.Type
+		if decl != nil && len(decl.Bounds) > 0 {
+			// Iterate over bounds to find a matching type constraint
+			// For simplicity, we check the first bound declaration
+			bounds := decl.Bounds[0].Bounds
+			if len(bounds) > i {
+				if c, ok := bounds[i].(ast.Constant); ok {
+					switch c.Symbol {
+					case "/name":
+						expectedType = ast.NameType
+					case "/string":
+						expectedType = ast.StringType
+					case "/number":
+						expectedType = ast.NumberType
+					case "/bytes":
+						expectedType = ast.BytesType
+					}
+				}
+			}
 		}
 
 		term, err := convertValueToTypedTerm(raw, expectedType)
@@ -813,74 +829,6 @@ func isIdentifier(s string) bool {
 		}
 	}
 	return true
-}
-
-func convertValueToBaseTerm(value interface{}) (ast.BaseTerm, error) {
-	switch v := value.(type) {
-	case ast.BaseTerm:
-		return v, nil
-	case string:
-		if strings.HasPrefix(v, "/") {
-			// Already a Name constant
-			name, err := ast.Name(v)
-			if err != nil {
-				return nil, err
-			}
-			return name, nil
-		}
-		// Auto-Atomizer: Promote identifier-like strings to Atoms
-		if isIdentifier(v) {
-			// ast.Name expects the leading slash
-			name, err := ast.Name("/" + v)
-			if err == nil {
-				return name, nil
-			}
-		}
-		return ast.String(v), nil
-	case fmt.Stringer:
-		return ast.String(v.String()), nil
-	case int:
-		return ast.Number(int64(v)), nil
-	case int32:
-		return ast.Number(int64(v)), nil
-	case int64:
-		return ast.Number(v), nil
-	case float32:
-		return ast.Float64(float64(v)), nil
-	case float64:
-		return ast.Float64(v), nil
-	case bool:
-		if v {
-			return ast.TrueConstant, nil
-		}
-		return ast.FalseConstant, nil
-	case []string:
-		constants := make([]ast.Constant, len(v))
-		for i, item := range v {
-			constants[i] = ast.String(item)
-		}
-		return ast.List(constants), nil
-	case []interface{}:
-		constants := make([]ast.Constant, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				constants = append(constants, ast.String(s))
-			}
-		}
-		return ast.List(constants), nil
-	case map[string]string:
-		encoded, _ := json.Marshal(v)
-		return ast.String(string(encoded)), nil
-	case map[string]interface{}:
-		encoded, _ := json.Marshal(v)
-		return ast.String(string(encoded)), nil
-	default:
-		encoded, err := json.Marshal(v)
-		if err != nil {
-			return nil, fmt.Errorf("unsupported fact argument type %T", v)
-		}
-		return ast.String(string(encoded)), nil
-	}
 }
 
 func convertBaseTermToInterface(term ast.BaseTerm) interface{} {

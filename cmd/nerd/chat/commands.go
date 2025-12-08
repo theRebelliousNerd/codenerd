@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -33,7 +34,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/clear":
 		m.history = []Message{}
 		m.viewport.SetContent("")
-		m.textinput.Reset()
+		m.textarea.Reset()
 		// Save empty history
 		m.saveSessionState()
 		return m, nil
@@ -50,7 +51,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.saveSessionState()
 		return m, nil
 
@@ -63,26 +64,27 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				Content: "No saved sessions found.",
 				Time:    time.Now(),
 			})
-		} else {
-			var sb strings.Builder
-			sb.WriteString("## Saved Sessions\n\n")
-			for _, sess := range sessions {
-				current := ""
-				if sess == m.sessionID {
-					current = " *(current)*"
-				}
-				sb.WriteString(fmt.Sprintf("- `%s`%s\n", sess, current))
-			}
-			sb.WriteString("\n*Use `/load-session <id>` to restore a session*")
-			m.history = append(m.history, Message{
-				Role:    "assistant",
-				Content: sb.String(),
-				Time:    time.Now(),
-			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
 		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-		m.textinput.Reset()
+
+		// Populate interactive list
+		var items []list.Item
+		for _, sess := range sessions {
+			desc := "Session History"
+			if sess == m.sessionID {
+				desc = "Current Session"
+			}
+			// Use session ID as date for now, or parse it if it's a timestamp
+			items = append(items, sessionItem{id: sess, date: sess, desc: desc})
+		}
+
+		m.list.SetItems(items)
+		m.list.Title = "Select a Session to Load"
+		m.viewMode = ListView // Switch to List View
+		m.textarea.Reset()
 		return m, nil
 
 	case "/help":
@@ -108,7 +110,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /search <pattern> | Search for pattern in files |
 | /patch | Enter patch ingestion mode |
 | /edit <path> | Edit a file |
+
 | /append <path> | Append to a file |
+| /pick | Open file picker to read a file |
 | /define-agent | Define a new specialist agent |
 | /agents | List defined agents |
 | /spawn <type> <task> | Spawn a shard agent |
@@ -162,7 +166,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/status":
@@ -175,7 +179,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/legislate":
@@ -187,7 +191,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 		task := strings.TrimSpace(strings.TrimPrefix(input, "/legislate"))
@@ -198,7 +202,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("legislator", task))
 
 	case "/clarify":
@@ -210,7 +214,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 		task := strings.TrimSpace(strings.TrimPrefix(input, "/clarify"))
@@ -221,7 +225,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("requirements_interrogator", task))
 
 	case "/launchcampaign":
@@ -233,7 +237,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 		goal := strings.TrimSpace(strings.TrimPrefix(input, "/launchcampaign"))
@@ -244,7 +248,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, tea.Batch(m.spinner.Tick, m.runLaunchCampaign(goal))
 
 	case "/init":
@@ -266,7 +270,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 
@@ -277,7 +281,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runInit())
 
@@ -289,7 +293,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runScan())
 
@@ -302,7 +306,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 		targets := strings.Split(parts[1], ",")
@@ -313,7 +317,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runPartialScan(targets))
 
@@ -326,7 +330,7 @@ or you can create them on-demand with /tool generate.
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			return m, nil
 		}
 		dir := parts[1]
@@ -337,7 +341,7 @@ or you can create them on-demand with /tool generate.
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runDirScan(dir))
 
@@ -359,7 +363,7 @@ or you can create them on-demand with /tool generate.
 			// Enter config wizard mode
 			m.awaitingConfigWizard = true
 			m.configWizard = NewConfigWizard()
-			m.textinput.Placeholder = "Press Enter to start..."
+			m.textarea.Placeholder = "Press Enter to start..."
 			m.history = append(m.history, Message{
 				Role: "assistant",
 				Content: `## codeNERD Configuration Wizard
@@ -432,7 +436,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/embedding":
@@ -554,7 +558,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/read":
@@ -583,7 +587,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/mkdir":
@@ -611,7 +615,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/write":
@@ -640,7 +644,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/search":
@@ -680,13 +684,13 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/patch":
 		m.awaitingPatch = true
 		m.pendingPatchLines = nil
-		m.textinput.Placeholder = "Paste patch lines (type --END-- when done)..."
+		m.textarea.Placeholder = "Paste patch lines (type --END-- when done)..."
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: "Patch mode enabled. Paste your patch line by line, then type `--END--` to apply.",
@@ -694,7 +698,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/edit":
@@ -723,7 +727,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/append":
@@ -752,14 +756,19 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
+
+	case "/pick":
+		m.viewMode = FilePickerView
+		m.textarea.Reset()
+		return m, m.filepicker.Init()
 
 	case "/define-agent", "/agent":
 		// Enter agent definition wizard
 		m.awaitingAgentDefinition = true
 		m.agentWizard = &AgentWizardState{Step: 0} // Start at step 0 (Name)
-		m.textinput.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
+		m.textarea.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: "**Agent Creation Wizard**\n\nLet's define a new specialist agent.\n\n**Step 1:** What should we name this agent? (Alphanumeric, e.g., `RustExpert`, `SecurityAuditor`)",
@@ -767,7 +776,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/learn":
@@ -778,7 +787,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 
 		return m, func() tea.Msg {
 			// Trigger the Ouroboros Loop
@@ -841,7 +850,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/spawn":
@@ -861,13 +870,13 @@ Press **Enter** to begin...`,
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.spawnShard(shardType, task))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/review":
@@ -883,7 +892,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))
 
@@ -900,7 +909,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))
 
@@ -917,7 +926,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("reviewer", task))
 
@@ -934,7 +943,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.spawnShard("tester", task))
 
@@ -955,13 +964,13 @@ Press **Enter** to begin...`,
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/refactor":
@@ -981,13 +990,13 @@ Press **Enter** to begin...`,
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/query":
@@ -1027,7 +1036,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/why":
@@ -1048,7 +1057,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/logic":
@@ -1076,7 +1085,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/shadow":
@@ -1095,13 +1104,13 @@ Press **Enter** to begin...`,
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.runShadowSimulation(action))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/whatif":
@@ -1120,13 +1129,13 @@ Press **Enter** to begin...`,
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.isLoading = true
 			return m, tea.Batch(m.spinner.Tick, m.runWhatIfQuery(change))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/approve":
@@ -1137,7 +1146,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/campaign":
@@ -1166,7 +1175,7 @@ Press **Enter** to begin...`,
 					})
 					m.viewport.SetContent(m.renderHistory())
 					m.viewport.GotoBottom()
-					m.textinput.Reset()
+					m.textarea.Reset()
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 				}
@@ -1201,7 +1210,7 @@ Press **Enter** to begin...`,
 					})
 					m.viewport.SetContent(m.renderHistory())
 					m.viewport.GotoBottom()
-					m.textinput.Reset()
+					m.textarea.Reset()
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.resumeCampaign())
 				} else {
@@ -1222,7 +1231,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	case "/tool":
@@ -1262,7 +1271,7 @@ Press **Enter** to begin...`,
 					})
 					m.viewport.SetContent(m.renderHistory())
 					m.viewport.GotoBottom()
-					m.textinput.Reset()
+					m.textarea.Reset()
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.runTool(toolName, toolInput))
 				}
@@ -1298,7 +1307,7 @@ Press **Enter** to begin...`,
 					})
 					m.viewport.SetContent(m.renderHistory())
 					m.viewport.GotoBottom()
-					m.textinput.Reset()
+					m.textarea.Reset()
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.generateTool(description))
 				}
@@ -1312,7 +1321,7 @@ Press **Enter** to begin...`,
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 
 	default:
@@ -1323,7 +1332,7 @@ Press **Enter** to begin...`,
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 	}
 }

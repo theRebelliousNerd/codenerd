@@ -47,13 +47,14 @@ type KernelInterface interface {
 
 // Config holds configuration for the autopoiesis system
 type Config struct {
-	ToolsDir      string  // Directory for generated tools
-	AgentsDir     string  // Directory for agent definitions
-	MinConfidence float64 // Minimum confidence to trigger autopoiesis
-	EnableLLM     bool    // Whether to use LLM for analysis
-	TargetOS      string  // Target GOOS for tool compilation
-	TargetArch    string  // Target GOARCH for tool compilation
-	WorkspaceRoot string  // Absolute workspace root for module replacement
+	ToolsDir         string  // Directory for generated tools
+	AgentsDir        string  // Directory for agent definitions
+	MinConfidence    float64 // Minimum confidence to trigger autopoiesis
+	EnableLLM        bool    // Whether to use LLM for analysis
+	TargetOS         string  // Target GOOS for tool compilation
+	TargetArch       string  // Target GOARCH for tool compilation
+	WorkspaceRoot    string  // Absolute workspace root for module replacement
+	MaxLearningFacts int     // Maximum number of learning event facts to keep
 }
 
 // DefaultConfig returns default configuration
@@ -379,8 +380,7 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 			learning.AverageQuality,
 		)
 
-		// Prune known issues? Issues are cumulative, but maybe we want to refresh provided list
-		// For now, let's also retract known issues for this tool
+		// Prune known issues
 		_ = o.kernel.RetractFact(KernelFact{
 			Predicate: "tool_known_issue",
 			Args:      []interface{}{learning.ToolName},
@@ -490,7 +490,51 @@ func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string,
 	if success {
 		successStr = "/true"
 	}
-	_ = o.assertToKernel("code_edit_outcome", elementRef, "/"+editType, successStr)
+
+	timestamp := time.Now().Unix()
+
+	// Prune old events if we exceed the limit
+	// We use the 4-arity predicate code_edit_outcome(Ref, Type, Success, Timestamp)
+	facts, err := o.kernel.QueryPredicate("code_edit_outcome")
+	if err == nil && len(facts) >= o.config.MaxLearningFacts {
+		// Find oldest fact to retract
+		// Note: This assumes all facts are 4-arity and 4th arg is timestamp (int/int64/float64)
+		var oldestFact *KernelFact
+		var oldestTime int64 = -1
+
+		for _, f := range facts {
+			if len(f.Args) < 4 {
+				continue // Ignore legacy 3-arity facts
+			}
+
+			// Extract timestamp
+			var ts int64
+			switch v := f.Args[3].(type) {
+			case int:
+				ts = int64(v)
+			case int64:
+				ts = v
+			case float64:
+				ts = int64(v)
+			default:
+				continue
+			}
+
+			if oldestTime == -1 || ts < oldestTime {
+				oldestTime = ts
+				// Copy loop variable
+				factCopy := f
+				oldestFact = &factCopy
+			}
+		}
+
+		if oldestFact != nil {
+			_ = o.kernel.RetractFact(*oldestFact)
+		}
+	}
+
+	// Assert new fact with timestamp
+	_ = o.assertToKernel("code_edit_outcome", elementRef, "/"+editType, successStr, timestamp)
 }
 
 // QueryNextAction queries the kernel for derived next_action facts.

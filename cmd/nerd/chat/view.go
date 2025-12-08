@@ -68,6 +68,18 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
+	// Handle List View Mode
+	if m.viewMode == ListView {
+		return m.styles.Content.Render(m.list.View())
+	}
+
+	// Handle File Picker Mode
+	if m.viewMode == FilePickerView {
+		title := m.styles.Header.Render(" Select a file ")
+		content := m.styles.Content.Render(m.filepicker.View())
+		return lipgloss.JoinVertical(lipgloss.Left, title, content)
+	}
+
 	// Header
 	header := m.renderHeader()
 
@@ -101,7 +113,7 @@ func (m Model) View() string {
 		BorderForeground(m.styles.Theme.Accent).
 		Padding(0, 1)
 
-	inputArea := inputStyle.Render(m.textinput.View())
+	inputArea := inputStyle.Render(m.textarea.View())
 
 	// Footer (with mode indicator)
 	footer := m.renderFooter()

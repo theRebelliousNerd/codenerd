@@ -49,7 +49,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 			Content: fmt.Sprintf("Great, I'll call it **%s**.\n\nWhat is this agent's primary role or domain of expertise?\n(e.g., 'Expert in async Rust programming and Tokio runtime')", name),
 			Time:    time.Now(),
 		})
-		m.textinput.Placeholder = "Describe the agent's role..."
+		m.textarea.Placeholder = "Describe the agent's role..."
 		return m, nil
 
 	case 1: // Role
@@ -69,25 +69,25 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 			Content: fmt.Sprintf("Got it: *%s*.\n\nFinally, what specific topics, libraries, or documentation URLs should this agent study?\nThis will be used to populate its knowledge base via Context7 and Deep Research.\n(e.g., 'https://docs.rs/tokio', 'actix-web', 'async traits')", role),
 			Time:    time.Now(),
 		})
-		m.textinput.Placeholder = "Enter topics or URLs..."
+		m.textarea.Placeholder = "Enter topics or URLs..."
 		return m, nil
 
 	case 2: // Topics/Docs -> Trigger Research
 		topics := strings.TrimSpace(input)
 		m.agentWizard.Topics = topics
 		m.agentWizard.IsResearching = true
-		
+
 		// Transition out of wizard mode in UI, but keep state for async process
 		m.awaitingAgentDefinition = false
-		m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
-		
+		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
+
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Defining agent **%s**...\n\nInitializing Deep Research on: %s\nThis may take a moment.", m.agentWizard.Name, topics),
 			Time:    time.Now(),
 		})
-		
-m.isLoading = true
+
+		m.isLoading = true
 		return m, tea.Batch(
 			m.spinner.Tick,
 			m.runAgentResearch(m.agentWizard),
@@ -123,7 +123,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		// 3. Persist Agent Profile
 		// Extract stats from result if possible, or estimate
 		// Result string format: "Researched ... gathered N knowledge atoms ..."
-		// We'll just default to "Active" and 0 size if we can't parse easily, 
+		// We'll just default to "Active" and 0 size if we can't parse easily,
 		// or assume result contains the summary.
 		// For now, we persist so it survives restart.
 		if err := persistAgentProfile(m.workspace, wizard.Name, "persistent", config.KnowledgePath, 0, "active"); err != nil {

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/autopoiesis"
 	"codenerd/internal/mangle"
 	"fmt"
 	"os"
@@ -929,3 +930,64 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 
 	return facts, nil
 }
+
+// =============================================================================
+// AUTOPOIESIS BRIDGE (Formerly Kernel Adapter)
+// =============================================================================
+
+// AutopoiesisBridge wraps RealKernel to implement autopoiesis.KernelInterface.
+type AutopoiesisBridge struct {
+	kernel *RealKernel
+}
+
+// NewAutopoiesisBridge creates an adapter that implements autopoiesis.KernelInterface.
+func NewAutopoiesisBridge(kernel *RealKernel) *AutopoiesisBridge {
+	return &AutopoiesisBridge{kernel: kernel}
+}
+
+// AssertFact implements autopoiesis.KernelInterface.
+func (ab *AutopoiesisBridge) AssertFact(fact autopoiesis.KernelFact) error {
+	coreFact := Fact{
+		Predicate: fact.Predicate,
+		Args:      fact.Args,
+	}
+	return ab.kernel.Assert(coreFact)
+}
+
+// QueryPredicate implements autopoiesis.KernelInterface.
+func (ab *AutopoiesisBridge) QueryPredicate(predicate string) ([]autopoiesis.KernelFact, error) {
+	facts, err := ab.kernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]autopoiesis.KernelFact, len(facts))
+	for i, f := range facts {
+		result[i] = autopoiesis.KernelFact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return result, nil
+}
+
+// QueryBool implements autopoiesis.KernelInterface.
+func (ab *AutopoiesisBridge) QueryBool(predicate string) bool {
+	facts, err := ab.kernel.Query(predicate)
+	if err != nil {
+		return false
+	}
+	return len(facts) > 0
+}
+
+// RetractFact implements autopoiesis.KernelInterface.
+func (ab *AutopoiesisBridge) RetractFact(fact autopoiesis.KernelFact) error {
+	coreFact := Fact{
+		Predicate: fact.Predicate,
+		Args:      fact.Args,
+	}
+	return ab.kernel.RetractFact(coreFact)
+}
+
+// Ensure AutopoiesisBridge implements KernelInterface at compile time.
+var _ autopoiesis.KernelInterface = (*AutopoiesisBridge)(nil)
