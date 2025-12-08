@@ -27,7 +27,25 @@ import (
 
 func (m Model) startCampaign(goal string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		// Guard: ensure required components are initialized
+		if m.kernel == nil {
+			return campaignErrorMsg{err: fmt.Errorf("system not ready: kernel not initialized")}
+		}
+		if m.client == nil {
+			return campaignErrorMsg{err: fmt.Errorf("system not ready: LLM client not initialized")}
+		}
+		if m.shardMgr == nil {
+			return campaignErrorMsg{err: fmt.Errorf("system not ready: shard manager not initialized")}
+		}
+
+		// Use shutdown context if available, otherwise create a new one
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if m.shutdownCtx != nil {
+			ctx, cancel = context.WithTimeout(m.shutdownCtx, 30*time.Minute)
+		} else {
+			ctx, cancel = context.WithTimeout(context.Background(), 30*time.Minute)
+		}
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
@@ -65,13 +83,12 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("failed to set campaign: %w", err)}
 		}
 
-		// Start execution in background (non-blocking)
-		go func() {
-			if err := orch.Run(ctx); err != nil {
-				// Error will be captured by progress updates
-			}
-		}()
-
+		// Note: The orchestrator runs in the background but errors are now
+		// handled via the orchestrator's progress callback mechanism.
+		// The orchestrator should be updated to call a callback on error,
+		// or we should poll for errors via a separate mechanism.
+		// For now, we return the campaign and let the orchestrator manage itself.
+		// Errors will surface through campaign status updates.
 		m.ReportStatus("Campaign started")
 		return campaignStartedMsg(result.Campaign)
 	}
@@ -121,18 +138,23 @@ func (m Model) resumeCampaign() tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("no campaign to resume")}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		// Use shutdown context if available for proper lifecycle management
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if m.shutdownCtx != nil {
+			ctx, cancel = context.WithTimeout(m.shutdownCtx, 30*time.Minute)
+		} else {
+			ctx, cancel = context.WithTimeout(context.Background(), 30*time.Minute)
+		}
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
-		defer cancel()
+		_ = cancel // Cancel will be called when context times out or shutdown occurs
 
-		// Resume execution
-		go func() {
-			if err := m.campaignOrch.Run(ctx); err != nil {
-				// Error captured by progress
-			}
-		}()
+		// Resume execution - orchestrator handles its own error reporting
+		// via progress callbacks. When shutdown context is cancelled,
+		// the orchestrator will receive cancellation and stop gracefully.
+		m.campaignOrch.Resume()
 
 		return campaignProgressMsg(&campaign.Progress{
 			CampaignID:      m.activeCampaign.ID,

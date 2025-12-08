@@ -13,11 +13,13 @@ package chat
 
 import (
 	"context"
+	"sync"
 
 	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
@@ -61,6 +63,20 @@ const (
 	FilePickerView
 	UsageView
 	CampaignPage
+)
+
+// InputMode represents the current input handling state.
+// This unifies the scattered awaiting* flags into a single state machine
+// to prevent inconsistent states and simplify Update() logic.
+type InputMode int
+
+const (
+	InputModeNormal       InputMode = iota // Default: process as chat input
+	InputModeClarification                  // Awaiting clarification response
+	InputModePatch                          // Awaiting patch input (--END-- terminated)
+	InputModeAgentWizard                    // Agent definition wizard active
+	InputModeConfigWizard                   // Config wizard active
+	InputModeCampaignLaunch                 // Campaign launch clarification
 )
 
 // sessionItem is a list item for the session list
@@ -148,6 +164,8 @@ type Model struct {
 	scanner             *world.Scanner
 	workspace           string
 	DisableSystemShards []string
+	browserMgr          *browser.SessionManager // Browser automation manager
+	browserCtxCancel    context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
 	activeCampaign    *campaign.Campaign
@@ -201,6 +219,87 @@ type Model struct {
 	// Context State
 	lastShardResult    *ShardResult
 	shardResultHistory []*ShardResult
+
+	// Unified Input Mode (replaces scattered awaiting* flags)
+	// Use this for new code; legacy flags preserved for compatibility during migration
+	inputMode InputMode
+
+	// Shutdown coordination
+	shutdownOnce    sync.Once      // Ensures Shutdown() is only called once
+	shutdownCtx     context.Context // Root context for all background operations
+	shutdownCancel  context.CancelFunc // Cancels shutdownCtx on quit
+}
+
+// Shutdown gracefully stops all background goroutines and releases resources.
+// Safe to call multiple times - only executes once.
+// MUST be called before tea.Quit to prevent goroutine leaks.
+func (m *Model) Shutdown() {
+	m.shutdownOnce.Do(func() {
+		// Cancel all background operations via root context
+		if m.shutdownCancel != nil {
+			m.shutdownCancel()
+		}
+
+		// Cancel autopoiesis listener goroutine
+		if m.autopoiesisCancel != nil {
+			m.autopoiesisCancel()
+			// Wait for listener to stop (with timeout)
+			if m.autopoiesisListenerCh != nil {
+				select {
+				case <-m.autopoiesisListenerCh:
+					// Listener stopped cleanly
+				case <-time.After(2 * time.Second):
+					// Timeout - listener may be stuck, proceed anyway
+				}
+			}
+		}
+
+		// Stop browser manager goroutine
+		if m.browserCtxCancel != nil {
+			m.browserCtxCancel()
+		}
+		if m.browserMgr != nil {
+			// Give it a moment to stop gracefully
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = m.browserMgr.Shutdown(ctx)
+		}
+
+		// Stop campaign orchestrator if running
+		if m.campaignOrch != nil {
+			m.campaignOrch.Stop()
+		}
+
+		// Close status channel to unblock waitForStatus
+		if m.statusChan != nil {
+			close(m.statusChan)
+		}
+
+		// Close local database connection
+		if m.localDB != nil {
+			m.localDB.Close()
+		}
+
+		// Stop all active shards
+		if m.shardMgr != nil {
+			m.shardMgr.StopAll()
+		}
+	})
+}
+
+// IsKernelReady returns true if the kernel is initialized and ready for queries.
+// Use this guard before any kernel operations in commands.
+func (m *Model) IsKernelReady() bool {
+	return m.kernel != nil && !m.isBooting
+}
+
+// performShutdown is a value-receiver wrapper for Shutdown() that can be called
+// from Update(). It uses a local copy to call the pointer method.
+func (m Model) performShutdown() {
+	// Create a temporary pointer to call Shutdown
+	// This is safe because Shutdown uses sync.Once internally
+	modelPtr := &m
+	modelPtr.Shutdown()
 }
 
 // statusMsg represents a status update from a background process
@@ -330,6 +429,8 @@ type SystemComponents struct {
 	AutopoiesisListenerCh <-chan struct{}
 	SessionID             string
 	TurnCount             int
+	BrowserManager        *browser.SessionManager
+	BrowserCtxCancel      context.CancelFunc // Cancels browser manager goroutine
 	Workspace             string
 }
 
@@ -358,6 +459,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global Keybindings (Ctrl+C, Esc)
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			// Graceful shutdown before quit
+			m.performShutdown()
 			return m, tea.Quit
 		case tea.KeyEsc:
 			if m.viewMode == ListView {
@@ -369,6 +472,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// Only Quit if not in List View
+			m.performShutdown()
 			return m, tea.Quit
 		}
 
@@ -873,30 +977,11 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.autopoiesisCancel = c.AutopoiesisCancel
 			m.autopoiesisListenerCh = c.AutopoiesisListenerCh
 			m.verifier = c.Verifier
-
-			// Client is set based on what was initialized (Tracing vs Base)
 			m.client = c.Client
-			// Client is set based on what was initialized (Tracing vs Base)
-			// But Model struct has `client perception.LLMClient`.
-			// In performSystemBoot we need to see what client was created.
-			// Ah, performSystemBoot should probably return the client too, or attach it to ShardMgr which we have.
-			// ShardMgr has GetLLMClient? No.
-			// But we wired shardMgr with the client.
-			// Let's check session.go again... I didn't put Client in SystemComponents.
-			// I should update SystemComponents in session.go or just infer it.
-			// Actually, I can add Client to SystemComponents since I'm already modifying session.go?
-			// No, I finished session.go edit. I missed `Client` field in `SystemComponents` struct definition in session.go.
-			// I defined `SystemComponents` in the previous step. Let me check if I added LLMClient.
-			// I did NOT add LLMClient to SystemComponents.
-			// But I did assign `llmClient` variable in `performSystemBoot`.
-			// I need to fix `session.go` to include `LLMClient` in `SystemComponents` and return it.
-			// For now, I will treat this as a fix I need to do concurrently or sequentially.
-			// Wait, if I don't assign `m.client`, then `InitChat` sets it to nil initially.
-			// Operations that use `m.client` will panic.
 
-			// I MUST fix `session.go` to return the client.
-			// I will abort this `model.go` edit, fix `session.go` first, then come back.
-			// OR I can use `m.shardMgr` to get client if possible? No.
+			// Wire browser manager for graceful shutdown
+			m.browserMgr = c.BrowserManager
+			m.browserCtxCancel = c.BrowserCtxCancel
 		}
 
 		// Append any initial messages generated during boot
@@ -973,6 +1058,11 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 // processClarificationResponse continues processing after user provides clarification
 func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent) tea.Cmd {
 	return func() tea.Msg {
+		// Guard: kernel must be initialized
+		if m.kernel == nil {
+			return errorMsg(fmt.Errorf("system not ready: kernel not initialized"))
+		}
+
 		// Inject the clarification fact into the kernel
 		clarificationFact := core.Fact{
 			Predicate: "focus_clarification",
