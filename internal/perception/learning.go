@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -128,7 +129,12 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 
 	// 3. Append to persistent storage (Long-term Memory)
 	// We separate "Schema" (learning.mg) from "Data" (learned.mg)
-	path := "internal/mangle/learned.mg"
+	// Write to user's workspace
+	targetDir := filepath.Join(".nerd", "mangle")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("failed to create learning directory: %w", err)
+	}
+	path := filepath.Join(targetDir, "learned.mg")
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {

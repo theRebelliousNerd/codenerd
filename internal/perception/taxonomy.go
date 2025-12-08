@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"context"
 	"fmt"
@@ -39,23 +40,24 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	}
 
 	// Load Intent Definition Schema (Canonical Examples)
-	intentPath := "internal/mangle/schema/intent.mg"
-	if _, err := os.Stat(intentPath); err == nil {
-		if err := eng.LoadSchema(intentPath); err != nil {
+	intentContent, err := core.GetDefaultContent("schema/intent.mg")
+	if err == nil {
+		if err := eng.LoadSchemaString(intentContent); err != nil {
 			return nil, fmt.Errorf("failed to load intent schema: %w", err)
 		}
 	} else {
-		fmt.Printf("WARNING: intent.mg not found at %s\n", intentPath)
+		// Fallback to disk (dev mode) or warn
+		fmt.Printf("WARNING: intent.mg not found in embedded defaults: %v\n", err)
 	}
 
 	// Load Learning Schema (Ouroboros)
-	learningSchemaPath := "internal/mangle/schema/learning.mg"
-	if _, err := os.Stat(learningSchemaPath); err == nil {
-		if err := eng.LoadSchema(learningSchemaPath); err != nil {
+	learningContent, err := core.GetDefaultContent("schema/learning.mg")
+	if err == nil {
+		if err := eng.LoadSchemaString(learningContent); err != nil {
 			return nil, fmt.Errorf("failed to load learning schema: %w", err)
 		}
 	} else {
-		fmt.Printf("WARNING: learning.mg not found at %s. Using fallback declaration.\n", learningSchemaPath)
+		fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
 		// Fallback declaration if file missing, to satisfy InferenceLogicMG
 		if err := eng.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
 			return nil, fmt.Errorf("failed to define fallback learned_exemplar: %w", err)

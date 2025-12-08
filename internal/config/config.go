@@ -242,8 +242,8 @@ func DefaultConfig() *Config {
 		},
 
 		Mangle: MangleConfig{
-			SchemaPath:   "internal/mangle/schemas.mg",
-			PolicyPath:   "internal/mangle/policy.mg",
+			SchemaPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
+			PolicyPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
 			FactLimit:    1000000,
 			QueryTimeout: "30s",
 		},
