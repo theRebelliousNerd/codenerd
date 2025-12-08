@@ -7,6 +7,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,9 @@ import (
 func (m Model) processInput(input string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		if m.usageTracker != nil {
+			ctx = usage.NewContext(ctx, m.usageTracker)
+		}
 		defer cancel()
 
 		trimmed := strings.TrimSpace(input)

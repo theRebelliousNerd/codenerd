@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/tactile"
+	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
 	"encoding/json"
@@ -503,6 +504,15 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	}
 
 	// 1. Initialize Components (Cortex 1.5.0)
+	// Initialize Usage Tracker (Fix for missing usage stats)
+	tracker, err := usage.NewTracker(workspace)
+	if err != nil {
+		logger.Warn("Failed to initialize usage tracker", zap.Error(err))
+	} else {
+		// Inject tracker into context
+		ctx = usage.NewContext(ctx, tracker)
+	}
+
 	llmClient := perception.NewZAIClient(key)
 	transducer := perception.NewRealTransducer(llmClient)
 
