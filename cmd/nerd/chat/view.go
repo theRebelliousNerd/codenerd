@@ -80,16 +80,18 @@ func (m Model) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, title, content)
 	}
 
+	// Handle Usage View Mode
+	if m.viewMode == UsageView {
+		return m.styles.Content.Render(m.usagePage.View())
+	}
+
 	// Header
 	header := m.renderHeader()
 
 	// Chat viewport
 	chatView := m.styles.Content.Render(m.viewport.View())
 
-	// Loading indicator
-	if m.isLoading {
-		chatView += "\n" + m.styles.Spinner.Render(m.spinner.View()) + " Thinking..."
-	}
+	// Loading indicator handled in Header/Footer to prevent scrolling glitches
 
 	// Error display
 	if m.err != nil {

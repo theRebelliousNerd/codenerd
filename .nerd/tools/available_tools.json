@@ -1,0 +1,87 @@
+[
+  {
+    "name": "go_build",
+    "display_name": "Go Build",
+    "category": "build",
+    "description": "Build Go project",
+    "command": "go build ./...",
+    "working_dir": ".",
+    "input_type": "args",
+    "output_type": "stdout",
+    "shard_affinity": "CoderShard",
+    "conditions": [
+      "go.mod exists"
+    ]
+  },
+  {
+    "name": "go_test",
+    "display_name": "Go Test",
+    "category": "test",
+    "description": "Run Go tests",
+    "command": "go test -v ./...",
+    "working_dir": ".",
+    "input_type": "args",
+    "output_type": "stdout",
+    "shard_affinity": "TesterShard",
+    "conditions": [
+      "go.mod exists"
+    ]
+  },
+  {
+    "name": "go_lint",
+    "display_name": "GolangCI-Lint",
+    "category": "lint",
+    "description": "Run golangci-lint",
+    "command": "golangci-lint run",
+    "working_dir": ".",
+    "input_type": "args",
+    "output_type": "stdout",
+    "shard_affinity": "ReviewerShard",
+    "conditions": [
+      "go.mod exists",
+      "golangci-lint installed"
+    ]
+  },
+  {
+    "name": "go_fmt",
+    "display_name": "Go Format",
+    "category": "format",
+    "description": "Format Go code",
+    "command": "go fmt ./...",
+    "working_dir": ".",
+    "input_type": "args",
+    "output_type": "stdout",
+    "shard_affinity": "CoderShard",
+    "conditions": [
+      "go.mod exists"
+    ]
+  },
+  {
+    "name": "go_mod_tidy",
+    "display_name": "Go Mod Tidy",
+    "category": "deps",
+    "description": "Tidy Go modules",
+    "command": "go mod tidy",
+    "working_dir": ".",
+    "input_type": "none",
+    "output_type": "stdout",
+    "shard_affinity": "CoderShard",
+    "conditions": [
+      "go.mod exists"
+    ]
+  },
+  {
+    "name": "go_vet",
+    "display_name": "Go Vet",
+    "category": "lint",
+    "description": "Run go vet",
+    "command": "go vet ./...",
+    "working_dir": ".",
+    "input_type": "args",
+    "output_type": "stdout",
+    "shard_affinity": "ReviewerShard",
+    "conditions": [
+      "go.mod exists"
+    ]
+  }
+]

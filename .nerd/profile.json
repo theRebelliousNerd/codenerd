@@ -2,8 +2,8 @@
   "project_id": "proj_d26dfcf83be",
   "name": "codeNERD",
   "description": "",
-  "created_at": "2025-12-06T15:43:29.8081666-05:00",
-  "updated_at": "2025-12-06T15:43:29.8081666-05:00",
+  "created_at": "2025-12-08T00:12:19.1419961-05:00",
+  "updated_at": "2025-12-08T00:12:19.1419961-05:00",
   "language": "go",
   "architecture": "unknown",
   "dependencies": [
@@ -28,6 +28,6 @@
       "type": "direct"
     }
   ],
-  "file_count": 184,
-  "directory_count": 36
+  "file_count": 301,
+  "directory_count": 50
 }

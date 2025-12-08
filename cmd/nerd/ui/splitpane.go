@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/mangle"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -53,6 +55,54 @@ type LogicPane struct {
 	SelectedNode   int
 	Nodes          []*DerivationNode // Flattened list for navigation
 	ScrollOffset   int
+}
+
+// SetTraceMangle adapts a backend trace to the UI model
+func (p *LogicPane) SetTraceMangle(trace *mangle.DerivationTrace) {
+	if trace == nil {
+		p.SetTrace(nil)
+		return
+	}
+
+	uiTrace := &DerivationTrace{
+		Query:       trace.Query,
+		TotalFacts:  len(trace.AllNodes),
+		DerivedTime: trace.Duration,
+		RootNodes:   make([]*DerivationNode, len(trace.RootNodes)),
+	}
+
+	for i, node := range trace.RootNodes {
+		uiTrace.RootNodes[i] = convertMangleNodeToUI(node)
+	}
+
+	p.SetTrace(uiTrace)
+}
+
+func convertMangleNodeToUI(node *mangle.DerivationNode) *DerivationNode {
+	// Convert args to strings
+	args := make([]string, len(node.Fact.Args))
+	for i, arg := range node.Fact.Args {
+		args[i] = fmt.Sprintf("%v", arg)
+	}
+
+	uiNode := &DerivationNode{
+		Predicate: node.Fact.Predicate,
+		Args:      args,
+		Source:    string(node.Source), // "EDB" or "IDB"
+		Rule:      node.RuleName,
+		Depth:     node.Depth,
+		Children:  make([]*DerivationNode, len(node.Children)),
+		// UI specific defaults
+		Expanded:   true, // Expand by default
+		Timestamp:  node.Timestamp,
+		Activation: 0.0, // Backend doesn't provide this yet
+	}
+
+	for i, child := range node.Children {
+		uiNode.Children[i] = convertMangleNodeToUI(child)
+	}
+
+	return uiNode
 }
 
 // NewLogicPane creates a new logic visualization pane
@@ -361,7 +411,7 @@ func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 		Mode:       ModeSinglePane,
 		Width:      width,
 		Height:     height,
-		SplitRatio: 0.65,
+		SplitRatio: 0.5,
 		FocusRight: false,
 	}
 }
