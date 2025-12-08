@@ -1,0 +1,257 @@
+import asyncio
+import logging
+import json
+import time
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional, Any, Callable
+from dataclasses import dataclass, field
+from enum import Enum
+import uuid
+
+
+class AgentState(Enum):
+    INITIALIZING = "initializing"
+    ACTIVE = "active"
+    IDLE = "idle"
+    ERROR = "error"
+    TERMINATED = "terminated"
+
+
+@dataclass
+class ShardConfig:
+    shard_id: str
+    shard_type: str
+    capacity: int
+    priority: int = 1
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AgentMessage:
+    message_id: str
+    source_id: str
+    target_id: str
+    message_type: str
+    payload: Dict[str, Any]
+    timestamp: float = field(default_factory=time.time)
+
+
+class BaseShardAgent(ABC):
+    def __init__(self, agent_id: str, config: ShardConfig):
+        self.agent_id = agent_id
+        self.config = config
+        self.state = AgentState.INITIALIZING
+        self.message_queue = asyncio.Queue()
+        self.handlers: Dict[str, Callable] = {}
+        self.logger = logging.getLogger(f"Agent-{agent_id}")
+        self._running = False
+        self._task: Optional[asyncio.Task] = None
+        self.metrics = {
+            "messages_processed": 0,
+            "errors": 0,
+            "start_time": time.time()
+        }
+
+    async def initialize(self) -> bool:
+        try:
+            self.logger.info(f"Initializing agent {self.agent_id}")
+            await self._setup_handlers()
+            await self._validate_configuration()
+            await self._initialize_resources()
+            self.state = AgentState.IDLE
+            self.logger.info(f"Agent {self.agent_id} initialized successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to initialize agent {self.agent_id}: {str(e)}")
+            self.state = AgentState.ERROR
+            return False
+
+    async def start(self) -> None:
+        if self.state == AgentState.INITIALIZING:
+            if not await self.initialize():
+                raise RuntimeError(f"Agent {self.agent_id} failed to initialize")
+        
+        if self.state == AgentState.ERROR:
+            raise RuntimeError(f"Cannot start agent {self.agent_id} in ERROR state")
+        
+        self._running = True
+        self.state = AgentState.ACTIVE
+        self._task = asyncio.create_task(self._run_loop())
+        self.logger.info(f"Agent {self.agent_id} started")
+
+    async def stop(self) -> None:
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        
+        await self._cleanup_resources()
+        self.state = AgentState.TERMINATED
+        self.logger.info(f"Agent {self.agent_id} stopped")
+
+    async def send_message(self, target_id: str, message_type: str, payload: Dict[str, Any]) -> None:
+        message = AgentMessage(
+            message_id=str(uuid.uuid4()),
+            source_id=self.agent_id,
+            target_id=target_id,
+            message_type=message_type,
+            payload=payload
+        )
+        await self._deliver_message(message)
+
+    async def receive_message(self, message: AgentMessage) -> None:
+        await self.message_queue.put(message)
+
+    async def get_status(self) -> Dict[str, Any]:
+        return {
+            "agent_id": self.agent_id,
+            "state": self.state.value,
+            "config": self.config.__dict__,
+            "metrics": self.metrics.copy(),
+            "queue_size": self.message_queue.qsize()
+        }
+
+    @abstractmethod
+    async def _setup_handlers(self) -> None:
+        pass
+
+    @abstractmethod
+    async def _validate_configuration(self) -> None:
+        pass
+
+    @abstractmethod
+    async def _initialize_resources(self) -> None:
+        pass
+
+    @abstractmethod
+    async def _cleanup_resources(self) -> None:
+        pass
+
+    @abstractmethod
+    async def _deliver_message(self, message: AgentMessage) -> None:
+        pass
+
+    async def _run_loop(self) -> None:
+        while self._running:
+            try:
+                message = await asyncio.wait_for(self.message_queue.get(), timeout=1.0)
+                await self._process_message(message)
+                self.metrics["messages_processed"] += 1
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                self.logger.error(f"Error processing message: {str(e)}")
+                self.metrics["errors"] += 1
+
+    async def _process_message(self, message: AgentMessage) -> None:
+        handler = self.handlers.get(message.message_type)
+        if handler:
+            try:
+                await handler(message)
+            except Exception as e:
+                self.logger.error(f"Handler error for {message.message_type}: {str(e)}")
+                self.metrics["errors"] += 1
+        else:
+            self.logger.warning(f"No handler for message type: {message.message_type}")
+
+
+class ShardAgentRegistry:
+    def __init__(self):
+        self.agents: Dict[str, BaseShardAgent] = {}
+        self.logger = logging.getLogger("ShardRegistry")
+
+    async def register_agent(self, agent: BaseShardAgent) -> bool:
+        if agent.agent_id in self.agents:
+            self.logger.warning(f"Agent {agent.agent_id} already registered")
+            return False
+        
+        self.agents[agent.agent_id] = agent
+        self.logger.info(f"Registered agent {agent.agent_id}")
+        return True
+
+    async def unregister_agent(self, agent_id: str) -> bool:
+        if agent_id not in self.agents:
+            self.logger.warning(f"Agent {agent_id} not found")
+            return False
+        
+        agent = self.agents.pop(agent_id)
+        await agent.stop()
+        self.logger.info(f"Unregistered agent {agent_id}")
+        return True
+
+    def get_agent(self, agent_id: str) -> Optional[BaseShardAgent]:
+        return self.agents.get(agent_id)
+
+    async def start_all_agents(self) -> None:
+        for agent in self.agents.values():
+            try:
+                await agent.start()
+            except Exception as e:
+                self.logger.error(f"Failed to start agent {agent.agent_id}: {str(e)}")
+
+    async def stop_all_agents(self) -> None:
+        for agent in self.agents.values():
+            try:
+                await agent.stop()
+            except Exception as e:
+                self.logger.error(f"Failed to stop agent {agent.agent_id}: {str(e)}")
+
+    async def get_registry_status(self) -> Dict[str, Any]:
+        return {
+            "total_agents": len(self.agents),
+            "agents": {aid: await agent.get_status() for aid, agent in self.agents.items()}
+        }
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    registry = ShardAgentRegistry()
+    
+    config = ShardConfig(
+        shard_id="shard-001",
+        shard_type="compute",
+        capacity=100
+    )
+    
+    class ExampleAgent(BaseShardAgent):
+        async def _setup_handlers(self) -> None:
+            self.handlers["ping"] = self._handle_ping
+            self.handlers["status"] = self._handle_status
+        
+        async def _validate_configuration(self) -> None:
+            if self.config.capacity <= 0:
+                raise ValueError("Capacity must be positive")
+        
+        async def _initialize_resources(self) -> None:
+            pass
+        
+        async def _cleanup_resources(self) -> None:
+            pass
+        
+        async def _deliver_message(self, message: AgentMessage) -> None:
+            target = registry.get_agent(message.target_id)
+            if target:
+                await target.receive_message(message)
+        
+        async def _handle_ping(self, message: AgentMessage) -> None:
+            await self.send_message(message.source_id, "pong", {"timestamp": time.time()})
+        
+        async def _handle_status(self, message: AgentMessage) -> None:
+            status = await self.get_status()
+            await self.send_message(message.source_id, "status_response", status)
+    
+    agent = ExampleAgent("agent-001", config)
+    await registry.register_agent(agent)
+    await registry.start_all_agents()
+    
+    try:
+        await asyncio.sleep(5)
+    finally:
+        await registry.stop_all_agents()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

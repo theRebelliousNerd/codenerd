@@ -224,6 +224,9 @@ type Model struct {
 	// Use this for new code; legacy flags preserved for compatibility during migration
 	inputMode InputMode
 
+	// Mouse capture toggle (Alt+M to toggle for text selection)
+	mouseEnabled bool
+
 	// Shutdown coordination
 	shutdownOnce    sync.Once      // Ensures Shutdown() is only called once
 	shutdownCtx     context.Context // Root context for all background operations
@@ -655,6 +658,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Toggle campaign progress panel (Alt+C)
 				m.showCampaignPanel = !m.showCampaignPanel
 				return m, nil
+
+			case 'm':
+				// Toggle mouse capture (Alt+M) - disable to allow text selection
+				m.mouseEnabled = !m.mouseEnabled
+				if m.mouseEnabled {
+					return m, tea.EnableMouseCellMotion
+				}
+				return m, tea.DisableMouse
 			}
 		}
 
