@@ -4,6 +4,7 @@
 package store
 
 import (
+	"codenerd/internal/config"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -36,7 +37,11 @@ type LearningStore struct {
 // Default path is ".nerd/shards" in the working directory.
 func NewLearningStore(basePath string) (*LearningStore, error) {
 	if basePath == "" {
-		basePath = ".nerd/shards"
+		workspace, err := config.FindWorkspaceRoot()
+		if err != nil {
+			workspace = "."
+		}
+		basePath = filepath.Join(workspace, ".nerd", "shards")
 	}
 
 	// Ensure directory exists

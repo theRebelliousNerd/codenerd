@@ -506,6 +506,7 @@ type ShardManager struct {
 	// Core dependencies to inject into shards
 	kernel        Kernel
 	llmClient     LLMClient
+	virtualStore  *VirtualStore
 	tracingClient TracingClient // Optional: set when llmClient implements TracingClient
 	learningStore LearningStore
 
@@ -522,10 +523,21 @@ func NewShardManager() *ShardManager {
 	}
 }
 
+// VirtualStoreConsumer interface for agents that need file system access.
+type VirtualStoreConsumer interface {
+	SetVirtualStore(vs *VirtualStore)
+}
+
 func (sm *ShardManager) SetParentKernel(k Kernel) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.kernel = k
+}
+
+func (sm *ShardManager) SetVirtualStore(vs *VirtualStore) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.virtualStore = vs
 }
 
 func (sm *ShardManager) SetLLMClient(client LLMClient) {
@@ -759,6 +771,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	}
 	if sm.llmClient != nil {
 		agent.SetLLMClient(sm.llmClient)
+	}
+	if sm.virtualStore != nil {
+		if vsc, ok := agent.(VirtualStoreConsumer); ok {
+			vsc.SetVirtualStore(sm.virtualStore)
+		}
 	}
 
 	sm.shards[id] = agent

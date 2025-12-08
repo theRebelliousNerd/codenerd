@@ -5,6 +5,7 @@ package tool_generator
 
 import (
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"context"
 	"encoding/json"
@@ -119,7 +120,10 @@ func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 
 	// Initialize orchestrator with LLM client
 	if s.orchestrator == nil {
-		workspace, _ := os.Getwd()
+		workspace, err := config.FindWorkspaceRoot()
+		if err != nil {
+			workspace, _ = os.Getwd()
+		}
 		autoConfig := autopoiesis.DefaultConfig(workspace)
 
 		if s.generatorConfig.ToolsDir != "" {

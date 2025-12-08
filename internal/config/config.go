@@ -753,11 +753,38 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 
 // DefaultUserConfigPath returns the default path to .nerd/config.json.
 func DefaultUserConfigPath() string {
-	cwd, err := os.Getwd()
+	root, err := FindWorkspaceRoot()
 	if err != nil {
 		return ".nerd/config.json"
 	}
-	return filepath.Join(cwd, ".nerd", "config.json")
+	return filepath.Join(root, ".nerd", "config.json")
+}
+
+// FindWorkspaceRoot attempts to find the project root by looking for .nerd or go.mod.
+// If not found, returns the current working directory.
+func FindWorkspaceRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	originalDir := dir
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".nerd")); err == nil {
+			return dir, nil
+		}
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return originalDir, nil
 }
 
 // LoadUserConfig loads configuration from .nerd/config.json.

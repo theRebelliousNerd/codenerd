@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/config"
 	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
@@ -1590,11 +1591,11 @@ type ProviderConfig struct {
 
 // DefaultConfigPath returns the default path to .nerd/config.json.
 func DefaultConfigPath() string {
-	cwd, err := os.Getwd()
+	root, err := config.FindWorkspaceRoot()
 	if err != nil {
 		return filepath.Join(".nerd", "config.json")
 	}
-	return filepath.Join(cwd, ".nerd", "config.json")
+	return filepath.Join(root, ".nerd", "config.json")
 }
 
 // LoadConfigJSON loads provider configuration from a JSON config file.

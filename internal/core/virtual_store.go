@@ -292,6 +292,9 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		toolRegistry:    NewToolRegistry(config.WorkingDir),
 	}
 
+	// Wire up self-reference for ShardManager dependency injection
+	vs.shardManager.SetVirtualStore(vs)
+
 	// Initialize modern executor with audit logging
 	vs.initModernExecutor()
 
