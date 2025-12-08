@@ -122,6 +122,9 @@ func InitChat(cfg Config) Model {	// Load configuration
 	// Initialize split-pane view
 	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
 
+	// Create shutdown context for coordinating background goroutine lifecycle
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	// Return the model in "Booting" state
 	return Model{
 		textarea:     ta,
@@ -147,6 +150,9 @@ func InitChat(cfg Config) Model {	// Load configuration
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
+		// Shutdown coordination
+		shutdownCtx:    shutdownCtx,
+		shutdownCancel: shutdownCancel,
 	}
 }
 
@@ -202,16 +208,23 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 
-		// Initialize Browser Manager
+		// Initialize Browser Manager with cancellable context
 		log("Initializing browser manager...")
 		browserCfg := browser.DefaultConfig()
 		browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
 		var browserMgr *browser.SessionManager
+		var browserCtxCancel context.CancelFunc
 		if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
 			browserMgr = browser.NewSessionManager(browserCfg, engine)
+			// Create cancellable context for browser manager goroutine
+			var browserCtx context.Context
+			browserCtx, browserCtxCancel = context.WithCancel(context.Background())
 			go func() {
-				if err := browserMgr.Start(context.Background()); err != nil {
-					// Log silently
+				if err := browserMgr.Start(browserCtx); err != nil {
+					// Only log if not cancelled
+					if browserCtx.Err() == nil {
+						// Log silently - browser start failed
+					}
 				}
 			}()
 		}
@@ -485,6 +498,8 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 				Verifier:              taskVerifier,
 				InitialMessages:       initialMessages,
 				Client:                llmClient,
+				BrowserManager:        browserMgr,
+				BrowserCtxCancel:      browserCtxCancel,
 			},
 		}
 	}
