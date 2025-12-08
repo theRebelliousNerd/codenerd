@@ -157,6 +157,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := tool_generator.NewToolGeneratorShard(id, config)
 		shard.SetParentKernel(ctx.Kernel)
+		shard.SetWorkspaceRoot(ctx.Workspace) // MUST be called before SetLLMClient
 		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})
