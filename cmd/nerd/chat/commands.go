@@ -821,6 +821,7 @@ Press **Enter** to begin...`,
 			}
 
 			perception.SharedTaxonomy.SetClient(m.client)
+			perception.SharedTaxonomy.SetWorkspace(m.workspace) // Ensure .nerd paths resolve correctly
 			fact, err := perception.SharedTaxonomy.LearnFromInteraction(context.Background(), traces)
 			if err != nil {
 				return responseMsg(fmt.Sprintf("Learning failed: %v", err))

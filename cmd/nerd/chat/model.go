@@ -1276,6 +1276,7 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 
 		// Execute Learning
 		perception.SharedTaxonomy.SetClient(m.client)
+		perception.SharedTaxonomy.SetWorkspace(m.workspace) // Ensure .nerd paths resolve correctly
 		fact, err := perception.SharedTaxonomy.LearnFromInteraction(context.Background(), traces)
 		if err != nil {
 			return responseMsg(fmt.Sprintf("Auto-learning failed: %v", err))

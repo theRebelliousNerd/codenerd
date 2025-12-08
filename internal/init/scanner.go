@@ -2,6 +2,8 @@
 package init
 
 import (
+	"codenerd/internal/config"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,5 +165,147 @@ tools/.traces/
 		return "", fmt.Errorf("failed to create .gitignore: %w", err)
 	}
 
+	// Create config.json with defaults if it doesn't exist
+	configPath := filepath.Join(nerdDir, "config.json")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if err := i.createDefaultConfig(configPath); err != nil {
+			return "", fmt.Errorf("failed to create config.json: %w", err)
+		}
+	}
+
 	return nerdDir, nil
+}
+
+// createDefaultConfig creates a config.json with sensible defaults.
+func (i *Initializer) createDefaultConfig(path string) error {
+	cfg := &config.UserConfig{
+		Provider: "zai",
+		Model:    "glm-4.6",
+		Theme:    "light",
+		ContextWindow: &config.ContextWindowConfig{
+			MaxTokens:              128000,
+			CoreReservePercent:     5,
+			AtomReservePercent:     30,
+			HistoryReservePercent:  15,
+			WorkingReservePercent:  50,
+			RecentTurnWindow:       5,
+			CompressionThreshold:   0.80,
+			TargetCompressionRatio: 100.0,
+			ActivationThreshold:    30.0,
+		},
+		Embedding: &config.EmbeddingConfig{
+			Provider:       "ollama",
+			OllamaEndpoint: "http://localhost:11434",
+			OllamaModel:    "embeddinggemma",
+			GenAIModel:     "gemini-embedding-001",
+			TaskType:       "SEMANTIC_SIMILARITY",
+		},
+		ShardProfiles: map[string]config.ShardProfile{
+			"coder": {
+				Model:                 "glm-4.6",
+				Temperature:           0.7,
+				TopP:                  0.9,
+				MaxContextTokens:      30000,
+				MaxOutputTokens:       6000,
+				MaxExecutionTimeSec:   600,
+				MaxRetries:            3,
+				MaxFactsInShardKernel: 30000,
+				EnableLearning:        true,
+			},
+			"tester": {
+				Model:                 "glm-4.6",
+				Temperature:           0.5,
+				TopP:                  0.9,
+				MaxContextTokens:      20000,
+				MaxOutputTokens:       4000,
+				MaxExecutionTimeSec:   300,
+				MaxRetries:            3,
+				MaxFactsInShardKernel: 20000,
+				EnableLearning:        true,
+			},
+			"reviewer": {
+				Model:                 "glm-4.6",
+				Temperature:           0.3,
+				TopP:                  0.9,
+				MaxContextTokens:      40000,
+				MaxOutputTokens:       8000,
+				MaxExecutionTimeSec:   900,
+				MaxRetries:            2,
+				MaxFactsInShardKernel: 30000,
+				EnableLearning:        false,
+			},
+			"researcher": {
+				Model:                 "glm-4.6",
+				Temperature:           0.6,
+				TopP:                  0.95,
+				MaxContextTokens:      25000,
+				MaxOutputTokens:       5000,
+				MaxExecutionTimeSec:   600,
+				MaxRetries:            3,
+				MaxFactsInShardKernel: 25000,
+				EnableLearning:        true,
+			},
+		},
+		DefaultShard: &config.ShardProfile{
+			Model:                 "glm-4.6",
+			Temperature:           0.7,
+			TopP:                  0.9,
+			MaxContextTokens:      20000,
+			MaxOutputTokens:       4000,
+			MaxExecutionTimeSec:   300,
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 20000,
+			EnableLearning:        true,
+		},
+		CoreLimits: &config.CoreLimits{
+			MaxTotalMemoryMB:      12288,
+			MaxConcurrentShards:   4,
+			MaxSessionDurationMin: 120,
+			MaxFactsInKernel:      250000,
+			MaxDerivedFactsLimit:  100000,
+		},
+		Integrations: &config.IntegrationsConfig{
+			CodeGraph: config.CodeGraphIntegration{
+				Enabled: true,
+				BaseURL: "http://localhost:8080",
+				Timeout: "30s",
+			},
+			Browser: config.BrowserIntegration{
+				Enabled: true,
+				BaseURL: "http://localhost:8081",
+				Timeout: "60s",
+			},
+			Scraper: config.ScraperIntegration{
+				Enabled: true,
+				BaseURL: "http://localhost:8082",
+				Timeout: "120s",
+			},
+		},
+		Execution: &config.ExecutionConfig{
+			AllowedBinaries: []string{
+				"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+				"npm", "npx", "node", "python", "python3", "pip",
+				"cargo", "rustc", "make", "cmake",
+			},
+			DefaultTimeout:   "30s",
+			WorkingDirectory: ".",
+			AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
+		},
+		Logging: &config.LoggingConfig{
+			Level:  "info",
+			Format: "text",
+			File:   "codenerd.log",
+		},
+		ToolGeneration: &config.ToolGenerationConfig{
+			TargetOS:   "windows",
+			TargetArch: "amd64",
+		},
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	return os.WriteFile(path, data, 0644)
 }
