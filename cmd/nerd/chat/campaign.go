@@ -4,6 +4,7 @@ package chat
 
 import (
 	"codenerd/internal/campaign"
+	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,9 @@ import (
 func (m Model) startCampaign(goal string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		if m.usageTracker != nil {
+			ctx = usage.NewContext(ctx, m.usageTracker)
+		}
 		defer cancel()
 
 		// Create decomposer to break down the goal
@@ -114,6 +118,9 @@ func (m Model) resumeCampaign() tea.Cmd {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		if m.usageTracker != nil {
+			ctx = usage.NewContext(ctx, m.usageTracker)
+		}
 		defer cancel()
 
 		// Resume execution

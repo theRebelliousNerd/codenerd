@@ -12,12 +12,28 @@ query-kb
 debug_output*.txt
 *.log
 nul
+*.db
+*.json
+*.tmp
+*.temp
+
+# OS and Cache
+Thumbs.db
+.DS_Store
+.cache/
+.nerd/cache/
 
 # Directories
 .claude/
 .gemini/
-Docs/
+tmp/
 
-# Markdown Docs (except README)
+# Documentation (Ignore Docs root, keep research)
+Docs/*
+!Docs/research/
+
+# Markdown Docs (Global ignore with exceptions)
 *.md
 !README.md
+!**/README.md
+!Docs/research/**
