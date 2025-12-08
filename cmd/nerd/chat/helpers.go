@@ -1017,17 +1017,32 @@ func (m Model) loadType3Agents() []nerdinit.CreatedAgent {
 }
 
 // isConversationalIntent returns true if the intent is conversational (greetings,
-// help requests, general questions) rather than requiring code actions or shard work.
+// help requests, general questions, stats) rather than requiring code actions or shard work.
 // These intents can use the perception response directly without articulation.
 func isConversationalIntent(intent perception.Intent) bool {
-	// Verbs that are conversational and don't require shard execution
-	conversationalVerbs := map[string]bool{
-		"/explain": true, // General explanations, greetings, capability questions
+	// Verbs that are ALWAYS conversational and don't require shard execution
+	alwaysConversational := map[string]bool{
+		"/greet":     true, // Greetings: hello, hi, hey
+		"/help":      true, // Capability questions: what can you do?
+		"/stats":     true, // Codebase statistics: how many files? breakdown?
+		"/knowledge": true, // Memory queries: what do you remember?
+		"/shadow":    true, // What-if queries: what would happen if?
+		"/git":       true, // Git operations: commit, push, status
+	}
+
+	// If it's an always-conversational verb, return true immediately
+	if alwaysConversational[intent.Verb] {
+		return true
+	}
+
+	// Verbs that are conditionally conversational based on target
+	conditionalVerbs := map[string]bool{
+		"/explain": true, // General explanations (but not code-specific)
 		"/read":    true, // Simple file reads (when target is "none" or empty)
 	}
 
-	// Check if it's a conversational verb
-	if !conversationalVerbs[intent.Verb] {
+	// Check if it's a conditional verb
+	if !conditionalVerbs[intent.Verb] {
 		return false
 	}
 

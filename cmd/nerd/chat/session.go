@@ -478,7 +478,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Hydrate tools from disk and available_tools.json
 		log("Hydrating tools from .nerd/tools/...")
-		if err := hydrateAllTools(virtualStore, nerdDir); err != nil {
+		toolsNerdDir := filepath.Join(workspace, ".nerd")
+		if err := hydrateAllTools(virtualStore, toolsNerdDir); err != nil {
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("⚠ Tool hydration warning: %v", err),
@@ -614,6 +615,44 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 	}
 
 	return session, prefs
+}
+
+// hydrateAllTools loads all tools into the VirtualStore's tool registry.
+// Sources:
+// 1. available_tools.json - Static language/framework tools from init
+// 2. .compiled/ directory - Autopoiesis-generated tools
+func hydrateAllTools(virtualStore *core.VirtualStore, nerdDir string) error {
+	var warnings []string
+
+	// 1. Load static tools from available_tools.json
+	if toolDefs, err := nerdinit.LoadToolsFromFile(nerdDir); err == nil && len(toolDefs) > 0 {
+		// Convert init.ToolDefinition to core.StaticToolDef
+		staticDefs := make([]core.StaticToolDef, len(toolDefs))
+		for i, td := range toolDefs {
+			staticDefs[i] = core.StaticToolDef{
+				Name:          td.Name,
+				Category:      td.Category,
+				Description:   td.Description,
+				Command:       td.Command,
+				ShardAffinity: td.ShardAffinity,
+			}
+		}
+		if err := virtualStore.HydrateStaticTools(staticDefs); err != nil {
+			warnings = append(warnings, fmt.Sprintf("static tools: %v", err))
+		}
+	} else if err != nil {
+		warnings = append(warnings, fmt.Sprintf("load available_tools.json: %v", err))
+	}
+
+	// 2. Restore compiled tools from disk and sync from Ouroboros
+	if err := virtualStore.HydrateToolsFromDisk(nerdDir); err != nil {
+		warnings = append(warnings, fmt.Sprintf("compiled tools: %v", err))
+	}
+
+	if len(warnings) > 0 {
+		return fmt.Errorf("%d issues: %s", len(warnings), strings.Join(warnings, "; "))
+	}
+	return nil
 }
 
 // saveSessionState saves the current session state and history.
