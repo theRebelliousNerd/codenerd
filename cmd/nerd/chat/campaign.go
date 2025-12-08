@@ -33,6 +33,8 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		}
 		defer cancel()
 
+		m.ReportStatus("Analyzing goal and docs...")
+
 		// Create decomposer to break down the goal
 		decomposer := campaign.NewDecomposer(m.kernel, m.client, m.workspace)
 
@@ -44,6 +46,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		}
 
 		// Decompose the goal into a campaign
+		m.ReportStatus("Decomposing into phases...")
 		result, err := decomposer.Decompose(ctx, req)
 		if err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
@@ -69,6 +72,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			}
 		}()
 
+		m.ReportStatus("Campaign started")
 		return campaignStartedMsg(result.Campaign)
 	}
 }

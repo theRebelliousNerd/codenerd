@@ -25,6 +25,8 @@ func (m Model) runShadowSimulation(action string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
+		m.ReportStatus("Running Shadow Mode simulation...")
+
 		// Create a simulated action from the description
 		simAction := core.SimulatedAction{
 			ID:          fmt.Sprintf("sim_%d", time.Now().UnixNano()),
@@ -71,6 +73,7 @@ func (m Model) runShadowSimulation(action string) tea.Cmd {
 			sb.WriteString("\n_Simulation indicates this action has **blocking violations**._\n")
 		}
 
+		m.ReportStatus("Simulation complete")
 		return responseMsg(sb.String())
 	}
 }
@@ -80,6 +83,8 @@ func (m Model) runWhatIfQuery(change string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
+
+		m.ReportStatus("Running counterfactual analysis...")
 
 		// Create a simulated action for the what-if query
 		simAction := core.SimulatedAction{
@@ -137,6 +142,7 @@ func (m Model) runWhatIfQuery(change string) tea.Cmd {
 		}
 		sb.WriteString("- Run tests after making changes\n")
 
+		m.ReportStatus("Analysis complete")
 		return responseMsg(sb.String())
 	}
 }

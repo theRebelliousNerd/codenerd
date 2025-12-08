@@ -399,6 +399,15 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 		}
 
 		// Create the comprehensive initializer with all components
+		progressCh := make(chan nerdinit.InitProgress, 10)
+		
+		// Forward progress to status bar
+		go func() {
+			for p := range progressCh {
+				m.ReportStatus(p.Message)
+			}
+		}()
+
 		initConfig := nerdinit.InitConfig{
 			Workspace:       m.workspace,
 			LLMClient:       m.client,
@@ -408,6 +417,7 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			SkipResearch:    false, // Do full research
 			SkipAgentCreate: false, // Create Type 3 agents
 			Context7APIKey:  context7Key,
+			ProgressChan:    progressCh,
 		}
 
 		// Ensure .nerd directory exists
@@ -419,6 +429,8 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 
 		// Run the comprehensive initialization
 		result, err := initializer.Initialize(ctx)
+		close(progressCh) // Stop progress forwarder
+
 		if err != nil {
 			return errorMsg(fmt.Errorf("initialization failed: %w", err))
 		}
@@ -478,6 +490,7 @@ type scanCompleteMsg struct {
 func (m Model) runScan() tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
+		m.ReportStatus("Scanning workspace...")
 
 		// Scan the workspace
 		facts, err := m.scanner.ScanWorkspace(m.workspace)
@@ -486,6 +499,7 @@ func (m Model) runScan() tea.Cmd {
 		}
 
 		// Load facts into kernel
+		m.ReportStatus("Updating kernel...")
 		if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
 			return scanCompleteMsg{err: loadErr}
 		}
@@ -501,6 +515,7 @@ func (m Model) runScan() tea.Cmd {
 		}
 
 		// Deep parse: symbols and dependencies into kernel and knowledge.db
+		m.ReportStatus("Parsing AST symbols...")
 		parser := world.NewASTParser()
 		defer parser.Close()
 		var parsed []core.Fact
@@ -524,6 +539,7 @@ func (m Model) runScan() tea.Cmd {
 		}
 
 		if len(parsed) > 0 && m.virtualStore != nil {
+			m.ReportStatus("Persisting knowledge graph...")
 			_ = m.virtualStore.PersistFactsToKnowledge(parsed, "fact", 6)
 			// Promote edges into knowledge_graph for fast recall
 			for _, f := range parsed {
@@ -548,6 +564,7 @@ func (m Model) runScan() tea.Cmd {
 			}
 		}
 
+		m.ReportStatus("Scan complete")
 		// Count files and directories from facts
 		fileCount := 0
 		dirCount := 0
@@ -573,6 +590,7 @@ func (m Model) runScan() tea.Cmd {
 func (m Model) runPartialScan(paths []string) tea.Cmd {
 	return func() tea.Msg {
 		start := time.Now()
+		m.ReportStatus(fmt.Sprintf("Scanning %d paths...", len(paths)))
 		parser := world.NewASTParser()
 		defer parser.Close()
 
@@ -627,6 +645,7 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 			}
 		}
 
+		m.ReportStatus("Scan complete")
 		return scanCompleteMsg{
 			fileCount:      len(paths),
 			directoryCount: 0,
@@ -643,6 +662,7 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(m.workspace, dir)
 		}
+		m.ReportStatus(fmt.Sprintf("Scanning directory: %s", dir))
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
 			return scanCompleteMsg{err: fmt.Errorf("invalid directory: %s", dir)}
@@ -668,6 +688,9 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 				return nil
 			}
 			fileCount++
+			if fileCount%10 == 0 {
+				m.ReportStatus(fmt.Sprintf("Scanning... (%d files)", fileCount))
+			}
 			info, statErr := d.Info()
 			if statErr != nil {
 				return nil
@@ -711,6 +734,7 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 			return nil
 		})
 
+		m.ReportStatus("Scan complete")
 		return scanCompleteMsg{
 			fileCount:      fileCount,
 			directoryCount: dirCount,
@@ -1106,6 +1130,8 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("autopoiesis not initialized"))
 		}
 
+		m.ReportStatus(fmt.Sprintf("Executing tool: %s...", toolName))
+
 		// Execute the tool with quality evaluation
 		output, assessment, err := m.autopoiesis.ExecuteAndEvaluateWithProfile(ctx, toolName, input)
 		if err != nil {
@@ -1141,6 +1167,7 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 			}
 		}
 
+		m.ReportStatus("Tool execution complete")
 		return responseMsg(sb.String())
 	}
 }
@@ -1154,6 +1181,8 @@ func (m Model) generateTool(description string) tea.Cmd {
 		if m.autopoiesis == nil {
 			return errorMsg(fmt.Errorf("autopoiesis not initialized"))
 		}
+
+		m.ReportStatus("Detecting tool requirements...")
 
 		var sb strings.Builder
 		sb.WriteString("## Tool Generation\n\n")
@@ -1176,6 +1205,7 @@ func (m Model) generateTool(description string) tea.Cmd {
 		sb.WriteString(fmt.Sprintf("**Confidence**: %.2f\n\n", toolNeed.Confidence))
 
 		// Execute the Ouroboros Loop
+		m.ReportStatus(fmt.Sprintf("Generating tool: %s...", toolNeed.Name))
 		sb.WriteString("### Ouroboros Loop Execution\n\n")
 
 		result := m.autopoiesis.ExecuteOuroborosLoop(ctx, toolNeed)
@@ -1210,6 +1240,7 @@ func (m Model) generateTool(description string) tea.Cmd {
 			sb.WriteString(fmt.Sprintf("### Generation Failed\n\n**Error**: %s\n", result.Error))
 		}
 
+		m.ReportStatus("Tool generation complete")
 		return responseMsg(sb.String())
 	}
 }
