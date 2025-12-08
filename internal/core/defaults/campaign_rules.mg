@@ -168,29 +168,35 @@ task_needs_enrichment(TaskID) :-
     AttemptNum < 3,
     !task_retry_exhausted(TaskID).
 
-# Specific enrichment strategies based on failure type
-enrichment_strategy(TaskID, /research) :-
+# Specific enrichment strategies based on failure type (computed in stratum 0)
+# Note: /research for /unknown_api is a specific strategy, not the default
+specific_enrichment(TaskID, /research) :-
     task_needs_enrichment(TaskID),
     task_error(TaskID, /unknown_api, _).
 
-enrichment_strategy(TaskID, /documentation) :-
+specific_enrichment(TaskID, /documentation) :-
     task_needs_enrichment(TaskID),
     task_error(TaskID, /missing_context, _).
 
-enrichment_strategy(TaskID, /decompose) :-
+specific_enrichment(TaskID, /decompose) :-
     task_needs_enrichment(TaskID),
     task_error(TaskID, /too_complex, _).
 
-enrichment_strategy(TaskID, /specialist) :-
+specific_enrichment(TaskID, /specialist) :-
     task_needs_enrichment(TaskID),
     task_error(TaskID, /domain_specific, _).
 
-# Default enrichment: research
+# Helper: task has a specific enrichment strategy (for safe negation in stratum 1)
+has_specific_enrichment(TaskID) :-
+    specific_enrichment(TaskID, _).
+
+# Final enrichment_strategy: either specific or default to /research (stratum 1)
+enrichment_strategy(TaskID, Strategy) :-
+    specific_enrichment(TaskID, Strategy).
+
 enrichment_strategy(TaskID, /research) :-
     task_needs_enrichment(TaskID),
-    !enrichment_strategy(TaskID, /documentation),
-    !enrichment_strategy(TaskID, /decompose),
-    !enrichment_strategy(TaskID, /specialist).
+    !has_specific_enrichment(TaskID).
 
 # =============================================================================
 # SECTION 3: QUALITY ENFORCEMENT
@@ -303,13 +309,13 @@ phase_blocked(PhaseID, "tests_failed") :-
 # Context is under pressure (> 80% utilized)
 context_pressure_high(CampaignID) :-
     context_window_state(CampaignID, Used, Total, _),
-    Utilization = fn:times(100, fn:div(Used, Total)),
+    Utilization = fn:mult(100, fn:div(Used, Total)),
     Utilization > 80.
 
 # Context is critical (> 95% utilized)
 context_pressure_critical(CampaignID) :-
     context_window_state(CampaignID, Used, Total, _),
-    Utilization = fn:times(100, fn:div(Used, Total)),
+    Utilization = fn:mult(100, fn:div(Used, Total)),
     Utilization > 95.
 
 # Trigger compression when pressure is high
@@ -327,10 +333,14 @@ next_action(/emergency_compress) :-
 # 4.2 Phase Context Isolation
 # -----------------------------------------------------------------------------
 
+# Helper to identify phases that already have compression
+has_compression(PhaseID) :-
+    context_compression(PhaseID, _, _, _).
+
 # Context atoms from completed phases should be compressed
 phase_context_stale(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, /completed, _),
-    !context_compression(PhaseID, _, _, _).
+    !has_compression(PhaseID).
 
 # Trigger compression for stale phases
 should_compress_phase(PhaseID) :-
@@ -573,7 +583,7 @@ phase_nearly_complete(PhaseID) :-
 campaign_past_halfway(CampaignID) :-
     campaign_progress(CampaignID, Completed, Total, _, _),
     Total > 0,
-    Progress = fn:times(100, fn:div(Completed, Total)),
+    Progress = fn:mult(100, fn:div(Completed, Total)),
     Progress >= 50.
 
 # -----------------------------------------------------------------------------

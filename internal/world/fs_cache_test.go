@@ -1,6 +1,7 @@
 package world
 
 import (
+	"codenerd/internal/core"
 	"context"
 	"os"
 	"path/filepath"
@@ -97,7 +98,18 @@ func TestScanWorkspace_CacheBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash1 := facts1[0].Args[1].(string)
+	// Find the file_topology fact (scanner also emits directory facts)
+	var fileFact1 *core.Fact
+	for i := range facts1 {
+		if facts1[i].Predicate == "file_topology" {
+			fileFact1 = &facts1[i]
+			break
+		}
+	}
+	if fileFact1 == nil {
+		t.Fatal("No file_topology fact found")
+	}
+	hash1 := fileFact1.Args[1].(string)
 
 	// Verify cache exists
 	cachePath := filepath.Join(tmpDir, ".nerd", "cache", "manifest.json")
@@ -138,7 +150,18 @@ func TestScanWorkspace_CacheBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash2 := facts2[0].Args[1].(string)
+	// Find the file_topology fact
+	var fileFact2 *core.Fact
+	for i := range facts2 {
+		if facts2[i].Predicate == "file_topology" {
+			fileFact2 = &facts2[i]
+			break
+		}
+	}
+	if fileFact2 == nil {
+		t.Fatal("No file_topology fact found in second scan")
+	}
+	hash2 := fileFact2.Args[1].(string)
 
 	if hash2 != hackedHash {
 		t.Errorf("Cache bypass detected! Scanner re-hashed file instead of using cache.\nGot: %s\nWant: %s", hash2, hackedHash)
@@ -159,7 +182,18 @@ func TestScanWorkspace_CacheBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash3 := facts3[0].Args[1].(string)
+	// Find the file_topology fact
+	var fileFact3 *core.Fact
+	for i := range facts3 {
+		if facts3[i].Predicate == "file_topology" {
+			fileFact3 = &facts3[i]
+			break
+		}
+	}
+	if fileFact3 == nil {
+		t.Fatal("No file_topology fact found in third scan")
+	}
+	hash3 := fileFact3.Args[1].(string)
 
 	if hash3 == hackedHash {
 		t.Error("Cache invalidation failed! Returned hacked hash after file modification.")

@@ -45,7 +45,8 @@ func TestDifferentialEngine_Incremental(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create base engine: %v", err)
 	}
-	schema := "Decl a(String). Decl b(String). a(X) :- b(X)."
+	// Use variable names in Decl (not type names like "String")
+	schema := "Decl a(X). Decl b(X). a(X) :- b(X)."
 	if err := baseEngine.LoadSchemaString(schema); err != nil {
 		t.Fatalf("Failed to load schema: %v", err)
 	}
@@ -73,24 +74,36 @@ func TestDifferentialEngine_Incremental(t *testing.T) {
 
 	found := false
 	for _, binding := range res.Bindings {
-		if val, ok := binding["X"].(string); ok && val == "foo" {
+		// Mangle may return string "foo" or name constant "/foo" depending on how the fact was added
+		if val, ok := binding["X"].(string); ok && (val == "foo" || val == "/foo") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("Expected a(foo) to be derived, got %v", res.Bindings)
+		t.Errorf("Expected a(foo) or a(/foo) to be derived, got %v", res.Bindings)
 	}
 }
 
 // TestSnapshotIsolation validates COW Snapshot.
 func TestSnapshotIsolation(t *testing.T) {
 	cfg := DefaultConfig()
-	baseEngine, _ := NewEngine(cfg, nil)
-	baseEngine.LoadSchemaString("Decl item(String).")
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	// Use variable names in Decl (not type names like "String")
+	if err := baseEngine.LoadSchemaString("Decl item(X)."); err != nil {
+		t.Fatalf("Failed to load schema: %v", err)
+	}
 
-	diffEngine, _ := NewDifferentialEngine(baseEngine)
-	diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"A"}})
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("Failed to create differential engine: %v", err)
+	}
+	if err := diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"A"}}); err != nil {
+		t.Fatalf("Failed to add fact: %v", err)
+	}
 
 	snapshot := diffEngine.Snapshot()
 	snapshot.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"B"}})
@@ -113,11 +126,20 @@ func TestSnapshotIsolation(t *testing.T) {
 func TestLazyLoading(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = true // important
-	baseEngine, _ := NewEngine(cfg, nil)
-	schema := "Decl virtual_file(String, String). Decl has_content(String). has_content(F) :- virtual_file(F, _)."
-	baseEngine.LoadSchemaString(schema)
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	// Use variable names in Decl (not type names like "String")
+	schema := "Decl virtual_file(Path, Content). Decl has_content(File). has_content(F) :- virtual_file(F, _)."
+	if err := baseEngine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("Failed to load schema: %v", err)
+	}
 
-	diffEngine, _ := NewDifferentialEngine(baseEngine)
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("Failed to create differential engine: %v", err)
+	}
 
 	// Register Loader for virtual_file
 	diffEngine.RegisterVirtualPredicate("virtual_file", func(key string) (string, error) {
