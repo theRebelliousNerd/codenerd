@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 )
 
-// Config holds user preferences
+// Config holds user preferences for the CLI.
+// NOTE: LLM provider configuration is handled by internal/perception/client.go
+// which reads from .nerd/config.json directly with full provider support.
+// This struct is for CLI-specific settings only.
 type Config struct {
-	APIKey         string `json:"api_key"`
-	Theme          string `json:"theme"`           // "light" or "dark"
+	Theme          string `json:"theme"`            // "light" or "dark"
 	Context7APIKey string `json:"context7_api_key"` // Context7 API key for research
 
 	// Context Window Configuration (§8.2 Semantic Compression)

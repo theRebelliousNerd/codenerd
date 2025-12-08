@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"codenerd/cmd/nerd/config"
 	internalconfig "codenerd/internal/config"
 	"fmt"
 	"strconv"
@@ -851,10 +850,8 @@ func (m Model) renderCurrentConfig() string {
 func (m Model) saveConfigWizard() error {
 	w := m.configWizard
 
-	// Load existing config or create new
-	cfg, _ := config.Load()
-
 	// Build UserConfig for .nerd/config.json
+	// Note: We write directly to internal/config UserConfig which is the canonical config
 	userCfg := &internalconfig.UserConfig{
 		Provider: w.Provider,
 		Model:    w.Model,
@@ -902,15 +899,11 @@ func (m Model) saveConfigWizard() error {
 	}
 
 	// Save to .nerd/config.json
+	// The perception package reads provider-specific API keys directly from
+	// this file via DetectProvider(). All config is consolidated here.
 	configPath := internalconfig.DefaultUserConfigPath()
 	if err := userCfg.Save(configPath); err != nil {
 		return fmt.Errorf("failed to save user config: %w", err)
-	}
-
-	// Also update the simple config for backward compatibility
-	cfg.APIKey = w.APIKey
-	if err := config.Save(cfg); err != nil {
-		// Non-fatal, user config is primary
 	}
 
 	return nil
