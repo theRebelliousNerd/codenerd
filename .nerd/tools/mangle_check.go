@@ -5,69 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"codenerd/internal/mangle"
 )
-
-// MANDATE FOR AI CODING TOOLS:
-// This file contains critical product requirements and architectural mandates.
-// DO NOT REMOVE OR SIGNIFICANTLY ALTER THESE COMMENTS.
-// They serve as a source of truth for the Symbiogen Agentic Intelligence Platform.
-// This File is best written for Gemini 2.5 Pro.
-// YOU MUST READ THIS ENTIRE HEADER BEFORE AND AFTER EVERY INTERACTION WITH THIS FILE.
-
-// Symbiogen Product Requirements Document (PRD) for .nerd/tools/mangle_check.go
-//
-// File: .nerd/tools/mangle_check.go
-// Author: Gemini
-// Date: 2025-12-05
-//
-// Recommended Model: 2.5 Pro (due to integration with internal Mangle)
-//
-// Overview:
-// This file implements the standalone `mangle-check` tool, designed to validate Google Mangle logic files (.mg).
-// It adheres to the new flexible interface for Ouroboros-generated tools, functioning as both a CLI application
-// and an agent-integrated tool. This demonstrates the enhanced capabilities of the Ouroboros tool builder.
-//
-// Key Features & Business Value:
-// - Static Binary: Compiled to a single, portable executable.
-// - Robust Validation: Leverages the official `codenerd/internal/mangle` parser for accurate syntax and basic semantic checks.
-// - Dual Interface: Automatically detects if it's being run via agent (JSON payload) or directly as a CLI.
-// - Cross-Platform: Built with `CGO_ENABLED=0` and configurable `GOOS`/`GOARCH` for broad compatibility.
-//
-// Architectural Context:
-// - Component Type: Autopoiesis-Generated Tool (Go executable)
-// - Location: .nerd/tools/ (Source), .nerd/tools/.compiled/ (Binary)
-// - Integration: Orchestrated by `autopoiesis.OuroborosLoop`, executed by `core.VirtualStore`.
-//
-// Dependencies & Dependents:
-// - Dependencies: `codenerd/internal/mangle` (resolved during compilation via `go.mod` replace directive).
-// - Is a Dependency for: Agent workflows needing Mangle syntax checks and the Autopoiesis self-improvement system.
-//
-// Deployment & Operations:
-// - CI/CD: Built via `go build -ldflags="-s -w"`, with `CGO_ENABLED=0` and `GOOS`/`GOARCH` support.
-//
-// Code Quality Mandate:
-// All code in this file must be production-ready. This includes complete error
-// handling and clear logging.
-//
-// Functions / Classes:
-// - `RunTool(input string, args []string)`:
-//   - Purpose: Main entry point for the tool's logic, supporting both agent (JSON) and CLI invocation.
-//   - Logic: Interprets `input` and `args` as file patterns, performs Mangle validation, and returns results.
-// - `checkMangleFile(engine *mangle.Engine, path string)`:
-//   - Purpose: Validates a single Mangle file.
-//   - Logic: Initializes a Mangle engine, pre-loads `schemas.mg`, and attempts to load the target file.
-//
-// Usage (Agent execution):
-// The agent will call this tool via the `core.VirtualStore`'s `ActionExecCmd`, passing JSON input
-// (e.g., `{"input": "path/to/file.mg", "args": []}`).
-//
-// Usage (Standalone CLI):
-// `mangle-check.exe path/to/file.mg internal/mangle/*.mg`
-//
-// --- END OF PRD HEADER ---
 
 // RunTool is the entry point for the tool's core logic.
 // It accepts a primary input string and additional command-line arguments.

@@ -490,6 +490,60 @@ func (v *VirtualStore) GetToolsForShard(shardType string) []*Tool {
 	return registry.GetToolsForShard(shardType)
 }
 
+// HydrateToolsFromDisk restores compiled tools from the .compiled directory
+// and syncs from the Ouroboros executor if available.
+// This should be called during session boot after the kernel is ready.
+func (v *VirtualStore) HydrateToolsFromDisk(nerdDir string) error {
+	v.mu.RLock()
+	registry := v.toolRegistry
+	kernel := v.kernel
+	executor := v.toolExecutor
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return nil
+	}
+
+	// Ensure kernel is set for fact injection
+	if kernel != nil {
+		registry.SetKernel(kernel)
+	}
+
+	// 1. Restore compiled tools from disk (.nerd/tools/.compiled/)
+	compiledDir := filepath.Join(nerdDir, "tools", ".compiled")
+	if err := registry.RestoreFromDisk(compiledDir); err != nil {
+		// Log but continue - don't fail on partial errors
+		_ = err
+	}
+
+	// 2. Sync from Ouroboros if tool executor exists
+	if executor != nil {
+		_ = registry.SyncFromOuroboros(executor)
+	}
+
+	return nil
+}
+
+// HydrateStaticTools loads static tool definitions into the registry.
+// This is used to hydrate tools from available_tools.json at session boot.
+func (v *VirtualStore) HydrateStaticTools(defs []StaticToolDef) error {
+	v.mu.RLock()
+	registry := v.toolRegistry
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return nil
+	}
+
+	// Ensure kernel is set for fact injection
+	if kernel != nil {
+		registry.SetKernel(kernel)
+	}
+
+	return registry.RestoreFromStaticDefs(defs)
+}
+
 // SetLocalDB sets the knowledge database for virtual predicate queries.
 func (v *VirtualStore) SetLocalDB(db *store.LocalStore) {
 	v.mu.Lock()

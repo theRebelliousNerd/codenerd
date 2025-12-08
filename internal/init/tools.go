@@ -384,6 +384,23 @@ func GenerateToolsForProject(detectedTech []string) []ToolDefinition {
 	return tools
 }
 
+// LoadToolsFromFile reads tools from available_tools.json
+func LoadToolsFromFile(nerdDir string) ([]ToolDefinition, error) {
+	toolsFile := filepath.Join(nerdDir, "tools", "available_tools.json")
+	data, err := os.ReadFile(toolsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No tools file yet
+		}
+		return nil, fmt.Errorf("failed to read tools file: %w", err)
+	}
+	var tools []ToolDefinition
+	if err := json.Unmarshal(data, &tools); err != nil {
+		return nil, fmt.Errorf("failed to parse tools file: %w", err)
+	}
+	return tools, nil
+}
+
 // SaveToolsToFile saves tool definitions to .nerd/tools/available_tools.json
 func SaveToolsToFile(nerdDir string, tools []ToolDefinition) error {
 	toolsDir := filepath.Join(nerdDir, "tools")
