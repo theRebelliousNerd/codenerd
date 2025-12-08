@@ -128,6 +128,7 @@ type Model struct {
 	selectedOption        int // For option picker
 	awaitingPatch         bool
 	pendingPatchLines     []string
+	lastClarifyInput      string // Track last input for clarification dedup
 
 	// Session State
 	sessionID string
@@ -178,15 +179,8 @@ type Model struct {
 	awaitingConfigWizard bool
 	configWizard         *ConfigWizardState
 
-	// Launch Clarification State
-	launchClarifyPending bool
-	launchClarifyGoal    string
-	launchClarifyAnswers string
-
-	// Conversation Context
-	lastShardResult    *ShardResult
-	shardResultHistory []*ShardResult
-	lastClarifyInput   string
+	// CLI Config
+	CLIConfig Config
 
 	// Status Tracking
 	statusMessage string      // Current operation description
@@ -198,6 +192,15 @@ type Model struct {
 	// Input History
 	inputHistory []string
 	historyIndex int
+
+	// Campaign Launch State
+	launchClarifyPending bool
+	launchClarifyGoal    string
+	launchClarifyAnswers string
+
+	// Context State
+	lastShardResult    *ShardResult
+	shardResultHistory []*ShardResult
 }
 
 // statusMsg represents a status update from a background process
@@ -293,7 +296,42 @@ type (
 		result        *nerdinit.InitResult
 		learningStore *store.LearningStore
 	}
+
+	// System Boot messages
+	systemBootMsg struct {
+		components *SystemComponents
+		err        error
+	}
+
+	bootCompleteMsg struct {
+		components *SystemComponents
+		err        error
+	}
 )
+
+// SystemComponents holds the initialized backend services
+type SystemComponents struct {
+	Kernel                *core.RealKernel
+	ShardMgr              *core.ShardManager
+	VirtualStore          *core.VirtualStore
+	LLMClient             perception.LLMClient
+	LocalDB               *store.LocalStore
+	Transducer            *perception.RealTransducer
+	Executor              *tactile.SafeExecutor
+	Scanner               *world.Scanner
+	Autopoiesis           *autopoiesis.Orchestrator
+	Verifier              *verification.TaskVerifier
+	Compressor            *ctxcompress.Compressor
+	ShadowMode            *core.ShadowMode
+	InitialMessages       []Message
+	Client                perception.LLMClient
+	Emitter               *articulation.Emitter
+	AutopoiesisCancel     context.CancelFunc
+	AutopoiesisListenerCh <-chan struct{}
+	SessionID             string
+	TurnCount             int
+	Workspace             string
+}
 
 // Init initializes the interactive chat model
 // Init initializes the interactive chat model
@@ -728,6 +766,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 		// Persist session after init
 		m.saveSessionState()
+
+	case systemBootMsg:
+		m.isLoading = false
+		m.statusMessage = "" // Clear booting message
+		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
+
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("CRITICAL: System boot failed: %v", msg.err),
+				Time:    time.Now(),
+			})
+			m.err = msg.err
+		} else {
+			// Hydrate Model with initialized components
+			c := msg.components
+			m.kernel = c.Kernel
+			m.shardMgr = c.ShardMgr
+			m.virtualStore = c.VirtualStore
+			m.client = c.LLMClient
+			m.localDB = c.LocalDB
+			m.transducer = c.Transducer
+			m.executor = c.Executor
+			m.scanner = c.Scanner
+			m.autopoiesis = c.Autopoiesis
+			m.verifier = c.Verifier
+			m.compressor = c.Compressor
+			m.shadowMode = c.ShadowMode
+
+			// Wire Autopoiesis listener
+			if c.Autopoiesis != nil {
+				autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
+				m.autopoiesisCancel = autopoiesisCancel
+				m.autopoiesisListenerCh = c.Autopoiesis.StartKernelListener(autopoiesisCtx, 2*time.Second)
+			}
+
+			// Append initial messages (e.g. "Embedding engine ready")
+			if len(c.InitialMessages) > 0 {
+				m.history = append(m.history, c.InitialMessages...)
+			}
+
+			// Load previous session state if available (now that kernel is ready)
+			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
+			m.sessionID = resolveSessionID(loadedSession)
+			m.turnCount = resolveTurnCount(loadedSession)
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
 
 	case scanCompleteMsg:
 		m.isLoading = false

@@ -40,19 +40,19 @@ type ArgSpec struct {
 type ArgType int
 
 const (
-	ArgTypeAny ArgType = iota
-	ArgTypeName        // /name_constant
-	ArgTypeString      // "quoted string"
-	ArgTypeNumber      // numeric value
-	ArgTypeVariable    // Uppercase Variable
-	ArgTypeBool        // true/false
+	ArgTypeAny      ArgType = iota
+	ArgTypeName             // /name_constant
+	ArgTypeString           // "quoted string"
+	ArgTypeNumber           // numeric value
+	ArgTypeVariable         // Uppercase Variable
+	ArgTypeBool             // true/false
 )
 
 // ValidationResult contains the result of atom validation.
 type ValidationResult struct {
-	Valid   bool
-	Atom    string
-	Errors  []ValidationError
+	Valid    bool
+	Atom     string
+	Errors   []ValidationError
 	Repaired string // Suggested repair if invalid
 }
 
@@ -233,6 +233,77 @@ func (v *AtomValidator) loadCorePredicates() {
 			{Name: "Topic", Type: ArgTypeString},
 			{Name: "Status", Type: ArgTypeName},
 		},
+	}
+}
+
+// UpdateFromSchema updates ValidPredicates by parsing Decl statements from a schema string.
+func (v *AtomValidator) UpdateFromSchema(schema string) error {
+	// Simple regex-based parser for getting Decls to populate TypeMap
+	// Pattern: Decl predicate(Type, Type).
+	// Types: Name, String, Number, etc. (mapped to ArgType)
+
+	// Normalize newlines
+	schema = strings.ReplaceAll(schema, "\r\n", "\n")
+	lines := strings.Split(schema, "\n")
+
+	declRe := regexp.MustCompile(`^Decl\s+([a-z][a-z0-9_]*)\((.*)\)\.`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+
+		matches := declRe.FindStringSubmatch(line)
+		if Matches := matches; len(Matches) == 3 {
+			predName := Matches[1]
+			argsStr := Matches[2]
+
+			// Parse args
+			argParts := splitArgs(argsStr)
+			var argSpecs []ArgSpec
+
+			for i, argTypeStr := range argParts {
+				argTypeStr = strings.TrimSpace(argTypeStr)
+				typ := parseArgTypeFromSchema(argTypeStr)
+
+				argSpecs = append(argSpecs, ArgSpec{
+					Name: fmt.Sprintf("Arg%d", i),
+					Type: typ,
+				})
+			}
+
+			v.ValidPredicates[predName] = PredicateSpec{
+				Name:  predName,
+				Arity: len(argSpecs),
+				Args:  argSpecs,
+			}
+		}
+	}
+	return nil
+}
+
+// splitArgs splits by comma, respecting parentheses if any (though simpl types usually don't have them)
+func splitArgs(s string) []string {
+	return strings.Split(s, ",")
+}
+
+// parseArgTypeFromSchema maps schema type names to ArgType
+func parseArgTypeFromSchema(s string) ArgType {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "Name", "name":
+		return ArgTypeName
+	case "String", "string":
+		return ArgTypeString
+	case "Number", "number", "Int", "int", "Float", "float":
+		return ArgTypeNumber
+	case "Bool", "bool":
+		return ArgTypeBool
+	case "Any", "any":
+		return ArgTypeAny
+	default:
+		return ArgTypeAny
 	}
 }
 

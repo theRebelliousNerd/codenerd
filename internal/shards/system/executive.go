@@ -81,6 +81,11 @@ type ExecutivePolicyShard struct {
 
 	// Running state
 	running bool
+
+	// Autopoiesis tracking
+	patternSuccess map[string]int // Track successful action patterns
+	patternFailure map[string]int // Track failed action patterns
+	learningStore  core.LearningStore
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -106,6 +111,37 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 		activeStrategies: make([]Strategy, 0),
 		pendingActions:   make([]ActionDecision, 0),
 		blockedActions:   make([]ActionDecision, 0),
+		patternSuccess:   make(map[string]int),
+		patternFailure:   make(map[string]int),
+	}
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis.
+func (e *ExecutivePolicyShard) SetLearningStore(ls core.LearningStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.learningStore = ls
+}
+
+// trackSuccess records a successful action derivation.
+func (e *ExecutivePolicyShard) trackSuccess(pattern string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.patternSuccess[pattern]++
+	// Persist if significant
+	if e.learningStore != nil && e.patternSuccess[pattern] >= 5 {
+		_ = e.learningStore.Save("executive", "success_pattern", []any{pattern, e.patternSuccess[pattern]}, "")
+	}
+}
+
+// trackFailure records a blocked or failed action.
+func (e *ExecutivePolicyShard) trackFailure(pattern string, reason string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.patternFailure[pattern]++
+	// Persist if significant
+	if e.learningStore != nil && e.patternFailure[pattern] >= 3 {
+		_ = e.learningStore.Save("executive", "failure_pattern", []any{pattern, reason, e.patternFailure[pattern]}, "")
 	}
 }
 

@@ -13,7 +13,6 @@ package system
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"sync"
@@ -141,11 +140,11 @@ type UnhandledCase struct {
 
 // ProposedRule represents an LLM-proposed Mangle rule for autopoiesis.
 type ProposedRule struct {
-	MangleCode  string    // The proposed Mangle rule
-	Confidence  float64   // LLM's confidence in the rule (0-1)
-	Rationale   string    // Why this rule was proposed
-	BasedOn     []UnhandledCase // Cases that led to this proposal
-	ProposedAt  time.Time
+	MangleCode string          // The proposed Mangle rule
+	Confidence float64         // LLM's confidence in the rule (0-1)
+	Rationale  string          // Why this rule was proposed
+	BasedOn    []UnhandledCase // Cases that led to this proposal
+	ProposedAt time.Time
 }
 
 // AutopoiesisLoop tracks unhandled cases and proposes new rules.
@@ -235,7 +234,7 @@ type BaseSystemShard struct {
 	Autopoiesis *AutopoiesisLoop
 
 	// Learning infrastructure for autopoiesis
-	learningStore   *store.LearningStore
+	learningStore   core.LearningStore
 	patternSuccess  map[string]int // Track successful patterns
 	patternFailure  map[string]int // Track failed patterns
 	corrections     map[string]int // Track user corrections
@@ -335,7 +334,7 @@ func (b *BaseSystemShard) SetVirtualStore(vs *core.VirtualStore) {
 }
 
 // SetLearningStore sets the learning store and loads existing patterns.
-func (b *BaseSystemShard) SetLearningStore(ls *store.LearningStore) {
+func (b *BaseSystemShard) SetLearningStore(ls core.LearningStore) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.learningStore = ls

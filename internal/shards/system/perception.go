@@ -85,6 +85,7 @@ type PerceptionFirewallShard struct {
 
 	// Running state
 	running bool
+	// Note: patternSuccess, patternFailure, corrections, learningStore are inherited from BaseSystemShard
 }
 
 // NewPerceptionFirewallShard creates a new Perception Firewall shard.
@@ -110,12 +111,32 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 		config:          cfg,
 		pendingInputs:   make(chan string, cfg.MaxQueueSize),
 		verbPatterns:    buildVerbPatterns(),
+		// patternSuccess, patternFailure, corrections are in BaseSystemShard
 	}
 
 	return shard
 }
 
-// buildVerbPatterns creates regex patterns for fallback parsing.
+// SetLearningStore sets the learning store for persistent autopoiesis.
+// Delegates to BaseSystemShard which loads existing patterns.
+func (p *PerceptionFirewallShard) SetLearningStore(ls core.LearningStore) {
+	p.BaseSystemShard.SetLearningStore(ls)
+}
+
+// trackSuccess records a successful parse pattern.
+func (p *PerceptionFirewallShard) trackSuccess(pattern string) {
+	p.BaseSystemShard.trackSuccess(pattern)
+}
+
+// trackFailure records a failed or ambiguous pattern.
+func (p *PerceptionFirewallShard) trackFailure(pattern string, reason string) {
+	p.BaseSystemShard.trackFailure(pattern, reason)
+}
+
+// trackCorrection records a user correction.
+func (p *PerceptionFirewallShard) trackCorrection(original, corrected string) {
+	p.BaseSystemShard.trackCorrection(original, corrected)
+}
 func buildVerbPatterns() map[string]*regexp.Regexp {
 	patterns := map[string]string{
 		"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
@@ -311,13 +332,14 @@ func (p *PerceptionFirewallShard) parseWithLLM(ctx context.Context, input string
 func (p *PerceptionFirewallShard) buildSystemPromptWithLearning() string {
 	basePrompt := perceptionSystemPrompt
 
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	// Use base class mutex for accessing learning maps
+	p.BaseSystemShard.mu.RLock()
+	defer p.BaseSystemShard.mu.RUnlock()
 
 	// Add learned corrections if any
-	if len(p.corrections) > 0 {
+	if len(p.BaseSystemShard.corrections) > 0 {
 		basePrompt += "\n\nLEARNED CORRECTIONS (from user feedback):\n"
-		for pattern, count := range p.corrections {
+		for pattern, count := range p.BaseSystemShard.corrections {
 			if count >= 2 {
 				basePrompt += fmt.Sprintf("- %s\n", pattern)
 			}
@@ -325,9 +347,9 @@ func (p *PerceptionFirewallShard) buildSystemPromptWithLearning() string {
 	}
 
 	// Add patterns to avoid
-	if len(p.patternFailure) > 0 {
+	if len(p.BaseSystemShard.patternFailure) > 0 {
 		basePrompt += "\n\nPATTERNS TO AVOID (low confidence/ambiguous):\n"
-		for pattern, count := range p.patternFailure {
+		for pattern, count := range p.BaseSystemShard.patternFailure {
 			if count >= 2 {
 				basePrompt += fmt.Sprintf("- %s\n", pattern)
 			}
@@ -522,14 +544,15 @@ func (p *PerceptionFirewallShard) RecordCorrection(originalIntent, correctedInte
 
 // GetLearnedPatterns returns learned patterns for inclusion in LLM prompts.
 func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	// Use base class mutex for accessing learning maps
+	p.BaseSystemShard.mu.RLock()
+	defer p.BaseSystemShard.mu.RUnlock()
 
 	result := make(map[string][]string)
 
 	// Successful patterns
 	var successful []string
-	for pattern, count := range p.patternSuccess {
+	for pattern, count := range p.BaseSystemShard.patternSuccess {
 		if count >= 3 {
 			successful = append(successful, pattern)
 		}
@@ -538,7 +561,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 
 	// Failed patterns
 	var failed []string
-	for pattern, count := range p.patternFailure {
+	for pattern, count := range p.BaseSystemShard.patternFailure {
 		if count >= 2 {
 			failed = append(failed, pattern)
 		}
@@ -547,7 +570,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 
 	// Corrections
 	var corrections []string
-	for pattern, count := range p.corrections {
+	for pattern, count := range p.BaseSystemShard.corrections {
 		if count >= 2 {
 			corrections = append(corrections, pattern)
 		}

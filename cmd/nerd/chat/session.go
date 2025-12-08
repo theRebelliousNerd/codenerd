@@ -48,38 +48,8 @@ import (
 // Functions for initializing the chat, loading/saving session state, and
 // managing persistent configuration.
 
-// SystemComponents holds the initialized backend components
-type SystemComponents struct {
-	Kernel                *core.RealKernel
-	ShardMgr              *core.ShardManager
-	ShadowMode            *core.ShadowMode
-	Transducer            *perception.RealTransducer
-	Executor              *tactile.SafeExecutor
-	Emitter               *articulation.Emitter
-	VirtualStore          *core.VirtualStore
-	Scanner               *world.Scanner
-	Workspace             string
-	SessionID             string
-	TurnCount             int
-	LocalDB               *store.LocalStore
-	Compressor            *ctxcompress.Compressor
-	Autopoiesis           *autopoiesis.Orchestrator
-	AutopoiesisCancel     context.CancelFunc
-	AutopoiesisListenerCh <-chan struct{}
-	Verifier              *verification.TaskVerifier
-	InitialMessages       []Message
-	Client                perception.LLMClient
-}
-
-// bootCompleteMsg indicates system initialization is finished
-type bootCompleteMsg struct {
-	components *SystemComponents
-	err        error
-}
-
 // InitChat initializes the interactive chat model (Lightweight UI only)
-func InitChat(cfg Config) Model {
-	// Load configuration
+func InitChat(cfg Config) Model {	// Load configuration
 	appCfg, _ := config.Load()
 
 	// Initialize styles

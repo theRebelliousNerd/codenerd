@@ -252,6 +252,10 @@ type VirtualStore struct {
 	// Knowledge persistence - LocalStore for knowledge.db queries
 	// Enables virtual predicates to query learned facts, session history, etc.
 	localDB *store.LocalStore
+
+	// Learning persistence - LearningStore for autopoiesis (§8.3)
+	// Enables shards to persist and retrieve learned patterns across sessions
+	learningStore *store.LearningStore
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -498,6 +502,20 @@ func (v *VirtualStore) GetLocalDB() *store.LocalStore {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.localDB
+}
+
+// SetLearningStore sets the learning database for shard autopoiesis.
+func (v *VirtualStore) SetLearningStore(ls *store.LearningStore) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.learningStore = ls
+}
+
+// GetLearningStore returns the current learning database.
+func (v *VirtualStore) GetLearningStore() *store.LearningStore {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.learningStore
 }
 
 // initConstitution initializes the constitutional safety rules.

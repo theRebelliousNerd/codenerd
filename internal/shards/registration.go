@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/shards/system"
 	"codenerd/internal/shards/tester"
 	"codenerd/internal/shards/tool_generator"
+	"codenerd/internal/store"
 )
 
 // RegistryContext holds dependencies for shard dependency injection.
@@ -20,6 +21,58 @@ type RegistryContext struct {
 	Kernel       core.Kernel
 	LLMClient    perception.LLMClient
 	VirtualStore *core.VirtualStore
+	Workspace    string
+}
+
+// learningStoreAdapter adapts store.LearningStore to core.LearningStore
+type learningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.Load(shardType)
+	if err != nil {
+		return nil, err
+	}
+	// Map store.Learning to core.ShardLearning
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+	learnings, err := a.store.LoadByPredicate(shardType, predicate)
+	if err != nil {
+		return nil, err
+	}
+	// Map store.Learning to core.ShardLearning
+	result := make([]core.ShardLearning, len(learnings))
+	for i, l := range learnings {
+		result[i] = core.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+		}
+	}
+	return result, nil
+}
+
+func (a *learningStoreAdapter) Close() error {
+	return a.store.Close()
 }
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
@@ -30,12 +83,32 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		sm.SetVirtualStore(ctx.VirtualStore)
 	}
 
+	// Helper to safely get LocalDB from VirtualStore
+	getLocalDB := func() *store.LocalStore {
+		if ctx.VirtualStore != nil {
+			return ctx.VirtualStore.GetLocalDB()
+		}
+		return nil
+	}
+
+	// Helper to safely get LearningStore as interface (all shards use core.LearningStore)
+	getLearningStore := func() core.LearningStore {
+		if ctx.VirtualStore != nil {
+			ls := ctx.VirtualStore.GetLearningStore()
+			if ls != nil {
+				return &learningStoreAdapter{store: ls}
+			}
+		}
+		return nil
+	}
+
 	// Register Coder shard factory
 	sm.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := coder.NewCoderShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		return shard
 	})
 
@@ -45,6 +118,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		return shard
 	})
 
@@ -54,6 +128,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		return shard
 	})
 
@@ -62,7 +137,10 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard := researcher.NewResearcherShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
-		// Researcher might need local DB, usually handled in spawn/config or if context adds it
+		shard.SetLocalDB(getLocalDB())             // FIX: Enable knowledge atom storage
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
+		// Use Workspace from context
+		shard.SetWorkspaceRoot(ctx.Workspace)
 		return shard
 	})
 
@@ -70,6 +148,8 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	sm.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := NewRequirementsInterrogatorShard()
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetParentKernel(ctx.Kernel) // FIX: Enable kernel access
+		// shard.SetVirtualStore(ctx.VirtualStore) // Removed: Interrogator doesn't support VirtualStore yet
 		return shard
 	})
 
@@ -90,6 +170,8 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard := system.NewPerceptionFirewallShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		return shard
 	})
 
@@ -107,6 +189,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard := system.NewExecutivePolicyShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable strategy pattern learning
 		return shard
 	})
 
@@ -142,6 +225,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard := system.NewSessionPlannerShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetVirtualStore(ctx.VirtualStore) // FIX: Enable codebase scanning for planning
 		return shard
 	})
 
