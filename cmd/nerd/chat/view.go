@@ -68,6 +68,11 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
+	// Handle Booting State
+	if m.isBooting {
+		return m.renderBootScreen()
+	}
+
 	// Handle List View Mode
 	if m.viewMode == ListView {
 		return m.styles.Content.Render(m.list.View())
@@ -144,9 +149,15 @@ func (m Model) renderHeader() string {
 	// Status indicators
 	var status string
 	if m.isLoading {
-		status = m.styles.Warning.Render("* Processing")
+		// Show spinner and detailed status message
+		spin := m.spinner.View()
+		msg := m.statusMessage
+		if msg == "" {
+			msg = "Thinking..."
+		}
+		status = lipgloss.JoinHorizontal(lipgloss.Center, spin, " ", m.styles.Badge.Render(msg))
 	} else {
-		status = m.styles.Success.Render("* Ready")
+		status = m.styles.Success.Render("âœ“ Ready")
 	}
 
 	headerLine := lipgloss.JoinHorizontal(
@@ -193,4 +204,28 @@ func (m Model) renderFooter() string {
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
+}
+
+func (m Model) renderBootScreen() string {
+	spin := m.spinner.View()
+	title := m.styles.Header.Render(" codeNERD ")
+	subtitle := m.styles.Badge.Render("System Booting")
+
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		"\n",
+		spin,
+		"\n",
+		subtitle,
+		m.styles.Muted.Render("Initializing Kernel, Shards, and Knowledge Base..."),
+	)
+
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		content,
+	)
 }

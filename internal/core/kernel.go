@@ -155,6 +155,12 @@ func NewRealKernel() *RealKernel {
 	// Find and load mangle files from the project
 	k.loadMangleFiles()
 
+	// Force initial evaluation to boot the Mangle engine.
+	// The embedded core MUST compile, otherwise the binary is corrupt.
+	if err := k.evaluate(); err != nil {
+		panic(fmt.Sprintf("CRITICAL: Kernel failed to boot embedded constitution: %v", err))
+	}
+
 	return k
 }
 
@@ -167,6 +173,12 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 		policyDirty: true,
 	}
 	k.loadMangleFiles()
+
+	// Force initial evaluation
+	if err := k.evaluate(); err != nil {
+		panic(fmt.Sprintf("CRITICAL: Kernel failed to boot (path: %s): %v", manglePath, err))
+	}
+
 	return k
 }
 

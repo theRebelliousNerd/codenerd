@@ -38,6 +38,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 )
 
@@ -47,12 +48,39 @@ import (
 // Functions for initializing the chat, loading/saving session state, and
 // managing persistent configuration.
 
-// InitChat initializes the interactive chat model
+// SystemComponents holds the initialized backend components
+type SystemComponents struct {
+	Kernel                *core.RealKernel
+	ShardMgr              *core.ShardManager
+	ShadowMode            *core.ShadowMode
+	Transducer            *perception.RealTransducer
+	Executor              *tactile.SafeExecutor
+	Emitter               *articulation.Emitter
+	VirtualStore          *core.VirtualStore
+	Scanner               *world.Scanner
+	Workspace             string
+	SessionID             string
+	TurnCount             int
+	LocalDB               *store.LocalStore
+	Compressor            *ctxcompress.Compressor
+	Autopoiesis           *autopoiesis.Orchestrator
+	AutopoiesisCancel     context.CancelFunc
+	AutopoiesisListenerCh <-chan struct{}
+	Verifier              *verification.TaskVerifier
+	InitialMessages       []Message
+	Client                perception.LLMClient
+}
+
+// bootCompleteMsg indicates system initialization is finished
+type bootCompleteMsg struct {
+	components *SystemComponents
+	err        error
+}
+
+// InitChat initializes the interactive chat model (Lightweight UI only)
 func InitChat(cfg Config) Model {
 	// Load configuration
 	appCfg, _ := config.Load()
-
-	initialMessages := []Message{}
 
 	// Initialize styles
 	styles := ui.DefaultStyles()
@@ -62,17 +90,12 @@ func InitChat(cfg Config) Model {
 
 	// Initialize textarea for input
 	ta := textarea.New()
-	ta.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
-	ta.Focus()
+	ta.Placeholder = "System initializing..."
 	ta.Prompt = "┃ "
 	ta.CharLimit = 0 // Unlimited
 	ta.SetWidth(80)
 	ta.SetHeight(3) // 3 lines default
 	ta.ShowLineNumbers = false
-	// Apply styles (Textarea doesn't have direct TextStyle field like textinput, it uses FocusedStyle/BlurredStyle)
-	// We can customize if needed, but defaults are usually good.
-	// ta.FocusedStyle.CursorLine = styles.UserInput
-	// ta.FocusedStyle.Prompt = styles.Prompt
 
 	// Initialize spinner
 	sp := spinner.New()
@@ -82,6 +105,16 @@ func InitChat(cfg Config) Model {
 	// Initialize viewport for chat history
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
+
+	// Initialize list (empty by default)
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Past Sessions"
+	l.SetShowHelp(false)
+
+	// Initialize file picker
+	fp := filepicker.New()
+	fp.AllowedTypes = []string{} // All files
+	fp.CurrentDirectory, _ = os.Getwd()
 
 	// Initialize markdown renderer
 	var renderer *glamour.TermRenderer
@@ -100,17 +133,7 @@ func InitChat(cfg Config) Model {
 	// Resolve workspace
 	workspace, _ := os.Getwd()
 
-	// Initialize list (empty by default)
-	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Past Sessions"
-	l.SetShowHelp(false)
-
-	// Initialize file picker
-	fp := filepicker.New()
-	fp.AllowedTypes = []string{} // All files
-	fp.CurrentDirectory, _ = os.Getwd()
-
-	// Resolve API key
+	// Parse API Key immediately (lightweight)
 	apiKey := os.Getenv("ZAI_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("GEMINI_API_KEY")
@@ -118,390 +141,356 @@ func InitChat(cfg Config) Model {
 	if apiKey == "" {
 		apiKey = appCfg.APIKey
 	}
-	if apiKey == "" {
-		initialMessages = append(initialMessages, Message{
-			Role:    "assistant",
-			Content: "No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
-			Time:    time.Now(),
-		})
+	// We don't error here, just pass it to boot
+
+	// Initialize Usage Tracker (lightweight)
+	tracker, err := usage.NewTracker(workspace)
+	if err != nil {
+		fmt.Printf("⚠ Usage tracking init failed: %v\n", err)
 	}
 
-	// Initialize backend components
-	baseLLMClient := perception.NewZAIClient(apiKey)
-	transducer := perception.NewRealTransducer(baseLLMClient)
-	kernel := core.NewRealKernel()
-	executor := tactile.NewSafeExecutor()
-	shardMgr := core.NewShardManager()
-	shardMgr.SetParentKernel(kernel)
+	// Initialize split-pane view
+	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
 
-	// Note: LLM client will be set after TracingLLMClient is created below
-	// We need localDB first for the tracing store
+	// Return the model in "Booting" state
+	return Model{
+		textarea:     ta,
+		viewport:     vp,
+		spinner:      sp,
+		list:         l,
+		filepicker:   fp,
+		styles:       styles,
+		renderer:     renderer,
+		usageTracker: tracker,
+		usagePage:    ui.NewUsagePageModel(tracker, styles),
+		splitPane:    &splitPaneView,
+		logicPane:    splitPaneView.RightPane,
+		showLogic:    false,
+		paneMode:     ui.ModeSinglePane,
+		history:      []Message{},
+		Config:       appCfg,
+		// Backend components start nil
+		kernel:              nil,
+		shardMgr:            nil,
+		client:              nil,  // Will be set in boot
+		isBooting:           true, // Flag for UI
+		statusChan:          make(chan string, 10),
+		workspace:           workspace,
+		DisableSystemShards: cfg.DisableSystemShards,
+	}
+}
 
-	// Initialize Browser Manager (TUI Browser Physics)
-	browserCfg := browser.DefaultConfig()
-	browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
-	var browserMgr *browser.SessionManager
-	// We need a Mangle engine for the browser manager
-	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
-		browserMgr = browser.NewSessionManager(browserCfg, engine)
-		// Start browser session manager in background
-		go func() {
-			if err := browserMgr.Start(context.Background()); err != nil {
-				// Log to console if possible, or silently fail (it's optional)
+// performSystemBoot performs the heavy backend initialization in a background thread
+func performSystemBoot(cfg config.Config, disableSystemShards []string, workspace string) tea.Cmd {
+	return func() tea.Msg {
+		appCfg, _ := config.Load()
+		initialMessages := []Message{}
+
+		apiKey := os.Getenv("ZAI_API_KEY")
+		if apiKey == "" {
+			apiKey = os.Getenv("GEMINI_API_KEY")
+		}
+		if apiKey == "" {
+			apiKey = appCfg.APIKey
+		}
+		if apiKey == "" {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: "No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
+				Time:    time.Now(),
+			})
+		}
+
+		// Initialize backend components
+		baseLLMClient := perception.NewZAIClient(apiKey)
+		transducer := perception.NewRealTransducer(baseLLMClient)
+
+		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally?
+		// We verified NewRealKernel calls evaluate().
+		kernel := core.NewRealKernel()
+
+		// If NewRealKernel didn't error (it returns *RealKernel), we check if it's usable.
+		// Actually NewRealKernel swallows errors?
+		// Let's assume it initializes generic state.
+		// But we should explicitely Evaluate if needed or trust NewRealKernel.
+		// The original code called kernel.Evaluate() explicitly.
+		if err := kernel.Evaluate(); err != nil {
+			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
+		}
+
+		executor := tactile.NewSafeExecutor()
+		shardMgr := core.NewShardManager()
+		shardMgr.SetParentKernel(kernel)
+
+		// Initialize Browser Manager
+		browserCfg := browser.DefaultConfig()
+		browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
+		var browserMgr *browser.SessionManager
+		if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
+			browserMgr = browser.NewSessionManager(browserCfg, engine)
+			go func() {
+				if err := browserMgr.Start(context.Background()); err != nil {
+					// Log silently
+				}
+			}()
+		}
+
+		virtualStore := core.NewVirtualStore(executor)
+
+		var localDB *store.LocalStore
+		knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
+		if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
+			localDB = db
+		}
+
+		// Initialize embedding engine
+		var embeddingEngine embedding.EmbeddingEngine
+		embCfg := appCfg.GetEmbeddingConfig()
+		if embCfg.Provider != "" {
+			embConfig := embedding.Config{
+				Provider:       embCfg.Provider,
+				OllamaEndpoint: embCfg.OllamaEndpoint,
+				OllamaModel:    embCfg.OllamaModel,
+				GenAIAPIKey:    embCfg.GenAIAPIKey,
+				GenAIModel:     embCfg.GenAIModel,
+				TaskType:       embCfg.TaskType,
 			}
-		}()
-	}
-
-	// Register Shard Factories (External Injection)
-	// Each shard gets its own kernel, VirtualStore, and LLM client injected
-	virtualStore := core.NewVirtualStore(executor)
-
-	// Initialize local knowledge database for research persistence
-	// This enables knowledge atoms to persist across sessions
-	var localDB *store.LocalStore
-	knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
-	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
-		localDB = db
-	}
-
-	// Initialize embedding engine from config
-	// Supports Ollama (local) and GenAI (cloud) backends
-	var embeddingEngine embedding.EmbeddingEngine
-	embCfg := appCfg.GetEmbeddingConfig()
-	if embCfg.Provider != "" {
-		embConfig := embedding.Config{
-			Provider:       embCfg.Provider,
-			OllamaEndpoint: embCfg.OllamaEndpoint,
-			OllamaModel:    embCfg.OllamaModel,
-			GenAIAPIKey:    embCfg.GenAIAPIKey,
-			GenAIModel:     embCfg.GenAIModel,
-			TaskType:       embCfg.TaskType,
-		}
-
-		if engine, err := embedding.NewEngine(embConfig); err == nil {
-			embeddingEngine = engine
-			if localDB != nil {
-				localDB.SetEmbeddingEngine(engine)
+			if engine, err := embedding.NewEngine(embConfig); err == nil {
+				embeddingEngine = engine
+				if localDB != nil {
+					localDB.SetEmbeddingEngine(engine)
+				}
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Embedding engine: %s", engine.Name()),
+					Time:    time.Now(),
+				})
+			} else {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⚠ Embedding init failed: %v", err),
+					Time:    time.Now(),
+				})
 			}
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("✓ Embedding engine: %s", engine.Name()),
-				Time:    time.Now(),
-			})
-		} else {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("⚠ Embedding init failed: %v (using keyword search)", err),
-				Time:    time.Now(),
-			})
 		}
-	}
-	// Suppress unused variable warning - embeddingEngine will be used for shard DBs
-	_ = embeddingEngine
+		_ = embeddingEngine
 
-	// Wire LocalDB to VirtualStore for virtual predicate queries
-	// This enables Mangle rules to query knowledge.db via VirtualStore FFI
-	if localDB != nil {
-		virtualStore.SetLocalDB(localDB)
-		virtualStore.SetKernel(kernel)
-
-		// WIRE TAXONOMY ENGINE TO DB (Persistence & Rehydration)
-		taxStore := perception.NewTaxonomyStore(localDB)
-		perception.SharedTaxonomy.SetStore(taxStore)
-
-		// 1. Ensure DB is populated with defaults if empty
-		if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("⚠ Taxonomy defaults init failed: %v", err),
-				Time:    time.Now(),
-			})
-		}
-
-		// 2. Rehydrate engine from DB (loads learned rules too)
-		if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("⚠ Taxonomy rehydration failed: %v", err),
-				Time:    time.Now(),
-			})
-		} else {
-			// Optional: Confirm success
-			// initialMessages = append(initialMessages, Message{
-			// 	Role:    "assistant",
-			// 	Content: "✓ Taxonomy rehydrated from knowledge.db",
-			// 	Time:    time.Now(),
-			// })
-		}
-
-		// Migrate old JSON sessions to SQLite for query access
-		// Safe to call multiple times - uses INSERT OR IGNORE
-		if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("✓ Migrated %d session turns to SQLite", migratedTurns),
-				Time:    time.Now(),
-			})
-		}
-	}
-
-	// ==========================================================================
-	// REASONING TRACE CAPTURE (Task 4)
-	// ==========================================================================
-	// Wrap the LLM client with TracingLLMClient to capture all shard reasoning.
-	// Traces are stored in SQLite and made available to shards for self-learning.
-	var llmClient perception.LLMClient = baseLLMClient
-	if localDB != nil {
-		// Create trace store adapter that implements perception.TraceStore
-		traceStore := NewLocalStoreTraceAdapter(localDB)
-		tracingClient := perception.NewTracingLLMClient(baseLLMClient, traceStore)
-		llmClient = tracingClient
-
-		// Wire tracing client to ShardManager for context-aware trace attribution
-		shardMgr.SetLLMClient(tracingClient)
-
-		initialMessages = append(initialMessages, Message{
-			Role:    "assistant",
-			Content: "✓ Reasoning trace capture enabled",
-			Time:    time.Now(),
-		})
-	} else {
-		// Fallback: no tracing, use base client directly
-		shardMgr.SetLLMClient(baseLLMClient)
-	}
-
-	shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := coder.NewCoderShard()
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := reviewer.NewReviewerShard()
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := tester.NewTesterShard()
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := researcher.NewResearcherShard()
-		shard.SetLLMClient(llmClient)
 		if localDB != nil {
-			shard.SetLocalDB(localDB)
+			virtualStore.SetLocalDB(localDB)
+			virtualStore.SetKernel(kernel)
+
+			taxStore := perception.NewTaxonomyStore(localDB)
+			perception.SharedTaxonomy.SetStore(taxStore)
+
+			if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⚠ Taxonomy defaults init failed: %v", err),
+					Time:    time.Now(),
+				})
+			}
+
+			// HEAVY OPERATION: Rehydration
+			if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⚠ Taxonomy rehydration failed: %v", err),
+					Time:    time.Now(),
+				})
+			}
+
+			if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Migrated %d session turns to SQLite", migratedTurns),
+					Time:    time.Now(),
+				})
+			}
 		}
-		// Provide workspace root so local dependency queries avoid external calls
-		shard.SetWorkspaceRoot(workspace)
-		// Set Context7 API key from config or environment
+
+		var llmClient perception.LLMClient = baseLLMClient
+		if localDB != nil {
+			traceStore := NewLocalStoreTraceAdapter(localDB)
+			tracingClient := perception.NewTracingLLMClient(baseLLMClient, traceStore)
+			llmClient = tracingClient
+			shardMgr.SetLLMClient(tracingClient)
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: "✓ Reasoning trace capture enabled",
+				Time:    time.Now(),
+			})
+		} else {
+			shardMgr.SetLLMClient(baseLLMClient)
+		}
+
+		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := coder.NewCoderShard()
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := reviewer.NewReviewerShard()
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := tester.NewTesterShard()
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := researcher.NewResearcherShard()
+			shard.SetLLMClient(llmClient)
+			if localDB != nil {
+				shard.SetLocalDB(localDB)
+			}
+			shard.SetWorkspaceRoot(workspace)
+			context7Key := appCfg.Context7APIKey
+			if context7Key == "" {
+				context7Key = os.Getenv("CONTEXT7_API_KEY")
+			}
+			if context7Key != "" {
+				shard.SetContext7APIKey(context7Key)
+			}
+			return shard
+		})
+
+		// System Shards
+		shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewPerceptionFirewallShard()
+			shard.SetParentKernel(kernel)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewWorldModelIngestorShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewExecutivePolicyShard()
+			shard.SetParentKernel(kernel)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewConstitutionGateShard()
+			shard.SetParentKernel(kernel)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewTactileRouterShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			if browserMgr != nil {
+				shard.SetBrowserManager(browserMgr)
+			}
+			return shard
+		})
+		shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := system.NewSessionPlannerShard()
+			shard.SetParentKernel(kernel)
+			shard.SetLLMClient(llmClient)
+			return shard
+		})
+
+		shards.RegisterSystemShardProfiles(shardMgr)
+
+		// HEAVY OPERATION: Start System Shards (Async but setup overhead)
+		ctx := context.Background()
+		disabled := make(map[string]struct{})
+		for _, name := range disableSystemShards {
+			disabled[name] = struct{}{}
+		}
+		if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
+			for _, token := range strings.Split(env, ",") {
+				name := strings.TrimSpace(token)
+				if name != "" {
+					disabled[name] = struct{}{}
+				}
+			}
+		}
+		for name := range disabled {
+			shardMgr.DisableSystemShard(name)
+		}
+		if err := shardMgr.StartSystemShards(ctx); err != nil {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Failed to start system shards: %v", err),
+				Time:    time.Now(),
+			})
+		}
+
+		shadowMode := core.NewShadowMode(kernel)
+		emitter := articulation.NewEmitter()
+		scanner := world.NewScanner()
+
+		ctxCfg := appCfg.GetContextWindowConfig()
+		compressor := ctxcompress.NewCompressorWithParams(
+			kernel, localDB, llmClient,
+			ctxCfg.MaxTokens,
+			ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
+			ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
+			ctxCfg.RecentTurnWindow,
+			ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
+		)
+
+		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
+		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
+		kernelAdapter := core.NewAutopoiesisBridge(kernel)
+		autopoiesisOrch.SetKernel(kernelAdapter)
+
+		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
+		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
+
 		context7Key := appCfg.Context7APIKey
 		if context7Key == "" {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
 		}
-		if context7Key != "" {
-			shard.SetContext7APIKey(context7Key)
-		}
-		return shard
-	})
+		taskVerifier := verification.NewTaskVerifier(
+			llmClient,
+			localDB,
+			shardMgr,
+			autopoiesisOrch,
+			context7Key,
+		)
 
-	// =========================================================================
-	// Type 1: System Shards (Permanent, Continuous)
-	// =========================================================================
-	// System shards form the OODA loop and run continuously in the background.
-	// They require dependency injection for kernel, LLM client, and virtual store.
+		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
+		virtualStore.SetToolExecutor(toolExecutor)
 
-	// Perception Firewall - AUTO-START, LLM-primary (NL → atoms transduction)
-	shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewPerceptionFirewallShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
+		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
-	// World Model Ingestor - ON-DEMAND, Hybrid (file_topology, symbol_graph)
-	shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewWorldModelIngestorShard()
-		shard.SetParentKernel(kernel)
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-
-	// Executive Policy - AUTO-START, Logic-primary (next_action derivation)
-	shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewExecutivePolicyShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient) // For autopoiesis edge cases
-		return shard
-	})
-
-	// Constitution Gate - AUTO-START, Logic-primary (safety enforcement)
-	shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewConstitutionGateShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient) // For autopoiesis rule proposals
-		return shard
-	})
-
-	// Tactile Router - ON-DEMAND, Logic-primary (action → tool routing)
-	shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewTactileRouterShard()
-		shard.SetParentKernel(kernel)
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient) // For autopoiesis routing gaps
-		if browserMgr != nil {
-			shard.SetBrowserManager(browserMgr)
-		}
-		return shard
-	})
-
-	// Session Planner - ON-DEMAND, LLM-primary (goal decomposition)
-	shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewSessionPlannerShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-
-	// Define system shard profiles (configurations)
-	shards.RegisterSystemShardProfiles(shardMgr)
-
-	ctx := context.Background()
-	disabled := make(map[string]struct{})
-	for _, name := range cfg.DisableSystemShards {
-		disabled[name] = struct{}{}
-	}
-	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
-		for _, token := range strings.Split(env, ",") {
-			name := strings.TrimSpace(token)
-			if name != "" {
-				disabled[name] = struct{}{}
-			}
+		return bootCompleteMsg{
+			components: &SystemComponents{
+				Kernel:                kernel,
+				ShardMgr:              shardMgr,
+				ShadowMode:            shadowMode,
+				Transducer:            transducer,
+				Executor:              executor,
+				Emitter:               emitter,
+				VirtualStore:          virtualStore,
+				Scanner:               scanner,
+				Workspace:             workspace,
+				SessionID:             resolveSessionID(loadedSession),
+				TurnCount:             resolveTurnCount(loadedSession),
+				LocalDB:               localDB,
+				Compressor:            compressor,
+				Autopoiesis:           autopoiesisOrch,
+				AutopoiesisCancel:     autopoiesisCancel,
+				AutopoiesisListenerCh: autopoiesisListenerCh,
+				Verifier:              taskVerifier,
+				InitialMessages:       initialMessages,
+				Client:                llmClient,
+			},
 		}
 	}
-	for name := range disabled {
-		shardMgr.DisableSystemShard(name)
-	}
-	if err := shardMgr.StartSystemShards(ctx); err != nil {
-		initialMessages = append(initialMessages, Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("Failed to start system shards: %v", err),
-			Time:    time.Now(),
-		})
-	}
-	shadowMode := core.NewShadowMode(kernel)
-	emitter := articulation.NewEmitter()
-	scanner := world.NewScanner()
-
-	// Initialize Semantic Compression (§8.2)
-	ctxCfg := appCfg.GetContextWindowConfig()
-	compressor := ctxcompress.NewCompressorWithParams(
-		kernel, localDB, llmClient,
-		ctxCfg.MaxTokens,
-		ctxCfg.CoreReservePercent, ctxCfg.AtomReservePercent,
-		ctxCfg.HistoryReservePercent, ctxCfg.WorkingReservePercent,
-		ctxCfg.RecentTurnWindow,
-		ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
-	)
-
-	// Initialize Autopoiesis (§8.3) - Self-Modification Capabilities
-	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
-	autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
-
-	// Wire kernel to autopoiesis for logic-driven orchestration
-	kernelAdapter := core.NewAutopoiesisBridge(kernel)
-	autopoiesisOrch.SetKernel(kernelAdapter)
-
-	// Start kernel listener for delegate_task(/tool_generator, ...) facts
-	// This enables campaign orchestration to trigger tool generation via Mangle policy
-	autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
-	autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
-
-	// Initialize Verification Loop (Quality-Enforcing)
-	// This ensures tasks are completed PROPERLY with automatic retry and corrective action
-	context7Key := appCfg.Context7APIKey
-	if context7Key == "" {
-		context7Key = os.Getenv("CONTEXT7_API_KEY")
-	}
-	taskVerifier := verification.NewTaskVerifier(
-		llmClient,
-		localDB,
-		shardMgr,
-		autopoiesisOrch,
-		context7Key,
-	)
-
-	// Wire tool executor to VirtualStore for shard access to generated tools
-	// This enables the Ouroboros Loop's generated tools to be executed via VirtualStore
-	toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
-	virtualStore.SetToolExecutor(toolExecutor)
-
-	loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
-
-	// Initialize split-pane view (Glass Box Interface)
-	splitPaneView := ui.NewSplitPaneView(styles, 80, 24)
-
-	// Preload workspace facts from .nerd/profile.mg if present
-	// (Already done in hydrateNerdState)
-
-	// Initialize Usage Tracker
-	tracker, err := usage.NewTracker(workspace)
-	if err != nil {
-		initialMessages = append(initialMessages, Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("⚠ Usage tracking init failed: %v", err),
-			Time:    time.Now(),
-		})
-	}
-
-	model := Model{
-
-		textarea:              ta,
-		viewport:              vp,
-		spinner:               sp,
-		list:                  l,
-		filepicker:            fp,
-		styles:                styles,
-		renderer:              renderer,
-		usageTracker:          tracker,
-		usagePage:             ui.NewUsagePageModel(tracker, styles),
-		splitPane:             &splitPaneView,
-		logicPane:             splitPaneView.RightPane,
-		showLogic:             false,
-		paneMode:              ui.ModeSinglePane,
-		history:               []Message{},
-		Config:                appCfg,
-		client:                llmClient,
-		kernel:                kernel,
-		shardMgr:              shardMgr,
-		shadowMode:            shadowMode,
-		transducer:            transducer,
-		executor:              executor,
-		emitter:               emitter,
-		virtualStore:          virtualStore,
-		scanner:               scanner,
-		workspace:             workspace,
-		sessionID:             resolveSessionID(loadedSession),
-		turnCount:             resolveTurnCount(loadedSession),
-		awaitingClarification: false,
-		selectedOption:        0,
-		localDB:               localDB,
-		compressor:            compressor,
-		autopoiesis:           autopoiesisOrch,
-		autopoiesisCancel:     autopoiesisCancel,
-		autopoiesisListenerCh: autopoiesisListenerCh,
-		verifier:              taskVerifier,
-	}
-
-	if len(initialMessages) > 0 {
-		model.history = append(model.history, initialMessages...)
-		model.viewport.SetContent(model.renderHistory())
-	}
-
-	return model
 }
 
 func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {

@@ -1,11 +1,8 @@
 Decl verb_def(Verb, Category, Shard, Priority).
-Descr verb_def(mode('-', '-', '-', '-')).
 
 Decl verb_synonym(Verb, Synonym).
-Descr verb_synonym(mode('-', '-')).
 
 Decl verb_pattern(Verb, Regex).
-Descr verb_pattern(mode('-', '-')).
 
 # =========================================================================
 # CODE REVIEW & ANALYSIS (Reviewer)

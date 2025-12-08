@@ -289,8 +289,7 @@ or you can create them on-demand with /tool generate.
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
 		m.isLoading = true
-		return m, tea.Batch(m.spinner.Tick, m.runInit())
-
+		return m, tea.Batch(m.spinner.Tick, m.runInitialization(forceInit))
 	case "/scan":
 		m.history = append(m.history, Message{
 			Role:    "assistant",

@@ -136,16 +136,17 @@ type Model struct {
 	awaitingAgentDefinition bool
 
 	// Backend
-	client       perception.LLMClient
-	kernel       *core.RealKernel
-	shardMgr     *core.ShardManager
-	shadowMode   *core.ShadowMode
-	transducer   *perception.RealTransducer
-	executor     *tactile.SafeExecutor
-	emitter      *articulation.Emitter
-	virtualStore *core.VirtualStore
-	scanner      *world.Scanner
-	workspace    string
+	client              perception.LLMClient
+	kernel              *core.RealKernel
+	shardMgr            *core.ShardManager
+	shadowMode          *core.ShadowMode
+	transducer          *perception.RealTransducer
+	executor            *tactile.SafeExecutor
+	emitter             *articulation.Emitter
+	virtualStore        *core.VirtualStore
+	scanner             *world.Scanner
+	workspace           string
+	DisableSystemShards []string
 
 	// Campaign Orchestration
 	activeCampaign    *campaign.Campaign
@@ -177,29 +178,47 @@ type Model struct {
 	awaitingConfigWizard bool
 	configWizard         *ConfigWizardState
 
-	// Input History
-	inputHistory []string
-	historyIndex int
-
-	// ==========================================================================
-	// CONVERSATIONAL CONTEXT (Fix for follow-up questions)
-	// ==========================================================================
-	// Stores the last shard result so follow-up questions can reference it.
-	// This enables "what are the other suggestions?" after a review.
-	lastShardResult *ShardResult
-	// Tracks last auto-clarifier input to avoid loops
-	lastClarifyInput string
-	// Pending launchcampaign flow
+	// Launch Clarification State
 	launchClarifyPending bool
 	launchClarifyGoal    string
 	launchClarifyAnswers string
 
-	// ==========================================================================
-	// SESSION CONTEXT HISTORY (Blackboard Pattern)
-	// ==========================================================================
-	// Maintains sliding window of shard results for cross-shard context.
-	// Enables: reviewer→coder, tester→debugger, coder→tester flows.
-	shardResultHistory []*ShardResult // Last N shard results (sliding window)
+	// Conversation Context
+	lastShardResult    *ShardResult
+	shardResultHistory []*ShardResult
+	lastClarifyInput   string
+
+	// Status Tracking
+	statusMessage string      // Current operation description
+	statusChan    chan string // Channel for streaming status updates
+
+	// Boot State
+	isBooting bool
+
+	// Input History
+	inputHistory []string
+	historyIndex int
+}
+
+// statusMsg represents a status update from a background process
+type statusMsg string
+
+// waitForStatus listens for status updates
+func (m Model) waitForStatus() tea.Cmd {
+	return func() tea.Msg {
+		return statusMsg(<-m.statusChan)
+	}
+}
+
+// ReportStatus sends a non-blocking status update
+func (m Model) ReportStatus(msg string) {
+	if m.statusChan != nil {
+		select {
+		case m.statusChan <- msg:
+		default:
+			// Channel full, drop update to prevent blocking
+		}
+	}
 }
 
 // ShardResult stores the full output from a shard execution for follow-up queries.
@@ -282,8 +301,10 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
 		m.spinner.Tick,
-		m.checkWorkspaceSync(),
+		// m.checkWorkspaceSync(), // DEFERRED until boot complete
 		tea.EnableMouseCellMotion,
+		m.waitForStatus(), // Start status listener
+		performSystemBoot(m.Config, m.DisableSystemShards, m.workspace), // Start heavy system initialization
 	)
 }
 
@@ -515,13 +536,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logicWidth := msg.Width / 3
 			chatWidth = msg.Width - logicWidth - 4 // minus padding/borders
 		}
+		if chatWidth < 1 {
+			chatWidth = 1
+		}
+
+		calcHeight := msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
+		if calcHeight < 1 {
+			calcHeight = 1
+		}
 
 		if !m.ready {
-			m.viewport = viewport.New(chatWidth, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
+			m.viewport = viewport.New(chatWidth, calcHeight)
 			m.ready = true
 		} else {
 			m.viewport.Width = chatWidth
-			m.viewport.Height = msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
+			m.viewport.Height = calcHeight
 		}
 
 		// Reduce input width to accommodate border (2) + padding (2) + safety margin
@@ -727,6 +756,70 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.saveSessionState()
+
+	case statusMsg:
+		m.statusMessage = string(msg)
+		return m, m.waitForStatus() // Listen for next update
+
+	case bootCompleteMsg:
+		m.isBooting = false
+		if msg.err != nil {
+			m.err = msg.err
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**System Boot Failed:** %v", msg.err),
+				Time:    time.Now(),
+			})
+		} else {
+			// Populate components from the heavy initialization
+			c := msg.components
+			m.kernel = c.Kernel
+			m.shardMgr = c.ShardMgr
+			m.shadowMode = c.ShadowMode
+			m.transducer = c.Transducer
+			m.executor = c.Executor
+			m.emitter = c.Emitter
+			m.virtualStore = c.VirtualStore
+			m.scanner = c.Scanner
+			m.localDB = c.LocalDB
+			m.compressor = c.Compressor
+			m.autopoiesis = c.Autopoiesis
+			m.autopoiesisCancel = c.AutopoiesisCancel
+			m.autopoiesisListenerCh = c.AutopoiesisListenerCh
+			m.verifier = c.Verifier
+
+			// Client is set based on what was initialized (Tracing vs Base)
+			m.client = c.Client
+			// Client is set based on what was initialized (Tracing vs Base)
+			// But Model struct has `client perception.LLMClient`.
+			// In performSystemBoot we need to see what client was created.
+			// Ah, performSystemBoot should probably return the client too, or attach it to ShardMgr which we have.
+			// ShardMgr has GetLLMClient? No.
+			// But we wired shardMgr with the client.
+			// Let's check session.go again... I didn't put Client in SystemComponents.
+			// I should update SystemComponents in session.go or just infer it.
+			// Actually, I can add Client to SystemComponents since I'm already modifying session.go?
+			// No, I finished session.go edit. I missed `Client` field in `SystemComponents` struct definition in session.go.
+			// I defined `SystemComponents` in the previous step. Let me check if I added LLMClient.
+			// I did NOT add LLMClient to SystemComponents.
+			// But I did assign `llmClient` variable in `performSystemBoot`.
+			// I need to fix `session.go` to include `LLMClient` in `SystemComponents` and return it.
+			// For now, I will treat this as a fix I need to do concurrently or sequentially.
+			// Wait, if I don't assign `m.client`, then `InitChat` sets it to nil initially.
+			// Operations that use `m.client` will panic.
+
+			// I MUST fix `session.go` to return the client.
+			// I will abort this `model.go` edit, fix `session.go` first, then come back.
+			// OR I can use `m.shardMgr` to get client if possible? No.
+		}
+
+		// Append any initial messages generated during boot
+		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
+			m.history = append(m.history, msg.components.InitialMessages...)
+		}
+
+		// Now trigger the workspace scan (deferred)
+		return m, m.checkWorkspaceSync()
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
