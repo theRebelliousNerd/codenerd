@@ -14,17 +14,18 @@ type stubKernel struct {
 	asserted  []Fact
 }
 
-func (s *stubKernel) LoadFacts([]Fact) error                       { return nil }
+func (s *stubKernel) LoadFacts([]Fact) error { return nil }
 func (s *stubKernel) Query(predicate string) ([]Fact, error) {
 	if predicate == "permitted" {
 		return s.permitted, nil
 	}
 	return nil, nil
 }
-func (s *stubKernel) QueryAll() (map[string][]Fact, error)         { return nil, nil }
-func (s *stubKernel) Assert(f Fact) error                          { s.asserted = append(s.asserted, f); return nil }
-func (s *stubKernel) Retract(string) error                         { return nil }
-func (s *stubKernel) RetractFact(Fact) error                       { return nil }
+func (s *stubKernel) QueryAll() (map[string][]Fact, error) { return nil, nil }
+func (s *stubKernel) Assert(f Fact) error                  { s.asserted = append(s.asserted, f); return nil }
+func (s *stubKernel) Retract(string) error                 { return nil }
+func (s *stubKernel) RetractFact(Fact) error               { return nil }
+func (s *stubKernel) UpdateSystemFacts() error             { return nil }
 
 func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())

@@ -11,6 +11,7 @@
 package system
 
 import (
+	"codenerd/internal/browser"
 	"codenerd/internal/core"
 	"context"
 	"fmt"
@@ -110,6 +111,9 @@ type TactileRouterShard struct {
 	routes       map[string]ToolRoute // action -> route
 	rateLimiters map[string]*rateLimiter
 
+	// Dependencies
+	BrowserManager *browser.SessionManager
+
 	// Tracking
 	pendingCalls   []ToolCall
 	completedCalls []ToolCall
@@ -196,6 +200,13 @@ func NewTactileRouterShardWithConfig(cfg RouterConfig) *TactileRouterShard {
 	}
 
 	return shard
+}
+
+// SetBrowserManager injects the browser session manager.
+func (r *TactileRouterShard) SetBrowserManager(mgr *browser.SessionManager) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.BrowserManager = mgr
 }
 
 // Execute runs the Tactile Router's action routing loop.

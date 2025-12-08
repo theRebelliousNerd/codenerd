@@ -460,6 +460,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.paneMode = ui.ModeSinglePane
 					m.splitPane.SetMode(ui.ModeSinglePane)
 				}
+				// Trigger resize to update viewport width
+				cmd = tea.Batch(cmd, func() tea.Msg {
+					return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				})
 				return m, cmd
 
 			case 'g':
@@ -505,16 +509,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		inputHeight := 3   // Smaller input height for textinput
 		paddingHeight := 2 // Extra padding for safety
 
+		// Calculate layout
+		chatWidth := msg.Width - 4
+		if m.showLogic {
+			logicWidth := msg.Width / 3
+			chatWidth = msg.Width - logicWidth - 4 // minus padding/borders
+		}
+
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width-4, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
+			m.viewport = viewport.New(chatWidth, msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight)
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width - 4
+			m.viewport.Width = chatWidth
 			m.viewport.Height = msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
 		}
 
 		// Reduce input width to accommodate border (2) + padding (2) + safety margin
-		m.textarea.SetWidth(msg.Width - 8)
+		m.textarea.SetWidth(chatWidth - 4)
 
 		// Update split pane dimensions
 		if m.splitPane != nil {
@@ -533,8 +544,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.renderer != nil {
 			m.renderer, _ = glamour.NewTermRenderer(
 				glamour.WithAutoStyle(),
-				glamour.WithWordWrap(msg.Width-8),
+				glamour.WithWordWrap(chatWidth-4),
 			)
+			// Re-render history with new wrapping
+			m.viewport.SetContent(m.renderHistory())
 		}
 
 	case tea.WindowSizeMsg:

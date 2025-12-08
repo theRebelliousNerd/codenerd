@@ -126,6 +126,15 @@ func (r *ResearcherShard) analyzeCodebase(ctx context.Context, workspace string)
 		})
 	}
 
+	// 5a. Robust Documentation Ingestion (Docs/, specs, etc.)
+	docAtoms, err := r.IngestDocumentation(ctx, workspace)
+	if err == nil && len(docAtoms) > 0 {
+		fmt.Printf("[Researcher] Ingested %d documentation atoms\n", len(docAtoms))
+		result.Atoms = append(result.Atoms, docAtoms...)
+	} else if err != nil {
+		fmt.Printf("[Researcher] Warning: Documentation ingestion failed: %v\n", err)
+	}
+
 	// 6. Generate summary using LLM if available
 	if r.llmClient != nil {
 		summary, err := r.generateCodebaseSummary(ctx, result)

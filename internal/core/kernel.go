@@ -112,6 +112,7 @@ type Kernel interface {
 	Assert(fact Fact) error
 	Retract(predicate string) error
 	RetractFact(fact Fact) error // Retract a specific fact by predicate and first argument
+	UpdateSystemFacts() error    // Updates system-level facts (time, OS, etc.)
 }
 
 // RealKernel wraps the google/mangle engine with proper EDB/IDB separation.

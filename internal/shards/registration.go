@@ -4,6 +4,7 @@ package shards
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/perception"
 	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
@@ -12,41 +13,71 @@ import (
 	"codenerd/internal/shards/tool_generator"
 )
 
+// RegistryContext holds dependencies for shard dependency injection.
+// This solves the "hollow shard" problem by ensuring factories have access
+// to the kernel and LLM client at instantiation time.
+type RegistryContext struct {
+	Kernel       core.Kernel
+	LLMClient    perception.LLMClient
+	VirtualStore *core.VirtualStore
+}
+
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
-func RegisterAllShardFactories(sm *core.ShardManager) {
+func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
+	// Ensure ShardManager has the VirtualStore for dynamic injection
+	if ctx.VirtualStore != nil {
+		sm.SetVirtualStore(ctx.VirtualStore)
+	}
+
 	// Register Coder shard factory
 	sm.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := coder.NewCoderShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})
 
 	// Register Reviewer shard factory
 	sm.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := reviewer.NewReviewerShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})
 
 	// Register Tester shard factory
 	sm.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := tester.NewTesterShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})
 
 	// Register Researcher shard factory
 	sm.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := researcher.NewResearcherShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		// Researcher might need local DB, usually handled in spawn/config or if context adds it
 		return shard
 	})
 
 	// Register Requirements Interrogator (Socratic clarifier)
 	sm.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
-		return NewRequirementsInterrogatorShard()
+		shard := NewRequirementsInterrogatorShard()
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register ToolGenerator shard factory (autopoiesis)
 	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := tool_generator.NewToolGeneratorShard(id, config)
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})
 
@@ -56,37 +87,62 @@ func RegisterAllShardFactories(sm *core.ShardManager) {
 
 	// Register Perception Firewall - AUTO-START, LLM-primary
 	sm.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewPerceptionFirewallShard()
+		shard := system.NewPerceptionFirewallShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register World Model Ingestor - ON-DEMAND, Hybrid
 	sm.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewWorldModelIngestorShard()
+		shard := system.NewWorldModelIngestorShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register Executive Policy - AUTO-START, Logic-primary
 	sm.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewExecutivePolicyShard()
+		shard := system.NewExecutivePolicyShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
 	sm.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewConstitutionGateShard()
+		shard := system.NewConstitutionGateShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register Legislator - ON-DEMAND, Logic-primary (learned constraints)
 	sm.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewLegislatorShard()
+		shard := system.NewLegislatorShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Register Tactile Router - ON-DEMAND, Logic-primary
 	sm.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewTactileRouterShard()
+		shard := system.NewTactileRouterShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
+		// BrowserManager will be injected separately if available
+		return shard
 	})
 
 	// Register Session Planner - ON-DEMAND, LLM-primary
 	sm.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
-		return system.NewSessionPlannerShard()
+		shard := system.NewSessionPlannerShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		return shard
 	})
 
 	// Define shard profiles with proper configurations

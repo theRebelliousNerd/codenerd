@@ -10,8 +10,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
-	"codenerd/internal/shards"
-	"codenerd/internal/shards/system"
+	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
@@ -453,14 +452,36 @@ func checkFile(engine *mangle.Engine, path string) error {
 	// Try to load schemas.mg first if it exists, to provide context
 	// We assume a standard location or relative path; for now hardcode likely location
 	// In a real tool, this would be a flag --schema or --include
-	excludePath := "internal/mangle/schemas.mg"
-	if _, err := os.Stat(excludePath); err == nil && filepath.Base(path) != "schemas.mg" {
-		schemaData, err := os.ReadFile(excludePath)
-		if err == nil {
-			if err := tmpEngine.LoadSchemaString(string(schemaData)); err != nil {
-				// If the schema itself is broken, we should probably warn but proceed
-				fmt.Printf("WARNING: Failed to load context from %s: %v\n", excludePath, err)
+	// Try to find and load schemas.mg to provide context
+	// Iterate through search paths to find where schemas.mg actually lives
+	searchPaths := []string{
+		".",
+		"internal/mangle",
+		"../internal/mangle",
+		"../../internal/mangle",
+	}
+
+	var schemaData []byte
+	foundSchema := false
+
+	for _, basePath := range searchPaths {
+		excludePath := filepath.Join(basePath, "schemas.mg")
+		if _, err := os.Stat(excludePath); err == nil {
+			if filepath.Base(path) != "schemas.mg" {
+				data, err := os.ReadFile(excludePath)
+				if err == nil {
+					schemaData = data
+					foundSchema = true
+					break
+				}
 			}
+		}
+	}
+
+	if foundSchema {
+		if err := tmpEngine.LoadSchemaString(string(schemaData)); err != nil {
+			// If the schema itself is broken, we should probably warn but proceed
+			fmt.Printf("WARNING: Failed to load context from schemas.mg: %v\n", err)
 		}
 	}
 
@@ -503,104 +524,22 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		key = os.Getenv("ZAI_API_KEY")
 	}
 
-	// 1. Initialize Components (Cortex 1.5.0)
-	// Initialize Usage Tracker (Fix for missing usage stats)
-	tracker, err := usage.NewTracker(workspace)
+	// Boot Cortex (System Stabilization)
+	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
 	if err != nil {
-		logger.Warn("Failed to initialize usage tracker", zap.Error(err))
-	} else {
-		// Inject tracker into context
-		ctx = usage.NewContext(ctx, tracker)
+		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
 
-	llmClient := perception.NewZAIClient(key)
-	transducer := perception.NewRealTransducer(llmClient)
-
-	// Autopoiesis (Tools & Agents)
-	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
-	poiesis := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
-
-	scanner := world.NewScanner()
-	kernel := core.NewRealKernel()
-
-	// Attach Kernel to Autopoiesis
-	// Use AutopoiesisBridge (Autopoiesis -> Core)
-	poiesis.SetKernel(core.NewAutopoiesisBridge(kernel))
-
-	executor := tactile.NewSafeExecutor()
-	virtualStore := core.NewVirtualStore(executor)
-	shardManager := core.NewShardManager()
-	shardManager.SetParentKernel(kernel)
-	shardManager.SetLLMClient(llmClient)
-
-	shardManager.SetLLMClient(llmClient)
-
-	// Register all shard factories (base + specialists)
-	shards.RegisterAllShardFactories(shardManager)
-
-	// Overwrite system shard factories with dependency-injected versions
-	shardManager.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewPerceptionFirewallShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardManager.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewWorldModelIngestorShard()
-		shard.SetParentKernel(kernel)
-		return shard
-	})
-	shardManager.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewExecutivePolicyShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardManager.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewConstitutionGateShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardManager.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewTactileRouterShard()
-		shard.SetParentKernel(kernel)
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	shardManager.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
-		shard := system.NewSessionPlannerShard()
-		shard.SetParentKernel(kernel)
-		shard.SetLLMClient(llmClient)
-		return shard
-	})
-	// shards.RegisterSystemShardProfiles(shardManager) - called by RegisterAllShardFactories
-
-	disabled := make(map[string]struct{})
-	for _, name := range disableSystemShards {
-		disabled[name] = struct{}{}
+	// Add usage tracker to context if available
+	if cortex.UsageTracker != nil {
+		ctx = usage.NewContext(ctx, cortex.UsageTracker)
 	}
-	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
-		for _, token := range strings.Split(env, ",") {
-			name := strings.TrimSpace(token)
-			if name != "" {
-				disabled[name] = struct{}{}
-			}
-		}
-	}
-	for name := range disabled {
-		logger.Debug("Disabling system shard", zap.String("name", name))
-		shardManager.DisableSystemShard(name)
-	}
-	if err := shardManager.StartSystemShards(ctx); err != nil {
-		return fmt.Errorf("failed to start system shards: %w", err)
-	}
+
 	emitter := articulation.NewEmitter()
 
 	// 2. Perception Layer: Transduce Input -> Intent
 	logger.Debug("Transducing user input to intent atoms")
-	intent, err := transducer.ParseIntent(ctx, userInput)
+	intent, err := cortex.Transducer.ParseIntent(ctx, userInput)
 	if err != nil {
 		return fmt.Errorf("perception error: %w", err)
 	}
@@ -608,28 +547,24 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		zap.String("verb", intent.Verb),
 		zap.String("target", intent.Target))
 
-	// 3. World Model: Scan Workspace (FactStore Hydration)
-	cwd := workspace
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	logger.Debug("Scanning workspace", zap.String("path", cwd))
-	fileFacts, err := scanner.ScanWorkspace(cwd)
+	// 3. World Model: Scan Workspace
+	logger.Debug("Scanning workspace", zap.String("path", cortex.Workspace))
+	fileFacts, err := cortex.Scanner.ScanWorkspace(cortex.Workspace)
 	if err != nil {
 		return fmt.Errorf("world model error: %w", err)
 	}
 	logger.Debug("Workspace scanned", zap.Int("facts", len(fileFacts)))
 
 	// 4. Load Facts into Hollow Kernel
-	if err := kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
+	if err := cortex.Kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
 		return fmt.Errorf("kernel load error: %w", err)
 	}
-	if err := kernel.LoadFacts(fileFacts); err != nil {
+	if err := cortex.Kernel.LoadFacts(fileFacts); err != nil {
 		return fmt.Errorf("kernel load error: %w", err)
 	}
 
-	// Update system facts (Time, etc.) - Fix for Bug #7
-	if err := kernel.UpdateSystemFacts(); err != nil {
+	// Update system facts (Time, etc.)
+	if err := cortex.Kernel.UpdateSystemFacts(); err != nil {
 		return fmt.Errorf("system facts update error: %w", err)
 	}
 
@@ -638,7 +573,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	var output string
 
 	// Check for delegation
-	delegateFacts, _ := kernel.Query("delegate_task")
+	delegateFacts, _ := cortex.Kernel.Query("delegate_task")
 	if len(delegateFacts) > 0 {
 		// Execute via shard
 		fact := delegateFacts[0]
@@ -649,7 +584,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		// Special handling for System Components
 		if shardType == "/tool_generator" || shardType == "tool_generator" {
 			// Autopoiesis: Tool Generation
-			count, err := poiesis.ProcessKernelDelegations(ctx)
+			count, err := cortex.Orchestrator.ProcessKernelDelegations(ctx)
 			if err != nil {
 				output = fmt.Sprintf("Tool generation failed: %v", err)
 			} else {
@@ -657,7 +592,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			// Standard Shard
-			result, err := shardManager.Spawn(ctx, shardType, task)
+			result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
 			if err != nil {
 				output = fmt.Sprintf("Shard execution failed: %v", err)
 			} else {
@@ -667,11 +602,11 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 
 	} else {
 		// Query next_action
-		actionFacts, _ := kernel.Query("next_action")
+		actionFacts, _ := cortex.Kernel.Query("next_action")
 		if len(actionFacts) > 0 {
 			fact := actionFacts[0]
 			logger.Info("Executing action", zap.Any("action", fact))
-			result, err := virtualStore.RouteAction(ctx, fact)
+			result, err := cortex.VirtualStore.RouteAction(ctx, fact)
 			if err != nil {
 				output = fmt.Sprintf("Action failed: %v", err)
 			} else {
@@ -714,21 +649,32 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 		zap.String("name", name),
 		zap.String("topic", topic))
 
-	// Create shard manager and define profile
-	shardManager := core.NewShardManager()
-	shards.RegisterAllShardFactories(shardManager)
+	// Resolve API key
+	key := apiKey
+	if key == "" {
+		key = os.Getenv("ZAI_API_KEY")
+	}
+
+	// Boot Cortex to get wired environment
+	cortex, err := coresys.BootCortex(cmd.Context(), workspace, key, disableSystemShards)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+
 	config := core.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
 
-	shardManager.DefineProfile(name, config)
+	cortex.ShardManager.DefineProfile(name, config)
 
 	// Trigger deep research phase (§9.2)
 	// This spawns a researcher shard to build the knowledge base
 	fmt.Printf("Initiating deep research on topic: %s...\n", topic)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+
+	// Use 10 minute timeout for research
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 	defer cancel()
 
 	researchTask := fmt.Sprintf("Research the topic '%s' and generate Mangle facts for the %s agent knowledge base.", topic, name)
-	if _, err := shardManager.Spawn(ctx, "researcher", researchTask); err != nil {
+	if _, err := cortex.ShardManager.Spawn(ctx, "researcher", researchTask); err != nil {
 		logger.Warn("Deep research phase failed", zap.Error(err))
 		fmt.Printf("Warning: Deep research failed (%v). Agent will start with empty knowledge base.\n", err)
 	} else {
@@ -742,7 +688,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 
 // spawnShard spawns a shard agent
 func spawnShard(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 
 	shardType := args[0]
@@ -752,9 +698,19 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 		zap.String("type", shardType),
 		zap.String("task", task))
 
-	shardManager := core.NewShardManager()
-	shards.RegisterAllShardFactories(shardManager)
-	result, err := shardManager.Spawn(ctx, shardType, task)
+	// Resolve API key
+	key := apiKey
+	if key == "" {
+		key = os.Getenv("ZAI_API_KEY")
+	}
+
+	// Boot Cortex
+	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+
+	result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
 	if err != nil {
 		return fmt.Errorf("spawn failed: %w", err)
 	}

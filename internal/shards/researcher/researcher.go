@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -799,4 +801,211 @@ func (r *ResearcherShard) buildSessionContextPrompt() string {
 	}
 
 	return sb.String()
+}
+
+// IngestDocumentation scanning and ingesting project documentation.
+// It specifically looks for Docs/ folders, key markdown files, and heuristically scans other files for "Ground Truth".
+func (r *ResearcherShard) IngestDocumentation(ctx context.Context, workspace string) ([]KnowledgeAtom, error) {
+	r.mu.Lock()
+	r.state = core.ShardStateRunning
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		r.state = core.ShardStateCompleted
+		r.mu.Unlock()
+	}()
+
+	fmt.Printf("[Researcher] Starting Documentation Ingestion in: %s\n", workspace)
+
+	var atoms []KnowledgeAtom
+	var mu sync.Mutex
+
+	// 1. Identify Documentation Files
+	// We look for:
+	// - Any file in a directory named "Docs", "docs", "documentation", "spec", "specs", "planning", "design", "research", "analysis", "audits", "results", "surveys"
+	// - Root level markdown files (handled by analyzeCodebase mostly, but good to double check specific ones like ROADMAP.md)
+	// - Specific goal-oriented files anywhere: "architecture.md", "roadmap.md"
+	// - HEURISTIC: Read header of random markdown files to see if they contain signal keywords.
+
+	docFiles := make([]string, 0)
+	targetDirs := []string{
+		"docs", "Docs", "documentation", "spec", "specs", "planning", "design",
+		"research", "analysis", "audits", "tests", "results", "surveys", "data",
+	}
+	targetFiles := []string{
+		"roadmap.md", "architecture.md", "goals.md", "vision.md", "changelog.md",
+		"strategy.md", "hypothesis.md",
+	}
+
+	// Signal keywords for heuristic scanning
+	signalKeywords := []string{
+		"Specification", "Analysis", "Audit", "Vision", "Strategy", "Roadmap",
+		"Architecture", "Hypothesis", "Conclusion", "Test Result", "Experiment",
+		"Objective", "Goals", "Overview",
+	}
+
+	err := filepath.Walk(workspace, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		if info.IsDir() {
+			// Skip hidden directories (except .nerd if we decided to document there, but usually skip)
+			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check extensions
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".txt" && ext != ".rst" && ext != ".pdf" {
+			return nil
+		}
+
+		// Check if in target directory
+		relPath, _ := filepath.Rel(workspace, path)
+		parts := strings.Split(relPath, string(os.PathSeparator))
+
+		isTarget := false
+
+		// check if any part of the path is a target dir
+		for _, part := range parts {
+			for _, target := range targetDirs {
+				if strings.EqualFold(part, target) {
+					isTarget = true
+					break
+				}
+			}
+			if isTarget {
+				break
+			}
+		}
+
+		// check if filename is a target file
+		if !isTarget {
+			name := strings.ToLower(info.Name())
+			for _, target := range targetFiles {
+				if strings.Contains(name, target) {
+					isTarget = true
+					break
+				}
+			}
+		}
+
+		// HEURISTIC CONTENT SNIFFING
+		// If not a known target, perform a quick "sniff" of the file content
+		if !isTarget && ext == ".md" {
+			file, err := os.Open(path)
+			if err == nil {
+				// Read first 1KB
+				buf := make([]byte, 1024)
+				n, _ := file.Read(buf)
+				file.Close()
+
+				if n > 0 {
+					header := string(buf[:n])
+					// Check for strong signals in the first 1KB (likely headers)
+					for _, signal := range signalKeywords {
+						// Simple check: Is the signal word present in a header or start of line?
+						// e.g. "# Project Vision" or "Vision:"
+						if strings.Contains(header, "# "+signal) || strings.Contains(header, signal+":") {
+							isTarget = true
+							// fmt.Printf("[Researcher] Heuristic match: %s (found '%s')\n", filepath.Base(path), signal)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if isTarget {
+			docFiles = append(docFiles, path)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk workspace for docs: %w", err)
+	}
+
+	if len(docFiles) == 0 {
+		fmt.Println("[Researcher] No dedicated documentation files found.")
+		return atoms, nil
+	}
+
+	fmt.Printf("[Researcher] Found %d documentation files. Processing...\n", len(docFiles))
+
+	// 2. Process Files in Batches (Robustness)
+	// We use the existing llmSemaphore if we need to summarize, but for pure reading we can go faster.
+	// However, if the files are large, we might want to chunk them.
+	// For "Ground Truth", we want to read the whole thing if possible, or chunk it intelligently.
+
+	// We'll process sequentially to be safe on memory and CPU, or with low concurrency.
+
+	for i, file := range docFiles {
+		select {
+		case <-ctx.Done():
+			return atoms, ctx.Err()
+		default:
+		}
+
+		fmt.Printf("   [%d/%d] Ingesting: %s\n", i+1, len(docFiles), filepath.Base(file))
+
+		content, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Printf("   Error reading %s: %v\n", file, err)
+			continue
+		}
+
+		fileContent := string(content)
+		if len(fileContent) == 0 {
+			continue
+		}
+
+		// Auto-generate title from filename or first header
+		title := filepath.Base(file)
+		lines := strings.Split(fileContent, "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "# ") {
+				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+				break
+			}
+		}
+
+		// Check complexity - if too large, might need summary.
+		// For now, we assume we simply ingest unless it's huge.
+		// If > 20KB, we might want to chunk it.
+
+		// For robustness with LLM limits, we'll create a "raw" atom first.
+		// If we had a chunker, we'd use it here.
+		// For this implementation, we will treat it as a single high-value atom.
+
+		relPath, _ := filepath.Rel(workspace, file)
+
+		mu.Lock()
+		atoms = append(atoms, KnowledgeAtom{
+			SourceURL:   "file://" + relPath,
+			Title:       title,
+			Content:     fileContent, // Embedder will handle chunking typically
+			Concept:     "project_truth",
+			Confidence:  1.0, // High confidence for explicit docs
+			ExtractedAt: time.Now(),
+			Metadata: map[string]interface{}{
+				"is_doc": true,
+				"path":   relPath,
+				"type":   "documentation",
+			},
+		})
+		mu.Unlock()
+
+		// Brief pause to allow system to breathe if processing many files
+		if i%5 == 0 && i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	return atoms, nil
 }

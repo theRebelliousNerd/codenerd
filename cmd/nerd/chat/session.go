@@ -7,10 +7,12 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/browser"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
@@ -134,6 +136,21 @@ func InitChat(cfg Config) Model {
 
 	// Note: LLM client will be set after TracingLLMClient is created below
 	// We need localDB first for the tracing store
+
+	// Initialize Browser Manager (TUI Browser Physics)
+	browserCfg := browser.DefaultConfig()
+	browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
+	var browserMgr *browser.SessionManager
+	// We need a Mangle engine for the browser manager
+	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
+		browserMgr = browser.NewSessionManager(browserCfg, engine)
+		// Start browser session manager in background
+		go func() {
+			if err := browserMgr.Start(context.Background()); err != nil {
+				// Log to console if possible, or silently fail (it's optional)
+			}
+		}()
+	}
 
 	// Register Shard Factories (External Injection)
 	// Each shard gets its own kernel, VirtualStore, and LLM client injected
@@ -335,6 +352,9 @@ func InitChat(cfg Config) Model {
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient) // For autopoiesis routing gaps
+		if browserMgr != nil {
+			shard.SetBrowserManager(browserMgr)
+		}
 		return shard
 	})
 
