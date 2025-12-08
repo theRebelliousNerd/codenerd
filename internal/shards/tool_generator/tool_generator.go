@@ -527,7 +527,7 @@ func (s *ToolGeneratorShard) extractToolNeed(task string) *autopoiesis.ToolNeed 
 		InputType:  "string",
 		OutputType: "string",
 		Priority:   0.8,
-		Confidence: 0.7,
+		Confidence: 0.85, // Must be >= stability threshold for valid_transition
 		Reasoning:  fmt.Sprintf("User requested: %s", task),
 	}
 }

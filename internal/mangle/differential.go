@@ -435,13 +435,26 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 	de.mu.RLock()
 	defer de.mu.RUnlock()
 
-	// 2. Build Query Context on the fly for the top stratum
-	// For Ouroboros, we assume stratum 0 is the active one for now.
-	// In full implementation, this should union all strata or pick the top one.
+	// 2. Build a ChainedFactStore that unions all strata for querying
+	// This ensures we can query facts from any stratum (EDB or IDB)
 	if len(de.strataStores) == 0 {
 		return nil, fmt.Errorf("no knowledge graph strata available")
 	}
-	currentStore := de.strataStores[len(de.strataStores)-1].store
+
+	// Build chain: all lower strata as base, top stratum as overlay
+	var currentStore factstore.FactStore
+	if len(de.strataStores) == 1 {
+		currentStore = de.strataStores[0].store
+	} else {
+		baseStores := make([]factstore.FactStore, 0, len(de.strataStores)-1)
+		for i := 0; i < len(de.strataStores)-1; i++ {
+			baseStores = append(baseStores, de.strataStores[i].store)
+		}
+		currentStore = &ChainedFactStore{
+			base:    baseStores,
+			overlay: de.strataStores[len(de.strataStores)-1].store,
+		}
+	}
 
 	// We need PredToRules and PredToDecl from programInfo
 	predToDecl := make(map[ast.PredicateSym]*ast.Decl)

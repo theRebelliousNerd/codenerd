@@ -995,16 +995,16 @@ func (r *ReviewerShard) assertFileFacts(filePath string) {
 	}
 
 	isTest := strings.HasSuffix(filePath, "_test.go") || strings.Contains(filePath, "test/")
-	testVal := "/false"
+	testAtom := core.MangleAtom("/false")
 	if isTest {
-		testVal = "/true"
+		testAtom = core.MangleAtom("/true")
 	}
 
 	// file_topology(Path, Hash, Language, LastModified, IsTestFile)
 	// Using placeholders for Hash/Time as they aren't critical for suppression rules yet
 	fact := core.Fact{
 		Predicate: "file_topology",
-		Args:      []interface{}{filePath, "unknown_hash", r.detectLanguage(filePath), "unknown_time", testVal},
+		Args:      []interface{}{filePath, "unknown_hash", r.detectLanguage(filePath), "unknown_time", testAtom},
 	}
 	_ = r.kernel.Assert(fact)
 }

@@ -313,8 +313,10 @@ func (s *Sanitizer) collectVars(atom ast.Atom, vars map[string]bool) {
 func (s *Sanitizer) serializeUnit(decls []ast.Decl, clauses []ast.Clause) (string, error) {
 	var sb strings.Builder
 	for _, d := range decls {
-		// Defensive: Skip invalid declarations
-		if d.DeclaredAtom.Predicate.Symbol == "" || d.DeclaredAtom.String() == "." {
+		// Defensive: Skip invalid/synthetic declarations
+		// The Mangle parser generates a synthetic "Package()" decl for bare facts
+		sym := d.DeclaredAtom.Predicate.Symbol
+		if sym == "" || sym == "Package" || d.DeclaredAtom.String() == "." {
 			continue
 		}
 		sb.WriteString("Decl ")

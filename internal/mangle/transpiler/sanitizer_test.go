@@ -81,8 +81,10 @@ func TestMixedSanitization(t *testing.T) {
 
 	t.Logf("Mixed Output: %q", output)
 
-	if !strings.Contains(output, `research_topic(Name, "foo", /active)`) {
-		t.Errorf("Atom interning failed")
+	// Check atom interning: "active" -> /active (ignore whitespace differences)
+	normalized := normalize(output)
+	if !strings.Contains(normalized, `research_topic(Name,"foo",/active)`) {
+		t.Errorf("Atom interning failed: expected /active atom")
 	}
 
 	if !strings.Contains(output, "|>") {

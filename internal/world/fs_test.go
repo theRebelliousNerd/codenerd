@@ -49,17 +49,22 @@ func TestScanWorkspace(t *testing.T) {
 		t.Fatalf("ScanWorkspace() error = %v", err)
 	}
 
-	if len(facts) != 4 {
-		t.Errorf("ScanWorkspace() returned %d facts, want 4", len(facts))
+	// Count only file_topology facts (scanner also emits directory and symbol_graph facts)
+	var fileTopologyFacts []core.Fact
+	for _, fact := range facts {
+		if fact.Predicate == "file_topology" {
+			fileTopologyFacts = append(fileTopologyFacts, fact)
+		}
 	}
 
-	// Verify fact structure
-	for _, fact := range facts {
-		if fact.Predicate != "file_topology" {
-			t.Errorf("Expected predicate 'file_topology', got %q", fact.Predicate)
-		}
+	if len(fileTopologyFacts) != 4 {
+		t.Errorf("ScanWorkspace() returned %d file_topology facts, want 4", len(fileTopologyFacts))
+	}
+
+	// Verify file_topology fact structure
+	for _, fact := range fileTopologyFacts {
 		if len(fact.Args) != 5 {
-			t.Errorf("Expected 5 args, got %d", len(fact.Args))
+			t.Errorf("Expected 5 args for file_topology, got %d", len(fact.Args))
 		}
 	}
 }
@@ -113,8 +118,15 @@ func TestScanDirectory(t *testing.T) {
 		t.Errorf("Go files = %d, want 4", result.Languages["go"])
 	}
 
-	if len(result.Facts) != 4 {
-		t.Errorf("Facts count = %d, want 4", len(result.Facts))
+	// Count only file_topology facts (scanner also emits directory and symbol_graph facts)
+	var fileTopologyCount int
+	for _, fact := range result.Facts {
+		if fact.Predicate == "file_topology" {
+			fileTopologyCount++
+		}
+	}
+	if fileTopologyCount != 4 {
+		t.Errorf("file_topology facts count = %d, want 4", fileTopologyCount)
 	}
 }
 
@@ -312,11 +324,19 @@ func TestFileTopologyFactStructure(t *testing.T) {
 		t.Fatalf("ScanDirectory() error = %v", err)
 	}
 
-	if len(result.Facts) != 1 {
-		t.Fatalf("Expected 1 fact, got %d", len(result.Facts))
+	// Filter for file_topology facts only (scanner also emits directory and symbol_graph facts)
+	var fileTopologyFacts []core.Fact
+	for _, f := range result.Facts {
+		if f.Predicate == "file_topology" {
+			fileTopologyFacts = append(fileTopologyFacts, f)
+		}
 	}
 
-	fact := result.Facts[0]
+	if len(fileTopologyFacts) != 1 {
+		t.Fatalf("Expected 1 file_topology fact, got %d", len(fileTopologyFacts))
+	}
+
+	fact := fileTopologyFacts[0]
 
 	// Verify predicate
 	if fact.Predicate != "file_topology" {
@@ -403,12 +423,20 @@ func TestScanWorkspaceWithTestFile(t *testing.T) {
 		t.Fatalf("ScanDirectory() error = %v", err)
 	}
 
-	if len(result.Facts) != 1 {
-		t.Fatalf("Expected 1 fact, got %d", len(result.Facts))
+	// Filter for file_topology facts only (scanner also emits directory and symbol_graph facts)
+	var fileTopologyFacts []core.Fact
+	for _, f := range result.Facts {
+		if f.Predicate == "file_topology" {
+			fileTopologyFacts = append(fileTopologyFacts, f)
+		}
+	}
+
+	if len(fileTopologyFacts) != 1 {
+		t.Fatalf("Expected 1 file_topology fact, got %d", len(fileTopologyFacts))
 	}
 
 	// Verify isTest is true
-	fact := result.Facts[0]
+	fact := fileTopologyFacts[0]
 	isTestStr, ok := fact.Args[4].(string)
 	if !ok {
 		if atom, okAtom := fact.Args[4].(core.MangleAtom); okAtom {

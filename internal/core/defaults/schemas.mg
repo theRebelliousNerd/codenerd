@@ -660,6 +660,10 @@ Decl task_order(TaskID, OrderIndex).
 # task_dependency(TaskID, DependsOnTaskID)
 Decl task_dependency(TaskID, DependsOnTaskID).
 
+# task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType)
+# Tracks which task a remediation fix is targeting and what violation it addresses
+Decl task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType).
+
 # task_artifact(TaskID, ArtifactType, Path, Hash)
 # ArtifactType: /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
 Decl task_artifact(TaskID, ArtifactType, Path, Hash).
