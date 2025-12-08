@@ -393,25 +393,21 @@ Press **Enter** to begin...`,
 				Content: content,
 				Time:    time.Now(),
 			})
-		} else if parts[1] == "set-key" && len(parts) >= 3 {
-			newKey := parts[2]
-			m.Config.APIKey = newKey
-			// Load current config, update API key, and save
-			cfg, _ := config.Load()
-			cfg.APIKey = newKey
-			if err := config.Save(cfg); err != nil {
-				m.history = append(m.history, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("Failed to save API key: %v", err),
-					Time:    time.Now(),
-				})
-			} else {
-				m.history = append(m.history, Message{
-					Role:    "assistant",
-					Content: "API key updated successfully.",
-					Time:    time.Now(),
-				})
-			}
+		} else if parts[1] == "set-key" {
+			// API keys are now provider-specific - guide user to use wizard or edit config directly
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "API keys are now **provider-specific**. To update your API key:\n\n" +
+					"1. Run `/config wizard` to reconfigure all settings\n" +
+					"2. Or edit `.nerd/config.json` directly with the appropriate key:\n" +
+					"   - `zai_api_key` for Z.AI\n" +
+					"   - `anthropic_api_key` for Anthropic/Claude\n" +
+					"   - `openai_api_key` for OpenAI\n" +
+					"   - `gemini_api_key` for Google Gemini\n" +
+					"   - `xai_api_key` for xAI/Grok\n" +
+					"   - `openrouter_api_key` for OpenRouter",
+				Time: time.Now(),
+			})
 		} else if parts[1] == "set-theme" && len(parts) >= 3 {
 			theme := parts[2]
 			if theme == "dark" || theme == "light" {

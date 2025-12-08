@@ -24,6 +24,14 @@ import (
 
 func (m Model) processInput(input string) tea.Cmd {
 	return func() tea.Msg {
+		// Guard: ensure transducer is initialized
+		if m.transducer == nil {
+			return errorMsg(fmt.Errorf("system not ready: transducer not initialized (boot may still be in progress)"))
+		}
+		if m.client == nil {
+			return errorMsg(fmt.Errorf("system not ready: LLM client not initialized"))
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)

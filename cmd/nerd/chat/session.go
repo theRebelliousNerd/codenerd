@@ -103,15 +103,9 @@ func InitChat(cfg Config) Model {	// Load configuration
 	// Resolve workspace
 	workspace, _ := os.Getwd()
 
-	// Parse API Key immediately (lightweight)
-	apiKey := os.Getenv("ZAI_API_KEY")
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
-	}
-	if apiKey == "" {
-		apiKey = appCfg.APIKey
-	}
-	// We don't error here, just pass it to boot
+	// Note: API key parsing is handled by perception.NewClientFromEnv() during boot
+	// The perception package supports multiple providers (zai, anthropic, openai, gemini, xai, openrouter)
+	// and reads configuration from .nerd/config.json or environment variables
 
 	// Initialize Usage Tracker (lightweight)
 	tracker, err := usage.NewTracker(workspace)
@@ -170,24 +164,37 @@ func performSystemBoot(cfg config.Config, disableSystemShards []string, workspac
 		appCfg, _ := config.Load()
 		initialMessages := []Message{}
 
-		apiKey := os.Getenv("ZAI_API_KEY")
-		if apiKey == "" {
-			apiKey = os.Getenv("GEMINI_API_KEY")
-		}
-		if apiKey == "" {
-			apiKey = appCfg.APIKey
-		}
-		if apiKey == "" {
+		// Initialize LLM client using the perception package's provider detection
+		// This supports all providers: zai, anthropic, openai, gemini, xai, openrouter
+		// Configuration is read from .nerd/config.json or environment variables
+		log("Detecting LLM provider...")
+		baseLLMClient, clientErr := perception.NewClientFromEnv()
+		if clientErr != nil {
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
-				Content: "No API key detected. Set `ZAI_API_KEY` or `GEMINI_API_KEY`, or run `/config set-key <key>` for best results.",
+				Content: fmt.Sprintf("⚠ LLM client init failed: %v\n\nSet an API key in `.nerd/config.json` or via environment variable.", clientErr),
 				Time:    time.Now(),
 			})
+			// Create a fallback client that will error on use
+			baseLLMClient = perception.NewZAIClient("")
+		} else {
+			// Report which provider was detected
+			providerCfg, _ := perception.DetectProvider()
+			if providerCfg != nil {
+				modelInfo := providerCfg.Model
+				if modelInfo == "" {
+					modelInfo = "default"
+				}
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Using %s provider (model: %s)", providerCfg.Provider, modelInfo),
+					Time:    time.Now(),
+				})
+			}
 		}
 
 		// Initialize backend components
-		log("Creating LLM client...")
-		baseLLMClient := perception.NewZAIClient(apiKey)
+		log("Creating transducer...")
 		transducer := perception.NewRealTransducer(baseLLMClient)
 
 		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally?
