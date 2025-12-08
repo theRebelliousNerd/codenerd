@@ -1431,8 +1431,8 @@ Decl safe_to_modify(Ref).
 # requires_campaign(Intent) - derived: complex refactor needs campaign
 Decl requires_campaign(Intent).
 
-# code_edit_outcome(Ref, EditType, Success) - edit result tracking
-Decl code_edit_outcome(Ref, EditType, Success).
+# code_edit_outcome(Ref, EditType, Success, Timestamp) - edit result tracking
+Decl code_edit_outcome(Ref, EditType, Success, Timestamp).
 
 # proven_safe_edit(Ref, EditType) - derived: edit pattern is safe
 Decl proven_safe_edit(Ref, EditType).

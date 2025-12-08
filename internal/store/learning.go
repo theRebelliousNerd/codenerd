@@ -11,19 +11,17 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // Learning represents a persisted learning from Autopoiesis.
 type Learning struct {
-	ID             int64       `json:"id"`
-	ShardType      string      `json:"shard_type"`      // "coder", "tester", "reviewer"
-	FactPredicate  string      `json:"fact_predicate"`  // e.g., "style_preference", "avoid_pattern"
-	FactArgs       []any       `json:"fact_args"`       // Arguments to the predicate
-	LearnedAt      time.Time   `json:"learned_at"`
-	SourceCampaign string      `json:"source_campaign"` // Campaign that taught this
-	Confidence     float64     `json:"confidence"`      // Can decay over time (0.0-1.0)
+	ID             int64     `json:"id"`
+	ShardType      string    `json:"shard_type"`     // "coder", "tester", "reviewer"
+	FactPredicate  string    `json:"fact_predicate"` // e.g., "style_preference", "avoid_pattern"
+	FactArgs       []any     `json:"fact_args"`      // Arguments to the predicate
+	LearnedAt      time.Time `json:"learned_at"`
+	SourceCampaign string    `json:"source_campaign"` // Campaign that taught this
+	Confidence     float64   `json:"confidence"`      // Can decay over time (0.0-1.0)
 }
 
 // LearningStore manages shard learnings persistence per Cortex §8.3 Autopoiesis.

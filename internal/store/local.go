@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // LocalStore implements Shards B, C, and D using SQLite.
@@ -26,24 +24,25 @@ import (
 // - Archival Storage: Old, rarely-accessed facts moved from cold storage
 //
 // Usage Example:
-//   // Store facts
-//   store.StoreFact("user_preference", []interface{}{"theme", "dark"}, "preference", 10)
 //
-//   // Load facts (automatically tracks access)
-//   facts, _ := store.LoadFacts("user_preference")
+//	// Store facts
+//	store.StoreFact("user_preference", []interface{}{"theme", "dark"}, "preference", 10)
 //
-//   // Periodic maintenance - archive old facts
-//   config := MaintenanceConfig{
-//     ArchiveOlderThanDays: 90,        // Archive facts not accessed in 90 days
-//     MaxAccessCount: 5,               // Only if accessed <= 5 times
-//     PurgeArchivedOlderThanDays: 365, // Delete archived facts older than 1 year
-//     CleanActivationLogDays: 30,      // Clean activation logs older than 30 days
-//     VacuumDatabase: true,            // Reclaim disk space
-//   }
-//   stats, _ := store.MaintenanceCleanup(config)
+//	// Load facts (automatically tracks access)
+//	facts, _ := store.LoadFacts("user_preference")
 //
-//   // Restore archived fact if needed
-//   store.RestoreArchivedFact("user_preference", []interface{}{"theme", "dark"})
+//	// Periodic maintenance - archive old facts
+//	config := MaintenanceConfig{
+//	  ArchiveOlderThanDays: 90,        // Archive facts not accessed in 90 days
+//	  MaxAccessCount: 5,               // Only if accessed <= 5 times
+//	  PurgeArchivedOlderThanDays: 365, // Delete archived facts older than 1 year
+//	  CleanActivationLogDays: 30,      // Clean activation logs older than 30 days
+//	  VacuumDatabase: true,            // Reclaim disk space
+//	}
+//	stats, _ := store.MaintenanceCleanup(config)
+//
+//	// Restore archived fact if needed
+//	store.RestoreArchivedFact("user_preference", []interface{}{"theme", "dark"})
 type LocalStore struct {
 	db              *sql.DB
 	mu              sync.RWMutex
@@ -51,7 +50,7 @@ type LocalStore struct {
 	embeddingEngine embedding.EmbeddingEngine // Optional embedding engine for semantic search
 	vectorExt       bool                      // sqlite-vec available
 	requireVec      bool                      // require vec extension or fail fast
-	traceStore      *TraceStore                // Dedicated trace store for self-learning
+	traceStore      *TraceStore               // Dedicated trace store for self-learning
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -62,7 +61,7 @@ func NewLocalStore(path string) (*LocalStore, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -875,17 +874,6 @@ func (s *LocalStore) detectVecExtension() {
 	if _, err := s.db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS vec_probe USING vec0(embedding float[4])"); err == nil {
 		s.vectorExt = true
 		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_probe")
-		return
-	}
-
-	// Fallback: create a plain table with the vec_index schema so we still
-	// expose the expected interface when sqlite-vec is not compiled in.
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS vec_index (
-		embedding BLOB,
-		content TEXT,
-		metadata TEXT
-	)`); err == nil {
-		s.vectorExt = true
 		return
 	}
 

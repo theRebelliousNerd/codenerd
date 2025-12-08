@@ -31,8 +31,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -47,6 +49,24 @@ type Config struct {
 	// DisableSystemShards is a list of system shard names to disable.
 	DisableSystemShards []string
 }
+
+// ViewMode determines which component is focused/active
+type ViewMode int
+
+const (
+	ChatView ViewMode = iota
+	ListView
+	FilePickerView
+)
+
+// sessionItem is a list item for the session list
+type sessionItem struct {
+	id, date, desc string
+}
+
+func (i sessionItem) Title() string       { return i.date }
+func (i sessionItem) Description() string { return fmt.Sprintf("[%s] %s", i.id, i.desc) }
+func (i sessionItem) FilterValue() string { return i.id + " " + i.desc }
 
 // =============================================================================
 // CORE TYPES
@@ -64,11 +84,15 @@ type ClarificationState struct {
 // Model is the main model for the interactive chat interface
 type Model struct {
 	// UI Components
-	textinput textinput.Model
-	viewport  viewport.Model
-	spinner   spinner.Model
-	styles    ui.Styles
-	renderer  *glamour.TermRenderer
+	textarea   textarea.Model
+	viewport   viewport.Model
+	spinner    spinner.Model
+	list       list.Model
+	filepicker filepicker.Model
+	styles     ui.Styles
+	renderer   *glamour.TermRenderer
+
+	viewMode ViewMode
 
 	// Split-pane TUI (Glass Box Interface)
 	splitPane *ui.SplitPaneView
@@ -139,6 +163,10 @@ type Model struct {
 	// Config Wizard State
 	awaitingConfigWizard bool
 	configWizard         *ConfigWizardState
+
+	// Input History
+	inputHistory []string
+	historyIndex int
 
 	// ==========================================================================
 	// CONVERSATIONAL CONTEXT (Fix for follow-up questions)
@@ -239,7 +267,7 @@ type (
 // Init initializes the interactive chat model
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		textinput.Blink,
+		textarea.Blink,
 		m.spinner.Tick,
 		m.checkWorkspaceSync(),
 	)
@@ -254,12 +282,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Global Keybindings (Ctrl+C, Esc)
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyEsc:
+			if m.viewMode == ListView {
+				m.viewMode = ChatView // Escape list view
+				return m, nil
+			}
+			// Only Quit if not in List View
+			return m, tea.Quit
+		}
+
+		// List View Handling
+		if m.viewMode == ListView {
+			var cmd tea.Cmd
+			m.list, cmd = m.list.Update(msg)
+			return m, cmd
+		}
+
+		// File Picker View Handling
+		if m.viewMode == FilePickerView {
+			var cmd tea.Cmd
+			m.filepicker, cmd = m.filepicker.Update(msg)
+
+			// Check for selection
+			if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
+				// File selected!
+				m.textarea.SetValue(fmt.Sprintf("/read %s", path))
+				m.viewMode = ChatView
+				m.filepicker = filepicker.New() // Reset for next time (optional, but good practice)
+				return m, cmd
+			}
+
+			// Check for disabled selection (optional warning)
+			if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
+				m.err = fmt.Errorf("file %s is disabled", path)
+				return m, cmd
+			}
+
+			return m, cmd
+		}
+
+		// Chat View Handling
+		switch msg.Type {
 
 		case tea.KeyEnter:
-			// Enter sends the message
+			// Allow Alt+Enter for newlines
+			if msg.Alt {
+				// Let textarea handle it
+				break
+			}
+
+			// Enter sends the message if not loading
 			if !m.isLoading {
 				if m.awaitingClarification {
 					return m.handleClarificationResponse()
@@ -276,11 +352,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			// History Previous (if at top line)
+			if m.textarea.Line() == 0 {
+				if m.historyIndex > 0 {
+					m.historyIndex--
+					m.textarea.SetValue(m.inputHistory[m.historyIndex])
+					// Move cursor to end
+					m.textarea.CursorEnd()
+				}
+				return m, nil
+			}
+
 		case tea.KeyDown:
 			// Navigate options when in clarification mode
 			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 				if m.selectedOption < len(m.clarificationState.Options)-1 {
 					m.selectedOption++
+				}
+				return m, nil
+			}
+
+			// History Next (if at bottom line)
+			if m.textarea.Line() == m.textarea.LineCount()-1 {
+				if m.historyIndex < len(m.inputHistory) {
+					m.historyIndex++
+					if m.historyIndex == len(m.inputHistory) {
+						m.textarea.SetValue("")
+					} else {
+						m.textarea.SetValue(m.inputHistory[m.historyIndex])
+						m.textarea.CursorEnd()
+					}
 				}
 				return m, nil
 			}
@@ -339,7 +440,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle regular key input
 		if !m.isLoading {
-			m.textinput, tiCmd = m.textinput.Update(msg)
+			m.textarea, tiCmd = m.textarea.Update(msg)
 		}
 
 	case windowSizeMsg:
@@ -360,7 +461,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Reduce input width to accommodate border (2) + padding (2) + safety margin
-		m.textinput.Width = msg.Width - 8
+		m.textarea.SetWidth(msg.Width - 8)
 
 		// Update split pane dimensions
 		if m.splitPane != nil {
@@ -419,9 +520,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedOption = 0
 
 		// Update UI to show clarification request
-		m.textinput.Placeholder = "Select option or type your answer..."
+		m.textarea.Placeholder = "Select option or type your answer..."
 		if len(msg.Options) > 0 {
-			m.textinput.Placeholder = "Use ↑/↓ to select, Enter to confirm, or type custom answer..."
+			m.textarea.Placeholder = "Use ↑/↓ to select, Enter to confirm, or type custom answer..."
 		}
 
 		// Add clarification question to history
@@ -554,7 +655,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 
 	// Check if user selected an option or typed custom response
 	if m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
-		inputText := strings.TrimSpace(m.textinput.Value())
+		inputText := strings.TrimSpace(m.textarea.Value())
 		if inputText == "" {
 			// Use selected option
 			response = m.clarificationState.Options[m.selectedOption]
@@ -563,7 +664,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 			response = inputText
 		}
 	} else {
-		response = strings.TrimSpace(m.textinput.Value())
+		response = strings.TrimSpace(m.textarea.Value())
 		if response == "" {
 			return m, nil
 		}
@@ -575,6 +676,11 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 		Content: response,
 		Time:    time.Now(),
 	})
+	// Append to input history
+	if len(m.inputHistory) == 0 || m.inputHistory[len(m.inputHistory)-1] != response {
+		m.inputHistory = append(m.inputHistory, response)
+	}
+	m.historyIndex = len(m.inputHistory)
 
 	// Clear clarification state (Resume)
 	pendingIntent := m.clarificationState.PendingIntent
@@ -583,8 +689,8 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	m.selectedOption = 0
 
 	// Reset input
-	m.textinput.Reset()
-	m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+	m.textarea.Reset()
+	m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 
 	// Update viewport
 	m.viewport.SetContent(m.renderHistory())
@@ -670,7 +776,7 @@ func extractClarificationQuestion(errMsg string) string {
 }
 
 func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
-	input := strings.TrimSpace(m.textinput.Value())
+	input := strings.TrimSpace(m.textarea.Value())
 	if input == "" {
 		return m, nil
 	}
@@ -682,19 +788,19 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 			patch := strings.Join(m.pendingPatchLines, "\n")
 			m.pendingPatchLines = nil
 			m.awaitingPatch = false
-			m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m.history = append(m.history, Message{
 				Role:    "assistant",
 				Content: applyPatchResult(m.workspace, patch),
 				Time:    time.Now(),
 			})
-			m.textinput.Reset()
+			m.textarea.Reset()
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			return m, nil
 		}
 		m.pendingPatchLines = append(m.pendingPatchLines, input)
-		m.textinput.Reset()
+		m.textarea.Reset()
 		return m, nil
 	}
 
@@ -709,9 +815,14 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		Content: input,
 		Time:    time.Now(),
 	})
+	// Append to input history
+	if len(m.inputHistory) == 0 || m.inputHistory[len(m.inputHistory)-1] != input {
+		m.inputHistory = append(m.inputHistory, input)
+	}
+	m.historyIndex = len(m.inputHistory)
 
 	// Clear input
-	m.textinput.Reset()
+	m.textarea.Reset()
 
 	// Update viewport
 	m.viewport.SetContent(m.renderHistory())
@@ -766,7 +877,7 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 	})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
-	m.textinput.Reset()
+	m.textarea.Reset()
 
 	// Notify user we are paying attention
 	m.history = append(m.history, Message{

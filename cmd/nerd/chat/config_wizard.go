@@ -49,10 +49,10 @@ type ConfigWizardState struct {
 	Model    string
 
 	// Per-shard configuration
-	CurrentShard     string
-	ShardIndex       int
-	ShardProfiles    map[string]*ShardProfileConfig
-	ConfigureShards  bool // Whether user wants to configure individual shards
+	CurrentShard    string
+	ShardIndex      int
+	ShardProfiles   map[string]*ShardProfileConfig
+	ConfigureShards bool // Whether user wants to configure individual shards
 
 	// Embedding configuration
 	EmbeddingProvider string // ollama, genai
@@ -62,11 +62,11 @@ type ConfigWizardState struct {
 	GenAIModel        string
 
 	// Context window configuration
-	MaxTokens           int
-	CoreReservePercent  int
-	AtomReservePercent  int
+	MaxTokens             int
+	CoreReservePercent    int
+	AtomReservePercent    int
 	WorkingReservePercent int
-	RecentTurnWindow    int
+	RecentTurnWindow      int
 
 	// Core limits
 	MaxConcurrentShards int
@@ -136,17 +136,17 @@ func NewConfigWizard() *ConfigWizardState {
 		Step:          StepWelcome,
 		ShardProfiles: make(map[string]*ShardProfileConfig),
 		// Defaults
-		OllamaEndpoint:       "http://localhost:11434",
-		OllamaModel:          "embeddinggemma",
-		GenAIModel:           "gemini-embedding-001",
-		MaxTokens:            128000,
-		CoreReservePercent:   5,
-		AtomReservePercent:   30,
+		OllamaEndpoint:        "http://localhost:11434",
+		OllamaModel:           "embeddinggemma",
+		GenAIModel:            "gemini-embedding-001",
+		MaxTokens:             128000,
+		CoreReservePercent:    5,
+		AtomReservePercent:    30,
 		WorkingReservePercent: 50,
-		RecentTurnWindow:     5,
-		MaxConcurrentShards:  4,
-		MaxFactsInKernel:     100000,
-		MaxMemoryMB:          2048,
+		RecentTurnWindow:      5,
+		MaxConcurrentShards:   4,
+		MaxFactsInKernel:      100000,
+		MaxMemoryMB:           2048,
 	}
 }
 
@@ -214,7 +214,7 @@ Which LLM provider would you like to use?
 Enter a number (1-6) or provider name:`,
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = "Enter provider (1-6 or name)..."
+	m.textarea.Placeholder = "Enter provider (1-6 or name)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -265,7 +265,7 @@ Enter your API key for %s:
 (Or set the %s environment variable and press Enter to skip)`, provider, provider, envVar),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = "Enter API key (or Enter to use env var)..."
+	m.textarea.Placeholder = "Enter API key (or Enter to use env var)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -300,7 +300,7 @@ func (m Model) configWizardAPIKey(input string) (tea.Model, tea.Cmd) {
 		Content: sb.String(),
 		Time:    time.Now(),
 	})
-	m.textinput.Placeholder = "Enter model (or Enter for default)..."
+	m.textarea.Placeholder = "Enter model (or Enter for default)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -352,7 +352,7 @@ Would you like to configure individual shard settings?
 **n** = Use defaults for all shards (recommended for quick setup)`, m.configWizard.Model),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = "Configure shards? (y/n)..."
+	m.textarea.Placeholder = "Configure shards? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -397,7 +397,7 @@ func (m Model) showShardModelPrompt() (tea.Model, tea.Cmd) {
 		Content: sb.String(),
 		Time:    time.Now(),
 	})
-	m.textinput.Placeholder = fmt.Sprintf("%s model (Enter for default)...", shard)
+	m.textarea.Placeholder = fmt.Sprintf("%s model (Enter for default)...", shard)
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -451,7 +451,7 @@ Suggested for %s: **%.1f**
 Enter temperature (0.0-1.0) or Enter for suggested:`, shard, shard, defaultTemp),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = fmt.Sprintf("Temperature (%.1f)...", defaultTemp)
+	m.textarea.Placeholder = fmt.Sprintf("Temperature (%.1f)...", defaultTemp)
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -499,7 +499,7 @@ Suggested for %s: **%d**
 Enter max context tokens or Enter for suggested:`, shard, shard, defaultContext),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = fmt.Sprintf("Max context tokens (%d)...", defaultContext)
+	m.textarea.Placeholder = fmt.Sprintf("Max context tokens (%d)...", defaultContext)
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -560,7 +560,7 @@ Embeddings are used for semantic search in the knowledge base.
 Enter selection (1-3):`,
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = "Embedding provider (1-3)..."
+	m.textarea.Placeholder = "Embedding provider (1-3)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -582,7 +582,7 @@ Default model: **%s**
 Enter Ollama endpoint (or Enter for default):`, m.configWizard.OllamaEndpoint, m.configWizard.OllamaModel),
 			Time: time.Now(),
 		})
-		m.textinput.Placeholder = "Ollama endpoint (Enter for default)..."
+		m.textarea.Placeholder = "Ollama endpoint (Enter for default)..."
 
 	case "2", "genai":
 		m.configWizard.EmbeddingProvider = "genai"
@@ -595,7 +595,7 @@ Enter your Google GenAI API key for embeddings:
 (Or set GENAI_API_KEY environment variable)`,
 			Time: time.Now(),
 		})
-		m.textinput.Placeholder = "GenAI API key..."
+		m.textarea.Placeholder = "GenAI API key..."
 
 	default:
 		// Skip embedding config
@@ -644,7 +644,7 @@ Common values:
 Enter max tokens or Enter for default:`, m.configWizard.MaxTokens),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = fmt.Sprintf("Max tokens (%d)...", m.configWizard.MaxTokens)
+	m.textarea.Placeholder = fmt.Sprintf("Max tokens (%d)...", m.configWizard.MaxTokens)
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -671,7 +671,7 @@ Default: **%d**
 Enter max concurrent shards or Enter for default:`, m.configWizard.MaxConcurrentShards),
 		Time: time.Now(),
 	})
-	m.textinput.Placeholder = fmt.Sprintf("Max shards (%d)...", m.configWizard.MaxConcurrentShards)
+	m.textarea.Placeholder = fmt.Sprintf("Max shards (%d)...", m.configWizard.MaxConcurrentShards)
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -739,7 +739,7 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 		Content: sb.String(),
 		Time:    time.Now(),
 	})
-	m.textinput.Placeholder = "Save? (y/n)..."
+	m.textarea.Placeholder = "Save? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -771,7 +771,7 @@ Your configuration has been saved to:
 You can edit the config manually or run ` + "`" + `/config wizard` + "`" + ` again to reconfigure.`,
 				Time: time.Now(),
 			})
-			m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+			m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
 			m.configWizard = nil
 		}
 	} else {
@@ -783,7 +783,7 @@ You can edit the config manually or run ` + "`" + `/config wizard` + "`" + ` aga
 			Content: "Configuration cancelled. No changes were saved.",
 			Time:    time.Now(),
 		})
-		m.textinput.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
+		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
 	}
 
 	m.viewport.SetContent(m.renderHistory())
@@ -878,15 +878,15 @@ func (m Model) saveConfigWizard() error {
 
 	// Context window config
 	userCfg.ContextWindow = &internalconfig.ContextWindowConfig{
-		MaxTokens:             w.MaxTokens,
-		CoreReservePercent:    w.CoreReservePercent,
-		AtomReservePercent:    w.AtomReservePercent,
-		HistoryReservePercent: 15,
-		WorkingReservePercent: w.WorkingReservePercent,
-		RecentTurnWindow:      w.RecentTurnWindow,
-		CompressionThreshold:  0.80,
+		MaxTokens:              w.MaxTokens,
+		CoreReservePercent:     w.CoreReservePercent,
+		AtomReservePercent:     w.AtomReservePercent,
+		HistoryReservePercent:  15,
+		WorkingReservePercent:  w.WorkingReservePercent,
+		RecentTurnWindow:       w.RecentTurnWindow,
+		CompressionThreshold:   0.80,
 		TargetCompressionRatio: 100.0,
-		ActivationThreshold:   30.0,
+		ActivationThreshold:    30.0,
 	}
 
 	// Embedding config

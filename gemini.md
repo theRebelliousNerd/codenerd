@@ -7,6 +7,14 @@ description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framewor
 
 Build the codeNERD high-assurance Logic-First CLI coding agent.
 
+> [!IMPORTANT]
+> **Build Instruction for Vector DB Support**
+> To enable `sqlite-vec` mappings, you MUST use the following build command:
+>
+> ```powershell
+> $env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go build ./cmd/nerd
+> ```
+
 ## Core Philosophy
 
 Current AI agents make a category error: they ask LLMs to handle everything—creativity AND planning, insight AND memory, problem-solving AND self-correction—when LLMs excel at the former but struggle with the latter. codeNERD separates these concerns through a **Creative-Executive Partnership**:
@@ -1480,8 +1488,8 @@ More importantly, there is a "Correctness Gap." Even when Go code compiles, it p
 
 On the MultiPL-E benchmark (a multilingual translation of HumanEval), Go consistently ranks below Python and JavaScript in Pass@1 rates.
 
-* **Python:** Models typically score highest (e.g., 60-80% pass@1 for top models) due to the massive volume of Python training data and its permissive runtime.  
-* **Go:** Scores are consistently lower (e.g., 40-60% pass@1).
+- **Python:** Models typically score highest (e.g., 60-80% pass@1 for top models) due to the massive volume of Python training data and its permissive runtime.  
+- **Go:** Scores are consistently lower (e.g., 40-60% pass@1).
 
 **Table 2: Comparative Benchmark Performance (Pass@1 Rates)**
 
@@ -1503,33 +1511,33 @@ The evidence is clear: AI coding agents are currently "Junior Developers" at bes
 
 Any AI-generated code that involves the keywords go, chan, select, or sync must trigger a mandatory, rigorous manual review. This review should not just check for logic, but specifically for **Liveness Properties**:
 
-* **Termination:** Does every goroutine have a guaranteed exit path?  
-* **Buffer Safety:** Are channels buffered appropriately to prevent sender blocking?  
-* **Locking:** Are all shared maps protected by mutexes?
+- **Termination:** Does every goroutine have a guaranteed exit path?  
+- **Buffer Safety:** Are channels buffered appropriately to prevent sender blocking?  
+- **Locking:** Are all shared maps protected by mutexes?
 
 ### **7.2 Automated Static Analysis Barriers**
 
 Standard linters are insufficient. Organizations should integrate deep static analysis tools into the CI/CD pipeline that are capable of detecting concurrency bugs.
 
-* **GCatch:** A tool specifically designed to catch blocking bugs in Go channels.25  
-* **Go Race Detector:** All tests must be run with \-race. AI-generated code should never be merged without passing a race detection suite.  
-* **Gosec:** To catch the security vulnerabilities and hardcoded secrets often hallucinated by agents.
+- **GCatch:** A tool specifically designed to catch blocking bugs in Go channels.25  
+- **Go Race Detector:** All tests must be run with \-race. AI-generated code should never be merged without passing a race detection suite.  
+- **Gosec:** To catch the security vulnerabilities and hardcoded secrets often hallucinated by agents.
 
 ### **7.3 Supply Chain Hardening**
 
 To mitigate the risk of package hallucination, organizations must disable the ability for agents to auto-install dependencies.
 
-* **Allow-Listing:** Configure the build system to only allow go get from a pre-approved list of domains and organizations.  
-* **Proxy Verification:** Use a Go module proxy (like Athens or Artifactory) that blocks access to newly registered or suspicious repositories.
+- **Allow-Listing:** Configure the build system to only allow go get from a pre-approved list of domains and organizations.  
+- **Proxy Verification:** Use a Go module proxy (like Athens or Artifactory) that blocks access to newly registered or suspicious repositories.
 
 ### **7.4 Prompt Engineering for Go**
 
 Development teams should be trained to prompt AI specifically for Go constraints. Prompts should explicitly request:
 
-* "Use explicit error handling, do not panic."  
-* "Ensure all goroutines are managed by a Context for cancellation."  
-* "Use parameterized SQL queries."  
-* "Check for goroutine leaks."
+- "Use explicit error handling, do not panic."  
+- "Ensure all goroutines are managed by a Context for cancellation."  
+- "Use parameterized SQL queries."  
+- "Check for goroutine leaks."
 
 ### **7.5 Conclusion**
 

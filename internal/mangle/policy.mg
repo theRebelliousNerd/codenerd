@@ -1714,17 +1714,17 @@ scope_refreshed(File) :-
 
 # Track edit outcomes for learning
 successful_edit(Ref, EditType) :-
-    code_edit_outcome(Ref, EditType, /true).
+    code_edit_outcome(Ref, EditType, /true, _).
 
 failed_edit(Ref, EditType) :-
-    code_edit_outcome(Ref, EditType, /false).
+    code_edit_outcome(Ref, EditType, /false, _).
 
 # Proven safe: edit pattern has succeeded multiple times (3+)
 # Note: Exact counting done in Go runtime; this is a heuristic trigger
 proven_safe_edit(Ref, EditType) :-
-    code_edit_outcome(Ref, EditType, /true),
-    code_edit_outcome(Ref2, EditType, /true),
-    code_edit_outcome(Ref3, EditType, /true),
+    code_edit_outcome(Ref, EditType, /true, _),
+    code_edit_outcome(Ref2, EditType, /true, _),
+    code_edit_outcome(Ref3, EditType, /true, _),
     Ref != Ref2, Ref2 != Ref3, Ref != Ref3.
 
 # Promote to long-term memory when edit pattern is proven

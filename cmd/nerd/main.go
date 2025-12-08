@@ -514,7 +514,8 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	kernel := core.NewRealKernel()
 
 	// Attach Kernel to Autopoiesis
-	poiesis.SetKernel(&KernelAdapter{RealKernel: kernel})
+	// Use AutopoiesisBridge (Autopoiesis -> Core)
+	poiesis.SetKernel(core.NewAutopoiesisBridge(kernel))
 
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)

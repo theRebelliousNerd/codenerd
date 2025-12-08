@@ -38,11 +38,6 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
 	}
 
-	// Load declarations and logic
-	if err := eng.LoadSchemaString(InferenceLogicMG); err != nil {
-		return nil, fmt.Errorf("failed to load inference logic: %w", err)
-	}
-
 	// Load Intent Definition Schema (Canonical Examples)
 	intentPath := "internal/mangle/schema/intent.mg"
 	if _, err := os.Stat(intentPath); err == nil {
@@ -60,7 +55,16 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 			return nil, fmt.Errorf("failed to load learning schema: %w", err)
 		}
 	} else {
-		fmt.Printf("WARNING: learning.mg not found at %s\n", learningSchemaPath)
+		fmt.Printf("WARNING: learning.mg not found at %s. Using fallback declaration.\n", learningSchemaPath)
+		// Fallback declaration if file missing, to satisfy InferenceLogicMG
+		if err := eng.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
+			return nil, fmt.Errorf("failed to define fallback learned_exemplar: %w", err)
+		}
+	}
+
+	// Load declarations and logic (Must be loaded AFTER learning.mg)
+	if err := eng.LoadSchemaString(InferenceLogicMG); err != nil {
+		return nil, fmt.Errorf("failed to load inference logic: %w", err)
 	}
 
 	// Populate default data (robustly via Go)
@@ -508,7 +512,7 @@ Decl context_token(Token).
 Decl user_input_string(Input).
 
 # Import learned patterns
-Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
+# Decl learned_exemplar imported from schema/learning.mg
 
 Decl boost(Verb, Amount).
 Decl penalty(Verb, Amount).

@@ -135,7 +135,7 @@ func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 
 		// Wire kernel to orchestrator for logic-driven orchestration
 		if s.kernel != nil {
-			kernelAdapter := core.NewKernelAdapter(s.kernel)
+			kernelAdapter := core.NewAutopoiesisBridge(s.kernel)
 			s.orchestrator.SetKernel(kernelAdapter)
 		}
 	}

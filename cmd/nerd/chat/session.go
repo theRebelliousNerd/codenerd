@@ -30,8 +30,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 )
@@ -55,15 +57,19 @@ func InitChat(cfg Config) Model {
 		styles = ui.NewStyles(ui.DarkTheme())
 	}
 
-	// Initialize textinput for input
-	ti := textinput.New()
-	ti.Placeholder = "Ask me anything... (Enter to send, Ctrl+C to exit)"
-	ti.Focus()
-	ti.Prompt = "| "
-	ti.CharLimit = 4096
-	ti.Width = 80
-	ti.PromptStyle = styles.Prompt
-	ti.TextStyle = styles.UserInput
+	// Initialize textarea for input
+	ta := textarea.New()
+	ta.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
+	ta.Focus()
+	ta.Prompt = "┃ "
+	ta.CharLimit = 0 // Unlimited
+	ta.SetWidth(80)
+	ta.SetHeight(3) // 3 lines default
+	ta.ShowLineNumbers = false
+	// Apply styles (Textarea doesn't have direct TextStyle field like textinput, it uses FocusedStyle/BlurredStyle)
+	// We can customize if needed, but defaults are usually good.
+	// ta.FocusedStyle.CursorLine = styles.UserInput
+	// ta.FocusedStyle.Prompt = styles.Prompt
 
 	// Initialize spinner
 	sp := spinner.New()
@@ -90,6 +96,16 @@ func InitChat(cfg Config) Model {
 
 	// Resolve workspace
 	workspace, _ := os.Getwd()
+
+	// Initialize list (empty by default)
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Past Sessions"
+	l.SetShowHelp(false)
+
+	// Initialize file picker
+	fp := filepicker.New()
+	fp.AllowedTypes = []string{} // All files
+	fp.CurrentDirectory, _ = os.Getwd()
 
 	// Resolve API key
 	apiKey := os.Getenv("ZAI_API_KEY")
@@ -375,7 +391,7 @@ func InitChat(cfg Config) Model {
 	autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
 
 	// Wire kernel to autopoiesis for logic-driven orchestration
-	kernelAdapter := core.NewKernelAdapter(kernel)
+	kernelAdapter := core.NewAutopoiesisBridge(kernel)
 	autopoiesisOrch.SetKernel(kernelAdapter)
 
 	// Start kernel listener for delegate_task(/tool_generator, ...) facts
@@ -412,9 +428,12 @@ func InitChat(cfg Config) Model {
 	// (Already done in hydrateNerdState)
 
 	model := Model{
-		textinput:             ti,
+
+		textarea:              ta,
 		viewport:              vp,
 		spinner:               sp,
+		list:                  l,
+		filepicker:            fp,
 		styles:                styles,
 		renderer:              renderer,
 		splitPane:             &splitPaneView,

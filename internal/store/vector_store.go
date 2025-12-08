@@ -502,7 +502,7 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 		args = append(args, fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue))
 	}
 
-	sqlStr := "SELECT rowid, content, metadata, vector_distance_cos(embedding, ?) AS dist FROM vec_index"
+	sqlStr := "SELECT rowid, content, metadata, vec_distance_cosine(embedding, ?) AS dist FROM vec_index"
 	args = append([]interface{}{queryBlob}, args...)
 	if len(where) > 0 {
 		sqlStr += " WHERE " + strings.Join(where, " AND ")
