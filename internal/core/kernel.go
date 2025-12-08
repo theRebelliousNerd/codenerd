@@ -3,6 +3,7 @@ package core
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/mangle"
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,6 +131,19 @@ type RealKernel struct {
 	policyDirty     bool   // True when schemas/policy changed and need reparse
 }
 
+//go:embed defaults/*.mg defaults/schema/*.mg
+var coreLogic embed.FS
+
+// GetDefaultContent returns the content of an embedded default file.
+// Path should be relative to defaults/ (e.g. "schemas.mg" or "schema/intent.mg").
+func GetDefaultContent(path string) (string, error) {
+	data, err := coreLogic.ReadFile("defaults/" + path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // NewRealKernel creates a new kernel instance.
 func NewRealKernel() *RealKernel {
 	k := &RealKernel{
@@ -156,64 +170,73 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 	return k
 }
 
-// loadMangleFiles loads schemas and policy from the mangle directory.
+// loadMangleFiles loads schemas and policy from the embedded core and user extensions.
 func (k *RealKernel) loadMangleFiles() {
-	// Try multiple locations for mangle files
-	searchPaths := []string{
-		k.manglePath,
-		"internal/mangle",
-		"../internal/mangle",
-		"../../internal/mangle",
+	// 1. LOAD BAKED-IN CORE (Immutable Physics)
+	// Always load these. They are the "Constitution".
+
+	// Load Core Schemas
+	if data, err := coreLogic.ReadFile("defaults/schemas.mg"); err == nil {
+		k.schemas = string(data)
+	} else {
+		fmt.Printf("[Kernel] Error loading core schemas: %v\n", err)
 	}
 
-	for _, basePath := range searchPaths {
-		if basePath == "" {
+	// Load Core Policy
+	if data, err := coreLogic.ReadFile("defaults/policy.mg"); err == nil {
+		k.policy = string(data)
+	} else {
+		fmt.Printf("[Kernel] Error loading core policy: %v\n", err)
+	}
+
+	// Load other core modules into policy
+	coreModules := []string{
+		"doc_taxonomy.mg",
+		"topology_planner.mg",
+		"build_topology.mg",
+		"campaign_rules.mg",
+		"selection_policy.mg",
+		"taxonomy.mg",
+		"inference.mg",
+	}
+
+	for _, mod := range coreModules {
+		if data, err := coreLogic.ReadFile("defaults/" + mod); err == nil {
+			k.policy += "\n\n" + string(data)
+		}
+	}
+
+	// Load base learned rules (if any)
+	if data, err := coreLogic.ReadFile("defaults/learned.mg"); err == nil {
+		k.learned = string(data)
+	}
+
+	// 2. LOAD USER EXTENSIONS (Project Specifics)
+	// Look in the workspace's .nerd folder or explicit manglePath
+	workspacePaths := []string{
+		filepath.Join(".nerd", "mangle"),
+		k.manglePath,
+	}
+
+	for _, wsPath := range workspacePaths {
+		if wsPath == "" {
 			continue
 		}
 
-		schemasPath := filepath.Join(basePath, "schemas.mg")
-		policyPath := filepath.Join(basePath, "policy.mg")
-		learnedPath := filepath.Join(basePath, "learned.mg")
-		docTaxonomyPath := filepath.Join(basePath, "doc_taxonomy.mg")
-		topologyPlannerPath := filepath.Join(basePath, "topology_planner.mg")
-		buildTopologyPath := filepath.Join(basePath, "build_topology.mg")
-		selectionPolicyPath := filepath.Join(basePath, "selection_policy.mg")
-
-		if data, err := os.ReadFile(schemasPath); err == nil {
-			k.schemas = string(data)
-		}
-		if data, err := os.ReadFile(policyPath); err == nil {
-			k.policy = string(data)
-		}
-		// Load optional document taxonomy rules
-		if data, err := os.ReadFile(docTaxonomyPath); err == nil {
-			k.policy += "\n\n" + string(data)
-		}
-		// Load optional topology planner rules
-		if data, err := os.ReadFile(topologyPlannerPath); err == nil {
-			k.policy += "\n\n" + string(data)
-		}
-		// Load optional build topology enforcement rules
-		if data, err := os.ReadFile(buildTopologyPath); err == nil {
-			k.policy += "\n\n" + string(data)
-		}
-		// Load optional campaign-specific rules
-		campaignRulesPath := filepath.Join(basePath, "campaign_rules.mg")
-		if data, err := os.ReadFile(campaignRulesPath); err == nil {
-			// Append to policy so it's parsed together
-			k.policy += "\n\n" + string(data)
-		}
-		// Load optional selection policy rules
-		if data, err := os.ReadFile(selectionPolicyPath); err == nil {
-			k.policy += "\n\n" + string(data)
-		}
-		// Load learned rules (stratified trust layer)
-		if data, err := os.ReadFile(learnedPath); err == nil {
-			k.learned = string(data)
+		// Append User Schemas (extensions.mg)
+		if data, err := os.ReadFile(filepath.Join(wsPath, "extensions.mg")); err == nil {
+			k.schemas += "\n\n# User Extensions\n" + string(data)
 		}
 
-		if k.schemas != "" && k.policy != "" {
-			break
+		// Append User Policy (policy_overrides.mg)
+		if data, err := os.ReadFile(filepath.Join(wsPath, "policy_overrides.mg")); err == nil {
+			k.policy += "\n\n# User Policy Overrides\n" + string(data)
+		}
+
+		// Append User Learned Rules (learned.mg)
+		if data, err := os.ReadFile(filepath.Join(wsPath, "learned.mg")); err == nil {
+			// User learned rules append to base learned rules
+			k.learned += "\n\n# User Learned Rules\n" + string(data)
 		}
 	}
 
@@ -630,12 +653,32 @@ func (k *RealKernel) AppendPolicy(additionalPolicy string) {
 
 // LoadPolicyFile loads policy rules from a file and appends them.
 func (k *RealKernel) LoadPolicyFile(path string) error {
-	// Try multiple search paths
+	baseName := filepath.Base(path)
+
+	// 1. Try Embedded Core first
+	if data, err := coreLogic.ReadFile("defaults/" + baseName); err == nil {
+		k.AppendPolicy(string(data))
+		return nil
+	}
+
+	// 2. Try User Workspace (.nerd/mangle)
+	userPath := filepath.Join(".nerd", "mangle", baseName)
+	if data, err := os.ReadFile(userPath); err == nil {
+		k.AppendPolicy(string(data))
+		return nil
+	}
+
+	// 3. Try explicitly provided path
+	if data, err := os.ReadFile(path); err == nil {
+		k.AppendPolicy(string(data))
+		return nil
+	}
+
+	// 4. Try legacy search paths (fallback for existing behavior)
 	searchPaths := []string{
-		path,
-		filepath.Join("internal/mangle", filepath.Base(path)),
-		filepath.Join("../internal/mangle", filepath.Base(path)),
-		filepath.Join("../../internal/mangle", filepath.Base(path)),
+		filepath.Join("internal/mangle", baseName),
+		filepath.Join("../internal/mangle", baseName),
+		filepath.Join("../../internal/mangle", baseName),
 	}
 
 	for _, p := range searchPaths {
@@ -702,29 +745,18 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 
 // appendToLearnedFile appends a rule to learned.mg on disk.
 func (k *RealKernel) appendToLearnedFile(rule string) error {
-	// Find learned.mg path
-	searchPaths := []string{
-		k.manglePath,
-		"internal/mangle",
-		"../internal/mangle",
-		"../../internal/mangle",
+	// Determine workspace path for persistence
+	targetDir := filepath.Join(".nerd", "mangle")
+	if k.manglePath != "" {
+		targetDir = k.manglePath
 	}
 
-	var learnedPath string
-	for _, basePath := range searchPaths {
-		if basePath == "" {
-			continue
-		}
-		path := filepath.Join(basePath, "learned.mg")
-		if _, err := os.Stat(path); err == nil {
-			learnedPath = path
-			break
-		}
+	// Ensure directory exists
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory for learned rules: %w", err)
 	}
 
-	if learnedPath == "" {
-		return fmt.Errorf("learned.mg file not found")
-	}
+	learnedPath := filepath.Join(targetDir, "learned.mg")
 
 	// Append rule to file
 	f, err := os.OpenFile(learnedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
