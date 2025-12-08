@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -13,9 +14,10 @@ import (
 
 // TaxonomyEngine manages the verb taxonomy using Mangle.
 type TaxonomyEngine struct {
-	engine *mangle.Engine
-	store  *TaxonomyStore
-	client LLMClient
+	engine        *mangle.Engine
+	store         *TaxonomyStore
+	client        LLMClient
+	workspaceRoot string // Explicit workspace root (for .nerd paths)
 }
 
 // SharedTaxonomy is the global instance loaded on init.
@@ -104,6 +106,21 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 // SetStore attaches a persistence store to the taxonomy engine.
 func (t *TaxonomyEngine) SetStore(s *TaxonomyStore) {
 	t.store = s
+}
+
+// SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
+// This MUST be called to ensure learned facts are persisted in the correct location.
+func (t *TaxonomyEngine) SetWorkspace(root string) {
+	t.workspaceRoot = root
+}
+
+// nerdPath returns the correct path for a .nerd subdirectory.
+// Uses workspaceRoot if set, otherwise returns relative path (legacy behavior).
+func (t *TaxonomyEngine) nerdPath(subpath string) string {
+	if t.workspaceRoot != "" {
+		return filepath.Join(t.workspaceRoot, ".nerd", subpath)
+	}
+	return filepath.Join(".nerd", subpath)
 }
 
 // HydrateFromDB loads all taxonomy facts from the database into the engine.

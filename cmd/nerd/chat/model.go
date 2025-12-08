@@ -15,8 +15,8 @@ import (
 	"context"
 	"sync"
 
-	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/config"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
@@ -136,7 +136,7 @@ type Model struct {
 	width     int
 	height    int
 	ready     bool
-	Config    config.Config
+	Config    *config.UserConfig
 
 	// Clarification Loop State (Pause/Resume Protocol)
 	awaitingClarification bool

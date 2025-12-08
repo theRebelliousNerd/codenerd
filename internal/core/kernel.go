@@ -128,6 +128,7 @@ type RealKernel struct {
 	schemaValidator *mangle.SchemaValidator
 	initialized     bool
 	manglePath      string // Path to mangle files directory
+	workspaceRoot   string // Explicit workspace root (for .nerd paths)
 	policyDirty     bool   // True when schemas/policy changed and need reparse
 }
 
@@ -182,6 +183,31 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 	return k
 }
 
+// SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
+// This MUST be called after kernel creation to ensure .nerd paths resolve correctly.
+// If not set, paths will be resolved relative to CWD (which may be incorrect).
+func (k *RealKernel) SetWorkspace(root string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.workspaceRoot = root
+}
+
+// GetWorkspace returns the workspace root, or empty string if not set.
+func (k *RealKernel) GetWorkspace() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.workspaceRoot
+}
+
+// nerdPath returns the correct path for a .nerd subdirectory.
+// Uses workspaceRoot if set, otherwise returns relative path (legacy behavior).
+func (k *RealKernel) nerdPath(subpath string) string {
+	if k.workspaceRoot != "" {
+		return filepath.Join(k.workspaceRoot, ".nerd", subpath)
+	}
+	return filepath.Join(".nerd", subpath)
+}
+
 // loadMangleFiles loads schemas and policy from the embedded core and user extensions.
 func (k *RealKernel) loadMangleFiles() {
 	// 1. LOAD BAKED-IN CORE (Immutable Physics)
@@ -226,7 +252,7 @@ func (k *RealKernel) loadMangleFiles() {
 	// 2. LOAD USER EXTENSIONS (Project Specifics)
 	// Look in the workspace's .nerd folder or explicit manglePath
 	workspacePaths := []string{
-		filepath.Join(".nerd", "mangle"),
+		k.nerdPath("mangle"),
 		k.manglePath,
 	}
 
@@ -674,7 +700,7 @@ func (k *RealKernel) LoadPolicyFile(path string) error {
 	}
 
 	// 2. Try User Workspace (.nerd/mangle)
-	userPath := filepath.Join(".nerd", "mangle", baseName)
+	userPath := filepath.Join(k.nerdPath("mangle"), baseName)
 	if data, err := os.ReadFile(userPath); err == nil {
 		k.AppendPolicy(string(data))
 		return nil
@@ -758,7 +784,8 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 // appendToLearnedFile appends a rule to learned.mg on disk.
 func (k *RealKernel) appendToLearnedFile(rule string) error {
 	// Determine workspace path for persistence
-	targetDir := filepath.Join(".nerd", "mangle")
+	// Priority: explicit manglePath > workspace-based .nerd/mangle > relative .nerd/mangle
+	targetDir := k.nerdPath("mangle")
 	if k.manglePath != "" {
 		targetDir = k.manglePath
 	}
@@ -839,6 +866,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		policy:          k.policy,
 		learned:         k.learned,
 		manglePath:      k.manglePath,
+		workspaceRoot:   k.workspaceRoot,   // Preserve workspace for .nerd paths
 		programInfo:     k.programInfo,     // Share immutable analysis
 		schemaValidator: k.schemaValidator, // Share immutable validator
 		policyDirty:     k.policyDirty,     // Inherit dirty state (likely false)

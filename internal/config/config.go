@@ -126,34 +126,34 @@ type ContextWindowConfig struct {
 // IntegrationsConfig configures external service integrations.
 type IntegrationsConfig struct {
 	// code-graph-mcp-server
-	CodeGraph CodeGraphIntegration `yaml:"code_graph"`
+	CodeGraph CodeGraphIntegration `yaml:"code_graph" json:"code_graph,omitempty"`
 
 	// BrowserNERD
-	Browser BrowserIntegration `yaml:"browser"`
+	Browser BrowserIntegration `yaml:"browser" json:"browser,omitempty"`
 
 	// scraper_service
-	Scraper ScraperIntegration `yaml:"scraper"`
+	Scraper ScraperIntegration `yaml:"scraper" json:"scraper,omitempty"`
 }
 
 // CodeGraphIntegration configures the code graph MCP server.
 type CodeGraphIntegration struct {
-	Enabled bool   `yaml:"enabled"`
-	BaseURL string `yaml:"base_url"`
-	Timeout string `yaml:"timeout"`
+	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	BaseURL string `yaml:"base_url" json:"base_url,omitempty"`
+	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 // BrowserIntegration configures BrowserNERD.
 type BrowserIntegration struct {
-	Enabled bool   `yaml:"enabled"`
-	BaseURL string `yaml:"base_url"`
-	Timeout string `yaml:"timeout"`
+	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	BaseURL string `yaml:"base_url" json:"base_url,omitempty"`
+	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 // ScraperIntegration configures the scraper service.
 type ScraperIntegration struct {
-	Enabled bool   `yaml:"enabled"`
-	BaseURL string `yaml:"base_url"`
-	Timeout string `yaml:"timeout"`
+	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	BaseURL string `yaml:"base_url" json:"base_url,omitempty"`
+	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 // ToolGenerationConfig configures the Ouroboros tool generation settings.
@@ -173,23 +173,23 @@ func DefaultToolGenerationConfig() ToolGenerationConfig {
 // ExecutionConfig configures the tactile interface.
 type ExecutionConfig struct {
 	// Allowed binaries (Constitutional Logic)
-	AllowedBinaries []string `yaml:"allowed_binaries"`
+	AllowedBinaries []string `yaml:"allowed_binaries" json:"allowed_binaries,omitempty"`
 
 	// Default timeout for commands
-	DefaultTimeout string `yaml:"default_timeout"`
+	DefaultTimeout string `yaml:"default_timeout" json:"default_timeout,omitempty"`
 
 	// Working directory
-	WorkingDirectory string `yaml:"working_directory"`
+	WorkingDirectory string `yaml:"working_directory" json:"working_directory,omitempty"`
 
 	// Environment variables to pass
-	AllowedEnvVars []string `yaml:"allowed_env_vars"`
+	AllowedEnvVars []string `yaml:"allowed_env_vars" json:"allowed_env_vars,omitempty"`
 }
 
 // LoggingConfig configures logging.
 type LoggingConfig struct {
-	Level  string `yaml:"level"`  // debug, info, warn, error
-	Format string `yaml:"format"` // json, text
-	File   string `yaml:"file"`
+	Level  string `yaml:"level" json:"level,omitempty"`   // debug, info, warn, error
+	Format string `yaml:"format" json:"format,omitempty"` // json, text
+	File   string `yaml:"file" json:"file,omitempty"`
 }
 
 // =============================================================================
@@ -614,7 +614,8 @@ func (c *Config) IsScraperEnabled() bool {
 // User Config (.nerd/config.json)
 // ============================================================================
 
-// UserConfig holds user-specific settings from .nerd/config.json.
+// UserConfig holds ALL codeNERD configuration from .nerd/config.json.
+// This is the single source of truth for configuration.
 //
 // Supported models by provider:
 //   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
@@ -624,7 +625,11 @@ func (c *Config) IsScraperEnabled() bool {
 //   - zai:         GLM-4.6 (default)
 //   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.
 type UserConfig struct {
-	// Provider selection (anthropic, openai, gemini, xai, zai)
+	// =========================================================================
+	// LLM PROVIDER CONFIGURATION
+	// =========================================================================
+
+	// Provider selection (anthropic, openai, gemini, xai, zai, openrouter)
 	Provider string `json:"provider,omitempty"`
 
 	// API keys for each provider
@@ -639,22 +644,76 @@ type UserConfig struct {
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
 
-	// UI settings
+	// =========================================================================
+	// UI SETTINGS
+	// =========================================================================
+
+	// Theme for the TUI ("light" or "dark")
 	Theme string `json:"theme,omitempty"`
 
-	// Context7 API key
+	// =========================================================================
+	// EXTERNAL SERVICE KEYS
+	// =========================================================================
+
+	// Context7 API key for research shards
 	Context7APIKey string `json:"context7_api_key,omitempty"`
+
+	// =========================================================================
+	// CONTEXT & MEMORY CONFIGURATION
+	// =========================================================================
 
 	// Context Window Configuration (§8.2 Semantic Compression)
 	// This controls the token budget for context compression
 	ContextWindow *ContextWindowConfig `json:"context_window,omitempty"`
 
-	// Embedding engine configuration
-	// Use this to configure semantic vector search
+	// Embedding engine configuration for semantic vector search
 	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
 
-	// Tool Generation settings
+	// =========================================================================
+	// SHARD CONFIGURATION (Per-Shard Settings)
+	// =========================================================================
+
+	// Per-shard profiles: coder, tester, reviewer, researcher
+	// Each shard type can have custom model, temperature, context limits
+	ShardProfiles map[string]ShardProfile `json:"shard_profiles,omitempty"`
+
+	// Default shard settings (fallback for undefined shard types)
+	DefaultShard *ShardProfile `json:"default_shard,omitempty"`
+
+	// =========================================================================
+	// RESOURCE LIMITS
+	// =========================================================================
+
+	// Core resource limits enforced system-wide
+	CoreLimits *CoreLimits `json:"core_limits,omitempty"`
+
+	// =========================================================================
+	// INTEGRATIONS
+	// =========================================================================
+
+	// Integration service configuration
+	Integrations *IntegrationsConfig `json:"integrations,omitempty"`
+
+	// =========================================================================
+	// TOOL GENERATION (Ouroboros)
+	// =========================================================================
+
+	// Tool Generation settings for Ouroboros self-generating tools
 	ToolGeneration *ToolGenerationConfig `json:"tool_generation,omitempty"`
+
+	// =========================================================================
+	// EXECUTION SETTINGS
+	// =========================================================================
+
+	// Execution configuration for tactile interface
+	Execution *ExecutionConfig `json:"execution,omitempty"`
+
+	// =========================================================================
+	// LOGGING
+	// =========================================================================
+
+	// Logging configuration
+	Logging *LoggingConfig `json:"logging,omitempty"`
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
@@ -884,4 +943,186 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	}
 
 	return "", ""
+}
+
+// GetShardProfile returns the profile for a specific shard type, falling back to defaults.
+func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
+	// Check for explicit profile
+	if c.ShardProfiles != nil {
+		if profile, ok := c.ShardProfiles[shardType]; ok {
+			return applyShardDefaults(profile)
+		}
+	}
+
+	// Use default shard settings if available
+	if c.DefaultShard != nil {
+		return applyShardDefaults(*c.DefaultShard)
+	}
+
+	// Ultimate fallback - sensible defaults
+	return ShardProfile{
+		Model:                 "glm-4.6",
+		Temperature:           0.7,
+		TopP:                  0.9,
+		MaxContextTokens:      20000,
+		MaxOutputTokens:       4000,
+		MaxExecutionTimeSec:   300,
+		MaxRetries:            3,
+		MaxFactsInShardKernel: 20000,
+		EnableLearning:        true,
+	}
+}
+
+// applyShardDefaults fills in zero values with defaults.
+func applyShardDefaults(p ShardProfile) ShardProfile {
+	if p.Model == "" {
+		p.Model = "glm-4.6"
+	}
+	if p.Temperature == 0 {
+		p.Temperature = 0.7
+	}
+	if p.TopP == 0 {
+		p.TopP = 0.9
+	}
+	if p.MaxContextTokens == 0 {
+		p.MaxContextTokens = 20000
+	}
+	if p.MaxOutputTokens == 0 {
+		p.MaxOutputTokens = 4000
+	}
+	if p.MaxExecutionTimeSec == 0 {
+		p.MaxExecutionTimeSec = 300
+	}
+	if p.MaxRetries == 0 {
+		p.MaxRetries = 3
+	}
+	if p.MaxFactsInShardKernel == 0 {
+		p.MaxFactsInShardKernel = 20000
+	}
+	return p
+}
+
+// GetCoreLimits returns core resource limits with defaults applied.
+func (c *UserConfig) GetCoreLimits() CoreLimits {
+	if c.CoreLimits != nil {
+		limits := *c.CoreLimits
+		// Apply defaults for zero values
+		if limits.MaxTotalMemoryMB == 0 {
+			limits.MaxTotalMemoryMB = 12288
+		}
+		if limits.MaxConcurrentShards == 0 {
+			limits.MaxConcurrentShards = 4
+		}
+		if limits.MaxSessionDurationMin == 0 {
+			limits.MaxSessionDurationMin = 120
+		}
+		if limits.MaxFactsInKernel == 0 {
+			limits.MaxFactsInKernel = 250000
+		}
+		if limits.MaxDerivedFactsLimit == 0 {
+			limits.MaxDerivedFactsLimit = 100000
+		}
+		return limits
+	}
+	// Return defaults
+	return CoreLimits{
+		MaxTotalMemoryMB:      12288,
+		MaxConcurrentShards:   4,
+		MaxSessionDurationMin: 120,
+		MaxFactsInKernel:      250000,
+		MaxDerivedFactsLimit:  100000,
+	}
+}
+
+// GetIntegrations returns integration settings with defaults.
+func (c *UserConfig) GetIntegrations() IntegrationsConfig {
+	if c.Integrations != nil {
+		return *c.Integrations
+	}
+	// Return defaults (all enabled on localhost)
+	return IntegrationsConfig{
+		CodeGraph: CodeGraphIntegration{
+			Enabled: true,
+			BaseURL: "http://localhost:8080",
+			Timeout: "30s",
+		},
+		Browser: BrowserIntegration{
+			Enabled: true,
+			BaseURL: "http://localhost:8081",
+			Timeout: "60s",
+		},
+		Scraper: ScraperIntegration{
+			Enabled: true,
+			BaseURL: "http://localhost:8082",
+			Timeout: "120s",
+		},
+	}
+}
+
+// GetExecution returns execution settings with defaults.
+func (c *UserConfig) GetExecution() ExecutionConfig {
+	if c.Execution != nil {
+		cfg := *c.Execution
+		if cfg.DefaultTimeout == "" {
+			cfg.DefaultTimeout = "30s"
+		}
+		if cfg.WorkingDirectory == "" {
+			cfg.WorkingDirectory = "."
+		}
+		if len(cfg.AllowedBinaries) == 0 {
+			cfg.AllowedBinaries = []string{
+				"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+				"npm", "npx", "node", "python", "python3", "pip",
+				"cargo", "rustc", "make", "cmake",
+			}
+		}
+		if len(cfg.AllowedEnvVars) == 0 {
+			cfg.AllowedEnvVars = []string{"PATH", "HOME", "GOPATH", "GOROOT"}
+		}
+		return cfg
+	}
+	return ExecutionConfig{
+		AllowedBinaries: []string{
+			"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+			"npm", "npx", "node", "python", "python3", "pip",
+			"cargo", "rustc", "make", "cmake",
+		},
+		DefaultTimeout:   "30s",
+		WorkingDirectory: ".",
+		AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
+	}
+}
+
+// GetLogging returns logging settings with defaults.
+func (c *UserConfig) GetLogging() LoggingConfig {
+	if c.Logging != nil {
+		cfg := *c.Logging
+		if cfg.Level == "" {
+			cfg.Level = "info"
+		}
+		if cfg.Format == "" {
+			cfg.Format = "text"
+		}
+		return cfg
+	}
+	return LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		File:   "codenerd.log",
+	}
+}
+
+// DefaultUserConfig returns a UserConfig with sensible defaults.
+func DefaultUserConfig() *UserConfig {
+	return &UserConfig{
+		Provider: "zai",
+		Model:    "glm-4.6",
+		Theme:    "light",
+	}
+}
+
+// GlobalConfig is a convenience function to load config from the default path.
+// Returns an empty config (with defaults available via Get* methods) if file doesn't exist.
+func GlobalConfig() (*UserConfig, error) {
+	return LoadUserConfig(DefaultUserConfigPath())
 }

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1590,102 +1589,35 @@ type ProviderConfig struct {
 }
 
 // DefaultConfigPath returns the default path to .nerd/config.json.
+// Deprecated: Use config.DefaultUserConfigPath() instead.
 func DefaultConfigPath() string {
-	root, err := config.FindWorkspaceRoot()
-	if err != nil {
-		return filepath.Join(".nerd", "config.json")
-	}
-	return filepath.Join(root, ".nerd", "config.json")
+	return config.DefaultUserConfigPath()
 }
 
 // LoadConfigJSON loads provider configuration from a JSON config file.
+// This now delegates to the unified config.LoadUserConfig().
 func LoadConfigJSON(path string) (*ProviderConfig, error) {
-	data, err := os.ReadFile(path)
+	userCfg, err := config.LoadUserConfig(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var cfg struct {
-		Provider         string `json:"provider"`
-		APIKey           string `json:"api_key"`
-		AnthropicAPIKey  string `json:"anthropic_api_key"`
-		OpenAIAPIKey     string `json:"openai_api_key"`
-		GeminiAPIKey     string `json:"gemini_api_key"`
-		XAIAPIKey        string `json:"xai_api_key"`
-		ZAIAPIKey        string `json:"zai_api_key"`
-		OpenRouterAPIKey string `json:"openrouter_api_key"`
-		Model            string `json:"model"`
-		Context7APIKey   string `json:"context7_api_key"`
-	}
-
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	// Determine provider and key
-	var provider Provider
-	var apiKey string
-
-	// If provider is explicitly set, use that
-	if cfg.Provider != "" {
-		provider = Provider(cfg.Provider)
-		switch provider {
-		case ProviderAnthropic:
-			apiKey = cfg.AnthropicAPIKey
-		case ProviderOpenAI:
-			apiKey = cfg.OpenAIAPIKey
-		case ProviderGemini:
-			apiKey = cfg.GeminiAPIKey
-		case ProviderXAI:
-			apiKey = cfg.XAIAPIKey
-		case ProviderZAI:
-			apiKey = cfg.ZAIAPIKey
-		case ProviderOpenRouter:
-			apiKey = cfg.OpenRouterAPIKey
-		}
-	}
-
-	// If no key found for explicit provider, check all keys in priority order
-	if apiKey == "" {
-		if cfg.AnthropicAPIKey != "" {
-			provider = ProviderAnthropic
-			apiKey = cfg.AnthropicAPIKey
-		} else if cfg.OpenAIAPIKey != "" {
-			provider = ProviderOpenAI
-			apiKey = cfg.OpenAIAPIKey
-		} else if cfg.GeminiAPIKey != "" {
-			provider = ProviderGemini
-			apiKey = cfg.GeminiAPIKey
-		} else if cfg.XAIAPIKey != "" {
-			provider = ProviderXAI
-			apiKey = cfg.XAIAPIKey
-		} else if cfg.ZAIAPIKey != "" {
-			provider = ProviderZAI
-			apiKey = cfg.ZAIAPIKey
-		} else if cfg.OpenRouterAPIKey != "" {
-			provider = ProviderOpenRouter
-			apiKey = cfg.OpenRouterAPIKey
-		} else if cfg.APIKey != "" {
-			// Legacy: single api_key field (assume zai)
-			provider = ProviderZAI
-			apiKey = cfg.APIKey
-		}
-	}
-
+	// Use the unified config's provider detection
+	providerStr, apiKey := userCfg.GetActiveProvider()
 	if apiKey == "" {
 		return nil, fmt.Errorf("no API key found in config")
 	}
 
 	// Context7 API key: check config first, then env var
-	context7Key := cfg.Context7APIKey
+	context7Key := userCfg.Context7APIKey
 	if context7Key == "" {
 		context7Key = os.Getenv("CONTEXT7_API_KEY")
 	}
 
 	return &ProviderConfig{
-		Provider:       provider,
+		Provider:       Provider(providerStr),
 		APIKey:         apiKey,
-		Model:          cfg.Model,
+		Model:          userCfg.Model,
 		Context7APIKey: context7Key,
 	}, nil
 }

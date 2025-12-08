@@ -3,9 +3,9 @@
 package chat
 
 import (
-	"codenerd/cmd/nerd/config"
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"context"
@@ -413,9 +413,12 @@ Press **Enter** to begin...`,
 			if theme == "dark" || theme == "light" {
 				m.Config.Theme = theme
 				// Load current config, update theme, and save
-				cfg, _ := config.Load()
+				cfg, _ := config.GlobalConfig()
+				if cfg == nil {
+					cfg = config.DefaultUserConfig()
+				}
 				cfg.Theme = theme
-				_ = config.Save(cfg)
+				_ = cfg.Save(config.DefaultUserConfigPath())
 				// Apply theme
 				if theme == "dark" {
 					m.styles = ui.NewStyles(ui.DarkTheme())
@@ -461,7 +464,10 @@ Press **Enter** to begin...`,
 					})
 				} else {
 					provider := parts[2]
-					cfg, _ := config.Load()
+					cfg, _ := config.GlobalConfig()
+					if cfg == nil {
+						cfg = config.DefaultUserConfig()
+					}
 					if cfg.Embedding == nil {
 						cfg.Embedding = &config.EmbeddingConfig{}
 					}
@@ -473,7 +479,7 @@ Press **Enter** to begin...`,
 						cfg.Embedding.GenAIAPIKey = parts[3]
 						cfg.Embedding.GenAIModel = "gemini-embedding-001"
 					}
-					if err := config.Save(cfg); err != nil {
+					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
 						m.history = append(m.history, Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Failed to save config: %v", err),
