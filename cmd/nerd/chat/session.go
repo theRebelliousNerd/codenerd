@@ -150,6 +150,8 @@ func InitChat(cfg Config) Model {	// Load configuration
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
+		// Mouse capture enabled by default (Alt+M to toggle for text selection)
+		mouseEnabled: true,
 		// Shutdown coordination
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,

@@ -199,8 +199,14 @@ func (m Model) renderFooter() string {
 		campaignIndicator = fmt.Sprintf(" * Campaign: %.0f%%", progress)
 	}
 
+	// Mouse mode indicator
+	mouseIndicator := ""
+	if !m.mouseEnabled {
+		mouseIndicator = " * [SELECT MODE]"
+	}
+
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s%s * %s * Enter: send * Alt+L: logic * Alt+C: campaign * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, timestamp))
+	help := m.styles.Muted.Render(fmt.Sprintf("%s%s%s * %s * Enter: send * Alt+M: select * Alt+L: logic * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, mouseIndicator, timestamp))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
