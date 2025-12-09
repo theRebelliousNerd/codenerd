@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // DirectExecutor executes commands directly on the host using os/exec.
@@ -86,11 +88,21 @@ func (e *DirectExecutor) Validate(cmd Command) error {
 func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
 	// Validate first
 	if err := e.Validate(cmd); err != nil {
+		logging.TactileWarn("Command validation failed: %s %v - %v", cmd.Binary, cmd.Arguments, err)
 		return nil, err
 	}
 
 	// Merge config defaults
 	cmd = e.config.Merge(cmd)
+
+	logging.TactileDebug("Executing: %s %v (dir=%s, timeout=%dms)",
+		cmd.Binary, cmd.Arguments, cmd.WorkingDirectory,
+		func() int64 {
+			if cmd.Limits != nil {
+				return cmd.Limits.TimeoutMs
+			}
+			return 0
+		}())
 
 	// Prepare the result
 	result := &ExecutionResult{
@@ -176,6 +188,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 			result.Killed = true
 			result.KillReason = fmt.Sprintf("timeout after %s", timeout)
 			result.Success = true // Infrastructure worked, command was killed
+			logging.TactileWarn("Command killed (timeout): %s after %s", cmd.Binary, timeout)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventKilled,
 				Timestamp:    time.Now(),
@@ -188,6 +201,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 			result.Killed = true
 			result.KillReason = "context canceled"
 			result.Success = true
+			logging.TactileDebug("Command canceled: %s", cmd.Binary)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventKilled,
 				Timestamp:    time.Now(),
@@ -199,9 +213,11 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			result.Success = true // Command ran, just returned non-zero
 			result.ExitCode = exitErr.ExitCode()
+			logging.TactileDebug("Command exited non-zero: %s -> %d", cmd.Binary, result.ExitCode)
 		} else {
 			result.Success = false
 			result.Error = err.Error()
+			logging.TactileError("Command failed: %s - %v", cmd.Binary, err)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventError,
 				Timestamp:    time.Now(),
@@ -229,6 +245,9 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 		SessionID:    cmd.SessionID,
 		ExecutorName: "direct",
 	})
+
+	logging.TactileDebug("Command completed: %s -> exit=%d, duration=%s, stdout=%d bytes",
+		cmd.Binary, result.ExitCode, result.Duration, len(result.Stdout))
 
 	return result, nil
 }

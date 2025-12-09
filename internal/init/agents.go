@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -263,8 +264,19 @@ func (i *Initializer) loadExistingAgentRegistry(nerdDir string) (map[string]Crea
 	return agentMap, nil
 }
 
+// agentCreationResult holds the result of creating a single agent KB.
+type agentCreationResult struct {
+	Agent       CreatedAgent
+	KBSize      int
+	Stats       KnowledgeBaseStats
+	KBPath      string
+	UpgradeMode bool
+	Error       error
+}
+
 // createType3Agents creates the knowledge bases and registers Type 3 agents.
 // In upgrade mode (--force with existing KB), it appends new knowledge rather than overwriting.
+// Uses parallel creation with a worker pool for improved performance.
 func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, agents []RecommendedAgent, result *InitResult) ([]CreatedAgent, map[string]int) {
 	created := make([]CreatedAgent, 0)
 	kbSizes := make(map[string]int)
@@ -278,21 +290,49 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 		existingAgents = nil
 	}
 
+	// Use parallel creation for better performance (3 concurrent workers)
+	const maxWorkers = 3
+	if len(agents) > 1 {
+		results := i.createAgentsParallel(ctx, shardsDir, agents, existingAgents, maxWorkers)
+
+		for _, res := range results {
+			if res.Error != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create KB for %s: %v", res.Agent.Name, res.Error))
+				i.sendAgentProgress(res.Agent.Name, res.Agent.Type, "failed", 0)
+				continue
+			}
+
+			kbSizes[res.Agent.Name] = res.KBSize
+			created = append(created, res.Agent)
+
+			if !res.UpgradeMode {
+				result.FilesCreated = append(result.FilesCreated, res.KBPath)
+			}
+
+			// Log result
+			if res.UpgradeMode {
+				fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
+					res.Agent.Name, res.Stats.NewAtoms, res.Stats.SkippedAtoms, res.Stats.TotalAtoms)
+			} else {
+				fmt.Printf("     + %s ready (%d knowledge atoms)\n", res.Agent.Name, res.KBSize)
+			}
+		}
+
+		return created, kbSizes
+	}
+
+	// Sequential fallback for single agent
 	for idx, agent := range agents {
-		// Progress update
 		progress := 0.55 + (float64(idx)/float64(len(agents)))*0.25
 		i.sendProgress("kb_creation", fmt.Sprintf("Creating %s...", agent.Name), progress)
 		i.sendAgentProgress(agent.Name, agent.Type, "creating", 0)
 
-		// Create knowledge base path
 		kbPath := filepath.Join(shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agent.Name)))
 
-		// Check if KB already exists (upgrade mode)
 		upgradeMode := false
 		var existingAtomCount int
 		if _, statErr := os.Stat(kbPath); statErr == nil {
 			upgradeMode = true
-			// Get existing atom count for logging
 			existingAtomCount = i.getExistingAtomCount(kbPath)
 			logging.Boot("Upgrading %s (existing KB: %d atoms)", agent.Name, existingAtomCount)
 			fmt.Printf("   Upgrading %s knowledge base (existing: %d atoms)...\n", agent.Name, existingAtomCount)
@@ -301,7 +341,6 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 			fmt.Printf("   Creating %s knowledge base...\n", agent.Name)
 		}
 
-		// Create/upgrade knowledge base for agent
 		stats, err := i.createAgentKnowledgeBase(ctx, kbPath, agent, upgradeMode)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create KB for %s: %v", agent.Name, err))
@@ -313,7 +352,6 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 		kbSizes[agent.Name] = totalKBSize
 		i.sendAgentProgress(agent.Name, agent.Type, "ready", totalKBSize)
 
-		// Determine creation time - preserve from existing agent if upgrading
 		creationTime := time.Now()
 		if existingAgent, exists := existingAgents[agent.Name]; exists && upgradeMode {
 			creationTime = existingAgent.CreatedAt
@@ -331,12 +369,10 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 		}
 		created = append(created, createdAgent)
 
-		// Track created files (only if newly created, not upgraded)
 		if !upgradeMode {
 			result.FilesCreated = append(result.FilesCreated, kbPath)
 		}
 
-		// Log appropriate message based on mode
 		if upgradeMode {
 			fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
 				agent.Name, stats.NewAtoms, stats.SkippedAtoms, stats.TotalAtoms)
@@ -346,6 +382,88 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 	}
 
 	return created, kbSizes
+}
+
+// createAgentsParallel creates agent knowledge bases concurrently using a worker pool.
+func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string, agents []RecommendedAgent, existingAgents map[string]CreatedAgent, maxWorkers int) []agentCreationResult {
+	results := make([]agentCreationResult, len(agents))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxWorkers)
+
+	fmt.Printf("   Creating %d agent KBs in parallel (max %d workers)...\n", len(agents), maxWorkers)
+
+	for idx, agent := range agents {
+		wg.Add(1)
+		go func(idx int, agent RecommendedAgent) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Check context cancellation
+			select {
+			case <-ctx.Done():
+				results[idx] = agentCreationResult{
+					Agent: CreatedAgent{Name: agent.Name, Type: agent.Type},
+					Error: ctx.Err(),
+				}
+				return
+			default:
+			}
+
+			kbPath := filepath.Join(shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agent.Name)))
+
+			// Check upgrade mode
+			upgradeMode := false
+			if _, statErr := os.Stat(kbPath); statErr == nil {
+				upgradeMode = true
+				existingCount := i.getExistingAtomCount(kbPath)
+				logging.Boot("Parallel: Upgrading %s (existing KB: %d atoms)", agent.Name, existingCount)
+			} else {
+				logging.Boot("Parallel: Creating fresh %s knowledge base", agent.Name)
+			}
+
+			// Create/upgrade knowledge base
+			stats, err := i.createAgentKnowledgeBase(ctx, kbPath, agent, upgradeMode)
+			if err != nil {
+				results[idx] = agentCreationResult{
+					Agent: CreatedAgent{Name: agent.Name, Type: agent.Type},
+					Error: err,
+				}
+				return
+			}
+
+			// Determine creation time
+			creationTime := time.Now()
+			if existingAgent, exists := existingAgents[agent.Name]; exists && upgradeMode {
+				creationTime = existingAgent.CreatedAt
+			}
+
+			results[idx] = agentCreationResult{
+				Agent: CreatedAgent{
+					Name:            agent.Name,
+					Type:            agent.Type,
+					KnowledgePath:   kbPath,
+					KBSize:          stats.TotalAtoms,
+					CreatedAt:       creationTime,
+					Status:          "ready",
+					Tools:           agent.Tools,
+					ToolPreferences: agent.ToolPreferences,
+				},
+				KBSize:      stats.TotalAtoms,
+				Stats:       stats,
+				KBPath:      kbPath,
+				UpgradeMode: upgradeMode,
+				Error:       nil,
+			}
+
+			i.sendAgentProgress(agent.Name, agent.Type, "ready", stats.TotalAtoms)
+		}(idx, agent)
+	}
+
+	wg.Wait()
+	return results
 }
 
 // getExistingAtomCount returns the number of atoms in an existing KB.
@@ -410,36 +528,54 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 
 	// Research topics - use parallel research for efficiency
 	if !i.config.SkipResearch && len(agent.Topics) > 0 {
-		// Create a researcher for this specific agent
-		agentResearcher := researcher.NewResearcherShard()
-		if i.config.LLMClient != nil {
-			agentResearcher.SetLLMClient(i.config.LLMClient)
-		}
-		if i.config.Context7APIKey != "" {
-			agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
-		}
-		agentResearcher.SetLocalDB(agentDB)
+		// In upgrade mode, filter topics that already have sufficient coverage
+		// to avoid redundant Context7 API calls
+		topicsToResearch := agent.Topics
+		if upgradeMode {
+			existingAtoms, _ := agentDB.GetAllKnowledgeAtoms()
+			const minAtomsPerTopic = 5 // Require at least 5 atoms for topic coverage
+			topicsToResearch = filterTopicsNeedingResearch(existingAtoms, agent.Topics, minAtomsPerTopic)
 
-		fmt.Printf("     Researching %d topics for %s...\n", len(agent.Topics), agent.Name)
-
-		// Use parallel topic research for efficiency
-		researchResult, err := agentResearcher.ResearchTopicsParallel(ctx, agent.Topics)
-		if err != nil {
-			fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
-		} else if researchResult != nil {
-			// In upgrade mode, the researcher stores atoms directly to DB
-			// We need to count only newly added atoms
-			if upgradeMode {
-				// Re-fetch to get accurate count
-				currentAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-				newFromResearch := len(currentAtoms) - stats.ExistingAtoms - stats.NewAtoms
-				if newFromResearch > 0 {
-					stats.NewAtoms += newFromResearch
-				}
-			} else {
-				stats.NewAtoms += len(researchResult.Atoms)
+			if len(topicsToResearch) == 0 {
+				fmt.Printf("     All %d topics have sufficient coverage, skipping research\n", len(agent.Topics))
+			} else if len(topicsToResearch) < len(agent.Topics) {
+				fmt.Printf("     Filtered topics: %d/%d need research (skipping %d with coverage)\n",
+					len(topicsToResearch), len(agent.Topics), len(agent.Topics)-len(topicsToResearch))
 			}
-			fmt.Printf("     Gathered %d knowledge atoms for %s\n", len(researchResult.Atoms), agent.Name)
+		}
+
+		if len(topicsToResearch) > 0 {
+			// Create a researcher for this specific agent
+			agentResearcher := researcher.NewResearcherShard()
+			if i.config.LLMClient != nil {
+				agentResearcher.SetLLMClient(i.config.LLMClient)
+			}
+			if i.config.Context7APIKey != "" {
+				agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
+			}
+			agentResearcher.SetLocalDB(agentDB)
+
+			fmt.Printf("     Researching %d topics for %s...\n", len(topicsToResearch), agent.Name)
+
+			// Use parallel topic research for efficiency
+			researchResult, err := agentResearcher.ResearchTopicsParallel(ctx, topicsToResearch)
+			if err != nil {
+				fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
+			} else if researchResult != nil {
+				// In upgrade mode, the researcher stores atoms directly to DB
+				// We need to count only newly added atoms
+				if upgradeMode {
+					// Re-fetch to get accurate count
+					currentAtoms, _ := agentDB.GetAllKnowledgeAtoms()
+					newFromResearch := len(currentAtoms) - stats.ExistingAtoms - stats.NewAtoms
+					if newFromResearch > 0 {
+						stats.NewAtoms += newFromResearch
+					}
+				} else {
+					stats.NewAtoms += len(researchResult.Atoms)
+				}
+				fmt.Printf("     Gathered %d knowledge atoms for %s\n", len(researchResult.Atoms), agent.Name)
+			}
 		}
 	} else if i.config.SkipResearch {
 		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
@@ -487,6 +623,62 @@ func appendKnowledgeAtom(db *store.LocalStore, concept, content string, confiden
 	// Add to hash set to prevent duplicates within this session
 	existingHashes[hash] = true
 	return true, nil
+}
+
+// filterTopicsNeedingResearch checks existing atoms and returns only topics that lack coverage.
+// A topic is considered "covered" if there are >= minAtomsPerTopic atoms with matching concepts.
+// This prevents redundant Context7 API calls during /init --force upgrades.
+func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []string, minAtomsPerTopic int) []string {
+	if len(existingAtoms) == 0 {
+		return topics // No existing atoms, research all topics
+	}
+
+	// Build a map of topic -> atom count by checking if atom concepts contain topic keywords
+	topicCoverage := make(map[string]int)
+	for _, topic := range topics {
+		topicCoverage[topic] = 0
+	}
+
+	// Normalize topic keywords for matching
+	topicKeywords := make(map[string][]string)
+	for _, topic := range topics {
+		// Split topic into keywords (e.g., "go concurrency" -> ["go", "concurrency"])
+		keywords := strings.Fields(strings.ToLower(topic))
+		topicKeywords[topic] = keywords
+	}
+
+	// Count atoms that match each topic
+	for _, atom := range existingAtoms {
+		conceptLower := strings.ToLower(atom.Concept)
+		contentLower := strings.ToLower(atom.Content)
+
+		for topic, keywords := range topicKeywords {
+			matchCount := 0
+			for _, kw := range keywords {
+				if strings.Contains(conceptLower, kw) || strings.Contains(contentLower, kw) {
+					matchCount++
+				}
+			}
+			// Require at least half the keywords to match for topic relevance
+			if matchCount >= (len(keywords)+1)/2 {
+				topicCoverage[topic]++
+			}
+		}
+	}
+
+	// Filter to topics needing more research
+	needsResearch := make([]string, 0)
+	for _, topic := range topics {
+		coverage := topicCoverage[topic]
+		if coverage < minAtomsPerTopic {
+			needsResearch = append(needsResearch, topic)
+			logging.Boot("Topic '%s' needs research (current coverage: %d atoms, min: %d)", topic, coverage, minAtomsPerTopic)
+		} else {
+			logging.Boot("Topic '%s' has sufficient coverage (%d atoms), skipping", topic, coverage)
+		}
+	}
+
+	return needsResearch
 }
 
 // generateBaseKnowledgeAtoms generates foundational knowledge for an agent.
@@ -567,11 +759,11 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 	for _, agent := range agents {
 		// Create shard config for the agent
 		config := core.ShardConfig{
-			Name:            agent.Name,
-			Type:            core.ShardTypePersistent,
-			KnowledgePath:   agent.KnowledgePath,
-			Timeout:         30 * time.Minute,
-			MemoryLimit:     10000,
+			Name:          agent.Name,
+			Type:          core.ShardTypePersistent,
+			KnowledgePath: agent.KnowledgePath,
+			Timeout:       30 * time.Minute,
+			MemoryLimit:   10000,
 			Permissions: []core.ShardPermission{
 				core.PermissionReadFile,
 				core.PermissionCodeGraph,
@@ -620,19 +812,19 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			Name:        "coder",
 			Description: "Code generation and modification specialist",
 			Topics:      []string{"code generation", "refactoring", "file editing", "impact analysis"},
-			Concepts: []struct{ Key, Value string }{{"role", "I am the Coder shard. I generate, modify, and refactor code following project conventions."}, {"capability_generate", "I can generate new code files, functions, and modules."}, {"capability_modify", "I can modify existing code with precise edits."}, {"capability_refactor", "I can refactor code for better structure and readability."}, {"safety_rule", "I always check impact radius before making changes."}, {"safety_rule", "I never modify files without understanding their purpose."}},
+			Concepts:    []struct{ Key, Value string }{{"role", "I am the Coder shard. I generate, modify, and refactor code following project conventions."}, {"capability_generate", "I can generate new code files, functions, and modules."}, {"capability_modify", "I can modify existing code with precise edits."}, {"capability_refactor", "I can refactor code for better structure and readability."}, {"safety_rule", "I always check impact radius before making changes."}, {"safety_rule", "I never modify files without understanding their purpose."}},
 		},
 		{
 			Name:        "reviewer",
 			Description: "Code review and security analysis specialist",
 			Topics:      []string{"code review", "security audit", "style checking", "best practices"},
-			Concepts: []struct{ Key, Value string }{{"role", "I am the Reviewer shard. I review code for quality, security, and style issues."}, {"capability_review", "I can perform comprehensive code reviews."}, {"capability_security", "I can detect security vulnerabilities (OWASP top 10)."}, {"capability_style", "I can check code style and consistency."}, {"safety_rule", "Critical security issues block commit."}, {"safety_rule", "I provide constructive feedback with suggestions."}},
+			Concepts:    []struct{ Key, Value string }{{"role", "I am the Reviewer shard. I review code for quality, security, and style issues."}, {"capability_review", "I can perform comprehensive code reviews."}, {"capability_security", "I can detect security vulnerabilities (OWASP top 10)."}, {"capability_style", "I can check code style and consistency."}, {"safety_rule", "Critical security issues block commit."}, {"safety_rule", "I provide constructive feedback with suggestions."}},
 		},
 		{
 			Name:        "tester",
 			Description: "Testing and TDD loop specialist",
 			Topics:      []string{"unit testing", "TDD", "test coverage", "test generation"},
-			Concepts: []struct{ Key, Value string }{{"role", "I am the Tester shard. I manage tests, TDD loops, and coverage."}, {"capability_generate", "I can generate unit tests for functions and modules."}, {"capability_run", "I can execute tests and parse results."}, {"capability_tdd", "I can run TDD repair loops to fix failing tests."}, {"safety_rule", "Tests must pass before code is considered complete."}, {"safety_rule", "Coverage below goal triggers test generation."}},
+			Concepts:    []struct{ Key, Value string }{{"role", "I am the Tester shard. I manage tests, TDD loops, and coverage."}, {"capability_generate", "I can generate unit tests for functions and modules."}, {"capability_run", "I can execute tests and parse results."}, {"capability_tdd", "I can run TDD repair loops to fix failing tests."}, {"safety_rule", "Tests must pass before code is considered complete."}, {"safety_rule", "Coverage below goal triggers test generation."}},
 		},
 	}
 
@@ -730,7 +922,7 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 		results[shard.Name] = len(finalAtoms)
 
 		if upgradeMode {
-			logging.Init("Core shard %s KB upgraded (added %d new atoms, total %d)", shard.Name, newAtoms, len(finalAtoms))
+			logging.Boot("Core shard %s KB upgraded (added %d new atoms, total %d)", shard.Name, newAtoms, len(finalAtoms))
 		}
 
 		shardDB.Close()

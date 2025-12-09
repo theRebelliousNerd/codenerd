@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
 	"github.com/go-rod/rod"
@@ -185,7 +185,7 @@ func (m *SessionManager) Start(ctx context.Context) error {
 		if err == nil {
 			return nil // Browser is healthy
 		}
-		log.Printf("Stale browser connection detected, reconnecting...")
+		logging.BrowserWarn("Stale browser connection detected, reconnecting...")
 		_ = m.browser.Close()
 		m.browser = nil
 		m.controlURL = ""
@@ -329,7 +329,7 @@ func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Sessio
 		DeviceScaleFactor: 1.0,
 		Mobile:            false,
 	}).Call(page); err != nil {
-		log.Printf("warning: failed to set viewport: %v", err)
+		logging.BrowserWarn("failed to set viewport: %v", err)
 	}
 
 	// Navigate
@@ -779,7 +779,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				},
 			}
 			if err := m.engine.AddFacts(facts); err != nil {
-				log.Printf("[session:%s] navigation fact error: %v", sessionID, err)
+				logging.BrowserError("[session:%s] navigation fact error: %v", sessionID, err)
 			}
 			m.UpdateMetadata(sessionID, func(s Session) Session {
 				s.URL = ev.Frame.URL
@@ -804,7 +804,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Args:      []interface{}{string(ev.Type), msg, now.UnixMilli()},
 					Timestamp: now,
 				}}); err != nil {
-					log.Printf("[session:%s] console fact error: %v", sessionID, err)
+					logging.BrowserError("[session:%s] console fact error: %v", sessionID, err)
 				}
 			},
 			func(ev *proto.NetworkRequestWillBeSent) {
@@ -861,7 +861,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 
 				if err := m.engine.AddFacts(facts); err != nil {
-					log.Printf("[session:%s] net_request fact error: %v", sessionID, err)
+					logging.BrowserError("[session:%s] net_request fact error: %v", sessionID, err)
 				}
 
 				if captureHeaders && ev.Request != nil {
@@ -871,7 +871,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 							Args:      []interface{}{string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
-							log.Printf("[session:%s] net_header fact error: %v", sessionID, err)
+							logging.BrowserError("[session:%s] net_header fact error: %v", sessionID, err)
 						}
 					}
 				}
@@ -891,7 +891,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					Args:      []interface{}{string(ev.RequestID), ev.Response.Status, latency, duration},
 					Timestamp: now,
 				}}); err != nil {
-					log.Printf("[session:%s] net_response fact error: %v", sessionID, err)
+					logging.BrowserError("[session:%s] net_response fact error: %v", sessionID, err)
 				}
 
 				if captureHeaders && ev.Response != nil {
@@ -901,7 +901,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 							Args:      []interface{}{string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
-							log.Printf("[session:%s] res net_header fact error: %v", sessionID, err)
+							logging.BrowserError("[session:%s] res net_header fact error: %v", sessionID, err)
 						}
 					}
 				}
@@ -914,7 +914,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					return
 				}
 				if err := m.captureDOMFacts(ctx, sessionID, page); err != nil {
-					log.Printf("[session:%s] DOM capture error: %v", sessionID, err)
+					logging.BrowserError("[session:%s] DOM capture error: %v", sessionID, err)
 				}
 			},
 		)
@@ -996,7 +996,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					}
 					if len(facts) > 0 {
 						if err := m.engine.AddFacts(facts); err != nil {
-							log.Printf("[session:%s] click/state fact error: %v", sessionID, err)
+							logging.BrowserError("[session:%s] click/state fact error: %v", sessionID, err)
 						}
 					}
 				}

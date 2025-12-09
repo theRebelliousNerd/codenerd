@@ -283,6 +283,11 @@ func (s *LocalStore) initialize() error {
 		}
 	}
 
+	// Run schema migrations for existing databases (adds missing columns)
+	if err := RunMigrations(s.db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	return nil
 }
 
@@ -1568,8 +1573,41 @@ type KnowledgeAtom struct {
 	ID         int64
 	Concept    string
 	Content    string
+	Source     string
 	Confidence float64
-	CreatedAt  string
+	Tags       []string
+	CreatedAt  time.Time
+}
+
+// KnowledgeStore wraps a LocalStore for knowledge-specific operations.
+type KnowledgeStore struct {
+	*LocalStore
+}
+
+// NewKnowledgeStore creates a new knowledge store at the given path.
+func NewKnowledgeStore(dbPath string) (*KnowledgeStore, error) {
+	ls, err := NewLocalStore(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return &KnowledgeStore{LocalStore: ls}, nil
+}
+
+// StoreAtom stores a knowledge atom in the database.
+func (ks *KnowledgeStore) StoreAtom(atom KnowledgeAtom) error {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+
+	tagsJSON, err := json.Marshal(atom.Tags)
+	if err != nil {
+		tagsJSON = []byte("[]")
+	}
+
+	_, err = ks.db.Exec(`
+		INSERT INTO knowledge_atoms (concept, content, source, confidence, tags, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		atom.Concept, atom.Content, atom.Source, atom.Confidence, string(tagsJSON), atom.CreatedAt.Format(time.RFC3339))
+	return err
 }
 
 // ========== Review Findings Storage ==========

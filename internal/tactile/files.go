@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // FileOpType defines the types of file operations.
@@ -205,9 +207,11 @@ func computeHash(content []string) string {
 // ReadFile reads an entire file and returns its lines.
 func (e *FileEditor) ReadFile(path string) ([]string, error) {
 	absPath := e.resolvePath(path)
+	logging.TactileDebug("Reading file: %s", absPath)
 
 	file, err := os.Open(absPath)
 	if err != nil {
+		logging.TactileWarn("File read failed: %s - %v", path, err)
 		e.emitAudit(FileAuditEvent{
 			Type:      FileOpRead,
 			Timestamp: time.Now(),
@@ -278,6 +282,7 @@ func (e *FileEditor) ReadLines(path string, startLine, endLine int) ([]string, e
 // WriteFile writes content to a file, creating directories if needed.
 func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error) {
 	absPath := e.resolvePath(path)
+	logging.TactileDebug("Writing file: %s (%d lines)", absPath, len(lines))
 
 	// Read old content for undo and hash comparison
 	var oldContent []string
@@ -313,6 +318,7 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 	}
 
 	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		logging.TactileError("File write failed: %s - %v", path, err)
 		result := &FileResult{
 			Success: false,
 			Path:    path,
@@ -359,6 +365,7 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 
 // EditLines replaces lines in a file (1-indexed, inclusive).
 func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []string) (*FileResult, error) {
+	logging.TactileDebug("Editing file: %s lines %d-%d (%d new lines)", path, startLine, endLine, len(newLines))
 	lines, err := e.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -432,6 +439,7 @@ func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []s
 
 // InsertLines inserts lines after the specified line (1-indexed, 0 = beginning).
 func (e *FileEditor) InsertLines(path string, afterLine int, newLines []string) (*FileResult, error) {
+	logging.TactileDebug("Inserting into file: %s after line %d (%d lines)", path, afterLine, len(newLines))
 	lines, err := e.ReadFile(path)
 	if err != nil {
 		// File doesn't exist, create with new content
@@ -493,6 +501,7 @@ func (e *FileEditor) InsertLines(path string, afterLine int, newLines []string) 
 
 // DeleteLines removes lines from a file (1-indexed, inclusive).
 func (e *FileEditor) DeleteLines(path string, startLine, endLine int) (*FileResult, error) {
+	logging.TactileDebug("Deleting lines: %s lines %d-%d", path, startLine, endLine)
 	lines, err := e.ReadFile(path)
 	if err != nil {
 		return nil, err

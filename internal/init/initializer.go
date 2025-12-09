@@ -20,6 +20,7 @@ package init
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
@@ -263,6 +264,28 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	// Ensure system shards are running before heavy lifting.
 	if err := i.shardMgr.StartSystemShards(ctx); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to start system shards: %v", err))
+	}
+
+	// =========================================================================
+	// PHASE 0: Database Schema Migrations (for existing installations)
+	// =========================================================================
+	existingNerdDir := filepath.Join(i.config.Workspace, ".nerd")
+	if _, statErr := os.Stat(existingNerdDir); statErr == nil {
+		i.sendProgress("migration", "Checking database schemas...", 0.02)
+		migrationResults, migErr := store.MigrateAllAgentDBs(existingNerdDir)
+		if migErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Migration check failed: %v", migErr))
+		} else if len(migrationResults) > 0 {
+			for agentName, migResult := range migrationResults {
+				if migResult.MigrationsRun > 0 {
+					logging.Boot("Migrated %s: v%d → v%d (%d migrations, %d hashes backfilled)",
+						agentName, migResult.FromVersion, migResult.ToVersion,
+						migResult.MigrationsRun, migResult.HashesComputed)
+					fmt.Printf("   ✓ Migrated %s database schema (v%d → v%d)\n",
+						agentName, migResult.FromVersion, migResult.ToVersion)
+				}
+			}
+		}
 	}
 
 	// =========================================================================

@@ -48,6 +48,8 @@ const (
 	CategoryWorld      Category = "world"      // World scanner (filesystem, AST)
 	CategoryEmbedding  Category = "embedding"  // Embedding engine
 	CategoryStore      Category = "store"      // Store operations (RAM, Vector, Graph, Cold)
+	CategoryBrowser    Category = "browser"    // Browser automation, DOM events
+	CategoryTactile    Category = "tactile"    // Tactile executor, command execution
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
@@ -56,11 +58,25 @@ type loggingConfig struct {
 	DebugMode  bool            `json:"debug_mode"`
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
+	JSONFormat bool            `json:"json_format"` // Output structured JSON for Mangle parsing
 }
 
 // configFile structure for reading .nerd/config.json
 type configFile struct {
 	Logging loggingConfig `json:"logging"`
+}
+
+// StructuredLogEntry represents a JSON log entry for Mangle parsing
+// Format: log_entry(Timestamp, Category, Level, Message, File, Line)
+type StructuredLogEntry struct {
+	Timestamp int64  `json:"ts"`       // Unix milliseconds
+	Category  string `json:"cat"`      // Log category
+	Level     string `json:"lvl"`      // debug/info/warn/error
+	Message   string `json:"msg"`      // Log message
+	File      string `json:"file"`     // Source file (optional)
+	Line      int    `json:"line"`     // Source line (optional)
+	RequestID string `json:"req,omitempty"` // Request correlation ID
+	Fields    map[string]interface{} `json:"fields,omitempty"` // Additional structured fields
 }
 
 // Logger wraps a standard logger with category and file output
@@ -266,13 +282,33 @@ func Get(category Category) *Logger {
 	return l
 }
 
+// logJSON writes a structured JSON log entry
+func (l *Logger) logJSON(level, msg string) {
+	entry := StructuredLogEntry{
+		Timestamp: time.Now().UnixMilli(),
+		Category:  string(l.category),
+		Level:     level,
+		Message:   msg,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		l.logger.Printf("[%s] %s", level, msg) // Fallback to text
+		return
+	}
+	l.logger.Printf("%s", data)
+}
+
 // Debug logs a debug message (only if level <= debug)
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.logger == nil || logLevel > LevelDebug {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	l.logger.Printf("[DEBUG] %s", msg)
+	if config.JSONFormat {
+		l.logJSON("debug", msg)
+	} else {
+		l.logger.Printf("[DEBUG] %s", msg)
+	}
 }
 
 // Info logs an informational message (only if level <= info)
@@ -281,7 +317,11 @@ func (l *Logger) Info(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	l.logger.Printf("[INFO] %s", msg)
+	if config.JSONFormat {
+		l.logJSON("info", msg)
+	} else {
+		l.logger.Printf("[INFO] %s", msg)
+	}
 }
 
 // Warn logs a warning message (only if level <= warn)
@@ -290,7 +330,11 @@ func (l *Logger) Warn(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	l.logger.Printf("[WARN] %s", msg)
+	if config.JSONFormat {
+		l.logJSON("warn", msg)
+	} else {
+		l.logger.Printf("[WARN] %s", msg)
+	}
 }
 
 // Error logs an error message (always logged if logger exists)
@@ -299,7 +343,41 @@ func (l *Logger) Error(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	l.logger.Printf("[ERROR] %s", msg)
+	if config.JSONFormat {
+		l.logJSON("error", msg)
+	} else {
+		l.logger.Printf("[ERROR] %s", msg)
+	}
+}
+
+// StructuredLog writes a fully structured log entry with custom fields
+func (l *Logger) StructuredLog(level string, msg string, fields map[string]interface{}) {
+	if l.logger == nil {
+		return
+	}
+	entry := StructuredLogEntry{
+		Timestamp: time.Now().UnixMilli(),
+		Category:  string(l.category),
+		Level:     level,
+		Message:   msg,
+		Fields:    fields,
+	}
+	if config.JSONFormat {
+		data, err := json.Marshal(entry)
+		if err == nil {
+			l.logger.Printf("%s", data)
+			return
+		}
+	}
+	// Fallback to text format with fields
+	l.logger.Printf("[%s] %s | fields=%v", level, msg, fields)
+}
+
+// IsJSONFormat returns whether JSON logging is enabled
+func IsJSONFormat() bool {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return config.JSONFormat
 }
 
 // WithContext returns a context logger for structured logging
@@ -581,6 +659,108 @@ func Store(format string, args ...interface{}) {
 // StoreDebug logs debug to the store category
 func StoreDebug(format string, args ...interface{}) {
 	Get(CategoryStore).Debug(format, args...)
+}
+
+// Browser logs to the browser category
+func Browser(format string, args ...interface{}) {
+	Get(CategoryBrowser).Info(format, args...)
+}
+
+// BrowserDebug logs debug to the browser category
+func BrowserDebug(format string, args ...interface{}) {
+	Get(CategoryBrowser).Debug(format, args...)
+}
+
+// BrowserWarn logs warning to the browser category
+func BrowserWarn(format string, args ...interface{}) {
+	Get(CategoryBrowser).Warn(format, args...)
+}
+
+// BrowserError logs error to the browser category
+func BrowserError(format string, args ...interface{}) {
+	Get(CategoryBrowser).Error(format, args...)
+}
+
+// Tactile logs to the tactile category
+func Tactile(format string, args ...interface{}) {
+	Get(CategoryTactile).Info(format, args...)
+}
+
+// TactileDebug logs debug to the tactile category
+func TactileDebug(format string, args ...interface{}) {
+	Get(CategoryTactile).Debug(format, args...)
+}
+
+// TactileWarn logs warning to the tactile category
+func TactileWarn(format string, args ...interface{}) {
+	Get(CategoryTactile).Warn(format, args...)
+}
+
+// TactileError logs error to the tactile category
+func TactileError(format string, args ...interface{}) {
+	Get(CategoryTactile).Error(format, args...)
+}
+
+// =============================================================================
+// REQUEST ID TRACING - For distributed request tracing
+// =============================================================================
+
+// RequestLogger provides request-scoped logging with a correlation ID
+type RequestLogger struct {
+	logger    *Logger
+	requestID string
+	fields    map[string]interface{}
+}
+
+// WithRequestID creates a request-scoped logger for distributed tracing
+func WithRequestID(category Category, requestID string) *RequestLogger {
+	return &RequestLogger{
+		logger:    Get(category),
+		requestID: requestID,
+		fields:    make(map[string]interface{}),
+	}
+}
+
+// WithField adds a field to the request logger
+func (r *RequestLogger) WithField(key string, value interface{}) *RequestLogger {
+	r.fields[key] = value
+	return r
+}
+
+func (r *RequestLogger) formatMsg(format string, args ...interface{}) string {
+	msg := fmt.Sprintf(format, args...)
+	if len(r.fields) > 0 {
+		return fmt.Sprintf("[req:%s] %s | %v", r.requestID, msg, r.fields)
+	}
+	return fmt.Sprintf("[req:%s] %s", r.requestID, msg)
+}
+
+func (r *RequestLogger) Debug(format string, args ...interface{}) {
+	if r.logger.logger == nil || logLevel > LevelDebug {
+		return
+	}
+	r.logger.logger.Printf("[DEBUG] %s", r.formatMsg(format, args...))
+}
+
+func (r *RequestLogger) Info(format string, args ...interface{}) {
+	if r.logger.logger == nil || logLevel > LevelInfo {
+		return
+	}
+	r.logger.logger.Printf("[INFO] %s", r.formatMsg(format, args...))
+}
+
+func (r *RequestLogger) Warn(format string, args ...interface{}) {
+	if r.logger.logger == nil || logLevel > LevelWarn {
+		return
+	}
+	r.logger.logger.Printf("[WARN] %s", r.formatMsg(format, args...))
+}
+
+func (r *RequestLogger) Error(format string, args ...interface{}) {
+	if r.logger.logger == nil {
+		return
+	}
+	r.logger.logger.Printf("[ERROR] %s", r.formatMsg(format, args...))
 }
 
 // =============================================================================

@@ -255,8 +255,24 @@ OUTPUT:
 					interpretation = fmt.Sprintf("Analyze this yourself, I'm tired: %v", err)
 				}
 
+				// 1.6.2 REVIEWER VALIDATION CHECK: Self-correction feedback loop
+				// Check if the review shows signs of inaccuracy and flag for user attention
+				var validationWarning string
+				if shardType == "reviewer" {
+					if m.shardMgr.CheckReviewNeedsValidation(shardID) {
+						reasons := m.shardMgr.GetReviewSuspectReasons(shardID)
+						if len(reasons) > 0 {
+							validationWarning = "\n\n⚠️ **Review Validation Alert**: This review may contain inaccuracies.\n"
+							validationWarning += "Reasons: " + strings.Join(reasons, ", ") + "\n"
+							validationWarning += "Please verify findings before acting on them. "
+							validationWarning += "Use `/reject-finding <file>:<line> <reason>` to help the system learn from mistakes."
+							warnings = append(warnings, "Review flagged for validation: "+strings.Join(reasons, ", "))
+						}
+					}
+				}
+
 				// Combine the structured result (in a collapsible block) with the interpretation
-				response := fmt.Sprintf("%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, result)
+				response := fmt.Sprintf("%s%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, validationWarning, result)
 				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 			}
 

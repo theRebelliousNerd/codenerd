@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
@@ -158,7 +159,7 @@ func (e *Engine) RecomputeRules() error {
 		return fmt.Errorf("no schemas loaded; call LoadSchema first")
 	}
 
-	log.Println("Starting Mangle rule recomputation...")
+	logging.Kernel("Starting Mangle rule recomputation...")
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -167,7 +168,7 @@ func (e *Engine) RecomputeRules() error {
 		for {
 			select {
 			case <-ticker.C:
-				log.Printf("...still recomputing rules (%v elapsed)...", time.Since(start).Round(time.Second))
+				logging.KernelDebug("...still recomputing rules (%v elapsed)...", time.Since(start).Round(time.Second))
 			case <-done:
 				return
 			}
@@ -179,17 +180,20 @@ func (e *Engine) RecomputeRules() error {
 	close(done)
 
 	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Rule recomputation failed: %v", err)
 		return err
 	}
 
-	log.Printf("Recomputation complete. Stats: %+v", stats)
+	logging.Kernel("Recomputation complete. Stats: %+v", stats)
 	return nil
 }
 
 // LoadSchema loads and compiles a Mangle schema file (.mg).
 func (e *Engine) LoadSchema(path string) error {
+	logging.KernelDebug("Loading schema file: %s", path)
 	data, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Failed to read schema file %s: %v", path, err)
 		return fmt.Errorf("failed to read schema file %s: %w", path, err)
 	}
 
@@ -200,8 +204,10 @@ func (e *Engine) LoadSchema(path string) error {
 func (e *Engine) LoadSchemaString(schema string) error {
 	unit, err := parse.Unit(bytes.NewReader([]byte(schema)))
 	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Failed to parse schema: %v", err)
 		return fmt.Errorf("failed to parse schema: %w", err)
 	}
+	logging.KernelDebug("Parsed schema: %d clauses, %d declarations", len(unit.Clauses), len(unit.Decls))
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -312,6 +318,8 @@ func (e *Engine) AddFacts(facts []Fact) error {
 		return nil
 	}
 
+	logging.KernelDebug("Adding %d facts", len(facts))
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -321,12 +329,16 @@ func (e *Engine) AddFacts(facts []Fact) error {
 
 	for _, fact := range facts {
 		if err := e.insertFactLocked(fact); err != nil {
+			logging.Get(logging.CategoryKernel).Error("Failed to insert fact %s: %v", fact.Predicate, err)
 			return err
 		}
 	}
 
 	if e.autoEval {
 		_, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("Rule evaluation failed after fact insertion: %v", err)
+		}
 		return err
 	}
 	return nil
@@ -616,8 +628,10 @@ func convertValueToBaseTerm(value interface{}) (ast.BaseTerm, error) {
 
 // Query evaluates a query expressed in Mangle notation.
 func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) {
+	logging.KernelDebug("Query: %s", query)
 	shape, err := parseQueryShape(query)
 	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("Query parse failed: %s - %v", query, err)
 		return nil, err
 	}
 
@@ -687,13 +701,16 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 
 	select {
 	case results := <-resultChan:
+		logging.KernelDebug("Query completed: %s -> %d results in %s", query, len(results), time.Since(start))
 		return &QueryResult{
 			Bindings: results,
 			Duration: time.Since(start),
 		}, nil
 	case err := <-errChan:
+		logging.Get(logging.CategoryKernel).Error("Query execution failed: %s - %v", query, err)
 		return nil, err
 	case <-ctx.Done():
+		logging.Get(logging.CategoryKernel).Warn("Query timeout: %s after %v", query, time.Since(start))
 		return nil, fmt.Errorf("query execution timed out after %v: %w", time.Since(start), ctx.Err())
 	}
 }

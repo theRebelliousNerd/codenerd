@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/shards/tester"
 	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
+	"codenerd/internal/world"
 )
 
 // RegistryContext holds dependencies for shard dependency injection.
@@ -75,6 +76,84 @@ func (a *learningStoreAdapter) Close() error {
 	return a.store.Close()
 }
 
+// holographicAdapter adapts world.HolographicProvider to reviewer.HolographicProvider
+type holographicAdapter struct {
+	provider *world.HolographicProvider
+}
+
+func (h *holographicAdapter) GetContext(filePath string) (*reviewer.HolographicContext, error) {
+	ctx, err := h.provider.GetContext(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert world.HolographicContext to reviewer.HolographicContext
+	result := &reviewer.HolographicContext{
+		TargetFile:      ctx.TargetFile,
+		TargetPkg:       ctx.TargetPkg,
+		PackageSiblings: ctx.PackageSiblings,
+		Layer:           ctx.Layer,
+		Module:          ctx.Module,
+		Role:            ctx.Role,
+		SystemPurpose:   ctx.SystemPurpose,
+		HasTests:        ctx.HasTests,
+	}
+
+	// Convert signatures
+	for _, sig := range ctx.PackageSignatures {
+		result.PackageSignatures = append(result.PackageSignatures, reviewer.SymbolSignature{
+			Name:       sig.Name,
+			Receiver:   sig.Receiver,
+			Params:     sig.Params,
+			Returns:    sig.Returns,
+			File:       sig.File,
+			Line:       sig.Line,
+			Exported:   sig.Exported,
+			DocComment: sig.DocComment,
+		})
+	}
+
+	// Convert types
+	for _, t := range ctx.PackageTypes {
+		result.PackageTypes = append(result.PackageTypes, reviewer.TypeDefinition{
+			Name:     t.Name,
+			Kind:     t.Kind,
+			Fields:   t.Fields,
+			Methods:  t.Methods,
+			File:     t.File,
+			Line:     t.Line,
+			Exported: t.Exported,
+		})
+	}
+
+	return result, nil
+}
+
+// reviewerFeedbackAdapter adapts reviewer.ReviewerShard to core.ReviewerFeedbackProvider
+type reviewerFeedbackAdapter struct {
+	shard *reviewer.ReviewerShard
+}
+
+func (r *reviewerFeedbackAdapter) NeedsValidation(reviewID string) bool {
+	return r.shard.NeedsValidation(reviewID)
+}
+
+func (r *reviewerFeedbackAdapter) GetSuspectReasons(reviewID string) []string {
+	return r.shard.GetSuspectReasons(reviewID)
+}
+
+func (r *reviewerFeedbackAdapter) AcceptFinding(reviewID, file string, line int) {
+	r.shard.AcceptFinding(reviewID, file, line)
+}
+
+func (r *reviewerFeedbackAdapter) RejectFinding(reviewID, file string, line int, reason string) {
+	r.shard.RejectFinding(reviewID, file, line, reason)
+}
+
+func (r *reviewerFeedbackAdapter) GetAccuracyReport(reviewID string) string {
+	return r.shard.GetAccuracyReport(reviewID)
+}
+
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
 func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
@@ -119,6 +198,16 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
+
+		// NEW: Inject holographic provider for package-aware code review
+		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
+			holoProvider := world.NewHolographicProvider(realKernel, ctx.Workspace)
+			shard.SetHolographicProvider(&holographicAdapter{provider: holoProvider})
+		}
+
+		// NEW: Register as feedback provider for validation triggers
+		core.SetReviewerFeedbackProvider(&reviewerFeedbackAdapter{shard: shard})
+
 		return shard
 	})
 

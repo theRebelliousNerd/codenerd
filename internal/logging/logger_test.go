@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestAllCategoriesLog tests that all categories create log files when debug_mode is true
@@ -48,7 +49,8 @@ func TestAllCategoriesLog(t *testing.T) {
 				"context": true,
 				"world": true,
 				"embedding": true,
-				"store": true
+				"store": true,
+				"browser": true
 			}
 		}
 	}`
@@ -99,6 +101,7 @@ func TestAllCategoriesLog(t *testing.T) {
 		CategoryWorld,
 		CategoryEmbedding,
 		CategoryStore,
+		CategoryBrowser,
 	}
 
 	// Log to each category
@@ -413,10 +416,8 @@ func TestTimerLogging(t *testing.T) {
 
 	// Test timer
 	timer := StartTimer(CategoryKernel, "TestOperation")
-	// Simulate some work
-	for i := 0; i < 1000000; i++ {
-		_ = i * 2
-	}
+	// Simulate some work with a small sleep to ensure measurable duration
+	time.Sleep(time.Millisecond)
 	elapsed := timer.Stop()
 
 	if elapsed <= 0 {

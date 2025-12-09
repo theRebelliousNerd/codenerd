@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // ReasoningTrace captures a complete LLM interaction for learning and analysis.
@@ -113,11 +115,17 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 	tc.mu.RUnlock()
 
 	start := time.Now()
+	logging.API("LLM call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
 
 	// Make the actual LLM call
 	response, err := tc.underlying.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 
 	duration := time.Since(start)
+	if err != nil {
+		logging.API("LLM call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+	} else {
+		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
+	}
 
 	// Create trace
 	trace := &ReasoningTrace{
@@ -143,9 +151,7 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 	if tc.store != nil {
 		go func() {
 			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
-				// Log error but don't fail the operation
-				// In production, this would go to a structured logger
-				fmt.Printf("Warning: failed to store reasoning trace: %v\n", storeErr)
+				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
 			}
 		}()
 	}
