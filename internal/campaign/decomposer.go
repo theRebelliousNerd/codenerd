@@ -19,21 +19,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const buildTaxonomyPrompt = `
-STRICT BUILD ORDER:
-Assign every phase one of these categories (lower number must complete before higher):
-1. /scaffold     (Config, Env, Setup)
-2. /domain_core  (Types, Interfaces, Constants)
-3. /data_layer   (Database, Schema, Storage)
-4. /service      (Business Logic, Algorithms)
-5. /transport    (API, HTTP, gRPC, CLI)
-6. /integration  (Main, Wiring, E2E)
-
-Rules:
-- Dependencies must flow from lower to higher categories.
-- Do not allow /transport or /integration to depend on higher layers.
-- Prefer incremental steps (avoid skipping more than one layer at a time).`
-
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
 // It parses messy specifications and user goals into structured, validated plans.
 type Decomposer struct {
@@ -404,15 +389,7 @@ func (d *Decomposer) classifyDocument(ctx context.Context, filename, content str
 		return DocClassification{Layer: "/scaffold", Confidence: 0.5, Reasoning: "defaulted (trivial content)"}, nil
 	}
 
-	prompt := fmt.Sprintf(`You are the CodeNERD Librarian. Classify this file into an architectural layer.
-
-LAYERS:
-1. /scaffold     (Config, Env, Build scripts, Dockerfile)
-2. /domain_core  (Structs, Interfaces, Constants, Types, Entities)
-3. /data_layer   (SQL, Migrations, Repositories, DAOs)
-4. /service      (Business Logic, Service structs, Algorithms)
-5. /transport    (HTTP Handlers, gRPC protos, CLI commands, API specs)
-6. /integration  (main.go, Wire injection, E2E tests)
+	prompt := fmt.Sprintf(`%s
 
 FILE: %s
 CONTENT START:
@@ -420,7 +397,7 @@ CONTENT START:
 CONTENT END
 
 Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brief"}`,
-		filename, limitString(trimmed, 2000))
+		LibrarianLogic, filename, limitString(trimmed, 2000))
 
 	resp, err := d.llmClient.Complete(ctx, prompt)
 	if err != nil {
@@ -557,19 +534,13 @@ func (d *Decomposer) extractRequirements(ctx context.Context, campaignID string,
 		}
 
 		for idx, chunk := range chunks {
-			prompt := fmt.Sprintf(`Analyze this source document chunk and extract discrete requirements.
-Return JSON only:
-{
-  "requirements": [
-    {"id": "REQ001", "description": "...", "priority": "/critical|/high|/normal|/low", "source": "filename"}
-  ]
-}
+			prompt := fmt.Sprintf(`%s
 
 Document: %s
 Chunk: %d of %d
 Content:
 %s
-`, path, idx+1, len(chunks), chunk)
+`, ExtractorLogic, path, idx+1, len(chunks), chunk)
 
 			resp, err := d.llmClient.Complete(ctx, prompt)
 			if err != nil {
@@ -1070,8 +1041,7 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 	}
 
 	// Add strict build taxonomy guidance
-	contextBuilder.WriteString("BUILD TAXONOMY (STRICT ORDER):\n")
-	contextBuilder.WriteString(buildTaxonomyPrompt)
+	contextBuilder.WriteString(TaxonomyLogic)
 	contextBuilder.WriteString("\n\n")
 
 	// Add source metadata
@@ -1112,51 +1082,11 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		}
 	}
 
-	prompt := fmt.Sprintf(`You are a project planning expert. Create a detailed, executable plan.
+	prompt := fmt.Sprintf(`%s
 
 %s
 
-Create a campaign plan with phases and tasks. Each phase should have:
-- Clear objective and verification method
-- Concrete, actionable tasks
-- Proper dependencies
-- Category using the build taxonomy (/scaffold, /domain_core, /data_layer, /service, /transport, /integration)
-- Context focus patterns (file globs)
-- Required tools
-
-Task types: /file_create, /file_modify, /test_write, /test_run, /research, /shard_spawn, /tool_create, /verify, /document, /refactor, /integrate
-
-Output JSON:
-{
-  "title": "Campaign Title",
-  "confidence": 0.0-1.0,
-  "phases": [
-    {
-      "name": "Phase Name",
-      "order": 0,
-      "category": "/scaffold|/domain_core|/data_layer|/service|/transport|/integration",
-      "description": "What this phase accomplishes",
-      "objective_type": "/create|/modify|/test|/research|/validate|/integrate|/review",
-      "verification_method": "/tests_pass|/builds|/manual_review|/shard_validation|/none",
-      "complexity": "/low|/medium|/high|/critical",
-      "depends_on": [phase_indices],
-      "focus_patterns": ["internal/core/*", "pkg/**/*.go"],
-      "required_tools": ["fs_read", "fs_write", "exec_cmd"],
-      "tasks": [
-        {
-          "description": "Specific task description",
-          "type": "/file_create|/file_modify|/test_write|/test_run|/research|/verify|/document",
-          "priority": "/critical|/high|/normal|/low",
-          "order": 0,
-          "depends_on": [task_indices_in_this_phase],
-          "artifacts": ["/path/to/file.go"]
-        }
-      ]
-    }
-  ]
-}
-
-Output ONLY valid JSON:`, contextBuilder.String())
+Output ONLY valid JSON:`, PlannerLogic, contextBuilder.String())
 
 	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(prompt))
 	resp, err := d.llmClient.Complete(ctx, prompt)

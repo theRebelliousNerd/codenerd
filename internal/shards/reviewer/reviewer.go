@@ -4,6 +4,7 @@ package reviewer
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"context"
 	"fmt"
@@ -329,10 +330,12 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 
 	// DREAM MODE: Only describe what we would do, don't execute
 	if r.config.SessionContext != nil && r.config.SessionContext.DreamMode {
+		logging.ReviewerDebug("Dream mode enabled, describing plan only")
 		return r.describeDreamPlan(ctx, task)
 	}
 
-	fmt.Printf("[ReviewerShard:%s] Starting task: %s\n", r.id, task)
+	logging.Reviewer("Starting review task: %s", task)
+	logging.ReviewerDebug("Reviewer ID: %s", r.id)
 
 	// Initialize kernel if not set
 	if r.kernel == nil {
@@ -480,6 +483,8 @@ func (r *ReviewerShard) parseTask(task string) (*ReviewerTask, error) {
 
 // reviewFiles performs a comprehensive review of the specified files.
 func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*ReviewResult, error) {
+	logging.Reviewer("Starting file review: %d files", len(task.Files))
+	logging.ReviewerDebug("Files to review: %v", task.Files)
 	startTime := time.Now()
 	result := &ReviewResult{
 		Files:    task.Files,
@@ -565,6 +570,11 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 	result.BlockCommit = r.shouldBlockCommit(result)
 	result.Duration = time.Since(startTime)
 	result.Summary = r.generateSummary(result)
+
+	logging.Reviewer("Review complete: %d findings, severity=%s, duration=%v", len(result.Findings), result.Severity, result.Duration)
+	if result.BlockCommit {
+		logging.Reviewer("BLOCKING COMMIT: Critical issues found")
+	}
 
 	// Track patterns for Autopoiesis
 	r.trackReviewPatterns(result)

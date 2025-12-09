@@ -2002,8 +2002,7 @@ Decl shard_model_config(ShardType, ModelType).
 # 41.3 Perception / Taxonomy Predicates
 # -----------------------------------------------------------------------------
 
-# context_token(Token) - tokens extracted from user input for context detection
-Decl context_token(Token).
+# NOTE: context_token(Token) is declared in inference.mg
 
 # user_input_string(Input) - raw user input string for NL processing
 Decl user_input_string(Input).

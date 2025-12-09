@@ -136,6 +136,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	sm.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := researcher.NewResearcherShard()
 		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLocalDB(getLocalDB())             // FIX: Enable knowledge atom storage
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
@@ -191,6 +192,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	sm.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewExecutivePolicyShard()
 		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable strategy pattern learning
 		return shard
@@ -200,6 +202,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	sm.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewConstitutionGateShard()
 		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		return shard
 	})

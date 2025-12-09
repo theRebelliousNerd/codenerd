@@ -84,10 +84,11 @@ type ResearcherShard struct {
 	httpClient     *http.Client
 
 	// Components
-	kernel    *core.RealKernel
-	scanner   *world.Scanner
-	llmClient core.LLMClient
-	localDB   *store.LocalStore
+	kernel       *core.RealKernel
+	scanner      *world.Scanner
+	llmClient    core.LLMClient
+	localDB      *store.LocalStore
+	virtualStore *core.VirtualStore
 
 	// Research Toolkit (enhanced tools)
 	toolkit *ResearchToolkit
@@ -175,6 +176,13 @@ func (r *ResearcherShard) SetLocalDB(db *store.LocalStore) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.localDB = db
+}
+
+// SetVirtualStore sets the virtual store for external system access.
+func (r *ResearcherShard) SetVirtualStore(vs *core.VirtualStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.virtualStore = vs
 }
 
 // SetLearningStore sets the learning store for autopoiesis persistence.
