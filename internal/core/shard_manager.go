@@ -783,21 +783,12 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	// Retract old context (avoid stale facts)
 	_ = sm.kernel.Retract("current_shard_type")
 	_ = sm.kernel.Retract("current_intent")
-	_ = sm.kernel.Retract("active_shard")
 
 	// Assert current shard type (with / prefix for Mangle atom)
 	shardAtom := "/" + query.ShardType
 	_ = sm.kernel.Assert(Fact{
 		Predicate: "current_shard_type",
 		Args:      []interface{}{shardAtom},
-	})
-
-	// Assert active_shard for spreading activation rules to derive injectable_context
-	// The policy rules use: active_shard(ShardID, ShardType) to select relevant context
-	shardID := query.ShardType + "-active"
-	_ = sm.kernel.Assert(Fact{
-		Predicate: "active_shard",
-		Args:      []interface{}{shardID, shardAtom},
 	})
 
 	// Assert current intent if available
@@ -1116,6 +1107,21 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	logging.Shards("SpawnAsyncWithContext: creating shard instance id=%s", id)
 	agent := factory(id, config)
 
+	// Assert active_shard for spreading activation rules
+	// This allows policy.mg rules to derive injectable_context atoms based on which shard is running
+	// The assertion happens BEFORE execution so context can be gathered during shard initialization
+	shardTypeAtom := "/" + typeName
+	if sm.kernel != nil {
+		if err := sm.kernel.Assert(Fact{
+			Predicate: "active_shard",
+			Args:      []interface{}{id, shardTypeAtom},
+		}); err != nil {
+			logging.ShardsDebug("SpawnAsyncWithContext: failed to assert active_shard: %v", err)
+		} else {
+			logging.ShardsDebug("SpawnAsyncWithContext: asserted active_shard(%s, %s)", id, shardTypeAtom)
+		}
+	}
+
 	// Inject dependencies
 	depsInjected := []string{}
 	if sm.kernel != nil {
@@ -1179,6 +1185,19 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			errMsg = err.Error()
 		}
 		logging.Audit().ShardComplete(id, task, duration.Milliseconds(), err == nil, errMsg)
+
+		// Retract active_shard fact to prevent stale facts from accumulating
+		// This cleanup ensures the kernel state accurately reflects which shards are running
+		if sm.kernel != nil {
+			if retractErr := sm.kernel.RetractFact(Fact{
+				Predicate: "active_shard",
+				Args:      []interface{}{id, shardTypeAtom},
+			}); retractErr != nil {
+				logging.ShardsDebug("Shard %s: failed to retract active_shard: %v", id, retractErr)
+			} else {
+				logging.ShardsDebug("Shard %s: retracted active_shard(%s, %s)", id, id, shardTypeAtom)
+			}
+		}
 
 		// Clear tracing context after execution
 		if sm.tracingClient != nil {
