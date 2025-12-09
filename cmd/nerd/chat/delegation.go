@@ -447,10 +447,23 @@ func detectMultiStepTask(input string, intent perception.Intent) bool {
 	return false
 }
 
-// decomposeTask breaks a complex task into discrete steps
+// decomposeTask breaks a complex task into discrete steps using the encyclopedic corpus.
+// This function uses the multi-step pattern corpus for comprehensive decomposition.
 func decomposeTask(input string, intent perception.Intent, workspace string) []TaskStep {
-	var steps []TaskStep
+	// Try to match against the encyclopedic multi-step corpus first
+	pattern, captures := MatchMultiStepPattern(input)
 
+	if pattern != nil {
+		// Use the corpus-based decomposition strategy
+		steps := DecomposeWithStrategy(input, captures, pattern, workspace)
+		if len(steps) > 1 {
+			return steps
+		}
+		// If decomposition returned only 1 step, fall through to legacy handling
+	}
+
+	// Legacy fallback patterns for backwards compatibility
+	var steps []TaskStep
 	lower := strings.ToLower(input)
 
 	// Pattern 1: "fix X and test it" or "create X and test"
@@ -489,10 +502,6 @@ func decomposeTask(input string, intent perception.Intent, workspace string) []T
 		steps = append(steps, step)
 		return steps
 	}
-
-	// Pattern 3: Explicit step markers ("first X, then Y")
-	// This is complex - for now, return single step
-	// Future: parse explicit step sequences
 
 	// Default: single step
 	if len(steps) == 0 {
