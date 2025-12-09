@@ -798,6 +798,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Persist session after each response
 		m.saveSessionState()
 
+	case multiShardReviewMsg:
+		// Multi-shard review completed
+		m.isLoading = false
+		m.turnCount++
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Multi-shard review failed: %v", msg.err),
+				Time:    time.Now(),
+			})
+		} else if msg.review != nil {
+			// Format and display the aggregated review
+			content := formatMultiShardResponse(msg.review)
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: content,
+				Time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
+
 	case clarificationMsg:
 		// Enter clarification mode (Pause)
 		m.isLoading = false

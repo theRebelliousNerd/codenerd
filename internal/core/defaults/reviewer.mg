@@ -314,11 +314,10 @@ review_suspect(ReviewID, "multiple_rejections") :-
     Line1 != Line2.
 
 # Review is suspect if it flagged a symbol that was verified to exist
-# TODO: Re-enable when string_contains virtual predicate is implemented
-# review_suspect(ReviewID, "flagged_existing_symbol") :-
-#     review_finding(ReviewID, File, Line, _, _, Message),
-#     symbol_verified_exists(Symbol, File, _),
-#     string_contains(Message, "undefined").
+review_suspect(ReviewID, "flagged_existing_symbol") :-
+    review_finding(ReviewID, File, Line, _, _, Message),
+    symbol_verified_exists(Symbol, File, _),
+    :string:contains(Message, "undefined").
 
 # Review is suspect if >50% findings were rejected
 review_suspect(ReviewID, "high_rejection_rate") :-
@@ -332,28 +331,25 @@ reviewer_needs_validation(ReviewID) :-
     review_suspect(ReviewID, _).
 
 # Trigger validation for reviews with "undefined" findings (common false positive)
-# TODO: Re-enable when string_contains virtual predicate is implemented
-# reviewer_needs_validation(ReviewID) :-
-#     review_finding(ReviewID, _, _, /error, /bug, Message),
-#     string_contains(Message, "undefined").
+reviewer_needs_validation(ReviewID) :-
+    review_finding(ReviewID, _, _, /error, /bug, Message),
+    :string:contains(Message, "undefined").
 
 # Trigger validation for reviews with "not found" findings
-# TODO: Re-enable when string_contains virtual predicate is implemented
-# reviewer_needs_validation(ReviewID) :-
-#     review_finding(ReviewID, _, _, /error, /bug, Message),
-#     string_contains(Message, "not found").
+reviewer_needs_validation(ReviewID) :-
+    review_finding(ReviewID, _, _, /error, /bug, Message),
+    :string:contains(Message, "not found").
 
 # --- False Positive Learning ---
 
 # Suppress findings that match learned false positive patterns
 # Note: Confidence is integer 0-100, not float 0.0-1.0
-# TODO: Re-enable when string_contains virtual predicate is implemented
-# suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
-#     raw_finding(File, Line, _, Category, RuleID, Message),
-#     false_positive_pattern(Pattern, Category, Occurrences, Confidence),
-#     Occurrences > 2,
-#     Confidence > 70,
-#     string_contains(Message, Pattern).
+suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
+    raw_finding(File, Line, _, Category, RuleID, Message),
+    false_positive_pattern(Pattern, Category, Occurrences, Confidence),
+    Occurrences > 2,
+    Confidence > 70,
+    :string:contains(Message, Pattern).
 
 # --- Self-Correction Signals ---
 

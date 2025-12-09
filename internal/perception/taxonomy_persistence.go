@@ -32,9 +32,12 @@ func (ts *TaxonomyStore) StoreVerbPattern(verb, pattern string) error {
 }
 
 // StoreLearnedExemplar persists a learned usage pattern to the knowledge graph.
+// Note: confidence is 0.0-1.0 float, but stored as 0-100 integer for Mangle compatibility.
 func (ts *TaxonomyStore) StoreLearnedExemplar(pattern, verb, target, constraint string, confidence float64) error {
+	// Convert confidence from float (0.0-1.0) to int (0-100) for Mangle schema compatibility
+	confInt := int64(confidence * 100)
 	// We use "taxonomy" as the source so it gets picked up by LoadAllTaxonomyFacts.
-	return ts.store.StoreFact("learned_exemplar", []interface{}{pattern, verb, target, constraint, confidence}, "taxonomy", 100)
+	return ts.store.StoreFact("learned_exemplar", []interface{}{pattern, verb, target, constraint, confInt}, "taxonomy", 100)
 }
 
 // LoadAllTaxonomyFacts loads all taxonomy-related facts from the database.

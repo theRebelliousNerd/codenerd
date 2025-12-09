@@ -1,8 +1,44 @@
 package reviewer
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+// =============================================================================
+// AGENT REGISTRY TYPES
+// =============================================================================
+// Types for loading and matching against registered specialist agents.
+
+// AgentRegistry holds the registered specialists from .nerd/agents.json
+type AgentRegistry struct {
+	Version   string          `json:"version"`
+	CreatedAt string          `json:"created_at"`
+	Agents    []RegisteredAgent `json:"agents"`
+}
+
+// RegisteredAgent represents a specialist agent from the registry
+type RegisteredAgent struct {
+	Name          string            `json:"name"`
+	Type          string            `json:"type"`
+	KnowledgePath string            `json:"knowledge_path"`
+	KBSize        int               `json:"kb_size"`
+	CreatedAt     string            `json:"created_at"`
+	Status        string            `json:"status"`
+	Tools         []string          `json:"tools"`
+	ToolPrefs     map[string]string `json:"tool_preferences"`
+}
+
+// SpecialistMatch represents a matched specialist for pre-review orchestration
+type SpecialistMatch struct {
+	AgentName     string   // Name of the specialist agent
+	KnowledgePath string   // Path to the knowledge DB
+	Files         []string // Files this specialist should review
+	Score         float64  // Match confidence (0.0-1.0)
+	Reason        string   // Why this specialist was matched
+}
 
 // =============================================================================
 // SPECIALIST RECOMMENDATION SYSTEM
@@ -181,4 +217,196 @@ func (r *ReviewerShard) detectSpecialists(files []string, contents map[string]st
 	}
 
 	return recommendations
+}
+
+// =============================================================================
+// PRE-REVIEW SPECIALIST MATCHING
+// =============================================================================
+// Matches registered specialist agents to files BEFORE review for multi-shard orchestration.
+
+// agentPatternMapping maps technology pattern ShardName to actual agent names
+var agentPatternMapping = map[string]string{
+	"rod":     "RodExpert",
+	"golang":  "GoExpert",
+	"react":   "ReactExpert",
+	"mangle":  "MangleExpert",
+	"sql":     "DatabaseExpert",
+	"api":     "APIExpert",
+	"testing": "TestArchitect",
+	"bubbletea": "BubbleTeaExpert",
+	"cobra":   "CobraExpert",
+	"security": "SecurityAuditor",
+}
+
+// additionalPatterns extends knownTechnologies with more specific patterns
+var additionalPatterns = []TechnologyPattern{
+	{
+		ShardName:    "bubbletea",
+		FilePatterns: []string{"tui", "chat", "model.go", "view.go", "update.go"},
+		ImportHints:  []string{"github.com/charmbracelet/bubbletea", "github.com/charmbracelet/lipgloss", "github.com/charmbracelet/bubbles"},
+		ContentHints: []string{"tea.Model", "tea.Cmd", "tea.Msg", "lipgloss.Style", "tea.Batch"},
+		Description:  "Bubbletea TUI development",
+	},
+	{
+		ShardName:    "cobra",
+		FilePatterns: []string{"cmd/", "cli", "root.go"},
+		ImportHints:  []string{"github.com/spf13/cobra", "github.com/spf13/viper"},
+		ContentHints: []string{"cobra.Command", "RunE:", "PersistentFlags", "AddCommand"},
+		Description:  "Cobra CLI framework",
+	},
+	{
+		ShardName:    "security",
+		FilePatterns: []string{"auth", "security", "crypto", "password", "token"},
+		ImportHints:  []string{"crypto/", "golang.org/x/crypto", "github.com/golang-jwt/jwt"},
+		ContentHints: []string{"bcrypt", "jwt", "encrypt", "decrypt", "hash", "secret"},
+		Description:  "Security-sensitive code",
+	},
+}
+
+// MatchSpecialistsForReview analyzes files and matches them to registered specialists.
+// This runs BEFORE the review to enable multi-shard parallel reviews.
+// Returns a slice of SpecialistMatch sorted by score, deduplicated by agent.
+func MatchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
+	if registry == nil || len(registry.Agents) == 0 {
+		return nil
+	}
+
+	// Build set of available agents for quick lookup
+	availableAgents := make(map[string]RegisteredAgent)
+	for _, agent := range registry.Agents {
+		if agent.Type == "persistent" && agent.Status == "ready" {
+			availableAgents[strings.ToLower(agent.Name)] = agent
+		}
+	}
+
+	// Combine standard and additional patterns
+	allPatterns := append(knownTechnologies, additionalPatterns...)
+
+	// Track matches per agent
+	agentMatches := make(map[string]*SpecialistMatch)
+
+	for _, file := range files {
+		// Read file content for pattern matching
+		content := ""
+		if data, err := os.ReadFile(file); err == nil {
+			content = string(data)
+		}
+
+		lowerFile := strings.ToLower(file)
+		lowerContent := strings.ToLower(content)
+		ext := filepath.Ext(file)
+
+		for _, tech := range allPatterns {
+			score := 0.0
+			matches := false
+
+			// Check file extension specifically for .mg files -> Mangle
+			if ext == ".mg" && tech.ShardName == "mangle" {
+				score += 0.5
+				matches = true
+			}
+
+			// Check file patterns
+			for _, pattern := range tech.FilePatterns {
+				if strings.Contains(lowerFile, strings.ToLower(pattern)) {
+					score += 0.3
+					matches = true
+					break
+				}
+			}
+
+			// Check import hints
+			for _, imp := range tech.ImportHints {
+				if strings.Contains(content, imp) {
+					score += 0.4
+					matches = true
+					break
+				}
+			}
+
+			// Check content hints
+			hintMatches := 0
+			for _, hint := range tech.ContentHints {
+				if strings.Contains(lowerContent, strings.ToLower(hint)) {
+					hintMatches++
+				}
+			}
+			if len(tech.ContentHints) > 0 && hintMatches > 0 {
+				score += float64(hintMatches) / float64(len(tech.ContentHints)) * 0.3
+				matches = true
+			}
+
+			if !matches || score < 0.3 {
+				continue
+			}
+
+			// Map pattern to actual agent name
+			agentName := agentPatternMapping[tech.ShardName]
+			if agentName == "" {
+				// Capitalize first letter manually to avoid deprecated strings.Title
+				name := tech.ShardName
+				if len(name) > 0 {
+					agentName = strings.ToUpper(name[:1]) + name[1:] + "Expert"
+				}
+			}
+
+			// Check if this agent is available
+			agentLower := strings.ToLower(agentName)
+			agent, available := availableAgents[agentLower]
+			if !available {
+				continue
+			}
+
+			// Update or create match
+			if existing, ok := agentMatches[agentLower]; ok {
+				if score > existing.Score {
+					existing.Score = score
+				}
+				// Add file if not already present
+				fileExists := false
+				for _, f := range existing.Files {
+					if f == file {
+						fileExists = true
+						break
+					}
+				}
+				if !fileExists {
+					existing.Files = append(existing.Files, file)
+				}
+			} else {
+				agentMatches[agentLower] = &SpecialistMatch{
+					AgentName:     agent.Name,
+					KnowledgePath: agent.KnowledgePath,
+					Files:         []string{file},
+					Score:         score,
+					Reason:        tech.Description,
+				}
+			}
+		}
+	}
+
+	// Convert to slice and sort by score
+	var matches []SpecialistMatch
+	for _, m := range agentMatches {
+		if m.Score > 1.0 {
+			m.Score = 1.0
+		}
+		matches = append(matches, *m)
+	}
+
+	// Sort by score descending (bubble sort for simplicity)
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[j].Score > matches[i].Score {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	return matches
+}
+
+// GetAllPatterns returns all technology patterns (standard + additional)
+func GetAllPatterns() []TechnologyPattern {
+	return append(knownTechnologies, additionalPatterns...)
 }
