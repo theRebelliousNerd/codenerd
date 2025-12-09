@@ -93,6 +93,11 @@ type SessionContext struct {
 	ExtraContext      map[string]string // Additional context key-values
 
 	// ==========================================================================
+	// DREAM MODE (Simulation/Learning)
+	// ==========================================================================
+	DreamMode bool // When true, shard should ONLY describe what it would do, not execute
+
+	// ==========================================================================
 	// WORLD MODEL / EDB FACTS
 	// ==========================================================================
 	ImpactedFiles      []string // Files transitively affected by current changes (impacted/1)

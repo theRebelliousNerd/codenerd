@@ -102,15 +102,27 @@ func TestSnapshotIsolation(t *testing.T) {
 		t.Fatalf("Failed to create differential engine: %v", err)
 	}
 	if err := diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"A"}}); err != nil {
-		t.Fatalf("Failed to add fact: %v", err)
+		t.Fatalf("Failed to add fact A: %v", err)
 	}
 
 	snapshot := diffEngine.Snapshot()
-	snapshot.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"B"}})
+	if err := snapshot.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"B"}}); err != nil {
+		t.Fatalf("Failed to add fact B to snapshot: %v", err)
+	}
+
+	// Debug: Check strataStores
+	t.Logf("DiffEngine has %d strata stores", len(diffEngine.strataStores))
+	for i, store := range diffEngine.strataStores {
+		preds := store.store.ListPredicates()
+		t.Logf("  Stratum %d has %d predicates", i, len(preds))
+	}
 
 	// Verify Main Engine has 1 fact (A)
 	// We can use Query on each.
-	res1, _ := diffEngine.Query(context.Background(), "item(X)")
+	res1, err := diffEngine.Query(context.Background(), "item(X)")
+	if err != nil {
+		t.Fatalf("Query on main engine failed: %v", err)
+	}
 	if len(res1.Bindings) != 1 {
 		t.Errorf("Main engine impacted by snapshot! Count: %d", len(res1.Bindings))
 	}
