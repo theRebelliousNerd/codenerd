@@ -949,6 +949,24 @@ Press **Enter** to begin...`,
 		if len(parts) > 1 {
 			target = parts[1]
 		}
+
+		// Check if multi-shard review is available (has registered specialists)
+		registry := m.loadAgentRegistry()
+		if registry != nil && len(registry.Agents) > 0 {
+			// Use multi-shard orchestrated review
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Running multi-shard review on: %s (with specialists)", target),
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			m.isLoading = true
+			return m, tea.Batch(m.spinner.Tick, m.spawnMultiShardReview(target))
+		}
+
+		// Fallback to single ReviewerShard
 		task := formatShardTask("/review", target, "", m.workspace)
 		m.history = append(m.history, Message{
 			Role:    "assistant",

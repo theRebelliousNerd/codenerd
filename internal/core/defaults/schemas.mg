@@ -2254,6 +2254,33 @@ Decl review_suspect(ReviewID, Reason).
 # Derived: This review should be spot-checked by main agent
 Decl reviewer_needs_validation(ReviewID).
 
+# =============================================================================
+# MULTI-SHARD REVIEW ORCHESTRATION (§20.1)
+# =============================================================================
+# Schemas for tracking orchestrated multi-shard reviews where multiple
+# specialist agents review code in parallel.
+
+# multi_shard_review(ReviewID, Target, Participants, IsComplete, TotalFindings, Timestamp)
+# Main record for a multi-shard orchestrated review
+Decl multi_shard_review(ReviewID, Target, Participants, IsComplete, TotalFindings, Timestamp).
+
+# multi_review_participant(ReviewID, ShardName, FileCount, FindingCount)
+# Tracks which specialists participated in a review
+Decl multi_review_participant(ReviewID, ShardName, FileCount, FindingCount).
+
+# multi_review_finding(ReviewID, ShardName, FilePath, Line, Severity, Message)
+# Individual findings from a multi-shard review, attributed to source shard
+Decl multi_review_finding(ReviewID, ShardName, FilePath, Line, Severity, Message).
+
+# cross_shard_insight(ReviewID, InsightType, Description)
+# Holistic insights derived from cross-shard analysis
+# InsightType: /hot_spot, /pattern, /critical_attention, /cross_domain
+Decl cross_shard_insight(ReviewID, InsightType, Description).
+
+# specialist_match(ReviewID, AgentName, Score, Reason)
+# Records which specialists were matched for a review and why
+Decl specialist_match(ReviewID, AgentName, Score, Reason).
+
 # symbol_verified_exists(Symbol, File, VerifiedAt)
 # Symbol was verified to exist (counters false "undefined" claims)
 Decl symbol_verified_exists(Symbol, File, VerifiedAt).

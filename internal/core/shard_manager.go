@@ -793,9 +793,10 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	}
 
 	// Assert current time for recency calculations
+	// Note: Use int64 for Unix timestamps - Mangle rules compare these against integer expiration times
 	_ = sm.kernel.Assert(Fact{
 		Predicate: "current_time",
-		Args:      []interface{}{float64(time.Now().Unix())},
+		Args:      []interface{}{int64(time.Now().Unix())},
 	})
 }
 
