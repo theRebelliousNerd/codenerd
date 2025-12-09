@@ -27,7 +27,8 @@ Decl path_in_workspace(Path).
 
 # Rejection/acceptance tracking for autopoiesis
 Decl rejection(TaskID, Category, Pattern).
-Decl rejection_count(Category, Pattern, Count).
+# Note: coder_rejection_count has 3 args vs schemas.mg's rejection_count/2 for autopoiesis
+Decl coder_rejection_count(Category, Pattern, Count).
 Decl code_accepted(TaskID, Pattern).
 Decl acceptance_count(Pattern, Count).
 
@@ -810,13 +811,13 @@ recommend_param_object(File, FuncName) :-
 # Track rejection patterns (style issues rejected 2+ times)
 coder_rejection_pattern(Style) :-
     rejection(_, /style, Style),
-    rejection_count(/style, Style, N),
+    coder_rejection_count(/style, Style, N),
     N >= 2.
 
 # Track error patterns (errors repeated 2+ times)
 coder_error_pattern(ErrorType) :-
     rejection(_, /error, ErrorType),
-    rejection_count(/error, ErrorType, N),
+    coder_rejection_count(/error, ErrorType, N),
     N >= 2.
 
 # Promote style preference to long-term memory
@@ -847,7 +848,7 @@ promote_to_long_term(/preferred_pattern, Pattern) :-
 
 # Signal to avoid patterns that always fail
 learning_signal(/avoid, Pattern) :-
-    rejection_count(_, Pattern, N),
+    coder_rejection_count(_, Pattern, N),
     N >= 3,
     acceptance_count(Pattern, M),
     M < 1.
@@ -856,12 +857,12 @@ learning_signal(/avoid, Pattern) :-
 learning_signal(/prefer, Pattern) :-
     acceptance_count(Pattern, N),
     N >= 5,
-    rejection_count(_, Pattern, M),
+    coder_rejection_count(_, Pattern, M),
     M < 1.
 
 # Helper for rejection check
 has_rejection(Pattern) :-
-    rejection_count(_, Pattern, _).
+    coder_rejection_count(_, Pattern, _).
 
 # =============================================================================
 # SECTION 12: CAMPAIGN INTEGRATION

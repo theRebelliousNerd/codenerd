@@ -24,19 +24,19 @@ import (
 
 // Strategy represents an active execution strategy.
 type Strategy struct {
-	Name        string    // e.g., "tdd_repair_loop", "breadth_first_survey"
+	Name        string // e.g., "tdd_repair_loop", "breadth_first_survey"
 	ActivatedAt time.Time
 	Context     map[string]string
 }
 
 // ActionDecision represents a derived next action.
 type ActionDecision struct {
-	Action     string
-	Target     string
-	Rationale  string
-	DerivedAt  time.Time
-	FromRule   string
-	Blocked    bool
+	Action      string
+	Target      string
+	Rationale   string
+	DerivedAt   time.Time
+	FromRule    string
+	Blocked     bool
 	BlockReason string
 }
 

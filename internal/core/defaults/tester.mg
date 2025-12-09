@@ -195,10 +195,11 @@ block_commit("tests_failing") :-
     test_state(/failing).
 
 # Block commit with low coverage
+# Note: Pct is integer 0-100, not float
 block_commit("low_coverage") :-
     coverage_metric(_, Pct),
     coverage_goal(Goal),
-    Pct < 50.0.  # Hard minimum
+    Pct < 50.  # Hard minimum
 
 # Require tests for critical files
 require_tests(File) :-

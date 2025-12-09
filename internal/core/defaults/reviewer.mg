@@ -85,10 +85,11 @@ block_commit("security_vulnerabilities") :-
 Decl file_contains(FilePath, Pattern).
 
 # High priority files (recently modified, high churn)
+# Note: Rate is integer (churn count), not float
 high_priority_review(File) :-
     modified(File),
     churn_rate(File, Rate),
-    Rate > 3.0.
+    Rate > 3.
 
 high_priority_review(File) :-
     modified(File),
@@ -298,7 +299,8 @@ has_rejections(ReviewID) :-
     user_rejected_finding(ReviewID, _, _, _, _).
 
 # Helper: Count rejections for a review (aggregation)
-Decl rejection_count(ReviewID, Count).
+# Note: Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
+Decl review_rejection_count(ReviewID, Count).
 
 # Review is suspect if user rejected multiple findings
 review_suspect(ReviewID, "multiple_rejections") :-
@@ -312,40 +314,46 @@ review_suspect(ReviewID, "multiple_rejections") :-
     Line1 != Line2.
 
 # Review is suspect if it flagged a symbol that was verified to exist
-review_suspect(ReviewID, "flagged_existing_symbol") :-
-    review_finding(ReviewID, File, Line, _, _, Message),
-    symbol_verified_exists(Symbol, File, _),
-    fn:string:contains(Message, "undefined").
+# TODO: Re-enable when string_contains virtual predicate is implemented
+# review_suspect(ReviewID, "flagged_existing_symbol") :-
+#     review_finding(ReviewID, File, Line, _, _, Message),
+#     symbol_verified_exists(Symbol, File, _),
+#     string_contains(Message, "undefined").
 
 # Review is suspect if >50% findings were rejected
 review_suspect(ReviewID, "high_rejection_rate") :-
     review_accuracy(ReviewID, Total, _, Rejected, _),
     Total > 2,
-    Rejected * 2 > Total.
+    DoubleRejected = fn:mult(Rejected, 2),
+    DoubleRejected > Total.
 
 # Trigger validation for suspect reviews
 reviewer_needs_validation(ReviewID) :-
     review_suspect(ReviewID, _).
 
 # Trigger validation for reviews with "undefined" findings (common false positive)
-reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
-    fn:string:contains(Message, "undefined").
+# TODO: Re-enable when string_contains virtual predicate is implemented
+# reviewer_needs_validation(ReviewID) :-
+#     review_finding(ReviewID, _, _, /error, /bug, Message),
+#     string_contains(Message, "undefined").
 
 # Trigger validation for reviews with "not found" findings
-reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
-    fn:string:contains(Message, "not found").
+# TODO: Re-enable when string_contains virtual predicate is implemented
+# reviewer_needs_validation(ReviewID) :-
+#     review_finding(ReviewID, _, _, /error, /bug, Message),
+#     string_contains(Message, "not found").
 
 # --- False Positive Learning ---
 
 # Suppress findings that match learned false positive patterns
-suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
-    raw_finding(File, Line, _, Category, RuleID, Message),
-    false_positive_pattern(Pattern, Category, Occurrences, Confidence),
-    Occurrences > 2,
-    Confidence > 0.7,
-    fn:string:contains(Message, Pattern).
+# Note: Confidence is integer 0-100, not float 0.0-1.0
+# TODO: Re-enable when string_contains virtual predicate is implemented
+# suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
+#     raw_finding(File, Line, _, Category, RuleID, Message),
+#     false_positive_pattern(Pattern, Category, Occurrences, Confidence),
+#     Occurrences > 2,
+#     Confidence > 70,
+#     string_contains(Message, Pattern).
 
 # --- Self-Correction Signals ---
 

@@ -584,9 +584,20 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	case int64:
 		return ast.Number(v), nil
 	case float32:
-		return ast.Float64(float64(v)), nil
+		// Convert floats to integers for Mangle compatibility
+		// (Mangle comparison operators don't support float types)
+		f := float64(v)
+		if f >= 0.0 && f <= 1.0 {
+			return ast.Number(int64(f * 100)), nil
+		}
+		return ast.Number(int64(f)), nil
 	case float64:
-		return ast.Float64(v), nil
+		// Convert floats to integers for Mangle compatibility
+		// 0.0-1.0 range -> 0-100 scale, otherwise truncate to int
+		if v >= 0.0 && v <= 1.0 {
+			return ast.Number(int64(v * 100)), nil
+		}
+		return ast.Number(int64(v)), nil
 	case bool:
 		if v {
 			return ast.TrueConstant, nil

@@ -222,9 +222,9 @@ func TestCountDecisionPoints_LogicalOperators(t *testing.T) {
 		expected int
 	}{
 		// && and ||
-		{"and operator", "if a && b {", LangGo, 2},         // if + &&
-		{"or operator", "if a || b {", LangGo, 2},          // if + ||
-		{"both operators", "if a && b || c {", LangGo, 3},  // if + && + ||
+		{"and operator", "if a && b {", LangGo, 2},        // if + &&
+		{"or operator", "if a || b {", LangGo, 2},         // if + ||
+		{"both operators", "if a && b || c {", LangGo, 3}, // if + && + ||
 
 		// Python and/or
 		{"python and", "if a and b:", LangPython, 2},       // if + and
@@ -232,8 +232,8 @@ func TestCountDecisionPoints_LogicalOperators(t *testing.T) {
 		{"python both", "if a and b or c:", LangPython, 3}, // if + and + or
 
 		// Operators without if (in assignment, for example)
-		{"standalone and", "result = a && b", LangGo, 1},   // just &&
-		{"standalone or", "result = a || b", LangGo, 1},    // just ||
+		{"standalone and", "result = a && b", LangGo, 1}, // just &&
+		{"standalone or", "result = a || b", LangGo, 1},  // just ||
 	}
 
 	for _, tt := range tests {
@@ -539,8 +539,8 @@ func TestIsFunctionDeclaration(t *testing.T) {
 		// Go
 		{"go func", "func main() {", LangGo, true},
 		{"go method", "func (s *Server) Start() error {", LangGo, true},
-		{"go anon func with space", "x := func () {}", LangGo, true},  // anonymous func with space
-		{"go anon func no space", "x := func() {}", LangGo, false},    // no space after func - limitation of text-based detection
+		{"go anon func with space", "x := func () {}", LangGo, true}, // anonymous func with space
+		{"go anon func no space", "x := func() {}", LangGo, false},   // no space after func - limitation of text-based detection
 
 		// Python
 		{"python def", "def main():", LangPython, true},

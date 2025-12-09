@@ -259,8 +259,8 @@ func generateMinimalFallbackKnowledge(topics []string) []KnowledgeAtom {
 		Confidence:  0.5,
 		ExtractedAt: time.Now(),
 		Metadata: map[string]interface{}{
-			"fallback":       true,
-			"topics":         topics,
+			"fallback":        true,
+			"topics":          topics,
 			"needs_hydration": true,
 		},
 	})

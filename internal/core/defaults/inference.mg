@@ -21,32 +21,34 @@ refined_score(Verb, Score) :-
 # -----------------------------------------------------------------------------
 # CONTEXTUAL BOOSTING
 # -----------------------------------------------------------------------------
+# NOTE: Boost/penalty values are integers (0-100 scale) because fn:plus/fn:minus
+# only support integers, not floats.
 
 # Security Boost: If "security" or "vuln" appears, boost /security
-boost(Verb, 0.3) :-
+boost(Verb, 30) :-
     candidate_intent(Verb, _),
     Verb = /security,
     context_token("security").
 
-boost(Verb, 0.3) :-
+boost(Verb, 30) :-
     candidate_intent(Verb, _),
     Verb = /security,
     context_token("vulnerability").
 
 # Testing Boost: If "coverage" appears, prefer /test over /review
-boost(Verb, 0.2) :-
+boost(Verb, 20) :-
     candidate_intent(Verb, _),
     Verb = /test,
     context_token("coverage").
 
 # Debugging Boost: If "error" or "panic" appears, prefer /debug over /fix
 # fixing is the goal, but debugging is the immediate action.
-boost(Verb, 0.15) :-
+boost(Verb, 15) :-
     candidate_intent(Verb, _),
     Verb = /debug,
     context_token("panic").
 
-boost(Verb, 0.15) :-
+boost(Verb, 15) :-
     candidate_intent(Verb, _),
     Verb = /debug,
     context_token("stacktrace").
@@ -56,14 +58,14 @@ boost(Verb, 0.15) :-
 # -----------------------------------------------------------------------------
 
 # Safety: Don't /delete if we are in a "learning" mode or context implies "safe"
-penalty(Verb, 0.5) :-
+penalty(Verb, 50) :-
     candidate_intent(Verb, _),
     Verb = /delete,
     context_token("safe").
 
 # Ambiguity: If "fix" and "test" both appear, "fix" usually dominates,
 # but if "verify" is present, "test" should win.
-boost(Verb, 0.2) :-
+boost(Verb, 20) :-
     candidate_intent(Verb, _),
     Verb = /test,
     context_token("verify").

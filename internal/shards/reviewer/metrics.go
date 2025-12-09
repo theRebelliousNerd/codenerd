@@ -85,24 +85,24 @@ var (
 
 	// Decision keywords with word boundaries
 	// Compound patterns (must be checked first to avoid double-counting)
-	elseIfRe = regexp.MustCompile(`\belse\s+if\b`)
-	elifRe   = regexp.MustCompile(`\belif\b`)
-	ifLetRe  = regexp.MustCompile(`\bif\s+let\b`)   // Rust/Swift
+	elseIfRe   = regexp.MustCompile(`\belse\s+if\b`)
+	elifRe     = regexp.MustCompile(`\belif\b`)
+	ifLetRe    = regexp.MustCompile(`\bif\s+let\b`)    // Rust/Swift
 	whileLetRe = regexp.MustCompile(`\bwhile\s+let\b`) // Rust
 
 	// Simple keywords
-	ifRe      = regexp.MustCompile(`\bif\b`)
-	forRe     = regexp.MustCompile(`\bfor\b`)
-	whileRe   = regexp.MustCompile(`\bwhile\b`)
-	loopRe    = regexp.MustCompile(`\bloop\b`)     // Rust infinite loop
-	caseRe    = regexp.MustCompile(`\bcase\b`)
-	catchRe   = regexp.MustCompile(`\bcatch\b`)
-	exceptRe  = regexp.MustCompile(`\bexcept\b`)   // Python
-	matchRe   = regexp.MustCompile(`\bmatch\b`)    // Rust, Python 3.10+
-	whenRe    = regexp.MustCompile(`\bwhen\b`)     // Kotlin
-	guardRe   = regexp.MustCompile(`\bguard\b`)    // Swift
-	selectRe  = regexp.MustCompile(`\bselect\b`)   // Go channels
-	rescueRe  = regexp.MustCompile(`\brescue\b`)   // Ruby
+	ifRe     = regexp.MustCompile(`\bif\b`)
+	forRe    = regexp.MustCompile(`\bfor\b`)
+	whileRe  = regexp.MustCompile(`\bwhile\b`)
+	loopRe   = regexp.MustCompile(`\bloop\b`) // Rust infinite loop
+	caseRe   = regexp.MustCompile(`\bcase\b`)
+	catchRe  = regexp.MustCompile(`\bcatch\b`)
+	exceptRe = regexp.MustCompile(`\bexcept\b`) // Python
+	matchRe  = regexp.MustCompile(`\bmatch\b`)  // Rust, Python 3.10+
+	whenRe   = regexp.MustCompile(`\bwhen\b`)   // Kotlin
+	guardRe  = regexp.MustCompile(`\bguard\b`)  // Swift
+	selectRe = regexp.MustCompile(`\bselect\b`) // Go channels
+	rescueRe = regexp.MustCompile(`\brescue\b`) // Ruby
 
 	// Logical operators (short-circuit creates branches)
 	andOpRe     = regexp.MustCompile(`&&`)

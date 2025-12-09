@@ -11,11 +11,11 @@ import (
 
 // SpecialistRecommendation suggests a specialist shard for working on this code.
 type SpecialistRecommendation struct {
-	ShardName  string   `json:"shard_name"`  // e.g., "rod", "golang", "react"
-	Reason     string   `json:"reason"`      // Why this specialist is recommended
-	Confidence float64  `json:"confidence"`  // 0.0-1.0
-	ForFiles   []string `json:"for_files"`   // Which files this applies to
-	TaskHints  []string `json:"task_hints"`  // Suggested tasks for the specialist
+	ShardName  string   `json:"shard_name"` // e.g., "rod", "golang", "react"
+	Reason     string   `json:"reason"`     // Why this specialist is recommended
+	Confidence float64  `json:"confidence"` // 0.0-1.0
+	ForFiles   []string `json:"for_files"`  // Which files this applies to
+	TaskHints  []string `json:"task_hints"` // Suggested tasks for the specialist
 }
 
 // TechnologyPattern maps file patterns and imports to specialist shards.

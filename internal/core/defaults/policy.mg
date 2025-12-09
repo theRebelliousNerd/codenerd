@@ -722,7 +722,7 @@ chesterton_fence_warning(File, "recent_change_by_other") :-
 chesterton_fence_warning(File, "high_churn_file") :-
     user_intent(_, /mutation, /refactor, File, _),
     churn_rate(File, Freq),
-    Freq > 5.0.
+    Freq > 5.
 
 # Trigger clarification for Chesterton's Fence
 clarification_needed(File) :-
@@ -2332,80 +2332,81 @@ dream_block(Action, Reason) :-
 # -----------------------------------------------------------------------------
 # 40.1 Base Shard-Capability Affinities (EDB)
 # -----------------------------------------------------------------------------
-# Score 0.0-1.0 indicating how relevant a capability is to each shard type
+# Score 0-100 (integer scale) indicating how relevant a capability is to each shard type
+# NOTE: Must use integers because Mangle comparison operators don't support floats
 
 # CoderShard affinities
-shard_capability_affinity(/coder, /generation, 1.0).
-shard_capability_affinity(/coder, /debugging, 0.9).
-shard_capability_affinity(/coder, /transformation, 0.8).
-shard_capability_affinity(/coder, /inspection, 0.5).
-shard_capability_affinity(/coder, /validation, 0.4).
-shard_capability_affinity(/coder, /execution, 0.6).
+shard_capability_affinity(/coder, /generation, 100).
+shard_capability_affinity(/coder, /debugging, 90).
+shard_capability_affinity(/coder, /transformation, 80).
+shard_capability_affinity(/coder, /inspection, 50).
+shard_capability_affinity(/coder, /validation, 40).
+shard_capability_affinity(/coder, /execution, 60).
 
 # TesterShard affinities
-shard_capability_affinity(/tester, /validation, 1.0).
-shard_capability_affinity(/tester, /execution, 0.9).
-shard_capability_affinity(/tester, /inspection, 0.7).
-shard_capability_affinity(/tester, /debugging, 0.6).
-shard_capability_affinity(/tester, /analysis, 0.5).
+shard_capability_affinity(/tester, /validation, 100).
+shard_capability_affinity(/tester, /execution, 90).
+shard_capability_affinity(/tester, /inspection, 70).
+shard_capability_affinity(/tester, /debugging, 60).
+shard_capability_affinity(/tester, /analysis, 50).
 
 # ReviewerShard affinities
-shard_capability_affinity(/reviewer, /inspection, 1.0).
-shard_capability_affinity(/reviewer, /analysis, 0.9).
-shard_capability_affinity(/reviewer, /validation, 0.6).
-shard_capability_affinity(/reviewer, /debugging, 0.4).
+shard_capability_affinity(/reviewer, /inspection, 100).
+shard_capability_affinity(/reviewer, /analysis, 90).
+shard_capability_affinity(/reviewer, /validation, 60).
+shard_capability_affinity(/reviewer, /debugging, 40).
 
 # ResearcherShard affinities
-shard_capability_affinity(/researcher, /knowledge, 1.0).
-shard_capability_affinity(/researcher, /analysis, 0.8).
-shard_capability_affinity(/researcher, /inspection, 0.6).
+shard_capability_affinity(/researcher, /knowledge, 100).
+shard_capability_affinity(/researcher, /analysis, 80).
+shard_capability_affinity(/researcher, /inspection, 60).
 
 # Generalist affinities (moderate across all)
-shard_capability_affinity(/generalist, /generation, 0.5).
-shard_capability_affinity(/generalist, /validation, 0.5).
-shard_capability_affinity(/generalist, /inspection, 0.5).
-shard_capability_affinity(/generalist, /analysis, 0.5).
-shard_capability_affinity(/generalist, /execution, 0.5).
-shard_capability_affinity(/generalist, /knowledge, 0.5).
-shard_capability_affinity(/generalist, /debugging, 0.5).
-shard_capability_affinity(/generalist, /transformation, 0.5).
+shard_capability_affinity(/generalist, /generation, 50).
+shard_capability_affinity(/generalist, /validation, 50).
+shard_capability_affinity(/generalist, /inspection, 50).
+shard_capability_affinity(/generalist, /analysis, 50).
+shard_capability_affinity(/generalist, /execution, 50).
+shard_capability_affinity(/generalist, /knowledge, 50).
+shard_capability_affinity(/generalist, /debugging, 50).
+shard_capability_affinity(/generalist, /transformation, 50).
 
 # -----------------------------------------------------------------------------
 # 40.2 Intent-Capability Mappings (EDB)
 # -----------------------------------------------------------------------------
-# Maps user intent verbs to required capabilities with importance weights
+# Maps user intent verbs to required capabilities with importance weights (0-100 scale)
 
 # Mutation intents
-intent_requires_capability(/implement, /generation, 1.0).
-intent_requires_capability(/implement, /validation, 0.5).
-intent_requires_capability(/refactor, /transformation, 1.0).
-intent_requires_capability(/refactor, /analysis, 0.7).
-intent_requires_capability(/fix, /debugging, 1.0).
-intent_requires_capability(/fix, /validation, 0.8).
-intent_requires_capability(/generate, /generation, 1.0).
-intent_requires_capability(/scaffold, /generation, 0.9).
-intent_requires_capability(/init, /generation, 0.8).
+intent_requires_capability(/implement, /generation, 100).
+intent_requires_capability(/implement, /validation, 50).
+intent_requires_capability(/refactor, /transformation, 100).
+intent_requires_capability(/refactor, /analysis, 70).
+intent_requires_capability(/fix, /debugging, 100).
+intent_requires_capability(/fix, /validation, 80).
+intent_requires_capability(/generate, /generation, 100).
+intent_requires_capability(/scaffold, /generation, 90).
+intent_requires_capability(/init, /generation, 80).
 
 # Query intents
-intent_requires_capability(/test, /validation, 1.0).
-intent_requires_capability(/test, /execution, 0.9).
-intent_requires_capability(/review, /inspection, 1.0).
-intent_requires_capability(/review, /analysis, 0.8).
-intent_requires_capability(/explain, /analysis, 1.0).
-intent_requires_capability(/explain, /knowledge, 0.7).
-intent_requires_capability(/debug, /debugging, 1.0).
-intent_requires_capability(/debug, /inspection, 0.8).
+intent_requires_capability(/test, /validation, 100).
+intent_requires_capability(/test, /execution, 90).
+intent_requires_capability(/review, /inspection, 100).
+intent_requires_capability(/review, /analysis, 80).
+intent_requires_capability(/explain, /analysis, 100).
+intent_requires_capability(/explain, /knowledge, 70).
+intent_requires_capability(/debug, /debugging, 100).
+intent_requires_capability(/debug, /inspection, 80).
 
 # Research intents
-intent_requires_capability(/research, /knowledge, 1.0).
-intent_requires_capability(/research, /analysis, 0.6).
-intent_requires_capability(/explore, /inspection, 0.9).
-intent_requires_capability(/explore, /analysis, 0.8).
-intent_requires_capability(/explore, /knowledge, 0.5).
+intent_requires_capability(/research, /knowledge, 100).
+intent_requires_capability(/research, /analysis, 60).
+intent_requires_capability(/explore, /inspection, 90).
+intent_requires_capability(/explore, /analysis, 80).
+intent_requires_capability(/explore, /knowledge, 50).
 
 # Run intents
-intent_requires_capability(/run, /execution, 1.0).
-intent_requires_capability(/run, /validation, 0.4).
+intent_requires_capability(/run, /execution, 100).
+intent_requires_capability(/run, /validation, 40).
 
 # -----------------------------------------------------------------------------
 # 40.3 Tool Relevance Derivation Rules (IDB)
@@ -2426,40 +2427,43 @@ tool_intent_relevance(ToolName, Weight) :-
 
 # No current intent = no boost (fallback rule)
 # Uses helper predicate for safe negation
-tool_intent_relevance(ToolName, 0.0) :-
+tool_intent_relevance(ToolName, 0) :-
     tool_registered(ToolName, _),
     !has_current_intent().
 
 # 40.3.3 Domain Boost: Tool matches target file's language/domain
-tool_domain_relevance(ToolName, 0.3) :-
+# Score: 30 (out of 100)
+tool_domain_relevance(ToolName, 30) :-
     current_intent(IntentID),
     user_intent(IntentID, _, _, Target, _),
     file_topology(Target, _, Lang, _, _),
     tool_domain(ToolName, Lang).
 
-tool_domain_relevance(ToolName, 0.0) :-
+tool_domain_relevance(ToolName, 0) :-
     tool_registered(ToolName, _),
     !has_tool_domain(ToolName).
 
 # 40.3.4 Success History Boost: Tool succeeded in similar contexts
 # Note: Uses simplified scoring - full implementation would compute rate
-tool_success_relevance(ToolName, 0.2) :-
+# Score: 20 (out of 100)
+tool_success_relevance(ToolName, 20) :-
     tool_usage_stats(ToolName, ExecCount, SuccessCount, _),
     ExecCount > 0,
     SuccessCount > 0.
 
-tool_success_relevance(ToolName, 0.0) :-
+tool_success_relevance(ToolName, 0) :-
     tool_registered(ToolName, _),
     !has_tool_usage(ToolName).
 
 # 40.3.5 Recency Boost: Recently used tools likely still relevant
 # Note: Full implementation would check timestamp difference
-tool_recency_relevance(ToolName, 0.15) :-
+# Score: 15 (out of 100)
+tool_recency_relevance(ToolName, 15) :-
     tool_usage_stats(ToolName, _, _, LastUsed),
     current_time(Now),
     LastUsed > 0.
 
-tool_recency_relevance(ToolName, 0.0) :-
+tool_recency_relevance(ToolName, 0) :-
     tool_registered(ToolName, _),
     !has_tool_usage(ToolName).
 
@@ -2468,15 +2472,15 @@ tool_recency_relevance(ToolName, 0.0) :-
 # Note: Mangle doesn't support arithmetic in rule bodies, so we use approximation
 #       The Go implementation will compute exact scores
 
-# Simplified relevance threshold: tool is relevant if it has base affinity
+# Simplified relevance threshold: tool is relevant if it has base affinity >= 30
 relevant_tool(ShardType, ToolName) :-
     tool_base_relevance(ShardType, ToolName, BaseScore),
-    BaseScore >= 0.3.
+    BaseScore >= 30.
 
-# Also relevant if intent matches strongly
+# Also relevant if intent matches strongly (>= 70)
 relevant_tool(ShardType, ToolName) :-
     tool_intent_relevance(ToolName, IntentScore),
-    IntentScore >= 0.7,
+    IntentScore >= 70,
     tool_registered(ToolName, _),
     current_shard_type(ShardType).
 

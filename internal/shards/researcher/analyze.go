@@ -480,8 +480,8 @@ func (r *ResearcherShard) detectServerlessPatterns(workspace string, dirs map[st
 	// AWS Lambda detection
 	lambdaIndicators := []string{
 		"serverless.yml", "serverless.yaml", // Serverless Framework
-		"sam.yaml", "template.yaml",          // AWS SAM
-		"cdk.json",                            // AWS CDK
+		"sam.yaml", "template.yaml", // AWS SAM
+		"cdk.json", // AWS CDK
 	}
 	for _, indicator := range lambdaIndicators {
 		if _, err := os.Stat(filepath.Join(workspace, indicator)); err == nil {

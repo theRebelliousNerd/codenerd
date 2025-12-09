@@ -594,7 +594,7 @@ Decl proof_tree_node(NodeID, ParentID, Fact, RuleName).
 Decl campaign(CampaignID, Type, Title, SourceMaterial, Status).
 
 # campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence)
-# Confidence: LLM's confidence in the plan (0.0-1.0)
+# Confidence: LLM's confidence in the plan (0-100 integer scale)
 Decl campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence).
 
 # campaign_goal(CampaignID, GoalDescription)
@@ -1936,10 +1936,10 @@ Decl shard_switch_suggestion(TaskType, FromShard, ToShard).
 # 36.4 Derived Predicates for Trace Analysis
 # -----------------------------------------------------------------------------
 
-# low_quality_trace(TraceID) - derived: trace quality < 0.5
+# low_quality_trace(TraceID) - derived: trace quality < 50 (on 0-100 scale)
 Decl low_quality_trace(TraceID).
 
-# high_quality_trace(TraceID) - derived: trace quality >= 0.8
+# high_quality_trace(TraceID) - derived: trace quality >= 80 (on 0-100 scale)
 Decl high_quality_trace(TraceID).
 
 # shard_struggling(ShardType) - derived: shard has high failure rate
@@ -2128,7 +2128,8 @@ Decl tool_priority_score(ToolName, Score).
 # -----------------------------------------------------------------------------
 
 # shard_capability_affinity(ShardType, CapabilityCategory, AffinityScore)
-# Score 0.0-1.0 indicating how relevant a capability category is to a shard type
+# Score 0-100 (integer) indicating how relevant a capability category is to a shard type
+# NOTE: Must use integers because Mangle comparison operators don't support floats
 # ShardType: /coder, /tester, /reviewer, /researcher, /generalist
 # CapabilityCategory: /validation, /generation, /inspection, /transformation,
 #                     /analysis, /execution, /knowledge, /debugging
