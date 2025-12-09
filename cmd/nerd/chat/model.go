@@ -198,6 +198,10 @@ type Model struct {
 	awaitingConfigWizard bool
 	configWizard         *ConfigWizardState
 
+	// Northstar Wizard State
+	awaitingNorthstar bool
+	northstarWizard   *NorthstarWizardState
+
 	// CLI Config
 	CLIConfig Config
 
@@ -1236,6 +1240,11 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	// Config wizard mode
 	if m.awaitingConfigWizard {
 		return m.handleConfigWizardInput(input)
+	}
+
+	// Northstar wizard mode
+	if m.awaitingNorthstar {
+		return m.handleNorthstarWizardInput(input)
 	}
 
 	m.isLoading = true

@@ -843,6 +843,21 @@ Press **Enter** to begin...`,
 		m.textarea.Reset()
 		return m, nil
 
+	case "/northstar", "/vision", "/spec":
+		// Enter Northstar definition wizard - project vision and specification
+		m.awaitingNorthstar = true
+		m.northstarWizard = NewNorthstarWizard()
+		m.textarea.Placeholder = "yes / no..."
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: getNorthstarWelcomeMessage(),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/learn":
 		m.history = append(m.history, Message{
 			Role:    "assistant",
