@@ -247,6 +247,7 @@ type ShardAgent interface {
 	// Dependency Injection methods
 	SetParentKernel(k Kernel)
 	SetLLMClient(client LLMClient)
+	SetSessionContext(ctx *SessionContext) // For dream mode and session state
 }
 
 // ShardFactory is a function that creates a new shard instance.
@@ -321,6 +322,12 @@ func (b *BaseShardAgent) SetLLMClient(client LLMClient) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.llmClient = client
+}
+
+func (b *BaseShardAgent) SetSessionContext(ctx *SessionContext) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.config.SessionContext = ctx
 }
 
 func (b *BaseShardAgent) HasPermission(p ShardPermission) bool {
@@ -781,6 +788,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		if vsc, ok := agent.(VirtualStoreConsumer); ok {
 			vsc.SetVirtualStore(sm.virtualStore)
 		}
+	}
+	// Inject session context (for dream mode, etc.)
+	if sessionCtx != nil {
+		agent.SetSessionContext(sessionCtx)
 	}
 
 	sm.shards[id] = agent

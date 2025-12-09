@@ -139,6 +139,13 @@ func (c *CoderShard) SetLLMClient(client core.LLMClient) {
 	c.llmClient = client
 }
 
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (c *CoderShard) SetSessionContext(ctx *core.SessionContext) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.config.SessionContext = ctx
+}
+
 // SetParentKernel sets the Mangle kernel for fact storage and policy evaluation.
 func (c *CoderShard) SetParentKernel(k core.Kernel) {
 	c.mu.Lock()

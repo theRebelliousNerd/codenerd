@@ -115,6 +115,13 @@ func (s *ToolGeneratorShard) SetParentKernel(k core.Kernel) {
 	}
 }
 
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (s *ToolGeneratorShard) SetSessionContext(ctx *core.SessionContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.SessionContext = ctx
+}
+
 // SetWorkspaceRoot sets the explicit workspace root path.
 // This MUST be called before SetLLMClient to ensure tools are created in the correct location.
 func (s *ToolGeneratorShard) SetWorkspaceRoot(root string) {

@@ -2,6 +2,16 @@
 
 The CLI entrypoint for codeNERD. Built with Cobra for commands and Bubble Tea for the interactive TUI.
 
+## Portable Usage
+
+The compiled `nerd.exe` binary is fully portable:
+
+1. Drop it in any project root directory
+2. Run `nerd init` to create the `.nerd/` workspace
+3. Run `nerd` to launch the interactive TUI
+
+Each project maintains its own `.nerd/` directory with project-specific knowledge and preferences.
+
 ## Structure
 
 ```
@@ -30,11 +40,15 @@ nerd --timeout 5m       # Set operation timeout
 |---------|-------------|
 | `nerd init` | Initialize workspace, create `.nerd/` |
 | `nerd run "<instruction>"` | Single-shot OODA loop execution |
+| `nerd scan` | Refresh codebase index |
 | `nerd query <predicate>` | Query derived facts from kernel |
 | `nerd why [predicate]` | Explain derivation chain |
 | `nerd status` | Show system status |
 | `nerd spawn <shard> <task>` | Invoke specialist shard |
+| `nerd define-agent` | Define a new specialist agent |
 | `nerd browser <action>` | Browser automation |
+| `nerd campaign <action>` | Multi-phase goal orchestration |
+| `nerd check-mangle <files>` | Validate Mangle syntax |
 
 ## Interactive TUI
 
