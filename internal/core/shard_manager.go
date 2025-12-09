@@ -783,12 +783,21 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	// Retract old context (avoid stale facts)
 	_ = sm.kernel.Retract("current_shard_type")
 	_ = sm.kernel.Retract("current_intent")
+	_ = sm.kernel.Retract("active_shard")
 
 	// Assert current shard type (with / prefix for Mangle atom)
 	shardAtom := "/" + query.ShardType
 	_ = sm.kernel.Assert(Fact{
 		Predicate: "current_shard_type",
 		Args:      []interface{}{shardAtom},
+	})
+
+	// Assert active_shard for spreading activation rules to derive injectable_context
+	// The policy rules use: active_shard(ShardID, ShardType) to select relevant context
+	shardID := query.ShardType + "-active"
+	_ = sm.kernel.Assert(Fact{
+		Predicate: "active_shard",
+		Args:      []interface{}{shardID, shardAtom},
 	})
 
 	// Assert current intent if available

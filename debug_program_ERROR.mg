@@ -2285,6 +2285,160 @@ Decl specialist_match(ReviewID, AgentName, Score, Reason).
 # Symbol was verified to exist (counters false "undefined" claims)
 Decl symbol_verified_exists(Symbol, File, VerifiedAt).
 
+# =============================================================================
+# SECTION 42: DYNAMIC PROMPT COMPOSITION (Context Injection)
+# =============================================================================
+# These predicates enable kernel-driven system prompt assembly.
+# The articulation layer queries these to build dynamic prompts for shards.
+
+# -----------------------------------------------------------------------------
+# 42.1 Base Prompt Templates
+# -----------------------------------------------------------------------------
+
+# shard_prompt_base(ShardType, BaseTemplate)
+# Base template for each shard type (Type A, B, S, U)
+# ShardType: /system, /ephemeral, /persistent, /user
+Decl shard_prompt_base(ShardType, BaseTemplate).
+
+# -----------------------------------------------------------------------------
+# 42.2 Context Atom Selection (Spreading Activation Output)
+# -----------------------------------------------------------------------------
+
+# shard_context_atom(ShardID, Atom, Relevance)
+# Context atoms selected for injection into prompts (spreading activation output)
+# Relevance: 0.0-1.0 score indicating how relevant the atom is
+# NOTE: Named shard_context_atom to distinguish from existing context_atom(Fact) in Section 12
+Decl shard_context_atom(ShardID, Atom, Relevance).
+
+# -----------------------------------------------------------------------------
+# 42.3 Specialist Knowledge (Type B Persistent Shards)
+# -----------------------------------------------------------------------------
+
+# specialist_knowledge(ShardID, Topic, Content)
+# Specialist knowledge for Type B persistent shards
+# Topic: domain identifier (e.g., /go_concurrency, /react_hooks, /sql_optimization)
+Decl specialist_knowledge(ShardID, Topic, Content).
+
+# -----------------------------------------------------------------------------
+# 42.4 Session-Level Customizations
+# -----------------------------------------------------------------------------
+
+# prompt_customization(SessionID, Key, Value)
+# Session-level prompt customizations (user preferences)
+# Key: customization key (e.g., /verbosity, /tone, /detail_level)
+Decl prompt_customization(SessionID, Key, Value).
+
+# -----------------------------------------------------------------------------
+# 42.5 Campaign-Specific Constraints
+# -----------------------------------------------------------------------------
+
+# campaign_prompt_policy(CampaignID, ShardType, Constraint)
+# Campaign-specific prompt constraints
+# Constraint: rule or limitation to apply (e.g., "no external APIs", "strict typing")
+Decl campaign_prompt_policy(CampaignID, ShardType, Constraint).
+
+# -----------------------------------------------------------------------------
+# 42.6 Learned Exemplars
+# -----------------------------------------------------------------------------
+
+# prompt_exemplar(ShardType, Category, Exemplar)
+# Learned exemplars that should influence prompts
+# Category: exemplar category (e.g., /code_style, /error_handling, /documentation)
+# Exemplar: the learned example pattern or template
+Decl prompt_exemplar(ShardType, Category, Exemplar).
+
+# -----------------------------------------------------------------------------
+# 42.7 Derived Predicates for Prompt Assembly
+# -----------------------------------------------------------------------------
+
+# prompt_ready(ShardID) - derived: all required prompt components are available
+Decl prompt_ready(ShardID).
+
+# has_specialist_knowledge(ShardID) - helper: shard has specialist knowledge loaded
+Decl has_specialist_knowledge(ShardID).
+
+# has_campaign_constraints(CampaignID, ShardType) - helper: campaign has constraints for shard type
+Decl has_campaign_constraints(CampaignID, ShardType).
+
+# active_prompt_customization(Key, Value) - derived: active customization for current session
+Decl active_prompt_customization(Key, Value).
+
+# prompt_context_budget(ShardID, TokensUsed, TokensAvailable) - context window tracking
+Decl prompt_context_budget(ShardID, TokensUsed, TokensAvailable).
+
+# context_overflow(ShardID) - derived: context exceeds available budget
+Decl context_overflow(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.8 Active Shard Tracking
+# -----------------------------------------------------------------------------
+
+# active_shard(ShardID, ShardType) - currently active shard being configured
+Decl active_shard(ShardID, ShardType).
+
+# campaign_active(CampaignID) - currently active campaign
+Decl campaign_active(CampaignID).
+
+# -----------------------------------------------------------------------------
+# 42.9 Injectable Context Derivation (Policy.mg Section 41)
+# -----------------------------------------------------------------------------
+
+# injectable_context(ShardID, Atom) - atoms selected for prompt injection
+Decl injectable_context(ShardID, Atom).
+
+# injectable_context_priority(ShardID, Atom, Priority) - priority-tagged context
+# Priority: /high, /medium, /low
+Decl injectable_context_priority(ShardID, Atom, Priority).
+
+# final_injectable(ShardID, Atom) - final set after budget filtering
+Decl final_injectable(ShardID, Atom).
+
+# -----------------------------------------------------------------------------
+# 42.10 Context Budget Management
+# -----------------------------------------------------------------------------
+
+# context_budget(ShardID, Budget) - available token budget for shard
+Decl context_budget(ShardID, Budget).
+
+# context_budget_constrained(ShardID) - derived: shard has limited context budget
+Decl context_budget_constrained(ShardID).
+
+# context_budget_sufficient(ShardID) - derived: shard has adequate context budget
+Decl context_budget_sufficient(ShardID).
+
+# has_injectable_context(ShardID) - helper: shard has context to inject
+Decl has_injectable_context(ShardID).
+
+# has_high_priority_context(ShardID) - helper: shard has high-priority context
+Decl has_high_priority_context(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.11 Context Staleness & Refresh
+# -----------------------------------------------------------------------------
+
+# context_stale(ShardID, Atom) - context atom is stale and needs refresh
+Decl context_stale(ShardID, Atom).
+
+# has_stale_context(ShardID) - helper: shard has any stale context
+Decl has_stale_context(ShardID).
+
+# specialist_knowledge_updated(ShardID) - specialist knowledge was recently updated
+Decl specialist_knowledge_updated(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.12 Trace Pattern Integration
+# -----------------------------------------------------------------------------
+
+# trace_pattern(TraceID, Pattern) - extracted pattern from a reasoning trace
+Decl trace_pattern(TraceID, Pattern).
+
+# -----------------------------------------------------------------------------
+# 42.13 Learning from Context Injection
+# -----------------------------------------------------------------------------
+
+# context_injection_effective(ShardID, Atom) - context injection led to success
+Decl context_injection_effective(ShardID, Atom).
+
 
 
 # User Extensions
@@ -4847,6 +5001,182 @@ has_tool_domain(ToolName) :- tool_domain(ToolName, _).
 # has_tool_usage(ToolName) - helper for safe negation
 has_tool_usage(ToolName) :- tool_usage_stats(ToolName, _, _, _).
 
+# =============================================================================
+# SECTION 41: DYNAMIC PROMPT COMPOSITION (Spreading Activation Extension)
+# =============================================================================
+# Rules for selecting context atoms to inject into shard system prompts.
+# Implements spreading activation from user_intent to relevant facts.
+# Per codeNERD architecture: facts flow through the kernel to shape LLM context.
+
+# -----------------------------------------------------------------------------
+# 41.1 Shard-Specific Context Relevance (3-arity extension)
+# -----------------------------------------------------------------------------
+# shard_context_atom(ShardID, Atom, Relevance) - context relevance per shard
+# Relevance is integer 0-100 scale (Mangle doesn't support floats)
+
+# Context relevance based on intent match - HIGH relevance (90)
+# When shard type matches intent category, target is highly relevant
+shard_context_atom(ShardID, Target, 90) :-
+    active_shard(ShardID, ShardType),
+    user_intent(_, ShardType, _, Target, _).
+
+# Propagate specialist knowledge to context - HIGH relevance (80)
+shard_context_atom(ShardID, Knowledge, 80) :-
+    active_shard(ShardID, _),
+    specialist_knowledge(ShardID, _, Knowledge).
+
+# Include campaign constraints in context - MEDIUM relevance (70)
+shard_context_atom(ShardID, Constraint, 70) :-
+    active_shard(ShardID, ShardType),
+    campaign_active(CampaignID),
+    campaign_prompt_policy(CampaignID, ShardType, Constraint).
+
+# Include learned exemplars - MEDIUM relevance (60)
+shard_context_atom(ShardID, Exemplar, 60) :-
+    active_shard(ShardID, ShardType),
+    user_intent(_, Category, _, _, _),
+    prompt_exemplar(ShardType, Category, Exemplar).
+
+# Include relevant tool descriptions - MEDIUM relevance (65)
+shard_context_atom(ShardID, ToolDesc, 65) :-
+    active_shard(ShardID, ShardType),
+    relevant_tool(ShardType, ToolName),
+    tool_description(ToolName, ToolDesc).
+
+# Include recent successful trace patterns - LOW relevance (50)
+shard_context_atom(ShardID, TracePattern, 50) :-
+    active_shard(ShardID, ShardType),
+    high_quality_trace(TraceID),
+    reasoning_trace(TraceID, ShardType, _, _, /true, _),
+    trace_pattern(TraceID, TracePattern).
+
+# -----------------------------------------------------------------------------
+# 41.2 Injectable Context Selection (Threshold Filtering)
+# -----------------------------------------------------------------------------
+
+# Select injectable context based on relevance threshold (> 50)
+injectable_context(ShardID, Atom) :-
+    shard_context_atom(ShardID, Atom, Relevance),
+    Relevance > 50.
+
+# High-priority injectable context (relevance >= 80)
+injectable_context_priority(ShardID, Atom, /high) :-
+    shard_context_atom(ShardID, Atom, Relevance),
+    Relevance >= 80.
+
+# Medium-priority injectable context (60 <= relevance < 80)
+injectable_context_priority(ShardID, Atom, /medium) :-
+    shard_context_atom(ShardID, Atom, Relevance),
+    Relevance >= 60,
+    Relevance < 80.
+
+# Low-priority injectable context (50 < relevance < 60)
+injectable_context_priority(ShardID, Atom, /low) :-
+    shard_context_atom(ShardID, Atom, Relevance),
+    Relevance > 50,
+    Relevance < 60.
+
+# -----------------------------------------------------------------------------
+# 41.3 Context Budget Awareness (for context window management)
+# -----------------------------------------------------------------------------
+
+# Helper: shard has injectable context
+has_injectable_context(ShardID) :-
+    injectable_context(ShardID, _).
+
+# Helper: shard has high-priority context
+has_high_priority_context(ShardID) :-
+    injectable_context_priority(ShardID, _, /high).
+
+# When context budget is limited, only inject high-priority items
+context_budget_constrained(ShardID) :-
+    active_shard(ShardID, _),
+    context_budget(ShardID, Budget),
+    Budget < 5000.
+
+# Full context injection allowed when budget is sufficient
+context_budget_sufficient(ShardID) :-
+    active_shard(ShardID, _),
+    context_budget(ShardID, Budget),
+    Budget >= 5000.
+
+# Final injectable set: all items when budget sufficient
+final_injectable(ShardID, Atom) :-
+    context_budget_sufficient(ShardID),
+    injectable_context(ShardID, Atom).
+
+# Final injectable set: only high priority when budget constrained
+final_injectable(ShardID, Atom) :-
+    context_budget_constrained(ShardID),
+    injectable_context_priority(ShardID, Atom, /high).
+
+# -----------------------------------------------------------------------------
+# 41.4 Spreading Activation Integration
+# -----------------------------------------------------------------------------
+
+# Boost activation for atoms selected as injectable context
+activation(Atom, 95) :-
+    final_injectable(_, Atom).
+
+# Boost activation for specialist knowledge atoms
+activation(Knowledge, 85) :-
+    specialist_knowledge(_, _, Knowledge).
+
+# Boost activation for campaign prompt policy atoms
+activation(Constraint, 75) :-
+    campaign_active(_),
+    campaign_prompt_policy(_, _, Constraint).
+
+# Boost activation for learned exemplars
+activation(Exemplar, 70) :-
+    prompt_exemplar(_, _, Exemplar).
+
+# -----------------------------------------------------------------------------
+# 41.5 Context Staleness Detection
+# -----------------------------------------------------------------------------
+
+# Context atom is stale if it references a modified file
+context_stale(ShardID, Atom) :-
+    shard_context_atom(ShardID, Atom, _),
+    modified(Atom).
+
+# Context atom is stale if specialist knowledge was updated
+context_stale(ShardID, Knowledge) :-
+    shard_context_atom(ShardID, Knowledge, _),
+    specialist_knowledge(ShardID, _, Knowledge),
+    specialist_knowledge_updated(ShardID).
+
+# Helper: shard has stale context
+has_stale_context(ShardID) :-
+    context_stale(ShardID, _).
+
+# Trigger context refresh when stale atoms detected
+next_action(/refresh_shard_context) :-
+    active_shard(ShardID, _),
+    has_stale_context(ShardID).
+
+# -----------------------------------------------------------------------------
+# 41.6 Learning Signals from Context Usage
+# -----------------------------------------------------------------------------
+
+# Track when injected context leads to successful task completion
+context_injection_effective(ShardID, Atom) :-
+    final_injectable(ShardID, Atom),
+    shard_executed(ShardID, _, /success, _).
+
+# Learn from effective context injections
+learning_signal(/effective_context, Atom) :-
+    context_injection_effective(_, Atom).
+
+# Promote frequently effective context to long-term memory
+promote_to_long_term(/context_pattern, Atom) :-
+    context_injection_effective(S1, Atom),
+    context_injection_effective(S2, Atom),
+    context_injection_effective(S3, Atom),
+    S1 != S2,
+    S2 != S3,
+    S1 != S3.
+
 
 # internal/mangle/doc_taxonomy.mg
 # =========================================================
@@ -6296,368 +6626,5 @@ selected_verb(Verb) :-
 #     fn:string_suffix(Path, ".tmp").
 
 
-# Appended Policy
-# Reviewer Shard Policy - Code Review & Security Logic
-# Loaded by ReviewerShard kernel alongside base policy.gl
-# Part of Cortex 1.5.0 Architecture
-
-# =============================================================================
-# SECTION 1: REVIEWER TASK CLASSIFICATION
-# =============================================================================
-
-Decl reviewer_task(ID, Action, Files, Timestamp).
-
-reviewer_action(/review) :-
-    reviewer_task(_, /review, _, _).
-
-reviewer_action(/security_scan) :-
-    reviewer_task(_, /security_scan, _, _).
-
-reviewer_action(/style_check) :-
-    reviewer_task(_, /style_check, _, _).
-
-reviewer_action(/complexity) :-
-    reviewer_task(_, /complexity, _, _).
-
-# =============================================================================
-# SECTION 2: FINDING SEVERITY CLASSIFICATION
-# =============================================================================
-# NOTE: review_finding/6 is declared in schemas.mg
-
-# Critical severity patterns
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, /critical, _, _).
-
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, /security, _).
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "sql injection").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "command injection").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "xss").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "hardcoded secret").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "path traversal").
-
-# Error severity
-is_error_finding(Finding) :-
-    review_finding(Finding, _, _, /error, _, _).
-
-# Warning severity
-is_warning_finding(Finding) :-
-    review_finding(Finding, _, _, /warning, _, _).
-
-# =============================================================================
-# SECTION 3: COMMIT BLOCKING
-# =============================================================================
-
-# Block commit on critical findings
-block_commit("critical_security_finding") :-
-    is_critical_finding(_).
-
-# Block commit on high error count
-block_commit("too_many_errors") :-
-    finding_count(/error, N),
-    N > 10.
-
-# Block commit on security issues
-block_commit("security_vulnerabilities") :-
-    review_finding(_, _, _, _, /security, _).
-
-# =============================================================================
-# SECTION 4: REVIEW PRIORITIZATION
-# =============================================================================
-# Uses churn_rate from schemas.gl
-
-Decl file_contains(FilePath, Pattern).
-
-# High priority files (recently modified, high churn)
-# Note: Rate is integer (churn count), not float
-high_priority_review(File) :-
-    modified(File),
-    churn_rate(File, Rate),
-    Rate > 3.
-
-high_priority_review(File) :-
-    modified(File),
-    file_has_security_sensitive(File).
-
-# Security-sensitive markers
-file_has_security_sensitive(File) :-
-    file_contains(File, "password").
-
-file_has_security_sensitive(File) :-
-    file_contains(File, "api_key").
-
-file_has_security_sensitive(File) :-
-    file_contains(File, "secret").
-
-file_has_security_sensitive(File) :-
-    file_contains(File, "credential").
-
-file_has_security_sensitive(File) :-
-    file_contains(File, "token").
-
-file_has_security_sensitive(File) :-
-    file_contains(File, "private_key").
-
-# =============================================================================
-# SECTION 5: SECURITY RULE DEFINITIONS
-# =============================================================================
-
-Decl security_rule(RuleID, Severity, Pattern, Message).
-
-# SQL Injection
-security_rule("SEC001", /critical, "execute.*concat", "SQL injection risk").
-security_rule("SEC001", /critical, "raw.*sql.*concat", "SQL injection via raw query").
-
-# Command Injection
-security_rule("SEC002", /critical, "exec.Command.*concat", "Command injection risk").
-security_rule("SEC002", /critical, "os.system.*concat", "Command injection via os.system").
-
-# Hardcoded Secrets
-security_rule("SEC003", /critical, "password.*=.*literal", "Hardcoded password").
-security_rule("SEC003", /critical, "api_key.*=.*literal", "Hardcoded API key").
-
-# XSS
-security_rule("SEC004", /error, "innerHTML.*=", "XSS via innerHTML").
-security_rule("SEC004", /error, "document.write", "XSS via document.write").
-
-# Weak Crypto
-security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
-
-# =============================================================================
-# SECTION 6: COMPLEXITY THRESHOLDS
-# =============================================================================
-
-Decl code_metrics(TotalLines, CodeLines, CyclomaticAvg, FunctionCount).
-Decl cyclomatic_complexity(File, Function, Complexity).
-Decl nesting_depth(File, Function, Depth).
-
-# High complexity warning
-complexity_warning(File, Function) :-
-    cyclomatic_complexity(File, Function, C),
-    C > 15.
-
-# Deep nesting warning
-nesting_warning(File, Function) :-
-    nesting_depth(File, Function, D),
-    D > 5.
-
-# Long file warning
-long_file_warning(File) :-
-    file_line_count(File, Lines),
-    Lines > 500.
-
-# =============================================================================
-# SECTION 7: AUTOPOIESIS - LEARNING FROM REVIEWS
-# =============================================================================
-
-Decl pattern_count(Pattern, Count).
-Decl approval_count(Pattern, Count).
-Decl review_approved(ReviewID, Pattern).
-
-# Track patterns that get flagged repeatedly
-recurring_issue_pattern(Pattern, Category) :-
-    review_finding(_, _, _, _, Category, Pattern),
-    pattern_count(Pattern, N),
-    N >= 3.
-
-# Learn project-specific anti-patterns
-# Note: Category is implicitly tracked via recurring_issue_pattern
-promote_to_long_term(/anti_pattern, Pattern) :-
-    recurring_issue_pattern(Pattern, _).
-
-# Track patterns that pass review
-approved_pattern(Pattern) :-
-    review_approved(_, Pattern),
-    approval_count(Pattern, N),
-    N >= 3.
-
-# Promote approved styles
-promote_to_long_term(/approved_style, Pattern) :-
-    approved_pattern(Pattern).
-
-# =============================================================================
-# SECTION 8: REVIEW STATUS
-# =============================================================================
-
-Decl review_complete(Files, Severity).
-Decl security_issue(File, Line, RuleID, Message).
-
-# Helper for safe negation - true if any block_commit exists
-has_block_commit() :-
-    block_commit(_).
-
-# Overall review status
-review_passed(Files) :-
-    review_complete(Files, /clean).
-
-review_passed(Files) :-
-    review_complete(Files, /info).
-
-review_passed(Files) :-
-    review_complete(Files, /warning),
-    !has_block_commit().
-
-review_failed(Files) :-
-    review_complete(Files, /error).
-
-review_failed(Files) :-
-    review_complete(Files, /critical).
-
-review_blocked(Files) :-
-    review_complete(Files, _),
-    has_block_commit().
-
-# =============================================================================
-# SECTION 9: STYLE RULES
-# =============================================================================
-
-Decl style_violation(File, Line, Rule, Message).
-
-# Common style rules
-style_rule("STY001", "line_length", 120).
-style_rule("STY002", "trailing_whitespace", 0).
-style_rule("STY003", "todo_without_issue", "TODO|FIXME").
-style_rule("STY005", "max_nesting", 5).
-
-# Style violation from rule
-has_style_violation(File) :-
-    style_violation(File, _, _, _).
-
-# =============================================================================
-# SECTION 10: FINDING FILTERING & SUPPRESSION (Smart Rules)
-# =============================================================================
-
-# NOTE: raw_finding, active_finding declared in schemas.mg
-Decl suppressed_finding(File, Line, RuleID, Reason).
-Decl is_suppressed(File, Line, RuleID).
-
-# Helper: Projection to ignore Reason for safe negation
-is_suppressed(File, Line, RuleID) :-
-    suppressed_finding(File, Line, RuleID, _).
-
-# Finding is active if not explicitly suppressed
-active_finding(File, Line, Severity, Category, RuleID, Message) :-
-    raw_finding(File, Line, Severity, Category, RuleID, Message),
-    !is_suppressed(File, Line, RuleID).
-
-# --- Suppression Rules ---
-
-# Suppress TODOs (STY003) in test files
-suppressed_finding(File, Line, "STY003", "todo_allowed_in_tests") :-
-    raw_finding(File, Line, _, _, "STY003", _),
-    file_topology(File, _, _, _, /true).
-
-# Suppress Magic Numbers (STY004) in test files
-suppressed_finding(File, Line, "STY004", "magic_numbers_allowed_in_tests") :-
-    raw_finding(File, Line, _, _, "STY004", _),
-    file_topology(File, _, _, _, /true).
-
-# Suppress Complexity Warnings in test files
-suppressed_finding(File, Line, "COMPLEXITY", "complexity_allowed_in_tests") :-
-    raw_finding(File, Line, _, /maintainability, "COMPLEXITY", _),
-    file_topology(File, _, _, _, /true).
-
-# Suppress Long File Warnings in test files
-suppressed_finding(File, Line, "LONG_FILE", "long_files_allowed_in_tests") :-
-    raw_finding(File, Line, _, /maintainability, "LONG_FILE", _),
-    file_topology(File, _, _, _, /true).
-
-# Suppress Hardcoded Secrets (SEC003) in test files (usually mocks keys)
-suppressed_finding(File, Line, "SEC003", "secrets_allowed_in_tests") :-
-    raw_finding(File, Line, _, /security, "SEC003", _),
-    file_topology(File, _, _, _, /true).
-
-# Suppress Generated Code (common pattern)
-suppressed_finding(File, Line, RuleID, "generated_code") :-
-    raw_finding(File, Line, _, _, RuleID, _),
-    file_contains(File, "Code generated by").
-
-# =============================================================================
-# SECTION 11: REVIEWER FEEDBACK LOOP (Self-Correction)
-# =============================================================================
-# These rules enable the reviewer to learn from mistakes and self-correct.
-
-# Helper: Check if a review has any rejections
-Decl has_rejections(ReviewID).
-has_rejections(ReviewID) :-
-    user_rejected_finding(ReviewID, _, _, _, _).
-
-# Helper: Count rejections for a review (aggregation)
-# Note: Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
-Decl review_rejection_count(ReviewID, Count).
-
-# Review is suspect if user rejected multiple findings
-review_suspect(ReviewID, "multiple_rejections") :-
-    user_rejected_finding(ReviewID, File1, Line1, _, _),
-    user_rejected_finding(ReviewID, File2, Line2, _, _),
-    File1 != File2.
-
-review_suspect(ReviewID, "multiple_rejections") :-
-    user_rejected_finding(ReviewID, File, Line1, _, _),
-    user_rejected_finding(ReviewID, File, Line2, _, _),
-    Line1 != Line2.
-
-# Review is suspect if it flagged a symbol that was verified to exist
-review_suspect(ReviewID, "flagged_existing_symbol") :-
-    review_finding(ReviewID, File, Line, _, _, Message),
-    symbol_verified_exists(Symbol, File, _),
-    :string:contains(Message, "undefined").
-
-# Review is suspect if >50% findings were rejected
-review_suspect(ReviewID, "high_rejection_rate") :-
-    review_accuracy(ReviewID, Total, _, Rejected, _),
-    Total > 2,
-    DoubleRejected = fn:mult(Rejected, 2),
-    DoubleRejected > Total.
-
-# Trigger validation for suspect reviews
-reviewer_needs_validation(ReviewID) :-
-    review_suspect(ReviewID, _).
-
-# Trigger validation for reviews with "undefined" findings (common false positive)
-reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
-    :string:contains(Message, "undefined").
-
-# Trigger validation for reviews with "not found" findings
-reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
-    :string:contains(Message, "not found").
-
-# --- False Positive Learning ---
-
-# Suppress findings that match learned false positive patterns
-# Note: Confidence is integer 0-100, not float 0.0-1.0
-suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
-    raw_finding(File, Line, _, Category, RuleID, Message),
-    false_positive_pattern(Pattern, Category, Occurrences, Confidence),
-    Occurrences > 2,
-    Confidence > 70,
-    :string:contains(Message, Pattern).
-
-# --- Self-Correction Signals ---
-
-# Signal to main agent: recent review may be inaccurate
-Decl recent_review_unreliable().
-recent_review_unreliable() :-
-    review_suspect(_, _).
-
-
-
 # Sandbox Validation
-active_strategy(/breadth_first_survey) :- consecutive_action_failures(Count), Count >= 3.
+active_strategy(/breadth_first_survey) :- failure_count(Count), Count >= 3.
