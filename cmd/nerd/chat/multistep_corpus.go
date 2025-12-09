@@ -1,13 +1,35 @@
 // Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains the encyclopedic multi-step task corpus for detecting
 // and decomposing complex user requests into discrete, executable steps.
+//
+// ARCHITECTURE NOTE:
+// The authoritative multi-step knowledge lives in Mangle schema files:
+//   - internal/core/defaults/taxonomy.mg: verb_composition, step_connector, etc.
+//   - internal/core/defaults/schema/intent.mg: multistep_pattern, multistep_keyword, etc.
+//
+// This Go file provides:
+//   1. Runtime regex compilation (can't be stored in Mangle)
+//   2. Pattern matching infrastructure
+//   3. Decomposition strategies
+//
+// The patterns defined here should mirror the Mangle schema. For new patterns,
+// ALWAYS add them to the .mg files first, then add regex support here.
 package chat
 
 import (
 	"regexp"
 	"strings"
+	"sync"
 
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
+)
+
+// kernelPatternCache caches patterns loaded from kernel
+var (
+	kernelPatternCache     []MultiStepPattern
+	kernelPatternCacheOnce sync.Once
+	kernelPatternCacheMu   sync.RWMutex
 )
 
 // =============================================================================
@@ -773,4 +795,195 @@ func InferDependencies(pattern *MultiStepPattern, steps []TaskStep) []TaskStep {
 	}
 
 	return steps
+}
+
+// =============================================================================
+// KERNEL INTEGRATION - Loading patterns from Mangle schema
+// =============================================================================
+// The authoritative pattern definitions live in:
+//   - taxonomy.mg: verb_composition, step_connector, constraint_marker, etc.
+//   - intent.mg: multistep_pattern, multistep_keyword, multistep_verb_pair
+//
+// This section provides functions to query the kernel and enrich the
+// Go-defined patterns with kernel-loaded knowledge.
+
+// LoadPatternsFromKernel queries the Mangle kernel for multi-step patterns
+// and merges them with the hardcoded Go patterns
+func LoadPatternsFromKernel(kernel core.Kernel) error {
+	if kernel == nil {
+		return nil // No kernel available, use hardcoded patterns only
+	}
+
+	kernelPatternCacheMu.Lock()
+	defer kernelPatternCacheMu.Unlock()
+
+	// Query for additional keywords from kernel
+	keywords, err := kernel.Query("multistep_keyword")
+	if err == nil {
+		enrichPatternsWithKeywords(keywords)
+	}
+
+	// Query for verb pairs from kernel
+	verbPairs, err := kernel.Query("multistep_verb_pair")
+	if err == nil {
+		enrichPatternsWithVerbPairs(verbPairs)
+	}
+
+	// Query for step connectors from taxonomy
+	connectors, err := kernel.Query("step_connector")
+	if err == nil {
+		enrichConnectors(connectors)
+	}
+
+	return nil
+}
+
+// enrichPatternsWithKeywords adds keywords from kernel facts to patterns
+func enrichPatternsWithKeywords(facts []core.Fact) {
+	// Group keywords by pattern name
+	patternKeywords := make(map[string][]string)
+	for _, fact := range facts {
+		if len(fact.Args) >= 2 {
+			patternName, ok1 := fact.Args[0].(string)
+			keyword, ok2 := fact.Args[1].(string)
+			if ok1 && ok2 {
+				patternKeywords[patternName] = append(patternKeywords[patternName], keyword)
+			}
+		}
+	}
+
+	// Add keywords to matching patterns
+	for i := range MultiStepCorpus {
+		if keywords, ok := patternKeywords[MultiStepCorpus[i].Name]; ok {
+			// Merge with existing keywords (avoid duplicates)
+			existing := make(map[string]bool)
+			for _, k := range MultiStepCorpus[i].Keywords {
+				existing[k] = true
+			}
+			for _, k := range keywords {
+				if !existing[k] {
+					MultiStepCorpus[i].Keywords = append(MultiStepCorpus[i].Keywords, k)
+				}
+			}
+		}
+	}
+}
+
+// enrichPatternsWithVerbPairs adds verb pairs from kernel facts to patterns
+func enrichPatternsWithVerbPairs(facts []core.Fact) {
+	// Group verb pairs by pattern name
+	patternVerbPairs := make(map[string][][2]string)
+	for _, fact := range facts {
+		if len(fact.Args) >= 3 {
+			patternName, ok1 := fact.Args[0].(string)
+			verb1, ok2 := fact.Args[1].(string)
+			verb2, ok3 := fact.Args[2].(string)
+			if ok1 && ok2 && ok3 {
+				patternVerbPairs[patternName] = append(patternVerbPairs[patternName], [2]string{verb1, verb2})
+			}
+		}
+	}
+
+	// Add verb pairs to matching patterns
+	for i := range MultiStepCorpus {
+		if pairs, ok := patternVerbPairs[MultiStepCorpus[i].Name]; ok {
+			// Merge with existing verb pairs
+			existing := make(map[[2]string]bool)
+			for _, p := range MultiStepCorpus[i].VerbPairs {
+				existing[p] = true
+			}
+			for _, p := range pairs {
+				if !existing[p] {
+					MultiStepCorpus[i].VerbPairs = append(MultiStepCorpus[i].VerbPairs, p)
+				}
+			}
+		}
+	}
+}
+
+// Additional connectors loaded from kernel (supplements hardcoded patterns)
+var additionalConnectors = make(map[string]string) // connector -> type
+var additionalConnectorsMu sync.RWMutex
+
+// enrichConnectors loads step connectors from the kernel
+func enrichConnectors(facts []core.Fact) {
+	additionalConnectorsMu.Lock()
+	defer additionalConnectorsMu.Unlock()
+
+	for _, fact := range facts {
+		if len(fact.Args) >= 2 {
+			connector, ok1 := fact.Args[0].(string)
+			connType, ok2 := fact.Args[1].(string)
+			if ok1 && ok2 {
+				additionalConnectors[connector] = connType
+			}
+		}
+	}
+}
+
+// GetConnectorType returns the type of a step connector from kernel knowledge
+func GetConnectorType(connector string) (string, bool) {
+	additionalConnectorsMu.RLock()
+	defer additionalConnectorsMu.RUnlock()
+
+	if connType, ok := additionalConnectors[strings.ToLower(connector)]; ok {
+		return connType, true
+	}
+	return "", false
+}
+
+// QueryVerbComposition checks if two verbs can be composed according to kernel knowledge
+func QueryVerbComposition(kernel core.Kernel, verb1, verb2 string) (relation string, priority int, ok bool) {
+	if kernel == nil {
+		return "", 0, false
+	}
+
+	// Query for verb_composition(verb1, verb2, relation, priority)
+	facts, err := kernel.Query("verb_composition")
+	if err != nil {
+		return "", 0, false
+	}
+
+	for _, fact := range facts {
+		if len(fact.Args) >= 4 {
+			v1, ok1 := fact.Args[0].(string)
+			v2, ok2 := fact.Args[1].(string)
+			rel, ok3 := fact.Args[2].(string)
+			pri, ok4 := fact.Args[3].(int)
+
+			if ok1 && ok2 && ok3 && ok4 && v1 == verb1 && v2 == verb2 {
+				return rel, pri, true
+			}
+		}
+	}
+
+	return "", 0, false
+}
+
+// IsMultiStepConnector checks if a word is a step connector using kernel knowledge
+func IsMultiStepConnector(word string) bool {
+	lower := strings.ToLower(word)
+
+	// Check hardcoded connectors first (fast path)
+	hardcodedConnectors := []string{
+		"first", "then", "next", "finally", "after that", "afterwards",
+		"once done", "when done", "also", "additionally", "if it works",
+		"if it fails", "otherwise", "step 1", "step 2",
+	}
+	for _, c := range hardcodedConnectors {
+		if strings.Contains(lower, c) {
+			return true
+		}
+	}
+
+	// Check kernel-loaded connectors
+	additionalConnectorsMu.RLock()
+	defer additionalConnectorsMu.RUnlock()
+	for connector := range additionalConnectors {
+		if strings.Contains(lower, connector) {
+			return true
+		}
+	}
+
+	return false
 }
