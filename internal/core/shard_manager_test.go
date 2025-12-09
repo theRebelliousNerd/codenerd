@@ -238,3 +238,100 @@ func TestBaseShardAgentStop(t *testing.T) {
 		t.Errorf("GetState() after Stop() = %v, want %v", agent.GetState(), ShardStateCompleted)
 	}
 }
+
+func TestQueryToolsFromKernel(t *testing.T) {
+	sm := NewShardManager()
+	kernel := NewRealKernel()
+	sm.SetParentKernel(kernel)
+
+	// Assert tool facts to kernel
+	kernel.Assert(Fact{Predicate: "tool_registered", Args: []interface{}{"test_tool", "2025-01-01T00:00:00Z"}})
+	kernel.Assert(Fact{Predicate: "tool_description", Args: []interface{}{"test_tool", "A test tool for validation"}})
+	kernel.Assert(Fact{Predicate: "tool_binary_path", Args: []interface{}{"test_tool", "/path/to/binary"}})
+
+	// Query tools via kernel
+	tools := sm.queryToolsFromKernel()
+
+	if len(tools) != 1 {
+		t.Fatalf("Expected 1 tool, got %d", len(tools))
+	}
+
+	tool := tools[0]
+	if tool.Name != "test_tool" {
+		t.Errorf("Expected tool name 'test_tool', got '%s'", tool.Name)
+	}
+	if tool.Description != "A test tool for validation" {
+		t.Errorf("Expected description 'A test tool for validation', got '%s'", tool.Description)
+	}
+	if tool.BinaryPath != "/path/to/binary" {
+		t.Errorf("Expected binary path '/path/to/binary', got '%s'", tool.BinaryPath)
+	}
+
+	t.Logf("Tool discovery from kernel working: %+v", tool)
+}
+
+func TestQueryRelevantTools(t *testing.T) {
+	sm := NewShardManager()
+	kernel := NewRealKernel()
+	sm.SetParentKernel(kernel)
+
+	// Register two tools with different capabilities
+	// Tool 1: generation capability (relevant for coder)
+	kernel.Assert(Fact{Predicate: "tool_registered", Args: []interface{}{"code_generator", "2025-01-01T00:00:00Z"}})
+	kernel.Assert(Fact{Predicate: "tool_description", Args: []interface{}{"code_generator", "Generates code snippets"}})
+	kernel.Assert(Fact{Predicate: "tool_binary_path", Args: []interface{}{"code_generator", "/bin/codegen"}})
+	kernel.Assert(Fact{Predicate: "tool_capability", Args: []interface{}{"code_generator", "/generation"}})
+
+	// Tool 2: validation capability (relevant for tester)
+	kernel.Assert(Fact{Predicate: "tool_registered", Args: []interface{}{"test_validator", "2025-01-01T00:00:00Z"}})
+	kernel.Assert(Fact{Predicate: "tool_description", Args: []interface{}{"test_validator", "Validates test results"}})
+	kernel.Assert(Fact{Predicate: "tool_binary_path", Args: []interface{}{"test_validator", "/bin/validator"}})
+	kernel.Assert(Fact{Predicate: "tool_capability", Args: []interface{}{"test_validator", "/validation"}})
+
+	// Test 1: Coder should get generation tools (via base relevance)
+	coderQuery := ToolRelevanceQuery{
+		ShardType:   "coder",
+		TokenBudget: 2000,
+	}
+	coderTools := sm.queryRelevantTools(coderQuery)
+	t.Logf("Coder tools: %d", len(coderTools))
+	for _, tool := range coderTools {
+		t.Logf("  - %s: %s", tool.Name, tool.Description)
+	}
+
+	// Test 2: Tester should get validation tools
+	testerQuery := ToolRelevanceQuery{
+		ShardType:   "tester",
+		TokenBudget: 2000,
+	}
+	testerTools := sm.queryRelevantTools(testerQuery)
+	t.Logf("Tester tools: %d", len(testerTools))
+	for _, tool := range testerTools {
+		t.Logf("  - %s: %s", tool.Name, tool.Description)
+	}
+
+	// Test 3: System shards should see all tools
+	systemQuery := ToolRelevanceQuery{
+		ShardType:   "system",
+		TokenBudget: 2000,
+	}
+	systemTools := sm.queryRelevantTools(systemQuery)
+	if len(systemTools) < 2 {
+		t.Errorf("System shard should see all tools, got %d", len(systemTools))
+	}
+	t.Logf("System tools: %d", len(systemTools))
+
+	// Test 4: Token budget trimming
+	tinyBudgetQuery := ToolRelevanceQuery{
+		ShardType:   "system",
+		TokenBudget: 10, // Very small budget
+	}
+	tinyBudgetTools := sm.queryRelevantTools(tinyBudgetQuery)
+	t.Logf("Tiny budget tools: %d (budget=10 tokens)", len(tinyBudgetTools))
+	// With a tiny budget, we should get fewer tools
+	if len(tinyBudgetTools) >= len(systemTools) && len(systemTools) > 1 {
+		t.Errorf("Token budget should limit tools, got %d vs %d", len(tinyBudgetTools), len(systemTools))
+	}
+
+	t.Log("Intelligent tool routing test completed")
+}

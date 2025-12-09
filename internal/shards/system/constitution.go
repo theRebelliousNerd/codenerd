@@ -127,6 +127,7 @@ func NewConstitutionGateShard() *ConstitutionGateShard {
 
 // NewConstitutionGateShardWithConfig creates a constitution gate with custom config.
 func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGateShard {
+	logging.SystemShards("[ConstitutionGate] Initializing constitution gate shard (SAFETY-CRITICAL)")
 	base := NewBaseSystemShard("constitution_gate", StartupAuto)
 
 	// Override permissions for constitution gate - minimal footprint
@@ -153,12 +154,15 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 		}
 	}
 
+	logging.SystemShardsDebug("[ConstitutionGate] Config: strict_mode=%v, escalate_on_ambiguity=%v, allowed_domains=%d, dangerous_patterns=%d",
+		cfg.StrictMode, cfg.EscalateOnAmbiguity, len(cfg.AllowedDomains), len(cfg.DangerousPatterns))
 	return shard
 }
 
 // Execute runs the Constitution Gate's continuous safety loop.
 // This shard is AUTO-START and runs for the entire session.
 func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[ConstitutionGate] Starting safety enforcement loop")
 	c.SetState(core.ShardStateRunning)
 	c.mu.Lock()
 	c.running = true
@@ -170,10 +174,12 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 		c.mu.Lock()
 		c.running = false
 		c.mu.Unlock()
+		logging.SystemShards("[ConstitutionGate] Safety enforcement loop terminated")
 	}()
 
 	// Initialize kernel if not set
 	if c.Kernel == nil {
+		logging.SystemShardsDebug("[ConstitutionGate] Creating new kernel (none attached)")
 		c.Kernel = core.NewRealKernel()
 	}
 
@@ -183,18 +189,20 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 	for {
 		select {
 		case <-ctx.Done():
+			logging.SystemShards("[ConstitutionGate] Context cancelled, shutting down")
 			return c.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-c.StopCh:
+			logging.SystemShards("[ConstitutionGate] Stop signal received")
 			return c.generateShutdownSummary("stopped"), nil
 		case <-ticker.C:
 			if err := c.processPendingActions(ctx); err != nil {
-				// Log error but continue - constitution must not crash
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
 				c.recordViolation("internal_error", "", err.Error(), nil)
 			}
 
 			// Process pending appeals from Mangle facts
 			if err := c.processPendingAppeals(ctx); err != nil {
-				// Log but don't crash on appeal processing errors
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
 				c.recordViolation("appeal_error", "", err.Error(), nil)
 			}
 
@@ -203,6 +211,7 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 
 			// Check for autopoiesis opportunity
 			if c.Autopoiesis.ShouldPropose() {
+				logging.SystemShardsDebug("[ConstitutionGate] Triggering autopoiesis rule proposal")
 				c.handleAutopoiesis(ctx)
 			}
 		}
@@ -236,10 +245,13 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			target, _ = fact.Args[1].(string)
 		}
 
+		logging.SystemShardsDebug("[ConstitutionGate] Checking action: type=%s, target=%s", actionType, truncateForLog(target, 50))
+
 		// Check if action is permitted
 		permitted, reason := c.checkPermitted(ctx, actionType, target)
 
 		if permitted {
+			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
 			// Mark as permitted
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "action_permitted",
@@ -249,6 +261,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			c.permitted = append(c.permitted, actionType)
 			c.mu.Unlock()
 		} else {
+			logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Action BLOCKED: type=%s, reason=%s", actionType, reason)
 			// Record violation and get action ID for appeals
 			actionID := c.recordViolation(actionType, target, reason, nil)
 
@@ -266,6 +279,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 
 			// Check if we should escalate to user
 			if c.config.EscalateOnAmbiguity && c.shouldEscalate(reason) {
+				logging.SystemShardsDebug("[ConstitutionGate] Escalating ambiguous case to user: %s", actionType)
 				c.escalateToUser(ctx, actionType, target, reason)
 			}
 		}

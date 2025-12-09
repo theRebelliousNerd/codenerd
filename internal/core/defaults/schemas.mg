@@ -208,6 +208,11 @@ Decl action_details(ActionType, Payload).
 # safe_action(ActionType)
 Decl safe_action(ActionType).
 
+# action_mapping(IntentVerb, ActionType) - maps intent verbs to executable actions
+# IntentVerb: /explain, /read, /search, /run, /test, /review, /fix, /refactor, etc.
+# ActionType: /analyze_code, /fs_read, /search_files, /exec_cmd, /run_tests, etc.
+Decl action_mapping(IntentVerb, ActionType).
+
 # =============================================================================
 # SECTION 11: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
 # =============================================================================
@@ -868,6 +873,12 @@ Decl tool_ready(ToolName).
 # tool_hash(ToolName, Hash) - content hash for change detection
 Decl tool_hash(ToolName, Hash).
 
+# tool_description(ToolName, Description) - human-readable description of what tool does
+Decl tool_description(ToolName, Description).
+
+# tool_binary_path(ToolName, BinaryPath) - path to compiled binary
+Decl tool_binary_path(ToolName, BinaryPath).
+
 # tool_capability(ToolName, Capability) - capabilities provided by a tool
 Decl tool_capability(ToolName, Capability).
 
@@ -909,6 +920,23 @@ Decl tool_generation_blocked(Capability).
 # tool_lifecycle(ToolName, State) - tool lifecycle tracking
 # State: /detected, /generating, /compiled, /deployed, /deprecated
 Decl tool_lifecycle(ToolName, State).
+
+# -----------------------------------------------------------------------------
+# 28.2 Ouroboros Derived Predicates (from policy.mg)
+# -----------------------------------------------------------------------------
+
+# explicit_tool_request(Capability) - user explicitly requested tool generation
+Decl explicit_tool_request(Capability).
+
+# capability_gap_detected(Capability) - repeated failures suggest missing capability
+Decl capability_gap_detected(Capability).
+
+# tool_generation_permitted(Capability) - tool generation passes safety checks
+Decl tool_generation_permitted(Capability).
+
+# dangerous_capability(Capability) - capabilities that should never be auto-generated
+# e.g., /exec_arbitrary, /network_unconstrained, /system_admin, /credential_access
+Decl dangerous_capability(Capability).
 
 # =============================================================================
 # SECTION 29: TOOL LEARNING / REFINEMENT (Autopoiesis)
@@ -974,6 +1002,18 @@ Decl tool_quality_good(ToolName).
 
 # tool_generation_hint(ToolName, Hint) - hints for tool generation
 Decl tool_generation_hint(ToolName, Hint).
+
+# tool_needs_refinement(ToolName) - derived: tool quality is poor and needs refinement
+Decl tool_needs_refinement(ToolName).
+
+# active_refinement(ToolName) - tool is currently being refined
+Decl active_refinement(ToolName).
+
+# learning_pattern_detected(ToolName, IssueType) - recurring issue pattern found
+Decl learning_pattern_detected(ToolName, IssueType).
+
+# refinement_effective(ToolName) - derived: refinement improved tool quality
+Decl refinement_effective(ToolName).
 
 # escalate_to_user(Subject, Reason) - escalation needed for user decision
 Decl escalate_to_user(Subject, Reason).
@@ -1073,6 +1113,35 @@ Decl all_phase_tasks_complete(PhaseID).
 
 # campaign_complete(CampaignID) - derived: entire campaign is complete
 Decl campaign_complete(CampaignID).
+
+# -----------------------------------------------------------------------------
+# 32.2 Campaign Derived Predicates (from policy.mg Section 19)
+# -----------------------------------------------------------------------------
+
+# failed_campaign_task(CampaignID, TaskID) - derived: task failed during campaign
+Decl failed_campaign_task(CampaignID, TaskID).
+
+# priority_higher(PriorityA, PriorityB) - priority ordering helper
+# Returns true if PriorityA is higher than PriorityB
+Decl priority_higher(PriorityA, PriorityB).
+
+# has_blocking_task_dep(TaskID) - helper: task has incomplete blocking dependencies
+Decl has_blocking_task_dep(TaskID).
+
+# task_conflict_active(TaskID) - helper: task conflicts with an in-progress task
+Decl task_conflict_active(TaskID).
+
+# has_passed_checkpoint(PhaseID, CheckType) - helper: phase has passed checkpoint
+Decl has_passed_checkpoint(PhaseID, CheckType).
+
+# phase_success_pattern(PhaseType) - tracks successful phase types for learning
+Decl phase_success_pattern(PhaseType).
+
+# phase_tool_permitted(Tool) - derived: tool is permitted in current phase profile
+Decl phase_tool_permitted(Tool).
+
+# tool_advisory_block(Tool, Reason) - advisory: tool not in phase profile
+Decl tool_advisory_block(Tool, Reason).
 
 # =============================================================================
 # SECTION 33: SYSTEM SHARD COORDINATION
@@ -1441,6 +1510,21 @@ Decl code_edit_outcome(Ref, EditType, Success, Timestamp).
 # proven_safe_edit(Ref, EditType) - derived: edit pattern is safe
 Decl proven_safe_edit(Ref, EditType).
 
+# method_in_scope(Ref, File, Sig) - derived: methods in scope
+Decl method_in_scope(Ref, File, Sig).
+
+# scope_refreshed(File) - helper: file scope has been refreshed
+Decl scope_refreshed(File).
+
+# successful_edit(Ref, EditType) - derived: edit succeeded
+Decl successful_edit(Ref, EditType).
+
+# failed_edit(Ref, EditType) - derived: edit failed
+Decl failed_edit(Ref, EditType).
+
+# element_count_high() - helper: many elements in scope (triggers campaign for complex refactors)
+Decl element_count_high().
+
 # -----------------------------------------------------------------------------
 # 34.5 Error Handling & Edge Cases
 # -----------------------------------------------------------------------------
@@ -1577,6 +1661,10 @@ Decl code_calls(Caller, Callee).
 # code_implements(Struct, Interface)
 # Represents structural typing relationships
 Decl code_implements(Struct, Interface).
+
+# relevant_context(Content) - derived: content relevant to current intent target
+# Used by Holographic Retrieval (Cartographer) for X-Ray Vision
+Decl relevant_context(Content).
 
 # =============================================================================
 # SECTION 38: SPECULATIVE DREAMER (Precognition Layer)
@@ -1771,6 +1859,18 @@ Decl needs_corrective_action(TaskID).
 # escalation_required(TaskID, Reason) - derived: must escalate to user
 Decl escalation_required(TaskID, Reason).
 
+# first_attempt_success(TaskID) - derived: task succeeded on first verification attempt
+Decl first_attempt_success(TaskID).
+
+# required_retry(TaskID) - derived: task required retries before passing
+Decl required_retry(TaskID).
+
+# violation_type_count_high(ViolationType) - derived: violation type occurs frequently (5+)
+Decl violation_type_count_high(ViolationType).
+
+# corrective_action_effective(TaskID, ActionType) - derived: corrective action improved result
+Decl corrective_action_effective(TaskID, ActionType).
+
 # =============================================================================
 # SECTION 36: REASONING TRACES (Shard LLM Interaction History)
 # =============================================================================
@@ -1861,6 +1961,254 @@ Decl suggest_use_specialist(TaskType, SpecialistName).
 # specialist_recommended(ShardName, FilePath, Confidence) - reviewer output
 # Emitted when reviewer detects technology patterns matching a specialist shard
 Decl specialist_recommended(ShardName, FilePath, Confidence).
+
+# =============================================================================
+# SECTION 41: MISSING DECLARATIONS (Cross-Module Support)
+# =============================================================================
+# Predicates used by policy.mg rules or Go code that were previously undeclared.
+
+# -----------------------------------------------------------------------------
+# 41.1 Policy Helper Predicates
+# -----------------------------------------------------------------------------
+
+# has_projection_violation(ActionID) - helper for safe negation in shadow mode
+Decl has_projection_violation(ActionID).
+
+# is_mutation_approved(MutationID) - helper for safe negation in diff approval
+Decl is_mutation_approved(MutationID).
+
+# has_pending_checkpoint(PhaseID) - helper for checkpoint verification
+Decl has_pending_checkpoint(PhaseID).
+
+# action_ready_for_routing(ActionID) - derived: action ready for tactile router
+Decl action_ready_for_routing(ActionID).
+
+# -----------------------------------------------------------------------------
+# 41.2 Shard Configuration Predicates
+# -----------------------------------------------------------------------------
+
+# shard_type(Type, Lifecycle, Characteristic) - shard taxonomy configuration
+# Type: /system, /ephemeral, /persistent, /user
+# Lifecycle: /permanent, /spawn_die, /long_running, /explicit
+# Characteristic: /high_reliability, /speed_optimized, /adaptive, /user_defined
+Decl shard_type(Type, Lifecycle, Characteristic).
+
+# shard_model_config(ShardType, ModelType) - model capability mapping for shards
+# ShardType: /system, /ephemeral, /persistent, /user
+# ModelType: /high_reasoning, /high_speed, /balanced
+Decl shard_model_config(ShardType, ModelType).
+
+# -----------------------------------------------------------------------------
+# 41.3 Perception / Taxonomy Predicates
+# -----------------------------------------------------------------------------
+
+# context_token(Token) - tokens extracted from user input for context detection
+Decl context_token(Token).
+
+# user_input_string(Input) - raw user input string for NL processing
+Decl user_input_string(Input).
+
+# is_relevant(Path) - derived: path is relevant to current campaign/intent
+Decl is_relevant(Path).
+
+# -----------------------------------------------------------------------------
+# 41.4 Reviewer Shard Predicates
+# -----------------------------------------------------------------------------
+
+# active_finding(File, Line, Severity, Category, RuleID, Message)
+# Filtered findings after Mangle rules suppress noisy or irrelevant entries
+Decl active_finding(File, Line, Severity, Category, RuleID, Message).
+
+# raw_finding(File, Line, Severity, Category, RuleID, Message)
+# Unfiltered findings from static analysis before Mangle processing
+Decl raw_finding(File, Line, Severity, Category, RuleID, Message).
+
+# -----------------------------------------------------------------------------
+# 41.5 Tool Generator / Ouroboros Predicates
+# -----------------------------------------------------------------------------
+
+# tool_generated(ToolName, Timestamp) - successfully generated tool
+Decl tool_generated(ToolName, Timestamp).
+
+# tool_trace(ToolName, TraceID) - reasoning trace for tool generation
+Decl tool_trace(ToolName, TraceID).
+
+# tool_generation_failed(ToolName, ErrorMessage) - tool generation failure record
+Decl tool_generation_failed(ToolName, ErrorMessage).
+
+# tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence)
+# Detected patterns from tool learning (pagination, incomplete, rate_limit, timeout)
+Decl tool_issue_pattern(ToolName, IssueType, Occurrences, Confidence).
+
+# -----------------------------------------------------------------------------
+# 41.6 Campaign / Requirement Predicates
+# -----------------------------------------------------------------------------
+
+# requirement_task_link(RequirementID, TaskID, Strength)
+# Links requirements to tasks that fulfill them with strength score
+Decl requirement_task_link(RequirementID, TaskID, Strength).
+
+# -----------------------------------------------------------------------------
+# 41.7 Git Context Predicates (Chesterton's Fence)
+# -----------------------------------------------------------------------------
+
+# git_branch(Branch) - current git branch name
+Decl git_branch(Branch).
+
+# recent_commit(Hash, Message, Author, Timestamp)
+# Recent commit history for Chesterton's Fence analysis
+Decl recent_commit(Hash, Message, Author, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 41.8 Test State Predicates
+# -----------------------------------------------------------------------------
+
+# failing_test(TestName, ErrorMessage) - details of failing tests
+Decl failing_test(TestName, ErrorMessage).
+
+# -----------------------------------------------------------------------------
+# 41.9 Constitutional Safety Predicates
+# -----------------------------------------------------------------------------
+
+# blocked_action(Action) - action blocked by constitutional rules
+Decl blocked_action(Action).
+
+# safety_warning(Warning) - active safety concern/warning message
+Decl safety_warning(Warning).
+
+# -----------------------------------------------------------------------------
+# 41.10 Execution & Context Predicates
+# -----------------------------------------------------------------------------
+
+# execution_result(Success, Output) - result of command execution
+# Success: /true, /false
+Decl execution_result(Success, Output).
+
+# context_to_inject(Fact) - derived: facts selected for LLM context injection
+Decl context_to_inject(Fact).
+
+# final_system_prompt(Prompt) - derived: assembled system prompt for LLM
+Decl final_system_prompt(Prompt).
+
+# -----------------------------------------------------------------------------
+# 41.11 Recursive Helper Predicates
+# -----------------------------------------------------------------------------
+
+# parent(Child, Parent) - direct parent-child relationship (recursive base case)
+Decl parent(Child, Parent).
+
+# ancestor(Descendant, Ancestor) - transitive ancestor relationship (recursive closure)
+Decl ancestor(Descendant, Ancestor).
+
+# =============================================================================
+# SECTION 40: INTELLIGENT TOOL ROUTING (§40)
+# =============================================================================
+# Predicates for smart tool-to-shard routing based on capabilities, intent,
+# domain matching, and usage history. Enables context-window-aware tool injection.
+
+# -----------------------------------------------------------------------------
+# 40.1 Tool Capability Categories
+# -----------------------------------------------------------------------------
+# Categories: /validation, /generation, /inspection, /transformation,
+#             /analysis, /execution, /knowledge, /debugging, /general
+
+# tool_domain(ToolName, Domain) - tool's primary domain
+# Domains: /go, /python, /mangle, /filesystem, /git, /testing, /build, /web
+Decl tool_domain(ToolName, Domain).
+
+# tool_usage_stats(ToolName, ExecuteCount, SuccessCount, LastUsed)
+# Tracks tool execution history for learning-based prioritization
+Decl tool_usage_stats(ToolName, ExecuteCount, SuccessCount, LastUsed).
+
+# tool_priority_score(ToolName, Score)
+# Derived score 0.0-1.0 based on combined relevance factors
+Decl tool_priority_score(ToolName, Score).
+
+# -----------------------------------------------------------------------------
+# 40.2 Shard-Tool Affinity Mapping
+# -----------------------------------------------------------------------------
+
+# shard_capability_affinity(ShardType, CapabilityCategory, AffinityScore)
+# Score 0.0-1.0 indicating how relevant a capability category is to a shard type
+# ShardType: /coder, /tester, /reviewer, /researcher, /generalist
+# CapabilityCategory: /validation, /generation, /inspection, /transformation,
+#                     /analysis, /execution, /knowledge, /debugging
+Decl shard_capability_affinity(ShardType, CapabilityCategory, AffinityScore).
+
+# current_shard_type(ShardType) - the shard type being configured
+# Used for context during tool routing derivation
+Decl current_shard_type(ShardType).
+
+# -----------------------------------------------------------------------------
+# 40.3 Intent-Capability Mapping
+# -----------------------------------------------------------------------------
+
+# intent_requires_capability(IntentVerb, CapabilityCategory, Weight)
+# Maps user intent verbs to required tool capabilities with importance weights
+# IntentVerb: /implement, /refactor, /fix, /test, /review, /explain, /research, /explore
+# Weight: 0.0-1.0 (higher = more important)
+Decl intent_requires_capability(IntentVerb, CapabilityCategory, Weight).
+
+# current_intent(IntentID) - the active intent for routing context
+Decl current_intent(IntentID).
+
+# -----------------------------------------------------------------------------
+# 40.4 Tool Routing Derived Predicates
+# -----------------------------------------------------------------------------
+
+# tool_base_relevance(ShardType, ToolName, Score)
+# Base relevance from shard-capability affinity
+Decl tool_base_relevance(ShardType, ToolName, Score).
+
+# tool_intent_relevance(ToolName, Score)
+# Boost from matching current intent's required capabilities
+Decl tool_intent_relevance(ToolName, Score).
+
+# tool_domain_relevance(ToolName, Score)
+# Boost from matching target file's language/domain
+Decl tool_domain_relevance(ToolName, Score).
+
+# tool_success_relevance(ToolName, Score)
+# Boost based on historical success rate
+Decl tool_success_relevance(ToolName, Score).
+
+# tool_recency_relevance(ToolName, Score)
+# Boost for recently used tools (likely still relevant)
+Decl tool_recency_relevance(ToolName, Score).
+
+# tool_combined_score(ShardType, ToolName, TotalScore)
+# Weighted combination of all relevance factors
+Decl tool_combined_score(ShardType, ToolName, TotalScore).
+
+# relevant_tool(ShardType, ToolName)
+# Derived: tool is relevant for this shard type (above threshold)
+Decl relevant_tool(ShardType, ToolName).
+
+# tool_priority_rank(ShardType, ToolName, Rank)
+# Integer rank for ordering (higher = more relevant)
+Decl tool_priority_rank(ShardType, ToolName, Rank).
+
+# -----------------------------------------------------------------------------
+# 40.5 Tool Execution Tracking (for learning feedback)
+# -----------------------------------------------------------------------------
+
+# tool_execution(ToolName, Success, Timestamp)
+# Individual execution record for aggregation
+# Success: /true, /false
+Decl tool_execution(ToolName, Success, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 40.6 Helper Predicates for Safe Negation
+# -----------------------------------------------------------------------------
+
+# has_current_intent() - true if any current intent exists
+Decl has_current_intent().
+
+# has_tool_domain(ToolName) - true if tool has a domain specified
+Decl has_tool_domain(ToolName).
+
+# has_tool_usage(ToolName) - true if tool has usage stats
+Decl has_tool_usage(ToolName).
 
 # -----------------------------------------------------------------------------
 # 36.5 Virtual Predicate for Trace Queries

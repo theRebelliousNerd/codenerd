@@ -159,6 +159,8 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetWorkspaceRoot(ctx.Workspace) // MUST be called before SetLLMClient
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence for Type B shard
+		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable tool execution
 		return shard
 	})
 
@@ -317,6 +319,21 @@ func defineShardProfiles(sm *core.ShardManager) {
 		},
 	})
 
+	// Requirements Interrogator profile - Socratic clarification specialist
+	sm.DefineProfile("requirements_interrogator", core.ShardConfig{
+		Name: "requirements_interrogator",
+		Type: core.ShardTypeEphemeral,
+		Permissions: []core.ShardPermission{
+			core.PermissionAskUser,
+			core.PermissionReadFile,
+		},
+		Timeout:     5 * 60 * 1000000000, // 5 minutes
+		MemoryLimit: 6000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityBalanced,
+		},
+	})
+
 	// Define system shard profiles
 	defineSystemShardProfiles(sm)
 }
@@ -414,5 +431,18 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
 		},
+	})
+
+	// Legislator - ON-DEMAND, Logic-primary for learned constraints
+	sm.DefineProfile("legislator", core.ShardConfig{
+		Name: "legislator",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionCodeGraph,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 4000,
+		Model:       core.ModelConfig{}, // No LLM - constraint synthesis is logic-primary
 	})
 }

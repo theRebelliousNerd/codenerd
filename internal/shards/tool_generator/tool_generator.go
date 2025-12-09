@@ -66,6 +66,10 @@ type ToolGeneratorShard struct {
 	kernel       *core.RealKernel
 	llmClient    core.LLMClient
 	orchestrator *autopoiesis.Orchestrator
+	virtualStore *core.VirtualStore
+
+	// Learnings for autopoiesis (persistent across sessions)
+	learningStore core.LearningStore
 
 	// Workspace root (explicit, avoids FindWorkspaceRoot issues)
 	workspaceRoot string
@@ -128,6 +132,20 @@ func (s *ToolGeneratorShard) SetWorkspaceRoot(root string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workspaceRoot = root
+}
+
+// SetVirtualStore sets the virtual store for tool execution.
+func (s *ToolGeneratorShard) SetVirtualStore(vs *core.VirtualStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.virtualStore = vs
+}
+
+// SetLearningStore sets the learning store for persistent autopoiesis patterns.
+func (s *ToolGeneratorShard) SetLearningStore(ls core.LearningStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.learningStore = ls
 }
 
 // SetLLMClient sets the LLM client for generation.

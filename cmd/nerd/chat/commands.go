@@ -361,6 +361,7 @@ or you can create them on-demand with /tool generate.
 | /config wizard | Full interactive configuration dialogue |
 | /config set-key <key> | Set API key |
 | /config set-theme <theme> | Set theme (light/dark) |
+| /config engine [api\|claude-cli\|codex-cli] | Set LLM engine |
 | /config show | Show current configuration |`,
 				Time: time.Now(),
 			})
@@ -436,6 +437,59 @@ Press **Enter** to begin...`,
 					Content: "Invalid theme. Use 'light' or 'dark'.",
 					Time:    time.Now(),
 				})
+			}
+		} else if parts[1] == "engine" {
+			// Engine configuration for CLI backends
+			cfg, _ := config.GlobalConfig()
+			if cfg == nil {
+				cfg = config.DefaultUserConfig()
+			}
+
+			if len(parts) == 2 {
+				// Show current engine
+				engine := cfg.GetEngine()
+				var engineDesc string
+				switch engine {
+				case "claude-cli":
+					cliCfg := cfg.GetClaudeCLIConfig()
+					engineDesc = fmt.Sprintf("**Claude Code CLI** (model: %s, timeout: %ds)", cliCfg.Model, cliCfg.Timeout)
+				case "codex-cli":
+					cliCfg := cfg.GetCodexCLIConfig()
+					engineDesc = fmt.Sprintf("**Codex CLI** (model: %s, sandbox: %s, timeout: %ds)", cliCfg.Model, cliCfg.Sandbox, cliCfg.Timeout)
+				default:
+					provider, _ := cfg.GetActiveProvider()
+					engineDesc = fmt.Sprintf("**API** (provider: %s)", provider)
+				}
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Current engine: %s\n\n%s\n\nAvailable engines:\n- `api` - HTTP API (default)\n- `claude-cli` - Claude Code CLI (subscription)\n- `codex-cli` - Codex CLI (ChatGPT subscription)", engine, engineDesc),
+					Time:    time.Now(),
+				})
+			} else {
+				// Set engine
+				newEngine := parts[2]
+				if err := cfg.SetEngine(newEngine); err != nil {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Error: %s", err.Error()),
+						Time:    time.Now(),
+					})
+				} else {
+					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Error saving config: %s", err.Error()),
+							Time:    time.Now(),
+						})
+					} else {
+						m.Config = cfg
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Engine set to: **%s**\n\nRestart codeNERD for changes to take effect.", newEngine),
+							Time:    time.Now(),
+						})
+					}
+				}
 			}
 		}
 		m.viewport.SetContent(m.renderHistory())

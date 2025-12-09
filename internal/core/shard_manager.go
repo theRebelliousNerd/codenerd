@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -146,6 +147,11 @@ type SessionContext struct {
 	// ==========================================================================
 	KnowledgeAtoms  []string // Relevant domain expertise facts
 	SpecialistHints []string // Hints from specialist knowledge base
+
+	// ==========================================================================
+	// AVAILABLE TOOLS (Autopoiesis/Ouroboros)
+	// ==========================================================================
+	AvailableTools []ToolInfo // Self-generated tools available for execution
 
 	// ==========================================================================
 	// CONSTITUTIONAL CONSTRAINTS
@@ -606,6 +612,255 @@ func (sm *ShardManager) SetLearningStore(store LearningStore) {
 	sm.learningStore = store
 }
 
+// queryToolsFromKernel queries the Mangle kernel for registered tools.
+// Uses predicates: tool_registered, tool_description, tool_binary_path
+// This enables dynamic, Mangle-governed tool discovery for agents.
+func (sm *ShardManager) queryToolsFromKernel() []ToolInfo {
+	if sm.kernel == nil {
+		return nil
+	}
+
+	// Query all registered tools
+	registeredFacts, err := sm.kernel.Query("tool_registered")
+	if err != nil || len(registeredFacts) == 0 {
+		return nil
+	}
+
+	// Build a map of tool names for lookup
+	toolNames := make([]string, 0, len(registeredFacts))
+	for _, fact := range registeredFacts {
+		if len(fact.Args) >= 1 {
+			if name, ok := fact.Args[0].(string); ok {
+				toolNames = append(toolNames, name)
+			}
+		}
+	}
+
+	if len(toolNames) == 0 {
+		return nil
+	}
+
+	// Query descriptions and binary paths
+	descFacts, _ := sm.kernel.Query("tool_description")
+	pathFacts, _ := sm.kernel.Query("tool_binary_path")
+
+	// Build lookup maps
+	descriptions := make(map[string]string)
+	for _, fact := range descFacts {
+		if len(fact.Args) >= 2 {
+			if name, ok := fact.Args[0].(string); ok {
+				if desc, ok := fact.Args[1].(string); ok {
+					descriptions[name] = desc
+				}
+			}
+		}
+	}
+
+	binaryPaths := make(map[string]string)
+	for _, fact := range pathFacts {
+		if len(fact.Args) >= 2 {
+			if name, ok := fact.Args[0].(string); ok {
+				if path, ok := fact.Args[1].(string); ok {
+					binaryPaths[name] = path
+				}
+			}
+		}
+	}
+
+	// Build ToolInfo slice
+	tools := make([]ToolInfo, 0, len(toolNames))
+	for _, name := range toolNames {
+		tools = append(tools, ToolInfo{
+			Name:        name,
+			Description: descriptions[name],
+			BinaryPath:  binaryPaths[name],
+		})
+	}
+
+	return tools
+}
+
+// =============================================================================
+// INTELLIGENT TOOL ROUTING (§40)
+// =============================================================================
+// Routes Ouroboros-generated tools to shards based on capabilities, intent,
+// domain matching, and usage history.
+
+// ToolRelevanceQuery holds parameters for intelligent tool discovery.
+type ToolRelevanceQuery struct {
+	ShardType   string // e.g., "coder", "tester", "reviewer", "researcher"
+	IntentVerb  string // e.g., "implement", "test", "review", "research"
+	TargetFile  string // Target file path (for domain detection)
+	TokenBudget int    // Max tokens for tool descriptions (0 = default 2000)
+}
+
+// queryRelevantTools queries Mangle for tools relevant to this shard and context.
+// Falls back to queryToolsFromKernel if intelligent routing fails.
+func (sm *ShardManager) queryRelevantTools(query ToolRelevanceQuery) []ToolInfo {
+	if sm.kernel == nil {
+		return nil
+	}
+
+	// Set up routing context facts
+	sm.assertToolRoutingContext(query)
+
+	// Query derived relevant_tool predicate
+	// Format: relevant_tool(/shardType, ToolName)
+	shardAtom := "/" + query.ShardType
+	relevantFacts, err := sm.kernel.Query("relevant_tool")
+	if err != nil || len(relevantFacts) == 0 {
+		// Fallback to all tools if derivation fails (with budget trimming)
+		allTools := sm.queryToolsFromKernel()
+		return sm.trimToTokenBudget(allTools, query.TokenBudget)
+	}
+
+	// Filter to tools relevant for this shard type
+	relevantToolNames := make([]string, 0)
+	for _, fact := range relevantFacts {
+		if len(fact.Args) >= 2 {
+			// Check if shard type matches
+			factShardType, _ := fact.Args[0].(string)
+			toolName, _ := fact.Args[1].(string)
+			if factShardType == shardAtom && toolName != "" {
+				relevantToolNames = append(relevantToolNames, toolName)
+			}
+		}
+	}
+
+	if len(relevantToolNames) == 0 {
+		// No relevant tools derived - fallback to all (with budget trimming)
+		allTools := sm.queryToolsFromKernel()
+		return sm.trimToTokenBudget(allTools, query.TokenBudget)
+	}
+
+	// Get full tool info for relevant tools
+	allTools := sm.queryToolsFromKernel()
+	if allTools == nil {
+		return nil
+	}
+
+	// Filter to only relevant tools
+	relevantSet := make(map[string]bool)
+	for _, name := range relevantToolNames {
+		relevantSet[name] = true
+	}
+
+	tools := make([]ToolInfo, 0)
+	for _, tool := range allTools {
+		if relevantSet[tool.Name] {
+			tools = append(tools, tool)
+		}
+	}
+
+	// Sort by priority score (if available)
+	sm.sortToolsByPriority(tools, query.ShardType)
+
+	// Apply token budget trimming
+	return sm.trimToTokenBudget(tools, query.TokenBudget)
+}
+
+// assertToolRoutingContext sets up Mangle facts for tool relevance derivation.
+func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
+	if sm.kernel == nil {
+		return
+	}
+
+	// Retract old context (avoid stale facts)
+	_ = sm.kernel.Retract("current_shard_type")
+	_ = sm.kernel.Retract("current_intent")
+
+	// Assert current shard type (with / prefix for Mangle atom)
+	shardAtom := "/" + query.ShardType
+	_ = sm.kernel.Assert(Fact{
+		Predicate: "current_shard_type",
+		Args:      []interface{}{shardAtom},
+	})
+
+	// Assert current intent if available
+	if query.IntentVerb != "" {
+		// Create a synthetic intent ID for routing purposes
+		intentID := "routing_context"
+		verbAtom := "/" + query.IntentVerb
+		_ = sm.kernel.Assert(Fact{
+			Predicate: "current_intent",
+			Args:      []interface{}{intentID},
+		})
+		// Ensure user_intent fact exists for derivation rules
+		_ = sm.kernel.Assert(Fact{
+			Predicate: "user_intent",
+			Args:      []interface{}{intentID, "/mutation", verbAtom, query.TargetFile, "_"},
+		})
+	}
+
+	// Assert current time for recency calculations
+	_ = sm.kernel.Assert(Fact{
+		Predicate: "current_time",
+		Args:      []interface{}{float64(time.Now().Unix())},
+	})
+}
+
+// sortToolsByPriority sorts tools by their Mangle-derived priority score.
+func (sm *ShardManager) sortToolsByPriority(tools []ToolInfo, shardType string) {
+	if sm.kernel == nil || len(tools) == 0 {
+		return
+	}
+
+	// Query priority scores
+	shardAtom := "/" + shardType
+	baseRelevanceFacts, _ := sm.kernel.Query("tool_base_relevance")
+
+	// Build score map
+	scores := make(map[string]float64)
+	for _, fact := range baseRelevanceFacts {
+		if len(fact.Args) >= 3 {
+			factShardType, _ := fact.Args[0].(string)
+			toolName, _ := fact.Args[1].(string)
+			score, _ := fact.Args[2].(float64)
+			if factShardType == shardAtom {
+				scores[toolName] = score
+			}
+		}
+	}
+
+	// Sort by score descending
+	sort.Slice(tools, func(i, j int) bool {
+		scoreI := scores[tools[i].Name]
+		scoreJ := scores[tools[j].Name]
+		return scoreI > scoreJ
+	})
+}
+
+// trimToTokenBudget limits tools to fit within context window budget.
+func (sm *ShardManager) trimToTokenBudget(tools []ToolInfo, budget int) []ToolInfo {
+	if budget <= 0 {
+		budget = 2000 // Default: ~2000 tokens for tools section
+	}
+
+	result := make([]ToolInfo, 0)
+	tokensUsed := 0
+
+	for _, tool := range tools {
+		// Estimate tokens: name + description + binary path + overhead
+		toolTokens := estimateTokens(tool.Name) +
+			estimateTokens(tool.Description) +
+			estimateTokens(tool.BinaryPath) + 20 // formatting overhead
+
+		if tokensUsed+toolTokens <= budget {
+			result = append(result, tool)
+			tokensUsed += toolTokens
+		} else {
+			break // Budget exhausted
+		}
+	}
+
+	return result
+}
+
+// estimateTokens provides rough token estimate (1 token per 4 chars).
+func estimateTokens(s string) int {
+	return len(s) / 4
+}
+
 // RegisterShard registers a factory for a given shard type.
 func (sm *ShardManager) RegisterShard(typeName string, factory ShardFactory) {
 	sm.mu.Lock()
@@ -742,6 +997,37 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// Inject session context into config (Blackboard Pattern)
 	if sessionCtx != nil {
 		config.SessionContext = sessionCtx
+	}
+
+	// Populate available tools from Mangle kernel (Intelligent Tool Routing §40)
+	// Uses Mangle predicates: tool_registered, tool_description, tool_binary_path,
+	// tool_capability, shard_capability_affinity, relevant_tool
+	if sm.kernel != nil {
+		// Build tool relevance query with shard context
+		query := ToolRelevanceQuery{
+			ShardType:   typeName,
+			TokenBudget: 2000, // Default budget
+		}
+
+		// Extract intent verb from session context if available
+		if sessionCtx != nil && sessionCtx.UserIntent != nil && sessionCtx.UserIntent.Verb != "" {
+			// Strip leading "/" from verb atom if present
+			verb := sessionCtx.UserIntent.Verb
+			if len(verb) > 0 && verb[0] == '/' {
+				verb = verb[1:]
+			}
+			query.IntentVerb = verb
+			query.TargetFile = sessionCtx.UserIntent.Target
+		}
+
+		// Use intelligent routing to get relevant tools
+		tools := sm.queryRelevantTools(query)
+		if len(tools) > 0 {
+			if config.SessionContext == nil {
+				config.SessionContext = &SessionContext{}
+			}
+			config.SessionContext.AvailableTools = tools
+		}
 	}
 
 	// 2. Resolve Factory

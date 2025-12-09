@@ -487,6 +487,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
 		virtualStore.SetToolExecutor(toolExecutor)
 
+		// Wire Ouroboros as ToolGenerator for coder shard self-tool routing
+		if ouroborosLoop := autopoiesisOrch.GetOuroborosLoop(); ouroborosLoop != nil {
+			virtualStore.SetToolGenerator(ouroborosLoop)
+			logStep("Wired Ouroboros as ToolGenerator for self-tool routing")
+		}
+
 		// Hydrate tools from disk and available_tools.json
 		logStep("Hydrating tools from .nerd/tools/...")
 		toolsNerdDir := filepath.Join(workspace, ".nerd")

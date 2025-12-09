@@ -1586,6 +1586,11 @@ type ProviderConfig struct {
 	APIKey         string
 	Model          string // Optional model override
 	Context7APIKey string // Context7 API key for research
+
+	// CLI Engine Configuration (takes precedence over Provider when set)
+	Engine    string                 // "api", "claude-cli", "codex-cli"
+	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
+	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
 }
 
 // DefaultConfigPath returns the default path to .nerd/config.json.
@@ -1602,7 +1607,24 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		return nil, err
 	}
 
-	// Use the unified config's provider detection
+	// Check for CLI engine configuration first
+	engine := userCfg.GetEngine()
+	if engine == "claude-cli" || engine == "codex-cli" {
+		// Context7 API key: check config first, then env var
+		context7Key := userCfg.Context7APIKey
+		if context7Key == "" {
+			context7Key = os.Getenv("CONTEXT7_API_KEY")
+		}
+
+		return &ProviderConfig{
+			Engine:         engine,
+			ClaudeCLI:      userCfg.GetClaudeCLIConfig(),
+			CodexCLI:       userCfg.GetCodexCLIConfig(),
+			Context7APIKey: context7Key,
+		}, nil
+	}
+
+	// Use the unified config's provider detection for API mode
 	providerStr, apiKey := userCfg.GetActiveProvider()
 	if apiKey == "" {
 		return nil, fmt.Errorf("no API key found in config")
@@ -1615,6 +1637,7 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 	}
 
 	return &ProviderConfig{
+		Engine:         "api",
 		Provider:       Provider(providerStr),
 		APIKey:         apiKey,
 		Model:          userCfg.Model,
@@ -1666,7 +1689,21 @@ func NewClientFromEnv() (LLMClient, error) {
 }
 
 // NewClientFromConfig creates an LLM client from a provider config.
+// CLI engines (claude-cli, codex-cli) take precedence over API providers when configured.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
+	// Check for CLI engine configuration first (takes precedence over API)
+	switch config.Engine {
+	case "claude-cli":
+		return NewClaudeCodeCLIClient(config.ClaudeCLI), nil
+	case "codex-cli":
+		return NewCodexCLIClient(config.CodexCLI), nil
+	case "api", "":
+		// Continue to API-based provider selection below
+	default:
+		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli)", config.Engine)
+	}
+
+	// API-based provider selection
 	switch config.Provider {
 	case ProviderAnthropic:
 		client := NewAnthropicClient(config.APIKey)

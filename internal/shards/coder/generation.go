@@ -42,17 +42,19 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 
 	// Parse response into edits
 	logging.CoderDebug("Parsing LLM response into edits")
-	edits := c.parseCodeResponse(response, task)
-	logging.Coder("Parsed %d edits from LLM response", len(edits))
+	parsed := c.parseCodeResponse(response, task)
+	logging.Coder("Parsed %d edits from LLM response (artifact_type=%s)", len(parsed.Edits), parsed.ArtifactType)
 
-	for i, edit := range edits {
+	for i, edit := range parsed.Edits {
 		logging.CoderDebug("Edit[%d]: type=%s, file=%s, language=%s, content_len=%d",
 			i, edit.Type, edit.File, edit.Language, len(edit.NewContent))
 	}
 
 	result := &CoderResult{
-		Summary: fmt.Sprintf("%s: %s (%d edits)", task.Action, task.Target, len(edits)),
-		Edits:   edits,
+		Summary:      fmt.Sprintf("%s: %s (%d edits)", task.Action, task.Target, len(parsed.Edits)),
+		Edits:        parsed.Edits,
+		ArtifactType: parsed.ArtifactType,
+		ToolName:     parsed.ToolName,
 	}
 
 	return result, nil
@@ -77,14 +79,30 @@ RULES:
 3. Add concise comments for complex logic only
 4. Do not include unnecessary imports or dependencies
 5. Match the existing code style if modifying
+6. ARTIFACT CLASSIFICATION (MANDATORY):
+   - "project_code": Code that belongs in the user's codebase (default)
+   - "self_tool": A tool/utility for codeNERD to use internally
+   - "diagnostic": A one-time inspection/debugging script
+
+   If you are creating something for YOUR OWN USE (not the user's project),
+   you MUST set artifact_type to "self_tool" or "diagnostic".
+
+7. SELF-TOOL REQUIREMENTS: If artifact_type is "self_tool" or "diagnostic":
+   - MUST be written in Go (not Python, not shell scripts)
+   - Will be compiled and placed in .nerd/tools/.compiled/
+   - Must follow standard Go tool patterns (package main, func main)
 %s%s
 OUTPUT FORMAT:
 Return your response as JSON with this structure:
 {
   "file": "path/to/file",
   "content": "full file content here",
-  "rationale": "brief explanation of changes"
+  "rationale": "brief explanation of changes",
+  "artifact_type": "project_code"
 }
+
+Valid artifact_type values: "project_code", "self_tool", "diagnostic"
+Default is "project_code" if omitted.
 
 For modifications, include the COMPLETE new file content, not a diff.
 `, langName, codeDOMContext, sessionContext)
@@ -233,6 +251,19 @@ func (c *CoderShard) buildSessionContextPrompt() string {
 		for _, hint := range ctx.SpecialistHints {
 			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
 		}
+	}
+
+	// ==========================================================================
+	// AVAILABLE TOOLS (Self-Generated via Ouroboros)
+	// ==========================================================================
+	if len(ctx.AvailableTools) > 0 {
+		sb.WriteString("\nAVAILABLE TOOLS (use instead of creating new ones):\n")
+		for _, tool := range ctx.AvailableTools {
+			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Description))
+			sb.WriteString(fmt.Sprintf("    Binary: %s\n", tool.BinaryPath))
+		}
+		sb.WriteString("  NOTE: If a tool already exists for the task, USE IT instead of creating a new one.\n")
+		sb.WriteString("  To execute a tool, use the tactile router with action: execute_tool(tool_name, args)\n")
 	}
 
 	// ==========================================================================

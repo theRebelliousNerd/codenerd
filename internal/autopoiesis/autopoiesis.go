@@ -169,6 +169,12 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		logInjector: NewLogInjector(DefaultLoggingRequirements()),
 	}
 
+	// Wire Ouroboros callback to propagate tool registration facts to parent kernel
+	orch.ouroboros.SetOnToolRegistered(func(tool *RuntimeTool) {
+		logging.AutopoiesisDebug("Ouroboros callback: tool %s registered, asserting to kernel", tool.Name)
+		orch.assertToolRegistered(tool)
+	})
+
 	logging.Autopoiesis("Autopoiesis Orchestrator initialized successfully")
 	return orch
 }
@@ -176,10 +182,33 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 // SetKernel attaches a Mangle kernel for fact assertion and query.
 // This enables the full neuro-symbolic loop where autopoiesis
 // events are reflected as Mangle facts for logic-driven orchestration.
+// Also syncs any existing tools from the registry to the kernel.
 func (o *Orchestrator) SetKernel(kernel KernelInterface) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	o.kernel = kernel
+	o.mu.Unlock()
+
+	// Sync existing tools from registry to kernel (for tools restored from disk)
+	o.syncExistingToolsToKernel()
+}
+
+// syncExistingToolsToKernel asserts facts for all tools already in the registry.
+// Called when kernel is first attached to ensure restored tools are discoverable.
+func (o *Orchestrator) syncExistingToolsToKernel() {
+	if o.ouroboros == nil || o.kernel == nil {
+		return
+	}
+
+	tools := o.ouroboros.registry.List()
+	if len(tools) == 0 {
+		return
+	}
+
+	logging.Autopoiesis("Syncing %d existing tools to kernel", len(tools))
+	for _, tool := range tools {
+		o.assertToolRegistered(tool)
+	}
+	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
 }
 
 // GetKernel returns the attached kernel (may be nil).
@@ -187,6 +216,14 @@ func (o *Orchestrator) GetKernel() KernelInterface {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.kernel
+}
+
+// GetOuroborosLoop returns the Ouroboros Loop for tool self-generation.
+// This implements core.ToolGenerator interface for routing coder shard self-tools.
+func (o *Orchestrator) GetOuroborosLoop() *OuroborosLoop {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.ouroboros
 }
 
 // =============================================================================
@@ -211,6 +248,7 @@ func (o *Orchestrator) assertToKernel(predicate string, args ...interface{}) err
 
 // assertToolRegistered asserts tool_registered and related facts to kernel.
 // Called when a tool is successfully generated and registered.
+// Facts: tool_registered, tool_hash, has_capability, tool_description, tool_binary_path
 func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
 	if tool == nil {
 		return
@@ -226,6 +264,16 @@ func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
 
 	// has_capability(ToolName)
 	_ = o.assertToKernel("has_capability", tool.Name)
+
+	// tool_description(ToolName, Description) - for LLM tool discovery
+	if tool.Description != "" {
+		_ = o.assertToKernel("tool_description", tool.Name, tool.Description)
+	}
+
+	// tool_binary_path(ToolName, BinaryPath) - for tool execution
+	if tool.BinaryPath != "" {
+		_ = o.assertToKernel("tool_binary_path", tool.Name, tool.BinaryPath)
+	}
 }
 
 // assertMissingTool asserts missing_tool_for fact to kernel.

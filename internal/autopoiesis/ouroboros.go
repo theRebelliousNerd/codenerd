@@ -88,6 +88,10 @@ import (
 // Named after the ancient symbol of a serpent eating its own tail,
 // representing infinite self-creation and renewal.
 
+// ToolRegisteredCallback is called when a tool is successfully registered.
+// This allows the Orchestrator to propagate facts to the parent kernel.
+type ToolRegisteredCallback func(tool *RuntimeTool)
+
 // OuroborosLoop orchestrates the full tool self-generation cycle
 // It implements a "Transactional State Machine" governed by Mangle.
 type OuroborosLoop struct {
@@ -102,6 +106,9 @@ type OuroborosLoop struct {
 
 	config OuroborosConfig
 	stats  OuroborosStats
+
+	// Callback for notifying parent when a tool is registered
+	onToolRegistered ToolRegisteredCallback
 }
 
 // OuroborosConfig configures the Ouroboros Loop
@@ -253,6 +260,14 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 
 	logging.Autopoiesis("Ouroboros Loop initialized: TargetOS=%s, TargetArch=%s", config.TargetOS, config.TargetArch)
 	return loop
+}
+
+// SetOnToolRegistered sets the callback for when a tool is registered.
+// This allows the Orchestrator to propagate facts to the parent kernel.
+func (o *OuroborosLoop) SetOnToolRegistered(callback ToolRegisteredCallback) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.onToolRegistered = callback
 }
 
 // =============================================================================
@@ -644,6 +659,28 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	result.Stage = StageComplete
 	logging.Autopoiesis("Tool registered: name=%s, hash=%s", handle.Name, handle.Hash[:16])
 
+	// Assert tool registration facts to Mangle engine for discovery
+	registrationFacts := []mangle.Fact{
+		{Predicate: "tool_registered", Args: []interface{}{handle.Name, handle.RegisteredAt.Format(time.RFC3339)}},
+		{Predicate: "tool_hash", Args: []interface{}{handle.Name, handle.Hash}},
+		{Predicate: "has_capability", Args: []interface{}{handle.Name}},
+	}
+	if handle.Description != "" {
+		registrationFacts = append(registrationFacts, mangle.Fact{
+			Predicate: "tool_description", Args: []interface{}{handle.Name, handle.Description},
+		})
+	}
+	if handle.BinaryPath != "" {
+		registrationFacts = append(registrationFacts, mangle.Fact{
+			Predicate: "tool_binary_path", Args: []interface{}{handle.Name, handle.BinaryPath},
+		})
+	}
+	if err := o.engine.AddFacts(registrationFacts); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to add registration facts: %v", err)
+	} else {
+		logging.AutopoiesisDebug("Added %d registration facts for tool=%s", len(registrationFacts), handle.Name)
+	}
+
 	// Update stats
 	o.mu.Lock()
 	o.stats.ToolsGenerated++
@@ -664,6 +701,15 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 		{Predicate: "state", Args: []interface{}{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
 	})
 	logging.AutopoiesisDebug("Mangle history updated for %s", nextStepID)
+
+	// Notify parent (Orchestrator) to propagate facts to kernel
+	o.mu.RLock()
+	callback := o.onToolRegistered
+	o.mu.RUnlock()
+	if callback != nil {
+		logging.AutopoiesisDebug("Invoking onToolRegistered callback for %s", handle.Name)
+		callback(handle)
+	}
 
 	return nil
 }
@@ -860,6 +906,80 @@ type ToolInfo struct {
 	Hash         string    `json:"hash"`
 	RegisteredAt time.Time `json:"registered_at"`
 	ExecuteCount int64     `json:"execute_count"`
+}
+
+// =============================================================================
+// TOOL GENERATOR INTERFACE - Pre-Generated Code Path
+// =============================================================================
+// Implements core.ToolGenerator for routing coder shard self-tools through Ouroboros.
+
+// GenerateToolFromCode implements core.ToolGenerator interface.
+// Takes pre-generated code (from coder shard) and runs it through the
+// Ouroboros pipeline: safety check → compile → register.
+// This bypasses the LLM generation phase since code is already provided.
+// Returns: success, toolName, binaryPath, errorMessage
+func (o *OuroborosLoop) GenerateToolFromCode(ctx context.Context, name, purpose, code string, confidence, priority float64, isDiagnostic bool) (success bool, toolName, binaryPath, errMsg string) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "GenerateToolFromCode")
+	defer timer.Stop()
+
+	logging.Autopoiesis("GenerateToolFromCode: name=%s, code_len=%d, isDiagnostic=%v", name, len(code), isDiagnostic)
+
+	toolName = name
+
+	// Validate input
+	if name == "" {
+		errMsg = "tool name is required"
+		return false, toolName, "", errMsg
+	}
+	if code == "" {
+		errMsg = "tool code is required"
+		return false, toolName, "", errMsg
+	}
+
+	// Create a GeneratedTool from the pre-generated code
+	tool := &GeneratedTool{
+		Name:        name,
+		Description: purpose,
+		Code:        code,
+		FilePath:    filepath.Join(o.config.ToolsDir, name+".go"),
+		Validated:   false, // Will be validated by SafetyChecker
+	}
+
+	// PHASE 1: SAFETY CHECK
+	logging.Autopoiesis("[GenerateToolFromCode] Phase 1: Safety Check")
+	safetyReport := o.safetyChecker.Check(tool.Code)
+	if !safetyReport.Safe {
+		logging.Get(logging.CategoryAutopoiesis).Error("Safety check failed for %s: %d violations",
+			name, len(safetyReport.Violations))
+		for _, v := range safetyReport.Violations {
+			logging.AutopoiesisDebug("  Violation: %s - %s", v.Type, v.Description)
+		}
+		errMsg = fmt.Sprintf("safety check failed: %d violations", len(safetyReport.Violations))
+		o.mu.Lock()
+		o.stats.SafetyViolations++
+		o.stats.ToolsRejected++
+		o.mu.Unlock()
+		return false, toolName, "", errMsg
+	}
+	logging.Autopoiesis("Safety check PASSED for %s (score=%.2f)", name, safetyReport.Score)
+	tool.Validated = true
+
+	// PHASE 2: COMPILE
+	logging.Autopoiesis("[GenerateToolFromCode] Phase 2: Compile")
+	loopResult := &LoopResult{ToolName: name}
+	if err := o.commitTool(ctx, tool, loopResult); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Compilation failed for %s: %v", name, err)
+		errMsg = fmt.Sprintf("compilation failed: %v", err)
+		return false, toolName, "", errMsg
+	}
+
+	// Success
+	if loopResult.CompileResult != nil {
+		binaryPath = loopResult.CompileResult.OutputPath
+	}
+
+	logging.Autopoiesis("GenerateToolFromCode SUCCESS: name=%s, binary=%s", name, binaryPath)
+	return true, toolName, binaryPath, ""
 }
 
 // =============================================================================
@@ -1339,11 +1459,21 @@ func GenerateToolCapabilityFacts(toolName string, capabilities []string) []strin
 	return facts
 }
 
-// GenerateToolRegistrationFacts creates facts when a tool is registered
+// GenerateToolRegistrationFacts creates facts when a tool is registered.
+// These facts enable Mangle-based tool discovery and routing.
 func GenerateToolRegistrationFacts(tool *RuntimeTool) []string {
-	return []string{
+	facts := []string{
 		fmt.Sprintf(`tool_registered(%q, %q).`, tool.Name, tool.RegisteredAt.Format(time.RFC3339)),
 		fmt.Sprintf(`tool_hash(%q, %q).`, tool.Name, tool.Hash),
 		fmt.Sprintf(`has_capability(%q).`, tool.Name),
 	}
+	// Add description if available (enables LLM tool discovery)
+	if tool.Description != "" {
+		facts = append(facts, fmt.Sprintf(`tool_description(%q, %q).`, tool.Name, tool.Description))
+	}
+	// Add binary path (enables direct execution)
+	if tool.BinaryPath != "" {
+		facts = append(facts, fmt.Sprintf(`tool_binary_path(%q, %q).`, tool.Name, tool.BinaryPath))
+	}
+	return facts
 }
