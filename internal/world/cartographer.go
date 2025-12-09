@@ -2,12 +2,14 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Cartographer implements the "Holographic" Code Graph projection.
@@ -22,30 +24,38 @@ import (
 type Cartographer struct {
 }
 
+// NewCartographer creates a new Cartographer for holographic code graph projection.
 func NewCartographer() *Cartographer {
+	logging.WorldDebug("Creating new Cartographer")
 	return &Cartographer{}
 }
 
 // MapFile parses a single file and returns holographic facts.
 // Currently supports Go with deep AST analysis.
 func (c *Cartographer) MapFile(path string) ([]core.Fact, error) {
+	logging.WorldDebug("Cartographer mapping file: %s", filepath.Base(path))
 	ext := filepath.Ext(path)
 	if ext == ".go" {
 		return c.mapGoFile(path)
 	}
-	// TODO: Support other languages via TreeSitter
+	logging.WorldDebug("Cartographer: unsupported file type %s for %s", ext, filepath.Base(path))
 	return nil, nil
 }
 
 func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("Cartographer: mapping Go file: %s", filepath.Base(path))
+
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Cartographer: Go parse failed: %s - %v", path, err)
 		return nil, err
 	}
 
 	var facts []core.Fact
 	pkgName := node.Name.Name
+	logging.WorldDebug("Cartographer: package=%s for %s", pkgName, filepath.Base(path))
 
 	// 1. Package Symbol
 	facts = append(facts, core.Fact{
@@ -71,6 +81,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			},
 		})
 	}
+	logging.WorldDebug("Cartographer: found %d imports", len(node.Imports))
 
 	// Track current function for call graph
 	var currentFunction string
@@ -211,5 +222,6 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 		return true
 	})
 
+	logging.WorldDebug("Cartographer: mapped %s - %d facts generated in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }

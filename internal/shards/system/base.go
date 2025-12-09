@@ -13,6 +13,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"sync"
@@ -247,6 +248,12 @@ type BaseSystemShard struct {
 
 // NewBaseSystemShard creates a base system shard with given ID and startup mode.
 func NewBaseSystemShard(id string, mode StartupMode) *BaseSystemShard {
+	modeStr := "auto"
+	if mode == StartupOnDemand {
+		modeStr = "on-demand"
+	}
+	logging.SystemShards("[BaseSystemShard] Creating shard: id=%s, mode=%s", id, modeStr)
+
 	return &BaseSystemShard{
 		ID:              id,
 		Config:          core.DefaultSystemConfig(id),
@@ -280,7 +287,11 @@ func (b *BaseSystemShard) GetState() core.ShardState {
 func (b *BaseSystemShard) SetState(state core.ShardState) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	oldState := b.State
 	b.State = state
+	if oldState != state {
+		logging.SystemShardsDebug("[%s] State transition: %v -> %v", b.ID, oldState, state)
+	}
 }
 
 // GetConfig returns the shard configuration.
@@ -302,6 +313,7 @@ func (b *BaseSystemShard) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.State == core.ShardStateRunning {
+		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.StartTime))
 		close(b.StopCh)
 		b.State = core.ShardStateCompleted
 	}
@@ -321,7 +333,9 @@ func (b *BaseSystemShard) SetParentKernel(k core.Kernel) {
 	defer b.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
 		b.Kernel = rk
+		logging.SystemShardsDebug("[%s] Parent kernel attached", b.ID)
 	} else {
+		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type, requires *core.RealKernel", b.ID)
 		panic("SystemShard requires *core.RealKernel")
 	}
 }
@@ -345,6 +359,7 @@ func (b *BaseSystemShard) SetLearningStore(ls core.LearningStore) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.learningStore = ls
+	logging.SystemShardsDebug("[%s] Learning store attached, loading patterns...", b.ID)
 	// Load existing patterns from store
 	b.loadLearnedPatterns()
 }
@@ -356,6 +371,9 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 		return
 	}
 
+	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] Loading learned patterns", b.ID))
+	defer timer.Stop()
+
 	// Load success patterns
 	successLearnings, err := b.learningStore.LoadByPredicate(b.ID, "success_pattern")
 	if err == nil {
@@ -366,6 +384,9 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 				b.patternSuccess[pattern] = 3
 			}
 		}
+		logging.SystemShardsDebug("[%s] Loaded %d success patterns", b.ID, len(successLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load success patterns: %v", b.ID, err)
 	}
 
 	// Load failure patterns
@@ -377,6 +398,9 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 				b.patternFailure[pattern] = 3
 			}
 		}
+		logging.SystemShardsDebug("[%s] Loaded %d failure patterns", b.ID, len(failureLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load failure patterns: %v", b.ID, err)
 	}
 
 	// Load correction patterns
@@ -388,6 +412,9 @@ func (b *BaseSystemShard) loadLearnedPatterns() {
 				b.corrections[pattern] = 3
 			}
 		}
+		logging.SystemShardsDebug("[%s] Loaded %d correction patterns", b.ID, len(correctionLearnings))
+	} else {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to load correction patterns: %v", b.ID, err)
 	}
 }
 
@@ -492,21 +519,30 @@ func (b *BaseSystemShard) EmitHeartbeat() error {
 // GuardedLLMCall wraps an LLM call with cost guard checks.
 func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if b.LLMClient == nil {
-		return "", fmt.Errorf("no LLM client configured")
+		err := fmt.Errorf("no LLM client configured")
+		logging.Get(logging.CategorySystemShards).Error("[%s] GuardedLLMCall failed: %v", b.ID, err)
+		return "", err
 	}
 
 	can, reason := b.CostGuard.CanCall()
 	if !can {
-		return "", fmt.Errorf("LLM call blocked: %s", reason)
+		err := fmt.Errorf("LLM call blocked: %s", reason)
+		logging.Get(logging.CategorySystemShards).Warn("[%s] GuardedLLMCall blocked: %s", b.ID, reason)
+		return "", err
 	}
 
+	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] LLM call", b.ID))
 	result, err := b.LLMClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	elapsed := timer.Stop()
+
 	if err != nil {
 		b.CostGuard.RecordError()
+		logging.Get(logging.CategorySystemShards).Error("[%s] LLM call failed after %v: %v", b.ID, elapsed, err)
 		return "", err
 	}
 
 	b.CostGuard.RecordCall()
+	logging.SystemShardsDebug("[%s] LLM call succeeded in %v, response_len=%d", b.ID, elapsed, len(result))
 	return result, nil
 }
 

@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"context"
 	"fmt"
@@ -29,7 +30,8 @@ type ContextPager struct {
 
 // NewContextPager creates a new context pager.
 func NewContextPager(kernel *core.RealKernel, llmClient perception.LLMClient) *ContextPager {
-	return &ContextPager{
+	logging.CampaignDebug("Creating new ContextPager with default budget")
+	cp := &ContextPager{
 		kernel:          kernel,
 		llmClient:       llmClient,
 		totalBudget:     100000, // 100k tokens default
@@ -39,10 +41,14 @@ func NewContextPager(kernel *core.RealKernel, llmClient perception.LLMClient) *C
 		workingReserve:  40000,  // 40% for working memory
 		prefetchReserve: 10000,  // 10% for prefetch
 	}
+	logging.CampaignDebug("ContextPager budget allocation: total=%d, core=%d, phase=%d, history=%d, working=%d, prefetch=%d",
+		cp.totalBudget, cp.coreReserve, cp.phaseReserve, cp.historyReserve, cp.workingReserve, cp.prefetchReserve)
+	return cp
 }
 
 // SetBudget updates the total token budget.
 func (cp *ContextPager) SetBudget(tokens int) {
+	logging.Campaign("Setting context budget: %d tokens", tokens)
 	cp.totalBudget = tokens
 	// Recalculate reserves
 	cp.coreReserve = tokens * 5 / 100
@@ -50,6 +56,8 @@ func (cp *ContextPager) SetBudget(tokens int) {
 	cp.historyReserve = tokens * 15 / 100
 	cp.workingReserve = tokens * 40 / 100
 	cp.prefetchReserve = tokens * 10 / 100
+	logging.CampaignDebug("Budget recalculated: core=%d, phase=%d, history=%d, working=%d, prefetch=%d",
+		cp.coreReserve, cp.phaseReserve, cp.historyReserve, cp.workingReserve, cp.prefetchReserve)
 }
 
 // GetUsage returns current context usage stats.
@@ -63,9 +71,15 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		return nil
 	}
 
+	timer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("ActivatePhase(%s)", phase.Name))
+	defer timer.Stop()
+
+	logging.Campaign("Activating context for phase: %s", phase.Name)
+
 	// 1. Get context profile for this phase
 	profile, err := cp.getContextProfile(phase.ContextProfile)
 	if err != nil {
+		logging.CampaignDebug("Using default context profile for phase %s (profile %s not found)", phase.Name, phase.ContextProfile)
 		// Use default profile if not found
 		profile = &ContextProfile{
 			ID:              phase.ContextProfile,
@@ -73,15 +87,20 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 			RequiredTools:   []string{"fs_read", "fs_write", "exec_cmd"},
 			FocusPatterns:   []string{"**/*"},
 		}
+	} else {
+		logging.CampaignDebug("Loaded context profile: %s (schemas=%d, tools=%d, patterns=%d)",
+			profile.ID, len(profile.RequiredSchemas), len(profile.RequiredTools), len(profile.FocusPatterns))
 	}
 
 	// 2. Boost activation for phase-specific facts
+	logging.CampaignDebug("Boosting %d focus patterns", len(profile.FocusPatterns))
 	for _, pattern := range profile.FocusPatterns {
 		cp.boostPattern(pattern, 120)
 	}
 
 	// 2b. Boost docs scoped for this phase via topology planner
 	if scoped := cp.scopedDocsForPhase(phase.Name); len(scoped) > 0 {
+		logging.CampaignDebug("Boosting %d scoped documents for phase", len(scoped))
 		for _, doc := range scoped {
 			cp.kernel.Assert(core.Fact{
 				Predicate: "phase_context_atom",
@@ -91,6 +110,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 	}
 
 	// 3. Load phase context atoms
+	artifactCount := 0
 	for _, task := range phase.Tasks {
 		// Boost task artifacts
 		for _, artifact := range task.Artifacts {
@@ -98,22 +118,29 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 				Predicate: "phase_context_atom",
 				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 100},
 			})
+			artifactCount++
 		}
 	}
+	logging.CampaignDebug("Loaded %d artifact context atoms", artifactCount)
 
 	// 4. Suppress irrelevant schemas (negative activation)
 	allSchemas := []string{
 		"dom_node", "geometry", "interactable", "computed_style", // Browser
 		"vector_recall", // Memory (if not research phase)
 	}
+	suppressedCount := 0
 	for _, schema := range allSchemas {
 		if !contains(profile.RequiredSchemas, schema) {
 			cp.suppressSchema(schema)
+			suppressedCount++
 		}
 	}
+	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
 
 	// 5. Update usage estimate
 	cp.usedTokens = cp.estimatePhaseTokens(phase)
+	logging.Campaign("Phase context activated: %s (estimated tokens=%d, utilization=%.1f%%)",
+		phase.Name, cp.usedTokens, float64(cp.usedTokens)/float64(cp.totalBudget)*100)
 
 	return nil
 }
@@ -125,9 +152,15 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 		return "", 0, time.Time{}, nil
 	}
 
+	timer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("CompressPhase(%s)", phase.Name))
+	defer timer.Stop()
+
+	logging.Campaign("Compressing context for completed phase: %s", phase.Name)
+
 	// 1. Gather facts from this phase
 	phaseAtoms, err := cp.kernel.Query("phase_context_atom")
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to query phase atoms: %v", err)
 		return "", 0, time.Time{}, err
 	}
 
@@ -138,6 +171,7 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 			phaseFacts = append(phaseFacts, atom)
 		}
 	}
+	logging.CampaignDebug("Found %d context atoms for phase %s", len(phaseFacts), phase.ID)
 
 	// 2. Build summary of what was accomplished
 	var accomplishments []string
@@ -145,14 +179,16 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 		if task.Status == TaskCompleted {
 			accomplishments = append(accomplishments, fmt.Sprintf("- %s", task.Description))
 			for _, artifact := range task.Artifacts {
-				accomplishments = append(accomplishments, fmt.Sprintf("  → Created: %s", artifact.Path))
+				accomplishments = append(accomplishments, fmt.Sprintf("  -> Created: %s", artifact.Path))
 			}
 		}
 	}
+	logging.CampaignDebug("Phase accomplishments: %d completed tasks", len(accomplishments))
 
 	// 3. Use LLM to create concise summary if we have accomplishments
 	var summary string
 	if len(accomplishments) > 0 {
+		logging.CampaignDebug("Requesting LLM summary for phase compression")
 		prompt := fmt.Sprintf(`Summarize what was accomplished in this phase (max 100 words):
 
 Phase: %s
@@ -163,6 +199,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 
 		resp, err := cp.llmClient.Complete(ctx, prompt)
 		if err != nil {
+			logging.CampaignDebug("LLM summary failed, using fallback: %v", err)
 			// Fallback to simple summary
 			summary = fmt.Sprintf("Phase '%s' completed. %d tasks done: %s", phase.Name, len(accomplishments), strings.Join(accomplishments[:min(3, len(accomplishments))], "; "))
 		} else {
@@ -180,12 +217,14 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	})
 
 	// 4b. Retract phase-specific context atoms now that they've been compressed
+	logging.CampaignDebug("Retracting phase-specific context atoms")
 	_ = cp.kernel.RetractFact(core.Fact{
 		Predicate: "phase_context_atom",
 		Args:      []interface{}{phase.ID},
 	})
 
 	// 5. Reduce activation of phase-specific facts
+	logging.CampaignDebug("Reducing activation for %d phase-specific facts", len(phaseFacts))
 	for _, fact := range phaseFacts {
 		if len(fact.Args) >= 2 {
 			factPredicate := fmt.Sprintf("%v", fact.Args[1])
@@ -199,6 +238,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	// 6. Update compressed summary in the phase struct
 	// (This should be done by the orchestrator, not here)
 
+	logging.Campaign("Phase compressed: %s (atoms=%d, summary_len=%d)", phase.Name, len(phaseFacts), len(summary))
 	return summary, len(phaseFacts), now, nil
 }
 
@@ -208,6 +248,9 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 		limit = 3
 	}
 
+	logging.CampaignDebug("Prefetching context for next %d tasks (available=%d)", min(limit, len(tasks)), len(tasks))
+
+	prefetchedCount := 0
 	for i, task := range tasks {
 		if i >= limit {
 			break
@@ -219,17 +262,22 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 				Predicate: "activation",
 				Args:      []interface{}{fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 50},
 			})
+			prefetchedCount++
 		}
 	}
 
+	logging.CampaignDebug("Prefetched %d artifact hints", prefetchedCount)
 	return nil
 }
 
 // PruneIrrelevant removes facts not relevant to current phase.
 func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
+	logging.CampaignDebug("Pruning irrelevant facts based on context profile")
+
 	// Get all facts
 	allFacts, err := cp.kernel.QueryAll()
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to query all facts for pruning: %v", err)
 		return err
 	}
 
@@ -240,10 +288,12 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 
 	// Check if browser is needed
 	if contains(profile.RequiredSchemas, "browser") {
+		logging.CampaignDebug("Browser schema required, keeping browser facts")
 		irrelevantPredicates = []string{} // Keep browser facts
 	}
 
 	// Suppress irrelevant facts
+	suppressedCount := 0
 	for _, pred := range irrelevantPredicates {
 		if facts, ok := allFacts[pred]; ok {
 			for range facts {
@@ -251,10 +301,12 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 					Predicate: "activation",
 					Args:      []interface{}{pred, -200}, // Heavy suppression
 				})
+				suppressedCount++
 			}
 		}
 	}
 
+	logging.CampaignDebug("Pruned %d irrelevant facts", suppressedCount)
 	return nil
 }
 

@@ -4,6 +4,7 @@ package tester
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"sync"
@@ -281,6 +282,9 @@ Remember: This is a simulation. Describe the plan, don't execute it.`, task)
 //   - "regenerate_mocks file:PATH" (regenerate mocks for an interface)
 //   - "detect_stale_mocks file:PATH" (check for stale mocks in test file)
 func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) {
+	timer := logging.StartTimer(logging.CategoryTester, "Execute")
+	logging.Tester("Starting task execution: %s", task)
+
 	t.mu.Lock()
 	t.state = core.ShardStateRunning
 	t.startTime = time.Now()
@@ -291,60 +295,79 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 		t.mu.Lock()
 		t.state = core.ShardStateCompleted
 		t.mu.Unlock()
+		timer.StopWithInfo()
 	}()
 
 	// DREAM MODE: Only describe what we would do, don't execute
 	if t.config.SessionContext != nil && t.config.SessionContext.DreamMode {
+		logging.TesterDebug("DREAM MODE enabled, describing plan without execution")
 		return t.describeDreamPlan(ctx, task)
 	}
 
-	fmt.Printf("[TesterShard:%s] Starting task: %s\n", t.id, task)
+	logging.TesterDebug("[TesterShard:%s] Initializing for task", t.id)
 
 	// Initialize kernel if not set
 	if t.kernel == nil {
+		logging.TesterDebug("Creating new RealKernel instance")
 		t.kernel = core.NewRealKernel()
 	}
 	// Load tester-specific policy (only once to avoid duplicate Decl errors)
 	if !t.policyLoaded {
+		logging.TesterDebug("Loading tester.mg policy file")
 		_ = t.kernel.LoadPolicyFile("tester.mg")
 		t.policyLoaded = true
 	}
 
 	// Parse the task
+	parseTimer := logging.StartTimer(logging.CategoryTester, "ParseTask")
 	parsedTask, err := t.parseTask(task)
+	parseTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryTester).Error("Failed to parse task: %v", err)
 		return "", fmt.Errorf("failed to parse task: %w", err)
 	}
+	logging.Tester("Parsed task: action=%s, target=%s, function=%s",
+		parsedTask.Action, parsedTask.Target, parsedTask.Function)
 
 	// Assert initial facts to kernel
+	logging.TesterDebug("Asserting initial facts to kernel")
 	t.assertInitialFacts(parsedTask)
 
 	// Route to appropriate handler
 	var result *TestResult
+	logging.Tester("Routing to handler: %s", parsedTask.Action)
 	switch parsedTask.Action {
 	case "run_tests":
+		logging.TesterDebug("Executing run_tests handler")
 		result, err = t.runTests(ctx, parsedTask)
 	case "generate_tests":
+		logging.TesterDebug("Executing generate_tests handler")
 		return t.generateTests(ctx, parsedTask)
 	case "coverage":
+		logging.TesterDebug("Executing coverage handler")
 		result, err = t.runCoverage(ctx, parsedTask)
 	case "tdd":
+		logging.TesterDebug("Executing TDD loop handler")
 		result, err = t.runTDDLoop(ctx, parsedTask)
 	case "regenerate_mocks":
+		logging.TesterDebug("Executing regenerate_mocks handler")
 		return t.handleRegenerateMocks(ctx, parsedTask)
 	case "detect_stale_mocks":
+		logging.TesterDebug("Executing detect_stale_mocks handler")
 		return t.handleDetectStaleMocks(ctx, parsedTask)
 	default:
-		// Default to run_tests
+		logging.TesterDebug("Unknown action, defaulting to run_tests")
 		result, err = t.runTests(ctx, parsedTask)
 	}
 
 	if err != nil {
+		logging.Get(logging.CategoryTester).Error("Handler failed: %v", err)
 		return "", err
 	}
 
 	// Generate facts for propagation
 	facts := t.generateFacts(result)
+	logging.TesterDebug("Generated %d facts for propagation", len(facts))
 	for _, fact := range facts {
 		if t.kernel != nil {
 			_ = t.kernel.Assert(fact)
@@ -355,6 +378,9 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 	t.mu.Lock()
 	t.testHistory = append(t.testHistory, *result)
 	t.mu.Unlock()
+
+	logging.Tester("Task completed: passed=%v, coverage=%.1f%%, duration=%v, retries=%d",
+		result.Passed, result.Coverage, result.Duration, result.Retries)
 
 	// Format output
 	return t.formatResult(result), nil

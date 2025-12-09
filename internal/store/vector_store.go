@@ -5,6 +5,7 @@ package store
 import (
 	"bytes"
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -24,33 +25,46 @@ import (
 func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.embeddingEngine = engine
+
 	if engine != nil {
+		logging.Store("Setting embedding engine: %s (dimensions=%d)", engine.Name(), engine.Dimensions())
 		s.initVecIndex(engine.Dimensions())
 		s.backfillVecIndex(engine.Dimensions())
+	} else {
+		logging.StoreDebug("Embedding engine set to nil (keyword-only mode)")
 	}
+	s.embeddingEngine = engine
 }
 
 // StoreVectorWithEmbedding stores content with a real vector embedding.
 // This is the new method that replaces StoreVector for semantic search.
 func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content string, metadata map[string]interface{}) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreVectorWithEmbedding")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.embeddingEngine == nil {
-		// Fallback to keyword-based storage (backward compatible)
+		logging.StoreDebug("No embedding engine, falling back to keyword-only storage")
 		return s.storeVectorKeywordOnly(content, metadata)
 	}
+
+	logging.StoreDebug("Generating embedding for content (length=%d bytes)", len(content))
 
 	// Generate embedding
 	embeddingVec, err := s.embeddingEngine.Embed(ctx, content)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate embedding: %v", err)
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
+
+	logging.StoreDebug("Embedding generated: %d dimensions", len(embeddingVec))
 
 	// Serialize embedding as JSON
 	embeddingJSON, err := json.Marshal(embeddingVec)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to serialize embedding: %v", err)
 		return fmt.Errorf("failed to serialize embedding: %w", err)
 	}
 
@@ -61,6 +75,7 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 		content, string(embeddingJSON), string(metaJSON),
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store vector in SQLite: %v", err)
 		return err
 	}
 
@@ -71,8 +86,10 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 			"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
 			vecBlob, content, string(metaJSON),
 		)
+		logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
 	}
 
+	logging.StoreDebug("Vector stored successfully with embedding")
 	return nil
 }
 
@@ -90,9 +107,14 @@ func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]
 // VectorRecallSemantic performs true semantic search using cosine similarity.
 // This is the new method that replaces VectorRecall for semantic search.
 func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, limit int) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallSemantic")
+	defer timer.Stop()
+
 	if limit <= 0 {
 		limit = 10
 	}
+
+	logging.StoreDebug("Semantic vector recall: query=%q limit=%d", query, limit)
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
@@ -100,19 +122,25 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	s.mu.RUnlock()
 
 	if engine == nil {
-		// Fallback to keyword search
+		logging.StoreDebug("No embedding engine, falling back to keyword search")
 		return s.vectorRecallKeyword(query, limit)
 	}
 
 	// Generate query embedding
 	queryEmbedding, err := engine.Embed(ctx, query)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate query embedding: %v", err)
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
+	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
+
 	if vecEnabled {
+		logging.StoreDebug("Using sqlite-vec ANN search")
 		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
 	}
+
+	logging.StoreDebug("Using brute-force cosine similarity search")
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -121,6 +149,7 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 		"SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL",
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query vectors: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -187,14 +216,20 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 		results[i].Metadata["similarity"] = c.similarity
 	}
 
+	logging.StoreDebug("Semantic search returned %d results (searched %d candidates)", len(results), len(candidates))
 	return results, nil
 }
 
 // VectorRecallSemanticByPaths restricts search to a list of allowed paths (matched via metadata).
 func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query string, limit int, allowedPaths []string) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallSemanticByPaths")
+	defer timer.Stop()
+
 	if len(allowedPaths) == 0 {
 		return s.VectorRecallSemantic(ctx, query, limit)
 	}
+
+	logging.StoreDebug("Semantic vector recall by paths: query=%q limit=%d paths=%d", query, limit, len(allowedPaths))
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
@@ -206,6 +241,7 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 	}
 
 	if engine == nil {
+		logging.StoreDebug("No embedding engine, falling back to keyword search with path filter")
 		all, err := s.vectorRecallKeyword(query, limit*5)
 		if err != nil {
 			return nil, err
@@ -214,15 +250,18 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		if len(filtered) > limit {
 			filtered = filtered[:limit]
 		}
+		logging.StoreDebug("Path-filtered keyword search returned %d results", len(filtered))
 		return filtered, nil
 	}
 
 	queryEmbedding, err := engine.Embed(ctx, query)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for path search: %v", err)
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
 	if vecEnabled {
+		logging.StoreDebug("Using sqlite-vec ANN search with path filter")
 		return s.vectorRecallVec(queryEmbedding, limit, allowedPaths, "", nil)
 	}
 
@@ -297,9 +336,14 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 // VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
 // This reduces scanning cost when the store contains vectors from many campaigns.
 func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query string, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallSemanticFiltered")
+	defer timer.Stop()
+
 	if limit <= 0 {
 		limit = 10
 	}
+
+	logging.StoreDebug("Semantic vector recall with filter: query=%q limit=%d filter=%s=%v", query, limit, metaKey, metaValue)
 
 	s.mu.RLock()
 	engine := s.embeddingEngine
@@ -307,7 +351,7 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 	s.mu.RUnlock()
 
 	if engine == nil {
-		// Fallback to keyword search with filtering
+		logging.StoreDebug("No embedding engine, falling back to keyword search with metadata filter")
 		all, err := s.vectorRecallKeyword(query, limit*5)
 		if err != nil {
 			return nil, err
@@ -321,15 +365,18 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 		if len(filtered) > limit {
 			filtered = filtered[:limit]
 		}
+		logging.StoreDebug("Metadata-filtered keyword search returned %d results", len(filtered))
 		return filtered, nil
 	}
 
 	queryEmbedding, err := engine.Embed(ctx, query)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for filtered search: %v", err)
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
 	if vecEnabled {
+		logging.StoreDebug("Using sqlite-vec ANN search with metadata filter")
 		return s.vectorRecallVec(queryEmbedding, limit, nil, metaKey, metaValue)
 	}
 
@@ -475,12 +522,18 @@ func filterByPaths(entries []VectorEntry, paths []string) []VectorEntry {
 
 // vectorRecallVec performs ANN search via sqlite-vec when available.
 func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "vectorRecallVec")
+	defer timer.Stop()
+
 	if !s.vectorExt {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled for ANN search")
 		return nil, fmt.Errorf("sqlite-vec not enabled")
 	}
 	if limit <= 0 {
 		limit = 10
 	}
+
+	logging.StoreDebug("sqlite-vec ANN search: limit=%d, paths=%d, metaFilter=%s", limit, len(allowedPaths), metaKey)
 
 	queryBlob := encodeFloat32Slice(queryVec)
 
@@ -514,6 +567,7 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 	rows, err := s.db.Query(sqlStr, args...)
 	s.mu.RUnlock()
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -539,6 +593,7 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 		results = append(results, entry)
 	}
 
+	logging.StoreDebug("sqlite-vec ANN search returned %d results", len(results))
 	return results, nil
 }
 
@@ -547,9 +602,13 @@ func (s *LocalStore) initVecIndex(dim int) {
 	if dim <= 0 || s.db == nil {
 		return
 	}
+	logging.StoreDebug("Initializing sqlite-vec index with %d dimensions", dim)
 	stmt := fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(embedding float[%d], content TEXT, metadata TEXT)", dim)
 	if _, err := s.db.Exec(stmt); err == nil {
 		s.vectorExt = true
+		logging.Store("sqlite-vec index initialized successfully (dimensions=%d)", dim)
+	} else {
+		logging.Get(logging.CategoryStore).Warn("Failed to create sqlite-vec index: %v", err)
 	}
 }
 
@@ -564,36 +623,60 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	if !s.vectorExt || s.db == nil || dim <= 0 {
 		return
 	}
+
+	logging.StoreDebug("Starting backfill of existing embeddings into sqlite-vec index")
+
 	rows, err := s.db.Query("SELECT content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
 	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to query embeddings for backfill: %v", err)
 		return
 	}
 	defer rows.Close()
 
+	backfillCount := 0
+	skippedCount := 0
+
 	for rows.Next() {
 		var content, embeddingJSON, metaJSON string
 		if err := rows.Scan(&content, &embeddingJSON, &metaJSON); err != nil {
+			skippedCount++
 			continue
 		}
 		var embeddingVec []float32
 		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			skippedCount++
 			continue
 		}
 		if len(embeddingVec) != dim {
+			skippedCount++
 			continue
 		}
 		vecBlob := encodeFloat32Slice(embeddingVec)
-		_, _ = s.db.Exec(
+		_, err := s.db.Exec(
 			"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
 			vecBlob, content, metaJSON,
 		)
+		if err == nil {
+			backfillCount++
+		} else {
+			skippedCount++
+		}
+	}
+
+	if backfillCount > 0 || skippedCount > 0 {
+		logging.Store("Backfill complete: migrated=%d, skipped=%d", backfillCount, skippedCount)
 	}
 }
 
 // GetVectorStats returns statistics about stored vectors.
 func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetVectorStats")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Computing vector store statistics")
 
 	stats := make(map[string]interface{})
 
@@ -616,22 +699,30 @@ func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
 		stats["embedding_engine"] = "none (keyword search)"
 	}
 
+	logging.StoreDebug("Vector stats: total=%d, with_embeddings=%d, engine=%v", totalVectors, withEmbeddings, stats["embedding_engine"])
 	return stats, nil
 }
 
 // ReembedAllVectors regenerates embeddings for all vectors that don't have them.
 // Useful for migrating from keyword-only to embedding-based search.
 func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
+	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllVectors")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.embeddingEngine == nil {
+		logging.Get(logging.CategoryStore).Error("Cannot re-embed: no embedding engine configured")
 		return fmt.Errorf("no embedding engine configured")
 	}
+
+	logging.Store("Starting re-embedding of all vectors without embeddings")
 
 	// Fetch all vectors without embeddings
 	rows, err := s.db.Query("SELECT id, content FROM vectors WHERE embedding IS NULL")
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query vectors for re-embedding: %v", err)
 		return err
 	}
 	defer rows.Close()
@@ -651,14 +742,20 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	}
 
 	if len(vectors) == 0 {
-		return nil // Nothing to do
+		logging.StoreDebug("No vectors need re-embedding")
+		return nil
 	}
+
+	logging.Store("Found %d vectors to re-embed", len(vectors))
 
 	// Generate embeddings in batches
 	batchSize := 32
+	totalEmbedded := 0
 	for i := 0; i < len(vectors); i += batchSize {
 		end := int(math.Min(float64(i+batchSize), float64(len(vectors))))
 		batch := vectors[i:end]
+
+		logging.StoreDebug("Processing batch %d-%d of %d", i, end, len(vectors))
 
 		// Collect texts
 		texts := make([]string, len(batch))
@@ -669,6 +766,7 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 		// Generate embeddings
 		embeddings, err := s.embeddingEngine.EmbedBatch(ctx, texts)
 		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to generate batch embeddings: %v", err)
 			return fmt.Errorf("failed to generate batch embeddings: %w", err)
 		}
 
@@ -680,10 +778,13 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 				string(embeddingJSON), v.id,
 			)
 			if err != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
 				return fmt.Errorf("failed to update vector %d: %w", v.id, err)
 			}
+			totalEmbedded++
 		}
 	}
 
+	logging.Store("Re-embedding complete: %d vectors processed", totalEmbedded)
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 )
@@ -287,6 +288,13 @@ func NewVirtualStore(executor *tactile.SafeExecutor) *VirtualStore {
 
 // NewVirtualStoreWithConfig creates a new VirtualStore with custom config.
 func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualStoreConfig) *VirtualStore {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "NewVirtualStoreWithConfig")
+	defer timer.Stop()
+
+	logging.VirtualStore("Initializing VirtualStore with workingDir=%s", config.WorkingDir)
+	logging.VirtualStoreDebug("Config: allowedEnvVars=%v, allowedBinaries=%d",
+		config.AllowedEnvVars, len(config.AllowedBinaries))
+
 	vs := &VirtualStore{
 		executor:        executor,
 		workingDir:      config.WorkingDir,
@@ -305,12 +313,15 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 	// Initialize constitutional rules (safety layer)
 	vs.initConstitution()
 
+	logging.VirtualStore("VirtualStore initialized successfully")
 	return vs
 }
 
 // initModernExecutor sets up the modern tactile executor with audit logging.
 // This enables automatic fact generation for all command executions.
 func (v *VirtualStore) initModernExecutor() {
+	logging.VirtualStoreDebug("Initializing modern executor with audit logging")
+
 	// Create executor config
 	execConfig := tactile.DefaultExecutorConfig()
 	execConfig.DefaultWorkingDir = v.workingDir
@@ -332,6 +343,8 @@ func (v *VirtualStore) initModernExecutor() {
 
 	v.modernExecutor = composite
 	v.useModernExecutor = true
+
+	logging.VirtualStoreDebug("Modern executor initialized, audit logging enabled")
 }
 
 // injectTactileFact converts a tactile.Fact to core.Fact and injects to kernel.
@@ -341,6 +354,7 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
 	v.mu.RUnlock()
 
 	if kernel == nil {
+		logging.VirtualStoreDebug("Cannot inject tactile fact %s: no kernel configured", tf.Predicate)
 		return
 	}
 
@@ -350,7 +364,10 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
 		Args:      tf.Args,
 	}
 
-	_ = kernel.Assert(coreFact)
+	logging.VirtualStoreDebug("Injecting tactile fact: %s (args=%d)", tf.Predicate, len(tf.Args))
+	if err := kernel.Assert(coreFact); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to inject tactile fact %s: %v", tf.Predicate, err)
+	}
 }
 
 // EnableModernExecutor switches to the modern tactile executor.
@@ -381,18 +398,23 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	defer v.mu.Unlock()
 	v.kernel = k
 
+	logging.VirtualStore("Kernel attached to VirtualStore")
+
 	// Wire dreamer to the real kernel when available
 	if realKernel, ok := k.(*RealKernel); ok {
 		if v.dreamer == nil {
 			v.dreamer = NewDreamer(realKernel)
+			logging.VirtualStoreDebug("Dreamer created for speculative execution")
 		} else {
 			v.dreamer.SetKernel(realKernel)
+			logging.VirtualStoreDebug("Dreamer kernel updated")
 		}
 	}
 
 	// Also set kernel on tool registry
 	if v.toolRegistry != nil {
 		v.toolRegistry.SetKernel(k)
+		logging.VirtualStoreDebug("Tool registry kernel reference updated")
 	}
 }
 
@@ -401,6 +423,7 @@ func (v *VirtualStore) SetShardManager(sm *ShardManager) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.shardManager = sm
+	logging.VirtualStoreDebug("ShardManager attached to VirtualStore")
 }
 
 // SetCodeGraphClient sets the code graph integration client.
@@ -408,6 +431,7 @@ func (v *VirtualStore) SetCodeGraphClient(client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.codeGraph = client
+	logging.VirtualStoreDebug("CodeGraph MCP client attached")
 }
 
 // SetBrowserClient sets the browser integration client.
@@ -415,6 +439,7 @@ func (v *VirtualStore) SetBrowserClient(client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.browser = client
+	logging.VirtualStoreDebug("Browser MCP client attached")
 }
 
 // SetScraperClient sets the scraper integration client.
@@ -422,6 +447,7 @@ func (v *VirtualStore) SetScraperClient(client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.scraper = client
+	logging.VirtualStoreDebug("Scraper MCP client attached")
 }
 
 // SetCodeScope sets the Code DOM scope manager.
@@ -429,6 +455,7 @@ func (v *VirtualStore) SetCodeScope(scope CodeScope) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.codeScope = scope
+	logging.VirtualStoreDebug("CodeScope attached for Code DOM operations")
 }
 
 // SetFileEditor sets the file editor for line-based operations.
@@ -436,6 +463,7 @@ func (v *VirtualStore) SetFileEditor(editor FileEditor) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.fileEditor = editor
+	logging.VirtualStoreDebug("FileEditor attached for line-based file operations")
 }
 
 // SetToolExecutor sets the tool executor for generated tool execution.
@@ -444,9 +472,15 @@ func (v *VirtualStore) SetToolExecutor(executor ToolExecutor) {
 	defer v.mu.Unlock()
 	v.toolExecutor = executor
 
+	logging.VirtualStoreDebug("ToolExecutor attached for Ouroboros tool execution")
+
 	// Sync tools from executor to registry
 	if v.toolRegistry != nil && executor != nil {
-		_ = v.toolRegistry.SyncFromOuroboros(executor)
+		if err := v.toolRegistry.SyncFromOuroboros(executor); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("Failed to sync tools from Ouroboros: %v", err)
+		} else {
+			logging.VirtualStoreDebug("Tools synced from Ouroboros executor to registry")
+		}
 	}
 }
 
@@ -471,10 +505,18 @@ func (v *VirtualStore) RegisterTool(name, command, shardAffinity string) error {
 	v.mu.RUnlock()
 
 	if registry == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Cannot register tool %s: registry not initialized", name)
 		return fmt.Errorf("tool registry not initialized")
 	}
 
-	return registry.RegisterTool(name, command, shardAffinity)
+	logging.VirtualStore("Registering tool: name=%s, shardAffinity=%s", name, shardAffinity)
+	if err := registry.RegisterTool(name, command, shardAffinity); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register tool %s: %v", name, err)
+		return err
+	}
+
+	logging.VirtualStoreDebug("Tool %s registered successfully", name)
+	return nil
 }
 
 // GetToolsForShard returns all tools available for a specific shard type.
@@ -494,6 +536,9 @@ func (v *VirtualStore) GetToolsForShard(shardType string) []*Tool {
 // and syncs from the Ouroboros executor if available.
 // This should be called during session boot after the kernel is ready.
 func (v *VirtualStore) HydrateToolsFromDisk(nerdDir string) error {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateToolsFromDisk")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	registry := v.toolRegistry
 	kernel := v.kernel
@@ -501,8 +546,11 @@ func (v *VirtualStore) HydrateToolsFromDisk(nerdDir string) error {
 	v.mu.RUnlock()
 
 	if registry == nil {
+		logging.VirtualStoreDebug("HydrateToolsFromDisk: no registry, skipping")
 		return nil
 	}
+
+	logging.VirtualStore("Hydrating tools from disk: %s", nerdDir)
 
 	// Ensure kernel is set for fact injection
 	if kernel != nil {
@@ -512,13 +560,18 @@ func (v *VirtualStore) HydrateToolsFromDisk(nerdDir string) error {
 	// 1. Restore compiled tools from disk (.nerd/tools/.compiled/)
 	compiledDir := filepath.Join(nerdDir, "tools", ".compiled")
 	if err := registry.RestoreFromDisk(compiledDir); err != nil {
-		// Log but continue - don't fail on partial errors
-		_ = err
+		logging.Get(logging.CategoryVirtualStore).Warn("Partial error restoring tools from disk: %v", err)
+	} else {
+		logging.VirtualStoreDebug("Tools restored from compiled directory")
 	}
 
 	// 2. Sync from Ouroboros if tool executor exists
 	if executor != nil {
-		_ = registry.SyncFromOuroboros(executor)
+		if err := registry.SyncFromOuroboros(executor); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Warn("Failed to sync from Ouroboros: %v", err)
+		} else {
+			logging.VirtualStoreDebug("Tools synced from Ouroboros executor")
+		}
 	}
 
 	return nil
@@ -527,21 +580,33 @@ func (v *VirtualStore) HydrateToolsFromDisk(nerdDir string) error {
 // HydrateStaticTools loads static tool definitions into the registry.
 // This is used to hydrate tools from available_tools.json at session boot.
 func (v *VirtualStore) HydrateStaticTools(defs []StaticToolDef) error {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateStaticTools")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	registry := v.toolRegistry
 	kernel := v.kernel
 	v.mu.RUnlock()
 
 	if registry == nil {
+		logging.VirtualStoreDebug("HydrateStaticTools: no registry, skipping")
 		return nil
 	}
+
+	logging.VirtualStore("Hydrating %d static tool definitions", len(defs))
 
 	// Ensure kernel is set for fact injection
 	if kernel != nil {
 		registry.SetKernel(kernel)
 	}
 
-	return registry.RestoreFromStaticDefs(defs)
+	if err := registry.RestoreFromStaticDefs(defs); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to hydrate static tools: %v", err)
+		return err
+	}
+
+	logging.VirtualStoreDebug("Static tools hydrated successfully")
+	return nil
 }
 
 // SetLocalDB sets the knowledge database for virtual predicate queries.
@@ -549,6 +614,7 @@ func (v *VirtualStore) SetLocalDB(db *store.LocalStore) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.localDB = db
+	logging.VirtualStoreDebug("LocalDB (knowledge.db) attached for memory store queries")
 }
 
 // GetLocalDB returns the current knowledge database.
@@ -563,6 +629,7 @@ func (v *VirtualStore) SetLearningStore(ls *store.LearningStore) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.learningStore = ls
+	logging.VirtualStoreDebug("LearningStore attached for autopoiesis persistence")
 }
 
 // GetLearningStore returns the current learning database.
@@ -664,16 +731,26 @@ func (v *VirtualStore) checkConstitution(req ActionRequest) error {
 
 // RouteAction intercepts 'next_action' atoms and routes them to appropriate handlers.
 func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
+	defer timer.Stop()
+
+	logging.VirtualStore("Routing action: predicate=%s, args=%d", action.Predicate, len(action.Args))
+
 	// Parse the action fact
 	req, err := v.parseActionFact(action)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to parse action fact: %v", err)
 		return "", fmt.Errorf("failed to parse action fact: %w", err)
 	}
 
+	logging.VirtualStoreDebug("Parsed action: type=%s, target=%s", req.Type, req.Target)
+
 	// Speculative dreaming: block obviously unsafe actions before constitutional checks.
 	if v.dreamer != nil {
+		logging.VirtualStoreDebug("Running speculative dream simulation for action %s", req.Type)
 		dream := v.dreamer.SimulateAction(ctx, req)
 		if dream.Unsafe {
+			logging.Get(logging.CategoryVirtualStore).Warn("Action blocked by precognition: %s - %s", req.Type, dream.Reason)
 			v.injectFact(Fact{
 				Predicate: "dream_block",
 				Args: []interface{}{
@@ -689,6 +766,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Constitutional violation: %s on %s - %v", req.Type, req.Target, err)
 		v.injectFact(Fact{
 			Predicate: "security_violation",
 			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
@@ -700,6 +778,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	if v.kernel != nil {
 		permitted := v.checkKernelPermitted(string(req.Type))
 		if !permitted {
+			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)
 			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
 			v.injectFact(Fact{
 				Predicate: "security_violation",
@@ -710,8 +789,10 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	}
 
 	// Route to appropriate handler
+	logging.VirtualStoreDebug("Dispatching action %s to handler", req.Type)
 	result, err := v.executeAction(ctx, req)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Action execution failed: %s - %v", req.Type, err)
 		v.injectFact(Fact{
 			Predicate: "execution_error",
 			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
@@ -730,6 +811,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output},
 	})
 
+	logging.VirtualStore("Action %s completed: success=%v, output_len=%d", req.Type, result.Success, len(result.Output))
 	return result.Output, nil
 }
 
@@ -841,6 +923,9 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 
 // handleExecCmd executes a shell command safely.
 func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleExecCmd")
+	defer timer.Stop()
+
 	// Parse command details
 	binary := "bash"
 	args := []string{"-c", req.Target}
@@ -860,8 +945,12 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		timeout = t
 	}
 
+	logging.VirtualStore("Shell exec: binary=%s, timeout=%ds", binary, timeout)
+	logging.VirtualStoreDebug("Shell command target: %s", req.Target)
+
 	// Quick traversal guard on the command text itself
 	if strings.Contains(req.Target, "..") {
+		logging.Get(logging.CategoryVirtualStore).Warn("Path traversal detected in command: %s", req.Target)
 		return ActionResult{
 			Success: false,
 			Error:   "path traversal detected in command",
@@ -870,6 +959,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 	// Enforce binary allowlist (defense in depth)
 	if !v.isBinaryAllowed(binary) {
+		logging.Get(logging.CategoryVirtualStore).Warn("Binary not allowed: %s", binary)
 		return ActionResult{
 			Success: false,
 			Error:   fmt.Sprintf("binary %s not allowed", binary),
@@ -882,8 +972,11 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 	v.mu.RUnlock()
 
 	if useModern {
+		logging.VirtualStoreDebug("Using modern executor with audit logging")
 		return v.handleExecCmdModern(ctx, binary, args, timeout, req.SessionID)
 	}
+
+	logging.VirtualStoreDebug("Using legacy SafeExecutor")
 
 	// Legacy path using SafeExecutor
 	cmd := tactile.ShellCommand{
@@ -896,6 +989,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 	output, err := v.executor.Execute(ctx, cmd)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Shell command failed: %s - %v", binary, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -905,6 +999,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		}, nil // Return nil error but unsuccessful result
 	}
 
+	logging.VirtualStoreDebug("Shell command succeeded: output_len=%d", len(output))
 	return ActionResult{
 		Success: true,
 		Output:  output,
@@ -930,6 +1025,7 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 
 	result, err := v.modernExecutor.Execute(ctx, cmd)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Modern executor error: %s - %v", binary, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -954,6 +1050,10 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 		if result.IsNonZeroExit() {
 			actionResult.Error = fmt.Sprintf("exit code %d", result.ExitCode)
 		}
+		logging.Get(logging.CategoryVirtualStore).Warn("Shell command exit_code=%d, killed=%v", result.ExitCode, result.Killed)
+	} else {
+		logging.VirtualStoreDebug("Modern exec success: exit_code=%d, duration=%v, sandbox=%s",
+			result.ExitCode, result.Duration, result.SandboxUsed)
 	}
 
 	return actionResult, nil
@@ -961,10 +1061,14 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 
 // handleReadFile reads a file from disk.
 func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleReadFile")
+	defer timer.Stop()
+
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
 	path := v.resolvePath(req.Target)
+	logging.VirtualStoreDebug("Reading file: %s", path)
 
 	// Enforce max file size to prevent OOM (Bug #6 Fix)
 	const MaxFileSize = 100 * 1024 // 100KB limit for full content loading
@@ -1043,6 +1147,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 		})
 	}
 
+	logging.VirtualStore("File read: path=%s, size=%d, truncated=%v", path, info.Size(), truncated)
 	return ActionResult{
 		Success: true,
 		Output:  content,
@@ -1059,6 +1164,8 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 // handleReadDirectory reads a directory and returns a summary of its contents.
 // This is called when handleReadFile detects the target is a directory.
 func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) (ActionResult, error) {
+	logging.VirtualStoreDebug("Reading directory: %s", dirPath)
+
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
@@ -1133,6 +1240,9 @@ func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) 
 
 // handleWriteFile writes content to a file.
 func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleWriteFile")
+	defer timer.Stop()
+
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
@@ -1140,12 +1250,16 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 
 	content, ok := req.Payload["content"].(string)
 	if !ok {
+		logging.Get(logging.CategoryVirtualStore).Error("write_file missing content in payload")
 		return ActionResult{}, fmt.Errorf("write_file requires 'content' in payload")
 	}
+
+	logging.VirtualStoreDebug("Writing file: %s (%d bytes)", path, len(content))
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to create directory %s: %v", dir, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1154,6 +1268,7 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 
 	err := os.WriteFile(path, []byte(content), 0644)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to write file %s: %v", path, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1163,6 +1278,7 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		}, nil
 	}
 
+	logging.VirtualStore("File written: path=%s, bytes=%d", path, len(content))
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Written %d bytes to %s", len(content), path),
@@ -1175,6 +1291,9 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 
 // handleEditFile performs a search-and-replace edit on a file.
 func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleEditFile")
+	defer timer.Stop()
+
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
@@ -1182,16 +1301,21 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 
 	oldContent, ok := req.Payload["old"].(string)
 	if !ok {
+		logging.Get(logging.CategoryVirtualStore).Error("edit_file missing 'old' in payload")
 		return ActionResult{}, fmt.Errorf("edit_file requires 'old' in payload")
 	}
 	newContent, ok := req.Payload["new"].(string)
 	if !ok {
+		logging.Get(logging.CategoryVirtualStore).Error("edit_file missing 'new' in payload")
 		return ActionResult{}, fmt.Errorf("edit_file requires 'new' in payload")
 	}
+
+	logging.VirtualStoreDebug("Editing file: %s (old_len=%d, new_len=%d)", path, len(oldContent), len(newContent))
 
 	// Read existing file
 	data, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to read file for edit %s: %v", path, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1200,6 +1324,7 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 
 	content := string(data)
 	if !strings.Contains(content, oldContent) {
+		logging.Get(logging.CategoryVirtualStore).Warn("Edit failed: pattern not found in %s", path)
 		return ActionResult{
 			Success: false,
 			Error:   "old content not found in file",
@@ -1215,12 +1340,14 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 	// Write back
 	err = os.WriteFile(path, []byte(newFileContent), 0644)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to write edited file %s: %v", path, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
 		}, nil
 	}
 
+	logging.VirtualStore("File edited: %s", path)
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Edited %s", path),
@@ -1238,9 +1365,12 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 	}
 	path := v.resolvePath(req.Target)
 
+	logging.VirtualStoreDebug("Delete file requested: %s", path)
+
 	// Require confirmation flag for safety
 	confirmed, _ := req.Payload["confirmed"].(bool)
 	if !confirmed {
+		logging.Get(logging.CategoryVirtualStore).Warn("Delete blocked: no confirmation for %s", path)
 		return ActionResult{
 			Success: false,
 			Error:   "delete_file requires 'confirmed: true' in payload",
@@ -1252,12 +1382,14 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 
 	err := os.Remove(path)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to delete file %s: %v", path, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
 		}, nil
 	}
 
+	logging.VirtualStore("File deleted: %s", path)
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Deleted %s", path),
@@ -1269,11 +1401,15 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 
 // handleSearchCode searches for code patterns using code-graph integration.
 func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleSearchCode")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	codeGraph := v.codeGraph
 	v.mu.RUnlock()
 
 	if codeGraph == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Code graph MCP client not configured")
 		return ActionResult{Success: false, Error: "code graph integration not configured"}, nil
 	}
 
@@ -1289,8 +1425,10 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 		args["scope"] = scope
 	}
 
+	logging.VirtualStore("MCP call: code-graph search, pattern=%s", pattern)
 	result, err := codeGraph.CallTool(ctx, "search", args)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("MCP code-graph search failed: %v", err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1314,6 +1452,7 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 		}
 	}
 
+	logging.VirtualStoreDebug("MCP search returned %d results", len(facts))
 	output, _ := json.Marshal(result)
 	return ActionResult{
 		Success:    true,
@@ -1324,11 +1463,16 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 
 // handleRunTests executes the test suite.
 func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleRunTests")
+	defer timer.Stop()
+
 	// Determine test command based on project type
 	testCmd := "go test ./..."
 	if cmd, ok := req.Payload["command"].(string); ok {
 		testCmd = cmd
 	}
+
+	logging.VirtualStore("Running tests: %s", testCmd)
 
 	cmd := tactile.ShellCommand{
 		Binary:           "bash",
@@ -1344,6 +1488,9 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 	testState := "/passing"
 	if !success {
 		testState = "/failing"
+		logging.Get(logging.CategoryVirtualStore).Warn("Tests failed: %v", err)
+	} else {
+		logging.VirtualStore("Tests passed")
 	}
 
 	return ActionResult{
@@ -1359,10 +1506,15 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 
 // handleBuildProject builds the project.
 func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBuildProject")
+	defer timer.Stop()
+
 	buildCmd := "go build ./..."
 	if cmd, ok := req.Payload["command"].(string); ok {
 		buildCmd = cmd
 	}
+
+	logging.VirtualStore("Building project: %s", buildCmd)
 
 	cmd := tactile.ShellCommand{
 		Binary:           "bash",
@@ -1381,10 +1533,14 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 
 	// Parse diagnostics from output
 	if !success {
+		logging.Get(logging.CategoryVirtualStore).Warn("Build failed: %v", err)
 		diagnostics := v.parseBuildDiagnostics(output)
+		logging.VirtualStoreDebug("Parsed %d diagnostics from build output", len(diagnostics))
 		for _, d := range diagnostics {
 			facts = append(facts, d)
 		}
+	} else {
+		logging.VirtualStore("Build succeeded")
 	}
 
 	return ActionResult{
@@ -1397,6 +1553,9 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 
 // handleGitOperation performs git operations.
 func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleGitOperation")
+	defer timer.Stop()
+
 	operation := req.Target
 	args := []string{operation}
 
@@ -1405,6 +1564,8 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 			args = append(args, fmt.Sprintf("%v", a))
 		}
 	}
+
+	logging.VirtualStore("Git operation: %s %v", operation, args[1:])
 
 	cmd := tactile.ShellCommand{
 		Binary:           "git",
@@ -1415,6 +1576,12 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 	}
 
 	output, err := v.executor.Execute(ctx, cmd)
+
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Git %s failed: %v", operation, err)
+	} else {
+		logging.VirtualStoreDebug("Git %s succeeded", operation)
+	}
 
 	return ActionResult{
 		Success: err == nil,
@@ -1474,11 +1641,15 @@ func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionReques
 
 // handleBrowse performs browser automation via BrowserNERD.
 func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBrowse")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	browser := v.browser
 	v.mu.RUnlock()
 
 	if browser == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Browser MCP client not configured")
 		return ActionResult{Success: false, Error: "browser integration not configured"}, nil
 	}
 
@@ -1487,6 +1658,8 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 	if sessionID == "" {
 		sessionID = "default"
 	}
+
+	logging.VirtualStore("MCP call: browser %s, session=%s", operation, sessionID)
 
 	var output string
 	var err error
@@ -1541,16 +1714,19 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 		output = fmt.Sprintf("Typed into %s", selector)
 
 	default:
+		logging.Get(logging.CategoryVirtualStore).Warn("Unknown browse operation: %s", operation)
 		return ActionResult{Success: false, Error: fmt.Sprintf("unknown browse operation: %s", operation)}, nil
 	}
 
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Browser %s failed: %v", operation, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
 		}, nil
 	}
 
+	logging.VirtualStoreDebug("Browser %s completed: %s", operation, output)
 	return ActionResult{
 		Success:    true,
 		Output:     output,
@@ -1560,11 +1736,15 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 
 // handleResearch performs deep research via scraper service.
 func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	scraper := v.scraper
 	v.mu.RUnlock()
 
 	if scraper == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Scraper MCP client not configured")
 		return ActionResult{Success: false, Error: "scraper integration not configured"}, nil
 	}
 
@@ -1582,8 +1762,10 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 		args["max_pages"] = maxPages
 	}
 
+	logging.VirtualStore("MCP call: scraper deep-research, query=%s", req.Target)
 	result, err := scraper.CallTool(ctx, "deep-research", args)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("MCP scraper deep-research failed: %v", err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1609,6 +1791,7 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 		}
 	}
 
+	logging.VirtualStoreDebug("Research returned %d knowledge atoms", len(facts))
 	output, _ := json.Marshal(result)
 	return ActionResult{
 		Success:    true,
@@ -1619,19 +1802,26 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 
 // handleDelegate delegates a task to a ShardAgent.
 func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleDelegate")
+	defer timer.Stop()
+
 	v.mu.RLock()
 	sm := v.shardManager
 	v.mu.RUnlock()
 
 	if sm == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("ShardManager not configured for delegation")
 		return ActionResult{Success: false, Error: "shard manager not configured"}, nil
 	}
 
 	shardType := req.Target
 	task, _ := req.Payload["task"].(string)
 
+	logging.VirtualStore("Delegating to shard: type=%s, task_len=%d", shardType, len(task))
+
 	result, err := sm.Spawn(ctx, shardType, task)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Shard delegation failed: %s - %v", shardType, err)
 		return ActionResult{
 			Success: false,
 			Error:   err.Error(),
@@ -1641,6 +1831,7 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
+	logging.VirtualStore("Shard delegation completed: type=%s, result_len=%d", shardType, len(result))
 	return ActionResult{
 		Success: true,
 		Output:  result,
@@ -2285,6 +2476,9 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 
 // handleExecTool executes a generated tool from the Ouroboros registry.
 func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleExecTool")
+	defer timer.Stop()
+
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
@@ -2295,6 +2489,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 	v.mu.RUnlock()
 
 	if toolExec == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Tool executor not configured")
 		return ActionResult{
 			Success: false,
 			Error:   "tool executor not configured",
@@ -2307,6 +2502,8 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 	toolName := req.Target
 	input, _ := req.Payload["input"].(string)
 
+	logging.VirtualStore("Executing tool: %s (input_len=%d)", toolName, len(input))
+
 	// Check if tool exists in registry first
 	var registeredTool *Tool
 	if registry != nil {
@@ -2316,6 +2513,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 	// Check if tool exists in executor
 	toolInfo, exists := toolExec.GetTool(toolName)
 	if !exists {
+		logging.Get(logging.CategoryVirtualStore).Warn("Tool not found: %s", toolName)
 		return ActionResult{
 			Success: false,
 			Error:   fmt.Sprintf("tool not found: %s", toolName),
@@ -2334,6 +2532,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 	}
 
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Tool execution failed: %s - %v", toolName, err)
 		return ActionResult{
 			Success: false,
 			Output:  output, // Might have partial output
@@ -2355,6 +2554,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 		metadata["command"] = registeredTool.Command
 	}
 
+	logging.VirtualStore("Tool %s executed successfully: output_len=%d", toolName, len(output))
 	return ActionResult{
 		Success:  true,
 		Output:   output,
@@ -2464,16 +2664,20 @@ func (a *TactileFileEditorAdapter) convertResult(r *tactile.FileResult) *FileEdi
 // QueryLearned queries cold_storage for learned facts by predicate name.
 // Implements: query_learned(Predicate, Args) Bound
 func (v *VirtualStore) QueryLearned(predicate string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryLearned: predicate=%s", predicate)
+
 	v.mu.RLock()
 	db := v.localDB
 	v.mu.RUnlock()
 
 	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryLearned: no knowledge database configured")
 		return nil, fmt.Errorf("no knowledge database configured")
 	}
 
 	storedFacts, err := db.LoadFacts(predicate)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryLearned failed: %v", err)
 		return nil, fmt.Errorf("failed to query learned facts: %w", err)
 	}
 
@@ -2484,12 +2688,16 @@ func (v *VirtualStore) QueryLearned(predicate string) ([]Fact, error) {
 			Args:      sf.Args,
 		})
 	}
+
+	logging.VirtualStoreDebug("QueryLearned: found %d facts for predicate %s", len(facts), predicate)
 	return facts, nil
 }
 
 // QueryAllLearned queries all facts from cold_storage.
 // Returns facts grouped by fact_type (preference, constraint, fact).
 func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryAllLearned: factType=%s", factType)
+
 	v.mu.RLock()
 	db := v.localDB
 	v.mu.RUnlock()
@@ -2500,6 +2708,7 @@ func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
 
 	storedFacts, err := db.LoadAllFacts(factType)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryAllLearned failed: %v", err)
 		return nil, fmt.Errorf("failed to query all learned facts: %w", err)
 	}
 
@@ -2510,6 +2719,8 @@ func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
 			Args:      sf.Args,
 		})
 	}
+
+	logging.VirtualStoreDebug("QueryAllLearned: found %d facts of type %s", len(facts), factType)
 	return facts, nil
 }
 
@@ -2517,11 +2728,14 @@ func (v *VirtualStore) QueryAllLearned(factType string) ([]Fact, error) {
 // This is used to mirror on-disk/AST projections into the learning store so
 // HydrateLearnings can re-assert them for Mangle logic.
 func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, priority int) error {
+	logging.VirtualStoreDebug("PersistFactsToKnowledge: %d facts, type=%s, priority=%d", len(facts), factType, priority)
+
 	v.mu.RLock()
 	db := v.localDB
 	v.mu.RUnlock()
 
 	if db == nil {
+		logging.VirtualStoreDebug("PersistFactsToKnowledge: no database, skipping")
 		return nil
 	}
 	if factType == "" {
@@ -2533,14 +2747,19 @@ func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, pr
 
 	for _, f := range facts {
 		if err := db.StoreFact(f.Predicate, f.Args, factType, priority); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to persist fact %s: %v", f.Predicate, err)
 			return fmt.Errorf("persist fact %s: %w", f.Predicate, err)
 		}
 	}
+
+	logging.VirtualStoreDebug("PersistFactsToKnowledge: persisted %d facts", len(facts))
 	return nil
 }
 
 // PersistLink stores a relationship into the knowledge graph table.
 func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight float64, meta map[string]interface{}) error {
+	logging.VirtualStoreDebug("PersistLink: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
+
 	v.mu.RLock()
 	db := v.localDB
 	v.mu.RUnlock()
@@ -2551,7 +2770,13 @@ func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight flo
 	if weight <= 0 {
 		weight = 1.0
 	}
-	return db.StoreLink(entityA, relation, entityB, weight, meta)
+
+	if err := db.StoreLink(entityA, relation, entityB, weight, meta); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to persist link: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 // QueryKnowledgeGraph queries the knowledge graph for entity relationships.
@@ -2683,15 +2908,22 @@ func toAtomOrString(v interface{}) interface{} {
 // the kernel with knowledge_link facts. This can be called independently or as part
 // of HydrateLearnings for targeted knowledge graph updates.
 func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateKnowledgeGraph")
+	defer timer.Stop()
+
+	logging.VirtualStoreDebug("HydrateKnowledgeGraph: starting")
+
 	v.mu.RLock()
 	db := v.localDB
 	kernel := v.kernel
 	v.mu.RUnlock()
 
 	if db == nil {
+		logging.VirtualStoreDebug("HydrateKnowledgeGraph: no database, skipping")
 		return 0, nil // No database, nothing to hydrate
 	}
 	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateKnowledgeGraph: no kernel configured")
 		return 0, fmt.Errorf("no kernel configured")
 	}
 
@@ -2711,24 +2943,33 @@ func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
 	// Delegate to LocalStore's HydrateKnowledgeGraph
 	count, err := db.HydrateKnowledgeGraph(assertFunc)
 	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateKnowledgeGraph failed: %v", err)
 		return 0, fmt.Errorf("failed to hydrate knowledge graph: %w", err)
 	}
 
+	logging.VirtualStoreDebug("HydrateKnowledgeGraph: hydrated %d links", count)
 	return count, nil
 }
 
 // HydrateLearnings loads all learned facts from knowledge.db and asserts them into the kernel.
 // This should be called during OODA Observe phase to make learned knowledge available to rules.
 func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateLearnings")
+	defer timer.Stop()
+
+	logging.VirtualStore("Hydrating learnings from knowledge.db")
+
 	v.mu.RLock()
 	db := v.localDB
 	kernel := v.kernel
 	v.mu.RUnlock()
 
 	if db == nil {
+		logging.VirtualStoreDebug("HydrateLearnings: no database, skipping")
 		return 0, nil // No database, nothing to hydrate
 	}
 	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateLearnings: no kernel configured")
 		return 0, fmt.Errorf("no kernel configured")
 	}
 
@@ -2805,5 +3046,6 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 		}
 	}
 
+	logging.VirtualStore("HydrateLearnings completed: %d facts hydrated", count)
 	return count, nil
 }

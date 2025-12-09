@@ -2,12 +2,15 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ElementType defines the semantic type of a code element.
@@ -130,6 +133,7 @@ type CodeElementParser struct {
 
 // NewCodeElementParser creates a new CodeElementParser.
 func NewCodeElementParser() *CodeElementParser {
+	logging.WorldDebug("Creating new CodeElementParser")
 	return &CodeElementParser{
 		fileCache: make(map[string][]string),
 	}
@@ -137,15 +141,20 @@ func NewCodeElementParser() *CodeElementParser {
 
 // ParseFile parses a Go file and returns all code elements.
 func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
+	start := time.Now()
+	logging.WorldDebug("CodeElementParser: parsing file: %s", filepath.Base(path))
+
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("CodeElementParser: parse failed: %s - %v", path, err)
 		return nil, err
 	}
 
 	// Cache file content for body extraction
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("CodeElementParser: read failed: %s - %v", path, err)
 		return nil, err
 	}
 	lines := strings.Split(string(content), "\n")
@@ -153,6 +162,7 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 
 	var elements []CodeElement
 	pkgName := node.Name.Name
+	logging.WorldDebug("CodeElementParser: package=%s, %d lines for %s", pkgName, len(lines), filepath.Base(path))
 
 	// Default actions for all elements
 	defaultActions := []ActionType{ActionView, ActionReplace, ActionInsertBefore, ActionInsertAfter, ActionDelete}
@@ -161,6 +171,7 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 	structRefs := make(map[string]string) // receiver name -> struct ref
 
 	// First pass: collect all struct names
+	var structCount int
 	for _, decl := range node.Decls {
 		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
 			for _, spec := range genDecl.Specs {
@@ -169,25 +180,36 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 						name := typeSpec.Name.Name
 						ref := fmt.Sprintf("struct:%s.%s", pkgName, name)
 						structRefs[name] = ref
+						structCount++
 					}
 				}
 			}
 		}
 	}
+	logging.WorldDebug("CodeElementParser: found %d struct types", structCount)
 
 	// Process all declarations
+	var funcCount, methodCount, typeCount int
 	for _, decl := range node.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			elem := p.parseFuncDecl(fset, d, path, pkgName, lines, structRefs, defaultActions)
 			elements = append(elements, elem)
+			if elem.Type == ElementMethod {
+				methodCount++
+			} else {
+				funcCount++
+			}
 
 		case *ast.GenDecl:
 			elems := p.parseGenDecl(fset, d, path, pkgName, lines, defaultActions)
 			elements = append(elements, elems...)
+			typeCount += len(elems)
 		}
 	}
 
+	logging.WorldDebug("CodeElementParser: parsed %s - %d elements (funcs=%d, methods=%d, types=%d) in %v",
+		filepath.Base(path), len(elements), funcCount, methodCount, typeCount, time.Since(start))
 	return elements, nil
 }
 

@@ -2,6 +2,7 @@ package coder
 
 import (
 	"codenerd/internal/articulation"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
@@ -13,24 +14,41 @@ import (
 
 // generateCode uses LLM to generate code based on the task and context.
 func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileContext string) (*CoderResult, error) {
+	logging.CoderDebug("generateCode: action=%s, target=%s", task.Action, task.Target)
+
 	if c.llmClient == nil {
+		logging.Get(logging.CategoryCoder).Error("No LLM client configured")
 		return nil, fmt.Errorf("no LLM client configured")
 	}
 
 	// Build system prompt
+	logging.CoderDebug("Building system prompt for language detection on: %s", task.Target)
 	systemPrompt := c.buildSystemPrompt(task)
+	logging.CoderDebug("System prompt length: %d chars", len(systemPrompt))
 
 	// Build user prompt
 	userPrompt := c.buildUserPrompt(task, fileContext)
+	logging.CoderDebug("User prompt length: %d chars (file context: %d chars)", len(userPrompt), len(fileContext))
 
 	// Call LLM with retry
+	llmTimer := logging.StartTimer(logging.CategoryCoder, "LLM.Complete")
 	response, err := c.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	llmTimer.StopWithInfo()
 	if err != nil {
+		logging.Get(logging.CategoryCoder).Error("LLM request failed after retries: %v", err)
 		return nil, fmt.Errorf("LLM request failed after retries: %w", err)
 	}
+	logging.CoderDebug("LLM response length: %d chars", len(response))
 
 	// Parse response into edits
+	logging.CoderDebug("Parsing LLM response into edits")
 	edits := c.parseCodeResponse(response, task)
+	logging.Coder("Parsed %d edits from LLM response", len(edits))
+
+	for i, edit := range edits {
+		logging.CoderDebug("Edit[%d]: type=%s, file=%s, language=%s, content_len=%d",
+			i, edit.Type, edit.File, edit.Language, len(edit.NewContent))
+	}
 
 	result := &CoderResult{
 		Summary: fmt.Sprintf("%s: %s (%d edits)", task.Action, task.Target, len(edits)),

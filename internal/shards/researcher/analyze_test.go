@@ -26,43 +26,43 @@ func TestExtractWorkspacePath(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		task     string
+		name      string
+		task      string
 		wantEmpty bool // true if we expect empty string (fallback to cwd)
 	}{
 		{
-			name:     "empty task",
-			task:     "",
+			name:      "empty task",
+			task:      "",
 			wantEmpty: false, // returns "" which triggers cwd fallback
 		},
 		{
-			name:     "dot task",
-			task:     ".",
+			name:      "dot task",
+			task:      ".",
 			wantEmpty: false, // returns "." which triggers cwd fallback
 		},
 		{
-			name:     "review file with invalid path",
-			task:     "review file:nonexistent/path",
+			name:      "review file with invalid path",
+			task:      "review file:nonexistent/path",
 			wantEmpty: true, // should return "" because path doesn't exist
 		},
 		{
-			name:     "research command with analyze keyword",
-			task:     "research: analyze the codebase for proper API usage",
+			name:      "research command with analyze keyword",
+			task:      "research: analyze the codebase for proper API usage",
 			wantEmpty: true, // not a valid path, should return ""
 		},
 		{
-			name:     "security scan command",
-			task:     "security_scan files:a.go,b.go",
+			name:      "security scan command",
+			task:      "security_scan files:a.go,b.go",
 			wantEmpty: true, // comma-separated files, not a directory
 		},
 		{
-			name:     "plain text research query",
-			task:     "how to implement authentication in Go",
+			name:      "plain text research query",
+			task:      "how to implement authentication in Go",
 			wantEmpty: true, // not a path at all
 		},
 		{
-			name:     "valid directory directly",
-			task:     tmpDir,
+			name:      "valid directory directly",
+			task:      tmpDir,
 			wantEmpty: false,
 		},
 	}
@@ -95,8 +95,8 @@ func TestExtractWorkspacePathWithRealAutopoiesisDir(t *testing.T) {
 	// The key is that command-style tasks with "file:" prefix get parsed correctly
 
 	testCases := []struct {
-		task     string
-		desc     string
+		task string
+		desc string
 	}{
 		{"review file:internal/autopoiesis", "review with file: prefix"},
 		{"security_scan file:src/main.go", "security scan with file: prefix"},

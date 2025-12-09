@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -74,9 +76,10 @@ type ToolGenerator struct {
 
 // NewToolGenerator creates a new tool generator
 func NewToolGenerator(client LLMClient, toolsDir string) *ToolGenerator {
+	logging.AutopoiesisDebug("Creating ToolGenerator: toolsDir=%s", toolsDir)
 	return &ToolGenerator{
-		client:       client,
-		toolsDir:     toolsDir,
+		client:        client,
+		toolsDir:      toolsDir,
 		existingTools: make(map[string]ToolSchema),
 	}
 }
@@ -120,6 +123,11 @@ var (
 
 // DetectToolNeed analyzes input to determine if a new tool is needed
 func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, failedAttempt string) (*ToolNeed, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "DetectToolNeed")
+	defer timer.Stop()
+
+	logging.AutopoiesisDebug("Detecting tool need from input (%d chars)", len(input))
+
 	lower := strings.ToLower(input)
 
 	// Check if input suggests missing capability
@@ -137,11 +145,15 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 	if failedAttempt != "" {
 		needsNewTool = true
 		triggers = append(triggers, "Previous attempt failed")
+		logging.AutopoiesisDebug("Tool need triggered by failed attempt")
 	}
 
 	if !needsNewTool {
+		logging.AutopoiesisDebug("No tool need detected from input")
 		return nil, nil // No tool need detected
 	}
+
+	logging.AutopoiesisDebug("Tool need detected with %d triggers", len(triggers))
 
 	// Determine tool type from patterns
 	toolType := "utility" // default
@@ -153,10 +165,13 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 			}
 		}
 	}
+	logging.AutopoiesisDebug("Detected tool type: %s", toolType)
 
 	// Use LLM to refine the tool need
+	logging.Autopoiesis("Refining tool need with LLM for type=%s", toolType)
 	need, err := tg.refineToolNeedWithLLM(ctx, input, failedAttempt, toolType, triggers)
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("LLM refinement failed: %v, using heuristic fallback", err)
 		// Fall back to heuristic-based need
 		return &ToolNeed{
 			Name:       fmt.Sprintf("%s_tool", toolType),
@@ -170,6 +185,7 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 		}, nil
 	}
 
+	logging.Autopoiesis("Tool need refined: name=%s, confidence=%.2f", need.Name, need.Confidence)
 	return need, nil
 }
 
@@ -239,14 +255,28 @@ JSON only:`, input, failedAttempt, toolType, triggers, tg.listExistingTools())
 
 // GenerateTool creates a new tool based on the detected need
 func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*GeneratedTool, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "GenerateTool")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Generating tool: %s (purpose: %s)", need.Name, need.Purpose)
+	logging.AutopoiesisDebug("Tool specs: input=%s, output=%s, confidence=%.2f",
+		need.InputType, need.OutputType, need.Confidence)
+
 	// Generate the tool code using LLM
+	logging.AutopoiesisDebug("Generating tool code via LLM")
+	codeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeGeneration")
 	code, err := tg.generateToolCode(ctx, need)
+	codeTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to generate tool code: %v", err)
 		return nil, fmt.Errorf("failed to generate tool code: %w", err)
 	}
+	logging.AutopoiesisDebug("Generated tool code: %d bytes", len(code))
 
 	// Generate test code (always succeeds - has internal fallbacks)
+	logging.AutopoiesisDebug("Generating test code")
 	testCode, _ := tg.generateTestCode(ctx, need, code)
+	logging.AutopoiesisDebug("Generated test code: %d bytes", len(testCode))
 
 	// Generate schema
 	schema := tg.generateSchema(need)
@@ -266,12 +296,17 @@ func (tg *ToolGenerator) GenerateTool(ctx context.Context, need *ToolNeed) (*Gen
 	}
 
 	// Validate the generated code
+	logging.AutopoiesisDebug("Validating generated code")
 	if err := tg.validateCode(tool); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Code validation warning: %v", err)
 		tool.Errors = append(tool.Errors, err.Error())
 	} else {
 		tool.Validated = true
+		logging.AutopoiesisDebug("Code validation passed")
 	}
 
+	logging.Autopoiesis("Tool generated successfully: %s (validated=%v, warnings=%d)",
+		tool.Name, tool.Validated, len(tool.Errors))
 	return tool, nil
 }
 
@@ -283,6 +318,15 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 	previousTool *GeneratedTool,
 	violations []SafetyViolation,
 ) (*GeneratedTool, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "RegenerateWithFeedback")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Regenerating tool with feedback: %s (%d violations to address)",
+		need.Name, len(violations))
+	for i, v := range violations {
+		logging.AutopoiesisDebug("  Violation %d: type=%s, desc=%s", i+1, v.Type.String(), v.Description)
+	}
+
 	// Format violations for LLM feedback
 	feedback := FormatViolationsForFeedback(violations)
 
@@ -297,12 +341,19 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 		Confidence: need.Confidence * 0.9, // Reduce confidence on retry
 		Reasoning:  need.Reasoning,
 	}
+	logging.AutopoiesisDebug("Reduced confidence from %.2f to %.2f on retry",
+		need.Confidence, enhancedNeed.Confidence)
 
 	// Generate new code with feedback-aware system prompt
+	logging.AutopoiesisDebug("Regenerating code with safety feedback")
+	regenTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMCodeRegeneration")
 	code, err := tg.regenerateToolCodeWithFeedback(ctx, enhancedNeed, previousTool.Code, feedback)
+	regenTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to regenerate tool code: %v", err)
 		return nil, fmt.Errorf("failed to regenerate tool code: %w", err)
 	}
+	logging.AutopoiesisDebug("Regenerated tool code: %d bytes", len(code))
 
 	// Generate test code (always succeeds - has internal fallbacks)
 	testCode, _ := tg.generateTestCode(ctx, enhancedNeed, code)
@@ -325,12 +376,16 @@ func (tg *ToolGenerator) RegenerateWithFeedback(
 	}
 
 	// Validate the generated code
+	logging.AutopoiesisDebug("Validating regenerated code")
 	if err := tg.validateCode(tool); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Regenerated code validation warning: %v", err)
 		tool.Errors = append(tool.Errors, err.Error())
 	} else {
 		tool.Validated = true
+		logging.AutopoiesisDebug("Regenerated code validation passed")
 	}
 
+	logging.Autopoiesis("Tool regenerated: %s (validated=%v)", tool.Name, tool.Validated)
 	return tool, nil
 }
 

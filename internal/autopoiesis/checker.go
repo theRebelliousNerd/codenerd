@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 )
 
@@ -98,11 +99,18 @@ const (
 
 // NewSafetyChecker creates a new safety checker backed by the Mangle policy.
 func NewSafetyChecker(config OuroborosConfig) *SafetyChecker {
+	logging.AutopoiesisDebug("Creating SafetyChecker: AllowFileSystem=%v, AllowNetworking=%v, AllowExec=%v",
+		config.AllowFileSystem, config.AllowNetworking, config.AllowExec)
+
 	checker := &SafetyChecker{
 		config: config,
 		policy: goSafetyPolicy,
 	}
 	checker.allowedPkgs = checker.buildAllowedPackages()
+
+	logging.Autopoiesis("SafetyChecker initialized with %d allowed packages", len(checker.allowedPkgs))
+	logging.AutopoiesisDebug("Allowed packages: %v", checker.allowedPkgs)
+
 	return checker
 }
 
@@ -127,20 +135,42 @@ func ExtractASTFacts(sourceCode string) ([]mangle.Fact, error) {
 
 // Check performs a safety check on the code using the Mangle policy.
 func (sc *SafetyChecker) Check(code string) *SafetyReport {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "SafetyChecker.Check")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Starting safety check on code (%d bytes)", len(code))
+
 	report := &SafetyReport{
 		Safe:       true,
 		Violations: []SafetyViolation{},
 		Score:      1.0,
 	}
 
+	// AST Analysis phase
+	logging.AutopoiesisDebug("Extracting AST facts from code")
+	astTimer := logging.StartTimer(logging.CategoryAutopoiesis, "ASTFactExtraction")
 	facts, err := ExtractASTFacts(code)
+	astTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("AST parsing failed: %v", err)
 		return sc.fail(report, ViolationParseError, "", fmt.Sprintf("failed to parse code: %v", err))
 	}
+	logging.AutopoiesisDebug("Extracted %d AST facts", len(facts))
 
 	index := buildFactIndex(facts)
 	report.ImportsChecked = len(index.imports)
 	report.CallsChecked = index.callCount
+	logging.AutopoiesisDebug("Fact index built: imports=%d, calls=%d, panicFuncs=%d, goroutines=%d",
+		len(index.imports), index.callCount, len(index.panicFuncs), len(index.goroutineLines))
+
+	// Log detected imports
+	if len(index.imports) > 0 {
+		importList := make([]string, 0, len(index.imports))
+		for imp := range index.imports {
+			importList = append(importList, imp)
+		}
+		logging.AutopoiesisDebug("Detected imports: %v", importList)
+	}
 
 	// Seed allowlist facts from config.
 	for _, pkg := range sc.allowedPkgs {
@@ -150,24 +180,35 @@ func (sc *SafetyChecker) Check(code string) *SafetyReport {
 		})
 	}
 
+	// Policy validation phase
+	logging.AutopoiesisDebug("Initializing safety policy engine")
 	engine, err := sc.newEngine()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to init safety engine: %v", err)
 		return sc.fail(report, ViolationPolicy, "", fmt.Sprintf("failed to init safety engine: %v", err))
 	}
 
 	if err := engine.AddFacts(facts); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to add facts to engine: %v", err)
 		return sc.fail(report, ViolationPolicy, "", fmt.Sprintf("failed to add facts: %v", err))
 	}
+	logging.AutopoiesisDebug("Added %d facts to safety engine", len(facts))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	logging.AutopoiesisDebug("Querying safety policy for violations")
+	queryTimer := logging.StartTimer(logging.CategoryAutopoiesis, "PolicyQuery")
 	result, err := engine.Query(ctx, "?violation(V)")
+	queryTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Safety policy query failed: %v", err)
 		return sc.fail(report, ViolationPolicy, "", fmt.Sprintf("safety policy query failed: %v", err))
 	}
 
 	if len(result.Bindings) == 0 {
+		logging.Autopoiesis("Safety check PASSED: no violations detected (imports=%d, calls=%d)",
+			report.ImportsChecked, report.CallsChecked)
 		return report
 	}
 
@@ -177,9 +218,13 @@ func (sc *SafetyChecker) Check(code string) *SafetyReport {
 		// Mangle bindings return generic values, usually matching declared types.
 		// violation arg is string | int
 		value := binding["V"]
-		report.Violations = append(report.Violations, describeViolation(value, index))
+		violation := describeViolation(value, index)
+		report.Violations = append(report.Violations, violation)
+		logging.Get(logging.CategoryAutopoiesis).Warn("Safety violation: type=%s, severity=%s, desc=%s",
+			violation.Type.String(), severityString(violation.Severity), violation.Description)
 	}
 
+	logging.Autopoiesis("Safety check FAILED: %d violations detected", len(report.Violations))
 	return report
 }
 

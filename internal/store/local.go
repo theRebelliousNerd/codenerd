@@ -2,6 +2,7 @@ package store
 
 import (
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -55,39 +56,55 @@ type LocalStore struct {
 
 // NewLocalStore initializes the SQLite database at the given path.
 func NewLocalStore(path string) (*LocalStore, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "NewLocalStore")
+	defer timer.Stop()
+
+	logging.Store("Initializing LocalStore at path: %s", path)
+
 	// Ensure directory exists
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create directory %s: %v", dir, err)
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
+	logging.StoreDebug("Created directory: %s", dir)
 
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open database at %s: %v", path, err)
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	logging.StoreDebug("Opened SQLite database connection")
 
 	store := &LocalStore{db: db, dbPath: path}
 	if err := store.initialize(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to initialize schema: %v", err)
 		db.Close()
 		return nil, err
 	}
+	logging.StoreDebug("Database schema initialized successfully")
 
 	// Detect sqlite-vec extension availability
 	store.detectVecExtension()
 	store.requireVec = true
 	if !store.vectorExt {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec extension not available")
 		db.Close()
 		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild modernc SQLite with vec0 (set SQLITE3_EXT=vec0 or include vec sources) to enable ANN search")
 	}
+	logging.Store("sqlite-vec extension detected and enabled")
 
 	// Initialize trace store for self-learning
 	traceStore, err := NewTraceStore(db, path)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to initialize trace store: %v", err)
 		db.Close()
 		return nil, fmt.Errorf("failed to initialize trace store: %w", err)
 	}
 	store.traceStore = traceStore
+	logging.StoreDebug("TraceStore initialized for self-learning")
 
+	logging.Store("LocalStore initialization complete (RAM, Vector, Graph, Cold tiers ready)")
 	return store, nil
 }
 
@@ -277,6 +294,7 @@ func (s *LocalStore) GetTraceStore() *TraceStore {
 
 // Close closes the database connection.
 func (s *LocalStore) Close() error {
+	logging.Store("Closing LocalStore database connection")
 	return s.db.Close()
 }
 
@@ -297,8 +315,13 @@ type VectorEntry struct {
 
 // StoreVector stores content for semantic retrieval.
 func (s *LocalStore) StoreVector(content string, metadata map[string]interface{}) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreVector")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Storing vector content (length=%d bytes, metadata keys=%d)", len(content), len(metadata))
 
 	metaJSON, _ := json.Marshal(metadata)
 
@@ -306,12 +329,21 @@ func (s *LocalStore) StoreVector(content string, metadata map[string]interface{}
 		"INSERT OR REPLACE INTO vectors (content, metadata) VALUES (?, ?)",
 		content, string(metaJSON),
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store vector: %v", err)
+		return err
+	}
+
+	logging.StoreDebug("Vector stored successfully")
+	return nil
 }
 
 // VectorRecall performs semantic search using keyword matching.
 // In production, use actual vector embeddings with sqlite-vec.
 func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecall")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -319,9 +351,12 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 		limit = 10
 	}
 
+	logging.StoreDebug("Vector recall query: %q (limit=%d)", query, limit)
+
 	// Simple keyword search (production would use vector similarity)
 	keywords := strings.Fields(strings.ToLower(query))
 	if len(keywords) == 0 {
+		logging.StoreDebug("Empty query, returning nil")
 		return nil, nil
 	}
 
@@ -341,6 +376,7 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 
 	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Vector recall query failed: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -358,6 +394,7 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 		results = append(results, entry)
 	}
 
+	logging.StoreDebug("Vector recall returned %d results", len(results))
 	return results, nil
 }
 
@@ -374,8 +411,13 @@ type KnowledgeLink struct {
 
 // StoreLink stores a knowledge graph edge.
 func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64, metadata map[string]interface{}) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreLink")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Storing graph link: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
 
 	metaJSON, _ := json.Marshal(metadata)
 
@@ -384,13 +426,24 @@ func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64
 		 VALUES (?, ?, ?, ?, ?)`,
 		entityA, relation, entityB, weight, string(metaJSON),
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store graph link: %v", err)
+		return err
+	}
+
+	logging.StoreDebug("Graph link stored successfully")
+	return nil
 }
 
 // QueryLinks retrieves links for an entity.
 func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLink, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "QueryLinks")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Querying graph links for entity=%q direction=%s", entity, direction)
 
 	var query string
 	switch direction {
@@ -411,6 +464,7 @@ func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLin
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Graph query failed for entity=%q: %v", entity, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -428,17 +482,23 @@ func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLin
 		links = append(links, link)
 	}
 
+	logging.StoreDebug("Graph query returned %d links", len(links))
 	return links, nil
 }
 
 // TraversePath finds a path between two entities using BFS.
 func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLink, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "TraversePath")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if maxDepth <= 0 {
 		maxDepth = 5
 	}
+
+	logging.StoreDebug("Graph traversal: %s -> %s (maxDepth=%d)", from, to, maxDepth)
 
 	// BFS traversal
 	type pathNode struct {
@@ -459,6 +519,7 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 		visited[current.entity] = true
 
 		if current.entity == to {
+			logging.StoreDebug("Path found with %d hops, visited %d nodes", len(current.path), len(visited))
 			return current.path, nil
 		}
 
@@ -477,6 +538,7 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 		}
 	}
 
+	logging.StoreDebug("No path found from %s to %s (visited %d nodes)", from, to, len(visited))
 	return nil, fmt.Errorf("no path found from %s to %s", from, to)
 }
 
@@ -511,8 +573,13 @@ type ArchivedFact struct {
 
 // StoreFact persists a fact to cold storage.
 func (s *LocalStore) StoreFact(predicate string, args []interface{}, factType string, priority int) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreFact")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Storing fact to cold storage: %s/%d args (type=%s, priority=%d)", predicate, len(args), factType, priority)
 
 	argsJSON, _ := json.Marshal(args)
 
@@ -525,19 +592,31 @@ func (s *LocalStore) StoreFact(predicate string, args []interface{}, factType st
 		 updated_at = CURRENT_TIMESTAMP`,
 		predicate, string(argsJSON), factType, priority,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store fact %s: %v", predicate, err)
+		return err
+	}
+
+	logging.StoreDebug("Fact stored successfully in cold storage")
+	return nil
 }
 
 // LoadFacts retrieves facts by predicate and updates access tracking.
 func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LoadFacts")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Loading facts from cold storage: predicate=%s", predicate)
 
 	rows, err := s.db.Query(
 		"SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage WHERE predicate = ? ORDER BY priority DESC",
 		predicate,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to load facts for predicate=%s: %v", predicate, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -563,14 +642,20 @@ func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
 		)
 	}
 
+	logging.StoreDebug("Loaded %d facts for predicate=%s (access tracking updated)", len(facts), predicate)
 	return facts, nil
 }
 
 // LoadAllFacts retrieves all facts, optionally filtered by type.
 // Does not update access tracking (use LoadFacts for that).
 func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LoadAllFacts")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Loading all facts from cold storage (type filter=%q)", factType)
 
 	var query string
 	var args []interface{}
@@ -584,6 +669,7 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to load all facts: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -599,6 +685,7 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 		facts = append(facts, fact)
 	}
 
+	logging.StoreDebug("Loaded %d total facts from cold storage", len(facts))
 	return facts, nil
 }
 
@@ -607,9 +694,17 @@ func (s *LocalStore) DeleteFact(predicate string, args []interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	logging.StoreDebug("Deleting fact from cold storage: %s", predicate)
+
 	argsJSON, _ := json.Marshal(args)
 	_, err := s.db.Exec("DELETE FROM cold_storage WHERE predicate = ? AND args = ?", predicate, string(argsJSON))
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to delete fact %s: %v", predicate, err)
+		return err
+	}
+
+	logging.StoreDebug("Fact deleted from cold storage: %s", predicate)
+	return nil
 }
 
 // ========== Archival Tier Management ==========
@@ -620,6 +715,9 @@ func (s *LocalStore) DeleteFact(predicate string, args []interface{}) error {
 // - Access count below maxAccessCount
 // Returns the number of facts archived.
 func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ArchiveOldFacts")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -630,9 +728,12 @@ func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int
 		maxAccessCount = 5 // Default: archive facts accessed 5 times or less
 	}
 
+	logging.Store("Archiving facts older than %d days with access count <= %d", olderThanDays, maxAccessCount)
+
 	// Start transaction for atomic move
 	tx, err := s.db.Begin()
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to start archive transaction: %v", err)
 		return 0, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -646,6 +747,7 @@ func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int
 		olderThanDays, maxAccessCount,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query old facts for archival: %v", err)
 		return 0, fmt.Errorf("failed to query old facts: %w", err)
 	}
 	defer rows.Close()
@@ -671,6 +773,7 @@ func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int
 			predicate, argsJSON, factType, priority, createdAt, updatedAt, lastAccessed, accessCount,
 		)
 		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to archive fact %s: %v", predicate, err)
 			continue
 		}
 
@@ -682,21 +785,29 @@ func (s *LocalStore) ArchiveOldFacts(olderThanDays int, maxAccessCount int) (int
 	for _, id := range idsToDelete {
 		_, err := tx.Exec("DELETE FROM cold_storage WHERE id = ?", id)
 		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to delete archived fact id=%d: %v", id, err)
 			return 0, fmt.Errorf("failed to delete archived fact: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to commit archive transaction: %v", err)
 		return 0, fmt.Errorf("failed to commit archive transaction: %w", err)
 	}
 
+	logging.Store("Archived %d facts from cold storage to archival tier", archivedCount)
 	return archivedCount, nil
 }
 
 // GetArchivedFacts retrieves archived facts by predicate.
 func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetArchivedFacts")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Retrieving archived facts: predicate=%s", predicate)
 
 	rows, err := s.db.Query(
 		`SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
@@ -706,6 +817,7 @@ func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) 
 		predicate,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to retrieve archived facts for %s: %v", predicate, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -721,13 +833,19 @@ func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) 
 		facts = append(facts, fact)
 	}
 
+	logging.StoreDebug("Retrieved %d archived facts for predicate=%s", len(facts), predicate)
 	return facts, nil
 }
 
 // GetAllArchivedFacts retrieves all archived facts, optionally filtered by type.
 func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetAllArchivedFacts")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Retrieving all archived facts (type filter=%q)", factType)
 
 	var query string
 	var args []interface{}
@@ -743,6 +861,7 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to retrieve all archived facts: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -758,19 +877,26 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 		facts = append(facts, fact)
 	}
 
+	logging.StoreDebug("Retrieved %d archived facts", len(facts))
 	return facts, nil
 }
 
 // RestoreArchivedFact moves a fact from archive back to cold storage.
 func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) error {
+	timer := logging.StartTimer(logging.CategoryStore, "RestoreArchivedFact")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.Store("Restoring archived fact: %s (promoting to cold storage)", predicate)
 
 	argsJSON, _ := json.Marshal(args)
 
 	// Start transaction
 	tx, err := s.db.Begin()
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to start restore transaction: %v", err)
 		return fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback()
@@ -786,6 +912,7 @@ func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) e
 		predicate, string(argsJSON),
 	).Scan(&id, &factType, &priority, &createdAt, &updatedAt, &lastAccessed, &accessCount)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Fact not found in archive: %s: %v", predicate, err)
 		return fmt.Errorf("fact not found in archive: %w", err)
 	}
 
@@ -796,25 +923,32 @@ func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) e
 		predicate, string(argsJSON), factType, priority, createdAt, updatedAt, accessCount,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to restore fact to cold storage: %v", err)
 		return fmt.Errorf("failed to restore fact: %w", err)
 	}
 
 	// Delete from archive
 	_, err = tx.Exec("DELETE FROM archived_facts WHERE id = ?", id)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to delete from archive after restore: %v", err)
 		return fmt.Errorf("failed to delete from archive: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to commit restore transaction: %v", err)
 		return fmt.Errorf("failed to commit restore transaction: %w", err)
 	}
 
+	logging.Store("Restored fact %s from archival tier to cold storage", predicate)
 	return nil
 }
 
 // PurgeOldArchivedFacts permanently deletes archived facts older than specified days.
 // Use with caution - this is irreversible.
 func (s *LocalStore) PurgeOldArchivedFacts(olderThanDays int) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "PurgeOldArchivedFacts")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -822,28 +956,38 @@ func (s *LocalStore) PurgeOldArchivedFacts(olderThanDays int) (int, error) {
 		return 0, fmt.Errorf("olderThanDays must be positive")
 	}
 
+	logging.Get(logging.CategoryStore).Warn("Purging archived facts older than %d days (IRREVERSIBLE)", olderThanDays)
+
 	result, err := s.db.Exec(
 		`DELETE FROM archived_facts
 		 WHERE datetime(archived_at) < datetime('now', '-' || ? || ' days')`,
 		olderThanDays,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to purge old archived facts: %v", err)
 		return 0, fmt.Errorf("failed to purge old archived facts: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
+	logging.Store("Purged %d archived facts older than %d days", rowsAffected, olderThanDays)
 	return int(rowsAffected), nil
 }
 
 // MaintenanceCleanup performs periodic maintenance on the storage tiers.
 // Returns statistics about cleanup operations.
 func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceStats, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "MaintenanceCleanup")
+	defer timer.Stop()
+
+	logging.Store("Starting maintenance cleanup cycle")
 	stats := MaintenanceStats{}
 
 	// Archive old facts
 	if config.ArchiveOlderThanDays > 0 {
+		logging.StoreDebug("Archiving facts older than %d days", config.ArchiveOlderThanDays)
 		archived, err := s.ArchiveOldFacts(config.ArchiveOlderThanDays, config.MaxAccessCount)
 		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Archival failed during maintenance: %v", err)
 			return stats, fmt.Errorf("archival failed: %w", err)
 		}
 		stats.FactsArchived = archived
@@ -851,8 +995,10 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 
 	// Purge very old archived facts
 	if config.PurgeArchivedOlderThanDays > 0 {
+		logging.StoreDebug("Purging archived facts older than %d days", config.PurgeArchivedOlderThanDays)
 		purged, err := s.PurgeOldArchivedFacts(config.PurgeArchivedOlderThanDays)
 		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Purge failed during maintenance: %v", err)
 			return stats, fmt.Errorf("purge failed: %w", err)
 		}
 		stats.FactsPurged = purged
@@ -860,6 +1006,7 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 
 	// Clean old activation logs
 	if config.CleanActivationLogDays > 0 {
+		logging.StoreDebug("Cleaning activation logs older than %d days", config.CleanActivationLogDays)
 		s.mu.Lock()
 		result, err := s.db.Exec(
 			`DELETE FROM activation_log
@@ -870,20 +1017,26 @@ func (s *LocalStore) MaintenanceCleanup(config MaintenanceConfig) (MaintenanceSt
 		if err == nil {
 			rows, _ := result.RowsAffected()
 			stats.ActivationLogsDeleted = int(rows)
+		} else {
+			logging.Get(logging.CategoryStore).Warn("Failed to clean activation logs: %v", err)
 		}
 	}
 
 	// Vacuum database to reclaim space
 	if config.VacuumDatabase {
+		logging.StoreDebug("Running VACUUM to reclaim disk space")
 		s.mu.Lock()
 		_, err := s.db.Exec("VACUUM")
 		s.mu.Unlock()
 		if err != nil {
+			logging.Get(logging.CategoryStore).Error("VACUUM failed: %v", err)
 			return stats, fmt.Errorf("vacuum failed: %w", err)
 		}
 		stats.DatabaseVacuumed = true
 	}
 
+	logging.Store("Maintenance complete: archived=%d, purged=%d, activation_logs_deleted=%d, vacuumed=%v",
+		stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted, stats.DatabaseVacuumed)
 	return stats, nil
 }
 

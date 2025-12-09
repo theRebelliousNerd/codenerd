@@ -3,6 +3,7 @@ package perception
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"context"
 	"encoding/json"
@@ -59,7 +60,7 @@ func init() {
 		var err error
 		VerbCorpus, err = SharedTaxonomy.GetVerbs()
 		if err != nil {
-			fmt.Printf("CRITICAL: Failed to load verb taxonomy from Mangle: %v\n", err)
+			logging.Get(logging.CategoryPerception).Error("Failed to load verb taxonomy from Mangle: %v", err)
 			// Fallback to a minimal safe mode to prevent crash
 			VerbCorpus = []VerbEntry{
 				{
@@ -71,9 +72,12 @@ func init() {
 					ShardType: "",
 				},
 			}
+			logging.Perception("Initialized VerbCorpus with fallback (1 verb)")
+		} else {
+			logging.Perception("Initialized VerbCorpus from Mangle taxonomy (%d verbs)", len(VerbCorpus))
 		}
 	} else {
-		fmt.Println("CRITICAL: SharedTaxonomy is nil")
+		logging.Get(logging.CategoryPerception).Error("SharedTaxonomy is nil - cannot load verb taxonomy")
 	}
 }
 
@@ -116,28 +120,47 @@ var ConstraintPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:security|performance|style|quality)\s+(?:only|focus)`),
 }
 
+// truncateForLog truncates a string for logging purposes.
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 // matchVerbFromCorpus finds the best matching verb using Regex Candidates + Mangle Inference.
 func matchVerbFromCorpus(input string) (verb string, category string, confidence float64, shardType string) {
+	timer := logging.StartTimer(logging.CategoryPerception, "matchVerbFromCorpus")
+	defer timer.Stop()
+
+	logging.PerceptionDebug("Matching verb for input: %q", truncateForLog(input, 100))
+
 	// 1. Get Candidates via Regex (Fast)
 	candidates := getRegexCandidates(input)
+	logging.PerceptionDebug("Regex candidates found: %d", len(candidates))
 
 	// 2. Refine via Mangle Inference (Smart)
 	// This applies the "sentence level" logic and context rules.
 	if SharedTaxonomy != nil && len(candidates) > 0 {
 		bestVerb, conf, err := SharedTaxonomy.ClassifyInput(input, candidates)
 		if err == nil && bestVerb != "" {
+			logging.PerceptionDebug("Mangle inference selected verb: %s (confidence: %.2f)", bestVerb, conf)
 			// Find the candidate entry to get category/shard details
 			for _, c := range candidates {
 				if c.Verb == bestVerb {
+					logging.Perception("Matched verb %s (category: %s, shard: %s, confidence: %.2f)", c.Verb, c.Category, c.ShardType, conf)
 					return c.Verb, c.Category, conf, c.ShardType
 				}
 			}
 			// If not found in candidates (rare), find in corpus
 			for _, entry := range VerbCorpus {
 				if entry.Verb == bestVerb {
+					logging.Perception("Matched verb %s from corpus (category: %s, shard: %s, confidence: %.2f)", entry.Verb, entry.Category, entry.ShardType, conf)
 					return entry.Verb, entry.Category, conf, entry.ShardType
 				}
 			}
+		} else if err != nil {
+			logging.PerceptionDebug("Mangle inference error: %v", err)
 		}
 	}
 
@@ -193,10 +216,12 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 
 		// Return the best candidate found
 		if bestScore > 0 {
+			logging.Perception("Regex fallback matched verb %s (category: %s, confidence: %.2f)", bestCand.Verb, bestCand.Category, confidence)
 			return bestCand.Verb, bestCand.Category, confidence, bestCand.ShardType
 		}
 	}
 
+	logging.PerceptionDebug("No verb match found, defaulting to /explain")
 	return "/explain", "/query", 0.3, ""
 }
 
@@ -338,10 +363,13 @@ type RealTransducer struct {
 
 // NewRealTransducer creates a new transducer with the given LLM client.
 func NewRealTransducer(client LLMClient) *RealTransducer {
-	return &RealTransducer{
+	logging.Perception("Initializing RealTransducer with LLM client")
+	t := &RealTransducer{
 		client:     client,
 		repairLoop: mangle.NewRepairLoop(),
 	}
+	logging.PerceptionDebug("RealTransducer initialized with repair loop")
+	return t
 }
 
 // NOTE: PiggybackEnvelope, ControlPacket, IntentClassification, MemoryOperation,
@@ -585,6 +613,13 @@ func (t *RealTransducer) ParseIntent(ctx context.Context, input string) (Intent,
 // ParseIntentWithContext parses user input with conversation history for context.
 // This enables fluid conversational follow-ups by providing the LLM with recent turns.
 func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "ParseIntentWithContext")
+	defer timer.Stop()
+
+	logging.Perception("Parsing intent for input: %d chars", len(input))
+	logging.PerceptionDebug("Raw input: %q", truncateForLog(input, 200))
+	logging.PerceptionDebug("Conversation history: %d turns", len(history))
+
 	var sb strings.Builder
 
 	// Inject conversation history if available (critical for follow-ups)
@@ -609,16 +644,33 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 	sb.WriteString(fmt.Sprintf(`User Input: "%s"`, input))
 	userPrompt := sb.String()
 
+	logging.PerceptionDebug("Calling LLM for intent extraction (prompt: %d chars)", len(userPrompt))
+	llmTimer := logging.StartTimer(logging.CategoryPerception, "LLM-CompleteWithSystem")
 	resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+	llmTimer.Stop()
+
 	if err != nil {
+		logging.Get(logging.CategoryPerception).Warn("LLM call failed, falling back to simple parsing: %v", err)
 		return t.parseSimple(ctx, input)
 	}
+
+	logging.PerceptionDebug("LLM response received: %d chars", len(resp))
 
 	// Parse the Piggyback Envelope
 	envelope, err := parsePiggybackJSON(resp)
 	if err != nil {
-		// Fallback to simple parsing if JSON fails
+		logging.Get(logging.CategoryPerception).Warn("Failed to parse Piggyback JSON, falling back to simple parsing: %v", err)
 		return t.parseSimple(ctx, input)
+	}
+
+	logging.Perception("Intent parsed: category=%s, verb=%s, target=%s, confidence=%.2f",
+		envelope.Control.IntentClassification.Category,
+		envelope.Control.IntentClassification.Verb,
+		truncateForLog(envelope.Control.IntentClassification.Target, 50),
+		envelope.Control.IntentClassification.Confidence)
+
+	if len(envelope.Control.MemoryOperations) > 0 {
+		logging.PerceptionDebug("Memory operations: %d", len(envelope.Control.MemoryOperations))
 	}
 
 	// Map Envelope to Intent
@@ -638,20 +690,29 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 
 // parsePiggybackJSON parses the JSON response from the LLM.
 func parsePiggybackJSON(resp string) (PiggybackEnvelope, error) {
+	logging.PerceptionDebug("Parsing Piggyback JSON from response")
+
 	// "JSON Fragility" Fix: Robust extraction
 	// Find the first '{' to start parsing
 	start := strings.Index(resp, "{")
 	if start == -1 {
+		logging.Get(logging.CategoryPerception).Error("No JSON object found in LLM response")
 		return PiggybackEnvelope{}, fmt.Errorf("no JSON object found in response")
+	}
+
+	if start > 0 {
+		logging.PerceptionDebug("JSON starts at offset %d (skipping preamble)", start)
 	}
 
 	// Use json.NewDecoder to parse the first valid JSON object and ignore the rest
 	decoder := json.NewDecoder(strings.NewReader(resp[start:]))
 	var envelope PiggybackEnvelope
 	if err := decoder.Decode(&envelope); err != nil {
+		logging.Get(logging.CategoryPerception).Error("Failed to decode Piggyback JSON: %v", err)
 		return PiggybackEnvelope{}, fmt.Errorf("failed to parse Piggyback JSON: %w", err)
 	}
 
+	logging.PerceptionDebug("Piggyback envelope parsed successfully")
 	return envelope, nil
 }
 
@@ -662,27 +723,46 @@ func parsePiggybackJSON(resp string) (PiggybackEnvelope, error) {
 // ValidateMangleAtoms validates atoms from the control packet using GCD.
 // Returns validated atoms and any validation errors.
 func (t *RealTransducer) ValidateMangleAtoms(atoms []string) ([]string, []mangle.ValidationResult) {
+	logging.PerceptionDebug("Validating %d Mangle atoms via GCD", len(atoms))
+
 	if t.repairLoop == nil {
+		logging.PerceptionDebug("Initializing repair loop (was nil)")
 		t.repairLoop = mangle.NewRepairLoop()
 	}
 
 	validAtoms, _, _ := t.repairLoop.ValidateAndRepair(atoms)
 	results := t.repairLoop.Validator.ValidateAtoms(atoms)
 
+	validCount := 0
+	for _, r := range results {
+		if r.Valid {
+			validCount++
+		}
+	}
+	logging.PerceptionDebug("Mangle atom validation: %d/%d valid", validCount, len(atoms))
+
 	return validAtoms, results
 }
 
 // ParseIntentWithGCD parses user input with Grammar-Constrained Decoding.
-// This implements the repair loop described in §6.2 of the spec.
+// This implements the repair loop described in S6.2 of the spec.
 func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []ConversationTurn, maxRetries int) (Intent, []string, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "ParseIntentWithGCD")
+	defer timer.Stop()
+
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
+
+	logging.Perception("Parsing intent with GCD (maxRetries: %d, input: %d chars)", maxRetries, len(input))
+	logging.PerceptionDebug("GCD input: %q", truncateForLog(input, 200))
 
 	var lastEnvelope PiggybackEnvelope
 	var lastErr error
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		logging.PerceptionDebug("GCD attempt %d/%d", attempt+1, maxRetries)
+
 		var sb strings.Builder
 
 		// Inject conversation history if available (critical for follow-ups)
@@ -708,6 +788,7 @@ func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 
 		// Add repair context if this is a retry
 		if attempt > 0 && lastErr != nil {
+			logging.PerceptionDebug("GCD retry: injecting error context from previous attempt")
 			userPrompt = fmt.Sprintf(`%s
 
 PREVIOUS ATTEMPT FAILED - SYNTAX ERRORS DETECTED:
@@ -716,15 +797,19 @@ PREVIOUS ATTEMPT FAILED - SYNTAX ERRORS DETECTED:
 Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Error())
 		}
 
+		llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
 		resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+		llmTimer.Stop()
+
 		if err != nil {
-			// LLM call failed, use simple fallback
+			logging.Get(logging.CategoryPerception).Warn("GCD LLM call failed, falling back to simple: %v", err)
 			intent, fallbackErr := t.parseSimple(ctx, input)
 			return intent, nil, fallbackErr
 		}
 
 		envelope, err := parsePiggybackJSON(resp)
 		if err != nil {
+			logging.PerceptionDebug("GCD attempt %d: JSON parse failed: %v", attempt+1, err)
 			lastErr = err
 			continue
 		}
@@ -732,6 +817,7 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 
 		// Validate Mangle atoms using GCD
 		if len(envelope.Control.MangleUpdates) > 0 {
+			logging.PerceptionDebug("GCD validating %d Mangle updates", len(envelope.Control.MangleUpdates))
 			validAtoms, results := t.ValidateMangleAtoms(envelope.Control.MangleUpdates)
 
 			// Check for validation errors
@@ -747,11 +833,14 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 			}
 
 			if hasErrors {
+				logging.Get(logging.CategoryPerception).Warn("GCD attempt %d: Mangle syntax errors: %s", attempt+1, strings.Join(errorMsgs, "; "))
 				lastErr = fmt.Errorf("Invalid Mangle Syntax:\n%s", strings.Join(errorMsgs, "\n"))
 				continue // Retry with error context
 			}
 
 			// All atoms valid - return success
+			logging.Perception("GCD succeeded on attempt %d: verb=%s, %d valid atoms",
+				attempt+1, envelope.Control.IntentClassification.Verb, len(validAtoms))
 			return Intent{
 				Category:   envelope.Control.IntentClassification.Category,
 				Verb:       envelope.Control.IntentClassification.Verb,
@@ -764,6 +853,8 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 		}
 
 		// No mangle_updates to validate - return as-is
+		logging.Perception("GCD succeeded on attempt %d (no Mangle updates): verb=%s",
+			attempt+1, envelope.Control.IntentClassification.Verb)
 		return Intent{
 			Category:   envelope.Control.IntentClassification.Category,
 			Verb:       envelope.Control.IntentClassification.Verb,
@@ -777,6 +868,7 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 
 	// Max retries exceeded - return best effort from last envelope
 	if lastEnvelope.Surface != "" {
+		logging.Get(logging.CategoryPerception).Warn("GCD max retries exceeded, returning degraded result (confidence halved)")
 		return Intent{
 			Category:   lastEnvelope.Control.IntentClassification.Category,
 			Verb:       lastEnvelope.Control.IntentClassification.Verb,
@@ -789,12 +881,19 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 	}
 
 	// Complete failure - fallback to simple parsing
+	logging.Get(logging.CategoryPerception).Error("GCD complete failure after %d retries, falling back to simple parsing", maxRetries)
 	intent, err := t.parseSimple(ctx, input)
 	return intent, nil, err
 }
 
 // parseSimple is a fallback parser using pipe-delimited format.
 func (t *RealTransducer) parseSimple(ctx context.Context, input string) (Intent, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "parseSimple")
+	defer timer.Stop()
+
+	logging.Perception("Using simple (pipe-delimited) fallback parser")
+	logging.PerceptionDebug("Simple parse input: %q", truncateForLog(input, 100))
+
 	// Build verb list from corpus
 	verbs := make([]string, 0, len(VerbCorpus))
 	for _, entry := range VerbCorpus {
@@ -810,52 +909,82 @@ Input: "%s"
 
 Output ONLY pipes, no explanation:`, verbList, input)
 
+	llmTimer := logging.StartTimer(logging.CategoryPerception, "SimpleParser-LLM-Call")
 	resp, err := t.client.Complete(ctx, prompt)
+	llmTimer.Stop()
+
 	if err != nil {
-		// Ultimate fallback - heuristic parsing using corpus
+		logging.Get(logging.CategoryPerception).Warn("Simple parser LLM call failed, using heuristic: %v", err)
 		return t.heuristicParse(input), nil
 	}
 
 	parts := strings.Split(strings.TrimSpace(resp), "|")
 	if len(parts) < 4 {
+		logging.PerceptionDebug("Simple parser response malformed (%d parts), using heuristic", len(parts))
 		return t.heuristicParse(input), nil
 	}
 
-	return Intent{
+	intent := Intent{
 		Category:   strings.TrimSpace(parts[0]),
 		Verb:       strings.TrimSpace(parts[1]),
 		Target:     strings.TrimSpace(parts[2]),
 		Constraint: strings.TrimSpace(parts[3]),
 		Confidence: 0.7, // Lower confidence for fallback
-	}, nil
+	}
+
+	logging.Perception("Simple parser result: category=%s, verb=%s, target=%s",
+		intent.Category, intent.Verb, truncateForLog(intent.Target, 50))
+
+	return intent, nil
 }
 
 // heuristicParse uses the comprehensive verb corpus for reliable offline parsing.
 // This is the ultimate fallback when LLM is unavailable.
 func (t *RealTransducer) heuristicParse(input string) Intent {
+	timer := logging.StartTimer(logging.CategoryPerception, "heuristicParse")
+	defer timer.Stop()
+
+	logging.Perception("Using heuristic (offline) parser")
+	logging.PerceptionDebug("Heuristic parse input: %q", truncateForLog(input, 100))
+
 	// Use the comprehensive corpus matching
 	verb, category, confidence, _ := matchVerbFromCorpus(input)
 
 	// Refine category based on input patterns
+	originalCategory := category
 	category = refineCategory(input, category)
+	if category != originalCategory {
+		logging.PerceptionDebug("Category refined from %s to %s", originalCategory, category)
+	}
 
 	// Extract target from natural language
 	target := extractTarget(input)
 	if target == "none" {
 		// Use input as target if no specific target found
 		target = input
+		logging.PerceptionDebug("No target extracted, using input as target")
+	} else {
+		logging.PerceptionDebug("Extracted target: %s", truncateForLog(target, 50))
 	}
 
 	// Extract constraint
 	constraint := extractConstraint(input)
+	if constraint != "none" {
+		logging.PerceptionDebug("Extracted constraint: %s", constraint)
+	}
 
-	return Intent{
+	intent := Intent{
 		Category:   category,
 		Verb:       verb,
 		Target:     target,
 		Constraint: constraint,
 		Confidence: confidence,
 	}
+
+	logging.Perception("Heuristic result: category=%s, verb=%s, confidence=%.2f",
+		intent.Category, intent.Verb, intent.Confidence)
+
+	return intent
 }
 
 // GetShardTypeForVerb returns the recommended shard type for a given verb.
@@ -870,7 +999,13 @@ func GetShardTypeForVerb(verb string) string {
 
 // ResolveFocus attempts to resolve a fuzzy reference to a concrete path/symbol.
 func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "ResolveFocus")
+	defer timer.Stop()
+
+	logging.Perception("Resolving focus for reference: %q (%d candidates)", truncateForLog(reference, 50), len(candidates))
+
 	if len(candidates) == 0 {
+		logging.PerceptionDebug("No candidates provided, returning empty resolution")
 		return FocusResolution{
 			RawReference: reference,
 			Confidence:   0.0,
@@ -878,12 +1013,15 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 	}
 
 	if len(candidates) == 1 {
+		logging.PerceptionDebug("Single candidate, auto-resolving to: %s", candidates[0])
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
 			Confidence:   0.9,
 		}, nil
 	}
+
+	logging.PerceptionDebug("Multiple candidates, using LLM for disambiguation")
 
 	// Use LLM to disambiguate
 	candidateList := strings.Join(candidates, "\n- ")
@@ -915,10 +1053,12 @@ JSON only:`, reference, candidateList)
 	// or create a `focusSystemPrompt`.
 
 	focusSystemPrompt := `You are a code resolution assistant. Output ONLY JSON.`
+	llmTimer := logging.StartTimer(logging.CategoryPerception, "ResolveFocus-LLM-Call")
 	resp, err := t.client.CompleteWithSystem(ctx, focusSystemPrompt, prompt)
+	llmTimer.Stop()
 
 	if err != nil {
-		// Return first candidate with low confidence
+		logging.Get(logging.CategoryPerception).Warn("Focus resolution LLM call failed, using first candidate: %v", err)
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
@@ -940,12 +1080,16 @@ JSON only:`, reference, candidateList)
 	}
 
 	if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Focus resolution JSON parse failed, using first candidate: %v", err)
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
 			Confidence:   0.5,
 		}, nil
 	}
+
+	logging.Perception("Focus resolved: %s -> %s (symbol: %s, confidence: %.2f)",
+		truncateForLog(reference, 30), truncateForLog(parsed.ResolvedPath, 50), parsed.SymbolName, parsed.Confidence)
 
 	return FocusResolution{
 		RawReference: reference,
@@ -972,6 +1116,7 @@ type DualPayloadTransducer struct {
 
 // NewDualPayloadTransducer creates a transducer that outputs dual payloads.
 func NewDualPayloadTransducer(client LLMClient) *DualPayloadTransducer {
+	logging.Perception("Initializing DualPayloadTransducer")
 	return &DualPayloadTransducer{
 		RealTransducer: NewRealTransducer(client),
 	}
@@ -986,8 +1131,14 @@ type TransducerOutput struct {
 
 // Parse performs full transduction of user input.
 func (t *DualPayloadTransducer) Parse(ctx context.Context, input string, fileCandidates []string) (TransducerOutput, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "DualPayloadTransducer.Parse")
+	defer timer.Stop()
+
+	logging.Perception("Full transduction: input=%d chars, candidates=%d", len(input), len(fileCandidates))
+
 	intent, err := t.ParseIntent(ctx, input)
 	if err != nil {
+		logging.Get(logging.CategoryPerception).Error("Transduction failed: %v", err)
 		return TransducerOutput{}, err
 	}
 
@@ -998,12 +1149,19 @@ func (t *DualPayloadTransducer) Parse(ctx context.Context, input string, fileCan
 
 	// Try to resolve focus if target looks like a file reference
 	if intent.Target != "" && intent.Target != "none" {
+		logging.PerceptionDebug("Attempting focus resolution for target: %s", truncateForLog(intent.Target, 50))
 		focus, err := t.ResolveFocus(ctx, intent.Target, fileCandidates)
 		if err == nil && focus.Confidence > 0 {
 			output.Focus = append(output.Focus, focus)
 			output.MangleAtoms = append(output.MangleAtoms, focus.ToFact())
+			logging.PerceptionDebug("Focus resolved, added to output (total atoms: %d)", len(output.MangleAtoms))
+		} else if err != nil {
+			logging.PerceptionDebug("Focus resolution failed: %v", err)
 		}
 	}
+
+	logging.Perception("Transduction complete: verb=%s, atoms=%d, focus=%d",
+		intent.Verb, len(output.MangleAtoms), len(output.Focus))
 
 	return output, nil
 }

@@ -2,6 +2,7 @@ package tester
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"os/exec"
@@ -15,6 +16,9 @@ import (
 
 // runTests executes tests for the specified target.
 func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResult, error) {
+	timer := logging.StartTimer(logging.CategoryTester, "runTests")
+	defer timer.Stop()
+
 	t.mu.RLock()
 	framework := t.testerConfig.Framework
 	workingDir := t.testerConfig.WorkingDir
@@ -24,10 +28,12 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 	// Auto-detect framework if needed
 	if framework == "auto" {
 		framework = t.detectFramework(task.Target)
+		logging.TesterDebug("Auto-detected framework: %s", framework)
 	}
 
 	// Build test command
 	cmd := t.buildTestCommand(framework, task)
+	logging.Tester("Test command: %s", cmd)
 
 	// Execute via VirtualStore or direct execution
 	var output string
@@ -36,6 +42,7 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 	startTime := time.Now()
 
 	if t.virtualStore != nil {
+		logging.TesterDebug("Executing tests via VirtualStore")
 		action := core.Fact{
 			Predicate: "next_action",
 			Args: []interface{}{
@@ -46,11 +53,13 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 		output, err = t.virtualStore.RouteAction(ctx, action)
 	} else {
 		// Direct execution fallback
+		logging.TesterDebug("Executing tests directly (no VirtualStore)")
 		execCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
 		cmdParts := strings.Fields(cmd)
 		if len(cmdParts) == 0 {
+			logging.Get(logging.CategoryTester).Error("Empty test command")
 			return nil, fmt.Errorf("empty test command")
 		}
 
@@ -65,6 +74,7 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 	}
 
 	duration := time.Since(startTime)
+	logging.Tester("Test execution completed in %v", duration)
 
 	// Parse results
 	result := &TestResult{
@@ -78,6 +88,7 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 	// Detect test type from target file
 	if task.Target != "" && task.Target != "./..." {
 		result.TestType = t.detectTestType(ctx, task.Target)
+		logging.TesterDebug("Detected test type: %s", result.TestType)
 	}
 
 	// Determine pass/fail
@@ -85,17 +96,24 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 		result.Passed = false
 		result.FailedTests = t.parseFailedTests(output, framework)
 		result.Diagnostics = t.parseDiagnostics(output)
+		logging.Tester("Tests FAILED: %d failed tests, %d diagnostics",
+			len(result.FailedTests), len(result.Diagnostics))
+
+		for _, failed := range result.FailedTests {
+			logging.TesterDebug("Failed test: %s at %s:%d - %s",
+				failed.Name, failed.FilePath, failed.Line, failed.Message)
+		}
 
 		// Check for stale mock errors and attempt regeneration
 		if t.isMockError(output) && task.Target != "" {
-			fmt.Printf("[TesterShard] Detected mock-related test failure, checking for stale mocks...\n")
+			logging.Tester("Detected mock-related test failure, checking for stale mocks...")
 			staleMocks, mockErr := t.detectStaleMocks(ctx, task.Target)
 			if mockErr == nil && len(staleMocks) > 0 {
-				fmt.Printf("[TesterShard] Found %d stale mock(s), attempting regeneration...\n", len(staleMocks))
+				logging.Tester("Found %d stale mock(s), attempting regeneration...", len(staleMocks))
 				for _, interfacePath := range staleMocks {
 					regenErr := t.regenerateMock(ctx, interfacePath)
 					if regenErr != nil {
-						fmt.Printf("[TesterShard] Warning: failed to regenerate mock for %s: %v\n", interfacePath, regenErr)
+						logging.Get(logging.CategoryTester).Warn("Failed to regenerate mock for %s: %v", interfacePath, regenErr)
 					}
 				}
 			}
@@ -106,6 +124,7 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 	} else {
 		result.Passed = true
 		result.PassedTests = t.parsePassedTests(output, framework)
+		logging.Tester("Tests PASSED: %d tests passed", len(result.PassedTests))
 
 		// Track success patterns for Autopoiesis
 		t.trackSuccessPattern(result)
@@ -113,12 +132,18 @@ func (t *TesterShard) runTests(ctx context.Context, task *TesterTask) (*TestResu
 
 	// Parse coverage if present
 	result.Coverage = t.parseCoverage(output, framework)
+	if result.Coverage > 0 {
+		logging.Tester("Coverage: %.1f%%", result.Coverage)
+	}
 
 	return result, nil
 }
 
 // runCoverage runs tests with coverage and returns coverage metrics.
 func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestResult, error) {
+	timer := logging.StartTimer(logging.CategoryTester, "runCoverage")
+	defer timer.Stop()
+
 	t.mu.RLock()
 	framework := t.testerConfig.Framework
 	workingDir := t.testerConfig.WorkingDir
@@ -126,15 +151,18 @@ func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestR
 
 	if framework == "auto" {
 		framework = t.detectFramework(task.Target)
+		logging.TesterDebug("Auto-detected framework for coverage: %s", framework)
 	}
 
 	// Build coverage command
 	cmd := t.buildCoverageCommand(framework, task)
+	logging.Tester("Coverage command: %s", cmd)
 
 	startTime := time.Now()
 	var output string
 
 	if t.virtualStore != nil {
+		logging.TesterDebug("Running coverage via VirtualStore")
 		action := core.Fact{
 			Predicate: "next_action",
 			Args: []interface{}{
@@ -145,9 +173,11 @@ func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestR
 		var err error
 		output, err = t.virtualStore.RouteAction(ctx, action)
 		if err != nil {
+			logging.Get(logging.CategoryTester).Error("Coverage execution failed: %v", err)
 			return nil, err
 		}
 	} else {
+		logging.TesterDebug("Running coverage directly (no VirtualStore)")
 		cmdParts := strings.Fields(cmd)
 		execCmd := exec.CommandContext(ctx, cmdParts[0], cmdParts[1:]...)
 		execCmd.Dir = workingDir
@@ -171,6 +201,9 @@ func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestR
 		result.TestType = t.detectTestType(ctx, task.Target)
 	}
 
+	logging.Tester("Coverage analysis completed: %.1f%%, passed=%v, duration=%v",
+		result.Coverage, result.Passed, duration)
+
 	return result, nil
 }
 
@@ -180,6 +213,9 @@ func (t *TesterShard) runCoverage(ctx context.Context, task *TesterTask) (*TestR
 
 // runTDDLoop runs a full TDD repair loop until tests pass or max retries.
 func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestResult, error) {
+	timer := logging.StartTimer(logging.CategoryTester, "runTDDLoop")
+	defer timer.StopWithInfo()
+
 	t.mu.RLock()
 	maxRetries := t.testerConfig.MaxRetries
 	framework := t.testerConfig.Framework
@@ -190,6 +226,7 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 
 	if framework == "auto" {
 		framework = t.detectFramework(task.Target)
+		logging.TesterDebug("Auto-detected framework for TDD: %s", framework)
 	}
 
 	// Create TDD loop configuration
@@ -201,12 +238,14 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 		BuildTimeout: buildTimeout,
 		WorkingDir:   workingDir,
 	}
+	logging.Tester("TDD Loop config: maxRetries=%d, testTimeout=%v, buildTimeout=%v",
+		maxRetries, testTimeout, buildTimeout)
 
 	// Create TDD loop with our dependencies
 	t.tddLoop = core.NewTDDLoopWithConfig(t.virtualStore, t.kernel, t.llmClient, tddConfig)
 
 	// Run TDD loop to completion
-	fmt.Printf("[TesterShard:%s] Starting TDD loop for %s\n", t.id, task.Target)
+	logging.Tester("Starting TDD loop for target: %s", task.Target)
 
 	startTime := time.Now()
 	err := t.tddLoop.RunToCompletion(ctx)
@@ -216,6 +255,9 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 	tddState := t.tddLoop.GetState()
 	tddDiagnostics := t.tddLoop.GetDiagnostics()
 	retryCount := t.tddLoop.GetRetryCount()
+
+	logging.Tester("TDD Loop finished: state=%s, retries=%d/%d, duration=%v",
+		tddState, retryCount, maxRetries, duration)
 
 	result := &TestResult{
 		Framework:   framework,
@@ -233,6 +275,8 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 
 	// Get detailed output
 	tddFacts := t.tddLoop.ToFacts()
+	logging.TesterDebug("TDD Loop generated %d facts", len(tddFacts))
+
 	var outputLines []string
 	outputLines = append(outputLines, fmt.Sprintf("TDD Loop completed in %s", duration))
 	outputLines = append(outputLines, fmt.Sprintf("Final state: %s", tddState))
@@ -247,7 +291,14 @@ func (t *TesterShard) runTDDLoop(ctx context.Context, task *TesterTask) (*TestRe
 	result.Output = strings.Join(outputLines, "\n")
 
 	if err != nil {
+		logging.Get(logging.CategoryTester).Error("TDD Loop error: %v", err)
 		result.Output += fmt.Sprintf("\nError: %v", err)
+	}
+
+	if result.Passed {
+		logging.Tester("TDD Loop SUCCESS: tests now passing after %d iterations", retryCount)
+	} else {
+		logging.Tester("TDD Loop FAILED: max retries reached (%d)", maxRetries)
 	}
 
 	return result, nil

@@ -5,6 +5,7 @@ package store
 
 import (
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -44,11 +45,15 @@ func NewLearningStore(basePath string) (*LearningStore, error) {
 		basePath = filepath.Join(workspace, ".nerd", "shards")
 	}
 
+	logging.Store("Initializing LearningStore at path: %s", basePath)
+
 	// Ensure directory exists
 	if err := os.MkdirAll(basePath, 0755); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create learnings directory %s: %v", basePath, err)
 		return nil, fmt.Errorf("failed to create learnings directory: %w", err)
 	}
 
+	logging.Store("LearningStore initialized for Autopoiesis persistence")
 	return &LearningStore{
 		basePath: basePath,
 		dbs:      make(map[string]*sql.DB),
@@ -66,18 +71,23 @@ func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
 
 	// Create new DB for this shard type
 	dbPath := filepath.Join(ls.basePath, fmt.Sprintf("%s_learnings.db", shardType))
+	logging.StoreDebug("Opening learning database for shard=%s at %s", shardType, dbPath)
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to open learnings db for %s: %v", shardType, err)
 		return nil, fmt.Errorf("failed to open learnings db: %w", err)
 	}
 
 	// Initialize schema
 	if err := ls.initializeSchema(db); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to initialize learning schema for %s: %v", shardType, err)
 		db.Close()
 		return nil, err
 	}
 
 	ls.dbs[shardType] = db
+	logging.StoreDebug("Learning database ready for shard=%s", shardType)
 	return db, nil
 }
 
@@ -103,13 +113,19 @@ func (ls *LearningStore) initializeSchema(db *sql.DB) error {
 
 // Save persists a learning to the store.
 func (ls *LearningStore) Save(shardType string, factPredicate string, factArgs []any, sourceCampaign string) error {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.Save")
+	defer timer.Stop()
+
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return err
 	}
 
+	logging.StoreDebug("Saving learning: shard=%s predicate=%s campaign=%s", shardType, factPredicate, sourceCampaign)
+
 	argsJSON, err := json.Marshal(factArgs)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to marshal fact args: %v", err)
 		return fmt.Errorf("failed to marshal fact args: %w", err)
 	}
 
@@ -123,15 +139,26 @@ func (ls *LearningStore) Save(shardType string, factPredicate string, factArgs [
 			source_campaign = excluded.source_campaign
 	`, shardType, factPredicate, string(argsJSON), sourceCampaign)
 
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to save learning %s: %v", factPredicate, err)
+		return err
+	}
+
+	logging.StoreDebug("Learning saved/reinforced: %s for shard=%s", factPredicate, shardType)
+	return nil
 }
 
 // Load retrieves all learnings for a shard type.
 func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.Load")
+	defer timer.Stop()
+
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
 	}
+
+	logging.StoreDebug("Loading learnings for shard=%s (confidence > 0.3)", shardType)
 
 	rows, err := db.Query(`
 		SELECT id, shard_type, fact_predicate, fact_args, learned_at, source_campaign, confidence
@@ -140,6 +167,7 @@ func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
 		ORDER BY confidence DESC, learned_at DESC
 	`)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to load learnings for %s: %v", shardType, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -157,15 +185,21 @@ func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
 		learnings = append(learnings, l)
 	}
 
+	logging.StoreDebug("Loaded %d learnings for shard=%s", len(learnings), shardType)
 	return learnings, nil
 }
 
 // LoadByPredicate retrieves learnings filtered by predicate.
 func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learning, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.LoadByPredicate")
+	defer timer.Stop()
+
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
 	}
+
+	logging.StoreDebug("Loading learnings by predicate: shard=%s predicate=%s", shardType, predicate)
 
 	rows, err := db.Query(`
 		SELECT id, shard_type, fact_predicate, fact_args, learned_at, source_campaign, confidence
@@ -174,6 +208,7 @@ func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learnin
 		ORDER BY confidence DESC
 	`, predicate)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to load learnings by predicate: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -191,28 +226,50 @@ func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learnin
 		learnings = append(learnings, l)
 	}
 
+	logging.StoreDebug("Loaded %d learnings for predicate=%s", len(learnings), predicate)
 	return learnings, nil
 }
 
 // DecayConfidence reduces confidence of old learnings over time.
 // This implements "forgetting" - learnings not reinforced will fade.
 func (ls *LearningStore) DecayConfidence(shardType string, decayFactor float64) error {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.DecayConfidence")
+	defer timer.Stop()
+
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return err
 	}
 
+	logging.Store("Decaying confidence for shard=%s (factor=%.2f)", shardType, decayFactor)
+
 	// Decay learnings older than 7 days that haven't been reinforced
-	_, err = db.Exec(`
+	result, err := db.Exec(`
 		UPDATE learnings
 		SET confidence = confidence * ?
 		WHERE learned_at < datetime('now', '-7 days')
 	`, decayFactor)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to decay confidence: %v", err)
+		return err
+	}
+
+	decayedRows, _ := result.RowsAffected()
+	logging.StoreDebug("Decayed confidence on %d learnings", decayedRows)
 
 	// Clean up very low confidence learnings
-	_, err = db.Exec(`DELETE FROM learnings WHERE confidence < 0.1`)
+	result, err = db.Exec(`DELETE FROM learnings WHERE confidence < 0.1`)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to cleanup low-confidence learnings: %v", err)
+		return err
+	}
 
-	return err
+	deletedRows, _ := result.RowsAffected()
+	if deletedRows > 0 {
+		logging.Store("Pruned %d forgotten learnings (confidence < 0.1) for shard=%s", deletedRows, shardType)
+	}
+
+	return nil
 }
 
 // Delete removes a specific learning.
@@ -222,18 +279,31 @@ func (ls *LearningStore) Delete(shardType string, factPredicate string, factArgs
 		return err
 	}
 
+	logging.StoreDebug("Deleting learning: shard=%s predicate=%s", shardType, factPredicate)
+
 	argsJSON, _ := json.Marshal(factArgs)
 	_, err = db.Exec(`DELETE FROM learnings WHERE fact_predicate = ? AND fact_args = ?`,
 		factPredicate, string(argsJSON))
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to delete learning %s: %v", factPredicate, err)
+		return err
+	}
+
+	logging.StoreDebug("Learning deleted: %s for shard=%s", factPredicate, shardType)
+	return nil
 }
 
 // GetStats returns statistics about stored learnings.
 func (ls *LearningStore) GetStats(shardType string) (map[string]interface{}, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.GetStats")
+	defer timer.Stop()
+
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return nil, err
 	}
+
+	logging.StoreDebug("Computing learning statistics for shard=%s", shardType)
 
 	stats := make(map[string]interface{})
 
@@ -259,6 +329,7 @@ func (ls *LearningStore) GetStats(shardType string) (map[string]interface{}, err
 	}
 	stats["by_predicate"] = predicateCounts
 
+	logging.StoreDebug("Learning stats for shard=%s: total=%d, avg_confidence=%.2f", shardType, total, avgConfidence)
 	return stats, nil
 }
 
@@ -267,7 +338,10 @@ func (ls *LearningStore) Close() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	for _, db := range ls.dbs {
+	logging.Store("Closing LearningStore (closing %d database connections)", len(ls.dbs))
+
+	for shardType, db := range ls.dbs {
+		logging.StoreDebug("Closing learning database for shard=%s", shardType)
 		db.Close()
 	}
 	ls.dbs = make(map[string]*sql.DB)

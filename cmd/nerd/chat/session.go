@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
@@ -27,7 +28,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,11 +160,21 @@ func InitChat(cfg Config) Model {
 func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Cmd {
 	return func() tea.Msg {
 		bootStart := time.Now()
-		log := func(step string) {
-			fmt.Printf("\r\033[K[boot] %s (%.1fs)", step, time.Since(bootStart).Seconds())
+
+		// Initialize categorized logging system
+		if err := logging.Initialize(workspace); err != nil {
+			fmt.Printf("[boot] Warning: logging init failed: %v\n", err)
+		}
+		bootLog := logging.Get(logging.CategoryBoot)
+
+		// Local log function for TUI status line + file logging
+		logStep := func(step string) {
+			elapsed := time.Since(bootStart).Seconds()
+			fmt.Printf("\r\033[K[boot] %s (%.1fs)", step, elapsed)
+			bootLog.Info("%s (%.1fs)", step, elapsed)
 		}
 
-		log("Loading config...")
+		logStep("Loading config...")
 		// Use the passed-in config or reload from disk
 		appCfg := cfg
 		if appCfg == nil {
@@ -178,7 +188,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Initialize LLM client using the perception package's provider detection
 		// This supports all providers: zai, anthropic, openai, gemini, xai, openrouter
 		// Configuration is read from .nerd/config.json or environment variables
-		log("Detecting LLM provider...")
+		logStep("Detecting LLM provider...")
 		baseLLMClient, clientErr := perception.NewClientFromEnv()
 		if clientErr != nil {
 			initialMessages = append(initialMessages, Message{
@@ -205,12 +215,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		// Initialize backend components
-		log("Creating transducer...")
+		logStep("Creating transducer...")
 		transducer := perception.NewRealTransducer(baseLLMClient)
 
 		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally?
 		// We verified NewRealKernel calls evaluate().
-		log("Booting Mangle kernel...")
+		logStep("Booting Mangle kernel...")
 		kernel := core.NewRealKernel()
 
 		// If NewRealKernel didn't error (it returns *RealKernel), we check if it's usable.
@@ -218,12 +228,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Let's assume it initializes generic state.
 		// But we should explicitely Evaluate if needed or trust NewRealKernel.
 		// The original code called kernel.Evaluate() explicitly.
-		log("Evaluating kernel rules...")
+		logStep("Evaluating kernel rules...")
 		if err := kernel.Evaluate(); err != nil {
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
 		}
 
-		log("Creating executor & shard manager...")
+		logStep("Creating executor & shard manager...")
 		executor := tactile.NewSafeExecutor()
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
@@ -233,10 +243,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		var browserMgr *browser.SessionManager // nil until needed
 		var browserCtxCancel context.CancelFunc
 
-		log("Creating virtual store...")
+		logStep("Creating virtual store...")
 		virtualStore := core.NewVirtualStore(executor)
 
-		log("Opening knowledge database...")
+		logStep("Opening knowledge database...")
 		var localDB *store.LocalStore
 		knowledgeDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
 		if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
@@ -244,7 +254,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		// Initialize embedding engine
-		log("Initializing embedding engine...")
+		logStep("Initializing embedding engine...")
 		var embeddingEngine embedding.EmbeddingEngine
 		embCfg := appCfg.GetEmbeddingConfig()
 		if embCfg.Provider != "" {
@@ -277,11 +287,11 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		_ = embeddingEngine
 
 		if localDB != nil {
-			log("Wiring virtual store...")
+			logStep("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
 			virtualStore.SetKernel(kernel)
 
-			log("Initializing taxonomy store...")
+			logStep("Initializing taxonomy store...")
 			taxStore := perception.NewTaxonomyStore(localDB)
 			perception.SharedTaxonomy.SetStore(taxStore)
 
@@ -294,7 +304,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 
 			// HEAVY OPERATION: Rehydration
-			log("Hydrating taxonomy from DB...")
+			logStep("Hydrating taxonomy from DB...")
 			if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
@@ -303,7 +313,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				})
 			}
 
-			log("Migrating old sessions...")
+			logStep("Migrating old sessions...")
 			if migratedTurns, err := MigrateOldSessionsToSQLite(workspace, localDB); err == nil && migratedTurns > 0 {
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
@@ -313,7 +323,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 		}
 
-		log("Configuring LLM client...")
+		logStep("Configuring LLM client...")
 		var llmClient perception.LLMClient = baseLLMClient
 		if localDB != nil {
 			traceStore := NewLocalStoreTraceAdapter(localDB)
@@ -329,7 +339,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shardMgr.SetLLMClient(baseLLMClient)
 		}
 
-		log("Registering shard types...")
+		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
 			shard.SetVirtualStore(virtualStore)
@@ -411,7 +421,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		shards.RegisterSystemShardProfiles(shardMgr)
 
 		// HEAVY OPERATION: Start System Shards (Async but setup overhead)
-		log("Starting system shards...")
+		logStep("Starting system shards...")
 		ctx := context.Background()
 		disabled := make(map[string]struct{})
 		for _, name := range disableSystemShards {
@@ -436,12 +446,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			})
 		}
 
-		log("Creating shadow mode & scanner...")
+		logStep("Creating shadow mode & scanner...")
 		shadowMode := core.NewShadowMode(kernel)
 		emitter := articulation.NewEmitter()
 		scanner := world.NewScanner()
 
-		log("Initializing context compressor...")
+		logStep("Initializing context compressor...")
 		ctxCfg := appCfg.GetContextWindowConfig()
 		compressor := ctxcompress.NewCompressorWithParams(
 			kernel, localDB, llmClient,
@@ -452,7 +462,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 		)
 
-		log("Starting autopoiesis orchestrator...")
+		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
 		kernelAdapter := core.NewAutopoiesisBridge(kernel)
@@ -461,7 +471,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
 
-		log("Creating task verifier...")
+		logStep("Creating task verifier...")
 		context7Key := appCfg.Context7APIKey
 		if context7Key == "" {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
@@ -478,7 +488,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		virtualStore.SetToolExecutor(toolExecutor)
 
 		// Hydrate tools from disk and available_tools.json
-		log("Hydrating tools from .nerd/tools/...")
+		logStep("Hydrating tools from .nerd/tools/...")
 		toolsNerdDir := filepath.Join(workspace, ".nerd")
 		if err := hydrateAllTools(virtualStore, toolsNerdDir); err != nil {
 			initialMessages = append(initialMessages, Message{
@@ -488,7 +498,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			})
 		}
 
-		log("Hydrating session state...")
+		logStep("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
@@ -660,17 +670,17 @@ func hydrateAllTools(virtualStore *core.VirtualStore, nerdDir string) error {
 // Implements dual persistence: JSON files + SQLite for redundancy and queryability.
 func (m *Model) saveSessionState() {
 	if m.workspace == "" || m.sessionID == "" {
-		log.Printf("[SESSION] saveSessionState: early return - workspace=%q, sessionID=%q", m.workspace, m.sessionID)
+		logging.Session("saveSessionState: early return - workspace=%q, sessionID=%q", m.workspace, m.sessionID)
 		return
 	}
 
 	// Only save if initialized
 	if !nerdinit.IsInitialized(m.workspace) {
-		log.Printf("[SESSION] saveSessionState: workspace not initialized")
+		logging.Session("saveSessionState: workspace not initialized")
 		return
 	}
 
-	log.Printf("[SESSION] saveSessionState: saving session %s with %d messages, turnCount=%d", m.sessionID, len(m.history), m.turnCount)
+	logging.Session("saveSessionState: saving session %s with %d messages, turnCount=%d", m.sessionID, len(m.history), m.turnCount)
 
 	// Update session state
 	state := &nerdinit.SessionState{
@@ -688,7 +698,7 @@ func (m *Model) saveSessionState() {
 
 	// Save session state (JSON)
 	if err := nerdinit.SaveSessionState(m.workspace, state); err != nil {
-		log.Printf("[SESSION] ERROR saving session state: %v", err)
+		logging.Session("ERROR saving session state: %v", err)
 	}
 
 	// Convert and save conversation history (JSON)
@@ -701,9 +711,9 @@ func (m *Model) saveSessionState() {
 		}
 	}
 	if err := nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
-		log.Printf("[SESSION] ERROR saving session history: %v", err)
+		logging.Session("ERROR saving session history: %v", err)
 	} else {
-		log.Printf("[SESSION] Successfully saved %d messages to %s.json", len(messages), m.sessionID)
+		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
 
 	// ==========================================================================

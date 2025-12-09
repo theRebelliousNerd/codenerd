@@ -1,6 +1,7 @@
 package store
 
 import (
+	"codenerd/internal/logging"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -47,6 +48,8 @@ type ReasoningTrace struct {
 // NewTraceStore creates a new TraceStore using an existing database connection.
 // The database must already have the reasoning_traces table created.
 func NewTraceStore(db *sql.DB, dbPath string) (*TraceStore, error) {
+	logging.StoreDebug("Initializing TraceStore at path: %s", dbPath)
+
 	store := &TraceStore{
 		db:     db,
 		dbPath: dbPath,
@@ -54,9 +57,11 @@ func NewTraceStore(db *sql.DB, dbPath string) (*TraceStore, error) {
 
 	// Ensure the table exists
 	if err := store.ensureSchema(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to ensure trace schema: %v", err)
 		return nil, fmt.Errorf("failed to ensure trace schema: %w", err)
 	}
 
+	logging.Store("TraceStore initialized for self-learning persistence")
 	return store, nil
 }
 
@@ -103,8 +108,13 @@ func (ts *TraceStore) ensureSchema() error {
 // Accepts *ReasoningTrace directly - the LocalStore wrapper handles reflection
 // for perception.ReasoningTrace to avoid import cycles.
 func (ts *TraceStore) StoreReasoningTrace(trace *ReasoningTrace) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreReasoningTrace")
+	defer timer.Stop()
+
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
+
+	logging.StoreDebug("Storing reasoning trace: id=%s shard=%s type=%s success=%v", trace.ID, trace.ShardID, trace.ShardType, trace.Success)
 
 	notesJSON, _ := json.Marshal(trace.LearningNotes)
 
@@ -120,7 +130,13 @@ func (ts *TraceStore) StoreReasoningTrace(trace *ReasoningTrace) error {
 		trace.Success, trace.ErrorMessage, trace.QualityScore, string(notesJSON),
 	)
 
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store reasoning trace %s: %v", trace.ID, err)
+		return err
+	}
+
+	logging.StoreDebug("Reasoning trace stored: %s (duration=%dms, tokens=%d)", trace.ID, trace.DurationMs, trace.TokensUsed)
+	return nil
 }
 
 // storeReasoningTraceRaw is the internal method that handles raw parameter storage.
@@ -155,12 +171,17 @@ func (ts *TraceStore) storeReasoningTraceRaw(
 // GetShardTraces retrieves recent traces for a specific shard type.
 // Used by shards to learn from their own past behavior.
 func (ts *TraceStore) GetShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetShardTraces")
+	defer timer.Stop()
+
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 50
 	}
+
+	logging.StoreDebug("Retrieving traces for shard type=%s (limit=%d)", shardType, limit)
 
 	rows, err := ts.db.Query(`
 		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
@@ -171,22 +192,32 @@ func (ts *TraceStore) GetShardTraces(shardType string, limit int) ([]ReasoningTr
 		ORDER BY created_at DESC
 		LIMIT ?`, shardType, limit)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to retrieve traces for shard=%s: %v", shardType, err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	return ts.scanTraces(rows)
+	traces, err := ts.scanTraces(rows)
+	if err == nil {
+		logging.StoreDebug("Retrieved %d traces for shard type=%s", len(traces), shardType)
+	}
+	return traces, err
 }
 
 // GetFailedShardTraces retrieves failed traces for learning from errors.
 // Critical for self-improvement - shards can analyze what went wrong.
 func (ts *TraceStore) GetFailedShardTraces(shardType string, limit int) ([]ReasoningTrace, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetFailedShardTraces")
+	defer timer.Stop()
+
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 20
 	}
+
+	logging.StoreDebug("Retrieving failed traces for shard type=%s (limit=%d)", shardType, limit)
 
 	rows, err := ts.db.Query(`
 		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
@@ -197,22 +228,32 @@ func (ts *TraceStore) GetFailedShardTraces(shardType string, limit int) ([]Reaso
 		ORDER BY created_at DESC
 		LIMIT ?`, shardType, limit)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to retrieve failed traces for shard=%s: %v", shardType, err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	return ts.scanTraces(rows)
+	traces, err := ts.scanTraces(rows)
+	if err == nil {
+		logging.StoreDebug("Retrieved %d failed traces for shard type=%s", len(traces), shardType)
+	}
+	return traces, err
 }
 
 // GetSimilarTaskTraces finds traces for tasks matching a pattern.
 // Enables shards to recall how they handled similar situations before.
 func (ts *TraceStore) GetSimilarTaskTraces(shardType, taskPattern string, limit int) ([]ReasoningTrace, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetSimilarTaskTraces")
+	defer timer.Stop()
+
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 10
 	}
+
+	logging.StoreDebug("Finding similar task traces: shard=%s pattern=%q limit=%d", shardType, taskPattern, limit)
 
 	// Simple pattern matching - could be enhanced with FTS or vector similarity
 	rows, err := ts.db.Query(`
@@ -224,22 +265,32 @@ func (ts *TraceStore) GetSimilarTaskTraces(shardType, taskPattern string, limit 
 		ORDER BY created_at DESC
 		LIMIT ?`, shardType, "%"+taskPattern+"%", limit)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to find similar task traces: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	return ts.scanTraces(rows)
+	traces, err := ts.scanTraces(rows)
+	if err == nil {
+		logging.StoreDebug("Found %d similar task traces for pattern=%q", len(traces), taskPattern)
+	}
+	return traces, err
 }
 
 // GetHighQualityTraces retrieves successful traces with high quality scores.
 // Used to identify and learn from best practices and successful patterns.
 func (ts *TraceStore) GetHighQualityTraces(shardType string, minScore float64, limit int) ([]ReasoningTrace, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetHighQualityTraces")
+	defer timer.Stop()
+
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 20
 	}
+
+	logging.StoreDebug("Retrieving high-quality traces: shard=%s minScore=%.2f limit=%d", shardType, minScore, limit)
 
 	rows, err := ts.db.Query(`
 		SELECT id, shard_id, shard_type, shard_category, session_id, task_context,
@@ -250,11 +301,16 @@ func (ts *TraceStore) GetHighQualityTraces(shardType string, minScore float64, l
 		ORDER BY quality_score DESC, created_at DESC
 		LIMIT ?`, shardType, minScore, limit)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to retrieve high-quality traces: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
-	return ts.scanTraces(rows)
+	traces, err := ts.scanTraces(rows)
+	if err == nil {
+		logging.StoreDebug("Retrieved %d high-quality traces for shard=%s", len(traces), shardType)
+	}
+	return traces, err
 }
 
 // ========== Additional Query Methods ==========
@@ -339,20 +395,33 @@ func (ts *TraceStore) UpdateTraceQuality(traceID string, score float64, notes []
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
+	logging.StoreDebug("Updating trace quality: id=%s score=%.2f notes=%d", traceID, score, len(notes))
+
 	notesJSON, _ := json.Marshal(notes)
 
 	_, err := ts.db.Exec(`
 		UPDATE reasoning_traces
 		SET quality_score = ?, learning_notes = ?
 		WHERE id = ?`, score, string(notesJSON), traceID)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to update trace quality for %s: %v", traceID, err)
+		return err
+	}
+
+	logging.StoreDebug("Trace quality updated: %s -> %.2f", traceID, score)
+	return nil
 }
 
 // GetTraceStats returns comprehensive statistics about reasoning traces.
 // Provides insights into agent performance and learning patterns.
 func (ts *TraceStore) GetTraceStats() (map[string]interface{}, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetTraceStats")
+	defer timer.Stop()
+
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
+
+	logging.StoreDebug("Computing trace statistics")
 
 	stats := make(map[string]interface{})
 
@@ -540,6 +609,9 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 // CleanupOldTraces removes traces older than the specified retention period.
 // Returns the number of traces deleted.
 func (ts *TraceStore) CleanupOldTraces(retentionDays int) (int64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "CleanupOldTraces")
+	defer timer.Stop()
+
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
@@ -547,16 +619,21 @@ func (ts *TraceStore) CleanupOldTraces(retentionDays int) (int64, error) {
 		return 0, fmt.Errorf("retention days must be positive")
 	}
 
+	logging.Store("Cleaning up traces older than %d days", retentionDays)
+
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 
 	result, err := ts.db.Exec(`
 		DELETE FROM reasoning_traces
 		WHERE created_at < ?`, cutoff)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to cleanup old traces: %v", err)
 		return 0, err
 	}
 
-	return result.RowsAffected()
+	rowsAffected, _ := result.RowsAffected()
+	logging.Store("Cleaned up %d old traces (retention=%d days)", rowsAffected, retentionDays)
+	return rowsAffected, nil
 }
 
 // ========== Helper Methods ==========

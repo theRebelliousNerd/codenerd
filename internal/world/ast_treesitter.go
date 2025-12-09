@@ -2,9 +2,12 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -25,6 +28,7 @@ type TreeSitterParser struct {
 
 // NewTreeSitterParser creates a new tree-sitter parser
 func NewTreeSitterParser() *TreeSitterParser {
+	logging.WorldDebug("Creating new TreeSitterParser")
 	return &TreeSitterParser{
 		goParser:     sitter.NewParser(),
 		pythonParser: sitter.NewParser(),
@@ -36,6 +40,7 @@ func NewTreeSitterParser() *TreeSitterParser {
 
 // Close releases resources held by the parser
 func (p *TreeSitterParser) Close() {
+	logging.WorldDebug("Closing TreeSitterParser")
 	p.goParser.Close()
 	p.pythonParser.Close()
 	p.rustParser.Close()
@@ -45,9 +50,13 @@ func (p *TreeSitterParser) Close() {
 
 // ParseGo parses Go code using tree-sitter
 func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Go file: %s (%d bytes)", filepath.Base(path), len(content))
+
 	p.goParser.SetLanguage(golang.GetLanguage())
 	tree, err := p.goParser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Go parse failed: %s - %v", path, err)
 		return nil, err
 	}
 	defer tree.Close()
@@ -58,6 +67,7 @@ func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]core.Fact, er
 	// Walk the tree and extract symbols
 	facts = append(facts, p.extractGoSymbols(root, path, string(content))...)
 
+	logging.WorldDebug("TreeSitter: Go parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }
 
@@ -261,9 +271,13 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 // ParsePython parses Python code using tree-sitter
 func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Python file: %s (%d bytes)", filepath.Base(path), len(content))
+
 	p.pythonParser.SetLanguage(python.GetLanguage())
 	tree, err := p.pythonParser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Python parse failed: %s - %v", path, err)
 		return nil, err
 	}
 	defer tree.Close()
@@ -272,6 +286,7 @@ func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]core.Fact
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractPythonSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: Python parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }
 
@@ -353,9 +368,13 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 
 // ParseRust parses Rust code using tree-sitter
 func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing Rust file: %s (%d bytes)", filepath.Base(path), len(content))
+
 	p.rustParser.SetLanguage(rust.GetLanguage())
 	tree, err := p.rustParser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: Rust parse failed: %s - %v", path, err)
 		return nil, err
 	}
 	defer tree.Close()
@@ -364,6 +383,7 @@ func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]core.Fact, 
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractRustSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: Rust parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }
 
@@ -476,9 +496,13 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 
 // ParseJavaScript parses JavaScript code using tree-sitter
 func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing JavaScript file: %s (%d bytes)", filepath.Base(path), len(content))
+
 	p.jsParser.SetLanguage(javascript.GetLanguage())
 	tree, err := p.jsParser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: JavaScript parse failed: %s - %v", path, err)
 		return nil, err
 	}
 	defer tree.Close()
@@ -487,6 +511,7 @@ func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]core.
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractJSSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: JavaScript parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }
 
@@ -584,9 +609,13 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 
 // ParseTypeScript parses TypeScript code using tree-sitter
 func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("TreeSitter: parsing TypeScript file: %s (%d bytes)", filepath.Base(path), len(content))
+
 	p.tsParser.SetLanguage(typescript.GetLanguage())
 	tree, err := p.tsParser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("TreeSitter: TypeScript parse failed: %s - %v", path, err)
 		return nil, err
 	}
 	defer tree.Close()
@@ -595,6 +624,7 @@ func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]core.
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractTSSymbols(root, path, string(content))...)
+	logging.WorldDebug("TreeSitter: TypeScript parsed %s - %d facts in %v", filepath.Base(path), len(facts), time.Since(start))
 	return facts, nil
 }
 

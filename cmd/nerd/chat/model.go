@@ -446,7 +446,8 @@ func (m Model) Init() tea.Cmd {
 		m.spinner.Tick,
 		// m.checkWorkspaceSync(), // DEFERRED until boot complete
 		tea.EnableMouseCellMotion,
-		m.waitForStatus(), // Start status listener
+		tea.EnableBracketedPaste, // Allow multi-line paste without sending early
+		m.waitForStatus(),        // Start status listener
 		performSystemBoot(m.Config, m.DisableSystemShards, m.workspace), // Start heavy system initialization
 	)
 }
@@ -557,6 +558,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Alt {
 				// Let textarea handle it
 				break
+			}
+
+			// Bracketed paste: don't submit on Enter during paste, insert newline instead
+			if msg.Paste {
+				break // Let textarea handle it as newline
 			}
 
 			// Logic pane: Enter toggles expand/collapse

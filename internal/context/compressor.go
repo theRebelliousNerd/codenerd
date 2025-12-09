@@ -3,6 +3,7 @@ package context
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"context"
@@ -51,6 +52,8 @@ type Compressor struct {
 // NewCompressor creates a new context compressor.
 func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient) *Compressor {
 	cfg := DefaultConfig()
+	logging.Context("Compressor initialized with default config: budget=%d tokens, threshold=%.0f%%, window=%d turns",
+		cfg.TotalBudget, cfg.CompressionThreshold*100, cfg.RecentTurnWindow)
 	return &Compressor{
 		kernel:     kernel,
 		store:      localStorage,
@@ -80,6 +83,11 @@ func NewCompressorWithConfig(kernel *core.RealKernel, localStorage *store.LocalS
 		PredicatePriorities:    DefaultConfig().PredicatePriorities,
 	}
 
+	logging.Context("Compressor initialized with custom config: budget=%d tokens, threshold=%.0f%%, window=%d turns",
+		compCfg.TotalBudget, compCfg.CompressionThreshold*100, compCfg.RecentTurnWindow)
+	logging.ContextDebug("Token allocation: core=%d, atoms=%d, history=%d, working=%d",
+		compCfg.CoreReserve, compCfg.AtomReserve, compCfg.HistoryReserve, compCfg.WorkingReserve)
+
 	return newCompressorWithCompressorConfig(kernel, localStorage, llmClient, compCfg)
 }
 
@@ -101,6 +109,12 @@ func NewCompressorWithParams(kernel *core.RealKernel, localStorage *store.LocalS
 		ActivationThreshold:    activationThreshold,
 		PredicatePriorities:    DefaultConfig().PredicatePriorities,
 	}
+
+	logging.Context("Compressor initialized with params: budget=%d tokens, threshold=%.0f%%, window=%d turns, target_ratio=%.1f:1",
+		maxTokens, compressionThreshold*100, recentWindow, targetRatio)
+	logging.ContextDebug("Token allocation: core=%d%% (%d), atoms=%d%% (%d), history=%d%% (%d), working=%d%% (%d)",
+		corePercent, compCfg.CoreReserve, atomPercent, compCfg.AtomReserve,
+		historyPercent, compCfg.HistoryReserve, workingPercent, compCfg.WorkingReserve)
 
 	return newCompressorWithCompressorConfig(kernel, localStorage, llmClient, compCfg)
 }
@@ -135,8 +149,13 @@ func newCompressorWithCompressorConfig(kernel *core.RealKernel, localStorage *st
 // 4. Delete the surface text "Fixing..." from history
 // 5. Next turn sees only the atoms task_status(/server, /fixing)
 func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, error) {
+	timer := logging.StartTimer(logging.CategoryContext, fmt.Sprintf("ProcessTurn[%d]", turn.Number))
+	defer timer.Stop()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	logging.Context("Processing turn %d (role=%s)", turn.Number, turn.Role)
 
 	result := &TurnResult{}
 
@@ -145,28 +164,36 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	if turn.ControlPacket != nil {
 		extracted, err := ExtractAtomsFromControlPacket(turn.ControlPacket)
 		if err != nil {
-			// Log but continue - we can still compress without atoms
-			fmt.Printf("[Compressor] Warning: failed to extract atoms: %v\n", err)
+			logging.Get(logging.CategoryContext).Warn("Failed to extract atoms from control packet: %v", err)
 		}
 		atoms = extracted
+		logging.ContextDebug("Extracted %d atoms from control packet", len(atoms))
 	}
 
 	// Add any pre-extracted atoms
 	atoms = append(atoms, turn.ExtractedAtoms...)
+	if len(turn.ExtractedAtoms) > 0 {
+		logging.ContextDebug("Added %d pre-extracted atoms (total: %d)", len(turn.ExtractedAtoms), len(atoms))
+	}
 
 	// 2. Commit atoms to kernel
+	committedCount := 0
 	for _, atom := range atoms {
 		if err := c.kernel.Assert(atom); err != nil {
-			fmt.Printf("[Compressor] Warning: failed to assert atom %s: %v\n", atom.Predicate, err)
+			logging.Get(logging.CategoryContext).Warn("Failed to assert atom %s: %v", atom.Predicate, err)
+		} else {
+			committedCount++
 		}
 	}
 	result.CommittedAtoms = atoms
+	logging.ContextDebug("Committed %d/%d atoms to kernel", committedCount, len(atoms))
 
 	// Mark atoms as new for recency scoring
 	c.activation.MarkNewFacts(atoms)
 
 	// 3. Process memory operations
-	if turn.ControlPacket != nil {
+	if turn.ControlPacket != nil && len(turn.ControlPacket.MemoryOperations) > 0 {
+		logging.ContextDebug("Processing %d memory operations", len(turn.ControlPacket.MemoryOperations))
 		for _, op := range turn.ControlPacket.MemoryOperations {
 			c.processMemoryOperation(op)
 		}
@@ -207,24 +234,42 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	c.totalOriginalTokens += originalTokens
 	c.totalCompressedTokens += compressedTokens
 
+	logging.ContextDebug("Turn %d tokens: original=%d, compressed=%d (total: orig=%d, comp=%d)",
+		turn.Number, originalTokens, compressedTokens, c.totalOriginalTokens, c.totalCompressedTokens)
+
 	// Recalculate token budget so compression decisions reflect current usage.
 	c.recalcBudget(turn.Number, originalTokens)
 
+	utilization := c.budget.Utilization()
+	logging.ContextDebug("Token budget utilization: %.1f%% (threshold: %.1f%%)",
+		utilization*100, c.config.CompressionThreshold*100)
+
 	if c.shouldCompress() {
+		logging.Context("COMPRESSION TRIGGERED: utilization %.1f%% exceeds threshold %.1f%%",
+			utilization*100, c.config.CompressionThreshold*100)
+		compressTimer := logging.StartTimer(logging.CategoryContext, "Compression")
 		if err := c.compress(ctx); err != nil {
-			fmt.Printf("[Compressor] Warning: compression failed: %v\n", err)
+			logging.Get(logging.CategoryContext).Error("Compression failed: %v", err)
 		}
+		compressTimer.Stop()
 		result.CompressionTriggered = true
 	}
 
 	// 7. Prune old turns from sliding window
+	beforePrune := len(c.recentTurns)
 	c.pruneRecentTurns()
+	if len(c.recentTurns) < beforePrune {
+		logging.ContextDebug("Pruned %d turns from sliding window (now: %d)", beforePrune-len(c.recentTurns), len(c.recentTurns))
+	}
 
 	// 8. Update turn number
 	c.turnNumber = turn.Number
 
 	// 9. Calculate final token usage
 	result.TokenUsage = c.budget.GetUsage()
+	logging.Context("Turn %d complete: %d atoms, %d recent turns, usage=%d/%d tokens (%.1f%%)",
+		turn.Number, len(atoms), len(c.recentTurns),
+		result.TokenUsage.Total, c.config.TotalBudget, utilization*100)
 
 	return result, nil
 }
@@ -233,14 +278,17 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 	switch op.Op {
 	case "promote_to_long_term":
+		logging.ContextDebug("Memory op: promote_to_long_term key=%s", op.Key)
 		// Store in cold storage
 		if c.store != nil {
 			c.store.StoreFact(op.Key, []interface{}{op.Value}, "preference", 10)
 		}
 	case "forget":
+		logging.ContextDebug("Memory op: forget key=%s", op.Key)
 		// Remove from kernel
 		c.kernel.Retract(op.Key)
 	case "store_vector":
+		logging.ContextDebug("Memory op: store_vector key=%s", op.Key)
 		// Store in vector memory
 		if c.store != nil {
 			c.store.StoreVector(op.Value, map[string]interface{}{"key": op.Key})
@@ -258,6 +306,9 @@ func (c *Compressor) shouldCompress() bool {
 // recalcBudget recomputes token usage across core facts, context atoms,
 // history, and recent turns so compression thresholds work correctly.
 func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
+	timer := logging.StartTimer(logging.CategoryContext, "RecalcBudget")
+	defer timer.Stop()
+
 	// Gather context components
 	coreFacts := c.getCoreFacts()
 	allFacts := c.kernel.GetAllFacts()
@@ -293,25 +344,35 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 	c.budget.used.history = usage.History
 	c.budget.used.recent = usage.Recent
 	c.budget.used.working = workingTokens
+
+	logging.ContextDebug("Budget recalculated: core=%d, atoms=%d, history=%d, recent=%d, working=%d (total=%d)",
+		usage.Core, usage.Atoms, usage.History, usage.Recent, workingTokens, c.budget.TotalUsed())
 }
 
 // compress performs the actual compression.
 func (c *Compressor) compress(ctx context.Context) error {
 	if len(c.recentTurns) <= c.config.RecentTurnWindow {
+		logging.ContextDebug("Compression skipped: only %d turns (need > %d)", len(c.recentTurns), c.config.RecentTurnWindow)
 		return nil // Nothing to compress
 	}
 
 	// Determine turns to compress (everything except recent window)
 	cutoff := len(c.recentTurns) - c.config.RecentTurnWindow
 	turnsToCompress := c.recentTurns[:cutoff]
+	logging.Context("Compressing %d turns (keeping %d recent)", cutoff, c.config.RecentTurnWindow)
+
 	keyAtoms := c.collectKeyAtoms(turnsToCompress, 64)
+	logging.ContextDebug("Collected %d key atoms for compression segment", len(keyAtoms))
 
 	// Create summary using LLM
+	summaryTimer := logging.StartTimer(logging.CategoryContext, "GenerateSummary")
 	summary, err := c.generateSummary(ctx, turnsToCompress)
 	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("LLM summary failed, using simple summary: %v", err)
 		// Fallback to simple summary
 		summary = c.generateSimpleSummary(turnsToCompress)
 	}
+	summaryTimer.Stop()
 
 	// Calculate metrics with original token estimates preserved per turn
 	originalTokens := c.countOriginalTokens(turnsToCompress)
@@ -320,19 +381,25 @@ func (c *Compressor) compress(ctx context.Context) error {
 	}
 	compressedTokens := c.counter.CountString(summary)
 
+	logging.ContextDebug("Initial compression: %d -> %d tokens (ratio: %.1f:1)",
+		originalTokens, compressedTokens, float64(originalTokens)/float64(max(compressedTokens, 1)))
+
 	// Enforce target compression ratio by preferring structured atoms or trimming
 	maxSummaryTokens := 0
 	if c.config.TargetCompressionRatio > 0 {
 		maxSummaryTokens = max(1, int(float64(originalTokens)/c.config.TargetCompressionRatio))
 	}
 	if maxSummaryTokens > 0 && compressedTokens > maxSummaryTokens {
+		logging.ContextDebug("Summary exceeds budget (%d > %d), attempting atom serialization", compressedTokens, maxSummaryTokens)
 		serializedAtoms := c.serializer.SerializeFacts(keyAtoms)
 		atomTokens := c.counter.CountString(serializedAtoms)
 
 		if atomTokens > 0 && atomTokens <= maxSummaryTokens {
+			logging.ContextDebug("Using atom serialization (%d tokens)", atomTokens)
 			summary = serializedAtoms
 			compressedTokens = atomTokens
 		} else {
+			logging.ContextDebug("Trimming summary to %d tokens", maxSummaryTokens)
 			summary = c.trimToTokens(summary, maxSummaryTokens)
 			compressedTokens = c.counter.CountString(summary)
 		}
@@ -361,11 +428,17 @@ func (c *Compressor) compress(ctx context.Context) error {
 	c.rollingSummary.OverallRatio = float64(c.rollingSummary.TotalOriginalTokens) / float64(max(c.rollingSummary.TotalCompressedTokens, 1))
 	c.rollingSummary.LastUpdate = time.Now()
 
+	logging.Context("COMPRESSION COMPLETE: turns %d-%d, %d->%d tokens (%.1f:1 ratio), %d segments total",
+		segment.StartTurn, segment.EndTurn, originalTokens, compressedTokens, ratio, len(c.rollingSummary.Segments))
+	logging.Context("Rolling summary: %d turns compressed, overall ratio %.1f:1",
+		c.rollingSummary.TotalTurns, c.rollingSummary.OverallRatio)
+
 	// Rebuild rolling summary text
 	c.rebuildRollingSummaryText()
 
 	// Remove compressed turns from recent
 	c.recentTurns = c.recentTurns[cutoff:]
+	logging.ContextDebug("Removed %d compressed turns, %d remaining", cutoff, len(c.recentTurns))
 
 	// Decay recency scores for old facts
 	c.activation.DecayRecency(30 * time.Minute)
@@ -376,6 +449,7 @@ func (c *Compressor) compress(ctx context.Context) error {
 // generateSummary uses LLM to create a compressed summary.
 func (c *Compressor) generateSummary(ctx context.Context, turns []CompressedTurn) (string, error) {
 	if c.llmClient == nil {
+		logging.ContextDebug("No LLM client, using simple summary")
 		return c.generateSimpleSummary(turns), nil
 	}
 
@@ -399,6 +473,7 @@ func (c *Compressor) generateSummary(ctx context.Context, turns []CompressedTurn
 
 	sb.WriteString("\nSummary:")
 
+	logging.ContextDebug("Generating LLM summary for %d turns", len(turns))
 	resp, err := c.llmClient.Complete(ctx, sb.String())
 	if err != nil {
 		return "", err
@@ -462,37 +537,52 @@ func (c *Compressor) pruneRecentTurns() {
 // BuildContext creates the compressed context for an LLM call.
 // This replaces raw conversation history with semantically compressed state.
 func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, error) {
+	timer := logging.StartTimer(logging.CategoryContext, "BuildContext")
+	defer timer.Stop()
+
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	// 1. Get all facts from kernel
 	allFacts := c.kernel.GetAllFacts()
+	logging.ContextDebug("Building context: %d total facts in kernel", len(allFacts))
 
 	// 2. Find current intent (for activation scoring)
 	var currentIntent *core.Fact
 	intentFacts, _ := c.kernel.Query("user_intent")
 	if len(intentFacts) > 0 {
 		currentIntent = &intentFacts[len(intentFacts)-1]
+		logging.ContextDebug("Current intent: %s", currentIntent.String())
 	}
 
 	// 3. Score and filter facts using activation engine
+	activationTimer := logging.StartTimer(logging.CategoryContext, "ActivationScoring")
 	scoredFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+	activationTimer.Stop()
+	logging.ContextDebug("Activation scoring: %d facts selected (budget: %d tokens)", len(scoredFacts), c.config.AtomReserve)
 
 	// 4. Get core facts (constitutional, always included)
 	coreFacts := c.getCoreFacts()
+	logging.ContextDebug("Core facts (constitutional): %d facts", len(coreFacts))
 
 	// 5. Build context using builder
 	builder := NewContextBlockBuilder()
+	recentTurns := c.recentTurns[max(0, len(c.recentTurns)-c.config.RecentTurnWindow):]
 	compressedCtx := builder.Build(
 		coreFacts,
 		scoredFacts,
 		c.rollingSummary.Text,
-		c.recentTurns[max(0, len(c.recentTurns)-c.config.RecentTurnWindow):],
+		recentTurns,
 		c.turnNumber,
 	)
 
 	// 6. Update usage
 	compressedCtx.TokenUsage.Available = c.config.TotalBudget - compressedCtx.TokenUsage.Total
+
+	logging.Context("Context built: %d tokens used, %d available (core=%d, atoms=%d, history=%d, recent=%d)",
+		compressedCtx.TokenUsage.Total, compressedCtx.TokenUsage.Available,
+		compressedCtx.TokenUsage.Core, compressedCtx.TokenUsage.Atoms,
+		compressedCtx.TokenUsage.History, compressedCtx.TokenUsage.Recent)
 
 	return compressedCtx, nil
 }
@@ -518,10 +608,13 @@ func (c *Compressor) getCoreFacts() []core.Fact {
 func (c *Compressor) GetContextString(ctx context.Context) (string, error) {
 	compressedCtx, err := c.BuildContext(ctx)
 	if err != nil {
+		logging.Get(logging.CategoryContext).Error("Failed to build context: %v", err)
 		return "", err
 	}
 
-	return c.serializer.SerializeCompressedContext(compressedCtx), nil
+	contextStr := c.serializer.SerializeCompressedContext(compressedCtx)
+	logging.ContextDebug("Serialized context string: %d characters", len(contextStr))
+	return contextStr, nil
 }
 
 // =============================================================================
@@ -571,12 +664,17 @@ func (c *Compressor) IsCompressionActive() bool {
 
 	// If we have compressed segments, always use compressed context
 	if len(c.rollingSummary.Segments) > 0 {
+		logging.ContextDebug("Compression active: %d segments exist", len(c.rollingSummary.Segments))
 		return true
 	}
 
 	// If approaching token limit, signal that we should use compressed context
 	// This prevents the "dump 50 messages" problem on rehydrated sessions
-	return c.budget.ShouldCompress()
+	shouldCompress := c.budget.ShouldCompress()
+	if shouldCompress {
+		logging.ContextDebug("Compression active: budget threshold reached (%.1f%%)", c.budget.Utilization()*100)
+	}
+	return shouldCompress
 }
 
 // GetRecentTurnWindow returns the configured recent turn window size.
@@ -589,6 +687,8 @@ func (c *Compressor) GetState() *CompressedState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	logging.ContextDebug("Getting compressed state for persistence")
+
 	// Get hot facts
 	allFacts := c.kernel.GetAllFacts()
 	var currentIntent *core.Fact
@@ -597,6 +697,9 @@ func (c *Compressor) GetState() *CompressedState {
 		currentIntent = &intentFacts[len(intentFacts)-1]
 	}
 	hotFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+
+	logging.ContextDebug("State: turn=%d, recent=%d, segments=%d, hot_facts=%d",
+		c.turnNumber, len(c.recentTurns), len(c.rollingSummary.Segments), len(hotFacts))
 
 	return &CompressedState{
 		SessionID:            c.sessionID,
@@ -616,17 +719,23 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	logging.Context("Loading compressed state: session=%s, turn=%d, segments=%d",
+		state.SessionID, state.TurnNumber, len(state.RollingSummary.Segments))
+
 	c.sessionID = state.SessionID
 	c.turnNumber = state.TurnNumber
 	c.rollingSummary = state.RollingSummary
 	c.recentTurns = state.RecentTurns
 
 	// Restore hot facts to kernel
+	restoredCount := 0
 	for _, sf := range state.HotFacts {
 		c.kernel.Assert(sf.Fact)
 		c.activation.RecordFactTimestamp(sf.Fact)
+		restoredCount++
 	}
 
+	logging.Context("State loaded: restored %d hot facts, %d recent turns", restoredCount, len(c.recentTurns))
 	return nil
 }
 
@@ -634,6 +743,8 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 func (c *Compressor) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	logging.Context("Resetting compressor state")
 
 	c.turnNumber = 0
 	c.recentTurns = nil
@@ -643,6 +754,8 @@ func (c *Compressor) Reset() {
 	c.activation.ClearState()
 	c.budget.Reset()
 	c.sessionID = fmt.Sprintf("session_%d", time.Now().Unix())
+
+	logging.Context("Compressor reset complete, new session: %s", c.sessionID)
 }
 
 // countOriginalTokens sums the pre-compression token estimates for turns.
