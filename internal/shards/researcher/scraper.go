@@ -3,6 +3,7 @@
 package researcher
 
 import (
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"io"
@@ -124,99 +125,135 @@ var knownSources = map[string]KnowledgeSource{
 
 // findKnowledgeSource looks up a known source for the topic
 func (r *ResearcherShard) findKnowledgeSource(topic string) (KnowledgeSource, bool) {
+	logging.ResearcherDebug("Looking up known source for topic: %s", topic)
+
 	// Direct lookup
 	if source, ok := knownSources[topic]; ok {
+		logging.ResearcherDebug("Found direct match: %s (type: %s)", source.Name, source.Type)
 		return source, true
 	}
 
 	// Partial match lookup
 	for key, source := range knownSources {
 		if strings.Contains(topic, key) || strings.Contains(key, topic) {
+			logging.ResearcherDebug("Found partial match on '%s': %s (type: %s)", key, source.Name, source.Type)
 			return source, true
 		}
 	}
 
+	logging.ResearcherDebug("No known source found for topic: %s", topic)
 	return KnowledgeSource{}, false
 }
 
 // fetchFromKnownSource fetches documentation from a known source
 func (r *ResearcherShard) fetchFromKnownSource(ctx context.Context, source KnowledgeSource, keywords []string) ([]KnowledgeAtom, error) {
+	logging.ResearcherDebug("Fetching from known source: %s (type: %s)", source.Name, source.Type)
 	switch source.Type {
 	case "github":
-		return r.fetchGitHubDocs(ctx, source, keywords)
+		atoms, err := r.fetchGitHubDocs(ctx, source, keywords)
+		if err != nil {
+			logging.ResearcherDebug("GitHub fetch failed: %v", err)
+			return nil, err
+		}
+		logging.ResearcherDebug("GitHub fetch complete: %d atoms", len(atoms))
+		return atoms, nil
 	case "pkggodev":
-		return r.fetchPkgGoDev(ctx, source)
+		atoms, err := r.fetchPkgGoDev(ctx, source)
+		if err != nil {
+			logging.ResearcherDebug("pkg.go.dev fetch failed: %v", err)
+			return nil, err
+		}
+		logging.ResearcherDebug("pkg.go.dev fetch complete: %d atoms", len(atoms))
+		return atoms, nil
 	case "llm":
 		// LLM sources are handled separately
+		logging.ResearcherDebug("LLM source type - handled separately")
 		return nil, nil
 	default:
+		logging.ResearcherDebug("Unknown source type: %s", source.Type)
 		return nil, fmt.Errorf("unknown source type: %s", source.Type)
 	}
 }
 
 // fetchRawContent fetches raw content from a URL
 func (r *ResearcherShard) fetchRawContent(ctx context.Context, url string) (string, error) {
+	logging.ResearcherDebug("Fetching raw content from: %s", url)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
+		logging.ResearcherDebug("Failed to create request: %v", err)
 		return "", err
 	}
 	req.Header.Set("User-Agent", r.researchConfig.UserAgent)
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
+		logging.ResearcherDebug("HTTP request failed: %v", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		logging.ResearcherDebug("HTTP error: status %d", resp.StatusCode)
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 500*1024)) // 500KB limit
 	if err != nil {
+		logging.ResearcherDebug("Failed to read response body: %v", err)
 		return "", err
 	}
 
+	logging.ResearcherDebug("Fetched %d bytes from %s", len(body), url)
 	return string(body), nil
 }
 
 // fetchAndExtract fetches a URL and extracts knowledge atoms.
 func (r *ResearcherShard) fetchAndExtract(ctx context.Context, url string, keywords []string) ([]KnowledgeAtom, error) {
+	logging.ResearcherDebug("Fetching and extracting from URL: %s", url)
+
 	// Check domain restrictions
 	if !r.isDomainAllowed(url) {
+		logging.ResearcherDebug("Domain blocked: %s", url)
 		return nil, fmt.Errorf("domain not allowed: %s", url)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
+		logging.ResearcherDebug("Failed to create request: %v", err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", r.researchConfig.UserAgent)
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
+		logging.ResearcherDebug("HTTP request failed: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		logging.ResearcherDebug("HTTP error: status %d for %s", resp.StatusCode, url)
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	// Read body
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
 	if err != nil {
+		logging.ResearcherDebug("Failed to read body: %v", err)
 		return nil, err
 	}
+	logging.ResearcherDebug("Received %d bytes from %s", len(body), url)
 
 	// Parse HTML
 	doc, err := html.Parse(strings.NewReader(string(body)))
 	if err != nil {
+		logging.ResearcherDebug("Failed to parse HTML: %v", err)
 		return nil, err
 	}
 
 	// Extract atoms
 	atoms := r.extractAtomsFromHTML(doc, url, keywords)
+	logging.ResearcherDebug("Extracted %d atoms from %s", len(atoms), url)
 
 	return atoms, nil
 }

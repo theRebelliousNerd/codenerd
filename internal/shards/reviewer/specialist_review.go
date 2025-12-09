@@ -182,6 +182,9 @@ type ParsedFinding struct {
 }
 
 // ParseShardOutput extracts findings from a shard's output text
+// Supports two formats:
+// 1. Specialist format: ### [SEVERITY: xxx] Title
+// 2. Table format: | icon severity | category | `file:line` | message |
 func ParseShardOutput(output string, shardName string) []ParsedFinding {
 	var findings []ParsedFinding
 
@@ -192,8 +195,8 @@ func ParseShardOutput(output string, shardName string) []ParsedFinding {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		// Look for finding headers
-		if strings.HasPrefix(line, "### [") || strings.HasPrefix(line, "- **") {
+		// Format 1: Specialist headers - ### [SEVERITY: ...] patterns
+		if strings.HasPrefix(line, "### [") {
 			// Save previous finding
 			if currentFinding != nil && currentFinding.Message != "" {
 				findings = append(findings, *currentFinding)
@@ -201,38 +204,43 @@ func ParseShardOutput(output string, shardName string) []ParsedFinding {
 
 			currentFinding = &ParsedFinding{ShardSource: shardName}
 
-			// Parse severity from header
-			if strings.Contains(strings.ToLower(line), "critical") {
-				currentFinding.Severity = "critical"
-			} else if strings.Contains(strings.ToLower(line), "error") {
-				currentFinding.Severity = "error"
-			} else if strings.Contains(strings.ToLower(line), "warning") {
-				currentFinding.Severity = "warning"
+			// Parse severity from header - only look within the [...] marker
+			closeBracket := strings.Index(line, "]")
+			if closeBracket > 0 {
+				severityMarker := strings.ToLower(line[4:closeBracket]) // After "### ["
+				if strings.Contains(severityMarker, "critical") {
+					currentFinding.Severity = "critical"
+				} else if strings.Contains(severityMarker, "error") {
+					currentFinding.Severity = "error"
+				} else if strings.Contains(severityMarker, "warning") {
+					currentFinding.Severity = "warning"
+				} else {
+					currentFinding.Severity = "info"
+				}
+				// Extract message from header (everything after the last ])
+				currentFinding.Message = strings.TrimSpace(line[closeBracket+1:])
 			} else {
 				currentFinding.Severity = "info"
 			}
+			continue
+		}
 
-			// Try to extract file:line
-			if idx := strings.Index(line, "**File**:"); idx >= 0 {
-				rest := strings.TrimSpace(line[idx+9:])
-				if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
-					currentFinding.File = strings.TrimSpace(rest[:colonIdx])
-					lineStr := strings.TrimSpace(rest[colonIdx+1:])
-					fmt.Sscanf(lineStr, "%d", &currentFinding.Line)
-				}
+		// Format 2: Table rows - | severity | category | `file:line` | message |
+		// Skip header rows containing "Severity" or separator rows
+		if strings.HasPrefix(line, "|") && !strings.Contains(line, "Severity") && !strings.Contains(line, "---") {
+			finding := parseTableRow(line, shardName)
+			if finding != nil {
+				findings = append(findings, *finding)
 			}
+			continue
+		}
 
-			// Extract message from header
-			if idx := strings.LastIndex(line, "]"); idx >= 0 {
-				currentFinding.Message = strings.TrimSpace(line[idx+1:])
-			} else {
-				currentFinding.Message = line
-			}
-		} else if currentFinding != nil {
-			// Look for additional fields
+		// Handle additional fields for current finding (specialist format)
+		if currentFinding != nil {
 			if strings.HasPrefix(line, "- **File**:") {
 				rest := strings.TrimPrefix(line, "- **File**:")
 				rest = strings.TrimSpace(rest)
+				// Handle file:line format
 				if colonIdx := strings.Index(rest, ":"); colonIdx >= 0 {
 					currentFinding.File = strings.TrimSpace(rest[:colonIdx])
 					lineStr := strings.TrimSpace(rest[colonIdx+1:])
@@ -241,22 +249,77 @@ func ParseShardOutput(output string, shardName string) []ParsedFinding {
 					currentFinding.File = rest
 				}
 			} else if strings.HasPrefix(line, "- **Issue**:") {
-				currentFinding.Message = strings.TrimPrefix(line, "- **Issue**:")
-				currentFinding.Message = strings.TrimSpace(currentFinding.Message)
+				issue := strings.TrimPrefix(line, "- **Issue**:")
+				currentFinding.Message = strings.TrimSpace(issue)
 			} else if strings.HasPrefix(line, "- **Recommendation**:") {
-				currentFinding.Recommendation = strings.TrimPrefix(line, "- **Recommendation**:")
-				currentFinding.Recommendation = strings.TrimSpace(currentFinding.Recommendation)
+				rec := strings.TrimPrefix(line, "- **Recommendation**:")
+				currentFinding.Recommendation = strings.TrimSpace(rec)
 			} else if strings.HasPrefix(line, "- _Recommendation_:") {
-				currentFinding.Recommendation = strings.TrimPrefix(line, "- _Recommendation_:")
-				currentFinding.Recommendation = strings.TrimSpace(currentFinding.Recommendation)
+				rec := strings.TrimPrefix(line, "- _Recommendation_:")
+				currentFinding.Recommendation = strings.TrimSpace(rec)
 			}
 		}
 	}
 
-	// Save last finding
+	// Save last finding (specialist format)
 	if currentFinding != nil && currentFinding.Message != "" {
 		findings = append(findings, *currentFinding)
 	}
 
 	return findings
+}
+
+// parseTableRow parses a markdown table row into a finding
+// Format: | icon severity | category | `file:line` | message |
+func parseTableRow(line string, shardName string) *ParsedFinding {
+	// Split by | and trim
+	parts := strings.Split(line, "|")
+	if len(parts) < 5 {
+		return nil
+	}
+
+	// parts[0] is empty (before first |)
+	// parts[1] = severity with icon
+	// parts[2] = category
+	// parts[3] = file:line in backticks
+	// parts[4] = message
+
+	severityPart := strings.ToLower(strings.TrimSpace(parts[1]))
+	categoryPart := strings.TrimSpace(parts[2])
+	filePart := strings.TrimSpace(parts[3])
+	messagePart := strings.TrimSpace(parts[4])
+
+	// Skip if no message
+	if messagePart == "" {
+		return nil
+	}
+
+	finding := &ParsedFinding{
+		ShardSource: shardName,
+		Category:    categoryPart,
+		Message:     messagePart,
+	}
+
+	// Parse severity from "🔴 critical", "❌ error", "⚠️ warning", etc.
+	if strings.Contains(severityPart, "critical") {
+		finding.Severity = "critical"
+	} else if strings.Contains(severityPart, "error") {
+		finding.Severity = "error"
+	} else if strings.Contains(severityPart, "warning") {
+		finding.Severity = "warning"
+	} else {
+		finding.Severity = "info"
+	}
+
+	// Parse file:line from `file:line` format
+	filePart = strings.Trim(filePart, "`")
+	if colonIdx := strings.LastIndex(filePart, ":"); colonIdx > 0 {
+		finding.File = filePart[:colonIdx]
+		lineStr := filePart[colonIdx+1:]
+		fmt.Sscanf(lineStr, "%d", &finding.Line)
+	} else {
+		finding.File = filePart
+	}
+
+	return finding
 }

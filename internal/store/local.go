@@ -140,45 +140,7 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_kg_relation ON knowledge_graph(relation);
 	`
 
-	// Shard D: Cold Storage (Facts and Preferences)
-	coldTable := `
-	CREATE TABLE IF NOT EXISTS cold_storage (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		predicate TEXT NOT NULL,
-		args TEXT NOT NULL,
-		fact_type TEXT DEFAULT 'fact',
-		priority INTEGER DEFAULT 0,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
-		access_count INTEGER DEFAULT 0,
-		UNIQUE(predicate, args)
-	);
-	CREATE INDEX IF NOT EXISTS idx_cold_predicate ON cold_storage(predicate);
-	CREATE INDEX IF NOT EXISTS idx_cold_type ON cold_storage(fact_type);
-	CREATE INDEX IF NOT EXISTS idx_cold_last_accessed ON cold_storage(last_accessed);
-	CREATE INDEX IF NOT EXISTS idx_cold_access_count ON cold_storage(access_count);
-	`
-
-	// Archival tier for very old or low-priority facts
-	archivedTable := `
-	CREATE TABLE IF NOT EXISTS archived_facts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		predicate TEXT NOT NULL,
-		args TEXT NOT NULL,
-		fact_type TEXT DEFAULT 'fact',
-		priority INTEGER DEFAULT 0,
-		created_at DATETIME,
-		updated_at DATETIME,
-		last_accessed DATETIME,
-		access_count INTEGER DEFAULT 0,
-		archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(predicate, args)
-	);
-	CREATE INDEX IF NOT EXISTS idx_archived_predicate ON archived_facts(predicate);
-	CREATE INDEX IF NOT EXISTS idx_archived_type ON archived_facts(fact_type);
-	CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_facts(archived_at);
-	`
+	// Shard D: Cold Storage and Archival tier are created below with migration-aware logic
 
 	// Activation log for spreading activation
 	activationTable := `
@@ -277,15 +239,62 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_findings_severity ON review_findings(severity);
 	`
 
-	for _, table := range []string{vectorTable, graphTable, coldTable, archivedTable, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable} {
+	// First, create tables WITHOUT indexes that depend on migrated columns
+	// Split cold_storage into table creation and index creation
+	coldTableOnly := `
+	CREATE TABLE IF NOT EXISTS cold_storage (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		fact_type TEXT DEFAULT 'fact',
+		priority INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cold_predicate ON cold_storage(predicate);
+	CREATE INDEX IF NOT EXISTS idx_cold_type ON cold_storage(fact_type);
+	`
+
+	archivedTableOnly := `
+	CREATE TABLE IF NOT EXISTS archived_facts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		fact_type TEXT DEFAULT 'fact',
+		priority INTEGER DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME,
+		last_accessed DATETIME,
+		access_count INTEGER DEFAULT 0,
+		archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_archived_predicate ON archived_facts(predicate);
+	CREATE INDEX IF NOT EXISTS idx_archived_type ON archived_facts(fact_type);
+	CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_facts(archived_at);
+	`
+
+	// Create base tables first (without columns that need migration)
+	for _, table := range []string{vectorTable, graphTable, coldTableOnly, archivedTableOnly, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
 	}
 
-	// Run schema migrations for existing databases (adds missing columns)
+	// Run schema migrations for existing databases (adds missing columns like last_accessed)
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	// Now create indexes that depend on migrated columns
+	coldIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_cold_last_accessed ON cold_storage(last_accessed);
+	CREATE INDEX IF NOT EXISTS idx_cold_access_count ON cold_storage(access_count);
+	`
+	if _, err := s.db.Exec(coldIndexes); err != nil {
+		// Non-fatal: indexes improve performance but aren't required
+		logging.Get(logging.CategoryStore).Warn("Failed to create cold storage indexes: %v", err)
 	}
 
 	return nil
@@ -1084,21 +1093,34 @@ func (s *LocalStore) LogActivation(factID string, score float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	logging.StoreDebug("Logging activation: fact_id=%s score=%.4f", factID, score)
+
 	_, err := s.db.Exec(
 		"INSERT INTO activation_log (fact_id, activation_score) VALUES (?, ?)",
 		factID, score,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to log activation for %s: %v", factID, err)
+		return err
+	}
+
+	logging.StoreDebug("Activation logged successfully: fact_id=%s", factID)
+	return nil
 }
 
 // GetRecentActivations retrieves recent activation scores.
 func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[string]float64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetRecentActivations")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 100
 	}
+
+	logging.StoreDebug("Retrieving recent activations: limit=%d minScore=%.4f", limit, minScore)
 
 	rows, err := s.db.Query(
 		`SELECT fact_id, MAX(activation_score) as max_score
@@ -1111,6 +1133,7 @@ func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[stri
 		minScore, limit,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query recent activations: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1125,6 +1148,7 @@ func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[stri
 		activations[factID] = score
 	}
 
+	logging.StoreDebug("Retrieved %d recent activations (minScore=%.4f)", len(activations), minScore)
 	return activations, nil
 }
 
@@ -1136,22 +1160,36 @@ func (s *LocalStore) StoreSessionTurn(sessionID string, turnNumber int, userInpu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	logging.StoreDebug("Storing session turn: session=%s turn=%d input_len=%d response_len=%d",
+		sessionID, turnNumber, len(userInput), len(response))
+
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO session_history (session_id, turn_number, user_input, intent_json, response, atoms_json)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		sessionID, turnNumber, userInput, intentJSON, response, atomsJSON,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store session turn: session=%s turn=%d: %v", sessionID, turnNumber, err)
+		return err
+	}
+
+	logging.StoreDebug("Session turn stored: session=%s turn=%d", sessionID, turnNumber)
+	return nil
 }
 
 // GetSessionHistory retrieves session history.
 func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[string]interface{}, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetSessionHistory")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 50
 	}
+
+	logging.StoreDebug("Retrieving session history: session=%s limit=%d", sessionID, limit)
 
 	rows, err := s.db.Query(
 		`SELECT turn_number, user_input, intent_json, response, atoms_json, created_at
@@ -1162,6 +1200,7 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 		sessionID, limit,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query session history for %s: %v", sessionID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1184,6 +1223,7 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 		})
 	}
 
+	logging.StoreDebug("Retrieved %d session history turns for session=%s", len(history), sessionID)
 	return history, nil
 }
 
@@ -1204,8 +1244,14 @@ func (s *LocalStore) StoreVerification(
 	evidenceJSON string,
 	resultHash string,
 ) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreVerification")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Storing verification: session=%s turn=%d shard=%s attempt=%d success=%v confidence=%.2f",
+		sessionID, turnNumber, shardType, attemptNumber, success, confidence)
 
 	_, err := s.db.Exec(
 		`INSERT INTO task_verifications
@@ -1213,17 +1259,28 @@ func (s *LocalStore) StoreVerification(
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID, turnNumber, task, shardType, attemptNumber, success, confidence, reason, violationsJSON, correctiveJSON, evidenceJSON, resultHash,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store verification: session=%s turn=%d: %v", sessionID, turnNumber, err)
+		return err
+	}
+
+	logging.StoreDebug("Verification stored: session=%s turn=%d shard=%s success=%v", sessionID, turnNumber, shardType, success)
+	return nil
 }
 
 // GetVerificationHistory retrieves verification attempts for a session.
 func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]VerificationRecord, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetVerificationHistory")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 50
 	}
+
+	logging.StoreDebug("Retrieving verification history: session=%s limit=%d", sessionID, limit)
 
 	rows, err := s.db.Query(
 		`SELECT id, session_id, turn_number, task, shard_type, attempt_number, success, confidence, reason, quality_violations, corrective_action, evidence, result_hash, created_at
@@ -1234,6 +1291,7 @@ func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]Veri
 		sessionID, limit,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query verification history for %s: %v", sessionID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1251,13 +1309,19 @@ func (s *LocalStore) GetVerificationHistory(sessionID string, limit int) ([]Veri
 		records = append(records, rec)
 	}
 
+	logging.StoreDebug("Retrieved %d verification records for session=%s", len(records), sessionID)
 	return records, nil
 }
 
 // GetQualityViolationStats retrieves statistics on quality violations for learning.
 func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetQualityViolationStats")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Computing quality violation statistics")
 
 	rows, err := s.db.Query(
 		`SELECT quality_violations, COUNT(*) as count
@@ -1267,6 +1331,7 @@ func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
 		 ORDER BY count DESC`,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query quality violation stats: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1281,6 +1346,7 @@ func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
 		stats[violations] = count
 	}
 
+	logging.StoreDebug("Quality violation stats computed: %d unique violation patterns", len(stats))
 	return stats, nil
 }
 
@@ -1435,8 +1501,13 @@ func CosineSimilarity(a, b []float64) float64 {
 
 // GetStats returns database statistics.
 func (s *LocalStore) GetStats() (map[string]int64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetStats")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Computing database statistics")
 
 	stats := make(map[string]int64)
 	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "knowledge_atoms"}
@@ -1445,19 +1516,26 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 		var count int64
 		err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 		if err != nil {
+			logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
 			continue
 		}
 		stats[table] = count
 	}
 
+	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
 	return stats, nil
 }
 
 // StoreKnowledgeAtom stores a knowledge atom for agent knowledge bases.
 // This is used by Type 3 agents to persist their expertise.
 func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence float64) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreKnowledgeAtom")
+	defer timer.Stop()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	logging.StoreDebug("Storing knowledge atom: concept=%s content_len=%d confidence=%.2f", concept, len(content), confidence)
 
 	// Ensure knowledge_atoms table exists
 	_, err := s.db.Exec(`
@@ -1471,6 +1549,7 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 		)
 	`)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to create knowledge_atoms table: %v", err)
 		return fmt.Errorf("failed to create knowledge_atoms table: %w", err)
 	}
 
@@ -1482,19 +1561,31 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 		`INSERT INTO knowledge_atoms (concept, content, confidence) VALUES (?, ?, ?)`,
 		concept, content, confidence,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store knowledge atom %s: %v", concept, err)
+		return err
+	}
+
+	logging.StoreDebug("Knowledge atom stored: concept=%s", concept)
+	return nil
 }
 
 // GetKnowledgeAtoms retrieves knowledge atoms by concept.
 func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetKnowledgeAtoms")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Retrieving knowledge atoms: concept=%s", concept)
 
 	rows, err := s.db.Query(
 		`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms WHERE concept = ?`,
 		concept,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query knowledge atoms for %s: %v", concept, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1508,16 +1599,23 @@ func (s *LocalStore) GetKnowledgeAtoms(concept string) ([]KnowledgeAtom, error) 
 		atoms = append(atoms, atom)
 	}
 
+	logging.StoreDebug("Retrieved %d knowledge atoms for concept=%s", len(atoms), concept)
 	return atoms, nil
 }
 
 // GetAllKnowledgeAtoms retrieves all knowledge atoms.
 func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetAllKnowledgeAtoms")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	logging.StoreDebug("Retrieving all knowledge atoms")
+
 	rows, err := s.db.Query(`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms ORDER BY created_at DESC`)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query all knowledge atoms: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -1531,6 +1629,7 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 		atoms = append(atoms, atom)
 	}
 
+	logging.StoreDebug("Retrieved %d total knowledge atoms", len(atoms))
 	return atoms, nil
 }
 
@@ -1539,32 +1638,43 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 // This method should be called during kernel initialization or when the knowledge
 // graph is updated to ensure facts are available to Mangle rules.
 func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, args []interface{}) error) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "HydrateKnowledgeGraph")
+	defer timer.Stop()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	logging.Store("Hydrating knowledge graph into Mangle kernel")
 
 	// Query all knowledge graph entries
 	rows, err := s.db.Query(
 		`SELECT entity_a, relation, entity_b, weight FROM knowledge_graph ORDER BY weight DESC`,
 	)
 	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query knowledge graph for hydration: %v", err)
 		return 0, fmt.Errorf("failed to query knowledge graph: %w", err)
 	}
 	defer rows.Close()
 
 	count := 0
+	skipped := 0
 	for rows.Next() {
 		var entityA, relation, entityB string
 		var weight float64
 		if err := rows.Scan(&entityA, &relation, &entityB, &weight); err != nil {
+			skipped++
 			continue // Skip malformed entries
 		}
 
 		// Convert to Mangle fact: knowledge_link(entity_a, relation, entity_b)
 		if err := assertFunc("knowledge_link", []interface{}{entityA, relation, entityB}); err == nil {
 			count++
+		} else {
+			skipped++
 		}
 	}
 
+	logging.Store("Knowledge graph hydration complete: asserted=%d, skipped=%d", count, skipped)
 	return count, nil
 }
 
@@ -1595,8 +1705,14 @@ func NewKnowledgeStore(dbPath string) (*KnowledgeStore, error) {
 
 // StoreAtom stores a knowledge atom in the database.
 func (ks *KnowledgeStore) StoreAtom(atom KnowledgeAtom) error {
+	timer := logging.StartTimer(logging.CategoryStore, "KnowledgeStore.StoreAtom")
+	defer timer.Stop()
+
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
+
+	logging.StoreDebug("Storing atom: concept=%s source=%s confidence=%.2f tags=%d",
+		atom.Concept, atom.Source, atom.Confidence, len(atom.Tags))
 
 	tagsJSON, err := json.Marshal(atom.Tags)
 	if err != nil {
@@ -1607,7 +1723,13 @@ func (ks *KnowledgeStore) StoreAtom(atom KnowledgeAtom) error {
 		INSERT INTO knowledge_atoms (concept, content, source, confidence, tags, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		atom.Concept, atom.Content, atom.Source, atom.Confidence, string(tagsJSON), atom.CreatedAt.Format(time.RFC3339))
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store atom %s: %v", atom.Concept, err)
+		return err
+	}
+
+	logging.StoreDebug("Atom stored: concept=%s", atom.Concept)
+	return nil
 }
 
 // ========== Review Findings Storage ==========
@@ -1629,10 +1751,19 @@ func (s *LocalStore) StoreReviewFinding(f StoredReviewFinding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	logging.StoreDebug("Storing review finding: file=%s line=%d severity=%s category=%s rule=%s",
+		f.FilePath, f.Line, f.Severity, f.Category, f.RuleID)
+
 	_, err := s.db.Exec(
 		`INSERT INTO review_findings (file_path, line, severity, category, rule_id, message, project_root)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		f.FilePath, f.Line, f.Severity, f.Category, f.RuleID, f.Message, f.ProjectRoot,
 	)
-	return err
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to store review finding for %s:%d: %v", f.FilePath, f.Line, err)
+		return err
+	}
+
+	logging.StoreDebug("Review finding stored: %s:%d [%s]", f.FilePath, f.Line, f.Severity)
+	return nil
 }

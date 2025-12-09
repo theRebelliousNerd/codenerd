@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // ShellCommand represents a command to be executed (legacy type).
@@ -49,8 +51,15 @@ func NewSafeExecutor() *SafeExecutor {
 // Execute runs a command using the legacy ShellCommand interface.
 // This method is for backwards compatibility with VirtualStore.
 func (e *SafeExecutor) Execute(ctx context.Context, cmd ShellCommand) (string, error) {
+	timer := logging.StartTimer(logging.CategoryTactile, "Legacy command execution")
+	defer timer.Stop()
+
+	logging.Tactile("Executing (legacy): %s %v", cmd.Binary, cmd.Arguments)
+	logging.TactileDebug("Working directory: %s, timeout: %ds", cmd.WorkingDirectory, cmd.TimeoutSeconds)
+
 	// Defense in depth check - kernel should have filtered via 'permitted(Action)'
 	if allowed, exists := e.AllowedBinaries[cmd.Binary]; exists && !allowed {
+		logging.TactileError("Binary blocked by Constitutional Logic: %s", cmd.Binary)
 		return "", fmt.Errorf("binary not allowed by Constitutional Logic: %s", cmd.Binary)
 	}
 
@@ -58,6 +67,7 @@ func (e *SafeExecutor) Execute(ctx context.Context, cmd ShellCommand) (string, e
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	logging.TactileDebug("Using timeout: %s", timeout)
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -68,15 +78,23 @@ func (e *SafeExecutor) Execute(ctx context.Context, cmd ShellCommand) (string, e
 
 	output, err := c.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			logging.TactileWarn("Command timed out after %s: %s", timeout, cmd.Binary)
+		} else {
+			logging.TactileError("Command failed: %s - %v", cmd.Binary, err)
+		}
 		return "", fmt.Errorf("command failed: %w, output: %s", err, string(output))
 	}
 
+	logging.TactileDebug("Command completed successfully: %s (output=%d bytes)", cmd.Binary, len(output))
 	return string(output), nil
 }
 
 // ExecuteNew runs a command using the new Command interface and returns ExecutionResult.
 // This bridges the legacy SafeExecutor to the new interface.
 func (e *SafeExecutor) ExecuteNew(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	logging.TactileDebug("ExecuteNew: bridging to legacy executor for: %s", cmd.Binary)
+
 	// Convert to legacy format and execute
 	legacyCmd := ShellCommand{
 		Binary:           cmd.Binary,
@@ -105,11 +123,13 @@ func (e *SafeExecutor) ExecuteNew(ctx context.Context, cmd Command) (*ExecutionR
 		result.Success = false
 		result.Error = err.Error()
 		result.ExitCode = -1
+		logging.TactileDebug("ExecuteNew result: failed - %v", err)
 	} else {
 		result.Success = true
 		result.ExitCode = 0
 		result.Stdout = output
 		result.Combined = output
+		logging.TactileDebug("ExecuteNew result: success (output=%d bytes)", len(output))
 	}
 
 	return result, nil

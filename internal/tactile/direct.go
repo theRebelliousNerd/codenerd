@@ -27,11 +27,14 @@ type DirectExecutor struct {
 
 // NewDirectExecutor creates a new direct executor with default config.
 func NewDirectExecutor() *DirectExecutor {
+	logging.TactileDebug("Creating new DirectExecutor with default config")
 	return NewDirectExecutorWithConfig(DefaultExecutorConfig())
 }
 
 // NewDirectExecutorWithConfig creates a new direct executor with custom config.
 func NewDirectExecutorWithConfig(config ExecutorConfig) *DirectExecutor {
+	logging.TactileDebug("Creating DirectExecutor with config: timeout=%s, maxOutput=%d bytes",
+		config.DefaultTimeout, config.MaxOutputBytes)
 	return &DirectExecutor{
 		config: config,
 	}
@@ -86,6 +89,11 @@ func (e *DirectExecutor) Validate(cmd Command) error {
 
 // Execute runs a command directly on the host.
 func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	timer := logging.StartTimer(logging.CategoryTactile, "Direct command execution")
+	defer timer.Stop()
+
+	logging.Tactile("Executing command: %s", cmd.CommandString())
+
 	// Validate first
 	if err := e.Validate(cmd); err != nil {
 		logging.TactileWarn("Command validation failed: %s %v - %v", cmd.Binary, cmd.Arguments, err)
@@ -139,6 +147,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 
 	// Set up stdin if provided
 	if cmd.Stdin != "" {
+		logging.TactileDebug("Providing stdin input (%d bytes)", len(cmd.Stdin))
 		execCmd.Stdin = strings.NewReader(cmd.Stdin)
 	}
 
@@ -157,6 +166,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 
 	// Record start time
 	result.StartedAt = time.Now()
+	logging.TactileDebug("Starting process: %s", cmd.Binary)
 
 	// Run the command
 	err := execCmd.Run()
@@ -180,6 +190,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	if stdoutLimited.truncated || stderrLimited.truncated {
 		result.Truncated = true
 		result.TruncatedBytes = stdoutLimited.discarded + stderrLimited.discarded
+		logging.TactileWarn("Command output truncated: %d bytes discarded", result.TruncatedBytes)
 	}
 
 	// Process the error
@@ -231,6 +242,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	} else {
 		result.Success = true
 		result.ExitCode = 0
+		logging.TactileDebug("Command succeeded with exit code 0")
 	}
 
 	// Try to get resource usage (platform-specific)
@@ -246,7 +258,7 @@ func (e *DirectExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 		ExecutorName: "direct",
 	})
 
-	logging.TactileDebug("Command completed: %s -> exit=%d, duration=%s, stdout=%d bytes",
+	logging.Tactile("Command completed: %s -> exit=%d, duration=%s, stdout=%d bytes",
 		cmd.Binary, result.ExitCode, result.Duration, len(result.Stdout))
 
 	return result, nil

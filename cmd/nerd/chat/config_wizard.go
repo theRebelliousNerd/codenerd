@@ -21,6 +21,9 @@ type ConfigWizardStep int
 
 const (
 	StepWelcome ConfigWizardStep = iota
+	StepEngine           // NEW: Select engine (api, claude-cli, codex-cli)
+	StepClaudeCLIConfig  // NEW: Claude CLI model/timeout config
+	StepCodexCLIConfig   // NEW: Codex CLI model/sandbox/timeout config
 	StepProvider
 	StepAPIKey
 	StepModel
@@ -42,7 +45,19 @@ const (
 type ConfigWizardState struct {
 	Step ConfigWizardStep
 
-	// Provider configuration
+	// Engine configuration (api, claude-cli, codex-cli)
+	Engine string
+
+	// Claude CLI configuration (when Engine="claude-cli")
+	ClaudeCLIModel   string // sonnet, opus, haiku
+	ClaudeCLITimeout int    // seconds
+
+	// Codex CLI configuration (when Engine="codex-cli")
+	CodexCLIModel   string // gpt-5, o4-mini, codex-mini-latest
+	CodexCLISandbox string // read-only, workspace-write
+	CodexCLITimeout int    // seconds
+
+	// Provider configuration (when Engine="api")
 	Provider string // zai, anthropic, openai, gemini, xai
 	APIKey   string
 	Model    string
@@ -134,7 +149,14 @@ func NewConfigWizard() *ConfigWizardState {
 	return &ConfigWizardState{
 		Step:          StepWelcome,
 		ShardProfiles: make(map[string]*ShardProfileConfig),
-		// Defaults
+		// Engine defaults
+		Engine:           "api", // Default to HTTP API mode
+		ClaudeCLIModel:   "sonnet",
+		ClaudeCLITimeout: 300,
+		CodexCLIModel:    "gpt-5",
+		CodexCLISandbox:  "read-only",
+		CodexCLITimeout:  300,
+		// Embedding defaults
 		OllamaEndpoint:        "http://localhost:11434",
 		OllamaModel:           "embeddinggemma",
 		GenAIModel:            "gemini-embedding-001",
@@ -160,6 +182,12 @@ func (m Model) handleConfigWizardInput(input string) (tea.Model, tea.Cmd) {
 	switch m.configWizard.Step {
 	case StepWelcome:
 		return m.configWizardWelcome(input)
+	case StepEngine:
+		return m.configWizardEngine(input)
+	case StepClaudeCLIConfig:
+		return m.configWizardClaudeCLI(input)
+	case StepCodexCLIConfig:
+		return m.configWizardCodexCLI(input)
 	case StepProvider:
 		return m.configWizardProvider(input)
 	case StepAPIKey:
@@ -193,11 +221,109 @@ func (m Model) handleConfigWizardInput(input string) (tea.Model, tea.Cmd) {
 
 // configWizardWelcome handles the welcome step.
 func (m Model) configWizardWelcome(input string) (tea.Model, tea.Cmd) {
-	// User pressed enter to start, move to provider selection
-	m.configWizard.Step = StepProvider
+	// User pressed enter to start, move to engine selection
+	m.configWizard.Step = StepEngine
 	m.history = append(m.history, Message{
 		Role: "assistant",
-		Content: `## Step 1: LLM Provider
+		Content: `## Step 1: LLM Engine
+
+How would you like to connect to the LLM?
+
+| # | Engine | Description |
+|---|--------|-------------|
+| 1 | api | HTTP API with API key (pay-per-token) |
+| 2 | claude-cli | Claude Code CLI (Claude Pro/Max subscription) |
+| 3 | codex-cli | OpenAI Codex CLI (ChatGPT Plus/Pro subscription) |
+
+**Recommendation:**
+- Use **api** if you have API credits and want fine-grained control
+- Use **claude-cli** if you have Claude Pro/Max subscription
+- Use **codex-cli** if you have ChatGPT Plus/Pro subscription
+
+Enter a number (1-3) or engine name:`,
+		Time: time.Now(),
+	})
+	m.textarea.Placeholder = "Enter engine (1-3 or name)..."
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// configWizardEngine handles engine selection.
+func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
+	engines := map[string]string{
+		"1": "api", "api": "api",
+		"2": "claude-cli", "claude-cli": "claude-cli", "claude": "claude-cli",
+		"3": "codex-cli", "codex-cli": "codex-cli", "codex": "codex-cli",
+	}
+
+	engine, ok := engines[strings.ToLower(input)]
+	if !ok {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Invalid selection. Please enter 1-3 or an engine name (api, claude-cli, codex-cli):",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	m.configWizard.Engine = engine
+
+	switch engine {
+	case "claude-cli":
+		m.configWizard.Step = StepClaudeCLIConfig
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: fmt.Sprintf(`## Step 2: Claude Code CLI Configuration
+
+You selected **Claude Code CLI** engine.
+
+### Model Selection
+
+| # | Model | Subscription |
+|---|-------|--------------|
+| 1 | sonnet | Claude Pro, Max (default) |
+| 2 | opus | Claude Max only |
+| 3 | haiku | Claude Pro, Max (fast) |
+
+Current: **%s**
+
+Enter model number/name (Enter for default):`, m.configWizard.ClaudeCLIModel),
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "Claude CLI model (Enter for sonnet)..."
+
+	case "codex-cli":
+		m.configWizard.Step = StepCodexCLIConfig
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: fmt.Sprintf(`## Step 2: Codex CLI Configuration
+
+You selected **Codex CLI** engine.
+
+### Model Selection
+
+| # | Model | Description |
+|---|-------|-------------|
+| 1 | gpt-5 | Best for coding (default) |
+| 2 | o4-mini | Fast reasoning |
+| 3 | o3 | Advanced reasoning |
+| 4 | codex-mini-latest | Optimized for Codex |
+
+Current: **%s**
+
+Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5)..."
+
+	default: // "api"
+		m.configWizard.Step = StepProvider
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: `## Step 2: LLM Provider
 
 Which LLM provider would you like to use?
 
@@ -211,9 +337,102 @@ Which LLM provider would you like to use?
 | 6 | openrouter | OpenRouter (multi-provider gateway) |
 
 Enter a number (1-6) or provider name:`,
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "Enter provider (1-6 or name)..."
+	}
+
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// configWizardClaudeCLI handles Claude CLI configuration.
+func (m Model) configWizardClaudeCLI(input string) (tea.Model, tea.Cmd) {
+	claudeModels := map[string]string{
+		"1": "sonnet", "sonnet": "sonnet",
+		"2": "opus", "opus": "opus",
+		"3": "haiku", "haiku": "haiku",
+	}
+
+	if input != "" {
+		if model, ok := claudeModels[strings.ToLower(input)]; ok {
+			m.configWizard.ClaudeCLIModel = model
+		} else {
+			// Allow custom model names
+			m.configWizard.ClaudeCLIModel = input
+		}
+	}
+
+	// Skip to shard configuration (no API key needed for CLI)
+	m.configWizard.Step = StepShardConfig
+	m.history = append(m.history, Message{
+		Role: "assistant",
+		Content: fmt.Sprintf(`## Step 3: Per-Shard Configuration
+
+Claude CLI model: **%s**
+
+Would you like to configure individual shard settings?
+(model, temperature, context limits per shard type)
+
+| Shard | Purpose |
+|-------|---------|
+| coder | Code generation, edits |
+| tester | Test creation, execution |
+| reviewer | Code review, analysis |
+| researcher | Knowledge gathering |
+
+**y** = Configure each shard
+**n** = Use defaults for all shards (recommended for quick setup)`, m.configWizard.ClaudeCLIModel),
 		Time: time.Now(),
 	})
-	m.textarea.Placeholder = "Enter provider (1-6 or name)..."
+	m.textarea.Placeholder = "Configure shards? (y/n)..."
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// configWizardCodexCLI handles Codex CLI configuration.
+func (m Model) configWizardCodexCLI(input string) (tea.Model, tea.Cmd) {
+	codexModels := map[string]string{
+		"1": "gpt-5", "gpt-5": "gpt-5",
+		"2": "o4-mini", "o4-mini": "o4-mini",
+		"3": "o3", "o3": "o3",
+		"4": "codex-mini-latest", "codex-mini-latest": "codex-mini-latest",
+	}
+
+	if input != "" {
+		if model, ok := codexModels[strings.ToLower(input)]; ok {
+			m.configWizard.CodexCLIModel = model
+		} else {
+			// Allow custom model names
+			m.configWizard.CodexCLIModel = input
+		}
+	}
+
+	// Skip to shard configuration (no API key needed for CLI)
+	m.configWizard.Step = StepShardConfig
+	m.history = append(m.history, Message{
+		Role: "assistant",
+		Content: fmt.Sprintf(`## Step 3: Per-Shard Configuration
+
+Codex CLI model: **%s**
+
+Would you like to configure individual shard settings?
+(model, temperature, context limits per shard type)
+
+| Shard | Purpose |
+|-------|---------|
+| coder | Code generation, edits |
+| tester | Test creation, execution |
+| reviewer | Code review, analysis |
+| researcher | Knowledge gathering |
+
+**y** = Configure each shard
+**n** = Use defaults for all shards (recommended for quick setup)`, m.configWizard.CodexCLIModel),
+		Time: time.Now(),
+	})
+	m.textarea.Placeholder = "Configure shards? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -694,13 +913,31 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	var sb strings.Builder
 
 	sb.WriteString("## Configuration Review\n\n")
-	sb.WriteString("### LLM Provider\n")
-	sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", w.Provider))
-	sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.Model))
-	if w.APIKey != "" {
-		sb.WriteString("- **API Key**: ******* (set)\n")
-	} else {
-		sb.WriteString("- **API Key**: (using environment variable)\n")
+
+	// Engine configuration
+	sb.WriteString("### LLM Engine\n")
+	sb.WriteString(fmt.Sprintf("- **Engine**: %s\n", w.Engine))
+
+	switch w.Engine {
+	case "claude-cli":
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.ClaudeCLIModel))
+		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", w.ClaudeCLITimeout))
+		sb.WriteString("- **Auth**: Claude Code CLI (subscription-based)\n")
+
+	case "codex-cli":
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.CodexCLIModel))
+		sb.WriteString(fmt.Sprintf("- **Sandbox**: %s\n", w.CodexCLISandbox))
+		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", w.CodexCLITimeout))
+		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
+
+	default: // "api"
+		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", w.Provider))
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.Model))
+		if w.APIKey != "" {
+			sb.WriteString("- **API Key**: ******* (set)\n")
+		} else {
+			sb.WriteString("- **API Key**: (using environment variable)\n")
+		}
 	}
 
 	if w.ConfigureShards && len(w.ShardProfiles) > 0 {
@@ -804,20 +1041,40 @@ func (m Model) renderCurrentConfig() string {
 		return sb.String()
 	}
 
-	provider, apiKey := userCfg.GetActiveProvider()
-	sb.WriteString("### LLM Provider\n")
-	if provider != "" {
-		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", provider))
-	} else {
-		sb.WriteString("- **Provider**: (not set)\n")
-	}
-	if userCfg.Model != "" {
-		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", userCfg.Model))
-	}
-	if apiKey != "" {
-		sb.WriteString("- **API Key**: ******* (configured)\n")
-	} else {
-		sb.WriteString("- **API Key**: (not set - check environment variables)\n")
+	// Engine configuration
+	sb.WriteString("### LLM Engine\n")
+	engine := userCfg.GetEngine()
+	sb.WriteString(fmt.Sprintf("- **Engine**: %s\n", engine))
+
+	switch engine {
+	case "claude-cli":
+		cliCfg := userCfg.GetClaudeCLIConfig()
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", cliCfg.Model))
+		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", cliCfg.Timeout))
+		sb.WriteString("- **Auth**: Claude Code CLI (subscription-based)\n")
+
+	case "codex-cli":
+		cliCfg := userCfg.GetCodexCLIConfig()
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", cliCfg.Model))
+		sb.WriteString(fmt.Sprintf("- **Sandbox**: %s\n", cliCfg.Sandbox))
+		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", cliCfg.Timeout))
+		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
+
+	default: // "api"
+		provider, apiKey := userCfg.GetActiveProvider()
+		if provider != "" {
+			sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", provider))
+		} else {
+			sb.WriteString("- **Provider**: (not set)\n")
+		}
+		if userCfg.Model != "" {
+			sb.WriteString(fmt.Sprintf("- **Model**: %s\n", userCfg.Model))
+		}
+		if apiKey != "" {
+			sb.WriteString("- **API Key**: ******* (configured)\n")
+		} else {
+			sb.WriteString("- **API Key**: (not set - check environment variables)\n")
+		}
 	}
 
 	// Embedding config
@@ -853,24 +1110,46 @@ func (m Model) saveConfigWizard() error {
 	// Build UserConfig for .nerd/config.json
 	// Note: We write directly to internal/config UserConfig which is the canonical config
 	userCfg := &internalconfig.UserConfig{
-		Provider: w.Provider,
-		Model:    w.Model,
+		Engine: w.Engine,
 	}
 
-	// Set API key based on provider
-	switch w.Provider {
-	case "zai":
-		userCfg.ZAIAPIKey = w.APIKey
-	case "anthropic":
-		userCfg.AnthropicAPIKey = w.APIKey
-	case "openai":
-		userCfg.OpenAIAPIKey = w.APIKey
-	case "gemini":
-		userCfg.GeminiAPIKey = w.APIKey
-	case "xai":
-		userCfg.XAIAPIKey = w.APIKey
-	case "openrouter":
-		userCfg.OpenRouterAPIKey = w.APIKey
+	// Configure based on engine type
+	switch w.Engine {
+	case "claude-cli":
+		// Claude CLI configuration - no API key needed
+		userCfg.ClaudeCLI = &internalconfig.ClaudeCLIConfig{
+			Model:   w.ClaudeCLIModel,
+			Timeout: w.ClaudeCLITimeout,
+		}
+
+	case "codex-cli":
+		// Codex CLI configuration - no API key needed
+		userCfg.CodexCLI = &internalconfig.CodexCLIConfig{
+			Model:   w.CodexCLIModel,
+			Sandbox: w.CodexCLISandbox,
+			Timeout: w.CodexCLITimeout,
+		}
+
+	default: // "api"
+		// HTTP API configuration - needs provider and API key
+		userCfg.Provider = w.Provider
+		userCfg.Model = w.Model
+
+		// Set API key based on provider
+		switch w.Provider {
+		case "zai":
+			userCfg.ZAIAPIKey = w.APIKey
+		case "anthropic":
+			userCfg.AnthropicAPIKey = w.APIKey
+		case "openai":
+			userCfg.OpenAIAPIKey = w.APIKey
+		case "gemini":
+			userCfg.GeminiAPIKey = w.APIKey
+		case "xai":
+			userCfg.XAIAPIKey = w.APIKey
+		case "openrouter":
+			userCfg.OpenRouterAPIKey = w.APIKey
+		}
 	}
 
 	// Context window config

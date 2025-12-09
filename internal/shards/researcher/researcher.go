@@ -863,13 +863,16 @@ func (r *ResearcherShard) buildSummary(result *ResearchResult) string {
 // Quality scores are used to learn which topics the researcher performs well on
 // and which might need different strategies.
 func (r *ResearcherShard) trackResearchQuality(topic string, quality float64) {
+	logging.ResearcherDebug("Tracking research quality for '%s': %.2f", topic, quality)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// Update rolling average quality for this topic
 	if existing, ok := r.qualityScores[topic]; ok {
 		// Blend with existing score (70% old, 30% new)
-		r.qualityScores[topic] = existing*0.7 + quality*0.3
+		newScore := existing*0.7 + quality*0.3
+		logging.ResearcherDebug("Updated quality score for '%s': %.2f -> %.2f", topic, existing, newScore)
+		r.qualityScores[topic] = newScore
 	} else {
 		r.qualityScores[topic] = quality
 	}
@@ -877,9 +880,11 @@ func (r *ResearcherShard) trackResearchQuality(topic string, quality float64) {
 	// Persist to learning store if available
 	if r.learningStore != nil && quality >= 0.7 {
 		// High quality research - save as preferred topic
+		logging.ResearcherDebug("Persisting high-quality topic to learning store: %s", topic)
 		_ = r.learningStore.Save("researcher", "high_quality_topic", []any{topic, quality}, "")
 	} else if r.learningStore != nil && quality < 0.4 {
 		// Low quality - save as difficult topic for future improvement
+		logging.ResearcherDebug("Persisting difficult topic to learning store: %s", topic)
 		_ = r.learningStore.Save("researcher", "difficult_topic", []any{topic, quality}, "")
 	}
 }
@@ -930,6 +935,7 @@ func (r *ResearcherShard) trackResearchQualityFromResult(topic string, result *R
 // trackSourceSuccess tracks successful research from a source URL.
 // Sources that consistently produce good results are prioritized in future research.
 func (r *ResearcherShard) trackSourceSuccess(sourceURL string) {
+	logging.ResearcherDebug("Tracking source success: %s", sourceURL)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -942,6 +948,7 @@ func (r *ResearcherShard) trackSourceSuccess(sourceURL string) {
 
 	// Persist highly reliable sources to learning store
 	if r.learningStore != nil && r.sourceReliability[sourceURL] >= 3 {
+		logging.ResearcherDebug("Persisting reliable source: %s (count: %d)", sourceURL, r.sourceReliability[sourceURL])
 		_ = r.learningStore.Save("researcher", "reliable_source", []any{sourceURL, r.sourceReliability[sourceURL]}, "")
 	}
 }
@@ -949,6 +956,7 @@ func (r *ResearcherShard) trackSourceSuccess(sourceURL string) {
 // trackSourceFailure tracks failed or poor quality research from a source URL.
 // Sources that consistently fail are deprioritized or avoided in future research.
 func (r *ResearcherShard) trackSourceFailure(sourceURL string) {
+	logging.ResearcherDebug("Tracking source failure: %s", sourceURL)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -956,6 +964,7 @@ func (r *ResearcherShard) trackSourceFailure(sourceURL string) {
 
 	// Persist problematic sources to learning store
 	if r.learningStore != nil && r.sourceFailures[sourceURL] >= 2 {
+		logging.ResearcherDebug("Persisting unreliable source: %s (failures: %d)", sourceURL, r.sourceFailures[sourceURL])
 		_ = r.learningStore.Save("researcher", "unreliable_source", []any{sourceURL, r.sourceFailures[sourceURL]}, "")
 	}
 }
@@ -963,6 +972,7 @@ func (r *ResearcherShard) trackSourceFailure(sourceURL string) {
 // trackQueryFailure tracks queries that fail to produce useful results.
 // This helps identify gaps in research capability and improve query formulation.
 func (r *ResearcherShard) trackQueryFailure(query string) {
+	logging.ResearcherDebug("Tracking query failure: %s", query)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -970,6 +980,7 @@ func (r *ResearcherShard) trackQueryFailure(query string) {
 
 	// Persist persistent failures to learning store
 	if r.learningStore != nil && r.failedQueries[query] >= 2 {
+		logging.ResearcherDebug("Persisting failed query: %s (failures: %d)", query, r.failedQueries[query])
 		_ = r.learningStore.Save("researcher", "failed_query", []any{query, r.failedQueries[query]}, "")
 	}
 }

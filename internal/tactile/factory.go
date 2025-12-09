@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"codenerd/internal/logging"
 )
 
 // CompositeExecutor routes commands to different executors based on sandbox mode.
@@ -25,17 +27,20 @@ type CompositeExecutor struct {
 
 // NewCompositeExecutor creates a new composite executor with default configuration.
 func NewCompositeExecutor() *CompositeExecutor {
+	logging.TactileDebug("Creating new CompositeExecutor with default config")
 	return NewCompositeExecutorWithConfig(DefaultExecutorConfig())
 }
 
 // NewCompositeExecutorWithConfig creates a new composite executor with custom configuration.
 func NewCompositeExecutorWithConfig(config ExecutorConfig) *CompositeExecutor {
+	logging.Tactile("Initializing CompositeExecutor")
 	ce := &CompositeExecutor{
 		config:    config,
 		executors: make(map[SandboxMode]Executor),
 	}
 
 	// Create the default direct executor
+	logging.TactileDebug("Registering DirectExecutor for sandbox mode: none")
 	direct := NewDirectExecutorWithConfig(config)
 	ce.defaultExecutor = direct
 	ce.executors[SandboxNone] = direct
@@ -43,9 +48,13 @@ func NewCompositeExecutorWithConfig(config ExecutorConfig) *CompositeExecutor {
 	// Try to add Docker executor
 	docker := NewDockerExecutor()
 	if docker.IsAvailable() {
+		logging.TactileDebug("Registering DockerExecutor for sandbox mode: docker")
 		ce.executors[SandboxDocker] = docker
+	} else {
+		logging.TactileDebug("Docker not available, skipping DockerExecutor registration")
 	}
 
+	logging.Tactile("CompositeExecutor initialized with %d executors", len(ce.executors))
 	return ce
 }
 
@@ -55,6 +64,7 @@ func (ce *CompositeExecutor) RegisterExecutor(modes []SandboxMode, executor Exec
 	defer ce.mu.Unlock()
 
 	for _, mode := range modes {
+		logging.TactileDebug("Registering executor for sandbox mode: %s", mode)
 		ce.executors[mode] = executor
 	}
 }
@@ -125,9 +135,15 @@ func (ce *CompositeExecutor) Execute(ctx context.Context, cmd Command) (*Executi
 		if cmd.Sandbox != nil {
 			mode = cmd.Sandbox.Mode
 		}
+		logging.TactileError("No executor available for sandbox mode: %s", mode)
 		return nil, fmt.Errorf("no executor available for sandbox mode: %s", mode)
 	}
 
+	mode := SandboxNone
+	if cmd.Sandbox != nil {
+		mode = cmd.Sandbox.Mode
+	}
+	logging.TactileDebug("CompositeExecutor routing command to executor for mode: %s", mode)
 	return executor.Execute(ctx, cmd)
 }
 
@@ -171,8 +187,10 @@ func (f *ExecutorFactory) CreateDirect() *DirectExecutor {
 
 // CreateDocker creates a Docker executor if available.
 func (f *ExecutorFactory) CreateDocker() (*DockerExecutor, error) {
+	logging.TactileDebug("Factory: creating DockerExecutor")
 	docker := NewDockerExecutor()
 	if !docker.IsAvailable() {
+		logging.TactileWarn("Factory: Docker is not available on this system")
 		return nil, fmt.Errorf("Docker is not available on this system")
 	}
 	return docker, nil
@@ -185,6 +203,7 @@ func (f *ExecutorFactory) CreateComposite() *CompositeExecutor {
 
 // CreateBest creates the best available executor for the current platform.
 func (f *ExecutorFactory) CreateBest() Executor {
+	logging.TactileDebug("Factory: creating best available executor for platform")
 	return GetPlatformExecutor(f.config)
 }
 
@@ -249,11 +268,13 @@ func (p *PooledExecutor) Borrow() Executor {
 
 	select {
 	case executor := <-p.pool:
+		logging.TactileDebug("PooledExecutor: borrowed executor from pool")
 		return executor
 	default:
 		p.mu.Lock()
 		p.created++
 		p.mu.Unlock()
+		logging.TactileDebug("PooledExecutor: pool empty, creating new executor")
 		return p.factory.CreateDirect()
 	}
 }
@@ -266,9 +287,9 @@ func (p *PooledExecutor) Return(executor Executor) {
 
 	select {
 	case p.pool <- executor:
-		// Returned to pool
+		logging.TactileDebug("PooledExecutor: returned executor to pool")
 	default:
-		// Pool is full, discard
+		logging.TactileDebug("PooledExecutor: pool full, discarding executor")
 	}
 }
 
@@ -333,8 +354,15 @@ func (r *RetryExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRes
 	var lastErr error
 
 	for attempt := 0; attempt <= r.maxRetries; attempt++ {
+		if attempt > 0 {
+			logging.TactileDebug("RetryExecutor: attempt %d of %d for command: %s", attempt+1, r.maxRetries+1, cmd.Binary)
+		}
+
 		result, err := r.executor.Execute(ctx, cmd)
 		if err == nil && result.Success {
+			if attempt > 0 {
+				logging.TactileDebug("RetryExecutor: succeeded on attempt %d", attempt+1)
+			}
 			return result, nil
 		}
 
@@ -343,17 +371,20 @@ func (r *RetryExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRes
 
 		// Check if we should retry
 		if !r.shouldRetry(result, err) {
+			logging.TactileDebug("RetryExecutor: not retrying (condition not met)")
 			break
 		}
 
 		// Check if context is still valid
 		if ctx.Err() != nil {
+			logging.TactileDebug("RetryExecutor: context canceled, stopping retries")
 			break
 		}
 
 		// Wait before retrying (if not the last attempt)
 		if attempt < r.maxRetries {
 			delay := r.retryDelay(attempt)
+			logging.TactileDebug("RetryExecutor: waiting %dms before retry", delay)
 			select {
 			case <-ctx.Done():
 				break
@@ -372,9 +403,11 @@ func (r *RetryExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRes
 	}
 
 	if lastResult != nil {
+		logging.TactileWarn("RetryExecutor: all retries exhausted for command: %s", cmd.Binary)
 		return lastResult, lastErr
 	}
 
+	logging.TactileError("RetryExecutor: max retries exceeded for command: %s", cmd.Binary)
 	return &ExecutionResult{
 		Success: false,
 		Error:   "max retries exceeded",

@@ -422,33 +422,44 @@ Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brie
 // ingestIntoKnowledgeStore persists all document chunks into the campaign knowledge DB (vectors + KG).
 func (d *Decomposer) ingestIntoKnowledgeStore(ctx context.Context, campaignID, dbPath string, files []FileMetadata) error {
 	if len(files) == 0 {
+		logging.CampaignDebug("No files to ingest into knowledge store")
 		return nil
 	}
 
+	logging.CampaignDebug("Initializing document ingestor: dbPath=%s", dbPath)
 	ingestor, err := NewDocumentIngestor(dbPath, embedding.DefaultConfig())
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to create document ingestor: %v", err)
 		return err
 	}
 	defer ingestor.Close()
 
+	ingestedCount := 0
+	totalBytes := int64(0)
 	for _, fm := range files {
 		data, err := os.ReadFile(fm.Path)
 		if err != nil {
+			logging.CampaignDebug("Failed to read file for ingestion: %s - %v", fm.Path, err)
 			continue
 		}
 		payload := map[string]string{fm.Path: string(data)}
 		_, _ = ingestor.Ingest(ctx, campaignID, payload)
+		ingestedCount++
+		totalBytes += int64(len(data))
 	}
 
+	logging.Campaign("Knowledge store ingestion complete: files=%d, bytes=%d", ingestedCount, totalBytes)
 	return nil
 }
 
 // seedDocFacts pushes lightweight document metadata into the kernel for logic-based selection.
 func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata) {
 	if d.kernel == nil {
+		logging.CampaignDebug("No kernel available for seeding doc facts")
 		return
 	}
 
+	logging.CampaignDebug("Seeding %d document facts for campaign %s", len(files), campaignID)
 	facts := make([]core.Fact, 0, len(files)+1)
 	// Campaign goal fact already loaded later; still record a preliminary goal signal for selection rules.
 	facts = append(facts, core.Fact{
@@ -489,7 +500,11 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 		}
 	}
 
-	_ = d.kernel.AssertBatch(facts)
+	if err := d.kernel.AssertBatch(facts); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to assert doc facts batch: %v", err)
+	} else {
+		logging.CampaignDebug("Seeded %d facts into kernel", len(facts))
+	}
 }
 
 // inferDocType infers the document type from filename.
@@ -1116,6 +1131,7 @@ Output ONLY valid JSON:`, PlannerLogic, contextBuilder.String())
 // buildCampaign converts a RawPlan to a Campaign.
 func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan *RawPlan) *Campaign {
 	logging.CampaignDebug("Building campaign structure from raw plan")
+	logging.CampaignDebug("Raw plan: title=%s, confidence=%.2f, phases=%d", plan.Title, plan.Confidence, len(plan.Phases))
 
 	now := time.Now()
 
@@ -1143,6 +1159,8 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 		if phaseOrder == 0 {
 			phaseOrder = i
 		}
+		logging.CampaignDebug("Building phase %d: %s (category=%s, tasks=%d, deps=%v)",
+			i, rawPhase.Name, rawPhase.Category, len(rawPhase.Tasks), rawPhase.DependsOn)
 
 		// Create context profile
 		profileID := fmt.Sprintf("/profile_%s_%d", campaignID[10:], i)
@@ -1182,11 +1200,15 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 					DependsOnPhaseID: depPhaseID,
 					Type:             DepHard,
 				})
+				logging.CampaignDebug("Phase %s depends on %s (hard dependency)", phaseID, depPhaseID)
+			} else {
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s references unknown dependency index %d", phaseID, depIdx)
 			}
 		}
 
 		// Build tasks
 		taskIDMap := make(map[int]string)
+		logging.CampaignDebug("Building %d tasks for phase %s", len(rawPhase.Tasks), phaseID)
 		for j, rawTask := range rawPhase.Tasks {
 			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignID[10:], i, j)
 			taskIDMap[j] = taskID
@@ -1194,6 +1216,8 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			if rawTask.Order > 0 {
 				orderIndex = rawTask.Order
 			}
+			logging.CampaignDebug("Task %d: type=%s, priority=%s, artifacts=%d, deps=%v",
+				j, rawTask.Type, rawTask.Priority, len(rawTask.Artifacts), rawTask.DependsOn)
 
 			task := Task{
 				ID:          taskID,
@@ -1214,6 +1238,9 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			for _, depIdx := range rawTask.DependsOn {
 				if depTaskID, ok := taskIDMap[depIdx]; ok {
 					task.DependsOn = append(task.DependsOn, depTaskID)
+					logging.CampaignDebug("Task %s depends on task %s", taskID, depTaskID)
+				} else {
+					logging.Get(logging.CategoryCampaign).Warn("Task %s references unknown dependency index %d", taskID, depIdx)
 				}
 			}
 
@@ -1236,8 +1263,10 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 
 		campaign.Phases = append(campaign.Phases, phase)
 		campaign.TotalPhases++
+		logging.CampaignDebug("Added phase %s with %d tasks", phase.ID, len(phase.Tasks))
 	}
 
+	logging.Campaign("Campaign structure built: phases=%d, totalTasks=%d", campaign.TotalPhases, campaign.TotalTasks)
 	return campaign
 }
 

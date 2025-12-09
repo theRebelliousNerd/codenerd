@@ -43,13 +43,20 @@ func NewHoneypotDetector(engine *mangle.Engine) *HoneypotDetector {
 
 // AnalyzePage scans a page for honeypot elements.
 func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error) {
+	timer := logging.StartTimer(logging.CategoryBrowser, "Honeypot page analysis")
+	defer timer.Stop()
+
+	logging.Browser("Analyzing page for honeypot elements")
 	// First, emit facts about page elements
 	if err := d.emitPageFacts(page); err != nil {
+		logging.BrowserError("Failed to emit page facts for honeypot detection: %v", err)
 		return nil, fmt.Errorf("failed to emit page facts: %w", err)
 	}
 
 	// Query for honeypot elements using Mangle rules
+	logging.BrowserDebug("Evaluating is_honeypot rule")
 	honeypots := d.engine.EvaluateRule("is_honeypot")
+	logging.BrowserDebug("Found %d potential honeypot elements", len(honeypots))
 
 	var results []DetectionResult
 	for _, hp := range honeypots {
@@ -60,20 +67,25 @@ func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error
 				Reasons:    d.getHoneypotReasons(elemID),
 				Confidence: d.calculateConfidence(elemID),
 			}
+			logging.BrowserDebug("Honeypot detected: %s (confidence=%.2f, reasons=%v)", elemID, result.Confidence, result.Reasons)
 			results = append(results, result)
 		}
 	}
 
+	logging.Browser("Honeypot analysis complete: %d elements detected", len(results))
 	return results, nil
 }
 
 // emitPageFacts extracts element information and pushes as Mangle facts.
 func (d *HoneypotDetector) emitPageFacts(page *rod.Page) error {
+	logging.BrowserDebug("Extracting page facts for honeypot detection")
 	// Get all clickable/interactive elements
 	elements, err := page.Elements("a, button, input, [onclick], [role='button'], [role='link']")
 	if err != nil {
+		logging.BrowserError("Failed to get page elements: %v", err)
 		return err
 	}
+	logging.BrowserDebug("Found %d interactive elements to analyze", len(elements))
 
 	for i, el := range elements {
 		elemID := fmt.Sprintf("elem_%d", i)
@@ -81,6 +93,7 @@ func (d *HoneypotDetector) emitPageFacts(page *rod.Page) error {
 		// Get tag name
 		tagName, err := el.Eval(`() => this.tagName.toLowerCase()`)
 		if err != nil {
+			logging.BrowserDebug("Failed to get tag name for element %d: %v", i, err)
 			continue
 		}
 		d.engine.PushFact("element", elemID, tagName.Value.String(), "")
@@ -235,8 +248,10 @@ func (d *HoneypotDetector) calculateConfidence(elemID string) float64 {
 
 // IsHoneypot checks if a specific element is a honeypot.
 func (d *HoneypotDetector) IsHoneypot(page *rod.Page, selector string) (bool, []string, error) {
+	logging.BrowserDebug("Checking if element is honeypot: %s", selector)
 	el, err := page.Element(selector)
 	if err != nil {
+		logging.BrowserError("Element not found for honeypot check: %s - %v", selector, err)
 		return false, nil, fmt.Errorf("element not found: %w", err)
 	}
 
@@ -284,23 +299,33 @@ func (d *HoneypotDetector) IsHoneypot(page *rod.Page, selector string) (bool, []
 	reasons := d.getHoneypotReasons(elemID)
 	isHoneypot := len(reasons) > 0
 
+	if isHoneypot {
+		logging.BrowserDebug("Element %s IS a honeypot (reasons=%v)", selector, reasons)
+	} else {
+		logging.BrowserDebug("Element %s is NOT a honeypot", selector)
+	}
 	return isHoneypot, reasons, nil
 }
 
 // GetSafeLinks returns all links that are not honeypots.
 func (d *HoneypotDetector) GetSafeLinks(page *rod.Page) ([]Link, error) {
+	logging.Browser("Getting safe links from page")
 	// First analyze the page
 	if err := d.emitPageFacts(page); err != nil {
+		logging.BrowserError("Failed to analyze page for safe links: %v", err)
 		return nil, fmt.Errorf("failed to analyze page: %w", err)
 	}
 
 	// Get all links
 	elements, err := page.Elements("a[href]")
 	if err != nil {
+		logging.BrowserError("Failed to get links: %v", err)
 		return nil, fmt.Errorf("failed to get links: %w", err)
 	}
+	logging.BrowserDebug("Found %d links to analyze", len(elements))
 
 	var links []Link
+	honeypotCount := 0
 	for i, el := range elements {
 		elemID := fmt.Sprintf("elem_%d", i)
 
@@ -326,6 +351,7 @@ func (d *HoneypotDetector) GetSafeLinks(page *rod.Page) ([]Link, error) {
 		}
 
 		if isHoneypot {
+			honeypotCount++
 			link.HoneypotReasons = reasons
 			logging.BrowserDebug("Detected honeypot link: %s (reasons: %v)", *href, reasons)
 		} else {
@@ -333,19 +359,24 @@ func (d *HoneypotDetector) GetSafeLinks(page *rod.Page) ([]Link, error) {
 		}
 	}
 
+	logging.Browser("Safe links analysis complete: %d safe, %d honeypots filtered", len(links), honeypotCount)
 	return links, nil
 }
 
 // GetAllLinksWithAnalysis returns all links with honeypot analysis.
 func (d *HoneypotDetector) GetAllLinksWithAnalysis(page *rod.Page) ([]Link, error) {
+	logging.Browser("Getting all links with honeypot analysis")
 	if err := d.emitPageFacts(page); err != nil {
+		logging.BrowserError("Failed to analyze page for link analysis: %v", err)
 		return nil, fmt.Errorf("failed to analyze page: %w", err)
 	}
 
 	elements, err := page.Elements("a[href]")
 	if err != nil {
+		logging.BrowserError("Failed to get links for analysis: %v", err)
 		return nil, fmt.Errorf("failed to get links: %w", err)
 	}
+	logging.BrowserDebug("Analyzing %d links with honeypot detection", len(elements))
 
 	var links []Link
 	for i, el := range elements {

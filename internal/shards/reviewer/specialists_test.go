@@ -322,6 +322,52 @@ func TestParseShardOutput_EmptyOutput(t *testing.T) {
 	}
 }
 
+func TestParseShardOutput_TableFormat(t *testing.T) {
+	output := `## Detailed Findings
+
+| Severity | Category | File:Line | Message |
+|---|---|---|---|
+| 🔴 critical | security | ` + "`cmd/main.go:42`" + ` | SQL injection vulnerability |
+| ❌ error | logic | ` + "`internal/core.go:100`" + ` | Nil pointer dereference |
+| ⚠️ warning | style | ` + "`utils.go:15`" + ` | Unused variable |
+`
+	findings := ParseShardOutput(output, "Reviewer")
+
+	if len(findings) != 3 {
+		t.Fatalf("Expected 3 findings from table format, got %d", len(findings))
+	}
+
+	// Check critical finding
+	critical := findings[0]
+	if critical.Severity != "critical" {
+		t.Errorf("Expected severity 'critical', got '%s'", critical.Severity)
+	}
+	if critical.Category != "security" {
+		t.Errorf("Expected category 'security', got '%s'", critical.Category)
+	}
+	if critical.File != "cmd/main.go" {
+		t.Errorf("Expected file 'cmd/main.go', got '%s'", critical.File)
+	}
+	if critical.Line != 42 {
+		t.Errorf("Expected line 42, got %d", critical.Line)
+	}
+	if critical.Message != "SQL injection vulnerability" {
+		t.Errorf("Expected message 'SQL injection vulnerability', got '%s'", critical.Message)
+	}
+
+	// Check error finding
+	err := findings[1]
+	if err.Severity != "error" {
+		t.Errorf("Expected severity 'error', got '%s'", err.Severity)
+	}
+
+	// Check warning finding
+	warn := findings[2]
+	if warn.Severity != "warning" {
+		t.Errorf("Expected severity 'warning', got '%s'", warn.Severity)
+	}
+}
+
 func TestParseShardOutput_NoFindings(t *testing.T) {
 	output := `# Review Complete
 

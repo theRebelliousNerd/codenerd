@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"codenerd/internal/logging"
 	"regexp"
 	"strings"
 )
@@ -11,6 +12,7 @@ import (
 
 // trackReviewPatterns tracks patterns for Autopoiesis (§8.3).
 func (r *ReviewerShard) trackReviewPatterns(result *ReviewResult) {
+	logging.ReviewerDebug("Tracking review patterns for autopoiesis: %d findings", len(result.Findings))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -22,6 +24,7 @@ func (r *ReviewerShard) trackReviewPatterns(result *ReviewResult) {
 
 			// Persist to LearningStore if count exceeds threshold
 			if r.learningStore != nil && r.flaggedPatterns[pattern] >= 3 {
+				logging.ReviewerDebug("Persisting flagged pattern to learning store: %s (count: %d)", pattern, r.flaggedPatterns[pattern])
 				_ = r.learningStore.Save("reviewer", "flagged_pattern", []any{pattern, finding.Category, finding.Severity}, "")
 			}
 		}
@@ -41,12 +44,14 @@ func (r *ReviewerShard) trackReviewPatterns(result *ReviewResult) {
 
 // LearnAntiPattern adds a new anti-pattern to watch for.
 func (r *ReviewerShard) LearnAntiPattern(pattern, reason string) {
+	logging.Reviewer("Learning new anti-pattern: %s (reason: %s)", pattern, reason)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.learnedAntiPatterns[pattern] = reason
 
 	// Persist to LearningStore immediately for anti-patterns
 	if r.learningStore != nil {
+		logging.ReviewerDebug("Persisting anti-pattern to learning store")
 		_ = r.learningStore.Save("reviewer", "anti_pattern", []any{pattern, reason}, "")
 	}
 }
@@ -54,7 +59,9 @@ func (r *ReviewerShard) LearnAntiPattern(pattern, reason string) {
 // loadLearnedPatterns loads existing patterns from LearningStore on initialization.
 // Must be called with lock held.
 func (r *ReviewerShard) loadLearnedPatterns() {
+	logging.ReviewerDebug("Loading learned patterns from LearningStore")
 	if r.learningStore == nil {
+		logging.ReviewerDebug("No LearningStore available, skipping pattern load")
 		return
 	}
 
@@ -68,6 +75,7 @@ func (r *ReviewerShard) loadLearnedPatterns() {
 				r.flaggedPatterns[pattern] = 3
 			}
 		}
+		logging.ReviewerDebug("Loaded %d flagged patterns", len(flaggedLearnings))
 	}
 
 	// Load approved patterns
@@ -80,6 +88,7 @@ func (r *ReviewerShard) loadLearnedPatterns() {
 				r.approvedPatterns[pattern] = 5
 			}
 		}
+		logging.ReviewerDebug("Loaded %d approved patterns", len(approvedLearnings))
 	}
 
 	// Load anti-patterns
@@ -92,6 +101,7 @@ func (r *ReviewerShard) loadLearnedPatterns() {
 				r.learnedAntiPatterns[pattern] = reason
 			}
 		}
+		logging.ReviewerDebug("Loaded %d anti-patterns", len(antiPatternLearnings))
 	}
 }
 
