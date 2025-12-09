@@ -37,3 +37,8 @@ Docs/*
 !README.md
 !**/README.md
 !Docs/research/**
+
+# Debug files
+debug_program*.mg
+*.exe~
+--help
