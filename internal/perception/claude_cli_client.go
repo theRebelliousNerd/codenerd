@@ -47,46 +47,59 @@ type StreamCallback func(chunk StreamChunk) error
 // ClaudeCodeCLIClient implements LLMClient using the Claude Code CLI subprocess.
 // It executes `claude -p --output-format json --model <model>` and parses the JSON response.
 //
+// IMPORTANT: This uses Claude CLI as a SUBPROCESS LLM API, NOT as an agent.
+// - Claude Code tools are DISABLED (codeNERD has its own tools)
+// - Single completion per call (--max-turns 1)
+// - System prompt REPLACES Claude Code instructions
+//
 // Enhanced features (Claude CLI exclusive):
-// - JSON Schema validation for structured output
+// - JSON Schema validation for structured output (Piggyback Protocol)
 // - Streaming output for real-time responses
-// - Fallback model for rate limit resilience
-// - MCP server integration
-// - Tool control
+// - Fallback model for rate limit resilience (handled in Go code)
 type ClaudeCodeCLIClient struct {
-	model           string
-	fallbackModel   string
-	timeout         time.Duration
-	streaming       bool
-	allowedTools    string
-	disallowedTools string
-	mcpConfig       string
+	model         string
+	fallbackModel string
+	timeout       time.Duration
+	maxTurns      int
+	streaming     bool
 }
 
 // claudeCLIResponse represents the JSON output from `claude --output-format json`.
-// The structure contains result.content[].text for assistant message text.
+// The result field can be either:
+// - A string (when tools are disabled via --tools "")
+// - An object with content[].text (when tools are enabled)
+// When using --json-schema, the output is in structured_output instead.
 type claudeCLIResponse struct {
-	Result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"result"`
-	Error *struct {
+	Type    string          `json:"type"`              // "result" for success
+	Subtype string          `json:"subtype,omitempty"` // "success" or "error"
+	IsError bool            `json:"is_error,omitempty"`
+	Result  json.RawMessage `json:"result"` // string OR object with content[]
+	Error   *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 	// Rate limit indicator in error response
 	IsRateLimited bool `json:"is_rate_limited,omitempty"`
+	// JSON Schema output - present when --json-schema flag is used
+	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
+}
+
+// claudeCLIResultObject is the structured result when tools are enabled.
+type claudeCLIResultObject struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
 }
 
 // NewClaudeCodeCLIClient creates a new Claude Code CLI client.
-// If cfg is nil, defaults are applied (model: "sonnet", timeout: 300s).
+// If cfg is nil, defaults are applied (model: "sonnet", timeout: 300s, maxTurns: 1).
 func NewClaudeCodeCLIClient(cfg *config.ClaudeCLIConfig) *ClaudeCodeCLIClient {
 	// Apply defaults
 	client := &ClaudeCodeCLIClient{
-		model:   "sonnet",
-		timeout: 300 * time.Second,
+		model:    "sonnet",
+		timeout:  600 * time.Second,
+		maxTurns: 1, // Single completion, no agentic loops
 	}
 
 	if cfg != nil {
@@ -96,11 +109,11 @@ func NewClaudeCodeCLIClient(cfg *config.ClaudeCLIConfig) *ClaudeCodeCLIClient {
 		if cfg.Timeout > 0 {
 			client.timeout = time.Duration(cfg.Timeout) * time.Second
 		}
+		if cfg.MaxTurns > 0 {
+			client.maxTurns = cfg.MaxTurns
+		}
 		client.fallbackModel = cfg.FallbackModel
 		client.streaming = cfg.Streaming
-		client.allowedTools = cfg.AllowedTools
-		client.disallowedTools = cfg.DisallowedTools
-		client.mcpConfig = cfg.MCPConfig
 	}
 
 	return client
@@ -309,10 +322,28 @@ func (c *ClaudeCodeCLIClient) executeStreaming(ctx context.Context, prompt strin
 }
 
 // buildArgs constructs the CLI arguments.
+// CRITICAL: This configures Claude CLI as a SUBPROCESS LLM API, not as an agent.
+// - Tools are DISABLED (codeNERD has its own tools)
+// - Max turns is 1 (single completion, no agentic loops) - bumped to 2 for JSON schema
+// - System prompt REPLACES Claude Code instructions
 func (c *ClaudeCodeCLIClient) buildArgs(prompt, model string, opts *ExecutionOptions) []string {
+	// Determine max turns: JSON schema validation requires extra turns internally
+	// The schema tool call counts as a turn, plus the final output
+	maxTurns := c.maxTurns
+	if opts != nil && opts.JSONSchema != "" && maxTurns < 3 {
+		maxTurns = 3 // JSON schema uses internal tool calls that count as turns
+	}
+
 	args := []string{
 		"-p", prompt,
 		"--model", model,
+		"--max-turns", fmt.Sprintf("%d", maxTurns),
+	}
+
+	// DISABLE all Claude Code tools UNLESS using JSON schema
+	// The JSON schema feature uses an internal tool, so we can't fully disable tools
+	if opts == nil || opts.JSONSchema == "" {
+		args = append(args, "--tools", "") // DISABLE all Claude Code tools - codeNERD has its own
 	}
 
 	// Output format
@@ -322,38 +353,23 @@ func (c *ClaudeCodeCLIClient) buildArgs(prompt, model string, opts *ExecutionOpt
 		args = append(args, "--output-format", "json")
 	}
 
-	// System prompt
+	// System prompt REPLACES Claude Code instructions (not appends)
 	if opts != nil && opts.SystemPrompt != "" {
 		args = append(args, "--system-prompt", opts.SystemPrompt)
 	}
 
-	// JSON Schema for structured output
+	// JSON Schema for structured output (Piggyback Protocol)
 	if opts != nil && opts.JSONSchema != "" {
 		args = append(args, "--json-schema", opts.JSONSchema)
-	}
-
-	// Tool control
-	if c.allowedTools != "" {
-		args = append(args, "--allowed-tools", c.allowedTools)
-	}
-	if c.disallowedTools != "" {
-		args = append(args, "--disallowed-tools", c.disallowedTools)
-	}
-
-	// MCP configuration
-	if c.mcpConfig != "" {
-		args = append(args, "--mcp-config", c.mcpConfig)
-	}
-
-	// Fallback model for resilience
-	if c.fallbackModel != "" {
-		args = append(args, "--fallback-model", c.fallbackModel)
 	}
 
 	return args
 }
 
 // parseResponse extracts the assistant message text from the JSON response.
+// Handles two formats:
+// - String result (when tools disabled): {"result": "text here"}
+// - Object result (when tools enabled): {"result": {"content": [{"type": "text", "text": "..."}]}}
 func (c *ClaudeCodeCLIClient) parseResponse(data []byte) (string, error) {
 	if len(data) == 0 {
 		return "", errors.New("empty response from claude CLI")
@@ -385,9 +401,42 @@ func (c *ClaudeCodeCLIClient) parseResponse(data []byte) (string, error) {
 		return "", fmt.Errorf("claude CLI error: %s (type: %s)", resp.Error.Message, resp.Error.Type)
 	}
 
+	// Check if response indicates error via is_error field
+	if resp.IsError {
+		return "", fmt.Errorf("claude CLI returned error (type: %s, subtype: %s)", resp.Type, resp.Subtype)
+	}
+
+	// Priority 1: Check for structured_output (JSON Schema mode)
+	// This is set when --json-schema flag is used
+	if len(resp.StructuredOutput) > 0 {
+		// Return the raw JSON string - caller is responsible for parsing
+		return string(resp.StructuredOutput), nil
+	}
+
+	// Priority 2: Try to extract from result field
+	if len(resp.Result) == 0 {
+		return "", errors.New("no result in claude CLI response")
+	}
+
+	// First, try to unmarshal as a string (tools disabled format)
+	var stringResult string
+	if err := json.Unmarshal(resp.Result, &stringResult); err == nil {
+		text := strings.TrimSpace(stringResult)
+		if text == "" {
+			return "", errors.New("empty string result in claude CLI response")
+		}
+		return text, nil
+	}
+
+	// If not a string, try to unmarshal as an object with content array (tools enabled format)
+	var objResult claudeCLIResultObject
+	if err := json.Unmarshal(resp.Result, &objResult); err != nil {
+		return "", fmt.Errorf("failed to parse result field: %w (raw: %s)", err, truncateString(string(resp.Result), 200))
+	}
+
 	// Extract text from content blocks
 	var result strings.Builder
-	for _, content := range resp.Result.Content {
+	for _, content := range objResult.Content {
 		if content.Type == "text" {
 			result.WriteString(content.Text)
 		}
@@ -441,19 +490,15 @@ func (c *ClaudeCodeCLIClient) IsStreaming() bool {
 	return c.streaming
 }
 
-// SetAllowedTools sets the allowed tools constraint.
-func (c *ClaudeCodeCLIClient) SetAllowedTools(tools string) {
-	c.allowedTools = tools
+// SetMaxTurns sets the maximum number of agentic turns (default: 1).
+// For codeNERD, this should always be 1 (single completion).
+func (c *ClaudeCodeCLIClient) SetMaxTurns(turns int) {
+	c.maxTurns = turns
 }
 
-// SetDisallowedTools sets the disallowed tools constraint.
-func (c *ClaudeCodeCLIClient) SetDisallowedTools(tools string) {
-	c.disallowedTools = tools
-}
-
-// SetMCPConfig sets the MCP configuration file path.
-func (c *ClaudeCodeCLIClient) SetMCPConfig(path string) {
-	c.mcpConfig = path
+// GetMaxTurns returns the current max turns setting.
+func (c *ClaudeCodeCLIClient) GetMaxTurns() int {
+	return c.maxTurns
 }
 
 // isRateLimitError checks if the error message indicates a rate limit.

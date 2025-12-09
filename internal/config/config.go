@@ -61,6 +61,11 @@ type LLMConfig struct {
 
 // ClaudeCLIConfig holds configuration for Claude Code CLI backend.
 // Used when Engine="claude-cli" to execute Claude via subprocess.
+//
+// IMPORTANT: Claude CLI is used as a SUBPROCESS LLM API, not as an agent.
+// - Claude Code tools are always DISABLED (codeNERD has its own tools)
+// - System prompts REPLACE Claude Code instructions (not append)
+// - MaxTurns defaults to 1 (single completion, no agentic loops)
 type ClaudeCLIConfig struct {
 	// Model alias: "sonnet", "opus", "haiku"
 	Model string `json:"model,omitempty"`
@@ -70,26 +75,16 @@ type ClaudeCLIConfig struct {
 
 	// FallbackModel is used when the primary model is rate-limited or overloaded
 	// Example: "haiku" as fallback for "sonnet"
+	// NOTE: This is handled in Go code, not via CLI flag (--fallback-model doesn't exist)
 	FallbackModel string `json:"fallback_model,omitempty"`
+
+	// MaxTurns limits the number of agentic turns (default: 1)
+	// For codeNERD, this should always be 1 (single completion, no agentic loops)
+	MaxTurns int `json:"max_turns,omitempty"`
 
 	// Streaming enables real-time streaming output (--output-format stream-json)
 	// When true, responses are streamed as they arrive
 	Streaming bool `json:"streaming,omitempty"`
-
-	// SystemPromptFile is a path to a file containing the system prompt
-	// Useful for very long system prompts that might exceed command line limits
-	SystemPromptFile string `json:"system_prompt_file,omitempty"`
-
-	// AllowedTools restricts which tools Claude can use (e.g., "Bash(git:*) Edit Read")
-	// Empty means use defaults, "" (empty string in config) disables all tools
-	AllowedTools string `json:"allowed_tools,omitempty"`
-
-	// DisallowedTools explicitly blocks certain tools
-	DisallowedTools string `json:"disallowed_tools,omitempty"`
-
-	// MCPConfig is a path to MCP server configuration file
-	// Allows codeNERD to leverage user's existing MCP servers
-	MCPConfig string `json:"mcp_config,omitempty"`
 }
 
 // CodexCLIConfig holds configuration for Codex CLI backend.
@@ -557,7 +552,7 @@ func (c *Config) applyEnvOverrides() {
 func (c *Config) GetLLMTimeout() time.Duration {
 	d, err := time.ParseDuration(c.LLM.Timeout)
 	if err != nil {
-		return 120 * time.Second
+		return 300 * time.Second
 	}
 	return d
 }

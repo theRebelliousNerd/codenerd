@@ -2285,3 +2285,157 @@ Decl specialist_match(ReviewID, AgentName, Score, Reason).
 # Symbol was verified to exist (counters false "undefined" claims)
 Decl symbol_verified_exists(Symbol, File, VerifiedAt).
 
+# =============================================================================
+# SECTION 42: DYNAMIC PROMPT COMPOSITION (Context Injection)
+# =============================================================================
+# These predicates enable kernel-driven system prompt assembly.
+# The articulation layer queries these to build dynamic prompts for shards.
+
+# -----------------------------------------------------------------------------
+# 42.1 Base Prompt Templates
+# -----------------------------------------------------------------------------
+
+# shard_prompt_base(ShardType, BaseTemplate)
+# Base template for each shard type (Type A, B, S, U)
+# ShardType: /system, /ephemeral, /persistent, /user
+Decl shard_prompt_base(ShardType, BaseTemplate).
+
+# -----------------------------------------------------------------------------
+# 42.2 Context Atom Selection (Spreading Activation Output)
+# -----------------------------------------------------------------------------
+
+# shard_context_atom(ShardID, Atom, Relevance)
+# Context atoms selected for injection into prompts (spreading activation output)
+# Relevance: 0.0-1.0 score indicating how relevant the atom is
+# NOTE: Named shard_context_atom to distinguish from existing context_atom(Fact) in Section 12
+Decl shard_context_atom(ShardID, Atom, Relevance).
+
+# -----------------------------------------------------------------------------
+# 42.3 Specialist Knowledge (Type B Persistent Shards)
+# -----------------------------------------------------------------------------
+
+# specialist_knowledge(ShardID, Topic, Content)
+# Specialist knowledge for Type B persistent shards
+# Topic: domain identifier (e.g., /go_concurrency, /react_hooks, /sql_optimization)
+Decl specialist_knowledge(ShardID, Topic, Content).
+
+# -----------------------------------------------------------------------------
+# 42.4 Session-Level Customizations
+# -----------------------------------------------------------------------------
+
+# prompt_customization(SessionID, Key, Value)
+# Session-level prompt customizations (user preferences)
+# Key: customization key (e.g., /verbosity, /tone, /detail_level)
+Decl prompt_customization(SessionID, Key, Value).
+
+# -----------------------------------------------------------------------------
+# 42.5 Campaign-Specific Constraints
+# -----------------------------------------------------------------------------
+
+# campaign_prompt_policy(CampaignID, ShardType, Constraint)
+# Campaign-specific prompt constraints
+# Constraint: rule or limitation to apply (e.g., "no external APIs", "strict typing")
+Decl campaign_prompt_policy(CampaignID, ShardType, Constraint).
+
+# -----------------------------------------------------------------------------
+# 42.6 Learned Exemplars
+# -----------------------------------------------------------------------------
+
+# prompt_exemplar(ShardType, Category, Exemplar)
+# Learned exemplars that should influence prompts
+# Category: exemplar category (e.g., /code_style, /error_handling, /documentation)
+# Exemplar: the learned example pattern or template
+Decl prompt_exemplar(ShardType, Category, Exemplar).
+
+# -----------------------------------------------------------------------------
+# 42.7 Derived Predicates for Prompt Assembly
+# -----------------------------------------------------------------------------
+
+# prompt_ready(ShardID) - derived: all required prompt components are available
+Decl prompt_ready(ShardID).
+
+# has_specialist_knowledge(ShardID) - helper: shard has specialist knowledge loaded
+Decl has_specialist_knowledge(ShardID).
+
+# has_campaign_constraints(CampaignID, ShardType) - helper: campaign has constraints for shard type
+Decl has_campaign_constraints(CampaignID, ShardType).
+
+# active_prompt_customization(Key, Value) - derived: active customization for current session
+Decl active_prompt_customization(Key, Value).
+
+# prompt_context_budget(ShardID, TokensUsed, TokensAvailable) - context window tracking
+Decl prompt_context_budget(ShardID, TokensUsed, TokensAvailable).
+
+# context_overflow(ShardID) - derived: context exceeds available budget
+Decl context_overflow(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.8 Active Shard Tracking
+# -----------------------------------------------------------------------------
+
+# active_shard(ShardID, ShardType) - currently active shard being configured
+Decl active_shard(ShardID, ShardType).
+
+# campaign_active(CampaignID) - currently active campaign
+Decl campaign_active(CampaignID).
+
+# -----------------------------------------------------------------------------
+# 42.9 Injectable Context Derivation (Policy.mg Section 41)
+# -----------------------------------------------------------------------------
+
+# injectable_context(ShardID, Atom) - atoms selected for prompt injection
+Decl injectable_context(ShardID, Atom).
+
+# injectable_context_priority(ShardID, Atom, Priority) - priority-tagged context
+# Priority: /high, /medium, /low
+Decl injectable_context_priority(ShardID, Atom, Priority).
+
+# final_injectable(ShardID, Atom) - final set after budget filtering
+Decl final_injectable(ShardID, Atom).
+
+# -----------------------------------------------------------------------------
+# 42.10 Context Budget Management
+# -----------------------------------------------------------------------------
+
+# context_budget(ShardID, Budget) - available token budget for shard
+Decl context_budget(ShardID, Budget).
+
+# context_budget_constrained(ShardID) - derived: shard has limited context budget
+Decl context_budget_constrained(ShardID).
+
+# context_budget_sufficient(ShardID) - derived: shard has adequate context budget
+Decl context_budget_sufficient(ShardID).
+
+# has_injectable_context(ShardID) - helper: shard has context to inject
+Decl has_injectable_context(ShardID).
+
+# has_high_priority_context(ShardID) - helper: shard has high-priority context
+Decl has_high_priority_context(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.11 Context Staleness & Refresh
+# -----------------------------------------------------------------------------
+
+# context_stale(ShardID, Atom) - context atom is stale and needs refresh
+Decl context_stale(ShardID, Atom).
+
+# has_stale_context(ShardID) - helper: shard has any stale context
+Decl has_stale_context(ShardID).
+
+# specialist_knowledge_updated(ShardID) - specialist knowledge was recently updated
+Decl specialist_knowledge_updated(ShardID).
+
+# -----------------------------------------------------------------------------
+# 42.12 Trace Pattern Integration
+# -----------------------------------------------------------------------------
+
+# trace_pattern(TraceID, Pattern) - extracted pattern from a reasoning trace
+Decl trace_pattern(TraceID, Pattern).
+
+# -----------------------------------------------------------------------------
+# 42.13 Learning from Context Injection
+# -----------------------------------------------------------------------------
+
+# context_injection_effective(ShardID, Atom) - context injection led to success
+Decl context_injection_effective(ShardID, Atom).
+

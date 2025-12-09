@@ -101,8 +101,8 @@ func DefaultTDDLoopConfig() TDDLoopConfig {
 		MaxRetries:   3,
 		TestCommand:  "go test ./...",
 		BuildCommand: "go build ./...",
-		TestTimeout:  5 * time.Minute,
-		BuildTimeout: 2 * time.Minute,
+		TestTimeout:  15 * time.Minute,
+		BuildTimeout: 10 * time.Minute,
 		WorkingDir:   ".",
 	}
 }

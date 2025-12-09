@@ -41,7 +41,8 @@ var (
 	// System shards
 	disableSystemShards []string
 	// Init flags
-	forceInit bool
+	forceInit      bool
+	cleanupBackups bool
 
 	// Logger
 	logger *zap.Logger
@@ -346,7 +347,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Z.AI API key (or set ZAI_API_KEY env)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
-	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 5*time.Minute, "Operation timeout")
+	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")
 
 	// Define-agent flags
 	var agentName, agentTopic string
@@ -360,6 +361,7 @@ func init() {
 
 	// Init flags
 	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Force reinitialize (preserves learned preferences)")
+	initCmd.Flags().BoolVar(&cleanupBackups, "cleanup-backups", false, "Remove backup files from previous migrations")
 
 	// Browser subcommands
 	browserCmd.AddCommand(browserLaunchCmd)
@@ -1076,6 +1078,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cwd := workspace
 	if cwd == "" {
 		cwd, _ = os.Getwd()
+	}
+
+	// Handle backup cleanup (can run standalone without full init)
+	if cleanupBackups {
+		nerdDir := filepath.Join(cwd, ".nerd")
+		deleted, err := nerdinit.CleanupBackups(nerdDir, false)
+		if err != nil {
+			return fmt.Errorf("failed to cleanup backups: %w", err)
+		}
+		if deleted == 0 {
+			fmt.Println("No backup files found to clean up.")
+		}
+		return nil
 	}
 
 	// Check if already initialized

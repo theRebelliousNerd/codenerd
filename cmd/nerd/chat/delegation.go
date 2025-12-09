@@ -281,7 +281,7 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 // spawnShard spawns a shard agent for a task
 func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
 		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))

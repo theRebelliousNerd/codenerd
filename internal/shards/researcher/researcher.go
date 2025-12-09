@@ -3,6 +3,7 @@
 package researcher
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -604,6 +605,106 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 	return result, nil
 }
 
+// ResearchTopicsWithExistingKnowledge performs concept-aware research that avoids
+// redundant Context7 API queries by analyzing existing knowledge first.
+// This is the preferred method when existing atoms are available.
+//
+// The method:
+// 1. Analyzes existing atoms to determine coverage for each topic
+// 2. Skips topics that already have sufficient coverage
+// 3. Generates targeted queries for topics with gaps
+// 4. Only queries Context7 for genuinely new knowledge
+func (r *ResearcherShard) ResearchTopicsWithExistingKnowledge(
+	ctx context.Context,
+	topics []string,
+	existingAtoms []KnowledgeAtom,
+) (*ResearchResult, error) {
+
+	r.mu.Lock()
+	r.state = core.ShardStateRunning
+	r.startTime = time.Now()
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		r.state = core.ShardStateCompleted
+		r.mu.Unlock()
+	}()
+
+	result := &ResearchResult{
+		Query:    fmt.Sprintf("concept-aware batch research: %d topics", len(topics)),
+		Keywords: topics,
+		Atoms:    make([]KnowledgeAtom, 0),
+	}
+
+	if len(topics) == 0 {
+		return result, nil
+	}
+
+	// E1: Reset atom counter for new research session
+	r.resetAtomCount()
+
+	// Create existing knowledge wrapper
+	existing := NewExistingKnowledge(existingAtoms)
+
+	// Analyze coverage and filter topics
+	topicsNeedingResearch, skippedTopics, coverageReport := FilterTopicsWithCoverage(topics, existing)
+
+	// E1: Report initial progress with skip info
+	r.reportProgress(ProgressUpdate{
+		AtomCount:    0,
+		CurrentTopic: "analyzing coverage",
+		TopicsTotal:  len(topics),
+		TopicsDone:   len(skippedTopics),
+		Message: fmt.Sprintf("Coverage analysis: %d topics need research, %d skipped (sufficient coverage)",
+			len(topicsNeedingResearch), len(skippedTopics)),
+	})
+
+	logging.Researcher("[ConceptAware] Starting research: %d topics need research, %d skipped",
+		len(topicsNeedingResearch), len(skippedTopics))
+
+	// Log detailed coverage report
+	for topic, coverage := range coverageReport {
+		if coverage.ShouldSkipAPI {
+			logging.Researcher("[ConceptAware] SKIP '%s': atoms=%d, concepts=%d, quality=%.2f",
+				topic, coverage.TotalAtoms, len(coverage.CoveredConcepts), coverage.QualityScore)
+		} else {
+			logging.Researcher("[ConceptAware] RESEARCH '%s' -> '%s': atoms=%d, gaps=%v",
+				topic, coverage.RecommendedQuery, coverage.TotalAtoms, coverage.GapsIdentified)
+		}
+	}
+
+	// If all topics were skipped, return early
+	if len(topicsNeedingResearch) == 0 {
+		r.reportProgress(ProgressUpdate{
+			AtomCount:    0,
+			CurrentTopic: "completed",
+			TopicsTotal:  len(topics),
+			TopicsDone:   len(topics),
+			QualityScore: 100,
+			Message:      fmt.Sprintf("All %d topics already have sufficient coverage - no API calls needed", len(topics)),
+		})
+		result.Summary = fmt.Sprintf("All %d topics already have sufficient knowledge coverage", len(topics))
+		return result, nil
+	}
+
+	// Research only the topics that need it using the targeted queries
+	researchResult, err := r.ResearchTopicsParallel(ctx, topicsNeedingResearch)
+	if err != nil {
+		return result, err
+	}
+
+	// Merge results
+	result.Atoms = researchResult.Atoms
+	result.PagesScraped = researchResult.PagesScraped
+	result.Duration = time.Since(r.startTime)
+	result.FactsGenerated = len(result.Atoms)
+	result.Summary = fmt.Sprintf("Concept-aware research: %d/%d topics researched, %d skipped, %d atoms gathered",
+		len(topicsNeedingResearch), len(topics), len(skippedTopics), len(result.Atoms))
+
+	return result, nil
+}
+
 // DeepResearch performs comprehensive research using all available tools.
 // This includes: known sources, web search, and LLM synthesis.
 func (r *ResearcherShard) DeepResearch(ctx context.Context, topic string, keywords []string) (*ResearchResult, error) {
@@ -1118,6 +1219,21 @@ func (r *ResearcherShard) buildSessionContextPrompt() string {
 	if len(ctx.SpecialistHints) > 0 {
 		for _, hint := range ctx.SpecialistHints {
 			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
+		}
+	}
+
+	// ==========================================================================
+	// KERNEL-DERIVED CONTEXT (Spreading Activation)
+	// ==========================================================================
+	// Query the Mangle kernel for injectable context atoms derived from
+	// spreading activation rules (injectable_context, specialist_knowledge).
+	if r.kernel != nil {
+		kernelContext, err := articulation.GetKernelContext(r.kernel, r.id)
+		if err != nil {
+			logging.ResearcherDebug("Failed to get kernel context: %v", err)
+		} else if kernelContext != "" {
+			sb.WriteString("\n")
+			sb.WriteString(kernelContext)
 		}
 	}
 

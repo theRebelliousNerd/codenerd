@@ -551,67 +551,62 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		}
 	}
 
-	// Research topics - use parallel research for efficiency
+	// Research topics - use concept-aware research with graceful degradation
 	if !i.config.SkipResearch && len(agent.Topics) > 0 {
-		// In upgrade mode, filter topics that already have sufficient coverage
-		// to avoid redundant Context7 API calls
-		topicsToResearch := agent.Topics
-		if upgradeMode {
-			existingAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-			const minAtomsPerTopic = 5 // Require at least 5 atoms for topic coverage
-			topicsToResearch = filterTopicsNeedingResearch(existingAtoms, agent.Topics, minAtomsPerTopic)
-
-			if len(topicsToResearch) == 0 {
-				fmt.Printf("     All %d topics have sufficient coverage, skipping research\n", len(agent.Topics))
-			} else if len(topicsToResearch) < len(agent.Topics) {
-				fmt.Printf("     Filtered topics: %d/%d need research (skipping %d with coverage)\n",
-					len(topicsToResearch), len(agent.Topics), len(agent.Topics)-len(topicsToResearch))
-			}
+		// Create a researcher for this specific agent
+		agentResearcher := researcher.NewResearcherShard()
+		if i.config.LLMClient != nil {
+			agentResearcher.SetLLMClient(i.config.LLMClient)
 		}
+		if i.config.Context7APIKey != "" {
+			agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
+		}
+		agentResearcher.SetLocalDB(agentDB)
 
-		if len(topicsToResearch) > 0 {
-			// Create a researcher for this specific agent
-			agentResearcher := researcher.NewResearcherShard()
-			if i.config.LLMClient != nil {
-				agentResearcher.SetLLMClient(i.config.LLMClient)
+		// Convert existing atoms to researcher format for concept-aware analysis
+		existingAtoms, _ := agentDB.GetAllKnowledgeAtoms()
+		researcherAtoms := convertStoreAtomsToResearcherAtoms(existingAtoms)
+
+		fmt.Printf("     Researching topics for %s (concept-aware: %d existing atoms)...\n",
+			agent.Name, len(researcherAtoms))
+
+		// Use concept-aware research with graceful degradation
+		// This analyzes existing knowledge first to skip redundant Context7 queries
+		gracefulResult, err := agentResearcher.ResearchWithExistingKnowledgeAndGracefulDegradation(
+			ctx, agent.Topics, researcherAtoms)
+		if err != nil {
+			fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
+		} else if gracefulResult != nil {
+			// Log fallback info if used
+			if gracefulResult.FallbackUsed != researcher.FallbackNone {
+				fmt.Printf("     Note: Used fallback strategy for %s (%s)\n", agent.Name, gracefulResult.FallbackReason)
+			} else if gracefulResult.AttemptsMade == 0 {
+				// All topics were covered - no API calls needed
+				fmt.Printf("     All topics already have sufficient coverage - no API calls needed\n")
 			}
-			if i.config.Context7APIKey != "" {
-				agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
+
+			// In upgrade mode, the researcher stores atoms directly to DB
+			// We need to count only newly added atoms
+			if upgradeMode {
+				// Re-fetch to get accurate count
+				currentAtoms, _ := agentDB.GetAllKnowledgeAtoms()
+				newFromResearch := len(currentAtoms) - stats.ExistingAtoms - stats.NewAtoms
+				if newFromResearch > 0 {
+					stats.NewAtoms += newFromResearch
+				}
+			} else {
+				stats.NewAtoms += len(gracefulResult.Atoms)
 			}
-			agentResearcher.SetLocalDB(agentDB)
 
-			fmt.Printf("     Researching %d topics for %s...\n", len(topicsToResearch), agent.Name)
-
-			// Use graceful degradation for research (retries with fallback strategies)
-			gracefulResult, err := agentResearcher.ResearchWithGracefulDegradation(ctx, topicsToResearch)
-			if err != nil {
-				fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
-			} else if gracefulResult != nil {
-				// Log fallback info if used
-				if gracefulResult.FallbackUsed != researcher.FallbackNone {
-					fmt.Printf("     Note: Used fallback strategy for %s (%s)\n", agent.Name, gracefulResult.FallbackReason)
-				}
-
-				// In upgrade mode, the researcher stores atoms directly to DB
-				// We need to count only newly added atoms
-				if upgradeMode {
-					// Re-fetch to get accurate count
-					currentAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-					newFromResearch := len(currentAtoms) - stats.ExistingAtoms - stats.NewAtoms
-					if newFromResearch > 0 {
-						stats.NewAtoms += newFromResearch
-					}
-				} else {
-					stats.NewAtoms += len(gracefulResult.Atoms)
-				}
+			if len(gracefulResult.Atoms) > 0 {
 				fmt.Printf("     Gathered %d knowledge atoms for %s (attempts: %d)\n",
 					len(gracefulResult.Atoms), agent.Name, gracefulResult.AttemptsMade)
-
-				// Calculate and store quality metrics
-				qualityMetrics := researcher.CalculateQualityMetrics(gracefulResult.Atoms, topicsToResearch)
-				stats.QualityScore = qualityMetrics.Score
-				stats.QualityRating = qualityMetrics.Rating
 			}
+
+			// Calculate and store quality metrics
+			qualityMetrics := researcher.CalculateQualityMetrics(gracefulResult.Atoms, gracefulResult.EffectiveTopics)
+			stats.QualityScore = qualityMetrics.Score
+			stats.QualityRating = qualityMetrics.Rating
 		}
 	} else if i.config.SkipResearch {
 		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
@@ -684,7 +679,17 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 	}
 
 	// Count atoms that match each topic
+	// Skip inherited atoms from shared pool as they inflate coverage falsely
 	for _, atom := range existingAtoms {
+		// Skip inherited atoms - they don't represent genuine topic research
+		if strings.HasPrefix(atom.Concept, "inherited:") {
+			continue
+		}
+		// Skip base identity/mission atoms - they're boilerplate
+		if atom.Concept == "agent_identity" || atom.Concept == "agent_mission" {
+			continue
+		}
+
 		conceptLower := strings.ToLower(atom.Concept)
 		contentLower := strings.ToLower(atom.Content)
 
@@ -695,8 +700,10 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 					matchCount++
 				}
 			}
-			// Require at least half the keywords to match for topic relevance
-			if matchCount >= (len(keywords)+1)/2 {
+			// Require at least 2/3 of keywords to match for topic relevance (stricter than 50%)
+			// This prevents broad matches like "go" matching everything
+			requiredMatches := (len(keywords)*2 + 2) / 3 // ~67% threshold
+			if matchCount >= requiredMatches {
 				topicCoverage[topic]++
 			}
 		}
@@ -715,6 +722,24 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 	}
 
 	return needsResearch
+}
+
+// convertStoreAtomsToResearcherAtoms converts store.KnowledgeAtom to researcher.KnowledgeAtom
+// for use with concept-aware research methods.
+func convertStoreAtomsToResearcherAtoms(storeAtoms []store.KnowledgeAtom) []researcher.KnowledgeAtom {
+	researcherAtoms := make([]researcher.KnowledgeAtom, 0, len(storeAtoms))
+
+	for _, sa := range storeAtoms {
+		researcherAtoms = append(researcherAtoms, researcher.KnowledgeAtom{
+			Concept:    sa.Concept,
+			Content:    sa.Content,
+			Title:      sa.Concept, // Use concept as title if not available
+			Confidence: sa.Confidence,
+			SourceURL:  "", // Store atoms don't track source URL
+		})
+	}
+
+	return researcherAtoms
 }
 
 // generateBaseKnowledgeAtoms generates foundational knowledge for an agent.

@@ -329,6 +329,10 @@ type VirtualStore struct {
 	// Learning persistence - LearningStore for autopoiesis (§8.3)
 	// Enables shards to persist and retrieve learned patterns across sessions
 	learningStore *store.LearningStore
+
+	// Permission cache - O(1) lookup for constitutional permission checks
+	// Populated from kernel's permitted/1 facts when kernel is attached
+	permittedCache map[string]bool
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -472,6 +476,9 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 
 	logging.VirtualStore("Kernel attached to VirtualStore")
 
+	// Build permission cache from kernel's permitted/1 facts (O(1) lookup optimization)
+	v.rebuildPermissionCache()
+
 	// Wire dreamer to the real kernel when available
 	if realKernel, ok := k.(*RealKernel); ok {
 		if v.dreamer == nil {
@@ -488,6 +495,40 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 		v.toolRegistry.SetKernel(k)
 		logging.VirtualStoreDebug("Tool registry kernel reference updated")
 	}
+}
+
+// rebuildPermissionCache queries the kernel for all permitted/1 facts
+// and builds a O(1) lookup cache. Must be called with v.mu held.
+func (v *VirtualStore) rebuildPermissionCache() {
+	if v.kernel == nil {
+		v.permittedCache = nil
+		return
+	}
+
+	results, err := v.kernel.Query("permitted")
+	if err != nil {
+		logging.VirtualStoreDebug("Failed to query permitted facts for cache: %v", err)
+		v.permittedCache = nil
+		return
+	}
+
+	cache := make(map[string]bool, len(results))
+	for _, f := range results {
+		if len(f.Args) == 0 {
+			continue
+		}
+		action := fmt.Sprintf("%v", f.Args[0])
+		// Store both with and without leading slash for fast lookup
+		cache[action] = true
+		if strings.HasPrefix(action, "/") {
+			cache[strings.TrimPrefix(action, "/")] = true
+		} else {
+			cache["/"+action] = true
+		}
+	}
+
+	v.permittedCache = cache
+	logging.VirtualStore("Permission cache built: %d actions permitted", len(results))
 }
 
 // SetShardManager sets the shard manager for delegation.
@@ -2157,8 +2198,38 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 	return v.checkConstitution(req) == nil
 }
 
-// checkKernelPermitted consults kernel-derived permitted/1 facts.
+// checkKernelPermitted consults the permission cache (O(1) lookup).
+// The cache is populated from kernel-derived permitted/1 facts when SetKernel is called.
 func (v *VirtualStore) checkKernelPermitted(actionType string) bool {
+	v.mu.RLock()
+	cache := v.permittedCache
+	k := v.kernel
+	v.mu.RUnlock()
+
+	// No kernel attached - fail open
+	if k == nil {
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): no kernel attached, allowing", actionType)
+		return true
+	}
+
+	// No cache available - fall back to kernel query (shouldn't happen normally)
+	if cache == nil {
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): cache miss, using fallback", actionType)
+		return v.checkKernelPermittedFallback(actionType)
+	}
+
+	// O(1) cache lookup - check both with and without leading slash
+	if cache[actionType] || cache["/"+actionType] {
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (cache hit)", actionType)
+		return true
+	}
+
+	logging.VirtualStoreDebug("checkKernelPermitted(%s): DENIED (not in permitted cache)", actionType)
+	return false
+}
+
+// checkKernelPermittedFallback is the original O(n) implementation used when cache is unavailable.
+func (v *VirtualStore) checkKernelPermittedFallback(actionType string) bool {
 	v.mu.RLock()
 	k := v.kernel
 	v.mu.RUnlock()
@@ -2169,6 +2240,7 @@ func (v *VirtualStore) checkKernelPermitted(actionType string) bool {
 
 	results, err := k.Query("permitted")
 	if err != nil {
+		logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): query error, failing open: %v", actionType, err)
 		return true // fail open to avoid accidental full block
 	}
 
@@ -2181,9 +2253,11 @@ func (v *VirtualStore) checkKernelPermitted(actionType string) bool {
 		}
 		arg := fmt.Sprintf("%v", f.Args[0])
 		if arg == want || arg == alt {
+			logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): ALLOWED (found in %d facts)", actionType, len(results))
 			return true
 		}
 	}
+	logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): DENIED (checked %d facts)", actionType, len(results))
 	return false
 }
 
