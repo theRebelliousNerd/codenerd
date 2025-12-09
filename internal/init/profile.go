@@ -57,6 +57,14 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 	// Detect dependencies for agent recommendations
 	profile.Dependencies = i.detectDependencies()
 
+	// Detect build system (B4 enhancement)
+	buildSystemInfo := i.detectBuildSystemDetails()
+	profile.BuildSystem = buildSystemInfo.Name
+	profile.BuildSystemInfo = &buildSystemInfo
+
+	// Detect project type (app vs library) (D2 enhancement)
+	profile.ProjectType = i.detectProjectType()
+
 	// Set defaults for any missing values
 	if profile.Language == "" {
 		profile.Language = "unknown"

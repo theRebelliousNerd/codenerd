@@ -1247,3 +1247,41 @@ func DefaultUserConfig() *UserConfig {
 func GlobalConfig() (*UserConfig, error) {
 	return LoadUserConfig(DefaultUserConfigPath())
 }
+
+// GetContext7APIKey returns the Context7 API key with auto-detection.
+// Priority order:
+//  1. CONTEXT7_API_KEY environment variable
+//  2. UserConfig.Context7APIKey from .nerd/config.json
+//
+// Returns empty string if not configured.
+func (c *UserConfig) GetContext7APIKey() string {
+	// Priority 1: Environment variable
+	if key := os.Getenv("CONTEXT7_API_KEY"); key != "" {
+		return key
+	}
+
+	// Priority 2: Config file value
+	if c != nil && c.Context7APIKey != "" {
+		return c.Context7APIKey
+	}
+
+	return ""
+}
+
+// AutoDetectContext7APIKey is a convenience function to get the Context7 API key
+// from environment variables or the default config file.
+// This is useful for initializing with auto-detection when UserConfig may not be loaded.
+func AutoDetectContext7APIKey() string {
+	// Priority 1: Environment variable
+	if key := os.Getenv("CONTEXT7_API_KEY"); key != "" {
+		return key
+	}
+
+	// Priority 2: Load from config file
+	cfg, err := GlobalConfig()
+	if err == nil && cfg != nil && cfg.Context7APIKey != "" {
+		return cfg.Context7APIKey
+	}
+
+	return ""
+}

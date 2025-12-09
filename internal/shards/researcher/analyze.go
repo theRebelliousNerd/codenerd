@@ -431,7 +431,317 @@ func (r *ResearcherShard) detectArchitecturalPatterns(workspace string, facts []
 		patterns = append(patterns, "ci_cd_github_actions")
 	}
 
+	// Extended architecture pattern detection
+
+	// Serverless patterns
+	serverlessPatterns := r.detectServerlessPatterns(workspace, dirs)
+	patterns = append(patterns, serverlessPatterns...)
+
+	// Event-driven patterns
+	eventDrivenPatterns := r.detectEventDrivenPatterns(workspace)
+	patterns = append(patterns, eventDrivenPatterns...)
+
+	// Monorepo patterns
+	monorepoPatterns := r.detectMonorepoPatterns(workspace)
+	patterns = append(patterns, monorepoPatterns...)
+
+	// GraphQL patterns
+	if r.detectGraphQLPatterns(workspace) {
+		patterns = append(patterns, "graphql_api")
+	}
+
+	// gRPC patterns
+	if r.detectGRPCPatterns(workspace) {
+		patterns = append(patterns, "grpc_services")
+	}
+
+	// Plugin-based architecture
+	if r.detectPluginArchitecture(workspace, dirs) {
+		patterns = append(patterns, "plugin_based")
+	}
+
+	// Hexagonal/Ports-Adapters architecture
+	if dirs["ports"] || dirs["adapters"] || (dirs["domain"] && dirs["infrastructure"]) {
+		patterns = append(patterns, "hexagonal_architecture")
+	}
+
+	// CQRS pattern
+	if dirs["commands"] && dirs["queries"] {
+		patterns = append(patterns, "cqrs")
+	}
+
 	return patterns
+}
+
+// detectServerlessPatterns identifies serverless architecture patterns.
+func (r *ResearcherShard) detectServerlessPatterns(workspace string, dirs map[string]bool) []string {
+	var patterns []string
+
+	// AWS Lambda detection
+	lambdaIndicators := []string{
+		"serverless.yml", "serverless.yaml", // Serverless Framework
+		"sam.yaml", "template.yaml",          // AWS SAM
+		"cdk.json",                            // AWS CDK
+	}
+	for _, indicator := range lambdaIndicators {
+		if _, err := os.Stat(filepath.Join(workspace, indicator)); err == nil {
+			patterns = append(patterns, "serverless_aws")
+			break
+		}
+	}
+
+	// Check for Lambda handler patterns in code
+	if dirs["functions"] || dirs["lambdas"] || dirs["handlers"] {
+		if _, err := os.Stat(filepath.Join(workspace, "serverless.yml")); err == nil {
+			patterns = append(patterns, "serverless_framework")
+		}
+	}
+
+	// Google Cloud Functions
+	if _, err := os.Stat(filepath.Join(workspace, "cloudbuild.yaml")); err == nil {
+		patterns = append(patterns, "serverless_gcp")
+	}
+
+	// Azure Functions
+	if _, err := os.Stat(filepath.Join(workspace, "host.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(workspace, "function.json")); err == nil {
+			patterns = append(patterns, "serverless_azure")
+		}
+	}
+
+	// Vercel/Netlify Functions
+	if dirs["api"] {
+		if _, err := os.Stat(filepath.Join(workspace, "vercel.json")); err == nil {
+			patterns = append(patterns, "serverless_vercel")
+		}
+		if _, err := os.Stat(filepath.Join(workspace, "netlify.toml")); err == nil {
+			patterns = append(patterns, "serverless_netlify")
+		}
+	}
+
+	return patterns
+}
+
+// detectEventDrivenPatterns identifies event-driven architecture patterns.
+func (r *ResearcherShard) detectEventDrivenPatterns(workspace string) []string {
+	var patterns []string
+
+	// Check go.mod or package.json for event-driven dependencies
+	if content, err := os.ReadFile(filepath.Join(workspace, "go.mod")); err == nil {
+		contentStr := string(content)
+
+		// Kafka
+		if strings.Contains(contentStr, "segmentio/kafka-go") ||
+			strings.Contains(contentStr, "confluentinc/confluent-kafka-go") ||
+			strings.Contains(contentStr, "Shopify/sarama") {
+			patterns = append(patterns, "event_driven_kafka")
+		}
+
+		// RabbitMQ
+		if strings.Contains(contentStr, "streadway/amqp") ||
+			strings.Contains(contentStr, "rabbitmq/amqp091-go") {
+			patterns = append(patterns, "event_driven_rabbitmq")
+		}
+
+		// NATS
+		if strings.Contains(contentStr, "nats-io/nats.go") {
+			patterns = append(patterns, "event_driven_nats")
+		}
+
+		// Redis Pub/Sub or Streams
+		if strings.Contains(contentStr, "go-redis/redis") ||
+			strings.Contains(contentStr, "redis/go-redis") {
+			patterns = append(patterns, "event_driven_redis")
+		}
+	}
+
+	// Check package.json for Node.js projects
+	if content, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+		contentStr := string(content)
+
+		if strings.Contains(contentStr, `"kafkajs"`) {
+			patterns = append(patterns, "event_driven_kafka")
+		}
+		if strings.Contains(contentStr, `"amqplib"`) {
+			patterns = append(patterns, "event_driven_rabbitmq")
+		}
+		if strings.Contains(contentStr, `"nats"`) {
+			patterns = append(patterns, "event_driven_nats")
+		}
+	}
+
+	// Check for event/message directories
+	eventDirs := []string{"events", "messages", "subscribers", "publishers", "consumers", "producers"}
+	for _, dir := range eventDirs {
+		if _, err := os.Stat(filepath.Join(workspace, dir)); err == nil {
+			if len(patterns) == 0 {
+				patterns = append(patterns, "event_driven")
+			}
+			break
+		}
+	}
+
+	return patterns
+}
+
+// detectMonorepoPatterns identifies monorepo architecture patterns.
+func (r *ResearcherShard) detectMonorepoPatterns(workspace string) []string {
+	var patterns []string
+
+	// pnpm workspaces
+	if _, err := os.Stat(filepath.Join(workspace, "pnpm-workspace.yaml")); err == nil {
+		patterns = append(patterns, "monorepo_pnpm")
+	}
+
+	// Nx
+	if _, err := os.Stat(filepath.Join(workspace, "nx.json")); err == nil {
+		patterns = append(patterns, "monorepo_nx")
+	}
+
+	// Turborepo
+	if _, err := os.Stat(filepath.Join(workspace, "turbo.json")); err == nil {
+		patterns = append(patterns, "monorepo_turborepo")
+	}
+
+	// Lerna
+	if _, err := os.Stat(filepath.Join(workspace, "lerna.json")); err == nil {
+		patterns = append(patterns, "monorepo_lerna")
+	}
+
+	// Rush
+	if _, err := os.Stat(filepath.Join(workspace, "rush.json")); err == nil {
+		patterns = append(patterns, "monorepo_rush")
+	}
+
+	// Yarn workspaces (check package.json for workspaces field)
+	if content, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+		if strings.Contains(string(content), `"workspaces"`) {
+			patterns = append(patterns, "monorepo_yarn_workspaces")
+		}
+	}
+
+	// Go workspace
+	if _, err := os.Stat(filepath.Join(workspace, "go.work")); err == nil {
+		patterns = append(patterns, "monorepo_go_workspace")
+	}
+
+	// Generic packages directory
+	if _, err := os.Stat(filepath.Join(workspace, "packages")); err == nil {
+		if len(patterns) == 0 {
+			patterns = append(patterns, "monorepo")
+		}
+	}
+
+	return patterns
+}
+
+// detectGraphQLPatterns checks for GraphQL API patterns.
+func (r *ResearcherShard) detectGraphQLPatterns(workspace string) bool {
+	// Check for GraphQL schema files
+	schemaFiles := []string{
+		"schema.graphql", "schema.gql",
+		"*.graphql", "graphql/schema.graphql",
+	}
+
+	for _, pattern := range schemaFiles {
+		if matches, _ := filepath.Glob(filepath.Join(workspace, pattern)); len(matches) > 0 {
+			return true
+		}
+	}
+
+	// Check for gqlgen (Go GraphQL)
+	if _, err := os.Stat(filepath.Join(workspace, "gqlgen.yml")); err == nil {
+		return true
+	}
+
+	// Check dependencies
+	if content, err := os.ReadFile(filepath.Join(workspace, "go.mod")); err == nil {
+		if strings.Contains(string(content), "99designs/gqlgen") ||
+			strings.Contains(string(content), "graphql-go/graphql") {
+			return true
+		}
+	}
+
+	if content, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+		if strings.Contains(string(content), `"graphql"`) ||
+			strings.Contains(string(content), `"apollo-server"`) ||
+			strings.Contains(string(content), `"@graphql"`) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// detectGRPCPatterns checks for gRPC service patterns.
+func (r *ResearcherShard) detectGRPCPatterns(workspace string) bool {
+	// Check for proto files
+	if matches, _ := filepath.Glob(filepath.Join(workspace, "**/*.proto")); len(matches) > 0 {
+		return true
+	}
+
+	// Check proto directory
+	if _, err := os.Stat(filepath.Join(workspace, "proto")); err == nil {
+		return true
+	}
+
+	// Check for buf configuration (modern proto management)
+	if _, err := os.Stat(filepath.Join(workspace, "buf.yaml")); err == nil {
+		return true
+	}
+
+	// Check dependencies
+	if content, err := os.ReadFile(filepath.Join(workspace, "go.mod")); err == nil {
+		if strings.Contains(string(content), "google.golang.org/grpc") ||
+			strings.Contains(string(content), "google.golang.org/protobuf") {
+			return true
+		}
+	}
+
+	if content, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
+		if strings.Contains(string(content), `"@grpc/grpc-js"`) ||
+			strings.Contains(string(content), `"grpc"`) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// detectPluginArchitecture checks for plugin-based architecture patterns.
+func (r *ResearcherShard) detectPluginArchitecture(workspace string, dirs map[string]bool) bool {
+	// Check for plugin directories
+	pluginDirs := []string{"plugins", "extensions", "addons", "modules"}
+	for _, dir := range pluginDirs {
+		if dirs[dir] {
+			return true
+		}
+	}
+
+	// Check for Go plugin patterns
+	if content, err := os.ReadFile(filepath.Join(workspace, "go.mod")); err == nil {
+		if strings.Contains(string(content), "plugin") {
+			// Look for plugin.Open usage in main files
+			if matches, _ := filepath.Glob(filepath.Join(workspace, "cmd/**/main.go")); len(matches) > 0 {
+				for _, match := range matches {
+					if fileContent, err := os.ReadFile(match); err == nil {
+						if strings.Contains(string(fileContent), "plugin.Open") {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Check for Hashicorp go-plugin pattern
+	if content, err := os.ReadFile(filepath.Join(workspace, "go.mod")); err == nil {
+		if strings.Contains(string(content), "hashicorp/go-plugin") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // findImportantFiles locates key files in the workspace.
