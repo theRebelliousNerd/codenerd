@@ -162,6 +162,13 @@ func (t *TesterShard) SetLLMClient(client core.LLMClient) {
 	t.llmClient = client
 }
 
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (t *TesterShard) SetSessionContext(ctx *core.SessionContext) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.config.SessionContext = ctx
+}
+
 // SetParentKernel sets the Mangle kernel for logic-driven testing.
 func (t *TesterShard) SetParentKernel(k core.Kernel) {
 	t.mu.Lock()

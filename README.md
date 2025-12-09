@@ -90,10 +90,44 @@ Every interaction flows through:
 
 ### Prerequisites
 
-- **Go 1.24+** — [Download](https://go.dev/dl/)
-- **API Key** — Gemini (`ZAI_API_KEY` or `GEMINI_API_KEY`)
+- **Go 1.24+** — [Download](https://go.dev/dl/) (only for building from source)
+- **API Key** — Set `ZAI_API_KEY` environment variable
 
-### Install
+### Option 1: Pre-built Binary (Recommended)
+
+1. **Download** the latest `nerd.exe` from [Releases](https://github.com/theRebelliousNerd/codenerd/releases)
+
+2. **Drop it in your project root:**
+
+   ```text
+   your-project/
+   ├── nerd.exe       # ← Drop the binary here
+   ├── src/
+   ├── package.json
+   └── ...
+   ```
+
+3. **Set your API key:**
+
+   ```bash
+   # Windows PowerShell
+   $env:ZAI_API_KEY="your-key-here"
+
+   # Windows CMD
+   set ZAI_API_KEY=your-key-here
+
+   # Linux/macOS
+   export ZAI_API_KEY="your-key-here"
+   ```
+
+4. **Initialize and run:**
+
+   ```bash
+   ./nerd init    # Creates .nerd/ directory, scans codebase
+   ./nerd         # Launch interactive chat TUI
+   ```
+
+### Option 2: Build from Source
 
 ```bash
 # Clone the repository
@@ -103,8 +137,8 @@ cd codenerd
 # Build
 go build -o nerd.exe ./cmd/nerd
 
-# Set API key
-export ZAI_API_KEY="your-key-here"
+# Copy to your project
+cp nerd.exe /path/to/your/project/
 ```
 
 ### Initialize a Workspace
@@ -114,7 +148,7 @@ export ZAI_API_KEY="your-key-here"
 nerd init
 ```
 
-This creates `.nerd/`, scans your codebase, builds a profile, and preloads facts into the kernel.
+This creates `.nerd/`, scans your codebase, detects languages/frameworks, and preloads facts into the kernel.
 
 ### Launch
 
@@ -125,6 +159,15 @@ nerd
 # Or single-shot command
 nerd run "explain the authentication flow"
 ```
+
+### Portable Usage
+
+The `nerd.exe` binary is fully portable. You can:
+
+- Drop it in any project root and run `nerd init`
+- Add it to your PATH for global access
+- Keep multiple projects each with their own `.nerd/` directory
+- The `.nerd/` directory stores project-specific knowledge and preferences
 
 ---
 
@@ -137,9 +180,12 @@ nerd run "explain the authentication flow"
 | `nerd` | Launch interactive chat TUI |
 | `nerd run "<instruction>"` | Execute single OODA loop |
 | `nerd init` | Initialize workspace (creates `.nerd/`) |
+| `nerd init --force` | Reinitialize (preserves learned preferences) |
+| `nerd scan` | Refresh codebase index without full reinit |
 | `nerd query <predicate>` | Query derived facts from kernel |
 | `nerd why [predicate]` | Explain derivation chain |
 | `nerd status` | Show system status and loaded facts |
+| `nerd check-mangle <files>` | Validate Mangle (.mg) syntax |
 
 ### Shard Commands
 
@@ -149,14 +195,26 @@ nerd run "explain the authentication flow"
 | `nerd spawn tester "<task>"` | Invoke TesterShard for test creation |
 | `nerd spawn reviewer "<task>"` | Invoke ReviewerShard for code review |
 | `nerd spawn researcher "<topic>"` | Invoke ResearcherShard for deep research |
+| `nerd define-agent --name X --topic Y` | Define a new specialist agent |
+
+### Campaign Commands
+
+| Command | Description |
+|---------|-------------|
+| `nerd campaign start "<goal>"` | Start a multi-phase campaign |
+| `nerd campaign start --docs ./specs/` | Start from spec documents |
+| `nerd campaign status` | Show current campaign progress |
+| `nerd campaign pause` | Pause the current campaign |
+| `nerd campaign resume` | Resume a paused campaign |
+| `nerd campaign list` | List all campaigns |
 
 ### Browser Commands
 
 | Command | Description |
 |---------|-------------|
-| `nerd browser launch` | Launch headless Chrome session |
-| `nerd browser session` | Show active browser sessions |
-| `nerd browser snapshot` | Capture DOM snapshot |
+| `nerd browser launch` | Launch headless Chrome instance |
+| `nerd browser session <url>` | Create browser session for a URL |
+| `nerd browser snapshot <id>` | Capture DOM as Mangle facts |
 
 ### Chat Mode Commands
 
@@ -169,7 +227,9 @@ Type `/help` in chat mode for full command list:
 | `/whatif <action>` | Project effects without executing |
 | `/approve` | Approve pending changes |
 | `/agents` | Show active ShardAgents |
-| `/config set-key <key>` | Set API key |
+| `/config` | Configuration menu |
+| `/clear` | Clear chat history |
+| `/quit` | Exit TUI |
 
 ---
 

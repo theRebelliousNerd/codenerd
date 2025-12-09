@@ -194,6 +194,13 @@ func (r *ReviewerShard) SetLLMClient(client core.LLMClient) {
 	r.llmClient = client
 }
 
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (r *ReviewerShard) SetSessionContext(ctx *core.SessionContext) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.config.SessionContext = ctx
+}
+
 // SetParentKernel sets the Mangle kernel for logic-driven review.
 func (r *ReviewerShard) SetParentKernel(k core.Kernel) {
 	r.mu.Lock()

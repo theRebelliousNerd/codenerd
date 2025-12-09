@@ -326,6 +326,13 @@ func (b *BaseSystemShard) SetParentKernel(k core.Kernel) {
 	}
 }
 
+// SetSessionContext sets the session context (for dream mode, etc.).
+func (b *BaseSystemShard) SetSessionContext(ctx *core.SessionContext) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.Config.SessionContext = ctx
+}
+
 // SetVirtualStore sets the virtual store.
 func (b *BaseSystemShard) SetVirtualStore(vs *core.VirtualStore) {
 	b.mu.Lock()
