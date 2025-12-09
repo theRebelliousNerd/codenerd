@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -154,7 +156,217 @@ Prefer precise, non-duplicative, actionable findings.`, sessionContext)
 				})
 			}
 		} else {
-			fmt.Printf("[ReviewerShard] Failed to parse JSON findings: %v\nJSON: %s\n", err, jsonStr)
+			logging.ReviewerDebug("Failed to parse JSON findings: %v, JSON: %s", err, jsonStr)
+		}
+	}
+
+	return findings, response, nil
+}
+
+// llmAnalysisWithHolographic uses LLM for semantic analysis with FULL holographic package context.
+// This is the enhanced version that prevents false positives from package-scope blindness.
+func (r *ReviewerShard) llmAnalysisWithHolographic(ctx context.Context, filePath, content string, depCtx *DependencyContext, archCtx *ArchitectureAnalysis, holoCtx *HolographicContext) ([]ReviewFinding, string, error) {
+	findings := make([]ReviewFinding, 0)
+
+	// Truncate very long files for LLM
+	if len(content) > 10000 {
+		content = content[:10000] + "\n... (truncated)"
+	}
+
+	// Build comprehensive context from all sources
+	var contextBuilder strings.Builder
+
+	// 1. HOLOGRAPHIC PACKAGE CONTEXT (NEW - prevents package-scope blindness)
+	if holoCtx != nil {
+		contextBuilder.WriteString("\n\n## Package Context (CRITICAL FOR ACCURATE REVIEW)\n")
+		contextBuilder.WriteString("The following symbols are defined in OTHER files in the SAME PACKAGE.\n")
+		contextBuilder.WriteString("These are accessible without import - do NOT flag them as undefined.\n\n")
+
+		if holoCtx.TargetPkg != "" {
+			contextBuilder.WriteString(fmt.Sprintf("Package: `%s`\n", holoCtx.TargetPkg))
+		}
+
+		// Sibling files
+		if len(holoCtx.PackageSiblings) > 0 {
+			contextBuilder.WriteString(fmt.Sprintf("Sibling files: %d\n", len(holoCtx.PackageSiblings)))
+		}
+
+		// Functions available in package scope
+		if len(holoCtx.PackageSignatures) > 0 {
+			contextBuilder.WriteString("\n### Functions Defined Elsewhere in Package\n```go\n")
+			for _, sig := range holoCtx.PackageSignatures {
+				if sig.Receiver != "" {
+					contextBuilder.WriteString(fmt.Sprintf("func (%s) %s%s %s  // %s:%d\n",
+						sig.Receiver, sig.Name, sig.Params, sig.Returns, sig.File, sig.Line))
+				} else {
+					contextBuilder.WriteString(fmt.Sprintf("func %s%s %s  // %s:%d\n",
+						sig.Name, sig.Params, sig.Returns, sig.File, sig.Line))
+				}
+			}
+			contextBuilder.WriteString("```\n")
+		}
+
+		// Types available in package scope
+		if len(holoCtx.PackageTypes) > 0 {
+			contextBuilder.WriteString("\n### Types Defined Elsewhere in Package\n```go\n")
+			for _, t := range holoCtx.PackageTypes {
+				switch t.Kind {
+				case "struct":
+					contextBuilder.WriteString(fmt.Sprintf("type %s struct { ... }  // %s:%d\n", t.Name, t.File, t.Line))
+				case "interface":
+					contextBuilder.WriteString(fmt.Sprintf("type %s interface { ... }  // %s:%d\n", t.Name, t.File, t.Line))
+				default:
+					contextBuilder.WriteString(fmt.Sprintf("type %s = ...  // %s:%d\n", t.Name, t.File, t.Line))
+				}
+			}
+			contextBuilder.WriteString("```\n")
+		}
+
+		// Architectural context from holographic analysis
+		contextBuilder.WriteString("\n### Architectural Position\n")
+		if holoCtx.Layer != "" {
+			contextBuilder.WriteString(fmt.Sprintf("- Layer: %s\n", holoCtx.Layer))
+		}
+		if holoCtx.Module != "" {
+			contextBuilder.WriteString(fmt.Sprintf("- Module: %s\n", holoCtx.Module))
+		}
+		if holoCtx.Role != "" {
+			contextBuilder.WriteString(fmt.Sprintf("- Role: %s\n", holoCtx.Role))
+		}
+		if holoCtx.SystemPurpose != "" {
+			contextBuilder.WriteString(fmt.Sprintf("- System Purpose: %s\n", holoCtx.SystemPurpose))
+		}
+		if holoCtx.HasTests {
+			contextBuilder.WriteString("- Has test coverage: yes\n")
+		}
+	}
+
+	// 2. Dependency Context (imports/importers)
+	if depCtx != nil && len(depCtx.Contents) > 0 {
+		contextBuilder.WriteString("\n\n## Import/Export Dependencies\n")
+		if len(depCtx.Upstream) > 0 {
+			contextBuilder.WriteString(fmt.Sprintf("Imports from: %s\n", strings.Join(depCtx.Upstream, ", ")))
+		}
+		if len(depCtx.Downstream) > 0 {
+			contextBuilder.WriteString(fmt.Sprintf("Imported by: %s\n", strings.Join(depCtx.Downstream, ", ")))
+		}
+	}
+
+	// 3. Legacy Architecture Context (if holographic not available)
+	if holoCtx == nil && archCtx != nil {
+		contextBuilder.WriteString("\n\n## Architecture Context\n")
+		contextBuilder.WriteString(fmt.Sprintf("- Module: %s\n", archCtx.Module))
+		contextBuilder.WriteString(fmt.Sprintf("- Layer: %s\n", archCtx.Layer))
+		contextBuilder.WriteString(fmt.Sprintf("- Role: %s\n", archCtx.Role))
+		if len(archCtx.Related) > 0 {
+			contextBuilder.WriteString(fmt.Sprintf("- Related: %s\n", strings.Join(archCtx.Related, ", ")))
+		}
+	}
+
+	// Build session context from Blackboard
+	sessionContext := r.buildSessionContextPrompt()
+	fullContext := contextBuilder.String()
+
+	// Enhanced system prompt with package awareness instructions
+	systemPrompt := fmt.Sprintf(`You are a principal engineer performing a holistic code review with FULL PACKAGE CONTEXT.
+
+CRITICAL INSTRUCTION: You have been provided with a list of functions, types, and constants defined in OTHER files of the SAME Go package. These symbols are accessible without import. DO NOT report them as "undefined", "missing", or "not found". This is how Go packages work - all exported AND unexported symbols within a package are visible to all files in that package.
+
+Analyze the code for:
+1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
+2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
+3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
+4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
+5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
+6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
+7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
+8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
+9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
+10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
+11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
+12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
+
+BEFORE FLAGGING A SYMBOL AS UNDEFINED:
+- Check the "Package Context" section above for functions/types defined in sibling files
+- Remember that Go packages share all symbols across files
+- Only flag as undefined if the symbol is NOT in the package context AND NOT imported
+
+%s
+
+Format your response as a Markdown report with the following structure:
+
+# Review Report
+
+## Agent Summary
+(A concise 1-2 sentence summary for an AI agent to read)
+
+## Holographic Analysis
+(Assess the architectural impact based on the provided context. Consider the file's role in its module and system.)
+
+## Campaign Status
+(Assess alignment with the campaign goal, if active)
+
+## Findings
+Return a JSON array of findings in a code block:
+`+"`"+`json
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
+`+"`"+`
+
+Prefer precise, non-duplicative, actionable findings. Verify symbols exist in package context before flagging as undefined.`, sessionContext)
+
+	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
+		r.detectLanguage(filePath), filePath, content, fullContext)
+
+	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	if err != nil {
+		return findings, "", fmt.Errorf("LLM analysis failed after retries: %w", err)
+	}
+
+	// Parse JSON response (same logic as llmAnalysisWithDeps)
+	var llmFindings []struct {
+		Line       int    `json:"line"`
+		Severity   string `json:"severity"`
+		Category   string `json:"category"`
+		Message    string `json:"message"`
+		Suggestion string `json:"suggestion"`
+	}
+
+	var jsonStr string
+	if strings.Contains(response, "```json") {
+		parts := strings.Split(response, "```json")
+		if len(parts) > 1 {
+			jsonStr = strings.Split(parts[1], "```")[0]
+		}
+	} else if strings.Contains(response, "```") {
+		parts := strings.Split(response, "```")
+		if len(parts) > 1 {
+			jsonStr = parts[1]
+		}
+	} else {
+		start := strings.Index(response, "[")
+		end := strings.LastIndex(response, "]")
+		if start != -1 && end > start {
+			jsonStr = response[start : end+1]
+		}
+	}
+
+	jsonStr = strings.TrimSpace(jsonStr)
+
+	if jsonStr != "" {
+		if err := json.Unmarshal([]byte(jsonStr), &llmFindings); err == nil {
+			for _, f := range llmFindings {
+				findings = append(findings, ReviewFinding{
+					File:       filePath,
+					Line:       f.Line,
+					Severity:   f.Severity,
+					Category:   f.Category,
+					RuleID:     "LLM002", // Different rule ID for holographic-aware analysis
+					Message:    f.Message,
+					Suggestion: f.Suggestion,
+				})
+			}
+		} else {
+			logging.ReviewerDebug("Failed to parse JSON findings: %v, JSON: %s", err, jsonStr)
 		}
 	}
 
@@ -329,7 +541,7 @@ func (r *ReviewerShard) llmCompleteWithRetry(ctx context.Context, systemPrompt, 
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			fmt.Printf("[ReviewerShard:%s] LLM retry attempt %d/%d\n", r.id, attempt+1, maxRetries)
+			logging.ReviewerDebug("LLM retry attempt %d/%d", attempt+1, maxRetries)
 
 			delay := baseDelay * time.Duration(1<<uint(attempt))
 			select {

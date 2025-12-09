@@ -155,6 +155,53 @@ type ReviewerShard struct {
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
+
+	// Holographic context provider for package-aware analysis
+	holographicProvider HolographicProvider
+}
+
+// HolographicProvider interface for package-level context.
+// Implemented by world.HolographicProvider.
+type HolographicProvider interface {
+	GetContext(filePath string) (*HolographicContext, error)
+}
+
+// HolographicContext represents rich package-level context.
+// Mirrors world.HolographicContext for decoupling.
+type HolographicContext struct {
+	TargetFile        string
+	TargetPkg         string
+	PackageSiblings   []string
+	PackageSignatures []SymbolSignature
+	PackageTypes      []TypeDefinition
+	Layer             string
+	Module            string
+	Role              string
+	SystemPurpose     string
+	HasTests          bool
+}
+
+// SymbolSignature represents a function signature from sibling files.
+type SymbolSignature struct {
+	Name       string
+	Receiver   string
+	Params     string
+	Returns    string
+	File       string
+	Line       int
+	Exported   bool
+	DocComment string
+}
+
+// TypeDefinition represents a type from sibling files.
+type TypeDefinition struct {
+	Name     string
+	Kind     string
+	Fields   []string
+	Methods  []string
+	File     string
+	Line     int
+	Exported bool
 }
 
 // NewReviewerShard creates a new Reviewer shard with default configuration.
@@ -229,6 +276,13 @@ func (r *ReviewerShard) SetLearningStore(ls core.LearningStore) {
 	r.loadLearnedPatterns()
 }
 
+// SetHolographicProvider sets the holographic context provider for package-aware analysis.
+func (r *ReviewerShard) SetHolographicProvider(hp HolographicProvider) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.holographicProvider = hp
+}
+
 // =============================================================================
 // SHARD INTERFACE IMPLEMENTATION
 // =============================================================================
@@ -273,7 +327,7 @@ func (r *ReviewerShard) Stop() error {
 
 // describeDreamPlan returns a description of what the reviewer would do WITHOUT executing.
 func (r *ReviewerShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
-	fmt.Printf("[ReviewerShard] DREAM MODE - describing plan without execution\n")
+	logging.ReviewerDebug("DREAM MODE - describing plan without execution")
 
 	if r.llmClient == nil {
 		return "ReviewerShard would analyze code for issues, but no LLM client available for dream description.", nil
@@ -523,20 +577,30 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 		depCtx, _ := r.getOneHopDependencies(ctx, filePath)
 		if depCtx != nil && (len(depCtx.Upstream) > 0 || len(depCtx.Downstream) > 0) {
 			depContexts[filePath] = depCtx
-			fmt.Printf("[ReviewerShard:%s] Found %d upstream, %d downstream deps for %s\n",
-				r.id, len(depCtx.Upstream), len(depCtx.Downstream), filePath)
+			logging.ReviewerDebug("Found %d upstream, %d downstream deps for %s",
+				len(depCtx.Upstream), len(depCtx.Downstream), filePath)
 		}
 
 		// Perform Holographic Architecture Analysis
 		archCtx := r.analyzeArchitecture(ctx, filePath)
 		archContexts[filePath] = archCtx
 
+		// NEW: Get holographic package context (sibling files, signatures, etc.)
+		var holoCtx *HolographicContext
+		if r.holographicProvider != nil {
+			holoCtx, _ = r.holographicProvider.GetContext(filePath)
+			if holoCtx != nil {
+				logging.ReviewerDebug("Holographic context: pkg=%s, %d siblings, %d signatures, %d types",
+					holoCtx.TargetPkg, len(holoCtx.PackageSiblings), len(holoCtx.PackageSignatures), len(holoCtx.PackageTypes))
+			}
+		}
+
 		// Store for specialist detection
 		fileContents[filePath] = content
 		reviewedFiles = append(reviewedFiles, filePath)
 
-		// Run all checks (now with dependency AND architectural context)
-		findings, report := r.analyzeFileWithDeps(ctx, filePath, content, depCtx, archCtx)
+		// Run all checks (now with dependency, architectural, AND holographic context)
+		findings, report := r.analyzeFileWithHolographic(ctx, filePath, content, depCtx, archCtx, holoCtx)
 		result.Findings = append(result.Findings, findings...)
 		if report != "" {
 			if result.AnalysisReport != "" {
@@ -590,11 +654,11 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 	if err == nil {
 		// Log suppressed count
 		if len(activeFindings) < len(result.Findings) {
-			fmt.Printf("[ReviewerShard:%s] Suppressed %d findings via Mangle rules\n", r.id, len(result.Findings)-len(activeFindings))
+			logging.ReviewerDebug("Suppressed %d findings via Mangle rules", len(result.Findings)-len(activeFindings))
 		}
 		result.Findings = activeFindings
 	} else {
-		fmt.Printf("[ReviewerShard:%s] Failed to filter with Mangle, using raw findings: %v\n", r.id, err)
+		logging.Get(logging.CategoryReviewer).Warn("Failed to filter with Mangle, using raw findings: %v", err)
 	}
 
 	// 3. Persist findings to database
@@ -879,7 +943,47 @@ func (r *ReviewerShard) analyzeFileWithDeps(ctx context.Context, filePath, conte
 			findings = append(findings, llmFindings...)
 		} else {
 			// Log LLM failure but continue with regex-based checks
-			fmt.Printf("[ReviewerShard:%s] LLM analysis failed for %s, continuing with regex checks: %v\n", r.id, filePath, err)
+			logging.Get(logging.CategoryReviewer).Warn("LLM analysis failed for %s, continuing with regex checks: %v", filePath, err)
+		}
+	}
+
+	// Check against learned anti-patterns
+	findings = append(findings, r.checkLearnedPatterns(filePath, content)...)
+
+	return findings, report
+}
+
+// analyzeFileWithHolographic runs all analysis checks with full holographic context.
+// This is the enhanced version that includes package sibling awareness.
+func (r *ReviewerShard) analyzeFileWithHolographic(ctx context.Context, filePath, content string, depCtx *DependencyContext, archCtx *ArchitectureAnalysis, holoCtx *HolographicContext) ([]ReviewFinding, string) {
+	findings := make([]ReviewFinding, 0)
+	var report string
+
+	// Code DOM safety checks (check kernel facts first)
+	findings = append(findings, r.checkCodeDOMSafety(filePath)...)
+
+	// Security checks
+	findings = append(findings, r.checkSecurity(filePath, content)...)
+
+	// Style checks
+	findings = append(findings, r.checkStyle(filePath, content)...)
+
+	// Bug pattern checks
+	findings = append(findings, r.checkBugPatterns(filePath, content)...)
+
+	// Custom rules checks (user-defined patterns)
+	findings = append(findings, r.checkCustomRules(filePath, content)...)
+
+	// LLM-powered semantic analysis with FULL holographic context
+	if r.llmClient != nil {
+		var err error
+		var llmFindings []ReviewFinding
+		llmFindings, report, err = r.llmAnalysisWithHolographic(ctx, filePath, content, depCtx, archCtx, holoCtx)
+		if err == nil {
+			findings = append(findings, llmFindings...)
+		} else {
+			// Log LLM failure but continue with regex-based checks
+			logging.Get(logging.CategoryReviewer).Warn("LLM analysis failed for %s, continuing with regex checks: %v", filePath, err)
 		}
 	}
 

@@ -13,6 +13,7 @@ package system
 import (
 	"codenerd/internal/browser"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
@@ -302,6 +303,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		route, found := r.findRoute(actionType)
 
 		if !found {
+			logging.Routing("No route found for action: %s (target=%s)", actionType, target)
 			if r.config.AllowUnmappedActions {
 				// Record as unhandled for autopoiesis
 				r.Autopoiesis.RecordUnhandled(
@@ -318,10 +320,12 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			})
 			continue
 		}
+		logging.Routing("Route found: action=%s -> tool=%s (timeout=%v)", actionType, route.ToolName, route.Timeout)
 
 		// Check rate limit
 		if limiter, exists := r.rateLimiters[route.ToolName]; exists {
 			if !limiter.allow() {
+				logging.Routing("Rate limit exceeded for tool: %s (action=%s)", route.ToolName, actionType)
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_error",
 					Args:      []interface{}{actionType, "rate_limit_exceeded", time.Now().Unix()},
@@ -349,6 +353,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		if r.VirtualStore != nil {
 			call.Status = "executing"
 			call.StartedAt = time.Now()
+			logging.Tools("Executing tool: %s (action=%s, target=%s, call_id=%s)", route.ToolName, actionType, target, call.ID)
 
 			// Create action fact for VirtualStore
 			actionFact := core.Fact{
@@ -359,9 +364,11 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
 
 			call.CompletedAt = time.Now()
+			duration := call.CompletedAt.Sub(call.StartedAt)
 			if err != nil {
 				call.Status = "failed"
 				call.Error = err.Error()
+				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, "failure", err.Error()},
@@ -369,6 +376,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			} else {
 				call.Status = "completed"
 				call.Result = result
+				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, "success", result},

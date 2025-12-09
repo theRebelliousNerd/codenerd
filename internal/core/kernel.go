@@ -380,6 +380,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 // Assert adds a single fact dynamically and re-evaluates derived facts.
 func (k *RealKernel) Assert(fact Fact) error {
 	logging.KernelDebug("Assert: %s", fact.String())
+	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -718,8 +719,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		logging.KernelDebug("Query: predicate '%s' not found in declarations", predicate)
 	}
 
-	timer.Stop()
+	elapsed := timer.Stop()
 	logging.KernelDebug("Query: predicate=%s returned %d results", predicate, len(results))
+	logging.Audit().KernelQuery(predicate, len(results), elapsed.Milliseconds())
 	return results, nil
 }
 

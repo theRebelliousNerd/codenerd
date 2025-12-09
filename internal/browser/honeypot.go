@@ -4,9 +4,9 @@ package browser
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
 	"github.com/go-rod/rod"
@@ -327,7 +327,7 @@ func (d *HoneypotDetector) GetSafeLinks(page *rod.Page) ([]Link, error) {
 
 		if isHoneypot {
 			link.HoneypotReasons = reasons
-			log.Printf("Detected honeypot link: %s (reasons: %v)", *href, reasons)
+			logging.BrowserDebug("Detected honeypot link: %s (reasons: %v)", *href, reasons)
 		} else {
 			links = append(links, link)
 		}

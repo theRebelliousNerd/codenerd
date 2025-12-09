@@ -877,7 +877,10 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// Route to appropriate handler
 	logging.VirtualStoreDebug("Dispatching action %s to handler", req.Type)
+	logging.Audit().ActionRoute(string(req.Type), req.Target)
+	actionStart := time.Now()
 	result, err := v.executeAction(ctx, req)
+	actionDuration := time.Since(actionStart)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Action execution failed: %s - %v", req.Type, err)
 		v.injectFact(Fact{
@@ -898,7 +901,14 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output},
 	})
 
-	logging.VirtualStore("Action %s completed: success=%v, output_len=%d", req.Type, result.Success, len(result.Output))
+	if result.Success {
+		logging.VirtualStore("Action %s completed: success=%v, output_len=%d", req.Type, result.Success, len(result.Output))
+	} else {
+		logging.VirtualStore("Action %s completed: success=%v, error=%s", req.Type, result.Success, result.Error)
+	}
+	
+	// Audit: Action completed
+	logging.Audit().ActionComplete(string(req.Type), req.Target, actionDuration.Milliseconds(), result.Success, result.Error)
 	return result.Output, nil
 }
 

@@ -2221,3 +2221,39 @@ Decl query_traces(ShardType, Limit, TraceID, Success, DurationMs).
 # Retrieves aggregate stats for a shard type
 Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration).
 
+# -----------------------------------------------------------------------------
+# 41.12 Reviewer Feedback Loop Predicates (Self-Correction)
+# -----------------------------------------------------------------------------
+
+# review_finding(ReviewID, File, Line, Severity, Category, Message)
+# A finding from a specific review session
+Decl review_finding(ReviewID, File, Line, Severity, Category, Message).
+
+# user_rejected_finding(ReviewID, File, Line, Reason, Timestamp)
+# User explicitly rejected a finding as incorrect
+Decl user_rejected_finding(ReviewID, File, Line, Reason, Timestamp).
+
+# user_accepted_finding(ReviewID, File, Line, Timestamp)
+# User explicitly accepted a finding (applied the suggestion)
+Decl user_accepted_finding(ReviewID, File, Line, Timestamp).
+
+# review_accuracy(ReviewID, TotalFindings, Accepted, Rejected, Score)
+# Computed accuracy score for a review session
+Decl review_accuracy(ReviewID, TotalFindings, Accepted, Rejected, Score).
+
+# false_positive_pattern(Pattern, Category, Occurrences, Confidence)
+# Learned patterns that cause false positives
+Decl false_positive_pattern(Pattern, Category, Occurrences, Confidence).
+
+# review_suspect(ReviewID, Reason)
+# Derived: Review flagged as potentially inaccurate
+Decl review_suspect(ReviewID, Reason).
+
+# reviewer_needs_validation(ReviewID)
+# Derived: This review should be spot-checked by main agent
+Decl reviewer_needs_validation(ReviewID).
+
+# symbol_verified_exists(Symbol, File, VerifiedAt)
+# Symbol was verified to exist (counters false "undefined" claims)
+Decl symbol_verified_exists(Symbol, File, VerifiedAt).
+

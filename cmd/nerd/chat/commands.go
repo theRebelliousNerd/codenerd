@@ -136,6 +136,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /shadow | Run shadow mode simulation |
 | /whatif <change> | Counterfactual query |
 | /approve | Approve pending changes |
+| /reject-finding <file>:<line> <reason> | Mark finding as false positive |
+| /accept-finding <file>:<line> | Confirm finding is valid |
+| /review-accuracy | Show review accuracy report |
 | /campaign start <goal> | Start multi-phase campaign |
 | /campaign status | Show campaign status |
 | /campaign pause | Pause current campaign |
@@ -1200,6 +1203,118 @@ Press **Enter** to begin...`,
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: "Approval noted. Proceeding with pending changes.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/reject-finding":
+		// Reviewer feedback: mark a finding as false positive
+		// Usage: /reject-finding <file>:<line> <reason>
+		if len(parts) < 3 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/reject-finding <file>:<line> <reason>`\nExample: `/reject-finding internal/core/kernel.go:42 function exists in sibling file`",
+				Time:    time.Now(),
+			})
+		} else {
+			location := parts[1]
+			reason := strings.Join(parts[2:], " ")
+
+			// Parse file:line
+			colonIdx := strings.LastIndex(location, ":")
+			if colonIdx == -1 {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Invalid format. Use `<file>:<line>` (e.g., `kernel.go:42`)",
+					Time:    time.Now(),
+				})
+			} else {
+				file := location[:colonIdx]
+				lineStr := location[colonIdx+1:]
+				var line int
+				fmt.Sscanf(lineStr, "%d", &line)
+
+				// Use lastShardResult to get review ID (generate from turn number)
+				reviewID := "unknown"
+				if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
+					reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+				}
+
+				// Record the rejection
+				m.shardMgr.RejectReviewFinding(reviewID, file, line, reason)
+
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Rejected finding at `%s:%d`\nReason: %s\n\nThe system will learn from this feedback to avoid similar false positives.", file, line, reason),
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/accept-finding":
+		// Reviewer feedback: confirm a finding is valid
+		// Usage: /accept-finding <file>:<line>
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/accept-finding <file>:<line>`\nExample: `/accept-finding internal/core/kernel.go:42`",
+				Time:    time.Now(),
+			})
+		} else {
+			location := parts[1]
+
+			// Parse file:line
+			colonIdx := strings.LastIndex(location, ":")
+			if colonIdx == -1 {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Invalid format. Use `<file>:<line>` (e.g., `kernel.go:42`)",
+					Time:    time.Now(),
+				})
+			} else {
+				file := location[:colonIdx]
+				lineStr := location[colonIdx+1:]
+				var line int
+				fmt.Sscanf(lineStr, "%d", &line)
+
+				// Use lastShardResult to get review ID (generate from turn number)
+				reviewID := "unknown"
+				if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
+					reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+				}
+
+				// Record the acceptance
+				m.shardMgr.AcceptReviewFinding(reviewID, file, line)
+
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Accepted finding at `%s:%d`\n\nThis helps validate the reviewer's accuracy.", file, line),
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/review-accuracy":
+		// Show accuracy report for the last review
+		reviewID := "unknown"
+		if m.lastShardResult != nil && m.lastShardResult.ShardType == "reviewer" {
+			reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
+		}
+		report := m.shardMgr.GetReviewAccuracyReport(reviewID)
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("## Review Accuracy Report\n\n%s", report),
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
