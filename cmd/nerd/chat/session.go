@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -659,13 +660,17 @@ func hydrateAllTools(virtualStore *core.VirtualStore, nerdDir string) error {
 // Implements dual persistence: JSON files + SQLite for redundancy and queryability.
 func (m *Model) saveSessionState() {
 	if m.workspace == "" || m.sessionID == "" {
+		log.Printf("[SESSION] saveSessionState: early return - workspace=%q, sessionID=%q", m.workspace, m.sessionID)
 		return
 	}
 
 	// Only save if initialized
 	if !nerdinit.IsInitialized(m.workspace) {
+		log.Printf("[SESSION] saveSessionState: workspace not initialized")
 		return
 	}
+
+	log.Printf("[SESSION] saveSessionState: saving session %s with %d messages, turnCount=%d", m.sessionID, len(m.history), m.turnCount)
 
 	// Update session state
 	state := &nerdinit.SessionState{
@@ -682,7 +687,9 @@ func (m *Model) saveSessionState() {
 	}
 
 	// Save session state (JSON)
-	_ = nerdinit.SaveSessionState(m.workspace, state)
+	if err := nerdinit.SaveSessionState(m.workspace, state); err != nil {
+		log.Printf("[SESSION] ERROR saving session state: %v", err)
+	}
 
 	// Convert and save conversation history (JSON)
 	messages := make([]nerdinit.ChatMessage, len(m.history))
@@ -693,7 +700,11 @@ func (m *Model) saveSessionState() {
 			Time:    msg.Time,
 		}
 	}
-	_ = nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages)
+	if err := nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
+		log.Printf("[SESSION] ERROR saving session history: %v", err)
+	} else {
+		log.Printf("[SESSION] Successfully saved %d messages to %s.json", len(messages), m.sessionID)
+	}
 
 	// ==========================================================================
 	// DUAL PERSISTENCE: Sync to SQLite (knowledge.db session_history table)
