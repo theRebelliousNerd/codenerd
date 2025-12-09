@@ -742,6 +742,64 @@ func (m *Model) syncSessionToSQLite() {
 	}
 }
 
+// loadSelectedSession loads a session from the sessions list and switches to it.
+// Saves the current session first, then loads the selected session's history.
+func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
+	// Save current session before switching
+	m.saveSessionState()
+
+	// Load the selected session's history
+	history, err := nerdinit.LoadSessionHistory(m.workspace, sessionID)
+	if err != nil {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Failed to load session: %v", err),
+			Time:    time.Now(),
+		})
+		m.viewMode = ChatView
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	// Switch to the selected session
+	m.sessionID = sessionID
+	m.history = make([]Message, len(history.Messages))
+	for i, msg := range history.Messages {
+		m.history[i] = Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+			Time:    msg.Time,
+		}
+	}
+	m.turnCount = len(m.history) / 2 // Approximate turn count from history
+
+	// Update session.json to point to this session
+	state := &nerdinit.SessionState{
+		SessionID:    sessionID,
+		StartedAt:    history.CreatedAt,
+		LastActiveAt: time.Now(),
+		TurnCount:    m.turnCount,
+		HistoryFile:  sessionID + ".json",
+	}
+	_ = nerdinit.SaveSessionState(m.workspace, state)
+
+	// Add a system message indicating session switch
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("*Loaded session: `%s` (%d messages)*", sessionID, len(history.Messages)),
+		Time:    time.Now(),
+	})
+
+	// Switch back to chat view
+	m.viewMode = ChatView
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+
+	return m, nil
+}
+
 // MigrateOldSessionsToSQLite migrates all existing JSON session files to SQLite.
 // This enables querying historical sessions via virtual predicates.
 // Safe to call multiple times - uses INSERT OR IGNORE for idempotency.

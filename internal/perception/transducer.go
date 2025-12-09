@@ -272,13 +272,14 @@ func refineCategory(input string, defaultCategory string) string {
 
 // Intent represents the parsed user intent (Cortex 1.5.0 §3.1).
 type Intent struct {
-	Category   string   // /query, /mutation, /instruction
-	Verb       string   // /explain, /refactor, /debug, /generate, /init, /research, etc.
-	Target     string   // Primary target of the action
-	Constraint string   // Constraints on the action
-	Confidence float64  // Confidence score for the intent
-	Ambiguity  []string // Ambiguous parts that need clarification
-	Response   string   // Natural language response (Piggyback Protocol)
+	Category         string            // /query, /mutation, /instruction
+	Verb             string            // /explain, /refactor, /debug, /generate, /init, /research, /remember, etc.
+	Target           string            // Primary target of the action
+	Constraint       string            // Constraints on the action
+	Confidence       float64           // Confidence score for the intent
+	Ambiguity        []string          // Ambiguous parts that need clarification
+	Response         string            // Natural language response (Piggyback Protocol)
+	MemoryOperations []MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
 }
 
 // ConversationTurn represents a single turn in conversation history.
@@ -415,17 +416,57 @@ Instead of guessing verbs, match the user's request to the closest CANONICAL EXA
 |-------------------------------------|-----------------------------|
 | "Review this file for bugs." | {verb: "/review", target: "context_file", category: "/query"} |
 | "Check my code for security issues." | {verb: "/security", target: "codebase", category: "/query"} |
+| "Analyze this codebase structure." | {verb: "/analyze", target: "codebase", category: "/query"} |
 | "Fix the compilation error." | {verb: "/fix", constraint: "compiler_error", category: "/mutation"} |
 | "Refactor this function to be cleaner." | {verb: "/refactor", target: "focused_symbol", category: "/mutation"} |
 | "What does this function do?" | {verb: "/explain", target: "focused_symbol", category: "/query"} |
+| "Why is this test failing?" | {verb: "/debug", target: "test", category: "/query"} |
 | "Run the tests." | {verb: "/test", target: "context_file", category: "/mutation"} |
 | "Generate unit tests for this." | {verb: "/test", target: "context_file", category: "/mutation"} |
+| "Build the project." | {verb: "/build", target: "project", category: "/mutation"} |
+| "Run the application." | {verb: "/run", target: "application", category: "/mutation"} |
 | "Deploy to production." | {verb: "/deploy", target: "production", category: "/mutation"} |
 | "Research how to use X." | {verb: "/research", target: "X", category: "/query"} |
 | "Create a new file called main.go." | {verb: "/create", target: "main.go", category: "/mutation"} |
+| "Write this to config.json." | {verb: "/write", target: "config.json", category: "/mutation"} |
+| "Read the contents of main.go." | {verb: "/read", target: "main.go", category: "/query"} |
 | "Delete the database." | {verb: "/delete", target: "database", category: "/mutation"} |
+| "Rename getUserById to fetchUser." | {verb: "/rename", target: "getUserById", category: "/mutation"} |
+| "Move this function to utils.go." | {verb: "/move", target: "function", category: "/mutation"} |
+| "Search for all TODO comments." | {verb: "/search", target: "TODO", category: "/query"} |
+| "Find where this function is called." | {verb: "/search", target: "function_usages", category: "/query"} |
+| "Explore the project structure." | {verb: "/explore", target: "project", category: "/query"} |
+| "Format this file." | {verb: "/format", target: "context_file", category: "/mutation"} |
+| "Lint the codebase." | {verb: "/lint", target: "codebase", category: "/query"} |
+| "Install the dependencies." | {verb: "/install", target: "dependencies", category: "/mutation"} |
+| "Update all packages." | {verb: "/update", target: "packages", category: "/mutation"} |
+| "Commit these changes." | {verb: "/commit", target: "changes", category: "/mutation"} |
+| "Show me the diff." | {verb: "/diff", target: "changes", category: "/query"} |
+| "What's the git status?" | {verb: "/git", target: "status", category: "/query"} |
+| "Push to origin." | {verb: "/git", target: "push", category: "/mutation"} |
+| "Scaffold a new REST endpoint." | {verb: "/scaffold", target: "REST endpoint", category: "/mutation"} |
+| "Generate boilerplate for a service." | {verb: "/scaffold", target: "service", category: "/mutation"} |
+| "Document this function." | {verb: "/document", target: "function", category: "/mutation"} |
+| "Add JSDoc comments to this file." | {verb: "/document", target: "file", category: "/mutation"} |
 | "Start a campaign to rewrite auth." | {verb: "/campaign", target: "rewrite auth", category: "/mutation"} |
+| "Plan how to implement feature X." | {verb: "/plan", target: "feature X", category: "/query"} |
+| "Summarize what this module does." | {verb: "/summarize", target: "module", category: "/query"} |
+| "How many files are in the codebase?" | {verb: "/stats", target: "codebase", category: "/query"} |
+| "What can you do?" | {verb: "/help", target: "capabilities", category: "/query"} |
+| "Hello!" | {verb: "/greet", target: "none", category: "/query"} |
+| "What do you remember about X?" | {verb: "/knowledge", target: "X", category: "/query"} |
+| "What if I told you to recompile the binaries?" | {verb: "/dream", target: "recompile binaries", category: "/query"} |
+| "Imagine you had to migrate the database." | {verb: "/dream", target: "migrate database", category: "/query"} |
+| "Walk me through how you'd implement auth." | {verb: "/dream", target: "implement auth", category: "/query"} |
+| "Think about what tools you'd need to deploy this." | {verb: "/dream", target: "deploy", category: "/query"} |
+| "Hypothetically, how would you refactor this?" | {verb: "/dream", target: "refactor", category: "/query"} |
 | "Configure the agent to be verbose." | {verb: "/configure", target: "verbosity", category: "/instruction"} |
+| "Remember that X." | {verb: "/remember", target: "X", category: "/instruction"} + memory_operations |
+| "Always do Y when Z." | {verb: "/remember", target: "preference", category: "/instruction"} + memory_operations |
+| "Learn this: my agents are Coder, Tester, Reviewer, Researcher." | {verb: "/remember", target: "fact", category: "/instruction"} + memory_operations |
+| "Stop what you're doing." | {verb: "/stop", target: "current_task", category: "/instruction"} |
+| "Cancel that." | {verb: "/stop", target: "last_action", category: "/instruction"} |
+| "Undo the last change." | {verb: "/undo", target: "last_change", category: "/instruction"} |
 
 ### Mangle Inference Rules
 1. If the user's request matches a Canonical Example, use that example's Action.
@@ -442,7 +483,7 @@ Required JSON Schema (CONTROL FIRST, SURFACE SECOND):
   "control_packet": {
     "intent_classification": {
       "category": "/query|/mutation|/instruction",
-      "verb": "one of the verbs above (e.g., /review, /security, /analyze, /explain, /fix, /refactor, /create, /delete, /debug, /test, /research, /init, /run, /configure, /commit, /diff, /document, /campaign, /explore, /search, /read, /write)",
+      "verb": "/review|/security|/analyze|/fix|/refactor|/explain|/debug|/test|/build|/run|/deploy|/research|/create|/write|/read|/delete|/rename|/move|/search|/explore|/format|/lint|/install|/update|/commit|/diff|/git|/scaffold|/document|/campaign|/plan|/summarize|/stats|/help|/greet|/knowledge|/dream|/configure|/remember|/stop|/undo",
       "target": "primary target string - extract file paths, function names, or 'codebase' for broad requests, or 'none'",
       "constraint": "any constraints (e.g., 'security only', 'go files', 'without tests') or 'none'",
       "confidence": 0.0-1.0
@@ -463,14 +504,74 @@ Required JSON Schema (CONTROL FIRST, SURFACE SECOND):
 }
 
 CLASSIFICATION GUIDELINES:
-1. For "review this file" → verb: /review, target: the file path
-2. For "can you check my code for security issues" → verb: /security, target: codebase
-3. For "what does this function do" → verb: /explain
-4. For "fix the bug in auth.go" → verb: /fix, target: auth.go
-5. For "refactor this to be cleaner" → verb: /refactor
-6. For "is this code secure" → verb: /security
-7. For "review the codebase" → verb: /review, target: codebase
-8. For "check for vulnerabilities" → verb: /security
+
+QUERIES (category: /query):
+- "review", "check", "look at" → /review
+- "secure?", "vulnerabilities", "security audit" → /security
+- "analyze", "examine", "inspect" → /analyze
+- "what does", "explain", "how does", "why" → /explain
+- "debug", "troubleshoot", "why failing", "root cause" → /debug
+- "find", "search", "grep", "where is" → /search
+- "explore", "show structure", "what's in" → /explore
+- "read", "show", "cat", "display contents" → /read
+- "diff", "changes", "what changed" → /diff
+- "lint", "style check", "code quality" → /lint
+- "plan", "how should I", "design" → /plan
+- "summarize", "tldr", "overview" → /summarize
+- "stats", "count", "how many", "metrics" → /stats
+- "help", "what can you", "capabilities" → /help
+- "hello", "hi", "hey" → /greet
+- "what do you remember", "your memory" → /knowledge
+- "what if", "imagine", "hypothetically", "walk me through", "think about how", "dream" → /dream (simulation/learning mode)
+- "research", "learn about", "documentation" → /research
+
+MUTATIONS (category: /mutation):
+- "fix", "repair", "patch", "resolve" → /fix
+- "refactor", "clean up", "improve" → /refactor
+- "create", "new", "add", "implement" → /create
+- "write", "save", "output to" → /write
+- "delete", "remove", "drop" → /delete
+- "rename", "change name" → /rename
+- "move", "relocate", "transfer" → /move
+- "test", "run tests", "unit test" → /test
+- "build", "compile", "make" → /build
+- "run", "execute", "start" → /run
+- "deploy", "ship", "release" → /deploy
+- "format", "prettify", "indent" → /format
+- "install", "add package", "npm install" → /install
+- "update", "upgrade", "bump version" → /update
+- "commit", "save changes", "check in" → /commit
+- "git push", "git pull", "git checkout" → /git
+- "scaffold", "boilerplate", "generate skeleton" → /scaffold
+- "document", "add comments", "jsdoc" → /document
+- "campaign", "epic", "multi-step project" → /campaign
+
+INSTRUCTIONS (category: /instruction):
+- "configure", "set", "change setting" → /configure
+- "remember", "learn", "note that", "always", "never", "from now on" → /remember + memory_operations
+- "stop", "cancel", "abort", "halt" → /stop
+- "undo", "revert", "rollback" → /undo
+
+DREAM STATE (/dream verb):
+When the user asks "what if", "imagine", "hypothetically", or "walk me through":
+- This is a SIMULATION/LEARNING mode - DO NOT execute anything
+- Think through the hypothetical task step-by-step
+- In your surface_response, provide:
+  1. **Task Analysis**: What is being asked?
+  2. **Shards I'd Consult**: Which agents (Coder/Tester/Reviewer/Researcher) would help?
+  3. **Steps I'd Take**: Numbered action plan
+  4. **Tools Required**: Existing tools I'd use
+  5. **Tools I'd Need to Create**: Missing tools (Autopoiesis candidates)
+  6. **Risks/Concerns**: What could go wrong?
+  7. **Questions for You**: Clarifications I'd need
+- End with: "This is a dry run. Correct me if my approach is wrong - I'll learn from your feedback."
+- If the user provides corrections, treat them as /remember instructions
+
+MEMORY OPERATIONS:
+When the user asks you to "remember", "learn", "always", "never", or "from now on":
+- Set verb: /remember, category: /instruction
+- Add a memory_operations entry: { "op": "promote_to_long_term", "key": "<topic>", "value": "<what to remember>" }
+- Respond with confirmation like "Got it, I'll remember that." or "Understood, I've noted that preference."
 
 Your control_packet must reflect the true state of the world.
 If the user asks for something impossible, your Surface Self says 'I can't do that,' while your Inner Self emits ambiguity_flag(/impossible_request).`
@@ -522,12 +623,13 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 
 	// Map Envelope to Intent
 	return Intent{
-		Category:   envelope.Control.IntentClassification.Category,
-		Verb:       envelope.Control.IntentClassification.Verb,
-		Target:     envelope.Control.IntentClassification.Target,
-		Constraint: envelope.Control.IntentClassification.Constraint,
-		Confidence: envelope.Control.IntentClassification.Confidence,
-		Response:   envelope.Surface,
+		Category:         envelope.Control.IntentClassification.Category,
+		Verb:             envelope.Control.IntentClassification.Verb,
+		Target:           envelope.Control.IntentClassification.Target,
+		Constraint:       envelope.Control.IntentClassification.Constraint,
+		Confidence:       envelope.Control.IntentClassification.Confidence,
+		Response:         envelope.Surface,
+		MemoryOperations: envelope.Control.MemoryOperations,
 		// Ambiguity is not explicitly in the new schema's intent_classification,
 		// but could be inferred or added if needed. For now, leaving empty.
 		Ambiguity: []string{},

@@ -540,9 +540,14 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)what.*remember", "(?i)what.*know", "(?i)your.*memory", "(?i)learned.*from"},
 	},
 	{
-		Verb: "/shadow", Category: "/query", ShardType: "/none", Priority: 80,
-		Synonyms: []string{"shadow", "what if", "simulate", "hypothetical", "dry run", "preview"},
-		Patterns: []string{"(?i)what.*if", "(?i)simulate", "(?i)dry.*run", "(?i)preview.*change", "(?i)would.*happen"},
+		Verb: "/dream", Category: "/query", ShardType: "/none", Priority: 85,
+		Synonyms: []string{"dream", "what if", "imagine", "hypothetically", "walk me through", "think about", "how would you"},
+		Patterns: []string{"(?i)what.*if.*told", "(?i)imagine.*had.*to", "(?i)walk.*through", "(?i)think.*about.*how", "(?i)hypothetically", "(?i)how.*would.*you"},
+	},
+	{
+		Verb: "/shadow", Category: "/query", ShardType: "/none", Priority: 75,
+		Synonyms: []string{"shadow", "simulate", "dry run", "preview"},
+		Patterns: []string{"(?i)simulate", "(?i)dry.*run", "(?i)preview.*change", "(?i)would.*happen"},
 	},
 	{
 		Verb: "/git", Category: "/mutation", ShardType: "/none", Priority: 75,

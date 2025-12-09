@@ -145,6 +145,7 @@ type Model struct {
 	awaitingPatch         bool
 	pendingPatchLines     []string
 	lastClarifyInput      string // Track last input for clarification dedup
+	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up
 
 	// Session State
 	sessionID string
@@ -481,6 +482,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// List View Handling
 		if m.viewMode == ListView {
+			// Check for Enter to select session
+			if msg.Type == tea.KeyEnter {
+				if selected, ok := m.list.SelectedItem().(sessionItem); ok {
+					return m.loadSelectedSession(selected.id)
+				}
+			}
 			var cmd tea.Cmd
 			m.list, cmd = m.list.Update(msg)
 			return m, cmd
@@ -552,6 +559,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 
+			// Logic pane: Enter toggles expand/collapse
+			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
+				m.logicPane.ToggleExpand()
+				return m, nil
+			}
+
 			// Enter sends the message if not loading
 			if !m.isLoading {
 				if m.awaitingClarification {
@@ -561,6 +574,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyUp:
+			// Logic pane navigation when focused
+			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
+				m.logicPane.SelectPrev()
+				return m, nil
+			}
+
 			// Navigate options when in clarification mode
 			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 				if m.selectedOption > 0 {
@@ -581,6 +600,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyDown:
+			// Logic pane navigation when focused
+			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
+				m.logicPane.SelectNext()
+				return m, nil
+			}
+
 			// Navigate options when in clarification mode
 			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 				if m.selectedOption < len(m.clarificationState.Options)-1 {
@@ -1980,18 +2005,37 @@ func (m Model) fetchTrace(query string) tea.Cmd {
 			return nil
 		}
 
-		// If query is empty, try to get the most recent derived context
-		targetQuery := query
-		if targetQuery == "" {
-			targetQuery = "context_atom(?params)"
+		// Build list of queries to try
+		var queries []string
+		if query != "" {
+			queries = []string{query}
+		} else {
+			// Fallback cascade - try predicates in order of usefulness
+			queries = []string{
+				"user_intent(?a, ?b, ?c, ?d, ?e)",
+				"next_action(?a)",
+				"file_topology(?a, ?b, ?c, ?d)",
+				"context_atom(?a)",
+				"activation(?a, ?b)",
+			}
 		}
 
+		// Try each query until one returns results
+		for _, q := range queries {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			trace, err := m.kernel.TraceQuery(ctx, q)
+			cancel()
+
+			if err == nil && trace != nil && len(trace.RootNodes) > 0 {
+				return traceUpdateMsg{Trace: trace}
+			}
+		}
+
+		// If nothing found, return trace for first query (shows "0 facts")
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-
-		trace, err := m.kernel.TraceQuery(ctx, targetQuery)
+		trace, err := m.kernel.TraceQuery(ctx, queries[0])
 		if err != nil {
-			// Fail silently or log?
 			return nil
 		}
 
