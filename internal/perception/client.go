@@ -49,7 +49,7 @@ func DefaultZAIConfig(apiKey string) ZAIConfig {
 		APIKey:       apiKey,
 		BaseURL:      "https://api.z.ai/api/coding/paas/v4", // Coding-optimized endpoint
 		Model:        "glm-4.6",
-		Timeout:      120 * time.Second,
+		Timeout:      300 * time.Second,
 		SystemPrompt: defaultSystemPrompt,
 	}
 }
@@ -631,7 +631,7 @@ func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.anthropic.com/v1",
 		Model:   "claude-sonnet-4-5-20250514",
-		Timeout: 120 * time.Second,
+		Timeout: 300 * time.Second,
 	}
 }
 
@@ -808,7 +808,7 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
 		Model:   "gpt-5.1-codex-max", // Best Codex model for coding agents
-		Timeout: 120 * time.Second,
+		Timeout: 300 * time.Second,
 	}
 }
 
@@ -1007,7 +1007,7 @@ func DefaultGeminiConfig(apiKey string) GeminiConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
 		Model:   "gemini-3-pro-preview",
-		Timeout: 120 * time.Second,
+		Timeout: 300 * time.Second,
 	}
 }
 
@@ -1224,7 +1224,7 @@ func DefaultXAIConfig(apiKey string) XAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.x.ai/v1",
 		Model:   "grok-2-latest",
-		Timeout: 120 * time.Second,
+		Timeout: 300 * time.Second,
 	}
 }
 
@@ -1422,7 +1422,7 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 		APIKey:   apiKey,
 		BaseURL:  "https://openrouter.ai/api/v1",
 		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
-		Timeout:  120 * time.Second,
+		Timeout:  300 * time.Second,
 		SiteName: "codeNERD",
 	}
 }

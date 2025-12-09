@@ -124,3 +124,53 @@ func TestShardManagerGetResultCleansUp(t *testing.T) {
 		t.Fatalf("expected result to be cleaned up after retrieval")
 	}
 }
+
+// TestPermissionCacheOptimization verifies O(1) permission lookups via the cache.
+func TestPermissionCacheOptimization(t *testing.T) {
+	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+
+	// Set up a kernel with multiple permitted actions
+	k := &stubKernel{
+		permitted: []Fact{
+			{Predicate: "permitted", Args: []interface{}{"/read_file"}},
+			{Predicate: "permitted", Args: []interface{}{"/write_file"}},
+			{Predicate: "permitted", Args: []interface{}{"/review"}},
+			{Predicate: "permitted", Args: []interface{}{"/run_tests"}},
+		},
+	}
+	vs.SetKernel(k)
+
+	// Test that the cache was populated
+	vs.mu.RLock()
+	cache := vs.permittedCache
+	vs.mu.RUnlock()
+
+	if cache == nil {
+		t.Fatalf("Expected permission cache to be populated")
+	}
+
+	// Test O(1) lookups - both with and without leading slash
+	testCases := []struct {
+		action   string
+		expected bool
+	}{
+		{"/read_file", true},
+		{"read_file", true},
+		{"/write_file", true},
+		{"write_file", true},
+		{"/review", true},
+		{"review", true},
+		{"/exec_cmd", false},
+		{"exec_cmd", false},
+		{"/delete_all", false},
+	}
+
+	for _, tc := range testCases {
+		result := vs.checkKernelPermitted(tc.action)
+		if result != tc.expected {
+			t.Errorf("checkKernelPermitted(%q) = %v, expected %v", tc.action, result, tc.expected)
+		}
+	}
+
+	t.Logf("Permission cache size: %d entries", len(cache))
+}

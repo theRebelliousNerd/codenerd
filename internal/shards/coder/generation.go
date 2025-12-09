@@ -842,6 +842,21 @@ func (c *CoderShard) buildSessionContextPrompt() string {
 	}
 
 	// ==========================================================================
+	// KERNEL-DERIVED CONTEXT (Spreading Activation)
+	// ==========================================================================
+	// Query the Mangle kernel for injectable context atoms derived from
+	// spreading activation rules (injectable_context, specialist_knowledge).
+	if c.kernel != nil {
+		kernelContext, err := articulation.GetKernelContext(c.kernel, c.id)
+		if err != nil {
+			logging.CoderDebug("Failed to get kernel context: %v", err)
+		} else if kernelContext != "" {
+			sb.WriteString("\n")
+			sb.WriteString(kernelContext)
+		}
+	}
+
+	// ==========================================================================
 	// COMPRESSED SESSION HISTORY (Long-range context)
 	// ==========================================================================
 	if ctx.CompressedHistory != "" && len(ctx.CompressedHistory) < 2000 {

@@ -225,3 +225,60 @@ func TestFactToAtom(t *testing.T) {
 		})
 	}
 }
+
+// TestKernelPermissionDerivation verifies that the embedded policy.mg
+// correctly derives permitted/1 facts from safe_action/1 facts.
+// This is critical for the VirtualStore constitutional permission checks.
+func TestKernelPermissionDerivation(t *testing.T) {
+	kernel := NewRealKernel()
+
+	// Query the derived permitted predicate
+	permittedFacts, err := kernel.Query("permitted")
+	if err != nil {
+		t.Fatalf("Query('permitted') error = %v", err)
+	}
+
+	// Build a set of permitted actions for easy lookup
+	permittedActions := make(map[string]bool)
+	for _, fact := range permittedFacts {
+		if len(fact.Args) > 0 {
+			if arg, ok := fact.Args[0].(string); ok {
+				permittedActions[arg] = true
+			}
+		}
+	}
+
+	// Verify core safe actions are derived as permitted
+	// These match the safe_action facts in policy.mg
+	expectedPermitted := []string{
+		"/read_file",
+		"/fs_read",
+		"/write_file",
+		"/fs_write",
+		"/search_files",
+		"/review",
+		"/run_tests",
+		"/vector_search",
+	}
+
+	for _, action := range expectedPermitted {
+		if !permittedActions[action] {
+			t.Errorf("Expected %s to be permitted (derived from safe_action), but it was not found in permitted facts", action)
+		}
+	}
+
+	// Also verify that dangerous actions are NOT in the permitted set (without approval)
+	// These should only be permitted with admin_override + signed_approval
+	dangerousActions := []string{
+		"/delete_system_files",
+		"/format_disk",
+	}
+
+	for _, action := range dangerousActions {
+		if permittedActions[action] {
+			t.Errorf("Expected %s to NOT be permitted without approval, but it was found in permitted facts", action)
+		}
+	}
+
+	t.Logf("Found %d permitted actions from derived facts", len(permittedActions))
+}

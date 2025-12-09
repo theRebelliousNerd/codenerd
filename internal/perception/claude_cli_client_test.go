@@ -19,7 +19,7 @@ func TestNewClaudeCodeCLIClient(t *testing.T) {
 			name:        "nil config uses defaults",
 			cfg:         nil,
 			wantModel:   "sonnet",
-			wantTimeout: 300 * time.Second,
+			wantTimeout: 600 * time.Second,
 		},
 		{
 			name: "custom model",
@@ -46,7 +46,7 @@ func TestNewClaudeCodeCLIClient(t *testing.T) {
 				Timeout: 0,
 			},
 			wantModel:   "haiku",
-			wantTimeout: 300 * time.Second,
+			wantTimeout: 600 * time.Second,
 		},
 	}
 

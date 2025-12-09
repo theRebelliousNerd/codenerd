@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
 )
 
@@ -515,6 +516,21 @@ func (r *ReviewerShard) buildSessionContextPrompt() string {
 		}
 		for _, warning := range ctx.SafetyWarnings {
 			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", warning))
+		}
+	}
+
+	// ==========================================================================
+	// KERNEL-DERIVED CONTEXT (Spreading Activation)
+	// ==========================================================================
+	// Query the Mangle kernel for injectable context atoms derived from
+	// spreading activation rules (injectable_context, specialist_knowledge).
+	if r.kernel != nil {
+		kernelContext, err := articulation.GetKernelContext(r.kernel, r.id)
+		if err != nil {
+			logging.ReviewerDebug("Failed to get kernel context: %v", err)
+		} else if kernelContext != "" {
+			sb.WriteString("\n")
+			sb.WriteString(kernelContext)
 		}
 	}
 

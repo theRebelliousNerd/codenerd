@@ -153,8 +153,8 @@ func TestDefaultGeneralistConfig(t *testing.T) {
 	if config.Type != ShardTypeEphemeral {
 		t.Errorf("Type = %v, want %v", config.Type, ShardTypeEphemeral)
 	}
-	if config.Timeout != 5*time.Minute {
-		t.Errorf("Timeout = %v, want 5m", config.Timeout)
+	if config.Timeout != 15*time.Minute {
+		t.Errorf("Timeout = %v, want 15m", config.Timeout)
 	}
 }
 

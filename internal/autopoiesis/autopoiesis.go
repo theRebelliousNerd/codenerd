@@ -126,8 +126,8 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		ToolsDir:        config.ToolsDir,
 		CompiledDir:     filepath.Join(config.ToolsDir, ".compiled"),
 		MaxToolSize:     100 * 1024, // 100KB
-		CompileTimeout:  30 * time.Second,
-		ExecuteTimeout:  60 * time.Second,
+		CompileTimeout:  300 * time.Second,
+		ExecuteTimeout:  300 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true,
 		AllowExec:       true,

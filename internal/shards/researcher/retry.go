@@ -210,6 +210,128 @@ func (r *ResearcherShard) ResearchWithGracefulDegradation(ctx context.Context, t
 	return result, nil
 }
 
+// ResearchWithExistingKnowledgeAndGracefulDegradation combines concept-aware research
+// with graceful degradation. It first analyzes existing knowledge to skip redundant
+// queries, then applies graceful degradation strategies for topics that need research.
+func (r *ResearcherShard) ResearchWithExistingKnowledgeAndGracefulDegradation(
+	ctx context.Context,
+	topics []string,
+	existingAtoms []KnowledgeAtom,
+) (*GracefulResearchResult, error) {
+
+	result := &GracefulResearchResult{
+		OriginalTopics:  topics,
+		EffectiveTopics: topics,
+		FallbackUsed:    FallbackNone,
+	}
+
+	// First, analyze coverage to filter topics
+	existing := NewExistingKnowledge(existingAtoms)
+	topicsNeedingResearch, skippedTopics, _ := FilterTopicsWithCoverage(topics, existing)
+
+	logging.Researcher("[ConceptAware+Graceful] %d topics need research, %d skipped (sufficient coverage)",
+		len(topicsNeedingResearch), len(skippedTopics))
+
+	// If no topics need research, return empty result (success!)
+	if len(topicsNeedingResearch) == 0 {
+		result.Atoms = make([]KnowledgeAtom, 0)
+		result.AttemptsMade = 0
+		result.FallbackUsed = FallbackNone
+		result.FallbackReason = fmt.Sprintf("all %d topics have sufficient coverage", len(topics))
+		logging.Researcher("[ConceptAware+Graceful] All topics already covered - no API calls needed")
+		return result, nil
+	}
+
+	// Update effective topics to only the ones needing research
+	result.EffectiveTopics = topicsNeedingResearch
+
+	// Now use graceful degradation for the topics that actually need research
+	retryConfig := DefaultRetryConfig()
+
+	// Strategy 1: Full research with retries (concept-aware already filtered)
+	atoms, err := WithRetry(ctx, retryConfig, "concept-aware research", func(ctx context.Context) ([]KnowledgeAtom, error) {
+		res, err := r.ResearchTopicsParallel(ctx, topicsNeedingResearch)
+		if err != nil {
+			return nil, err
+		}
+		if len(res.Atoms) == 0 {
+			return nil, fmt.Errorf("no atoms returned")
+		}
+		return res.Atoms, nil
+	})
+
+	if err == nil && len(atoms) > 0 {
+		result.Atoms = atoms
+		result.AttemptsMade = 1
+		return result, nil
+	}
+
+	logging.Researcher("Concept-aware research failed, trying with fewer topics...")
+
+	// Strategy 2: Fewer topics (top 3 most important)
+	if len(topicsNeedingResearch) > 3 {
+		reducedTopics := topicsNeedingResearch[:3]
+		result.EffectiveTopics = reducedTopics
+		result.FallbackUsed = FallbackFewerTopics
+		result.FallbackReason = fmt.Sprintf("reduced from %d to %d topics", len(topicsNeedingResearch), len(reducedTopics))
+
+		atoms, err = WithRetry(ctx, retryConfig, "reduced topics", func(ctx context.Context) ([]KnowledgeAtom, error) {
+			res, err := r.ResearchTopicsParallel(ctx, reducedTopics)
+			if err != nil {
+				return nil, err
+			}
+			if len(res.Atoms) == 0 {
+				return nil, fmt.Errorf("no atoms returned")
+			}
+			return res.Atoms, nil
+		})
+
+		if err == nil && len(atoms) > 0 {
+			result.Atoms = atoms
+			result.AttemptsMade = 2
+			return result, nil
+		}
+	}
+
+	logging.Researcher("Reduced topics failed, trying simpler names...")
+
+	// Strategy 3: Simpler topic names (remove qualifiers)
+	simplifiedTopics := simplifyTopicNames(topicsNeedingResearch)
+	if len(simplifiedTopics) > 0 {
+		result.EffectiveTopics = simplifiedTopics
+		result.FallbackUsed = FallbackSimplerNames
+		result.FallbackReason = "simplified topic names"
+
+		atoms, err = WithRetry(ctx, retryConfig, "simplified topics", func(ctx context.Context) ([]KnowledgeAtom, error) {
+			res, err := r.ResearchTopicsParallel(ctx, simplifiedTopics)
+			if err != nil {
+				return nil, err
+			}
+			if len(res.Atoms) == 0 {
+				return nil, fmt.Errorf("no atoms returned")
+			}
+			return res.Atoms, nil
+		})
+
+		if err == nil && len(atoms) > 0 {
+			result.Atoms = atoms
+			result.AttemptsMade = 3
+			return result, nil
+		}
+	}
+
+	logging.Researcher("Simplified topics failed, generating minimal fallback knowledge...")
+
+	// Strategy 4: Generate minimal fallback knowledge (never return empty)
+	fallbackAtoms := generateMinimalFallbackKnowledge(topicsNeedingResearch)
+	result.Atoms = fallbackAtoms
+	result.FallbackUsed = FallbackMinimalKnowledge
+	result.FallbackReason = "generated minimal fallback knowledge"
+	result.AttemptsMade = 4
+
+	return result, nil
+}
+
 // simplifyTopicNames removes qualifiers and version numbers from topic names.
 func simplifyTopicNames(topics []string) []string {
 	simplified := make([]string, 0, len(topics))

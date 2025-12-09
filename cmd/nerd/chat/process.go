@@ -36,7 +36,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("system not ready: LLM client not initialized"))
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}

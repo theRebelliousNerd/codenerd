@@ -1228,7 +1228,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 	})
 
 	// Poll for tool_ready or tool_registered fact (with timeout)
-	timeout := time.After(5 * time.Minute)
+	timeout := time.After(30 * time.Minute)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 

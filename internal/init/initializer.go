@@ -94,7 +94,7 @@ func DefaultInitConfig(workspace string) InitConfig {
 	return InitConfig{
 		Workspace:    workspace,
 		Interactive:  true,
-		Timeout:      5 * time.Minute,
+		Timeout:      30 * time.Minute,
 		SkipResearch: false,
 	}
 }
@@ -910,6 +910,32 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("💡 Recommendations:")
 	i.printRecommendations(result, profile)
+
+	// Run post-init validation
+	fmt.Println("\n" + strings.Repeat("─", 60))
+	fmt.Println("🔍 Validating knowledge bases...")
+	validationSummary, err := ValidateAllAgentDBs(result.NerdDir)
+	if err != nil {
+		fmt.Printf("   ⚠ Validation failed: %v\n", err)
+	} else {
+		if validationSummary.OverallValid {
+			fmt.Printf("   ✓ All %d knowledge bases validated successfully\n", validationSummary.TotalDBs)
+		} else {
+			fmt.Printf("   ⚠ %d/%d knowledge bases have issues\n", validationSummary.InvalidDBs, validationSummary.TotalDBs)
+			for name, res := range validationSummary.Results {
+				if !res.Valid {
+					fmt.Printf("     - %s: %v\n", name, res.Errors)
+				}
+			}
+		}
+
+		// Report backup files
+		if len(validationSummary.BackupFiles) > 0 {
+			fmt.Printf("\n   📦 Found %d backup files from migration\n", len(validationSummary.BackupFiles))
+			fmt.Println("      After verifying your data, clean them up with:")
+			fmt.Println("      nerd init --cleanup-backups")
+		}
+	}
 
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("🚀 Next steps:")

@@ -132,8 +132,8 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		ToolsDir:        filepath.Join(workspaceRoot, ".nerd", "tools"),
 		CompiledDir:     filepath.Join(workspaceRoot, ".nerd", "tools", ".compiled"),
 		MaxToolSize:     100 * 1024, // 100KB max
-		CompileTimeout:  30 * time.Second,
-		ExecuteTimeout:  60 * time.Second,
+		CompileTimeout:  300 * time.Second,
+		ExecuteTimeout:  300 * time.Second,
 		AllowNetworking: false,
 		AllowFileSystem: true, // Read-only by default
 		AllowExec:       true,

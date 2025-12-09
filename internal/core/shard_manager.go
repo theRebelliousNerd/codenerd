@@ -184,7 +184,7 @@ func DefaultGeneralistConfig(name string) ShardConfig {
 	return ShardConfig{
 		Name:    name,
 		Type:    ShardTypeEphemeral,
-		Timeout: 5 * time.Minute,
+		Timeout: 15 * time.Minute,
 		Permissions: []ShardPermission{
 			PermissionReadFile,
 			PermissionWriteFile,

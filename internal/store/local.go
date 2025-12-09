@@ -104,6 +104,12 @@ func NewLocalStore(path string) (*LocalStore, error) {
 	store.traceStore = traceStore
 	logging.StoreDebug("TraceStore initialized for self-learning")
 
+	// Backfill content_hash for any existing atoms missing it
+	if err := store.ensureContentHashes(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Content hash backfill had issues: %v", err)
+		// Don't fail - this is a non-critical maintenance operation
+	}
+
 	logging.Store("LocalStore initialization complete (RAM, Vector, Graph, Cold tiers ready)")
 	return store, nil
 }
@@ -1558,10 +1564,13 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 	// Create index if not exists
 	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_atoms_concept ON knowledge_atoms(concept)`)
 
-	// Insert the knowledge atom
+	// Compute content hash for deduplication
+	contentHash := ComputeContentHash(concept, content)
+
+	// Insert the knowledge atom with content_hash
 	_, err = s.db.Exec(
-		`INSERT INTO knowledge_atoms (concept, content, confidence) VALUES (?, ?, ?)`,
-		concept, content, confidence,
+		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash) VALUES (?, ?, ?, ?)`,
+		concept, content, confidence, contentHash,
 	)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store knowledge atom %s: %v", concept, err)
@@ -1569,6 +1578,85 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 	}
 
 	logging.StoreDebug("Knowledge atom stored: concept=%s", concept)
+	return nil
+}
+
+// ensureContentHashes backfills content_hash for any existing atoms that are missing it.
+// This is called automatically on DB open to handle atoms created before the content_hash column was added.
+func (s *LocalStore) ensureContentHashes() error {
+	timer := logging.StartTimer(logging.CategoryStore, "ensureContentHashes")
+	defer timer.Stop()
+
+	// Check if knowledge_atoms table exists
+	var tableExists int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='knowledge_atoms'").Scan(&tableExists); err != nil || tableExists == 0 {
+		logging.StoreDebug("knowledge_atoms table does not exist, skipping backfill")
+		return nil
+	}
+
+	// Check if content_hash column exists
+	rows, err := s.db.Query("PRAGMA table_info(knowledge_atoms)")
+	if err != nil {
+		return fmt.Errorf("failed to get table info: %w", err)
+	}
+	hasContentHash := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			continue
+		}
+		if name == "content_hash" {
+			hasContentHash = true
+			break
+		}
+	}
+	rows.Close()
+
+	if !hasContentHash {
+		logging.StoreDebug("content_hash column does not exist, skipping backfill")
+		return nil
+	}
+
+	// Count atoms missing content_hash
+	var missingCount int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM knowledge_atoms WHERE content_hash IS NULL OR content_hash = ''").Scan(&missingCount); err != nil {
+		return fmt.Errorf("failed to count missing hashes: %w", err)
+	}
+
+	if missingCount == 0 {
+		logging.StoreDebug("All atoms have content_hash, no backfill needed")
+		return nil
+	}
+
+	logging.Store("Backfilling content_hash for %d atoms", missingCount)
+
+	// Fetch and update atoms missing content_hash
+	atomRows, err := s.db.Query("SELECT id, concept, content FROM knowledge_atoms WHERE content_hash IS NULL OR content_hash = ''")
+	if err != nil {
+		return fmt.Errorf("failed to query atoms for backfill: %w", err)
+	}
+	defer atomRows.Close()
+
+	updated := 0
+	for atomRows.Next() {
+		var id int64
+		var concept, content string
+		if err := atomRows.Scan(&id, &concept, &content); err != nil {
+			continue
+		}
+
+		hash := ComputeContentHash(concept, content)
+		if _, err := s.db.Exec("UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?", hash, id); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", id, err)
+			continue
+		}
+		updated++
+	}
+
+	logging.Store("Backfilled content_hash for %d/%d atoms", updated, missingCount)
 	return nil
 }
 
@@ -1721,10 +1809,13 @@ func (ks *KnowledgeStore) StoreAtom(atom KnowledgeAtom) error {
 		tagsJSON = []byte("[]")
 	}
 
+	// Compute content hash for deduplication
+	contentHash := ComputeContentHash(atom.Concept, atom.Content)
+
 	_, err = ks.db.Exec(`
-		INSERT INTO knowledge_atoms (concept, content, source, confidence, tags, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		atom.Concept, atom.Content, atom.Source, atom.Confidence, string(tagsJSON), atom.CreatedAt.Format(time.RFC3339))
+		INSERT INTO knowledge_atoms (concept, content, source, confidence, tags, created_at, content_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		atom.Concept, atom.Content, atom.Source, atom.Confidence, string(tagsJSON), atom.CreatedAt.Format(time.RFC3339), contentHash)
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to store atom %s: %v", atom.Concept, err)
 		return err

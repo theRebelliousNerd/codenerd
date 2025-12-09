@@ -31,7 +31,7 @@ func DefaultToolGeneratorConfig() ToolGeneratorConfig {
 	return ToolGeneratorConfig{
 		ToolsDir:       ".nerd/tools",
 		MaxRetries:     3,
-		CompileTimeout: 30 * time.Second,
+		CompileTimeout: 300 * time.Second,
 		SafetyMode:     true,
 	}
 }
