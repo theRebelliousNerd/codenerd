@@ -111,6 +111,23 @@ type ResearcherShard struct {
 	sourceFailures    map[string]int     // Track which sources fail or produce poor results
 	failedQueries     map[string]int     // Track queries that fail to produce results
 	learningStore     core.LearningStore // Optional persistence for learnings
+
+	// E1: Real-time progress callback for atom count reporting
+	progressCallback ProgressCallback
+	currentAtomCount int // Track atoms collected during research
+}
+
+// ProgressCallback is called to report real-time research progress.
+type ProgressCallback func(update ProgressUpdate)
+
+// ProgressUpdate contains real-time progress information during research.
+type ProgressUpdate struct {
+	AtomCount     int     // Current total atoms collected
+	CurrentTopic  string  // Topic currently being researched
+	TopicsTotal   int     // Total topics to research
+	TopicsDone    int     // Topics completed
+	QualityScore  float64 // Current quality score (0-100)
+	Message       string  // Human-readable status message
 }
 
 // NewResearcherShard creates a new researcher shard with default config.
@@ -246,6 +263,205 @@ func (r *ResearcherShard) GetToolkit() *ResearchToolkit {
 	return r.toolkit
 }
 
+// SetProgressCallback sets a callback function for real-time progress reporting.
+// E1 enhancement: Enables live atom count display during research.
+func (r *ResearcherShard) SetProgressCallback(callback ProgressCallback) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.progressCallback = callback
+}
+
+// reportProgress sends a progress update if a callback is configured.
+func (r *ResearcherShard) reportProgress(update ProgressUpdate) {
+	r.mu.RLock()
+	callback := r.progressCallback
+	r.mu.RUnlock()
+
+	if callback != nil {
+		callback(update)
+	}
+}
+
+// incrementAtomCount safely increments the atom counter and reports progress.
+func (r *ResearcherShard) incrementAtomCount(count int, topic string, topicsDone, topicsTotal int) {
+	r.mu.Lock()
+	r.currentAtomCount += count
+	currentCount := r.currentAtomCount
+	r.mu.Unlock()
+
+	r.reportProgress(ProgressUpdate{
+		AtomCount:    currentCount,
+		CurrentTopic: topic,
+		TopicsTotal:  topicsTotal,
+		TopicsDone:   topicsDone,
+		Message:      fmt.Sprintf("Researching %s... %d atoms collected", topic, currentCount),
+	})
+}
+
+// resetAtomCount resets the atom counter for a new research session.
+func (r *ResearcherShard) resetAtomCount() {
+	r.mu.Lock()
+	r.currentAtomCount = 0
+	r.mu.Unlock()
+}
+
+// GetCurrentAtomCount returns the current atom count.
+func (r *ResearcherShard) GetCurrentAtomCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.currentAtomCount
+}
+
+// AdaptiveBatchConfig holds configuration for adaptive batch sizing.
+type AdaptiveBatchConfig struct {
+	MinBatchSize       int     // Minimum batch size (default: 1)
+	MaxBatchSize       int     // Maximum batch size (default: 4)
+	DefaultBatchSize   int     // Default batch size when no history (default: 2)
+	ComplexityWeight   float64 // How much topic complexity affects batch size (0-1)
+	HistoryWeight      float64 // How much historical performance affects batch size (0-1)
+}
+
+// DefaultAdaptiveBatchConfig returns sensible defaults for adaptive batching.
+func DefaultAdaptiveBatchConfig() AdaptiveBatchConfig {
+	return AdaptiveBatchConfig{
+		MinBatchSize:     1,
+		MaxBatchSize:     4,
+		DefaultBatchSize: 2,
+		ComplexityWeight: 0.4,
+		HistoryWeight:    0.6,
+	}
+}
+
+// calculateAdaptiveBatchSize determines the optimal batch size based on:
+// 1. Topic complexity (longer/more technical topics = smaller batches)
+// 2. Historical API response times (faster responses = larger batches)
+// 3. Current quality scores (higher quality = can use larger batches)
+func (r *ResearcherShard) calculateAdaptiveBatchSize(topics []string) int {
+	config := DefaultAdaptiveBatchConfig()
+
+	if len(topics) == 0 {
+		return config.DefaultBatchSize
+	}
+
+	// Factor 1: Topic complexity (0.0 = simple, 1.0 = complex)
+	complexityScore := r.calculateTopicComplexity(topics)
+
+	// Factor 2: Historical performance (0.0 = slow/failing, 1.0 = fast/reliable)
+	performanceScore := r.calculateHistoricalPerformance()
+
+	// Combine factors: Higher complexity -> smaller batches
+	// Higher performance -> larger batches
+	combinedScore := (1.0-complexityScore)*config.ComplexityWeight +
+		performanceScore*config.HistoryWeight
+
+	// Map combined score (0-1) to batch size range
+	batchRange := float64(config.MaxBatchSize - config.MinBatchSize)
+	batchSize := config.MinBatchSize + int(combinedScore*batchRange)
+
+	// Clamp to valid range
+	if batchSize < config.MinBatchSize {
+		batchSize = config.MinBatchSize
+	}
+	if batchSize > config.MaxBatchSize {
+		batchSize = config.MaxBatchSize
+	}
+
+	// Don't exceed topic count
+	if batchSize > len(topics) {
+		batchSize = len(topics)
+	}
+
+	logging.Researcher("Adaptive batch sizing: complexity=%.2f, performance=%.2f, batch=%d",
+		complexityScore, performanceScore, batchSize)
+
+	return batchSize
+}
+
+// calculateTopicComplexity analyzes topics to estimate research complexity.
+// Returns a score from 0.0 (simple) to 1.0 (complex).
+func (r *ResearcherShard) calculateTopicComplexity(topics []string) float64 {
+	if len(topics) == 0 {
+		return 0.5
+	}
+
+	var totalComplexity float64
+
+	// Technical keywords that indicate complex topics
+	complexKeywords := []string{
+		"advanced", "architecture", "concurrent", "distributed", "optimization",
+		"security", "protocol", "algorithm", "internals", "low-level",
+		"performance", "memory", "async", "parallel", "threading",
+	}
+
+	for _, topic := range topics {
+		topicLower := strings.ToLower(topic)
+		wordCount := len(strings.Fields(topic))
+
+		// Base complexity from word count (more words = more specific = more complex)
+		complexity := float64(wordCount) / 10.0 // Normalize to ~0.4 for 4-word topics
+		if complexity > 0.5 {
+			complexity = 0.5
+		}
+
+		// Add complexity for technical keywords
+		for _, kw := range complexKeywords {
+			if strings.Contains(topicLower, kw) {
+				complexity += 0.1
+				break // Only count once per topic
+			}
+		}
+
+		// Cap individual topic complexity
+		if complexity > 1.0 {
+			complexity = 1.0
+		}
+
+		totalComplexity += complexity
+	}
+
+	return totalComplexity / float64(len(topics))
+}
+
+// calculateHistoricalPerformance uses tracked metrics to estimate API reliability.
+// Returns a score from 0.0 (poor) to 1.0 (excellent).
+func (r *ResearcherShard) calculateHistoricalPerformance() float64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Start with neutral score
+	score := 0.5
+
+	// Factor in quality scores (if available)
+	if len(r.qualityScores) > 0 {
+		var totalQuality float64
+		for _, q := range r.qualityScores {
+			totalQuality += q
+		}
+		avgQuality := totalQuality / float64(len(r.qualityScores))
+		// Quality heavily influences performance score
+		score = 0.3 + avgQuality*0.5 // Map 0-1 quality to 0.3-0.8
+	}
+
+	// Penalize for failed queries
+	failureRate := float64(len(r.failedQueries)) / float64(max(len(r.qualityScores), 1)+len(r.failedQueries))
+	score -= failureRate * 0.3
+
+	// Bonus for reliable sources
+	if len(r.sourceReliability) > 3 {
+		score += 0.1
+	}
+
+	// Clamp to valid range
+	if score < 0.1 {
+		score = 0.1
+	}
+	if score > 1.0 {
+		score = 1.0
+	}
+
+	return score
+}
+
 // ResearchTopicsParallel researches multiple topics in sequential batches.
 // Uses batched processing to avoid overwhelming APIs and causing timeouts.
 // This is the primary method for building agent knowledge bases efficiently.
@@ -271,9 +487,23 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 		return result, nil
 	}
 
-	// Process topics in sequential batches of 2 to avoid API overload
-	batchSize := 2
-	logging.Researcher("Starting batch research for %d topics (batch size: %d)...", len(topics), batchSize)
+	// E1: Reset atom counter for new research session
+	r.resetAtomCount()
+
+	// E1: Report initial progress
+	r.reportProgress(ProgressUpdate{
+		AtomCount:    0,
+		CurrentTopic: "starting",
+		TopicsTotal:  len(topics),
+		TopicsDone:   0,
+		Message:      fmt.Sprintf("Starting research for %d topics...", len(topics)),
+	})
+
+	// Adaptive batch sizing based on topic complexity and historical performance
+	batchSize := r.calculateAdaptiveBatchSize(topics)
+	logging.Researcher("Starting batch research for %d topics (adaptive batch size: %d)...", len(topics), batchSize)
+
+	topicsDone := 0
 
 	for i := 0; i < len(topics); i += batchSize {
 		// Calculate batch end
@@ -288,6 +518,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 		// Process batch in parallel
 		var wg sync.WaitGroup
 		var mu sync.Mutex
+		var topicsDoneInBatch int
 
 		for _, topic := range batch {
 			topic := topic
@@ -295,22 +526,44 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 			go func() {
 				defer wg.Done()
 
+				// E1: Report current topic being researched
+				r.reportProgress(ProgressUpdate{
+					AtomCount:    r.GetCurrentAtomCount(),
+					CurrentTopic: topic,
+					TopicsTotal:  len(topics),
+					TopicsDone:   topicsDone,
+					Message:      fmt.Sprintf("Researching: %s", topic),
+				})
+
 				topicResult, err := r.conductWebResearch(ctx, topic, nil, nil) // Don't pass keywords or urls, topic is sufficient
 				if err != nil {
 					logging.Researcher("Topic '%s' failed: %v", topic, err)
+					mu.Lock()
+					topicsDoneInBatch++
+					mu.Unlock()
 					return
 				}
+
+				atomCount := len(topicResult.Atoms)
 
 				mu.Lock()
 				result.Atoms = append(result.Atoms, topicResult.Atoms...)
 				result.PagesScraped += topicResult.PagesScraped
+				topicsDoneInBatch++
+				currentDone := topicsDone + topicsDoneInBatch
 				mu.Unlock()
 
-				logging.Researcher("Topic '%s': %d atoms", topic, len(topicResult.Atoms))
+				// E1: Increment and report atom count
+				r.incrementAtomCount(atomCount, topic, currentDone, len(topics))
+
+				logging.Researcher("Topic '%s': %d atoms (total: %d)", topic, atomCount, r.GetCurrentAtomCount())
 			}()
 		}
 
 		wg.Wait()
+
+		// E1: Update topics done counter after batch completes
+		topicsDone += len(batch)
 
 		// Brief pause between batches to let APIs breathe (except for last batch)
 		if end < len(topics) {
@@ -329,13 +582,24 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 	}
 
 	// Autopoiesis: Track overall batch quality
+	batchQuality := 0.0
 	if len(topics) > 0 {
-		batchQuality := float64(len(result.Atoms)) / float64(len(topics)*10.0) // Expect ~10 atoms per topic
+		batchQuality = float64(len(result.Atoms)) / float64(len(topics)*10.0) // Expect ~10 atoms per topic
 		if batchQuality > 1.0 {
 			batchQuality = 1.0
 		}
 		r.trackResearchQuality(fmt.Sprintf("batch_%d_topics", len(topics)), batchQuality)
 	}
+
+	// E1: Report final progress with quality score
+	r.reportProgress(ProgressUpdate{
+		AtomCount:    r.GetCurrentAtomCount(),
+		CurrentTopic: "completed",
+		TopicsTotal:  len(topics),
+		TopicsDone:   len(topics),
+		QualityScore: batchQuality * 100, // Convert to percentage
+		Message:      fmt.Sprintf("Research complete: %d atoms collected (quality: %.0f%%)", r.GetCurrentAtomCount(), batchQuality*100),
+	})
 
 	return result, nil
 }
