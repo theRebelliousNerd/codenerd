@@ -18,6 +18,7 @@
 package init
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
@@ -36,19 +37,26 @@ import (
 
 // InitProgress represents a progress update during initialization.
 type InitProgress struct {
-	Phase       string  // Current phase name
-	Message     string  // Human-readable status message
-	Percent     float64 // 0.0 - 1.0 completion percentage
-	IsError     bool    // True if this is an error message
-	AgentUpdate *AgentCreationUpdate
+	Phase          string        // Current phase name
+	Message        string        // Human-readable status message
+	Percent        float64       // 0.0 - 1.0 completion percentage
+	IsError        bool          // True if this is an error message
+	AgentUpdate    *AgentCreationUpdate
+	ETARemaining   time.Duration // E2: Estimated time remaining
+	ElapsedTime    time.Duration // E2: Time elapsed since init started
+	CurrentPhaseNo int           // E2: Current phase number (1-based)
+	TotalPhases    int           // E2: Total number of phases
 }
 
 // AgentCreationUpdate provides details about agent creation progress.
 type AgentCreationUpdate struct {
-	AgentName string
-	AgentType string
-	Status    string // "creating", "researching", "ready", "failed"
-	KBSize    int    // Knowledge base size (facts/atoms)
+	AgentName     string
+	AgentType     string
+	Status        string  // "creating", "researching", "ready", "failed"
+	KBSize        int     // Knowledge base size (facts/atoms)
+	AtomCount     int     // E1: Current atom count during research
+	TopicProgress string  // E1: Current topic being researched
+	QualityScore  float64 // E1: Research quality score (0-100)
 }
 
 // RecommendedAgent represents an agent recommended by the Researcher.
@@ -107,6 +115,10 @@ type ProjectProfile struct {
 	Architecture string   `json:"architecture,omitempty"`
 	Patterns     []string `json:"patterns,omitempty"`
 
+	// Enhanced detection (B4, D2)
+	BuildSystemInfo *BuildSystemInfo `json:"build_system_info,omitempty"`
+	ProjectType     string           `json:"project_type,omitempty"` // "application", "library", "hybrid"
+
 	// Dependencies
 	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
 
@@ -122,9 +134,10 @@ type ProjectProfile struct {
 
 // DependencyInfo represents a project dependency.
 type DependencyInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Type    string `json:"type"` // direct, dev, indirect
+	Name         string `json:"name"`
+	Version      string `json:"version,omitempty"`
+	MajorVersion string `json:"major_version,omitempty"` // D4: Major version for version-specific agents
+	Type         string `json:"type"`                    // direct, dev, transitive
 }
 
 // UserPreferences represents user coding preferences (learned via autopoiesis).
@@ -193,38 +206,192 @@ type Initializer struct {
 	// Concurrency
 	mu            sync.RWMutex
 	createdAgents []CreatedAgent
+
+	// E2: ETA tracking
+	etaTracker *ETATracker
+}
+
+// ETATracker calculates estimated time remaining based on historical phase durations.
+type ETATracker struct {
+	mu              sync.RWMutex
+	startTime       time.Time
+	phaseDurations  map[string]time.Duration // Historical durations for each phase
+	currentPhase    int
+	totalPhases     int
+	phaseStartTime  time.Time
+}
+
+// DefaultPhaseDurations returns expected durations for each init phase.
+// These are baseline estimates that get refined based on actual performance.
+func DefaultPhaseDurations() map[string]time.Duration {
+	return map[string]time.Duration{
+		"setup":         5 * time.Second,
+		"scanning":      20 * time.Second,
+		"analysis":      75 * time.Second,  // 60-90s average
+		"profile":       5 * time.Second,
+		"facts":         10 * time.Second,
+		"agents":        5 * time.Second,
+		"kb_creation":   105 * time.Second, // 90-120s average
+		"core_shards":   30 * time.Second,
+		"tools":         20 * time.Second,
+		"preferences":   4 * time.Second,
+		"registry":      5 * time.Second,
+	}
+}
+
+// NewETATracker creates a new ETA tracker.
+func NewETATracker(totalPhases int) *ETATracker {
+	return &ETATracker{
+		startTime:      time.Now(),
+		phaseDurations: DefaultPhaseDurations(),
+		totalPhases:    totalPhases,
+		currentPhase:   0,
+	}
+}
+
+// StartPhase marks the beginning of a new phase.
+func (e *ETATracker) StartPhase(phaseNum int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.currentPhase = phaseNum
+	e.phaseStartTime = time.Now()
+}
+
+// CompletePhase records the actual duration of a completed phase.
+func (e *ETATracker) CompletePhase(phaseName string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	actualDuration := time.Since(e.phaseStartTime)
+	// Update with actual duration for better future estimates
+	e.phaseDurations[phaseName] = actualDuration
+}
+
+// GetETARemaining calculates the estimated time remaining.
+func (e *ETATracker) GetETARemaining(remainingPhases []string) time.Duration {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var remaining time.Duration
+	for _, phase := range remainingPhases {
+		if dur, ok := e.phaseDurations[phase]; ok {
+			remaining += dur
+		} else {
+			// Default estimate for unknown phases
+			remaining += 10 * time.Second
+		}
+	}
+	return remaining
+}
+
+// GetElapsed returns the time elapsed since init started.
+func (e *ETATracker) GetElapsed() time.Duration {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return time.Since(e.startTime)
+}
+
+// GetCurrentPhase returns the current phase number.
+func (e *ETATracker) GetCurrentPhase() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.currentPhase
+}
+
+// GetTotalPhases returns the total number of phases.
+func (e *ETATracker) GetTotalPhases() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.totalPhases
+}
+
+// sendProgressWithETA sends a progress update with ETA information.
+func (i *Initializer) sendProgressWithETA(phase, message string, percent float64, remainingPhases []string) {
+	if i.config.ProgressChan == nil {
+		return
+	}
+
+	var eta time.Duration
+	var elapsed time.Duration
+	var currentPhase, totalPhases int
+
+	if i.etaTracker != nil {
+		eta = i.etaTracker.GetETARemaining(remainingPhases)
+		elapsed = i.etaTracker.GetElapsed()
+		currentPhase = i.etaTracker.GetCurrentPhase()
+		totalPhases = i.etaTracker.GetTotalPhases()
+	}
+
+	select {
+	case i.config.ProgressChan <- InitProgress{
+		Phase:          phase,
+		Message:        message,
+		Percent:        percent,
+		ETARemaining:   eta,
+		ElapsedTime:    elapsed,
+		CurrentPhaseNo: currentPhase,
+		TotalPhases:    totalPhases,
+	}:
+	default:
+		// Don't block if channel is full
+	}
+}
+
+// startPhaseWithETA starts a new phase and sends a progress update.
+func (i *Initializer) startPhaseWithETA(phaseNum int, phaseName, message string, percent float64, remainingPhases []string) {
+	if i.etaTracker != nil {
+		i.etaTracker.StartPhase(phaseNum)
+	}
+	i.sendProgressWithETA(phaseName, message, percent, remainingPhases)
+}
+
+// completePhaseWithETA completes a phase and updates the ETA tracker.
+func (i *Initializer) completePhaseWithETA(phaseName string) {
+	if i.etaTracker != nil {
+		i.etaTracker.CompletePhase(phaseName)
+	}
 }
 
 // NewInitializer creates a new initializer.
-func NewInitializer(config InitConfig) *Initializer {
+func NewInitializer(initConfig InitConfig) *Initializer {
 	researcher := researcher.NewResearcherShard()
-	researcher.SetWorkspaceRoot(config.Workspace) // Ensure .nerd paths resolve correctly
+	researcher.SetWorkspaceRoot(initConfig.Workspace) // Ensure .nerd paths resolve correctly
 
-	// Set Context7 API key if configured
-	if config.Context7APIKey != "" {
-		researcher.SetContext7APIKey(config.Context7APIKey)
+	// Auto-detect Context7 API key if not explicitly provided (C1 enhancement)
+	context7Key := initConfig.Context7APIKey
+	if context7Key == "" {
+		context7Key = config.AutoDetectContext7APIKey()
+		if context7Key != "" {
+			logging.Boot("Auto-detected Context7 API key from environment/config")
+			initConfig.Context7APIKey = context7Key // Store for later use
+		}
+	}
+
+	// Set Context7 API key if available (explicit or auto-detected)
+	if context7Key != "" {
+		researcher.SetContext7APIKey(context7Key)
 	}
 
 	kernel := core.NewRealKernel()
-	kernel.SetWorkspace(config.Workspace) // Ensure .nerd paths resolve correctly
+	kernel.SetWorkspace(initConfig.Workspace) // Ensure .nerd paths resolve correctly
 
 	init := &Initializer{
-		config:        config,
+		config:        initConfig,
 		researcher:    researcher,
 		scanner:       world.NewScanner(),
 		kernel:        kernel,
 		createdAgents: make([]CreatedAgent, 0),
 		embedEngine:   nil,
+		etaTracker:    NewETATracker(11), // E2: 11 phases in total
 	}
 
 	// Use provided shard manager or create new one
-	if config.ShardManager != nil {
-		init.shardMgr = config.ShardManager
+	if initConfig.ShardManager != nil {
+		init.shardMgr = initConfig.ShardManager
 	} else {
 		init.shardMgr = core.NewShardManager()
 	}
-	if config.LLMClient != nil {
-		init.shardMgr.SetLLMClient(config.LLMClient)
+	if initConfig.LLMClient != nil {
+		init.shardMgr.SetLLMClient(initConfig.LLMClient)
 	}
 
 	return init

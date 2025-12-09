@@ -88,4 +88,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace codenerd => C:\CodeProjects\codeNERD
