@@ -233,7 +233,7 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 		upcomingTasks.WriteString(fmt.Sprintf("- %s (%s)\n", t.Description, t.Type))
 	}
 
-	prompt := fmt.Sprintf(`You are the planning kernel for codeNERD. A phase just completed; refine the next phase tasks to reflect the latest reality.
+	prompt := fmt.Sprintf(`%s
 
 Campaign Goal: %s
 Completed Phase: %s (order %d)
@@ -250,7 +250,7 @@ Return JSON only:
     {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove"}
   ],
   "summary": "one-line change summary"
-}`, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
+}`, ReplannerLogic, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
 
 	resp, err := r.llmClient.Complete(ctx, prompt)
 	if err != nil {

@@ -4,6 +4,7 @@ package chat
 
 import (
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/campaign"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -236,22 +237,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings
 			if shardType == "reviewer" || shardType == "tester" {
 				// Create a specialized prompt for interpreting the results
-				analysisPrompt := fmt.Sprintf(`
-You are Steven Moore, the CodeNERD. The %s shard just finished:
+				analysisPrompt := fmt.Sprintf(`%s
 
+SHARD TYPE: %s
 TASK: %s
-
-RESULT:
+OUTPUT:
 %s
-
-YOUR JOB:
-1. React to this result in your "Full Tilt" persona.
-2. If there are warnings/errors, explain them bluntly.
-3. If it looks good, celebrate.
-4. Suggest the immediate next step (e.g., "Refactor X", "Fix Y").
-
-Keep it concise but energetic. Use emojis.
-`, shardType, task, result)
+`, campaign.AnalysisLogic, shardType, task, result)
 
 				// Call LLM for interpretation
 				interpResp, err := m.client.CompleteWithSystem(ctx, stevenMoorePersona, analysisPrompt)
@@ -648,17 +640,17 @@ func isShardRelevantToTopic(shardName string, topic string) bool {
 
 	// Domain-specific keyword mapping
 	domainKeywords := map[string][]string{
-		"go":         {"go", "golang", "gin", "echo", "fiber", "cobra", "viper", "bubbletea", "lipgloss", "rod", "chromedp"},
-		"rod":        {"browser", "automation", "scrape", "scraping", "chromedp", "puppeteer", "selenium", "web driver", "headless"},
-		"mangle":     {"mangle", "datalog", "logic", "predicate", "rule", "query", "facts", "kernel"},
-		"bubbletea":  {"tui", "terminal", "cli", "bubbletea", "bubbles", "charm", "lipgloss", "interactive"},
-		"cobra":      {"cli", "command", "flag", "subcommand", "cobra", "viper", "config"},
-		"react":      {"react", "jsx", "component", "hook", "frontend", "next.js", "nextjs"},
-		"vue":        {"vue", "vuex", "nuxt", "component", "frontend"},
-		"python":     {"python", "pip", "django", "flask", "fastapi", "pandas", "numpy"},
-		"rust":       {"rust", "cargo", "tokio", "async", "ownership", "borrow"},
-		"test":       {"test", "testing", "spec", "coverage", "mock", "stub", "assert"},
-		"security":   {"security", "audit", "vulnerability", "owasp", "injection", "xss", "csrf"},
+		"go":        {"go", "golang", "gin", "echo", "fiber", "cobra", "viper", "bubbletea", "lipgloss", "rod", "chromedp"},
+		"rod":       {"browser", "automation", "scrape", "scraping", "chromedp", "puppeteer", "selenium", "web driver", "headless"},
+		"mangle":    {"mangle", "datalog", "logic", "predicate", "rule", "query", "facts", "kernel"},
+		"bubbletea": {"tui", "terminal", "cli", "bubbletea", "bubbles", "charm", "lipgloss", "interactive"},
+		"cobra":     {"cli", "command", "flag", "subcommand", "cobra", "viper", "config"},
+		"react":     {"react", "jsx", "component", "hook", "frontend", "next.js", "nextjs"},
+		"vue":       {"vue", "vuex", "nuxt", "component", "frontend"},
+		"python":    {"python", "pip", "django", "flask", "fastapi", "pandas", "numpy"},
+		"rust":      {"rust", "cargo", "tokio", "async", "ownership", "borrow"},
+		"test":      {"test", "testing", "spec", "coverage", "mock", "stub", "assert"},
+		"security":  {"security", "audit", "vulnerability", "owasp", "injection", "xss", "csrf"},
 	}
 
 	// Check if shard name contains a domain keyword
@@ -715,10 +707,10 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 	// Sort shards: persistent specialists FIRST, then ephemeral, then system
 	// This prioritizes domain experts from agents.json before generalists
 	type shardPriority struct {
-		name        string
-		shardType   core.ShardType
+		name         string
+		shardType    core.ShardType
 		hasKnowledge bool
-		priority    int // Lower = higher priority
+		priority     int // Lower = higher priority
 	}
 
 	var prioritizedShards []shardPriority
@@ -758,10 +750,10 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 		}
 
 		prioritizedShards = append(prioritizedShards, shardPriority{
-			name:        shard.Name,
-			shardType:   shard.Type,
+			name:         shard.Name,
+			shardType:    shard.Type,
 			hasKnowledge: shard.HasKnowledge,
-			priority:    priority,
+			priority:     priority,
 		})
 
 		// Build description for prompt context
