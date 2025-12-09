@@ -174,6 +174,10 @@ type CreatedAgent struct {
 	Status          string            `json:"status"` // "ready", "partial", "failed"
 	Tools           []string          `json:"tools,omitempty"`
 	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
+
+	// Quality metrics (populated during research)
+	QualityScore  float64 `json:"quality_score,omitempty"`  // 0-100 quality score
+	QualityRating string  `json:"quality_rating,omitempty"` // "Excellent", "Good", "Adequate", "Needs improvement"
 }
 
 // Initializer handles the cold-start initialization process.
@@ -415,8 +419,21 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	// PHASE 7: Create Knowledge Bases & Type 3 Agents
 	// =========================================================================
 	if !i.config.SkipAgentCreate && len(recommendedAgents) > 0 {
+		// Create shared knowledge pool first (common concepts all agents share)
+		i.sendProgress("shared_kb", "Creating shared knowledge pool...", 0.52)
+		fmt.Println("\n📚 Phase 7a: Creating Shared Knowledge Pool")
+
+		sharedPoolErr := CreateSharedKnowledgePool(ctx, i.config.Workspace, i.researcher, func(status string, progress float64) {
+			i.sendProgress("shared_kb", status, 0.52+progress*0.03)
+		})
+		if sharedPoolErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Shared knowledge pool creation had issues: %v", sharedPoolErr))
+		} else {
+			fmt.Println("   ✓ Shared knowledge pool ready")
+		}
+
 		i.sendProgress("kb_creation", "Creating agent knowledge bases...", 0.55)
-		fmt.Println("\n📚 Phase 7: Creating Agent Knowledge Bases")
+		fmt.Println("\n📚 Phase 7b: Creating Agent Knowledge Bases")
 
 		createdAgents, agentKBs := i.createType3Agents(ctx, nerdDir, recommendedAgents, result)
 		result.CreatedAgents = createdAgents
@@ -662,7 +679,7 @@ func (i *Initializer) createMangleTemplates(nerdDir string) error {
 	return nil
 }
 
-// printSummary prints the initialization summary.
+// printSummary prints the initialization summary with quality metrics.
 func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	fmt.Println("\n" + strings.Repeat("═", 60))
 	fmt.Println("✅ INITIALIZATION COMPLETE")
@@ -682,7 +699,27 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	if len(result.CreatedAgents) > 0 {
 		fmt.Printf("\n🤖 Type 3 Agents Created:\n")
 		for _, agent := range result.CreatedAgents {
-			fmt.Printf("   • %s (%d KB atoms) - %s\n", agent.Name, agent.KBSize, agent.Status)
+			// Display with quality metrics if available
+			if agent.QualityScore > 0 {
+				fmt.Printf("   • %s: %d atoms (Quality: %.0f%% - %s)\n",
+					agent.Name, agent.KBSize, agent.QualityScore, agent.QualityRating)
+			} else {
+				fmt.Printf("   • %s (%d KB atoms) - %s\n", agent.Name, agent.KBSize, agent.Status)
+			}
+		}
+
+		// Show average quality score
+		var totalQuality float64
+		var qualityCount int
+		for _, agent := range result.CreatedAgents {
+			if agent.QualityScore > 0 {
+				totalQuality += agent.QualityScore
+				qualityCount++
+			}
+		}
+		if qualityCount > 0 {
+			avgQuality := totalQuality / float64(qualityCount)
+			fmt.Printf("\n   📊 Average KB Quality: %.0f%%\n", avgQuality)
 		}
 	}
 
@@ -702,12 +739,85 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 		}
 	}
 
+	// Post-init recommendations based on project analysis
 	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Println("💡 Next steps:")
+	fmt.Println("💡 Recommendations:")
+	i.printRecommendations(result, profile)
+
+	fmt.Println("\n" + strings.Repeat("─", 60))
+	fmt.Println("🚀 Next steps:")
 	fmt.Println("   • Run `nerd chat` to start interactive session")
 	fmt.Println("   • Use `/agents` to see available agents")
 	fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
 	fmt.Println(strings.Repeat("─", 60))
+}
+
+// printRecommendations prints context-aware recommendations based on init results.
+func (i *Initializer) printRecommendations(result *InitResult, profile ProjectProfile) {
+	recommendations := []string{}
+
+	// Check for low quality KBs
+	for _, agent := range result.CreatedAgents {
+		if agent.QualityScore > 0 && agent.QualityScore < 50 {
+			recommendations = append(recommendations,
+				fmt.Sprintf("Run `/init --force` to improve %s KB quality (currently %.0f%%)", agent.Name, agent.QualityScore))
+		}
+	}
+
+	// Language-specific recommendations
+	switch strings.ToLower(profile.Language) {
+	case "go", "golang":
+		if !hasAgent(result.CreatedAgents, "GoExpert") {
+			recommendations = append(recommendations, "Consider adding a GoExpert agent for Go-specific guidance")
+		}
+	case "python":
+		recommendations = append(recommendations, "Run `/review` to check type hints and async patterns")
+	case "typescript", "javascript":
+		recommendations = append(recommendations, "Run `/test` to verify test coverage")
+	}
+
+	// Security recommendation for all projects
+	if !hasAgent(result.CreatedAgents, "SecurityAuditor") {
+		recommendations = append(recommendations, "Consider adding SecurityAuditor for vulnerability scanning")
+	} else {
+		recommendations = append(recommendations, "Run `/review --security` for a security audit")
+	}
+
+	// Test recommendation
+	if !hasAgent(result.CreatedAgents, "TestArchitect") {
+		recommendations = append(recommendations, "Consider adding TestArchitect for test coverage analysis")
+	} else {
+		recommendations = append(recommendations, "Run `/test --coverage` to check test coverage")
+	}
+
+	// Warnings about missing research
+	if i.config.SkipResearch {
+		recommendations = append(recommendations, "Research was skipped - run `/init --force` to populate agent KBs")
+	}
+
+	// Print recommendations (max 4)
+	maxRecs := 4
+	if len(recommendations) > maxRecs {
+		recommendations = recommendations[:maxRecs]
+	}
+
+	for _, rec := range recommendations {
+		fmt.Printf("   • %s\n", rec)
+	}
+
+	if len(recommendations) == 0 {
+		fmt.Println("   • Your project is ready! Start with `/review` or `/test`")
+	}
+}
+
+// hasAgent checks if a specific agent was created.
+func hasAgent(agents []CreatedAgent, name string) bool {
+	for _, agent := range agents {
+		if strings.EqualFold(agent.Name, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // SessionState represents the current session state.

@@ -32,6 +32,10 @@ type KnowledgeBaseStats struct {
 	ExistingAtoms int
 	SkippedAtoms  int
 	TotalAtoms    int
+
+	// Quality metrics from research
+	QualityScore  float64
+	QualityRating string
 }
 
 // determineRequiredAgents analyzes the project and recommends Type 3 agents.
@@ -366,6 +370,8 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 			Status:          "ready",
 			Tools:           agent.Tools,
 			ToolPreferences: agent.ToolPreferences,
+			QualityScore:    stats.QualityScore,
+			QualityRating:   stats.QualityRating,
 		}
 		created = append(created, createdAgent)
 
@@ -376,6 +382,9 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 		if upgradeMode {
 			fmt.Printf("     + %s upgraded (added %d new, skipped %d existing, total %d atoms)\n",
 				agent.Name, stats.NewAtoms, stats.SkippedAtoms, stats.TotalAtoms)
+		} else if stats.QualityScore > 0 {
+			fmt.Printf("     + %s ready (%d atoms, Quality: %.0f%% - %s)\n",
+				agent.Name, totalKBSize, stats.QualityScore, stats.QualityRating)
 		} else {
 			fmt.Printf("     + %s ready (%d knowledge atoms)\n", agent.Name, totalKBSize)
 		}
@@ -450,6 +459,8 @@ func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string
 					Status:          "ready",
 					Tools:           agent.Tools,
 					ToolPreferences: agent.ToolPreferences,
+					QualityScore:    stats.QualityScore,
+					QualityRating:   stats.QualityRating,
 				},
 				KBSize:      stats.TotalAtoms,
 				Stats:       stats,
@@ -509,6 +520,20 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		logging.Boot("Upgrade mode: found %d existing atoms in %s", stats.ExistingAtoms, agent.Name)
 	} else {
 		existingHashes = make(map[string]bool)
+
+		// Inherit shared knowledge pool for new agents (not in upgrade mode)
+		sharedKBPath := GetSharedKnowledgePath(i.config.Workspace)
+		if SharedKnowledgePoolExists(i.config.Workspace) {
+			if inheritErr := InheritSharedKnowledge(agentDB, sharedKBPath); inheritErr != nil {
+				logging.Boot("Warning: failed to inherit shared knowledge for %s: %v", agent.Name, inheritErr)
+			} else {
+				// Re-fetch existing hashes after inheritance
+				inheritedAtoms, _ := agentDB.GetAllKnowledgeAtoms()
+				existingHashes = buildAtomHashSet(inheritedAtoms)
+				stats.NewAtoms += len(inheritedAtoms)
+				logging.Boot("Inherited %d shared atoms for %s", len(inheritedAtoms), agent.Name)
+			}
+		}
 	}
 
 	// Add base knowledge atoms for the agent
@@ -557,11 +582,16 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 
 			fmt.Printf("     Researching %d topics for %s...\n", len(topicsToResearch), agent.Name)
 
-			// Use parallel topic research for efficiency
-			researchResult, err := agentResearcher.ResearchTopicsParallel(ctx, topicsToResearch)
+			// Use graceful degradation for research (retries with fallback strategies)
+			gracefulResult, err := agentResearcher.ResearchWithGracefulDegradation(ctx, topicsToResearch)
 			if err != nil {
 				fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
-			} else if researchResult != nil {
+			} else if gracefulResult != nil {
+				// Log fallback info if used
+				if gracefulResult.FallbackUsed != researcher.FallbackNone {
+					fmt.Printf("     Note: Used fallback strategy for %s (%s)\n", agent.Name, gracefulResult.FallbackReason)
+				}
+
 				// In upgrade mode, the researcher stores atoms directly to DB
 				// We need to count only newly added atoms
 				if upgradeMode {
@@ -572,9 +602,15 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 						stats.NewAtoms += newFromResearch
 					}
 				} else {
-					stats.NewAtoms += len(researchResult.Atoms)
+					stats.NewAtoms += len(gracefulResult.Atoms)
 				}
-				fmt.Printf("     Gathered %d knowledge atoms for %s\n", len(researchResult.Atoms), agent.Name)
+				fmt.Printf("     Gathered %d knowledge atoms for %s (attempts: %d)\n",
+					len(gracefulResult.Atoms), agent.Name, gracefulResult.AttemptsMade)
+
+				// Calculate and store quality metrics
+				qualityMetrics := researcher.CalculateQualityMetrics(gracefulResult.Atoms, topicsToResearch)
+				stats.QualityScore = qualityMetrics.Score
+				stats.QualityRating = qualityMetrics.Rating
 			}
 		}
 	} else if i.config.SkipResearch {
