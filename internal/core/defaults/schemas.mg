@@ -2439,3 +2439,96 @@ Decl trace_pattern(TraceID, Pattern).
 # context_injection_effective(ShardID, Atom) - context injection led to success
 Decl context_injection_effective(ShardID, Atom).
 
+# =============================================================================
+# SECTION 43: NORTHSTAR VISION & SPECIFICATION
+# =============================================================================
+# The Northstar defines the project's grand vision, target users, capabilities,
+# risks, requirements, and constraints. Used by /northstar command.
+
+# -----------------------------------------------------------------------------
+# 43.1 Core Vision
+# -----------------------------------------------------------------------------
+
+# northstar_mission(ID, Statement) - The one-sentence mission
+Decl northstar_mission(ID, Statement).
+
+# northstar_problem(ID, Description) - Problem being solved
+Decl northstar_problem(ID, Description).
+
+# northstar_vision(ID, Description) - Grand vision of success
+Decl northstar_vision(ID, Description).
+
+# -----------------------------------------------------------------------------
+# 43.2 Target Users (Personas)
+# -----------------------------------------------------------------------------
+
+# northstar_persona(PersonaID, Name) - Target user archetype
+Decl northstar_persona(PersonaID, Name).
+
+# northstar_pain_point(PersonaID, PainPoint) - User pain points
+Decl northstar_pain_point(PersonaID, PainPoint).
+
+# northstar_need(PersonaID, Need) - User needs
+Decl northstar_need(PersonaID, Need).
+
+# -----------------------------------------------------------------------------
+# 43.3 Capabilities Roadmap
+# -----------------------------------------------------------------------------
+
+# northstar_capability(CapID, Description, Timeline, Priority)
+# Timeline: /now, /6mo, /1yr, /3yr, /moonshot
+# Priority: /critical, /high, /medium, /low
+Decl northstar_capability(CapID, Description, Timeline, Priority).
+
+# northstar_serves(CapID, PersonaID) - Capability serves persona
+Decl northstar_serves(CapID, PersonaID).
+
+# -----------------------------------------------------------------------------
+# 43.4 Risks & Mitigations (Red Teaming)
+# -----------------------------------------------------------------------------
+
+# northstar_risk(RiskID, Description, Likelihood, Impact)
+# Likelihood/Impact: /high, /medium, /low
+Decl northstar_risk(RiskID, Description, Likelihood, Impact).
+
+# northstar_mitigation(RiskID, Strategy) - Risk mitigation strategy
+Decl northstar_mitigation(RiskID, Strategy).
+
+# -----------------------------------------------------------------------------
+# 43.5 Requirements
+# -----------------------------------------------------------------------------
+
+# northstar_requirement(ReqID, Type, Description, Priority)
+# Type: /functional, /non_functional, /constraint
+# Priority: /must_have, /should_have, /nice_to_have
+Decl northstar_requirement(ReqID, Type, Description, Priority).
+
+# northstar_supports(ReqID, CapID) - Requirement supports capability
+Decl northstar_supports(ReqID, CapID).
+
+# northstar_addresses(ReqID, RiskID) - Requirement addresses risk
+Decl northstar_addresses(ReqID, RiskID).
+
+# -----------------------------------------------------------------------------
+# 43.6 Constraints
+# -----------------------------------------------------------------------------
+
+# northstar_constraint(ConstraintID, Description) - Hard project constraints
+Decl northstar_constraint(ConstraintID, Description).
+
+# -----------------------------------------------------------------------------
+# 43.7 Derived Predicates
+# -----------------------------------------------------------------------------
+
+# northstar_defined() - True if northstar has been set
+Decl northstar_defined().
+
+# critical_capability(CapID) - Derived: capability is critical priority
+Decl critical_capability(CapID).
+
+# high_risk(RiskID) - Derived: risk has high likelihood AND impact
+Decl high_risk(RiskID).
+
+# unmitigated_risk(RiskID) - Derived: high risk without mitigation
+Decl unmitigated_risk(RiskID).
+
