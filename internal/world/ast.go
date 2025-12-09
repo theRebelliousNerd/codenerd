@@ -2,10 +2,13 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ASTParser handles code parsing.
@@ -13,27 +16,46 @@ type ASTParser struct {
 	tsParser *TreeSitterParser
 }
 
+// NewASTParser creates a new AST parser with tree-sitter support.
 func NewASTParser() *ASTParser {
+	logging.WorldDebug("Creating new ASTParser")
 	return &ASTParser{
 		tsParser: NewTreeSitterParser(),
 	}
 }
 
+// Parse parses a source file and returns symbol facts.
 func (p *ASTParser) Parse(path string) ([]core.Fact, error) {
+	start := time.Now()
+	logging.WorldDebug("AST parsing file: %s", filepath.Base(path))
+
+	var facts []core.Fact
+	var err error
+
 	if strings.HasSuffix(path, ".go") {
-		return p.parseGo(path)
+		facts, err = p.parseGo(path)
 	} else if strings.HasSuffix(path, ".py") {
-		return p.parsePython(path)
+		facts, err = p.parsePython(path)
 	} else if strings.HasSuffix(path, ".rs") {
-		return p.parseRust(path)
+		facts, err = p.parseRust(path)
 	} else if strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".tsx") || strings.HasSuffix(path, ".jsx") {
-		return p.parseTypeScript(path)
+		facts, err = p.parseTypeScript(path)
+	} else {
+		logging.WorldDebug("Unsupported file type for AST parsing: %s", filepath.Ext(path))
+		return nil, nil
 	}
-	return nil, nil
+
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("AST parse failed for %s: %v", path, err)
+		return nil, err
+	}
+
+	logging.WorldDebug("AST parsed %s: %d facts extracted in %v", filepath.Base(path), len(facts), time.Since(start))
+	return facts, nil
 }
 
 func (p *ASTParser) parseGo(path string) ([]core.Fact, error) {
-	// Delegate to Cartographer for holographic mapping
+	logging.WorldDebug("Delegating Go parsing to Cartographer: %s", filepath.Base(path))
 	c := NewCartographer()
 	return c.MapFile(path)
 }
@@ -42,19 +64,23 @@ func (p *ASTParser) parseGo(path string) ([]core.Fact, error) {
 func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to read Python file: %s - %v", path, err)
 		return nil, err
 	}
 
 	// Try tree-sitter parsing first
 	if p.tsParser != nil {
+		logging.WorldDebug("Attempting tree-sitter parsing for Python: %s", filepath.Base(path))
 		facts, err := p.tsParser.ParsePython(path, content)
 		if err == nil && len(facts) > 0 {
+			logging.WorldDebug("Tree-sitter succeeded for Python: %s (%d facts)", filepath.Base(path), len(facts))
 			return facts, nil
 		}
-		// If tree-sitter fails or returns no facts, fall back to regex
+		logging.WorldDebug("Tree-sitter failed or empty for Python, falling back to regex: %s", filepath.Base(path))
 	}
 
 	// Fallback: regex-based parsing
+	logging.WorldDebug("Using regex fallback for Python parsing: %s", filepath.Base(path))
 	var facts []core.Fact
 	lines := strings.Split(string(content), "\n")
 
@@ -62,6 +88,8 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 	classRegex := regexp.MustCompile(`^\s*class\s+(\w+)`)
 	defRegex := regexp.MustCompile(`^\s*def\s+(\w+)`)
 	importRegex := regexp.MustCompile(`^\s*(?:from|import)\s+(\w+)`)
+
+	var classCount, funcCount, importCount int
 
 	for _, line := range lines {
 		// Classes
@@ -72,6 +100,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "class", "public", path, line},
 			})
+			classCount++
 		}
 
 		// Functions
@@ -82,6 +111,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
+			funcCount++
 		}
 
 		// Imports
@@ -91,9 +121,12 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("mod:%s", module), module},
 			})
+			importCount++
 		}
 	}
 
+	logging.WorldDebug("Python regex parsing complete: %s (classes=%d, funcs=%d, imports=%d)",
+		filepath.Base(path), classCount, funcCount, importCount)
 	return facts, nil
 }
 
@@ -101,19 +134,23 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to read Rust file: %s - %v", path, err)
 		return nil, err
 	}
 
 	// Try tree-sitter parsing first
 	if p.tsParser != nil {
+		logging.WorldDebug("Attempting tree-sitter parsing for Rust: %s", filepath.Base(path))
 		facts, err := p.tsParser.ParseRust(path, content)
 		if err == nil && len(facts) > 0 {
+			logging.WorldDebug("Tree-sitter succeeded for Rust: %s (%d facts)", filepath.Base(path), len(facts))
 			return facts, nil
 		}
-		// If tree-sitter fails or returns no facts, fall back to regex
+		logging.WorldDebug("Tree-sitter failed or empty for Rust, falling back to regex: %s", filepath.Base(path))
 	}
 
 	// Fallback: regex-based parsing
+	logging.WorldDebug("Using regex fallback for Rust parsing: %s", filepath.Base(path))
 	var facts []core.Fact
 	lines := strings.Split(string(content), "\n")
 
@@ -124,6 +161,8 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 	modRegex := regexp.MustCompile(`^\s*(?:pub\s+)?mod\s+(\w+)`)
 	useRegex := regexp.MustCompile(`^\s*use\s+([\w:]+)`)
 
+	var fnCount, structCount, enumCount, modCount, useCount int
+
 	for _, line := range lines {
 		// Functions
 		if matches := fnRegex.FindStringSubmatch(line); len(matches) > 1 {
@@ -133,6 +172,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
+			fnCount++
 		}
 
 		// Structs
@@ -143,6 +183,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "struct", "public", path, line},
 			})
+			structCount++
 		}
 
 		// Enums
@@ -153,6 +194,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "enum", "public", path, line},
 			})
+			enumCount++
 		}
 
 		// Modules
@@ -163,6 +205,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "module", "public", path, line},
 			})
+			modCount++
 		}
 
 		// Imports (use)
@@ -172,9 +215,12 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("crate:%s", pkg), pkg},
 			})
+			useCount++
 		}
 	}
 
+	logging.WorldDebug("Rust regex parsing complete: %s (fns=%d, structs=%d, enums=%d, mods=%d, uses=%d)",
+		filepath.Base(path), fnCount, structCount, enumCount, modCount, useCount)
 	return facts, nil
 }
 
@@ -182,6 +228,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to read TS/JS file: %s - %v", path, err)
 		return nil, err
 	}
 
@@ -192,18 +239,22 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 
 		// Determine if TypeScript or JavaScript
 		if strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx") {
+			logging.WorldDebug("Attempting tree-sitter parsing for TypeScript: %s", filepath.Base(path))
 			facts, parseErr = p.tsParser.ParseTypeScript(path, content)
 		} else {
+			logging.WorldDebug("Attempting tree-sitter parsing for JavaScript: %s", filepath.Base(path))
 			facts, parseErr = p.tsParser.ParseJavaScript(path, content)
 		}
 
 		if parseErr == nil && len(facts) > 0 {
+			logging.WorldDebug("Tree-sitter succeeded for TS/JS: %s (%d facts)", filepath.Base(path), len(facts))
 			return facts, nil
 		}
-		// If tree-sitter fails or returns no facts, fall back to regex
+		logging.WorldDebug("Tree-sitter failed or empty for TS/JS, falling back to regex: %s", filepath.Base(path))
 	}
 
 	// Fallback: regex-based parsing
+	logging.WorldDebug("Using regex fallback for TS/JS parsing: %s", filepath.Base(path))
 	var facts []core.Fact
 	lines := strings.Split(string(content), "\n")
 
@@ -214,6 +265,8 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 	constFuncRegex := regexp.MustCompile(`^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:\(.*\)|.*)\s*=>`)
 	importRegex := regexp.MustCompile(`^\s*import.*from\s+['"]([^'"]+)['"]`)
 
+	var classCount, ifaceCount, funcCount, importCount int
+
 	for _, line := range lines {
 		// Classes
 		if matches := classRegex.FindStringSubmatch(line); len(matches) > 1 {
@@ -223,6 +276,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "class", "public", path, line},
 			})
+			classCount++
 		}
 
 		// Interfaces
@@ -233,6 +287,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "interface", "public", path, line},
 			})
+			ifaceCount++
 		}
 
 		// Functions
@@ -243,6 +298,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
+			funcCount++
 		}
 
 		// Const Functions (arrow functions)
@@ -253,6 +309,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
+			funcCount++
 		}
 
 		// Imports
@@ -262,14 +319,18 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("mod:%s", module), module},
 			})
+			importCount++
 		}
 	}
 
+	logging.WorldDebug("TS/JS regex parsing complete: %s (classes=%d, interfaces=%d, funcs=%d, imports=%d)",
+		filepath.Base(path), classCount, ifaceCount, funcCount, importCount)
 	return facts, nil
 }
 
 // Close releases resources held by the AST parser
 func (p *ASTParser) Close() {
+	logging.WorldDebug("Closing ASTParser")
 	if p.tsParser != nil {
 		p.tsParser.Close()
 	}

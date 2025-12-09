@@ -6,6 +6,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -65,14 +68,36 @@ func DefaultConfig() Config {
 
 // NewEngine creates an embedding engine based on configuration.
 func NewEngine(cfg Config) (EmbeddingEngine, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "NewEngine")
+	defer timer.Stop()
+
+	logging.Embedding("Creating embedding engine with provider=%s", cfg.Provider)
+	logging.EmbeddingDebug("Engine config: provider=%s, ollama_endpoint=%s, ollama_model=%s, genai_model=%s, task_type=%s",
+		cfg.Provider, cfg.OllamaEndpoint, cfg.OllamaModel, cfg.GenAIModel, cfg.TaskType)
+
+	var engine EmbeddingEngine
+	var err error
+
 	switch cfg.Provider {
 	case "ollama":
-		return NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel)
+		logging.Embedding("Initializing Ollama embedding engine: endpoint=%s, model=%s", cfg.OllamaEndpoint, cfg.OllamaModel)
+		engine, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel)
 	case "genai":
-		return NewGenAIEngine(cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)
+		logging.Embedding("Initializing GenAI embedding engine: model=%s, task_type=%s", cfg.GenAIModel, cfg.TaskType)
+		engine, err = NewGenAIEngine(cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)
 	default:
-		return nil, fmt.Errorf("unsupported embedding provider: %s (use 'ollama' or 'genai')", cfg.Provider)
+		err = fmt.Errorf("unsupported embedding provider: %s (use 'ollama' or 'genai')", cfg.Provider)
+		logging.Get(logging.CategoryEmbedding).Error("Unsupported embedding provider: %s", cfg.Provider)
+		return nil, err
 	}
+
+	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("Failed to create embedding engine: %v", err)
+		return nil, err
+	}
+
+	logging.Embedding("Embedding engine created successfully: name=%s, dimensions=%d", engine.Name(), engine.Dimensions())
+	return engine, nil
 }
 
 // =============================================================================
@@ -83,8 +108,11 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 // Returns a value between -1 and 1, where 1 means identical, 0 means orthogonal.
 func CosineSimilarity(a, b []float32) (float64, error) {
 	if len(a) != len(b) {
+		logging.Get(logging.CategoryEmbedding).Error("CosineSimilarity: vector dimension mismatch: %d != %d", len(a), len(b))
 		return 0, fmt.Errorf("vectors must have the same length: %d != %d", len(a), len(b))
 	}
+
+	logging.EmbeddingDebug("Computing cosine similarity for vectors of dimension %d", len(a))
 
 	var dotProduct, aMagnitude, bMagnitude float64
 	for i := 0; i < len(a); i++ {
@@ -94,24 +122,35 @@ func CosineSimilarity(a, b []float32) (float64, error) {
 	}
 
 	if aMagnitude == 0 || bMagnitude == 0 {
+		logging.Get(logging.CategoryEmbedding).Warn("CosineSimilarity: zero magnitude vector detected")
 		return 0, nil
 	}
 
-	return dotProduct / (math.Sqrt(aMagnitude) * math.Sqrt(bMagnitude)), nil
+	result := dotProduct / (math.Sqrt(aMagnitude) * math.Sqrt(bMagnitude))
+	logging.EmbeddingDebug("CosineSimilarity result: %.6f", result)
+	return result, nil
 }
 
 // FindTopK returns the indices of the top K most similar vectors to the query.
 // Uses cosine similarity.
 func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "FindTopK")
+	defer timer.Stop()
+
 	if k <= 0 {
 		k = 10
 	}
 
+	logging.EmbeddingDebug("FindTopK: searching for top %d results in corpus of %d vectors (query dim=%d)",
+		k, len(corpus), len(query))
+
 	results := make([]SimilarityResult, 0, len(corpus))
+	skippedCount := 0
 
 	for i, vec := range corpus {
 		similarity, err := CosineSimilarity(query, vec)
 		if err != nil {
+			skippedCount++
 			continue
 		}
 
@@ -121,8 +160,13 @@ func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, e
 		})
 	}
 
+	if skippedCount > 0 {
+		logging.Get(logging.CategoryEmbedding).Warn("FindTopK: skipped %d vectors due to dimension mismatch", skippedCount)
+	}
+
 	// Sort by similarity descending
 	// Use simple bubble sort for small K
+	sortStart := time.Now()
 	for i := 0; i < len(results) && i < k; i++ {
 		for j := i + 1; j < len(results); j++ {
 			if results[j].Similarity > results[i].Similarity {
@@ -130,11 +174,27 @@ func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, e
 			}
 		}
 	}
+	logging.EmbeddingDebug("FindTopK: sorting completed in %v", time.Since(sortStart))
 
 	// Return top K
 	if len(results) > k {
 		results = results[:k]
 	}
+
+	logging.EmbeddingDebug("FindTopK: returning %d results (top similarity=%.4f, bottom similarity=%.4f)",
+		len(results),
+		func() float64 {
+			if len(results) > 0 {
+				return results[0].Similarity
+			}
+			return 0
+		}(),
+		func() float64 {
+			if len(results) > 0 {
+				return results[len(results)-1].Similarity
+			}
+			return 0
+		}())
 
 	return results, nil
 }

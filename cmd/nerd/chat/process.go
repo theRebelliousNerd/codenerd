@@ -6,12 +6,15 @@ import (
 	"codenerd/internal/autopoiesis"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -613,6 +616,69 @@ type DreamConsultation struct {
 	Error       error
 }
 
+// containsWord checks if text contains keyword as a whole word (not substring).
+// For short keywords (≤3 chars), requires word boundaries.
+// For longer keywords, substring match is sufficient.
+func containsWord(text, keyword string) bool {
+	if len(keyword) <= 3 {
+		// Short keyword - need word boundary check
+		// Use regex with word boundaries
+		pattern := `\b` + regexp.QuoteMeta(keyword) + `\b`
+		matched, _ := regexp.MatchString(pattern, text)
+		return matched
+	}
+	// Longer keywords - substring is fine
+	return strings.Contains(text, keyword)
+}
+
+// isShardRelevantToTopic checks if a specialist shard is relevant to the given topic.
+// Generic shards (coder, tester, reviewer, researcher) are always relevant.
+// Specialist shards are only relevant if their domain matches the topic.
+func isShardRelevantToTopic(shardName string, topic string) bool {
+	lower := strings.ToLower(topic)
+	shardLower := strings.ToLower(shardName)
+
+	// Generic shards are always relevant
+	genericShards := []string{"coder", "tester", "reviewer", "researcher", "security", "planner"}
+	for _, g := range genericShards {
+		if strings.Contains(shardLower, g) {
+			return true
+		}
+	}
+
+	// Domain-specific keyword mapping
+	domainKeywords := map[string][]string{
+		"go":         {"go", "golang", "gin", "echo", "fiber", "cobra", "viper", "bubbletea", "lipgloss", "rod", "chromedp"},
+		"rod":        {"browser", "automation", "scrape", "scraping", "chromedp", "puppeteer", "selenium", "web driver", "headless"},
+		"mangle":     {"mangle", "datalog", "logic", "predicate", "rule", "query", "facts", "kernel"},
+		"bubbletea":  {"tui", "terminal", "cli", "bubbletea", "bubbles", "charm", "lipgloss", "interactive"},
+		"cobra":      {"cli", "command", "flag", "subcommand", "cobra", "viper", "config"},
+		"react":      {"react", "jsx", "component", "hook", "frontend", "next.js", "nextjs"},
+		"vue":        {"vue", "vuex", "nuxt", "component", "frontend"},
+		"python":     {"python", "pip", "django", "flask", "fastapi", "pandas", "numpy"},
+		"rust":       {"rust", "cargo", "tokio", "async", "ownership", "borrow"},
+		"test":       {"test", "testing", "spec", "coverage", "mock", "stub", "assert"},
+		"security":   {"security", "audit", "vulnerability", "owasp", "injection", "xss", "csrf"},
+	}
+
+	// Check if shard name contains a domain keyword
+	for domain, keywords := range domainKeywords {
+		if strings.Contains(shardLower, domain) {
+			// This is a domain specialist - check if topic matches ANY of its keywords
+			for _, kw := range keywords {
+				if containsWord(lower, kw) {
+					return true // Topic matches this specialist's domain
+				}
+			}
+			// Topic doesn't match this specialist's domain - skip it
+			return false
+		}
+	}
+
+	// Unknown specialist - include by default (might be user-defined)
+	return true
+}
+
 // handleDreamState implements the "what if" simulation mode.
 // It consults ALL available shards (Type A ephemeral, Type B/U persistent specialists,
 // and selected Type S system shards) in parallel WITHOUT executing anything,
@@ -634,9 +700,9 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 	availableShards := m.shardMgr.ListAvailableShards()
 
 	// DEBUG: Log all discovered shards
-	fmt.Printf("\n[DREAM DEBUG] Discovered %d available shards:\n", len(availableShards))
+	logging.Dream("Discovered %d available shards", len(availableShards))
 	for i, shard := range availableShards {
-		fmt.Printf("  [%d] Name: %s, Type: %s, HasKnowledge: %v\n", i+1, shard.Name, shard.Type, shard.HasKnowledge)
+		logging.Dream("  [%d] Name: %s, Type: %s, HasKnowledge: %v", i+1, shard.Name, shard.Type, shard.HasKnowledge)
 	}
 
 	// Filter shards to consult - include all except low-level system internals
@@ -646,14 +712,58 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 		"world_model_ingestor": true, // Background service - not useful to consult
 	}
 
-	var shardTypes []string
+	// Sort shards: persistent specialists FIRST, then ephemeral, then system
+	// This prioritizes domain experts from agents.json before generalists
+	type shardPriority struct {
+		name        string
+		shardType   core.ShardType
+		hasKnowledge bool
+		priority    int // Lower = higher priority
+	}
+
+	var prioritizedShards []shardPriority
 	var shardDescriptions = make(map[string]string)
+
 	for _, shard := range availableShards {
 		if skipShards[shard.Name] {
-			fmt.Printf("[DREAM DEBUG] Skipping internal shard: %s\n", shard.Name)
+			logging.Dream("Skipping internal shard: %s", shard.Name)
 			continue
 		}
-		shardTypes = append(shardTypes, shard.Name)
+
+		// Skip specialists that aren't relevant to this topic
+		if shard.HasKnowledge && !isShardRelevantToTopic(shard.Name, hypothetical) {
+			logging.Dream("Skipping irrelevant specialist: %s (topic: %s)", shard.Name, hypothetical)
+			continue
+		}
+
+		// Calculate priority (lower = consulted first)
+		priority := 100
+		switch shard.Type {
+		case core.ShardTypePersistent:
+			if shard.HasKnowledge {
+				priority = 1 // Persistent specialists with knowledge = highest priority
+			} else {
+				priority = 2 // Persistent without knowledge
+			}
+		case core.ShardTypeUser:
+			if shard.HasKnowledge {
+				priority = 3 // User-defined specialists with knowledge
+			} else {
+				priority = 4 // User-defined without knowledge
+			}
+		case core.ShardTypeEphemeral:
+			priority = 10 // Generalist ephemeral shards
+		case core.ShardTypeSystem:
+			priority = 20 // System shards last
+		}
+
+		prioritizedShards = append(prioritizedShards, shardPriority{
+			name:        shard.Name,
+			shardType:   shard.Type,
+			hasKnowledge: shard.HasKnowledge,
+			priority:    priority,
+		})
+
 		// Build description for prompt context
 		typeLabel := string(shard.Type)
 		if shard.HasKnowledge {
@@ -662,10 +772,25 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 		shardDescriptions[shard.Name] = typeLabel
 	}
 
-	// DEBUG: Log shards that will be consulted
-	fmt.Printf("[DREAM DEBUG] Will consult %d shards:\n", len(shardTypes))
-	for _, name := range shardTypes {
-		fmt.Printf("  - %s (%s)\n", name, shardDescriptions[name])
+	// Sort by priority (lower first)
+	sort.Slice(prioritizedShards, func(i, j int) bool {
+		return prioritizedShards[i].priority < prioritizedShards[j].priority
+	})
+
+	// Extract sorted names
+	var shardTypes []string
+	for _, s := range prioritizedShards {
+		shardTypes = append(shardTypes, s.name)
+	}
+
+	// DEBUG: Log shards that will be consulted (in priority order)
+	logging.Dream("Will consult %d shards (priority ordered - specialists first)", len(shardTypes))
+	for i, s := range prioritizedShards {
+		knowledgeTag := ""
+		if s.hasKnowledge {
+			knowledgeTag = " ★"
+		}
+		logging.Dream("  [%d] %s (%s, priority=%d)%s", i+1, s.name, s.shardType, s.priority, knowledgeTag)
 	}
 
 	// Fallback to core shards if none found
@@ -694,7 +819,7 @@ Format your response as a structured analysis.`
 
 	// Rate limit: ~1.6 API calls per second max - process SEQUENTIALLY
 	// 1 second between shards, each shard's LLM call has 600ms minimum spacing
-	fmt.Printf("[DREAM DEBUG] Rate limiting: processing shards sequentially (1s delay between)\n")
+	logging.Dream("Rate limiting: processing shards sequentially (1s delay between)")
 
 	// Longer timeout for sequential processing (30s per shard max)
 	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*30)*time.Second)
@@ -702,10 +827,14 @@ Format your response as a structured analysis.`
 
 	consultations := make([]DreamConsultation, 0, len(shardTypes))
 
+	// Track specialist responses for early stopping
+	specialistResponded := false
+	specialistResponseQuality := 0 // Sum of response lengths from specialists
+
 	for i, shardName := range shardTypes {
 		// Check if context cancelled
 		if consultCtx.Err() != nil {
-			fmt.Printf("[DREAM DEBUG] Context cancelled, stopping at shard %d/%d\n", i, len(shardTypes))
+			logging.Dream("Context cancelled, stopping at shard %d/%d", i, len(shardTypes))
 			break
 		}
 
@@ -716,8 +845,9 @@ Format your response as a structured analysis.`
 
 		name := shardName
 		typeDesc := shardDescriptions[name]
+		isSpecialist := strings.Contains(typeDesc, "with domain knowledge")
 
-		fmt.Printf("[DREAM DEBUG] [%d/%d] Consulting shard: %s (%s)\n",
+		logging.Dream("[%d/%d] Consulting shard: %s (%s)",
 			i+1, len(shardTypes), name, typeDesc)
 
 		prompt := fmt.Sprintf(consultPromptTemplate, hypothetical, name)
@@ -738,28 +868,55 @@ Format your response as a structured analysis.`
 			consultation.Perspective = result
 			consultation.Tools = extractToolMentions(result)
 			consultation.Concerns = extractConcerns(result)
-			fmt.Printf("[DREAM DEBUG] ✓ Shard %s responded (%d chars)\n", name, len(result))
+			logging.Dream("✓ Shard %s responded (%d chars)", name, len(result))
+
+			// Track specialist response quality
+			if isSpecialist && len(result) > 200 {
+				specialistResponded = true
+				specialistResponseQuality += len(result)
+			}
 		} else {
-			fmt.Printf("[DREAM DEBUG] ✗ Shard %s failed: %v\n", name, err)
+			logging.Dream("✗ Shard %s failed: %v", name, err)
 		}
 
 		consultations = append(consultations, consultation)
+
+		// Early stopping: if we have substantial specialist responses, skip remaining shards
+		// A good specialist response (>1000 chars total) is sufficient - don't need generalists
+		if specialistResponded && specialistResponseQuality > 1000 && i < len(shardTypes)-1 {
+			remainingShards := len(shardTypes) - i - 1
+			// Only skip if remaining are lower priority (generalists/system)
+			// Check if we've processed all specialists
+			allRemainingAreGeneralists := true
+			for j := i + 1; j < len(shardTypes); j++ {
+				desc := shardDescriptions[shardTypes[j]]
+				if strings.Contains(desc, "with domain knowledge") {
+					allRemainingAreGeneralists = false
+					break
+				}
+			}
+			if allRemainingAreGeneralists {
+				logging.Dream("⚡ Early stopping: specialist(s) provided confident answer (%d chars). Skipping %d remaining generalist shards.",
+					specialistResponseQuality, remainingShards)
+				break
+			}
+		}
 	}
 
 	// DEBUG: Summary of collected consultations
-	fmt.Printf("[DREAM DEBUG] Collected %d consultations:\n", len(consultations))
+	logging.Dream("Collected %d consultations", len(consultations))
 	successCount := 0
 	failCount := 0
 	for _, c := range consultations {
 		if c.Error != nil {
 			failCount++
-			fmt.Printf("  ✗ %s (%s): ERROR - %v\n", c.ShardName, c.ShardType, c.Error)
+			logging.Dream("  ✗ %s (%s): ERROR - %v", c.ShardName, c.ShardType, c.Error)
 		} else {
 			successCount++
-			fmt.Printf("  ✓ %s (%s): OK (%d chars)\n", c.ShardName, c.ShardType, len(c.Perspective))
+			logging.Dream("  ✓ %s (%s): OK (%d chars)", c.ShardName, c.ShardType, len(c.Perspective))
 		}
 	}
-	fmt.Printf("[DREAM DEBUG] Summary: %d success, %d failed\n\n", successCount, failCount)
+	logging.Dream("Summary: %d success, %d failed", successCount, failCount)
 
 	// Aggregate and format the dream state response
 	response := formatDreamStateResponse(hypothetical, consultations)

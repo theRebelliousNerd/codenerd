@@ -4,6 +4,7 @@ package researcher
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,11 +45,11 @@ func (r *ResearcherShard) analyzeCodebase(ctx context.Context, workspace string)
 	info, err := os.Stat(workspace)
 	if err != nil || !info.IsDir() {
 		// Not a valid directory - fall back to current working directory
-		fmt.Printf("[Researcher] Invalid workspace '%s', using current directory\n", workspace)
+		logging.Researcher("Invalid workspace '%s', using current directory", workspace)
 		workspace, _ = os.Getwd()
 	}
 
-	fmt.Printf("[Researcher] Analyzing codebase at: %s\n", workspace)
+	logging.Researcher("Analyzing codebase at: %s", workspace)
 
 	result := &ResearchResult{
 		Query:    "codebase_analysis:" + workspace,
@@ -129,10 +130,10 @@ func (r *ResearcherShard) analyzeCodebase(ctx context.Context, workspace string)
 	// 5a. Robust Documentation Ingestion (Docs/, specs, etc.)
 	docAtoms, err := r.IngestDocumentation(ctx, workspace)
 	if err == nil && len(docAtoms) > 0 {
-		fmt.Printf("[Researcher] Ingested %d documentation atoms\n", len(docAtoms))
+		logging.Researcher("Ingested %d documentation atoms", len(docAtoms))
 		result.Atoms = append(result.Atoms, docAtoms...)
 	} else if err != nil {
-		fmt.Printf("[Researcher] Warning: Documentation ingestion failed: %v\n", err)
+		logging.Researcher("Warning: Documentation ingestion failed: %v", err)
 	}
 
 	// 6. Generate summary using LLM if available

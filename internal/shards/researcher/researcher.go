@@ -4,6 +4,7 @@ package researcher
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
@@ -264,7 +265,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 
 	// Process topics in sequential batches of 2 to avoid API overload
 	batchSize := 2
-	fmt.Printf("[Researcher] Starting batch research for %d topics (batch size: %d)...\n", len(topics), batchSize)
+	logging.Researcher("Starting batch research for %d topics (batch size: %d)...", len(topics), batchSize)
 
 	for i := 0; i < len(topics); i += batchSize {
 		// Calculate batch end
@@ -274,7 +275,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 		}
 		batch := topics[i:end]
 
-		fmt.Printf("[Researcher] Processing batch %d/%d: %v\n", (i/batchSize)+1, (len(topics)+batchSize-1)/batchSize, batch)
+		logging.Researcher("Processing batch %d/%d: %v", (i/batchSize)+1, (len(topics)+batchSize-1)/batchSize, batch)
 
 		// Process batch in parallel
 		var wg sync.WaitGroup
@@ -288,7 +289,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 
 				topicResult, err := r.conductWebResearch(ctx, topic, nil, nil) // Don't pass keywords or urls, topic is sufficient
 				if err != nil {
-					fmt.Printf("[Researcher] Topic '%s' failed: %v\n", topic, err)
+					logging.Researcher("Topic '%s' failed: %v", topic, err)
 					return
 				}
 
@@ -297,7 +298,7 @@ func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []s
 				result.PagesScraped += topicResult.PagesScraped
 				mu.Unlock()
 
-				fmt.Printf("[Researcher] Topic '%s': %d atoms\n", topic, len(topicResult.Atoms))
+				logging.Researcher("Topic '%s': %d atoms", topic, len(topicResult.Atoms))
 			}()
 		}
 
@@ -384,7 +385,7 @@ func (r *ResearcherShard) Stop() error {
 
 // describeDreamPlan returns a description of what the researcher would do WITHOUT executing.
 func (r *ResearcherShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
-	fmt.Printf("[ResearcherShard] DREAM MODE - describing plan without execution\n")
+	logging.Researcher("DREAM MODE - describing plan without execution")
 
 	if r.llmClient == nil {
 		return "ResearcherShard would gather knowledge and analyze sources, but no LLM client available for dream description.", nil
@@ -435,11 +436,11 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 	// Parse task
 	topic, keywords, urls := r.parseTask(task)
 
-	fmt.Printf("[Researcher] Starting Deep Research\n")
-	fmt.Printf("  Topic: %s\n", topic)
-	fmt.Printf("  Keywords: %v\n", keywords)
+	logging.Researcher("Starting Deep Research")
+	logging.Researcher("  Topic: %s", topic)
+	logging.Researcher("  Keywords: %v", keywords)
 	if len(urls) > 0 {
-		fmt.Printf("  Explicit URLs: %v\n", urls)
+		logging.Researcher("  Explicit URLs: %v", urls)
 	}
 
 	// Determine research mode
@@ -466,7 +467,7 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 	// Generate facts for the kernel
 	facts := r.generateFacts(result)
 	if err := r.kernel.LoadFacts(facts); err != nil {
-		fmt.Printf("[Researcher] Warning: failed to load facts: %v\n", err)
+		logging.Researcher("Warning: failed to load facts: %v", err)
 	}
 
 	// Build summary
@@ -862,7 +863,7 @@ func (r *ResearcherShard) IngestDocumentation(ctx context.Context, workspace str
 		r.mu.Unlock()
 	}()
 
-	fmt.Printf("[Researcher] Starting Documentation Ingestion in: %s\n", workspace)
+	logging.Researcher("Starting Documentation Ingestion in: %s", workspace)
 
 	var atoms []KnowledgeAtom
 	var mu sync.Mutex
@@ -978,11 +979,11 @@ func (r *ResearcherShard) IngestDocumentation(ctx context.Context, workspace str
 	}
 
 	if len(docFiles) == 0 {
-		fmt.Println("[Researcher] No dedicated documentation files found.")
+		logging.Researcher("No dedicated documentation files found.")
 		return atoms, nil
 	}
 
-	fmt.Printf("[Researcher] Found %d documentation files. Processing...\n", len(docFiles))
+	logging.Researcher("Found %d documentation files. Processing...", len(docFiles))
 
 	// 2. Process Files in Batches (Robustness)
 	// We use the existing llmSemaphore if we need to summarize, but for pure reading we can go faster.
@@ -998,11 +999,11 @@ func (r *ResearcherShard) IngestDocumentation(ctx context.Context, workspace str
 		default:
 		}
 
-		fmt.Printf("   [%d/%d] Ingesting: %s\n", i+1, len(docFiles), filepath.Base(file))
+		logging.Researcher("   [%d/%d] Ingesting: %s", i+1, len(docFiles), filepath.Base(file))
 
 		content, err := os.ReadFile(file)
 		if err != nil {
-			fmt.Printf("   Error reading %s: %v\n", file, err)
+			logging.Researcher("   Error reading %s: %v", file, err)
 			continue
 		}
 

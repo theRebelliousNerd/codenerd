@@ -14,6 +14,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
@@ -95,6 +96,7 @@ func NewExecutivePolicyShard() *ExecutivePolicyShard {
 
 // NewExecutivePolicyShardWithConfig creates an executive shard with custom config.
 func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShard {
+	logging.SystemShards("[ExecutivePolicy] Initializing executive policy shard")
 	base := NewBaseSystemShard("executive_policy", StartupAuto)
 
 	// Configure permissions - minimal, read-only
@@ -105,6 +107,8 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 	}
 	base.Config.Model = core.ModelConfig{} // No LLM by default - pure logic
 
+	logging.SystemShardsDebug("[ExecutivePolicy] Config: tick_interval=%v, strict_barriers=%v, max_actions=%d",
+		cfg.TickInterval, cfg.StrictBarriers, cfg.MaxActionsPerTick)
 	return &ExecutivePolicyShard{
 		BaseSystemShard:  base,
 		config:           cfg,
@@ -148,6 +152,7 @@ func (e *ExecutivePolicyShard) trackFailure(pattern string, reason string) {
 // Execute runs the Executive Policy's continuous decision loop.
 // This shard is AUTO-START and runs for the entire session.
 func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[ExecutivePolicy] Starting OODA decision loop")
 	e.SetState(core.ShardStateRunning)
 	e.mu.Lock()
 	e.running = true
@@ -159,10 +164,12 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		e.mu.Lock()
 		e.running = false
 		e.mu.Unlock()
+		logging.SystemShards("[ExecutivePolicy] Decision loop terminated")
 	}()
 
 	// Initialize kernel if not set
 	if e.Kernel == nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Creating new kernel (none attached)")
 		e.Kernel = core.NewRealKernel()
 	}
 
@@ -172,13 +179,15 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 	for {
 		select {
 		case <-ctx.Done():
+			logging.SystemShards("[ExecutivePolicy] Context cancelled, shutting down")
 			return e.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-e.StopCh:
+			logging.SystemShards("[ExecutivePolicy] Stop signal received")
 			return e.generateShutdownSummary("stopped"), nil
 		case <-ticker.C:
 			// Core OODA loop: Observe -> Orient -> Decide -> (emit for Act)
 			if err := e.evaluatePolicy(ctx); err != nil {
-				// Log error but continue
+				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
 				_ = e.Kernel.Assert(core.Fact{
 					Predicate: "executive_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
@@ -190,6 +199,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 
 			// Check for autopoiesis (strategy gaps)
 			if e.Autopoiesis.ShouldPropose() {
+				logging.SystemShardsDebug("[ExecutivePolicy] Triggering autopoiesis rule proposal")
 				e.handleAutopoiesis(ctx)
 			}
 		}
@@ -205,11 +215,13 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	// 1. Query active strategies
 	strategies, err := e.queryActiveStrategies()
 	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Strategy query failed: %v", err)
 		return fmt.Errorf("strategy query failed: %w", err)
 	}
 
 	// Track strategy changes
 	if !e.strategiesEqual(strategies) {
+		logging.SystemShards("[ExecutivePolicy] Strategy change detected, new strategies: %d", len(strategies))
 		e.mu.Lock()
 		e.activeStrategies = strategies
 		e.strategyChanges++
@@ -217,6 +229,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 
 		// Emit strategy change fact
 		for _, s := range strategies {
+			logging.SystemShardsDebug("[ExecutivePolicy] Strategy activated: %s", s.Name)
 			_ = e.Kernel.Assert(core.Fact{
 				Predicate: "strategy_activated",
 				Args:      []interface{}{s.Name, time.Now().Unix()},
@@ -227,6 +240,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	// 2. Check barriers (block_commit, etc.)
 	blocked, blockReason := e.checkBarriers()
 	if blocked && e.config.StrictBarriers {
+		logging.SystemShardsDebug("[ExecutivePolicy] Execution blocked: %s", blockReason)
 		_ = e.Kernel.Assert(core.Fact{
 			Predicate: "execution_blocked",
 			Args:      []interface{}{blockReason, time.Now().Unix()},
@@ -237,17 +251,20 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	// 3. Query next_action
 	actions, err := e.queryNextActions()
 	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Action query failed: %v", err)
 		return fmt.Errorf("action query failed: %w", err)
 	}
 
 	// Limit actions per tick to prevent storms
 	if len(actions) > e.config.MaxActionsPerTick {
+		logging.Get(logging.CategorySystemShards).Warn("[ExecutivePolicy] Action storm prevention: limiting from %d to %d actions", len(actions), e.config.MaxActionsPerTick)
 		actions = actions[:e.config.MaxActionsPerTick]
 	}
 
 	// 4. Emit pending_action facts for Constitution Gate
 	for _, action := range actions {
 		if action.Blocked {
+			logging.SystemShardsDebug("[ExecutivePolicy] Action blocked: %s (reason: %s)", action.Action, action.BlockReason)
 			e.mu.Lock()
 			e.blockedActions = append(e.blockedActions, action)
 			e.blockCount++
@@ -259,6 +276,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 			continue
 		}
 
+		logging.SystemShards("[ExecutivePolicy] Derived action: %s (from rule: %s)", action.Action, action.FromRule)
 		// Emit pending_action for constitution gate to check
 		_ = e.Kernel.Assert(core.Fact{
 			Predicate: "pending_action",

@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
 	"context"
@@ -80,7 +81,14 @@ type OrchestratorConfig struct {
 
 // NewOrchestrator creates a new campaign orchestrator.
 func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
+	timer := logging.StartTimer(logging.CategoryCampaign, "NewOrchestrator")
+	defer timer.Stop()
+
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
+
+	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
+	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v",
+		cfg.MaxParallelTasks, cfg.CheckpointOnFail, cfg.AutoReplan)
 
 	o := &Orchestrator{
 		kernel:           cfg.Kernel,
@@ -106,34 +114,51 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		o.maxParallelTasks = cfg.MaxParallelTasks
 	}
 
+	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d", o.maxParallelTasks)
+
 	return o
 }
 
 // LoadCampaign loads an existing campaign from disk.
 func (o *Orchestrator) LoadCampaign(campaignID string) error {
+	timer := logging.StartTimer(logging.CategoryCampaign, "LoadCampaign")
+	defer timer.Stop()
+
+	logging.Campaign("Loading campaign: %s", campaignID)
+
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	campaignPath := filepath.Join(o.nerdDir, "campaigns", campaignID+".json")
+	logging.CampaignDebug("Reading campaign from: %s", campaignPath)
+
 	data, err := os.ReadFile(campaignPath)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to read campaign file: %v", err)
 		return fmt.Errorf("failed to load campaign: %w", err)
 	}
 
 	var campaign Campaign
 	if err := json.Unmarshal(data, &campaign); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to parse campaign JSON: %v", err)
 		return fmt.Errorf("failed to parse campaign: %w", err)
 	}
 
 	o.campaign = &campaign
 
+	logging.Campaign("Campaign loaded: %s (title=%s, phases=%d, tasks=%d)",
+		campaign.ID, campaign.Title, len(campaign.Phases), campaign.TotalTasks)
+
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
+	logging.CampaignDebug("Loading %d facts into kernel", len(facts))
 	return o.kernel.LoadFacts(facts)
 }
 
 // SetCampaign sets the campaign to execute.
 func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
+	logging.Campaign("Setting campaign: %s (title=%s)", campaign.ID, campaign.Title)
+
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -141,11 +166,14 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
+	logging.CampaignDebug("Loading %d campaign facts into kernel", len(facts))
 	if err := o.kernel.LoadFacts(facts); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to load campaign facts: %v", err)
 		return err
 	}
 
 	// Save campaign to disk
+	logging.CampaignDebug("Persisting campaign to disk")
 	return o.saveCampaign()
 }
 
@@ -167,15 +195,22 @@ func (o *Orchestrator) saveCampaign() error {
 
 // resetInProgress clears in-flight task/phase states after restarts so work can resume.
 func (o *Orchestrator) resetInProgress() {
+	logging.Campaign("Resetting in-progress states after restart")
+	resetCount := 0
+
 	for pi := range o.campaign.Phases {
 		phase := &o.campaign.Phases[pi]
 		if phase.Status == PhaseInProgress {
+			logging.CampaignDebug("Resetting phase %s from in_progress to pending", phase.ID)
 			phase.Status = PhasePending
+			resetCount++
 		}
 		for ti := range phase.Tasks {
 			task := &phase.Tasks[ti]
 			if task.Status == TaskInProgress {
+				logging.CampaignDebug("Resetting task %s from in_progress to pending", task.ID)
 				task.Status = TaskPending
+				resetCount++
 				// Update kernel fact for the task
 				_ = o.kernel.RetractFact(core.Fact{
 					Predicate: "campaign_task",
@@ -188,20 +223,30 @@ func (o *Orchestrator) resetInProgress() {
 			}
 		}
 	}
+
+	logging.Campaign("Reset %d in-progress items", resetCount)
 	_ = o.saveCampaign()
 }
 
 // Run executes the campaign until completion, pause, or failure.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	runTimer := logging.StartTimer(logging.CategoryCampaign, "Run")
+
 	o.mu.Lock()
 	if o.campaign == nil {
 		o.mu.Unlock()
+		logging.Get(logging.CategoryCampaign).Error("Run called with no campaign loaded")
 		return fmt.Errorf("no campaign loaded")
 	}
 	if o.isRunning {
 		o.mu.Unlock()
+		logging.Get(logging.CategoryCampaign).Warn("Campaign already running: %s", o.campaign.ID)
 		return fmt.Errorf("campaign already running")
 	}
+
+	logging.Campaign("=== Starting campaign execution: %s ===", o.campaign.ID)
+	logging.Campaign("Campaign: %s (type=%s, phases=%d, tasks=%d)",
+		o.campaign.Title, o.campaign.Type, o.campaign.TotalPhases, o.campaign.TotalTasks)
 
 	// Normalize any dangling in-progress tasks/phases (e.g., after restart)
 	o.resetInProgress()
@@ -219,12 +264,18 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		o.isRunning = false
 		o.cancelFunc = nil
 		o.mu.Unlock()
+		runTimer.StopWithInfo()
 	}()
 
 	// Main execution loop
+	loopCount := 0
 	for {
+		loopCount++
+		logging.CampaignDebug("Execution loop iteration %d", loopCount)
+
 		select {
 		case <-ctx.Done():
+			logging.Campaign("Campaign execution cancelled: %v", ctx.Err())
 			o.mu.Lock()
 			o.updateCampaignStatus(StatusPaused)
 			_ = o.saveCampaign()
@@ -238,6 +289,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		paused := o.isPaused
 		o.mu.RUnlock()
 		if paused {
+			logging.CampaignDebug("Campaign paused, waiting...")
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
@@ -247,6 +299,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if currentPhase == nil {
 			// Check if campaign is complete
 			if o.isCampaignComplete() {
+				logging.Campaign("=== Campaign completed successfully: %s ===", o.campaign.ID)
+				logging.Campaign("Final stats: phases=%d/%d, tasks=%d/%d",
+					o.campaign.CompletedPhases, o.campaign.TotalPhases,
+					o.campaign.CompletedTasks, o.campaign.TotalTasks)
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusCompleted)
 				_ = o.saveCampaign()
@@ -258,6 +314,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			// Check if blocked
 			blockReason := o.getCampaignBlockReason()
 			if blockReason != "" {
+				logging.Get(logging.CategoryCampaign).Error("Campaign blocked: %s", blockReason)
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusFailed)
 				o.lastError = fmt.Errorf("campaign blocked: %s", blockReason)
@@ -267,20 +324,26 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			}
 
 			// No current phase but not complete - start next eligible phase
+			logging.CampaignDebug("No current phase, starting next eligible phase")
 			if err := o.startNextPhase(ctx); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Failed to start next phase: %v", err)
 				o.lastError = err
 				continue
 			}
 			continue
 		}
 
+		logging.CampaignDebug("Current phase: %s (%s)", currentPhase.Name, currentPhase.ID)
+
 		// 2. Page in context for current phase
 		if err := o.contextPager.ActivatePhase(ctx, currentPhase); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Context activation error: %v", err)
 			o.emitEvent("context_error", currentPhase.ID, "", err.Error(), nil)
 		}
 
 		// 3. Execute the phase with parallelism + rolling checkpoints
 		if err := o.runPhase(ctx, currentPhase); err != nil {
+			logging.Get(logging.CategoryCampaign).Error("Phase execution error: %v", err)
 			o.lastError = err
 			if ctx.Err() != nil {
 				return err
@@ -293,6 +356,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 func (o *Orchestrator) Pause() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	logging.Campaign("Pausing campaign: %s", o.campaign.ID)
 	o.isPaused = true
 	o.updateCampaignStatus(StatusPaused)
 	_ = o.saveCampaign()
@@ -302,6 +366,7 @@ func (o *Orchestrator) Pause() {
 func (o *Orchestrator) Resume() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	logging.Campaign("Resuming campaign: %s", o.campaign.ID)
 	o.isPaused = false
 	o.updateCampaignStatus(StatusActive)
 }
@@ -310,6 +375,7 @@ func (o *Orchestrator) Resume() {
 func (o *Orchestrator) Stop() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	logging.Campaign("Stopping campaign: %s", o.campaign.ID)
 	if o.cancelFunc != nil {
 		o.cancelFunc()
 	}
@@ -495,19 +561,25 @@ func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
 
 // startNextPhase starts the next eligible phase.
 func (o *Orchestrator) startNextPhase(ctx context.Context) error {
+	timer := logging.StartTimer(logging.CategoryCampaign, "startNextPhase")
+	defer timer.Stop()
+
 	// Check for cancellation before starting phase transition
 	select {
 	case <-ctx.Done():
+		logging.CampaignDebug("Phase transition cancelled")
 		return ctx.Err()
 	default:
 	}
 
 	facts, err := o.kernel.Query("phase_eligible")
 	if err != nil || len(facts) == 0 {
+		logging.CampaignDebug("No eligible phases found")
 		return fmt.Errorf("no eligible phases")
 	}
 
 	phaseID := fmt.Sprintf("%v", facts[0].Args[0])
+	logging.Campaign("Phase transition: starting phase %s", phaseID)
 
 	// Find and update phase
 	o.mu.Lock()
@@ -515,6 +587,10 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phaseID {
+			logging.Campaign("=== Phase Started: %s (%s) ===", o.campaign.Phases[i].Name, phaseID)
+			logging.CampaignDebug("Phase details: order=%d, tasks=%d, complexity=%s",
+				o.campaign.Phases[i].Order, len(o.campaign.Phases[i].Tasks), o.campaign.Phases[i].EstimatedComplexity)
+
 			o.campaign.Phases[i].Status = PhaseInProgress
 
 			// Update kernel
@@ -539,6 +615,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 		}
 	}
 
+	logging.Get(logging.CategoryCampaign).Error("Phase not found: %s", phaseID)
 	return fmt.Errorf("phase %s not found", phaseID)
 }
 
@@ -549,8 +626,21 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phase.ID {
+			logging.Campaign("=== Phase Completed: %s (%s) ===", phase.Name, phase.ID)
+
+			completedTasks := 0
+			for _, t := range o.campaign.Phases[i].Tasks {
+				if t.Status == TaskCompleted {
+					completedTasks++
+				}
+			}
+			logging.CampaignDebug("Phase stats: completed tasks=%d/%d", completedTasks, len(o.campaign.Phases[i].Tasks))
+
 			o.campaign.Phases[i].Status = PhaseCompleted
 			o.campaign.CompletedPhases++
+
+			logging.Campaign("Campaign progress: phases=%d/%d",
+				o.campaign.CompletedPhases, o.campaign.TotalPhases)
 
 			// Update kernel
 			_ = o.kernel.RetractFact(core.Fact{
@@ -590,6 +680,11 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		return nil
 	}
 
+	phaseTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("runPhase(%s)", phase.Name))
+	defer phaseTimer.StopWithInfo()
+
+	logging.Campaign("Executing phase: %s (tasks=%d)", phase.Name, len(phase.Tasks))
+
 	active := make(map[string]bool)
 	results := make(chan taskResult, o.maxParallelTasks*2)
 
@@ -597,6 +692,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		// Respect cancellation
 		select {
 		case <-ctx.Done():
+			logging.Campaign("Phase %s cancelled", phase.Name)
 			return ctx.Err()
 		default:
 		}
@@ -614,6 +710,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		for {
 			select {
 			case res := <-results:
+				logging.CampaignDebug("Task result received: %s (err=%v)", res.taskID, res.err)
 				delete(active, res.taskID)
 			default:
 				goto schedule
@@ -623,12 +720,18 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 	schedule:
 		// If phase is done and no active tasks, run checkpoint and finish
 		if o.isPhaseComplete(phase) && len(active) == 0 {
+			logging.Campaign("Phase %s complete, running checkpoint", phase.Name)
 			if err := o.runPhaseCheckpoint(ctx, phase); err != nil {
+				logging.Get(logging.CategoryCampaign).Error("Checkpoint failed for phase %s: %v", phase.ID, err)
 				o.emitEvent("checkpoint_failed", phase.ID, "", err.Error(), nil)
 			}
+
+			logging.CampaignDebug("Compressing phase context: %s", phase.ID)
 			if summary, count, compressedAt, err := o.contextPager.CompressPhase(ctx, phase); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Context compression error: %v", err)
 				o.emitEvent("compression_error", phase.ID, "", err.Error(), nil)
 			} else {
+				logging.CampaignDebug("Phase compressed: atoms=%d, summary_len=%d", count, len(summary))
 				o.mu.Lock()
 				phase.CompressedSummary = summary
 				phase.OriginalAtomCount = count
@@ -645,6 +748,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 
 		// Calculate adaptive concurrency limit
 		currentLimit := o.determineConcurrencyLimit(active, phase)
+		logging.CampaignDebug("Concurrency: active=%d, limit=%d", len(active), currentLimit)
 
 		// Schedule eligible tasks up to the concurrency limit
 		if len(active) < currentLimit {
@@ -656,6 +760,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				if active[task.ID] || task.Status != TaskPending {
 					continue
 				}
+				logging.Campaign("Scheduling task: %s (type=%s)", task.Description[:min(50, len(task.Description))], task.Type)
 				active[task.ID] = true
 				o.updateTaskStatus(task, TaskInProgress)
 				go o.runSingleTask(ctx, phase, task, results)
@@ -669,6 +774,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 			}
 			if len(runnable) == 0 {
 				if reason := o.getCampaignBlockReason(); reason != "" {
+					logging.Get(logging.CategoryCampaign).Error("Phase blocked: %s", reason)
 					o.emitEvent("campaign_blocked", phase.ID, "", reason, nil)
 					o.mu.Lock()
 					o.updateCampaignStatus(StatusFailed)
@@ -693,10 +799,15 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 
 // triggerRollingWave refreshes downstream plans after a phase completes.
 func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *Phase) {
+	logging.Campaign("Rolling-wave refinement triggered after phase: %s", completedPhase.Name)
+	timer := logging.StartTimer(logging.CategoryCampaign, "triggerRollingWave")
+	defer timer.Stop()
+
 	// Optional: refresh the world model / holographic graph after edits.
 	// We rely on the VirtualStore scopes to refresh after writes; this hook
 	// keeps the policy facts in sync across phases.
 	if o.virtualStore != nil {
+		logging.CampaignDebug("Refreshing world model scope")
 		// Best-effort scope refresh to update code graph facts
 		_, _ = o.virtualStore.RouteAction(ctx, core.Fact{
 			Predicate: "action",
@@ -705,16 +816,20 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 	}
 
 	if o.replanner != nil {
+		logging.CampaignDebug("Refining next phase based on completed phase: %s", completedPhase.ID)
 		if err := o.replanner.RefineNextPhase(ctx, o.campaign, completedPhase); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Rolling-wave refinement failed: %v", err)
 			o.emitEvent("replan_failed", completedPhase.ID, "", err.Error(), nil)
 			return
 		}
 
 		// Reload campaign facts after refinement to keep Mangle view up to date
+		logging.CampaignDebug("Reloading campaign facts after refinement")
 		o.kernel.Retract("campaign_phase")
 		o.kernel.Retract("campaign_task")
 		_ = o.kernel.LoadFacts(o.campaign.ToFacts())
 
+		logging.Campaign("Rolling-wave refinement applied (revision=%d)", o.campaign.RevisionNumber)
 		o.emitEvent("replan", completedPhase.ID, "", "Rolling-wave refinement applied", map[string]any{
 			"revision": o.campaign.RevisionNumber,
 		})
@@ -723,13 +838,23 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 
 // runSingleTask executes a task and sends the result back to the phase loop.
 func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Task, results chan<- taskResult) {
+	taskTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("task(%s)", task.ID))
+
+	logging.Campaign("Task started: %s (type=%s, phase=%s)", task.ID, task.Type, phase.Name)
+	logging.CampaignDebug("Task description: %s", task.Description)
+
 	o.emitEvent("task_started", phase.ID, task.ID, task.Description, nil)
 	result, err := o.executeTask(ctx, task)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
+		taskTimer.Stop()
 		o.handleTaskFailure(ctx, phase, task, err)
 		results <- taskResult{taskID: task.ID, err: err}
 		return
 	}
+
+	taskTimer.StopWithInfo()
+	logging.Campaign("Task completed: %s", task.ID)
 
 	o.completeTask(task, result)
 	o.emitEvent("task_completed", phase.ID, task.ID, "Task completed", result)
@@ -745,34 +870,48 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 
 // executeTask executes a single task.
 func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing task %s with type %s", task.ID, task.Type)
+
 	// Update task status
 	o.updateTaskStatus(task, TaskInProgress)
 
 	// Determine execution strategy based on task type
 	switch task.Type {
 	case TaskTypeResearch:
+		logging.CampaignDebug("Delegating to research task handler")
 		return o.executeResearchTask(ctx, task)
 	case TaskTypeFileCreate, TaskTypeFileModify:
+		logging.CampaignDebug("Delegating to file task handler")
 		return o.executeFileTask(ctx, task)
 	case TaskTypeTestWrite:
+		logging.CampaignDebug("Delegating to test write handler")
 		return o.executeTestWriteTask(ctx, task)
 	case TaskTypeTestRun:
+		logging.CampaignDebug("Delegating to test run handler")
 		return o.executeTestRunTask(ctx, task)
 	case TaskTypeVerify:
+		logging.CampaignDebug("Delegating to verify handler")
 		return o.executeVerifyTask(ctx, task)
 	case TaskTypeShardSpawn:
+		logging.CampaignDebug("Delegating to shard spawn handler")
 		return o.executeShardSpawnTask(ctx, task)
 	case TaskTypeRefactor:
+		logging.CampaignDebug("Delegating to refactor handler")
 		return o.executeRefactorTask(ctx, task)
 	case TaskTypeIntegrate:
+		logging.CampaignDebug("Delegating to integrate handler")
 		return o.executeIntegrateTask(ctx, task)
 	case TaskTypeDocument:
+		logging.CampaignDebug("Delegating to document handler")
 		return o.executeDocumentTask(ctx, task)
 	case TaskTypeToolCreate:
+		logging.CampaignDebug("Delegating to tool create handler (Ouroboros)")
 		return o.executeToolCreateTask(ctx, task)
 	case TaskTypeCampaignRef:
+		logging.CampaignDebug("Delegating to sub-campaign handler")
 		return o.executeCampaignRefTask(ctx, task)
 	default:
+		logging.CampaignDebug("Using generic task handler for type: %s", task.Type)
 		return o.executeGenericTask(ctx, task)
 	}
 }
@@ -1130,6 +1269,8 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 
 // handleTaskFailure handles task execution failure.
 func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task *Task, err error) {
+	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, err)
+
 	o.mu.Lock()
 
 	// Record attempt
@@ -1137,6 +1278,8 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 		for j := range o.campaign.Phases[i].Tasks {
 			if o.campaign.Phases[i].Tasks[j].ID == task.ID {
 				attemptNum := len(o.campaign.Phases[i].Tasks[j].Attempts) + 1
+				logging.CampaignDebug("Task %s attempt %d failed", task.ID, attemptNum)
+
 				o.campaign.Phases[i].Tasks[j].Attempts = append(
 					o.campaign.Phases[i].Tasks[j].Attempts,
 					TaskAttempt{
@@ -1150,6 +1293,7 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 
 				// Check if max retries exceeded
 				if attemptNum >= 3 {
+					logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (3), marking as failed", task.ID)
 					o.campaign.Phases[i].Tasks[j].Status = TaskFailed
 
 					// Record in kernel
@@ -1169,12 +1313,15 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	// Check if replan is needed
 	facts, _ := o.kernel.Query("replan_needed")
 	if len(facts) > 0 {
+		logging.Campaign("Replan triggered due to task failures")
 		o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
 		if err := o.replanner.Replan(ctx, o.campaign, task.ID); err != nil {
+			logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", err)
 			o.emitEvent("replan_failed", "", "", err.Error(), nil)
 		} else {
 			o.mu.Lock()
 			o.campaign.RevisionNumber++
+			logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
 			o.saveCampaign()
 			o.mu.Unlock()
 		}
@@ -1183,14 +1330,27 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 
 // runPhaseCheckpoint runs the checkpoint for a phase.
 func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) error {
+	logging.Campaign("Running checkpoint for phase: %s", phase.Name)
+	timer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("checkpoint(%s)", phase.Name))
+	defer timer.Stop()
+
 	for _, obj := range phase.Objectives {
 		if obj.VerificationMethod == VerifyNone {
+			logging.CampaignDebug("Skipping verification (method=none) for objective: %s", obj.Description)
 			continue
 		}
 
+		logging.CampaignDebug("Running verification: %s", obj.VerificationMethod)
 		passed, details, err := o.checkpoint.Run(ctx, phase, obj.VerificationMethod)
 		if err != nil {
+			logging.Get(logging.CategoryCampaign).Error("Checkpoint error: %v", err)
 			return err
+		}
+
+		if passed {
+			logging.Campaign("Checkpoint PASSED: %s", obj.VerificationMethod)
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Checkpoint FAILED: %s - %s", obj.VerificationMethod, details)
 		}
 
 		checkpoint := Checkpoint{
@@ -1234,6 +1394,12 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 		return
 	}
 
+	if len(facts) == 0 {
+		return
+	}
+
+	logging.CampaignDebug("Applying %d learnings from task %s", len(facts), task.ID)
+
 	// Summarize result for learning context
 	resultContext := ""
 	if result != nil {
@@ -1259,8 +1425,11 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 			AppliedAt: time.Now(),
 		}
 		o.campaign.Learnings = append(o.campaign.Learnings, learning)
+		logging.CampaignDebug("Learning captured: %s", learning.Pattern)
 	}
 	o.mu.Unlock()
+
+	logging.Campaign("Captured %d learnings (total=%d)", len(facts), len(o.campaign.Learnings))
 }
 
 // emitProgress sends progress update to channel.
@@ -1372,26 +1541,34 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 // HandleNewRequirement processes a dynamic requirement injection from an external system (e.g., Autopoiesis).
 // It wraps ReplanForNewRequirement.
 func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement string) error {
+	logging.Campaign("New requirement received: %s", requirement[:min(100, len(requirement))])
+	timer := logging.StartTimer(logging.CategoryCampaign, "HandleNewRequirement")
+	defer timer.Stop()
+
 	o.emitEvent("new_requirement_received", "", "", requirement, nil)
 
 	// Pause temporarily to safely modify plan
 	o.mu.Lock()
 	wasPaused := o.isPaused
 	o.isPaused = true
+	logging.CampaignDebug("Temporarily pausing campaign to integrate new requirement")
 	o.mu.Unlock()
 
 	defer func() {
 		o.mu.Lock()
 		o.isPaused = wasPaused
+		logging.CampaignDebug("Resuming campaign after requirement integration")
 		o.mu.Unlock()
 	}()
 
 	// Call the previously unwired Replanner method
 	if err := o.replanner.ReplanForNewRequirement(ctx, o.campaign, requirement); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to integrate new requirement: %v", err)
 		o.emitEvent("new_requirement_failed", "", "", err.Error(), nil)
 		return err
 	}
 
+	logging.Campaign("New requirement successfully integrated into plan")
 	o.emitEvent("new_requirement_integrated", "", "", "Plan updated with new requirement", nil)
 	return nil
 }

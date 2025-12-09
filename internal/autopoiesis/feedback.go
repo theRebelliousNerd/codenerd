@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -95,6 +97,7 @@ type RefinementResult struct {
 
 // NewToolRefiner creates a new tool refiner
 func NewToolRefiner(client LLMClient, toolGen *ToolGenerator) *ToolRefiner {
+	logging.AutopoiesisDebug("Creating ToolRefiner")
 	return &ToolRefiner{
 		client:  client,
 		toolGen: toolGen,
@@ -103,6 +106,12 @@ func NewToolRefiner(client LLMClient, toolGen *ToolGenerator) *ToolRefiner {
 
 // Refine generates an improved version of a tool
 func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "ToolRefiner.Refine")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Refining tool: %s (%d feedback items, %d patterns)",
+		req.ToolName, len(req.Feedback), len(req.Patterns))
+
 	result := &RefinementResult{
 		Changes:   []string{},
 		TestCases: []string{},
@@ -110,11 +119,17 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 
 	// Build improvement prompt
 	prompt := tr.buildRefinementPrompt(req)
+	logging.AutopoiesisDebug("Built refinement prompt: %d chars", len(prompt))
 
+	logging.AutopoiesisDebug("Sending refinement request to LLM")
+	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMRefinement")
 	resp, err := tr.client.CompleteWithSystem(ctx, refinementSystemPrompt, prompt)
+	llmTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Refinement LLM call failed: %v", err)
 		return nil, fmt.Errorf("refinement failed: %w", err)
 	}
+	logging.AutopoiesisDebug("Received LLM response: %d chars", len(resp))
 
 	// Parse response
 	var refinement struct {
@@ -126,14 +141,17 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 
 	jsonStr := extractJSON(resp)
 	if err := json.Unmarshal([]byte(jsonStr), &refinement); err != nil {
+		logging.AutopoiesisDebug("JSON parsing failed, trying code block extraction")
 		// Try to extract code block directly
 		code := extractCodeBlock(resp, "go")
 		if code != "" {
 			result.ImprovedCode = code
 			result.Success = true
 			result.Changes = []string{"LLM-generated improvements"}
+			logging.Autopoiesis("Tool refined via code block extraction: %s", req.ToolName)
 			return result, nil
 		}
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to parse refinement response: %v", err)
 		return nil, fmt.Errorf("failed to parse refinement: %w", err)
 	}
 
@@ -142,6 +160,12 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 	result.Changes = refinement.Changes
 	result.ExpectedGain = refinement.ExpectedGain
 	result.TestCases = refinement.TestCases
+
+	logging.Autopoiesis("Tool refined successfully: %s (expectedGain=%.2f, changes=%d)",
+		req.ToolName, result.ExpectedGain, len(result.Changes))
+	for i, change := range result.Changes {
+		logging.AutopoiesisDebug("  Change %d: %s", i+1, change)
+	}
 
 	return result, nil
 }
@@ -254,21 +278,26 @@ type ToolLearning struct {
 
 // NewLearningStore creates a new learning store
 func NewLearningStore(storePath string) *LearningStore {
+	logging.AutopoiesisDebug("Creating LearningStore: path=%s", storePath)
 	store := &LearningStore{
 		storePath: storePath,
 		learnings: make(map[string]*ToolLearning),
 	}
 	store.load()
+	logging.Autopoiesis("LearningStore initialized with %d existing learnings", len(store.learnings))
 	return store
 }
 
 // RecordLearning updates learnings for a tool
 func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeedback, patterns []*DetectedPattern) {
+	logging.AutopoiesisDebug("Recording learning for tool: %s (success=%v)", toolName, feedback.Success)
+
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
 	learning, exists := ls.learnings[toolName]
 	if !exists {
+		logging.AutopoiesisDebug("Creating new learning record for tool: %s", toolName)
 		learning = &ToolLearning{
 			ToolName:      toolName,
 			Version:       1,
@@ -295,25 +324,38 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 			feedback.Quality.Score) / float64(learning.TotalExecutions)
 
 		// Track known issues
+		newIssues := 0
 		for _, issue := range feedback.Quality.Issues {
 			if !containsIssueType(learning.KnownIssues, issue.Type) {
 				learning.KnownIssues = append(learning.KnownIssues, issue.Type)
+				newIssues++
 			}
+		}
+		if newIssues > 0 {
+			logging.AutopoiesisDebug("Added %d new known issues for %s", newIssues, toolName)
 		}
 	}
 
 	// Extract anti-patterns from patterns
+	newPatterns := 0
 	for _, p := range patterns {
 		if p.Confidence > 0.7 {
 			antiPattern := fmt.Sprintf("%s: %s", p.IssueType, p.PatternID)
 			if !contains(learning.AntiPatterns, antiPattern) {
 				learning.AntiPatterns = append(learning.AntiPatterns, antiPattern)
+				newPatterns++
 			}
 		}
+	}
+	if newPatterns > 0 {
+		logging.AutopoiesisDebug("Added %d new anti-patterns for %s", newPatterns, toolName)
 	}
 
 	learning.UpdatedAt = time.Now()
 	ls.save()
+
+	logging.Autopoiesis("Learning recorded for %s: executions=%d, successRate=%.2f, avgQuality=%.2f",
+		toolName, learning.TotalExecutions, learning.SuccessRate, learning.AverageQuality)
 }
 
 // GetLearning retrieves learnings for a tool

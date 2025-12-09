@@ -2,6 +2,7 @@ package tester
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -16,17 +17,22 @@ import (
 
 // generateTests uses LLM to generate tests for the target.
 func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (string, error) {
+	timer := logging.StartTimer(logging.CategoryTester, "generateTests")
+	defer timer.StopWithInfo()
+
 	t.mu.RLock()
 	llmClient := t.llmClient
 	framework := t.testerConfig.Framework
 	t.mu.RUnlock()
 
 	if llmClient == nil {
+		logging.Get(logging.CategoryTester).Error("No LLM client configured for test generation")
 		return "", fmt.Errorf("no LLM client configured for test generation")
 	}
 
 	if framework == "auto" {
 		framework = t.detectFramework(task.Target)
+		logging.TesterDebug("Auto-detected framework for test generation: %s", framework)
 	}
 
 	// Read the target file content
@@ -34,6 +40,7 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 	if task.File != "" {
 		targetPath = task.File
 	}
+	logging.Tester("Generating tests for: %s", targetPath)
 
 	var sourceContent string
 	if t.virtualStore != nil {
@@ -43,36 +50,48 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 		}
 		content, err := t.virtualStore.RouteAction(ctx, action)
 		if err != nil {
+			logging.Get(logging.CategoryTester).Error("Failed to read target file %s: %v", targetPath, err)
 			return "", fmt.Errorf("failed to read target file: %w", err)
 		}
 		sourceContent = content
+		logging.TesterDebug("Read source file: %d bytes", len(sourceContent))
 	} else {
+		logging.Get(logging.CategoryTester).Error("VirtualStore required for file operations")
 		return "", fmt.Errorf("virtualStore required for file operations")
 	}
 
 	// Build generation prompt
 	systemPrompt := t.buildTestGenSystemPrompt(framework)
 	userPrompt := t.buildTestGenUserPrompt(sourceContent, task, framework)
+	logging.TesterDebug("Built prompts: system=%d chars, user=%d chars", len(systemPrompt), len(userPrompt))
 
 	// Call LLM with retry
+	llmTimer := logging.StartTimer(logging.CategoryTester, "LLM.GenerateTests")
 	response, err := t.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	llmTimer.StopWithInfo()
 	if err != nil {
+		logging.Get(logging.CategoryTester).Error("LLM test generation failed: %v", err)
 		return "", fmt.Errorf("LLM test generation failed after retries: %w", err)
 	}
+	logging.TesterDebug("LLM response: %d chars", len(response))
 
 	// Parse generated tests
 	generated := t.parseGeneratedTests(response, targetPath, framework)
+	logging.Tester("Generated %d tests for %s", generated.TestCount, targetPath)
 
 	// Write test file via VirtualStore
 	if t.virtualStore != nil && generated.Content != "" {
+		logging.TesterDebug("Writing test file: %s", generated.FilePath)
 		writeAction := core.Fact{
 			Predicate: "next_action",
 			Args:      []interface{}{"/write_file", generated.FilePath, generated.Content},
 		}
 		_, err := t.virtualStore.RouteAction(ctx, writeAction)
 		if err != nil {
+			logging.Get(logging.CategoryTester).Error("Failed to write test file %s: %v", generated.FilePath, err)
 			return "", fmt.Errorf("failed to write test file: %w", err)
 		}
+		logging.Tester("Test file written: %s", generated.FilePath)
 	}
 
 	// Generate facts
@@ -85,7 +104,11 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 			Predicate: "file_topology",
 			Args:      []interface{}{generated.FilePath, hashContent(generated.Content), detectLanguage(generated.FilePath), time.Now().Unix(), true},
 		})
+		logging.TesterDebug("Asserted test_generated and file_topology facts")
 	}
+
+	logging.Tester("Test generation complete: %d tests, functions: %v",
+		generated.TestCount, generated.FunctionsTested)
 
 	// Format result
 	return fmt.Sprintf("Generated %d tests for %s\nTest file: %s\nFunctions tested: %s",

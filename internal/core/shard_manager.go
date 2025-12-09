@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/logging"
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
@@ -903,7 +904,7 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 		// We use the profile name as the type name
 		_, err := sm.SpawnAsync(ctx, name, "system_start")
 		if err != nil {
-			fmt.Printf("Failed to start system shard %s: %v\n", name, err)
+			logging.Shards("Failed to start system shard %s: %v", name, err)
 		}
 	}
 

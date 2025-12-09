@@ -5,6 +5,7 @@ package researcher
 
 import (
 	"codenerd/internal/browser"
+	"codenerd/internal/logging"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1033,7 +1034,7 @@ func (c *Context7Tool) FetchCodeSnippets(ctx context.Context, owner, repo, topic
 	if cached, ok := c.cache.Get(cacheKey); ok {
 		var atoms []KnowledgeAtom
 		if err := json.Unmarshal([]byte(cached), &atoms); err == nil {
-			fmt.Printf("[Context7] Using cached code snippets (%d atoms)\n", len(atoms))
+			logging.Researcher("[Context7] Using cached code snippets (%d atoms)", len(atoms))
 			return atoms, nil
 		}
 	}
@@ -1086,7 +1087,7 @@ func (c *Context7Tool) FetchCodeSnippets(ctx context.Context, owner, repo, topic
 		for _, snippet := range codeResp.Snippets {
 			// Check token limit
 			if c.maxTokens > 0 && totalTokens >= c.maxTokens {
-				fmt.Printf("[Context7] Reached token limit (%d tokens)\n", totalTokens)
+				logging.Researcher("[Context7] Reached token limit (%d tokens)", totalTokens)
 				goto done
 			}
 
@@ -1125,13 +1126,13 @@ func (c *Context7Tool) FetchCodeSnippets(ctx context.Context, owner, repo, topic
 
 		// Safety limit - don't fetch more than 20 pages
 		if page > 20 {
-			fmt.Printf("[Context7] Reached max page limit (20 pages)\n")
+			logging.Researcher("[Context7] Reached max page limit (20 pages)")
 			break
 		}
 	}
 
 done:
-	fmt.Printf("[Context7] Fetched %d code snippets (%d tokens) from %s/%s\n",
+	logging.Researcher("[Context7] Fetched %d code snippets (%d tokens) from %s/%s",
 		len(allAtoms), totalTokens, owner, repo)
 
 	// Cache results
@@ -1156,7 +1157,7 @@ func (c *Context7Tool) FetchDocContent(ctx context.Context, owner, repo, topic s
 	if cached, ok := c.cache.Get(cacheKey); ok {
 		var atoms []KnowledgeAtom
 		if err := json.Unmarshal([]byte(cached), &atoms); err == nil {
-			fmt.Printf("[Context7] Using cached documentation (%d atoms)\n", len(atoms))
+			logging.Researcher("[Context7] Using cached documentation (%d atoms)", len(atoms))
 			return atoms, nil
 		}
 	}
@@ -1208,7 +1209,7 @@ func (c *Context7Tool) FetchDocContent(ctx context.Context, owner, repo, topic s
 		for _, snippet := range infoResp.Snippets {
 			// Check token limit
 			if c.maxTokens > 0 && totalTokens >= c.maxTokens {
-				fmt.Printf("[Context7] Reached token limit (%d tokens)\n", totalTokens)
+				logging.Researcher("[Context7] Reached token limit (%d tokens)", totalTokens)
 				goto done
 			}
 
@@ -1238,13 +1239,13 @@ func (c *Context7Tool) FetchDocContent(ctx context.Context, owner, repo, topic s
 
 		// Safety limit - don't fetch more than 20 pages
 		if page > 20 {
-			fmt.Printf("[Context7] Reached max page limit (20 pages)\n")
+			logging.Researcher("[Context7] Reached max page limit (20 pages)")
 			break
 		}
 	}
 
 done:
-	fmt.Printf("[Context7] Fetched %d documentation pages (%d tokens) from %s/%s\n",
+	logging.Researcher("[Context7] Fetched %d documentation pages (%d tokens) from %s/%s",
 		len(allAtoms), totalTokens, owner, repo)
 
 	// Cache results
@@ -1369,7 +1370,7 @@ func (c *Context7Tool) ResearchTopic(ctx context.Context, topic string, keywords
 		return nil, fmt.Errorf("invalid Context7 library ID: %s", result.ID)
 	}
 
-	fmt.Printf("[Context7] Found: %s (%d snippets, %d tokens, score: %.1f)\n",
+	logging.Researcher("[Context7] Found: %s (%d snippets, %d tokens, score: %.1f)",
 		result.Title, result.TotalSnippets, result.TotalTokens, result.BenchmarkScore)
 
 	// Build topic filter from keywords
@@ -1416,7 +1417,7 @@ func (c *Context7Tool) ResearchTopic(ctx context.Context, topic string, keywords
 
 	// Log any errors but don't fail if we got some results
 	for err := range errCh {
-		fmt.Printf("[Context7] Warning: %v\n", err)
+		logging.Researcher("[Context7] Warning: %v", err)
 	}
 
 	if len(allAtoms) == 0 {

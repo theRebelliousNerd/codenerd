@@ -2,6 +2,7 @@ package context
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"fmt"
 	"math"
 	"sort"
@@ -90,8 +91,17 @@ func (ae *ActivationEngine) ClearCampaignContext() {
 // ScoreFacts computes activation scores for all facts.
 // Returns facts sorted by score in descending order.
 func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fact) []ScoredFact {
+	timer := logging.StartTimer(logging.CategoryContext, "ScoreFacts")
+	defer timer.Stop()
+
 	ae.state.ActiveIntent = currentIntent
 	ae.state.LastUpdate = time.Now()
+
+	intentStr := "<none>"
+	if currentIntent != nil {
+		intentStr = currentIntent.String()
+	}
+	logging.ContextDebug("Scoring %d facts with intent: %s", len(facts), intentStr)
 
 	// Build symbol graph from facts (for dependency spreading)
 	ae.buildSymbolGraph(facts)
@@ -114,6 +124,19 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].Score > scored[j].Score
 	})
+
+	// Log top scorers
+	if len(scored) > 0 {
+		topScore := scored[0].Score
+		aboveThreshold := 0
+		for _, sf := range scored {
+			if sf.Score >= ae.config.ActivationThreshold {
+				aboveThreshold++
+			}
+		}
+		logging.ContextDebug("Activation scoring: top_score=%.1f, above_threshold=%d/%d",
+			topScore, aboveThreshold, len(scored))
+	}
 
 	return scored
 }
@@ -174,6 +197,9 @@ func (ae *ActivationEngine) SelectWithinBudget(scored []ScoredFact, budget int) 
 			usedTokens += tokens
 		}
 	}
+
+	logging.ContextDebug("SelectWithinBudget: selected %d/%d facts, using %d/%d tokens",
+		len(selected), len(scored), usedTokens, budget)
 
 	return selected
 }
@@ -553,8 +579,17 @@ func (ae *ActivationEngine) ApplyIntentActivation(facts []core.Fact, intent *cor
 
 // GetHighActivationFacts returns facts above the threshold sorted by score.
 func (ae *ActivationEngine) GetHighActivationFacts(facts []core.Fact, intent *core.Fact, budget int) []ScoredFact {
+	timer := logging.StartTimer(logging.CategoryContext, "GetHighActivationFacts")
+	defer timer.Stop()
+
+	logging.ContextDebug("GetHighActivationFacts: %d input facts, budget=%d tokens", len(facts), budget)
+
 	scored := ae.ApplyIntentActivation(facts, intent)
-	return ae.SelectWithinBudget(scored, budget)
+	selected := ae.SelectWithinBudget(scored, budget)
+
+	logging.ContextDebug("GetHighActivationFacts: selected %d high-activation facts", len(selected))
+
+	return selected
 }
 
 // SpreadFromSeeds spreads activation from a set of seed facts.

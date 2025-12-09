@@ -76,6 +76,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mangle/transpiler"
 )
@@ -178,6 +179,13 @@ func DefaultExecuteConfig() ExecuteConfig {
 
 // NewOuroborosLoop creates a new Ouroboros Loop instance
 func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "NewOuroborosLoop")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Initializing Ouroboros Loop")
+	logging.AutopoiesisDebug("Config: ToolsDir=%s, CompiledDir=%s, WorkspaceRoot=%s",
+		config.ToolsDir, config.CompiledDir, config.WorkspaceRoot)
+
 	// Set defaults for OS/Arch if missing
 	if config.TargetOS == "" {
 		// Default to user's OS environment assumption or runtime
@@ -186,6 +194,7 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		} else {
 			config.TargetOS = "windows"
 		}
+		logging.AutopoiesisDebug("TargetOS defaulted to: %s", config.TargetOS)
 	}
 	if config.TargetArch == "" {
 		if os.Getenv("GOARCH") != "" {
@@ -193,9 +202,11 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		} else {
 			config.TargetArch = "amd64"
 		}
+		logging.AutopoiesisDebug("TargetArch defaulted to: %s", config.TargetArch)
 	}
 
 	// Initialize Mangle Engine
+	logging.AutopoiesisDebug("Initializing Mangle engine for state machine")
 	engineConfig := mangle.DefaultConfig()
 	// Disable auto-eval for initial load to speed it up
 	engineConfig.AutoEval = false
@@ -205,8 +216,10 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	engine, err := mangle.NewEngine(engineConfig, nil)
 	if err != nil {
 		// Fallback to panic if engine cannot start - essential component
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to initialize Mangle engine: %v", err)
 		panic(fmt.Sprintf("failed to initialize Ouroboros Mangle engine: %v", err))
 	}
+	logging.AutopoiesisDebug("Mangle engine initialized successfully")
 
 	loop := &OuroborosLoop{
 		toolGen:       NewToolGenerator(client, config.ToolsDir),
@@ -219,19 +232,26 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	}
 
 	// Restore registry from disk
+	logging.AutopoiesisDebug("Restoring tool registry from disk")
 	loop.registry.Restore(config.ToolsDir, config.CompiledDir)
+	toolCount := len(loop.registry.List())
+	logging.Autopoiesis("Restored %d tools from registry", toolCount)
 
 	// Load State Machine Rules
 	statePath := filepath.Join(config.WorkspaceRoot, "internal", "autopoiesis", "state.mg")
+	logging.AutopoiesisDebug("Loading state machine rules from: %s", statePath)
 	if err := loop.engine.LoadSchema(statePath); err != nil {
 		// Warn but proceed? No, state.mg is critical for "Check ?valid_transition".
 		// But in development environments the file might strictly not be compiled in binary.
 		// We try to load it. If it fails, we log.
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load state.mg from %s: %v. Ouroboros will operate in open-loop mode.\n", statePath, err)
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to load state.mg from %s: %v. Operating in open-loop mode", statePath, err)
+	} else {
+		logging.AutopoiesisDebug("State machine rules loaded successfully")
 	}
 
 	loop.engine.ToggleAutoEval(true)
 
+	logging.Autopoiesis("Ouroboros Loop initialized: TargetOS=%s, TargetArch=%s", config.TargetOS, config.TargetArch)
 	return loop
 }
 
@@ -306,7 +326,15 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *Lo
 // 3. Simulation: Differential Analysis & Transition Validation
 // 4. Commit: Compile, Register & Hot-Reload
 func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, cfg ExecuteConfig) (result *LoopResult) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "OuroborosLoop.Execute")
 	start := time.Now()
+
+	logging.Autopoiesis("=== OUROBOROS LOOP START: tool=%s ===", need.Name)
+	logging.AutopoiesisDebug("Tool need: purpose=%s, confidence=%.2f, priority=%.2f",
+		need.Purpose, need.Confidence, need.Priority)
+	logging.AutopoiesisDebug("Execute config: MaxIters=%d, MaxRetries=%d, HotReload=%v",
+		cfg.MaxIters, cfg.Retry.MaxRetries, cfg.HotReload)
+
 	result = &LoopResult{
 		ToolName: need.Name,
 		Stage:    StageDetection,
@@ -317,13 +345,18 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 	iterNum := 0
 
 	// Initialize state in Mangle
+	logging.AutopoiesisDebug("Initializing Mangle state for stepID=%s", stepID)
 	o.initializeState(stepID, cfg.MaxIters, cfg.Retry.MaxRetries)
 
 	// Panic Recovery with penalty tracking
 	defer func() {
 		if r := recover(); r != nil {
+			logging.Get(logging.CategoryAutopoiesis).Error("PANIC in Ouroboros Loop: %v", r)
 			o.handlePanic(stepID, r, result)
 		}
+		timer.Stop()
+		logging.Autopoiesis("=== OUROBOROS LOOP END: tool=%s, success=%v, stage=%s, duration=%v ===",
+			need.Name, result.Success, result.Stage, result.Duration)
 	}()
 
 	var lastViolations []SafetyViolation
@@ -332,8 +365,11 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 
 	// Main execution loop with retry capability
 	for iterNum < cfg.MaxIters {
+		logging.Autopoiesis("Loop iteration %d/%d for tool=%s", iterNum+1, cfg.MaxIters, need.Name)
+
 		// Check Mangle halt conditions
 		if o.shouldHalt(stepID) {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Halted by Mangle policy for stepID=%s", stepID)
 			result.Error = "halted by Mangle policy (max iterations, retries, stagnation, or degradation)"
 			return result
 		}
@@ -344,25 +380,34 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 		// =====================================================================
 		// PHASE 1: PROPOSAL (with retry feedback if available)
 		// =====================================================================
+		logging.Autopoiesis("[STAGE: %s] Starting specification phase", StageSpecification)
 		result.Stage = StageSpecification
 		var err error
 
 		if retryCount > 0 && len(lastViolations) > 0 {
 			// Regenerate with safety violation feedback
+			logging.Autopoiesis("Regenerating tool with feedback (retry %d): %d violations to address",
+				retryCount, len(lastViolations))
 			tool, err = o.toolGen.RegenerateWithFeedback(ctx, need, tool, lastViolations)
 			o.recordRetry(stepID, retryCount, "safety_violation")
 		} else {
 			// Initial generation
+			logging.Autopoiesis("Generating tool: %s", need.Name)
+			specTimer := logging.StartTimer(logging.CategoryAutopoiesis, "ToolGeneration")
 			tool, err = o.toolGen.GenerateTool(ctx, need)
+			specTimer.Stop()
 		}
 
 		if err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Error("Specification failed for %s: %v", need.Name, err)
 			result.Error = fmt.Sprintf("specification failed: %v", err)
 			return result
 		}
+		logging.AutopoiesisDebug("Tool generated: codeLen=%d, validated=%v", len(tool.Code), tool.Validated)
 
 		// Try Mangle Sanitizer (for embedded Mangle logic, skip if Go-only)
 		if sanitizedCode, sanitizeErr := o.sanitizer.Sanitize(tool.Code); sanitizeErr == nil {
+			logging.AutopoiesisDebug("Code sanitized successfully")
 			tool.Code = sanitizedCode
 		}
 		// If sanitization fails, proceed with original code (it's likely pure Go)
@@ -370,29 +415,46 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 		// =====================================================================
 		// PHASE 2: AUDIT (with retry loop)
 		// =====================================================================
+		logging.Autopoiesis("[STAGE: %s] Starting safety check phase", StageSafetyCheck)
 		result.Stage = StageSafetyCheck
 
+		safetyTimer := logging.StartTimer(logging.CategoryAutopoiesis, "SafetyCheck")
 		safetyReport := o.safetyChecker.Check(tool.Code)
+		safetyTimer.Stop()
 		result.SafetyReport = safetyReport
+
+		logging.AutopoiesisDebug("Safety check result: safe=%v, violations=%d, score=%.2f",
+			safetyReport.Safe, len(safetyReport.Violations), safetyReport.Score)
 
 		if !safetyReport.Safe {
 			retryCount++
 			lastViolations = safetyReport.Violations
+
+			logging.Get(logging.CategoryAutopoiesis).Warn("Safety check failed (attempt %d/%d): %d violations",
+				retryCount, cfg.Retry.MaxRetries, len(safetyReport.Violations))
+			for i, v := range safetyReport.Violations {
+				logging.AutopoiesisDebug("  Violation %d: type=%s, severity=%d, desc=%s",
+					i+1, v.Type, v.Severity, v.Description)
+			}
 
 			if retryCount >= cfg.Retry.MaxRetries {
 				o.mu.Lock()
 				o.stats.SafetyViolations++
 				o.stats.ToolsRejected++
 				o.mu.Unlock()
+				logging.Get(logging.CategoryAutopoiesis).Error("Tool %s rejected after %d safety retries",
+					need.Name, retryCount)
 				result.Error = fmt.Sprintf("safety check failed after %d retries: %v", retryCount, safetyReport.Violations)
 				return result
 			}
 
 			// Sleep before retry
+			logging.AutopoiesisDebug("Sleeping %v before retry", cfg.Retry.RetryDelay)
 			time.Sleep(cfg.Retry.RetryDelay)
 			continue // Retry the loop
 		}
 
+		logging.Autopoiesis("Safety check PASSED for tool=%s", need.Name)
 		// Reset retry state on successful audit
 		retryCount = 0
 		lastViolations = nil
@@ -400,24 +462,38 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 		// =====================================================================
 		// PHASE 3: SIMULATION
 		// =====================================================================
+		logging.Autopoiesis("[STAGE: %s] Starting simulation phase", StageSimulation)
 		result.Stage = StageSimulation
 
-		if !o.simulateTransition(ctx, stepID, need, tool, result) {
+		simTimer := logging.StartTimer(logging.CategoryAutopoiesis, "Simulation")
+		simSuccess := o.simulateTransition(ctx, stepID, need, tool, result)
+		simTimer.Stop()
+
+		if !simSuccess {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Simulation failed for tool=%s: %s", need.Name, result.Error)
 			return result
 		}
+		logging.Autopoiesis("Simulation PASSED for tool=%s", need.Name)
 
 		// =====================================================================
 		// PHASE 4: COMMIT
 		// =====================================================================
+		logging.Autopoiesis("[STAGE: %s] Starting compilation phase", StageCompilation)
 		result.Stage = StageCompilation
 
+		commitTimer := logging.StartTimer(logging.CategoryAutopoiesis, "Commit")
 		if err := o.commitTool(ctx, tool, result); err != nil {
+			commitTimer.Stop()
+			logging.Get(logging.CategoryAutopoiesis).Error("Commit failed for tool=%s: %v", need.Name, err)
 			result.Error = err.Error()
 			return result
 		}
+		commitTimer.Stop()
+		logging.Autopoiesis("Compilation and registration COMPLETE for tool=%s", need.Name)
 
 		// Hot-reload if enabled
 		if cfg.HotReload {
+			logging.AutopoiesisDebug("Hot-reloading tool=%s", tool.Name)
 			o.hotReload(tool.Name)
 		}
 
@@ -426,6 +502,7 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 
 		// Check for convergence (early exit)
 		if o.hasConverged(stepID) {
+			logging.AutopoiesisDebug("Convergence detected for stepID=%s", stepID)
 			break
 		}
 
@@ -435,21 +512,27 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 
 	result.Success = true
 	result.Duration = time.Since(start)
+	logging.Autopoiesis("Tool %s generated successfully in %v", need.Name, result.Duration)
 	return result
 }
 
 // simulateTransition performs Phase 3 simulation using the DifferentialEngine.
 func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, need *ToolNeed, tool *GeneratedTool, result *LoopResult) bool {
+	logging.AutopoiesisDebug("Starting simulation for stepID=%s", stepID)
+
 	// Spin up Differential Engine
 	diffEngine, err := mangle.NewDifferentialEngine(o.engine)
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Differential engine init failed: %v", err)
 		result.Error = fmt.Sprintf("differential engine init failed: %v", err)
 		return false
 	}
+	logging.AutopoiesisDebug("Differential engine initialized")
 
 	// Calculate Stability Score
 	stability := need.Confidence
 	loc := strings.Count(tool.Code, "\n")
+	logging.AutopoiesisDebug("Simulation parameters: stability=%.2f, LOC=%d", stability, loc)
 
 	nextStepID := fmt.Sprintf("%s_next", stepID)
 
@@ -481,6 +564,7 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	// Check Halting Oracle (Stagnation)
 	h := sha256.Sum256([]byte(tool.Code))
 	hashStr := hex.EncodeToString(h[:])
+	logging.AutopoiesisDebug("Code hash for stagnation check: %s", hashStr[:16])
 
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "history",
@@ -490,53 +574,83 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	// Check ?stagnation_detected
 	stagnant, err := diffEngine.Query(ctx, "stagnation_detected")
 	if err == nil && len(stagnant.Bindings) > 0 {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Stagnation detected: solution repeats history")
 		result.Error = "stagnation detected: solution repeats history"
 		return false
 	}
+	logging.AutopoiesisDebug("Stagnation check passed")
 
 	// Check ?valid_transition(nextStepID)
+	logging.AutopoiesisDebug("Checking valid_transition for %s", nextStepID)
 	validRes, err := diffEngine.Query(ctx, fmt.Sprintf("valid_transition(%s)", nextStepID))
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Transition query failed: %v", err)
 		result.Error = fmt.Sprintf("transition query failed: %v", err)
 		return false
 	}
 	if len(validRes.Bindings) == 0 {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Transition rejected: stability %.2f below threshold", stability)
 		result.Error = fmt.Sprintf("transition rejected by Mangle (unstable): stability %.2f < threshold", stability)
 		return false
 	}
 
+	logging.AutopoiesisDebug("Transition validation passed: %d bindings", len(validRes.Bindings))
 	return true
 }
 
 // commitTool performs Phase 4 commit: write, compile, and register.
 func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, result *LoopResult) error {
+	logging.AutopoiesisDebug("Committing tool: %s", tool.Name)
+
 	// Write
+	logging.AutopoiesisDebug("Writing tool to disk: %s", tool.FilePath)
+	writeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "WriteTool")
 	if err := o.toolGen.WriteTool(tool); err != nil {
+		writeTimer.Stop()
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to write tool %s: %v", tool.Name, err)
 		return fmt.Errorf("write failed: %w", err)
 	}
+	writeTimer.Stop()
+	logging.AutopoiesisDebug("Tool written successfully")
 
 	// Compile
+	logging.Autopoiesis("Compiling tool: %s", tool.Name)
+	compileTimer := logging.StartTimer(logging.CategoryAutopoiesis, "CompileTool")
 	compileResult, err := o.compiler.Compile(ctx, tool)
+	compileTimer.Stop()
 	result.CompileResult = compileResult
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Compilation failed for %s: %v", tool.Name, err)
+		if compileResult != nil && len(compileResult.Errors) > 0 {
+			for _, cerr := range compileResult.Errors {
+				logging.AutopoiesisDebug("  Compile error: %s", cerr)
+			}
+		}
 		return fmt.Errorf("compilation failed: %w", err)
 	}
+	logging.Autopoiesis("Compilation successful: output=%s, compileTime=%v",
+		compileResult.OutputPath, compileResult.CompileTime)
 
 	// Register
+	logging.Autopoiesis("[STAGE: %s] Registering tool", StageRegistration)
 	result.Stage = StageRegistration
 	handle, err := o.registry.Register(tool, compileResult)
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Registration failed for %s: %v", tool.Name, err)
 		return fmt.Errorf("registration failed: %w", err)
 	}
 
 	result.ToolHandle = handle
 	result.Stage = StageComplete
+	logging.Autopoiesis("Tool registered: name=%s, hash=%s", handle.Name, handle.Hash[:16])
 
 	// Update stats
 	o.mu.Lock()
 	o.stats.ToolsGenerated++
 	o.stats.ToolsCompiled++
 	o.stats.LastGeneration = time.Now()
+	logging.AutopoiesisDebug("Stats updated: generated=%d, compiled=%d",
+		o.stats.ToolsGenerated, o.stats.ToolsCompiled)
 	o.mu.Unlock()
 
 	// Update Mangle with committed history
@@ -549,6 +663,7 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 		{Predicate: "history", Args: []interface{}{nextStepID, hashStr}},
 		{Predicate: "state", Args: []interface{}{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
 	})
+	logging.AutopoiesisDebug("Mangle history updated for %s", nextStepID)
 
 	return nil
 }
@@ -559,6 +674,8 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 
 // initializeState sets up Mangle facts for this execution.
 func (o *OuroborosLoop) initializeState(stepID string, maxIters, maxRetries int) {
+	logging.AutopoiesisDebug("Initializing state: stepID=%s, maxIters=%d, maxRetries=%d",
+		stepID, maxIters, maxRetries)
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "max_iterations", Args: []interface{}{maxIters}},
 		{Predicate: "max_retries", Args: []interface{}{maxRetries}},
@@ -568,19 +685,26 @@ func (o *OuroborosLoop) initializeState(stepID string, maxIters, maxRetries int)
 
 // recordIteration tracks iteration count in Mangle.
 func (o *OuroborosLoop) recordIteration(stepID string, iterNum int) {
+	logging.AutopoiesisDebug("Recording iteration: stepID=%s, iter=%d", stepID, iterNum)
 	_ = o.engine.AddFact("iteration", stepID, iterNum)
 }
 
 // recordRetry tracks retry attempts in Mangle.
 func (o *OuroborosLoop) recordRetry(stepID string, attempt int, reason string) {
+	logging.Autopoiesis("Recording retry: stepID=%s, attempt=%d, reason=%s", stepID, attempt, reason)
 	_ = o.engine.AddFact("retry_attempt", stepID, attempt, reason)
 }
 
 // handlePanic records panic as error event with penalty.
 func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopResult) {
+	logging.Get(logging.CategoryAutopoiesis).Error("PANIC in Ouroboros: stepID=%s, panic=%v", stepID, r)
+
 	o.mu.Lock()
 	o.stats.Panics++
+	panicCount := o.stats.Panics
 	o.mu.Unlock()
+
+	logging.Autopoiesis("Total panics recorded: %d", panicCount)
 
 	result.Success = false
 	result.Stage = StagePanic
@@ -597,22 +721,34 @@ func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopRe
 func (o *OuroborosLoop) shouldHalt(stepID string) bool {
 	result, err := o.engine.Query(context.Background(), fmt.Sprintf("should_halt(%s)", stepID))
 	if err != nil {
+		logging.AutopoiesisDebug("shouldHalt query error for %s: %v", stepID, err)
 		return false
 	}
-	return len(result.Bindings) > 0
+	shouldHalt := len(result.Bindings) > 0
+	if shouldHalt {
+		logging.Autopoiesis("Halt condition triggered for stepID=%s", stepID)
+	}
+	return shouldHalt
 }
 
 // hasConverged queries Mangle for convergence.
 func (o *OuroborosLoop) hasConverged(stepID string) bool {
 	result, err := o.engine.Query(context.Background(), fmt.Sprintf("converged(%s)", stepID))
 	if err != nil {
+		logging.AutopoiesisDebug("hasConverged query error for %s: %v", stepID, err)
 		return false
 	}
-	return len(result.Bindings) > 0
+	converged := len(result.Bindings) > 0
+	if converged {
+		logging.Autopoiesis("Convergence detected for stepID=%s", stepID)
+	}
+	return converged
 }
 
 // updateStability updates base stability after successful iteration.
 func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence float64) {
+	logging.AutopoiesisDebug("Updating stability: stepID=%s, iter=%d, confidence=%.2f",
+		stepID, iterNum, confidence)
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "base_stability", Args: []interface{}{stepID, confidence}},
 		{Predicate: "state_at_iteration", Args: []interface{}{stepID, iterNum, confidence}},
@@ -621,6 +757,8 @@ func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence f
 
 // hotReload records hot-reload event and increments tool version in Mangle.
 func (o *OuroborosLoop) hotReload(toolName string) {
+	logging.Autopoiesis("Hot-reloading tool: %s", toolName)
+
 	// Record the hot-load event in Mangle
 	_ = o.engine.AddFact("tool_hot_loaded", toolName, time.Now().Unix())
 
@@ -635,12 +773,20 @@ func (o *OuroborosLoop) hotReload(toolName string) {
 		}
 	}
 	_ = o.engine.AddFact("tool_version", toolName, version)
+	logging.AutopoiesisDebug("Tool %s hot-reloaded to version %d", toolName, version)
 }
 
 // ExecuteTool runs a registered tool with the given input
 func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "ExecuteTool")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Executing tool: %s", toolName)
+	logging.AutopoiesisDebug("Tool input length: %d bytes", len(input))
+
 	handle, exists := o.registry.Get(toolName)
 	if !exists {
+		logging.Get(logging.CategoryAutopoiesis).Error("Tool not found: %s", toolName)
 		return "", fmt.Errorf("tool not found: %s", toolName)
 	}
 
@@ -650,9 +796,20 @@ func (o *OuroborosLoop) ExecuteTool(ctx context.Context, toolName string, input 
 
 	o.mu.Lock()
 	o.stats.ExecutionCount++
+	execCount := o.stats.ExecutionCount
 	o.mu.Unlock()
 
-	return handle.Execute(execCtx, input)
+	logging.AutopoiesisDebug("Starting tool execution #%d: %s (timeout=%v)",
+		execCount, toolName, o.config.ExecuteTimeout)
+
+	output, err := handle.Execute(execCtx, input)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Tool execution failed: %s: %v", toolName, err)
+		return output, err
+	}
+
+	logging.Autopoiesis("Tool execution successful: %s (output=%d bytes)", toolName, len(output))
+	return output, nil
 }
 
 // GetStats returns current loop statistics

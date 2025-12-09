@@ -4,6 +4,7 @@ package researcher
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,91 @@ import (
 	"time"
 )
 
+// isLibraryOrFrameworkTopic detects if a topic is about a library, framework, or package
+// that would benefit from Context7's curated documentation.
+// Returns false for general programming questions, concepts, or non-library topics.
+func (r *ResearcherShard) isLibraryOrFrameworkTopic(topic string) bool {
+	lower := strings.ToLower(topic)
+
+	// Explicit documentation keywords - strong signal
+	docKeywords := []string{
+		"library", "package", "module", "framework", "sdk", "api docs",
+		"documentation", "docs for", "how to use", "getting started with",
+		"install", "npm", "pip", "go get", "cargo", "maven", "gradle",
+		"import", "require", "dependency",
+	}
+	for _, kw := range docKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+
+	// Known framework/library patterns
+	knownLibraries := []string{
+		// JavaScript/TypeScript
+		"react", "vue", "angular", "svelte", "next.js", "nextjs", "nuxt",
+		"express", "fastify", "nest.js", "nestjs", "electron", "vite",
+		"webpack", "rollup", "esbuild", "tailwind", "shadcn",
+		// Go
+		"gin", "echo", "fiber", "chi", "gorilla", "cobra", "viper",
+		"bubbletea", "bubbles", "lipgloss", "charm", "rod", "chromedp",
+		// Python
+		"django", "flask", "fastapi", "pytorch", "tensorflow", "pandas",
+		"numpy", "scikit", "requests", "beautifulsoup", "selenium",
+		// Rust
+		"tokio", "actix", "axum", "serde", "clap",
+		// General
+		"graphql", "grpc", "protobuf", "openapi", "swagger",
+		"kubernetes", "docker", "terraform", "ansible",
+		"redis", "postgres", "mongodb", "sqlite", "mysql",
+	}
+	for _, lib := range knownLibraries {
+		if strings.Contains(lower, lib) {
+			return true
+		}
+	}
+
+	// Package name patterns (e.g., "go-rod/rod", "@types/node", "lodash")
+	packagePatterns := []regexp.Regexp{
+		*regexp.MustCompile(`[a-z]+-[a-z]+`),            // hyphenated names like "go-rod"
+		*regexp.MustCompile(`@[a-z]+/[a-z]+`),           // scoped npm packages
+		*regexp.MustCompile(`[a-z]+/[a-z]+`),            // owner/repo format
+		*regexp.MustCompile(`v\d+\.\d+`),                // version numbers
+		*regexp.MustCompile(`\.(js|ts|go|py|rs|java)$`), // file extensions in queries
+	}
+	for _, pattern := range packagePatterns {
+		if pattern.MatchString(lower) {
+			return true
+		}
+	}
+
+	// Negative signals - general questions that shouldn't use Context7
+	generalPatterns := []string{
+		"what is", "how does", "why", "explain", "difference between",
+		"best practice", "when to use", "should i", "compare",
+		"concept", "principle", "pattern", "algorithm", "data structure",
+	}
+	generalCount := 0
+	for _, gp := range generalPatterns {
+		if strings.Contains(lower, gp) {
+			generalCount++
+		}
+	}
+	// If mostly general question words without library names, skip Context7
+	if generalCount >= 2 {
+		return false
+	}
+
+	// Default: if topic is short and looks like a package name, try Context7
+	words := strings.Fields(lower)
+	if len(words) <= 3 {
+		// Short queries like "bubbletea" or "rod browser" are likely library lookups
+		return true
+	}
+
+	return false
+}
+
 // conductWebResearch performs deep web research on a topic using multi-strategy approach.
 func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, keywords []string, urls []string) (*ResearchResult, error) {
 	result := &ResearchResult{
@@ -25,7 +111,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 		Atoms:    make([]KnowledgeAtom, 0),
 	}
 
-	fmt.Printf("[Researcher] Conducting knowledge research on: %s\n", topic)
+	logging.Researcher("Conducting knowledge research on: %s", topic)
 
 	// Normalize topic for lookup
 	normalizedTopic := strings.ToLower(strings.TrimSpace(topic))
@@ -41,14 +127,14 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 	if r.isWorkspaceQuery(normalizedTopic) {
 		atoms, err := r.workspaceReferenceSearch(ctx, normalizedTopic)
 		if err != nil {
-			fmt.Printf("[Researcher] Workspace search fallback: %v\n", err)
+			logging.Researcher("Workspace search fallback: %v", err)
 		} else if len(atoms) > 0 {
-			fmt.Printf("[Researcher] Workspace search found %d references; skipping remote sources\n", len(atoms))
+			logging.Researcher("Workspace search found %d references; skipping remote sources", len(atoms))
 			result.Atoms = append(result.Atoms, atoms...)
 			result.PagesScraped++
 			skipRemote = true
 		} else {
-			fmt.Printf("[Researcher] Workspace search produced no matches; continuing with remote strategies\n")
+			logging.Researcher("Workspace search produced no matches; continuing with remote strategies")
 		}
 	}
 
@@ -60,7 +146,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 
 	// STRATEGY -1: Explicit URLs (from wizard or task)
 	if len(urls) > 0 {
-		fmt.Printf("[Researcher] Scraping %d explicit URLs...\n", len(urls))
+		logging.Researcher("Scraping %d explicit URLs...", len(urls))
 		for _, url := range urls {
 			r.mu.Lock()
 			if r.visitedURLs[url] {
@@ -95,14 +181,14 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 							PackageURL: "github.com/" + owner + "/" + repo,
 						}
 
-						fmt.Printf("[Researcher] Detected GitHub repo: %s/%s\n", owner, repo)
+						logging.Researcher("Detected GitHub repo: %s/%s", owner, repo)
 						atoms, err := r.fetchGitHubDocs(ctx, source, keywords)
 						if err == nil && len(atoms) > 0 {
-							fmt.Printf("[Researcher] Scraped %d atoms from GitHub %s\n", len(atoms), u)
+							logging.Researcher("Scraped %d atoms from GitHub %s", len(atoms), u)
 							atomsChan <- atoms
 							return
 						} else if err != nil {
-							fmt.Printf("[Researcher] GitHub fetch failed: %v, falling back to generic scraper\n", err)
+							logging.Researcher("GitHub fetch failed: %v, falling back to generic scraper", err)
 						}
 					}
 				}
@@ -110,42 +196,45 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 				// Generic scraper for non-GitHub URLs or fallback
 				atoms, err := r.fetchAndExtract(ctx, u, keywords)
 				if err == nil && len(atoms) > 0 {
-					fmt.Printf("[Researcher] Scraped %d atoms from %s\n", len(atoms), u)
+					logging.Researcher("Scraped %d atoms from %s", len(atoms), u)
 					atomsChan <- atoms
 				} else {
-					fmt.Printf("[Researcher] Failed to scrape %s: %v\n", u, err)
+					logging.Researcher("Failed to scrape %s: %v", u, err)
 				}
 			}(url)
 		}
 	}
 
-	// STRATEGY 0 (PRIMARY): Context7 - LLM-optimized documentation
-	// This is the preferred source - curated docs designed for AI consumption
-	if !skipRemote && r.toolkit != nil && r.toolkit.Context7() != nil && r.toolkit.Context7().IsConfigured() {
-		fmt.Printf("[Researcher] Querying Context7 for: %s\n", normalizedTopic)
+	// STRATEGY 0 (CONDITIONAL): Context7 - LLM-optimized documentation
+	// Only use Context7 for library/framework/package topics, not general questions
+	isLibTopic := r.isLibraryOrFrameworkTopic(normalizedTopic)
+	if !skipRemote && isLibTopic && r.toolkit != nil && r.toolkit.Context7() != nil && r.toolkit.Context7().IsConfigured() {
+		logging.Researcher("Topic detected as library/framework - querying Context7 for: %s", normalizedTopic)
 		atoms, err := r.toolkit.Context7().ResearchTopic(ctx, normalizedTopic, keywords)
 		if err == nil && len(atoms) > 0 {
-			fmt.Printf("[Researcher] Context7 returned %d atoms (LLM-optimized docs)\n", len(atoms))
+			logging.Researcher("Context7 returned %d atoms (LLM-optimized docs)", len(atoms))
 			result.Atoms = append(result.Atoms, atoms...)
 			result.PagesScraped++
 			context7Found = true
 		} else if err != nil {
-			fmt.Printf("[Researcher] Context7 unavailable: %v (falling back to other sources)\n", err)
+			logging.Researcher("Context7 unavailable: %v (falling back to other sources)", err)
 		}
+	} else if !skipRemote && !isLibTopic {
+		logging.Researcher("Topic '%s' detected as general question - skipping Context7", normalizedTopic)
 	}
 
 	// If Context7 returned sufficient results, skip LLM synthesis to avoid timeouts
 	// Only synthesize when Context7 data is insufficient (< 10 atoms)
 	if context7Found && len(result.Atoms) >= 10 {
 		// Context7 gave us enough - skip slow LLM synthesis
-		fmt.Printf("[Researcher] Context7 provided sufficient data (%d atoms), skipping LLM synthesis\n", len(result.Atoms))
+		logging.Researcher("Context7 provided sufficient data (%d atoms), skipping LLM synthesis", len(result.Atoms))
 	} else if context7Found && len(result.Atoms) >= 1 {
 		// Context7 gave some data but not enough - supplement with LLM
 		if r.llmClient != nil {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				fmt.Printf("[Researcher] Synthesizing supplemental knowledge from LLM...\n")
+				logging.Researcher("Synthesizing supplemental knowledge from LLM...")
 				atoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
 				if err == nil && len(atoms) > 0 {
 					atomsChan <- atoms
@@ -157,7 +246,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 
 		// Strategy 1: Check if we have a known source for this topic
 		if source, ok := r.findKnowledgeSource(normalizedTopic); ok {
-			fmt.Printf("[Researcher] Found known source: %s (type: %s)\n", source.Name, source.Type)
+			logging.Researcher("Found known source: %s (type: %s)", source.Name, source.Type)
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -176,7 +265,7 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 				if err == nil && len(atoms) > 0 {
 					atomsChan <- atoms
 				} else if err != nil {
-					fmt.Printf("[Researcher] Known source failed: %v\n", err)
+					logging.Researcher("Known source failed: %v", err)
 				}
 			}()
 		}
@@ -212,12 +301,12 @@ func (r *ResearcherShard) conductWebResearch(ctx context.Context, topic string, 
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				fmt.Printf("[Researcher] Synthesizing knowledge from LLM...\n")
+				logging.Researcher("Synthesizing knowledge from LLM...")
 				atoms, err := r.synthesizeKnowledgeFromLLM(ctx, normalizedTopic, keywords)
 				if err == nil && len(atoms) > 0 {
 					atomsChan <- atoms
 				} else if err != nil {
-					fmt.Printf("[Researcher] LLM synthesis warning: %v\n", err)
+					logging.Researcher("LLM synthesis warning: %v", err)
 				}
 			}()
 		}
@@ -355,7 +444,7 @@ func (r *ResearcherShard) workspaceReferenceSearch(ctx context.Context, topic st
 
 // workspaceReferenceSearchFallback scans files manually if rg is unavailable.
 func (r *ResearcherShard) workspaceReferenceSearchFallback(ctx context.Context, root string, targets []string) ([]KnowledgeAtom, error) {
-	fmt.Printf("[Researcher] ripgrep not found; using fallback scanner for workspace references\n")
+	logging.Researcher("ripgrep not found; using fallback scanner for workspace references")
 	var atoms []KnowledgeAtom
 	lowerTargets := make([]string, len(targets))
 	for i, t := range targets {
@@ -513,7 +602,7 @@ func (r *ResearcherShard) fetchGitHubDocs(ctx context.Context, source KnowledgeS
 	// Use keywords for filtering if provided
 	keywordFilter := strings.Join(keywords, " ")
 	if keywordFilter != "" {
-		fmt.Printf("[Researcher] Fetching GitHub docs with keyword filter: %s\n", keywordFilter)
+		logging.Researcher("Fetching GitHub docs with keyword filter: %s", keywordFilter)
 	}
 
 	// Stage 1: Check for llms.txt (Context7-style AI docs pointer)
@@ -528,7 +617,7 @@ func (r *ResearcherShard) fetchGitHubDocs(ctx context.Context, source KnowledgeS
 		content, err := r.fetchRawContent(ctx, url)
 		if err == nil && len(content) > 10 {
 			llmsContent = content
-			fmt.Printf("[Researcher] Found llms.txt at %s - using AI-optimized docs\n", url)
+			logging.Researcher("Found llms.txt at %s - using AI-optimized docs", url)
 			break
 		}
 	}
@@ -552,7 +641,7 @@ func (r *ResearcherShard) fetchGitHubDocs(ctx context.Context, source KnowledgeS
 		if err == nil && len(content) > 100 {
 			readmeContent = content
 			readmeURL = url
-			fmt.Printf("[Researcher] Fetched README from %s (%d bytes)\n", url, len(content))
+			logging.Researcher("Fetched README from %s (%d bytes)", url, len(content))
 			break
 		}
 	}
@@ -572,7 +661,7 @@ func (r *ResearcherShard) fetchGitHubDocs(ctx context.Context, source KnowledgeS
 				readmeAtoms[i].Confidence = score
 				atoms = append(atoms, readmeAtoms[i])
 			} else {
-				fmt.Printf("[Researcher] Discarding low-quality atom: %s (score: %.2f)\n", readmeAtoms[i].Title, score)
+				logging.Researcher("Discarding low-quality atom: %s (score: %.2f)", readmeAtoms[i].Title, score)
 			}
 		}
 	}
@@ -630,7 +719,7 @@ func (r *ResearcherShard) parseLlmsTxt(ctx context.Context, source KnowledgeSour
 
 		content, err := r.fetchRawContent(ctx, docURL)
 		if err != nil {
-			fmt.Printf("[Researcher] llms.txt pointer failed: %s - %v\n", docURL, err)
+			logging.Researcher("llms.txt pointer failed: %s - %v", docURL, err)
 			continue
 		}
 
@@ -648,7 +737,7 @@ func (r *ResearcherShard) parseLlmsTxt(ctx context.Context, source KnowledgeSour
 				},
 			}
 			atoms = append(atoms, atom)
-			fmt.Printf("[Researcher] Ingested llms.txt doc: %s (%d bytes)\n", docURL, len(content))
+			logging.Researcher("Ingested llms.txt doc: %s (%d bytes)", docURL, len(content))
 		}
 	}
 

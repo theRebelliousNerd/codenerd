@@ -2,6 +2,7 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Scanner handles file system indexing.
@@ -17,38 +19,54 @@ type Scanner struct {
 	parserPool sync.Pool
 }
 
+// NewScanner creates a new filesystem Scanner.
 func NewScanner() *Scanner {
+	logging.WorldDebug("Creating new filesystem Scanner")
 	return &Scanner{
 		parserPool: sync.Pool{
 			New: func() interface{} {
+				logging.WorldDebug("Creating new TreeSitterParser in pool")
 				return NewTreeSitterParser()
 			},
 		},
 	}
 }
 
+// ScanWorkspace scans the entire workspace and returns topology facts.
 func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
-	// Re-use ScanDirectory logic for consistency and deduplication
+	logging.World("Starting workspace scan: %s", root)
+	timer := logging.StartTimer(logging.CategoryWorld, "ScanWorkspace")
+
 	result, err := s.ScanDirectory(context.Background(), root)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Workspace scan failed: %v", err)
 		return nil, err
 	}
+
+	elapsed := timer.StopWithInfo()
+	logging.World("Workspace scan completed: %d files, %d directories in %v", result.FileCount, result.DirectoryCount, elapsed)
 	return result.Facts, nil
 }
 
+// calculateHash computes a SHA256 hash of file content.
 func calculateHash(path string) (string, error) {
+	start := time.Now()
 	f, err := os.Open(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to open file for hashing: %s - %v", path, err)
 		return "", err
 	}
 	defer f.Close()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to read file for hashing: %s - %v", path, err)
 		return "", err
 	}
 
-	return hex.EncodeToString(h.Sum(nil)), nil
+	hash := hex.EncodeToString(h.Sum(nil))
+	logging.WorldDebug("Hash calculated for %s: %s (took %v)", filepath.Base(path), hash[:16], time.Since(start))
+	return hash, nil
 }
 
 // ScanResult represents the result of a directory scan.
@@ -67,26 +85,37 @@ func (r *ScanResult) ToFacts() []core.Fact {
 
 // ScanDirectory performs a comprehensive scan of a directory with context support.
 func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, error) {
+	logging.World("Starting directory scan: %s", root)
+	timer := logging.StartTimer(logging.CategoryWorld, "ScanDirectory")
+
 	result := &ScanResult{
 		Facts:     make([]core.Fact, 0),
 		Languages: make(map[string]int),
 	}
 	var mu sync.Mutex // Protects result
 	cache := NewFileCache(root)
-	defer cache.Save()
+	defer func() {
+		if err := cache.Save(); err != nil {
+			logging.Get(logging.CategoryWorld).Error("Failed to save file cache: %v", err)
+		}
+	}()
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 20) // Limit concurrency
+	var skippedDirs int
+	var cacheHits, cacheMisses int
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		// Check for context cancellation
 		select {
 		case <-ctx.Done():
+			logging.World("Directory scan cancelled via context")
 			return ctx.Err()
 		default:
 		}
 
 		if err != nil {
+			logging.Get(logging.CategoryWorld).Warn("Walk error at %s: %v", path, err)
 			return err
 		}
 
@@ -105,10 +134,15 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 				if allow, exists := allowed[name]; exists {
 					if !allow {
+						logging.WorldDebug("Skipping excluded directory: %s", path)
+						skippedDirs++
 						return filepath.SkipDir
 					}
+					logging.WorldDebug("Including allowed hidden directory: %s", path)
 					return nil
 				}
+				logging.WorldDebug("Skipping hidden directory: %s", path)
+				skippedDirs++
 				return filepath.SkipDir
 			}
 			mu.Lock()
@@ -118,6 +152,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				Args:      []interface{}{path, name},
 			})
 			mu.Unlock()
+			logging.WorldDebug("Indexed directory: %s", path)
 			return nil
 		}
 
@@ -127,19 +162,29 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			sem <- struct{}{}        // Acquire token
 			defer func() { <-sem }() // Release token
 
+			fileStart := time.Now()
+
 			// "Hash-Thrashing" Fix: Use Cache
 			var hash string
 			cachedHash, hit := cache.Get(path, info)
 			if hit {
 				hash = cachedHash
+				mu.Lock()
+				cacheHits++
+				mu.Unlock()
+				logging.WorldDebug("Cache hit for file: %s", filepath.Base(path))
 			} else {
 				h, err := calculateHash(path)
 				if err != nil {
-					// Skip files we can't hash but don't fail
+					logging.Get(logging.CategoryWorld).Warn("Skipping file (hash error): %s - %v", path, err)
 					return
 				}
 				hash = h
 				cache.Update(path, info, hash)
+				mu.Lock()
+				cacheMisses++
+				mu.Unlock()
+				logging.WorldDebug("Cache miss, hashed file: %s", filepath.Base(path))
 			}
 
 			ext := filepath.Ext(path)
@@ -150,6 +195,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			isTestStr := "/false"
 			if isTest {
 				isTestStr = "/true"
+				logging.WorldDebug("Detected test file: %s", filepath.Base(path))
 			}
 
 			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
@@ -173,28 +219,48 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 				content, err := os.ReadFile(path)
 				if err == nil {
+					parseStart := time.Now()
+					var parseErr error
 					switch lang {
 					case "go":
-						if facts, err := parser.ParseGo(path, content); err == nil {
+						if facts, parseErr := parser.ParseGo(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Go file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
 						}
 					case "python":
-						if facts, err := parser.ParsePython(path, content); err == nil {
+						if facts, parseErr := parser.ParsePython(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Python file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Python parse failed: %s - %v", path, parseErr)
 						}
 					case "rust":
-						if facts, err := parser.ParseRust(path, content); err == nil {
+						if facts, parseErr := parser.ParseRust(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed Rust file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("Rust parse failed: %s - %v", path, parseErr)
 						}
 					case "javascript":
-						if facts, err := parser.ParseJavaScript(path, content); err == nil {
+						if facts, parseErr := parser.ParseJavaScript(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed JavaScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("JavaScript parse failed: %s - %v", path, parseErr)
 						}
 					case "typescript":
-						if facts, err := parser.ParseTypeScript(path, content); err == nil {
+						if facts, parseErr := parser.ParseTypeScript(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
+							logging.WorldDebug("Parsed TypeScript file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
+						} else {
+							logging.Get(logging.CategoryWorld).Warn("TypeScript parse failed: %s - %v", path, parseErr)
 						}
 					}
+					_ = parseErr // Suppress unused warning
+				} else {
+					logging.Get(logging.CategoryWorld).Warn("Failed to read file for parsing: %s - %v", path, err)
 				}
 			}
 
@@ -207,12 +273,24 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			result.Facts = append(result.Facts, fact)
 			result.Facts = append(result.Facts, additionalFacts...)
 			mu.Unlock()
+
+			logging.WorldDebug("Indexed file: %s (lang=%s, symbols=%d, took %v)", filepath.Base(path), lang, len(additionalFacts), time.Since(fileStart))
 		}(path, info)
 
 		return nil
 	})
 
 	wg.Wait()
+
+	elapsed := timer.Stop()
+	logging.World("Directory scan completed: %d files, %d dirs, %d skipped dirs, cache hits=%d misses=%d, %d facts generated in %v",
+		result.FileCount, result.DirectoryCount, skippedDirs, cacheHits, cacheMisses, len(result.Facts), elapsed)
+
+	// Log language breakdown
+	if len(result.Languages) > 0 {
+		logging.WorldDebug("Language breakdown: %v", result.Languages)
+	}
+
 	return result, err
 }
 

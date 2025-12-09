@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"context"
@@ -43,6 +44,7 @@ type Decomposer struct {
 
 // NewDecomposer creates a new decomposer.
 func NewDecomposer(kernel *core.RealKernel, llmClient perception.LLMClient, workspace string) *Decomposer {
+	logging.CampaignDebug("Creating new Decomposer for workspace: %s", workspace)
 	return &Decomposer{
 		kernel:    kernel,
 		llmClient: llmClient,
@@ -78,9 +80,18 @@ type DocClassification struct {
 
 // Decompose creates a campaign plan through LLM + Mangle collaboration.
 func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*DecomposeResult, error) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "Decompose")
+	defer timer.StopWithInfo()
+
+	logging.Campaign("=== Starting campaign decomposition ===")
+	logging.Campaign("Goal: %s", req.Goal[:min(200, len(req.Goal))])
+	logging.CampaignDebug("Campaign type: %s, source paths: %d, context budget: %d",
+		req.CampaignType, len(req.SourcePaths), req.ContextBudget)
+
 	// Generate campaign ID
 	campaignID := fmt.Sprintf("/campaign_%s", uuid.New().String()[:8])
 	safeCampaignID := sanitizeCampaignID(campaignID)
+	logging.Campaign("Generated campaign ID: %s", campaignID)
 
 	// Set defaults
 	if req.ContextBudget == 0 {
@@ -90,49 +101,85 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	kbPath := filepath.Join(d.workspace, ".nerd", "campaigns", safeCampaignID, "knowledge.db")
 
 	// Step 1: Ingest source documents
+	logging.Campaign("Step 1: Ingesting source documents")
+	ingestTimer := logging.StartTimer(logging.CategoryCampaign, "ingestSourceDocuments")
 	sourceDocs, fileMeta, err := d.ingestSourceDocuments(ctx, campaignID, req.SourcePaths)
+	ingestTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Source document ingestion failed: %v", err)
 		return nil, fmt.Errorf("failed to ingest source documents: %w", err)
 	}
+	logging.Campaign("Ingested %d source documents, %d file metadata entries", len(sourceDocs), len(fileMeta))
 
 	// Seed metadata + goal signals for Mangle-driven selection
+	logging.CampaignDebug("Seeding document facts into kernel")
 	d.seedDocFacts(campaignID, req.Goal, fileMeta)
 
 	// Step 1b: Ingest into campaign knowledge store (vectors + graph) for retrieval
+	logging.Campaign("Step 1b: Ingesting into knowledge store")
 	if err := d.ingestIntoKnowledgeStore(ctx, campaignID, kbPath, fileMeta); err != nil {
-		fmt.Printf("[campaign] warning: knowledge ingestion failed: %v\n", err)
+		logging.Get(logging.CategoryCampaign).Warn("Knowledge ingestion failed (non-fatal): %v", err)
 	}
 
 	// Step 2: Extract requirements from source documents
+	logging.Campaign("Step 2: Extracting requirements (RAG-based)")
+	reqTimer := logging.StartTimer(logging.CategoryCampaign, "extractRequirementsSmart")
 	requirements, err := d.extractRequirementsSmart(ctx, campaignID, req.Goal, kbPath, fileMeta)
+	reqTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Requirement extraction failed: %v", err)
 		return nil, fmt.Errorf("failed to extract requirements: %w", err)
 	}
+	logging.Campaign("Extracted %d requirements", len(requirements))
 
 	// Step 3: LLM proposes phases and tasks
+	logging.Campaign("Step 3: LLM proposing plan structure")
+	planTimer := logging.StartTimer(logging.CategoryCampaign, "llmProposePlan")
 	rawPlan, err := d.llmProposePlan(ctx, campaignID, req, kbPath, fileMeta, requirements)
+	planTimer.Stop()
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", err)
 		return nil, fmt.Errorf("failed to propose plan: %w", err)
 	}
+	logging.Campaign("LLM proposed plan: %s (confidence=%.2f, phases=%d)",
+		rawPlan.Title, rawPlan.Confidence, len(rawPlan.Phases))
 
 	// Step 4: Convert to Campaign structure
+	logging.Campaign("Step 4: Building campaign structure")
 	campaign := d.buildCampaign(campaignID, req, rawPlan)
 	campaign.SourceDocs = sourceDocs
 	campaign.KnowledgeBase = kbPath
+	logging.CampaignDebug("Campaign built: phases=%d, totalTasks=%d", len(campaign.Phases), campaign.TotalTasks)
 
 	// Step 5: Load into Mangle for validation
+	logging.Campaign("Step 5: Loading campaign facts into Mangle kernel")
 	facts := campaign.ToFacts()
+	logging.CampaignDebug("Loading %d facts", len(facts))
 	if err := d.kernel.LoadFacts(facts); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to load campaign facts: %v", err)
 		return nil, fmt.Errorf("failed to load campaign facts: %w", err)
 	}
 
 	// Step 6: Mangle validates (circular deps, unreachable tasks, etc.)
+	logging.Campaign("Step 6: Mangle validation")
 	issues := d.validatePlan(campaignID)
+	if len(issues) > 0 {
+		logging.Get(logging.CategoryCampaign).Warn("Validation found %d issues", len(issues))
+		for i, issue := range issues {
+			logging.CampaignDebug("Issue %d: [%s] %s", i+1, issue.IssueType, issue.Description)
+		}
+	} else {
+		logging.Campaign("Validation passed with no issues")
+	}
 
 	// Step 7: If issues, attempt LLM refinement
 	if len(issues) > 0 {
+		logging.Campaign("Step 7: Attempting LLM refinement to fix %d issues", len(issues))
+		refineTimer := logging.StartTimer(logging.CategoryCampaign, "refinePlan")
 		refinedPlan, err := d.refinePlan(ctx, rawPlan, issues)
+		refineTimer.Stop()
 		if err == nil && refinedPlan != nil {
+			logging.Campaign("Refinement successful, rebuilding campaign")
 			campaign = d.buildCampaign(campaignID, req, refinedPlan)
 			// Reload and revalidate
 			d.kernel.Retract("campaign")
@@ -140,11 +187,26 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 			d.kernel.Retract("campaign_task")
 			d.kernel.LoadFacts(campaign.ToFacts())
 			issues = d.validatePlan(campaignID)
+			logging.Campaign("After refinement: %d issues remaining", len(issues))
+		} else if err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Refinement failed: %v", err)
 		}
 	}
 
 	// Step 8: Link requirements to tasks
+	logging.Campaign("Step 8: Linking requirements to tasks")
 	d.linkRequirementsToTasks(requirements, campaign)
+	coveredCount := 0
+	for _, req := range requirements {
+		if len(req.CoveredBy) > 0 {
+			coveredCount++
+		}
+	}
+	logging.Campaign("Requirement coverage: %d/%d requirements linked to tasks", coveredCount, len(requirements))
+
+	logging.Campaign("=== Decomposition complete: %s ===", campaign.Title)
+	logging.Campaign("Final plan: phases=%d, tasks=%d, validation=%v",
+		campaign.TotalPhases, campaign.TotalTasks, len(issues) == 0)
 
 	return &DecomposeResult{
 		Campaign:     campaign,
@@ -157,6 +219,8 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 
 // ingestSourceDocuments reads and parses source documents (metadata only).
 func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID string, paths []string) ([]SourceDocument, []FileMetadata, error) {
+	logging.CampaignDebug("Ingesting source documents from %d paths", len(paths))
+
 	docs := make([]SourceDocument, 0)
 	meta := make([]FileMetadata, 0)
 
@@ -164,6 +228,7 @@ func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID strin
 		// Check for cancellation between file reads
 		select {
 		case <-ctx.Done():
+			logging.CampaignDebug("Source ingestion cancelled")
 			return docs, meta, ctx.Err()
 		default:
 		}
@@ -173,13 +238,17 @@ func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID strin
 			fullPath = filepath.Join(d.workspace, path)
 		}
 
+		logging.CampaignDebug("Processing path: %s", fullPath)
+
 		stat, err := os.Stat(fullPath)
 		if err != nil {
 			// Try glob pattern
 			matches, _ := filepath.Glob(fullPath)
 			if len(matches) == 0 {
+				logging.CampaignDebug("Skipping missing path: %s", fullPath)
 				continue // Skip missing files
 			}
+			logging.CampaignDebug("Glob matched %d files", len(matches))
 			for _, match := range matches {
 				mds, mmeta := d.readDocumentsFromPath(match, campaignID)
 				docs = append(docs, mds...)
@@ -189,6 +258,7 @@ func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID strin
 		}
 
 		if stat.IsDir() {
+			logging.CampaignDebug("Reading directory: %s", fullPath)
 			mds, mmeta := d.readDocumentsFromDir(fullPath, campaignID)
 			docs = append(docs, mds...)
 			meta = append(meta, mmeta...)
@@ -199,8 +269,10 @@ func (d *Decomposer) ingestSourceDocuments(ctx context.Context, campaignID strin
 		}
 	}
 
+	logging.CampaignDebug("Classifying %d documents by architectural layer", len(meta))
 	meta = d.classifyDocuments(ctx, meta)
 
+	logging.CampaignDebug("Ingestion complete: docs=%d, meta=%d", len(docs), len(meta))
 	return docs, meta, nil
 }
 
@@ -211,6 +283,7 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 	}
 
 	if d.llmClient == nil {
+		logging.CampaignDebug("No LLM client, using default layer classification")
 		for i := range files {
 			if files[i].Layer == "" {
 				files[i].Layer = "/scaffold"
@@ -222,9 +295,11 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 		return files
 	}
 
+	classifiedCount := 0
 	for i := range files {
 		select {
 		case <-ctx.Done():
+			logging.CampaignDebug("Document classification cancelled after %d files", classifiedCount)
 			return files
 		default:
 		}
@@ -235,11 +310,13 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 
 		data, err := os.ReadFile(files[i].Path)
 		if err != nil {
+			logging.CampaignDebug("Cannot read file for classification: %s", files[i].Path)
 			continue
 		}
 
 		class, err := d.classifyDocument(ctx, files[i].Path, string(data))
 		if err != nil {
+			logging.CampaignDebug("Classification failed for %s: %v", files[i].Path, err)
 			continue
 		}
 
@@ -252,8 +329,12 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 		if class.Reasoning != "" {
 			files[i].LayerReason = class.Reasoning
 		}
+		classifiedCount++
+		logging.CampaignDebug("Classified %s -> %s (confidence=%.2f)",
+			filepath.Base(files[i].Path), files[i].Layer, files[i].LayerConfidence)
 	}
 
+	logging.CampaignDebug("Classified %d/%d documents", classifiedCount, len(files))
 	return files
 }
 
@@ -534,16 +615,20 @@ Content:
 // extractRequirementsSmart performs retrieval-augmented requirement extraction using the vector store.
 func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, goal, kbPath string, files []FileMetadata) ([]Requirement, error) {
 	if d.llmClient == nil {
+		logging.CampaignDebug("No LLM client, skipping requirement extraction")
 		return nil, nil
 	}
 
 	questions := d.generateDiscoveryQuestions(goal)
 	if len(questions) == 0 {
+		logging.CampaignDebug("No discovery questions generated")
 		return nil, nil
 	}
+	logging.CampaignDebug("Generated %d discovery questions", len(questions))
 
 	kbStore, err := store.NewLocalStore(kbPath)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to open knowledge store: %v", err)
 		return nil, fmt.Errorf("failed to open knowledge store: %w", err)
 	}
 	defer kbStore.Close()
@@ -555,8 +640,11 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 	if len(allowedPaths) == 0 {
 		allowedPaths = pathsForGoal(goal, files)
 	}
+	logging.CampaignDebug("Using %d allowed paths for vector recall", len(allowedPaths))
 
-	for _, q := range questions {
+	for i, q := range questions {
+		logging.CampaignDebug("Processing question %d/%d: %s", i+1, len(questions), q[:min(80, len(q))])
+
 		var entries []store.VectorEntry
 		var err error
 		if len(allowedPaths) > 0 {
@@ -565,11 +653,14 @@ func (d *Decomposer) extractRequirementsSmart(ctx context.Context, campaignID, g
 			entries, err = kbStore.VectorRecallSemanticFiltered(ctx, q, 6, "campaign_id", campaignID)
 		}
 		if err != nil {
+			logging.CampaignDebug("Vector recall failed: %v", err)
 			continue
 		}
 		if len(entries) == 0 {
+			logging.CampaignDebug("No vector entries found for question")
 			continue
 		}
+		logging.CampaignDebug("Retrieved %d vector entries", len(entries))
 
 		var sb strings.Builder
 		for _, e := range entries {
@@ -597,6 +688,7 @@ Return JSON only.`, goal, q, sb.String())
 
 		resp, err := d.llmClient.Complete(ctx, prompt)
 		if err != nil {
+			logging.CampaignDebug("LLM extraction failed: %v", err)
 			continue
 		}
 
@@ -609,9 +701,11 @@ Return JSON only.`, goal, q, sb.String())
 			} `json:"requirements"`
 		}
 		if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
+			logging.CampaignDebug("Failed to parse requirements JSON: %v", err)
 			continue
 		}
 
+		extractedCount := 0
 		for _, r := range parsed.Requirements {
 			key := fmt.Sprintf("%s|%s", r.Source, r.Description)
 			if seen[key] {
@@ -627,9 +721,12 @@ Return JSON only.`, goal, q, sb.String())
 				Priority:    defaultPriority(r.Priority),
 				Source:      r.Source,
 			})
+			extractedCount++
 		}
+		logging.CampaignDebug("Extracted %d new requirements from question %d", extractedCount, i+1)
 	}
 
+	logging.Campaign("Total requirements extracted: %d", len(reqs))
 	return reqs, nil
 }
 
@@ -938,6 +1035,13 @@ type RawTask struct {
 
 // llmProposePlan asks LLM to propose a plan structure using retrieved context.
 func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) (*RawPlan, error) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "llmProposePlan")
+	defer timer.Stop()
+
+	logging.Campaign("Requesting LLM plan proposal")
+	logging.CampaignDebug("Context: files=%d, requirements=%d, hints=%d",
+		len(files), len(requirements), len(req.UserHints))
+
 	// Build context
 	var contextBuilder strings.Builder
 
@@ -1054,16 +1158,26 @@ Output JSON:
 
 Output ONLY valid JSON:`, contextBuilder.String())
 
+	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(prompt))
 	resp, err := d.llmClient.Complete(ctx, prompt)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", err)
 		return nil, err
 	}
+	logging.CampaignDebug("LLM response received (length=%d)", len(resp))
 
 	// Parse response
 	resp = cleanJSONResponse(resp)
 	var plan RawPlan
 	if err := json.Unmarshal([]byte(resp), &plan); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to parse plan JSON: %v", err)
 		return nil, fmt.Errorf("failed to parse plan JSON: %w", err)
+	}
+
+	logging.Campaign("Plan proposed: %s (confidence=%.2f, phases=%d)", plan.Title, plan.Confidence, len(plan.Phases))
+	for i, phase := range plan.Phases {
+		logging.CampaignDebug("  Phase %d: %s (category=%s, tasks=%d)",
+			i, phase.Name, phase.Category, len(phase.Tasks))
 	}
 
 	return &plan, nil
@@ -1071,6 +1185,8 @@ Output ONLY valid JSON:`, contextBuilder.String())
 
 // buildCampaign converts a RawPlan to a Campaign.
 func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan *RawPlan) *Campaign {
+	logging.CampaignDebug("Building campaign structure from raw plan")
+
 	now := time.Now()
 
 	campaign := &Campaign{
@@ -1197,11 +1313,15 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 
 // validatePlan uses Mangle to validate the plan.
 func (d *Decomposer) validatePlan(campaignID string) []PlanValidationIssue {
+	logging.CampaignDebug("Validating plan via Mangle kernel")
+
 	issues := make([]PlanValidationIssue, 0)
 
 	// Let Mangle drive validation via validation_error facts
 	facts, err := d.kernel.Query("validation_error")
-	if err == nil {
+	if err != nil {
+		logging.CampaignDebug("No validation errors queried (or query failed): %v", err)
+	} else {
 		for _, fact := range facts {
 			if len(fact.Args) >= 3 {
 				phaseID := fmt.Sprintf("%v", fact.Args[0])
@@ -1212,10 +1332,12 @@ func (d *Decomposer) validatePlan(campaignID string) []PlanValidationIssue {
 					IssueType:   issueType,
 					Description: fmt.Sprintf("%s: %s", phaseID, desc),
 				})
+				logging.CampaignDebug("Validation issue: [%s] %s", issueType, desc)
 			}
 		}
 	}
 
+	logging.CampaignDebug("Validation complete: %d issues found", len(issues))
 	return issues
 }
 
@@ -1224,6 +1346,10 @@ func (d *Decomposer) refinePlan(ctx context.Context, plan *RawPlan, issues []Pla
 	if len(issues) == 0 {
 		return plan, nil
 	}
+
+	logging.Campaign("Refining plan to fix %d validation issues", len(issues))
+	timer := logging.StartTimer(logging.CategoryCampaign, "refinePlan")
+	defer timer.Stop()
 
 	// Build issues summary
 	var issuesSummary strings.Builder
@@ -1248,8 +1374,10 @@ Please fix these issues and output the corrected plan as JSON.
 
 Output ONLY valid JSON with the same structure as the input:`, string(planJSON), issuesSummary.String())
 
+	logging.CampaignDebug("Sending refinement request to LLM")
 	resp, err := d.llmClient.Complete(ctx, prompt)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("LLM refinement failed: %v", err)
 		return nil, err
 	}
 
@@ -1257,14 +1385,19 @@ Output ONLY valid JSON with the same structure as the input:`, string(planJSON),
 	resp = cleanJSONResponse(resp)
 	var refinedPlan RawPlan
 	if err := json.Unmarshal([]byte(resp), &refinedPlan); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to parse refined plan: %v", err)
 		return nil, fmt.Errorf("failed to parse refined plan: %w", err)
 	}
 
+	logging.Campaign("Plan refined successfully: %s (phases=%d)", refinedPlan.Title, len(refinedPlan.Phases))
 	return &refinedPlan, nil
 }
 
 // linkRequirementsToTasks links extracted requirements to tasks.
 func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaign *Campaign) {
+	logging.CampaignDebug("Linking %d requirements to campaign tasks", len(requirements))
+	linkedCount := 0
+
 	for i := range requirements {
 		// Simple heuristic: match by keyword overlap
 		reqWords := strings.Fields(strings.ToLower(requirements[i].Description))
@@ -1286,6 +1419,9 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 				// If significant overlap, link
 				if matches >= 2 {
 					requirements[i].CoveredBy = append(requirements[i].CoveredBy, task.ID)
+					linkedCount++
+					logging.CampaignDebug("Linked requirement %s to task %s (matches=%d)",
+						requirements[i].ID, task.ID, matches)
 				}
 			}
 		}
@@ -1300,6 +1436,8 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 			})
 		}
 	}
+
+	logging.CampaignDebug("Requirement linking complete: %d links created", linkedCount)
 }
 
 func limitString(s string, max int) string {

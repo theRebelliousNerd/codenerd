@@ -3,6 +3,9 @@ package embedding
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"codenerd/internal/logging"
 
 	"google.golang.org/genai"
 )
@@ -20,25 +23,42 @@ type GenAIEngine struct {
 
 // NewGenAIEngine creates a new GenAI embedding engine.
 func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "NewGenAIEngine")
+	defer timer.Stop()
+
+	logging.Embedding("Creating GenAI embedding engine")
+
 	if apiKey == "" {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI API key is required but not provided")
 		return nil, fmt.Errorf("GenAI API key is required")
 	}
+	logging.EmbeddingDebug("GenAI API key provided (length=%d)", len(apiKey))
 
 	if model == "" {
 		model = "gemini-embedding-001"
+		logging.EmbeddingDebug("GenAI model defaulted to: %s", model)
 	}
 
 	if taskType == "" {
 		taskType = "SEMANTIC_SIMILARITY"
+		logging.EmbeddingDebug("GenAI taskType defaulted to: %s", taskType)
 	}
 
+	logging.Embedding("Initializing GenAI client: model=%s, task_type=%s", model, taskType)
+
 	ctx := context.Background()
+	clientStart := time.Now()
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
 	})
+	clientLatency := time.Since(clientStart)
+
 	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("Failed to create GenAI client after %v: %v", clientLatency, err)
 		return nil, fmt.Errorf("failed to create GenAI client: %w", err)
 	}
+
+	logging.Embedding("GenAI client created successfully in %v", clientLatency)
 
 	return &GenAIEngine{
 		client:   client,
@@ -49,22 +69,40 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 
 // Embed generates an embedding for a single text.
 func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.Embed")
+
+	textLen := len(text)
+	logging.EmbeddingDebug("GenAI.Embed: starting embed request, text_length=%d chars, model=%s", textLen, e.model)
+
 	contents := []*genai.Content{
 		genai.NewContentFromText(text, genai.RoleUser),
 	}
+
+	logging.EmbeddingDebug("GenAI.Embed: calling EmbedContent API")
+	apiStart := time.Now()
 
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
 		nil, // TaskType set via model, not request
 	)
+	apiLatency := time.Since(apiStart)
+
 	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.Embed: API call failed after %v: %v", apiLatency, err)
 		return nil, fmt.Errorf("GenAI embed failed: %w", err)
 	}
 
+	logging.EmbeddingDebug("GenAI.Embed: API response received in %v", apiLatency)
+
 	if len(result.Embeddings) == 0 {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.Embed: no embeddings returned from API")
 		return nil, fmt.Errorf("no embeddings returned")
 	}
+
+	dimensions := len(result.Embeddings[0].Values)
+	timer.Stop()
+	logging.Embedding("GenAI.Embed: completed successfully, dimensions=%d, api_latency=%v", dimensions, apiLatency)
 
 	return result.Embeddings[0].Values, nil
 }
@@ -72,28 +110,57 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 // EmbedBatch generates embeddings for multiple texts.
 // GenAI has native batch support.
 func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.EmbedBatch")
+	defer timer.Stop()
+
+	logging.Embedding("GenAI.EmbedBatch: starting native batch embed for %d texts", len(texts))
+
 	if len(texts) == 0 {
+		logging.EmbeddingDebug("GenAI.EmbedBatch: empty input, returning nil")
 		return nil, nil
 	}
+
+	// Calculate total text size for logging
+	totalChars := 0
+	for _, text := range texts {
+		totalChars += len(text)
+	}
+	logging.EmbeddingDebug("GenAI.EmbedBatch: total input size=%d chars across %d texts", totalChars, len(texts))
 
 	contents := make([]*genai.Content, len(texts))
 	for i, text := range texts {
 		contents[i] = genai.NewContentFromText(text, genai.RoleUser)
 	}
 
+	logging.EmbeddingDebug("GenAI.EmbedBatch: calling EmbedContent API with %d contents", len(contents))
+	apiStart := time.Now()
+
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
 		nil, // TaskType set via model, not request
 	)
+	apiLatency := time.Since(apiStart)
+
 	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.EmbedBatch: API call failed after %v: %v", apiLatency, err)
 		return nil, fmt.Errorf("GenAI batch embed failed: %w", err)
 	}
+
+	logging.EmbeddingDebug("GenAI.EmbedBatch: API response received in %v, got %d embeddings", apiLatency, len(result.Embeddings))
 
 	embeddings := make([][]float32, len(result.Embeddings))
 	for i, emb := range result.Embeddings {
 		embeddings[i] = emb.Values
 	}
+
+	dimensions := 0
+	if len(embeddings) > 0 && len(embeddings[0]) > 0 {
+		dimensions = len(embeddings[0])
+	}
+
+	logging.Embedding("GenAI.EmbedBatch: completed successfully, processed %d texts, dimensions=%d, api_latency=%v",
+		len(texts), dimensions, apiLatency)
 
 	return embeddings, nil
 }

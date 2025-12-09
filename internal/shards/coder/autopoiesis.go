@@ -1,6 +1,9 @@
 package coder
 
-import "fmt"
+import (
+	"codenerd/internal/logging"
+	"fmt"
+)
 
 // =============================================================================
 // AUTOPOIESIS (SELF-IMPROVEMENT)
@@ -13,8 +16,12 @@ func (c *CoderShard) trackRejection(action, reason string) {
 	key := fmt.Sprintf("%s:%s", action, reason)
 	c.rejectionCount[key]++
 
+	logging.Autopoiesis("Coder rejection tracked: action=%s, reason=%s, count=%d",
+		action, reason, c.rejectionCount[key])
+
 	// Persist to LearningStore if count exceeds threshold
 	if c.learningStore != nil && c.rejectionCount[key] >= 2 {
+		logging.Autopoiesis("Coder persisting avoid_pattern: %s:%s (threshold reached)", action, reason)
 		_ = c.learningStore.Save("coder", "avoid_pattern", []any{action, reason}, "")
 	}
 }
@@ -25,8 +32,12 @@ func (c *CoderShard) trackAcceptance(action string) {
 	defer c.mu.Unlock()
 	c.acceptanceCount[action]++
 
+	logging.Autopoiesis("Coder acceptance tracked: action=%s, count=%d",
+		action, c.acceptanceCount[action])
+
 	// Persist to LearningStore if count exceeds threshold
 	if c.learningStore != nil && c.acceptanceCount[action] >= 3 {
+		logging.Autopoiesis("Coder persisting preferred_pattern: %s (threshold reached)", action)
 		_ = c.learningStore.Save("coder", "preferred_pattern", []any{action}, "")
 	}
 }
@@ -35,8 +46,11 @@ func (c *CoderShard) trackAcceptance(action string) {
 // Must be called with lock held.
 func (c *CoderShard) loadLearnedPatterns() {
 	if c.learningStore == nil {
+		logging.AutopoiesisDebug("Coder: no LearningStore configured, skipping pattern load")
 		return
 	}
+
+	logging.Autopoiesis("Coder loading learned patterns from LearningStore")
 
 	// Load rejection patterns
 	rejectionLearnings, err := c.learningStore.LoadByPredicate("coder", "avoid_pattern")
@@ -50,6 +64,9 @@ func (c *CoderShard) loadLearnedPatterns() {
 				c.rejectionCount[key] = 2
 			}
 		}
+		logging.Autopoiesis("Coder loaded %d rejection patterns", len(rejectionLearnings))
+	} else {
+		logging.AutopoiesisDebug("Coder: failed to load rejection patterns: %v", err)
 	}
 
 	// Load acceptance patterns
@@ -62,5 +79,8 @@ func (c *CoderShard) loadLearnedPatterns() {
 				c.acceptanceCount[action] = 3
 			}
 		}
+		logging.Autopoiesis("Coder loaded %d acceptance patterns", len(acceptanceLearnings))
+	} else {
+		logging.AutopoiesisDebug("Coder: failed to load acceptance patterns: %v", err)
 	}
 }

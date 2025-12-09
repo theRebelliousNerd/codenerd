@@ -3,6 +3,7 @@ package world
 import (
 	"bytes"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"crypto/sha256"
 	"fmt"
 	"go/ast"
@@ -55,6 +56,7 @@ type FileScope struct {
 
 // NewFileScope creates a new FileScope.
 func NewFileScope(projectRoot string) *FileScope {
+	logging.World("Creating new FileScope for project: %s", projectRoot)
 	return &FileScope{
 		InScope:      make([]string, 0),
 		Elements:     make([]CodeElement, 0),
@@ -71,22 +73,30 @@ func (s *FileScope) SetFactCallback(callback func(core.Fact)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.factCallback = callback
+	logging.WorldDebug("Fact callback registered for FileScope")
 }
 
 // Open opens a file and loads its 1-hop dependency scope.
 func (s *FileScope) Open(path string) error {
+	timer := logging.StartTimer(logging.CategoryWorld, "FileScope.Open")
+	logging.World("Opening file scope for: %s", path)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Resolve to absolute path
 	absPath, err := filepath.Abs(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to resolve path: %s - %v", path, err)
 		return err
 	}
+	logging.WorldDebug("Resolved absolute path: %s", absPath)
 
 	// Detect module path from go.mod
 	if err := s.detectModulePath(); err != nil {
-		// Non-fatal: just won't resolve module imports
+		logging.WorldDebug("Module path detection failed (non-fatal): %v", err)
+	} else {
+		logging.WorldDebug("Detected module path: %s", s.ModulePath)
 	}
 
 	s.ActiveFile = absPath
@@ -94,19 +104,24 @@ func (s *FileScope) Open(path string) error {
 	s.Elements = nil
 
 	// 1. Parse active file and find its imports
+	logging.WorldDebug("Finding outbound dependencies for: %s", filepath.Base(absPath))
 	outbound, err := s.findOutboundDeps(absPath)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Failed to find outbound deps: %v", err)
 		return err
 	}
 	s.OutboundDeps[absPath] = outbound
+	logging.WorldDebug("Found %d outbound dependencies", len(outbound))
 
 	// 2. Find files that import the active file
+	logging.WorldDebug("Finding inbound dependencies for: %s", filepath.Base(absPath))
 	inbound, err := s.findInboundDeps(absPath)
 	if err != nil {
-		// Non-fatal: just won't have inbound deps
+		logging.WorldDebug("Inbound deps search failed (non-fatal): %v", err)
 		inbound = []string{}
 	}
 	s.InboundDeps[absPath] = inbound
+	logging.WorldDebug("Found %d inbound dependencies", len(inbound))
 
 	// 3. Add 1-hop files to scope
 	seen := make(map[string]bool)
@@ -117,6 +132,7 @@ func (s *FileScope) Open(path string) error {
 		if resolved != "" && !seen[resolved] {
 			s.InScope = append(s.InScope, resolved)
 			seen[resolved] = true
+			logging.WorldDebug("Added outbound dep to scope: %s", filepath.Base(resolved))
 		}
 	}
 
@@ -124,38 +140,53 @@ func (s *FileScope) Open(path string) error {
 		if !seen[dep] {
 			s.InScope = append(s.InScope, dep)
 			seen[dep] = true
+			logging.WorldDebug("Added inbound dep to scope: %s", filepath.Base(dep))
 		}
 	}
 
+	logging.World("Total files in scope: %d", len(s.InScope))
+
 	// 4. Parse all files in scope and extract elements
+	var loadErrors int
 	for _, file := range s.InScope {
 		if err := s.loadFile(file); err != nil {
-			// Log but continue with other files
+			logging.Get(logging.CategoryWorld).Warn("Failed to load file in scope: %s - %v", file, err)
+			loadErrors++
 			continue
 		}
 	}
+	logging.World("Loaded %d files (%d errors), extracted %d elements", len(s.InScope)-loadErrors, loadErrors, len(s.Elements))
 
 	// 5. Emit facts
 	s.emitScopeFacts()
 
+	timer.StopWithInfo()
 	return nil
 }
 
 // Refresh re-parses all in-scope files and updates element refs.
 // Call this after an edit to update line numbers.
 func (s *FileScope) Refresh() error {
+	timer := logging.StartTimer(logging.CategoryWorld, "FileScope.Refresh")
+	logging.World("Refreshing file scope (%d files)", len(s.InScope))
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.Elements = nil
+	var loadErrors int
 
 	for _, file := range s.InScope {
 		if err := s.loadFile(file); err != nil {
+			logging.Get(logging.CategoryWorld).Warn("Refresh failed for: %s - %v", file, err)
+			loadErrors++
 			continue
 		}
 	}
 
 	s.emitScopeFacts()
+	timer.Stop()
+	logging.World("Scope refresh complete: %d files, %d elements, %d errors", len(s.InScope), len(s.Elements), loadErrors)
 	return nil
 }
 
@@ -213,9 +244,11 @@ func (s *FileScope) IsInScope(path string) bool {
 
 // Close clears the current scope.
 func (s *FileScope) Close() {
+	logging.World("Closing FileScope")
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	logging.WorldDebug("Clearing scope: %d files, %d elements", len(s.InScope), len(s.Elements))
 	s.ActiveFile = ""
 	s.InScope = nil
 	s.Elements = nil
@@ -227,13 +260,18 @@ func (s *FileScope) Close() {
 // loadFile parses a file and adds its elements to the scope.
 // It detects encoding issues and emits appropriate facts.
 func (s *FileScope) loadFile(path string) error {
+	start := time.Now()
+	logging.WorldDebug("Loading file: %s", filepath.Base(path))
+
 	if !strings.HasSuffix(path, ".go") {
+		logging.WorldDebug("Skipping non-Go file: %s", filepath.Base(path))
 		return nil // Only Go files for now
 	}
 
 	// Read file content first for validation
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("File not found: %s - %v", path, err)
 		s.emitErrorFact("file_not_found", path, err.Error())
 		return err
 	}
@@ -245,6 +283,7 @@ func (s *FileScope) loadFile(path string) error {
 	isLarge := byteSize > 1024*1024 || lineCount > 10000
 
 	if isLarge {
+		logging.Get(logging.CategoryWorld).Warn("Large file detected: %s (%d lines, %d bytes)", filepath.Base(path), lineCount, byteSize)
 		s.emitFact(core.Fact{
 			Predicate: "large_file_warning",
 			Args:      []interface{}{path, int64(lineCount), byteSize},
@@ -254,18 +293,21 @@ func (s *FileScope) loadFile(path string) error {
 	// Detect encoding issues
 	encoding := detectEncoding(content)
 	if encoding.HasBOM {
+		logging.Get(logging.CategoryWorld).Warn("BOM detected in file: %s (%s)", filepath.Base(path), encoding.BOMType)
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
 			Args:      []interface{}{path, "/bom_detected"},
 		})
 	}
 	if encoding.MixedLineEnding {
+		logging.Get(logging.CategoryWorld).Warn("Mixed line endings in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
 			Args:      []interface{}{path, "/crlf_inconsistent"},
 		})
 	}
 	if !encoding.IsValidUTF8 {
+		logging.Get(logging.CategoryWorld).Warn("Invalid UTF-8 in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
 			Args:      []interface{}{path, "/non_utf8"},
@@ -273,14 +315,16 @@ func (s *FileScope) loadFile(path string) error {
 	}
 
 	// Parse with panic recovery
+	logging.WorldDebug("Parsing file for code elements: %s", filepath.Base(path))
 	elements, parseErr := s.safeParseFile(path)
 	if parseErr != nil {
+		logging.Get(logging.CategoryWorld).Error("Parse error: %s - %v", filepath.Base(path), parseErr)
 		s.emitErrorFact("parse_error", path, parseErr.Error())
-		// Don't fail entirely - continue with other files
 		return parseErr
 	}
 
 	s.Elements = append(s.Elements, elements...)
+	logging.WorldDebug("Extracted %d code elements from: %s", len(elements), filepath.Base(path))
 
 	// Detect code patterns (generated code, API clients, CGo, etc.)
 	patterns := DetectCodePatterns(string(content), elements)
@@ -291,6 +335,7 @@ func (s *FileScope) loadFile(path string) error {
 
 	// Warn if editing generated code
 	if patterns.IsGenerated {
+		logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
 		s.emitFact(core.Fact{
 			Predicate: "edit_unsafe",
 			Args:      []interface{}{path, "generated_code_will_be_overwritten"},
@@ -298,7 +343,9 @@ func (s *FileScope) loadFile(path string) error {
 	}
 
 	// Update hash
-	s.FileHashes[path] = computeFileHash(content)
+	hash := computeFileHash(content)
+	s.FileHashes[path] = hash
+	logging.WorldDebug("File loaded: %s (hash=%s, %d elements, %v)", filepath.Base(path), hash[:16], len(elements), time.Since(start))
 
 	return nil
 }
@@ -307,6 +354,7 @@ func (s *FileScope) loadFile(path string) error {
 func (s *FileScope) safeParseFile(path string) (elements []CodeElement, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			logging.Get(logging.CategoryWorld).Error("Panic during parse of %s: %v", filepath.Base(path), r)
 			err = fmt.Errorf("panic during parse: %v", r)
 		}
 	}()
@@ -333,21 +381,26 @@ func (s *FileScope) emitErrorFact(predicate, path, errMsg string) {
 // VerifyFileHash checks if a file has been modified since it was loaded.
 // Returns true if the file is unchanged, false if it was modified externally.
 func (s *FileScope) VerifyFileHash(path string) (bool, error) {
+	logging.WorldDebug("Verifying hash for: %s", filepath.Base(path))
+
 	s.mu.RLock()
 	expectedHash, exists := s.FileHashes[path]
 	s.mu.RUnlock()
 
 	if !exists {
+		logging.Get(logging.CategoryWorld).Warn("Hash verification failed - file not in scope: %s", path)
 		return false, fmt.Errorf("file not in scope: %s", path)
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("Hash verification failed - read error: %s - %v", path, err)
 		return false, err
 	}
 
 	actualHash := computeFileHash(content)
 	if actualHash != expectedHash {
+		logging.Get(logging.CategoryWorld).Warn("Hash mismatch detected: %s (expected=%s, actual=%s)", filepath.Base(path), expectedHash[:16], actualHash[:16])
 		s.emitFact(core.Fact{
 			Predicate: "file_hash_mismatch",
 			Args:      []interface{}{path, expectedHash, actualHash},
@@ -355,6 +408,7 @@ func (s *FileScope) VerifyFileHash(path string) (bool, error) {
 		return false, nil
 	}
 
+	logging.WorldDebug("Hash verified for: %s", filepath.Base(path))
 	return true, nil
 }
 

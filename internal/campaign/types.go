@@ -14,6 +14,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"path/filepath"
 	"strings"
 	"time"
@@ -366,6 +367,8 @@ type PlanValidationIssue struct {
 
 // ToFacts converts a Campaign to Mangle facts for kernel loading.
 func (c *Campaign) ToFacts() []core.Fact {
+	logging.CampaignDebug("Converting campaign %s to Mangle facts", c.ID)
+
 	facts := make([]core.Fact, 0)
 
 	source := ""
@@ -415,11 +418,16 @@ func (c *Campaign) ToFacts() []core.Fact {
 		facts = append(facts, c.Phases[i].ToFacts()...)
 	}
 
+	logging.CampaignDebug("Campaign %s converted: %d total facts (phases=%d, profiles=%d, docs=%d)",
+		c.ID, len(facts), len(c.Phases), len(c.ContextProfiles), len(c.SourceDocs))
+
 	return facts
 }
 
 // ToFacts converts a Phase to Mangle facts.
 func (p *Phase) ToFacts() []core.Fact {
+	logging.CampaignDebug("Converting phase %s (%s) to Mangle facts", p.ID, p.Name)
+
 	facts := make([]core.Fact, 0)
 
 	// Phase fact

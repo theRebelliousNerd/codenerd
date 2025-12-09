@@ -12,6 +12,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -95,6 +96,7 @@ func NewPerceptionFirewallShard() *PerceptionFirewallShard {
 
 // NewPerceptionFirewallShardWithConfig creates a perception firewall with custom config.
 func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirewallShard {
+	logging.SystemShards("[PerceptionFirewall] Initializing perception firewall shard")
 	base := NewBaseSystemShard("perception_firewall", StartupAuto)
 
 	// Configure permissions
@@ -114,6 +116,8 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 		// patternSuccess, patternFailure, corrections are in BaseSystemShard
 	}
 
+	logging.SystemShardsDebug("[PerceptionFirewall] Config: confidence_threshold=%.2f, ambiguity_threshold=%.2f, queue_size=%d",
+		cfg.ConfidenceThreshold, cfg.AmbiguityThreshold, cfg.MaxQueueSize)
 	return shard
 }
 
@@ -164,6 +168,7 @@ func buildVerbPatterns() map[string]*regexp.Regexp {
 
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")
 	p.SetState(core.ShardStateRunning)
 	p.mu.Lock()
 	p.running = true
@@ -175,10 +180,12 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 		p.mu.Lock()
 		p.running = false
 		p.mu.Unlock()
+		logging.SystemShards("[PerceptionFirewall] Parsing loop terminated")
 	}()
 
 	// Initialize kernel if not set
 	if p.Kernel == nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Creating new kernel (none attached)")
 		p.Kernel = core.NewRealKernel()
 	}
 
@@ -188,12 +195,16 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 	for {
 		select {
 		case <-ctx.Done():
+			logging.SystemShards("[PerceptionFirewall] Context cancelled, shutting down")
 			return p.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-p.StopCh:
+			logging.SystemShards("[PerceptionFirewall] Stop signal received")
 			return p.generateShutdownSummary("stopped"), nil
 		case input := <-p.pendingInputs:
 			// Process input
+			logging.SystemShardsDebug("[PerceptionFirewall] Processing input: %s", truncateForLog(input, 80))
 			if err := p.processInput(ctx, input); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] Error processing input: %v", err)
 				_ = p.Kernel.Assert(core.Fact{
 					Predicate: "perception_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
@@ -218,6 +229,9 @@ func (p *PerceptionFirewallShard) SubmitInput(input string) error {
 
 // processInput parses a single user input.
 func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string) error {
+	timer := logging.StartTimer(logging.CategorySystemShards, "[PerceptionFirewall] processInput")
+	defer timer.Stop()
+
 	p.mu.Lock()
 	p.lastInput = time.Now()
 	p.mu.Unlock()
@@ -227,11 +241,16 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 	if err != nil {
 		// Fallback to regex-based parsing
 		if p.config.UseFallbackParsing {
+			logging.SystemShardsDebug("[PerceptionFirewall] LLM parsing failed, using fallback: %v", err)
 			intent = p.parseWithFallback(input)
 		} else {
+			logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] LLM parsing failed, no fallback: %v", err)
 			return err
 		}
 	}
+
+	logging.SystemShardsDebug("[PerceptionFirewall] Parsed intent: id=%s, verb=%s, category=%s, confidence=%.2f",
+		intent.ID, intent.Verb, intent.Category, intent.Confidence)
 
 	// Emit user_intent fact
 	_ = p.Kernel.Assert(core.Fact{
@@ -257,6 +276,7 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 
 	// Check confidence thresholds
 	if intent.Confidence < p.config.AmbiguityThreshold {
+		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: id=%s, confidence=%.2f", intent.ID, intent.Confidence)
 		// Emit ambiguity_flag
 		_ = p.Kernel.Assert(core.Fact{
 			Predicate: "ambiguity_flag",
@@ -269,6 +289,7 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 	}
 
 	if intent.Confidence < p.config.ConfidenceThreshold {
+		logging.SystemShardsDebug("[PerceptionFirewall] Clarification needed for intent: %s", intent.ID)
 		// Emit clarification_needed
 		_ = p.Kernel.Assert(core.Fact{
 			Predicate: "clarification_needed",
@@ -283,6 +304,8 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 	// Resolve focus if target present
 	if intent.Target != "" {
 		resolution := p.resolveTarget(ctx, intent.Target)
+		logging.SystemShardsDebug("[PerceptionFirewall] Target resolution: raw=%s, resolved=%s, confidence=%.2f",
+			resolution.RawReference, resolution.ResolvedPath, resolution.Confidence)
 		_ = p.Kernel.Assert(core.Fact{
 			Predicate: "focus_resolution",
 			Args: []interface{}{
@@ -300,6 +323,7 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 		Args:      []interface{}{intent.ID},
 	})
 
+	logging.SystemShards("[PerceptionFirewall] Intent processed: id=%s, verb=%s", intent.ID, intent.Verb)
 	return nil
 }
 

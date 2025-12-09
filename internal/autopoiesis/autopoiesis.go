@@ -7,6 +7,7 @@ package autopoiesis
 
 import (
 	internalconfig "codenerd/internal/config"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -112,6 +113,14 @@ type Orchestrator struct {
 
 // NewOrchestrator creates a new autopoiesis orchestrator
 func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "NewOrchestrator")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Initializing Autopoiesis Orchestrator")
+	logging.AutopoiesisDebug("Config: ToolsDir=%s, AgentsDir=%s, MinConfidence=%.2f",
+		config.ToolsDir, config.AgentsDir, config.MinConfidence)
+	logging.AutopoiesisDebug("Target: OS=%s, Arch=%s", config.TargetOS, config.TargetArch)
+
 	// Create Ouroboros config from autopoiesis config
 	ouroborosConfig := OuroborosConfig{
 		ToolsDir:        config.ToolsDir,
@@ -127,13 +136,19 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		WorkspaceRoot:   config.WorkspaceRoot,
 	}
 
+	logging.AutopoiesisDebug("Creating ToolGenerator")
 	toolGen := NewToolGenerator(client, config.ToolsDir)
+
 	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
 	tracesDir := filepath.Join(config.ToolsDir, ".traces")
 	profilesDir := filepath.Join(config.ToolsDir, ".profiles")
+
+	logging.AutopoiesisDebug("Creating ProfileStore: %s", profilesDir)
 	profileStore := NewProfileStore(profilesDir)
 
-	return &Orchestrator{
+	logging.AutopoiesisDebug("Creating subsystems: ComplexityAnalyzer, PersistenceAnalyzer, AgentCreator")
+
+	orch := &Orchestrator{
 		config:      config,
 		complexity:  NewComplexityAnalyzer(client),
 		toolGen:     toolGen,
@@ -153,6 +168,9 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		traces:      NewTraceCollector(tracesDir, client),
 		logInjector: NewLogInjector(DefaultLoggingRequirements()),
 	}
+
+	logging.Autopoiesis("Autopoiesis Orchestrator initialized successfully")
+	return orch
 }
 
 // SetKernel attaches a Mangle kernel for fact assertion and query.
@@ -235,11 +253,14 @@ func (o *Orchestrator) assertToolLearning(toolName string, executions int, succe
 // facts and processes each one by generating the requested tool.
 // Returns the number of tools generated.
 func (o *Orchestrator) ProcessKernelDelegations(ctx context.Context) (int, error) {
+	logging.AutopoiesisDebug("Processing kernel delegations")
+
 	o.mu.RLock()
 	kernel := o.kernel
 	o.mu.RUnlock()
 
 	if kernel == nil {
+		logging.AutopoiesisDebug("No kernel attached, skipping delegation processing")
 		return 0, nil // No kernel attached
 	}
 
@@ -247,8 +268,10 @@ func (o *Orchestrator) ProcessKernelDelegations(ctx context.Context) (int, error
 	// delegate_task(/tool_generator, Capability, /pending)
 	facts, err := kernel.QueryPredicate("delegate_task")
 	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to query delegate_task: %v", err)
 		return 0, fmt.Errorf("failed to query delegate_task: %w", err)
 	}
+	logging.AutopoiesisDebug("Found %d delegate_task facts", len(facts))
 
 	generated := 0
 	for _, fact := range facts {
@@ -281,21 +304,34 @@ func (o *Orchestrator) ProcessKernelDelegations(ctx context.Context) (int, error
 			continue
 		}
 
+		logging.Autopoiesis("Processing kernel delegation: capability=%s", capability)
+
 		// Generate the tool
 		if err := o.generateToolFromDelegation(ctx, capability); err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Error("Tool generation failed for delegation %s: %v",
+				capability, err)
 			// Assert failure fact
 			_ = o.assertToKernel("tool_generation_failed", capability, err.Error())
 			continue
 		}
 
 		generated++
+		logging.Autopoiesis("Kernel delegation processed successfully: capability=%s", capability)
 	}
 
+	if generated > 0 {
+		logging.Autopoiesis("Processed %d kernel delegations", generated)
+	}
 	return generated, nil
 }
 
 // generateToolFromDelegation generates a tool for a kernel-delegated capability request.
 func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capability string) error {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "generateToolFromDelegation")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Generating tool from kernel delegation: %s", capability)
+
 	// Create a tool need from the capability
 	need := &ToolNeed{
 		Name:       capability,
@@ -306,16 +342,22 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 	}
 
 	// Use the ouroboros loop to generate the tool
+	logging.AutopoiesisDebug("Invoking Ouroboros loop for delegation: %s", capability)
 	result := o.ouroboros.Execute(ctx, need)
 	if !result.Success {
 		if result.Error != "" {
+			logging.Get(logging.CategoryAutopoiesis).Error("Delegation tool generation failed: %s: %s",
+				capability, result.Error)
 			return fmt.Errorf("failed to generate tool %s: %s", capability, result.Error)
 		}
+		logging.Get(logging.CategoryAutopoiesis).Error("Delegation tool generation failed at stage %v: %s",
+			result.Stage, capability)
 		return fmt.Errorf("failed to generate tool %s at stage %v", capability, result.Stage)
 	}
 
 	// Assert success to kernel
 	if result.ToolHandle != nil {
+		logging.Autopoiesis("Tool registered from delegation: %s -> %s", capability, result.ToolHandle.Name)
 		o.assertToolRegistered(result.ToolHandle)
 		// Also assert delegation completion
 		_ = o.assertToKernel("tool_delegation_complete", capability, result.ToolHandle.Name)
@@ -330,8 +372,11 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval time.Duration) <-chan struct{} {
 	done := make(chan struct{})
 
+	logging.Autopoiesis("Starting kernel delegation listener (poll interval: %v)", pollInterval)
+
 	go func() {
 		defer close(done)
+		defer logging.Autopoiesis("Kernel delegation listener stopped")
 
 		ticker := time.NewTicker(pollInterval)
 		defer ticker.Stop()
@@ -339,14 +384,14 @@ func (o *Orchestrator) StartKernelListener(ctx context.Context, pollInterval tim
 		for {
 			select {
 			case <-ctx.Done():
+				logging.AutopoiesisDebug("Kernel listener context cancelled")
 				return
 			case <-ticker.C:
 				// Process any pending delegations
 				if n, err := o.ProcessKernelDelegations(ctx); err != nil {
-					// Log error but continue
-					fmt.Fprintf(os.Stderr, "autopoiesis: kernel delegation error: %v\n", err)
+					logging.Get(logging.CategoryAutopoiesis).Error("Kernel delegation error: %v", err)
 				} else if n > 0 {
-					fmt.Fprintf(os.Stderr, "autopoiesis: processed %d kernel delegations\n", n)
+					logging.Autopoiesis("Kernel listener processed %d delegations", n)
 				}
 			}
 		}

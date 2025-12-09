@@ -6,6 +6,7 @@ package coder
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
@@ -259,6 +260,9 @@ Remember: This is a simulation. Describe the plan, don't execute it.`, task)
 //   - fix file:path/to/file.go error:error message
 //   - implement file:path/to/file.go spec:description
 func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
+	timer := logging.StartTimer(logging.CategoryCoder, "Execute")
+	logging.Coder("Starting task execution: %s", task)
+
 	c.mu.Lock()
 	c.state = core.ShardStateRunning
 	c.startTime = time.Now()
@@ -270,71 +274,107 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 		c.mu.Lock()
 		c.state = core.ShardStateCompleted
 		c.mu.Unlock()
+		timer.StopWithInfo()
 	}()
 
 	// DREAM MODE: Only describe what we would do, don't execute
 	if c.config.SessionContext != nil && c.config.SessionContext.DreamMode {
+		logging.CoderDebug("DREAM MODE enabled, describing plan without execution")
 		return c.describeDreamPlan(ctx, task)
 	}
 
-	fmt.Printf("[CoderShard:%s] Starting task: %s\n", c.id, task)
+	logging.CoderDebug("[CoderShard:%s] Initializing for task", c.id)
 
 	// Initialize kernel if not set
 	if c.kernel == nil {
+		logging.CoderDebug("Creating new RealKernel instance")
 		c.kernel = core.NewRealKernel()
 	}
 	// Load coder-specific policy (only once to avoid duplicate Decl errors)
 	if !c.policyLoaded {
+		logging.CoderDebug("Loading coder.mg policy file")
 		_ = c.kernel.LoadPolicyFile("coder.mg")
 		c.policyLoaded = true
 	}
 
 	// Parse the task
+	parseTimer := logging.StartTimer(logging.CategoryCoder, "ParseTask")
 	parsedTask := c.parseTask(task)
+	parseTimer.Stop()
+	logging.Coder("Parsed task: action=%s, target=%s, instruction=%s",
+		parsedTask.Action, parsedTask.Target, parsedTask.Instruction)
 
 	// Check for safety blocks
 	if c.coderConfig.SafetyMode && c.coderConfig.ImpactCheck {
+		impactTimer := logging.StartTimer(logging.CategoryCoder, "ImpactCheck")
 		blocked, reason := c.checkImpact(parsedTask.Target)
+		impactTimer.Stop()
 		if blocked {
+			logging.Coder("Action blocked by impact check: %s", reason)
 			c.trackRejection(parsedTask.Action, "impact_blocked")
 			return "", fmt.Errorf("action blocked: %s", reason)
 		}
+		logging.CoderDebug("Impact check passed for target: %s", parsedTask.Target)
 	}
 
 	// Assert task facts to kernel
+	logging.CoderDebug("Asserting task facts to kernel")
 	c.assertTaskFacts(parsedTask)
 
 	// Read file context
+	contextTimer := logging.StartTimer(logging.CategoryCoder, "ReadFileContext")
 	fileContext, err := c.readFileContext(ctx, parsedTask.Target)
+	contextTimer.Stop()
 	if err != nil && parsedTask.Action != "create" {
+		logging.Get(logging.CategoryCoder).Error("Failed to read file context: %v", err)
 		return "", fmt.Errorf("failed to read file context: %w", err)
+	}
+	if fileContext != "" {
+		logging.CoderDebug("Read file context: %d bytes", len(fileContext))
 	}
 
 	// Generate code via LLM
+	genTimer := logging.StartTimer(logging.CategoryCoder, "GenerateCode")
 	result, err := c.generateCode(ctx, parsedTask, fileContext)
+	genTimer.StopWithInfo()
 	if err != nil {
+		logging.Get(logging.CategoryCoder).Error("Code generation failed: %v", err)
 		c.trackRejection(parsedTask.Action, "generation_failed")
 		return "", fmt.Errorf("code generation failed: %w", err)
 	}
+	logging.Coder("Generated %d edits", len(result.Edits))
 
 	// Apply edits
 	if len(result.Edits) > 0 {
+		applyTimer := logging.StartTimer(logging.CategoryCoder, "ApplyEdits")
 		if err := c.applyEdits(ctx, result.Edits); err != nil {
+			applyTimer.Stop()
+			logging.Get(logging.CategoryCoder).Error("Failed to apply edits: %v", err)
 			return "", fmt.Errorf("failed to apply edits: %w", err)
 		}
+		applyTimer.Stop()
+		logging.Coder("Applied %d edits successfully", len(result.Edits))
 		c.trackAcceptance(parsedTask.Action)
 
 		// Run build check if safety mode enabled
 		if c.coderConfig.SafetyMode {
+			buildTimer := logging.StartTimer(logging.CategoryCoder, "BuildCheck")
 			result.BuildPassed = c.runBuildCheck(ctx)
+			buildTimer.Stop()
 			if !result.BuildPassed {
+				logging.Coder("Build check FAILED with %d diagnostics", len(c.diagnostics))
 				result.Diagnostics = c.diagnostics
+			} else {
+				logging.Coder("Build check PASSED")
 			}
 		}
+	} else {
+		logging.CoderDebug("No edits to apply")
 	}
 
 	// Generate facts for propagation
 	result.Facts = c.generateFacts(result)
+	logging.CoderDebug("Generated %d facts for propagation", len(result.Facts))
 	for _, fact := range result.Facts {
 		if c.kernel != nil {
 			_ = c.kernel.Assert(fact)
@@ -347,6 +387,9 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	c.mu.Lock()
 	c.editHistory = append(c.editHistory, result.Edits...)
 	c.mu.Unlock()
+
+	logging.Coder("Task completed: %d edits, duration=%v, build_passed=%v",
+		len(result.Edits), result.Duration, result.BuildPassed)
 
 	return c.buildResponse(result), nil
 }

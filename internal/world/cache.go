@@ -1,6 +1,7 @@
 package world
 
 import (
+	"codenerd/internal/logging"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -25,11 +26,13 @@ type FileCache struct {
 // NewFileCache creates or loads a file cache.
 func NewFileCache(workspaceRoot string) *FileCache {
 	cachePath := filepath.Join(workspaceRoot, ".nerd", "cache", "manifest.json")
+	logging.WorldDebug("Creating FileCache at: %s", cachePath)
 	cache := &FileCache{
 		path:    cachePath,
 		Entries: make(map[string]CacheEntry),
 	}
 	cache.load()
+	logging.WorldDebug("FileCache loaded with %d entries", len(cache.Entries))
 	return cache
 }
 
@@ -40,12 +43,16 @@ func (c *FileCache) load() {
 
 	data, err := os.ReadFile(c.path)
 	if err != nil {
-		// Cache doesn't exist or readable, start fresh
+		if os.IsNotExist(err) {
+			logging.WorldDebug("FileCache: no existing cache file, starting fresh")
+		} else {
+			logging.Get(logging.CategoryWorld).Warn("FileCache: failed to read cache: %v", err)
+		}
 		return
 	}
 
 	if err := json.Unmarshal(data, &c.Entries); err != nil {
-		// Corrupt cache, start fresh
+		logging.Get(logging.CategoryWorld).Warn("FileCache: corrupt cache, starting fresh: %v", err)
 		c.Entries = make(map[string]CacheEntry)
 	}
 }
@@ -56,25 +63,32 @@ func (c *FileCache) Save() error {
 	defer c.mu.Unlock()
 
 	if !c.Dirty {
+		logging.WorldDebug("FileCache: no changes to save")
 		return nil
 	}
+
+	logging.WorldDebug("FileCache: saving %d entries to disk", len(c.Entries))
 
 	// Ensure directory exists
 	dir := filepath.Dir(c.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.Get(logging.CategoryWorld).Error("FileCache: failed to create cache directory: %v", err)
 		return err
 	}
 
 	data, err := json.MarshalIndent(c.Entries, "", "  ")
 	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("FileCache: failed to marshal cache: %v", err)
 		return err
 	}
 
 	if err := os.WriteFile(c.path, data, 0644); err != nil {
+		logging.Get(logging.CategoryWorld).Error("FileCache: failed to write cache file: %v", err)
 		return err
 	}
 
 	c.Dirty = false
+	logging.World("FileCache saved: %d entries", len(c.Entries))
 	return nil
 }
 
