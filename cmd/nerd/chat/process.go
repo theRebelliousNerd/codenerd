@@ -692,9 +692,9 @@ As the %s agent, provide your perspective:
 Remember: This is a SIMULATION. Describe what you WOULD do, not what you ARE doing.
 Format your response as a structured analysis.`
 
-	// Rate limit: 2 API calls per second max - process SEQUENTIALLY
-	// Each shard may make multiple API calls internally, so we space them out
-	fmt.Printf("[DREAM DEBUG] Rate limiting: processing shards sequentially (500ms delay between)\n")
+	// Rate limit: ~1.6 API calls per second max - process SEQUENTIALLY
+	// 1 second between shards, each shard's LLM call has 600ms minimum spacing
+	fmt.Printf("[DREAM DEBUG] Rate limiting: processing shards sequentially (1s delay between)\n")
 
 	// Longer timeout for sequential processing (30s per shard max)
 	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*30)*time.Second)
@@ -709,9 +709,9 @@ Format your response as a structured analysis.`
 			break
 		}
 
-		// Rate limit: wait 500ms between spawns (after first one)
+		// Rate limit: wait 1 second between shard spawns (after first one)
 		if i > 0 {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 		}
 
 		name := shardName
@@ -721,7 +721,12 @@ Format your response as a structured analysis.`
 			i+1, len(shardTypes), name, typeDesc)
 
 		prompt := fmt.Sprintf(consultPromptTemplate, hypothetical, name)
-		result, err := m.shardMgr.Spawn(consultCtx, name, prompt)
+
+		// Pass DreamMode=true so shards know NOT to execute, only describe
+		dreamCtx := &core.SessionContext{
+			DreamMode: true,
+		}
+		result, err := m.shardMgr.SpawnWithContext(consultCtx, name, prompt, dreamCtx)
 
 		consultation := DreamConsultation{
 			ShardName: name,
