@@ -67,6 +67,29 @@ type ClaudeCLIConfig struct {
 
 	// Timeout in seconds for CLI execution (default: 300)
 	Timeout int `json:"timeout,omitempty"`
+
+	// FallbackModel is used when the primary model is rate-limited or overloaded
+	// Example: "haiku" as fallback for "sonnet"
+	FallbackModel string `json:"fallback_model,omitempty"`
+
+	// Streaming enables real-time streaming output (--output-format stream-json)
+	// When true, responses are streamed as they arrive
+	Streaming bool `json:"streaming,omitempty"`
+
+	// SystemPromptFile is a path to a file containing the system prompt
+	// Useful for very long system prompts that might exceed command line limits
+	SystemPromptFile string `json:"system_prompt_file,omitempty"`
+
+	// AllowedTools restricts which tools Claude can use (e.g., "Bash(git:*) Edit Read")
+	// Empty means use defaults, "" (empty string in config) disables all tools
+	AllowedTools string `json:"allowed_tools,omitempty"`
+
+	// DisallowedTools explicitly blocks certain tools
+	DisallowedTools string `json:"disallowed_tools,omitempty"`
+
+	// MCPConfig is a path to MCP server configuration file
+	// Allows codeNERD to leverage user's existing MCP servers
+	MCPConfig string `json:"mcp_config,omitempty"`
 }
 
 // CodexCLIConfig holds configuration for Codex CLI backend.
