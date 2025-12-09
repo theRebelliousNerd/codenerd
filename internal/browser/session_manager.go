@@ -176,13 +176,19 @@ func NewSessionManagerWithSink(cfg Config, sink EngineSink) *SessionManager {
 
 // Start connects to an existing Chrome or launches a new one.
 func (m *SessionManager) Start(ctx context.Context) error {
+	timer := logging.StartTimer(logging.CategoryBrowser, "Browser session start")
+	defer timer.Stop()
+
+	logging.Browser("Starting browser session manager")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// If we already have a browser, verify it's still alive
 	if m.browser != nil {
+		logging.BrowserDebug("Checking existing browser connection health")
 		_, err := m.browser.Version()
 		if err == nil {
+			logging.BrowserDebug("Browser connection healthy, reusing existing session")
 			return nil // Browser is healthy
 		}
 		logging.BrowserWarn("Stale browser connection detected, reconnecting...")
@@ -192,13 +198,16 @@ func (m *SessionManager) Start(ctx context.Context) error {
 		m.sessions = make(map[string]*sessionRecord)
 	}
 
+	logging.BrowserDebug("Loading persisted sessions")
 	if err := m.loadSessionsLocked(); err != nil {
+		logging.BrowserError("Failed to load sessions: %v", err)
 		return fmt.Errorf("load sessions: %w", err)
 	}
 
 	controlURL := m.cfg.DebuggerURL
 	if controlURL == "" && len(m.cfg.Launch) > 0 {
 		bin := m.cfg.Launch[0]
+		logging.Browser("Launching Chrome from binary: %s (headless=%v)", bin, m.cfg.IsHeadless())
 		launch := launcher.New().Bin(bin).Headless(m.cfg.IsHeadless())
 		if len(m.cfg.Launch) > 1 {
 			for _, rawFlag := range m.cfg.Launch[1:] {
@@ -213,35 +222,44 @@ func (m *SessionManager) Start(ctx context.Context) error {
 		}
 		url, err := launch.Launch()
 		if err != nil {
+			logging.BrowserWarn("Chrome launch failed, trying fallback: %v", err)
 			// Fallback
 			fallback := launcher.New().Bin(bin).Headless(m.cfg.IsHeadless())
 			if alt, altErr := fallback.Launch(); altErr == nil {
 				controlURL = alt
+				logging.Browser("Chrome launched via fallback, control URL: %s", controlURL)
 			} else {
+				logging.BrowserError("Chrome launch failed (primary: %v, fallback: %v)", err, altErr)
 				return fmt.Errorf("launch chrome: %w (fallback: %v)", err, altErr)
 			}
 		} else {
 			controlURL = url
+			logging.Browser("Chrome launched successfully, control URL: %s", controlURL)
 		}
 	}
 
 	if controlURL == "" {
 		// Try default launcher
+		logging.Browser("No debugger URL configured, using default launcher")
 		url, err := launcher.New().Headless(m.cfg.IsHeadless()).Launch()
 		if err != nil {
+			logging.BrowserError("Default launcher failed: %v", err)
 			return fmt.Errorf("no debugger_url and failed to launch: %w", err)
 		}
 		controlURL = url
+		logging.Browser("Default launcher succeeded, control URL: %s", controlURL)
 	}
 
+	logging.BrowserDebug("Connecting to Chrome at: %s", controlURL)
 	browser := rod.New().ControlURL(controlURL).Context(ctx)
 	if err := browser.Connect(); err != nil {
+		logging.BrowserError("Failed to connect to Chrome: %v", err)
 		return fmt.Errorf("connect to chrome: %w", err)
 	}
 
 	m.browser = browser
 	m.controlURL = controlURL
-	// Note: Browser connected - no log output to avoid TUI interference
+	logging.Browser("Browser session manager started successfully")
 	return nil
 }
 
@@ -271,11 +289,15 @@ func (m *SessionManager) IsConnected() bool {
 
 // Shutdown closes tracked pages and the browser.
 func (m *SessionManager) Shutdown(ctx context.Context) error {
+	logging.Browser("Shutting down browser session manager")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	sessionCount := len(m.sessions)
+	logging.BrowserDebug("Closing %d active sessions", sessionCount)
 	for id, record := range m.sessions {
 		if record.page != nil {
+			logging.BrowserDebug("Closing session page: %s", id)
 			_ = record.page.Close()
 		}
 		delete(m.sessions, id)
@@ -283,11 +305,15 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 
 	var err error
 	if m.browser != nil {
+		logging.BrowserDebug("Closing browser connection")
 		err = m.browser.Close()
+		if err != nil {
+			logging.BrowserError("Error closing browser: %v", err)
+		}
 		m.browser = nil
 	}
 	m.controlURL = ""
-	// Note: Browser shutdown complete - no log output to avoid TUI interference
+	logging.Browser("Browser session manager shutdown complete")
 	return err
 }
 
@@ -305,34 +331,46 @@ func (m *SessionManager) List() []Session {
 
 // CreateSession opens a new page and tracks it.
 func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Session, error) {
+	timer := logging.StartTimer(logging.CategoryBrowser, "Create browser session")
+	defer timer.Stop()
+
+	logging.Browser("Creating new browser session for URL: %s", url)
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started: %v", err)
 		return nil, err
 	}
 	if m.browser == nil {
+		logging.BrowserError("Browser not connected when creating session")
 		return nil, errors.New("browser not connected")
 	}
 
+	logging.BrowserDebug("Creating incognito context")
 	incognito, err := m.browser.Incognito()
 	if err != nil {
+		logging.BrowserError("Failed to create incognito context: %v", err)
 		return nil, fmt.Errorf("incognito context: %w", err)
 	}
 
+	logging.BrowserDebug("Creating new page")
 	page, err := incognito.Page(proto.TargetCreateTarget{URL: url})
 	if err != nil {
+		logging.BrowserError("Failed to create page: %v", err)
 		return nil, fmt.Errorf("create page: %w", err)
 	}
 
 	// Set viewport dimensions
+	logging.BrowserDebug("Setting viewport: %dx%d", m.cfg.GetViewportWidth(), m.cfg.GetViewportHeight())
 	if err := (proto.EmulationSetDeviceMetricsOverride{
 		Width:             m.cfg.GetViewportWidth(),
 		Height:            m.cfg.GetViewportHeight(),
 		DeviceScaleFactor: 1.0,
 		Mobile:            false,
 	}).Call(page); err != nil {
-		logging.BrowserWarn("failed to set viewport: %v", err)
+		logging.BrowserWarn("Failed to set viewport: %v", err)
 	}
 
 	// Navigate
+	logging.Browser("Navigating to URL: %s (timeout=%s)", url, m.cfg.NavigationTimeout())
 	_ = page.Timeout(m.cfg.NavigationTimeout()).Navigate(url)
 
 	meta := Session{
@@ -348,23 +386,30 @@ func (m *SessionManager) CreateSession(ctx context.Context, url string) (*Sessio
 	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page}
 	m.mu.Unlock()
 
+	logging.BrowserDebug("Starting event stream for session: %s", meta.ID)
 	m.startEventStream(ctx, meta.ID, page)
 	_ = m.persistSessions()
 
+	logging.Browser("Session created successfully: %s (target=%s)", meta.ID, meta.TargetID)
 	return &meta, nil
 }
 
 // Attach binds to an existing target by TargetID.
 func (m *SessionManager) Attach(ctx context.Context, targetID string) (*Session, error) {
+	logging.Browser("Attaching to existing browser target: %s", targetID)
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started for attach: %v", err)
 		return nil, err
 	}
 	if m.browser == nil {
+		logging.BrowserError("Browser not connected when attaching")
 		return nil, errors.New("browser not connected")
 	}
 
+	logging.BrowserDebug("Getting page from target: %s", targetID)
 	page, err := m.browser.PageFromTarget(proto.TargetTargetID(targetID))
 	if err != nil {
+		logging.BrowserError("Failed to attach to target %s: %v", targetID, err)
 		return nil, fmt.Errorf("attach to target %s: %w", targetID, err)
 	}
 
@@ -380,8 +425,10 @@ func (m *SessionManager) Attach(ctx context.Context, targetID string) (*Session,
 	m.sessions[meta.ID] = &sessionRecord{meta: meta, page: page}
 	m.mu.Unlock()
 
+	logging.BrowserDebug("Starting event stream for attached session: %s", meta.ID)
 	m.startEventStream(ctx, meta.ID, page)
 	_ = m.persistSessions()
+	logging.Browser("Successfully attached to target %s as session %s", targetID, meta.ID)
 	return &meta, nil
 }
 
@@ -634,69 +681,125 @@ func (m *SessionManager) ForkSession(ctx context.Context, sessionID, url string)
 
 // Navigate navigates to a URL.
 func (m *SessionManager) Navigate(ctx context.Context, sessionID, url string) error {
+	timer := logging.StartTimer(logging.CategoryBrowser, "Page navigation")
+	defer timer.Stop()
+
+	logging.Browser("Navigating session %s to URL: %s", sessionID, url)
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started for navigation: %v", err)
 		return err
 	}
 	page, ok := m.Page(sessionID)
 	if !ok {
+		logging.BrowserError("Unknown session for navigation: %s", sessionID)
 		return fmt.Errorf("unknown session: %s", sessionID)
 	}
-	return page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url)
+	logging.BrowserDebug("Navigating with timeout: %s", m.cfg.NavigationTimeout())
+	err := page.Context(ctx).Timeout(m.cfg.NavigationTimeout()).Navigate(url)
+	if err != nil {
+		logging.BrowserError("Navigation failed for session %s: %v", sessionID, err)
+	} else {
+		logging.BrowserDebug("Navigation completed for session %s", sessionID)
+	}
+	return err
 }
 
 // Click clicks an element.
 func (m *SessionManager) Click(ctx context.Context, sessionID, selector string) error {
+	logging.Browser("Clicking element: %s (session=%s)", selector, sessionID)
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started for click: %v", err)
 		return err
 	}
 	page, ok := m.Page(sessionID)
 	if !ok {
+		logging.BrowserError("Unknown session for click: %s", sessionID)
 		return fmt.Errorf("unknown session: %s", sessionID)
 	}
+	logging.BrowserDebug("Finding element: %s", selector)
 	el, err := page.Context(ctx).Element(selector)
 	if err != nil {
+		logging.BrowserError("Element not found for click: %s - %v", selector, err)
 		return fmt.Errorf("element not found: %w", err)
 	}
-	return el.Click(proto.InputMouseButtonLeft, 1)
+	logging.BrowserDebug("Element found, performing click")
+	err = el.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		logging.BrowserError("Click failed on element %s: %v", selector, err)
+	} else {
+		logging.BrowserDebug("Click completed on element: %s", selector)
+	}
+	return err
 }
 
 // Type types text into an element.
 func (m *SessionManager) Type(ctx context.Context, sessionID, selector, text string) error {
+	logging.Browser("Typing into element: %s (session=%s, len=%d)", selector, sessionID, len(text))
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started for type: %v", err)
 		return err
 	}
 	page, ok := m.Page(sessionID)
 	if !ok {
+		logging.BrowserError("Unknown session for type: %s", sessionID)
 		return fmt.Errorf("unknown session: %s", sessionID)
 	}
+	logging.BrowserDebug("Finding element for input: %s", selector)
 	el, err := page.Context(ctx).Element(selector)
 	if err != nil {
+		logging.BrowserError("Element not found for type: %s - %v", selector, err)
 		return fmt.Errorf("element not found: %w", err)
 	}
-	return el.Input(text)
+	logging.BrowserDebug("Element found, typing %d characters", len(text))
+	err = el.Input(text)
+	if err != nil {
+		logging.BrowserError("Type failed on element %s: %v", selector, err)
+	} else {
+		logging.BrowserDebug("Type completed on element: %s", selector)
+	}
+	return err
 }
 
 // Screenshot captures a screenshot.
 func (m *SessionManager) Screenshot(ctx context.Context, sessionID string, fullPage bool) ([]byte, error) {
+	timer := logging.StartTimer(logging.CategoryBrowser, "Screenshot capture")
+	defer timer.Stop()
+
+	logging.Browser("Capturing screenshot (session=%s, fullPage=%v)", sessionID, fullPage)
 	if err := m.ensureStarted(ctx); err != nil {
+		logging.BrowserError("Failed to ensure browser started for screenshot: %v", err)
 		return nil, err
 	}
 	page, ok := m.Page(sessionID)
 	if !ok {
+		logging.BrowserError("Unknown session for screenshot: %s", sessionID)
 		return nil, fmt.Errorf("unknown session: %s", sessionID)
 	}
+	var data []byte
+	var err error
 	if fullPage {
-		return page.Context(ctx).Screenshot(true, nil)
+		logging.BrowserDebug("Capturing full page screenshot")
+		data, err = page.Context(ctx).Screenshot(true, nil)
+	} else {
+		logging.BrowserDebug("Capturing viewport screenshot")
+		data, err = page.Context(ctx).Screenshot(false, nil)
 	}
-	return page.Context(ctx).Screenshot(false, nil)
+	if err != nil {
+		logging.BrowserError("Screenshot capture failed: %v", err)
+		return nil, err
+	}
+	logging.Browser("Screenshot captured successfully (%d bytes)", len(data))
+	return data, nil
 }
 
 // startEventStream wires Rod CDP events into the fact sink.
 func (m *SessionManager) startEventStream(ctx context.Context, sessionID string, page *rod.Page) {
 	if m.engine == nil {
+		logging.BrowserDebug("Event stream skipped - no engine configured")
 		return
 	}
 
+	logging.BrowserDebug("Starting event stream for session %s", sessionID)
 	go func() {
 		var wg sync.WaitGroup
 
@@ -705,6 +808,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 		captureHeaders := m.cfg.EnableHeaderIngestion && level != "minimal"
 		consoleErrorsOnly := level == "minimal"
 		throttler := newEventThrottler(m.cfg.EventThrottleMs)
+		logging.BrowserDebug("Event stream config: level=%s, captureDOM=%v, captureHeaders=%v", level, captureDOM, captureHeaders)
 
 		// Optionally capture initial DOM snapshot
 		if captureDOM {

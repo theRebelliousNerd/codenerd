@@ -1410,8 +1410,8 @@ Decl current_ooda_phase(Phase).
 Decl ooda_stalled(Reason).
 Decl last_action_time(Timestamp).
 
-# Builtin helper predicates (implemented in Go runtime)
-Decl time_diff(Time1, Time2, Diff).
+# Builtin helper predicates
+# Note: time_diff removed - use fn:minus(Now, Timestamp) inline in rules instead.
 Decl list_length(List, Length).
 
 # =============================================================================

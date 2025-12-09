@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"codenerd/internal/logging"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,9 +13,11 @@ import (
 
 // checkSecurity performs security vulnerability checks.
 func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding {
+	logging.ReviewerDebug("Running security checks on: %s", filePath)
 	findings := make([]ReviewFinding, 0)
 	lines := strings.Split(content, "\n")
 	lang := r.detectLanguage(filePath)
+	logging.ReviewerDebug("Detected language: %s, scanning %d lines", lang, len(lines))
 
 	// Security patterns to check
 	securityPatterns := []struct {
@@ -101,6 +104,7 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 			}
 
 			if sp.Pattern.MatchString(line) {
+				logging.ReviewerDebug("Security match [%s]: line %d - %s", sp.RuleID, lineNum+1, sp.Message)
 				findings = append(findings, ReviewFinding{
 					File:        filePath,
 					Line:        lineNum + 1,
@@ -115,6 +119,7 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 		}
 	}
 
+	logging.ReviewerDebug("Security checks complete: %d findings", len(findings))
 	return findings
 }
 
@@ -124,6 +129,7 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 
 // checkStyle performs style and formatting checks.
 func (r *ReviewerShard) checkStyle(filePath, content string) []ReviewFinding {
+	logging.ReviewerDebug("Running style checks on: %s", filePath)
 	findings := make([]ReviewFinding, 0)
 	lines := strings.Split(content, "\n")
 	lang := r.detectLanguage(filePath)
@@ -195,6 +201,7 @@ func (r *ReviewerShard) checkStyle(filePath, content string) []ReviewFinding {
 			}
 
 			if sp.Pattern.MatchString(line) {
+				logging.ReviewerDebug("Style match [%s]: line %d - %s", sp.RuleID, lineNum+1, sp.Message)
 				findings = append(findings, ReviewFinding{
 					File:       filePath,
 					Line:       lineNum + 1,
@@ -208,6 +215,7 @@ func (r *ReviewerShard) checkStyle(filePath, content string) []ReviewFinding {
 		}
 	}
 
+	logging.ReviewerDebug("Style checks complete: %d findings", len(findings))
 	return findings
 }
 
@@ -217,6 +225,7 @@ func (r *ReviewerShard) checkStyle(filePath, content string) []ReviewFinding {
 
 // checkBugPatterns checks for common bug patterns.
 func (r *ReviewerShard) checkBugPatterns(filePath, content string) []ReviewFinding {
+	logging.ReviewerDebug("Running bug pattern checks on: %s", filePath)
 	findings := make([]ReviewFinding, 0)
 	lines := strings.Split(content, "\n")
 	lang := r.detectLanguage(filePath)
@@ -282,6 +291,7 @@ func (r *ReviewerShard) checkBugPatterns(filePath, content string) []ReviewFindi
 			}
 
 			if bp.Pattern.MatchString(line) {
+				logging.ReviewerDebug("Bug pattern match [%s]: line %d - %s", bp.RuleID, lineNum+1, bp.Message)
 				findings = append(findings, ReviewFinding{
 					File:       filePath,
 					Line:       lineNum + 1,
@@ -295,6 +305,7 @@ func (r *ReviewerShard) checkBugPatterns(filePath, content string) []ReviewFindi
 		}
 	}
 
+	logging.ReviewerDebug("Bug pattern checks complete: %d findings", len(findings))
 	return findings
 }
 
@@ -304,9 +315,11 @@ func (r *ReviewerShard) checkBugPatterns(filePath, content string) []ReviewFindi
 
 // checkCodeDOMSafety checks Code DOM predicates for safety concerns.
 func (r *ReviewerShard) checkCodeDOMSafety(filePath string) []ReviewFinding {
+	logging.ReviewerDebug("Running Code DOM safety checks on: %s", filePath)
 	findings := make([]ReviewFinding, 0)
 
 	if r.kernel == nil {
+		logging.ReviewerDebug("Kernel not available, skipping Code DOM checks")
 		return findings
 	}
 
@@ -460,12 +473,15 @@ func (r *ReviewerShard) checkCodeDOMSafety(filePath string) []ReviewFinding {
 
 // checkLearnedPatterns checks against patterns learned through Autopoiesis.
 func (r *ReviewerShard) checkLearnedPatterns(filePath, content string) []ReviewFinding {
+	logging.ReviewerDebug("Running learned pattern checks on: %s", filePath)
 	findings := make([]ReviewFinding, 0)
 	lines := strings.Split(content, "\n")
 
 	r.mu.RLock()
 	antiPatterns := r.learnedAntiPatterns
 	r.mu.RUnlock()
+
+	logging.ReviewerDebug("Checking against %d learned anti-patterns", len(antiPatterns))
 
 	for pattern, reason := range antiPatterns {
 		re, err := regexp.Compile(pattern)

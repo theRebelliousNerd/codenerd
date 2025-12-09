@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"codenerd/internal/logging"
 )
 
 // CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
@@ -40,9 +42,12 @@ learned_exemplar("Add a feature", /create, "feature", "ensure: wired to TUI", 0.
 
 // ExtractFactFromResponse parses the LLM response to find the Mangle fact.
 func ExtractFactFromResponse(response string) string {
+	logging.PerceptionDebug("ExtractFactFromResponse: searching for learned_exemplar in %d chars", len(response))
+
 	// Simple heuristic: look for learned_exemplar(...)
 	start := strings.Index(response, "learned_exemplar(")
 	if start == -1 {
+		logging.PerceptionDebug("ExtractFactFromResponse: no learned_exemplar found")
 		return ""
 	}
 	// Find the closing parenthesis
@@ -55,19 +60,29 @@ func ExtractFactFromResponse(response string) string {
 	}
 
 	if end != -1 {
-		return rest[:end+1] + "." // Include closing param and dot
+		fact := rest[:end+1] + "." // Include closing param and dot
+		logging.PerceptionDebug("ExtractFactFromResponse: extracted fact: %s", fact)
+		return fact
 	}
+	logging.PerceptionDebug("ExtractFactFromResponse: malformed fact (no closing paren)")
 	return ""
 }
 
 // LearnFromInteraction analyzes recent history to learn new patterns.
 // It acts as the "Critic" in the Ouroboros Loop.
 func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []ReasoningTrace) (string, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "LearnFromInteraction")
+	defer timer.Stop()
+
+	logging.Perception("LearnFromInteraction: analyzing %d history entries", len(history))
+
 	if t.client == nil {
+		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: no LLM client configured")
 		return "", fmt.Errorf("no LLM client configured for taxonomy engine")
 	}
 
 	if len(history) == 0 {
+		logging.PerceptionDebug("LearnFromInteraction: empty history, nothing to learn")
 		return "", nil // Nothing to learn
 	}
 
@@ -77,6 +92,7 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 	startIdx := 0
 	if len(history) > 5 {
 		startIdx = len(history) - 5
+		logging.PerceptionDebug("LearnFromInteraction: truncating history from %d to last 5 entries", len(history))
 	}
 
 	for i := startIdx; i < len(history); i++ {
@@ -87,75 +103,120 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 
 	// 2. Ask the Critic to evaluate
 	criticInput := fmt.Sprintf("Analyze this transcript for intent failures and user corrections:\n%s", transcript.String())
+	logging.PerceptionDebug("LearnFromInteraction: calling Critic LLM (input: %d chars)", len(criticInput))
 
+	llmTimer := logging.StartTimer(logging.CategoryPerception, "LearnFromInteraction-Critic-LLM")
 	resp, err := t.client.CompleteWithSystem(ctx, CriticSystemPrompt, criticInput)
+	llmTimer.Stop()
+
 	if err != nil {
+		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: Critic LLM call failed: %v", err)
 		return "", fmt.Errorf("critic failed: %w", err)
 	}
+
+	logging.PerceptionDebug("LearnFromInteraction: Critic response received (%d chars)", len(resp))
 
 	// 3. Extract Mangle Fact
 	fact := ExtractFactFromResponse(resp)
 	if fact == "" {
+		logging.PerceptionDebug("LearnFromInteraction: no pattern detected by Critic")
 		return "", nil // No pattern found
 	}
 
+	logging.Perception("LearnFromInteraction: pattern detected, persisting fact: %s", fact)
+
 	// 4. Persist the Lesson
 	if err := t.PersistLearnedFact(fact); err != nil {
+		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: failed to persist fact: %v", err)
 		return "", fmt.Errorf("failed to persist fact: %w", err)
 	}
 
+	logging.Perception("LearnFromInteraction: successfully learned and persisted new pattern")
 	return fact, nil
 }
 
 // PersistLearnedFact writes the new rule to the learned.mg file and reloads definitions.
 func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
+	timer := logging.StartTimer(logging.CategoryPerception, "PersistLearnedFact")
+	defer timer.Stop()
+
+	logging.Perception("PersistLearnedFact: persisting fact: %s", fact)
+
+	// 0. Normalize the fact to use integer confidence (0-100)
+	// LLM outputs use float (0.0-1.0), but Mangle rules expect integers for comparisons like "Conf > 80"
+	normalizedFact, err := NormalizeLearnedFact(fact)
+	if err != nil {
+		// If normalization fails, use original fact but log warning
+		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to normalize fact, using original: %v", err)
+		normalizedFact = fact
+	} else {
+		logging.PerceptionDebug("PersistLearnedFact: normalized fact: %s", normalizedFact)
+	}
+
 	// 1. Add to running engine immediately (Hot Fix)
-	if err := t.engine.LoadSchemaString(fact); err != nil {
+	logging.PerceptionDebug("PersistLearnedFact: hot-loading fact into running engine")
+	if err := t.engine.LoadSchemaString(normalizedFact); err != nil {
+		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to hot-load fact: %v", err)
 		return fmt.Errorf("failed to hot-load fact: %w", err)
 	}
+	logging.PerceptionDebug("PersistLearnedFact: hot-load successful")
 
 	// 2. Parse and Persist to DB (Knowledge Graph)
 	// We attempt this for robustness, but don't fail hard if it fails (the file is the source of truth for Mangle)
 	if t.store != nil {
-		pat, v, tgt, cons, conf, err := ParseLearnedFact(fact)
+		logging.PerceptionDebug("PersistLearnedFact: persisting to knowledge graph DB")
+		pat, v, tgt, cons, conf, err := ParseLearnedFact(fact) // Parse original to get float
 		if err == nil {
 			if err := t.store.StoreLearnedExemplar(pat, v, tgt, cons, conf); err != nil {
-				fmt.Printf("WARNING: Failed to persist learned fact to DB: %v\n", err)
+				logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to persist to DB: %v", err)
+			} else {
+				logging.PerceptionDebug("PersistLearnedFact: DB persistence successful")
 			}
 		} else {
-			fmt.Printf("WARNING: Failed to parse learned fact for DB: %v\n", err)
+			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact for DB: %v", err)
 		}
+	} else {
+		logging.PerceptionDebug("PersistLearnedFact: no store configured, skipping DB persistence")
 	}
 
 	// 3. Append to persistent storage (Long-term Memory)
 	// We separate "Schema" (learning.mg) from "Data" (learned.mg)
 	// Write to user's workspace using explicit workspace root if set
 	targetDir := t.nerdPath("mangle")
+	logging.PerceptionDebug("PersistLearnedFact: ensuring mangle directory exists: %s", targetDir)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to create directory %s: %v", targetDir, err)
 		return fmt.Errorf("failed to create learning directory: %w", err)
 	}
 	path := filepath.Join(targetDir, "learned.mg")
 
+	logging.PerceptionDebug("PersistLearnedFact: writing to file: %s", path)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to open file %s: %v", path, err)
 		return fmt.Errorf("failed to open learning schema: %w", err)
 	}
 	defer f.Close()
 
-	if _, err := f.WriteString("\n" + fact); err != nil {
+	if _, err := f.WriteString("\n" + normalizedFact); err != nil {
+		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to write to file: %v", err)
 		return fmt.Errorf("failed to write fact: %w", err)
 	}
 
+	logging.Perception("PersistLearnedFact: successfully persisted to %s", path)
 	return nil
 }
 
 // ParseLearnedFact extracts components from a learned_exemplar fact string.
 // Format: learned_exemplar("Pattern", /verb, "target", "constraint", Confidence).
 func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, confidence float64, err error) {
+	logging.PerceptionDebug("ParseLearnedFact: parsing fact: %s", fact)
+
 	// learned_exemplar("Pattern", /verb, "Target", "Constraint", 0.95).
 	// Strip outer
 	s := strings.TrimSpace(fact)
 	if !strings.HasPrefix(s, "learned_exemplar(") {
+		logging.PerceptionDebug("ParseLearnedFact: invalid predicate (missing learned_exemplar prefix)")
 		return "", "", "", "", 0, fmt.Errorf("invalid predicate")
 	}
 	s = strings.TrimPrefix(s, "learned_exemplar(")
@@ -165,6 +226,7 @@ func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, co
 	// Split by comma
 	parts := strings.Split(s, ",")
 	if len(parts) != 5 {
+		logging.PerceptionDebug("ParseLearnedFact: wrong number of args (expected 5, got %d)", len(parts))
 		return "", "", "", "", 0, fmt.Errorf("expected 5 args, got %d", len(parts))
 	}
 
@@ -180,8 +242,41 @@ func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, co
 
 	_, err = fmt.Sscanf(strings.TrimSpace(parts[4]), "%f", &confidence)
 	if err != nil {
+		logging.PerceptionDebug("ParseLearnedFact: failed to parse confidence: %v", err)
 		return "", "", "", "", 0, err
 	}
 
+	logging.PerceptionDebug("ParseLearnedFact: parsed - pattern=%q, verb=%s, target=%q, constraint=%q, confidence=%.2f",
+		pattern, verb, target, constraint, confidence)
 	return pattern, verb, target, constraint, confidence, nil
+}
+
+// NormalizeLearnedFact converts a learned_exemplar fact to use integer confidence (0-100).
+// LLM outputs often use float confidence (0.0-1.0), but Mangle rules expect integers.
+// This function parses the fact, converts the confidence, and reconstructs it.
+func NormalizeLearnedFact(fact string) (string, error) {
+	logging.PerceptionDebug("NormalizeLearnedFact: normalizing fact: %s", fact)
+
+	pattern, verb, target, constraint, confidence, err := ParseLearnedFact(fact)
+	if err != nil {
+		logging.PerceptionDebug("NormalizeLearnedFact: parse failed, returning original: %v", err)
+		return fact, err // Return original if parsing fails
+	}
+
+	// Convert float confidence (0.0-1.0) to integer (0-100)
+	// If confidence is already > 1, assume it's already in integer form
+	var confInt int
+	if confidence <= 1.0 {
+		confInt = int(confidence * 100)
+		logging.PerceptionDebug("NormalizeLearnedFact: converted float confidence %.2f to int %d", confidence, confInt)
+	} else {
+		confInt = int(confidence)
+		logging.PerceptionDebug("NormalizeLearnedFact: confidence already integer-like: %d", confInt)
+	}
+
+	// Reconstruct fact with integer confidence
+	normalized := fmt.Sprintf(`learned_exemplar("%s", %s, "%s", "%s", %d).`,
+		pattern, verb, target, constraint, confInt)
+	logging.PerceptionDebug("NormalizeLearnedFact: normalized result: %s", normalized)
+	return normalized, nil
 }

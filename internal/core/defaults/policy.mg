@@ -190,6 +190,47 @@ permission_denied(Action, "Dangerous Action") :-
 # dangerous_action is derived from danger_marker facts
 # (String matching to be implemented via custom builtins)
 
+# =============================================================================
+# SAFE ACTIONS - Permitted by default for all shards
+# =============================================================================
+# These actions are constitutionally permitted without special approval.
+# Dangerous actions (rm -rf, etc.) require admin_override + signed_approval.
+
+# File operations (read-only and basic writes)
+safe_action(/read_file).
+safe_action(/fs_read).
+safe_action(/write_file).
+safe_action(/fs_write).
+safe_action(/search_files).
+safe_action(/glob_files).
+safe_action(/analyze_code).
+
+# Code analysis operations
+safe_action(/parse_ast).
+safe_action(/query_symbols).
+safe_action(/check_syntax).
+safe_action(/code_graph).
+
+# Review operations
+safe_action(/review).
+safe_action(/lint).
+safe_action(/check_security).
+
+# Test operations (running tests is safe)
+safe_action(/run_tests).
+safe_action(/test_single).
+safe_action(/coverage).
+
+# Knowledge operations
+safe_action(/vector_search).
+safe_action(/knowledge_query).
+safe_action(/embed_text).
+
+# Browser operations (read-only)
+safe_action(/browser_navigate).
+safe_action(/browser_screenshot).
+safe_action(/browser_read_dom).
+
 # Network policy - allowlist approach
 allowed_domain("github.com").
 allowed_domain("pypi.org").
@@ -1328,10 +1369,13 @@ routing_failed(ActionID, Error) :-
 # -----------------------------------------------------------------------------
 
 # System shard is healthy if heartbeat within threshold (30 seconds)
+# Note: Using fn:minus directly since time_diff would need bound variables.
+# Assumes Now >= Timestamp (current time always after heartbeat time).
 system_shard_healthy(ShardName) :-
     system_heartbeat(ShardName, Timestamp),
     current_time(Now),
-    time_diff(Now, Timestamp, Diff),
+    Now >= Timestamp,
+    Diff = fn:minus(Now, Timestamp),
     Diff < 30.
 
 # Helper: check if shard has no recent heartbeat
@@ -1386,11 +1430,13 @@ propose_safety_rule(Pattern) :-
 # -----------------------------------------------------------------------------
 
 # File change triggers world model update
+# Note: Using fn:minus directly for time difference calculation.
 world_model_stale(File) :-
     modified(File),
     file_topology(File, _, _, LastUpdate, _),
     current_time(Now),
-    time_diff(Now, LastUpdate, Diff),
+    Now >= LastUpdate,
+    Diff = fn:minus(Now, LastUpdate),
     Diff > 5.
 
 # Trigger ingestor when world model is stale
@@ -1470,11 +1516,12 @@ has_higher_priority_item(ItemID) :-
     agenda_item(OtherID, _, OtherPriority, _, _),
     OtherPriority > Priority.
 
-# Checkpoint needed based on time or completion
+# Checkpoint needed based on time or completion (10 minutes = 600 seconds)
 checkpoint_due() :-
     last_checkpoint_time(LastTime),
     current_time(Now),
-    time_diff(Now, LastTime, Diff),
+    Now >= LastTime,
+    Diff = fn:minus(Now, LastTime),
     Diff > 600.
 
 next_action(/create_checkpoint) :-
@@ -1577,13 +1624,14 @@ has_next_action() :-
 current_ooda_phase(Phase) :-
     ooda_phase(Phase).
 
-# OODA loop stalled detection
+# OODA loop stalled detection (30 second threshold)
 ooda_stalled(Reason) :-
     pending_intent(_),
     !has_next_action(),
     current_time(Now),
     last_action_time(LastTime),
-    time_diff(Now, LastTime, Diff),
+    Now >= LastTime,
+    Diff = fn:minus(Now, LastTime),
     Diff > 30,
     Reason = "no_action_derived".
 

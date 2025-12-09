@@ -206,12 +206,15 @@ func computeHash(content []string) string {
 
 // ReadFile reads an entire file and returns its lines.
 func (e *FileEditor) ReadFile(path string) ([]string, error) {
+	timer := logging.StartTimer(logging.CategoryTactile, "File read")
+	defer timer.Stop()
+
 	absPath := e.resolvePath(path)
-	logging.TactileDebug("Reading file: %s", absPath)
+	logging.Tactile("Reading file: %s", absPath)
 
 	file, err := os.Open(absPath)
 	if err != nil {
-		logging.TactileWarn("File read failed: %s - %v", path, err)
+		logging.TactileError("File read failed: %s - %v", path, err)
 		e.emitAudit(FileAuditEvent{
 			Type:      FileOpRead,
 			Timestamp: time.Now(),
@@ -235,6 +238,7 @@ func (e *FileEditor) ReadFile(path string) ([]string, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
+		logging.TactileError("File scan error: %s - %v", path, err)
 		e.emitAudit(FileAuditEvent{
 			Type:      FileOpRead,
 			Timestamp: time.Now(),
@@ -246,6 +250,7 @@ func (e *FileEditor) ReadFile(path string) ([]string, error) {
 		return nil, err
 	}
 
+	logging.TactileDebug("File read completed: %s (%d lines)", path, len(lines))
 	e.emitAudit(FileAuditEvent{
 		Type:      FileOpRead,
 		Timestamp: time.Now(),
@@ -259,6 +264,7 @@ func (e *FileEditor) ReadFile(path string) ([]string, error) {
 
 // ReadLines reads specific lines from a file (1-indexed, inclusive).
 func (e *FileEditor) ReadLines(path string, startLine, endLine int) ([]string, error) {
+	logging.TactileDebug("Reading lines %d-%d from: %s", startLine, endLine, path)
 	lines, err := e.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -272,17 +278,23 @@ func (e *FileEditor) ReadLines(path string, startLine, endLine int) ([]string, e
 		endLine = len(lines)
 	}
 	if startLine > endLine {
+		logging.TactileDebug("No lines in range %d-%d for file %s", startLine, endLine, path)
 		return []string{}, nil
 	}
 
 	// Convert to 0-indexed
-	return lines[startLine-1 : endLine], nil
+	result := lines[startLine-1 : endLine]
+	logging.TactileDebug("Read %d lines from %s (range %d-%d)", len(result), path, startLine, endLine)
+	return result, nil
 }
 
 // WriteFile writes content to a file, creating directories if needed.
 func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error) {
+	timer := logging.StartTimer(logging.CategoryTactile, "File write")
+	defer timer.Stop()
+
 	absPath := e.resolvePath(path)
-	logging.TactileDebug("Writing file: %s (%d lines)", absPath, len(lines))
+	logging.Tactile("Writing file: %s (%d lines)", absPath, len(lines))
 
 	// Read old content for undo and hash comparison
 	var oldContent []string
@@ -290,11 +302,16 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 	if existing, err := e.ReadFile(path); err == nil {
 		oldContent = existing
 		oldHash = computeHash(existing)
+		logging.TactileDebug("Existing file found: %d lines, hash=%s", len(existing), oldHash[:16])
+	} else {
+		logging.TactileDebug("Creating new file: %s", path)
 	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(absPath)
+	logging.TactileDebug("Ensuring directory exists: %s", dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		logging.TactileError("Failed to create directory: %s - %v", dir, err)
 		result := &FileResult{
 			Success: false,
 			Path:    path,
@@ -336,6 +353,7 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 	}
 
 	newHash := computeHash(lines)
+	logging.TactileDebug("File written successfully: %s (hash=%s)", path, newHash[:16])
 
 	result := &FileResult{
 		Success:       true,
@@ -360,14 +378,19 @@ func (e *FileEditor) WriteFile(path string, lines []string) (*FileResult, error)
 	e.emitAudit(event)
 	result.Facts = event.ToFacts()
 
+	logging.Tactile("File write completed: %s (%d lines)", path, len(lines))
 	return result, nil
 }
 
 // EditLines replaces lines in a file (1-indexed, inclusive).
 func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []string) (*FileResult, error) {
-	logging.TactileDebug("Editing file: %s lines %d-%d (%d new lines)", path, startLine, endLine, len(newLines))
+	timer := logging.StartTimer(logging.CategoryTactile, "File edit")
+	defer timer.Stop()
+
+	logging.Tactile("Editing file: %s lines %d-%d (%d new lines)", path, startLine, endLine, len(newLines))
 	lines, err := e.ReadFile(path)
 	if err != nil {
+		logging.TactileError("Failed to read file for edit: %s - %v", path, err)
 		return nil, err
 	}
 
@@ -434,18 +457,24 @@ func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []s
 	e.emitAudit(event)
 	editResult.Facts = event.ToFacts()
 
+	logging.TactileDebug("Edit completed: %s (replaced %d lines with %d lines)", path, len(oldContent), len(newLines))
 	return editResult, nil
 }
 
 // InsertLines inserts lines after the specified line (1-indexed, 0 = beginning).
 func (e *FileEditor) InsertLines(path string, afterLine int, newLines []string) (*FileResult, error) {
-	logging.TactileDebug("Inserting into file: %s after line %d (%d lines)", path, afterLine, len(newLines))
+	timer := logging.StartTimer(logging.CategoryTactile, "File insert")
+	defer timer.Stop()
+
+	logging.Tactile("Inserting into file: %s after line %d (%d lines)", path, afterLine, len(newLines))
 	lines, err := e.ReadFile(path)
 	if err != nil {
 		// File doesn't exist, create with new content
 		if os.IsNotExist(err) {
+			logging.TactileDebug("File does not exist, creating with new content: %s", path)
 			return e.WriteFile(path, newLines)
 		}
+		logging.TactileError("Failed to read file for insert: %s - %v", path, err)
 		return nil, err
 	}
 
@@ -496,14 +525,19 @@ func (e *FileEditor) InsertLines(path string, afterLine int, newLines []string) 
 	e.emitAudit(event)
 	insertResult.Facts = event.ToFacts()
 
+	logging.TactileDebug("Insert completed: %s (added %d lines after line %d)", path, len(newLines), afterLine)
 	return insertResult, nil
 }
 
 // DeleteLines removes lines from a file (1-indexed, inclusive).
 func (e *FileEditor) DeleteLines(path string, startLine, endLine int) (*FileResult, error) {
-	logging.TactileDebug("Deleting lines: %s lines %d-%d", path, startLine, endLine)
+	timer := logging.StartTimer(logging.CategoryTactile, "File delete")
+	defer timer.Stop()
+
+	logging.Tactile("Deleting lines: %s lines %d-%d", path, startLine, endLine)
 	lines, err := e.ReadFile(path)
 	if err != nil {
+		logging.TactileError("Failed to read file for delete: %s - %v", path, err)
 		return nil, err
 	}
 
@@ -568,12 +602,14 @@ func (e *FileEditor) DeleteLines(path string, startLine, endLine int) (*FileResu
 	e.emitAudit(event)
 	deleteResult.Facts = event.ToFacts()
 
+	logging.TactileDebug("Delete completed: %s (removed %d lines)", path, len(oldContent))
 	return deleteResult, nil
 }
 
 // ReplaceElement replaces content between start and end lines (1-indexed, inclusive).
 // This is a convenience wrapper for EditLines that takes a string instead of []string.
 func (e *FileEditor) ReplaceElement(path string, startLine, endLine int, newContent string) (*FileResult, error) {
+	logging.TactileDebug("ReplaceElement: %s lines %d-%d (%d chars)", path, startLine, endLine, len(newContent))
 	// Split content into lines, preserving empty lines
 	var newLines []string
 	if newContent != "" {
@@ -584,10 +620,12 @@ func (e *FileEditor) ReplaceElement(path string, startLine, endLine int, newCont
 
 // GetFileInfo returns metadata about a file.
 func (e *FileEditor) GetFileInfo(path string) (*FileInfo, error) {
+	logging.TactileDebug("Getting file info: %s", path)
 	absPath := e.resolvePath(path)
 
 	stat, err := os.Stat(absPath)
 	if err != nil {
+		logging.TactileWarn("Failed to stat file: %s - %v", path, err)
 		return nil, err
 	}
 
@@ -596,14 +634,16 @@ func (e *FileEditor) GetFileInfo(path string) (*FileInfo, error) {
 		return nil, err
 	}
 
-	return &FileInfo{
+	info := &FileInfo{
 		Path:      path,
 		AbsPath:   absPath,
 		Size:      stat.Size(),
 		ModTime:   stat.ModTime(),
 		LineCount: len(lines),
 		Hash:      computeHash(lines),
-	}, nil
+	}
+	logging.TactileDebug("File info: %s (size=%d, lines=%d)", path, info.Size, info.LineCount)
+	return info, nil
 }
 
 // FileInfo contains metadata about a file.
@@ -626,5 +666,12 @@ func (e *FileEditor) FileExists(path string) bool {
 // CreateDirectory creates a directory and all parent directories.
 func (e *FileEditor) CreateDirectory(path string) error {
 	absPath := e.resolvePath(path)
-	return os.MkdirAll(absPath, 0755)
+	logging.Tactile("Creating directory: %s", absPath)
+	err := os.MkdirAll(absPath, 0755)
+	if err != nil {
+		logging.TactileError("Failed to create directory: %s - %v", absPath, err)
+	} else {
+		logging.TactileDebug("Directory created successfully: %s", absPath)
+	}
+	return err
 }

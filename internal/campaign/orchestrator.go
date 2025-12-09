@@ -179,18 +179,26 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 
 // saveCampaign persists the campaign to disk.
 func (o *Orchestrator) saveCampaign() error {
+	logging.CampaignDebug("Saving campaign to disk: %s", o.campaign.ID)
 	campaignsDir := filepath.Join(o.nerdDir, "campaigns")
 	if err := os.MkdirAll(campaignsDir, 0755); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to create campaigns directory: %v", err)
 		return err
 	}
 
 	data, err := json.MarshalIndent(o.campaign, "", "  ")
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to marshal campaign JSON: %v", err)
 		return err
 	}
 
 	campaignPath := filepath.Join(campaignsDir, o.campaign.ID+".json")
-	return os.WriteFile(campaignPath, data, 0644)
+	if err := os.WriteFile(campaignPath, data, 0644); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to write campaign file: %v", err)
+		return err
+	}
+	logging.CampaignDebug("Campaign saved successfully: %s (%d bytes)", campaignPath, len(data))
+	return nil
 }
 
 // resetInProgress clears in-flight task/phase states after restarts so work can resume.
@@ -463,11 +471,17 @@ func (o *Orchestrator) getActiveShardNames() []string {
 // getCurrentPhase gets the current active phase from Mangle.
 func (o *Orchestrator) getCurrentPhase() *Phase {
 	facts, err := o.kernel.Query("current_phase")
-	if err != nil || len(facts) == 0 {
+	if err != nil {
+		logging.CampaignDebug("Error querying current_phase: %v", err)
+		return nil
+	}
+	if len(facts) == 0 {
+		logging.CampaignDebug("No current_phase fact found")
 		return nil
 	}
 
 	phaseID := fmt.Sprintf("%v", facts[0].Args[0])
+	logging.CampaignDebug("Current phase from kernel: %s", phaseID)
 
 	// Find phase in campaign
 	for i := range o.campaign.Phases {
@@ -476,6 +490,7 @@ func (o *Orchestrator) getCurrentPhase() *Phase {
 		}
 	}
 
+	logging.CampaignDebug("Phase %s not found in campaign structure", phaseID)
 	return nil
 }
 
@@ -486,9 +501,16 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 	}
 
 	facts, err := o.kernel.Query("eligible_task")
-	if err != nil || len(facts) == 0 {
+	if err != nil {
+		logging.CampaignDebug("Error querying eligible_task: %v", err)
 		return nil
 	}
+	if len(facts) == 0 {
+		logging.CampaignDebug("No eligible_task facts found for phase %s", phase.ID)
+		return nil
+	}
+
+	logging.CampaignDebug("Found %d eligible_task facts from kernel", len(facts))
 
 	tasks := make([]*Task, 0, len(facts))
 	for i := range phase.Tasks {
@@ -500,6 +522,7 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 			}
 		}
 	}
+	logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
 	return tasks
 }
 
@@ -510,11 +533,17 @@ func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 	}
 
 	facts, err := o.kernel.Query("next_campaign_task")
-	if err != nil || len(facts) == 0 {
+	if err != nil {
+		logging.CampaignDebug("Error querying next_campaign_task: %v", err)
+		return nil
+	}
+	if len(facts) == 0 {
+		logging.CampaignDebug("No next_campaign_task fact found")
 		return nil
 	}
 
 	taskID := fmt.Sprintf("%v", facts[0].Args[0])
+	logging.CampaignDebug("Next task from kernel: %s", taskID)
 
 	// Find task in phase
 	for i := range phase.Tasks {
@@ -523,39 +552,64 @@ func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 		}
 	}
 
+	logging.CampaignDebug("Task %s not found in phase %s", taskID, phase.ID)
 	return nil
 }
 
 // isCampaignComplete checks if all phases are complete.
 func (o *Orchestrator) isCampaignComplete() bool {
+	completedCount := 0
+	skippedCount := 0
 	for _, phase := range o.campaign.Phases {
-		if phase.Status != PhaseCompleted && phase.Status != PhaseSkipped {
+		if phase.Status == PhaseCompleted {
+			completedCount++
+		} else if phase.Status == PhaseSkipped {
+			skippedCount++
+		} else {
+			logging.CampaignDebug("Campaign not complete: phase %s is %s", phase.ID, phase.Status)
 			return false
 		}
 	}
+	logging.CampaignDebug("Campaign complete check: completed=%d, skipped=%d, total=%d",
+		completedCount, skippedCount, len(o.campaign.Phases))
 	return true
 }
 
 // getCampaignBlockReason checks if campaign is blocked.
 func (o *Orchestrator) getCampaignBlockReason() string {
 	facts, err := o.kernel.Query("campaign_blocked")
-	if err != nil || len(facts) == 0 {
+	if err != nil {
+		logging.CampaignDebug("Error querying campaign_blocked: %v", err)
+		return ""
+	}
+	if len(facts) == 0 {
 		return ""
 	}
 
+	reason := "unknown"
 	if len(facts[0].Args) >= 2 {
-		return fmt.Sprintf("%v", facts[0].Args[1])
+		reason = fmt.Sprintf("%v", facts[0].Args[1])
 	}
-	return "unknown"
+	logging.CampaignDebug("Campaign blocked detected: %s", reason)
+	return reason
 }
 
 // isPhaseComplete checks if all tasks in a phase are complete.
 func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
+	completedCount := 0
+	skippedCount := 0
 	for _, task := range phase.Tasks {
-		if task.Status != TaskCompleted && task.Status != TaskSkipped {
+		if task.Status == TaskCompleted {
+			completedCount++
+		} else if task.Status == TaskSkipped {
+			skippedCount++
+		} else {
+			logging.CampaignDebug("Phase %s not complete: task %s is %s", phase.ID, task.ID, task.Status)
 			return false
 		}
 	}
+	logging.CampaignDebug("Phase %s complete check: completed=%d, skipped=%d, total=%d",
+		phase.ID, completedCount, skippedCount, len(phase.Tasks))
 	return true
 }
 
@@ -918,10 +972,13 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
 	result, err := o.shardMgr.Spawn(ctx, "researcher", task.Description)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Researcher shard failed for task %s: %v", task.ID, err)
 		return nil, err
 	}
+	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
 	return map[string]interface{}{"research_result": result}, nil
 }
 
@@ -932,6 +989,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	if len(task.Artifacts) > 0 {
 		targetPath = task.Artifacts[0].Path
 	}
+	logging.CampaignDebug("Executing file task %s: path=%s", task.ID, targetPath)
 
 	// Build task string for coder shard
 	action := "create"
@@ -939,19 +997,23 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		action = "modify"
 	}
 	shardTask := fmt.Sprintf("%s file:%s instruction:%s", action, targetPath, task.Description)
+	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s", action, targetPath)
 
 	// Delegate to coder shard
 	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for task %s, using fallback: %v", task.ID, err)
 		// Fallback to direct LLM if shard fails
 		return o.executeFileTaskFallback(ctx, task, targetPath)
 	}
 
+	logging.CampaignDebug("Coder shard completed for task %s", task.ID)
 	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
 }
 
 // executeFileTaskFallback uses direct LLM when shard is unavailable.
 func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
+	logging.CampaignDebug("Executing file task fallback for %s via direct LLM", task.ID)
 	prompt := fmt.Sprintf(`Generate the following file:
 Task: %s
 Target Path: %s
@@ -960,18 +1022,23 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 
 	content, err := o.llmClient.Complete(ctx, prompt)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("LLM file generation failed for task %s: %v", task.ID, err)
 		return nil, err
 	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
+	logging.CampaignDebug("Writing generated file: %s (%d bytes)", fullPath, len(content))
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to create directory for %s: %v", fullPath, err)
 		return nil, err
 	}
 
 	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to write file %s: %v", fullPath, err)
 		return nil, err
 	}
 
+	logging.CampaignDebug("File fallback completed: %s", fullPath)
 	return map[string]interface{}{"path": fullPath, "size": len(content)}, nil
 }
 
@@ -982,17 +1049,21 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	if len(task.Artifacts) > 0 {
 		targetPath = task.Artifacts[0].Path
 	}
+	logging.CampaignDebug("Executing test write task %s: target=%s", task.ID, targetPath)
 
 	// Build task string for tester shard
 	shardTask := fmt.Sprintf("generate_tests file:%s", targetPath)
+	logging.CampaignDebug("Spawning tester shard for test generation")
 
 	// Delegate to tester shard
 	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test write task %s, falling back to coder: %v", task.ID, err)
 		// Fallback to coder shard for test generation
 		return o.executeFileTask(ctx, task)
 	}
 
+	logging.CampaignDebug("Test write task completed: %s", task.ID)
 	return map[string]interface{}{"tester_result": result, "target": targetPath}, nil
 }
 
@@ -1003,13 +1074,16 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if len(task.Artifacts) > 0 {
 		target = task.Artifacts[0].Path
 	}
+	logging.CampaignDebug("Executing test run task %s: target=%s", task.ID, target)
 
 	// Build task string for tester shard
 	shardTask := fmt.Sprintf("run_tests package:%s", target)
+	logging.CampaignDebug("Spawning tester shard for test execution")
 
 	// Delegate to tester shard
 	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test run task %s, using direct execution: %v", task.ID, err)
 		// Fallback to direct execution
 		cmd := tactile.ShellCommand{
 			Binary:           "go",
@@ -1017,18 +1091,23 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 			WorkingDirectory: o.workspace,
 			TimeoutSeconds:   300,
 		}
+		logging.CampaignDebug("Executing tests directly via tactile: go test ./...")
 		output, execErr := o.executor.Execute(ctx, cmd)
 		if execErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
 			return map[string]interface{}{"output": output, "passed": false}, execErr
 		}
+		logging.Campaign("Tests passed via direct execution")
 		return map[string]interface{}{"output": output, "passed": true}, nil
 	}
 
+	logging.CampaignDebug("Test run task completed: %s", task.ID)
 	return map[string]interface{}{"tester_result": result, "target": target}, nil
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing verify task %s: go build ./...", task.ID)
 	// Run build verification for this task
 	cmd := tactile.ShellCommand{
 		Binary:           "go",
@@ -1038,12 +1117,14 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	}
 	output, err := o.executor.Execute(ctx, cmd)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
 		return map[string]interface{}{
 			"task_id":  task.ID,
 			"output":   output,
 			"verified": false,
 		}, err
 	}
+	logging.Campaign("Verify task %s passed", task.ID)
 	return map[string]interface{}{
 		"task_id":  task.ID,
 		"output":   output,
@@ -1055,10 +1136,13 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (any, error) {
 	// Extract shard type from description
 	shardType := "coder" // Default
+	logging.CampaignDebug("Executing shard spawn task %s: type=%s", task.ID, shardType)
 	result, err := o.shardMgr.Spawn(ctx, shardType, task.Description)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Shard spawn task %s failed: %v", task.ID, err)
 		return nil, err
 	}
+	logging.CampaignDebug("Shard spawn task completed: %s", task.ID)
 	return map[string]interface{}{"shard_result": result}, nil
 }
 
@@ -1069,27 +1153,33 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	if len(task.Artifacts) > 0 {
 		targetPath = task.Artifacts[0].Path
 	}
+	logging.CampaignDebug("Executing refactor task %s: path=%s", task.ID, targetPath)
 
 	// Build task string for coder shard
 	shardTask := fmt.Sprintf("refactor file:%s instruction:%s", targetPath, task.Description)
+	logging.CampaignDebug("Spawning coder shard for refactoring")
 
 	// Delegate to coder shard
 	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Refactor shard failed for task %s, falling back to file task: %v", task.ID, err)
 		// Fallback to generic file task
 		return o.executeFileTask(ctx, task)
 	}
 
+	logging.CampaignDebug("Refactor task completed: %s", task.ID)
 	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
 }
 
 // executeIntegrateTask integrates components.
 func (o *Orchestrator) executeIntegrateTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing integrate task %s via file task", task.ID)
 	return o.executeFileTask(ctx, task)
 }
 
 // executeDocumentTask generates documentation.
 func (o *Orchestrator) executeDocumentTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing document task %s via file task", task.ID)
 	return o.executeFileTask(ctx, task)
 }
 
@@ -1097,15 +1187,18 @@ func (o *Orchestrator) executeDocumentTask(ctx context.Context, task *Task) (any
 // It asserts missing_tool_for fact to the kernel, which derives delegate_task(/tool_generator, ...).
 // The autopoiesis orchestrator listens for these derived facts and generates the tool.
 func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (any, error) {
+	logging.Campaign("Executing tool create task %s (Ouroboros)", task.ID)
 	// Extract tool capability from task description or artifacts
 	// For tool creation, the Path field contains the tool/capability name
 	capability := task.Description
 	if len(task.Artifacts) > 0 && task.Artifacts[0].Path != "" {
 		capability = task.Artifacts[0].Path
 	}
+	logging.CampaignDebug("Tool capability requested: %s", capability)
 
 	// Generate intent ID for this tool creation request
 	intentID := fmt.Sprintf("campaign_%s_task_%s", o.campaign.ID, task.ID)
+	logging.CampaignDebug("Tool creation intent ID: %s", intentID)
 
 	// Assert missing_tool_for to kernel - this triggers the policy rules:
 	// 1. delegate_task(/tool_generator, Cap, /pending) derives
@@ -1190,10 +1283,13 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 // Currently it validates the sub-campaign ID and logs the intent.
 // In a full fractal implementation, this would spawn a child Orchestrator.
 func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing campaign ref task %s", task.ID)
 	if task.SubCampaignID == "" {
+		logging.Get(logging.CategoryCampaign).Error("Task %s has type /campaign_ref but no sub_campaign_id", task.ID)
 		return nil, fmt.Errorf("task %s has type /campaign_ref but no sub_campaign_id", task.ID)
 	}
 
+	logging.Campaign("Linking sub-campaign: %s", task.SubCampaignID)
 	o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), nil)
 
 	// In the future, this would look like:
@@ -1202,6 +1298,7 @@ func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (
 	// err := childOrch.Run(ctx)
 
 	// For now, we treat it as a pointer that is "satisfied" if the sub-campaign exists or is acknowledged.
+	logging.CampaignDebug("Sub-campaign %s linked (fractal execution not yet implemented)", task.SubCampaignID)
 	return map[string]interface{}{
 		"sub_campaign_id": task.SubCampaignID,
 		"status":          "linked",
@@ -1210,15 +1307,19 @@ func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (
 
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
+	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
 	result, err := o.shardMgr.Spawn(ctx, "coder", task.Description)
 	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Generic task %s failed: %v", task.ID, err)
 		return nil, err
 	}
+	logging.CampaignDebug("Generic task completed: %s", task.ID)
 	return map[string]interface{}{"result": result}, nil
 }
 
 // updateTaskStatus updates task status in campaign and kernel.
 func (o *Orchestrator) updateTaskStatus(task *Task, status TaskStatus) {
+	logging.CampaignDebug("Task status update: %s -> %s", task.ID, status)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 

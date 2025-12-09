@@ -178,6 +178,9 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 		}
 
 		// 8. Persist to knowledge DB
+		if m.localDB == nil {
+			logging.Shards("Skipping persistence: localDB is nil")
+		}
 		if m.localDB != nil {
 			persistedReview := &reviewer.PersistedReview{
 				ID:               agg.ID,

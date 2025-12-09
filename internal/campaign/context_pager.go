@@ -62,7 +62,9 @@ func (cp *ContextPager) SetBudget(tokens int) {
 
 // GetUsage returns current context usage stats.
 func (cp *ContextPager) GetUsage() (used, total int, utilization float64) {
-	return cp.usedTokens, cp.totalBudget, float64(cp.usedTokens) / float64(cp.totalBudget)
+	utilization = float64(cp.usedTokens) / float64(cp.totalBudget)
+	logging.CampaignDebug("Context usage: %d/%d tokens (%.1f%%)", cp.usedTokens, cp.totalBudget, utilization*100)
+	return cp.usedTokens, cp.totalBudget, utilization
 }
 
 // ActivatePhase loads context for a new phase.
@@ -333,6 +335,7 @@ func (cp *ContextPager) getContextProfile(profileID string) (*ContextProfile, er
 
 // boostPattern boosts activation for files matching a pattern.
 func (cp *ContextPager) boostPattern(pattern string, boost int) {
+	logging.CampaignDebug("Boosting pattern %q with activation=%d", pattern, boost)
 	// Assert activation boost for the pattern
 	// The actual file matching is done by the kernel's spreading activation
 	cp.kernel.Assert(core.Fact{
@@ -343,6 +346,7 @@ func (cp *ContextPager) boostPattern(pattern string, boost int) {
 
 // suppressSchema reduces activation for an entire schema.
 func (cp *ContextPager) suppressSchema(schema string) {
+	logging.CampaignDebug("Suppressing schema %q with activation=-100", schema)
 	cp.kernel.Assert(core.Fact{
 		Predicate: "activation",
 		Args:      []interface{}{schema, -100},
@@ -357,11 +361,15 @@ func (cp *ContextPager) estimatePhaseTokens(phase *Phase) int {
 	// - Phase metadata ~100 tokens
 	tokens := 100 // Base
 
+	totalArtifacts := 0
 	for _, task := range phase.Tasks {
 		tokens += 50 // Description
 		tokens += len(task.Artifacts) * 20
+		totalArtifacts += len(task.Artifacts)
 	}
 
+	logging.CampaignDebug("Token estimate for phase %s: base=100, tasks=%d*50, artifacts=%d*20, total=%d",
+		phase.ID, len(phase.Tasks), totalArtifacts, tokens)
 	return tokens
 }
 
@@ -373,13 +381,18 @@ func (cp *ContextPager) scopedDocsForPhase(phaseName string) []string {
 
 	target := normalizeLayerName(phaseName)
 	if target == "" {
+		logging.CampaignDebug("Empty target layer after normalization: %s", phaseName)
 		return nil
 	}
 
 	facts, err := cp.kernel.Query("phase_context_scope")
 	if err != nil {
+		logging.CampaignDebug("Failed to query phase_context_scope: %v", err)
 		return nil
 	}
+
+	logging.CampaignDebug("Querying scoped docs for phase %s (normalized: %s), found %d scope facts",
+		phaseName, target, len(facts))
 
 	seen := make(map[string]struct{})
 	scoped := make([]string, 0)
@@ -402,6 +415,7 @@ func (cp *ContextPager) scopedDocsForPhase(phaseName string) []string {
 		scoped = append(scoped, doc)
 	}
 
+	logging.CampaignDebug("Found %d scoped docs for phase %s", len(scoped), phaseName)
 	return scoped
 }
 

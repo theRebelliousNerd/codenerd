@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"codenerd/internal/logging"
 	"context"
 	"path/filepath"
 	"regexp"
@@ -167,6 +168,7 @@ func stripCommentsAndStrings(line string, lang Language) string {
 // Cyclomatic complexity is calculated per-function: CC = 1 + decision_points
 // Uses McCabe's formula: M = 1 + number of predicate nodes (decision points)
 func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *CodeMetrics {
+	logging.ReviewerDebug("Calculating code metrics for %d files", len(files))
 	metrics := &CodeMetrics{}
 
 	// Track per-function cyclomatic complexities for proper max/avg calculation
@@ -298,6 +300,8 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 		metrics.CyclomaticAvg = float64(totalCC) / float64(len(functionComplexities))
 	}
 
+	logging.ReviewerDebug("Metrics complete: %d total lines, %d code lines, %d functions, max CC=%d, avg CC=%.2f",
+		metrics.TotalLines, metrics.CodeLines, metrics.FunctionCount, metrics.CyclomaticMax, metrics.CyclomaticAvg)
 	return metrics
 }
 

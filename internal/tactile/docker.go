@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // DockerExecutor executes commands inside Docker containers.
@@ -29,11 +31,13 @@ type DockerExecutor struct {
 
 // NewDockerExecutor creates a new Docker executor.
 func NewDockerExecutor() *DockerExecutor {
+	logging.TactileDebug("Creating new DockerExecutor with default config")
 	return NewDockerExecutorWithConfig(DefaultExecutorConfig())
 }
 
 // NewDockerExecutorWithConfig creates a new Docker executor with custom config.
 func NewDockerExecutorWithConfig(config ExecutorConfig) *DockerExecutor {
+	logging.TactileDebug("Creating DockerExecutor with custom config")
 	e := &DockerExecutor{
 		config: config,
 	}
@@ -43,13 +47,16 @@ func NewDockerExecutorWithConfig(config ExecutorConfig) *DockerExecutor {
 
 // detectDocker checks if Docker is available.
 func (e *DockerExecutor) detectDocker() {
+	logging.TactileDebug("Detecting Docker availability")
 	// Try to find docker binary
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
+		logging.TactileDebug("Docker binary not found in PATH")
 		e.available = false
 		return
 	}
 	e.dockerPath = dockerPath
+	logging.TactileDebug("Docker binary found: %s", dockerPath)
 
 	// Verify docker is responsive
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -57,11 +64,13 @@ func (e *DockerExecutor) detectDocker() {
 
 	cmd := exec.CommandContext(ctx, dockerPath, "version", "--format", "{{.Server.Version}}")
 	if err := cmd.Run(); err != nil {
+		logging.TactileWarn("Docker found but not responsive: %v", err)
 		e.available = false
 		return
 	}
 
 	e.available = true
+	logging.Tactile("Docker executor available: %s", dockerPath)
 }
 
 // IsAvailable returns whether Docker is available on this system.
@@ -131,8 +140,14 @@ func (e *DockerExecutor) Validate(cmd Command) error {
 
 // Execute runs a command inside a Docker container.
 func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	timer := logging.StartTimer(logging.CategoryTactile, "Docker command execution")
+	defer timer.Stop()
+
+	logging.Tactile("Executing in Docker: %s", cmd.CommandString())
+
 	// Validate first
 	if err := e.Validate(cmd); err != nil {
+		logging.TactileWarn("Docker command validation failed: %v", err)
 		return nil, err
 	}
 
@@ -143,6 +158,12 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	if cmd.Sandbox == nil {
 		cmd.Sandbox = &SandboxConfig{Mode: SandboxDocker}
 	}
+
+	image := cmd.Sandbox.Image
+	if image == "" {
+		image = e.config.DockerDefaultImage
+	}
+	logging.TactileDebug("Docker image: %s, network: %s", image, cmd.Sandbox.NetworkMode)
 
 	// Prepare the result
 	result := &ExecutionResult{
@@ -162,6 +183,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 
 	// Build docker run arguments
 	dockerArgs := e.buildDockerArgs(cmd)
+	logging.TactileDebug("Docker args: docker %v", dockerArgs)
 
 	// Determine timeout
 	timeout := e.config.DefaultTimeout
@@ -196,6 +218,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 
 	// Record start time
 	result.StartedAt = time.Now()
+	logging.TactileDebug("Starting Docker container")
 
 	// Run the command
 	err := execCmd.Run()
@@ -203,6 +226,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	// Record completion time
 	result.FinishedAt = time.Now()
 	result.Duration = result.FinishedAt.Sub(result.StartedAt)
+	logging.TactileDebug("Docker container finished in %s", result.Duration)
 
 	// Capture output
 	result.Stdout = stdoutBuf.String()
@@ -227,6 +251,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 			result.Killed = true
 			result.KillReason = fmt.Sprintf("timeout after %s", timeout)
 			result.Success = true
+			logging.TactileWarn("Docker command killed (timeout): %s after %s", cmd.Binary, timeout)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventKilled,
 				Timestamp:    time.Now(),
@@ -239,6 +264,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 			result.Killed = true
 			result.KillReason = "context canceled"
 			result.Success = true
+			logging.TactileDebug("Docker command canceled: %s", cmd.Binary)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventKilled,
 				Timestamp:    time.Now(),
@@ -250,9 +276,11 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			result.Success = true
 			result.ExitCode = exitErr.ExitCode()
+			logging.TactileDebug("Docker command exited non-zero: %s -> %d", cmd.Binary, result.ExitCode)
 		} else {
 			result.Success = false
 			result.Error = err.Error()
+			logging.TactileError("Docker command failed: %s - %v", cmd.Binary, err)
 			e.emitAudit(AuditEvent{
 				Type:         AuditEventError,
 				Timestamp:    time.Now(),
@@ -266,6 +294,7 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 	} else {
 		result.Success = true
 		result.ExitCode = 0
+		logging.TactileDebug("Docker command succeeded with exit code 0")
 	}
 
 	// Emit completion event
@@ -277,6 +306,9 @@ func (e *DockerExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRe
 		SessionID:    cmd.SessionID,
 		ExecutorName: "docker",
 	})
+
+	logging.Tactile("Docker command completed: %s -> exit=%d, duration=%s",
+		cmd.Binary, result.ExitCode, result.Duration)
 
 	return result, nil
 }
@@ -399,11 +431,19 @@ func (e *DockerExecutor) buildDockerArgs(cmd Command) []string {
 // PullImage pulls a Docker image if not already present.
 func (e *DockerExecutor) PullImage(ctx context.Context, image string) error {
 	if !e.available {
+		logging.TactileError("PullImage failed: Docker is not available")
 		return fmt.Errorf("Docker is not available")
 	}
 
+	logging.Tactile("Pulling Docker image: %s", image)
 	cmd := exec.CommandContext(ctx, e.dockerPath, "pull", image)
-	return cmd.Run()
+	err := cmd.Run()
+	if err != nil {
+		logging.TactileError("Failed to pull Docker image: %s - %v", image, err)
+	} else {
+		logging.TactileDebug("Docker image pulled successfully: %s", image)
+	}
+	return err
 }
 
 // ImageExists checks if a Docker image exists locally.
@@ -412,6 +452,9 @@ func (e *DockerExecutor) ImageExists(ctx context.Context, image string) bool {
 		return false
 	}
 
+	logging.TactileDebug("Checking if Docker image exists: %s", image)
 	cmd := exec.CommandContext(ctx, e.dockerPath, "image", "inspect", image)
-	return cmd.Run() == nil
+	exists := cmd.Run() == nil
+	logging.TactileDebug("Docker image %s exists: %v", image, exists)
+	return exists
 }

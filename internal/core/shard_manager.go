@@ -534,12 +534,15 @@ type ShardManager struct {
 }
 
 func NewShardManager() *ShardManager {
-	return &ShardManager{
+	logging.Shards("Creating new ShardManager")
+	sm := &ShardManager{
 		shards:    make(map[string]ShardAgent),
 		results:   make(map[string]ShardResult),
 		profiles:  make(map[string]ShardConfig),
 		factories: make(map[string]ShardFactory),
 	}
+	logging.ShardsDebug("ShardManager initialized with empty maps")
+	return sm
 }
 
 // VirtualStoreConsumer interface for agents that need file system access.
@@ -551,12 +554,14 @@ func (sm *ShardManager) SetParentKernel(k Kernel) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.kernel = k
+	logging.ShardsDebug("Parent kernel attached to ShardManager")
 }
 
 func (sm *ShardManager) SetVirtualStore(vs *VirtualStore) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.virtualStore = vs
+	logging.ShardsDebug("VirtualStore attached to ShardManager")
 }
 
 func (sm *ShardManager) SetLLMClient(client LLMClient) {
@@ -566,6 +571,9 @@ func (sm *ShardManager) SetLLMClient(client LLMClient) {
 	// Check if client supports tracing
 	if tc, ok := client.(TracingClient); ok {
 		sm.tracingClient = tc
+		logging.ShardsDebug("LLM client attached with tracing support")
+	} else {
+		logging.ShardsDebug("LLM client attached (no tracing support)")
 	}
 }
 
@@ -573,6 +581,7 @@ func (sm *ShardManager) SetSessionID(sessionID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.sessionID = sessionID
+	logging.ShardsDebug("Session ID set: %s", sessionID)
 }
 
 // categorizeShardType determines the shard category based on type name and config.
@@ -610,6 +619,7 @@ func (sm *ShardManager) SetLearningStore(store LearningStore) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.learningStore = store
+	logging.ShardsDebug("LearningStore attached to ShardManager")
 }
 
 // queryToolsFromKernel queries the Mangle kernel for registered tools.
@@ -617,14 +627,19 @@ func (sm *ShardManager) SetLearningStore(store LearningStore) {
 // This enables dynamic, Mangle-governed tool discovery for agents.
 func (sm *ShardManager) queryToolsFromKernel() []ToolInfo {
 	if sm.kernel == nil {
+		logging.ShardsDebug("queryToolsFromKernel: no kernel available")
 		return nil
 	}
+
+	logging.ShardsDebug("queryToolsFromKernel: querying tool_registered predicate")
 
 	// Query all registered tools
 	registeredFacts, err := sm.kernel.Query("tool_registered")
 	if err != nil || len(registeredFacts) == 0 {
+		logging.ShardsDebug("queryToolsFromKernel: no registered tools found (err=%v, count=%d)", err, len(registeredFacts))
 		return nil
 	}
+	logging.ShardsDebug("queryToolsFromKernel: found %d registered tools", len(registeredFacts))
 
 	// Build a map of tool names for lookup
 	toolNames := make([]string, 0, len(registeredFacts))
@@ -867,6 +882,7 @@ func (sm *ShardManager) RegisterShard(typeName string, factory ShardFactory) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.factories[typeName] = factory
+	logging.Shards("Registered shard factory: %s (total factories: %d)", typeName, len(sm.factories))
 }
 
 // DefineProfile registers a shard configuration profile.
@@ -874,6 +890,7 @@ func (sm *ShardManager) DefineProfile(name string, config ShardConfig) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.profiles[name] = config
+	logging.Shards("Defined shard profile: %s (type: %s, total profiles: %d)", name, config.Type, len(sm.profiles))
 }
 
 // GetProfile retrieves a profile by name.
@@ -941,16 +958,25 @@ func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 
 // Spawn creates and executes a shard synchronously.
 func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (string, error) {
+	logging.Shards("Spawn: synchronous spawn of %s shard for task", typeName)
+	logging.ShardsDebug("Spawn: task=%s", task)
 	return sm.SpawnWithContext(ctx, typeName, task, nil)
 }
 
 // SpawnWithContext creates and executes a shard with session context (Blackboard Pattern).
 // The sessionCtx provides compressed history and recent findings for cross-shard awareness.
 func (sm *ShardManager) SpawnWithContext(ctx context.Context, typeName, task string, sessionCtx *SessionContext) (string, error) {
+	timer := logging.StartTimer(logging.CategoryShards, fmt.Sprintf("SpawnWithContext(%s)", typeName))
+	hasContext := sessionCtx != nil
+	logging.Shards("SpawnWithContext: spawning %s shard (hasSessionContext=%v)", typeName, hasContext)
+
 	id, err := sm.SpawnAsyncWithContext(ctx, typeName, task, sessionCtx)
 	if err != nil {
+		logging.Get(logging.CategoryShards).Error("SpawnWithContext: async spawn failed for %s: %v", typeName, err)
 		return "", err
 	}
+
+	logging.ShardsDebug("SpawnWithContext: waiting for shard %s to complete", id)
 
 	// Wait for result
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -959,13 +985,17 @@ func (sm *ShardManager) SpawnWithContext(ctx context.Context, typeName, task str
 	for {
 		select {
 		case <-ctx.Done():
+			logging.Get(logging.CategoryShards).Warn("SpawnWithContext: context canceled while waiting for shard %s", id)
 			return "", ctx.Err()
 		case <-ticker.C:
 			res, ok := sm.GetResult(id)
 			if ok {
+				timer.Stop()
 				if res.Error != nil {
+					logging.Get(logging.CategoryShards).Error("SpawnWithContext: shard %s failed: %v", id, res.Error)
 					return "", res.Error
 				}
+				logging.Shards("SpawnWithContext: shard %s completed successfully (output_len=%d)", id, len(res.Result))
 				return res.Result, nil
 			}
 		}
@@ -974,11 +1004,15 @@ func (sm *ShardManager) SpawnWithContext(ctx context.Context, typeName, task str
 
 // SpawnAsync creates and executes a shard asynchronously.
 func (sm *ShardManager) SpawnAsync(ctx context.Context, typeName, task string) (string, error) {
+	logging.ShardsDebug("SpawnAsync: async spawn of %s shard", typeName)
 	return sm.SpawnAsyncWithContext(ctx, typeName, task, nil)
 }
 
 // SpawnAsyncWithContext creates and executes a shard asynchronously with session context.
 func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, task string, sessionCtx *SessionContext) (string, error) {
+	logging.Shards("SpawnAsyncWithContext: initiating %s shard", typeName)
+	logging.ShardsDebug("SpawnAsyncWithContext: task=%s, hasSessionContext=%v", task, sessionCtx != nil)
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -987,12 +1021,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	profile, hasProfile := sm.profiles[typeName]
 	if hasProfile {
 		config = profile
+		logging.ShardsDebug("SpawnAsyncWithContext: using profile config for %s (type=%s)", typeName, config.Type)
 	} else {
 		// Default to ephemeral generalist if unknown profile
 		config = DefaultGeneralistConfig(typeName)
 		if typeName == "ephemeral" {
 			config.Type = ShardTypeEphemeral
 		}
+		logging.ShardsDebug("SpawnAsyncWithContext: using default generalist config for %s", typeName)
 	}
 
 	// Inject session context into config (Blackboard Pattern)
@@ -1034,6 +1070,8 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// 2. Resolve Factory
 	// First check if there is a factory matching the typeName (e.g. "coder", "researcher")
 	factory, hasFactory := sm.factories[typeName]
+	logging.ShardsDebug("SpawnAsyncWithContext: factory lookup for %s: hasFactory=%v", typeName, hasFactory)
+
 	if !hasFactory && hasProfile {
 		// If using a profile (e.g. "RustExpert"), it might map to a base type factory (e.g. "researcher")
 		// For Type B specialists, we usually default to "researcher" or "coder" based on profile config?
@@ -1042,6 +1080,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// TODO: Add 'BaseType' to ShardConfig. For now assume "researcher" if TypePersistent and unknown factory.
 		if config.Type == ShardTypePersistent {
 			factory = sm.factories["researcher"]
+			logging.ShardsDebug("SpawnAsyncWithContext: using researcher factory as fallback for persistent shard %s", typeName)
 		}
 	}
 
@@ -1050,11 +1089,13 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		if config.Type == ShardTypePersistent {
 			// Assuming 'researcher' is the base implementation for specialists
 			factory = sm.factories["researcher"]
+			logging.ShardsDebug("SpawnAsyncWithContext: final fallback to researcher factory for %s", typeName)
 		}
 
 		// Final fallback
 		if factory == nil {
 			// Fallback to basic agent
+			logging.ShardsDebug("SpawnAsyncWithContext: using BaseShardAgent fallback for %s", typeName)
 			factory = func(id string, config ShardConfig) ShardAgent {
 				return NewBaseShardAgent(id, config)
 			}
@@ -1063,26 +1104,34 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	// 3. Create Shard Instance
 	id := fmt.Sprintf("%s-%d", config.Name, time.Now().UnixNano())
+	logging.Shards("SpawnAsyncWithContext: creating shard instance id=%s", id)
 	agent := factory(id, config)
 
 	// Inject dependencies
+	depsInjected := []string{}
 	if sm.kernel != nil {
 		agent.SetParentKernel(sm.kernel)
+		depsInjected = append(depsInjected, "kernel")
 	}
 	if sm.llmClient != nil {
 		agent.SetLLMClient(sm.llmClient)
+		depsInjected = append(depsInjected, "llmClient")
 	}
 	if sm.virtualStore != nil {
 		if vsc, ok := agent.(VirtualStoreConsumer); ok {
 			vsc.SetVirtualStore(sm.virtualStore)
+			depsInjected = append(depsInjected, "virtualStore")
 		}
 	}
 	// Inject session context (for dream mode, etc.)
 	if sessionCtx != nil {
 		agent.SetSessionContext(sessionCtx)
+		depsInjected = append(depsInjected, "sessionContext")
 	}
+	logging.ShardsDebug("SpawnAsyncWithContext: dependencies injected: %v", depsInjected)
 
 	sm.shards[id] = agent
+	logging.ShardsDebug("SpawnAsyncWithContext: shard %s added to active shards (total active: %d)", id, len(sm.shards))
 
 	// Audit: Shard spawned
 	logging.Audit().ShardSpawn(id, typeName)
@@ -1099,20 +1148,29 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), "current-session") // TODO: pass actual session ID
 
 	// 4. Execute Async
+	logging.Shards("SpawnAsyncWithContext: launching goroutine for shard %s execution", id)
 	go func() {
 		// Audit: Shard execution started
 		logging.Audit().ShardExecute(id, task)
+		logging.ShardsDebug("Shard %s: execution starting (task=%s)", id, task)
 		startTime := time.Now()
 		res, err := agent.Execute(ctx, task)
 		duration := time.Since(startTime)
-		
+
+		// Log execution result
+		if err != nil {
+			logging.Get(logging.CategoryShards).Error("Shard %s: execution failed after %v: %v", id, duration, err)
+		} else {
+			logging.Shards("Shard %s: execution completed in %v (output_len=%d)", id, duration, len(res))
+		}
+
 		// Audit: Shard execution completed
 		errMsg := ""
 		if err != nil {
 			errMsg = err.Error()
 		}
 		logging.Audit().ShardComplete(id, task, duration.Milliseconds(), err == nil, errMsg)
-		
+
 		// Clear tracing context after execution
 		if sm.tracingClient != nil {
 			sm.tracingClient.ClearShardContext()
@@ -1120,6 +1178,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		sm.recordResult(id, res, err)
 	}()
 
+	logging.ShardsDebug("SpawnAsyncWithContext: goroutine launched for shard %s, returning id", id)
 	return id, nil
 }
 
@@ -1129,6 +1188,7 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 
 	// Clean up shard
 	delete(sm.shards, id)
+	logging.ShardsDebug("recordResult: shard %s removed from active shards (remaining: %d)", id, len(sm.shards))
 
 	sm.results[id] = ShardResult{
 		ShardID:   id,
@@ -1136,6 +1196,7 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 		Error:     err,
 		Timestamp: time.Now(),
 	}
+	logging.ShardsDebug("recordResult: result stored for shard %s (success=%v, resultLen=%d)", id, err == nil, len(result))
 }
 
 func (sm *ShardManager) GetResult(id string) (ShardResult, bool) {
@@ -1162,11 +1223,17 @@ func (sm *ShardManager) GetActiveShards() []ShardAgent {
 func (sm *ShardManager) StopAll() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	for _, s := range sm.shards {
-		s.Stop()
+	count := len(sm.shards)
+	logging.Shards("StopAll: stopping %d active shards", count)
+	for id, s := range sm.shards {
+		logging.ShardsDebug("StopAll: stopping shard %s", id)
+		if err := s.Stop(); err != nil {
+			logging.Get(logging.CategoryShards).Error("StopAll: failed to stop shard %s: %v", id, err)
+		}
 	}
 	// Clear shards
 	sm.shards = make(map[string]ShardAgent)
+	logging.Shards("StopAll: all shards stopped and cleared")
 }
 
 func (sm *ShardManager) ToFacts() []Fact {
@@ -1186,6 +1253,9 @@ func (sm *ShardManager) ToFacts() []Fact {
 
 // StartSystemShards starts all registered system shards (Type S).
 func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
+	timer := logging.StartTimer(logging.CategoryShards, "StartSystemShards")
+	defer timer.Stop()
+
 	// Collect system shards to start
 	toStart := make([]string, 0)
 
@@ -1194,6 +1264,7 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 		if config.Type == ShardTypeSystem {
 			// Skip if disabled
 			if _, disabled := sm.disabled[name]; disabled {
+				logging.ShardsDebug("StartSystemShards: skipping disabled shard %s", name)
 				continue
 			}
 			toStart = append(toStart, name)
@@ -1201,15 +1272,22 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	}
 	sm.mu.RUnlock()
 
+	logging.Shards("StartSystemShards: starting %d system shards", len(toStart))
+
+	started := 0
 	for _, name := range toStart {
 		// SpawnAsync handles locking internally
 		// We use the profile name as the type name
 		_, err := sm.SpawnAsync(ctx, name, "system_start")
 		if err != nil {
-			logging.Shards("Failed to start system shard %s: %v", name, err)
+			logging.Get(logging.CategoryShards).Error("StartSystemShards: failed to start system shard %s: %v", name, err)
+		} else {
+			started++
+			logging.ShardsDebug("StartSystemShards: started system shard %s", name)
 		}
 	}
 
+	logging.Shards("StartSystemShards: started %d/%d system shards", started, len(toStart))
 	return nil
 }
 
@@ -1221,6 +1299,7 @@ func (sm *ShardManager) DisableSystemShard(name string) {
 		sm.disabled = make(map[string]struct{})
 	}
 	sm.disabled[name] = struct{}{}
+	logging.Shards("DisableSystemShard: disabled system shard %s", name)
 }
 
 // =============================================================================
