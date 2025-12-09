@@ -166,12 +166,15 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 	}
 
 	// Parse task for initial goal or campaign
-	if task != "" {
+	// Skip decomposition for system_start - it's just a startup signal, not a goal
+	if task != "" && task != "system_start" {
 		logging.SystemShards("[SessionPlanner] Initializing from task: %s", truncateForLog(task, 100))
 		if err := s.initializeFromTask(ctx, task); err != nil {
 			logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to initialize: %v", err)
 			return "", fmt.Errorf("failed to initialize: %w", err)
 		}
+	} else if task == "system_start" {
+		logging.SystemShards("[SessionPlanner] System startup - awaiting goals")
 	}
 
 	ticker := time.NewTicker(s.config.TickInterval)

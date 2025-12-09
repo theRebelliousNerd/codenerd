@@ -250,6 +250,8 @@ func (s *LocalStore) initialize() error {
 		priority INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+		access_count INTEGER DEFAULT 0,
 		UNIQUE(predicate, args)
 	);
 	CREATE INDEX IF NOT EXISTS idx_cold_predicate ON cold_storage(predicate);
