@@ -2,6 +2,7 @@ package context
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"strings"
 	"unicode/utf8"
 )
@@ -166,33 +167,45 @@ func (tb *TokenBudget) Allocate(category string, tokens int) bool {
 	switch category {
 	case "core":
 		if tb.used.core+tokens > tb.config.CoreReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.core+tokens, tb.config.CoreReserve)
 			return false
 		}
 		tb.used.core += tokens
 	case "atoms":
 		if tb.used.atoms+tokens > tb.config.AtomReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.atoms+tokens, tb.config.AtomReserve)
 			return false
 		}
 		tb.used.atoms += tokens
 	case "history":
 		if tb.used.history+tokens > tb.config.HistoryReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.history+tokens, tb.config.HistoryReserve)
 			return false
 		}
 		tb.used.history += tokens
 	case "recent":
 		// Recent is part of history reserve
 		if tb.used.recent+tokens > tb.config.HistoryReserve-tb.used.history {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.recent+tokens, tb.config.HistoryReserve-tb.used.history)
 			return false
 		}
 		tb.used.recent += tokens
 	case "working":
 		if tb.used.working+tokens > tb.config.WorkingReserve {
+			logging.ContextDebug("Token allocation REJECTED: %s +%d would exceed budget (%d > %d)",
+				category, tokens, tb.used.working+tokens, tb.config.WorkingReserve)
 			return false
 		}
 		tb.used.working += tokens
 	default:
+		logging.Get(logging.CategoryContext).Warn("Unknown token category: %s", category)
 		return false
 	}
+	logging.ContextDebug("Token allocation: %s +%d (new total: %d)", category, tokens, tb.TotalUsed())
 	return true
 }
 
@@ -229,7 +242,13 @@ func (tb *TokenBudget) Utilization() float64 {
 
 // ShouldCompress returns true if compression should be triggered.
 func (tb *TokenBudget) ShouldCompress() bool {
-	return tb.Utilization() >= tb.config.CompressionThreshold
+	utilization := tb.Utilization()
+	shouldCompress := utilization >= tb.config.CompressionThreshold
+	if shouldCompress {
+		logging.ContextDebug("ShouldCompress: YES (%.1f%% >= %.1f%% threshold)",
+			utilization*100, tb.config.CompressionThreshold*100)
+	}
+	return shouldCompress
 }
 
 // GetUsage returns detailed token usage.

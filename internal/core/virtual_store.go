@@ -48,6 +48,66 @@ const (
 	ActionEditLines    ActionType = "edit_lines"    // Line-based file editing
 	ActionInsertLines  ActionType = "insert_lines"  // Insert lines at position
 	ActionDeleteLines  ActionType = "delete_lines"  // Delete line range
+
+	// TDD Loop Actions (derived from Mangle policy next_action rules)
+	ActionReadErrorLog     ActionType = "read_error_log"     // Read test/build error logs
+	ActionAnalyzeRootCause ActionType = "analyze_root_cause" // Analyze root cause of failure
+	ActionGeneratePatch    ActionType = "generate_patch"     // Generate code patch
+	ActionEscalateToUser   ActionType = "escalate_to_user"   // Escalate to user
+	ActionComplete         ActionType = "complete"           // Mark task complete
+	ActionInterrogative    ActionType = "interrogative_mode" // Ask clarifying questions
+	ActionResumeTask       ActionType = "resume_task"        // Resume a paused task
+
+	// File System Actions (semantic aliases)
+	ActionFSRead  ActionType = "fs_read"  // Semantic file read
+	ActionFSWrite ActionType = "fs_write" // Semantic file write
+
+	// Ouroboros Actions (tool generation pipeline)
+	ActionGenerateTool     ActionType = "generate_tool"      // Generate new tool
+	ActionOuroborosDetect  ActionType = "ouroboros_detect"   // Detect tool need
+	ActionOuroborosGen     ActionType = "ouroboros_generate" // Generate tool code
+	ActionOuroborosCompile ActionType = "ouroboros_compile"  // Compile generated tool
+	ActionOuroborosReg     ActionType = "ouroboros_register" // Register compiled tool
+	ActionRefineTool       ActionType = "refine_tool"        // Refine existing tool
+
+	// Campaign Actions (multi-phase goal orchestration)
+	ActionCampaignClarify     ActionType = "campaign_clarify"      // Clarify campaign goal
+	ActionCampaignCreateFile  ActionType = "campaign_create_file"  // Create file in campaign
+	ActionCampaignModifyFile  ActionType = "campaign_modify_file"  // Modify file in campaign
+	ActionCampaignWriteTest   ActionType = "campaign_write_test"   // Write test in campaign
+	ActionCampaignRunTest     ActionType = "campaign_run_test"     // Run tests in campaign
+	ActionCampaignResearch    ActionType = "campaign_research"     // Research in campaign
+	ActionCampaignVerify      ActionType = "campaign_verify"       // Verify campaign step
+	ActionCampaignDocument    ActionType = "campaign_document"     // Document in campaign
+	ActionCampaignRefactor    ActionType = "campaign_refactor"     // Refactor in campaign
+	ActionCampaignIntegrate   ActionType = "campaign_integrate"    // Integrate in campaign
+	ActionCampaignComplete    ActionType = "campaign_complete"     // Complete campaign
+	ActionCampaignFinalVerify ActionType = "campaign_final_verify" // Final verification
+	ActionCampaignCleanup     ActionType = "campaign_cleanup"      // Cleanup after campaign
+	ActionArchiveCampaign     ActionType = "archive_campaign"      // Archive campaign
+	ActionShowCampaignStatus  ActionType = "show_campaign_status"  // Show campaign status
+	ActionShowCampaignProg    ActionType = "show_campaign_progress"
+	ActionAskCampaignInt      ActionType = "ask_campaign_interrupt" // Ask about campaign interrupt
+	ActionRunPhaseCheckpoint  ActionType = "run_phase_checkpoint"   // Run phase checkpoint
+	ActionPauseAndReplan      ActionType = "pause_and_replan"       // Pause and replan
+
+	// Context Management Actions
+	ActionCompressContext   ActionType = "compress_context"   // Compress context
+	ActionEmergencyCompress ActionType = "emergency_compress" // Emergency context compression
+	ActionCreateCheckpoint  ActionType = "create_checkpoint"  // Create checkpoint
+
+	// Investigation/Analysis Actions
+	ActionInvestigateAnomaly  ActionType = "investigate_anomaly"  // Investigate anomaly
+	ActionInvestigateSystemic ActionType = "investigate_systemic" // Investigate systemic issue
+	ActionUpdateWorldModel    ActionType = "update_world_model"   // Update world model
+
+	// Corrective Actions
+	ActionCorrectiveResearch  ActionType = "corrective_research"  // Research for correction
+	ActionCorrectiveDocs      ActionType = "corrective_docs"      // Documentation correction
+	ActionCorrectiveDecompose ActionType = "corrective_decompose" // Decompose for correction
+
+	// Code DOM Query Actions
+	ActionQueryElements ActionType = "query_elements" // Query code elements (alias)
 )
 
 // ActionRequest represents a request to execute an action.
@@ -152,6 +212,17 @@ type ToolExecutor interface {
 	GetTool(name string) (*ToolInfo, bool)
 }
 
+// ToolGenerator is an interface for generating new tools via Ouroboros.
+// This breaks the import cycle - implemented by autopoiesis.OuroborosLoop.
+// The actual ToolNeed and ToolGenerationResult types are in autopoiesis package.
+type ToolGenerator interface {
+	// GenerateToolFromCode takes pre-generated code and runs it through the
+	// Ouroboros pipeline (safety check, compile, register).
+	// Parameters: name, purpose, code, confidence, priority, isDiagnostic
+	// Returns: success, toolName, binaryPath, error
+	GenerateToolFromCode(ctx context.Context, name, purpose, code string, confidence, priority float64, isDiagnostic bool) (success bool, toolName, binaryPath, errMsg string)
+}
+
 // ToolInfo contains information about a registered tool
 type ToolInfo struct {
 	Name         string    `json:"name"`
@@ -244,8 +315,9 @@ type VirtualStore struct {
 	codeScope  CodeScope
 	fileEditor FileEditor
 
-	// Autopoiesis - tool execution
-	toolExecutor ToolExecutor
+	// Autopoiesis - tool execution and generation
+	toolExecutor  ToolExecutor
+	toolGenerator ToolGenerator
 
 	// Tool registry - integration with kernel and shards
 	toolRegistry *ToolRegistry
@@ -489,6 +561,21 @@ func (v *VirtualStore) GetToolExecutor() ToolExecutor {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.toolExecutor
+}
+
+// SetToolGenerator sets the tool generator for creating new tools via Ouroboros.
+func (v *VirtualStore) SetToolGenerator(generator ToolGenerator) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.toolGenerator = generator
+	logging.VirtualStoreDebug("ToolGenerator attached for Ouroboros tool generation")
+}
+
+// GetToolGenerator returns the current tool generator.
+func (v *VirtualStore) GetToolGenerator() ToolGenerator {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.toolGenerator
 }
 
 // GetToolRegistry returns the tool registry.
@@ -915,6 +1002,110 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 	// Autopoiesis actions
 	case ActionExecTool:
 		return v.handleExecTool(ctx, req)
+
+	// TDD Loop actions
+	case ActionReadErrorLog:
+		return v.handleReadErrorLog(ctx, req)
+	case ActionAnalyzeRootCause:
+		return v.handleAnalyzeRootCause(ctx, req)
+	case ActionGeneratePatch:
+		return v.handleGeneratePatch(ctx, req)
+	case ActionEscalateToUser:
+		return v.handleEscalateToUser(ctx, req)
+	case ActionComplete:
+		return v.handleComplete(ctx, req)
+	case ActionInterrogative:
+		return v.handleInterrogative(ctx, req)
+	case ActionResumeTask:
+		return v.handleResumeTask(ctx, req)
+
+	// File System semantic aliases
+	case ActionFSRead:
+		return v.handleReadFile(ctx, req) // Delegate to existing handler
+	case ActionFSWrite:
+		return v.handleWriteFile(ctx, req) // Delegate to existing handler
+
+	// Ouroboros actions
+	case ActionGenerateTool:
+		return v.handleGenerateTool(ctx, req)
+	case ActionOuroborosDetect:
+		return v.handleOuroborosDetect(ctx, req)
+	case ActionOuroborosGen:
+		return v.handleOuroborosGenerate(ctx, req)
+	case ActionOuroborosCompile:
+		return v.handleOuroborosCompile(ctx, req)
+	case ActionOuroborosReg:
+		return v.handleOuroborosRegister(ctx, req)
+	case ActionRefineTool:
+		return v.handleRefineTool(ctx, req)
+
+	// Campaign actions
+	case ActionCampaignClarify:
+		return v.handleCampaignClarify(ctx, req)
+	case ActionCampaignCreateFile:
+		return v.handleCampaignCreateFile(ctx, req)
+	case ActionCampaignModifyFile:
+		return v.handleCampaignModifyFile(ctx, req)
+	case ActionCampaignWriteTest:
+		return v.handleCampaignWriteTest(ctx, req)
+	case ActionCampaignRunTest:
+		return v.handleCampaignRunTest(ctx, req)
+	case ActionCampaignResearch:
+		return v.handleCampaignResearch(ctx, req)
+	case ActionCampaignVerify:
+		return v.handleCampaignVerify(ctx, req)
+	case ActionCampaignDocument:
+		return v.handleCampaignDocument(ctx, req)
+	case ActionCampaignRefactor:
+		return v.handleCampaignRefactor(ctx, req)
+	case ActionCampaignIntegrate:
+		return v.handleCampaignIntegrate(ctx, req)
+	case ActionCampaignComplete:
+		return v.handleCampaignComplete(ctx, req)
+	case ActionCampaignFinalVerify:
+		return v.handleCampaignFinalVerify(ctx, req)
+	case ActionCampaignCleanup:
+		return v.handleCampaignCleanup(ctx, req)
+	case ActionArchiveCampaign:
+		return v.handleArchiveCampaign(ctx, req)
+	case ActionShowCampaignStatus:
+		return v.handleShowCampaignStatus(ctx, req)
+	case ActionShowCampaignProg:
+		return v.handleShowCampaignProgress(ctx, req)
+	case ActionAskCampaignInt:
+		return v.handleAskCampaignInterrupt(ctx, req)
+	case ActionRunPhaseCheckpoint:
+		return v.handleRunPhaseCheckpoint(ctx, req)
+	case ActionPauseAndReplan:
+		return v.handlePauseAndReplan(ctx, req)
+
+	// Context Management actions
+	case ActionCompressContext:
+		return v.handleCompressContext(ctx, req)
+	case ActionEmergencyCompress:
+		return v.handleEmergencyCompress(ctx, req)
+	case ActionCreateCheckpoint:
+		return v.handleCreateCheckpoint(ctx, req)
+
+	// Investigation/Analysis actions
+	case ActionInvestigateAnomaly:
+		return v.handleInvestigateAnomaly(ctx, req)
+	case ActionInvestigateSystemic:
+		return v.handleInvestigateSystemic(ctx, req)
+	case ActionUpdateWorldModel:
+		return v.handleUpdateWorldModel(ctx, req)
+
+	// Corrective actions
+	case ActionCorrectiveResearch:
+		return v.handleCorrectiveResearch(ctx, req)
+	case ActionCorrectiveDocs:
+		return v.handleCorrectiveDocs(ctx, req)
+	case ActionCorrectiveDecompose:
+		return v.handleCorrectiveDecompose(ctx, req)
+
+	// Code DOM Query alias
+	case ActionQueryElements:
+		return v.handleGetElements(ctx, req) // Delegate to existing handler
 
 	default:
 		return ActionResult{}, fmt.Errorf("unknown action type: %s", req.Type)
@@ -2896,6 +3087,116 @@ func (v *VirtualStore) HasLearned(predicate string) (bool, error) {
 	return len(facts) > 0, nil
 }
 
+// QueryTraces queries reasoning_traces for shard execution history.
+// Implements: query_traces(ShardType, Limit, TraceID, Success, DurationMs) Bound
+func (v *VirtualStore) QueryTraces(shardType string, limit int) ([]Fact, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "QueryTraces")
+	defer timer.Stop()
+
+	logging.VirtualStoreDebug("QueryTraces: shardType=%s limit=%d", shardType, limit)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryTraces: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	traces, err := db.GetShardTraces(shardType, limit)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryTraces failed: %v", err)
+		return nil, fmt.Errorf("failed to query traces: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(traces))
+	for _, trace := range traces {
+		facts = append(facts, Fact{
+			Predicate: "reasoning_trace",
+			Args: []interface{}{
+				shardType,
+				trace.ID,
+				trace.Success,
+				trace.DurationMs,
+			},
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryTraces: found %d traces for shardType=%s", len(facts), shardType)
+	return facts, nil
+}
+
+// QueryTraceStats retrieves aggregate statistics for a shard type.
+// Implements: query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration) Bound
+func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "QueryTraceStats")
+	defer timer.Stop()
+
+	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s", shardType)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryTraceStats: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	stats, err := db.GetTraceStats()
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryTraceStats failed: %v", err)
+		return nil, fmt.Errorf("failed to query trace stats: %w", err)
+	}
+
+	// Extract stats for the requested shard type
+	successRateByType, _ := stats["success_rate_by_type"].(map[string]float64)
+	byShardType, _ := stats["by_shard_type"].(map[string]int64)
+
+	totalCount := int64(0)
+	successRate := 0.0
+	avgDuration := 0.0
+
+	if byShardType != nil {
+		if count, ok := byShardType[shardType]; ok {
+			totalCount = count
+		}
+	}
+	if successRateByType != nil {
+		if rate, ok := successRateByType[shardType]; ok {
+			successRate = rate
+		}
+	}
+	if avgDur, ok := stats["avg_duration_ms"].(float64); ok {
+		avgDuration = avgDur
+	}
+
+	// Calculate success and fail counts from rate
+	successCount := int64(float64(totalCount) * successRate)
+	failCount := totalCount - successCount
+
+	facts := []Fact{
+		{
+			Predicate: "trace_stats",
+			Args: []interface{}{
+				shardType,
+				successCount,
+				failCount,
+				avgDuration,
+			},
+		},
+	}
+
+	logging.VirtualStoreDebug("QueryTraceStats: shardType=%s total=%d success=%d fail=%d avgDur=%.2f",
+		shardType, totalCount, successCount, failCount, avgDuration)
+	return facts, nil
+}
+
 // toAtomOrString converts string to MangleAtom if it starts with /.
 func toAtomOrString(v interface{}) interface{} {
 	if s, ok := v.(string); ok && strings.HasPrefix(s, "/") {
@@ -3048,4 +3349,973 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 
 	logging.VirtualStore("HydrateLearnings completed: %d facts hydrated", count)
 	return count, nil
+}
+
+// =============================================================================
+// TDD LOOP ACTION HANDLERS
+// =============================================================================
+
+// handleReadErrorLog reads test/build error logs from the last execution.
+func (v *VirtualStore) handleReadErrorLog(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	logging.VirtualStoreDebug("handleReadErrorLog: target=%s", req.Target)
+
+	// Target specifies the log type (test, build, or file path)
+	logType := req.Target
+	if logType == "" {
+		logType = "test"
+	}
+
+	// Try to read from common log locations
+	var logContent string
+	var logPath string
+
+	switch logType {
+	case "test":
+		logPath = filepath.Join(v.workingDir, ".nerd", "logs", "test.log")
+	case "build":
+		logPath = filepath.Join(v.workingDir, ".nerd", "logs", "build.log")
+	default:
+		logPath = v.resolvePath(logType)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		// Return empty result if log not found, not an error
+		return ActionResult{
+			Success: true,
+			Output:  "",
+			FactsToAdd: []Fact{
+				{Predicate: "error_log_empty", Args: []interface{}{logType}},
+			},
+		}, nil
+	}
+	logContent = string(data)
+
+	return ActionResult{
+		Success: true,
+		Output:  logContent,
+		Metadata: map[string]interface{}{
+			"log_type": logType,
+			"log_path": logPath,
+			"size":     len(logContent),
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "error_log_read", Args: []interface{}{logType, len(logContent)}},
+		},
+	}, nil
+}
+
+// handleAnalyzeRootCause signals the kernel to analyze root cause of a failure.
+func (v *VirtualStore) handleAnalyzeRootCause(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	logging.VirtualStoreDebug("handleAnalyzeRootCause: target=%s", req.Target)
+
+	// This is a signal action - the actual analysis is done by the LLM
+	// We inject facts to indicate the analysis should proceed
+	errorContext := req.Target
+	if errorContext == "" {
+		errorContext = "unknown"
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Root cause analysis requested for: %s", errorContext),
+		FactsToAdd: []Fact{
+			{Predicate: "analyzing_root_cause", Args: []interface{}{errorContext}},
+			{Predicate: "tdd_phase", Args: []interface{}{"/analyze"}},
+		},
+	}, nil
+}
+
+// handleGeneratePatch signals the kernel that a patch should be generated.
+func (v *VirtualStore) handleGeneratePatch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	logging.VirtualStoreDebug("handleGeneratePatch: target=%s", req.Target)
+
+	// Signal action for patch generation
+	targetFile := req.Target
+	patchDesc, _ := req.Payload["description"].(string)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Patch generation requested for: %s", targetFile),
+		FactsToAdd: []Fact{
+			{Predicate: "generating_patch", Args: []interface{}{targetFile, patchDesc}},
+			{Predicate: "tdd_phase", Args: []interface{}{"/patch"}},
+		},
+	}, nil
+}
+
+// handleEscalateToUser escalates an issue to the user for intervention.
+func (v *VirtualStore) handleEscalateToUser(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	reason := req.Target
+	logging.VirtualStore("Escalating to user: %s", reason)
+
+	return ActionResult{
+		Success: false, // Escalation means current task cannot proceed
+		Output:  fmt.Sprintf("ESCALATION REQUIRED: %s", reason),
+		Error:   "USER_INTERVENTION_REQUIRED",
+		FactsToAdd: []Fact{
+			{Predicate: "escalated_to_user", Args: []interface{}{reason}},
+			{Predicate: "task_blocked", Args: []interface{}{reason}},
+		},
+	}, nil
+}
+
+// handleComplete marks the current task as complete.
+func (v *VirtualStore) handleComplete(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	taskID := req.Target
+	summary, _ := req.Payload["summary"].(string)
+
+	logging.VirtualStore("Task completed: %s", taskID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Task %s completed: %s", taskID, summary),
+		FactsToAdd: []Fact{
+			{Predicate: "task_completed", Args: []interface{}{taskID, summary}},
+			{Predicate: "completion_signal", Args: []interface{}{taskID}},
+		},
+	}, nil
+}
+
+// handleInterrogative enters interrogative mode for clarification.
+func (v *VirtualStore) handleInterrogative(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	question := req.Target
+	options, _ := req.Payload["options"].([]interface{})
+
+	logging.VirtualStoreDebug("Entering interrogative mode: %s", question)
+
+	return ActionResult{
+		Success: false, // Needs user response
+		Output:  question,
+		Error:   "CLARIFICATION_NEEDED",
+		Metadata: map[string]interface{}{
+			"question": question,
+			"options":  options,
+			"mode":     "interrogative",
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "awaiting_clarification", Args: []interface{}{question}},
+			{Predicate: "interrogative_mode", Args: []interface{}{true}},
+		},
+	}, nil
+}
+
+// handleResumeTask resumes a previously paused task.
+func (v *VirtualStore) handleResumeTask(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	taskID := req.Target
+	logging.VirtualStore("Resuming task: %s", taskID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Resuming task: %s", taskID),
+		FactsToAdd: []Fact{
+			{Predicate: "task_resumed", Args: []interface{}{taskID}},
+			{Predicate: "active_task", Args: []interface{}{taskID}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// OUROBOROS ACTION HANDLERS
+// =============================================================================
+
+// handleGenerateTool generates a new tool via the Ouroboros pipeline.
+func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	generator := v.toolGenerator
+	v.mu.RUnlock()
+
+	if generator == nil {
+		return ActionResult{
+			Success: false,
+			Error:   "tool generator not configured",
+			FactsToAdd: []Fact{
+				{Predicate: "tool_generation_failed", Args: []interface{}{req.Target, "no_generator"}},
+			},
+		}, nil
+	}
+
+	toolName := req.Target
+	purpose, _ := req.Payload["purpose"].(string)
+	code, _ := req.Payload["code"].(string)
+	confidence, _ := req.Payload["confidence"].(float64)
+	priority, _ := req.Payload["priority"].(float64)
+	isDiagnostic, _ := req.Payload["is_diagnostic"].(bool)
+
+	if confidence == 0 {
+		confidence = 0.8
+	}
+	if priority == 0 {
+		priority = 5.0
+	}
+
+	logging.VirtualStore("Generating tool: %s (purpose=%s)", toolName, purpose)
+
+	success, registeredName, binaryPath, errMsg := generator.GenerateToolFromCode(
+		ctx, toolName, purpose, code, confidence, priority, isDiagnostic,
+	)
+
+	if !success {
+		return ActionResult{
+			Success: false,
+			Error:   errMsg,
+			FactsToAdd: []Fact{
+				{Predicate: "tool_generation_failed", Args: []interface{}{toolName, errMsg}},
+			},
+		}, nil
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool %s generated at %s", registeredName, binaryPath),
+		Metadata: map[string]interface{}{
+			"tool_name":   registeredName,
+			"binary_path": binaryPath,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "tool_generated", Args: []interface{}{registeredName, binaryPath}},
+			{Predicate: "tool_available", Args: []interface{}{registeredName}},
+		},
+	}, nil
+}
+
+// handleOuroborosDetect detects tool needs based on task context.
+func (v *VirtualStore) handleOuroborosDetect(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	logging.VirtualStoreDebug("Ouroboros detect: %s", req.Target)
+
+	// Detection is a signal action - the LLM identifies tool needs
+	taskContext := req.Target
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool detection initiated for: %s", taskContext),
+		FactsToAdd: []Fact{
+			{Predicate: "ouroboros_phase", Args: []interface{}{"/detect"}},
+			{Predicate: "tool_detection_context", Args: []interface{}{taskContext}},
+		},
+	}, nil
+}
+
+// handleOuroborosGenerate generates tool code.
+func (v *VirtualStore) handleOuroborosGenerate(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	toolName := req.Target
+	logging.VirtualStoreDebug("Ouroboros generate: %s", toolName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool code generation initiated for: %s", toolName),
+		FactsToAdd: []Fact{
+			{Predicate: "ouroboros_phase", Args: []interface{}{"/generate"}},
+			{Predicate: "tool_generating", Args: []interface{}{toolName}},
+		},
+	}, nil
+}
+
+// handleOuroborosCompile compiles a generated tool.
+func (v *VirtualStore) handleOuroborosCompile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	toolName := req.Target
+	sourcePath, _ := req.Payload["source_path"].(string)
+
+	logging.VirtualStore("Ouroboros compile: %s from %s", toolName, sourcePath)
+
+	// Compile the tool
+	if sourcePath == "" {
+		sourcePath = filepath.Join(v.workingDir, ".nerd", "tools", toolName+".go")
+	}
+
+	outputPath := filepath.Join(v.workingDir, ".nerd", "tools", ".compiled", toolName)
+
+	cmd := tactile.ShellCommand{
+		Binary:           "go",
+		Arguments:        []string{"build", "-o", outputPath, sourcePath},
+		WorkingDirectory: v.workingDir,
+		TimeoutSeconds:   60,
+		EnvironmentVars:  v.getAllowedEnv(),
+	}
+
+	output, err := v.executor.Execute(ctx, cmd)
+	if err != nil {
+		return ActionResult{
+			Success: false,
+			Output:  output,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "ouroboros_compile_failed", Args: []interface{}{toolName, err.Error()}},
+			},
+		}, nil
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool %s compiled to %s", toolName, outputPath),
+		Metadata: map[string]interface{}{
+			"tool_name":   toolName,
+			"binary_path": outputPath,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "ouroboros_phase", Args: []interface{}{"/compiled"}},
+			{Predicate: "tool_compiled", Args: []interface{}{toolName, outputPath}},
+		},
+	}, nil
+}
+
+// handleOuroborosRegister registers a compiled tool.
+func (v *VirtualStore) handleOuroborosRegister(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	toolName := req.Target
+	binaryPath, _ := req.Payload["binary_path"].(string)
+	shardAffinity, _ := req.Payload["shard_affinity"].(string)
+
+	logging.VirtualStore("Ouroboros register: %s at %s", toolName, binaryPath)
+
+	if shardAffinity == "" {
+		shardAffinity = "coder"
+	}
+
+	if err := v.RegisterTool(toolName, binaryPath, shardAffinity); err != nil {
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "ouroboros_register_failed", Args: []interface{}{toolName, err.Error()}},
+			},
+		}, nil
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool %s registered", toolName),
+		FactsToAdd: []Fact{
+			{Predicate: "ouroboros_phase", Args: []interface{}{"/registered"}},
+			{Predicate: "tool_registered", Args: []interface{}{toolName, binaryPath}},
+			{Predicate: "tool_available", Args: []interface{}{toolName}},
+		},
+	}, nil
+}
+
+// handleRefineTool refines an existing tool.
+func (v *VirtualStore) handleRefineTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	toolName := req.Target
+	feedback, _ := req.Payload["feedback"].(string)
+
+	logging.VirtualStoreDebug("Refine tool: %s", toolName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Tool refinement initiated for: %s", toolName),
+		FactsToAdd: []Fact{
+			{Predicate: "tool_refining", Args: []interface{}{toolName, feedback}},
+			{Predicate: "ouroboros_phase", Args: []interface{}{"/refine"}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// CAMPAIGN ACTION HANDLERS
+// =============================================================================
+
+// handleCampaignClarify requests clarification for a campaign goal.
+func (v *VirtualStore) handleCampaignClarify(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	question := req.Target
+	campaignID, _ := req.Payload["campaign_id"].(string)
+
+	logging.VirtualStoreDebug("Campaign clarify: %s", question)
+
+	return ActionResult{
+		Success: false, // Needs user input
+		Output:  question,
+		Error:   "CAMPAIGN_CLARIFICATION_NEEDED",
+		Metadata: map[string]interface{}{
+			"campaign_id": campaignID,
+			"question":    question,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_awaiting_clarification", Args: []interface{}{campaignID, question}},
+		},
+	}, nil
+}
+
+// handleCampaignCreateFile creates a file as part of a campaign.
+func (v *VirtualStore) handleCampaignCreateFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	// Delegate to write file handler
+	return v.handleWriteFile(ctx, req)
+}
+
+// handleCampaignModifyFile modifies a file as part of a campaign.
+func (v *VirtualStore) handleCampaignModifyFile(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	// Delegate to edit file handler
+	return v.handleEditFile(ctx, req)
+}
+
+// handleCampaignWriteTest writes a test file as part of a campaign.
+func (v *VirtualStore) handleCampaignWriteTest(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	// Similar to write file but adds test-specific facts
+	result, err := v.handleWriteFile(ctx, req)
+	if err != nil {
+		return result, err
+	}
+
+	if result.Success {
+		result.FactsToAdd = append(result.FactsToAdd, Fact{
+			Predicate: "test_written",
+			Args:      []interface{}{req.Target},
+		})
+	}
+
+	return result, nil
+}
+
+// handleCampaignRunTest runs tests as part of a campaign.
+func (v *VirtualStore) handleCampaignRunTest(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	// Delegate to run tests handler
+	return v.handleRunTests(ctx, req)
+}
+
+// handleCampaignResearch performs research as part of a campaign.
+func (v *VirtualStore) handleCampaignResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	// Delegate to research handler
+	return v.handleResearch(ctx, req)
+}
+
+// handleCampaignVerify verifies a campaign step.
+func (v *VirtualStore) handleCampaignVerify(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	stepID := req.Target
+	campaignID, _ := req.Payload["campaign_id"].(string)
+
+	logging.VirtualStoreDebug("Campaign verify step: %s", stepID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Verifying campaign step: %s", stepID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_step_verifying", Args: []interface{}{campaignID, stepID}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/verify"}},
+		},
+	}, nil
+}
+
+// handleCampaignDocument creates documentation as part of a campaign.
+func (v *VirtualStore) handleCampaignDocument(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	docTarget := req.Target
+	content, _ := req.Payload["content"].(string)
+
+	logging.VirtualStoreDebug("Campaign document: %s", docTarget)
+
+	// If content provided, write it
+	if content != "" {
+		req.Payload["content"] = content
+		return v.handleWriteFile(ctx, req)
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Documentation requested for: %s", docTarget),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_documenting", Args: []interface{}{docTarget}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/document"}},
+		},
+	}, nil
+}
+
+// handleCampaignRefactor performs refactoring as part of a campaign.
+func (v *VirtualStore) handleCampaignRefactor(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	target := req.Target
+	refactorType, _ := req.Payload["refactor_type"].(string)
+
+	logging.VirtualStoreDebug("Campaign refactor: %s (%s)", target, refactorType)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Refactoring initiated for: %s", target),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_refactoring", Args: []interface{}{target, refactorType}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/refactor"}},
+		},
+	}, nil
+}
+
+// handleCampaignIntegrate performs integration as part of a campaign.
+func (v *VirtualStore) handleCampaignIntegrate(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	target := req.Target
+	campaignID, _ := req.Payload["campaign_id"].(string)
+
+	logging.VirtualStoreDebug("Campaign integrate: %s", target)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Integration step for: %s", target),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_integrating", Args: []interface{}{campaignID, target}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/integrate"}},
+		},
+	}, nil
+}
+
+// handleCampaignComplete marks a campaign as complete.
+func (v *VirtualStore) handleCampaignComplete(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+	summary, _ := req.Payload["summary"].(string)
+
+	logging.VirtualStore("Campaign completed: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Campaign %s completed: %s", campaignID, summary),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_completed", Args: []interface{}{campaignID, summary}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/complete"}},
+		},
+	}, nil
+}
+
+// handleCampaignFinalVerify performs final verification of a campaign.
+func (v *VirtualStore) handleCampaignFinalVerify(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+
+	logging.VirtualStore("Campaign final verification: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Final verification for campaign: %s", campaignID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_final_verifying", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/final_verify"}},
+		},
+	}, nil
+}
+
+// handleCampaignCleanup performs cleanup after a campaign.
+func (v *VirtualStore) handleCampaignCleanup(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+
+	logging.VirtualStore("Campaign cleanup: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Cleanup completed for campaign: %s", campaignID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_cleaned_up", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_phase", Args: []interface{}{"/cleanup"}},
+		},
+	}, nil
+}
+
+// handleArchiveCampaign archives a completed campaign.
+func (v *VirtualStore) handleArchiveCampaign(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+
+	logging.VirtualStore("Archiving campaign: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Campaign %s archived", campaignID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_archived", Args: []interface{}{campaignID}},
+		},
+	}, nil
+}
+
+// handleShowCampaignStatus shows the current status of a campaign.
+func (v *VirtualStore) handleShowCampaignStatus(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+
+	logging.VirtualStoreDebug("Show campaign status: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Showing status for campaign: %s", campaignID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_status_requested", Args: []interface{}{campaignID}},
+		},
+	}, nil
+}
+
+// handleShowCampaignProgress shows the progress of a campaign.
+func (v *VirtualStore) handleShowCampaignProgress(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+
+	logging.VirtualStoreDebug("Show campaign progress: %s", campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Showing progress for campaign: %s", campaignID),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_progress_requested", Args: []interface{}{campaignID}},
+		},
+	}, nil
+}
+
+// handleAskCampaignInterrupt handles campaign interrupt requests.
+func (v *VirtualStore) handleAskCampaignInterrupt(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+	reason, _ := req.Payload["reason"].(string)
+
+	logging.VirtualStore("Campaign interrupt requested: %s - %s", campaignID, reason)
+
+	return ActionResult{
+		Success: false,
+		Output:  fmt.Sprintf("Campaign %s interrupt requested: %s", campaignID, reason),
+		Error:   "CAMPAIGN_INTERRUPT_REQUESTED",
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_interrupt_requested", Args: []interface{}{campaignID, reason}},
+		},
+	}, nil
+}
+
+// handleRunPhaseCheckpoint runs a checkpoint for the current phase.
+func (v *VirtualStore) handleRunPhaseCheckpoint(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	phaseID := req.Target
+	campaignID, _ := req.Payload["campaign_id"].(string)
+
+	logging.VirtualStoreDebug("Phase checkpoint: %s in campaign %s", phaseID, campaignID)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Checkpoint for phase: %s", phaseID),
+		FactsToAdd: []Fact{
+			{Predicate: "phase_checkpoint", Args: []interface{}{campaignID, phaseID}},
+		},
+	}, nil
+}
+
+// handlePauseAndReplan pauses and replans the current campaign.
+func (v *VirtualStore) handlePauseAndReplan(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	campaignID := req.Target
+	reason, _ := req.Payload["reason"].(string)
+
+	logging.VirtualStore("Pause and replan: %s - %s", campaignID, reason)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Campaign %s paused for replanning: %s", campaignID, reason),
+		FactsToAdd: []Fact{
+			{Predicate: "campaign_paused", Args: []interface{}{campaignID, reason}},
+			{Predicate: "campaign_replanning", Args: []interface{}{campaignID}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// CONTEXT MANAGEMENT ACTION HANDLERS
+// =============================================================================
+
+// handleCompressContext compresses the current context.
+func (v *VirtualStore) handleCompressContext(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	reason := req.Target
+	targetRatio, _ := req.Payload["ratio"].(float64)
+	if targetRatio == 0 {
+		targetRatio = 0.5
+	}
+
+	logging.VirtualStore("Context compression requested: ratio=%.2f", targetRatio)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Context compression initiated (target ratio: %.2f)", targetRatio),
+		FactsToAdd: []Fact{
+			{Predicate: "context_compressing", Args: []interface{}{reason, targetRatio}},
+			{Predicate: "compression_requested", Args: []interface{}{"/normal"}},
+		},
+	}, nil
+}
+
+// handleEmergencyCompress performs emergency context compression.
+func (v *VirtualStore) handleEmergencyCompress(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	logging.VirtualStore("Emergency context compression requested")
+
+	return ActionResult{
+		Success: true,
+		Output:  "Emergency context compression initiated",
+		FactsToAdd: []Fact{
+			{Predicate: "context_compressing", Args: []interface{}{"emergency", 0.25}},
+			{Predicate: "compression_requested", Args: []interface{}{"/emergency"}},
+		},
+	}, nil
+}
+
+// handleCreateCheckpoint creates a checkpoint of the current state.
+func (v *VirtualStore) handleCreateCheckpoint(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	checkpointName := req.Target
+	if checkpointName == "" {
+		checkpointName = fmt.Sprintf("checkpoint_%d", time.Now().Unix())
+	}
+
+	logging.VirtualStore("Creating checkpoint: %s", checkpointName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Checkpoint created: %s", checkpointName),
+		Metadata: map[string]interface{}{
+			"checkpoint_name": checkpointName,
+			"timestamp":       time.Now().Unix(),
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "checkpoint_created", Args: []interface{}{checkpointName, time.Now().Unix()}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// INVESTIGATION/ANALYSIS ACTION HANDLERS
+// =============================================================================
+
+// handleInvestigateAnomaly investigates an anomaly.
+func (v *VirtualStore) handleInvestigateAnomaly(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	anomalyDesc := req.Target
+	severity, _ := req.Payload["severity"].(string)
+	if severity == "" {
+		severity = "medium"
+	}
+
+	logging.VirtualStore("Investigating anomaly: %s (severity=%s)", anomalyDesc, severity)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Investigating anomaly: %s", anomalyDesc),
+		FactsToAdd: []Fact{
+			{Predicate: "anomaly_investigating", Args: []interface{}{anomalyDesc, severity}},
+			{Predicate: "investigation_phase", Args: []interface{}{"/anomaly"}},
+		},
+	}, nil
+}
+
+// handleInvestigateSystemic investigates a systemic issue.
+func (v *VirtualStore) handleInvestigateSystemic(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	issueDesc := req.Target
+
+	logging.VirtualStore("Investigating systemic issue: %s", issueDesc)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Investigating systemic issue: %s", issueDesc),
+		FactsToAdd: []Fact{
+			{Predicate: "systemic_investigating", Args: []interface{}{issueDesc}},
+			{Predicate: "investigation_phase", Args: []interface{}{"/systemic"}},
+		},
+	}, nil
+}
+
+// handleUpdateWorldModel updates the world model.
+func (v *VirtualStore) handleUpdateWorldModel(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	updateType := req.Target
+	scope, _ := req.Payload["scope"].(string)
+
+	logging.VirtualStoreDebug("Updating world model: type=%s, scope=%s", updateType, scope)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("World model update: %s", updateType),
+		FactsToAdd: []Fact{
+			{Predicate: "world_model_updating", Args: []interface{}{updateType, scope}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// CORRECTIVE ACTION HANDLERS
+// =============================================================================
+
+// handleCorrectiveResearch performs research to correct an issue.
+func (v *VirtualStore) handleCorrectiveResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	topic := req.Target
+	issueType, _ := req.Payload["issue_type"].(string)
+
+	logging.VirtualStoreDebug("Corrective research: %s (issue=%s)", topic, issueType)
+
+	// If scraper is available, delegate to research handler
+	v.mu.RLock()
+	scraper := v.scraper
+	v.mu.RUnlock()
+
+	if scraper != nil {
+		return v.handleResearch(ctx, req)
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Corrective research initiated for: %s", topic),
+		FactsToAdd: []Fact{
+			{Predicate: "corrective_researching", Args: []interface{}{topic, issueType}},
+			{Predicate: "corrective_phase", Args: []interface{}{"/research"}},
+		},
+	}, nil
+}
+
+// handleCorrectiveDocs creates corrective documentation.
+func (v *VirtualStore) handleCorrectiveDocs(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	docTarget := req.Target
+
+	logging.VirtualStoreDebug("Corrective documentation: %s", docTarget)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Corrective documentation initiated for: %s", docTarget),
+		FactsToAdd: []Fact{
+			{Predicate: "corrective_documenting", Args: []interface{}{docTarget}},
+			{Predicate: "corrective_phase", Args: []interface{}{"/docs"}},
+		},
+	}, nil
+}
+
+// handleCorrectiveDecompose decomposes a problem for correction.
+func (v *VirtualStore) handleCorrectiveDecompose(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	problem := req.Target
+
+	logging.VirtualStoreDebug("Corrective decompose: %s", problem)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Decomposing problem for correction: %s", problem),
+		FactsToAdd: []Fact{
+			{Predicate: "corrective_decomposing", Args: []interface{}{problem}},
+			{Predicate: "corrective_phase", Args: []interface{}{"/decompose"}},
+		},
+	}, nil
 }

@@ -100,11 +100,10 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	bridge := core.NewAutopoiesisBridge(kernel)
 	poiesis.SetKernel(bridge)
 
-	// Wire Autopoiesis tool executor to VirtualStore
-	// Note: We need an adapter here if VirtualStore expects a specific interface
-	// Assuming NewToolExecutorAdapter exists in chat package, but we might need to move it or duplicate it.
-	// For now, we'll skip this specific wiring if the adapter is in `chat` package.
-	// Ideally, the adapter should be in `tactile` or `autopoiesis`.
+	// Wire Ouroboros as ToolGenerator for coder shard self-tool routing
+	if ouroborosLoop := poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
+		virtualStore.SetToolGenerator(ouroborosLoop)
+	}
 
 	// 4. Browser Physics
 	browserCfg := browser.DefaultConfig()

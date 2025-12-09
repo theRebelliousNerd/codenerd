@@ -15,6 +15,8 @@ func (t *TesterShard) trackFailurePattern(result *TestResult) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	logging.TesterDebug("Tracking failure patterns from %d failed tests", len(result.FailedTests))
+
 	for _, failed := range result.FailedTests {
 		// Create pattern key from failure message
 		pattern := normalizePattern(failed.Message)
@@ -22,6 +24,7 @@ func (t *TesterShard) trackFailurePattern(result *TestResult) {
 
 		// Persist to LearningStore if count exceeds threshold
 		if t.learningStore != nil && t.failurePatterns[pattern] >= 3 {
+			logging.Tester("Persisting recurring failure pattern (count=%d): %s", t.failurePatterns[pattern], pattern)
 			_ = t.learningStore.Save("tester", "failure_pattern", []any{pattern, failed.Message}, "")
 		}
 	}

@@ -595,6 +595,11 @@ func (ae *ActivationEngine) GetHighActivationFacts(facts []core.Fact, intent *co
 // SpreadFromSeeds spreads activation from a set of seed facts.
 // This implements the spreading activation algorithm described in §8.1.
 func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact, depth int) []ScoredFact {
+	timer := logging.StartTimer(logging.CategoryContext, "SpreadFromSeeds")
+	defer timer.Stop()
+
+	logging.ContextDebug("SpreadFromSeeds: %d facts, %d seeds, depth=%d", len(facts), len(seeds), depth)
+
 	// Mark seeds with high recency
 	now := time.Now()
 	for _, seed := range seeds {

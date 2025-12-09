@@ -63,6 +63,10 @@ type CoderResult struct {
 	Diagnostics []core.Diagnostic `json:"diagnostics,omitempty"`
 	Facts       []core.Fact       `json:"facts,omitempty"`
 	Duration    time.Duration     `json:"duration"`
+
+	// Artifact routing (for Ouroboros integration)
+	ArtifactType ArtifactType `json:"artifact_type,omitempty"` // project_code, self_tool, diagnostic
+	ToolName     string       `json:"tool_name,omitempty"`     // Name for self-tools
 }
 
 // CoderTask represents a parsed coding task.
@@ -344,7 +348,13 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	}
 	logging.Coder("Generated %d edits", len(result.Edits))
 
-	// Apply edits
+	// Check for self-tool artifact - route to Ouroboros instead of direct file write
+	if result.ArtifactType == ArtifactTypeSelfTool || result.ArtifactType == ArtifactTypeDiagnostic {
+		logging.Coder("Detected self-tool artifact (type=%s), routing to Ouroboros", result.ArtifactType)
+		return c.routeToOuroboros(ctx, result)
+	}
+
+	// Apply edits (normal project code path)
 	if len(result.Edits) > 0 {
 		applyTimer := logging.StartTimer(logging.CategoryCoder, "ApplyEdits")
 		if err := c.applyEdits(ctx, result.Edits); err != nil {

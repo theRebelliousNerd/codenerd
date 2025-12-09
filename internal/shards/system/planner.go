@@ -12,6 +12,7 @@ package system
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -112,6 +113,7 @@ func NewSessionPlannerShard() *SessionPlannerShard {
 
 // NewSessionPlannerShardWithConfig creates a planner with custom config.
 func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
+	logging.SystemShards("[SessionPlanner] Initializing session planner shard")
 	base := NewBaseSystemShard("session_planner", StartupOnDemand)
 
 	// Configure permissions
@@ -126,6 +128,8 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 	// Configure idle timeout
 	base.CostGuard.IdleTimeout = cfg.IdleTimeout
 
+	logging.SystemShardsDebug("[SessionPlanner] Config: max_items=%d, auto_checkpoint=%v, max_retries=%d, idle_timeout=%v",
+		cfg.MaxAgendaItems, cfg.AutoCheckpointEvery, cfg.MaxRetriesPerTask, cfg.IdleTimeout)
 	return &SessionPlannerShard{
 		BaseSystemShard: base,
 		config:          cfg,
@@ -139,6 +143,7 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 
 // Execute runs the Session Planner's orchestration loop.
 func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string, error) {
+	logging.SystemShards("[SessionPlanner] Starting orchestration loop")
 	s.SetState(core.ShardStateRunning)
 	s.mu.Lock()
 	s.running = true
@@ -151,16 +156,20 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
+		logging.SystemShards("[SessionPlanner] Orchestration loop terminated")
 	}()
 
 	// Initialize kernel if not set
 	if s.Kernel == nil {
+		logging.SystemShardsDebug("[SessionPlanner] Creating new kernel (none attached)")
 		s.Kernel = core.NewRealKernel()
 	}
 
 	// Parse task for initial goal or campaign
 	if task != "" {
+		logging.SystemShards("[SessionPlanner] Initializing from task: %s", truncateForLog(task, 100))
 		if err := s.initializeFromTask(ctx, task); err != nil {
+			logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to initialize: %v", err)
 			return "", fmt.Errorf("failed to initialize: %w", err)
 		}
 	}
@@ -171,12 +180,15 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 	for {
 		select {
 		case <-ctx.Done():
+			logging.SystemShards("[SessionPlanner] Context cancelled, shutting down")
 			return s.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-s.StopCh:
+			logging.SystemShards("[SessionPlanner] Stop signal received")
 			return s.generateShutdownSummary("stopped"), nil
 		case <-ticker.C:
 			// Check idle timeout
 			if s.CostGuard.IsIdle() {
+				logging.SystemShards("[SessionPlanner] Idle timeout reached, shutting down")
 				return s.generateShutdownSummary("idle timeout"), nil
 			}
 
@@ -185,6 +197,7 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 
 			// Check for auto-checkpoint
 			if time.Since(s.lastCheckpoint) >= s.config.AutoCheckpointEvery {
+				logging.SystemShardsDebug("[SessionPlanner] Creating auto-checkpoint")
 				s.createCheckpoint("auto")
 			}
 
@@ -205,21 +218,28 @@ func (s *SessionPlannerShard) initializeFromTask(ctx context.Context, task strin
 	// Check if it's a campaign reference
 	if strings.HasPrefix(task, "campaign:") {
 		s.activeCampaign = strings.TrimPrefix(task, "campaign:")
+		logging.SystemShards("[SessionPlanner] Loading campaign: %s", s.activeCampaign)
 		return s.loadCampaignAgenda()
 	}
 
 	// Decompose goal using LLM
+	logging.SystemShardsDebug("[SessionPlanner] Decomposing goal via LLM")
 	return s.decomposeGoal(ctx, task)
 }
 
 // decomposeGoal uses LLM to break down a high-level goal.
 func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) error {
+	timer := logging.StartTimer(logging.CategorySystemShards, "[SessionPlanner] Goal decomposition")
+	defer timer.Stop()
+
 	if s.LLMClient == nil {
+		logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] No LLM client for decomposition")
 		return fmt.Errorf("no LLM client for decomposition")
 	}
 
 	can, reason := s.CostGuard.CanCall()
 	if !can {
+		logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] LLM call blocked: %s", reason)
 		return fmt.Errorf("LLM blocked: %s", reason)
 	}
 
@@ -233,11 +253,13 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	// Parse agenda items from response
 	items := s.parseAgendaItems(result)
 	if len(items) == 0 {
+		logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] Failed to parse agenda items from LLM response")
 		return fmt.Errorf("failed to decompose goal")
 	}
 
 	// Limit to max items
 	if len(items) > s.config.MaxAgendaItems {
+		logging.SystemShardsDebug("[SessionPlanner] Limiting agenda from %d to %d items", len(items), s.config.MaxAgendaItems)
 		items = items[:s.config.MaxAgendaItems]
 	}
 
@@ -245,6 +267,8 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	s.agenda = items
 	s.lastActivity = time.Now()
 	s.mu.Unlock()
+
+	logging.SystemShards("[SessionPlanner] Goal decomposed into %d agenda items", len(items))
 
 	// Emit agenda facts
 	for _, item := range items {

@@ -59,6 +59,30 @@ type LLMConfig struct {
 	Timeout  string `yaml:"timeout"`
 }
 
+// ClaudeCLIConfig holds configuration for Claude Code CLI backend.
+// Used when Engine="claude-cli" to execute Claude via subprocess.
+type ClaudeCLIConfig struct {
+	// Model alias: "sonnet", "opus", "haiku"
+	Model string `json:"model,omitempty"`
+
+	// Timeout in seconds for CLI execution (default: 300)
+	Timeout int `json:"timeout,omitempty"`
+}
+
+// CodexCLIConfig holds configuration for Codex CLI backend.
+// Used when Engine="codex-cli" to execute Codex via subprocess.
+type CodexCLIConfig struct {
+	// Model: "gpt-5", "o4-mini", "o3", "o3-mini", "codex-mini-latest"
+	Model string `json:"model,omitempty"`
+
+	// Sandbox mode: "read-only" (default), "workspace-write"
+	// Always use "read-only" with codeNERD since file ops go through Tactile Layer
+	Sandbox string `json:"sandbox,omitempty"`
+
+	// Timeout in seconds for CLI execution (default: 300)
+	Timeout int `json:"timeout,omitempty"`
+}
+
 // MangleConfig configures the Mangle kernel.
 type MangleConfig struct {
 	SchemaPath   string `yaml:"schema_path"`
@@ -664,6 +688,20 @@ type UserConfig struct {
 	Model string `json:"model,omitempty"`
 
 	// =========================================================================
+	// CLI ENGINE CONFIGURATION
+	// =========================================================================
+
+	// Engine selection: "api" (default), "claude-cli", "codex-cli"
+	// When set to "claude-cli" or "codex-cli", uses CLI subprocess instead of HTTP API
+	Engine string `json:"engine,omitempty"`
+
+	// Claude Code CLI configuration (used when Engine="claude-cli")
+	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
+
+	// Codex CLI configuration (used when Engine="codex-cli")
+	CodexCLI *CodexCLIConfig `json:"codex_cli,omitempty"`
+
+	// =========================================================================
 	// UI SETTINGS
 	// =========================================================================
 
@@ -962,6 +1000,68 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	}
 
 	return "", ""
+}
+
+// GetEngine returns the configured engine, defaulting to "api".
+func (c *UserConfig) GetEngine() string {
+	if c.Engine == "" {
+		return "api"
+	}
+	return c.Engine
+}
+
+// SetEngine updates the engine setting.
+func (c *UserConfig) SetEngine(engine string) error {
+	validEngines := map[string]bool{
+		"api":        true,
+		"claude-cli": true,
+		"codex-cli":  true,
+	}
+	if !validEngines[engine] {
+		return fmt.Errorf("invalid engine: %s (valid: api, claude-cli, codex-cli)", engine)
+	}
+	c.Engine = engine
+	return nil
+}
+
+// GetClaudeCLIConfig returns Claude CLI config with defaults applied.
+func (c *UserConfig) GetClaudeCLIConfig() *ClaudeCLIConfig {
+	if c.ClaudeCLI == nil {
+		return &ClaudeCLIConfig{
+			Model:   "sonnet",
+			Timeout: 300,
+		}
+	}
+	cfg := *c.ClaudeCLI
+	if cfg.Model == "" {
+		cfg.Model = "sonnet"
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 300
+	}
+	return &cfg
+}
+
+// GetCodexCLIConfig returns Codex CLI config with defaults applied.
+func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
+	if c.CodexCLI == nil {
+		return &CodexCLIConfig{
+			Model:   "gpt-5",
+			Sandbox: "read-only",
+			Timeout: 300,
+		}
+	}
+	cfg := *c.CodexCLI
+	if cfg.Model == "" {
+		cfg.Model = "gpt-5"
+	}
+	if cfg.Sandbox == "" {
+		cfg.Sandbox = "read-only"
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 300
+	}
+	return &cfg
 }
 
 // GetShardProfile returns the profile for a specific shard type, falling back to defaults.
