@@ -91,7 +91,14 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 		case int64:
 			terms = append(terms, ast.Number(v))
 		case float64:
-			terms = append(terms, ast.Float64(v))
+			// Convert floats to integers for Mangle compatibility
+			// (Mangle comparison operators don't support float types)
+			// 0.0-1.0 range -> 0-100 scale, otherwise truncate to int
+			if v >= 0.0 && v <= 1.0 {
+				terms = append(terms, ast.Number(int64(v*100)))
+			} else {
+				terms = append(terms, ast.Number(int64(v)))
+			}
 		case bool:
 			if v {
 				terms = append(terms, ast.TrueConstant)
@@ -588,6 +595,9 @@ func (k *RealKernel) rebuildProgram() error {
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
+		// DEBUG: Dump program when analysis fails
+		_ = os.WriteFile("debug_program_ERROR.mg", []byte(programStr), 0644)
+		logging.KernelDebug("Dumped failed program to debug_program_ERROR.mg")
 		return fmt.Errorf("failed to analyze program: %w", err)
 	}
 	analyzeTimer.Stop()

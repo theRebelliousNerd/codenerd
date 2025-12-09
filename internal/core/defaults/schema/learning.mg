@@ -13,6 +13,7 @@ Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
 
 Decl valid_intent(Verb, Target).
 
+# Note: Conf is integer 0-100, not float 0.0-1.0
 valid_intent(Verb, Target) :-
     learned_exemplar(Pattern, Verb, Target, _, Conf),
-    Conf > 0.8.
+    Conf > 80.

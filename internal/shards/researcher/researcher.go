@@ -122,12 +122,12 @@ type ProgressCallback func(update ProgressUpdate)
 
 // ProgressUpdate contains real-time progress information during research.
 type ProgressUpdate struct {
-	AtomCount     int     // Current total atoms collected
-	CurrentTopic  string  // Topic currently being researched
-	TopicsTotal   int     // Total topics to research
-	TopicsDone    int     // Topics completed
-	QualityScore  float64 // Current quality score (0-100)
-	Message       string  // Human-readable status message
+	AtomCount    int     // Current total atoms collected
+	CurrentTopic string  // Topic currently being researched
+	TopicsTotal  int     // Total topics to research
+	TopicsDone   int     // Topics completed
+	QualityScore float64 // Current quality score (0-100)
+	Message      string  // Human-readable status message
 }
 
 // NewResearcherShard creates a new researcher shard with default config.
@@ -314,11 +314,11 @@ func (r *ResearcherShard) GetCurrentAtomCount() int {
 
 // AdaptiveBatchConfig holds configuration for adaptive batch sizing.
 type AdaptiveBatchConfig struct {
-	MinBatchSize       int     // Minimum batch size (default: 1)
-	MaxBatchSize       int     // Maximum batch size (default: 4)
-	DefaultBatchSize   int     // Default batch size when no history (default: 2)
-	ComplexityWeight   float64 // How much topic complexity affects batch size (0-1)
-	HistoryWeight      float64 // How much historical performance affects batch size (0-1)
+	MinBatchSize     int     // Minimum batch size (default: 1)
+	MaxBatchSize     int     // Maximum batch size (default: 4)
+	DefaultBatchSize int     // Default batch size when no history (default: 2)
+	ComplexityWeight float64 // How much topic complexity affects batch size (0-1)
+	HistoryWeight    float64 // How much historical performance affects batch size (0-1)
 }
 
 // DefaultAdaptiveBatchConfig returns sensible defaults for adaptive batching.

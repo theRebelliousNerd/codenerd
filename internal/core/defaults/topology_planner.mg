@@ -5,9 +5,10 @@
 
 # 1. Identify "Active" Layers
 # A layer is active if we have high-confidence docs for it.
+# Note: Confidence is integer 0-100, not float
 active_layer(Layer) :-
     doc_layer(_, Layer, Confidence),
-    Confidence > 0.65.
+    Confidence > 65.
 
 # 2. Generate Phase Skeletons
 # Every active layer becomes a proposed phase in the campaign.

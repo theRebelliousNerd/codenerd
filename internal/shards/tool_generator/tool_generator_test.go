@@ -95,7 +95,7 @@ func TestTool(ctx context.Context, input string) (string, error) {
 	if result.Action != "generate" {
 		t.Errorf("Expected action 'generate', got '%s'", result.Action)
 	}
-	
+
 	// Verify file creation
 	files, _ := os.ReadDir(tmpDir)
 	found := false
@@ -114,8 +114,8 @@ func TestToolGeneratorShard_ParseAction(t *testing.T) {
 	shard := &ToolGeneratorShard{}
 
 	tests := []struct {
-		task   string
-		want   string
+		task string
+		want string
 	}{
 		{"generate a tool", "generate"},
 		{"create a tool", "generate"},
