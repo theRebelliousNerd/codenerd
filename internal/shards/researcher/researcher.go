@@ -371,6 +371,40 @@ func (r *ResearcherShard) Stop() error {
 	return nil
 }
 
+// =============================================================================
+// DREAM MODE (Simulation/Learning)
+// =============================================================================
+
+// describeDreamPlan returns a description of what the researcher would do WITHOUT executing.
+func (r *ResearcherShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
+	fmt.Printf("[ResearcherShard] DREAM MODE - describing plan without execution\n")
+
+	if r.llmClient == nil {
+		return "ResearcherShard would gather knowledge and analyze sources, but no LLM client available for dream description.", nil
+	}
+
+	prompt := fmt.Sprintf(`You are a research agent in DREAM MODE. Describe what you WOULD do for this task WITHOUT actually doing it.
+
+Task: %s
+
+Provide a structured analysis:
+1. **Understanding**: What kind of research is being asked?
+2. **Sources**: What sources would I consult? (web, docs, codebase, APIs)
+3. **Research Strategy**: What approach would I take?
+4. **Tools Needed**: What research tools would I use?
+5. **Expected Findings**: What knowledge might I gather?
+6. **Questions**: What would I need clarified?
+
+Remember: This is a simulation. Describe the plan, don't execute it.`, task)
+
+	response, err := r.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return fmt.Sprintf("ResearcherShard dream analysis failed: %v", err), nil
+	}
+
+	return response, nil
+}
+
 // Execute performs the research task.
 // Task format: "topic:TOPIC keywords:KW1,KW2,KW3" or just "TOPIC"
 func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, error) {
@@ -385,6 +419,11 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 		r.state = core.ShardStateCompleted
 		r.mu.Unlock()
 	}()
+
+	// DREAM MODE: Only describe what we would do, don't execute
+	if r.config.SessionContext != nil && r.config.SessionContext.DreamMode {
+		return r.describeDreamPlan(ctx, task)
+	}
 
 	// Parse task
 	topic, keywords, urls := r.parseTask(task)

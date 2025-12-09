@@ -205,6 +205,42 @@ func (c *CoderShard) Stop() error {
 }
 
 // =============================================================================
+// DREAM MODE (Simulation/Learning)
+// =============================================================================
+
+// describeDreamPlan returns a description of what the coder would do WITHOUT executing.
+// Used in dream state for learning and simulation.
+func (c *CoderShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
+	fmt.Printf("[CoderShard:%s] DREAM MODE - describing plan without execution\n", c.id)
+
+	// Use LLM to describe the plan
+	if c.llmClient == nil {
+		return "CoderShard would analyze the task and generate code, but no LLM client available for dream description.", nil
+	}
+
+	prompt := fmt.Sprintf(`You are a coding agent in DREAM MODE. Describe what you WOULD do for this task WITHOUT actually doing it.
+
+Task: %s
+
+Provide a structured analysis:
+1. **Understanding**: What is being asked?
+2. **Files Affected**: What files would I create/modify?
+3. **Approach**: Step-by-step what I would do
+4. **Tools Needed**: What tools/commands would I use?
+5. **Risks**: What could go wrong?
+6. **Questions**: What would I need clarified?
+
+Remember: This is a simulation. Describe the plan, don't execute it.`, task)
+
+	response, err := c.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return fmt.Sprintf("CoderShard dream analysis failed: %v", err), nil
+	}
+
+	return response, nil
+}
+
+// =============================================================================
 // MAIN EXECUTION
 // =============================================================================
 
@@ -228,6 +264,11 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 		c.state = core.ShardStateCompleted
 		c.mu.Unlock()
 	}()
+
+	// DREAM MODE: Only describe what we would do, don't execute
+	if c.config.SessionContext != nil && c.config.SessionContext.DreamMode {
+		return c.describeDreamPlan(ctx, task)
+	}
 
 	fmt.Printf("[CoderShard:%s] Starting task: %s\n", c.id, task)
 

@@ -228,6 +228,40 @@ func (t *TesterShard) Stop() error {
 }
 
 // =============================================================================
+// DREAM MODE (Simulation/Learning)
+// =============================================================================
+
+// describeDreamPlan returns a description of what the tester would do WITHOUT executing.
+func (t *TesterShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
+	fmt.Printf("[TesterShard] DREAM MODE - describing plan without execution\n")
+
+	if t.llmClient == nil {
+		return "TesterShard would run tests and analyze coverage, but no LLM client available for dream description.", nil
+	}
+
+	prompt := fmt.Sprintf(`You are a testing agent in DREAM MODE. Describe what you WOULD do for this task WITHOUT actually doing it.
+
+Task: %s
+
+Provide a structured analysis:
+1. **Understanding**: What kind of testing is being asked?
+2. **Test Targets**: What files/packages would I test?
+3. **Test Strategy**: What approach would I take? (unit, integration, TDD loop?)
+4. **Tools Needed**: What testing tools/frameworks would I use?
+5. **Expected Outcomes**: What might the tests reveal?
+6. **Questions**: What would I need clarified?
+
+Remember: This is a simulation. Describe the plan, don't execute it.`, task)
+
+	response, err := t.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return fmt.Sprintf("TesterShard dream analysis failed: %v", err), nil
+	}
+
+	return response, nil
+}
+
+// =============================================================================
 // MAIN EXECUTION
 // =============================================================================
 
@@ -251,6 +285,11 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 		t.state = core.ShardStateCompleted
 		t.mu.Unlock()
 	}()
+
+	// DREAM MODE: Only describe what we would do, don't execute
+	if t.config.SessionContext != nil && t.config.SessionContext.DreamMode {
+		return t.describeDreamPlan(ctx, task)
+	}
 
 	fmt.Printf("[TesterShard:%s] Starting task: %s\n", t.id, task)
 
