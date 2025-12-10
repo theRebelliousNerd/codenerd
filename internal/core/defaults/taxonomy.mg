@@ -299,101 +299,101 @@ verb_composition(/refactor, /revert, "fallback", 80).
 # =========================================================================
 
 # --- Sequential Connectors (explicit ordering) ---
-step_connector("first", "sequential_start", true).
-step_connector("then", "sequential_continue", true).
-step_connector("next", "sequential_continue", true).
-step_connector("after that", "sequential_continue", true).
-step_connector("afterwards", "sequential_continue", true).
-step_connector("afterward", "sequential_continue", true).
-step_connector("following that", "sequential_continue", true).
-step_connector("subsequently", "sequential_continue", true).
-step_connector("finally", "sequential_end", true).
-step_connector("lastly", "sequential_end", true).
-step_connector("start by", "sequential_start", true).
-step_connector("begin with", "sequential_start", true).
-step_connector("once done", "sequential_continue", true).
-step_connector("when done", "sequential_continue", true).
-step_connector("when finished", "sequential_continue", true).
-step_connector("after done", "sequential_continue", true).
-step_connector("after you're done", "sequential_continue", true).
-step_connector("when complete", "sequential_continue", true).
-step_connector("once complete", "sequential_continue", true).
+step_connector("first", "sequential_start", /true).
+step_connector("then", "sequential_continue", /true).
+step_connector("next", "sequential_continue", /true).
+step_connector("after that", "sequential_continue", /true).
+step_connector("afterwards", "sequential_continue", /true).
+step_connector("afterward", "sequential_continue", /true).
+step_connector("following that", "sequential_continue", /true).
+step_connector("subsequently", "sequential_continue", /true).
+step_connector("finally", "sequential_end", /true).
+step_connector("lastly", "sequential_end", /true).
+step_connector("start by", "sequential_start", /true).
+step_connector("begin with", "sequential_start", /true).
+step_connector("once done", "sequential_continue", /true).
+step_connector("when done", "sequential_continue", /true).
+step_connector("when finished", "sequential_continue", /true).
+step_connector("after done", "sequential_continue", /true).
+step_connector("after you're done", "sequential_continue", /true).
+step_connector("when complete", "sequential_continue", /true).
+step_connector("once complete", "sequential_continue", /true).
 
 # --- Numbered Step Connectors ---
-step_connector("step 1", "numbered", true).
-step_connector("step 2", "numbered", true).
-step_connector("step 3", "numbered", true).
-step_connector("step 4", "numbered", true).
-step_connector("step 5", "numbered", true).
-step_connector("1.", "numbered", true).
-step_connector("2.", "numbered", true).
-step_connector("3.", "numbered", true).
-step_connector("4.", "numbered", true).
-step_connector("5.", "numbered", true).
-step_connector("1)", "numbered", true).
-step_connector("2)", "numbered", true).
-step_connector("3)", "numbered", true).
-step_connector("first,", "numbered", true).
-step_connector("second,", "numbered", true).
-step_connector("third,", "numbered", true).
+step_connector("step 1", "numbered", /true).
+step_connector("step 2", "numbered", /true).
+step_connector("step 3", "numbered", /true).
+step_connector("step 4", "numbered", /true).
+step_connector("step 5", "numbered", /true).
+step_connector("1.", "numbered", /true).
+step_connector("2.", "numbered", /true).
+step_connector("3.", "numbered", /true).
+step_connector("4.", "numbered", /true).
+step_connector("5.", "numbered", /true).
+step_connector("1)", "numbered", /true).
+step_connector("2)", "numbered", /true).
+step_connector("3)", "numbered", /true).
+step_connector("first,", "numbered", /true).
+step_connector("second,", "numbered", /true).
+step_connector("third,", "numbered", /true).
 
 # --- Implicit Sequential Connectors ---
-step_connector("and", "implicit_sequential", false).
-step_connector("and then", "sequential_continue", true).
-step_connector("then also", "sequential_continue", true).
+step_connector("and", "implicit_sequential", /false).
+step_connector("and then", "sequential_continue", /true).
+step_connector("then also", "sequential_continue", /true).
 
 # --- Parallel Connectors ---
-step_connector("also", "parallel", true).
-step_connector("additionally", "parallel", true).
-step_connector("at the same time", "parallel", true).
-step_connector("simultaneously", "parallel", true).
-step_connector("in parallel", "parallel", true).
-step_connector("as well as", "parallel", false).
-step_connector("along with", "parallel", false).
-step_connector("together with", "parallel", false).
-step_connector("plus", "parallel", false).
+step_connector("also", "parallel", /true).
+step_connector("additionally", "parallel", /true).
+step_connector("at the same time", "parallel", /true).
+step_connector("simultaneously", "parallel", /true).
+step_connector("in parallel", "parallel", /true).
+step_connector("as well as", "parallel", /false).
+step_connector("along with", "parallel", /false).
+step_connector("together with", "parallel", /false).
+step_connector("plus", "parallel", /false).
 
 # --- Conditional Success Connectors ---
-step_connector("if it works", "conditional_success", true).
-step_connector("if successful", "conditional_success", true).
-step_connector("if it passes", "conditional_success", true).
-step_connector("if tests pass", "conditional_success", true).
-step_connector("when tests pass", "conditional_success", true).
-step_connector("once tests pass", "conditional_success", true).
-step_connector("on success", "conditional_success", true).
-step_connector("assuming it works", "conditional_success", true).
-step_connector("provided it works", "conditional_success", true).
-step_connector("if no errors", "conditional_success", true).
-step_connector("if it compiles", "conditional_success", true).
-step_connector("if build succeeds", "conditional_success", true).
-step_connector("once tests are green", "conditional_success", true).
-step_connector("when green", "conditional_success", true).
+step_connector("if it works", "conditional_success", /true).
+step_connector("if successful", "conditional_success", /true).
+step_connector("if it passes", "conditional_success", /true).
+step_connector("if tests pass", "conditional_success", /true).
+step_connector("when tests pass", "conditional_success", /true).
+step_connector("once tests pass", "conditional_success", /true).
+step_connector("on success", "conditional_success", /true).
+step_connector("assuming it works", "conditional_success", /true).
+step_connector("provided it works", "conditional_success", /true).
+step_connector("if no errors", "conditional_success", /true).
+step_connector("if it compiles", "conditional_success", /true).
+step_connector("if build succeeds", "conditional_success", /true).
+step_connector("once tests are green", "conditional_success", /true).
+step_connector("when green", "conditional_success", /true).
 
 # --- Conditional Failure / Fallback Connectors ---
-step_connector("if it fails", "conditional_failure", true).
-step_connector("if it doesn't work", "conditional_failure", true).
-step_connector("if it breaks", "conditional_failure", true).
-step_connector("otherwise", "conditional_failure", true).
-step_connector("or else", "conditional_failure", true).
-step_connector("on failure", "conditional_failure", true).
-step_connector("on error", "conditional_failure", true).
-step_connector("if errors occur", "conditional_failure", true).
-step_connector("if tests fail", "conditional_failure", true).
-step_connector("revert if fails", "conditional_failure", true).
-step_connector("rollback if fails", "conditional_failure", true).
-step_connector("undo if fails", "conditional_failure", true).
-step_connector("revert if needed", "conditional_failure", true).
-step_connector("if something goes wrong", "conditional_failure", true).
+step_connector("if it fails", "conditional_failure", /true).
+step_connector("if it doesn't work", "conditional_failure", /true).
+step_connector("if it breaks", "conditional_failure", /true).
+step_connector("otherwise", "conditional_failure", /true).
+step_connector("or else", "conditional_failure", /true).
+step_connector("on failure", "conditional_failure", /true).
+step_connector("on error", "conditional_failure", /true).
+step_connector("if errors occur", "conditional_failure", /true).
+step_connector("if tests fail", "conditional_failure", /true).
+step_connector("revert if fails", "conditional_failure", /true).
+step_connector("rollback if fails", "conditional_failure", /true).
+step_connector("undo if fails", "conditional_failure", /true).
+step_connector("revert if needed", "conditional_failure", /true).
+step_connector("if something goes wrong", "conditional_failure", /true).
 
 # --- Pipeline Connectors ---
-step_connector("pass the results to", "pipeline", true).
-step_connector("feed output to", "pipeline", true).
-step_connector("use the results to", "pipeline", true).
-step_connector("pipe to", "pipeline", true).
-step_connector("based on the results", "pipeline", true).
-step_connector("according to findings", "pipeline", true).
-step_connector("based on issues", "pipeline", true).
-step_connector("using the output", "pipeline", true).
+step_connector("pass the results to", "pipeline", /true).
+step_connector("feed output to", "pipeline", /true).
+step_connector("use the results to", "pipeline", /true).
+step_connector("pipe to", "pipeline", /true).
+step_connector("based on the results", "pipeline", /true).
+step_connector("according to findings", "pipeline", /true).
+step_connector("based on issues", "pipeline", /true).
+step_connector("using the output", "pipeline", /true).
 
 # =========================================================================
 # COMPLETION MARKERS - Words that indicate task boundaries
@@ -548,7 +548,7 @@ verb_pair_relation(Verb1, Verb2, Relation) :-
 # Check if a connector indicates a step boundary
 Decl is_step_boundary(Connector).
 is_step_boundary(Connector) :-
-    step_connector(Connector, _, true).
+    step_connector(Connector, _, /true).
 
 # Get connector type
 Decl connector_type(Connector, Type).

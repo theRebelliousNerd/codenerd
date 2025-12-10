@@ -398,6 +398,12 @@ type (
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     struct{ err error }
 
+	// Northstar document analysis message
+	northstarDocsAnalyzedMsg struct {
+		facts []string
+		err   error
+	}
+
 	// Init messages
 	initCompleteMsg struct {
 		result        *nerdinit.InitResult
@@ -875,6 +881,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: fmt.Sprintf("## Campaign Error\n\n%v", msg.err),
 			Time:    time.Now(),
 		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+	case northstarDocsAnalyzedMsg:
+		m.isLoading = false
+		if m.northstarWizard != nil {
+			if msg.err != nil {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err),
+					Time:    time.Now(),
+				})
+			} else if len(msg.facts) > 0 {
+				m.northstarWizard.ExtractedFacts = msg.facts
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("## Research Analysis Complete\n\nExtracted **%d key insights** from your documents:\n\n", len(msg.facts)))
+				for i, fact := range msg.facts {
+					if i < 5 { // Show first 5
+						sb.WriteString(fmt.Sprintf("- %s\n", fact))
+					}
+				}
+				if len(msg.facts) > 5 {
+					sb.WriteString(fmt.Sprintf("\n_...and %d more insights that will inform the process._\n", len(msg.facts)-5))
+				}
+				sb.WriteString("\n---\n\n## Phase 2: Problem Statement\n\n**What problem does this project solve?**\n\n_Your research insights will help refine this._")
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: sb.String(),
+					Time:    time.Now(),
+				})
+			}
+			m.northstarWizard.Phase = NorthstarProblemStatement
+			m.textarea.Placeholder = "Describe the problem..."
+		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 

@@ -10,6 +10,10 @@ import (
 	"codenerd/internal/logging"
 )
 
+// learnedPatternContext is used for embedding generation during pattern learning.
+// We use a background context with timeout for this operation.
+var learnedPatternContext = context.Background
+
 // CriticSystemPrompt defines the persona for the Meta-Cognitive Supervisor.
 const CriticSystemPrompt = `
 You are the Meta-Cognitive Supervisor for a coding agent.
@@ -163,20 +167,34 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 
 	// 2. Parse and Persist to DB (Knowledge Graph)
 	// We attempt this for robustness, but don't fail hard if it fails (the file is the source of truth for Mangle)
-	if t.store != nil {
+	pat, v, tgt, cons, conf, parseErr := ParseLearnedFact(fact) // Parse original to get float
+	if parseErr != nil {
+		logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact: %v", parseErr)
+	}
+
+	if t.store != nil && parseErr == nil {
 		logging.PerceptionDebug("PersistLearnedFact: persisting to knowledge graph DB")
-		pat, v, tgt, cons, conf, err := ParseLearnedFact(fact) // Parse original to get float
-		if err == nil {
-			if err := t.store.StoreLearnedExemplar(pat, v, tgt, cons, conf); err != nil {
-				logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to persist to DB: %v", err)
-			} else {
-				logging.PerceptionDebug("PersistLearnedFact: DB persistence successful")
-			}
+		if err := t.store.StoreLearnedExemplar(pat, v, tgt, cons, conf); err != nil {
+			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to persist to DB: %v", err)
 		} else {
-			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to parse fact for DB: %v", err)
+			logging.PerceptionDebug("PersistLearnedFact: DB persistence successful")
 		}
-	} else {
+	} else if t.store == nil {
 		logging.PerceptionDebug("PersistLearnedFact: no store configured, skipping DB persistence")
+	}
+
+	// 2b. Add to SemanticClassifier for vector-based matching
+	// This enables the learned pattern to be found via semantic similarity search,
+	// not just exact string matching in Mangle rules.
+	if SharedSemanticClassifier != nil && parseErr == nil {
+		logging.PerceptionDebug("PersistLearnedFact: adding pattern to SemanticClassifier")
+		ctx := learnedPatternContext()
+		if err := SharedSemanticClassifier.AddLearnedPattern(ctx, pat, v, tgt, cons, conf); err != nil {
+			// Non-fatal: Mangle-based matching still works
+			logging.Get(logging.CategoryPerception).Warn("PersistLearnedFact: failed to add to SemanticClassifier: %v", err)
+		} else {
+			logging.PerceptionDebug("PersistLearnedFact: SemanticClassifier pattern added successfully")
+		}
 	}
 
 	// 3. Append to persistent storage (Long-term Memory)

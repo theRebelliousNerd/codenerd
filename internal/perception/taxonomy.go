@@ -656,4 +656,71 @@ selected_verb(Verb) :-
     potential_score(Verb, S),
     best_score(Max),
     S = Max.
+
+# =============================================================================
+# SEMANTIC MATCHING INFERENCE
+# =============================================================================
+# These rules use semantic_match facts to influence verb selection.
+# They work alongside existing token-based boosting.
+
+# EDB declarations for semantic matching (facts asserted by SemanticClassifier)
+Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
+Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
+
+# Derived predicates for semantic matching
+Decl semantic_suggested_verb(Verb, Similarity).
+Decl compound_suggestion(Verb1, Verb2).
+
+# Derive suggested verbs from semantic matches (top 3 only, similarity >= 60)
+semantic_suggested_verb(Verb, Similarity) :-
+    semantic_match(_, _, Verb, _, Rank, Similarity),
+    Rank <= 3,
+    Similarity >= 60.
+
+# HIGH-CONFIDENCE SEMANTIC OVERRIDE
+# If rank 1 match has similarity >= 85, override to max score
+potential_score(Verb, 100.0) :-
+    semantic_match(_, _, Verb, _, 1, Similarity),
+    Similarity >= 85.
+
+# MEDIUM-CONFIDENCE SEMANTIC BOOST
+# Rank 1-3 with similarity 70-84 get +30 boost
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    semantic_match(_, _, Verb, _, Rank, Similarity),
+    Rank <= 3,
+    Similarity >= 70,
+    Similarity < 85,
+    NewScore = fn:plus(Base, 30.0).
+
+# LOW-CONFIDENCE SEMANTIC BOOST
+# Rank 1-5 with similarity 60-69 get +15 boost
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    semantic_match(_, _, Verb, _, Rank, Similarity),
+    Rank <= 5,
+    Similarity >= 60,
+    Similarity < 70,
+    NewScore = fn:plus(Base, 15.0).
+
+# VERB COMPOSITION FROM MULTIPLE MATCHES
+# If two different verbs both have high similarity, suggest composition
+compound_suggestion(V1, V2) :-
+    semantic_suggested_verb(V1, S1),
+    semantic_suggested_verb(V2, S2),
+    V1 != V2,
+    S1 >= 65,
+    S2 >= 65,
+    verb_composition(V1, V2, _, Priority),
+    Priority >= 80.
+
+# LEARNED PATTERN PRIORITY
+# Semantic matches from learned patterns (detected by constraint presence)
+# get additional boost - these represent user-specific preferences
+potential_score(Verb, NewScore) :-
+    semantic_match(_, Sentence, Verb, _, 1, Similarity),
+    Similarity >= 70,
+    learned_exemplar(Sentence, Verb, _, _, _),
+    candidate_intent(Verb, Base),
+    NewScore = fn:plus(Base, 40.0).
 `

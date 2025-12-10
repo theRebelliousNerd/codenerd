@@ -40,6 +40,11 @@ type CostGuard struct {
 	IdleTimeout           time.Duration // Auto-stop after inactivity
 	CooldownAfterError    time.Duration // Backoff on failures
 
+	// Validation budget (for Mangle rule generation retries)
+	MaxValidationRetries  int // Max retries per rule (default: 3)
+	ValidationBudget      int // Session-wide retry budget (default: 20)
+	validationRetriesUsed int
+
 	// Tracking
 	callsThisMinute  int
 	callsThisSession int
@@ -56,8 +61,42 @@ func NewCostGuard() *CostGuard {
 		MaxLLMCallsPerSession: 100,
 		IdleTimeout:           5 * time.Minute,
 		CooldownAfterError:    time.Second,
+		MaxValidationRetries:  3,
+		ValidationBudget:      20,
 		lastResetMinute:       time.Now(),
 	}
+}
+
+// CanRetryValidation checks if another validation retry is allowed.
+func (g *CostGuard) CanRetryValidation() (bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.validationRetriesUsed >= g.ValidationBudget {
+		return false, "session validation budget exhausted"
+	}
+	return true, ""
+}
+
+// RecordValidationRetry records a validation retry attempt.
+func (g *CostGuard) RecordValidationRetry() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.validationRetriesUsed++
+}
+
+// ResetValidationBudget resets the validation retry counter.
+func (g *CostGuard) ResetValidationBudget() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.validationRetriesUsed = 0
+}
+
+// ValidationStats returns validation budget statistics.
+func (g *CostGuard) ValidationStats() (used, budget int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.validationRetriesUsed, g.ValidationBudget
 }
 
 // CanCall checks if an LLM call is allowed under the cost constraints.

@@ -12,12 +12,12 @@ import (
 // ShadowMode represents a counterfactual simulation environment.
 // It maintains a separate kernel instance to test hypothetical changes.
 type ShadowMode struct {
-	mu            sync.RWMutex
-	parentKernel  *RealKernel
-	shadowKernel  *RealKernel
-	simulations   map[string]*Simulation
-	activeSimID   string
-	maxSimTime    time.Duration
+	mu           sync.RWMutex
+	parentKernel *RealKernel
+	shadowKernel *RealKernel
+	simulations  map[string]*Simulation
+	activeSimID  string
+	maxSimTime   time.Duration
 }
 
 // Simulation represents a single counterfactual scenario.
@@ -57,28 +57,28 @@ type SimulatedAction struct {
 type SimActionType string
 
 const (
-	ActionTypeFileWrite   SimActionType = "file_write"
-	ActionTypeFileDelete  SimActionType = "file_delete"
-	ActionTypeExec        SimActionType = "exec"
-	ActionTypeRefactor    SimActionType = "refactor"
-	ActionTypeGitCommit   SimActionType = "git_commit"
+	ActionTypeFileWrite  SimActionType = "file_write"
+	ActionTypeFileDelete SimActionType = "file_delete"
+	ActionTypeExec       SimActionType = "exec"
+	ActionTypeRefactor   SimActionType = "refactor"
+	ActionTypeGitCommit  SimActionType = "git_commit"
 )
 
 // SimulatedEffect represents the projected effect of an action.
 type SimulatedEffect struct {
-	ActionID  string
-	Predicate string
-	Args      []interface{}
+	ActionID   string
+	Predicate  string
+	Args       []interface{}
 	IsPositive bool // true for assertion, false for retraction
 }
 
 // ProjectionViolation represents a safety rule violation in the simulation.
 type ProjectionViolation struct {
-	ActionID    string
+	ActionID      string
 	ViolationType string
-	Description string
-	Severity    string // "error", "warning", "info"
-	Blocking    bool
+	Description   string
+	Severity      string // "error", "warning", "info"
+	Blocking      bool
 }
 
 // NewShadowMode creates a new Shadow Mode engine attached to a parent kernel.

@@ -1,15 +1,17 @@
 package perception
 
 import (
-	"codenerd/internal/articulation"
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/mangle"
 	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/config"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 )
 
 // =============================================================================
@@ -128,8 +130,13 @@ func truncateForLog(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// matchVerbFromCorpus finds the best matching verb using Regex Candidates + Mangle Inference.
-func matchVerbFromCorpus(input string) (verb string, category string, confidence float64, shardType string) {
+// matchVerbFromCorpus finds the best matching verb using Regex Candidates + Semantic + Mangle Inference.
+// The classification flow is:
+//  1. Get regex candidates (fast path)
+//  2. Semantic classification via vector search (injects semantic_match facts into kernel)
+//  3. Mangle inference (sees both regex candidates and semantic signals)
+//  4. Fallback to best regex score
+func matchVerbFromCorpus(ctx context.Context, input string) (verb string, category string, confidence float64, shardType string) {
 	timer := logging.StartTimer(logging.CategoryPerception, "matchVerbFromCorpus")
 	defer timer.Stop()
 
@@ -139,8 +146,27 @@ func matchVerbFromCorpus(input string) (verb string, category string, confidence
 	candidates := getRegexCandidates(input)
 	logging.PerceptionDebug("Regex candidates found: %d", len(candidates))
 
-	// 2. Refine via Mangle Inference (Smart)
+	// 2. Semantic classification - inject semantic_match facts into kernel
+	// This step enriches Mangle's inference with vector-based similarity signals.
+	// The SemanticClassifier.Classify() method asserts semantic_match facts that
+	// the Mangle inference rules can use for boosting/overriding verb selection.
+	if SharedSemanticClassifier != nil {
+		matches, err := SharedSemanticClassifier.Classify(ctx, input)
+		if err != nil {
+			// Non-fatal: continue with regex-only classification
+			logging.PerceptionDebug("Semantic classification error (non-fatal): %v", err)
+		} else if len(matches) > 0 {
+			logging.PerceptionDebug("Semantic matches found: %d (top: %s %.2f)",
+				len(matches), matches[0].Verb, matches[0].Similarity)
+		} else {
+			logging.PerceptionDebug("Semantic classification returned no matches")
+		}
+		// Facts are now in kernel - Mangle inference will see them via semantic_match predicate
+	}
+
+	// 3. Refine via Mangle Inference (Smart)
 	// This applies the "sentence level" logic and context rules.
+	// Now includes semantic_match facts from the classifier above.
 	if SharedTaxonomy != nil && len(candidates) > 0 {
 		bestVerb, conf, err := SharedTaxonomy.ClassifyInput(input, candidates)
 		if err == nil && bestVerb != "" {
@@ -915,13 +941,13 @@ Output ONLY pipes, no explanation:`, verbList, input)
 
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Simple parser LLM call failed, using heuristic: %v", err)
-		return t.heuristicParse(input), nil
+		return t.heuristicParse(ctx, input), nil
 	}
 
 	parts := strings.Split(strings.TrimSpace(resp), "|")
 	if len(parts) < 4 {
 		logging.PerceptionDebug("Simple parser response malformed (%d parts), using heuristic", len(parts))
-		return t.heuristicParse(input), nil
+		return t.heuristicParse(ctx, input), nil
 	}
 
 	intent := Intent{
@@ -940,15 +966,15 @@ Output ONLY pipes, no explanation:`, verbList, input)
 
 // heuristicParse uses the comprehensive verb corpus for reliable offline parsing.
 // This is the ultimate fallback when LLM is unavailable.
-func (t *RealTransducer) heuristicParse(input string) Intent {
+func (t *RealTransducer) heuristicParse(ctx context.Context, input string) Intent {
 	timer := logging.StartTimer(logging.CategoryPerception, "heuristicParse")
 	defer timer.Stop()
 
 	logging.Perception("Using heuristic (offline) parser")
 	logging.PerceptionDebug("Heuristic parse input: %q", truncateForLog(input, 100))
 
-	// Use the comprehensive corpus matching
-	verb, category, confidence, _ := matchVerbFromCorpus(input)
+	// Use the comprehensive corpus matching (now includes semantic classification)
+	verb, category, confidence, _ := matchVerbFromCorpus(ctx, input)
 
 	// Refine category based on input patterns
 	originalCategory := category
@@ -1164,4 +1190,55 @@ func (t *DualPayloadTransducer) Parse(ctx context.Context, input string, fileCan
 		intent.Verb, len(output.MangleAtoms), len(output.Focus))
 
 	return output, nil
+}
+
+// =============================================================================
+// PERCEPTION LAYER INITIALIZATION
+// =============================================================================
+
+// InitPerceptionLayer initializes all perception components.
+// This should be called during session startup after the kernel and config are available.
+//
+// Components initialized:
+//   - SemanticClassifier (vector-based intent classification)
+//
+// The function performs graceful degradation: if semantic classification cannot be
+// initialized (e.g., no embedding config), the system continues with regex-only
+// classification. This ensures the perception layer is always functional.
+func InitPerceptionLayer(kernel core.Kernel, cfg *config.UserConfig) error {
+	timer := logging.StartTimer(logging.CategoryPerception, "InitPerceptionLayer")
+	defer timer.Stop()
+
+	logging.Perception("Initializing perception layer components")
+
+	// Initialize semantic classifier
+	// GetEmbeddingConfig() returns defaults if not explicitly configured,
+	// so we always attempt initialization and let it fail gracefully if
+	// the embedding engine cannot connect (e.g., Ollama not running).
+	embedCfg := cfg.GetEmbeddingConfig()
+	logging.PerceptionDebug("Embedding config: provider=%s", embedCfg.Provider)
+
+	if err := InitSemanticClassifier(kernel, cfg); err != nil {
+		// Non-fatal: classification works without semantic layer
+		logging.Get(logging.CategoryPerception).Warn("Semantic classifier init failed: %v (continuing with regex-only)", err)
+	} else {
+		logging.Perception("SemanticClassifier initialized successfully")
+	}
+
+	logging.Perception("Perception layer initialization complete")
+	return nil
+}
+
+// ClosePerceptionLayer releases resources held by perception components.
+// Should be called during graceful shutdown.
+func ClosePerceptionLayer() error {
+	logging.Perception("Closing perception layer components")
+
+	if err := CloseSemanticClassifier(); err != nil {
+		logging.Get(logging.CategoryPerception).Warn("Error closing SemanticClassifier: %v", err)
+		return err
+	}
+
+	logging.Perception("Perception layer closed")
+	return nil
 }

@@ -166,10 +166,10 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 }
 
 // Dimensions returns the dimensionality of embeddings.
-// gemini-embedding-001 produces 768-dimensional vectors.
+// gemini-embedding-001 / text-embedding-004 produce 3072-dimensional vectors.
+// Note: Google updated these models from 768 to 3072 dimensions.
 func (e *GenAIEngine) Dimensions() int {
-	// gemini-embedding-001: 768 dimensions
-	return 768
+	return 3072
 }
 
 // Name returns the engine name.

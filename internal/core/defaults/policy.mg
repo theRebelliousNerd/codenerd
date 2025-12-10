@@ -2724,3 +2724,146 @@ promote_to_long_term(/context_pattern, Atom) :-
     S1 != S2,
     S2 != S3,
     S1 != S3.
+
+# =============================================================================
+# 42. NORTHSTAR VISION REASONING
+# =============================================================================
+# Rules for reasoning over northstar facts defined via /northstar command.
+# These rules derive strategic insights from vision, personas, capabilities,
+# risks, and requirements.
+
+# -----------------------------------------------------------------------------
+# 42.1 Critical Path Derivation
+# -----------------------------------------------------------------------------
+
+# Derive critical capabilities (priority = /critical)
+critical_capability(CapID) :-
+    northstar_capability(CapID, _, _, /critical).
+
+# Derive high-risk items (both likelihood AND impact are high)
+high_risk(RiskID) :-
+    northstar_risk(RiskID, _, /high, /high).
+
+# Derive unmitigated risks (high risk without any mitigation)
+unmitigated_risk(RiskID) :-
+    high_risk(RiskID),
+    !northstar_mitigation(RiskID, _).
+
+# -----------------------------------------------------------------------------
+# 42.2 Alignment Analysis
+# -----------------------------------------------------------------------------
+
+# Capability addresses persona need when serves relationship exists
+capability_addresses_need(CapID, PersonaID, Need) :-
+    northstar_serves(CapID, PersonaID),
+    northstar_need(PersonaID, Need).
+
+# Unserved persona - has needs but no capability serves them
+unserved_persona(PersonaID, Name) :-
+    northstar_persona(PersonaID, Name),
+    northstar_need(PersonaID, _),
+    !northstar_serves(_, PersonaID).
+
+# Orphan capability - not linked to any persona
+orphan_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, _, _),
+    !northstar_serves(CapID, _).
+
+# -----------------------------------------------------------------------------
+# 42.3 Requirements Traceability
+# -----------------------------------------------------------------------------
+
+# Must-have requirements (priority = /must_have)
+must_have_requirement(ReqID, Desc) :-
+    northstar_requirement(ReqID, _, Desc, /must_have).
+
+# Orphan requirement - not linked to any capability
+orphan_requirement(ReqID, Desc) :-
+    northstar_requirement(ReqID, _, Desc, _),
+    !northstar_supports(ReqID, _).
+
+# Risk-addressing requirement
+risk_addressing_requirement(ReqID, RiskID) :-
+    northstar_addresses(ReqID, RiskID),
+    high_risk(RiskID).
+
+# Unaddressed high risk - no requirement addresses it
+unaddressed_high_risk(RiskID, Desc) :-
+    high_risk(RiskID),
+    northstar_risk(RiskID, Desc, _, _),
+    !northstar_addresses(_, RiskID).
+
+# -----------------------------------------------------------------------------
+# 42.4 Timeline Planning
+# -----------------------------------------------------------------------------
+
+# Immediate work (timeline = /now)
+immediate_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /now, _).
+
+# Near-term work (timeline = /6mo)
+near_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /6mo, _).
+
+# Long-term work (timeline = /1yr or /3yr)
+long_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /1yr, _).
+
+long_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /3yr, _).
+
+# Moonshot capabilities (timeline = /moonshot)
+moonshot_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /moonshot, _).
+
+# -----------------------------------------------------------------------------
+# 42.5 Strategic Warnings
+# -----------------------------------------------------------------------------
+
+# Warning: critical capability with unmitigated high risk
+strategic_warning(/critical_unmitigated_risk, CapID, RiskID) :-
+    critical_capability(CapID),
+    northstar_supports(ReqID, CapID),
+    northstar_addresses(ReqID, RiskID),
+    unmitigated_risk(RiskID).
+
+# Warning: immediate work depends on unaddressed risk
+strategic_warning(/immediate_risk_gap, CapID, RiskID) :-
+    immediate_capability(CapID, _),
+    unaddressed_high_risk(RiskID, _).
+
+# -----------------------------------------------------------------------------
+# 42.6 Context Injection for Northstar
+# -----------------------------------------------------------------------------
+
+# Inject mission when planning or deciding actions
+injectable_context(/northstar_mission, Mission) :-
+    northstar_defined(),
+    northstar_mission(_, Mission),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /planner).
+
+injectable_context(/northstar_mission, Mission) :-
+    northstar_defined(),
+    northstar_mission(_, Mission),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /coder).
+
+# Inject critical capabilities during planning
+injectable_context(/critical_cap, Desc) :-
+    northstar_defined(),
+    critical_capability(CapID),
+    northstar_capability(CapID, Desc, _, _),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /planner).
+
+# Inject unmitigated risks as warnings
+injectable_context(/unmitigated_risk_warning, Desc) :-
+    northstar_defined(),
+    unmitigated_risk(RiskID),
+    northstar_risk(RiskID, Desc, _, _).
+
+# Inject constraints always
+injectable_context(/constraint, Desc) :-
+    northstar_defined(),
+    northstar_constraint(_, Desc).

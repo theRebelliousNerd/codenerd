@@ -254,7 +254,7 @@ func MigrateV2ToV3(db *sql.DB) error {
 
 	// Try to create vec_index - may fail if sqlite-vec is not available
 	query := `CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(
-		embedding float[768],
+		embedding float[3072],
 		content TEXT,
 		metadata TEXT
 	)`

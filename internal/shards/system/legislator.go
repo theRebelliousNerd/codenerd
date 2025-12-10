@@ -1,11 +1,13 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
 )
 
 // LegislatorShard translates corrective feedback into durable policy rules.
@@ -13,6 +15,31 @@ import (
 // and hot-loads them into the learned policy layer.
 type LegislatorShard struct {
 	*BaseSystemShard
+	feedbackLoop *feedback.FeedbackLoop
+}
+
+// llmClientAdapter adapts core.LLMClient to feedback.LLMClient interface.
+type llmClientAdapter struct {
+	client    core.LLMClient
+	costGuard *CostGuard
+	shardID   string
+}
+
+// Complete implements feedback.LLMClient by delegating to core.LLMClient.CompleteWithSystem.
+func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if a.client == nil {
+		return "", fmt.Errorf("no LLM client configured")
+	}
+
+	if a.costGuard != nil {
+		can, reason := a.costGuard.CanCall()
+		if !can {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] LLM call blocked: %s", a.shardID, reason)
+			return "", fmt.Errorf("LLM call blocked: %s", reason)
+		}
+	}
+
+	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
 // NewLegislatorShard creates a Legislator shard.
@@ -29,6 +56,7 @@ func NewLegislatorShard() *LegislatorShard {
 
 	return &LegislatorShard{
 		BaseSystemShard: base,
+		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
 	}
 }
 
@@ -84,34 +112,88 @@ func truncateForLog(s string, maxLen int) string {
 }
 
 // compileRule turns a directive into a Mangle rule (LLM-backed when needed).
+// For direct rules (containing :- or starting with Decl), it validates only.
+// For natural language directives, it uses the feedback loop for generation and validation.
 func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (string, error) {
-	// If it already looks like a rule, use it directly.
-	if strings.Contains(directive, ":-") || strings.HasPrefix(strings.TrimSpace(directive), "Decl ") {
-		logging.SystemShardsDebug("[Legislator] Directive is already a Mangle rule, using directly")
-		return strings.TrimSpace(directive), nil
+	if l.Kernel == nil {
+		return "", fmt.Errorf("kernel not configured for rule validation")
 	}
 
+	// If it already looks like a rule, validate it directly via the feedback loop.
+	if strings.Contains(directive, ":-") || strings.HasPrefix(strings.TrimSpace(directive), "Decl ") {
+		logging.SystemShardsDebug("[Legislator] Directive is already a Mangle rule, validating via feedback loop")
+		rule := strings.TrimSpace(directive)
+
+		result := l.feedbackLoop.ValidateOnly(rule, l.Kernel)
+		if !result.Valid {
+			errMsgs := make([]string, 0, len(result.Errors))
+			for _, e := range result.Errors {
+				errMsgs = append(errMsgs, fmt.Sprintf("[%s] %s", e.Category.String(), e.Message))
+			}
+			logging.Get(logging.CategorySystemShards).Warn("[Legislator] Direct rule validation failed: %v", errMsgs)
+			return "", fmt.Errorf("rule validation failed: %s", strings.Join(errMsgs, "; "))
+		}
+
+		// Return the sanitized version if auto-repair was applied
+		if result.Sanitized != "" && result.Sanitized != rule {
+			logging.SystemShardsDebug("[Legislator] Rule auto-repaired by feedback loop")
+			return result.Sanitized, nil
+		}
+		return rule, nil
+	}
+
+	// Natural language directive requires LLM synthesis via feedback loop.
 	if l.LLMClient == nil {
 		logging.Get(logging.CategorySystemShards).Error("[Legislator] No LLM client for rule synthesis")
 		return "", fmt.Errorf("LLM client not configured for rule synthesis; provide a Mangle rule directly")
 	}
 
-	logging.SystemShardsDebug("[Legislator] Synthesizing rule via LLM")
-	userPrompt := l.buildLegislatorPrompt(directive)
-	output, err := l.GuardedLLMCall(ctx, legislatorSystemPrompt, userPrompt)
-	if err != nil {
-		return "", err
+	logging.SystemShardsDebug("[Legislator] Synthesizing rule via feedback loop")
+
+	// Create adapter for the feedback loop's LLMClient interface
+	adapter := &llmClientAdapter{
+		client:    l.LLMClient,
+		costGuard: l.CostGuard,
+		shardID:   l.ID,
 	}
 
-	rule := extractLegislatorRule(output)
-	if rule == "" {
-		logging.Get(logging.CategorySystemShards).Warn("[Legislator] LLM output did not contain a valid rule")
-		return "", fmt.Errorf("LLM did not return a usable rule")
+	// Build the user prompt for directive compilation
+	userPrompt := l.buildLegislatorPrompt(directive)
+
+	// Use the feedback loop for generation with automatic validation and retry
+	result, err := l.feedbackLoop.GenerateAndValidate(
+		ctx,
+		adapter,
+		l.Kernel,
+		legislatorSystemPrompt,
+		userPrompt,
+		"legislator", // domain for valid examples
+	)
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[Legislator] Feedback loop failed: %v", err)
+		return "", fmt.Errorf("rule synthesis failed: %w", err)
 	}
-	logging.SystemShardsDebug("[Legislator] LLM synthesized rule successfully")
-	return rule, nil
+
+	if !result.Valid {
+		errMsgs := make([]string, 0, len(result.Errors))
+		for _, e := range result.Errors {
+			errMsgs = append(errMsgs, fmt.Sprintf("[%s] %s", e.Category.String(), e.Message))
+		}
+		logging.Get(logging.CategorySystemShards).Warn("[Legislator] Rule synthesis validation failed after %d attempts: %v",
+			result.Attempts, errMsgs)
+		return "", fmt.Errorf("rule synthesis failed after %d attempts: %s",
+			result.Attempts, strings.Join(errMsgs, "; "))
+	}
+
+	if result.AutoFixed {
+		logging.SystemShardsDebug("[Legislator] Rule auto-repaired by feedback loop sanitizer")
+	}
+	logging.SystemShardsDebug("[Legislator] LLM synthesized and validated rule in %d attempt(s)", result.Attempts)
+	return result.Rule, nil
 }
 
+// buildLegislatorPrompt constructs the user prompt for directive compilation.
+// The feedback loop enhances this with syntax guidance and predicate lists.
 func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 	var sb strings.Builder
 	sb.WriteString("Translate the constraint into a single Mangle rule.\n")
@@ -123,42 +205,7 @@ func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 	return sb.String()
 }
 
-// extractLegislatorRule tries to pull a rule from the LLM output.
-func extractLegislatorRule(output string) string {
-	out := strings.TrimSpace(output)
-	if out == "" {
-		return ""
-	}
-
-	// Handle fenced code blocks
-	if strings.Count(out, "```") >= 2 {
-		parts := strings.Split(out, "```")
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if strings.Contains(part, ":-") {
-				return strings.TrimSpace(part)
-			}
-		}
-	}
-
-	// Look for lines starting with RULE:
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(strings.ToUpper(line), "RULE:") {
-			line = strings.TrimSpace(line[len("RULE:"):])
-		}
-		if strings.Contains(line, ":-") {
-			return line
-		}
-	}
-
-	// Fallback: if the whole output is a rule-like string, return it.
-	if strings.Contains(out, ":-") {
-		return out
-	}
-
-	return ""
-}
+// NOTE: Rule extraction from LLM output is now handled by feedback.ExtractRuleFromResponse.
 
 // legislatorSystemPrompt is the system prompt for Mangle rule synthesis.
 // This follows the God Tier template for functional prompts (8,000+ chars).

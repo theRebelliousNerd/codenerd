@@ -13,13 +13,15 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
 )
 
 // Strategy represents an active execution strategy.
@@ -87,6 +89,9 @@ type ExecutivePolicyShard struct {
 	patternSuccess map[string]int // Track successful action patterns
 	patternFailure map[string]int // Track failed action patterns
 	learningStore  core.LearningStore
+
+	// Mangle feedback loop for validated rule generation
+	feedbackLoop *feedback.FeedbackLoop
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -117,6 +122,7 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 		blockedActions:   make([]ActionDecision, 0),
 		patternSuccess:   make(map[string]int),
 		patternFailure:   make(map[string]int),
+		feedbackLoop:     feedback.NewFeedbackLoop(feedback.DefaultConfig()),
 	}
 }
 
@@ -447,7 +453,18 @@ func (e *ExecutivePolicyShard) strategiesEqual(new []Strategy) bool {
 	return true
 }
 
-// handleAutopoiesis uses LLM to propose new policy rules.
+// executiveLLMAdapter wraps the shard's GuardedLLMCall to implement feedback.LLMClient.
+type executiveLLMAdapter struct {
+	shard *ExecutivePolicyShard
+	ctx   context.Context
+}
+
+// Complete implements feedback.LLMClient.
+func (a *executiveLLMAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.shard.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+}
+
+// handleAutopoiesis uses the Mangle FeedbackLoop to propose and validate new policy rules.
 func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 	cases := e.Autopoiesis.GetUnhandledCases()
 	if len(cases) == 0 {
@@ -455,41 +472,76 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 	}
 
 	if e.LLMClient == nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis skipped: no LLM client")
 		return
 	}
 
-	can, _ := e.CostGuard.CanCall()
+	if e.Kernel == nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis skipped: no kernel")
+		return
+	}
+
+	can, reason := e.CostGuard.CanCall()
 	if !can {
+		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis blocked: %s", reason)
+		// Re-queue cases for later processing
 		for _, cas := range cases {
 			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
 		}
 		return
 	}
 
-	prompt := e.buildPolicyProposalPrompt(cases)
+	// Build the user prompt describing unhandled cases
+	userPrompt := e.buildPolicyProposalPrompt(cases)
 
-	result, err := e.GuardedLLMCall(ctx, executiveAutopoiesisPrompt, prompt)
+	// Create LLM adapter that wraps GuardedLLMCall
+	llmAdapter := &executiveLLMAdapter{
+		shard: e,
+		ctx:   ctx,
+	}
+
+	// Use FeedbackLoop for validated rule generation with automatic retry
+	logging.SystemShards("[ExecutivePolicy] Invoking FeedbackLoop for autopoiesis rule generation")
+	result, err := e.feedbackLoop.GenerateAndValidate(
+		ctx,
+		llmAdapter,
+		e.Kernel, // RealKernel implements RuleValidator
+		executiveAutopoiesisPrompt,
+		userPrompt,
+		"executive",
+	)
 	if err != nil {
+		logging.Get(logging.CategorySystemShards).Warn(
+			"[ExecutivePolicy] FeedbackLoop failed after %d attempts: %v",
+			result.Attempts, err,
+		)
+		// Re-queue cases for later processing
 		for _, cas := range cases {
 			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
 		}
 		return
 	}
 
-	// Parse and apply proposed rule
-	proposedRule := e.parseProposedRule(result, cases)
-	if proposedRule.MangleCode == "" {
-		return
+	// FeedbackLoop validated the rule; extract metadata via parseProposedRule
+	// The rule is already loaded by HotLoadRule during validation
+	proposedRule := e.parseProposedRule(result.Rule, cases)
+	proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
+
+	// If parseProposedRule couldn't extract confidence, use a high default since it validated
+	if proposedRule.Confidence == 0 {
+		proposedRule.Confidence = 0.9 // Validated rules have high implicit confidence
 	}
 
 	e.Autopoiesis.RecordProposal(proposedRule)
 
+	// Rule is already loaded via FeedbackLoop's HotLoadRule validation
 	if proposedRule.Confidence >= e.Autopoiesis.RuleConfidence {
-		if err := e.Kernel.HotLoadRule(proposedRule.MangleCode); err == nil {
-			e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
-		}
+		e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+		logging.SystemShards("[ExecutivePolicy] Autopoiesis rule applied: %s (confidence: %.2f, attempts: %d, auto-fixed: %v)",
+			truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
 	} else {
-		_ = e.Kernel.Assert(core.Fact{
+		// Low confidence rules are recorded but require approval
+		if assertErr := e.Kernel.Assert(core.Fact{
 			Predicate: "rule_proposal_pending",
 			Args: []interface{}{
 				"executive_policy",
@@ -498,8 +550,24 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 				proposedRule.Confidence,
 				time.Now().Unix(),
 			},
-		})
+		}); assertErr != nil {
+			logging.Get(logging.CategorySystemShards).Error(
+				"[ExecutivePolicy] Failed to assert rule_proposal_pending: %v", assertErr,
+			)
+		}
+		logging.SystemShards("[ExecutivePolicy] Autopoiesis rule pending approval: confidence %.2f < threshold %.2f",
+			proposedRule.Confidence, e.Autopoiesis.RuleConfidence)
 	}
+}
+
+// truncateRule returns a truncated version of a rule for logging.
+func truncateRule(rule string) string {
+	const maxLen = 80
+	rule = strings.ReplaceAll(rule, "\n", " ")
+	if len(rule) > maxLen {
+		return rule[:maxLen] + "..."
+	}
+	return rule
 }
 
 // buildPolicyProposalPrompt creates a prompt for policy rule proposals.

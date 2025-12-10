@@ -947,7 +947,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	} else {
 		logging.VirtualStore("Action %s completed: success=%v, error=%s", req.Type, result.Success, result.Error)
 	}
-	
+
 	// Audit: Action completed
 	logging.Audit().ActionComplete(string(req.Type), req.Target, actionDuration.Milliseconds(), result.Success, result.Error)
 	return result.Output, nil
