@@ -2108,6 +2108,13 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
 
+	// Initialize limits enforcer and spawn queue for backpressure management
+	limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+	shardMgr.SetLimitsEnforcer(limitsEnforcer)
+	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	shardMgr.SetSpawnQueue(spawnQueue)
+	_ = spawnQueue.Start()
+
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║          CAMPAIGN ORCHESTRATOR - INITIALIZING             ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
@@ -2372,6 +2379,13 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	virtualStore := core.NewVirtualStore(executor)
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
+
+	// Initialize limits enforcer and spawn queue for backpressure management
+	limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+	shardMgr.SetLimitsEnforcer(limitsEnforcer)
+	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	shardMgr.SetSpawnQueue(spawnQueue)
+	_ = spawnQueue.Start()
 
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)

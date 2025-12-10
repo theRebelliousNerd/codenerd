@@ -242,6 +242,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 
+		// Initialize limits enforcer and spawn queue for backpressure management
+		limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+		shardMgr.SetLimitsEnforcer(limitsEnforcer)
+
+		spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+		shardMgr.SetSpawnQueue(spawnQueue)
+		if err := spawnQueue.Start(); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("Failed to start spawn queue: %v", err)
+		}
+
 		// Browser Manager is created on-demand when needed (not at boot)
 		// This avoids spawning Chrome during normal TUI usage
 		var browserMgr *browser.SessionManager // nil until needed
