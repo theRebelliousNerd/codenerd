@@ -67,6 +67,12 @@ const (
 
 	// CategoryExemplar contains few-shot examples and demonstrations.
 	CategoryExemplar AtomCategory = "exemplar"
+
+	// CategoryReviewer contains reviewer-specific atoms for code review enhancement.
+	CategoryReviewer AtomCategory = "reviewer"
+
+	// CategoryKnowledge contains knowledge extraction and management atoms.
+	CategoryKnowledge AtomCategory = "knowledge"
 )
 
 // AllCategories returns all defined atom categories.
@@ -86,6 +92,8 @@ func AllCategories() []AtomCategory {
 		CategoryOuroboros,
 		CategoryContext,
 		CategoryExemplar,
+		CategoryReviewer,
+		CategoryKnowledge,
 	}
 }
 
