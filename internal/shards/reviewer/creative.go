@@ -9,8 +9,23 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
 )
+
+// requirementsInterrogatorSystemPrompt is the system prompt for self-interrogation.
+// Adapted from RequirementsInterrogatorShard for code review enhancement context.
+const enhancementInterrogatorSystemPrompt = `
+You are the Requirements Interrogator for codeNERD code review enhancements. Produce 5-8 sharp, implementation-ready questions to validate and refine code improvement suggestions. Be thorough but concise.
+
+Rules:
+- ASCII only. No emojis or Unicode.
+- Do NOT generate solutions or plans; ask questions only.
+- Focus on: implementation constraints, potential conflicts, hidden dependencies, validation of assumptions, hidden complexity, performance implications, test coverage gaps.
+- Include code-facing probes: affected interfaces/APIs, downstream impacts, migration requirements, backward compatibility.
+- Challenge assumptions about effort estimates and feasibility politely.
+- Questions should be answerable by analyzing the codebase, not by asking the user.
+`
 
 // ExecuteCreativeEnhancement runs the full enhancement pipeline (Steps 8-12).
 // This is triggered when --andEnhance flag is passed to /review.
@@ -177,7 +192,12 @@ func (r *ReviewerShard) searchPastSuggestions(
 	return results, nil
 }
 
-// selfInterrogate uses Requirements Interrogator pattern for self-Q&A.
+// selfInterrogate uses JIT-compiled prompts for self-Q&A.
+// It presents the first-pass suggestions to the interrogator to generate
+// clarifying questions, then answers them using code context.
+//
+// The interrogation uses the enhancement_interrogator.yaml atoms when JIT
+// compilation is available, falling back to the hardcoded system prompt.
 func (r *ReviewerShard) selfInterrogate(
 	ctx context.Context,
 	firstPass *CreativeFirstPass,
@@ -188,24 +208,33 @@ func (r *ReviewerShard) selfInterrogate(
 		return nil, nil
 	}
 
-	// Build prompt for generating clarifying questions
-	questionPrompt := r.buildSelfQuestionPrompt(firstPass, inspiration)
+	logging.Reviewer("Step 10: Self-interrogation for suggestion refinement")
 
-	// Get questions from LLM
-	questionsJSON, err := r.llmClient.Complete(ctx, questionPrompt)
+	// Build a task description from the first-pass suggestions
+	taskDescription := r.buildInterrogatorTask(firstPass, inspiration)
+
+	// Build the system prompt using JIT or fallback
+	systemPrompt := r.buildEnhancementInterrogatorPrompt(ctx)
+
+	// Execute interrogation to get questions using CompleteWithSystem
+	questionsOutput, err := r.llmClient.CompleteWithSystem(ctx, systemPrompt, taskDescription)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate questions: %w", err)
+		return nil, fmt.Errorf("interrogation LLM call failed: %w", err)
 	}
 
-	questions := r.parseSelfQuestions(questionsJSON)
+	// Extract questions from the LLM output
+	questions := r.extractQuestionsFromInterrogator(questionsOutput)
 	if len(questions) == 0 {
+		logging.ReviewerDebug("No questions extracted from interrogator output")
 		return nil, nil
 	}
+
+	logging.ReviewerDebug("Interrogator generated %d questions", len(questions))
 
 	// Now answer each question using code context
 	var answered []SelfQuestion
 	for _, q := range questions {
-		answerPrompt := r.buildSelfAnswerPrompt(q.Question, fileContents, firstPass)
+		answerPrompt := r.buildSelfAnswerPrompt(q, fileContents, firstPass)
 		answer, err := r.llmClient.Complete(ctx, answerPrompt)
 		if err != nil {
 			logging.ReviewerDebug("Failed to answer question: %v", err)
@@ -213,13 +242,129 @@ func (r *ReviewerShard) selfInterrogate(
 		}
 
 		answered = append(answered, SelfQuestion{
-			Question: q.Question,
+			Question: q,
 			Answer:   strings.TrimSpace(answer),
-			Insight:  extractInsight(q.Question, answer),
+			Insight:  extractInsight(q, answer),
 		})
 	}
 
 	return answered, nil
+}
+
+// buildEnhancementInterrogatorPrompt builds the system prompt for enhancement interrogation.
+// Uses JIT compilation if available, otherwise falls back to the hardcoded prompt.
+func (r *ReviewerShard) buildEnhancementInterrogatorPrompt(ctx context.Context) string {
+	r.mu.RLock()
+	pa := r.promptAssembler
+	r.mu.RUnlock()
+
+	// Try JIT compilation if promptAssembler is available
+	if pa != nil && pa.JITReady() {
+		pc := &articulation.PromptContext{
+			ShardID:   r.id,
+			ShardType: "reviewer",
+		}
+
+		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+		if err == nil && jitPrompt != "" {
+			logging.Reviewer("[JIT] Using JIT-compiled enhancement interrogator prompt (%d bytes)", len(jitPrompt))
+			return jitPrompt
+		}
+		if err != nil {
+			logging.ReviewerDebug("[JIT] Enhancement interrogator compilation failed, using fallback: %v", err)
+		}
+	}
+
+	// Fallback to hardcoded prompt
+	logging.ReviewerDebug("[FALLBACK] Using hardcoded enhancement interrogator prompt")
+	return enhancementInterrogatorSystemPrompt
+}
+
+// buildInterrogatorTask creates a task description for the RequirementsInterrogatorShard
+// based on the first-pass creative suggestions.
+func (r *ReviewerShard) buildInterrogatorTask(firstPass *CreativeFirstPass, inspiration []PastSuggestion) string {
+	var sb strings.Builder
+
+	sb.WriteString("Validate and refine these code improvement suggestions:\n\n")
+
+	// File suggestions
+	if len(firstPass.FileSuggestions) > 0 {
+		sb.WriteString("FILE-LEVEL SUGGESTIONS:\n")
+		for _, fs := range firstPass.FileSuggestions {
+			sb.WriteString(fmt.Sprintf("- [%s] %s: %s (effort: %s)\n", fs.Category, fs.Title, fs.Description, fs.Effort))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Module suggestions
+	if len(firstPass.ModuleSuggestions) > 0 {
+		sb.WriteString("MODULE-LEVEL SUGGESTIONS:\n")
+		for _, ms := range firstPass.ModuleSuggestions {
+			sb.WriteString(fmt.Sprintf("- [%s] %s: %s (effort: %s)\n", ms.Category, ms.Title, ms.Description, ms.Effort))
+		}
+		sb.WriteString("\n")
+	}
+
+	// System insights
+	if len(firstPass.SystemInsights) > 0 {
+		sb.WriteString("SYSTEM-LEVEL INSIGHTS:\n")
+		for _, si := range firstPass.SystemInsights {
+			sb.WriteString(fmt.Sprintf("- [%s] %s: %s (impact: %s)\n", si.Category, si.Title, si.Description, si.Impact))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Feature ideas
+	if len(firstPass.FeatureIdeas) > 0 {
+		sb.WriteString("FEATURE IDEAS:\n")
+		for _, fi := range firstPass.FeatureIdeas {
+			sb.WriteString(fmt.Sprintf("- %s: %s (complexity: %s)\n", fi.Title, fi.Description, fi.Complexity))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add historical context if available
+	if len(inspiration) > 0 {
+		sb.WriteString("HISTORICAL CONTEXT (similar past suggestions):\n")
+		for _, ps := range inspiration {
+			status := "not implemented"
+			if ps.WasImplemented {
+				status = "implemented"
+			}
+			sb.WriteString(fmt.Sprintf("- (%.0f%% similar, %s) %s\n", ps.Similarity*100, status, ps.Summary))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("Ask clarifying questions about these suggestions - focus on implementation constraints, potential conflicts, validation of assumptions, and hidden complexity.")
+
+	return sb.String()
+}
+
+// extractQuestionsFromInterrogator parses the RequirementsInterrogatorShard output
+// to extract individual questions.
+func (r *ReviewerShard) extractQuestionsFromInterrogator(output string) []string {
+	var questions []string
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip headers and empty lines
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "**") {
+			continue
+		}
+		// Extract questions (lines starting with - or numbers)
+		if strings.HasPrefix(line, "-") || (len(line) > 2 && line[0] >= '1' && line[0] <= '9' && line[1] == '.') {
+			// Clean up the line
+			q := strings.TrimLeft(line, "-*1234567890. ")
+			q = strings.TrimSpace(q)
+			if q != "" && strings.Contains(q, "?") {
+				questions = append(questions, q)
+			}
+		}
+	}
+
+	return questions
 }
 
 // secondPassCreative performs enhanced analysis with all gathered context.
