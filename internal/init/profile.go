@@ -2,15 +2,19 @@
 package init
 
 import (
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
 
 // buildProjectProfile constructs the project profile from analysis.
@@ -183,6 +187,386 @@ func (i *Initializer) savePreferences(path string, prefs UserPreferences) error 
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// populateProjectAtoms creates project-specific prompt atoms based on detected
+// language, frameworks, and conventions. These atoms are stored in the project's
+// local database and will be available for JIT prompt compilation.
+// Uses store.PromptAtom directly to avoid import cycles with prompt package.
+func (i *Initializer) populateProjectAtoms(profile ProjectProfile) error {
+	if i.localDB == nil {
+		return fmt.Errorf("local database not initialized")
+	}
+
+	var atomsToStore []*store.PromptAtom
+
+	// Helper to create an atom
+	createAtom := func(id, category, subcategory, content string, languages, frameworks []string, priority int) *store.PromptAtom {
+		// Compute token count and hash
+		tokenCount := estimateTokens(content)
+		contentHash := computeContentHash(id, content)
+
+		atom := &store.PromptAtom{
+			AtomID:      id,
+			Version:     1,
+			Content:     content,
+			TokenCount:  tokenCount,
+			ContentHash: contentHash,
+			Category:    category,
+			Subcategory: subcategory,
+			Languages:   languages,
+			Frameworks:  frameworks,
+			Priority:    priority,
+			IsMandatory: false,
+			CreatedAt:   time.Now(),
+		}
+
+		return atom
+	}
+
+	// ========================================================================
+	// Language-Specific Atoms
+	// ========================================================================
+
+	lang := strings.ToLower(profile.Language)
+	if lang != "" && lang != "unknown" {
+		langConstant := "/" + sanitizeForMangle(lang)
+
+		switch lang {
+		case "go", "golang":
+			// Go-specific guidance
+			goAtom := createAtom(
+				"project/go/conventions",
+				"language",
+				"conventions",
+				`## Go Project Conventions
+
+This project is written in Go. Follow these Go-specific best practices:
+
+**Error Handling:**
+- Always check and handle errors explicitly
+- Use fmt.Errorf with %w verb for error wrapping
+- Return errors rather than panicking in library code
+
+**Naming:**
+- Use camelCase for local variables
+- Use PascalCase for exported functions/types
+- Use short, descriptive names (prefer 'i' over 'index' in loops)
+
+**Testing:**
+- Write table-driven tests where appropriate
+- Use t.Helper() in test helper functions
+- Prefer t.Run for subtests
+
+**Concurrency:**
+- Use channels for communication between goroutines
+- Prefer sync.WaitGroup or errgroup.Group for coordinating goroutines
+- Always handle goroutine cleanup to prevent leaks`,
+				[]string{langConstant},
+				nil,
+				70,
+			)
+			atomsToStore = append(atomsToStore, goAtom)
+
+		case "python":
+			pythonAtom := createAtom(
+				"project/python/conventions",
+				"language",
+				"conventions",
+				`## Python Project Conventions
+
+This project is written in Python. Follow these Python-specific best practices:
+
+**Code Style:**
+- Follow PEP 8 style guidelines
+- Use meaningful variable names (snake_case)
+- Type hints for function signatures and class attributes
+
+**Error Handling:**
+- Use specific exception types
+- Provide informative error messages
+- Use context managers (with) for resource management
+
+**Testing:**
+- Use pytest for testing framework
+- Write unit tests with descriptive names
+- Use fixtures for test setup
+
+**Dependencies:**
+- Keep requirements.txt or pyproject.toml up to date
+- Use virtual environments for isolation`,
+				[]string{"/" + sanitizeForMangle("python")},
+				nil,
+				70,
+			)
+			atomsToStore = append(atomsToStore, pythonAtom)
+
+		case "typescript", "javascript":
+			tsAtom := createAtom(
+				"project/typescript/conventions",
+				"language",
+				"conventions",
+				`## TypeScript/JavaScript Project Conventions
+
+This project uses TypeScript/JavaScript. Follow these best practices:
+
+**Type Safety:**
+- Use strict mode TypeScript settings
+- Avoid 'any' type - use unknown or specific types
+- Define interfaces for complex objects
+
+**Code Style:**
+- Use const/let instead of var
+- Prefer arrow functions for callbacks
+- Use async/await over raw Promises
+
+**Error Handling:**
+- Use try-catch for async operations
+- Provide meaningful error messages
+- Consider using Result types for error handling
+
+**Testing:**
+- Use Jest or Vitest for testing
+- Write unit tests for business logic
+- Mock external dependencies`,
+				[]string{"/" + sanitizeForMangle(lang)},
+				nil,
+				70,
+			)
+			atomsToStore = append(atomsToStore, tsAtom)
+		}
+	}
+
+	// ========================================================================
+	// Framework-Specific Atoms
+	// ========================================================================
+
+	for _, framework := range profile.Dependencies {
+		fwName := strings.ToLower(framework.Name)
+		fwConstant := "/" + sanitizeForMangle(fwName)
+
+		switch fwName {
+		case "bubbletea", "github.com/charmbracelet/bubbletea":
+			bubbleteaAtom := createAtom(
+				"project/bubbletea/patterns",
+				"framework",
+				"tui",
+				`## Bubbletea TUI Patterns
+
+This project uses Bubbletea for terminal UI. Follow these patterns:
+
+**Model-Update-View:**
+- Implement tea.Model interface with Init, Update, View methods
+- Keep state in the model struct
+- Return Cmds from Update for async operations
+
+**Message Handling:**
+- Use type switches in Update to handle different message types
+- Create custom message types for app-specific events
+- Use tea.Batch to return multiple commands
+
+**Commands:**
+- Use tea.Tick for periodic updates
+- Wrap I/O operations in commands
+- Handle errors in messages
+
+**Styling:**
+- Use Lipgloss for consistent styling
+- Define styles at package level
+- Keep view rendering pure (no side effects)`,
+				nil,
+				[]string{fwConstant},
+				75,
+			)
+			atomsToStore = append(atomsToStore, bubbleteaAtom)
+
+		case "gin", "gin-gonic", "github.com/gin-gonic/gin":
+			ginAtom := createAtom(
+				"project/gin/patterns",
+				"framework",
+				"webapi",
+				`## Gin Web Framework Patterns
+
+This project uses Gin for HTTP APIs. Follow these patterns:
+
+**Router Setup:**
+- Group related routes using router.Group()
+- Use middleware for cross-cutting concerns (auth, logging, CORS)
+- Define clear route hierarchies
+
+**Handler Functions:**
+- Use c.BindJSON() for request body parsing
+- Return consistent error responses
+- Use c.JSON() for response marshaling
+- Set appropriate HTTP status codes
+
+**Error Handling:**
+- Create custom error types for domain errors
+- Use middleware for centralized error handling
+- Log errors with sufficient context
+
+**Testing:**
+- Use httptest for testing handlers
+- Test middleware separately
+- Verify status codes and response bodies`,
+				nil,
+				[]string{fwConstant},
+				75,
+			)
+			atomsToStore = append(atomsToStore, ginAtom)
+
+		case "react":
+			reactAtom := createAtom(
+				"project/react/patterns",
+				"framework",
+				"frontend",
+				`## React Framework Patterns
+
+This project uses React for frontend development. Follow these patterns:
+
+**Component Structure:**
+- Prefer functional components with hooks
+- Keep components small and focused
+- Extract custom hooks for reusable logic
+
+**State Management:**
+- Use useState for local state
+- Use useEffect for side effects
+- Consider useReducer for complex state
+- Use Context API for shared state
+
+**Performance:**
+- Use React.memo for expensive components
+- Use useMemo and useCallback appropriately
+- Avoid unnecessary re-renders
+
+**Error Handling:**
+- Use Error Boundaries for component errors
+- Handle async errors in effects
+- Provide user-friendly error messages`,
+				nil,
+				[]string{"/" + sanitizeForMangle("react")},
+				75,
+			)
+			atomsToStore = append(atomsToStore, reactAtom)
+		}
+	}
+
+	// ========================================================================
+	// Project Convention Atoms (inferred from project structure)
+	// ========================================================================
+
+	// Check if project follows specific patterns
+	if len(profile.TestDirectories) > 0 {
+		testingAtom := createAtom(
+			"project/testing/conventions",
+			"methodology",
+			"testing",
+			fmt.Sprintf(`## Project Testing Conventions
+
+This project has organized test directories: %s
+
+**Testing Standards:**
+- Write tests for all new functionality
+- Maintain existing test coverage
+- Run tests before committing changes
+- Keep test files alongside source files
+
+**Test Organization:**
+- Use clear test function names that describe what is being tested
+- Group related tests together
+- Use test fixtures for common setup
+
+**Coverage:**
+- Aim for meaningful coverage of business logic
+- Don't test trivial getters/setters
+- Focus on edge cases and error paths`,
+				strings.Join(profile.TestDirectories, ", ")),
+			nil,
+			nil,
+			60,
+		)
+		atomsToStore = append(atomsToStore, testingAtom)
+	}
+
+	// Build system specific guidance
+	if profile.BuildSystem != "" && profile.BuildSystem != "unknown" {
+		buildAtom := createAtom(
+			"project/build/system",
+			"domain",
+			"build",
+			fmt.Sprintf(`## Build System
+
+This project uses %s for building.
+
+**Build Commands:**
+- Follow existing build scripts and configurations
+- Update build config when adding dependencies
+- Verify builds pass before committing
+
+**Dependencies:**
+- Keep dependency declarations up to date
+- Document any special build requirements
+- Use version pinning for stability`,
+				profile.BuildSystem),
+			nil,
+			nil,
+			50,
+		)
+		atomsToStore = append(atomsToStore, buildAtom)
+	}
+
+	// Architecture pattern guidance
+	if len(profile.Patterns) > 0 {
+		patternsContent := "## Architectural Patterns\n\nThis project follows these patterns:\n\n"
+		for _, pattern := range profile.Patterns {
+			patternsContent += fmt.Sprintf("- **%s**: Follow this pattern consistently across the codebase\n", pattern)
+		}
+
+		archAtom := createAtom(
+			"project/architecture/patterns",
+			"domain",
+			"architecture",
+			patternsContent,
+			nil,
+			nil,
+			65,
+		)
+		atomsToStore = append(atomsToStore, archAtom)
+	}
+
+	// ========================================================================
+	// Store All Atoms
+	// ========================================================================
+
+	storedCount := 0
+	for _, atom := range atomsToStore {
+		if err := i.localDB.StorePromptAtom(atom); err != nil {
+			// Log error but continue with other atoms
+			fmt.Printf("   ⚠ Failed to store atom %s: %v\n", atom.AtomID, err)
+		} else {
+			storedCount++
+		}
+	}
+
+	fmt.Printf("   ✓ Populated %d project-specific prompt atoms\n", storedCount)
+	return nil
+}
+
+// estimateTokens estimates token count for content (chars/4 approximation)
+func estimateTokens(content string) int {
+	if content == "" {
+		return 0
+	}
+	return (len(content) + 3) / 4
+}
+
+// computeContentHash computes a content hash for deduplication
+func computeContentHash(id, content string) string {
+	// Simple hash combining id and content
+	// In production, use crypto/sha256
+	combined := id + ":" + content
+	return fmt.Sprintf("%x", len(combined)) // Simplified for now
 }
 
 // initSessionState creates the initial session state file.
@@ -552,4 +936,94 @@ func sanitizeForMangle(s string) string {
 	}
 
 	return sanitized
+}
+
+// initializePromptDatabase creates and populates the .nerd/prompts/atoms.db
+// with project-level and agent-specific prompt atoms from YAML files.
+// NOTE: This function creates the database schema but defers YAML loading to runtime
+// to avoid import cycles with internal/prompt package.
+func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir string) error {
+	logging.Boot("Initializing prompt atoms database...")
+
+	// Path to the atoms database
+	dbPath := filepath.Join(nerdDir, "prompts", "atoms.db")
+
+	// Ensure directory exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	// Open database
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer db.Close()
+
+	// Create schema (matches internal/prompt/loader.go schema)
+	schema := `
+		CREATE TABLE IF NOT EXISTS prompt_atoms (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			atom_id TEXT NOT NULL UNIQUE,
+			version INTEGER DEFAULT 1,
+			content TEXT NOT NULL,
+			token_count INTEGER NOT NULL,
+			content_hash TEXT NOT NULL,
+
+			-- Classification
+			category TEXT NOT NULL,
+			subcategory TEXT,
+
+			-- Contextual Selectors (JSON arrays)
+			operational_modes TEXT,
+			campaign_phases TEXT,
+			build_layers TEXT,
+			init_phases TEXT,
+			northstar_phases TEXT,
+			ouroboros_stages TEXT,
+			intent_verbs TEXT,
+			shard_types TEXT,
+			languages TEXT,
+			frameworks TEXT,
+			world_states TEXT,
+
+			-- Composition
+			priority INTEGER DEFAULT 50,
+			is_mandatory BOOLEAN DEFAULT FALSE,
+			is_exclusive TEXT,
+			depends_on TEXT,
+			conflicts_with TEXT,
+
+			-- Embeddings
+			embedding BLOB,
+			embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
+
+			-- Metadata
+			source_file TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_atoms_category ON prompt_atoms(category);
+		CREATE INDEX IF NOT EXISTS idx_atoms_hash ON prompt_atoms(content_hash);
+		CREATE INDEX IF NOT EXISTS idx_atoms_mandatory ON prompt_atoms(is_mandatory);
+		CREATE INDEX IF NOT EXISTS idx_atoms_priority ON prompt_atoms(priority DESC);
+	`
+
+	if _, err := db.Exec(schema); err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	logging.Boot("Created prompt atoms database schema")
+	fmt.Println("   ✓ Created prompt atoms database")
+	fmt.Println("   ⓘ YAML prompt loading will occur at runtime (to avoid import cycles)")
+
+	// NOTE: We don't load YAML files here to avoid import cycles.
+	// The YAML loading happens at runtime via internal/prompt/loader.go functions:
+	// - prompt.LoadProjectPrompts() for .nerd/prompts/*.yaml
+	// - prompt.LoadAgentPrompts() for .nerd/agents/*/prompts.yaml
+	// These are called by the shard manager when shards are spawned.
+
+	logging.Boot("Prompt atoms database initialized successfully")
+	return nil
 }

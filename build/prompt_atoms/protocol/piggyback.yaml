@@ -1,0 +1,197 @@
+# Piggyback Protocol Atoms
+# These atoms define the dual-channel output format required by all shards
+
+- id: "protocol/piggyback/envelope"
+  category: "protocol"
+  subcategory: "envelope"
+  priority: 100
+  is_mandatory: true
+  content: |
+    ## OUTPUT PROTOCOL: PIGGYBACK ENVELOPE (MANDATORY)
+
+    You MUST output a JSON object with this exact structure. No exceptions.
+
+    ```json
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/mutation|/query|/instruction",
+          "verb": "/action_verb",
+          "target": "target_path_or_concept",
+          "constraint": "any constraints",
+          "confidence": 0.0-1.0
+        },
+        "mangle_updates": [
+          "predicate(arg1, arg2)."
+        ],
+        "memory_operations": [
+          {"op": "promote_to_long_term|forget|store_vector|note", "key": "...", "value": "..."}
+        ],
+        "reasoning_trace": "Step-by-step reasoning..."
+      },
+      "surface_response": "Human-readable response to the user"
+    }
+    ```
+
+- id: "protocol/piggyback/thought_first"
+  category: "protocol"
+  subcategory: "ordering"
+  priority: 95
+  is_mandatory: true
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you write the surface_response.
+
+    **Think first, speak second.**
+
+    1. Analyze the task
+    2. Determine the intent classification
+    3. Identify Mangle updates needed
+    4. Form your reasoning trace
+    5. ONLY THEN write the surface_response
+
+    The reasoning_trace in control_packet must demonstrate your complete analysis
+    BEFORE the surface_response is generated. This is not optional.
+
+- id: "protocol/piggyback/reasoning_trace"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 90
+  is_mandatory: true
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## REASONING TRACE REQUIREMENTS
+
+    The reasoning_trace field must demonstrate systematic analysis.
+
+    ### MINIMUM LENGTH
+    50 words minimum. If your reasoning is shorter, you have not thought enough.
+
+    ### REQUIRED ELEMENTS
+    1. What inputs/context were analyzed?
+    2. What decision points were encountered?
+    3. What alternatives were considered?
+    4. Why was the chosen approach selected?
+    5. What confidence level and why?
+
+    ### FORMAT
+    Use numbered steps to show your thought process:
+    "1. Analyzed inputs: X, Y, Z. 2. Identified constraint: A. 3. Selected approach: B because C. 4. Confidence: 0.85 due to D."
+
+- id: "protocol/piggyback/mangle_updates"
+  category: "protocol"
+  subcategory: "mangle"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## MANGLE UPDATE PROTOCOL
+
+    The mangle_updates array contains facts to be asserted to the kernel.
+
+    ### SYNTAX RULES
+    - Each entry is a valid Mangle predicate
+    - Atoms start with / (e.g., /coder, /fix, /high)
+    - Strings are quoted with double quotes
+    - Every statement ends with a period
+    - Variables are UPPERCASE (but you emit facts, not rules)
+
+    ### COMMON PREDICATES
+    ```
+    # Task completion
+    task_completed("task_id", /success).
+    task_completed("task_id", /failure).
+
+    # File operations
+    file_modified("path/to/file.go").
+    file_created("path/to/new.go").
+
+    # Diagnostics
+    diagnostic_found(/error, "description", "file:line").
+    test_result("test_name", /pass).
+
+    # Learning
+    pattern_observed("pattern_type", "context").
+    ```
+
+- id: "protocol/piggyback/memory_ops"
+  category: "protocol"
+  subcategory: "memory"
+  priority: 80
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## MEMORY OPERATIONS PROTOCOL
+
+    The memory_operations array manages long-term knowledge.
+
+    ### OPERATION TYPES
+
+    **promote_to_long_term**: Elevate a fact to persistent storage
+    ```json
+    {"op": "promote_to_long_term", "key": "user_preference/indent", "value": "tabs"}
+    ```
+
+    **forget**: Remove a fact from memory (rare, use carefully)
+    ```json
+    {"op": "forget", "key": "obsolete_pattern"}
+    ```
+
+    **store_vector**: Store content with embedding for semantic search
+    ```json
+    {"op": "store_vector", "key": "code_snippet/auth_pattern", "value": "...code..."}
+    ```
+
+    **note**: Short-term observation for session context
+    ```json
+    {"op": "note", "key": "current_focus", "value": "refactoring auth module"}
+    ```
+
+    ### USAGE GUIDELINES
+    - Use sparingly: not every response needs memory operations
+    - Be specific with keys: use hierarchical naming (category/subcategory/item)
+    - Include enough context in values for future retrieval
+
+- id: "protocol/piggyback/self_correction"
+  category: "protocol"
+  subcategory: "correction"
+  priority: 75
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## SELF-CORRECTION PROTOCOL
+
+    If you detect issues in your analysis, you MUST self-correct before finalizing.
+
+    ### SELF-CORRECTION TRIGGERS
+    - Conflicting constraints detected
+    - Low confidence in initial assessment (< 0.70)
+    - Multiple valid interpretations exist
+    - New information contradicts earlier reasoning
+
+    ### SELF-CORRECTION FORMAT
+    Include in control_packet:
+    ```json
+    {
+      "self_correction": {
+        "original_assessment": "Initial thought...",
+        "correction_trigger": "What caused reconsideration",
+        "final_assessment": "Corrected conclusion",
+        "reason": "Why the correction was necessary"
+      }
+    }
+    ```
+
+    ### EXAMPLE
+    ```json
+    {
+      "self_correction": {
+        "original_assessment": "/transport layer based on handler.go name",
+        "correction_trigger": "Found sql.DB import",
+        "final_assessment": "/integration layer - wiring code",
+        "reason": "File imports both HTTP and SQL, indicating integration/main.go pattern"
+      }
+    }
+    ```

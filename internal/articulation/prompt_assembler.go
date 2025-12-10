@@ -3,10 +3,13 @@ package articulation
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // =============================================================================
@@ -31,18 +34,122 @@ type PromptContext struct {
 	CampaignID string                 // Active campaign ID (if any)
 }
 
+// defaultUseJIT is set from the USE_JIT_PROMPTS environment variable.
+var defaultUseJIT = os.Getenv("USE_JIT_PROMPTS") == "true"
+
 // PromptAssembler queries the kernel and assembles dynamic system prompts.
+// It supports an optional JIT compiler for context-aware prompt generation.
 type PromptAssembler struct {
 	kernel KernelQuerier
+
+	// JIT compiler integration (Phase 5)
+	jitCompiler *prompt.JITPromptCompiler // Optional JIT compiler
+	useJIT      bool                       // Feature flag for JIT usage
+	mu          sync.RWMutex               // Protects JIT fields
 }
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
 // Returns an error if kernel is nil.
+// JIT compilation is disabled by default unless USE_JIT_PROMPTS=true.
 func NewPromptAssembler(kernel KernelQuerier) (*PromptAssembler, error) {
 	if kernel == nil {
 		return nil, fmt.Errorf("kernel querier is required")
 	}
-	return &PromptAssembler{kernel: kernel}, nil
+	return &PromptAssembler{
+		kernel: kernel,
+		useJIT: defaultUseJIT,
+	}, nil
+}
+
+// NewPromptAssemblerWithJIT creates a PromptAssembler with JIT compilation enabled.
+// The JIT compiler is used for context-aware prompt generation when available.
+// Returns an error if kernel is nil.
+func NewPromptAssemblerWithJIT(kernel KernelQuerier, jitCompiler *prompt.JITPromptCompiler) (*PromptAssembler, error) {
+	if kernel == nil {
+		return nil, fmt.Errorf("kernel querier is required")
+	}
+
+	pa := &PromptAssembler{
+		kernel:      kernel,
+		jitCompiler: jitCompiler,
+		useJIT:      jitCompiler != nil, // Enable JIT if compiler is provided
+	}
+
+	if jitCompiler != nil {
+		logging.Articulation("PromptAssembler initialized with JIT compiler")
+	}
+
+	return pa, nil
+}
+
+// toCompilationContext converts a PromptContext to a prompt.CompilationContext.
+// This bridges the existing PromptContext structure with the JIT compiler's context.
+func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.CompilationContext {
+	cc := prompt.NewCompilationContext()
+
+	// Set shard context
+	cc.ShardType = "/" + pc.ShardType
+	cc.ShardID = pc.ShardID
+
+	// Set default token budget
+	cc.TokenBudget = 100000
+	cc.ReservedTokens = 8000
+
+	// Extract from SessionContext if available
+	if pc.SessionCtx != nil {
+		// Determine operational mode
+		if pc.SessionCtx.DreamMode {
+			cc.OperationalMode = "/dream"
+		} else if pc.SessionCtx.TestState == "/failing" {
+			cc.OperationalMode = "/tdd_repair"
+		} else {
+			cc.OperationalMode = "/active"
+		}
+
+		// Map test state
+		cc.FailingTestCount = len(pc.SessionCtx.FailingTests)
+
+		// Map diagnostics count
+		cc.DiagnosticCount = len(pc.SessionCtx.CurrentDiagnostics)
+
+		// Map campaign context
+		if pc.SessionCtx.CampaignActive {
+			cc.CampaignPhase = pc.SessionCtx.CampaignPhase
+			cc.CampaignName = pc.SessionCtx.CampaignGoal
+		}
+
+		// Determine if this is a large refactor from impacted files
+		if len(pc.SessionCtx.ImpactedFiles) > 10 {
+			cc.IsLargeRefactor = true
+		}
+
+		// Check for high churn from git context
+		if pc.SessionCtx.GitUnstagedCount > 20 {
+			cc.IsHighChurn = true
+		}
+	}
+
+	// Extract from UserIntent if available
+	if pc.UserIntent != nil {
+		cc.IntentVerb = pc.UserIntent.Verb
+		cc.IntentTarget = pc.UserIntent.Target
+
+		// Use target as semantic query for vector search
+		if pc.UserIntent.Target != "" {
+			cc.SemanticQuery = pc.UserIntent.Target
+		}
+	}
+
+	// Set campaign ID if present
+	if pc.CampaignID != "" {
+		cc.CampaignID = pc.CampaignID
+	}
+
+	// Store references to external context (for advanced JIT features)
+	cc.SessionContext = pc.SessionCtx
+	cc.UserIntent = pc.UserIntent
+
+	return cc
 }
 
 // AssembleSystemPrompt constructs a complete system prompt for a shard.
@@ -61,6 +168,20 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 
 	logging.Articulation("Assembling system prompt for shard=%s (type=%s)", pc.ShardID, pc.ShardType)
 
+	// Try JIT compilation if enabled
+	if pa.JITReady() {
+		cc := pa.toCompilationContext(pc)
+		result, err := pa.jitCompiler.Compile(ctx, cc)
+		if err == nil {
+			logging.Articulation("JIT compiled prompt: %d bytes, %d atoms, %.1f%% budget",
+				len(result.Prompt), result.AtomsIncluded, result.BudgetUsed*100)
+			return result.Prompt, nil
+		}
+		logging.Get(logging.CategoryArticulation).Warn("JIT compilation failed, falling back to legacy assembler: %v", err)
+		// Fall through to legacy assembly
+	}
+
+	// Legacy prompt assembly (fallback)
 	var sb strings.Builder
 
 	// 1. Query and write shard-specific base template
@@ -562,6 +683,88 @@ func (pc *PromptContext) WithIntent(intent *core.StructuredIntent) *PromptContex
 func (pc *PromptContext) WithCampaign(campaignID string) *PromptContext {
 	pc.CampaignID = campaignID
 	return pc
+}
+
+// =============================================================================
+// JIT COMPILER INTEGRATION
+// =============================================================================
+// These methods enable JIT prompt compilation as an optional enhancement.
+
+// JITReady returns true if JIT compilation is available and enabled.
+// JIT compilation requires both a JIT compiler instance and the feature flag to be enabled.
+func (pa *PromptAssembler) JITReady() bool {
+	pa.mu.RLock()
+	defer pa.mu.RUnlock()
+	return pa.useJIT && pa.jitCompiler != nil
+}
+
+// EnableJIT enables or disables JIT compilation.
+// When disabled, the legacy prompt assembly is used.
+func (pa *PromptAssembler) EnableJIT(enable bool) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	pa.useJIT = enable
+	if enable {
+		logging.Articulation("JIT compilation enabled")
+	} else {
+		logging.Articulation("JIT compilation disabled")
+	}
+}
+
+// SetJITCompiler sets the JIT compiler instance.
+// If compiler is non-nil and useJIT is true, JIT compilation will be used.
+func (pa *PromptAssembler) SetJITCompiler(compiler *prompt.JITPromptCompiler) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	pa.jitCompiler = compiler
+	if compiler != nil {
+		logging.Articulation("JIT compiler attached to PromptAssembler")
+	} else {
+		logging.Articulation("JIT compiler detached from PromptAssembler")
+	}
+}
+
+// GetJITCompiler returns the current JIT compiler, or nil if not set.
+func (pa *PromptAssembler) GetJITCompiler() *prompt.JITPromptCompiler {
+	pa.mu.RLock()
+	defer pa.mu.RUnlock()
+	return pa.jitCompiler
+}
+
+// IsJITEnabled returns true if JIT is enabled (regardless of compiler availability).
+func (pa *PromptAssembler) IsJITEnabled() bool {
+	pa.mu.RLock()
+	defer pa.mu.RUnlock()
+	return pa.useJIT
+}
+
+// =============================================================================
+// ADAPTER FOR PERCEPTION LAYER (breaks import cycle)
+// =============================================================================
+
+// PromptAssemblerAdapter wraps PromptAssembler to implement a simplified interface
+// that avoids import cycles with the perception package.
+type PromptAssemblerAdapter struct {
+	assembler *PromptAssembler
+}
+
+// NewPromptAssemblerAdapter creates an adapter for the PromptAssembler.
+func NewPromptAssemblerAdapter(assembler *PromptAssembler) *PromptAssemblerAdapter {
+	return &PromptAssemblerAdapter{assembler: assembler}
+}
+
+// AssembleSystemPrompt implements the simplified interface used by perception.
+func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error) {
+	pc := &PromptContext{
+		ShardID:   shardID,
+		ShardType: shardType,
+	}
+	return a.assembler.AssembleSystemPrompt(ctx, pc)
+}
+
+// JITReady returns true if JIT compilation is available and enabled.
+func (a *PromptAssemblerAdapter) JITReady() bool {
+	return a.assembler.JITReady()
 }
 
 // =============================================================================

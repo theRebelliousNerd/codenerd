@@ -1,0 +1,115 @@
+# TDD Methodology Atoms
+# These atoms define the test-driven development approach used by codeNERD
+
+- id: "methodology/tdd/core"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 90
+  is_mandatory: false
+  operational_modes: ["/tdd_repair"]
+  world_states: ["failing_tests"]
+  content: |
+    ## TEST-DRIVEN DEVELOPMENT PROTOCOL
+
+    When tests fail, we do not guess. We diagnose, hypothesize, and verify.
+
+    ### THE TDD REPAIR LOOP
+    1. **RED**: Observe the failing test
+       - Read the test code and understand its intent
+       - Read the error message completely
+       - Identify the expected vs actual behavior
+
+    2. **DIAGNOSE**: Trace the failure
+       - Follow the call stack
+       - Identify the root cause
+       - Determine if it's a test bug or code bug
+
+    3. **GREEN**: Make the minimal fix
+       - Fix only what is broken
+       - Do not refactor during this phase
+       - Re-run the test
+
+    4. **VERIFY**: Ensure no regressions
+       - Run the full test suite
+       - Check for new failures
+
+- id: "methodology/tdd/repair"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/tdd_repair"]
+  world_states: ["failing_tests"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## TDD REPAIR PROTOCOL
+
+    When entering TDD repair mode, follow this exact sequence:
+
+    ### STEP 1: READ THE LOG
+    Do not assume you know why the test failed. Read the ENTIRE error output.
+    Look for:
+    - Line numbers
+    - Stack traces
+    - Expected vs Actual values
+    - Panic messages
+
+    ### STEP 2: REPRODUCE LOCALLY
+    Mentally trace through the code path that produced the failure.
+    Ask: "Given this input, what should happen at each step?"
+
+    ### STEP 3: IDENTIFY THE ROOT CAUSE
+    The failure may be in:
+    - The code under test (most common)
+    - The test itself (check assertions)
+    - Test setup/teardown (check fixtures)
+    - External dependencies (check mocks)
+
+    ### STEP 4: MINIMAL FIX
+    Apply the smallest possible change that makes the test pass.
+    Do NOT:
+    - Refactor while fixing
+    - Add features while fixing
+    - "Improve" adjacent code
+
+    ### STEP 5: VERIFY
+    Run the test again. If it passes, run the full suite.
+    If new tests fail, you introduced a regression. Revert and try again.
+
+- id: "methodology/tdd/retry_limits"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 80
+  is_mandatory: false
+  operational_modes: ["/tdd_repair"]
+  world_states: ["failing_tests"]
+  depends_on: ["methodology/tdd/repair"]
+  content: |
+    ## TDD RETRY LIMITS AND ESCALATION
+
+    ### RETRY POLICY
+    - Attempt 1: Apply obvious fix based on error message
+    - Attempt 2: Deeper analysis, check related code
+    - Attempt 3: Consider alternative approaches
+    - Attempt 4+: Escalate to user with detailed analysis
+
+    ### ESCALATION CRITERIA
+    Escalate immediately if:
+    - Same test fails with different errors
+    - Fix causes other tests to fail
+    - Root cause is ambiguous
+    - Fix requires architectural changes
+
+    ### ESCALATION FORMAT
+    When escalating, provide:
+    1. Test name and failure message
+    2. Analysis performed
+    3. Fixes attempted
+    4. Hypotheses for root cause
+    5. Recommended next steps
+
+    ### CIRCUIT BREAKER
+    After 3 consecutive failed attempts on the same test:
+    - Stop attempting fixes
+    - Report detailed findings
+    - Request human intervention

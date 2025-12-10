@@ -1,0 +1,102 @@
+# TypeScript Language Prompt Atoms
+# Language-specific guidance for writing idiomatic TypeScript code
+
+- id: "language/typescript/fundamentals"
+  category: "language"
+  subcategory: "typescript"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/typescript"]
+  content: |
+    ## TypeScript Language Fundamentals
+
+    ### Type System
+    - Prefer `interface` for object shapes, `type` for unions/intersections
+    - Use `readonly` for immutable properties
+    - Use `const` assertions for literal types: `as const`
+    - Leverage union types: `string | number`, discriminated unions
+    - Use generic constraints: `<T extends BaseType>`
+
+    ### Type Safety
+    - Enable strict mode in `tsconfig.json`: `"strict": true`
+    - Avoid `any` - use `unknown` when type is truly unknown
+    - Use type guards: `typeof`, `instanceof`, custom predicates
+    - Prefer `null` over `undefined` for explicit absence
+    - Use non-null assertion `!` sparingly and only when certain
+
+    ### Modern JavaScript Features
+    - Use optional chaining: `obj?.prop?.nested`
+    - Use nullish coalescing: `value ?? default`
+    - Use template literals for strings
+    - Destructure with type annotations: `const {name}: {name: string} = obj`
+    - Use arrow functions, but understand `this` binding
+
+- id: "language/typescript/idioms"
+  category: "language"
+  subcategory: "typescript"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/typescript"]
+  content: |
+    ## TypeScript Idioms and Patterns
+
+    ### Interface Design
+    - Extend interfaces for inheritance: `interface B extends A`
+    - Use index signatures for dynamic keys: `[key: string]: Type`
+    - Use mapped types for transformations: `Partial<T>`, `Pick<T, K>`
+    - Create utility types: `type ReadonlyDeep<T> = ...`
+
+    ### Error Handling
+    - Throw typed errors with custom Error classes
+    - Use Result/Either types for functional error handling
+    - Leverage TypeScript's control flow analysis
+    - Type narrow in catch blocks: `if (err instanceof CustomError)`
+
+    ### Async Patterns
+    - Always type Promise returns: `async function foo(): Promise<Result>`
+    - Use `Promise.all()` for parallel operations
+    - Handle rejections with `.catch()` or try/catch
+    - Consider async iterators for streaming data
+
+    ### Common Pitfalls
+    - Enum alternatives: const objects with `as const`
+    - Avoid namespace pollution - use ES modules
+    - `this` context in callbacks - use arrow functions or `.bind()`
+    - Type assertions should be rare - fix the types instead
+
+- id: "language/typescript/react_patterns"
+  category: "language"
+  subcategory: "typescript"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/typescript"]
+  frameworks: ["/react"]
+  content: |
+    ## TypeScript + React Patterns
+
+    ### Component Types
+    - Function components: `const Comp: React.FC<Props> = ({prop}) => ...`
+    - Or simpler: `function Comp({prop}: Props): JSX.Element`
+    - Props interface: `interface Props { name: string; onClick?: () => void }`
+    - Children: `React.ReactNode` for any renderable content
+
+    ### Hooks Typing
+    - useState: `const [state, setState] = useState<Type>(initial)`
+    - useRef: `const ref = useRef<HTMLDivElement>(null)`
+    - useContext: Type inference from createContext generic
+    - Custom hooks: Return tuple or object with explicit return type
+
+    ### Event Handlers
+    - Form events: `React.FormEvent<HTMLFormElement>`
+    - Input change: `React.ChangeEvent<HTMLInputElement>`
+    - Click: `React.MouseEvent<HTMLButtonElement>`
+    - Generic: `React.SyntheticEvent<HTMLElement>`
+
+    ### Best Practices
+    - Use `React.memo()` with proper prop comparison
+    - Type custom hooks explicitly: `function useCustom(): ReturnType`
+    - Leverage discriminated unions for component variants
+    - Use `React.ComponentProps<typeof Component>` to extract props

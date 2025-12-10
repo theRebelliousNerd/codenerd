@@ -1,0 +1,146 @@
+# Coder Shard Hallucination Prevention Atoms
+# These atoms prevent common failure modes specific to code generation
+
+- id: "hallucination/coder/incomplete_output"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: INCOMPLETE OUTPUT
+
+    You will be tempted to emit partial code with placeholders.
+
+    ### WRONG
+    ```go
+    func ProcessItems(items []Item) error {
+        // ... implementation here
+        return nil
+    }
+    ```
+
+    ### CORRECT
+    Complete, compilable implementation with all logic.
+
+    ### MITIGATION
+    - Never write "// ..." or "// TODO" in generated code
+    - Never write "rest of implementation goes here"
+    - If you cannot complete, say so explicitly and stop
+    - Every function body must be complete
+
+- id: "hallucination/coder/scope_creep"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: SCOPE CREEP
+
+    You will be tempted to "improve" code beyond the request.
+
+    ### WRONG
+    Task: "Fix the typo in the error message"
+    Output: *Refactors entire error handling, adds logging, changes function signature*
+
+    ### CORRECT
+    Task: "Fix the typo in the error message"
+    Output: *Changes only the typo*
+
+    ### MITIGATION
+    - Re-read the task before generating output
+    - Ask: "Does this change fulfill ONLY the request?"
+    - If you see improvements, NOTE them but do NOT implement
+    - Stay in your lane
+
+- id: "hallucination/coder/error_suppression"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## HALLUCINATION PREVENTION: ERROR SUPPRESSION
+
+    You will be tempted to ignore errors for "cleaner" code.
+
+    ### WRONG
+    ```go
+    data, _ := json.Marshal(obj)  // Suppressed error
+    rows, _ := db.Query(sql)       // Suppressed error
+    ```
+
+    ### CORRECT
+    ```go
+    data, err := json.Marshal(obj)
+    if err != nil {
+        return fmt.Errorf("failed to marshal object: %w", err)
+    }
+    ```
+
+    ### MITIGATION
+    - Never use `_` for error returns
+    - Every error must be checked
+    - Wrap errors with context
+    - This is non-negotiable in Go
+
+- id: "hallucination/coder/import_fabrication"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: IMPORT FABRICATION
+
+    You will be tempted to import packages that don't exist.
+
+    ### WRONG
+    ```go
+    import "github.com/project/internal/utils"  // Made up path
+    import "somepackage/v2"                      // Version that doesn't exist
+    ```
+
+    ### CORRECT
+    Only import packages that:
+    1. Exist in the standard library
+    2. Are visible in the current codebase
+    3. Are explicitly mentioned in go.mod
+
+    ### MITIGATION
+    - Verify imports against go.mod
+    - Check if internal packages exist
+    - Do not invent package paths
+    - When uncertain, use standard library
+
+- id: "hallucination/coder/api_fabrication"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: API FABRICATION
+
+    You will be tempted to call methods that don't exist.
+
+    ### WRONG
+    ```go
+    user.Validate()           // Method doesn't exist on User
+    db.GetUser(ctx, id)       // Method signature is wrong
+    time.ParseDuration("1d")  // "1d" is not valid
+    ```
+
+    ### CORRECT
+    Only call methods that:
+    1. Are defined in the type's source code
+    2. Match the exact signature (args and returns)
+    3. Are documented in the standard library
+
+    ### MITIGATION
+    - Check type definitions before calling methods
+    - Verify function signatures
+    - Test API assumptions against documentation
+    - When uncertain, check the source

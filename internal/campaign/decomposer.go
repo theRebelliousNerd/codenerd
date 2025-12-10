@@ -22,18 +22,30 @@ import (
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
 // It parses messy specifications and user goals into structured, validated plans.
 type Decomposer struct {
-	kernel    *core.RealKernel
-	llmClient perception.LLMClient
-	workspace string
+	kernel         *core.RealKernel
+	llmClient      perception.LLMClient
+	workspace      string
+	promptProvider PromptProvider // Optional JIT prompt provider
 }
 
 // NewDecomposer creates a new decomposer.
 func NewDecomposer(kernel *core.RealKernel, llmClient perception.LLMClient, workspace string) *Decomposer {
 	logging.CampaignDebug("Creating new Decomposer for workspace: %s", workspace)
 	return &Decomposer{
-		kernel:    kernel,
-		llmClient: llmClient,
-		workspace: workspace,
+		kernel:         kernel,
+		llmClient:      llmClient,
+		workspace:      workspace,
+		promptProvider: NewStaticPromptProvider(), // Default to static prompts
+	}
+}
+
+// SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
+// This allows using JIT-compiled prompts from the articulation package.
+// If not set, static prompts will be used.
+func (d *Decomposer) SetPromptProvider(provider PromptProvider) {
+	d.promptProvider = provider
+	if provider != nil {
+		logging.CampaignDebug("Decomposer configured with custom prompt provider")
 	}
 }
 
@@ -389,6 +401,13 @@ func (d *Decomposer) classifyDocument(ctx context.Context, filename, content str
 		return DocClassification{Layer: "/scaffold", Confidence: 0.5, Reasoning: "defaulted (trivial content)"}, nil
 	}
 
+	// Get prompt (JIT or static)
+	basePrompt, err := d.promptProvider.GetPrompt(ctx, RoleLibrarian, "")
+	if err != nil {
+		logging.CampaignDebug("Failed to get Librarian prompt, using fallback: %v", err)
+		basePrompt = LibrarianLogic
+	}
+
 	prompt := fmt.Sprintf(`%s
 
 FILE: %s
@@ -397,7 +416,7 @@ CONTENT START:
 CONTENT END
 
 Return JSON only: {"layer": "/string", "confidence": 0.0-1.0, "reasoning": "brief"}`,
-		LibrarianLogic, filename, limitString(trimmed, 2000))
+		basePrompt, filename, limitString(trimmed, 2000))
 
 	resp, err := d.llmClient.Complete(ctx, prompt)
 	if err != nil {
@@ -1097,11 +1116,18 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		}
 	}
 
+	// Get Planner prompt (JIT or static)
+	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID)
+	if err != nil {
+		logging.CampaignDebug("Failed to get Planner prompt, using fallback: %v", err)
+		plannerPrompt = PlannerLogic
+	}
+
 	prompt := fmt.Sprintf(`%s
 
 %s
 
-Output ONLY valid JSON:`, PlannerLogic, contextBuilder.String())
+Output ONLY valid JSON:`, plannerPrompt, contextBuilder.String())
 
 	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(prompt))
 	resp, err := d.llmClient.Complete(ctx, prompt)

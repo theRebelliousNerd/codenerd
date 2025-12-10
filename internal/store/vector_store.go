@@ -788,3 +788,295 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	logging.Store("Re-embedding complete: %d vectors processed", totalEmbedded)
 	return nil
 }
+
+// =============================================================================
+// TASK-TYPE AWARE VECTOR SEARCH
+// =============================================================================
+
+// TaskTypeAwareEngine extends EmbeddingEngine with task-type-specific embedding.
+// If the underlying engine supports this interface, task-specific embeddings are used.
+type TaskTypeAwareEngine interface {
+	embedding.EmbeddingEngine
+	// EmbedWithTask generates embeddings with a specific task type
+	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
+}
+
+// VectorRecallSemanticWithTask performs vector search with explicit query task type.
+// This allows using RETRIEVAL_QUERY for queries while documents use RETRIEVAL_DOCUMENT.
+func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query string, limit int, queryTaskType string) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallSemanticWithTask")
+	defer timer.Stop()
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	logging.StoreDebug("Semantic vector recall with task type: query=%q limit=%d task=%s", query, limit, queryTaskType)
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if engine == nil {
+		logging.StoreDebug("No embedding engine, falling back to keyword search")
+		return s.vectorRecallKeyword(query, limit)
+	}
+
+	// Try task-type-aware embedding first
+	var queryEmbedding []float32
+	var err error
+
+	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+		logging.StoreDebug("Using task-aware embedding with task type: %s", queryTaskType)
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
+	} else {
+		logging.StoreDebug("Using standard embedding (no task type support)")
+		queryEmbedding, err = engine.Embed(ctx, query)
+	}
+
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate query embedding: %v", err)
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
+
+	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
+
+	if vecEnabled {
+		logging.StoreDebug("Using sqlite-vec ANN search")
+		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
+	}
+
+	// Fallback to brute-force search
+	return s.vectorRecallBruteForce(queryEmbedding, limit)
+}
+
+// VectorRecallForPromptAtoms searches for prompt atoms using RETRIEVAL_QUERY task type.
+// Filters results by content_type == "prompt_atom" in metadata.
+func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query string, limit int) ([]VectorEntry, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallForPromptAtoms")
+	defer timer.Stop()
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	logging.StoreDebug("Vector recall for prompt atoms: query=%q limit=%d", query, limit)
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if engine == nil {
+		logging.StoreDebug("No embedding engine, falling back to keyword search with filter")
+		all, err := s.vectorRecallKeyword(query, limit*5)
+		if err != nil {
+			return nil, err
+		}
+		filtered := filterByContentType(all, "prompt_atom")
+		if len(filtered) > limit {
+			filtered = filtered[:limit]
+		}
+		logging.StoreDebug("Filtered keyword search returned %d prompt atoms", len(filtered))
+		return filtered, nil
+	}
+
+	// Use RETRIEVAL_QUERY task type for query embedding
+	var queryEmbedding []float32
+	var err error
+
+	if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+		logging.StoreDebug("Using RETRIEVAL_QUERY task type for prompt atom search")
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, "RETRIEVAL_QUERY")
+	} else {
+		logging.StoreDebug("Using standard embedding (no task type support)")
+		queryEmbedding, err = engine.Embed(ctx, query)
+	}
+
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to generate query embedding for prompt atoms: %v", err)
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
+
+	logging.StoreDebug("Query embedding generated: %d dimensions", len(queryEmbedding))
+
+	if vecEnabled {
+		logging.StoreDebug("Using sqlite-vec ANN search with prompt_atom filter")
+		return s.vectorRecallVec(queryEmbedding, limit, nil, "content_type", "prompt_atom")
+	}
+
+	// Fallback to filtered brute-force search
+	return s.vectorRecallBruteForceFiltered(queryEmbedding, limit, "content_type", "prompt_atom")
+}
+
+// vectorRecallBruteForce performs brute-force cosine similarity search.
+func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int) ([]VectorEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		"SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL",
+	)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query vectors: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry      VectorEntry
+		similarity float64
+	}
+
+	var candidates []candidate
+
+	for rows.Next() {
+		var entry VectorEntry
+		var embeddingJSON, metaJSON string
+
+		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
+			continue
+		}
+
+		var embeddingVec []float32
+		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			continue
+		}
+
+		similarity, err := embedding.CosineSimilarity(queryEmbedding, embeddingVec)
+		if err != nil {
+			continue
+		}
+
+		if metaJSON != "" {
+			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		}
+
+		candidates = append(candidates, candidate{
+			entry:      entry,
+			similarity: similarity,
+		})
+	}
+
+	// Sort by similarity descending
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].similarity > candidates[i].similarity {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]VectorEntry, len(candidates))
+	for i, c := range candidates {
+		results[i] = c.entry
+		if results[i].Metadata == nil {
+			results[i].Metadata = make(map[string]interface{})
+		}
+		results[i].Metadata["similarity"] = c.similarity
+	}
+
+	return results, nil
+}
+
+// vectorRecallBruteForceFiltered performs brute-force search with metadata filtering.
+func (s *LocalStore) vectorRecallBruteForceFiltered(queryEmbedding []float32, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	queryStr := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
+	var rows *sql.Rows
+	var err error
+
+	if metaKey != "" && metaValue != nil {
+		pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
+		rows, err = s.db.Query(queryStr+" AND metadata LIKE ?", pattern)
+	} else {
+		rows, err = s.db.Query(queryStr)
+	}
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query vectors: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry      VectorEntry
+		similarity float64
+	}
+
+	var candidates []candidate
+
+	for rows.Next() {
+		var entry VectorEntry
+		var embeddingJSON, metaJSON string
+
+		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
+			continue
+		}
+
+		if metaJSON != "" {
+			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		}
+		if !matchesMetadata(entry.Metadata, metaKey, metaValue) {
+			continue
+		}
+
+		var embeddingVec []float32
+		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+			continue
+		}
+
+		similarity, err := embedding.CosineSimilarity(queryEmbedding, embeddingVec)
+		if err != nil {
+			continue
+		}
+
+		candidates = append(candidates, candidate{
+			entry:      entry,
+			similarity: similarity,
+		})
+	}
+
+	// Sort by similarity descending
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].similarity > candidates[i].similarity {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]VectorEntry, len(candidates))
+	for i, c := range candidates {
+		results[i] = c.entry
+		if results[i].Metadata == nil {
+			results[i].Metadata = make(map[string]interface{})
+		}
+		results[i].Metadata["similarity"] = c.similarity
+	}
+
+	return results, nil
+}
+
+// filterByContentType filters vector entries by content_type metadata field.
+func filterByContentType(entries []VectorEntry, contentType string) []VectorEntry {
+	out := make([]VectorEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.Metadata != nil {
+			if ct, ok := e.Metadata["content_type"].(string); ok && ct == contentType {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
+}

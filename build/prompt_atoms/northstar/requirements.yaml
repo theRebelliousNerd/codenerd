@@ -1,0 +1,223 @@
+# Northstar Requirements Generation Atoms
+# These atoms guide the LLM in generating requirements from capabilities, risks, and research
+
+- id: "northstar/requirements/mission"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 70
+  is_mandatory: true
+  northstar_phases: ["/requirements"]
+  content: |
+    You are generating concrete requirements for the Northstar wizard based on:
+    - Capabilities the user wants to build
+    - Risks that need mitigation
+    - Insights extracted from research documents
+
+    ## Core Objective
+    Transform high-level vision elements into specific, testable requirements that
+    can guide implementation. Each requirement should be actionable, verifiable,
+    and traceable to its source (capability, risk, or research).
+
+    ## Requirements Philosophy
+    A good requirement is:
+    - **Specific**: Concrete enough to implement
+    - **Measurable**: Can verify when it's done
+    - **Achievable**: Within project constraints
+    - **Relevant**: Directly serves the vision
+    - **Traceable**: Links to a capability, risk, or research insight
+
+- id: "northstar/requirements/generation_protocol"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 65
+  is_mandatory: true
+  northstar_phases: ["/requirements"]
+  depends_on: ["northstar/requirements/mission"]
+  content: |
+    ## REQUIREMENTS GENERATION PROTOCOL
+
+    ### Input Analysis
+    You will receive three types of inputs:
+
+    **1. Capabilities** (with timeline and priority)
+    - Timeline: "now", "6mo", "1yr", "3yr", "moonshot"
+    - Priority: "critical", "high", "medium", "low"
+    - Generate functional requirements for critical/high priority items
+
+    **2. Risks** (with likelihood, impact, and mitigation)
+    - Likelihood: "high", "medium", "low"
+    - Impact: "high", "medium", "low"
+    - Generate non-functional requirements from high-impact risks with mitigations
+
+    **3. Research Facts** (extracted from documents)
+    - May contain implicit requirements
+    - May contain constraints or NFRs
+    - Extract only clear requirement implications
+
+    ### Generation Rules
+
+    **From Capabilities**:
+    - Convert critical/high priority capabilities into "must-have" functional requirements
+    - Format: "Implement: [capability description]"
+    - Preserve the timeline context implicitly
+
+    **From Risks**:
+    - Convert high-impact risks WITH mitigations into non-functional requirements
+    - Format: "Risk mitigation: [mitigation description]"
+    - Only generate if mitigation is specified (not "none")
+    - Priority: "should-have" (risks are usually NFRs)
+
+    **From Research**:
+    - Extract requirements from facts containing these signals:
+      - "must", "require", "need", "critical" → functional, must-have
+      - "performance", "security", "scalability", "reliability" → non-functional, should-have
+      - "constraint", "limit", "cannot", "must not" → constraint, must-have
+    - Skip facts without clear requirement implications
+
+    ### Classification Schema
+
+    **Type**:
+    - **functional**: What the system does (features, behaviors)
+    - **non-functional**: How it does it (performance, security, UX)
+    - **constraint**: Limitations or boundaries (platform, cost, time)
+
+    **Priority**:
+    - **must-have**: Critical for launch, non-negotiable
+    - **should-have**: Important but can be deferred if needed
+    - **nice-to-have**: Optional, only if time/budget permits
+
+- id: "northstar/requirements/quality_standards"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 60
+  is_mandatory: true
+  northstar_phases: ["/requirements"]
+  depends_on: ["northstar/requirements/generation_protocol"]
+  content: |
+    ## REQUIREMENT QUALITY STANDARDS
+
+    ### Good Requirements are SMART
+    - **Specific**: "Support OAuth2 authentication" not "Handle auth"
+    - **Measurable**: "Respond in <200ms" not "Be fast"
+    - **Achievable**: Within stated constraints
+    - **Relevant**: Directly supports a capability or mitigates a risk
+    - **Testable**: Can verify when complete
+
+    ### Examples of Well-Formed Requirements
+
+    **Functional** (from capability):
+    ```
+    Implement: Automatically detect and isolate flaky tests in CI pipeline
+    Type: functional
+    Priority: must-have
+    Source: capability
+    ```
+
+    **Non-Functional** (from risk mitigation):
+    ```
+    Risk mitigation: Implement rate limiting to prevent API abuse under load
+    Type: non-functional
+    Priority: should-have
+    Source: risk-mitigation
+    ```
+
+    **Constraint** (from research):
+    ```
+    Must support offline operation without degraded functionality
+    Type: constraint
+    Priority: must-have
+    Source: research
+    ```
+
+    ### Red Flags to Avoid
+    - Vague verbs: "improve", "enhance", "optimize" without metrics
+    - Unverifiable statements: "user-friendly", "intuitive"
+    - Solution prescription in disguise: "Use Redis for caching"
+    - Scope creep: Adding unstated features
+
+    ### Deduplication
+    - Before generating, check if a similar requirement exists
+    - If similar, refine the existing one rather than duplicate
+    - Merge requirements that overlap significantly
+
+- id: "northstar/requirements/output_structure"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 55
+  is_mandatory: false
+  northstar_phases: ["/requirements"]
+  depends_on: ["northstar/requirements/mission"]
+  content: |
+    ## OUTPUT STRUCTURE
+
+    ### Generated Requirements Format
+    The wizard will assign IDs (REQ-001, REQ-002, etc.) automatically.
+    You only need to provide:
+
+    1. **Description**: The requirement text
+    2. **Type**: functional | non-functional | constraint
+    3. **Priority**: must-have | should-have | nice-to-have
+    4. **Source**: capability | risk-mitigation | research
+
+    ### Prioritization Logic
+
+    **must-have**:
+    - From critical/high priority capabilities with "now" timeline
+    - From high-impact risks with defined mitigations
+    - From research facts containing "must", "require", "critical"
+
+    **should-have**:
+    - From medium priority capabilities
+    - From medium-impact risks
+    - From research facts containing "should", "important"
+
+    **nice-to-have**:
+    - From low priority capabilities
+    - From "moonshot" timeline capabilities
+    - From optional research suggestions
+
+    ### Generation Volume
+    - Aim for comprehensive coverage, not minimal set
+    - Typical counts:
+      - 5-10 capabilities → 5-10 functional requirements
+      - 3-5 high-impact risks → 2-4 non-functional requirements
+      - 10-15 research facts → 3-6 additional requirements
+    - Total: 10-20 requirements is healthy for initial northstar
+
+- id: "northstar/requirements/traceability"
+  category: "northstar"
+  subcategory: "requirements"
+  priority: 50
+  is_mandatory: false
+  northstar_phases: ["/requirements"]
+  depends_on: ["northstar/requirements/mission"]
+  content: |
+    ## TRACEABILITY PRINCIPLES
+
+    ### Source Attribution
+    Every generated requirement MUST be traceable to its origin:
+    - **capability**: Links to a specific capability the user defined
+    - **risk-mitigation**: Links to a risk and its mitigation strategy
+    - **research**: Links to an insight extracted from documents
+
+    ### Why Traceability Matters
+    - Allows users to understand WHY a requirement exists
+    - Enables impact analysis when capabilities or risks change
+    - Supports requirement refinement and prioritization
+    - Creates audit trail for project decisions
+
+    ### Implicit Traceability
+    The source field provides traceability. When generating from:
+    - Capabilities: Reference the capability's priority and timeline
+    - Risks: Reference the risk's likelihood and impact
+    - Research: Reference the type of insight (problem, persona, etc.)
+
+    ### Example Trace
+    ```
+    Capability: "Automatically detect flaky tests" (Timeline: now, Priority: critical)
+      ↓
+    Requirement: "Implement: Automatically detect and isolate flaky tests in CI pipeline"
+      Type: functional
+      Priority: must-have (derived from critical + now)
+      Source: capability
+    ```

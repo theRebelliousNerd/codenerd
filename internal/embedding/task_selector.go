@@ -18,6 +18,7 @@ const (
 	ContentTypeDocumentation    ContentType = "documentation"     // Technical docs
 	ContentTypeConversation     ContentType = "conversation"      // Chat messages
 	ContentTypeKnowledgeAtom    ContentType = "knowledge_atom"    // Extracted knowledge
+	ContentTypePromptAtom       ContentType = "prompt_atom"       // Prompt atoms for JIT compilation
 	ContentTypeQuery            ContentType = "query"             // User queries
 	ContentTypeFact             ContentType = "fact"              // Logical facts
 	ContentTypeQuestion         ContentType = "question"          // Questions
@@ -59,7 +60,10 @@ func SelectTaskType(contentType ContentType, isQuery bool) string {
 	case ContentTypeClustering:
 		taskType = "CLUSTERING" // For grouping similar items
 
-	case ContentTypeConversation, ContentTypeKnowledgeAtom:
+	case ContentTypeKnowledgeAtom, ContentTypePromptAtom:
+		taskType = "RETRIEVAL_DOCUMENT" // Documents to be retrieved via semantic search
+
+	case ContentTypeConversation:
 		taskType = "SEMANTIC_SIMILARITY" // General semantic matching
 
 	default:

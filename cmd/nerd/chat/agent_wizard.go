@@ -4,6 +4,8 @@ import (
 	"codenerd/internal/core"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,7 +106,13 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		config := core.DefaultSpecialistConfig(wizard.Name, fmt.Sprintf("memory/shards/%s_knowledge.db", wizard.Name))
 		m.shardMgr.DefineProfile(wizard.Name, config)
 
-		// 2. Trigger Research (using Researcher Shard)
+		// 2. Generate prompts.yaml template
+		if err := generateAgentPromptsTemplate(m.workspace, wizard.Name, wizard.Role, wizard.Topics); err != nil {
+			// Log error but don't fail the UI flow - prompts can be added manually
+			fmt.Printf("[AgentWizard] Warning: Failed to generate prompts.yaml: %v\n", err)
+		}
+
+		// 3. Trigger Research (using Researcher Shard)
 		// We construct a prompt that explicitly mentions Context7 if applicable
 		researchTask := fmt.Sprintf(
 			"Research the following topics to build a knowledge base for a new '%s' agent (%s).\nTopics/Docs: %s.\n\nGenerate extensive Mangle facts covering API patterns, best practices, and pitfalls.",
@@ -120,7 +128,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 			return errorMsg(fmt.Errorf("research failed: %w", err))
 		}
 
-		// 3. Persist Agent Profile
+		// 4. Persist Agent Profile
 		// Extract stats from result if possible, or estimate
 		// Result string format: "Researched ... gathered N knowledge atoms ..."
 		// We'll just default to "Active" and 0 size if we can't parse easily,
@@ -131,21 +139,125 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 			// In a real app we'd send a toast or log it
 		}
 
-		// 4. Clear wizard state
+		// 5. Clear wizard state
 		m.agentWizard = nil
 
-		response := fmt.Sprintf(`## Agent Created: %s
+		promptsPath := fmt.Sprintf(".nerd/agents/%s/prompts.yaml", wizard.Name)
+		spawnCmd := fmt.Sprintf("/spawn %s <task>", wizard.Name)
 
-**Role**: %s
-**Status**: Ready
-**Knowledge Base**: Populated via Deep Research
-
-### Research Summary
-%s
-
-You can now use this agent by running:
-`+"`/spawn %s <task>`", wizard.Name, wizard.Role, result, wizard.Name)
+		response := fmt.Sprintf("## Agent Created: %s\n\n**Role**: %s\n**Status**: Ready\n**Knowledge Base**: Populated via Deep Research\n**Prompts**: Template generated at %s\n\n### Research Summary\n%s\n\nYou can now use this agent by running:\n`%s`\n\nTo customize this agent's behavior, edit the prompts.yaml file.",
+			wizard.Name, wizard.Role, promptsPath, result, spawnCmd)
 
 		return responseMsg(response)
 	}
+}
+
+// generateAgentPromptsTemplate generates a starter prompts.yaml template for a new agent.
+// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
+func generateAgentPromptsTemplate(workspace, agentName, role, topics string) error {
+	// Create agent directory
+	agentDir := filepath.Join(workspace, ".nerd", "agents", agentName)
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create agent directory: %w", err)
+	}
+
+	// Generate prompts.yaml template
+	promptsPath := filepath.Join(agentDir, "prompts.yaml")
+
+	// Build the YAML template
+	template := fmt.Sprintf(`# Prompt atoms for %s
+# These are loaded into the JIT prompt compiler when the agent is spawned.
+# Edit this file to customize the agent's identity, methodology, and domain knowledge.
+
+- id: "%s/identity"
+  category: "identity"
+  subcategory: "%s"
+  priority: 100
+  is_mandatory: true
+  shard_types: ["/%s"]
+  content: |
+    You are %s, a specialist agent in the codeNERD ecosystem.
+
+    ## Domain
+    %s
+
+    ## Research Topics
+    %s
+
+    ## Core Responsibilities
+    - Provide expert guidance in your domain
+    - Follow best practices and established patterns
+    - Maintain high code quality standards
+    - Integrate seamlessly with the codeNERD architecture
+
+    ## Execution Mode
+    You operate under the control of the codeNERD kernel. You receive structured tasks
+    with clear objectives, focus patterns, and success criteria. Execute precisely.
+
+- id: "%s/methodology"
+  category: "methodology"
+  subcategory: "%s"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/%s"]
+  depends_on: ["%s/identity"]
+  content: |
+    ## Methodology
+
+    ### Analysis Approach
+    - Understand the full context before acting
+    - Consider edge cases and failure modes
+    - Think through implications of changes
+
+    ### Implementation Standards
+    - Follow language idioms and conventions
+    - Write clear, maintainable code
+    - Include comprehensive error handling
+    - Document non-obvious decisions
+
+    ### Quality Assurance
+    - Verify assumptions before proceeding
+    - Test critical paths
+    - Consider performance implications
+    - Ensure backward compatibility when applicable
+
+- id: "%s/domain_knowledge"
+  category: "domain_knowledge"
+  subcategory: "%s"
+  priority: 70
+  is_mandatory: false
+  shard_types: ["/%s"]
+  depends_on: ["%s/identity", "%s/methodology"]
+  content: |
+    ## Domain-Specific Knowledge
+
+    ### Key Concepts
+    [Add specific concepts, patterns, or frameworks relevant to this domain]
+
+    ### Common Pitfalls
+    [Add known issues, gotchas, or anti-patterns to avoid]
+
+    ### Best Practices
+    [Add domain-specific best practices and guidelines]
+
+    ### Resources
+    Research Topics: %s
+
+    [Add additional references, documentation links, or learning resources]
+`,
+		agentName,                       // Comment: agent name
+		agentName, agentName, agentName, // identity atom header
+		agentName, role, topics, // identity content
+		agentName, agentName, agentName, agentName, // methodology atom
+		agentName, agentName, agentName, agentName, agentName, // domain_knowledge atom
+		topics, // domain knowledge content
+	)
+
+	// Write the template
+	if err := os.WriteFile(promptsPath, []byte(template), 0644); err != nil {
+		return fmt.Errorf("failed to write prompts.yaml: %w", err)
+	}
+
+	fmt.Printf("[AgentWizard] ✓ Generated prompts.yaml template at %s\n", promptsPath)
+	return nil
 }

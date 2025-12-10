@@ -569,6 +569,29 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	}
 
 	// =========================================================================
+	// PHASE 5b: Populate Project-Specific Prompt Atoms
+	// =========================================================================
+	i.sendProgress("prompt_atoms", "Populating project-specific prompt atoms...", 0.47)
+	fmt.Println("\n📝 Phase 5b: Populating Project-Specific Prompt Atoms")
+
+	if err := i.populateProjectAtoms(profile); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to populate prompt atoms: %v", err))
+	}
+
+	// =========================================================================
+	// PHASE 5c: Initialize Prompt Database (atoms.db)
+	// =========================================================================
+	i.sendProgress("prompt_db", "Initializing prompt atoms database...", 0.48)
+	fmt.Println("\n📦 Phase 5c: Initializing Prompt Atoms Database")
+
+	if err := i.initializePromptDatabase(ctx, nerdDir); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize prompt database: %v", err))
+	} else {
+		atomsDBPath := filepath.Join(nerdDir, "prompts", "atoms.db")
+		result.FilesCreated = append(result.FilesCreated, atomsDBPath)
+	}
+
+	// =========================================================================
 	// PHASE 6: Determine Required Type 3 Agents
 	// =========================================================================
 	i.sendProgress("agents", "Analyzing required agents...", 0.50)

@@ -42,6 +42,23 @@ type KernelInterface interface {
 }
 
 // =============================================================================
+// JIT PROMPT COMPILER INTERFACES - Break Import Cycle
+// =============================================================================
+
+// PromptAssembler is an interface for JIT prompt compilation.
+// Implemented by articulation.PromptAssembler to avoid import cycles.
+type PromptAssembler interface {
+	AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error)
+	JITReady() bool
+}
+
+// JITCompiler is an interface for the JIT prompt compiler.
+// Implemented by prompt.JITPromptCompiler to avoid import cycles.
+type JITCompiler interface {
+	Compile(ctx context.Context, cc interface{}) (interface{}, error)
+}
+
+// =============================================================================
 // AUTOPOIESIS ORCHESTRATOR
 // =============================================================================
 // The main coordinator for all self-modification capabilities.
@@ -109,6 +126,10 @@ type Orchestrator struct {
 	// Reasoning Trace and Logging System
 	traces      *TraceCollector // Capture reasoning during generation
 	logInjector *LogInjector    // Inject mandatory logging into tools
+
+	// JIT Prompt Compilation (Phase 5) - uses interfaces to avoid import cycles
+	promptAssembler PromptAssembler // JIT-aware prompt assembler
+	jitCompiler     JITCompiler     // JIT prompt compiler
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -138,6 +159,8 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 
 	logging.AutopoiesisDebug("Creating ToolGenerator")
 	toolGen := NewToolGenerator(client, config.ToolsDir)
+
+	// Note: JIT components will be attached later via SetJITComponents if available
 
 	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
 	tracesDir := filepath.Join(config.ToolsDir, ".traces")
@@ -216,6 +239,23 @@ func (o *Orchestrator) GetKernel() KernelInterface {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.kernel
+}
+
+// SetJITComponents attaches the JIT prompt compiler and assembler.
+// This enables context-aware prompt generation for tool generation stages.
+// The parameters use interfaces to avoid import cycles.
+func (o *Orchestrator) SetJITComponents(jitCompiler JITCompiler, assembler PromptAssembler) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.jitCompiler = jitCompiler
+	o.promptAssembler = assembler
+
+	// Wire the assembler to ToolGenerator and ToolRefiner
+	if assembler != nil {
+		o.toolGen.SetPromptAssembler(assembler)
+		o.refiner.SetPromptAssembler(assembler)
+		logging.Autopoiesis("JIT prompt compiler attached to autopoiesis orchestrator and sub-components")
+	}
 }
 
 // GetOuroborosLoop returns the Ouroboros Loop for tool self-generation.

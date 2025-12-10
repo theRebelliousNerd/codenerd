@@ -17,7 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // =============================================================================
@@ -73,8 +75,10 @@ type UserFeedback struct {
 
 // ToolRefiner generates improved tool versions based on feedback
 type ToolRefiner struct {
-	client  LLMClient
-	toolGen *ToolGenerator
+	client          LLMClient
+	toolGen         *ToolGenerator
+	promptAssembler *articulation.PromptAssembler
+	jitEnabled      bool
 }
 
 // RefinementRequest describes what needs to be improved
@@ -112,6 +116,12 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 	logging.Autopoiesis("Refining tool: %s (%d feedback items, %d patterns)",
 		req.ToolName, len(req.Feedback), len(req.Patterns))
 
+	// Try JIT compilation first if available
+	if tr.jitEnabled && tr.promptAssembler != nil && tr.promptAssembler.JITReady() {
+		return tr.refineWithJIT(ctx, req)
+	}
+
+	// Fallback to legacy refinement
 	result := &RefinementResult{
 		Changes:   []string{},
 		TestCases: []string{},
@@ -168,6 +178,92 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 	}
 
 	return result, nil
+}
+
+// refineWithJIT generates an improved version using JIT-compiled prompts
+func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
+	logging.AutopoiesisDebug("Refining tool with JIT: %s", req.ToolName)
+
+	result := &RefinementResult{
+		Changes:   []string{},
+		TestCases: []string{},
+	}
+
+	// Build prompt context for refinement stage
+	pc := &articulation.PromptContext{
+		ShardID:   "tool_refiner_" + req.ToolName,
+		ShardType: "tool_generator",
+	}
+
+	// Assemble system prompt using JIT compiler
+	systemPrompt, err := tr.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
+		// Fall back to legacy refinement
+		return tr.Refine(ctx, req)
+	}
+
+	logging.AutopoiesisDebug("JIT-compiled refinement system prompt: %d bytes", len(systemPrompt))
+
+	// Build user prompt with feedback
+	userPrompt := tr.buildRefinementPrompt(req)
+
+	logging.AutopoiesisDebug("Sending JIT refinement request to LLM")
+	llmTimer := logging.StartTimer(logging.CategoryAutopoiesis, "LLMRefinementJIT")
+	resp, err := tr.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	llmTimer.Stop()
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("JIT refinement LLM call failed: %v", err)
+		return nil, fmt.Errorf("jit refinement failed: %w", err)
+	}
+	logging.AutopoiesisDebug("Received JIT LLM response: %d chars", len(resp))
+
+	// Parse response
+	var refinement struct {
+		ImprovedCode string   `json:"improved_code"`
+		Changes      []string `json:"changes"`
+		ExpectedGain float64  `json:"expected_gain"`
+		TestCases    []string `json:"test_cases"`
+	}
+
+	jsonStr := extractJSON(resp)
+	if err := json.Unmarshal([]byte(jsonStr), &refinement); err != nil {
+		logging.AutopoiesisDebug("JSON parsing failed, trying code block extraction")
+		// Try to extract code block directly
+		code := extractCodeBlock(resp, "go")
+		if code != "" {
+			result.ImprovedCode = code
+			result.Success = true
+			result.Changes = []string{"JIT-generated improvements"}
+			logging.Autopoiesis("Tool refined via JIT code block extraction: %s", req.ToolName)
+			return result, nil
+		}
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to parse JIT refinement response: %v", err)
+		return nil, fmt.Errorf("failed to parse jit refinement: %w", err)
+	}
+
+	result.Success = true
+	result.ImprovedCode = refinement.ImprovedCode
+	result.Changes = refinement.Changes
+	result.ExpectedGain = refinement.ExpectedGain
+	result.TestCases = refinement.TestCases
+
+	logging.Autopoiesis("Tool refined successfully with JIT: %s (expectedGain=%.2f, changes=%d)",
+		req.ToolName, result.ExpectedGain, len(result.Changes))
+	for i, change := range result.Changes {
+		logging.AutopoiesisDebug("  Change %d: %s", i+1, change)
+	}
+
+	return result, nil
+}
+
+// SetPromptAssembler attaches a JIT-aware prompt assembler to the tool refiner
+func (tr *ToolRefiner) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	tr.promptAssembler = assembler
+	tr.jitEnabled = assembler != nil && assembler.JITReady()
+	if tr.jitEnabled {
+		logging.Autopoiesis("JIT prompt compilation enabled for ToolRefiner")
+	}
 }
 
 // buildRefinementPrompt creates the prompt for tool improvement

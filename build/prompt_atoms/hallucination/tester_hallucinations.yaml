@@ -1,0 +1,156 @@
+# Tester Shard Hallucination Prevention Atoms
+# These atoms prevent common failure modes specific to test generation
+
+- id: "hallucination/tester/missing_assertions"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: MISSING ASSERTIONS
+
+    You will be tempted to write tests without meaningful assertions.
+
+    ### WRONG
+    ```go
+    func TestUserCreate(t *testing.T) {
+        user := NewUser("test")
+        _ = user  // No assertion!
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestUserCreate(t *testing.T) {
+        user := NewUser("test")
+        if user.Name != "test" {
+            t.Errorf("expected name 'test', got %q", user.Name)
+        }
+    }
+    ```
+
+    ### MITIGATION
+    - Every test MUST have at least one assertion
+    - Use t.Error, t.Errorf, t.Fatal, or t.Fatalf
+    - Or use testify: assert.Equal, require.NoError
+    - A test without assertions is not a test
+
+- id: "hallucination/tester/testing_implementation"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: TESTING IMPLEMENTATION DETAILS
+
+    You will be tempted to test HOW instead of WHAT.
+
+    ### WRONG
+    ```go
+    func TestUserSave(t *testing.T) {
+        // Testing that SQL is called with specific query
+        mock.ExpectQuery("INSERT INTO users.*").WillReturnRows(...)
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestUserSave(t *testing.T) {
+        // Testing that user is persisted and retrievable
+        err := repo.Save(ctx, user)
+        require.NoError(t, err)
+
+        retrieved, err := repo.Get(ctx, user.ID)
+        require.NoError(t, err)
+        assert.Equal(t, user.Name, retrieved.Name)
+    }
+    ```
+
+    ### MITIGATION
+    - Test behavior, not implementation
+    - Tests should survive refactoring
+    - Ask: "If I change HOW this works, should the test fail?"
+    - Only test the public contract
+
+- id: "hallucination/tester/flaky_tests"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: FLAKY TESTS
+
+    You will be tempted to write tests that depend on external state.
+
+    ### WRONG
+    ```go
+    func TestTimeout(t *testing.T) {
+        start := time.Now()
+        DoSomething()
+        if time.Since(start) > 100*time.Millisecond {
+            t.Error("too slow")  // Flaky on slow CI
+        }
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestTimeout(t *testing.T) {
+        clock := NewMockClock()
+        ctx := WithClock(context.Background(), clock)
+
+        done := make(chan struct{})
+        go func() {
+            DoSomethingWithContext(ctx)
+            close(done)
+        }()
+
+        clock.Advance(100 * time.Millisecond)
+        // Deterministic timeout behavior
+    }
+    ```
+
+    ### MITIGATION
+    - Mock time-dependent operations
+    - Mock network calls
+    - Use deterministic inputs
+    - Seed random number generators
+
+- id: "hallucination/tester/ignored_errors"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: IGNORED ERRORS IN TESTS
+
+    You will be tempted to ignore errors in test setup.
+
+    ### WRONG
+    ```go
+    func TestUserProcess(t *testing.T) {
+        user, _ := CreateUser()  // Error ignored!
+        Process(user)
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestUserProcess(t *testing.T) {
+        user, err := CreateUser()
+        require.NoError(t, err, "setup: failed to create user")
+
+        err = Process(user)
+        require.NoError(t, err)
+    }
+    ```
+
+    ### MITIGATION
+    - Use require.NoError for setup errors (fatal on failure)
+    - Use assert.NoError for test assertions (continues on failure)
+    - Never use _ for error returns in tests
+    - Failed setup should fail the test immediately

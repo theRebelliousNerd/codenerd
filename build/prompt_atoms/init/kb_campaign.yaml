@@ -1,0 +1,119 @@
+# Init Phase 7d: Campaign Knowledge Base Creation
+# This atom guides creation of campaign orchestration knowledge
+
+- id: "init/kb_campaign/creation"
+  category: "init"
+  subcategory: "kb_campaign"
+  priority: 75
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/campaign_kb"]
+  content: |
+    You are creating the campaign knowledge base for multi-phase goal orchestration.
+
+    ## Campaign KB Purpose
+    The campaign system orchestrates complex, multi-turn tasks that require:
+    - Planning and strategy decomposition
+    - Sub-goal tracking and dependencies
+    - Context persistence across sessions
+    - Progress checkpointing and recovery
+    - Quality gates and validation
+
+    ## Knowledge Atoms to Generate
+
+    ### Campaign Fundamentals (5-8 atoms)
+    - What is a campaign (multi-phase goal with checkpoints)
+    - Campaign vs single-turn task (when to use each)
+    - Campaign lifecycle (plan → execute → validate → checkpoint)
+    - Success criteria and quality gates
+    - Failure recovery and rollback strategies
+
+    ### Workflow Patterns (8-12 atoms)
+    - Feature development workflow (analyze → design → implement → test → review)
+    - Bug fix workflow (reproduce → diagnose → fix → verify → document)
+    - Refactoring workflow (assess → plan → refactor → validate → measure)
+    - Research workflow (gather → analyze → synthesize → document)
+    - Security audit workflow (scan → classify → prioritize → remediate → verify)
+
+    ### Project-Specific Context (3-5 atoms)
+    - Project type implications for workflow (library vs app vs tool)
+    - Language/framework-specific workflow considerations
+    - Detected test strategy and how it affects validation phases
+    - Build system and how it affects implementation phases
+
+    ### Orchestration Principles (5-8 atoms)
+    - Parallel vs sequential sub-goals
+    - Dependency ordering (what must happen before what)
+    - Context injection (what each phase needs to know)
+    - Checkpoint granularity (when to save progress)
+    - Human-in-the-loop gates (when to ask for confirmation)
+
+    ## Research Topics
+    Research these briefly (5-10 seconds each):
+    1. "software development workflow patterns"
+    2. "agile task decomposition strategies"
+    3. "test-driven development workflow"
+    4. "code review best practices"
+    5. "CI/CD pipeline stages"
+
+    ## Quality Guidelines
+    - Focus on ORCHESTRATION, not implementation details
+    - Capture workflow logic, not code patterns
+    - Include decision trees (if X then Y else Z)
+    - Note common failure modes and recovery strategies
+
+    ## Storage
+    Store in `.nerd/shards/campaign_knowledge.db` with 20-35 atoms.
+
+- id: "init/kb_campaign/project_awareness"
+  category: "init"
+  subcategory: "kb_campaign"
+  priority: 70
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/campaign_kb"]
+  depends_on: ["init/kb_campaign/creation"]
+  content: |
+    ## Project-Aware Campaign Knowledge
+
+    Tailor campaign knowledge to the specific project type:
+
+    ### For Applications
+    - Feature workflow: Requirements → Design → Implement → Test → Deploy
+    - Bug workflow: Report → Triage → Fix → Verify → Release
+    - Include deployment and rollback considerations
+
+    ### For Libraries
+    - Feature workflow: API Design → Implement → Test → Document → Version
+    - Breaking change workflow: Deprecate → Communicate → Migrate → Remove
+    - Include semantic versioning and backward compatibility
+
+    ### For CLI Tools
+    - Feature workflow: UX Design → Implement → Test → Document → Release
+    - Include flag/command design considerations
+    - Include interactive vs batch mode workflows
+
+    ### For Web Services
+    - Feature workflow: API Design → Implement → Test → Document → Deploy
+    - Include health checks and monitoring
+    - Include migration and rollback strategies
+
+    ### Language-Specific Workflows
+    - **Go**: Include go generate, go mod tidy in workflows
+    - **Python**: Include virtual env, requirements.txt updates
+    - **TypeScript**: Include tsc, type checking in validation
+    - **Rust**: Include cargo check, cargo clippy in quality gates
+
+    ### Test-Driven Workflows
+    If project has good test coverage:
+    - Always include "write test" before "implement"
+    - Include "verify test fails" before implementation
+    - Include "verify test passes" after implementation
+    - Include coverage checks in validation phases
+
+    ## Context Injection Rules
+    Document what context each phase needs:
+    - **Planning**: Project profile, recent changes, current state
+    - **Implementation**: Relevant files, APIs, patterns, tests
+    - **Validation**: Test results, coverage, lint output
+    - **Review**: Diff, test results, security scan

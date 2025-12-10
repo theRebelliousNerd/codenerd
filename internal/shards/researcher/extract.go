@@ -1098,6 +1098,7 @@ Summary:`, contentBuilder.String())
 }
 
 // persistKnowledge saves knowledge atoms to the local database.
+// Also generates and stores prompt atoms for JIT prompt compilation.
 func (r *ResearcherShard) persistKnowledge(result *ResearchResult) {
 	if r.localDB == nil {
 		return
@@ -1122,6 +1123,14 @@ func (r *ResearcherShard) persistKnowledge(result *ResearchResult) {
 		r.localDB.StoreFact("knowledge_atom", []interface{}{
 			atom.SourceURL, atom.Concept, atom.Title, atom.Content,
 		}, "research", int(atom.Confidence*100))
+	}
+
+	// Generate and store prompt atoms from research results
+	// This creates domain-specific prompt fragments for JIT compilation
+	ctx := context.Background()
+	if err := r.generateAndStorePromptAtoms(ctx, result); err != nil {
+		logging.Get(logging.CategoryResearcher).Warn("Failed to generate prompt atoms: %v", err)
+		// Non-fatal: continue with normal persistence
 	}
 }
 

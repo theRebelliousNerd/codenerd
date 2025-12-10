@@ -15,7 +15,9 @@ import (
 	"strings"
 	"text/template"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // =============================================================================
@@ -69,9 +71,13 @@ type ParamSchema struct {
 
 // ToolGenerator detects tool needs and generates new tools
 type ToolGenerator struct {
-	client       LLMClient
-	toolsDir     string // Directory where tools are stored
+	client        LLMClient
+	toolsDir      string // Directory where tools are stored
 	existingTools map[string]ToolSchema
+
+	// JIT prompt compilation support
+	promptAssembler *articulation.PromptAssembler
+	jitEnabled      bool
 }
 
 // NewToolGenerator creates a new tool generator
@@ -396,6 +402,12 @@ func (tg *ToolGenerator) regenerateToolCodeWithFeedback(
 	previousCode string,
 	feedback string,
 ) (string, error) {
+	// Try JIT compilation for refinement stage
+	if tg.jitEnabled && tg.promptAssembler != nil && tg.promptAssembler.JITReady() {
+		return tg.regenerateToolCodeWithJIT(ctx, need, previousCode, feedback, "/refinement")
+	}
+
+	// Fallback to legacy prompts
 	systemPrompt := `You are a Go code generator for the codeNERD agent system.
 Your previous code had safety violations. You must fix these issues.
 
@@ -451,8 +463,75 @@ Generate complete, compilable, SAFE Go code:`,
 	return extractCodeBlock(code, "go"), nil
 }
 
+// regenerateToolCodeWithJIT regenerates tool code using JIT-compiled prompts with feedback
+func (tg *ToolGenerator) regenerateToolCodeWithJIT(
+	ctx context.Context,
+	need *ToolNeed,
+	previousCode string,
+	feedback string,
+	stage string,
+) (string, error) {
+	logging.AutopoiesisDebug("Regenerating tool code with JIT for stage=%s", stage)
+
+	// Build prompt context for this Ouroboros refinement stage
+	pc := &articulation.PromptContext{
+		ShardID:   "tool_generator_" + need.Name + "_refinement",
+		ShardType: "tool_generator",
+	}
+
+	// Assemble system prompt using JIT compiler
+	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
+		// Fall back to legacy generation
+		return tg.regenerateToolCodeWithFeedback(ctx, need, previousCode, feedback)
+	}
+
+	logging.AutopoiesisDebug("JIT-compiled refinement prompt: %d bytes", len(systemPrompt))
+
+	// Build user prompt with feedback
+	userPrompt := fmt.Sprintf(`Your previous code had safety violations that need to be fixed.
+
+--- SAFETY VIOLATIONS ---
+%s
+
+--- PREVIOUS CODE (DO NOT REPEAT THESE MISTAKES) ---
+%s
+
+--- TOOL SPECIFICATIONS ---
+Tool Name: %s
+Purpose: %s
+Input Type: %s
+Output Type: %s
+
+Generate CORRECTED Go code that:
+1. Fixes ALL the safety violations listed above
+2. Uses only safe imports (no os/exec, syscall, unsafe, plugin)
+3. Returns errors instead of using panic()
+4. Passes context to goroutines for cancellation
+5. Is in package "tools"
+
+Generate complete, compilable, SAFE Go code:`,
+		feedback, previousCode,
+		need.Name, need.Purpose, need.InputType, need.OutputType)
+
+	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract code block from response
+	return extractCodeBlock(code, "go"), nil
+}
+
 // generateToolCode uses LLM to generate the actual Go code
 func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (string, error) {
+	// Try JIT compilation first if available
+	if tg.jitEnabled && tg.promptAssembler != nil && tg.promptAssembler.JITReady() {
+		return tg.generateToolCodeWithJIT(ctx, need, "/specification")
+	}
+
+	// Fallback to legacy prompts
 	systemPrompt := `You are a Go code generator for the codeNERD agent system.
 Generate clean, idiomatic Go code that follows these conventions:
 - Use standard library where possible
@@ -488,6 +567,62 @@ Generate complete, compilable Go code:`,
 
 	// Extract code block from response
 	return extractCodeBlock(code, "go"), nil
+}
+
+// generateToolCodeWithJIT generates tool code using JIT-compiled prompts
+func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *ToolNeed, stage string) (string, error) {
+	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
+
+	// Build prompt context for this Ouroboros stage
+	pc := &articulation.PromptContext{
+		ShardID:   "tool_generator_" + need.Name,
+		ShardType: "tool_generator",
+	}
+
+	// Assemble system prompt using JIT compiler
+	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed, falling back: %v", err)
+		// Fall back to legacy generation
+		return tg.generateToolCode(ctx, need)
+	}
+
+	logging.AutopoiesisDebug("JIT-compiled system prompt: %d bytes", len(systemPrompt))
+
+	// Build user prompt with tool specifications
+	userPrompt := fmt.Sprintf(`Generate a Go tool with these specifications:
+
+Tool Name: %s
+Purpose: %s
+Input Type: %s
+Output Type: %s
+
+The tool should be in package "tools" and include:
+1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
+2. Registration function: Register%s(registry ToolRegistry) error
+3. Tool description constant
+
+Generate complete, compilable Go code:`,
+		need.Name, need.Purpose, need.InputType, need.OutputType,
+		toCamelCase(need.Name), need.InputType, need.OutputType,
+		toPascalCase(need.Name))
+
+	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract code block from response
+	return extractCodeBlock(code, "go"), nil
+}
+
+// SetPromptAssembler attaches a JIT-aware prompt assembler to the tool generator
+func (tg *ToolGenerator) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	tg.promptAssembler = assembler
+	tg.jitEnabled = assembler != nil && assembler.JITReady()
+	if tg.jitEnabled {
+		logging.Autopoiesis("JIT prompt compilation enabled for ToolGenerator")
+	}
 }
 
 // generateTestCode generates tests for the tool

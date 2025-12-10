@@ -382,6 +382,11 @@ type Transducer interface {
 }
 
 // RealTransducer implements the Perception layer with LLM backing.
+//
+// NOTE: JIT prompt compilation is NOT supported for the transducer due to import cycles.
+// The transducer uses a static system prompt defined in transducerSystemPrompt.
+// However, the prompt content can be migrated to YAML atoms in build/prompt_atoms/perception/
+// and compiled into the prompt corpus database for documentation and consistency.
 type RealTransducer struct {
 	client     LLMClient
 	repairLoop *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
@@ -404,6 +409,11 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 
 // Cortex 1.5.0 Piggyback Protocol System Prompt
 // Updated with comprehensive verb taxonomy for reliable intent classification.
+//
+// NOTE: The content of this prompt has been migrated to YAML atoms in
+// build/prompt_atoms/perception/transducer.yaml for better organization and
+// documentation. However, the transducer continues to use this static prompt
+// due to import cycle constraints with the articulation package.
 const transducerSystemPrompt = `You are codeNERD, a high-assurance Logic-First CLI coding agent. You possess a Dual Consciousness.
 
 Public Self: You converse with the user naturally as their AI coding assistant.

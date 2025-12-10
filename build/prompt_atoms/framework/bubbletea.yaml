@@ -1,0 +1,175 @@
+# Bubbletea Framework Prompt Atoms
+# Framework-specific guidance for building TUIs with Bubbletea
+
+- id: "framework/bubbletea/architecture"
+  category: "framework"
+  subcategory: "bubbletea"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/bubbletea"]
+  languages: ["/go"]
+  content: |
+    ## Bubbletea Architecture (Elm/MVU)
+
+    ### Core Concepts
+    - **Model**: Application state (struct holding all data)
+    - **View**: Render function that converts model to string
+    - **Update**: Message handler that returns new model + command
+    - **Command**: Side effects that produce messages
+
+    ### The Update Loop
+    ```go
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        switch msg := msg.(type) {
+        case tea.KeyMsg:
+            // Handle input
+        case customMsg:
+            // Handle custom events
+        }
+        return m, nil  // Return updated model and optional command
+    }
+    ```
+
+    ### Message Types
+    - Use type switches to handle different message types
+    - Create custom message types for app-specific events
+    - Messages are immutable - create new instances
+    - Batch commands with `tea.Batch(cmd1, cmd2, ...)`
+
+- id: "framework/bubbletea/patterns"
+  category: "framework"
+  subcategory: "bubbletea"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/bubbletea"]
+  languages: ["/go"]
+  content: |
+    ## Bubbletea Common Patterns
+
+    ### Model Composition
+    - Embed sub-models for complex UIs: `type model struct { list list.Model }`
+    - Delegate Update/View to sub-models
+    - Use model methods for state queries
+    - Keep models focused and single-responsibility
+
+    ### Command Patterns
+    - Wrap async operations: `func fetchData() tea.Msg { ... }`
+    - Use `tea.Cmd` for side effects (API calls, timers, etc.)
+    - Return commands from Init() for startup tasks
+    - Chain commands with sequences or batches
+
+    ### Input Handling
+    - Handle `tea.KeyMsg` for keyboard input
+    - Match keys with `key.Matches(msg, keyBinding)`
+    - Handle `tea.MouseMsg` for mouse events (if enabled)
+    - Window resize: `tea.WindowSizeMsg`
+
+    ### State Management
+    - Model is immutable - return new copy from Update
+    - Use pointers in model for large data structures
+    - Avoid goroutines - use Commands instead
+    - State transitions via focused/mode fields
+
+- id: "framework/bubbletea/styling"
+  category: "framework"
+  subcategory: "bubbletea"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/bubbletea"]
+  languages: ["/go"]
+  content: |
+    ## Bubbletea Styling with Lipgloss
+
+    ### Style Basics
+    ```go
+    var style = lipgloss.NewStyle().
+        Foreground(lipgloss.Color("#FF00FF")).
+        Background(lipgloss.Color("#000000")).
+        Bold(true).
+        Padding(1, 2)
+    ```
+
+    ### Layout Helpers
+    - `lipgloss.JoinHorizontal(pos, strs...)` - Join strings horizontally
+    - `lipgloss.JoinVertical(pos, strs...)` - Join strings vertically
+    - `lipgloss.Place(width, height, hPos, vPos, str)` - Position in box
+    - `lipgloss.Width(str)`, `lipgloss.Height(str)` - Get dimensions
+
+    ### Common Patterns
+    - Create style variables as package-level or model fields
+    - Use `Inherit()` to extend base styles
+    - Responsive sizing with `Width()` and `MaxWidth()`
+    - Use `Render(text)` to apply style to string
+
+    ### Color Management
+    - Use hex colors: `lipgloss.Color("#RRGGBB")`
+    - ANSI colors: `lipgloss.Color("15")`
+    - Adaptive colors: `lipgloss.AdaptiveColor{Light: "...", Dark: "..."}`
+
+- id: "framework/bubbletea/bubbles"
+  category: "framework"
+  subcategory: "bubbletea"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/bubbletea"]
+  languages: ["/go"]
+  content: |
+    ## Bubbles Component Library
+
+    ### List Component
+    ```go
+    import "github.com/charmbracelet/bubbles/list"
+
+    list := list.New(items, delegate, width, height)
+    list.SetShowHelp(true)
+    // In Update: list.Update(msg)
+    // In View: list.View()
+    ```
+
+    ### Text Input
+    ```go
+    import "github.com/charmbracelet/bubbles/textinput"
+
+    ti := textinput.New()
+    ti.Placeholder = "Enter text..."
+    ti.Focus()
+    // Capture input in Update, render with ti.View()
+    ```
+
+    ### Spinner
+    ```go
+    import "github.com/charmbracelet/bubbles/spinner"
+
+    s := spinner.New()
+    s.Spinner = spinner.Dot
+    // Start with s.Tick (returns Cmd)
+    ```
+
+    ### Progress Bar
+    ```go
+    import "github.com/charmbracelet/bubbles/progress"
+
+    prog := progress.New(progress.WithDefaultGradient())
+    prog.SetPercent(0.75)
+    ```
+
+    ### Table
+    ```go
+    import "github.com/charmbracelet/bubbles/table"
+
+    t := table.New(
+        table.WithColumns(columns),
+        table.WithRows(rows),
+        table.WithFocused(true),
+    )
+    ```
+
+    ### Integration Pattern
+    - Embed bubble in model: `type model struct { input textinput.Model }`
+    - Forward Update messages to bubble
+    - Render bubble in View method
+    - Initialize bubbles in model constructor or Init()

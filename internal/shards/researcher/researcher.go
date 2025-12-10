@@ -1,9 +1,33 @@
 // Package researcher implements the Deep Research ShardAgent (Type B: Persistent Specialist).
 // This file contains the core ResearcherShard struct and lifecycle methods.
+//
+// # JIT Prompt Compiler Integration
+//
+// The ResearcherShard now supports dynamic prompt generation through the JIT prompt compiler:
+//
+// - System prompts are assembled from kernel-derived context atoms
+// - Session state (dream mode, campaign context, etc.) is automatically injected
+// - Specialist knowledge from the knowledge graph is hydrated on-demand
+// - Token budgets are automatically managed to prevent context overflow
+//
+// # Usage
+//
+//	researcher := researcher.NewResearcherShard()
+//	researcher.SetParentKernel(kernel)  // Initializes PromptAssembler
+//	researcher.SetJITCompiler(jit)      // Optional: enables JIT compilation
+//	researcher.EnableJIT(true)          // Optional: toggle JIT on/off
+//
+// # Fallback Behavior
+//
+// If JIT compilation fails or is unavailable, the shard falls back to:
+// 1. Legacy prompt assembly (buildLegacySystemPrompt)
+// 2. Static prompt templates with session context injection
+// 3. Minimal prompts for tactical operations
+//
+// This ensures the shard remains functional even without JIT infrastructure.
 package researcher
 
 import (
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -94,6 +118,13 @@ type ResearcherShard struct {
 	// Research Toolkit (enhanced tools)
 	toolkit *ResearchToolkit
 
+	// JIT Prompt Compiler Integration (Phase 5)
+	// The PromptAssembler dynamically generates system prompts from kernel state,
+	// injecting context atoms, session state, and specialist knowledge.
+	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
+	// Set via SetPromptAssembler() which accepts interface{}.
+	promptAssembler interface{}
+
 	// LLM Rate Limiting - limits concurrent LLM calls to respect API rate limits
 	// The API has ~2 calls/second limit, so we serialize LLM calls
 	llmSemaphore chan struct{}
@@ -171,6 +202,33 @@ func (r *ResearcherShard) SetLLMClient(client core.LLMClient) {
 	r.llmClient = client
 }
 
+// SetPromptAssembler sets the PromptAssembler for dynamic prompt generation.
+// The assembler parameter should be *articulation.PromptAssembler but is interface{} to avoid import cycles.
+// This should be called by the parent kernel/shard manager after initialization.
+func (r *ResearcherShard) SetPromptAssembler(assembler interface{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptAssembler = assembler
+	if assembler != nil {
+		logging.Researcher("PromptAssembler attached to ResearcherShard")
+	}
+}
+
+// GetPromptAssembler returns the internal PromptAssembler for external JIT configuration.
+// Returns interface{} to avoid import cycles - cast to *articulation.PromptAssembler if needed.
+//
+// Usage:
+//   if pa := researcher.GetPromptAssembler(); pa != nil {
+//       if assembler, ok := pa.(*articulation.PromptAssembler); ok {
+//           assembler.SetJITCompiler(jitCompiler)
+//       }
+//   }
+func (r *ResearcherShard) GetPromptAssembler() interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.promptAssembler
+}
+
 // SetSessionContext sets the session context (for dream mode, etc.).
 func (r *ResearcherShard) SetSessionContext(ctx *core.SessionContext) {
 	r.mu.Lock()
@@ -179,11 +237,14 @@ func (r *ResearcherShard) SetSessionContext(ctx *core.SessionContext) {
 }
 
 // SetParentKernel sets the kernel for fact extraction.
+// Note: The PromptAssembler should be injected separately via SetPromptAssembler()
+// to avoid import cycles.
 func (r *ResearcherShard) SetParentKernel(k core.Kernel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
 		r.kernel = rk
+		logging.Researcher("Kernel attached (PromptAssembler should be set separately)")
 	} else {
 		panic("ResearcherShard requires *core.RealKernel")
 	}
@@ -262,6 +323,29 @@ func (r *ResearcherShard) SetBrowserManager(mgr interface{}) {
 // GetToolkit returns the research toolkit for external configuration.
 func (r *ResearcherShard) GetToolkit() *ResearchToolkit {
 	return r.toolkit
+}
+
+// EnableJIT enables or disables JIT prompt compilation.
+// This is a convenience method that calls EnableJIT on the PromptAssembler if available.
+// The caller can also use GetPromptAssembler() for more control.
+func (r *ResearcherShard) EnableJIT(enable bool) {
+	r.mu.RLock()
+	pa := r.promptAssembler
+	r.mu.RUnlock()
+
+	if pa != nil {
+		// Use type assertion since we can't import articulation
+		// The caller should ensure the assembler implements EnableJIT(bool)
+		type jitEnabler interface {
+			EnableJIT(bool)
+		}
+		if enabler, ok := pa.(jitEnabler); ok {
+			enabler.EnableJIT(enable)
+			logging.Researcher("JIT enabled: %v", enable)
+		} else {
+			logging.Researcher("PromptAssembler does not support EnableJIT")
+		}
+	}
 }
 
 // SetProgressCallback sets a callback function for real-time progress reporting.
@@ -756,6 +840,93 @@ func (r *ResearcherShard) Stop() error {
 // DREAM MODE (Simulation/Learning)
 // =============================================================================
 
+// buildSystemPrompt constructs the complete system prompt for the researcher shard.
+// Uses the JIT prompt compiler if available, otherwise falls back to legacy assembly.
+func (r *ResearcherShard) buildSystemPrompt(ctx context.Context, task string) (string, error) {
+	r.mu.RLock()
+	pa := r.promptAssembler
+	sessionCtx := r.config.SessionContext
+	shardID := r.id
+	r.mu.RUnlock()
+
+	// If PromptAssembler is not available, use legacy prompt
+	if pa == nil {
+		return r.buildLegacySystemPrompt(task), nil
+	}
+
+	// Use interface assertion to call AssembleSystemPrompt
+	// We define a minimal interface to avoid importing articulation
+	type promptAssembler interface {
+		AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
+	}
+
+	if assembler, ok := pa.(promptAssembler); ok {
+		// Build a minimal PromptContext-like struct using anonymous struct
+		// The PromptAssembler will handle this via reflection or type assertion
+		promptCtx := struct {
+			ShardID    string
+			ShardType  string
+			SessionCtx *core.SessionContext
+		}{
+			ShardID:    shardID,
+			ShardType:  "researcher",
+			SessionCtx: sessionCtx,
+		}
+
+		systemPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
+		if err != nil {
+			logging.Researcher("PromptAssembler failed, falling back to legacy: %v", err)
+			return r.buildLegacySystemPrompt(task), nil
+		}
+
+		return systemPrompt, nil
+	}
+
+	// Fallback if type assertion fails
+	logging.Researcher("PromptAssembler type mismatch, using legacy prompt")
+	return r.buildLegacySystemPrompt(task), nil
+}
+
+// buildLegacySystemPrompt returns the fallback system prompt without JIT.
+func (r *ResearcherShard) buildLegacySystemPrompt(task string) string {
+	var sb strings.Builder
+
+	// Base researcher identity
+	sb.WriteString("You are the ResearcherShard of codeNERD, a deep research specialist.\n\n")
+	sb.WriteString("## Core Responsibilities\n")
+	sb.WriteString("1. Gather knowledge from documentation, web sources, and codebases\n")
+	sb.WriteString("2. Extract knowledge atoms for specialist agents\n")
+	sb.WriteString("3. Provide domain-specific guidance\n")
+	sb.WriteString("4. Build comprehensive knowledge bases\n\n")
+
+	sb.WriteString("## Available Tools\n")
+	sb.WriteString("- Context7 API: LLM-optimized documentation\n")
+	sb.WriteString("- GitHub repository analysis\n")
+	sb.WriteString("- Web search and scraping\n")
+	sb.WriteString("- Local codebase analysis\n")
+	sb.WriteString("- LLM knowledge synthesis\n\n")
+
+	sb.WriteString("## Research Strategies\n")
+	sb.WriteString("1. Primary: Context7 for library/framework documentation\n")
+	sb.WriteString("2. Fallback: GitHub READMEs and docs\n")
+	sb.WriteString("3. Extended: Web search for unknown topics\n")
+	sb.WriteString("4. Synthesis: LLM-based knowledge generation\n\n")
+
+	sb.WriteString("## Absolute Rules\n")
+	sb.WriteString("1. NEVER invent information - cite sources when possible\n")
+	sb.WriteString("2. NEVER provide outdated information - verify currency\n")
+	sb.WriteString("3. ALWAYS synthesize knowledge into actionable insights\n")
+	sb.WriteString("4. ALWAYS structure findings for easy consumption\n\n")
+
+	// Add session context if available
+	sessionCtx := r.buildSessionContextPrompt()
+	if sessionCtx != "" {
+		sb.WriteString(sessionCtx)
+	}
+
+	return sb.String()
+}
+
 // describeDreamPlan returns a description of what the researcher would do WITHOUT executing.
 func (r *ResearcherShard) describeDreamPlan(ctx context.Context, task string) (string, error) {
 	logging.Researcher("DREAM MODE - describing plan without execution")
@@ -764,7 +935,17 @@ func (r *ResearcherShard) describeDreamPlan(ctx context.Context, task string) (s
 		return "ResearcherShard would gather knowledge and analyze sources, but no LLM client available for dream description.", nil
 	}
 
-	prompt := fmt.Sprintf(`You are a research agent in DREAM MODE. Describe what you WOULD do for this task WITHOUT actually doing it.
+	// Build system prompt with JIT if available
+	systemPrompt, err := r.buildSystemPrompt(ctx, task)
+	if err != nil {
+		logging.Researcher("Failed to build system prompt: %v, using minimal prompt", err)
+		systemPrompt = "You are a research agent in DREAM MODE."
+	}
+
+	// Append dream-specific instructions
+	prompt := fmt.Sprintf(`%s
+
+DREAM MODE ACTIVE: Describe what you WOULD do for this task WITHOUT actually doing it.
 
 Task: %s
 
@@ -776,7 +957,7 @@ Provide a structured analysis:
 5. **Expected Findings**: What knowledge might I gather?
 6. **Questions**: What would I need clarified?
 
-Remember: This is a simulation. Describe the plan, don't execute it.`, task)
+Remember: This is a simulation. Describe the plan, don't execute it.`, systemPrompt, task)
 
 	response, err := r.llmClient.Complete(ctx, prompt)
 	if err != nil {

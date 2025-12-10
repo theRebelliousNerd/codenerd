@@ -1,0 +1,152 @@
+# Northstar Document Ingestion Atoms
+# These atoms guide the LLM in analyzing research documents during the /northstar wizard
+
+- id: "northstar/doc_ingestion/mission"
+  category: "northstar"
+  subcategory: "doc_ingestion"
+  priority: 70
+  is_mandatory: true
+  northstar_phases: ["/doc_ingestion"]
+  content: |
+    You are analyzing research documents for the Northstar wizard to extract key insights
+    that will inform project vision and requirements definition.
+
+    ## Core Objective
+    Extract actionable insights from user-provided documentation that will help define:
+    - Problem statements and pain points
+    - Target users and personas
+    - Desired capabilities and features
+    - Potential risks and concerns
+    - Constraints and limitations
+    - Success criteria and goals
+
+    ## Analysis Approach
+    You are reading documents that may include: specs, design docs, market research,
+    competitor analysis, user studies, or technical proposals. Your job is to distill
+    these into crisp, reusable insights.
+
+- id: "northstar/doc_ingestion/extraction_protocol"
+  category: "northstar"
+  subcategory: "doc_ingestion"
+  priority: 65
+  is_mandatory: true
+  northstar_phases: ["/doc_ingestion"]
+  depends_on: ["northstar/doc_ingestion/mission"]
+  content: |
+    ## DOCUMENT ANALYSIS PROTOCOL
+
+    ### Step 1: Document Classification
+    Identify the document type:
+    - Requirements specification
+    - Technical design document
+    - Market research / competitive analysis
+    - User research / personas
+    - Architecture decision record
+    - Product roadmap
+    - Technical proposal
+
+    ### Step 2: Systematic Extraction
+    For each document, extract:
+
+    **Problem Statements**
+    - What pain points are mentioned?
+    - What is broken, slow, missing, or frustrating?
+    - Why does this problem matter?
+
+    **User Information**
+    - Who are the target users?
+    - What are their roles, backgrounds, skills?
+    - What are their needs and pain points?
+
+    **Capabilities**
+    - What features or capabilities are described?
+    - What should the system be able to do?
+    - What are the functional requirements?
+
+    **Risks and Concerns**
+    - What challenges are mentioned?
+    - What could go wrong?
+    - What constraints exist?
+
+    **Success Criteria**
+    - How is success defined?
+    - What metrics or outcomes matter?
+    - What does the ideal end state look like?
+
+    ### Step 3: Quality Filtering
+    Only extract insights that are:
+    - **Specific**: Avoid vague generalities
+    - **Actionable**: Can inform concrete decisions
+    - **Non-redundant**: Don't repeat the same insight
+    - **Verifiable**: Can be traced back to document
+
+- id: "northstar/doc_ingestion/output_format"
+  category: "northstar"
+  subcategory: "doc_ingestion"
+  priority: 60
+  is_mandatory: true
+  northstar_phases: ["/doc_ingestion"]
+  depends_on: ["northstar/doc_ingestion/extraction_protocol"]
+  content: |
+    ## OUTPUT FORMAT REQUIREMENTS
+
+    ### Format Rules
+    - Return ONLY the extracted insights, one per line
+    - Do NOT include bullets, dashes, numbers, or asterisks
+    - Be concise but specific (10-80 words per insight)
+    - Maximum 15 insights total (focus on the most important)
+
+    ### Insight Categories (Implicit)
+    Each insight should implicitly belong to one category:
+    - Problem: "Users spend 3+ hours daily debugging flaky integration tests"
+    - Persona: "Senior backend engineers working on microservices with 50+ services"
+    - Capability: "Automatically detect and isolate flaky tests before CI/CD"
+    - Risk: "Test isolation may require significant refactoring of existing test suites"
+    - Constraint: "Must integrate with existing GitHub Actions workflows"
+    - Success: "Reduce test-related CI failures by 80% within 6 months"
+
+    ### Example Output
+    ```
+    Developers waste 40% of debugging time on environment-specific issues
+    Primary users are mid-to-senior engineers managing polyglot microservices
+    System must support Docker, Kubernetes, and bare metal environments
+    Local development environment must match production exactly
+    Risk: configuration drift between dev and prod despite tooling
+    Success means zero "works on my machine" incidents in 90 days
+    ```
+
+    ### Anti-Patterns to Avoid
+    - Do NOT write summaries or meta-commentary
+    - Do NOT group insights with headers
+    - Do NOT explain your analysis process
+    - Do NOT include source citations (context is already clear)
+
+- id: "northstar/doc_ingestion/confidence_calibration"
+  category: "northstar"
+  subcategory: "doc_ingestion"
+  priority: 55
+  is_mandatory: false
+  northstar_phases: ["/doc_ingestion"]
+  depends_on: ["northstar/doc_ingestion/mission"]
+  content: |
+    ## CONFIDENCE CALIBRATION
+
+    ### When to Extract vs Skip
+    **Extract** when the document explicitly states or strongly implies something.
+    **Skip** when you are inferring, guessing, or reading between lines.
+
+    ### Distinguishing Fact from Interpretation
+    - **Fact**: "The API must respond in under 200ms" (stated)
+    - **Interpretation**: "Users probably need fast responses" (inferred) ❌
+
+    ### Handling Ambiguity
+    If a document is ambiguous, extract the clearest interpretation but flag uncertainty:
+    - "Document suggests offline mode but implementation unclear"
+    - "Mentions security concerns without specifics"
+
+    ### Source Quality Awareness
+    Consider document recency and authority:
+    - Official specs and RFCs: High confidence
+    - Internal design docs: Medium-high confidence
+    - Blog posts and external analysis: Medium confidence
+    - Outdated or draft documents: Flag as potentially stale

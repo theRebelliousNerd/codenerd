@@ -106,6 +106,7 @@ type CreatedAgent struct {
    - Create SQLite knowledge bases for each agent
    - Hydrate with base knowledge atoms
    - Perform deep research for each agent's topics
+   - Generate prompts.yaml for each agent (identity, methodology, domain atoms)
    - Register agents with shard manager
 
 9. **Phase 7b: Create Codebase Knowledge Base** (profile.go)
@@ -165,6 +166,7 @@ type CreatedAgent struct {
 - `determineRequiredAgents()` - Analyzes project and recommends agents
 - `createType3Agents()` - Creates agent knowledge bases
 - `createAgentKnowledgeBase()` - Creates SQLite KB for single agent
+- `generateAgentPromptsYAML()` - Generates prompts.yaml for Type B agents
 - `generateBaseKnowledgeAtoms()` - Base identity/mission atoms
 - `registerAgentsWithShardManager()` - Registers agents for dynamic calling
 - `saveAgentRegistry()` - Persists agent registry
@@ -219,11 +221,16 @@ entry_point("/cmd/nerd/main.go").
 │   ├── .profiles/      # Tool quality profiles
 │   └── .traces/        # Reasoning traces
 ├── agents/             # Persistent agent definitions
+│   ├── goexpert/       # Example Type B agent
+│   │   └── prompts.yaml  # JIT prompt atoms (identity, methodology, domain)
+│   ├── rodexpert/
+│   │   └── prompts.yaml
+│   └── ...
 └── campaigns/          # Campaign checkpoints
 ```
 
 All directories are created by `nerd init`. The `tools/` and `agents/` directories
-are NOT gitignored by default so users can commit generated tools.
+are NOT gitignored by default so users can commit generated tools and agent prompts.
 
 ## Agent Recommendation Logic (agents.go)
 

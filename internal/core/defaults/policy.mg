@@ -2887,3 +2887,340 @@ injectable_context(/unmitigated_risk_warning, Desc) :-
 injectable_context(/constraint, Desc) :-
     northstar_defined(),
     northstar_constraint(_, Desc).
+
+# =============================================================================
+# SECTION 45: JIT PROMPT COMPILER POLICY
+# =============================================================================
+# Universal JIT Prompt Compiler for dynamic prompt assembly.
+# Selects and orders prompt atoms based on contextual dimensions.
+# Implements spreading activation from compile_context to atom selection.
+
+# -----------------------------------------------------------------------------
+# 45.1 Category Ordering (Static Facts)
+# -----------------------------------------------------------------------------
+# Determines section order in final prompt.
+# Lower numbers appear first in the assembled prompt.
+
+category_order(/identity, 1).
+category_order(/safety, 2).
+category_order(/hallucination, 3).
+category_order(/methodology, 4).
+category_order(/language, 5).
+category_order(/framework, 6).
+category_order(/domain, 7).
+category_order(/campaign, 8).
+category_order(/init, 8).
+category_order(/northstar, 8).
+category_order(/ouroboros, 8).
+category_order(/context, 9).
+category_order(/exemplar, 10).
+category_order(/protocol, 11).
+
+# -----------------------------------------------------------------------------
+# 45.2 Category Budget Allocation
+# -----------------------------------------------------------------------------
+# Percentage of total token budget allocated to each category.
+# These are targets; actual allocation may vary based on selection.
+
+category_budget(/identity, 5).
+category_budget(/protocol, 12).
+category_budget(/safety, 5).
+category_budget(/hallucination, 8).
+category_budget(/methodology, 15).
+category_budget(/language, 8).
+category_budget(/framework, 8).
+category_budget(/domain, 15).
+category_budget(/context, 12).
+category_budget(/exemplar, 7).
+category_budget(/campaign, 5).
+category_budget(/init, 5).
+category_budget(/northstar, 5).
+category_budget(/ouroboros, 5).
+
+# -----------------------------------------------------------------------------
+# 45.3 Contextual Matching Rules
+# -----------------------------------------------------------------------------
+# Compute match scores for atoms based on context dimensions.
+# Higher scores indicate better match to current compilation context.
+# Scores are additive when multiple dimensions match.
+
+# Base score from atom priority (all atoms start with their priority)
+atom_matches_context(AtomID, Priority) :-
+    prompt_atom(AtomID, _, Priority, _, _).
+
+# Boost for shard type match (+30)
+# Atoms designed for this shard type get significant boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType),
+    Boosted = fn:plus(Priority, 30).
+
+# Boost for operational mode match (+20)
+# Mode-specific atoms (e.g., /debugging, /tdd_repair) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /operational_mode, Mode),
+    compile_context(/operational_mode, Mode),
+    Boosted = fn:plus(Priority, 20).
+
+# Boost for campaign phase match (+15)
+# Phase-specific atoms (e.g., /planning, /validating) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /campaign_phase, Phase),
+    compile_context(/campaign_phase, Phase),
+    Boosted = fn:plus(Priority, 15).
+
+# Boost for intent verb match (+25)
+# Verb-specific atoms (e.g., /fix, /debug, /refactor) get strong boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /intent_verb, Verb),
+    compile_context(/intent_verb, Verb),
+    Boosted = fn:plus(Priority, 25).
+
+# Boost for language match (+10)
+# Language-specific atoms (e.g., /go, /python) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /language, Lang),
+    compile_context(/language, Lang),
+    Boosted = fn:plus(Priority, 10).
+
+# Boost for framework match (+15)
+# Framework-specific atoms (e.g., /bubbletea, /gin, /rod) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /framework, Framework),
+    compile_context(/framework, Framework),
+    Boosted = fn:plus(Priority, 15).
+
+# Boost for world state match (+20)
+# World-state atoms (e.g., failing_tests, diagnostics) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /world_state, State),
+    compile_context(/world_state, State),
+    Boosted = fn:plus(Priority, 20).
+
+# Boost for init phase match (+15)
+# Init-phase atoms (e.g., /analysis, /kb_agent) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /init_phase, Phase),
+    compile_context(/init_phase, Phase),
+    Boosted = fn:plus(Priority, 15).
+
+# Boost for ouroboros stage match (+15)
+# Ouroboros-stage atoms (e.g., /specification, /refinement) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /ouroboros_stage, Stage),
+    compile_context(/ouroboros_stage, Stage),
+    Boosted = fn:plus(Priority, 15).
+
+# Boost for northstar phase match (+15)
+# Northstar-phase atoms (e.g., /doc_ingestion, /requirements) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /northstar_phase, Phase),
+    compile_context(/northstar_phase, Phase),
+    Boosted = fn:plus(Priority, 15).
+
+# Boost for build layer match (+10)
+# Build-layer atoms (e.g., /scaffold, /service) get boost
+atom_matches_context(AtomID, Boosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    atom_selector(AtomID, /build_layer, Layer),
+    compile_context(/build_layer, Layer),
+    Boosted = fn:plus(Priority, 10).
+
+# Mandatory atoms always get max score (100)
+# These must be included regardless of context
+atom_matches_context(AtomID, 100) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Vector similarity boost (scaled 0-30)
+# Semantic similarity from vector search adds to score
+atom_matches_context(AtomID, VecBoosted) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    compile_query(Query),
+    vector_recall_result(Query, AtomID, Similarity),
+    VecBoost = fn:mult(Similarity, 30),
+    VecBoosted = fn:plus(Priority, VecBoost).
+
+# -----------------------------------------------------------------------------
+# 45.4 Dependency Resolution (Stratified)
+# -----------------------------------------------------------------------------
+# Ensure atoms with hard dependencies only select if dependencies are satisfiable.
+# Uses a score-based approach to avoid cycles with atom_selected.
+#
+# Key insight: A dependency is "satisfiable" if the dependent atom would meet
+# the minimum score threshold (40), not if it's actually selected. This allows
+# dependency checking to happen before selection.
+
+# Helper: atom would meet score threshold (potential candidate)
+atom_meets_threshold(AtomID) :-
+    atom_matches_context(AtomID, Score),
+    Score > 40.
+
+# Helper: atom is mandatory (always meets threshold)
+atom_meets_threshold(AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Helper: atom has at least one unsatisfiable hard dependency
+# A dependency is unsatisfiable if the target atom exists but wouldn't meet threshold
+has_unsatisfied_hard_dep(AtomID) :-
+    atom_dependency(AtomID, DepID, /hard),
+    prompt_atom(DepID, _, _, _, _),
+    !atom_meets_threshold(DepID).
+
+# Atom dependencies are satisfied if no unsatisfiable hard deps exist
+atom_dependency_satisfied(AtomID) :-
+    prompt_atom(AtomID, _, _, _, _),
+    !has_unsatisfied_hard_dep(AtomID).
+
+# -----------------------------------------------------------------------------
+# 45.5 Selection Algorithm (Stratified)
+# -----------------------------------------------------------------------------
+# Uses a two-phase approach to avoid stratification issues:
+# Phase 1 (Stratum 0): Identify candidate atoms based on scores
+# Phase 2 (Stratum 1): Detect conflicts among candidates
+# Phase 3 (Stratum 2): Final selection excludes conflicted atoms
+
+# Phase 1: Candidate atoms pass score threshold and have satisfied dependencies
+# This is computed first without any negation on selection predicates
+atom_candidate(AtomID) :-
+    atom_matches_context(AtomID, Score),
+    Score > 40,
+    atom_dependency_satisfied(AtomID).
+
+# Mandatory atoms are always candidates
+atom_candidate(AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Phase 2: Detect conflicts among candidates
+# An atom loses to a conflicting atom with higher score
+atom_loses_conflict(AtomID) :-
+    atom_candidate(AtomID),
+    atom_conflict(AtomID, OtherID),
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+atom_loses_conflict(AtomID) :-
+    atom_candidate(AtomID),
+    atom_conflict(OtherID, AtomID),
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+# An atom loses in exclusion group to higher-scoring atom
+atom_loses_exclusion(AtomID) :-
+    atom_candidate(AtomID),
+    atom_exclusion_group(AtomID, GroupID),
+    atom_exclusion_group(OtherID, GroupID),
+    AtomID != OtherID,
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+# Helper: atom is excluded for any reason
+is_excluded(AtomID) :-
+    atom_loses_conflict(AtomID).
+
+is_excluded(AtomID) :-
+    atom_loses_exclusion(AtomID).
+
+# Exclude if dependency not satisfied (computed early, no cycle)
+is_excluded(AtomID) :-
+    prompt_atom(AtomID, _, _, _, _),
+    !atom_dependency_satisfied(AtomID).
+
+# Phase 3: Final selection - candidates that are not excluded
+atom_selected(AtomID) :-
+    atom_candidate(AtomID),
+    !is_excluded(AtomID).
+
+# -----------------------------------------------------------------------------
+# 45.6 Final Ordering
+# -----------------------------------------------------------------------------
+# Order selected atoms by category first, then by match score within category.
+# Order value = (CategoryOrder * 1000) + Score
+
+final_atom(AtomID, Order) :-
+    atom_selected(AtomID),
+    prompt_atom(AtomID, Category, _, _, _),
+    category_order(Category, CatOrder),
+    atom_matches_context(AtomID, Score),
+    Order = fn:plus(fn:mult(CatOrder, 1000), Score).
+
+# -----------------------------------------------------------------------------
+# 45.7 Compilation Validation
+# -----------------------------------------------------------------------------
+# Validate compilation meets minimum requirements.
+
+# Helper: at least one identity atom is selected
+has_identity_atom() :-
+    atom_selected(AtomID),
+    prompt_atom(AtomID, /identity, _, _, _).
+
+# Helper: at least one protocol atom is selected
+has_protocol_atom() :-
+    atom_selected(AtomID),
+    prompt_atom(AtomID, /protocol, _, _, _).
+
+# Helper: at least one compilation error exists
+has_compilation_error() :-
+    compilation_error(_, _).
+
+# Compilation is valid if: has identity, has protocol, no errors
+compilation_valid() :-
+    has_identity_atom(),
+    has_protocol_atom(),
+    !has_compilation_error().
+
+# Error: missing mandatory atom (mandatory atom not selected)
+compilation_error(/missing_mandatory, AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true),
+    !atom_selected(AtomID).
+
+# Error: circular dependency (simplified - full detection in Go)
+# Direct cycle detection: A depends on B and B depends on A
+compilation_error(/circular_dependency, AtomID) :-
+    atom_dependency(AtomID, DepID, /hard),
+    atom_dependency(DepID, AtomID, /hard).
+
+# -----------------------------------------------------------------------------
+# 45.8 Integration with Spreading Activation
+# -----------------------------------------------------------------------------
+# Selected atoms boost activation for related facts.
+
+# High activation for selected atoms
+activation(AtomID, 95) :-
+    atom_selected(AtomID).
+
+# Medium activation for atoms matching context but not selected
+activation(AtomID, 60) :-
+    atom_matches_context(AtomID, Score),
+    Score > 30,
+    !atom_selected(AtomID).
+
+# -----------------------------------------------------------------------------
+# 45.9 Learning Signals from Prompt Compilation
+# -----------------------------------------------------------------------------
+# Track effective prompt patterns for autopoiesis learning.
+
+# Signal: atom was selected and shard execution succeeded
+effective_prompt_atom(AtomID) :-
+    atom_selected(AtomID),
+    compile_shard(ShardID, _),
+    shard_executed(ShardID, _, /success, _).
+
+# Learning signal: promote effective atoms to higher priority
+learning_signal(/effective_prompt_atom, AtomID) :-
+    effective_prompt_atom(AtomID).

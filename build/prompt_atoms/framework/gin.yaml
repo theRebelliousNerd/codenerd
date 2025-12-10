@@ -1,0 +1,193 @@
+# Gin Framework Prompt Atoms
+# Framework-specific guidance for building web APIs with Gin
+
+- id: "framework/gin/fundamentals"
+  category: "framework"
+  subcategory: "gin"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/gin"]
+  languages: ["/go"]
+  content: |
+    ## Gin Framework Fundamentals
+
+    ### Router Setup
+    ```go
+    r := gin.Default()  // With Logger and Recovery middleware
+    // Or: r := gin.New()  // Clean router
+
+    r.GET("/path", handlerFunc)
+    r.POST("/path", handlerFunc)
+    r.PUT("/path/:id", handlerFunc)
+    r.DELETE("/path/:id", handlerFunc)
+    ```
+
+    ### Handler Signature
+    ```go
+    func Handler(c *gin.Context) {
+        // Extract params: c.Param("id")
+        // Query params: c.Query("key")
+        // Bind JSON: c.ShouldBindJSON(&struct)
+        // Response: c.JSON(200, data)
+    }
+    ```
+
+    ### Request Binding
+    - `c.ShouldBindJSON(&obj)` - Bind request body to struct
+    - `c.ShouldBindQuery(&obj)` - Bind query params
+    - `c.ShouldBindUri(&obj)` - Bind URI params
+    - `c.ShouldBind(&obj)` - Auto-detect binding source
+    - Use struct tags: `json:"field" binding:"required"`
+
+    ### Response Patterns
+    - `c.JSON(statusCode, obj)` - JSON response
+    - `c.String(statusCode, format, values...)` - Plain text
+    - `c.Data(statusCode, contentType, []byte)` - Raw data
+    - `c.Redirect(statusCode, url)` - HTTP redirect
+
+- id: "framework/gin/middleware"
+  category: "framework"
+  subcategory: "gin"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/gin"]
+  languages: ["/go"]
+  content: |
+    ## Gin Middleware Patterns
+
+    ### Creating Middleware
+    ```go
+    func MyMiddleware() gin.HandlerFunc {
+        return func(c *gin.Context) {
+            // Before request
+            c.Set("key", value)  // Share data
+
+            c.Next()  // Process request
+
+            // After request
+            status := c.Writer.Status()
+        }
+    }
+    ```
+
+    ### Applying Middleware
+    - Global: `r.Use(middleware)`
+    - Route-specific: `r.GET("/path", middleware, handler)`
+    - Group-specific: `g := r.Group("/api").Use(middleware)`
+
+    ### Common Middleware
+    - `gin.Logger()` - Request logging
+    - `gin.Recovery()` - Panic recovery
+    - `gin.BasicAuth()` - Basic authentication
+    - Custom CORS, auth, rate limiting, etc.
+
+    ### Context Usage
+    - Store data: `c.Set(key, value)`
+    - Retrieve data: `value, exists := c.Get(key)`
+    - Abort chain: `c.Abort()` or `c.AbortWithStatus(code)`
+    - Pass to next: `c.Next()`
+
+- id: "framework/gin/routing"
+  category: "framework"
+  subcategory: "gin"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/gin"]
+  languages: ["/go"]
+  content: |
+    ## Gin Routing Patterns
+
+    ### Route Parameters
+    ```go
+    r.GET("/user/:id", func(c *gin.Context) {
+        id := c.Param("id")  // Extract :id
+    })
+
+    r.GET("/files/*filepath", func(c *gin.Context) {
+        path := c.Param("filepath")  // Catch-all
+    })
+    ```
+
+    ### Query Parameters
+    ```go
+    // GET /search?q=term&page=1
+    q := c.Query("q")              // Get query param
+    page := c.DefaultQuery("page", "1")  // With default
+    ```
+
+    ### Route Groups
+    ```go
+    api := r.Group("/api/v1")
+    {
+        api.GET("/users", listUsers)
+        api.POST("/users", createUser)
+
+        admin := api.Group("/admin").Use(AuthMiddleware())
+        {
+            admin.DELETE("/users/:id", deleteUser)
+        }
+    }
+    ```
+
+    ### Request Validation
+    - Use struct tags for validation
+    - `binding:"required"` - Required field
+    - `binding:"email"` - Email validation
+    - `binding:"min=5,max=10"` - Length constraints
+    - `binding:"oneof=red green blue"` - Enum validation
+
+- id: "framework/gin/error_handling"
+  category: "framework"
+  subcategory: "gin"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/gin"]
+  languages: ["/go"]
+  content: |
+    ## Gin Error Handling
+
+    ### Error Responses
+    ```go
+    c.JSON(http.StatusBadRequest, gin.H{
+        "error": "Invalid input",
+        "details": err.Error(),
+    })
+    ```
+
+    ### Centralized Error Handler
+    ```go
+    func ErrorMiddleware() gin.HandlerFunc {
+        return func(c *gin.Context) {
+            c.Next()
+
+            if len(c.Errors) > 0 {
+                c.JSON(-1, gin.H{
+                    "errors": c.Errors,
+                })
+            }
+        }
+    }
+    ```
+
+    ### Error Attachment
+    ```go
+    if err := doSomething(); err != nil {
+        c.Error(err)  // Attach error to context
+        c.AbortWithStatusJSON(500, gin.H{"error": "Internal error"})
+        return
+    }
+    ```
+
+    ### HTTP Status Codes
+    - 200 OK - Success
+    - 201 Created - Resource created
+    - 204 No Content - Success with no body
+    - 400 Bad Request - Client error
+    - 401 Unauthorized - Authentication required
+    - 403 Forbidden - Permission denied
+    - 404 Not Found - Resource not found
+    - 500 Internal Server Error - Server error

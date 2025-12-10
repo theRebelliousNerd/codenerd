@@ -1,0 +1,112 @@
+# Debugging Methodology Atoms
+# These atoms define the systematic debugging approach
+
+- id: "methodology/debugging/core"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 90
+  is_mandatory: false
+  operational_modes: ["/debugging"]
+  intent_verbs: ["/debug", "/fix"]
+  content: |
+    ## SYSTEMATIC DEBUGGING PROTOCOL
+
+    Debugging is not guessing. It is the scientific method applied to code.
+
+    ### THE DEBUGGING LOOP
+    1. **OBSERVE**: Gather all available evidence
+       - Error messages and stack traces
+       - Log output
+       - System state at time of failure
+       - Steps to reproduce
+
+    2. **HYPOTHESIZE**: Form a theory
+       - What could cause this behavior?
+       - What changed recently?
+       - Where does the data flow break?
+
+    3. **PREDICT**: What would confirm the hypothesis?
+       - If X is true, then Y should happen
+       - Identify testable predictions
+
+    4. **TEST**: Verify the prediction
+       - Add logging or assertions
+       - Reproduce the issue
+       - Observe results
+
+    5. **CONCLUDE**: Accept or reject hypothesis
+       - If confirmed, proceed to fix
+       - If rejected, return to step 2
+
+- id: "methodology/debugging/root_cause"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/debugging"]
+  intent_verbs: ["/debug", "/fix"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## ROOT CAUSE ANALYSIS
+
+    Never fix symptoms. Always fix causes.
+
+    ### THE FIVE WHYS
+    Ask "why" five times to reach the root cause:
+    1. Why did the request fail? - Database timeout
+    2. Why was there a timeout? - Query took too long
+    3. Why was the query slow? - Missing index
+    4. Why was the index missing? - Schema migration incomplete
+    5. Why was migration incomplete? - CI didn't run migrations
+
+    The fix is not "add a timeout retry". The fix is "ensure CI runs migrations".
+
+    ### PROXIMATE vs ROOT CAUSE
+    - **Proximate**: The immediate trigger (null pointer exception)
+    - **Root**: The underlying issue (unvalidated user input)
+
+    Always identify both. Fix the root cause, but also add guards at
+    proximate locations to prevent future issues.
+
+    ### SYSTEMIC CAUSES
+    Look for patterns:
+    - Does this bug class appear elsewhere?
+    - Is there a missing abstraction?
+    - Is there a process failure (testing, review)?
+
+- id: "methodology/debugging/error_context"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 80
+  is_mandatory: false
+  operational_modes: ["/debugging"]
+  intent_verbs: ["/debug", "/fix"]
+  world_states: ["diagnostics"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## ERROR CONTEXT ANALYSIS
+
+    When diagnostics are present, analyze them systematically.
+
+    ### READING STACK TRACES
+    1. Start from the TOP (most recent call)
+    2. Find the FIRST frame in YOUR code
+    3. That's likely where the issue manifests
+    4. Work BACKWARD to find where bad data originated
+
+    ### READING ERROR MESSAGES
+    - Note the error TYPE (nil pointer, type mismatch, etc.)
+    - Note the LOCATION (file:line)
+    - Note any CONTEXT (variable values, state)
+
+    ### COMMON PATTERNS
+    - "nil pointer dereference" -> check initialization path
+    - "index out of range" -> check bounds and empty slices
+    - "deadline exceeded" -> check for hanging operations
+    - "connection refused" -> check service dependencies
+
+    ### CONTEXTUAL CLUES
+    - What user action triggered this?
+    - What was the system state?
+    - Has this happened before?
+    - What changed recently?

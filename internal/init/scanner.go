@@ -1138,6 +1138,7 @@ func (i *Initializer) createDirectoryStructure() (string, error) {
 		filepath.Join(nerdDir, "sessions"),    // Session history
 		filepath.Join(nerdDir, "cache"),       // Temporary cache
 		filepath.Join(nerdDir, "mangle"),      // Mangle logic overlay (User Extensions)
+		filepath.Join(nerdDir, "prompts"),     // Prompt atoms (YAML → SQLite)
 		toolsDir,                              // Autopoiesis generated tools
 		filepath.Join(toolsDir, ".compiled"),  // Compiled tool binaries
 		filepath.Join(toolsDir, ".learnings"), // Tool execution learnings
