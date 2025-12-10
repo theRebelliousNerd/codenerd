@@ -81,8 +81,11 @@ func (r *ReviewerShard) VerifyHypotheses(ctx context.Context, hypos []Hypothesis
 		// Build verification prompt with full context
 		prompt := r.buildVerificationPrompt(fileHypos, fileCode, file)
 
+		// Get system prompt from template (or fallback)
+		systemPrompt := r.buildVerificationSystemPrompt()
+
 		// Call LLM with retry logic
-		response, err := r.llmCompleteWithRetry(ctx, verificationSystemPrompt, prompt, 3)
+		response, err := r.llmCompleteWithRetry(ctx, systemPrompt, prompt, 3)
 		if err != nil {
 			logging.Get(logging.CategoryReviewer).Warn("LLM verification failed for %s: %v", file, err)
 			// Continue with other files rather than failing entirely
@@ -152,7 +155,8 @@ func (r *ReviewerShard) VerifyHypotheses(ctx context.Context, hypos []Hypothesis
 // PROMPT CONSTRUCTION
 // =============================================================================
 
-// verificationSystemPrompt is the system prompt for hypothesis verification.
+// verificationSystemPrompt is the legacy system prompt for hypothesis verification.
+// DEPRECATED: Use buildVerificationSystemPrompt() which loads from verification.yaml with fallback.
 const verificationSystemPrompt = `You are a principal engineer performing semantic verification of code analysis hypotheses.
 
 Your task is to review each hypothesis and determine if it represents a REAL issue or a false positive.

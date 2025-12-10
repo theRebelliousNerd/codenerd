@@ -289,8 +289,9 @@ func (r *ResearcherShard) SetContext7APIKey(key string) {
 	}
 }
 
-// llmComplete wraps LLM calls with rate limiting semaphore.
-// This ensures only one LLM call runs at a time across all goroutines.
+// llmComplete wraps LLM calls with rate limiting semaphore and Piggyback processing.
+// This ensures only one LLM call runs at a time across all goroutines,
+// and processes responses through the Piggyback Protocol.
 func (r *ResearcherShard) llmComplete(ctx context.Context, prompt string) (string, error) {
 	if r.llmClient == nil {
 		return "", fmt.Errorf("no LLM client configured")
@@ -307,7 +308,16 @@ func (r *ResearcherShard) llmComplete(ctx context.Context, prompt string) (strin
 	// Release semaphore when done
 	defer func() { <-r.llmSemaphore }()
 
-	return r.llmClient.Complete(ctx, prompt)
+	rawResponse, err := r.llmClient.Complete(ctx, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Process through Piggyback Protocol - extract surface response
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	logging.ResearcherDebug("Piggyback: method=%s, confidence=%.2f", processed.ParseMethod, processed.Confidence)
+
+	return processed.Surface, nil
 }
 
 // SetBrowserManager sets the browser session manager for dynamic content fetching.
@@ -964,12 +974,14 @@ Provide a structured analysis:
 
 Remember: This is a simulation. Describe the plan, don't execute it.`, systemPrompt, task)
 
-	response, err := r.llmClient.Complete(ctx, prompt)
+	rawResponse, err := r.llmClient.Complete(ctx, prompt)
 	if err != nil {
 		return fmt.Sprintf("ResearcherShard dream analysis failed: %v", err), nil
 	}
 
-	return response, nil
+	// Process through Piggyback Protocol - extract surface response
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	return processed.Surface, nil
 }
 
 // Execute performs the research task.

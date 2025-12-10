@@ -1,13 +1,15 @@
 package tester
 
 import (
-	"codenerd/internal/core"
 	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
 )
 
 // =============================================================================
@@ -329,12 +331,18 @@ func (t *TesterShard) generateMockViaLLM(ctx context.Context, interfacePath, moc
 	systemPrompt := t.buildMockGenSystemPrompt(filepath.Ext(interfacePath))
 	userPrompt := t.buildMockGenUserPrompt(interfaceContent, packageName, interfaceNames)
 
-	response, err := t.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	rawResponse, err := t.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return fmt.Errorf("LLM mock generation failed: %w", err)
 	}
 
-	mockCode := t.extractCodeFromResponse(response)
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	if processed.Control != nil {
+		t.routeControlPacketToKernel(processed.Control)
+	}
+
+	mockCode := t.extractCodeFromResponse(processed.Surface)
 
 	writeAction := core.Fact{
 		Predicate: "next_action",

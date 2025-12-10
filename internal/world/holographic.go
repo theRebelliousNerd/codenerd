@@ -1,8 +1,7 @@
 package world
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
+	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +11,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -35,15 +37,15 @@ type HolographicContext struct {
 	PackageImports     map[string][]string `json:"package_imports"`     // File -> imports
 
 	// Architectural Layer (where in the system)
-	Layer           string   `json:"layer"`            // e.g., "core", "api", "data", "cmd"
-	Module          string   `json:"module"`           // e.g., "campaign", "shards", "world"
-	Role            string   `json:"role"`             // e.g., "service", "handler", "model", "util"
-	SystemPurpose   string   `json:"system_purpose"`   // High-level purpose deduced from patterns
+	Layer         string `json:"layer"`          // e.g., "core", "api", "data", "cmd"
+	Module        string `json:"module"`         // e.g., "campaign", "shards", "world"
+	Role          string `json:"role"`           // e.g., "service", "handler", "model", "util"
+	SystemPurpose string `json:"system_purpose"` // High-level purpose deduced from patterns
 
 	// Dependency Context (import/export relationships)
-	DirectImports   []ImportInfo   `json:"direct_imports"`    // What this file imports
-	DirectImporters []string       `json:"direct_importers"`  // Files that import this package
-	ExternalDeps    []string       `json:"external_deps"`     // Third-party dependencies
+	DirectImports   []ImportInfo `json:"direct_imports"`   // What this file imports
+	DirectImporters []string     `json:"direct_importers"` // Files that import this package
+	ExternalDeps    []string     `json:"external_deps"`    // Third-party dependencies
 
 	// Semantic Relationships (from knowledge graph)
 	RelatedEntities []RelatedEntity `json:"related_entities"` // Semantically related code
@@ -54,6 +56,20 @@ type HolographicContext struct {
 	HasTests        bool     `json:"has_tests"`        // Does a _test.go file exist?
 	TODOCount       int      `json:"todo_count"`       // Number of TODO/FIXME comments
 	ComplexityHints []string `json:"complexity_hints"` // High complexity warnings
+
+	// Impact-Aware Priority Context (from Mangle impact analysis)
+	ImpactPriority     int                 `json:"impact_priority"`     // Overall priority from Mangle analysis
+	PrioritizedCallers []PrioritizedCaller `json:"prioritized_callers"` // Callers sorted by impact priority
+}
+
+// PrioritizedCaller represents a caller function with impact analysis metadata.
+// Used by the impact-aware context builder to provide targeted review context.
+type PrioritizedCaller struct {
+	Name     string `json:"name"`     // Function/method name
+	File     string `json:"file"`     // Source file path
+	Body     string `json:"body"`     // Function body (may be truncated)
+	Priority int    `json:"priority"` // Priority from context_priority query (higher = more important)
+	Depth    int    `json:"depth"`    // Distance in call graph (1 = direct caller)
 }
 
 // SymbolSignature represents a function or method signature available in package scope.
@@ -720,4 +736,534 @@ func CountTODOs(content string) int {
 	todoPattern := regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX|BUG):?`)
 	matches := todoPattern.FindAllString(content, -1)
 	return len(matches)
+}
+
+// =============================================================================
+// IMPACT-AWARE CONTEXT BUILDING
+// =============================================================================
+// These methods integrate Mangle's impact analysis with holographic context,
+// providing prioritized caller information for targeted code review.
+
+// maxPrioritizedCallers limits the number of callers included to prevent prompt explosion.
+const maxPrioritizedCallers = 10
+
+// maxCallerBodyLines limits individual caller body size.
+const maxCallerBodyLines = 50
+
+// BuildWithImpactPriorities builds holographic context enhanced with impact analysis from the kernel.
+// It queries for context_priority facts to prioritize which callers to include,
+// then fetches their bodies for targeted review context.
+//
+// The method:
+// 1. Builds standard holographic context via GetContext
+// 2. Queries kernel for context_priority_file facts
+// 3. Fetches caller bodies for prioritized functions
+// 4. Sorts by priority and limits to top N callers
+// 5. Returns enhanced context ready for LLM injection
+func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, file string) (*HolographicContext, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+
+	logging.WorldDebug("BuildWithImpactPriorities: starting for %s", filepath.Base(file))
+
+	// 1. Build standard holographic context
+	hc, err := h.GetContext(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build base context: %w", err)
+	}
+
+	// 2. If no kernel, return standard context (graceful degradation)
+	if h.kernel == nil {
+		logging.WorldDebug("BuildWithImpactPriorities: no kernel available, returning standard context")
+		return hc, nil
+	}
+
+	// 3. Query kernel for context_priority_file facts
+	// Format: context_priority_file(File, Func, Priority)
+	priorityFacts, err := h.kernel.Query("context_priority_file")
+	if err != nil {
+		logging.WorldDebug("BuildWithImpactPriorities: context_priority_file query failed: %v", err)
+		// Fall back to relevant_context_file
+		priorityFacts, err = h.kernel.Query("relevant_context_file")
+		if err != nil {
+			logging.WorldDebug("BuildWithImpactPriorities: relevant_context_file query also failed: %v", err)
+			return hc, nil // Return standard context
+		}
+	}
+
+	if len(priorityFacts) == 0 {
+		logging.WorldDebug("BuildWithImpactPriorities: no priority facts found, returning standard context")
+		return hc, nil
+	}
+
+	// 4. Parse facts and build prioritized callers
+	callers := h.parsePriorityFacts(priorityFacts)
+	if len(callers) == 0 {
+		return hc, nil
+	}
+
+	// 5. Fetch function bodies for prioritized callers
+	for i := range callers {
+		select {
+		case <-ctx.Done():
+			return hc, ctx.Err()
+		default:
+		}
+
+		body, fetchErr := h.fetchFunctionBody(callers[i].File, callers[i].Name)
+		if fetchErr != nil {
+			logging.WorldDebug("BuildWithImpactPriorities: could not fetch body for %s:%s: %v",
+				callers[i].File, callers[i].Name, fetchErr)
+			continue
+		}
+		callers[i].Body = body
+	}
+
+	// 6. Sort by priority (descending) then by depth (ascending)
+	sort.Slice(callers, func(i, j int) bool {
+		if callers[i].Priority != callers[j].Priority {
+			return callers[i].Priority > callers[j].Priority
+		}
+		return callers[i].Depth < callers[j].Depth
+	})
+
+	// 7. Limit to prevent context explosion
+	if len(callers) > maxPrioritizedCallers {
+		logging.WorldDebug("BuildWithImpactPriorities: limiting callers from %d to %d",
+			len(callers), maxPrioritizedCallers)
+		callers = callers[:maxPrioritizedCallers]
+	}
+
+	// 8. Calculate overall impact priority (max of all callers)
+	maxPriority := 0
+	for _, c := range callers {
+		if c.Priority > maxPriority {
+			maxPriority = c.Priority
+		}
+	}
+
+	hc.PrioritizedCallers = callers
+	hc.ImpactPriority = maxPriority
+
+	logging.WorldDebug("BuildWithImpactPriorities: found %d prioritized callers (max priority: %d)",
+		len(callers), maxPriority)
+
+	return hc, nil
+}
+
+// parsePriorityFacts extracts PrioritizedCaller structs from Mangle query results.
+// Handles multiple fact formats:
+// - context_priority_file(File, Func, Priority)
+// - relevant_context_file(File)
+// - impact_graph(Target, Caller, Depth)
+func (h *HolographicProvider) parsePriorityFacts(facts []core.Fact) []PrioritizedCaller {
+	callers := make([]PrioritizedCaller, 0, len(facts))
+	seen := make(map[string]bool)
+
+	for _, fact := range facts {
+		var caller PrioritizedCaller
+		caller.Depth = 1       // Default depth
+		caller.Priority = 50   // Default medium priority
+
+		switch fact.Predicate {
+		case "context_priority_file":
+			// Format: context_priority_file(File, Func, Priority)
+			if len(fact.Args) < 3 {
+				continue
+			}
+			caller.File = h.stringArg(fact.Args[0])
+			caller.Name = h.stringArg(fact.Args[1])
+			caller.Priority = h.intArg(fact.Args[2], 50)
+
+		case "relevant_context_file":
+			// Format: relevant_context_file(File)
+			if len(fact.Args) < 1 {
+				continue
+			}
+			caller.File = h.stringArg(fact.Args[0])
+			// Name will be discovered when fetching body
+
+		case "impact_graph":
+			// Format: impact_graph(Target, Caller, Depth)
+			if len(fact.Args) < 3 {
+				continue
+			}
+			caller.Name = h.stringArg(fact.Args[1])
+			caller.Depth = h.intArg(fact.Args[2], 1)
+			// File will need to be looked up from code_defines
+
+		case "context_priority":
+			// Format: context_priority(FactID, Priority)
+			if len(fact.Args) < 2 {
+				continue
+			}
+			caller.File = h.stringArg(fact.Args[0])
+			caller.Priority = h.priorityAtomToInt(h.stringArg(fact.Args[1]))
+
+		default:
+			// Generic fallback: try to extract file and function
+			if len(fact.Args) >= 2 {
+				caller.File = h.stringArg(fact.Args[0])
+				caller.Name = h.stringArg(fact.Args[1])
+			} else if len(fact.Args) >= 1 {
+				caller.File = h.stringArg(fact.Args[0])
+			} else {
+				continue
+			}
+		}
+
+		// Skip if we don't have at least a file
+		if caller.File == "" {
+			continue
+		}
+
+		// Deduplicate by file:name key
+		key := fmt.Sprintf("%s:%s", caller.File, caller.Name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		callers = append(callers, caller)
+	}
+
+	return callers
+}
+
+// stringArg safely extracts a string from an interface{} argument.
+func (h *HolographicProvider) stringArg(arg interface{}) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// intArg safely extracts an int from an interface{} argument.
+func (h *HolographicProvider) intArg(arg interface{}, defaultVal int) int {
+	switch v := arg.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		// Try to parse priority atoms
+		return h.priorityAtomToInt(v)
+	default:
+		return defaultVal
+	}
+}
+
+// priorityAtomToInt converts Mangle priority atoms to integer values.
+func (h *HolographicProvider) priorityAtomToInt(atom string) int {
+	// Strip leading / for Mangle name constants
+	atom = strings.TrimPrefix(atom, "/")
+	atom = strings.ToLower(atom)
+
+	switch atom {
+	case "critical", "highest":
+		return 100
+	case "high":
+		return 80
+	case "medium", "normal":
+		return 50
+	case "low":
+		return 25
+	case "lowest":
+		return 10
+	default:
+		return 50 // Default medium
+	}
+}
+
+// fetchFunctionBody retrieves the body of a function from a file.
+// Uses AST parsing for Go files, falls back to regex for other languages.
+func (h *HolographicProvider) fetchFunctionBody(file, funcName string) (string, error) {
+	if file == "" {
+		return "", fmt.Errorf("empty file path")
+	}
+
+	// Resolve relative paths against workDir
+	resolvedPath := file
+	if !filepath.IsAbs(file) && h.workDir != "" {
+		resolvedPath = filepath.Join(h.workDir, file)
+	}
+
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file %s: %w", resolvedPath, err)
+	}
+
+	// For Go files, use AST parsing
+	if strings.HasSuffix(file, ".go") {
+		return h.extractGoFunctionBody(string(content), funcName)
+	}
+
+	// For other files, use regex-based extraction
+	return h.extractFunctionBodyRegex(string(content), funcName)
+}
+
+// extractGoFunctionBody uses Go's AST parser to extract a function body.
+func (h *HolographicProvider) extractGoFunctionBody(content, funcName string) (string, error) {
+	if funcName == "" {
+		return "", fmt.Errorf("empty function name")
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, "", content, parser.ParseComments)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse Go file: %w", err)
+	}
+
+	var targetFunc *ast.FuncDecl
+	ast.Inspect(node, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok {
+			if fn.Name.Name == funcName {
+				targetFunc = fn
+				return false
+			}
+		}
+		return true
+	})
+
+	if targetFunc == nil {
+		return "", fmt.Errorf("function %s not found", funcName)
+	}
+
+	startLine := fset.Position(targetFunc.Pos()).Line
+	endLine := fset.Position(targetFunc.End()).Line
+
+	return h.extractLineRange(content, startLine, endLine)
+}
+
+// extractFunctionBodyRegex uses regex to find function bodies in non-Go files.
+func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string) (string, error) {
+	if funcName == "" {
+		return "", fmt.Errorf("empty function name")
+	}
+
+	// Common function patterns
+	patterns := []string{
+		// Go: func Name(...)
+		fmt.Sprintf(`(?m)^func\s+(\([^)]*\)\s+)?%s\s*\(`, regexp.QuoteMeta(funcName)),
+		// Python: def name(...)
+		fmt.Sprintf(`(?m)^def\s+%s\s*\(`, regexp.QuoteMeta(funcName)),
+		// JavaScript/TypeScript: function name(...) or name(...) =>
+		fmt.Sprintf(`(?m)(function\s+%s|%s\s*[:=]\s*(async\s+)?(\([^)]*\)|[^=])\s*=>)`,
+			regexp.QuoteMeta(funcName), regexp.QuoteMeta(funcName)),
+		// Java/C#: modifier type name(...)
+		fmt.Sprintf(`(?m)(public|private|protected)?\s*\w+\s+%s\s*\(`, regexp.QuoteMeta(funcName)),
+	}
+
+	lines := strings.Split(content, "\n")
+	for _, pattern := range patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			continue
+		}
+
+		for i, line := range lines {
+			if re.MatchString(line) {
+				endLine := h.findFunctionEnd(lines, i)
+				return h.extractLineRange(content, i+1, endLine+1)
+			}
+		}
+	}
+
+	return "", fmt.Errorf("function %s not found with regex patterns", funcName)
+}
+
+// findFunctionEnd finds the closing brace of a function by tracking depth.
+func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int {
+	depth := 0
+	inFunction := false
+
+	for i := startIdx; i < len(lines); i++ {
+		for _, ch := range lines[i] {
+			if ch == '{' {
+				depth++
+				inFunction = true
+			} else if ch == '}' {
+				depth--
+				if inFunction && depth == 0 {
+					return i
+				}
+			}
+		}
+	}
+
+	// Fallback: return a reasonable range
+	endIdx := startIdx + maxCallerBodyLines
+	if endIdx > len(lines)-1 {
+		endIdx = len(lines) - 1
+	}
+	return endIdx
+}
+
+// extractLineRange extracts lines from content with truncation.
+func (h *HolographicProvider) extractLineRange(content string, startLine, endLine int) (string, error) {
+	lines := strings.Split(content, "\n")
+
+	startIdx := startLine - 1
+	endIdx := endLine
+
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if endIdx > len(lines) {
+		endIdx = len(lines)
+	}
+	if startIdx >= endIdx {
+		return "", fmt.Errorf("invalid line range: %d-%d", startLine, endLine)
+	}
+
+	// Apply max lines limit
+	lineCount := endIdx - startIdx
+	truncated := false
+	if lineCount > maxCallerBodyLines {
+		endIdx = startIdx + maxCallerBodyLines
+		truncated = true
+	}
+
+	result := strings.Join(lines[startIdx:endIdx], "\n")
+	if truncated {
+		result += "\n// ... (truncated)"
+	}
+
+	return result, nil
+}
+
+// FormatWithPriorities formats the holographic context with priority annotations.
+// This produces a markdown-formatted string optimized for LLM injection.
+func (hc *HolographicContext) FormatWithPriorities() string {
+	if hc == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Include standard context first
+	sb.WriteString(hc.FormatForPrompt())
+
+	// Add prioritized callers section if present
+	if len(hc.PrioritizedCallers) == 0 {
+		return sb.String()
+	}
+
+	sb.WriteString("\n## Impact-Prioritized Context\n\n")
+	sb.WriteString(fmt.Sprintf("Overall Impact Priority: %s\n\n",
+		priorityLevelString(hc.ImpactPriority)))
+
+	sb.WriteString("### Prioritized Callers\n")
+	sb.WriteString("These functions call into the target code, sorted by impact priority:\n\n")
+
+	for i, caller := range hc.PrioritizedCallers {
+		sb.WriteString(fmt.Sprintf("#### %d. `%s`", i+1, caller.Name))
+		if caller.File != "" {
+			sb.WriteString(fmt.Sprintf(" (%s)", filepath.Base(caller.File)))
+		}
+		sb.WriteString("\n")
+
+		// Priority indicator
+		switch {
+		case caller.Priority >= 80:
+			sb.WriteString("**Priority: HIGH** - Critical impact path\n")
+		case caller.Priority >= 50:
+			sb.WriteString("*Priority: Medium*\n")
+		default:
+			sb.WriteString("Priority: Low\n")
+		}
+
+		if caller.Depth > 1 {
+			sb.WriteString(fmt.Sprintf("Call depth: %d hops from target\n", caller.Depth))
+		}
+
+		if caller.Body != "" {
+			sb.WriteString("```go\n")
+			sb.WriteString(caller.Body)
+			if !strings.HasSuffix(caller.Body, "\n") {
+				sb.WriteString("\n")
+			}
+			sb.WriteString("```\n\n")
+		} else {
+			sb.WriteString("(body not available)\n\n")
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("**Summary:** %d prioritized callers included\n",
+		len(hc.PrioritizedCallers)))
+
+	return sb.String()
+}
+
+// FormatPrioritizedCallersCompact returns a compact list of prioritized callers.
+func (hc *HolographicContext) FormatPrioritizedCallersCompact() string {
+	if hc == nil || len(hc.PrioritizedCallers) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Prioritized callers:\n")
+
+	for _, caller := range hc.PrioritizedCallers {
+		priorityMark := ""
+		if caller.Priority >= 80 {
+			priorityMark = "[HIGH] "
+		} else if caller.Priority >= 50 {
+			priorityMark = "[MED] "
+		} else {
+			priorityMark = "[LOW] "
+		}
+
+		sb.WriteString(fmt.Sprintf("  %s%s", priorityMark, caller.Name))
+		if caller.File != "" {
+			sb.WriteString(fmt.Sprintf(" [%s]", filepath.Base(caller.File)))
+		}
+		if caller.Depth > 1 {
+			sb.WriteString(fmt.Sprintf(" (depth=%d)", caller.Depth))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// priorityLevelString converts a numeric priority to a human-readable level.
+func priorityLevelString(priority int) string {
+	switch {
+	case priority >= 90:
+		return "CRITICAL"
+	case priority >= 80:
+		return "HIGH"
+	case priority >= 50:
+		return "MEDIUM"
+	case priority >= 25:
+		return "LOW"
+	default:
+		return "MINIMAL"
+	}
+}
+
+// HasPrioritizedCallers returns true if the context has impact-prioritized callers.
+func (hc *HolographicContext) HasPrioritizedCallers() bool {
+	return hc != nil && len(hc.PrioritizedCallers) > 0
+}
+
+// GetHighPriorityCallers returns only callers with priority >= threshold.
+func (hc *HolographicContext) GetHighPriorityCallers(threshold int) []PrioritizedCaller {
+	if hc == nil || len(hc.PrioritizedCallers) == 0 {
+		return nil
+	}
+
+	result := make([]PrioritizedCaller, 0)
+	for _, caller := range hc.PrioritizedCallers {
+		if caller.Priority >= threshold {
+			result = append(result, caller)
+		}
+	}
+	return result
 }

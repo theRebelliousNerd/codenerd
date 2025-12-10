@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 )
 
@@ -63,10 +64,14 @@ func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string
 	}
 
 	userPrompt := s.buildUserPrompt(task)
-	resp, err := s.llmClient.CompleteWithSystem(ctx, requirementsInterrogatorSystemPrompt, userPrompt)
+	rawResp, err := s.llmClient.CompleteWithSystem(ctx, requirementsInterrogatorSystemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
+
+	// Process through Piggyback Protocol - extract surface response
+	processed := articulation.ProcessLLMResponse(rawResp)
+	resp := processed.Surface
 
 	questions := s.extractQuestions(resp)
 	if len(questions) == 0 {
