@@ -1,4 +1,3 @@
-```
 // Package shards implements specialized ShardAgent types.
 // This file provides registration helpers for the shard manager.
 package shards

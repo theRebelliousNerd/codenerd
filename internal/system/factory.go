@@ -6,10 +6,15 @@ import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
 	"codenerd/internal/core"
+	"codenerd/internal/embedding"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"strings"
+
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
@@ -18,6 +23,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/google/mangle/ast"
+	"github.com/google/mangle/parse"
 )
 
 // Cortex represents a fully initialized system instance.
@@ -32,6 +40,7 @@ type Cortex struct {
 	Scanner        *world.Scanner
 	UsageTracker   *usage.Tracker
 	Workspace      string
+	JITCompiler    *prompt.JITPromptCompiler
 }
 
 // BootCortex initializes the entire system stack for a given workspace.
@@ -115,14 +124,50 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		// Browser will be started lazily when needed
 	}
 
-	// 5. Register Shards (The Critical Fix)
+	// 5. JIT Prompt Compiler & Distributed Storage
+	// Initialize Embedding Engine (required for AtomLoader)
+	var embeddingEngine embedding.EmbeddingEngine
+	if apiKey != "" {
+		// Use user-mandated model
+		if engine, err := embedding.NewGenAIEngine(apiKey, "models/embedding-001", "RETRIEVAL_DOCUMENT"); err == nil {
+			embeddingEngine = engine
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v\n", err)
+		}
+	}
+
+	// Initialize Atom Loader
+	atomLoader := prompt.NewAtomLoader(embeddingEngine)
+
+	// Sync Agents (Distributed Storage)
+	// This ensures .nerd/shards/*.db are up-to-date with .nerd/agents/*.yaml
+	synchronizer := prsync.NewAgentSynchronizer(workspace, atomLoader)
+	if err := synchronizer.SyncAll(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Agent sync failed: %v\n", err)
+	}
+
+	// Initialize JIT Prompt Compiler
+	jitCompiler, err := prompt.NewJITPromptCompiler(
+		prompt.WithKernel(&KernelAdapter{kernel: kernel}),
+	)
+	if err != nil {
+		// Fallback to nil or fail? JIT is critical for shards.
+		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
+	}
+
+	// Register Shards (The Critical Fix)
 	regCtx := shards.RegistryContext{
 		Kernel:       kernel,
 		LLMClient:    llmClient,
 		VirtualStore: virtualStore,
 		Workspace:    workspace,
+		JITCompiler:  jitCompiler,
 	}
 	shards.RegisterAllShardFactories(shardManager, regCtx)
+
+	// Wire JIT Registrars for future dynamic registration
+	shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
+	shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
 
 	// Overwrite System Shards (Manual Injection if needed, but RegistryContext handles most)
 	// However, TactileRouter needs BrowserManager which isn't in RegistryContext yet
@@ -170,6 +215,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		Scanner:        scanner,
 		UsageTracker:   tracker,
 		Workspace:      workspace,
+		JITCompiler:    jitCompiler,
 	}, nil
 }
 
@@ -192,4 +238,76 @@ func (a *LocalStoreTraceAdapter) StoreReasoningTrace(trace *perception.Reasoning
 func (a *LocalStoreTraceAdapter) LoadReasoningTrace(traceID string) (*perception.ReasoningTrace, error) {
 	// Not implemented for now in this adapter context
 	return nil, nil
+}
+
+// KernelAdapter adapts core.Kernel to prompt.KernelQuerier.
+// It handles type conversion between []interface{} and []core.Fact.
+type KernelAdapter struct {
+	kernel core.Kernel
+}
+
+func (ka *KernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
+	facts, err := ka.kernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+	// Convert []core.Fact to []prompt.Fact
+	result := make([]prompt.Fact, len(facts))
+	for i, f := range facts {
+		result[i] = prompt.Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return result, nil
+}
+
+func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
+	var coreFacts []core.Fact
+	for _, f := range facts {
+		switch v := f.(type) {
+		case core.Fact:
+			coreFacts = append(coreFacts, v)
+		case string:
+			// Parse string fact
+			// Mangle parser expects full clause syntax, typically ending with dot
+			input := v
+			if !strings.HasSuffix(input, ".") {
+				input += "."
+			}
+
+			parsed, err := parse.Unit(strings.NewReader(input))
+			if err != nil {
+				return fmt.Errorf("failed to parse fact string '%s': %w", v, err)
+			}
+
+			if len(parsed.Clauses) != 1 {
+				return fmt.Errorf("expected 1 clause in fact string, got %d", len(parsed.Clauses))
+			}
+
+			atom := parsed.Clauses[0].Head
+			args := make([]interface{}, len(atom.Args))
+			for i, arg := range atom.Args {
+				switch t := arg.(type) {
+				case ast.String:
+					args[i] = t.Value
+				case ast.Number:
+					args[i] = t.Value
+				case ast.Constant:
+					// Mangle names start with /
+					args[i] = core.MangleAtom(t.Symbol)
+				default:
+					args[i] = t.String()
+				}
+			}
+
+			coreFacts = append(coreFacts, core.Fact{
+				Predicate: atom.Predicate.Symbol,
+				Args:      args,
+			})
+		default:
+			return fmt.Errorf("unsupported fact type: %T", f)
+		}
+	}
+	return ka.kernel.LoadFacts(coreFacts)
 }

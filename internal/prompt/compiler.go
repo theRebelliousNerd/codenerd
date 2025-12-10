@@ -5,15 +5,22 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
 	"codenerd/internal/logging"
 )
+
+// Fact represents a logic fact (predicate + args).
+type Fact struct {
+	Predicate string
+	Args      []interface{}
+}
 
 // KernelQuerier defines the interface for querying the Mangle kernel.
 // This abstracts the kernel to avoid circular imports.
 type KernelQuerier interface {
 	// Query retrieves facts matching a predicate.
-	Query(predicate string) ([]interface{}, error)
+	Query(predicate string) ([]Fact, error)
 
 	// AssertBatch adds multiple facts efficiently.
 	AssertBatch(facts []interface{}) error
@@ -53,6 +60,8 @@ type CompilationResult struct {
 	AtomsCandidates   int // Total atoms considered
 	AtomsSelected     int // Atoms that matched context
 	AtomsIncluded     int // Atoms that fit in budget
+	// Compilation manifest (Flight Recorder)
+	Manifest *PromptManifest
 }
 
 // JITPromptCompiler compiles optimal system prompts from atomic fragments.
@@ -446,6 +455,71 @@ func (c *JITPromptCompiler) buildResult(
 			result.OptionalCount++
 		}
 	}
+
+	if budget > 0 {
+		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)
+	}
+
+	// --- Build Manifest ---
+	manifest := &PromptManifest{
+		Timestamp:   time.Now(),
+		TokenUsage:  result.TotalTokens,
+		BudgetLimit: budget,
+		Selected:    make([]AtomManifestEntry, 0, len(fitted)),
+		Dropped:     make([]DroppedAtomEntry, 0),
+	}
+
+	// Lookup map for scores
+	scoreMap := make(map[string]*ScoredAtom)
+	for _, sa := range scored {
+		scoreMap[sa.Atom.ID] = sa
+	}
+
+	// Lookup map for fitted
+	fittedMap := make(map[string]bool)
+	for _, oa := range fitted {
+		fittedMap[oa.Atom.ID] = true
+
+		// Find scores
+		var logic, vector float64
+		if sa, ok := scoreMap[oa.Atom.ID]; ok {
+			logic = sa.LogicScore
+			vector = sa.VectorScore
+		}
+
+		manifest.Selected = append(manifest.Selected, AtomManifestEntry{
+			ID:          oa.Atom.ID,
+			Category:    string(oa.Atom.Category),
+			Source:      "mixed", // TODO: Distinguish skeleton vs flesh
+			Priority:    oa.Atom.Priority,
+			LogicScore:  logic,
+			VectorScore: vector,
+			RenderMode:  oa.RenderMode,
+		})
+	}
+
+	// Identify dropped
+	// 1. Candidates rejected by Selector (Logic/Vector)
+	for _, cand := range candidates {
+		if _, ok := scoreMap[cand.ID]; !ok {
+			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
+				ID:     cand.ID,
+				Reason: "Selector (Logic/Vector)",
+			})
+		}
+	}
+
+	// 2. Scored atoms rejected by Budget/Resolver
+	for _, sa := range scored {
+		if !fittedMap[sa.Atom.ID] {
+			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
+				ID:     sa.Atom.ID,
+				Reason: "Budget/Dependency",
+			})
+		}
+	}
+
+	result.Manifest = manifest
 
 	if budget > 0 {
 		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)

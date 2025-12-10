@@ -17,11 +17,18 @@ type mockKernel struct {
 	assertErr error
 }
 
-func (m *mockKernel) Query(predicate string) ([]interface{}, error) {
+func (m *mockKernel) Query(predicate string) ([]Fact, error) {
 	if m.queryErr != nil {
 		return nil, m.queryErr
 	}
-	return m.facts, nil
+	// Cast stored interface{} facts to Fact
+	var result []Fact
+	for _, f := range m.facts {
+		if fact, ok := f.(Fact); ok {
+			result = append(result, fact)
+		}
+	}
+	return result, nil
 }
 
 func (m *mockKernel) AssertBatch(facts []interface{}) error {
@@ -418,18 +425,18 @@ func TestCompileEndToEnd(t *testing.T) {
 			TokenCount: 15,
 		},
 		{
-			ID:          "framework/bubbletea",
-			Category:    CategoryFramework,
-			Content:     "Use the Model-View-Update pattern with Bubbletea.",
-			Priority:    60,
-			Frameworks:  []string{"/bubbletea"},
-			TokenCount:  12,
+			ID:         "framework/bubbletea",
+			Category:   CategoryFramework,
+			Content:    "Use the Model-View-Update pattern with Bubbletea.",
+			Priority:   60,
+			Frameworks: []string{"/bubbletea"},
+			TokenCount: 12,
 		},
 		{
-			ID:         "exemplar/fix",
-			Category:   CategoryExemplar,
-			Content:    "Example: When fixing a bug, first reproduce it with a test.",
-			Priority:   40,
+			ID:          "exemplar/fix",
+			Category:    CategoryExemplar,
+			Content:     "Example: When fixing a bug, first reproduce it with a test.",
+			Priority:    40,
 			IntentVerbs: []string{"/fix"},
 			TokenCount:  15,
 		},

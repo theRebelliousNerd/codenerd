@@ -14,6 +14,10 @@ import (
 // GOOGLE GENAI EMBEDDING ENGINE
 // =============================================================================
 
+func int32Ptr(i int32) *int32 {
+	return &i
+}
+
 // GenAIEngine generates embeddings using Google's Gemini API.
 type GenAIEngine struct {
 	client   *genai.Client
@@ -84,7 +88,9 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
-		nil, // TaskType set via model, not request
+		&genai.EmbedContentConfig{
+			OutputDimensionality: int32Ptr(3072),
+		},
 	)
 	apiLatency := time.Since(apiStart)
 
@@ -138,7 +144,9 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
-		nil, // TaskType set via model, not request
+		&genai.EmbedContentConfig{
+			OutputDimensionality: int32Ptr(3072),
+		},
 	)
 	apiLatency := time.Since(apiStart)
 
