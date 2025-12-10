@@ -51,9 +51,10 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 		c.routeControlPacketToKernel(processed.Control)
 	}
 
-	// Parse response into edits (use surface response, not raw)
+	// Parse response into edits (use RAW response to preserve file/content JSON fields)
+	// Note: Piggyback surface is just the human-readable summary; the actual code is in file/content fields
 	logging.CoderDebug("Parsing LLM response into edits")
-	parsed := c.parseCodeResponse(processed.Surface, task)
+	parsed := c.parseCodeResponse(rawResponse, task)
 	logging.Coder("Parsed %d edits from LLM response (artifact_type=%s)", len(parsed.Edits), parsed.ArtifactType)
 
 	for i, edit := range parsed.Edits {
@@ -137,6 +138,12 @@ func (c *CoderShard) buildJITSystemPrompt(task CoderTask) (string, error) {
 	prompt, err := c.promptAssembler.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		return "", fmt.Errorf("failed to assemble system prompt: %w", err)
+	}
+
+	// If JIT returned empty/minimal content (no atoms loaded), fall back to legacy
+	if len(strings.TrimSpace(prompt)) < 100 {
+		logging.Coder("[JIT] Empty prompt (%d chars), falling back to legacy", len(prompt))
+		return "", fmt.Errorf("JIT returned empty prompt, use legacy fallback")
 	}
 
 	// Append reasoning directive

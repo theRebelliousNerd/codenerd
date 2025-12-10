@@ -10,6 +10,8 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
+	"codenerd/internal/shards"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -2150,6 +2152,24 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
+	// Initialize JIT Prompt Compiler - CRITICAL for shard prompt formatting
+	jitCompiler, err := prompt.NewJITPromptCompiler(
+		prompt.WithKernel(coresys.NewKernelAdapter(kernel)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to init JIT compiler: %w", err)
+	}
+
+	// Register shard factories - CRITICAL: without this, shards fall back to BaseShardAgent
+	shardMgr.SetLLMClient(llmClient)
+	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
+		Kernel:       kernel,
+		LLMClient:    llmClient,
+		VirtualStore: virtualStore,
+		Workspace:    cwd,
+		JITCompiler:  jitCompiler,
+	})
+
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║          CAMPAIGN ORCHESTRATOR - INITIALIZING             ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
@@ -2421,6 +2441,24 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
+
+	// Initialize JIT Prompt Compiler - CRITICAL for shard prompt formatting
+	jitCompiler, err := prompt.NewJITPromptCompiler(
+		prompt.WithKernel(coresys.NewKernelAdapter(kernel)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to init JIT compiler: %w", err)
+	}
+
+	// Register shard factories - CRITICAL: without this, shards fall back to BaseShardAgent
+	shardMgr.SetLLMClient(llmClient)
+	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
+		Kernel:       kernel,
+		LLMClient:    llmClient,
+		VirtualStore: virtualStore,
+		Workspace:    cwd,
+		JITCompiler:  jitCompiler,
+	})
 
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
