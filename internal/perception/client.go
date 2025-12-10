@@ -595,41 +595,72 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			return
 		}
 
-		// Read SSE stream
+		// Read SSE stream with context cancellation support.
+		// The scanner runs in a separate goroutine so we can monitor ctx.Done()
+		// and force-close the response body to unblock scanner.Scan() on timeout.
 		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			line := scanner.Text()
 
-			// SSE format: "data: {...}"
-			if !strings.HasPrefix(line, "data: ") {
-				continue
-			}
+		// Channel to signal scanner goroutine completion
+		scanDone := make(chan struct{})
+		// Channel to capture scanner error (buffered to avoid goroutine leak)
+		scanErrChan := make(chan error, 1)
 
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
-				break
-			}
+		go func() {
+			defer close(scanDone)
+			for scanner.Scan() {
+				line := scanner.Text()
 
-			var chunk ZAIResponse
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue // Skip malformed chunks
-			}
+				// SSE format: "data: {...}"
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
 
-			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
-				content := chunk.Choices[0].Delta.Content
-				if content != "" {
-					select {
-					case contentChan <- content:
-					case <-ctx.Done():
-						errorChan <- ctx.Err()
-						return
+				data := strings.TrimPrefix(line, "data: ")
+				if data == "[DONE]" {
+					return
+				}
+
+				var chunk ZAIResponse
+				if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+					continue // Skip malformed chunks
+				}
+
+				if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
+					content := chunk.Choices[0].Delta.Content
+					if content != "" {
+						select {
+						case contentChan <- content:
+						case <-ctx.Done():
+							// Context cancelled while trying to send
+							return
+						}
 					}
 				}
 			}
-		}
+			// Capture scanner error for the main goroutine to handle
+			if err := scanner.Err(); err != nil {
+				scanErrChan <- err
+			}
+		}()
 
-		if err := scanner.Err(); err != nil {
-			errorChan <- fmt.Errorf("stream error: %w", err)
+		// Wait for either scanner completion or context cancellation
+		select {
+		case <-scanDone:
+			// Normal completion - check for scanner errors
+			select {
+			case err := <-scanErrChan:
+				errorChan <- fmt.Errorf("stream error: %w", err)
+			default:
+				// No error, clean completion
+			}
+		case <-ctx.Done():
+			// Context cancelled - force close response body to unblock scanner.Scan()
+			// This is safe because we're in the goroutine that owns resp.Body,
+			// and the defer resp.Body.Close() will be a no-op after this.
+			resp.Body.Close()
+			// Wait briefly for scanner to notice the closed body and exit
+			<-scanDone
+			errorChan <- ctx.Err()
 		}
 	}()
 
@@ -1615,7 +1646,7 @@ type ProviderConfig struct {
 	Context7APIKey string // Context7 API key for research
 
 	// CLI Engine Configuration (takes precedence over Provider when set)
-	Engine    string                 // "api", "claude-cli", "codex-cli"
+	Engine    string                  // "api", "claude-cli", "codex-cli"
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
 }
