@@ -123,7 +123,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /agents | List defined agents |
 | /spawn <type> <task> | Spawn a shard agent |
 | /legislate <constraint> | Synthesize & ratify a safety rule |
-| /review [path] | Code review (current dir or specified) |
+| /review [path] [--andEnhance] | Code review (--andEnhance for creative suggestions) |
 | /security [path] | Security analysis |
 | /analyze [path] | Complexity analysis |
 | /clarify <goal> | Socratic requirements interrogation |
@@ -989,17 +989,28 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/review":
 		target := "."
-		if len(parts) > 1 {
-			target = parts[1]
+		enableEnhancement := false
+
+		// Parse args for target and --andEnhance flag
+		for _, arg := range parts[1:] {
+			if arg == "--andEnhance" || arg == "--enhance" {
+				enableEnhancement = true
+			} else if !strings.HasPrefix(arg, "-") {
+				target = arg
+			}
 		}
 
 		// Check if multi-shard review is available (has registered specialists)
 		registry := m.loadAgentRegistry()
 		if registry != nil && len(registry.Agents) > 0 {
 			// Use multi-shard orchestrated review
+			msg := fmt.Sprintf("Running multi-shard review on: %s (with specialists)", target)
+			if enableEnhancement {
+				msg += " with creative enhancement"
+			}
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Running multi-shard review on: %s (with specialists)", target),
+				Content: msg,
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
@@ -1011,9 +1022,17 @@ You have an existing Northstar definition. What would you like to do?
 
 		// Fallback to single ReviewerShard
 		task := formatShardTask("/review", target, "", m.workspace)
+		// Append --andEnhance flag if requested
+		if enableEnhancement {
+			task += " --andEnhance"
+		}
+		msg := fmt.Sprintf("Running code review on: %s", target)
+		if enableEnhancement {
+			msg += " with creative enhancement (Steps 8-12)"
+		}
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: fmt.Sprintf("Running code review on: %s", target),
+			Content: msg,
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())

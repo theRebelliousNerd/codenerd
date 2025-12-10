@@ -434,10 +434,18 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 	// Determine if we should use the neuro-symbolic pipeline
 	useNeuroSymbolic := r.shouldUseNeuroSymbolic(parsedTask)
 
+	// Build config with enhancement flag from parsed task
+	config := DefaultNeuroSymbolicConfig()
+	if parsedTask.EnableEnhancement {
+		config.EnableCreativeEnhancement = true
+		config.EnableSelfInterrogation = true
+		logging.Reviewer("Creative enhancement enabled (Steps 8-12)")
+	}
+
 	switch parsedTask.Action {
 	case "review":
 		if useNeuroSymbolic {
-			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, config)
 			if neuroResult != nil {
 				result = neuroResult.ReviewResult
 			}
@@ -452,7 +460,7 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 		result, err = r.complexityAnalysis(ctx, parsedTask)
 	case "diff":
 		if useNeuroSymbolic {
-			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, config)
 			if neuroResult != nil {
 				result = neuroResult.ReviewResult
 			}
@@ -461,7 +469,7 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 		}
 	default:
 		if useNeuroSymbolic {
-			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, config)
 			if neuroResult != nil {
 				result = neuroResult.ReviewResult
 			}
@@ -535,10 +543,11 @@ func (r *ReviewerShard) shouldUseNeuroSymbolic(task *ReviewerTask) bool {
 
 // ReviewerTask represents a parsed review task.
 type ReviewerTask struct {
-	Action  string   // "review", "security_scan", "style_check", "complexity", "diff"
-	Files   []string // Files to review
-	DiffRef string   // Git diff reference (e.g., "HEAD~1")
-	Options map[string]string
+	Action            string   // "review", "security_scan", "style_check", "complexity", "diff"
+	Files             []string // Files to review
+	DiffRef           string   // Git diff reference (e.g., "HEAD~1")
+	Options           map[string]string
+	EnableEnhancement bool // --andEnhance flag enables creative suggestions (Steps 8-12)
 }
 
 // parseTask extracts action and parameters from task string.
@@ -607,6 +616,14 @@ func (r *ReviewerShard) parseTask(task string) (*ReviewerTask, error) {
 				}
 			default:
 				parsed.Options[key] = value
+			}
+		} else if strings.HasPrefix(part, "--") {
+			// Handle double-dash flags
+			flag := strings.TrimPrefix(part, "--")
+			switch strings.ToLower(flag) {
+			case "andenhance", "enhance":
+				parsed.EnableEnhancement = true
+				logging.ReviewerDebug("Enhancement mode enabled via --%s flag", flag)
 			}
 		} else if !strings.HasPrefix(part, "-") {
 			// Bare argument - treat as file
@@ -1370,6 +1387,12 @@ type NeuroSymbolicConfig struct {
 	MinConfidence       float64 // Minimum hypothesis confidence to consider (default: 0.3)
 	ImpactDepthLimit    int     // Maximum hops for impact analysis (default: 3)
 	BatchSize           int     // Hypotheses per LLM call (default: 10)
+
+	// Creative Enhancement (--andEnhance flag)
+	EnableCreativeEnhancement bool // Run creative enhancement pipeline (Steps 8-12)
+	MaxSuggestionsPerLevel    int  // Max suggestions per level (file/module/system/feature) (default: 5)
+	EnableSelfInterrogation   bool // Enable self-Q&A refinement (default: true)
+	VectorSearchLimit         int  // Max past suggestions to retrieve (default: 10)
 }
 
 // DefaultNeuroSymbolicConfig returns sensible defaults for the pipeline.
@@ -1381,6 +1404,12 @@ func DefaultNeuroSymbolicConfig() NeuroSymbolicConfig {
 		MinConfidence:       0.3,
 		ImpactDepthLimit:    3,
 		BatchSize:           10,
+
+		// Creative enhancement disabled by default (opt-in via --andEnhance)
+		EnableCreativeEnhancement: false,
+		MaxSuggestionsPerLevel:    5,
+		EnableSelfInterrogation:   true,
+		VectorSearchLimit:         10,
 	}
 }
 
@@ -1389,13 +1418,17 @@ type NeuroSymbolicResult struct {
 	*ReviewResult
 
 	// Pipeline metadata
-	PreFlightPassed    bool           `json:"preflight_passed"`
-	PreFlightDiags     []Diagnostic   `json:"preflight_diagnostics,omitempty"`
-	HypothesesTotal    int            `json:"hypotheses_total"`
-	HypothesesVerified int            `json:"hypotheses_verified"`
-	HypothesesDismissed int           `json:"hypotheses_dismissed"`
-	ImpactContext      *ImpactContext `json:"impact_context,omitempty"`
-	VerificationStats  *VerificationStats `json:"verification_stats,omitempty"`
+	PreFlightPassed     bool               `json:"preflight_passed"`
+	PreFlightDiags      []Diagnostic       `json:"preflight_diagnostics,omitempty"`
+	PreFlightSolutions  []string           `json:"preflight_solutions,omitempty"` // Proposed solutions for preflight issues
+	HypothesesTotal     int                `json:"hypotheses_total"`
+	HypothesesVerified  int                `json:"hypotheses_verified"`
+	HypothesesDismissed int                `json:"hypotheses_dismissed"`
+	ImpactContext       *ImpactContext     `json:"impact_context,omitempty"`
+	VerificationStats   *VerificationStats `json:"verification_stats,omitempty"`
+
+	// Creative Enhancement (Steps 8-12)
+	Enhancement *EnhancementResult `json:"enhancement,omitempty"`
 }
 
 // executeNeuroSymbolicReview implements the full 7-step neuro-symbolic verification pipeline.
@@ -1431,24 +1464,48 @@ func (r *ReviewerShard) executeNeuroSymbolicReview(ctx context.Context, task *Re
 	}
 
 	// ==========================================================================
-	// STEP 1: PRE-FLIGHT CHECK
+	// STEP 1: PRE-FLIGHT CHECK (Non-blocking - surfaces issues as findings)
 	// ==========================================================================
 	if config.EnablePreFlight && len(filesToReview) > 0 {
 		logging.Reviewer("Step 1/7: Running pre-flight checks")
 
-		failureMsg, proceed := r.RunPreFlightAndProceed(ctx, filesToReview)
+		diagnostics, proceed := r.PreFlightCheck(ctx, filesToReview)
 		if !proceed {
-			// Pre-flight failed - abort with diagnostics
+			// Pre-flight failed - surface as findings but CONTINUE with review
 			result.PreFlightPassed = false
-			result.AnalysisReport = failureMsg
-			result.Severity = ReviewSeverityCritical
-			result.BlockCommit = true
-			result.Summary = "Pre-flight check failed: code does not compile"
-			result.Duration = time.Since(startTime)
-			logging.Reviewer("Pre-flight FAILED - aborting review")
-			return result, nil
+			result.PreFlightDiags = diagnostics
+
+			// Convert diagnostics to findings with proposed solutions
+			for _, diag := range diagnostics {
+				finding := ReviewFinding{
+					File:     diag.File,
+					Line:     diag.Line,
+					Severity: strings.ToLower(diag.Severity),
+					Category: "build",
+					RuleID:   "preflight-" + strings.ToLower(diag.Severity),
+					Message:  diag.Message,
+				}
+
+				// Generate proposed solution based on the error
+				solution := r.proposeSolutionForDiagnostic(diag)
+				if solution != "" {
+					finding.Suggestion = solution
+					result.PreFlightSolutions = append(result.PreFlightSolutions, solution)
+				}
+
+				result.Findings = append(result.Findings, finding)
+			}
+
+			logging.Reviewer("Pre-flight issues found (%d diagnostics) - continuing with review", len(diagnostics))
+		} else {
+			// Pre-flight passed, inject vet warnings as hypotheses
+			if len(diagnostics) > 0 {
+				r.injectVetDiagnostics(diagnostics)
+				logging.Reviewer("Pre-flight passed with %d warnings, injected as hypotheses", len(diagnostics))
+			} else {
+				logging.ReviewerDebug("Pre-flight passed with no issues")
+			}
 		}
-		logging.ReviewerDebug("Pre-flight passed")
 	}
 
 	// ==========================================================================
@@ -1580,6 +1637,33 @@ func (r *ReviewerShard) executeNeuroSymbolicReview(ctx context.Context, task *Re
 
 	// Persist findings to database
 	r.persistFindings(result.Findings)
+
+	// ==========================================================================
+	// STEPS 8-12: CREATIVE ENHANCEMENT (if --andEnhance flag)
+	// ==========================================================================
+	if config.EnableCreativeEnhancement {
+		logging.Reviewer("Steps 8-12: Running creative enhancement pipeline")
+
+		// Build holographic context for first file (representative context)
+		var holoCtx *HolographicContext
+		if r.holographicProvider != nil && len(filesToReview) > 0 {
+			holoCtx, _ = r.holographicProvider.GetContext(filesToReview[0])
+		}
+
+		enhancement, err := r.ExecuteCreativeEnhancement(ctx, fileContents, holoCtx, result.Findings)
+		if err != nil {
+			logging.Get(logging.CategoryReviewer).Warn("Enhancement failed: %v", err)
+		} else {
+			result.Enhancement = enhancement
+
+			// Persist enhancements for future vector search
+			if err := r.PersistEnhancements(ctx, enhancement, r.id); err != nil {
+				logging.ReviewerDebug("Enhancement persistence failed: %v", err)
+			}
+
+			logging.Reviewer("Enhancement complete: %d suggestions generated", enhancement.TotalSuggestions())
+		}
+	}
 
 	// Assert findings to kernel for downstream rules
 	for _, finding := range result.Findings {
@@ -1788,10 +1872,43 @@ func (r *ReviewerShard) formatNeuroSymbolicResult(result *NeuroSymbolicResult) s
 	// Summary section
 	sb.WriteString("## Summary\n\n")
 	sb.WriteString(fmt.Sprintf("- **Files Reviewed:** %d\n", len(result.Files)))
-	sb.WriteString(fmt.Sprintf("- **Pre-flight:** %s\n", boolToStatus(result.PreFlightPassed)))
+	preflightStatus := boolToStatus(result.PreFlightPassed)
+	if !result.PreFlightPassed {
+		preflightStatus = "ISSUES FOUND (review continued)"
+	}
+	sb.WriteString(fmt.Sprintf("- **Pre-flight:** %s\n", preflightStatus))
 	sb.WriteString(fmt.Sprintf("- **Overall Severity:** %s\n", result.Severity))
 	sb.WriteString(fmt.Sprintf("- **Duration:** %v\n", result.Duration))
 	sb.WriteString(fmt.Sprintf("- **Block Commit:** %v\n\n", result.BlockCommit))
+
+	// Pre-flight issues section (if any)
+	if !result.PreFlightPassed && len(result.PreFlightDiags) > 0 {
+		sb.WriteString("## Build/Environment Issues\n\n")
+		sb.WriteString("*The following issues were detected during pre-flight checks. The review continued with static analysis.*\n\n")
+
+		for i, diag := range result.PreFlightDiags {
+			severity := strings.ToLower(diag.Severity)
+			location := ""
+			if diag.File != "" {
+				if diag.Line > 0 {
+					location = fmt.Sprintf("`%s:%d` ", diag.File, diag.Line)
+				} else {
+					location = fmt.Sprintf("`%s` ", diag.File)
+				}
+			}
+			sb.WriteString(fmt.Sprintf("%d. **[%s]** %s%s\n", i+1, severity, location, diag.Message))
+
+			// Show proposed solution if available
+			if i < len(result.PreFlightSolutions) && result.PreFlightSolutions[i] != "" {
+				sb.WriteString(fmt.Sprintf("   - **Proposed fix:** %s\n", result.PreFlightSolutions[i]))
+			}
+
+			if diag.Detail != "" && len(diag.Detail) < 200 {
+				sb.WriteString(fmt.Sprintf("   - Detail: `%s`\n", diag.Detail))
+			}
+		}
+		sb.WriteString("\n")
+	}
 
 	// Verification stats
 	if result.HypothesesTotal > 0 {
@@ -1815,6 +1932,103 @@ func (r *ReviewerShard) formatNeuroSymbolicResult(result *NeuroSymbolicResult) s
 
 	// Findings section (reuse existing format)
 	sb.WriteString(r.formatResult(result.ReviewResult))
+
+	// Enhancement Suggestions section (separate from findings)
+	if result.Enhancement != nil && result.Enhancement.HasSuggestions() {
+		sb.WriteString("\n---\n\n")
+		sb.WriteString("## Enhancement Suggestions\n\n")
+		sb.WriteString("*Creative analysis powered by two-pass self-consultation*\n\n")
+
+		// Pipeline stats
+		if result.Enhancement.FirstPassCount > 0 {
+			sb.WriteString(fmt.Sprintf("*First pass: %d suggestions | Second pass: %d suggestions (%.1fx enhancement)*\n\n",
+				result.Enhancement.FirstPassCount,
+				result.Enhancement.SecondPassCount,
+				result.Enhancement.EnhancementRatio))
+		}
+
+		// File-level suggestions
+		if len(result.Enhancement.FileSuggestions) > 0 {
+			sb.WriteString("### File-Level Improvements\n\n")
+			for _, fs := range result.Enhancement.FileSuggestions {
+				sb.WriteString(fmt.Sprintf("**[%s]** `%s` - %s\n", fs.Category, fs.File, fs.Title))
+				sb.WriteString(fmt.Sprintf("  %s\n", fs.Description))
+				if fs.CodeExample != "" {
+					sb.WriteString(fmt.Sprintf("  ```go\n  %s\n  ```\n", fs.CodeExample))
+				}
+				sb.WriteString(fmt.Sprintf("  *Effort: %s*\n\n", fs.Effort))
+			}
+		}
+
+		// Module-level suggestions
+		if len(result.Enhancement.ModuleSuggestions) > 0 {
+			sb.WriteString("### Module-Level Improvements\n\n")
+			for _, ms := range result.Enhancement.ModuleSuggestions {
+				sb.WriteString(fmt.Sprintf("**[%s]** `%s` - %s\n", ms.Category, ms.Package, ms.Title))
+				sb.WriteString(fmt.Sprintf("  %s\n", ms.Description))
+				if len(ms.AffectedFiles) > 0 {
+					sb.WriteString(fmt.Sprintf("  *Affected files: %s*\n", strings.Join(ms.AffectedFiles, ", ")))
+				}
+				sb.WriteString(fmt.Sprintf("  *Effort: %s*\n\n", ms.Effort))
+			}
+		}
+
+		// System-level insights
+		if len(result.Enhancement.SystemInsights) > 0 {
+			sb.WriteString("### System-Level Insights\n\n")
+			for _, si := range result.Enhancement.SystemInsights {
+				sb.WriteString(fmt.Sprintf("**[%s]** %s\n", si.Category, si.Title))
+				sb.WriteString(fmt.Sprintf("  %s\n", si.Description))
+				if len(si.RelatedModules) > 0 {
+					sb.WriteString(fmt.Sprintf("  *Related modules: %s*\n", strings.Join(si.RelatedModules, ", ")))
+				}
+				sb.WriteString(fmt.Sprintf("  *Impact: %s*\n\n", si.Impact))
+			}
+		}
+
+		// Feature ideas
+		if len(result.Enhancement.FeatureIdeas) > 0 {
+			sb.WriteString("### Feature Ideas\n\n")
+			for _, fi := range result.Enhancement.FeatureIdeas {
+				sb.WriteString(fmt.Sprintf("**%s**\n", fi.Title))
+				sb.WriteString(fmt.Sprintf("  %s\n", fi.Description))
+				if fi.Rationale != "" {
+					sb.WriteString(fmt.Sprintf("  *Rationale: %s*\n", fi.Rationale))
+				}
+				if len(fi.Prerequisites) > 0 {
+					sb.WriteString(fmt.Sprintf("  *Prerequisites: %s*\n", strings.Join(fi.Prerequisites, ", ")))
+				}
+				sb.WriteString(fmt.Sprintf("  *Complexity: %s*\n\n", fi.Complexity))
+			}
+		}
+
+		// Self-interrogation insights (if any)
+		if len(result.Enhancement.SelfQA) > 0 {
+			sb.WriteString("### Self-Consultation Insights\n\n")
+			for _, qa := range result.Enhancement.SelfQA {
+				sb.WriteString(fmt.Sprintf("**Q:** %s\n", qa.Question))
+				sb.WriteString(fmt.Sprintf("**A:** %s\n", qa.Answer))
+				if qa.Insight != "" {
+					sb.WriteString(fmt.Sprintf("*Insight: %s*\n", qa.Insight))
+				}
+				sb.WriteString("\n")
+			}
+		}
+
+		// Vector inspiration (if any)
+		if len(result.Enhancement.VectorInspiration) > 0 {
+			sb.WriteString("### Historical Inspiration\n\n")
+			sb.WriteString("*Suggestions informed by similar past reviews:*\n\n")
+			for _, ps := range result.Enhancement.VectorInspiration {
+				status := "not implemented"
+				if ps.WasImplemented {
+					status = "implemented"
+				}
+				sb.WriteString(fmt.Sprintf("- (%.0f%% similar, %s) %s\n", ps.Similarity*100, status, ps.Summary))
+			}
+			sb.WriteString("\n")
+		}
+	}
 
 	return sb.String()
 }

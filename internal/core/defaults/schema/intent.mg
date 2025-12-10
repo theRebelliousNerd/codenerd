@@ -620,6 +620,37 @@ intent_category("Give me feedback on this.", /query).
 intent_definition("Critique this code.", /review, "context_file").
 intent_category("Critique this code.", /query).
 
+# --- Review with Enhancement (creative suggestions) ---
+intent_definition("Review and enhance this file.", /review_enhance, "context_file").
+intent_category("Review and enhance this file.", /query).
+
+intent_definition("Review this with suggestions.", /review_enhance, "context_file").
+intent_category("Review this with suggestions.", /query).
+
+intent_definition("Review and suggest improvements.", /review_enhance, "context_file").
+intent_category("Review and suggest improvements.", /query).
+
+intent_definition("Deep review with enhancement.", /review_enhance, "context_file").
+intent_category("Deep review with enhancement.", /query).
+
+intent_definition("Review this creatively.", /review_enhance, "context_file").
+intent_category("Review this creatively.", /query).
+
+intent_definition("Give me creative feedback.", /review_enhance, "context_file").
+intent_category("Give me creative feedback.", /query).
+
+intent_definition("Review with feature ideas.", /review_enhance, "context_file").
+intent_category("Review with feature ideas.", /query).
+
+intent_definition("Suggest improvements for this code.", /review_enhance, "context_file").
+intent_category("Suggest improvements for this code.", /query).
+
+intent_definition("What could be improved here?", /review_enhance, "context_file").
+intent_category("What could be improved here?", /query).
+
+intent_definition("How can I make this better?", /review_enhance, "context_file").
+intent_category("How can I make this better?", /query).
+
 # =============================================================================
 # SECTION 5: SECURITY ANALYSIS (/security) - REVIEWER SHARD
 # Security-focused reviews and vulnerability scanning.
