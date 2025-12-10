@@ -23,42 +23,24 @@ reviewer_action(/complexity) :-
 # =============================================================================
 # SECTION 2: FINDING SEVERITY CLASSIFICATION
 # =============================================================================
-# NOTE: review_finding/6 is declared in schemas.mg
+# NOTE: review_finding/5 is declared in schemas.mg:
+#   review_finding(File, Line, Severity, Category, Message)
+# This matches the facts emitted by Go's ReviewerShard.
 
 # Critical severity patterns
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, /critical, _, _).
+is_critical_finding(File, Line) :-
+    review_finding(File, Line, /critical, _, _).
 
-is_critical_finding(Finding) :-
-    review_finding(Finding, _, _, _, /security, _).
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "sql injection").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "command injection").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "xss").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "hardcoded secret").
-
-# is_critical_finding(Finding) :-
-#    review_finding(Finding, _, _, _, _, Msg),
-#    fn:string_contains(Msg, "path traversal").
+is_critical_finding(File, Line) :-
+    review_finding(File, Line, _, /security, _).
 
 # Error severity
-is_error_finding(Finding) :-
-    review_finding(Finding, _, _, /error, _, _).
+is_error_finding(File, Line) :-
+    review_finding(File, Line, /error, _, _).
 
 # Warning severity
-is_warning_finding(Finding) :-
-    review_finding(Finding, _, _, /warning, _, _).
+is_warning_finding(File, Line) :-
+    review_finding(File, Line, /warning, _, _).
 
 # =============================================================================
 # SECTION 3: COMMIT BLOCKING
@@ -75,7 +57,7 @@ block_commit("too_many_errors") :-
 
 # Block commit on security issues
 block_commit("security_vulnerabilities") :-
-    review_finding(_, _, _, _, /security, _).
+    review_finding(_, _, _, /security, _).
 
 # =============================================================================
 # SECTION 4: REVIEW PRIORITIZATION
@@ -171,9 +153,10 @@ Decl approval_count(Pattern, Count).
 Decl review_approved(ReviewID, Pattern).
 
 # Track patterns that get flagged repeatedly
-recurring_issue_pattern(Pattern, Category) :-
-    review_finding(_, _, _, _, Category, Pattern),
-    pattern_count(Pattern, N),
+# NOTE: Pattern is extracted from Message (5th arg) in 5-arg schema
+recurring_issue_pattern(Message, Category) :-
+    review_finding(_, _, _, Category, Message),
+    pattern_count(Message, N),
     N >= 3.
 
 # Learn project-specific anti-patterns
@@ -245,16 +228,16 @@ has_style_violation(File) :-
 
 # NOTE: raw_finding, active_finding declared in schemas.mg
 Decl suppressed_finding(File, Line, RuleID, Reason).
-Decl is_suppressed(File, Line, RuleID).
+Decl is_finding_suppressed(File, Line, RuleID).
 
 # Helper: Projection to ignore Reason for safe negation
-is_suppressed(File, Line, RuleID) :-
+is_finding_suppressed(File, Line, RuleID) :-
     suppressed_finding(File, Line, RuleID, _).
 
 # Finding is active if not explicitly suppressed
 active_finding(File, Line, Severity, Category, RuleID, Message) :-
     raw_finding(File, Line, Severity, Category, RuleID, Message),
-    !is_suppressed(File, Line, RuleID).
+    !is_finding_suppressed(File, Line, RuleID).
 
 # --- Suppression Rules ---
 
@@ -320,11 +303,12 @@ review_suspect(ReviewID, "flagged_existing_symbol") :-
     :string:contains(Message, "undefined").
 
 # Review is suspect if >50% findings were rejected
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 review_suspect(ReviewID, "high_rejection_rate") :-
     review_accuracy(ReviewID, Total, _, Rejected, _),
-    Total > 2,
-    DoubleRejected = fn:mult(Rejected, 2),
-    DoubleRejected > Total.
+    Total > 2
+    |> let DoubleRejected = fn:mult(Rejected, 2)
+    |> do fn:filter(fn:gt(DoubleRejected, Total)).
 
 # Trigger validation for suspect reviews
 reviewer_needs_validation(ReviewID) :-

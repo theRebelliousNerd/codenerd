@@ -59,12 +59,13 @@ architectural_violation(Downstream, Upstream, "inverted_dependency") :-
     ScoreUp > ScoreDown.
 
 # Gap warning: phases skip more than one layer
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 suspicious_gap(Downstream, Upstream) :-
     phase_dependency(Downstream, Upstream, _),
     phase_precedence(Downstream, ScoreDown),
-    phase_precedence(Upstream, ScoreUp),
-    Gap = fn:minus(ScoreDown, ScoreUp),
-    Gap > 20.
+    phase_precedence(Upstream, ScoreUp)
+    |> let Gap = fn:minus(ScoreDown, ScoreUp)
+    |> do fn:filter(fn:gt(Gap, 20)).
 
 # Helper to check if a phase has any precedence derived
 has_phase_category(PhaseID) :-

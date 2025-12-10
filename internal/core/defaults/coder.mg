@@ -15,13 +15,16 @@
 # =============================================================================
 # Core predicates used by the coder shard.
 
+# NOTE: These predicates are declared in schemas.mg (canonical location):
+#   - coder_state(State)           @ schemas.mg Section 25
+#   - file_content(File, Content)  @ schemas.mg Section 25
+#   - pending_edit(File, Content)  @ schemas.mg Section 25
+#   - retry_count(Count)           @ schemas.mg Section 9
+
+# Coder-specific predicates (not in schemas.mg)
 Decl coder_task(ID, Action, Target, Instruction).
 Decl coder_target(File).
-Decl coder_state(State).
 Decl file_extension(FilePath, Extension).
-Decl file_content(File, Content).
-Decl pending_edit(File, Content).
-Decl retry_count(Count).
 Decl workspace_root(Root).
 Decl path_in_workspace(Path).
 

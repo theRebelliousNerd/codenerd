@@ -1371,12 +1371,13 @@ routing_failed(ActionID, Error) :-
 # System shard is healthy if heartbeat within threshold (30 seconds)
 # Note: Using fn:minus directly since time_diff would need bound variables.
 # Assumes Now >= Timestamp (current time always after heartbeat time).
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 system_shard_healthy(ShardName) :-
     system_heartbeat(ShardName, Timestamp),
     current_time(Now),
-    Now >= Timestamp,
-    Diff = fn:minus(Now, Timestamp),
-    Diff < 30.
+    Now >= Timestamp
+    |> let Diff = fn:minus(Now, Timestamp)
+    |> do fn:filter(fn:lt(Diff, 30)).
 
 # Helper: check if shard has no recent heartbeat
 shard_heartbeat_stale(ShardName) :-
@@ -1430,14 +1431,14 @@ propose_safety_rule(Pattern) :-
 # -----------------------------------------------------------------------------
 
 # File change triggers world model update
-# Note: Using fn:minus directly for time difference calculation.
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 world_model_stale(File) :-
     modified(File),
     file_topology(File, _, _, LastUpdate, _),
     current_time(Now),
-    Now >= LastUpdate,
-    Diff = fn:minus(Now, LastUpdate),
-    Diff > 5.
+    Now >= LastUpdate
+    |> let Diff = fn:minus(Now, LastUpdate)
+    |> do fn:filter(fn:gt(Diff, 5)).
 
 # Trigger ingestor when world model is stale
 next_action(/update_world_model) :-
@@ -1517,12 +1518,13 @@ has_higher_priority_item(ItemID) :-
     OtherPriority > Priority.
 
 # Checkpoint needed based on time or completion (10 minutes = 600 seconds)
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 checkpoint_due() :-
     last_checkpoint_time(LastTime),
     current_time(Now),
-    Now >= LastTime,
-    Diff = fn:minus(Now, LastTime),
-    Diff > 600.
+    Now >= LastTime
+    |> let Diff = fn:minus(Now, LastTime)
+    |> do fn:filter(fn:gt(Diff, 600)).
 
 next_action(/create_checkpoint) :-
     checkpoint_due().
@@ -1564,10 +1566,11 @@ activate_shard(/session_planner) :-
 # -----------------------------------------------------------------------------
 
 # Unhandled case tracking (for rule learning)
+# NOTE: Uses fn:list:length function in transform pipeline
 unhandled_case_count(ShardName, Count) :-
     system_shard(ShardName, _),
-    unhandled_cases(ShardName, Cases),
-    list_length(Cases, Count).
+    unhandled_cases(ShardName, Cases)
+    |> let Count = fn:list:length(Cases).
 
 # Trigger LLM for rule proposal when threshold reached
 propose_new_rule(ShardName) :-
@@ -1625,15 +1628,15 @@ current_ooda_phase(Phase) :-
     ooda_phase(Phase).
 
 # OODA loop stalled detection (30 second threshold)
-ooda_stalled(Reason) :-
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+ooda_stalled("no_action_derived") :-
     pending_intent(_),
     !has_next_action(),
     current_time(Now),
     last_action_time(LastTime),
-    Now >= LastTime,
-    Diff = fn:minus(Now, LastTime),
-    Diff > 30,
-    Reason = "no_action_derived".
+    Now >= LastTime
+    |> let Diff = fn:minus(Now, LastTime)
+    |> do fn:filter(fn:gt(Diff, 30)).
 
 # Escalate stalled OODA loop
 escalation_needed(/ooda_loop, "stalled", Reason) :-
@@ -1708,14 +1711,13 @@ safe_to_modify(Ref) :-
     code_element(Ref, _, File, _, _),
     in_scope(File).
 
-# Helper: count elements for complexity analysis (evaluated in Go runtime)
-# Note: Mangle doesn't have != operator, so we use virtual predicate for counting
+# Helper: count elements for complexity analysis
+# NOTE: Uses aggregation to avoid N^5 Cartesian product explosion
 element_count_high() :-
-    code_element(Ref1, _, _, _, _),
-    code_element(Ref2, _, _, _, _),
-    code_element(Ref3, _, _, _, _),
-    code_element(Ref4, _, _, _, _),
-    code_element(Ref5, _, _, _, _).
+    code_element(Ref, _, _, _, _)
+    |> do fn:group_by()
+    |> let Count = fn:Count()
+    |> do fn:filter(fn:gte(Count, 5)).
 
 # Trigger campaign for complex refactors affecting many elements
 requires_campaign(Intent) :-
@@ -2950,91 +2952,92 @@ atom_matches_context(AtomID, Priority) :-
 
 # Boost for shard type match (+30)
 # Atoms designed for this shard type get significant boost
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /shard_type, ShardType),
-    compile_shard(_, ShardType),
-    Boosted = fn:plus(Priority, 30).
+    compile_shard(_, ShardType)
+    |> let Boosted = fn:plus(Priority, 30).
 
 # Boost for operational mode match (+20)
 # Mode-specific atoms (e.g., /debugging, /tdd_repair) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /operational_mode, Mode),
-    compile_context(/operational_mode, Mode),
-    Boosted = fn:plus(Priority, 20).
+    compile_context(/operational_mode, Mode)
+    |> let Boosted = fn:plus(Priority, 20).
 
 # Boost for campaign phase match (+15)
 # Phase-specific atoms (e.g., /planning, /validating) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /campaign_phase, Phase),
-    compile_context(/campaign_phase, Phase),
-    Boosted = fn:plus(Priority, 15).
+    compile_context(/campaign_phase, Phase)
+    |> let Boosted = fn:plus(Priority, 15).
 
 # Boost for intent verb match (+25)
 # Verb-specific atoms (e.g., /fix, /debug, /refactor) get strong boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /intent_verb, Verb),
-    compile_context(/intent_verb, Verb),
-    Boosted = fn:plus(Priority, 25).
+    compile_context(/intent_verb, Verb)
+    |> let Boosted = fn:plus(Priority, 25).
 
 # Boost for language match (+10)
 # Language-specific atoms (e.g., /go, /python) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /language, Lang),
-    compile_context(/language, Lang),
-    Boosted = fn:plus(Priority, 10).
+    compile_context(/language, Lang)
+    |> let Boosted = fn:plus(Priority, 10).
 
 # Boost for framework match (+15)
 # Framework-specific atoms (e.g., /bubbletea, /gin, /rod) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /framework, Framework),
-    compile_context(/framework, Framework),
-    Boosted = fn:plus(Priority, 15).
+    compile_context(/framework, Framework)
+    |> let Boosted = fn:plus(Priority, 15).
 
 # Boost for world state match (+20)
 # World-state atoms (e.g., failing_tests, diagnostics) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /world_state, State),
-    compile_context(/world_state, State),
-    Boosted = fn:plus(Priority, 20).
+    compile_context(/world_state, State)
+    |> let Boosted = fn:plus(Priority, 20).
 
 # Boost for init phase match (+15)
 # Init-phase atoms (e.g., /analysis, /kb_agent) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /init_phase, Phase),
-    compile_context(/init_phase, Phase),
-    Boosted = fn:plus(Priority, 15).
+    compile_context(/init_phase, Phase)
+    |> let Boosted = fn:plus(Priority, 15).
 
 # Boost for ouroboros stage match (+15)
 # Ouroboros-stage atoms (e.g., /specification, /refinement) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /ouroboros_stage, Stage),
-    compile_context(/ouroboros_stage, Stage),
-    Boosted = fn:plus(Priority, 15).
+    compile_context(/ouroboros_stage, Stage)
+    |> let Boosted = fn:plus(Priority, 15).
 
 # Boost for northstar phase match (+15)
 # Northstar-phase atoms (e.g., /doc_ingestion, /requirements) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /northstar_phase, Phase),
-    compile_context(/northstar_phase, Phase),
-    Boosted = fn:plus(Priority, 15).
+    compile_context(/northstar_phase, Phase)
+    |> let Boosted = fn:plus(Priority, 15).
 
 # Boost for build layer match (+10)
 # Build-layer atoms (e.g., /scaffold, /service) get boost
 atom_matches_context(AtomID, Boosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_selector(AtomID, /build_layer, Layer),
-    compile_context(/build_layer, Layer),
-    Boosted = fn:plus(Priority, 10).
+    compile_context(/build_layer, Layer)
+    |> let Boosted = fn:plus(Priority, 10).
 
 # Mandatory atoms always get max score (100)
 # These must be included regardless of context
@@ -3043,12 +3046,13 @@ atom_matches_context(AtomID, 100) :-
 
 # Vector similarity boost (scaled 0-30)
 # Semantic similarity from vector search adds to score
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 atom_matches_context(AtomID, VecBoosted) :-
     prompt_atom(AtomID, _, Priority, _, _),
     compile_query(Query),
-    vector_recall_result(Query, AtomID, Similarity),
-    VecBoost = fn:mult(Similarity, 30),
-    VecBoosted = fn:plus(Priority, VecBoost).
+    vector_recall_result(Query, AtomID, Similarity)
+    |> let VecBoost = fn:mult(Similarity, 30)
+    |> let VecBoosted = fn:plus(Priority, VecBoost).
 
 # -----------------------------------------------------------------------------
 # 45.4 Dependency Resolution (Stratified)
@@ -3152,12 +3156,14 @@ atom_selected(AtomID) :-
 # Order selected atoms by category first, then by match score within category.
 # Order value = (CategoryOrder * 1000) + Score
 
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 final_atom(AtomID, Order) :-
     atom_selected(AtomID),
     prompt_atom(AtomID, Category, _, _, _),
     category_order(Category, CatOrder),
-    atom_matches_context(AtomID, Score),
-    Order = fn:plus(fn:mult(CatOrder, 1000), Score).
+    atom_matches_context(AtomID, Score)
+    |> let Base = fn:mult(CatOrder, 1000)
+    |> let Order = fn:plus(Base, Score).
 
 # -----------------------------------------------------------------------------
 # 45.7 Compilation Validation
@@ -3390,55 +3396,56 @@ selected_atom(AtomID) :-
 # -----------------------------------------------------------------------------
 # Atoms matching current context get priority boost for ordering.
 # Boosts are additive when multiple dimensions match.
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 
 # Boost for operational mode match (+30)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /operational_mode, Mode),
-    compile_context(/operational_mode, Mode),
-    Boost = fn:plus(Priority, 30).
+    compile_context(/operational_mode, Mode)
+    |> let Boost = fn:plus(Priority, 30).
 
 # Boost for shard type match (+25)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /shard_type, Type),
-    compile_context(/shard_type, Type),
-    Boost = fn:plus(Priority, 25).
+    compile_context(/shard_type, Type)
+    |> let Boost = fn:plus(Priority, 25).
 
 # Boost for language match (+20)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /language, Lang),
-    compile_context(/language, Lang),
-    Boost = fn:plus(Priority, 20).
+    compile_context(/language, Lang)
+    |> let Boost = fn:plus(Priority, 20).
 
 # Boost for framework match (+15)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /framework, Framework),
-    compile_context(/framework, Framework),
-    Boost = fn:plus(Priority, 15).
+    compile_context(/framework, Framework)
+    |> let Boost = fn:plus(Priority, 15).
 
 # Boost for intent verb match (+25)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /intent_verb, Verb),
-    compile_context(/intent_verb, Verb),
-    Boost = fn:plus(Priority, 25).
+    compile_context(/intent_verb, Verb)
+    |> let Boost = fn:plus(Priority, 25).
 
 # Boost for campaign phase match (+15)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /campaign_phase, Phase),
-    compile_context(/campaign_phase, Phase),
-    Boost = fn:plus(Priority, 15).
+    compile_context(/campaign_phase, Phase)
+    |> let Boost = fn:plus(Priority, 15).
 
 # Boost for world state match (+20)
 atom_context_boost(AtomID, Boost) :-
     prompt_atom(AtomID, _, Priority, _, _),
     atom_tag(AtomID, /world_state, State),
-    compile_context(/world_state, State),
-    Boost = fn:plus(Priority, 20).
+    compile_context(/world_state, State)
+    |> let Boost = fn:plus(Priority, 20).
 
 # -----------------------------------------------------------------------------
 # 46.6 Section 46 Validation
@@ -3739,15 +3746,87 @@ has_priority_boost(File) :-
     priority_boost(File, _).
 
 # With boost: BasePriority + Boost
-# Note: Mangle doesn't support inline arithmetic, so we enumerate common cases
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 prioritized_hypothesis(Type, File, Line, Var, Priority) :-
     active_hypothesis(Type, File, Line, Var),
     type_priority(Type, BasePriority),
-    priority_boost(File, Boost),
-    Priority = fn:plus(BasePriority, Boost).
+    priority_boost(File, Boost)
+    |> let Priority = fn:plus(BasePriority, Boost).
 
 # Without boost: just use base priority
 prioritized_hypothesis(Type, File, Line, Var, Priority) :-
     active_hypothesis(Type, File, Line, Var),
     type_priority(Type, Priority),
     !has_priority_boost(File).
+
+# =============================================================================
+# SECTION 22: CONTINUATION PROTOCOL (Multi-Step Task Execution)
+# =============================================================================
+# Derivation rules for natural multi-step task chaining in the TUI.
+# Works with schemas.mg Section 49 declarations.
+
+# -----------------------------------------------------------------------------
+# 22.1 Pending Subtask Detection
+# -----------------------------------------------------------------------------
+
+# Code was generated but no tests exist → need tests
+has_pending_subtask(TaskID, Description, /tester) :-
+    shard_result(_, /code_generated, /coder, Task, _),
+    pending_test(TaskID, Description).
+
+# Changes were made but not reviewed → need review
+has_pending_subtask(TaskID, Description, /reviewer) :-
+    shard_result(_, /code_generated, /coder, Task, _),
+    pending_review(TaskID, Description).
+
+# Shard execution was incomplete → continue with same shard
+has_pending_subtask(TaskID, Description, ShardType) :-
+    shard_result(TaskID, /incomplete, ShardType, Description, _).
+
+# Tests needed status → trigger tester
+has_pending_subtask(TaskID, Description, /tester) :-
+    shard_result(TaskID, /tests_needed, _, Description, _).
+
+# Review needed status → trigger reviewer
+has_pending_subtask(TaskID, Description, /reviewer) :-
+    shard_result(TaskID, /review_needed, _, Description, _).
+
+# -----------------------------------------------------------------------------
+# 22.2 Continuation Blocking Conditions
+# -----------------------------------------------------------------------------
+
+# User pressed Ctrl+X
+continuation_blocked(/user_interrupted) :-
+    interrupt_requested.
+
+# Clarification is pending
+continuation_blocked(/needs_clarification) :-
+    pending_clarification(_).
+
+# Max steps reached (safety limit)
+continuation_blocked(/max_steps_reached) :-
+    continuation_step(Current, _),
+    max_continuation_steps(Limit),
+    Current >= Limit.
+
+# -----------------------------------------------------------------------------
+# 22.3 Auto-Continue Signal
+# -----------------------------------------------------------------------------
+
+# Should continue if there's pending work and not blocked
+should_auto_continue :-
+    has_pending_subtask(_, _, _),
+    !continuation_blocked(_).
+
+# -----------------------------------------------------------------------------
+# 22.4 Step Counting Helpers
+# -----------------------------------------------------------------------------
+
+# Helper: check if we have any blocking condition
+has_blocking_condition :-
+    continuation_blocked(_).
+
+# Helper: count pending subtasks (for progress display)
+# Note: Mangle aggregation syntax
+pending_subtask_count(Count) :-
+    Count = fn:count(T) |> has_pending_subtask(T, _, _).

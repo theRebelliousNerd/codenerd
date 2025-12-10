@@ -18,17 +18,18 @@ layer_priority(/transport, 50).
 layer_priority(/integration, 60).
 
 # 2. Logic for Layer Distance (Used for conflict detection)
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 layer_distance(L1, L2, Dist) :-
     layer_priority(L1, P1),
     layer_priority(L2, P2),
-    P1 >= P2,
-    Dist = fn:minus(P1, P2).
+    P1 >= P2
+    |> let Dist = fn:minus(P1, P2).
 
 layer_distance(L1, L2, Dist) :-
     layer_priority(L1, P1),
     layer_priority(L2, P2),
-    P2 > P1,
-    Dist = fn:minus(P2, P1).
+    P2 > P1
+    |> let Dist = fn:minus(P2, P1).
 
 # 3. Validation: Detect "God Documents"
 # If a doc maps to layers that are too far apart (e.g., Scaffold AND Integration),
