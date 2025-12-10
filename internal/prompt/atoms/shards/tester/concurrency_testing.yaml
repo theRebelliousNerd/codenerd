@@ -1,0 +1,123 @@
+# Tester Shard Concurrency Testing
+# Go-specific patterns for testing concurrent code
+
+- id: "shards/tester/concurrency_testing"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/tester"]
+  languages: ["/go"]
+  content: |
+    ## CONCURRENCY TESTING (GO-SPECIFIC)
+
+    ### RACE DETECTION
+    - Always run tests with -race flag: `go test -race ./...`
+    - Design tests that exercise concurrent access patterns
+
+    ### GOROUTINE LEAK DETECTION
+    ```go
+    func TestFunction_NoGoroutineLeak(t *testing.T) {
+        before := runtime.NumGoroutine()
+
+        // Run the function that spawns goroutines
+        ctx, cancel := context.WithCancel(context.Background())
+        Function(ctx)
+        cancel()
+
+        // Give time for cleanup
+        time.Sleep(100 * time.Millisecond)
+
+        after := runtime.NumGoroutine()
+        if after > before {
+            t.Errorf("goroutine leak: before=%d, after=%d", before, after)
+        }
+    }
+    ```
+
+    ### CONCURRENT ACCESS TEST
+    ```go
+    func TestMap_ConcurrentAccess_NoRace(t *testing.T) {
+        m := NewSafeMap()
+        var wg sync.WaitGroup
+
+        for i := 0; i < 100; i++ {
+            wg.Add(1)
+            go func(i int) {
+                defer wg.Done()
+                m.Set(fmt.Sprintf("key%d", i), i)
+                _ = m.Get(fmt.Sprintf("key%d", i))
+            }(i)
+        }
+
+        wg.Wait()
+    }
+    ```
+
+    ### CHANNEL DEADLOCK TESTING
+    ```go
+    func TestChannel_NoDeadlock(t *testing.T) {
+        done := make(chan struct{})
+
+        go func() {
+            defer close(done)
+            // Function under test
+            result := ProcessWithChannel()
+            _ = result
+        }()
+
+        select {
+        case <-done:
+            // Success - function completed
+        case <-time.After(5 * time.Second):
+            t.Fatal("deadlock detected: function did not complete")
+        }
+    }
+    ```
+
+- id: "shards/tester/error_testing"
+  category: "methodology"
+  subcategory: "errors"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## ERROR TESTING PATTERNS
+
+    ### GO ERROR TESTING
+    ```go
+    // Test specific error type
+    func TestFunction_InvalidInput_ReturnsValidationError(t *testing.T) {
+        _, err := Function(invalidInput)
+
+        var validationErr *ValidationError
+        if !errors.As(err, &validationErr) {
+            t.Errorf("expected ValidationError, got %T", err)
+        }
+    }
+
+    // Test error message contains key information
+    func TestFunction_InvalidInput_ErrorContainsFieldName(t *testing.T) {
+        _, err := Function(invalidInput)
+
+        if err == nil || !strings.Contains(err.Error(), "email") {
+            t.Errorf("error should mention 'email' field")
+        }
+    }
+    ```
+
+    ### PYTHON ERROR TESTING
+    ```python
+    def test_function_invalid_input_raises_value_error():
+        with pytest.raises(ValueError) as exc_info:
+            function(invalid_input)
+        assert "email" in str(exc_info.value)
+    ```
+
+    ### JEST ERROR TESTING
+    ```javascript
+    test('throws error for invalid input', () => {
+        expect(() => functionName(invalidInput)).toThrow(ValidationError);
+        expect(() => functionName(invalidInput)).toThrow(/email/);
+    });
+    ```

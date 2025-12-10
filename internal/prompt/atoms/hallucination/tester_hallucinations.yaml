@@ -154,3 +154,197 @@
     - Use assert.NoError for test assertions (continues on failure)
     - Never use _ for error returns in tests
     - Failed setup should fail the test immediately
+
+- id: "hallucination/tester/happy_path_bias"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: HAPPY PATH BIAS
+
+    You will be tempted to only test successful scenarios.
+
+    ### WRONG
+    ```go
+    func TestParseInt(t *testing.T) {
+        result, _ := ParseInt("123")
+        assert.Equal(t, 123, result)
+    }
+    // Missing: empty string, invalid chars, overflow, nil
+    ```
+
+    ### CORRECT
+    ```go
+    func TestParseInt(t *testing.T) {
+        tests := []struct {
+            name    string
+            input   string
+            want    int
+            wantErr bool
+        }{
+            {"valid integer", "123", 123, false},
+            {"empty string", "", 0, true},
+            {"invalid chars", "abc", 0, true},
+            {"overflow", "999999999999999999999", 0, true},
+            {"negative", "-42", -42, false},
+        }
+        // ... run tests
+    }
+    ```
+
+    ### MITIGATION
+    - For every happy path test, write at least one sad path test
+    - Test nil, empty, boundary, and error cases
+    - Ask: "How can this function fail?"
+
+- id: "hallucination/tester/dependent_test"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: DEPENDENT TESTS
+
+    You will be tempted to write tests that depend on each other.
+
+    ### WRONG
+    ```go
+    func TestCreateUser(t *testing.T) {
+        testUser = CreateUser("test")  // Global state
+    }
+
+    func TestGetUser(t *testing.T) {
+        user := GetUser(testUser.ID)  // Depends on TestCreateUser
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestCreateUser(t *testing.T) {
+        user := CreateUser("test")
+        assert.NotEmpty(t, user.ID)
+    }
+
+    func TestGetUser(t *testing.T) {
+        // Each test sets up its own state
+        user := CreateUser("test")
+        retrieved := GetUser(user.ID)
+        assert.Equal(t, user.ID, retrieved.ID)
+    }
+    ```
+
+    ### MITIGATION
+    - Tests must pass when run in any order
+    - Each test creates its own data
+    - Use t.Cleanup for teardown
+    - Never use global test state
+
+- id: "hallucination/tester/global_pollution"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: GLOBAL POLLUTION
+
+    You will be tempted to modify global state without cleanup.
+
+    ### WRONG
+    ```go
+    func TestWithEnvVar(t *testing.T) {
+        os.Setenv("CONFIG_PATH", "/test")  // Modified global state!
+        result := LoadConfig()
+        // ENV var left polluted for other tests
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    func TestWithEnvVar(t *testing.T) {
+        original := os.Getenv("CONFIG_PATH")
+        t.Cleanup(func() {
+            os.Setenv("CONFIG_PATH", original)
+        })
+
+        os.Setenv("CONFIG_PATH", "/test")
+        result := LoadConfig()
+    }
+    ```
+
+    ### MITIGATION
+    - Save state before, restore after (even on failure)
+    - Use t.Cleanup for automatic teardown
+    - Use defer for cleanup in helper functions
+    - Run tests with -shuffle=on to catch pollution
+
+- id: "hallucination/tester/assertion_copypaste"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: ASSERTION COPY-PASTE
+
+    You will be tempted to copy assertions without adapting them.
+
+    ### WRONG
+    ```go
+    func TestParseJSON(t *testing.T) {
+        tests := []struct{ name, input, want string }{
+            {"valid", `{"name":"a"}`, "a"},
+            {"empty", `{}`, "a"},  // Copy-paste error! Should be ""
+        }
+        for _, tt := range tests {
+            result := ParseJSON(tt.input)
+            assert.Equal(t, tt.want, result.Name)
+        }
+    }
+    ```
+
+    ### CORRECT
+    Review each test case individually and ensure the expected value
+    matches the scenario being tested.
+
+    ### MITIGATION
+    - Review each assertion individually
+    - Name test cases descriptively
+    - Verify expected values match the scenario
+    - Run tests to ensure they can actually fail
+
+- id: "hallucination/tester/brittle_mock"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## HALLUCINATION PREVENTION: BRITTLE MOCK
+
+    You will be tempted to create mocks that are too specific.
+
+    ### WRONG
+    ```go
+    mock.ExpectQuery("SELECT id, name, email FROM users WHERE id = ?").
+        WithArgs("123").
+        WillReturnRows(...)
+    // Breaks if column order changes or new column added
+    ```
+
+    ### CORRECT
+    ```go
+    mock.ExpectQuery("SELECT .* FROM users WHERE").
+        WithArgs("123").
+        WillReturnRows(...)
+    // Survives minor SQL changes
+    ```
+
+    ### MITIGATION
+    - Use flexible matching, not exact string comparison
+    - Test behavior, not implementation details
+    - Mock at the interface level when possible
+    - Ask: "Will this test survive a refactor?"

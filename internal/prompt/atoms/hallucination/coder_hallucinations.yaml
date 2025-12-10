@@ -144,3 +144,102 @@
     - Verify function signatures
     - Test API assumptions against documentation
     - When uncertain, check the source
+
+- id: "hallucination/coder/scope_leak"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## HALLUCINATION PREVENTION: SCOPE LEAK
+
+    You will be tempted to use variables from outer scopes incorrectly in closures.
+
+    ### WRONG
+    ```go
+    for _, item := range items {
+        go func() { process(item) }()  // All goroutines see same item
+    }
+    ```
+
+    ### CORRECT
+    ```go
+    for _, item := range items {
+        item := item  // Shadow the loop variable
+        go func() { process(item) }()
+    }
+    ```
+    Or pass as argument:
+    ```go
+    for _, item := range items {
+        go func(i Item) { process(i) }(item)
+    }
+    ```
+
+    ### MITIGATION
+    - Always shadow loop variables in goroutine closures
+    - Or pass them as function arguments
+    - Be especially careful with defer in loops
+
+- id: "hallucination/coder/confident_comment"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: CONFIDENT COMMENT
+
+    You will be tempted to write comments that claim more than you know.
+
+    ### WRONG
+    ```go
+    // This is the fastest implementation
+    // This handles all edge cases
+    // This is thread-safe
+    ```
+
+    ### CORRECT
+    ```go
+    // This implementation prioritizes readability over performance
+    // Handles empty input and nil pointers; other edge cases may exist
+    // Thread-safe when accessed through the provided mutex
+    ```
+
+    ### MITIGATION
+    - Only comment on what you can verify
+    - Use hedging language when uncertain
+    - Document known limitations, not assumed perfection
+
+- id: "hallucination/coder/deprecated_pattern"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## HALLUCINATION PREVENTION: DEPRECATED PATTERN
+
+    You will be tempted to use patterns from your training data that are now deprecated.
+
+    ### WRONG
+    ```go
+    import "io/ioutil"           // Deprecated in Go 1.16
+    var x interface{}            // Use 'any' in Go 1.18+
+    import "github.com/pkg/errors"  // Deprecated, use fmt.Errorf with %w
+    ```
+
+    ### CORRECT
+    ```go
+    import "io"                  // Use io.ReadAll, io.WriteFile
+    var x any                    // Modern Go type alias
+    fmt.Errorf("context: %w", err)  // Standard error wrapping
+    ```
+
+    ### MITIGATION
+    - Check the Go version in go.mod
+    - Prefer standard library over external packages
+    - Use modern idioms for the project's Go version

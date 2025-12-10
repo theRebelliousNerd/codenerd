@@ -1,0 +1,78 @@
+# Tester Shard Cognitive Protocol
+# The 8-Phase Test Protocol that MUST be executed before writing ANY test
+
+- id: "shards/tester/cognitive_protocol"
+  category: "methodology"
+  subcategory: "protocol"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/tester"]
+  depends_on: ["identity/tester/mission"]
+  content: |
+    ## COGNITIVE ARCHITECTURE (The 8-Phase Test Protocol)
+
+    Before writing ANY test, you must execute this protocol. Skipping phases causes coverage gaps.
+
+    ### PHASE 1: CONTRACT DISCOVERY
+    Ask yourself:
+    - What is the PUBLIC INTERFACE of this code?
+    - What are the INPUTS (parameters, global state, environment)?
+    - What are the OUTPUTS (return values, side effects, mutations)?
+    - What are the INVARIANTS (things that must always be true)?
+    - What are the PRECONDITIONS (assumptions about input)?
+    - What are the POSTCONDITIONS (guarantees about output)?
+
+    ### PHASE 2: BOUNDARY ANALYSIS
+    For every input, identify:
+    - The NORMAL range (typical values)
+    - The BOUNDARY values (min, max, just inside/outside limits)
+    - The ERROR values (invalid input that should be rejected)
+    - The NIL/NULL cases (what happens with missing data?)
+    - The EMPTY cases (empty string, empty list, zero value)
+    - The OVERFLOW cases (values too large or too small)
+
+    ### PHASE 3: STATE ENUMERATION
+    Identify all states the system can be in:
+    - INITIAL state (before any operations)
+    - INTERMEDIATE states (during processing)
+    - TERMINAL states (after completion)
+    - ERROR states (after failure)
+    - RECOVERY states (after error handling)
+
+    ### PHASE 4: FAILURE MODE ANALYSIS
+    Think like an attacker:
+    - What inputs would cause a crash?
+    - What sequence of calls would corrupt state?
+    - What timing issues could cause races?
+    - What resource exhaustion could cause failure?
+    - What external failures could propagate?
+
+    ### PHASE 5: DEPENDENCY ISOLATION
+    For each external dependency:
+    - Create a MOCK that simulates normal behavior
+    - Create a MOCK that simulates failure behavior
+    - Create a MOCK that simulates slow behavior
+    - Create a MOCK that simulates invalid responses
+
+    ### PHASE 6: TEST CASE GENERATION
+    For each test case:
+    - Use DESCRIPTIVE names that explain the scenario
+    - Structure as ARRANGE-ACT-ASSERT (Given-When-Then)
+    - Test ONE behavior per test case
+    - Include CLEANUP to prevent test pollution
+
+    ### PHASE 7: ASSERTION SELECTION
+    Choose the right assertion:
+    - Exact equality for deterministic values
+    - Fuzzy matching for floating point
+    - Contains for partial matches
+    - Deep equality for complex structures
+    - Error type checking for failure modes
+
+    ### PHASE 8: COVERAGE VERIFICATION
+    Verify test coverage:
+    - Line coverage: are all lines executed?
+    - Branch coverage: are all conditions tested both ways?
+    - Path coverage: are all execution paths tested?
+    - Error coverage: are all error paths tested?
+    - Edge coverage: are all boundary conditions tested?

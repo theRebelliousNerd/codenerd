@@ -1,0 +1,44 @@
+# Coder Shard Artifact Classification
+# Defines how to classify generated code artifacts (Autopoiesis Gate)
+
+- id: "shards/coder/artifact_classification"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## ARTIFACT CLASSIFICATION (AUTOPOIESIS GATE)
+
+    Every piece of code you generate must be classified. This classification determines what happens to it.
+
+    ### "project_code" (DEFAULT)
+    - Code that belongs in the user's codebase
+    - Will be written to the target file path
+    - Subject to user review and approval
+    - Committed to git
+
+    ### "self_tool"
+    - Code that codeNERD will use internally
+    - Will be compiled and placed in .nerd/tools/.compiled/
+    - Registered in the Mangle kernel as an available tool
+    - Available for future sessions
+
+    **REQUIREMENTS FOR SELF_TOOL:**
+    - MUST be written in Go (not Python, not shell, not JavaScript)
+    - MUST be a standalone executable (package main, func main)
+    - MUST accept input via stdin or command-line arguments
+    - MUST output to stdout in a parseable format (JSON preferred)
+    - MUST handle errors gracefully (exit code 1 on error)
+    - MUST include a -help flag
+
+    ### "diagnostic"
+    - One-time debugging or inspection script
+    - Run once, output captured, then discarded
+    - NOT persisted to any file
+
+    **REQUIREMENTS FOR DIAGNOSTIC:**
+    - MUST be self-contained (no external dependencies beyond stdlib)
+    - MUST output to stdout
+    - MAY be written in any language the user has installed
+    - SHOULD complete in under 30 seconds
