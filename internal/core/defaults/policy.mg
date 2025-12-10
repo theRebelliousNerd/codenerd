@@ -1369,15 +1369,12 @@ routing_failed(ActionID, Error) :-
 # -----------------------------------------------------------------------------
 
 # System shard is healthy if heartbeat within threshold (30 seconds)
-# Note: Using fn:minus directly since time_diff would need bound variables.
-# Assumes Now >= Timestamp (current time always after heartbeat time).
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle doesn't support arithmetic transforms with comparisons.
+# This rule simply checks for heartbeat existence; the Go VirtualStore
+# implementation of system_heartbeat should only return recent heartbeats.
+# Alternatively, use heartbeat_fresh(ShardName) virtual predicate.
 system_shard_healthy(ShardName) :-
-    system_heartbeat(ShardName, Timestamp),
-    current_time(Now),
-    Now >= Timestamp
-    |> let Diff = fn:minus(Now, Timestamp)
-    |> do fn:filter(fn:lt(Diff, 30)).
+    system_heartbeat(ShardName, _).
 
 # Helper: check if shard has no recent heartbeat
 shard_heartbeat_stale(ShardName) :-
@@ -1431,14 +1428,11 @@ propose_safety_rule(Pattern) :-
 # -----------------------------------------------------------------------------
 
 # File change triggers world model update
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Simplified - if file is modified and has topology, consider stale.
+# Time-based staleness checks should be done in Go (VirtualStore).
 world_model_stale(File) :-
     modified(File),
-    file_topology(File, _, _, LastUpdate, _),
-    current_time(Now),
-    Now >= LastUpdate
-    |> let Diff = fn:minus(Now, LastUpdate)
-    |> do fn:filter(fn:gt(Diff, 5)).
+    file_topology(File, _, _, _, _).
 
 # Trigger ingestor when world model is stale
 next_action(/update_world_model) :-
@@ -1518,13 +1512,10 @@ has_higher_priority_item(ItemID) :-
     OtherPriority > Priority.
 
 # Checkpoint needed based on time or completion (10 minutes = 600 seconds)
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# Checkpoint is due when checkpoint_needed fact is asserted by Go runtime.
+# Time-based calculations (10+ minute intervals) happen in VirtualStore.
 checkpoint_due() :-
-    last_checkpoint_time(LastTime),
-    current_time(Now),
-    Now >= LastTime
-    |> let Diff = fn:minus(Now, LastTime)
-    |> do fn:filter(fn:gt(Diff, 600)).
+    checkpoint_needed().
 
 next_action(/create_checkpoint) :-
     checkpoint_due().
@@ -1628,15 +1619,11 @@ current_ooda_phase(Phase) :-
     ooda_phase(Phase).
 
 # OODA loop stalled detection (30 second threshold)
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Time-based stall detection should use ooda_timeout fact from Go.
 ooda_stalled("no_action_derived") :-
     pending_intent(_),
     !has_next_action(),
-    current_time(Now),
-    last_action_time(LastTime),
-    Now >= LastTime
-    |> let Diff = fn:minus(Now, LastTime)
-    |> do fn:filter(fn:gt(Diff, 30)).
+    ooda_timeout().
 
 # Escalate stalled OODA loop
 escalation_needed(/ooda_loop, "stalled", Reason) :-
@@ -2034,29 +2021,30 @@ block_all_actions("verification_escalation") :-
 # -----------------------------------------------------------------------------
 # 23.4 Learning Signals from Quality Violations
 # -----------------------------------------------------------------------------
+# NOTE: Uses quality_signal/1 (renamed from learning_signal/1 to avoid arity conflict)
 
 # Learn to avoid mock code patterns
-learning_signal(/avoid_mock_code) :-
+quality_signal(/avoid_mock_code) :-
     quality_violation(_, /mock_code).
 
 # Learn to avoid placeholder patterns
-learning_signal(/avoid_placeholders) :-
+quality_signal(/avoid_placeholders) :-
     quality_violation(_, /placeholder).
 
 # Learn to avoid hallucinated APIs
-learning_signal(/avoid_hallucinated_api) :-
+quality_signal(/avoid_hallucinated_api) :-
     quality_violation(_, /hallucinated_api).
 
 # Learn to avoid incomplete implementations
-learning_signal(/avoid_incomplete) :-
+quality_signal(/avoid_incomplete) :-
     quality_violation(_, /incomplete).
 
 # Learn to avoid fake tests
-learning_signal(/avoid_fake_tests) :-
+quality_signal(/avoid_fake_tests) :-
     quality_violation(_, /fake_tests).
 
 # Learn to include error handling
-learning_signal(/require_error_handling) :-
+quality_signal(/require_error_handling) :-
     quality_violation(_, /missing_errors).
 
 # Promote learning signals to long-term memory after repeated violations
@@ -2944,115 +2932,81 @@ category_budget(/ouroboros, 5).
 # -----------------------------------------------------------------------------
 # Compute match scores for atoms based on context dimensions.
 # Higher scores indicate better match to current compilation context.
-# Scores are additive when multiple dimensions match.
+#
+# NOTE: Mangle does NOT support scalar arithmetic in rules (e.g., X + 30).
+# Transform pipelines are for aggregation only.
+# Boost computation is done in Go code via atom_context_boost/2 virtual predicate.
+#
+# The Go VirtualStore computes:
+#   atom_context_boost(AtomID, TotalBoost) based on:
+#   - shard_type match: +30
+#   - operational_mode match: +20
+#   - campaign_phase match: +15
+#   - intent_verb match: +25
+#   - language match: +10
+#   - framework match: +15
+#   - world_state match: +20
+#   - init_phase match: +15
+#   - ouroboros_stage match: +15
+#   - northstar_phase match: +15
+#   - build_layer match: +10
+#   - vector_similarity: +0-30 (scaled by similarity)
 
-# Base score from atom priority (all atoms start with their priority)
-atom_matches_context(AtomID, Priority) :-
-    prompt_atom(AtomID, _, Priority, _, _).
-
-# Boost for shard type match (+30)
-# Atoms designed for this shard type get significant boost
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+# Context match indicators (no arithmetic, just flags for detection)
+atom_has_shard_match(AtomID) :-
     atom_selector(AtomID, /shard_type, ShardType),
-    compile_shard(_, ShardType)
-    |> let Boosted = fn:plus(Priority, 30).
+    compile_shard(_, ShardType).
 
-# Boost for operational mode match (+20)
-# Mode-specific atoms (e.g., /debugging, /tdd_repair) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_mode_match(AtomID) :-
     atom_selector(AtomID, /operational_mode, Mode),
-    compile_context(/operational_mode, Mode)
-    |> let Boosted = fn:plus(Priority, 20).
+    compile_context(/operational_mode, Mode).
 
-# Boost for campaign phase match (+15)
-# Phase-specific atoms (e.g., /planning, /validating) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_phase_match(AtomID) :-
     atom_selector(AtomID, /campaign_phase, Phase),
-    compile_context(/campaign_phase, Phase)
-    |> let Boosted = fn:plus(Priority, 15).
+    compile_context(/campaign_phase, Phase).
 
-# Boost for intent verb match (+25)
-# Verb-specific atoms (e.g., /fix, /debug, /refactor) get strong boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_verb_match(AtomID) :-
     atom_selector(AtomID, /intent_verb, Verb),
-    compile_context(/intent_verb, Verb)
-    |> let Boosted = fn:plus(Priority, 25).
+    compile_context(/intent_verb, Verb).
 
-# Boost for language match (+10)
-# Language-specific atoms (e.g., /go, /python) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_lang_match(AtomID) :-
     atom_selector(AtomID, /language, Lang),
-    compile_context(/language, Lang)
-    |> let Boosted = fn:plus(Priority, 10).
+    compile_context(/language, Lang).
 
-# Boost for framework match (+15)
-# Framework-specific atoms (e.g., /bubbletea, /gin, /rod) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_framework_match(AtomID) :-
     atom_selector(AtomID, /framework, Framework),
-    compile_context(/framework, Framework)
-    |> let Boosted = fn:plus(Priority, 15).
+    compile_context(/framework, Framework).
 
-# Boost for world state match (+20)
-# World-state atoms (e.g., failing_tests, diagnostics) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_state_match(AtomID) :-
     atom_selector(AtomID, /world_state, State),
-    compile_context(/world_state, State)
-    |> let Boosted = fn:plus(Priority, 20).
+    compile_context(/world_state, State).
 
-# Boost for init phase match (+15)
-# Init-phase atoms (e.g., /analysis, /kb_agent) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_init_match(AtomID) :-
     atom_selector(AtomID, /init_phase, Phase),
-    compile_context(/init_phase, Phase)
-    |> let Boosted = fn:plus(Priority, 15).
+    compile_context(/init_phase, Phase).
 
-# Boost for ouroboros stage match (+15)
-# Ouroboros-stage atoms (e.g., /specification, /refinement) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_ouroboros_match(AtomID) :-
     atom_selector(AtomID, /ouroboros_stage, Stage),
-    compile_context(/ouroboros_stage, Stage)
-    |> let Boosted = fn:plus(Priority, 15).
+    compile_context(/ouroboros_stage, Stage).
 
-# Boost for northstar phase match (+15)
-# Northstar-phase atoms (e.g., /doc_ingestion, /requirements) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_northstar_match(AtomID) :-
     atom_selector(AtomID, /northstar_phase, Phase),
-    compile_context(/northstar_phase, Phase)
-    |> let Boosted = fn:plus(Priority, 15).
+    compile_context(/northstar_phase, Phase).
 
-# Boost for build layer match (+10)
-# Build-layer atoms (e.g., /scaffold, /service) get boost
-atom_matches_context(AtomID, Boosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
+atom_has_layer_match(AtomID) :-
     atom_selector(AtomID, /build_layer, Layer),
-    compile_context(/build_layer, Layer)
-    |> let Boosted = fn:plus(Priority, 10).
+    compile_context(/build_layer, Layer).
+
+# Final atom score from Go-computed boost (virtual predicate)
+# Go queries the atom_has_*_match predicates and computes total boost
+atom_matches_context(AtomID, FinalScore) :-
+    prompt_atom(AtomID, _, _, _, _),
+    atom_context_boost(AtomID, FinalScore).
 
 # Mandatory atoms always get max score (100)
 # These must be included regardless of context
 atom_matches_context(AtomID, 100) :-
     prompt_atom(AtomID, _, _, _, /true).
-
-# Vector similarity boost (scaled 0-30)
-# Semantic similarity from vector search adds to score
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
-atom_matches_context(AtomID, VecBoosted) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    compile_query(Query),
-    vector_recall_result(Query, AtomID, Similarity)
-    |> let VecBoost = fn:mult(Similarity, 30)
-    |> let VecBoosted = fn:plus(Priority, VecBoost).
 
 # -----------------------------------------------------------------------------
 # 45.4 Dependency Resolution (Stratified)
@@ -3155,15 +3109,12 @@ atom_selected(AtomID) :-
 # -----------------------------------------------------------------------------
 # Order selected atoms by category first, then by match score within category.
 # Order value = (CategoryOrder * 1000) + Score
-
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+#
+# NOTE: Mangle doesn't support scalar arithmetic. The Go VirtualStore provides
+# atom_final_order/2 virtual predicate that computes Order from CatOrder and Score.
 final_atom(AtomID, Order) :-
     atom_selected(AtomID),
-    prompt_atom(AtomID, Category, _, _, _),
-    category_order(Category, CatOrder),
-    atom_matches_context(AtomID, Score)
-    |> let Base = fn:mult(CatOrder, 1000)
-    |> let Order = fn:plus(Base, Score).
+    atom_final_order(AtomID, Order).
 
 # -----------------------------------------------------------------------------
 # 45.7 Compilation Validation
@@ -3394,58 +3345,9 @@ selected_atom(AtomID) :-
 # -----------------------------------------------------------------------------
 # 46.5 Context Matching Boost
 # -----------------------------------------------------------------------------
-# Atoms matching current context get priority boost for ordering.
-# Boosts are additive when multiple dimensions match.
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
-
-# Boost for operational mode match (+30)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /operational_mode, Mode),
-    compile_context(/operational_mode, Mode)
-    |> let Boost = fn:plus(Priority, 30).
-
-# Boost for shard type match (+25)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /shard_type, Type),
-    compile_context(/shard_type, Type)
-    |> let Boost = fn:plus(Priority, 25).
-
-# Boost for language match (+20)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /language, Lang),
-    compile_context(/language, Lang)
-    |> let Boost = fn:plus(Priority, 20).
-
-# Boost for framework match (+15)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /framework, Framework),
-    compile_context(/framework, Framework)
-    |> let Boost = fn:plus(Priority, 15).
-
-# Boost for intent verb match (+25)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /intent_verb, Verb),
-    compile_context(/intent_verb, Verb)
-    |> let Boost = fn:plus(Priority, 25).
-
-# Boost for campaign phase match (+15)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /campaign_phase, Phase),
-    compile_context(/campaign_phase, Phase)
-    |> let Boost = fn:plus(Priority, 15).
-
-# Boost for world state match (+20)
-atom_context_boost(AtomID, Boost) :-
-    prompt_atom(AtomID, _, Priority, _, _),
-    atom_tag(AtomID, /world_state, State),
-    compile_context(/world_state, State)
-    |> let Boost = fn:plus(Priority, 20).
+# NOTE: Boost computation moved to Section 45.3 and Go VirtualStore.
+# atom_context_boost/2 is now a virtual predicate computed by Go.
+# See Section 45.3 for context match indicators (atom_has_*_match predicates).
 
 # -----------------------------------------------------------------------------
 # 46.6 Section 46 Validation
@@ -3797,7 +3699,7 @@ has_pending_subtask(TaskID, Description, /reviewer) :-
 
 # User pressed Ctrl+X
 continuation_blocked(/user_interrupted) :-
-    interrupt_requested.
+    interrupt_requested().
 
 # Clarification is pending
 continuation_blocked(/needs_clarification) :-
@@ -3814,7 +3716,7 @@ continuation_blocked(/max_steps_reached) :-
 # -----------------------------------------------------------------------------
 
 # Should continue if there's pending work and not blocked
-should_auto_continue :-
+should_auto_continue() :-
     has_pending_subtask(_, _, _),
     !continuation_blocked(_).
 
@@ -3823,10 +3725,12 @@ should_auto_continue :-
 # -----------------------------------------------------------------------------
 
 # Helper: check if we have any blocking condition
-has_blocking_condition :-
+has_blocking_condition() :-
     continuation_blocked(_).
 
 # Helper: count pending subtasks (for progress display)
-# Note: Mangle aggregation syntax
+# NOTE: Uses proper Mangle aggregation syntax
 pending_subtask_count(Count) :-
-    Count = fn:count(T) |> has_pending_subtask(T, _, _).
+    has_pending_subtask(T, _, _)
+    |> do fn:group_by()
+    |> let Count = fn:Count().

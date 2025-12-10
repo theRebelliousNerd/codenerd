@@ -178,15 +178,20 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderFooter() string {
-	// Build mode indicator
-	modeIndicator := ""
+	// Build continuation mode indicator
+	modeChar := 'A' + rune(m.continuationMode)
+	modeName := m.continuationMode.String()
+	continuationModeStr := fmt.Sprintf("[%c] %s", modeChar, modeName)
+
+	// Build pane mode indicator
+	paneModeStr := ""
 	switch m.paneMode {
 	case ui.ModeSinglePane:
-		modeIndicator = "Chat"
+		paneModeStr = "Chat"
 	case ui.ModeSplitPane:
-		modeIndicator = "Split (Chat + Logic)"
+		paneModeStr = "Split"
 	case ui.ModeFullLogic:
-		modeIndicator = "Logic View"
+		paneModeStr = "Logic"
 	}
 
 	// Add campaign indicator if active
@@ -196,17 +201,31 @@ func (m Model) renderFooter() string {
 		if m.activeCampaign.TotalTasks > 0 {
 			progress = float64(m.activeCampaign.CompletedTasks) / float64(m.activeCampaign.TotalTasks) * 100
 		}
-		campaignIndicator = fmt.Sprintf(" * Campaign: %.0f%%", progress)
+		campaignIndicator = fmt.Sprintf(" | Campaign: %.0f%%", progress)
+	}
+
+	// Continuation progress indicator
+	continuationIndicator := ""
+	if m.continuationTotal > 0 {
+		continuationIndicator = fmt.Sprintf(" | Step %d/%d", m.continuationStep, m.continuationTotal)
 	}
 
 	// Mouse mode indicator
 	mouseIndicator := ""
 	if !m.mouseEnabled {
-		mouseIndicator = " * [SELECT MODE]"
+		mouseIndicator = " | [SELECT]"
 	}
 
+	// Build hotkeys section - show Ctrl+X prominently when loading
+	hotkeys := ""
+	if m.isLoading {
+		hotkeys = "Ctrl+X: STOP | "
+	}
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+M: select | /help"
+
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s%s%s * %s * Enter: send * Alt+M: select * Alt+L: logic * /help * Ctrl+C: exit", modeIndicator, campaignIndicator, mouseIndicator, timestamp))
+	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s | %s | %s",
+		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, mouseIndicator, timestamp, hotkeys))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
