@@ -65,42 +65,8 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 	sessionContext := r.buildSessionContextPrompt()
 	depContextStr := contextBuilder.String()
 
-	systemPrompt := fmt.Sprintf(`You are a principal engineer performing a holistic code review. Analyze the code for:
-1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
-2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
-3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
-4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
-5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
-6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
-7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
-8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
-9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
-10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
-11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
-12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
-
-%s
-
-Format your response as a Markdown report with the following structure:
-
-# Review Report
-
-## Agent Summary
-(A concise 1-2 sentence summary for an AI agent to read)
-
-## Holographic Analysis
-(Assess the architectural impact based on the provided context)
-
-## Campaign Status
-(Assess alignment with the campaign goal, if active)
-
-## Findings
-Return a JSON array of findings in a code block:
-`+"```json"+`
-[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
-`+"```"+`
-
-Prefer precise, non-duplicative, actionable findings.`, sessionContext)
+	// Use JIT prompt compilation with fallback to legacy (non-holographic mode)
+	systemPrompt := r.buildReviewSystemPrompt(ctx, sessionContext, false)
 
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, depContextStr)
@@ -268,52 +234,8 @@ func (r *ReviewerShard) llmAnalysisWithHolographic(ctx context.Context, filePath
 	sessionContext := r.buildSessionContextPrompt()
 	fullContext := contextBuilder.String()
 
-	// Enhanced system prompt with package awareness instructions
-	systemPrompt := fmt.Sprintf(`You are a principal engineer performing a holistic code review with FULL PACKAGE CONTEXT.
-
-CRITICAL INSTRUCTION: You have been provided with a list of functions, types, and constants defined in OTHER files of the SAME Go package. These symbols are accessible without import. DO NOT report them as "undefined", "missing", or "not found". This is how Go packages work - all exported AND unexported symbols within a package are visible to all files in that package.
-
-Analyze the code for:
-1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
-2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
-3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
-4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
-5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
-6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
-7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
-8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
-9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
-10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
-11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
-12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
-
-BEFORE FLAGGING A SYMBOL AS UNDEFINED:
-- Check the "Package Context" section above for functions/types defined in sibling files
-- Remember that Go packages share all symbols across files
-- Only flag as undefined if the symbol is NOT in the package context AND NOT imported
-
-%s
-
-Format your response as a Markdown report with the following structure:
-
-# Review Report
-
-## Agent Summary
-(A concise 1-2 sentence summary for an AI agent to read)
-
-## Holographic Analysis
-(Assess the architectural impact based on the provided context. Consider the file's role in its module and system.)
-
-## Campaign Status
-(Assess alignment with the campaign goal, if active)
-
-## Findings
-Return a JSON array of findings in a code block:
-`+"`"+`json
-[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
-`+"`"+`
-
-Prefer precise, non-duplicative, actionable findings. Verify symbols exist in package context before flagging as undefined.`, sessionContext)
+	// Use JIT prompt compilation with fallback to legacy (holographic mode)
+	systemPrompt := r.buildReviewSystemPrompt(ctx, sessionContext, true)
 
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, fullContext)
@@ -627,3 +549,138 @@ func isRetryableError(err error) bool {
 	// Default: retry
 	return true
 }
+
+// =============================================================================
+// JIT PROMPT COMPILATION
+// =============================================================================
+
+// buildReviewSystemPrompt constructs the system prompt for code review.
+// Uses JIT compilation if available, otherwise falls back to legacy constants.
+// The holographic parameter controls whether to use the package-aware variant.
+func (r *ReviewerShard) buildReviewSystemPrompt(ctx context.Context, sessionContext string, holographic bool) string {
+	r.mu.RLock()
+	pa := r.promptAssembler
+	r.mu.RUnlock()
+
+	// Try JIT compilation first if promptAssembler is available and ready
+	if pa != nil && pa.JITReady() {
+		shardType := "reviewer"
+		if holographic {
+			shardType = "reviewer_holographic"
+		}
+		pc := &articulation.PromptContext{
+			ShardID:   r.id,
+			ShardType: shardType,
+		}
+
+		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+		if err == nil && jitPrompt != "" {
+			logging.Reviewer("[JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			// Inject session context into JIT prompt
+			return fmt.Sprintf("%s\n\n%s", jitPrompt, sessionContext)
+		}
+		if err != nil {
+			logging.Reviewer("[JIT] Compilation failed, falling back to legacy: %v", err)
+		}
+	}
+
+	// Fallback to legacy prompts
+	logging.Reviewer("[FALLBACK] Using legacy template-based system prompt")
+	if holographic {
+		return fmt.Sprintf(reviewerHolographicPromptTemplate, sessionContext)
+	}
+	return fmt.Sprintf(reviewerSystemPromptTemplate, sessionContext)
+}
+
+// =============================================================================
+// DEPRECATED LEGACY PROMPTS
+// =============================================================================
+// These constants are retained as fallbacks for when JIT prompt compilation
+// is unavailable. New code should use the JIT compiler via SetPromptAssembler().
+
+// reviewerSystemPromptTemplate is the legacy basic review prompt.
+// DEPRECATED: Prefer JIT prompt compilation via buildReviewSystemPrompt().
+const reviewerSystemPromptTemplate = `You are a principal engineer performing a holistic code review. Analyze the code for:
+1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
+2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
+3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
+4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
+5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
+6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
+7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
+8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
+9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
+10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
+11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
+12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
+
+%s
+
+Format your response as a Markdown report with the following structure:
+
+# Review Report
+
+## Agent Summary
+(A concise 1-2 sentence summary for an AI agent to read)
+
+## Holographic Analysis
+(Assess the architectural impact based on the provided context)
+
+## Campaign Status
+(Assess alignment with the campaign goal, if active)
+
+## Findings
+Return a JSON array of findings in a code block:
+` + "```json" + `
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
+` + "```" + `
+
+Prefer precise, non-duplicative, actionable findings.`
+
+// reviewerHolographicPromptTemplate is the legacy holographic-aware review prompt.
+// DEPRECATED: Prefer JIT prompt compilation via buildReviewSystemPrompt().
+const reviewerHolographicPromptTemplate = `You are a principal engineer performing a holistic code review with FULL PACKAGE CONTEXT.
+
+CRITICAL INSTRUCTION: You have been provided with a list of functions, types, and constants defined in OTHER files of the SAME Go package. These symbols are accessible without import. DO NOT report them as "undefined", "missing", or "not found". This is how Go packages work - all exported AND unexported symbols within a package are visible to all files in that package.
+
+Analyze the code for:
+1. Functional correctness against the intended behavior and edge cases (invariants, error paths, nil handling).
+2. Concurrency and state safety (locks, races, ordering, goroutine leaks, context cancellation, atomicity).
+3. Security vulnerabilities (SQLi, XSS, command/OS injection, path traversal, authz/authn gaps, secret handling).
+4. Resilience and observability (timeouts, retries/backoff, circuit-breaking, logging quality, metrics/tracing).
+5. Performance and resource efficiency (allocation churn, blocking I/O, N+1 queries, hot-path costs, cache use).
+6. API/interface and data contracts (backward compatibility, validation, schema mismatches, error surface design).
+7. Data integrity and configuration risks (defaults, feature flags, persistence consistency, unsafe fallbacks).
+8. Testability and coverage gaps (high-risk areas lacking unit/integration tests or fakes).
+9. Maintainability and readability (complexity, duplication, dead code, magic values, missing docs for non-obvious logic).
+10. Dependency interactions and module responsibilities (upstream/downstream impact, change-risk to consumers).
+11. **Completeness & Debt**: Identify incomplete implementations (TODOs, FIXMEs, stubs, mocks) and assess if they block the current goal.
+12. **Campaign Alignment**: If a Campaign Goal is provided, assess if this code advances that goal or introduces unrelated churn.
+
+BEFORE FLAGGING A SYMBOL AS UNDEFINED:
+- Check the "Package Context" section above for functions/types defined in sibling files
+- Remember that Go packages share all symbols across files
+- Only flag as undefined if the symbol is NOT in the package context AND NOT imported
+
+%s
+
+Format your response as a Markdown report with the following structure:
+
+# Review Report
+
+## Agent Summary
+(A concise 1-2 sentence summary for an AI agent to read)
+
+## Holographic Analysis
+(Assess the architectural impact based on the provided context. Consider the file's role in its module and system.)
+
+## Campaign Status
+(Assess alignment with the campaign goal, if active)
+
+## Findings
+Return a JSON array of findings in a code block:
+` + "```json" + `
+[{"line": N, "severity": "critical|error|warning|info", "category": "security|bug|performance|maintainability|interface|reliability|testing|documentation|completeness|campaign", "message": "...", "suggestion": "..."}]
+` + "```" + `
+
+Prefer precise, non-duplicative, actionable findings. Verify symbols exist in package context before flagging as undefined.`

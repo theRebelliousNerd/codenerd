@@ -17,7 +17,6 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
-	"codenerd/internal/prompt"
 )
 
 // =============================================================================

@@ -5,6 +5,7 @@
 package coder
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
@@ -99,6 +100,9 @@ type CoderShard struct {
 	llmClient    core.LLMClient
 	virtualStore *core.VirtualStore
 
+	// JIT prompt compilation (optional - falls back to legacy template if nil)
+	promptAssembler *articulation.PromptAssembler
+
 	// State tracking
 	startTime   time.Time
 	editHistory []CodeEdit
@@ -176,6 +180,14 @@ func (c *CoderShard) SetLearningStore(ls core.LearningStore) {
 	c.learningStore = ls
 	// Load existing patterns from store
 	c.loadLearnedPatterns()
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt compilation.
+// If not set or JIT is not ready, the shard falls back to the legacy template.
+func (c *CoderShard) SetPromptAssembler(pa *articulation.PromptAssembler) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.promptAssembler = pa
 }
 
 // =============================================================================

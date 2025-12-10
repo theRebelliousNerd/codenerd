@@ -268,6 +268,11 @@ type BaseSystemShard struct {
 	LLMClient    core.LLMClient
 	VirtualStore *core.VirtualStore
 
+	// JIT prompt assembly (Phase 5)
+	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
+	// Set via SetPromptAssembler() which accepts interface{}.
+	promptAssembler interface{}
+
 	// System shard specific
 	StartupMode StartupMode
 	CostGuard   *CostGuard
@@ -391,6 +396,73 @@ func (b *BaseSystemShard) SetVirtualStore(vs *core.VirtualStore) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.VirtualStore = vs
+}
+
+// SetPromptAssembler sets the prompt assembler for JIT compilation.
+// The assembler should be *articulation.PromptAssembler but is stored as interface{}
+// to avoid import cycles.
+func (b *BaseSystemShard) SetPromptAssembler(assembler interface{}) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.promptAssembler = assembler
+	if assembler != nil {
+		logging.SystemShardsDebug("[%s] PromptAssembler attached", b.ID)
+	}
+}
+
+// GetPromptAssembler returns the prompt assembler if set.
+func (b *BaseSystemShard) GetPromptAssembler() interface{} {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.promptAssembler
+}
+
+// promptAssemblerInterface defines the minimal interface for JIT prompt assembly.
+// This allows system shards to use the JIT compiler without importing the articulation package.
+type promptAssemblerInterface interface {
+	AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
+	JITReady() bool
+}
+
+// TryJITPrompt attempts to assemble a system prompt using the JIT compiler.
+// Returns the assembled prompt and true if JIT succeeded, or empty string and false if JIT
+// is not available or failed, in which case the caller should fall back to the legacy prompt.
+func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (string, bool) {
+	b.mu.RLock()
+	pa := b.promptAssembler
+	shardID := b.ID
+	b.mu.RUnlock()
+
+	if pa == nil {
+		return "", false
+	}
+
+	assembler, ok := pa.(promptAssemblerInterface)
+	if !ok {
+		return "", false
+	}
+
+	if !assembler.JITReady() {
+		return "", false
+	}
+
+	// Build prompt context using anonymous struct matching articulation.PromptContext
+	promptCtx := struct {
+		ShardID   string
+		ShardType string
+	}{
+		ShardID:   shardID,
+		ShardType: shardType,
+	}
+
+	prompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
+	if err != nil {
+		logging.SystemShards("[%s] JIT prompt assembly failed: %v", shardID, err)
+		return "", false
+	}
+
+	logging.SystemShards("[%s] [JIT] Prompt assembled successfully (%d bytes)", shardID, len(prompt))
+	return prompt, true
 }
 
 // SetLearningStore sets the learning store and loads existing patterns.

@@ -79,6 +79,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mangle/transpiler"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -898,15 +899,8 @@ func (o *OuroborosLoop) GetTool(name string) (*ToolInfo, bool) {
 	}, true
 }
 
-// ToolInfo contains information about a registered tool (mirrors core.ToolInfo)
-type ToolInfo struct {
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	BinaryPath   string    `json:"binary_path"`
-	Hash         string    `json:"hash"`
-	RegisteredAt time.Time `json:"registered_at"`
-	ExecuteCount int64     `json:"execute_count"`
-}
+// ToolInfo contains information about a registered tool
+type ToolInfo = types.ToolInfo
 
 // =============================================================================
 // TOOL GENERATOR INTERFACE - Pre-Generated Code Path

@@ -3,7 +3,6 @@ package main
 import (
 	"codenerd/cmd/nerd/chat"
 	"codenerd/internal/articulation"
-	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -13,6 +12,7 @@ import (
 	"codenerd/internal/perception"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -1714,26 +1714,26 @@ func repeatChar(c rune, n int) string {
 	return string(result)
 }
 
-// KernelAdapter adapts core.RealKernel to autopoiesis.KernelInterface
+// KernelAdapter adapts core.RealKernel to types.KernelInterface
 type KernelAdapter struct {
 	RealKernel *core.RealKernel
 }
 
-func (k *KernelAdapter) AssertFact(f autopoiesis.KernelFact) error {
+func (k *KernelAdapter) AssertFact(f types.KernelFact) error {
 	return k.RealKernel.Assert(core.Fact{
 		Predicate: f.Predicate,
 		Args:      f.Args,
 	})
 }
 
-func (k *KernelAdapter) QueryPredicate(predicate string) ([]autopoiesis.KernelFact, error) {
+func (k *KernelAdapter) QueryPredicate(predicate string) ([]types.KernelFact, error) {
 	facts, err := k.RealKernel.Query(predicate)
 	if err != nil {
 		return nil, err
 	}
-	results := make([]autopoiesis.KernelFact, len(facts))
+	results := make([]types.KernelFact, len(facts))
 	for i, f := range facts {
-		results[i] = autopoiesis.KernelFact{
+		results[i] = types.KernelFact{
 			Predicate: f.Predicate,
 			Args:      f.Args,
 		}
@@ -1747,6 +1747,13 @@ func (k *KernelAdapter) QueryBool(predicate string) bool {
 		return false
 	}
 	return len(facts) > 0
+}
+
+func (k *KernelAdapter) RetractFact(f types.KernelFact) error {
+	return k.RealKernel.RetractFact(core.Fact{
+		Predicate: f.Predicate,
+		Args:      f.Args,
+	})
 }
 
 // =============================================================================

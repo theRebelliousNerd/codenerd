@@ -3,6 +3,7 @@
 package tester
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
@@ -132,6 +133,9 @@ type TesterShard struct {
 
 	// Policy loading guard (prevents duplicate Decl errors)
 	policyLoaded bool
+
+	// JIT Prompt Compiler integration
+	promptAssembler *articulation.PromptAssembler // Optional JIT prompt assembler
 }
 
 // NewTesterShard creates a new Tester shard with default configuration.
@@ -195,6 +199,14 @@ func (t *TesterShard) SetLearningStore(ls core.LearningStore) {
 	t.learningStore = ls
 	// Load existing patterns from store
 	t.loadLearnedPatterns()
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
+// When set, the shard will use JIT compilation for system prompts when available.
+func (t *TesterShard) SetPromptAssembler(pa *articulation.PromptAssembler) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.promptAssembler = pa
 }
 
 // =============================================================================

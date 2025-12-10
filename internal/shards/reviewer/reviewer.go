@@ -3,9 +3,6 @@
 package reviewer
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/store"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -13,6 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
 )
 
 // =============================================================================
@@ -158,6 +160,9 @@ type ReviewerShard struct {
 
 	// Holographic context provider for package-aware analysis
 	holographicProvider HolographicProvider
+
+	// JIT prompt compilation support
+	promptAssembler *articulation.PromptAssembler
 }
 
 // HolographicProvider interface for package-level context.
@@ -281,6 +286,13 @@ func (r *ReviewerShard) SetHolographicProvider(hp HolographicProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.holographicProvider = hp
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt compilation.
+func (r *ReviewerShard) SetPromptAssembler(pa *articulation.PromptAssembler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptAssembler = pa
 }
 
 // =============================================================================

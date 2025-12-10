@@ -79,6 +79,67 @@ type NorthstarRequirement struct {
 	Source      string `json:"source"`   // Origin: "user", "research", "red-team"
 }
 
+// =============================================================================
+// BUBBLETEA MESSAGES - Async operation results
+// =============================================================================
+
+// requirementsGeneratedMsg is sent when LLM generates requirements
+type requirementsGeneratedMsg struct {
+	requirements []NorthstarRequirement
+	err          error
+}
+
+// NOTE: northstarDocsAnalyzedMsg is defined in model.go
+
+// parseGeneratedRequirements parses LLM response into requirements
+func parseGeneratedRequirements(response string, startIdx int) []NorthstarRequirement {
+	var requirements []NorthstarRequirement
+	lines := strings.Split(response, "\n")
+	idx := startIdx
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Parse lines like "- [MUST] User can login"
+		if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "*") {
+			line = strings.TrimPrefix(line, "-")
+			line = strings.TrimPrefix(line, "*")
+			line = strings.TrimSpace(line)
+
+			req := NorthstarRequirement{
+				ID:          fmt.Sprintf("REQ-%03d", idx+1),
+				Type:        "functional",
+				Description: line,
+				Priority:    "should-have",
+				Source:      "llm",
+			}
+
+			// Parse priority tags
+			if strings.Contains(strings.ToUpper(line), "[MUST]") {
+				req.Priority = "must-have"
+				req.Description = strings.Replace(req.Description, "[MUST]", "", 1)
+				req.Description = strings.Replace(req.Description, "[must]", "", 1)
+			} else if strings.Contains(strings.ToUpper(line), "[SHOULD]") {
+				req.Priority = "should-have"
+				req.Description = strings.Replace(req.Description, "[SHOULD]", "", 1)
+				req.Description = strings.Replace(req.Description, "[should]", "", 1)
+			} else if strings.Contains(strings.ToUpper(line), "[NICE]") {
+				req.Priority = "nice-to-have"
+				req.Description = strings.Replace(req.Description, "[NICE]", "", 1)
+				req.Description = strings.Replace(req.Description, "[nice]", "", 1)
+			}
+			req.Description = strings.TrimSpace(req.Description)
+
+			if req.Description != "" {
+				requirements = append(requirements, req)
+				idx++
+			}
+		}
+	}
+	return requirements
+}
+
 // NorthstarWizardState tracks the state of the northstar definition wizard
 type NorthstarWizardState struct {
 	Phase           NorthstarPhase
@@ -1463,7 +1524,8 @@ func (m Model) generateRequirementsWithLLM() tea.Cmd {
 			contextBuilder.WriteString("## User Personas\n")
 			for _, p := range w.Personas {
 				contextBuilder.WriteString(fmt.Sprintf("- %s\n", p.Name))
-				contextBuilder.WriteString(fmt.Sprintf("  Needs: %s\n", strings.Join(p.Needs, ", "))			}
+				contextBuilder.WriteString(fmt.Sprintf("  Needs: %s\n", strings.Join(p.Needs, ", ")))
+			}
 			contextBuilder.WriteString("\n")
 		}
 

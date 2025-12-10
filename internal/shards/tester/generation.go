@@ -120,14 +120,57 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 // buildTestGenSystemPrompt builds the system prompt for test generation.
 // This uses the JIT prompt compiler when available, with the God Tier template as fallback.
 func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework string, task *TesterTask) string {
-	// Try to use PromptAssembler with JIT if kernel is available
-	if t.kernel != nil {
-		logging.TesterDebug("Attempting JIT prompt compilation for test generation")
+	// Try JIT compilation via stored PromptAssembler first (preferred path)
+	t.mu.RLock()
+	pa := t.promptAssembler
+	t.mu.RUnlock()
 
-		// Create PromptAssembler
-		pa, err := articulation.NewPromptAssembler(t.kernel)
+	if pa != nil && pa.JITReady() {
+		logging.TesterDebug("Attempting JIT prompt compilation via stored assembler")
+
+		pc := &articulation.PromptContext{
+			ShardID:   t.id,
+			ShardType: "tester",
+		}
+
+		// Add session context if available
+		if t.config.SessionContext != nil {
+			pc.SessionCtx = t.config.SessionContext
+		}
+
+		// Create a structured intent for test generation
+		if task != nil {
+			userIntent := &core.StructuredIntent{
+				ID:       fmt.Sprintf("test_gen_%d", time.Now().UnixNano()),
+				Category: "/mutation",
+				Verb:     "/generate_tests",
+				Target:   task.Target,
+			}
+			if task.Function != "" {
+				userIntent.Constraint = fmt.Sprintf("function=%s", task.Function)
+			}
+			pc.UserIntent = userIntent
+		}
+
+		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+		if err == nil {
+			logging.Tester("[JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			// Add framework-specific instructions to JIT-compiled prompt
+			frameworkInstructions := fmt.Sprintf("\n\n// Framework-specific instructions for %s:\n%s\n",
+				framework, getFrameworkCognitiveModel(framework))
+			return jitPrompt + frameworkInstructions
+		}
+		logging.Get(logging.CategoryTester).Warn("JIT prompt assembly failed: %v, trying kernel fallback", err)
+		// Fall through to kernel-based assembler creation
+	}
+
+	// Fallback: Try to create PromptAssembler from kernel if available
+	if t.kernel != nil && pa == nil {
+		logging.TesterDebug("Creating PromptAssembler from kernel for JIT attempt")
+
+		kernelPA, err := articulation.NewPromptAssembler(t.kernel)
 		if err != nil {
-			logging.Get(logging.CategoryTester).Warn("Failed to create PromptAssembler: %v, using fallback template", err)
+			logging.Get(logging.CategoryTester).Warn("Failed to create PromptAssembler: %v, using legacy template", err)
 		} else {
 			// Build PromptContext
 			pc := &articulation.PromptContext{
@@ -155,11 +198,11 @@ func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework st
 			}
 
 			// Try to assemble with JIT
-			prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+			prompt, err := kernelPA.AssembleSystemPrompt(ctx, pc)
 			if err != nil {
-				logging.Get(logging.CategoryTester).Warn("JIT prompt assembly failed: %v, using fallback template", err)
+				logging.Get(logging.CategoryTester).Warn("JIT prompt assembly failed: %v, using legacy template", err)
 			} else {
-				logging.TesterDebug("JIT prompt compiled successfully: %d bytes", len(prompt))
+				logging.Tester("[JIT] Using JIT-compiled system prompt (%d bytes)", len(prompt))
 				// Add framework-specific instructions to JIT-compiled prompt
 				frameworkInstructions := fmt.Sprintf("\n\n// Framework-specific instructions for %s:\n%s\n",
 					framework, getFrameworkCognitiveModel(framework))
@@ -169,7 +212,7 @@ func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework st
 	}
 
 	// Fallback to legacy template
-	logging.TesterDebug("Using legacy template for test generation")
+	logging.Tester("[FALLBACK] Using legacy template-based system prompt")
 	frameworkModel := getFrameworkCognitiveModel(framework)
 	return fmt.Sprintf(testerSystemPromptTemplate, framework, frameworkModel)
 }
@@ -195,6 +238,10 @@ func getFrameworkCognitiveModel(framework string) string {
 // =============================================================================
 // This prompt implements the full cognitive architecture for the Tester Shard.
 // It follows the prompt-architect skill's God Tier template specifications.
+// =============================================================================
+// DEPRECATED: This constant is being replaced by the JIT prompt compiler.
+// It is currently retained as a fallback when JIT compilation fails (line 174).
+// Once JIT compilation is stable and verified, this constant can be removed.
 // =============================================================================
 
 const testerSystemPromptTemplate = `// =============================================================================
@@ -629,6 +676,11 @@ Return ONLY the test code after your reasoning, no additional explanations.
 
 // =============================================================================
 // FRAMEWORK-SPECIFIC COGNITIVE MODELS
+// =============================================================================
+// DEPRECATED: These constants are part of the legacy prompt system.
+// They are currently used as fallback content when JIT compilation fails,
+// and also appended to JIT-compiled prompts for framework-specific guidance.
+// Once the JIT compiler includes framework-specific knowledge, these can be removed.
 // =============================================================================
 
 const goTestCognitiveModel = `## GO TEST COGNITIVE MODEL

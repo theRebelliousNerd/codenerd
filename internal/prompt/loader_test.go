@@ -53,11 +53,17 @@ func TestLoadAgentPromptsUnifiedStorage(t *testing.T) {
 		t.Fatalf("Failed to create agents dir: %v", err)
 	}
 
-	// Create a knowledge DB
+	// Create a knowledge DB (must execute something to create the file)
 	kbPath := filepath.Join(shardsDir, "testagent_knowledge.db")
 	db, err := sql.Open("sqlite3", kbPath)
 	if err != nil {
 		t.Fatalf("Failed to create knowledge DB: %v", err)
+	}
+	// Execute something to actually create the file
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS knowledge_atoms (id INTEGER PRIMARY KEY)")
+	if err != nil {
+		db.Close()
+		t.Fatalf("Failed to initialize knowledge DB: %v", err)
 	}
 	db.Close()
 
