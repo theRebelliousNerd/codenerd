@@ -40,6 +40,7 @@ try:
     from audit_actions import ActionAuditor
     from audit_logging import LoggingAuditor
     from audit_execution import ExecutionAuditor
+    from audit_unwired import UnwiredAuditor
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -70,6 +71,7 @@ class AuditSummary:
     logging_ok: bool = True
     cross_system_ok: bool = True
     execution_ok: bool = True
+    unwired_ok: bool = True
 
 @dataclass
 class MasterAuditResult:
@@ -100,23 +102,26 @@ class MasterAuditor:
         print()
 
         # Run individual audits
-        print("[1/6] Running Shard Registration Audit...")
+        print("[1/7] Running Shard Registration Audit...")
         self._run_shard_audit()
 
-        print("[2/6] Running Mangle Schema/Policy Audit...")
+        print("[2/7] Running Mangle Schema/Policy Audit...")
         self._run_mangle_audit()
 
-        print("[3/6] Running Action Layer Audit...")
+        print("[3/7] Running Action Layer Audit...")
         self._run_action_audit()
 
-        print("[4/6] Running Logging Coverage Audit...")
+        print("[4/7] Running Logging Coverage Audit...")
         self._run_logging_audit()
 
-        print("[5/6] Running Cross-System Integration Check...")
+        print("[5/7] Running Cross-System Integration Check...")
         self._run_cross_system_audit()
 
-        print("[6/6] Running Execution Wiring Audit...")
+        print("[6/7] Running Execution Wiring Audit...")
         self._run_execution_audit()
+
+        print("[7/7] Running Unwired Code Audit (Wire, Don't Remove)...")
+        self._run_unwired_audit()
 
         # Calculate summary
         self._calculate_summary()
@@ -275,6 +280,37 @@ class MasterAuditor:
                 self.result.summary.execution_ok = False
         else:
             self._run_subprocess_audit("audit_execution.py", "execution")
+
+    def _run_unwired_audit(self):
+        """Run unwired code audit (Wire, Don't Remove philosophy)."""
+        if IMPORTS_AVAILABLE:
+            try:
+                auditor = UnwiredAuditor(str(self.workspace), verbose=self.verbose, component=self.component)
+                result = auditor.audit()
+
+                for f in result.findings:
+                    if f.severity.value == "INFO" and not self.verbose:
+                        continue
+                    self.result.findings.append(Finding(
+                        severity=Severity(f.severity.value),
+                        category="unwired",
+                        message=f.message,
+                        file=f.file,
+                        line=f.line,
+                        suggestion=f.suggestion
+                    ))
+
+                self.result.sub_results['unwired'] = result.stats
+                self.result.summary.unwired_ok = result.stats.get('errors', 0) == 0
+            except Exception as e:
+                self.result.findings.append(Finding(
+                    severity=Severity.ERROR,
+                    category="unwired",
+                    message=f"Unwired audit failed: {e}"
+                ))
+                self.result.summary.unwired_ok = False
+        else:
+            self._run_subprocess_audit("audit_unwired.py", "unwired")
 
     def _run_subprocess_audit(self, script_name: str, category: str):
         """Run an audit script as subprocess and parse JSON output."""
@@ -469,7 +505,8 @@ class MasterAuditor:
             self.result.summary.actions_ok and
             self.result.summary.logging_ok and
             self.result.summary.cross_system_ok and
-            self.result.summary.execution_ok
+            self.result.summary.execution_ok and
+            self.result.summary.unwired_ok
         )
 
         status = "PASS" if all_ok else "FAIL"
@@ -484,6 +521,7 @@ class MasterAuditor:
         print(f"  Logging:      {'OK' if self.result.summary.logging_ok else 'ERRORS'}")
         print(f"  Cross-System: {'OK' if self.result.summary.cross_system_ok else 'ERRORS'}")
         print(f"  Execution:    {'OK' if self.result.summary.execution_ok else 'ERRORS'}")
+        print(f"  Unwired:      {'OK' if self.result.summary.unwired_ok else 'NEEDS WIRING'}")
         print()
 
         # Counts
@@ -560,6 +598,8 @@ class MasterAuditor:
                 print("  4. Check boot sequence and cross-component wiring")
             if not self.result.summary.execution_ok:
                 print("  5. Fix execution wiring: ensure Run() called, channels listened, goroutines spawned")
+            if not self.result.summary.unwired_ok:
+                print("  6. Wire unused code: Remember - Wire, Don't Remove! Ask 'why was this written?'")
             print()
             print("Run with --verbose for detailed suggestions.")
             print()
@@ -618,6 +658,7 @@ Examples:
                 "logging_ok": result.summary.logging_ok,
                 "cross_system_ok": result.summary.cross_system_ok,
                 "execution_ok": result.summary.execution_ok,
+                "unwired_ok": result.summary.unwired_ok,
             },
             "findings": [
                 {

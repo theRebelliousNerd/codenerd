@@ -73,7 +73,7 @@ type Risk struct {
 // NorthstarRequirement represents a crystallized requirement
 type NorthstarRequirement struct {
 	ID          string `json:"id"`
-	Type        string `json:"type"`        // "functional", "non-functional", "constraint"
+	Type        string `json:"type"` // "functional", "non-functional", "constraint"
 	Description string `json:"description"`
 	Priority    string `json:"priority"` // "must-have", "should-have", "nice-to-have"
 	Source      string `json:"source"`   // Origin: "user", "research", "red-team"
@@ -142,24 +142,24 @@ func parseGeneratedRequirements(response string, startIdx int) []NorthstarRequir
 
 // NorthstarWizardState tracks the state of the northstar definition wizard
 type NorthstarWizardState struct {
-	Phase           NorthstarPhase
-	SubStep         int // For multi-part phases
+	Phase   NorthstarPhase
+	SubStep int // For multi-part phases
 
 	// Document ingestion
-	ResearchDocs    []string
-	ExtractedFacts  []string
+	ResearchDocs   []string
+	ExtractedFacts []string
 
 	// Vision
-	Problem         string
-	Vision          string
-	Mission         string // One-liner
+	Problem string
+	Vision  string
+	Mission string // One-liner
 
 	// Target users
-	CurrentPersona  *UserPersona
-	Personas        []UserPersona
+	CurrentPersona *UserPersona
+	Personas       []UserPersona
 
 	// Capabilities
-	Capabilities    []Capability
+	Capabilities      []Capability
 	CurrentCapability *Capability
 
 	// Red teaming
@@ -168,18 +168,18 @@ type NorthstarWizardState struct {
 	RedTeamInsights []string
 
 	// Requirements
-	Requirements    []NorthstarRequirement
+	Requirements []NorthstarRequirement
 
 	// Constraints
-	Constraints     []string
+	Constraints []string
 
 	// Processing state
-	IsProcessing    bool
-	ProcessingMsg   string
+	IsProcessing  bool
+	ProcessingMsg string
 
 	// Metadata
-	CreatedAt       time.Time
-	LastUpdated     time.Time
+	CreatedAt   time.Time
+	LastUpdated time.Time
 }
 
 // NewNorthstarWizard creates a new wizard state
@@ -765,27 +765,27 @@ _Type "done" when finished, or "auto" to let me suggest requirements._`, len(w.R
 		w.CurrentRisk = &Risk{Description: input}
 		w.SubStep = 1
 		m.history = append(m.history, Message{
-			Role: "assistant",
+			Role:    "assistant",
 			Content: `**How likely is this risk?** (high/medium/low)`,
-			Time: time.Now(),
+			Time:    time.Now(),
 		})
 		m.textarea.Placeholder = "Likelihood..."
 	} else if w.SubStep == 1 {
 		w.CurrentRisk.Likelihood = parseLikelihood(input)
 		w.SubStep = 2
 		m.history = append(m.history, Message{
-			Role: "assistant",
+			Role:    "assistant",
 			Content: `**If it happens, what's the impact?** (high/medium/low)`,
-			Time: time.Now(),
+			Time:    time.Now(),
 		})
 		m.textarea.Placeholder = "Impact..."
 	} else if w.SubStep == 2 {
 		w.CurrentRisk.Impact = parseLikelihood(input) // Same parser works
 		w.SubStep = 3
 		m.history = append(m.history, Message{
-			Role: "assistant",
+			Role:    "assistant",
 			Content: `**How could we mitigate this?** (or "none" if unknown)`,
-			Time: time.Now(),
+			Time:    time.Now(),
 		})
 		m.textarea.Placeholder = "Mitigation strategy..."
 	} else {
@@ -1120,8 +1120,8 @@ func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 		msg = fmt.Sprintf(`## 🌟 Northstar Saved!
 
 Stored to:
-- ` + "`%s`" + `
-- ` + "`%s`" + `
+- `+"`%s`"+`
+- `+"`%s`"+`
 - Knowledge database
 
 **Starting campaign based on this vision...**
@@ -1723,7 +1723,9 @@ func truncateWithEllipsis(s string, maxLen int) string {
 
 // saveNorthstarToKnowledgeBase stores northstar data in the knowledge database
 // Returns a slice of errors encountered during storage (empty if all succeeded)
-func saveNorthstarToKnowledgeBase(db interface{ StoreKnowledgeAtom(concept, content string, confidence float64) error }, w *NorthstarWizardState) []error {
+func saveNorthstarToKnowledgeBase(db interface {
+	StoreKnowledgeAtom(concept, content string, confidence float64) error
+}, w *NorthstarWizardState) []error {
 	var errs []error
 
 	// Store mission

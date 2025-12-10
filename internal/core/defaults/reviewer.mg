@@ -48,7 +48,7 @@ is_warning_finding(File, Line) :-
 
 # Block commit on critical findings
 block_commit("critical_security_finding") :-
-    is_critical_finding(_).
+    is_critical_finding(_, _).
 
 # Block commit on high error count
 block_commit("too_many_errors") :-
@@ -303,12 +303,11 @@ review_suspect(ReviewID, "flagged_existing_symbol") :-
     :string:contains(Message, "undefined").
 
 # Review is suspect if >50% findings were rejected
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle can't do percentage math; use rejection_rate_high virtual predicate
 review_suspect(ReviewID, "high_rejection_rate") :-
-    review_accuracy(ReviewID, Total, _, Rejected, _),
-    Total > 2
-    |> let DoubleRejected = fn:mult(Rejected, 2)
-    |> do fn:filter(fn:gt(DoubleRejected, Total)).
+    review_accuracy(ReviewID, Total, _, _, _),
+    Total > 2,
+    review_rejection_rate_high(ReviewID).
 
 # Trigger validation for suspect reviews
 reviewer_needs_validation(ReviewID) :-

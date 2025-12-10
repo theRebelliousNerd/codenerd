@@ -4,6 +4,9 @@ A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic archit
 
 ## PUSH TO GITHUB ALL THE TIME 
 
+## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM. IT IS THE CENTRAL PARADIGM OF THE SYSTEM. JIT, PIGGYBACKING, CONTROL PACKETS, MANGLE, THAT IS THE NAME OF THE GAME!
+
+
 **Kernel:** Google Mangle (Datalog) | **Runtime:** Go | **Philosophy:** Logic determines Reality; the Model merely describes it.
 
 > [!IMPORTANT]
@@ -88,6 +91,8 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 ### integration-auditor
 
 **When:** Verifying system integration - debugging "code exists but doesn't run" issues, pre-commit wiring checks, new feature integration, or shard lifecycle verification. Covers all 39+ codeNERD integration systems.
+
+## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM
 
 ## Key Implementation Files
 

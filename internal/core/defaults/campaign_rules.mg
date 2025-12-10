@@ -307,20 +307,14 @@ phase_blocked(PhaseID, "tests_failed") :-
 # -----------------------------------------------------------------------------
 
 # Context is under pressure (> 80% utilized)
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle can't do percentage calculations; Go computes via virtual predicate
 context_pressure_high(CampaignID) :-
-    context_window_state(CampaignID, Used, Total, _)
-    |> let Ratio = fn:div(Used, Total)
-    |> let Utilization = fn:mult(100, Ratio)
-    |> do fn:filter(fn:gt(Utilization, 80)).
+    context_pressure_level(CampaignID, /high).
 
 # Context is critical (> 95% utilized)
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle can't do percentage calculations; Go computes via virtual predicate
 context_pressure_critical(CampaignID) :-
-    context_window_state(CampaignID, Used, Total, _)
-    |> let Ratio = fn:div(Used, Total)
-    |> let Utilization = fn:mult(100, Ratio)
-    |> do fn:filter(fn:gt(Utilization, 95)).
+    context_pressure_level(CampaignID, /critical).
 
 # Trigger compression when pressure is high
 next_action(/compress_context) :-
@@ -370,14 +364,14 @@ activation(Atom, 150) :-
     phase_context_atom(PhaseID, Atom, _).
 
 # Previous phase summaries get moderate activation
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle can't compute CurrentOrder - 1; simplified to all completed phases
+# in same campaign get activation (Go can refine with previous_phase predicate)
 activation(Summary, 80) :-
-    campaign_phase(PhaseID, CampaignID, _, Order, /completed, _),
+    campaign_phase(PhaseID, CampaignID, _, _, /completed, _),
     current_phase(CurrentPhaseID),
-    campaign_phase(CurrentPhaseID, CampaignID, _, CurrentOrder, _, _),
-    context_compression(PhaseID, Summary, _, _)
-    |> let PrevOrder = fn:minus(CurrentOrder, 1)
-    |> do fn:filter(fn:eq(Order, PrevOrder)).
+    campaign_phase(CurrentPhaseID, CampaignID, _, _, _, _),
+    context_compression(PhaseID, Summary, _, _),
+    PhaseID != CurrentPhaseID.
 
 # =============================================================================
 # SECTION 5: CROSS-PHASE LEARNING
@@ -585,13 +579,11 @@ phase_nearly_complete(PhaseID) :-
     all_phase_tasks_complete(PhaseID).
 
 # Campaign is past halfway point
-# NOTE: Uses transform pipeline for arithmetic per Mangle spec
+# NOTE: Mangle can't do percentage math; use virtual predicate
 campaign_past_halfway(CampaignID) :-
     campaign_progress(CampaignID, Completed, Total, _, _),
-    Total > 0
-    |> let Ratio = fn:div(Completed, Total)
-    |> let Progress = fn:mult(100, Ratio)
-    |> do fn:filter(fn:gte(Progress, 50)).
+    Total > 0,
+    campaign_progress_over_50(CampaignID).
 
 # -----------------------------------------------------------------------------
 # 7.2 Milestone Detection

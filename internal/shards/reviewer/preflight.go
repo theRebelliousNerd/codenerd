@@ -538,3 +538,85 @@ func (r *ReviewerShard) RunPreFlightAndProceed(ctx context.Context, files []stri
 
 	return "", true
 }
+
+// =============================================================================
+// SOLUTION PROPOSAL FOR BUILD ERRORS
+// =============================================================================
+
+// proposeSolutionForDiagnostic generates a proposed fix for a pre-flight diagnostic.
+// This enables the review to continue while providing actionable remediation advice.
+func (r *ReviewerShard) proposeSolutionForDiagnostic(diag Diagnostic) string {
+	msg := strings.ToLower(diag.Message)
+	detail := strings.ToLower(diag.Detail)
+	combined := msg + " " + detail
+
+	// Environment issues
+	if strings.Contains(combined, "gocache") && strings.Contains(combined, "not defined") {
+		return "Set GOCACHE environment variable: `$env:GOCACHE = \"$env:USERPROFILE\\.cache\\go-build\"` (PowerShell) or `export GOCACHE=~/.cache/go-build` (bash)"
+	}
+	if strings.Contains(combined, "gopath") && strings.Contains(combined, "not defined") {
+		return "Set GOPATH environment variable: `$env:GOPATH = \"$env:USERPROFILE\\go\"` (PowerShell) or `export GOPATH=~/go` (bash)"
+	}
+	if strings.Contains(combined, "go.mod") && strings.Contains(combined, "not found") {
+		return "Initialize Go module: `go mod init <module-name>` or ensure you're in the correct directory"
+	}
+
+	// Import errors
+	if strings.Contains(combined, "could not import") || strings.Contains(combined, "cannot find package") {
+		return "Run `go mod tidy` to fetch missing dependencies, or check import path spelling"
+	}
+	if strings.Contains(combined, "import cycle") {
+		return "Refactor to break the import cycle - consider moving shared types to a separate package"
+	}
+
+	// Syntax errors
+	if strings.Contains(combined, "undefined:") {
+		// Extract the undefined symbol if possible
+		return "Check for typos in the identifier name, ensure it's exported (capitalized) if from another package, or add the missing declaration"
+	}
+	if strings.Contains(combined, "expected") && strings.Contains(combined, "found") {
+		return "Fix the syntax error - check for missing brackets, parentheses, or semicolons near the indicated line"
+	}
+	if strings.Contains(combined, "missing return") {
+		return "Add a return statement at the end of the function for all code paths"
+	}
+
+	// Type errors
+	if strings.Contains(combined, "cannot use") && strings.Contains(combined, "as type") {
+		return "Fix the type mismatch - use a type conversion or change the variable/parameter type"
+	}
+	if strings.Contains(combined, "not enough arguments") || strings.Contains(combined, "too many arguments") {
+		return "Check the function signature and provide the correct number of arguments"
+	}
+	if strings.Contains(combined, "cannot assign") {
+		return "Check if the variable is assignable (not a constant or unexported field)"
+	}
+
+	// Build environment issues
+	if strings.Contains(combined, "cgo") && (strings.Contains(combined, "gcc") || strings.Contains(combined, "cc")) {
+		return "Install C compiler (gcc/clang) or set CGO_ENABLED=0 if C dependencies aren't needed"
+	}
+	if strings.Contains(combined, "build constraints exclude") {
+		return "Check build tags and GOOS/GOARCH settings match your target platform"
+	}
+
+	// CGO header file issues (sqlite, etc.)
+	if strings.Contains(combined, "sqlite3.h") && strings.Contains(combined, "not found") {
+		return "Set CGO_CFLAGS to include sqlite headers: `$env:CGO_CFLAGS=\"-IC:/CodeProjects/codeNERD/sqlite_headers\"` or add to .nerd/config.json build.env_vars"
+	}
+	if strings.Contains(combined, ".h") && strings.Contains(combined, "not found") {
+		return "Missing C header file - set CGO_CFLAGS with the include path: `CGO_CFLAGS=\"-I/path/to/headers\"`"
+	}
+
+	// Timeout/resource issues
+	if strings.Contains(combined, "timeout") {
+		return "Build is taking too long - check for circular dependencies or try `go clean -cache` to clear build cache"
+	}
+
+	// Generic fallback
+	if diag.Severity == "CRITICAL" || diag.Severity == "ERROR" {
+		return "Run `go build ./...` locally to see detailed error output and fix the compilation issue"
+	}
+
+	return ""
+}

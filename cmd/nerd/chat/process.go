@@ -106,6 +106,13 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
+			// CONTINUATION PROTOCOL: Clean up stale continuation facts from previous turns
+			// This prevents old pending_test/pending_review facts from triggering false continuations
+			_ = m.kernel.Retract("shard_result")
+			_ = m.kernel.Retract("pending_test")
+			_ = m.kernel.Retract("pending_review")
+			_ = m.kernel.Retract("interrupt_requested")
+
 			intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
 			intentFact := core.Fact{
 				Predicate: "user_intent",
@@ -273,11 +280,27 @@ OUTPUT:
 
 				// Combine the structured result (in a collapsible block) with the interpretation
 				response := fmt.Sprintf("%s%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, validationWarning, result)
+
+				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
+				if cont := m.checkContinuation(shardType, task, result); cont != nil {
+					// Store response for display, then signal continuation
+					m.statusMessage = response
+					return *cont
+				}
+
 				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 			}
 
 			// Format a rich response combining LLM surface response and shard result
 			response := formatDelegatedResponse(intent, shardType, task, result)
+
+			// CONTINUATION PROTOCOL: Check for pending subtasks before returning
+			if cont := m.checkContinuation(shardType, task, result); cont != nil {
+				// Store response for display, then signal continuation
+				m.statusMessage = response
+				return *cont
+			}
+
 			return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
@@ -1646,6 +1669,49 @@ func (m Model) checkWorkspaceSync() tea.Cmd {
 // =============================================================================
 // CONTINUATION PROTOCOL - Multi-Step Task Execution
 // =============================================================================
+
+// checkContinuation checks if there are pending subtasks after shard execution.
+// Returns a continueMsg if more work is needed, nil otherwise.
+// This is called from processInput after each shard completes.
+func (m *Model) checkContinuation(shardType, task, result string) *tea.Msg {
+	// Inject result facts to enable continuation derivation
+	m.injectShardResultFacts(shardType, task, result, nil)
+
+	if m.kernel == nil {
+		return nil
+	}
+
+	// Query for continuation signal
+	shouldContinue, _ := m.kernel.Query("should_auto_continue")
+	pending, _ := m.kernel.Query("has_pending_subtask")
+
+	if len(shouldContinue) > 0 && len(pending) > 0 {
+		// Extract first pending subtask
+		subtask := pending[0]
+		if len(subtask.Args) >= 3 {
+			nextID, _ := subtask.Args[0].(string)
+			nextDesc, _ := subtask.Args[1].(string)
+			nextShard := strings.TrimPrefix(fmt.Sprintf("%v", subtask.Args[2]), "/")
+
+			// Check if this is a mutation operation
+			isMutation := isMutationOperation(nextShard)
+
+			// Initialize continuation tracking
+			m.continuationStep = 1
+			m.continuationTotal = 2 // At least 2 steps (current + next)
+
+			msg := tea.Msg(continueMsg{
+				subtaskID:   nextID,
+				description: nextDesc,
+				shardType:   nextShard,
+				isMutation:  isMutation,
+			})
+			return &msg
+		}
+	}
+
+	return nil
+}
 
 // executeSubtask executes a single subtask and checks for continuation.
 // Returns either a continueMsg (more work) or continuationDoneMsg (complete).

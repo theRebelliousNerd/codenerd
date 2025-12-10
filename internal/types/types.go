@@ -64,7 +64,15 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 	for _, arg := range f.Args {
 		switch v := arg.(type) {
 		case MangleAtom:
-			c, err := ast.Name(string(v))
+			s := string(v)
+			// MangleAtom should always start with / for name constants.
+			// If it doesn't, treat it as a string constant instead of failing.
+			// This provides defense against malformed MangleAtom values.
+			if !strings.HasPrefix(s, "/") {
+				terms = append(terms, ast.String(s))
+				continue
+			}
+			c, err := ast.Name(s)
 			if err != nil {
 				return ast.Atom{}, err
 			}

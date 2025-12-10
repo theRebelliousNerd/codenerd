@@ -357,11 +357,15 @@ coder_block_action(/edit, "vendor_file") :-
     pending_edit(Path, _),
     is_vendor_file(Path).
 
+# Helper: any pending edit is implementation
+has_implementation_edit() :-
+    edit_is_implementation(_).
+
 # Block edits during active TDD red phase (tests should fail first)
 coder_block_action(/edit, "tdd_red_phase") :-
     pending_edit(_, _),
     tdd_state(/red),
-    !edit_is_implementation(_).
+    !has_implementation_edit().
 
 # Helpers
 is_generated_file(Path) :-

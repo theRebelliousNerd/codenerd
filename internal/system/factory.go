@@ -299,8 +299,14 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 				switch t := arg.(type) {
 
 				case ast.Constant:
-					// Mangle names start with /
-					args[i] = core.MangleAtom(t.Symbol)
+					// Mangle name constants must start with /
+					// If the symbol doesn't start with /, treat it as a plain string
+					// to avoid ToAtom failures later
+					if strings.HasPrefix(t.Symbol, "/") {
+						args[i] = core.MangleAtom(t.Symbol)
+					} else {
+						args[i] = t.Symbol
+					}
 				default:
 					args[i] = t.String()
 				}
