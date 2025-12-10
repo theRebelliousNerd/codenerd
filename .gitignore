@@ -38,6 +38,7 @@ Docs/*
 !CLAUDE.md
 !**/CLAUDE.md
 !Docs/research/**
+!.claude/skills/**/*.md
 
 # Debug files
 debug_program*.mg
