@@ -30,6 +30,7 @@ The package acts as the "Articulation Transducer" in the codeNERD architecture, 
 | `helpers.go` | ~490 | Utility functions, file operations, articulation helpers |
 | `delegation.go` | ~228 | Shard spawning, task formatting, response formatting |
 | `shadow.go` | ~298 | Shadow Mode simulation, What-If analysis, derivation traces |
+| `review_aggregator.go` | ~400 | Multi-shard review orchestration with adversarial integration |
 
 ## Key Types
 
@@ -90,7 +91,7 @@ type Message struct {
 | `/help` | Show available commands | Inline help text |
 | `/clear` | Clear conversation history | Reset history slice |
 | `/agent <name> <task>` | Spawn specific shard agent | `spawnShard()` |
-| `/review [target]` | Code review via ReviewerShard | `formatShardTask()` |
+| `/review [target]` | Multi-shard code review with adversarial analysis | `spawnMultiShardReview()` |
 | `/security [target]` | Security analysis | `formatShardTask()` |
 | `/campaign start <goal>` | Begin multi-phase campaign | `startCampaign()` |
 | `/campaign status` | Show campaign progress | `renderCampaignStatus()` |
@@ -101,6 +102,40 @@ type Message struct {
 | `/config set-theme` | Set UI theme (light/dark) | Direct config modification |
 | `/init` | Initialize codebase analysis | `runInit()` |
 | `/scan` | Re-scan workspace | `runScan()` |
+
+## Multi-Shard Review System
+
+The `/review` command triggers a sophisticated multi-shard review pipeline:
+
+```
+/review [target]
+    |
+    v
+resolveReviewTarget() → Files to review
+    |
+    v
+MatchSpecialistsForReview() → Select domain experts
+    |
+    v
+Parallel Shard Execution:
+├── ReviewerShard (always)
+├── Matched Specialists (domain-specific)
+└── NemesisShard (adversarial)
+    |
+    v
+AggregatedReview:
+├── FindingsByShard
+├── DeduplicatedList
+└── HolisticInsights
+```
+
+### Adversarial Integration
+
+The NemesisShard runs in parallel with regular review:
+- Analyzes patch for attack surface
+- Generates targeted chaos tools via Ouroboros
+- Runs attack vectors in Thunderdome sandbox
+- Reports vulnerabilities to aggregated review
 
 ## Integration Points
 

@@ -464,6 +464,11 @@ For complete specification and God Tier prompt patterns, see [prompt-architect s
              +-> [ Autopoiesis ]
                    +-> SafetyChecker (AST + Mangle policy)
                    +-> OuroborosLoop (Tool self-generation)
+                   +-> [ Adversarial Co-Evolution ]
+                         +-> NemesisShard (Type B adversary)
+                         +-> Thunderdome (Battle arena)
+                         +-> PanicMaker (Attack generation)
+                         +-> Armory (Attack persistence)
        |
 [ Articulation Transducer (LLM) ] --> [ User Response ]
        |
@@ -743,6 +748,7 @@ internal/shards/
 ├── tester/         # Modularized test execution
 ├── reviewer/       # checks.go, custom_rules.go, dependencies.go, metrics.go
 ├── researcher/     # analyze.go, extract.go, scraper.go, tools.go
+├── nemesis/        # nemesis.go, armory.go, attack_runner.go (Adversarial Co-Evolution)
 ├── tool_generator/ # Ouroboros tool generation
 └── system/         # base.go, constitution.go, executive.go, legislator.go, perception.go, planner.go
 ```
@@ -1055,6 +1061,155 @@ Implementation locations:
 
 - [internal/autopoiesis/ouroboros.go](internal/autopoiesis/ouroboros.go)
 - [internal/autopoiesis/state.mg](internal/autopoiesis/state.mg)
+
+## Adversarial Co-Evolution System
+
+The Adversarial Co-Evolution System is codeNERD's immune system—a sophisticated battle-testing infrastructure that actively tries to break generated tools and patches before they reach production. It embodies the principle: "Code that survives Nemesis survives reality."
+
+### Adversarial Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Adversarial Co-Evolution System                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│   ┌─────────────┐    generates     ┌─────────────────┐                     │
+│   │ PanicMaker  │───────attacks───▶│   Thunderdome   │                     │
+│   │  (LLM-based)│                  │  (Battle Arena) │                     │
+│   └─────────────┘                  └────────┬────────┘                     │
+│         ▲                           survives│fails                         │
+│         │                                   ▼                              │
+│   ┌─────────────┐    analyzes      ┌─────────────────┐                     │
+│   │   Nemesis   │◀────patches──────│   CoderShard    │                     │
+│   │ (Adversary) │                  │   (Creates)     │                     │
+│   └──────┬──────┘                  └─────────────────┘                     │
+│          │ successful attacks                                              │
+│          ▼                                                                 │
+│   ┌─────────────┐    regression    ┌─────────────────┐                     │
+│   │   Armory    │───────tests─────▶│  Future Builds  │                     │
+│   └─────────────┘                  └─────────────────┘                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### NemesisShard (Type B Persistent Adversary)
+
+The NemesisShard is a **persistent adversarial specialist** that opposes the CoderShard. While Coder creates, Nemesis destroys—ensuring only robust code survives.
+
+**Task Formats:**
+
+- `analyze:<patch_id>` - Analyze a patch for weaknesses
+- `gauntlet:<patch_id>` - Run full adversarial gauntlet
+- `review:<target>` - Adversarial review of a target file
+- `anti_autopoiesis:<patch_id>` - Detect lazy fix patterns
+
+```go
+// internal/shards/nemesis/nemesis.go
+type NemesisShard struct {
+    id          string
+    config      core.ShardConfig
+    kernel      *core.RealKernel
+    llmClient   LLMClient
+    armory      *Armory           // Persisted attack tools
+    vulnDB      *VulnerabilityDB  // Tracks discovered weaknesses
+    thunderdome *autopoiesis.Thunderdome
+}
+```
+
+Implementation: [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go)
+
+### Thunderdome (Battle Arena)
+
+The Thunderdome runs attack vectors against compiled tools in isolated sandboxes with memory/timeout limits.
+
+```go
+// internal/autopoiesis/thunderdome.go
+type ThunderdomeConfig struct {
+    Timeout         time.Duration  // Max time per attack (default: 5s)
+    MaxMemoryMB     int            // Memory limit (default: 100MB)
+    ParallelAttacks int            // Concurrent attacks (default: 1)
+}
+```
+
+**Battle Flow:** Prepare Arena → Generate Harness → Compile → Run Attacks → Analyze → Fail Fast
+
+Implementation: [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go)
+
+### PanicMaker (Attack Vector Generator)
+
+Analyzes tool source code and generates targeted attacks using LLM analysis.
+
+**Attack Categories:**
+
+| Category | Description | Expected Failure |
+|----------|-------------|------------------|
+| `nil_pointer` | Pass nil where non-nil expected | panic |
+| `boundary` | Max int, empty slices, negative indices | panic |
+| `resource` | Memory exhaustion, huge allocations | OOM |
+| `concurrency` | Race conditions, deadlocks | race/deadlock |
+| `format` | Invalid UTF-8, special chars, injection | panic |
+
+Implementation: [internal/autopoiesis/panic_maker.go](internal/autopoiesis/panic_maker.go)
+
+### Armory (Attack Persistence)
+
+Persists successful attacks as regression tests. "Just as codeNERD learns preferences, Nemesis learns weaknesses."
+
+```go
+// internal/shards/nemesis/armory.go
+type ArmoryAttack struct {
+    ID            string    // Unique attack ID
+    Name          string    // Attack name
+    Category      string    // concurrency, resource, logic, integration
+    Vulnerability string    // What invariant it violates
+    SuccessCount  int       // How many bugs it's found
+    LastSuccess   time.Time // Last successful break
+}
+```
+
+**Rules:** Add on break → Update on success → Prune stale (30 days) → Protect effective (3+ successes)
+
+Implementation: [internal/shards/nemesis/armory.go](internal/shards/nemesis/armory.go)
+
+### AttackRunner (Sandboxed Execution)
+
+Executes attack scripts in isolated Go test environments with race detection (`-race`).
+
+Implementation: [internal/shards/nemesis/attack_runner.go](internal/shards/nemesis/attack_runner.go)
+
+### Chaos Schema (chaos.mg)
+
+Mangle predicates for adversarial tracking:
+
+```mangle
+# Attack tracking
+Decl attack_vector(AttackID, Name, Category, ToolName).
+Decl panic_maker_verdict(ToolName, Verdict, Timestamp).  # /survived or /defeated
+Decl battle_hardened(ToolName, Timestamp).
+
+# Nemesis tracking
+Decl nemesis_victory(PatchID).  # Nemesis broke the patch
+
+# System invariants
+Decl system_invariant_violated(InvariantID, Timestamp).
+
+# Lazy pattern detection (anti-autopoiesis)
+lazy_pattern_detected(/timeout_lazy, /timeout_increase) :-
+    fix_pattern(_, /timeout_increase, Count, _), Count >= 3.
+```
+
+**System Invariants:** HTTP 500 rate, deadlock, memory, goroutine leak, latency (p99)
+
+Implementation: [internal/autopoiesis/chaos.mg](internal/autopoiesis/chaos.mg)
+
+### Adversarial Component Locations
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| NemesisShard | `internal/shards/nemesis/nemesis.go` | Adversarial specialist |
+| Armory | `internal/shards/nemesis/armory.go` | Attack persistence |
+| AttackRunner | `internal/shards/nemesis/attack_runner.go` | Sandboxed execution |
+| Thunderdome | `internal/autopoiesis/thunderdome.go` | Battle arena |
+| PanicMaker | `internal/autopoiesis/panic_maker.go` | Attack generation |
+| Chaos Schema | `internal/autopoiesis/chaos.mg` | Mangle rules |
 
 ### DifferentialEngine (Incremental Evaluation)
 

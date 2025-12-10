@@ -34,11 +34,13 @@ internal/
 ├── core/           # Kernel, VirtualStore, ShardManager
 ├── perception/     # NL → Mangle atom transduction
 ├── articulation/   # Mangle atom → NL transduction
-├── shards/         # CoderShard, TesterShard, ReviewerShard, ResearcherShard
+├── autopoiesis/    # Self-modification: Ouroboros, Thunderdome, tool learning
+├── prompt/         # JIT Prompt Compiler, atoms, context-aware assembly
+├── shards/         # CoderShard, TesterShard, ReviewerShard, ResearcherShard, NemesisShard
 ├── mangle/         # .gl schema and policy files
 ├── store/          # Memory tiers (RAM, Vector, Graph, Cold)
 ├── campaign/       # Multi-phase goal orchestration
-└── world/          # Filesystem and AST projection
+└── world/          # Filesystem, AST projection, multi-lang data flow, holographic context
 ```
 
 ## Skills
@@ -88,6 +90,12 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 | ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle |
 | Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
 | Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
+| JIT Compiler | [internal/prompt/compiler.go](internal/prompt/compiler.go) | Runtime prompt assembly |
+| Nemesis | [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go) | Adversarial patch analysis |
+| Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Attack vector arena |
+| DataFlow | [internal/world/dataflow_multilang.go](internal/world/dataflow_multilang.go) | Multi-language taint analysis |
+| Holographic | [internal/world/holographic.go](internal/world/holographic.go) | Impact-aware context builder |
+| Hypotheses | [internal/shards/reviewer/hypotheses.go](internal/shards/reviewer/hypotheses.go) | Mangle→LLM verification |
 
 ## Development Guidelines
 
@@ -134,11 +142,12 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 | Shard | File | Purpose |
 |-------|------|---------|
-| CoderShard | `internal/shards/coder.go` | Code generation, file edits, refactoring |
-| TesterShard | `internal/shards/tester.go` | Test execution, coverage analysis |
-| ReviewerShard | `internal/shards/reviewer.go` | Code review, security scan, metrics |
+| CoderShard | `internal/shards/coder/` | Code generation, file edits, refactoring |
+| TesterShard | `internal/shards/tester/` | Test execution, coverage analysis |
+| ReviewerShard | `internal/shards/reviewer/` | Code review, pre-flight checks, hypothesis verification |
 | ResearcherShard | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
-| ToolGenerator | `internal/shards/tool_generator.go` | Ouroboros: self-generating tools |
+| NemesisShard | `internal/shards/nemesis/` | Adversarial testing, patch breaking, chaos tools |
+| ToolGenerator | `internal/shards/tool_generator/` | Ouroboros: self-generating tools |
 
 ### System Shards (Type S)
 
@@ -150,6 +159,7 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 | `constitution_gate` | Safety enforcement |
 | `tactile_router` | Action → tool routing |
 | `session_planner` | Agenda/campaign orchestration |
+| `nemesis` | Adversarial co-evolution, patch breaking |
 
 ### Memory Tiers
 
@@ -169,6 +179,10 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 | `permitted/1` | Constitutional safety gate |
 | `context_atom/1` | Facts selected for LLM injection |
 | `shard_executed/4` | Cross-turn shard result tracking |
+| `hypothesis/4` | Mangle-derived issue candidates for LLM verification |
+| `data_flow_sink/4` | Taint tracking for security analysis |
+| `context_priority/3` | Impact-weighted context selection |
+| `modified_function/3` | Changed functions for impact analysis |
 
 ### Protocols
 
@@ -179,6 +193,9 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 | **TDD Repair** | Test fails → Read log → Find cause → Patch → Retest |
 | **Autopoiesis** | Self-learning from rejection patterns |
 | **Ouroboros** | Self-generating missing tools |
+| **Thunderdome** | Adversarial arena: tools battle attack vectors in sandboxes |
+| **The Gauntlet** | Nemesis adversarial review pipeline |
+| **JIT Prompt Compile** | Runtime prompt assembly with token budget and context selectors |
 
 ## Quick Reference
 

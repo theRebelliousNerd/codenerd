@@ -4,7 +4,7 @@ This package implements autopoiesis (self-creation) - the ability for codeNERD t
 
 ## Architecture
 
-Autopoiesis provides seven core capabilities:
+Autopoiesis provides nine core capabilities:
 1. **Complexity Analysis** - Detect when campaigns are needed
 2. **Tool Generation** - Create new tools when capabilities are missing
 3. **Persistence Analysis** - Identify when persistent agents are needed
@@ -12,6 +12,8 @@ Autopoiesis provides seven core capabilities:
 5. **Feedback & Learning** - Evaluate tool quality and improve over time
 6. **Reasoning Traces** - Capture LLM reasoning for optimization and debugging
 7. **Tool Quality Profiles** - LLM-defined per-tool performance expectations
+8. **Thunderdome** - Adversarial testing arena for attack vector validation
+9. **Chaos Engineering** - Generate attack vectors to test tool robustness
 
 ## File Structure
 
@@ -27,6 +29,13 @@ Autopoiesis provides seven core capabilities:
 | `patterns.go` | ~130 | Pattern detection, issue classification |
 | `profiles.go` | ~370 | Tool quality profiles, performance expectations |
 | `traces.go` | ~970 | Reasoning traces, audit logs, mandatory logging |
+| `thunderdome.go` | ~300 | Adversarial testing arena, attack vector execution |
+| `checker.go` | ~400 | Go safety checker, forbidden imports/calls validation |
+| `panic_maker.go` | ~300 | Chaos engineering attack vector generation |
+| `yaegi_executor.go` | ~200 | Yaegi Go interpreter for sandboxed tool execution |
+| `chaos.mg` | ~250 | Mangle rules for chaos attack derivation |
+| `state.mg` | ~200 | Mangle rules for autopoiesis state tracking |
+| `go_safety.mg` | ~100 | Mangle rules for Go safety analysis |
 
 ## The Ouroboros Loop
 
@@ -497,6 +506,64 @@ audit, _ := orchestrator.AnalyzeGenerations(ctx)
 │   │   └── quality_profiles.json # Tool quality profiles
 │   └── .traces/
 │       └── reasoning_traces.json # Reasoning traces
+```
+
+## Thunderdome - Adversarial Testing Arena
+
+The Thunderdome is where tools fight for survival. Attack vectors are run against compiled tools in isolated sandboxes.
+
+### Battle Flow
+
+```
+Tool Generated → Thunderdome.Battle() → Attack Vectors Run → BattleResult
+                        |
+                        v
+              Parallel Attack Execution:
+              ├── Memory exhaustion attacks
+              ├── Panic injection attacks
+              ├── Race condition triggers
+              ├── Resource leak tests
+              └── Malformed input fuzzing
+                        |
+                        v
+              Tool Survives? → Register in runtime
+              Tool Fails? → Back to Ouroboros for refinement
+```
+
+### Attack Vector Types
+
+| Category | Attack | Description |
+|----------|--------|-------------|
+| `memory` | `memory_exhaustion` | Allocate unbounded memory |
+| `panic` | `nil_deref`, `bounds` | Trigger nil pointer / out of bounds |
+| `concurrency` | `race_condition` | Concurrent access without sync |
+| `resource` | `file_leak`, `goroutine_leak` | Unclosed resources |
+| `logic` | `malformed_input` | Invalid/malicious input data |
+
+### ThunderdomeConfig
+
+```go
+type ThunderdomeConfig struct {
+    Timeout         time.Duration // Max time per attack
+    MaxMemoryMB     int           // Memory limit
+    WorkDir         string        // Temp directory
+    KeepArtifacts   bool          // Keep logs for debugging
+    ParallelAttacks int           // Concurrent attack count
+}
+```
+
+### BattleResult
+
+```go
+type BattleResult struct {
+    ToolName     string
+    Survived     bool           // Tool passed all attacks
+    TotalAttacks int
+    Failures     int
+    Results      []AttackResult
+    Duration     time.Duration
+    FatalAttack  *AttackVector  // Attack that killed the tool
+}
 ```
 
 ## Testing
