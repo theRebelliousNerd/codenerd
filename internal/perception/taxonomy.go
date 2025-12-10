@@ -434,6 +434,11 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)review.*(file|code|changes)", "(?i)check.*code"},
 	},
 	{
+		Verb: "/review_enhance", Category: "/query", ShardType: "/reviewer", Priority: 102,
+		Synonyms: []string{"review enhance", "review and enhance", "creative review", "suggest improvements", "enhance"},
+		Patterns: []string{"(?i)review.*enhance", "(?i)review.*suggest", "(?i)improve.*code", "(?i)creative.*feedback", "(?i)how.*make.*better"},
+	},
+	{
 		Verb: "/security", Category: "/query", ShardType: "/reviewer", Priority: 105,
 		Synonyms: []string{"security", "vulnerability", "injection", "xss", "scan"},
 		Patterns: []string{"(?i)security.*scan", "(?i)check.*for.*vuln", "(?i)find.*vuln"},
