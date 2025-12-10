@@ -12,12 +12,14 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
 // StartupMode determines when a system shard starts.
@@ -417,13 +419,6 @@ func (b *BaseSystemShard) GetPromptAssembler() interface{} {
 	return b.promptAssembler
 }
 
-// promptAssemblerInterface defines the minimal interface for JIT prompt assembly.
-// This allows system shards to use the JIT compiler without importing the articulation package.
-type promptAssemblerInterface interface {
-	AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
-	JITReady() bool
-}
-
 // TryJITPrompt attempts to assemble a system prompt using the JIT compiler.
 // Returns the assembled prompt and true if JIT succeeded, or empty string and false if JIT
 // is not available or failed, in which case the caller should fall back to the legacy prompt.
@@ -437,7 +432,8 @@ func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (s
 		return "", false
 	}
 
-	assembler, ok := pa.(promptAssemblerInterface)
+	// Type assert to actual PromptAssembler type
+	assembler, ok := pa.(*articulation.PromptAssembler)
 	if !ok {
 		return "", false
 	}
@@ -446,11 +442,8 @@ func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (s
 		return "", false
 	}
 
-	// Build prompt context using anonymous struct matching articulation.PromptContext
-	promptCtx := struct {
-		ShardID   string
-		ShardType string
-	}{
+	// Build proper PromptContext
+	promptCtx := &articulation.PromptContext{
 		ShardID:   shardID,
 		ShardType: shardType,
 	}

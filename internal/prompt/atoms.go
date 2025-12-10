@@ -183,6 +183,15 @@ type PromptAtom struct {
 	// EmbeddingTask records which task type was used for embedding
 	EmbeddingTask string `json:"embedding_task,omitempty"`
 
+	// Description used for semantic search (embedded instead of Content)
+	Description string `json:"description"`
+
+	// Concise version for tight token budgets
+	ContentConcise string `json:"content_concise,omitempty"`
+
+	// Minimal version (emergency fallback)
+	ContentMin string `json:"content_min,omitempty"`
+
 	// CreatedAt tracks when this atom was created
 	CreatedAt time.Time `json:"created_at"`
 }
