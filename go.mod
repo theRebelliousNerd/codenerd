@@ -18,6 +18,7 @@ require (
 	github.com/traefik/yaegi v0.16.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.47.0
+	golang.org/x/sync v0.18.0
 	google.golang.org/genai v1.37.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1

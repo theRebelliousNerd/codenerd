@@ -2277,6 +2277,10 @@ Decl multi_review_finding(ReviewID, ShardName, FilePath, Line, Severity, Message
 # InsightType: /hot_spot, /pattern, /critical_attention, /cross_domain
 Decl cross_shard_insight(ReviewID, InsightType, Description).
 
+# review_insight(Index, Insight)
+# Individual review insights stored for learning/retrieval
+Decl review_insight(Index, Insight).
+
 # specialist_match(ReviewID, AgentName, Score, Reason)
 # Records which specialists were matched for a review and why
 Decl specialist_match(ReviewID, AgentName, Score, Reason).
@@ -2531,4 +2535,71 @@ Decl high_risk(RiskID).
 
 # unmitigated_risk(RiskID) - Derived: high risk without mitigation
 Decl unmitigated_risk(RiskID).
+
+# capability_addresses_need(CapID, PersonaID, Need) - Capability serves persona need
+Decl capability_addresses_need(CapID, PersonaID, Need).
+
+# unserved_persona(PersonaID, Name) - Persona with needs but no capabilities
+Decl unserved_persona(PersonaID, Name).
+
+# orphan_capability(CapID, Desc) - Capability not linked to any persona
+Decl orphan_capability(CapID, Desc).
+
+# must_have_requirement(ReqID, Desc) - Requirements with must_have priority
+Decl must_have_requirement(ReqID, Desc).
+
+# orphan_requirement(ReqID, Desc) - Requirement not linked to any capability
+Decl orphan_requirement(ReqID, Desc).
+
+# risk_addressing_requirement(ReqID, RiskID) - Requirement that addresses high risk
+Decl risk_addressing_requirement(ReqID, RiskID).
+
+# unaddressed_high_risk(RiskID, Desc) - High risk with no requirement addressing it
+Decl unaddressed_high_risk(RiskID, Desc).
+
+# immediate_capability(CapID, Desc) - Capabilities with /now timeline
+Decl immediate_capability(CapID, Desc).
+
+# near_term_capability(CapID, Desc) - Capabilities with /6mo timeline
+Decl near_term_capability(CapID, Desc).
+
+# long_term_capability(CapID, Desc) - Capabilities with /1yr or /3yr timeline
+Decl long_term_capability(CapID, Desc).
+
+# moonshot_capability(CapID, Desc) - Capabilities with /moonshot timeline
+Decl moonshot_capability(CapID, Desc).
+
+# strategic_warning(Type, CapID, RiskID) - Strategic gaps and warnings
+Decl strategic_warning(Type, CapID, RiskID).
+
+# =============================================================================
+# SECTION 44: SEMANTIC MATCHING (Vector Search Results)
+# =============================================================================
+# These facts are asserted by the SemanticClassifier after vector search.
+# They provide semantic similarity signals to the inference engine.
+
+# semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
+# UserInput: Original user query string
+# CanonicalSentence: Matched sentence from intent corpus
+# Verb: Associated verb from corpus (name constant like /review)
+# Target: Associated target from corpus (string)
+# Rank: 1-based position in results (1 = best match)
+# Similarity: Cosine similarity * 100 (0-100 scale, integer)
+Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
+
+# Derived: suggested verb from semantic matching
+# Populated by inference rules when semantic matches exist
+Decl semantic_suggested_verb(Verb, MaxSimilarity).
+
+# Derived: compound suggestions from multiple semantic matches
+Decl compound_suggestion(Verb1, Verb2).
+
+# learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)
+# Learned user patterns that influence intent classification
+# NOTE: Also declared in schema/learning.mg - this is a backup declaration
+Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
+
+# verb_composition(Verb1, Verb2, ComposedAction, Priority)
+# Defines valid verb compositions for compound suggestions
+Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
 

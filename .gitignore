@@ -24,7 +24,6 @@ Thumbs.db
 .nerd/cache/
 
 # Directories
-.claude/
 .gemini/
 tmp/
 
@@ -36,6 +35,8 @@ Docs/*
 *.md
 !README.md
 !**/README.md
+!CLAUDE.md
+!**/CLAUDE.md
 !Docs/research/**
 
 # Debug files

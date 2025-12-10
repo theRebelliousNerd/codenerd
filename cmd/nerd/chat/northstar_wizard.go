@@ -4,6 +4,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -132,6 +133,45 @@ func NewNorthstarWizard() *NorthstarWizardState {
 	}
 }
 
+// loadExistingNorthstar attempts to load an existing northstar definition from disk
+func loadExistingNorthstar(workspace string) (*NorthstarWizardState, bool) {
+	jsonPath := filepath.Join(workspace, ".nerd", "northstar.json")
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return nil, false
+	}
+
+	var wizard NorthstarWizardState
+	if err := json.Unmarshal(data, &wizard); err != nil {
+		return nil, false
+	}
+
+	// Ensure slices are initialized (JSON may decode nil slices)
+	if wizard.Personas == nil {
+		wizard.Personas = []UserPersona{}
+	}
+	if wizard.Capabilities == nil {
+		wizard.Capabilities = []Capability{}
+	}
+	if wizard.Risks == nil {
+		wizard.Risks = []Risk{}
+	}
+	if wizard.Requirements == nil {
+		wizard.Requirements = []NorthstarRequirement{}
+	}
+	if wizard.Constraints == nil {
+		wizard.Constraints = []string{}
+	}
+	if wizard.ResearchDocs == nil {
+		wizard.ResearchDocs = []string{}
+	}
+	if wizard.ExtractedFacts == nil {
+		wizard.ExtractedFacts = []string{}
+	}
+
+	return &wizard, true
+}
+
 // handleNorthstarWizardInput processes user input during the northstar wizard
 func (m Model) handleNorthstarWizardInput(input string) (tea.Model, tea.Cmd) {
 	if m.northstarWizard == nil {
@@ -250,27 +290,27 @@ func (m Model) handleNorthstarDocIngestion(input string) (tea.Model, tea.Cmd) {
 	lower := strings.ToLower(input)
 
 	if lower == "done" || lower == "" {
-		// Move to next phase
-		w.Phase = NorthstarProblemStatement
-
-		var msg string
+		// If we have documents, analyze them with LLM
 		if len(w.ResearchDocs) > 0 {
-			msg = fmt.Sprintf(`## Research Ingested
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Analyzing **%d document(s)**... This may take a moment.", len(w.ResearchDocs)),
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			m.isLoading = true
 
-I've queued **%d document(s)** for analysis. Key insights will inform our process.
+			// Start async document analysis
+			return m, tea.Batch(m.spinner.Tick, m.analyzeNorthstarDocs(w.ResearchDocs))
+		}
 
----
-
-## Phase 2: Problem Statement
-
-**What problem does this project solve?**
-
-Think about:
-- What pain exists today?
-- What's broken, slow, or missing?
-- Why does this problem matter?`, len(w.ResearchDocs))
-		} else {
-			msg = `## Phase 2: Problem Statement
+		// No documents - move directly to next phase
+		w.Phase = NorthstarProblemStatement
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: `## Phase 2: Problem Statement
 
 **What problem does this project solve?**
 
@@ -279,13 +319,8 @@ Think about:
 - What's broken, slow, or missing?
 - Why does this problem matter?
 
-_Write freely - we'll refine it together._`
-		}
-
-		m.history = append(m.history, Message{
-			Role:    "assistant",
-			Content: msg,
-			Time:    time.Now(),
+_Write freely - we'll refine it together._`,
+			Time: time.Now(),
 		})
 		m.textarea.Placeholder = "Describe the problem..."
 	} else {
@@ -335,6 +370,20 @@ _Write freely - we'll refine it together._`
 
 func (m Model) handleNorthstarProblem(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
+
+	// Validate: require meaningful problem statement (at least 10 chars)
+	if len(strings.TrimSpace(input)) < 10 {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Please provide a more detailed problem statement (at least a sentence describing the pain point).",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+	}
+
 	w.Problem = input
 	w.Phase = NorthstarVisionStatement
 
@@ -371,6 +420,18 @@ func (m Model) handleNorthstarVision(input string) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
 
 	if w.SubStep == 0 {
+		// Validate: require meaningful vision statement (at least 20 chars)
+		if len(strings.TrimSpace(input)) < 20 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Please describe a more detailed vision - what does success look like? (at least a couple sentences)",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
 		w.Vision = input
 		w.SubStep = 1
 		m.history = append(m.history, Message{
@@ -390,6 +451,18 @@ Examples:
 		})
 		m.textarea.Placeholder = "One sentence mission..."
 	} else {
+		// Validate: require meaningful mission statement (at least 10 chars)
+		if len(strings.TrimSpace(input)) < 10 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Please provide a mission statement - a single sentence that captures the essence of your project.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
 		w.Mission = input
 		w.SubStep = 0
 		w.Phase = NorthstarTargetUsers
@@ -888,6 +961,22 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		return m.saveNorthstar(false)
 	case "campaign":
 		return m.saveNorthstar(true)
+	case "resume":
+		// Show full summary and continue
+		return m.showNorthstarSummary()
+	case "new":
+		// Start fresh
+		m.northstarWizard = NewNorthstarWizard()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: getNorthstarWelcomeMessage(),
+			Time:    time.Now(),
+		})
+		m.textarea.Placeholder = "yes / no..."
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
 	case "edit", "back":
 		m.northstarWizard.Phase = NorthstarProblemStatement
 		m.history = append(m.history, Message{
@@ -920,33 +1009,42 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
 
+	// Track any warnings during save
+	var warnings []string
+
 	// Generate Mangle facts
 	mangleFacts := generateNorthstarMangle(w)
 
 	// Save to .nerd/northstar.mg
 	northstarPath := filepath.Join(m.workspace, ".nerd", "northstar.mg")
 	if err := os.WriteFile(northstarPath, []byte(mangleFacts), 0644); err != nil {
-		m.history = append(m.history, Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("⚠️ Failed to save northstar.mg: %v", err),
-			Time:    time.Now(),
-		})
+		warnings = append(warnings, fmt.Sprintf("Failed to save northstar.mg: %v", err))
 	}
 
 	// Save to knowledge database
 	if m.localDB != nil {
-		saveNorthstarToKnowledgeBase(m.localDB, w)
+		if errs := saveNorthstarToKnowledgeBase(m.localDB, w); len(errs) > 0 {
+			warnings = append(warnings, fmt.Sprintf("Knowledge base: %d item(s) failed to save", len(errs)))
+		}
+	} else {
+		warnings = append(warnings, "Knowledge database not available")
 	}
 
 	// Assert facts into kernel
 	if m.kernel != nil {
-		assertNorthstarFacts(m.kernel, w)
+		if errs := assertNorthstarFacts(m.kernel, w); len(errs) > 0 {
+			warnings = append(warnings, fmt.Sprintf("Kernel: %d fact(s) failed to assert", len(errs)))
+		}
+	} else {
+		warnings = append(warnings, "Kernel not available - facts not loaded")
 	}
 
 	// Save JSON backup
 	jsonPath := filepath.Join(m.workspace, ".nerd", "northstar.json")
 	if jsonData, err := json.MarshalIndent(w, "", "  "); err == nil {
-		os.WriteFile(jsonPath, jsonData, 0644)
+		if err := os.WriteFile(jsonPath, jsonData, 0644); err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to save JSON backup: %v", err))
+		}
 	}
 
 	// Exit wizard mode
@@ -983,23 +1081,30 @@ _The Campaign Planner will decompose your vision into actionable phases._`,
 		return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 	}
 
-	msg = fmt.Sprintf(`## 🌟 Northstar Saved!
+	var msgBuilder strings.Builder
+	msgBuilder.WriteString("## 🌟 Northstar Saved!\n\n")
+	msgBuilder.WriteString("Your vision has been stored to:\n")
+	msgBuilder.WriteString(fmt.Sprintf("- `%s` (Mangle facts)\n", northstarPath))
+	msgBuilder.WriteString(fmt.Sprintf("- `%s` (JSON backup)\n", jsonPath))
+	msgBuilder.WriteString("- Knowledge database (semantic search)\n\n")
 
-Your vision has been stored to:
-- ` + "`%s`" + ` (Mangle facts)
-- ` + "`%s`" + ` (JSON backup)
-- Knowledge database (semantic search)
+	if len(warnings) > 0 {
+		msgBuilder.WriteString("**Warnings:**\n")
+		for _, w := range warnings {
+			msgBuilder.WriteString(fmt.Sprintf("- ⚠️ %s\n", w))
+		}
+		msgBuilder.WriteString("\n")
+	}
 
-The kernel now has access to your vision for reasoning.
-
-**Next steps:**
-- Run ` + "`/campaign start <goal>`" + ` to start building
-- Run ` + "`/query northstar_mission`" + ` to query the kernel
-- The vision will inform all future planning`, northstarPath, jsonPath)
+	msgBuilder.WriteString("The kernel now has access to your vision for reasoning.\n\n")
+	msgBuilder.WriteString("**Next steps:**\n")
+	msgBuilder.WriteString("- Run `/campaign start <goal>` to start building\n")
+	msgBuilder.WriteString("- Run `/query northstar_mission` to query the kernel\n")
+	msgBuilder.WriteString("- The vision will inform all future planning")
 
 	m.history = append(m.history, Message{
 		Role:    "assistant",
-		Content: msg,
+		Content: msgBuilder.String(),
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
@@ -1017,23 +1122,10 @@ func generateNorthstarMangle(w *NorthstarWizardState) string {
 
 	sb.WriteString("# Northstar Vision Facts\n")
 	sb.WriteString(fmt.Sprintf("# Generated: %s\n", time.Now().Format(time.RFC3339)))
-	sb.WriteString("# This file defines the project's north star and informs kernel reasoning.\n\n")
+	sb.WriteString("# This file defines the project's north star and informs kernel reasoning.\n")
+	sb.WriteString("# Schema declarations are in internal/core/defaults/schemas.mg\n\n")
 
-	// Schema declarations
-	sb.WriteString("# Schema Declarations\n")
-	sb.WriteString("Decl northstar_mission(ID, Statement).\n")
-	sb.WriteString("Decl northstar_problem(ID, Description).\n")
-	sb.WriteString("Decl northstar_vision(ID, Description).\n")
-	sb.WriteString("Decl northstar_persona(PersonaID, Name).\n")
-	sb.WriteString("Decl northstar_pain_point(PersonaID, PainPoint).\n")
-	sb.WriteString("Decl northstar_need(PersonaID, Need).\n")
-	sb.WriteString("Decl northstar_capability(CapID, Description, Timeline, Priority).\n")
-	sb.WriteString("Decl northstar_risk(RiskID, Description, Likelihood, Impact).\n")
-	sb.WriteString("Decl northstar_mitigation(RiskID, Strategy).\n")
-	sb.WriteString("Decl northstar_requirement(ReqID, Type, Description, Priority).\n")
-	sb.WriteString("Decl northstar_constraint(ConstraintID, Description).\n\n")
-
-	// Facts
+	// Core Vision Facts
 	sb.WriteString("# Core Vision Facts\n")
 	sb.WriteString(fmt.Sprintf("northstar_mission(/ns_mission, %q).\n", w.Mission))
 	sb.WriteString(fmt.Sprintf("northstar_problem(/ns_problem, %q).\n", w.Problem))
@@ -1219,9 +1311,10 @@ func (m Model) showNorthstarPhasePrompt() (tea.Model, tea.Cmd) {
 
 func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
+	initialCount := len(w.Requirements)
 
 	// Generate requirements from capabilities
-	for i, cap := range w.Capabilities {
+	for _, cap := range w.Capabilities {
 		if cap.Priority == "critical" || cap.Priority == "high" {
 			w.Requirements = append(w.Requirements, NorthstarRequirement{
 				ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
@@ -1230,7 +1323,6 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 				Priority:    "must-have",
 				Source:      "capability",
 			})
-			_ = i // suppress unused warning
 		}
 	}
 
@@ -1247,11 +1339,60 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Generate requirements from research-extracted facts
+	for _, fact := range w.ExtractedFacts {
+		// Classify the fact type based on keywords
+		factLower := strings.ToLower(fact)
+		var reqType, priority string
+
+		if strings.Contains(factLower, "must") || strings.Contains(factLower, "require") ||
+			strings.Contains(factLower, "need") || strings.Contains(factLower, "critical") {
+			reqType = "functional"
+			priority = "must-have"
+		} else if strings.Contains(factLower, "performance") || strings.Contains(factLower, "security") ||
+			strings.Contains(factLower, "scalab") || strings.Contains(factLower, "reliab") {
+			reqType = "non-functional"
+			priority = "should-have"
+		} else if strings.Contains(factLower, "constraint") || strings.Contains(factLower, "limit") ||
+			strings.Contains(factLower, "cannot") || strings.Contains(factLower, "must not") {
+			reqType = "constraint"
+			priority = "must-have"
+		} else {
+			// Skip facts that don't clearly map to requirements
+			continue
+		}
+
+		w.Requirements = append(w.Requirements, NorthstarRequirement{
+			ID:          fmt.Sprintf("REQ-%03d", len(w.Requirements)+1),
+			Type:        reqType,
+			Description: fact,
+			Priority:    priority,
+			Source:      "research",
+		})
+	}
+
+	generated := len(w.Requirements) - initialCount
+	var sources []string
+	if len(w.Capabilities) > 0 {
+		sources = append(sources, "capabilities")
+	}
+	if len(w.Risks) > 0 {
+		sources = append(sources, "risks")
+	}
+	if len(w.ExtractedFacts) > 0 {
+		sources = append(sources, "research documents")
+	}
+
+	sourceStr := "capabilities and risks"
+	if len(sources) > 0 {
+		sourceStr = strings.Join(sources, ", ")
+	}
+
 	m.history = append(m.history, Message{
 		Role: "assistant",
-		Content: fmt.Sprintf(`✓ Auto-generated **%d requirements** from capabilities and risks.
+		Content: fmt.Sprintf(`✓ Auto-generated **%d requirements** from %s.
 
-_Add more manually or type "done" to continue._`, len(w.Requirements)),
+_Add more manually or type "done" to continue._`, generated, sourceStr),
 		Time: time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
@@ -1410,52 +1551,190 @@ func truncateWithEllipsis(s string, maxLen int) string {
 }
 
 // saveNorthstarToKnowledgeBase stores northstar data in the knowledge database
-func saveNorthstarToKnowledgeBase(db interface{ StoreKnowledgeAtom(concept, content string, confidence float64) error }, w *NorthstarWizardState) {
+// Returns a slice of errors encountered during storage (empty if all succeeded)
+func saveNorthstarToKnowledgeBase(db interface{ StoreKnowledgeAtom(concept, content string, confidence float64) error }, w *NorthstarWizardState) []error {
+	var errs []error
+
 	// Store mission
-	db.StoreKnowledgeAtom("northstar:mission", w.Mission, 1.0)
-	db.StoreKnowledgeAtom("northstar:problem", w.Problem, 1.0)
-	db.StoreKnowledgeAtom("northstar:vision", w.Vision, 1.0)
+	if err := db.StoreKnowledgeAtom("northstar:mission", w.Mission, 1.0); err != nil {
+		errs = append(errs, err)
+	}
+	if err := db.StoreKnowledgeAtom("northstar:problem", w.Problem, 1.0); err != nil {
+		errs = append(errs, err)
+	}
+	if err := db.StoreKnowledgeAtom("northstar:vision", w.Vision, 1.0); err != nil {
+		errs = append(errs, err)
+	}
 
 	// Store personas
 	for _, p := range w.Personas {
-		db.StoreKnowledgeAtom("northstar:persona", fmt.Sprintf("%s: %s", p.Name, strings.Join(p.Needs, ", ")), 0.9)
+		if err := db.StoreKnowledgeAtom("northstar:persona", fmt.Sprintf("%s: %s", p.Name, strings.Join(p.Needs, ", ")), 0.9); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Store capabilities
 	for _, c := range w.Capabilities {
-		db.StoreKnowledgeAtom("northstar:capability", fmt.Sprintf("[%s/%s] %s", c.Timeline, c.Priority, c.Description), 0.9)
+		if err := db.StoreKnowledgeAtom("northstar:capability", fmt.Sprintf("[%s/%s] %s", c.Timeline, c.Priority, c.Description), 0.9); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Store risks
 	for _, r := range w.Risks {
-		db.StoreKnowledgeAtom("northstar:risk", fmt.Sprintf("[%s/%s] %s - Mitigation: %s", r.Likelihood, r.Impact, r.Description, r.Mitigation), 0.85)
+		if err := db.StoreKnowledgeAtom("northstar:risk", fmt.Sprintf("[%s/%s] %s - Mitigation: %s", r.Likelihood, r.Impact, r.Description, r.Mitigation), 0.85); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Store requirements
 	for _, r := range w.Requirements {
-		db.StoreKnowledgeAtom("northstar:requirement", fmt.Sprintf("[%s] %s: %s (%s)", r.ID, r.Type, r.Description, r.Priority), 0.95)
+		if err := db.StoreKnowledgeAtom("northstar:requirement", fmt.Sprintf("[%s] %s: %s (%s)", r.ID, r.Type, r.Description, r.Priority), 0.95); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Store constraints
 	for _, c := range w.Constraints {
-		db.StoreKnowledgeAtom("northstar:constraint", c, 0.9)
+		if err := db.StoreKnowledgeAtom("northstar:constraint", c, 0.9); err != nil {
+			errs = append(errs, err)
+		}
 	}
+
+	return errs
 }
 
-// assertNorthstarFacts injects northstar facts into the kernel
-func assertNorthstarFacts(kernel interface{ AssertString(fact string) error }, w *NorthstarWizardState) {
-	kernel.AssertString(fmt.Sprintf("northstar_mission(/ns_mission, %q)", w.Mission))
-	kernel.AssertString(fmt.Sprintf("northstar_problem(/ns_problem, %q)", w.Problem))
-	kernel.AssertString(fmt.Sprintf("northstar_vision(/ns_vision, %q)", w.Vision))
+// assertNorthstarFacts injects ALL northstar facts into the kernel for reasoning
+// Returns a slice of errors encountered during assertion (empty if all succeeded)
+func assertNorthstarFacts(kernel interface{ AssertString(fact string) error }, w *NorthstarWizardState) []error {
+	var errs []error
 
-	for i, p := range w.Personas {
-		personaID := fmt.Sprintf("/persona_%d", i+1)
-		kernel.AssertString(fmt.Sprintf("northstar_persona(%s, %q)", personaID, p.Name))
+	// Helper to assert and collect errors
+	assert := func(fact string) {
+		if err := kernel.AssertString(fact); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
+	// Mark that northstar is defined
+	assert("northstar_defined().")
+
+	// Core vision facts
+	assert(fmt.Sprintf("northstar_mission(/ns_mission, %q).", w.Mission))
+	assert(fmt.Sprintf("northstar_problem(/ns_problem, %q).", w.Problem))
+	assert(fmt.Sprintf("northstar_vision(/ns_vision, %q).", w.Vision))
+
+	// Personas with pain points and needs
+	for i, p := range w.Personas {
+		personaID := fmt.Sprintf("/persona_%d", i+1)
+		assert(fmt.Sprintf("northstar_persona(%s, %q).", personaID, p.Name))
+		for _, pain := range p.PainPoints {
+			assert(fmt.Sprintf("northstar_pain_point(%s, %q).", personaID, pain))
+		}
+		for _, need := range p.Needs {
+			assert(fmt.Sprintf("northstar_need(%s, %q).", personaID, need))
+		}
+	}
+
+	// Capabilities
 	for i, c := range w.Capabilities {
 		capID := fmt.Sprintf("/cap_%d", i+1)
-		kernel.AssertString(fmt.Sprintf("northstar_capability(%s, %q, /%s, /%s)",
-			capID, c.Description, strings.ReplaceAll(c.Timeline, " ", "_"), c.Priority))
+		timeline := strings.ReplaceAll(c.Timeline, " ", "_")
+		assert(fmt.Sprintf("northstar_capability(%s, %q, /%s, /%s).", capID, c.Description, timeline, c.Priority))
+	}
+
+	// Risks and mitigations
+	for i, r := range w.Risks {
+		riskID := fmt.Sprintf("/risk_%d", i+1)
+		assert(fmt.Sprintf("northstar_risk(%s, %q, /%s, /%s).", riskID, r.Description, r.Likelihood, r.Impact))
+		if r.Mitigation != "" && r.Mitigation != "none" {
+			assert(fmt.Sprintf("northstar_mitigation(%s, %q).", riskID, r.Mitigation))
+		}
+	}
+
+	// Requirements
+	for _, r := range w.Requirements {
+		reqID := fmt.Sprintf("/%s", strings.ToLower(r.ID))
+		priority := strings.ReplaceAll(r.Priority, "-", "_")
+		assert(fmt.Sprintf("northstar_requirement(%s, /%s, %q, /%s).", reqID, r.Type, r.Description, priority))
+	}
+
+	// Constraints
+	for i, c := range w.Constraints {
+		constraintID := fmt.Sprintf("/constraint_%d", i+1)
+		assert(fmt.Sprintf("northstar_constraint(%s, %q).", constraintID, c))
+	}
+
+	return errs
+}
+
+// analyzeNorthstarDocs reads and analyzes research documents using the LLM
+// to extract key insights for the northstar definition process.
+func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return northstarDocsAnalyzedMsg{err: fmt.Errorf("LLM client not available")}
+		}
+
+		// Read all documents
+		var docContents strings.Builder
+		for _, path := range docPaths {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				continue // Skip unreadable files
+			}
+			docContents.WriteString(fmt.Sprintf("\n--- Document: %s ---\n", filepath.Base(path)))
+			// Truncate very large files
+			text := string(content)
+			if len(text) > 10000 {
+				text = text[:10000] + "\n... [truncated]"
+			}
+			docContents.WriteString(text)
+			docContents.WriteString("\n")
+		}
+
+		if docContents.Len() == 0 {
+			return northstarDocsAnalyzedMsg{facts: []string{}}
+		}
+
+		// Send to LLM for analysis
+		prompt := fmt.Sprintf(`Analyze these research documents and extract key insights for defining a project's vision and requirements.
+
+Documents:
+%s
+
+Extract and return a list of key insights in the following format (one per line, no bullets or numbers):
+- Problem statements or pain points mentioned
+- Target users or personas described
+- Desired capabilities or features
+- Risks or concerns raised
+- Constraints or limitations noted
+- Success criteria or goals
+
+Return ONLY the extracted insights, one per line. Be concise but specific. Maximum 15 insights.`, docContents.String())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		response, err := m.client.Complete(ctx, prompt)
+		if err != nil {
+			return northstarDocsAnalyzedMsg{err: fmt.Errorf("analysis failed: %w", err)}
+		}
+
+		// Parse response into facts
+		lines := strings.Split(response, "\n")
+		var facts []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			// Remove leading bullets, dashes, numbers
+			line = strings.TrimPrefix(line, "- ")
+			line = strings.TrimPrefix(line, "* ")
+			line = strings.TrimPrefix(line, "• ")
+			if len(line) > 10 { // Skip very short lines
+				facts = append(facts, line)
+			}
+		}
+
+		return northstarDocsAnalyzedMsg{facts: facts}
 	}
 }

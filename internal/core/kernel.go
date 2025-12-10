@@ -1,9 +1,7 @@
 package core
 
 import (
-	"codenerd/internal/autopoiesis"
-	"codenerd/internal/logging"
-	"codenerd/internal/mangle"
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -11,6 +9,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/autopoiesis"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
+	"codenerd/internal/mangle/feedback"
 
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
@@ -399,6 +402,19 @@ func (k *RealKernel) Assert(fact Fact) error {
 	}
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	return nil
+}
+
+// AssertString parses a Mangle fact string and asserts it.
+// Format: predicate(arg1, arg2, ...) where args can be:
+//   - Name constants: /foo, /bar
+//   - Strings: "quoted text"
+//   - Numbers: 42, 3.14
+func (k *RealKernel) AssertString(factStr string) error {
+	fact, err := ParseFactString(factStr)
+	if err != nil {
+		return fmt.Errorf("AssertString: failed to parse %q: %w", factStr, err)
+	}
+	return k.Assert(fact)
 }
 
 // AssertBatch adds multiple facts and evaluates once (more efficient).
@@ -898,11 +914,23 @@ func (k *RealKernel) IsPredicateDeclared(predicate string) bool {
 	return k.schemaValidator.IsDeclared(predicate)
 }
 
-// GetDeclaredPredicates returns all declared predicate names.
+// GetDeclaredPredicates returns all declared predicate signatures.
+// Each signature is in the format "predicate_name/arity" (e.g., "user_intent/5").
+// This method satisfies the feedback.RuleValidator interface.
 func (k *RealKernel) GetDeclaredPredicates() []string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
+	// Prefer programInfo.Decls for accurate arity information
+	if k.programInfo != nil && k.programInfo.Decls != nil {
+		signatures := make([]string, 0, len(k.programInfo.Decls))
+		for predSym := range k.programInfo.Decls {
+			signatures = append(signatures, fmt.Sprintf("%s/%d", predSym.Symbol, predSym.Arity))
+		}
+		return signatures
+	}
+
+	// Fallback to schema validator (names only, no arity)
 	if k.schemaValidator == nil {
 		return nil
 	}
@@ -1033,6 +1061,117 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	logging.Kernel("HotLoadRule: rule loaded successfully, policyDirty=true")
 	return nil
 }
+
+// GenerateValidatedRule uses an LLM to generate a Mangle rule and validates it
+// through the feedback loop system. This method implements the neuro-symbolic
+// pattern: LLM creativity + deterministic validation.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout propagation
+//   - llmClient: Client that implements feedback.LLMClient interface
+//   - purpose: Description of what the rule should accomplish
+//   - contextMap: Additional context for rule generation (injected into prompt)
+//   - domain: Rule domain for example selection (e.g., "executive", "action", "selection")
+//
+// Returns the validated rule string or an error if generation/validation fails.
+func (k *RealKernel) GenerateValidatedRule(
+	ctx context.Context,
+	llmClient feedback.LLMClient,
+	purpose string,
+	contextMap map[string]string,
+	domain string,
+) (string, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "GenerateValidatedRule")
+	logging.Kernel("GenerateValidatedRule: generating rule for purpose=%q domain=%q", purpose, domain)
+
+	if purpose == "" {
+		return "", fmt.Errorf("purpose cannot be empty")
+	}
+
+	if llmClient == nil {
+		return "", fmt.Errorf("llmClient cannot be nil")
+	}
+
+	// Build the system prompt with Mangle syntax guidance
+	predicates := k.GetDeclaredPredicates()
+	systemPrompt := feedback.BuildEnhancedSystemPrompt(mangleRuleSystemPrompt, predicates)
+
+	// Build user prompt from purpose and context
+	var userPromptBuilder strings.Builder
+	userPromptBuilder.WriteString("Generate a Mangle rule for the following purpose:\n\n")
+	userPromptBuilder.WriteString(purpose)
+
+	if len(contextMap) > 0 {
+		userPromptBuilder.WriteString("\n\n## Additional Context:\n")
+		for key, value := range contextMap {
+			userPromptBuilder.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
+		}
+	}
+
+	userPrompt := userPromptBuilder.String()
+	logging.KernelDebug("GenerateValidatedRule: user prompt length=%d, available predicates=%d",
+		len(userPrompt), len(predicates))
+
+	// Create feedback loop with default config
+	feedbackLoop := feedback.NewFeedbackLoop(feedback.DefaultConfig())
+
+	// Run generation with validation
+	result, err := feedbackLoop.GenerateAndValidate(
+		ctx,
+		llmClient,
+		k, // RealKernel implements RuleValidator via HotLoadRule and GetDeclaredPredicates
+		systemPrompt,
+		userPrompt,
+		domain,
+	)
+	if err != nil {
+		attempts := 0
+		if result != nil {
+			attempts = result.Attempts
+		}
+		logging.Get(logging.CategoryKernel).Error("GenerateValidatedRule: generation failed after %d attempts: %v",
+			attempts, err)
+		return "", fmt.Errorf("rule generation failed: %w", err)
+	}
+
+	if result == nil || !result.Valid {
+		errorCount := 0
+		if result != nil {
+			errorCount = len(result.Errors)
+		}
+		logging.Get(logging.CategoryKernel).Error("GenerateValidatedRule: validation failed, errors=%d",
+			errorCount)
+		return "", fmt.Errorf("generated rule failed validation")
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("GenerateValidatedRule: success after %d attempts, autoFixed=%v",
+		result.Attempts, result.AutoFixed)
+
+	return result.Rule, nil
+}
+
+// mangleRuleSystemPrompt is the base system prompt for rule generation.
+const mangleRuleSystemPrompt = `You are an expert Mangle/Datalog programmer for codeNERD, a neuro-symbolic coding agent.
+
+Your task is to generate syntactically correct Mangle rules that will compile successfully.
+
+## Critical Mangle Syntax Rules:
+1. Variables are UPPERCASE: X, Y, File, Action
+2. Name constants start with /: /fix, /review, /coder
+3. Strings are double-quoted: "hello world"
+4. Every rule MUST end with a period (.)
+5. Rule format: head(Args) :- body1(Args), body2(Args).
+6. Negation uses !predicate(X), NOT \+ or not
+7. Aggregation: Result = fn:count(X) |> do predicate(X).
+
+## Common Mistakes to Avoid:
+- Using lowercase variables (wrong: x, correct: X)
+- Missing the terminating period
+- Using strings instead of atoms for constants
+- Prolog-style negation (\+) instead of !
+
+Output ONLY the rule, no explanation. The rule must compile.`
 
 // HotLoadLearnedRule dynamically loads a learned rule and persists it to learned.mg.
 // This is the primary method for Autopoiesis to add new learned rules.
@@ -1303,6 +1442,25 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	return nil
 }
 
+// ParseFactString parses a single Mangle fact string.
+// Example: "northstar_mission(/ns_mission, \"The mission\")"
+func ParseFactString(factStr string) (Fact, error) {
+	// Ensure the fact ends with a period for the parser
+	normalized := strings.TrimSpace(factStr)
+	if !strings.HasSuffix(normalized, ".") {
+		normalized += "."
+	}
+
+	facts, err := ParseFactsFromString(normalized)
+	if err != nil {
+		return Fact{}, err
+	}
+	if len(facts) == 0 {
+		return Fact{}, fmt.Errorf("no fact found in %q", factStr)
+	}
+	return facts[0], nil
+}
+
 // ParseFactsFromString parses Mangle fact statements from a string.
 // Uses the official Mangle parser to ensure safety (Fix for Bug #11).
 func ParseFactsFromString(content string) ([]Fact, error) {
@@ -1386,3 +1544,6 @@ func (ab *AutopoiesisBridge) RetractFact(fact autopoiesis.KernelFact) error {
 
 // Ensure AutopoiesisBridge implements KernelInterface at compile time.
 var _ autopoiesis.KernelInterface = (*AutopoiesisBridge)(nil)
+
+// Ensure RealKernel implements feedback.RuleValidator at compile time.
+var _ feedback.RuleValidator = (*RealKernel)(nil)

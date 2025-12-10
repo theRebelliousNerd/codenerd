@@ -19,11 +19,11 @@ import (
 // Tool represents a registered tool with metadata
 type Tool struct {
 	Name          string    `json:"name"`
-	Command       string    `json:"command"`         // Path to binary or command to execute
-	ShardAffinity string    `json:"shard_affinity"`  // /coder, /tester, /reviewer, /researcher, /generalist, /all
+	Command       string    `json:"command"`        // Path to binary or command to execute
+	ShardAffinity string    `json:"shard_affinity"` // /coder, /tester, /reviewer, /researcher, /generalist, /all
 	Description   string    `json:"description"`
 	Capabilities  []string  `json:"capabilities"`
-	Hash          string    `json:"hash"`            // Binary hash for change detection
+	Hash          string    `json:"hash"` // Binary hash for change detection
 	RegisteredAt  time.Time `json:"registered_at"`
 	ExecuteCount  int64     `json:"execute_count"`
 }

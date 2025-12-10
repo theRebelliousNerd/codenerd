@@ -14,14 +14,16 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
 )
 
 // ConstitutionConfig holds configuration for the constitution gate.
@@ -107,6 +109,9 @@ type ConstitutionGateShard struct {
 	// Compiled patterns
 	dangerousPatterns []*regexp.Regexp
 
+	// Mangle feedback loop for autopoiesis rule generation
+	feedbackLoop *feedback.FeedbackLoop
+
 	// Audit trail
 	violations []SecurityViolation
 	permitted  []string // Actions that were permitted (for audit)
@@ -139,6 +144,7 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 	shard := &ConstitutionGateShard{
 		BaseSystemShard: base,
 		config:          cfg,
+		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
 		violations:      make([]SecurityViolation, 0),
 		permitted:       make([]string, 0),
 		pendingAppeals:  make(map[string]*AppealRequest),
@@ -427,7 +433,9 @@ func (c *ConstitutionGateShard) recordViolation(actionType, target, reason strin
 	return actionID
 }
 
-// handleAutopoiesis uses LLM to propose new constitutional rules.
+// handleAutopoiesis uses LLM with feedback loop to propose new constitutional rules.
+// The feedback loop validates generated Mangle rules via sandbox compilation,
+// automatically retrying with error context if validation fails.
 func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	cases := c.Autopoiesis.GetUnhandledCases()
 	if len(cases) == 0 {
@@ -436,12 +444,20 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 
 	// If no LLM, we can't propose rules - just log
 	if c.LLMClient == nil {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis skipped: no LLM client")
 		return
 	}
 
-	// Check cost guard
-	can, _ := c.CostGuard.CanCall()
+	// Ensure kernel is available for validation
+	if c.Kernel == nil {
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis skipped: no kernel for validation")
+		return
+	}
+
+	// Check cost guard before attempting generation
+	can, reason := c.CostGuard.CanCall()
 	if !can {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis blocked by cost guard: %s", reason)
 		// Put cases back for later
 		for _, cas := range cases {
 			c.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
@@ -450,34 +466,72 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	}
 
 	// Build prompt for rule proposal
-	prompt := c.buildRuleProposalPrompt(cases)
+	userPrompt := c.buildRuleProposalPrompt(cases)
 
-	result, err := c.GuardedLLMCall(ctx, constitutionAutopoiesisPrompt, prompt)
+	// Create LLM client adapter for feedback loop
+	llmAdapter := &constitutionLLMAdapter{
+		client:    c.LLMClient,
+		costGuard: c.CostGuard,
+	}
+
+	// Use feedback loop for validated rule generation
+	logging.SystemShards("[ConstitutionGate] Starting autopoiesis with feedback loop for %d unhandled cases", len(cases))
+
+	result, err := c.feedbackLoop.GenerateAndValidate(
+		ctx,
+		llmAdapter,
+		c.Kernel, // RealKernel implements feedback.RuleValidator
+		constitutionAutopoiesisPrompt,
+		userPrompt,
+		"constitution", // Domain for valid examples
+	)
 	if err != nil {
-		// Put cases back for later
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis generation failed: %v", err)
+		// Put cases back for later retry
 		for _, cas := range cases {
 			c.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
 		}
 		return
 	}
 
-	// Parse proposed rule
-	proposedRule := c.parseProposedRule(result, cases)
-	if proposedRule.MangleCode == "" {
+	// Check if generation succeeded
+	if !result.Valid || result.Rule == "" {
+		logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Autopoiesis produced invalid rule after %d attempts", result.Attempts)
 		return
+	}
+
+	logging.SystemShards("[ConstitutionGate] Autopoiesis generated valid rule (attempts=%d, auto_fixed=%v)", result.Attempts, result.AutoFixed)
+
+	// Create proposed rule record
+	proposedRule := ProposedRule{
+		MangleCode: result.Rule,
+		Confidence: 0.9, // High confidence since feedback loop validated it
+		Rationale:  fmt.Sprintf("Auto-generated safety rule after %d validation attempts", result.Attempts),
+		BasedOn:    cases,
+		ProposedAt: time.Now(),
+	}
+
+	// If auto-fixed, lower confidence slightly
+	if result.AutoFixed {
+		proposedRule.Confidence = 0.75
+		proposedRule.Rationale += " (auto-repaired by sanitizer)"
 	}
 
 	c.Autopoiesis.RecordProposal(proposedRule)
 
-	// If high confidence, auto-apply; otherwise escalate
+	// If high confidence, auto-apply; otherwise escalate for human approval
 	if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
-		// Hot-load the rule
+		// Rule already validated by feedback loop, safe to apply
 		if err := c.Kernel.HotLoadRule(proposedRule.MangleCode); err == nil {
 			c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+			logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
+		} else {
+			// This should not happen since feedback loop validated it, but handle gracefully
+			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to apply validated rule: %v", err)
 		}
 	} else {
 		// Escalate for human approval
-		_ = c.Kernel.Assert(core.Fact{
+		if assertErr := c.Kernel.Assert(core.Fact{
 			Predicate: "rule_proposal_pending",
 			Args: []interface{}{
 				"constitution_gate",
@@ -486,8 +540,40 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 				proposedRule.Confidence,
 				time.Now().Unix(),
 			},
-		})
+		}); assertErr != nil {
+			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to assert rule proposal: %v", assertErr)
+		}
+		logging.SystemShards("[ConstitutionGate] Autopoiesis rule pending approval (confidence=%.2f)", proposedRule.Confidence)
 	}
+}
+
+// constitutionLLMAdapter wraps core.LLMClient to implement feedback.LLMClient.
+// This adapter integrates with the CostGuard for rate limiting.
+type constitutionLLMAdapter struct {
+	client    core.LLMClient
+	costGuard *CostGuard
+}
+
+// Complete implements feedback.LLMClient interface.
+func (a *constitutionLLMAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if a.client == nil {
+		return "", fmt.Errorf("LLM client not configured")
+	}
+
+	// Check cost guard before each call (feedback loop may make multiple calls)
+	can, reason := a.costGuard.CanCall()
+	if !can {
+		return "", fmt.Errorf("LLM call blocked by cost guard: %s", reason)
+	}
+
+	result, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		a.costGuard.RecordError()
+		return "", fmt.Errorf("LLM completion failed: %w", err)
+	}
+
+	a.costGuard.RecordCall()
+	return result, nil
 }
 
 // buildRuleProposalPrompt creates a prompt for the LLM to propose a new rule.
@@ -512,29 +598,6 @@ func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) s
 	sb.WriteString("RATIONALE: <explanation>\n")
 
 	return sb.String()
-}
-
-// parseProposedRule extracts a proposed rule from LLM output.
-func (c *ConstitutionGateShard) parseProposedRule(output string, cases []UnhandledCase) ProposedRule {
-	rule := ProposedRule{
-		BasedOn:    cases,
-		ProposedAt: time.Now(),
-	}
-
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "RULE:") {
-			rule.MangleCode = strings.TrimSpace(strings.TrimPrefix(line, "RULE:"))
-		} else if strings.HasPrefix(line, "CONFIDENCE:") {
-			confStr := strings.TrimSpace(strings.TrimPrefix(line, "CONFIDENCE:"))
-			fmt.Sscanf(confStr, "%f", &rule.Confidence)
-		} else if strings.HasPrefix(line, "RATIONALE:") {
-			rule.Rationale = strings.TrimSpace(strings.TrimPrefix(line, "RATIONALE:"))
-		}
-	}
-
-	return rule
 }
 
 // generateShutdownSummary creates a summary of the shard's activity.

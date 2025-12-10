@@ -130,6 +130,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /test [target] | Generate/run tests |
 | /fix <issue> | Fix an issue |
 | /refactor <target> | Refactor code |
+| /northstar | Define project vision & specification |
+| /vision | Alias for /northstar |
+| /spec | Alias for /northstar |
 | /query <predicate> | Query Mangle facts |
 | /why <fact> | Explain why a fact was derived |
 | /logic | Show logic pane content |
@@ -846,13 +849,38 @@ Press **Enter** to begin...`,
 	case "/northstar", "/vision", "/spec":
 		// Enter Northstar definition wizard - project vision and specification
 		m.awaitingNorthstar = true
-		m.northstarWizard = NewNorthstarWizard()
-		m.textarea.Placeholder = "yes / no..."
-		m.history = append(m.history, Message{
-			Role:    "assistant",
-			Content: getNorthstarWelcomeMessage(),
-			Time:    time.Now(),
-		})
+
+		// Check for existing northstar session
+		existingWizard, hasExisting := loadExistingNorthstar(m.workspace)
+
+		if hasExisting && existingWizard.Mission != "" {
+			m.northstarWizard = existingWizard
+			m.northstarWizard.Phase = NorthstarSummary // Jump to summary for review
+			m.textarea.Placeholder = "resume / new / edit..."
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: fmt.Sprintf(`# 🌟 Existing Northstar Found
+
+**Mission:** %s
+
+**Problem:** %s
+
+You have an existing Northstar definition. What would you like to do?
+
+- **resume** - Continue from where you left off
+- **new** - Start fresh (existing will be overwritten)
+- **edit** - Review and edit the current definition`, existingWizard.Mission, truncateWithEllipsis(existingWizard.Problem, 100)),
+				Time: time.Now(),
+			})
+		} else {
+			m.northstarWizard = NewNorthstarWizard()
+			m.textarea.Placeholder = "yes / no..."
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: getNorthstarWelcomeMessage(),
+				Time:    time.Now(),
+			})
+		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
