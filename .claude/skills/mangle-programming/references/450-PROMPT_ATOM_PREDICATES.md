@@ -997,6 +997,153 @@ Total: 6 strata (efficient for semi-naive evaluation)
 
 ---
 
+## System 2 Architecture: JIT Prompt Linking Loader
+
+The JIT Prompt Compiler is a **System 2 Architecture** applied to Prompt Engineering—moving from "Prompt String Concatenation" to a **JIT Linking Loader** with 50ms latency budget and high reliability.
+
+### Core Split: Skeleton vs. Flesh
+
+The pipeline bifurcates into two distinct layers to prevent the "Frankenstein Prompt" anti-pattern (where 20 valid atoms assemble into an incoherent mess):
+
+| Layer | Source | Selection | Failure Mode |
+|-------|--------|-----------|--------------|
+| **Skeleton** (Deterministic) | Identity, Protocol, Safety, Methodology | Pure Mangle Logic | **Panic** - Cannot run without identity |
+| **Flesh** (Probabilistic) | Exemplars, Domain Knowledge, Previous Fixes | Vector Search + Mangle Filtering | Graceful degradation - prompt less helpful but safe |
+
+**Implementation in jit_compiler.mg:**
+
+```mangle
+# SKELETON: Mandatory atoms based on strict context matching
+mandatory_selection(Atom) :-
+    is_mandatory(Atom),
+    !blocked_by_context(Atom).
+
+# FLESH: Vector candidates filtered by Mangle constraints
+candidate_selection(Atom, Score) :-
+    vector_hit(Atom, Score),
+    !blocked_by_context(Atom),
+    !prohibited(Atom).
+```
+
+### Mangle as Gatekeeper (Not Calculator)
+
+**Critical Design Decision**: Do not use Mangle for floating-point math (`fn:mult`, `fn:add`). Datalog is for **Inference**, Go is for **Arithmetic**.
+
+- Use Mangle to define the **Valid Playing Field** (what CAN be selected)
+- Use Vector DB to find the **Best Toys** in that field (what SHOULD be selected)
+- Use Go for score calculation, budget fitting, and final assembly
+
+### Schema Optimization: Normalized Context Tags
+
+**Problem**: JSON arrays in text columns (`operational_modes TEXT`) require parsing 5,000 JSON arrays on every request—destroying the 50ms latency budget.
+
+**Solution**: Normalized `atom_context_tags` link table for zero-parsing overhead:
+
+```sql
+CREATE TABLE atom_context_tags (
+    atom_id TEXT,
+    dimension TEXT,  -- 'mode', 'phase', 'shard', 'lang', etc.
+    tag TEXT,        -- '/active', '/planning', '/go', etc.
+    is_exclusion BOOLEAN DEFAULT FALSE,
+    PRIMARY KEY (atom_id, dimension, tag)
+);
+```
+
+**Go Loader** (implemented in `compiler.go`):
+
+```go
+// Direct fact injection - no JSON parsing
+tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
+// Output: atom_tag(/atom_123, /mode, /active) - inject directly into Mangle
+```
+
+### Embedding Strategy: Intent vs. Content
+
+**Problem**: Vector searching the *content* ("Output JSON only") against user queries ("How do I fix this?") fails due to no semantic overlap.
+
+**Solution**: Split Atom into Content and Description:
+
+| Field | Purpose | Indexed? |
+|-------|---------|----------|
+| `content` | Actual prompt text injected into prompt | No |
+| `description` | Semantic summary for retrieval | **Yes** (embedded) |
+
+**Schema** (implemented in `prompt_atoms` table):
+
+```sql
+content TEXT NOT NULL,        -- The actual prompt text
+description TEXT,             -- Semantic descriptor for vector indexing
+```
+
+**Query Strategy**: Generate synthetic queries from intent, search descriptions, retrieve content.
+
+### Token Budgeting: Atom Polymorphism
+
+**Problem**: Simple priority-based dropping loses critical concepts under pressure.
+
+**Solution**: Multi-level content compression per atom:
+
+```sql
+content TEXT NOT NULL,          -- Full verbose content
+content_concise TEXT,           -- Compressed (~50% tokens)
+content_min TEXT,               -- Minimal (~20% tokens)
+```
+
+**Budgeting Algorithm** (implemented in `budget.go`):
+
+1. Fill `content_standard` for all **Mandatory** atoms
+2. Fill `content_standard` for top **Candidate** atoms
+3. Budget exceeded? → Downgrade Candidates to `content_concise`
+4. Still exceeded? → Downgrade Mandatory to `content_concise`
+5. Still exceeded? → Drop lowest-priority Candidates
+
+**Result**: LLM never loses the *concept* of a safety rail, even under token pressure.
+
+### Observability: Prompt Manifest (Flight Recorder)
+
+**Critical for Ouroboros**: When the system fails, trace exactly why specific instructions were present or missing.
+
+**Implementation** (in `compiler.go`):
+
+```go
+type PromptManifest struct {
+    Timestamp   time.Time
+    TokenUsage  int
+    BudgetLimit int
+    Selected    []AtomManifestEntry  // {ID, Category, Source, Priority, LogicScore, VectorScore, RenderMode}
+    Dropped     []DroppedAtomEntry   // {ID, Reason: "Selector|Budget|Dependency"}
+}
+```
+
+**Ouroboros Usage**: Inspect Manifest during `specification_retry`:
+*"We included `/atom_python_style` but we're in Go. That atom is poisoned for this context."* → Add negative weight for retry.
+
+### Performance Caching: Context Hashing
+
+**Problem**: Full compilation (Mangle + Vector + Token Count) on every LLM call kills latency.
+
+**Solution** (planned for Phase 11):
+
+1. **Calculate Hash**: `H = Hash(Mode + Phase + Layer + Shard + Language...)`
+2. **Cache Skeleton**: On first load, resolve Identity, Safety, Protocol atoms for this Hash
+3. **Dynamic Overlay**: Per-request, only process Intent, World State, User Query
+4. **Merge**: Combine cached Skeleton + fresh Flesh
+
+**Expected Improvement**: ~40% latency reduction for repeated contexts.
+
+### Implementation Status Summary
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Skeleton/Flesh Split | ✅ Complete | `jit_compiler.mg` |
+| Normalized Tags Schema | ✅ Complete | `compiler.go:loadAtomsFromDB()` |
+| Description-Based Embedding | ✅ Schema Ready | `atoms.go`, needs vector indexing |
+| Token Polymorphism | ✅ Complete | `budget.go` |
+| Prompt Manifest | ✅ Complete | `compiler.go:buildResult()` |
+| Context Hashing Cache | ⏳ Planned | Phase 11 |
+
+---
+
 ## Related Sections
 
 - **Section 9**: Spreading Activation (receives activation from selected atoms)
