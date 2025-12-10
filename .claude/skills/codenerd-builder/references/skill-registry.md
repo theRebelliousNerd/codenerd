@@ -19,6 +19,7 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | [SK-009](#sk-009-integration-auditor) | integration-auditor | Integration/QA | Core |
 | [SK-010](#sk-010-cli-engine-integration) | cli-engine-integration | LLM Integration | Core |
 | [SK-011](#sk-011-prompt-architect) | prompt-architect | Prompt Engineering | Core |
+| [SK-012](#sk-012-stress-tester) | stress-tester | Testing & QA | Utility |
 
 ---
 
@@ -692,6 +693,73 @@ internal/articulation/prompt_assembler.go  - Shard integration
 build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 .nerd/agents/{name}/prompts.yaml           - Human-editable agent prompts
 .nerd/shards/{name}_knowledge.db           - Unified storage (knowledge + prompts)
+```
+
+---
+
+## SK-012: stress-tester
+
+**Name:** `stress-tester`
+
+**Domain:** Testing & Quality Assurance
+
+**Description:** Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 25+ subsystems. Includes comprehensive multi-minute workflows with conservative, aggressive, chaos, and hybrid severity levels.
+
+### Trigger Conditions
+
+- Pre-release stability verification
+- After major architectural changes
+- Debugging intermittent failures
+- Validating resource limits
+- Finding panic vectors
+- Testing system recovery after failures
+
+### Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| 27 Workflow Tests | 8 categories covering all subsystems |
+| 4 Severity Levels | Conservative, Aggressive, Chaos, Hybrid |
+| Log Analysis | Integrated with log-analyzer for post-test Mangle queries |
+| Panic Detection | Custom predicates for detecting failures |
+| Fixture Generation | Synthetic projects, malformed inputs, cyclic rules |
+
+### Bundled Resources
+
+| Resource | Type | Purpose |
+|----------|------|---------|
+| `SKILL.md` | Core | Quick start, workflow catalog, severity guide |
+| `references/subsystem-stress-points.md` | Reference | All 25+ subsystems with failure modes |
+| `references/panic-catalog.md` | Reference | Known panic vectors with triggers |
+| `references/resource-limits.md` | Reference | Config limits and safe/dangerous values |
+| `references/workflows/**/*.md` | Reference | 27 stress test workflows |
+| `scripts/analyze_stress_logs.py` | Script | Post-test log analysis |
+| `scripts/fixtures/generate_large_project.py` | Script | Synthetic Go project generator |
+| `scripts/fixtures/malformed_inputs.py` | Script | Fuzzing payload generator |
+| `assets/cyclic_rules.mg` | Asset | Mangle rules for derivation explosion |
+| `assets/stress_queries.mg` | Asset | Log analysis Mangle queries |
+| `assets/malformed_piggyback.json` | Asset | Invalid JSON test cases |
+
+### Integration Points
+
+| Integrates With | Relationship |
+|-----------------|--------------|
+| log-analyzer | Uses log-analyzer for post-test Mangle queries |
+| mangle-programming | Stress tests use Mangle rules and queries |
+| codenerd-builder | Tests all codeNERD subsystems |
+| integration-auditor | Complements auditor with runtime verification |
+
+### Workflow Categories
+
+```text
+01-kernel-core/           - Mangle engine, SpawnQueue, memory
+02-perception-articulation/ - NL parsing, Piggyback protocol
+03-shards-campaigns/       - Shard lifecycle, campaigns, TDD
+04-autopoiesis-ouroboros/ - Tool generation, adversarial testing
+05-world-context/         - Filesystem, context compression
+06-advanced-features/     - Dream state, shadow mode, browser
+07-full-system-chaos/     - System-wide stability tests
+08-hybrid-integration/    - Cross-subsystem integration
 ```
 
 ---

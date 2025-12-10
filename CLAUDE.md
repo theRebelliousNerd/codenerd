@@ -92,6 +92,10 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 **When:** Verifying system integration - debugging "code exists but doesn't run" issues, pre-commit wiring checks, new feature integration, or shard lifecycle verification. Covers all 39+ codeNERD integration systems.
 
+### stress-tester
+
+**When:** Live stress testing codeNERD - pre-release stability verification, finding panics and edge cases, validating resource limits, testing system recovery. Includes 27 workflows across 8 categories with 4 severity levels (conservative, aggressive, chaos, hybrid). Integrates with log-analyzer for post-test Mangle queries.
+
 ## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM
 
 ## Key Implementation Files
