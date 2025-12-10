@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -274,10 +275,18 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	// 1. Prepare Facts for Mangle
 	var facts []interface{}
 
-	// Context Facts
+	// Context Facts - dimension names must be Mangle constants (start with /)
 	addContextFact := func(dim, val string) {
 		if val != "" {
-			facts = append(facts, fmt.Sprintf("current_context('%s', '%s')", dim, val))
+			// Ensure dimension has leading /
+			if !strings.HasPrefix(dim, "/") {
+				dim = "/" + dim
+			}
+			// Ensure value has leading / for Mangle constants
+			if !strings.HasPrefix(val, "/") {
+				val = "/" + val
+			}
+			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
 		}
 	}
 	addContextFact("mode", cc.OperationalMode)
@@ -715,10 +724,18 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom) ([]interface{}, error) {
 	var facts []interface{}
 
-	// Context Facts
+	// Context Facts - dimension names must be Mangle constants (start with /)
 	addContextFact := func(dim, val string) {
 		if val != "" {
-			facts = append(facts, fmt.Sprintf("current_context('%s', '%s')", dim, val))
+			// Ensure dimension has leading /
+			if !strings.HasPrefix(dim, "/") {
+				dim = "/" + dim
+			}
+			// Ensure value has leading / for Mangle constants
+			if !strings.HasPrefix(val, "/") {
+				val = "/" + val
+			}
+			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
 		}
 	}
 	addContextFact("mode", cc.OperationalMode)
