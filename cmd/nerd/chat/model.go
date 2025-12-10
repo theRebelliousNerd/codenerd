@@ -16,11 +16,11 @@ import (
 	"sync"
 
 	"codenerd/cmd/nerd/ui"
-	"codenerd/internal/config"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
@@ -73,12 +73,12 @@ const (
 type InputMode int
 
 const (
-	InputModeNormal       InputMode = iota // Default: process as chat input
-	InputModeClarification                  // Awaiting clarification response
-	InputModePatch                          // Awaiting patch input (--END-- terminated)
-	InputModeAgentWizard                    // Agent definition wizard active
-	InputModeConfigWizard                   // Config wizard active
-	InputModeCampaignLaunch                 // Campaign launch clarification
+	InputModeNormal         InputMode = iota // Default: process as chat input
+	InputModeClarification                   // Awaiting clarification response
+	InputModePatch                           // Awaiting patch input (--END-- terminated)
+	InputModeAgentWizard                     // Agent definition wizard active
+	InputModeConfigWizard                    // Config wizard active
+	InputModeCampaignLaunch                  // Campaign launch clarification
 )
 
 // sessionItem is a list item for the session list
@@ -139,7 +139,7 @@ type Model struct {
 	height    int
 	ready     bool
 	Config    *config.UserConfig
-	
+
 	// JIT Compiler (Observability)
 	jitCompiler *prompt.JITPromptCompiler
 
@@ -240,9 +240,9 @@ type Model struct {
 	mouseEnabled bool
 
 	// Shutdown coordination
-	shutdownOnce    *sync.Once     // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
-	shutdownCtx     context.Context // Root context for all background operations
-	shutdownCancel  context.CancelFunc // Cancels shutdownCtx on quit
+	shutdownOnce   *sync.Once         // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
+	shutdownCtx    context.Context    // Root context for all background operations
+	shutdownCancel context.CancelFunc // Cancels shutdownCtx on quit
 }
 
 // Shutdown gracefully stops all background goroutines and releases resources.
@@ -750,15 +750,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							// Render manifest to viewport
 							// We'll need a helper function renderManifest(res)
 							// For now, simple textual dump
-							content := fmt.Sprintf("# JIT Prompt Inspector\n\nGenerated: %s\nTokens: %d (%.1f%% budget)\n\n## Included Atoms (%d)\n", 
+							content := fmt.Sprintf("# JIT Prompt Inspector\n\nGenerated: %s\nTokens: %d (%.1f%% budget)\n\n## Included Atoms (%d)\n",
 								time.Now().Format(time.RFC3339), res.TotalTokens, res.BudgetUsed*100, res.AtomsIncluded)
-							
+
 							for _, atom := range res.IncludedAtoms {
 								content += fmt.Sprintf("- [%s] %s (%d tokens)\n", atom.Category, atom.ID, atom.TokenCount)
 							}
-							
+
 							content += "\n## Prompt Preview\n\n```markdown\n" + res.Prompt + "\n```"
-							
+
 							// Use existing renderer
 							rendered, _ := m.renderer.Render(content)
 							m.viewport.SetContent(rendered)
@@ -978,6 +978,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.northstarWizard.Phase = NorthstarProblemStatement
 			m.textarea.Placeholder = "Describe the problem..."
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+	case requirementsGeneratedMsg:
+		m.isLoading = false
+		if m.northstarWizard != nil {
+			if msg.err != nil {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err),
+					Time:    time.Now(),
+				})
+			} else if len(msg.requirements) > 0 {
+				// Append generated requirements to wizard state
+				m.northstarWizard.Requirements = append(m.northstarWizard.Requirements, msg.requirements...)
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("## Requirements Generated\n\nAdded **%d requirements** from your vision and capabilities:\n\n", len(msg.requirements)))
+				for i, req := range msg.requirements {
+					if i < 5 { // Show first 5
+						sb.WriteString(fmt.Sprintf("- **%s** [%s]: %s\n", req.ID, req.Priority, req.Description))
+					}
+				}
+				if len(msg.requirements) > 5 {
+					sb.WriteString(fmt.Sprintf("\n_...and %d more requirements._\n", len(msg.requirements)-5))
+				}
+				sb.WriteString("\n_Add more requirements manually or type \"done\" to continue._")
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: sb.String(),
+					Time:    time.Now(),
+				})
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "No requirements could be auto-generated. Please add requirements manually.",
+					Time:    time.Now(),
+				})
+			}
+			m.textarea.Placeholder = "Add requirement or 'done'..."
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()

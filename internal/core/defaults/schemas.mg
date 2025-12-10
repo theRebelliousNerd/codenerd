@@ -3145,3 +3145,45 @@ Decl guard_dominates(File, Func, GuardLine, EndLine).
 # These accesses are inherently safe by the language's semantics
 Decl safe_access(Var, AccessType, File, Line).
 
+# =============================================================================
+# SECTION 48: CROSS-MODULE SUPPORT PREDICATES
+# =============================================================================
+# Predicates used by policy.mg rules or Go code across multiple modules.
+
+# -----------------------------------------------------------------------------
+# 48.1 JIT Prompt Compiler Support (policy.mg Section 41)
+# -----------------------------------------------------------------------------
+
+# effective_prompt_atom(AtomID) - Derived: atom is effective (selected and led to success)
+# Used for learning signals to improve prompt compilation over time
+Decl effective_prompt_atom(AtomID).
+
+# -----------------------------------------------------------------------------
+# 48.2 Nemesis / Chaos Engineering Support (nemesis.go, chaos.mg)
+# -----------------------------------------------------------------------------
+
+# system_invariant_violated(InvariantID, Timestamp) - System invariant violation detected
+# InvariantID: Identifier for the invariant (/http_500_rate, /deadlock_detected, etc.)
+# Timestamp: When the violation was detected
+# Used by NemesisShard and Thunderdome for chaos engineering
+Decl system_invariant_violated(InvariantID, Timestamp).
+
+# patch_diff(PatchID, DiffContent) - Stores patch diffs for analysis
+# PatchID: Identifier for the patch
+# DiffContent: The actual diff content as a string
+# Used by NemesisShard for adversarial patch analysis
+Decl patch_diff(PatchID, DiffContent).
+
+# -----------------------------------------------------------------------------
+# 48.3 Verification Support (verification.go)
+# -----------------------------------------------------------------------------
+
+# verification_summary(Timestamp, Total, Confirmed, Dismissed, DurationMs)
+# Timestamp: When verification completed
+# Total: Total number of hypotheses verified
+# Confirmed: Number confirmed by LLM
+# Dismissed: Number dismissed
+# DurationMs: Duration in milliseconds
+# Used by ReviewerShard hypothesis verification loop
+Decl verification_summary(Timestamp, Total, Confirmed, Dismissed, DurationMs).
+
