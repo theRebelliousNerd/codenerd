@@ -255,6 +255,11 @@ func (s *LocalStore) initialize() error {
 		token_count INTEGER NOT NULL,
 		content_hash TEXT NOT NULL,
 
+		-- Polymorphism (for different verbosity levels)
+		description TEXT,
+		content_concise TEXT,
+		content_min TEXT,
+
 		-- Classification
 		category TEXT NOT NULL,
 		subcategory TEXT,
@@ -283,11 +288,15 @@ func (s *LocalStore) initialize() error {
 		embedding BLOB,
 		embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
 
+		-- Metadata
+		source_file TEXT,
+
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_category ON prompt_atoms(category);
 	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_hash ON prompt_atoms(content_hash);
 	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_mandatory ON prompt_atoms(is_mandatory);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_description ON prompt_atoms(description);
 	`
 
 	// First, create tables WITHOUT indexes that depend on migrated columns

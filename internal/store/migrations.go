@@ -53,6 +53,12 @@ var pendingMigrations = []Migration{
 	// Knowledge atoms extended fields (added for shared knowledge pool)
 	{"knowledge_atoms", "source", "TEXT DEFAULT ''"},
 	{"knowledge_atoms", "tags", "TEXT DEFAULT '[]'"},
+	// Prompt atoms polymorphism columns (for different verbosity levels)
+	{"prompt_atoms", "description", "TEXT"},
+	{"prompt_atoms", "content_concise", "TEXT"},
+	{"prompt_atoms", "content_min", "TEXT"},
+	// Prompt atoms metadata column
+	{"prompt_atoms", "source_file", "TEXT"},
 }
 
 // RunMigrations applies schema migrations for existing databases.
