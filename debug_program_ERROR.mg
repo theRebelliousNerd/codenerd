@@ -2277,6 +2277,10 @@ Decl multi_review_finding(ReviewID, ShardName, FilePath, Line, Severity, Message
 # InsightType: /hot_spot, /pattern, /critical_attention, /cross_domain
 Decl cross_shard_insight(ReviewID, InsightType, Description).
 
+# review_insight(Index, Insight)
+# Individual review insights stored for learning/retrieval
+Decl review_insight(Index, Insight).
+
 # specialist_match(ReviewID, AgentName, Score, Reason)
 # Records which specialists were matched for a review and why
 Decl specialist_match(ReviewID, AgentName, Score, Reason).
@@ -2438,6 +2442,182 @@ Decl trace_pattern(TraceID, Pattern).
 
 # context_injection_effective(ShardID, Atom) - context injection led to success
 Decl context_injection_effective(ShardID, Atom).
+
+# =============================================================================
+# SECTION 43: NORTHSTAR VISION & SPECIFICATION
+# =============================================================================
+# The Northstar defines the project's grand vision, target users, capabilities,
+# risks, requirements, and constraints. Used by /northstar command.
+
+# -----------------------------------------------------------------------------
+# 43.1 Core Vision
+# -----------------------------------------------------------------------------
+
+# northstar_mission(ID, Statement) - The one-sentence mission
+Decl northstar_mission(ID, Statement).
+
+# northstar_problem(ID, Description) - Problem being solved
+Decl northstar_problem(ID, Description).
+
+# northstar_vision(ID, Description) - Grand vision of success
+Decl northstar_vision(ID, Description).
+
+# -----------------------------------------------------------------------------
+# 43.2 Target Users (Personas)
+# -----------------------------------------------------------------------------
+
+# northstar_persona(PersonaID, Name) - Target user archetype
+Decl northstar_persona(PersonaID, Name).
+
+# northstar_pain_point(PersonaID, PainPoint) - User pain points
+Decl northstar_pain_point(PersonaID, PainPoint).
+
+# northstar_need(PersonaID, Need) - User needs
+Decl northstar_need(PersonaID, Need).
+
+# -----------------------------------------------------------------------------
+# 43.3 Capabilities Roadmap
+# -----------------------------------------------------------------------------
+
+# northstar_capability(CapID, Description, Timeline, Priority)
+# Timeline: /now, /6mo, /1yr, /3yr, /moonshot
+# Priority: /critical, /high, /medium, /low
+Decl northstar_capability(CapID, Description, Timeline, Priority).
+
+# northstar_serves(CapID, PersonaID) - Capability serves persona
+Decl northstar_serves(CapID, PersonaID).
+
+# -----------------------------------------------------------------------------
+# 43.4 Risks & Mitigations (Red Teaming)
+# -----------------------------------------------------------------------------
+
+# northstar_risk(RiskID, Description, Likelihood, Impact)
+# Likelihood/Impact: /high, /medium, /low
+Decl northstar_risk(RiskID, Description, Likelihood, Impact).
+
+# northstar_mitigation(RiskID, Strategy) - Risk mitigation strategy
+Decl northstar_mitigation(RiskID, Strategy).
+
+# -----------------------------------------------------------------------------
+# 43.5 Requirements
+# -----------------------------------------------------------------------------
+
+# northstar_requirement(ReqID, Type, Description, Priority)
+# Type: /functional, /non_functional, /constraint
+# Priority: /must_have, /should_have, /nice_to_have
+Decl northstar_requirement(ReqID, Type, Description, Priority).
+
+# northstar_supports(ReqID, CapID) - Requirement supports capability
+Decl northstar_supports(ReqID, CapID).
+
+# northstar_addresses(ReqID, RiskID) - Requirement addresses risk
+Decl northstar_addresses(ReqID, RiskID).
+
+# -----------------------------------------------------------------------------
+# 43.6 Constraints
+# -----------------------------------------------------------------------------
+
+# northstar_constraint(ConstraintID, Description) - Hard project constraints
+Decl northstar_constraint(ConstraintID, Description).
+
+# -----------------------------------------------------------------------------
+# 43.7 Derived Predicates
+# -----------------------------------------------------------------------------
+
+# northstar_defined() - True if northstar has been set
+Decl northstar_defined().
+
+# critical_capability(CapID) - Derived: capability is critical priority
+Decl critical_capability(CapID).
+
+# high_risk(RiskID) - Derived: risk has high likelihood AND impact
+Decl high_risk(RiskID).
+
+# has_mitigation(RiskID) - Helper: risk has at least one mitigation
+Decl has_mitigation(RiskID).
+
+# unmitigated_risk(RiskID) - Derived: high risk without mitigation
+Decl unmitigated_risk(RiskID).
+
+# capability_addresses_need(CapID, PersonaID, Need) - Capability serves persona need
+Decl capability_addresses_need(CapID, PersonaID, Need).
+
+# is_served_persona(PersonaID) - Helper: persona is served by at least one capability
+Decl is_served_persona(PersonaID).
+
+# capability_is_linked(CapID) - Helper: capability serves at least one persona
+Decl capability_is_linked(CapID).
+
+# unserved_persona(PersonaID, Name) - Persona with needs but no capabilities
+Decl unserved_persona(PersonaID, Name).
+
+# orphan_capability(CapID, Desc) - Capability not linked to any persona
+Decl orphan_capability(CapID, Desc).
+
+# must_have_requirement(ReqID, Desc) - Requirements with must_have priority
+Decl must_have_requirement(ReqID, Desc).
+
+# is_supported_req(ReqID) - Helper: requirement is supported by at least one capability
+Decl is_supported_req(ReqID).
+
+# orphan_requirement(ReqID, Desc) - Requirement not linked to any capability
+Decl orphan_requirement(ReqID, Desc).
+
+# risk_addressing_requirement(ReqID, RiskID) - Requirement that addresses high risk
+Decl risk_addressing_requirement(ReqID, RiskID).
+
+# risk_is_addressed(RiskID) - Helper: risk is addressed by at least one requirement
+Decl risk_is_addressed(RiskID).
+
+# unaddressed_high_risk(RiskID, Desc) - High risk with no requirement addressing it
+Decl unaddressed_high_risk(RiskID, Desc).
+
+# immediate_capability(CapID, Desc) - Capabilities with /now timeline
+Decl immediate_capability(CapID, Desc).
+
+# near_term_capability(CapID, Desc) - Capabilities with /6mo timeline
+Decl near_term_capability(CapID, Desc).
+
+# long_term_capability(CapID, Desc) - Capabilities with /1yr or /3yr timeline
+Decl long_term_capability(CapID, Desc).
+
+# moonshot_capability(CapID, Desc) - Capabilities with /moonshot timeline
+Decl moonshot_capability(CapID, Desc).
+
+# strategic_warning(Type, CapID, RiskID) - Strategic gaps and warnings
+Decl strategic_warning(Type, CapID, RiskID).
+
+# =============================================================================
+# SECTION 44: SEMANTIC MATCHING (Vector Search Results)
+# =============================================================================
+# These facts are asserted by the SemanticClassifier after vector search.
+# They provide semantic similarity signals to the inference engine.
+
+# semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
+# UserInput: Original user query string
+# CanonicalSentence: Matched sentence from intent corpus
+# Verb: Associated verb from corpus (name constant like /review)
+# Target: Associated target from corpus (string)
+# Rank: 1-based position in results (1 = best match)
+# Similarity: Cosine similarity * 100 (0-100 scale, integer)
+Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
+
+# Derived: suggested verb from semantic matching
+# Populated by inference rules when semantic matches exist
+Decl semantic_suggested_verb(Verb, MaxSimilarity).
+
+# Derived: compound suggestions from multiple semantic matches
+Decl compound_suggestion(Verb1, Verb2).
+
+# learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)
+# Learned user patterns that influence intent classification
+# NOTE: Also declared in schema/learning.mg - this is a backup declaration
+Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
+
+# verb_composition(Verb1, Verb2, ComposedAction, Priority)
+# Defines valid verb compositions for compound suggestions
+# NOTE: Primary declaration is in taxonomy.mg - removed duplicate here
+# Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
 
 
 
@@ -5177,6 +5357,169 @@ promote_to_long_term(/context_pattern, Atom) :-
     S2 != S3,
     S1 != S3.
 
+# =============================================================================
+# 42. NORTHSTAR VISION REASONING
+# =============================================================================
+# Rules for reasoning over northstar facts defined via /northstar command.
+# These rules derive strategic insights from vision, personas, capabilities,
+# risks, and requirements.
+
+# -----------------------------------------------------------------------------
+# 42.1 Critical Path Derivation
+# -----------------------------------------------------------------------------
+
+# Derive critical capabilities (priority = /critical)
+critical_capability(CapID) :-
+    northstar_capability(CapID, _, _, /critical).
+
+# Derive high-risk items (both likelihood AND impact are high)
+high_risk(RiskID) :-
+    northstar_risk(RiskID, _, /high, /high).
+
+# Helper: risk has at least one mitigation
+has_mitigation(RiskID) :-
+    northstar_mitigation(RiskID, _).
+
+# Derive unmitigated risks (high risk without any mitigation)
+unmitigated_risk(RiskID) :-
+    high_risk(RiskID),
+    !has_mitigation(RiskID).
+
+# -----------------------------------------------------------------------------
+# 42.2 Alignment Analysis
+# -----------------------------------------------------------------------------
+
+# Capability addresses persona need when serves relationship exists
+capability_addresses_need(CapID, PersonaID, Need) :-
+    northstar_serves(CapID, PersonaID),
+    northstar_need(PersonaID, Need).
+
+# Helper: persona is served by at least one capability
+is_served_persona(PersonaID) :-
+    northstar_serves(_, PersonaID).
+
+# Helper: capability serves at least one persona
+capability_is_linked(CapID) :-
+    northstar_serves(CapID, _).
+
+# Unserved persona - has needs but no capability serves them
+unserved_persona(PersonaID, Name) :-
+    northstar_persona(PersonaID, Name),
+    northstar_need(PersonaID, _),
+    !is_served_persona(PersonaID).
+
+# Orphan capability - not linked to any persona
+orphan_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, _, _),
+    !capability_is_linked(CapID).
+
+# -----------------------------------------------------------------------------
+# 42.3 Requirements Traceability
+# -----------------------------------------------------------------------------
+
+# Must-have requirements (priority = /must_have)
+must_have_requirement(ReqID, Desc) :-
+    northstar_requirement(ReqID, _, Desc, /must_have).
+
+# Helper: requirement is supported by at least one capability
+is_supported_req(ReqID) :-
+    northstar_supports(ReqID, _).
+
+# Orphan requirement - not linked to any capability
+orphan_requirement(ReqID, Desc) :-
+    northstar_requirement(ReqID, _, Desc, _),
+    !is_supported_req(ReqID).
+
+# Risk-addressing requirement
+risk_addressing_requirement(ReqID, RiskID) :-
+    northstar_addresses(ReqID, RiskID),
+    high_risk(RiskID).
+
+# Helper: risk is addressed by at least one requirement
+risk_is_addressed(RiskID) :-
+    northstar_addresses(_, RiskID).
+
+# Unaddressed high risk - no requirement addresses it
+unaddressed_high_risk(RiskID, Desc) :-
+    high_risk(RiskID),
+    northstar_risk(RiskID, Desc, _, _),
+    !risk_is_addressed(RiskID).
+
+# -----------------------------------------------------------------------------
+# 42.4 Timeline Planning
+# -----------------------------------------------------------------------------
+
+# Immediate work (timeline = /now)
+immediate_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /now, _).
+
+# Near-term work (timeline = /6mo)
+near_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /6mo, _).
+
+# Long-term work (timeline = /1yr or /3yr)
+long_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /1yr, _).
+
+long_term_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /3yr, _).
+
+# Moonshot capabilities (timeline = /moonshot)
+moonshot_capability(CapID, Desc) :-
+    northstar_capability(CapID, Desc, /moonshot, _).
+
+# -----------------------------------------------------------------------------
+# 42.5 Strategic Warnings
+# -----------------------------------------------------------------------------
+
+# Warning: critical capability with unmitigated high risk
+strategic_warning(/critical_unmitigated_risk, CapID, RiskID) :-
+    critical_capability(CapID),
+    northstar_supports(ReqID, CapID),
+    northstar_addresses(ReqID, RiskID),
+    unmitigated_risk(RiskID).
+
+# Warning: immediate work depends on unaddressed risk
+strategic_warning(/immediate_risk_gap, CapID, RiskID) :-
+    immediate_capability(CapID, _),
+    unaddressed_high_risk(RiskID, _).
+
+# -----------------------------------------------------------------------------
+# 42.6 Context Injection for Northstar
+# -----------------------------------------------------------------------------
+
+# Inject mission when planning or deciding actions
+injectable_context(/northstar_mission, Mission) :-
+    northstar_defined(),
+    northstar_mission(_, Mission),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /planner).
+
+injectable_context(/northstar_mission, Mission) :-
+    northstar_defined(),
+    northstar_mission(_, Mission),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /coder).
+
+# Inject critical capabilities during planning
+injectable_context(/critical_cap, Desc) :-
+    northstar_defined(),
+    critical_capability(CapID),
+    northstar_capability(CapID, Desc, _, _),
+    active_shard(ShardID, _),
+    shard_family(ShardID, /planner).
+
+# Inject unmitigated risks as warnings
+injectable_context(/unmitigated_risk_warning, Desc) :-
+    northstar_defined(),
+    unmitigated_risk(RiskID),
+    northstar_risk(RiskID, Desc, _, _).
+
+# Inject constraints always
+injectable_context(/constraint, Desc) :-
+    northstar_defined(),
+    northstar_constraint(_, Desc).
+
 
 # internal/mangle/doc_taxonomy.mg
 # =========================================================
@@ -6495,6 +6838,360 @@ verb_synonym(/generate_tool, "need a tool").
 verb_pattern(/generate_tool, "(?i)create.*tool").
 verb_pattern(/generate_tool, "(?i)need.*tool").
 
+# =========================================================================
+# MULTI-STEP VERB TAXONOMY
+# Encyclopedic definitions for multi-step task detection and decomposition
+# =========================================================================
+
+# --- Multi-Step Declarations ---
+Decl verb_composition(Verb1, Verb2, Relation, Priority).
+Decl step_connector(Connector, ConnectorType, StepBoundary).
+Decl completion_marker(Marker, MarkerType).
+Decl pronoun_ref(Pronoun, Resolution).
+Decl constraint_marker(Marker, ConstraintType).
+
+# --- Step Relations ---
+# sequential: Verb2 depends on Verb1 completing
+# parallel: Verb1 and Verb2 can run concurrently
+# conditional: Verb2 runs only if Verb1 succeeds
+# fallback: Verb2 runs only if Verb1 fails
+# iterative: Verb1 repeats over a collection
+
+# =========================================================================
+# VERB COMPOSITIONS - Which verbs naturally follow each other
+# =========================================================================
+
+# --- Review-Then-Fix Compositions (highest priority) ---
+verb_composition(/review, /fix, "sequential", 95).
+verb_composition(/analyze, /fix, "sequential", 93).
+verb_composition(/security, /fix, "sequential", 97).
+verb_composition(/debug, /fix, "sequential", 94).
+verb_composition(/review, /refactor, "sequential", 90).
+verb_composition(/analyze, /refactor, "sequential", 88).
+
+# --- Create-Then-Validate Compositions ---
+verb_composition(/create, /test, "sequential", 92).
+verb_composition(/fix, /test, "sequential", 94).
+verb_composition(/refactor, /test, "sequential", 91).
+verb_composition(/create, /review, "sequential", 85).
+verb_composition(/fix, /review, "sequential", 86).
+
+# --- Research-Then-Act Compositions ---
+verb_composition(/research, /create, "sequential", 88).
+verb_composition(/research, /fix, "sequential", 87).
+verb_composition(/research, /refactor, "sequential", 86).
+verb_composition(/explore, /create, "sequential", 85).
+verb_composition(/explore, /refactor, "sequential", 84).
+
+# --- Analysis-Then-Optimize Compositions ---
+verb_composition(/analyze, /refactor, "sequential", 89).
+verb_composition(/analyze, /fix, "sequential", 88).
+verb_composition(/review, /optimize, "sequential", 87).
+
+# --- Documentation Compositions ---
+verb_composition(/create, /document, "sequential", 80).
+verb_composition(/refactor, /document, "sequential", 79).
+verb_composition(/fix, /document, "sequential", 78).
+
+# --- Git Workflow Compositions ---
+verb_composition(/fix, /commit, "sequential", 85).
+verb_composition(/create, /commit, "sequential", 84).
+verb_composition(/refactor, /commit, "sequential", 83).
+verb_composition(/commit, /push, "sequential", 90).
+verb_composition(/fix, /push, "sequential", 82).
+
+# --- Parallel Analysis Compositions ---
+verb_composition(/review, /security, "parallel", 75).
+verb_composition(/review, /analyze, "parallel", 74).
+verb_composition(/test, /lint, "parallel", 76).
+
+# --- Conditional Compositions ---
+verb_composition(/test, /commit, "conditional", 88).
+verb_composition(/test, /push, "conditional", 87).
+verb_composition(/test, /deploy, "conditional", 90).
+verb_composition(/fix, /deploy, "conditional", 85).
+
+# --- Fallback Compositions ---
+verb_composition(/migrate, /rollback, "fallback", 85).
+verb_composition(/deploy, /rollback, "fallback", 88).
+verb_composition(/refactor, /revert, "fallback", 80).
+
+# =========================================================================
+# STEP CONNECTORS - Words that signal step boundaries
+# =========================================================================
+
+# --- Sequential Connectors (explicit ordering) ---
+step_connector("first", "sequential_start", /true).
+step_connector("then", "sequential_continue", /true).
+step_connector("next", "sequential_continue", /true).
+step_connector("after that", "sequential_continue", /true).
+step_connector("afterwards", "sequential_continue", /true).
+step_connector("afterward", "sequential_continue", /true).
+step_connector("following that", "sequential_continue", /true).
+step_connector("subsequently", "sequential_continue", /true).
+step_connector("finally", "sequential_end", /true).
+step_connector("lastly", "sequential_end", /true).
+step_connector("start by", "sequential_start", /true).
+step_connector("begin with", "sequential_start", /true).
+step_connector("once done", "sequential_continue", /true).
+step_connector("when done", "sequential_continue", /true).
+step_connector("when finished", "sequential_continue", /true).
+step_connector("after done", "sequential_continue", /true).
+step_connector("after you're done", "sequential_continue", /true).
+step_connector("when complete", "sequential_continue", /true).
+step_connector("once complete", "sequential_continue", /true).
+
+# --- Numbered Step Connectors ---
+step_connector("step 1", "numbered", /true).
+step_connector("step 2", "numbered", /true).
+step_connector("step 3", "numbered", /true).
+step_connector("step 4", "numbered", /true).
+step_connector("step 5", "numbered", /true).
+step_connector("1.", "numbered", /true).
+step_connector("2.", "numbered", /true).
+step_connector("3.", "numbered", /true).
+step_connector("4.", "numbered", /true).
+step_connector("5.", "numbered", /true).
+step_connector("1)", "numbered", /true).
+step_connector("2)", "numbered", /true).
+step_connector("3)", "numbered", /true).
+step_connector("first,", "numbered", /true).
+step_connector("second,", "numbered", /true).
+step_connector("third,", "numbered", /true).
+
+# --- Implicit Sequential Connectors ---
+step_connector("and", "implicit_sequential", /false).
+step_connector("and then", "sequential_continue", /true).
+step_connector("then also", "sequential_continue", /true).
+
+# --- Parallel Connectors ---
+step_connector("also", "parallel", /true).
+step_connector("additionally", "parallel", /true).
+step_connector("at the same time", "parallel", /true).
+step_connector("simultaneously", "parallel", /true).
+step_connector("in parallel", "parallel", /true).
+step_connector("as well as", "parallel", /false).
+step_connector("along with", "parallel", /false).
+step_connector("together with", "parallel", /false).
+step_connector("plus", "parallel", /false).
+
+# --- Conditional Success Connectors ---
+step_connector("if it works", "conditional_success", /true).
+step_connector("if successful", "conditional_success", /true).
+step_connector("if it passes", "conditional_success", /true).
+step_connector("if tests pass", "conditional_success", /true).
+step_connector("when tests pass", "conditional_success", /true).
+step_connector("once tests pass", "conditional_success", /true).
+step_connector("on success", "conditional_success", /true).
+step_connector("assuming it works", "conditional_success", /true).
+step_connector("provided it works", "conditional_success", /true).
+step_connector("if no errors", "conditional_success", /true).
+step_connector("if it compiles", "conditional_success", /true).
+step_connector("if build succeeds", "conditional_success", /true).
+step_connector("once tests are green", "conditional_success", /true).
+step_connector("when green", "conditional_success", /true).
+
+# --- Conditional Failure / Fallback Connectors ---
+step_connector("if it fails", "conditional_failure", /true).
+step_connector("if it doesn't work", "conditional_failure", /true).
+step_connector("if it breaks", "conditional_failure", /true).
+step_connector("otherwise", "conditional_failure", /true).
+step_connector("or else", "conditional_failure", /true).
+step_connector("on failure", "conditional_failure", /true).
+step_connector("on error", "conditional_failure", /true).
+step_connector("if errors occur", "conditional_failure", /true).
+step_connector("if tests fail", "conditional_failure", /true).
+step_connector("revert if fails", "conditional_failure", /true).
+step_connector("rollback if fails", "conditional_failure", /true).
+step_connector("undo if fails", "conditional_failure", /true).
+step_connector("revert if needed", "conditional_failure", /true).
+step_connector("if something goes wrong", "conditional_failure", /true).
+
+# --- Pipeline Connectors ---
+step_connector("pass the results to", "pipeline", /true).
+step_connector("feed output to", "pipeline", /true).
+step_connector("use the results to", "pipeline", /true).
+step_connector("pipe to", "pipeline", /true).
+step_connector("based on the results", "pipeline", /true).
+step_connector("according to findings", "pipeline", /true).
+step_connector("based on issues", "pipeline", /true).
+step_connector("using the output", "pipeline", /true).
+
+# =========================================================================
+# COMPLETION MARKERS - Words that indicate task boundaries
+# =========================================================================
+
+completion_marker("done", "completion").
+completion_marker("finished", "completion").
+completion_marker("complete", "completion").
+completion_marker("completed", "completion").
+completion_marker("all done", "completion").
+completion_marker("that's it", "completion").
+completion_marker("verified", "verification").
+completion_marker("confirmed", "verification").
+completion_marker("tested", "verification").
+completion_marker("working", "verification").
+completion_marker("passes", "verification").
+completion_marker("green", "verification").
+completion_marker("ready", "readiness").
+completion_marker("ready to", "readiness").
+completion_marker("ready for", "readiness").
+
+# =========================================================================
+# PRONOUN REFERENCES - How pronouns resolve to targets
+# =========================================================================
+
+pronoun_ref("it", "previous_target").
+pronoun_ref("them", "previous_targets").
+pronoun_ref("this", "context_target").
+pronoun_ref("that", "previous_target").
+pronoun_ref("these", "previous_targets").
+pronoun_ref("those", "previous_targets").
+pronoun_ref("the file", "previous_file").
+pronoun_ref("the files", "previous_files").
+pronoun_ref("the code", "previous_code").
+pronoun_ref("the function", "previous_function").
+pronoun_ref("the changes", "previous_changes").
+pronoun_ref("the results", "previous_output").
+pronoun_ref("the output", "previous_output").
+pronoun_ref("the findings", "previous_output").
+pronoun_ref("the issues", "previous_issues").
+pronoun_ref("the bugs", "previous_bugs").
+pronoun_ref("the errors", "previous_errors").
+
+# =========================================================================
+# CONSTRAINT MARKERS - Words that modify scope
+# =========================================================================
+
+constraint_marker("but not", "exclusion").
+constraint_marker("but skip", "exclusion").
+constraint_marker("except", "exclusion").
+constraint_marker("except for", "exclusion").
+constraint_marker("excluding", "exclusion").
+constraint_marker("without", "exclusion").
+constraint_marker("don't touch", "exclusion").
+constraint_marker("leave alone", "exclusion").
+constraint_marker("skip", "exclusion").
+constraint_marker("ignore", "exclusion").
+constraint_marker("while keeping", "preservation").
+constraint_marker("while preserving", "preservation").
+constraint_marker("while maintaining", "preservation").
+constraint_marker("preserving", "preservation").
+constraint_marker("keeping", "preservation").
+constraint_marker("maintaining", "preservation").
+constraint_marker("without breaking", "preservation").
+constraint_marker("without changing", "preservation").
+constraint_marker("only", "inclusion").
+constraint_marker("just", "inclusion").
+constraint_marker("only the", "inclusion").
+constraint_marker("just the", "inclusion").
+constraint_marker("specifically", "inclusion").
+constraint_marker("in particular", "inclusion").
+
+# =========================================================================
+# ITERATIVE MARKERS - Words that signal repetition
+# =========================================================================
+
+Decl iterative_marker(Marker, IterationType).
+
+iterative_marker("each", "collection").
+iterative_marker("every", "collection").
+iterative_marker("all", "collection").
+iterative_marker("all the", "collection").
+iterative_marker("for each", "loop").
+iterative_marker("for every", "loop").
+iterative_marker("for all", "loop").
+iterative_marker("one by one", "sequential_iteration").
+iterative_marker("across all", "collection").
+iterative_marker("throughout", "scope").
+iterative_marker("everywhere", "scope").
+iterative_marker("in all files", "file_scope").
+iterative_marker("in all functions", "function_scope").
+iterative_marker("in the entire", "full_scope").
+iterative_marker("the whole", "full_scope").
+iterative_marker("the entire", "full_scope").
+
+# =========================================================================
+# URGENCY/PRIORITY MARKERS
+# =========================================================================
+
+Decl priority_marker(Marker, PriorityLevel).
+
+priority_marker("urgent", "high").
+priority_marker("urgently", "high").
+priority_marker("asap", "high").
+priority_marker("immediately", "high").
+priority_marker("right now", "high").
+priority_marker("quickly", "medium").
+priority_marker("soon", "medium").
+priority_marker("when you can", "low").
+priority_marker("eventually", "low").
+priority_marker("at some point", "low").
+priority_marker("critical", "critical").
+priority_marker("blocking", "critical").
+priority_marker("blocker", "critical").
+
+# =========================================================================
+# VERIFICATION MARKERS - Words that trigger verification steps
+# =========================================================================
+
+Decl verification_marker(Marker, VerificationType).
+
+verification_marker("make sure", "verification_required").
+verification_marker("ensure", "verification_required").
+verification_marker("verify", "verification_required").
+verification_marker("confirm", "verification_required").
+verification_marker("check that", "verification_required").
+verification_marker("validate", "verification_required").
+verification_marker("test that", "test_verification").
+verification_marker("run tests", "test_verification").
+verification_marker("run the tests", "test_verification").
+verification_marker("and test", "test_verification").
+verification_marker("it works", "functional_verification").
+verification_marker("it compiles", "build_verification").
+verification_marker("it builds", "build_verification").
+verification_marker("no errors", "error_verification").
+verification_marker("no warnings", "warning_verification").
+
+# =========================================================================
+# INFERENCE RULES FOR MULTI-STEP DETECTION
+# =========================================================================
+
+# Check if two verbs can be composed
+Decl can_compose(Verb1, Verb2).
+can_compose(Verb1, Verb2) :-
+    verb_composition(Verb1, Verb2, _, _).
+
+# Get the default relation between two verbs
+Decl verb_pair_relation(Verb1, Verb2, Relation).
+verb_pair_relation(Verb1, Verb2, Relation) :-
+    verb_composition(Verb1, Verb2, Relation, _).
+
+# Check if a connector indicates a step boundary
+Decl is_step_boundary(Connector).
+is_step_boundary(Connector) :-
+    step_connector(Connector, _, /true).
+
+# Get connector type
+Decl connector_type(Connector, Type).
+connector_type(Connector, Type) :-
+    step_connector(Connector, Type, _).
+
+# Check if a word is an iterative marker
+Decl is_iterative(Word).
+is_iterative(Word) :-
+    iterative_marker(Word, _).
+
+# Check if a phrase needs verification
+Decl needs_verification(Marker).
+needs_verification(Marker) :-
+    verification_marker(Marker, _).
+
+# Resolve pronoun to reference type
+Decl resolve_pronoun(Pronoun, RefType).
+resolve_pronoun(Pronoun, RefType) :-
+    pronoun_ref(Pronoun, RefType).
+
 
 # Inference Logic for Intent Refinement (Simplified)
 # This module takes raw intent candidates (from regex/LLM) and refines them
@@ -6625,6 +7322,11 @@ selected_verb(Verb) :-
 #     target_path(Action, Path),
 #     fn:string_suffix(Path, ".tmp").
 
+# Learned Rules (Autopoiesis Layer - Stratified Trust)
+# Learned Taxonomy Rules (Autopoiesis)
+# This file is automatically appended to by the system when it learns new synonyms.
 
-# Sandbox Validation
-active_strategy(/breadth_first_survey) :- failure_count(Count), Count >= 3.
+# User Learned Rules
+
+# Autopoiesis-learned rule (added 2025-12-09 15:38:31)
+permitted(Action) :- Action = "system_start".
