@@ -555,9 +555,9 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)simulate", "(?i)dry.*run", "(?i)preview.*change", "(?i)would.*happen"},
 	},
 	{
-		Verb: "/git", Category: "/mutation", ShardType: "/none", Priority: 75,
-		Synonyms: []string{"git", "commit", "push", "pull", "branch", "merge", "status"},
-		Patterns: []string{"(?i)git.*status", "(?i)commit.*changes", "(?i)push.*to", "(?i)create.*branch"},
+		Verb: "/git", Category: "/mutation", ShardType: "/coder", Priority: 90,
+		Synonyms: []string{"git", "commit", "push", "pull", "branch", "merge", "status", "github"},
+		Patterns: []string{"(?i)git.*status", "(?i)commit.*changes", "(?i)push.*to", "(?i)create.*branch", "(?i)push.*github", "(?i)push.*remote"},
 	},
 	{
 		Verb: "/read", Category: "/query", ShardType: "/none", Priority: 82,
