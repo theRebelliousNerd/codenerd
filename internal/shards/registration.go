@@ -3,6 +3,7 @@
 package shards
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -183,6 +184,30 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		return nil
 	}
 
+	// Helper to create PromptAssembler with JIT support
+	createAssembler := func() *articulation.PromptAssembler {
+		if ctx.Kernel == nil {
+			return nil
+		}
+		// Assuming core.Kernel satisfies articulation.KernelQuerier (Fact types act effectively aliased)
+		// We might need an adapter if strict go interfaces complain, but for now we try direct.
+		// If direct fails compilation, we'll wrap it.
+		// prompt.NewPromptAssembler takes articulation.KernelQuerier.
+		pa, err := articulation.NewPromptAssembler(ctx.Kernel)
+		if err != nil {
+			return nil
+		}
+		if ctx.JITCompiler != nil {
+			pa.SetJITCompiler(ctx.JITCompiler)
+			pa.EnableJIT(true) // Enable by default if compiler is present
+		}
+		return pa
+	}
+
+	// Be defensive about interface satisfaction - core.Kernel returns []core.Fact,
+	// articulation.KernelQuerier expects []types.Fact. They are aliases but Go type system
+	// might require specific casting. Let's see if compilation passes.
+
 	// Register Coder shard factory
 	sm.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := coder.NewCoderShard()
@@ -190,6 +215,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -210,6 +236,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		// NEW: Register as feedback provider for validation triggers
 		core.SetReviewerFeedbackProvider(&reviewerFeedbackAdapter{shard: shard})
 
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -220,6 +247,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -233,6 +261,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		// Use Workspace from context
 		shard.SetWorkspaceRoot(ctx.Workspace)
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 

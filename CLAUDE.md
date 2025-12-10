@@ -2,6 +2,8 @@
 
 A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic architecture.
 
+## PUSH TO GITHUB ALL THE TIME 
+
 **Kernel:** Google Mangle (Datalog) | **Runtime:** Go | **Philosophy:** Logic determines Reality; the Model merely describes it.
 
 > [!IMPORTANT]

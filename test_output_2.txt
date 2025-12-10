@@ -1,0 +1,740 @@
+=== RUN   TestNewFinalAssembler
+=== RUN   TestNewFinalAssembler/creates_assembler_with_defaults
+--- PASS: TestNewFinalAssembler (0.00s)
+    --- PASS: TestNewFinalAssembler/creates_assembler_with_defaults (0.00s)
+=== RUN   TestDefaultCategoryOrder
+=== RUN   TestDefaultCategoryOrder/identity_comes_first
+=== RUN   TestDefaultCategoryOrder/exemplar_comes_last
+=== RUN   TestDefaultCategoryOrder/safety_before_methodology
+=== RUN   TestDefaultCategoryOrder/protocol_before_methodology
+--- PASS: TestDefaultCategoryOrder (0.00s)
+    --- PASS: TestDefaultCategoryOrder/identity_comes_first (0.00s)
+    --- PASS: TestDefaultCategoryOrder/exemplar_comes_last (0.00s)
+    --- PASS: TestDefaultCategoryOrder/safety_before_methodology (0.00s)
+    --- PASS: TestDefaultCategoryOrder/protocol_before_methodology (0.00s)
+=== RUN   TestFinalAssembler_SetCategoryOrder
+--- PASS: TestFinalAssembler_SetCategoryOrder (0.00s)
+=== RUN   TestFinalAssembler_SetSectionHeaders
+--- PASS: TestFinalAssembler_SetSectionHeaders (0.00s)
+=== RUN   TestFinalAssembler_SetSeparators
+--- PASS: TestFinalAssembler_SetSeparators (0.00s)
+=== RUN   TestFinalAssembler_Assemble
+=== RUN   TestFinalAssembler_Assemble/empty_atoms_returns_empty_string
+=== RUN   TestFinalAssembler_Assemble/single_atom
+=== RUN   TestFinalAssembler_Assemble/multiple_atoms_same_category
+=== RUN   TestFinalAssembler_Assemble/atoms_from_different_categories_ordered_correctly
+--- PASS: TestFinalAssembler_Assemble (0.00s)
+    --- PASS: TestFinalAssembler_Assemble/empty_atoms_returns_empty_string (0.00s)
+    --- PASS: TestFinalAssembler_Assemble/single_atom (0.00s)
+    --- PASS: TestFinalAssembler_Assemble/multiple_atoms_same_category (0.00s)
+    --- PASS: TestFinalAssembler_Assemble/atoms_from_different_categories_ordered_correctly (0.00s)
+=== RUN   TestFinalAssembler_AssembleWithHeaders
+--- PASS: TestFinalAssembler_AssembleWithHeaders (0.00s)
+=== RUN   TestFinalAssembler_AssembleCategoryOrder
+=== RUN   TestFinalAssembler_AssembleCategoryOrder/identity_appears_before_exemplar
+=== RUN   TestFinalAssembler_AssembleCategoryOrder/respects_custom_category_order
+--- PASS: TestFinalAssembler_AssembleCategoryOrder (0.00s)
+    --- PASS: TestFinalAssembler_AssembleCategoryOrder/identity_appears_before_exemplar (0.00s)
+    --- PASS: TestFinalAssembler_AssembleCategoryOrder/respects_custom_category_order (0.00s)
+=== RUN   TestFinalAssembler_AssembleWithTemplates
+--- PASS: TestFinalAssembler_AssembleWithTemplates (0.00s)
+=== RUN   TestCategoryHeader
+=== RUN   TestCategoryHeader/identity
+=== RUN   TestCategoryHeader/safety
+=== RUN   TestCategoryHeader/protocol
+=== RUN   TestCategoryHeader/methodology
+=== RUN   TestCategoryHeader/hallucination
+=== RUN   TestCategoryHeader/language
+=== RUN   TestCategoryHeader/framework
+=== RUN   TestCategoryHeader/domain
+=== RUN   TestCategoryHeader/campaign
+=== RUN   TestCategoryHeader/init
+=== RUN   TestCategoryHeader/northstar
+=== RUN   TestCategoryHeader/ouroboros
+=== RUN   TestCategoryHeader/context
+=== RUN   TestCategoryHeader/exemplar
+=== RUN   TestCategoryHeader/unknown
+--- PASS: TestCategoryHeader (0.00s)
+    --- PASS: TestCategoryHeader/identity (0.00s)
+    --- PASS: TestCategoryHeader/safety (0.00s)
+    --- PASS: TestCategoryHeader/protocol (0.00s)
+    --- PASS: TestCategoryHeader/methodology (0.00s)
+    --- PASS: TestCategoryHeader/hallucination (0.00s)
+    --- PASS: TestCategoryHeader/language (0.00s)
+    --- PASS: TestCategoryHeader/framework (0.00s)
+    --- PASS: TestCategoryHeader/domain (0.00s)
+    --- PASS: TestCategoryHeader/campaign (0.00s)
+    --- PASS: TestCategoryHeader/init (0.00s)
+    --- PASS: TestCategoryHeader/northstar (0.00s)
+    --- PASS: TestCategoryHeader/ouroboros (0.00s)
+    --- PASS: TestCategoryHeader/context (0.00s)
+    --- PASS: TestCategoryHeader/exemplar (0.00s)
+    --- PASS: TestCategoryHeader/unknown (0.00s)
+=== RUN   TestNewTemplateEngine
+=== RUN   TestNewTemplateEngine/creates_engine_with_default_functions
+=== RUN   TestNewTemplateEngine/has_all_expected_functions
+--- PASS: TestNewTemplateEngine (0.00s)
+    --- PASS: TestNewTemplateEngine/creates_engine_with_default_functions (0.00s)
+    --- PASS: TestNewTemplateEngine/has_all_expected_functions (0.00s)
+=== RUN   TestTemplateEngine_RegisterFunction
+--- PASS: TestTemplateEngine_RegisterFunction (0.00s)
+=== RUN   TestTemplateEngine_Process
+=== RUN   TestTemplateEngine_Process/no_templates
+=== RUN   TestTemplateEngine_Process/language_template
+=== RUN   TestTemplateEngine_Process/shard_type_template
+=== RUN   TestTemplateEngine_Process/operational_mode_template
+=== RUN   TestTemplateEngine_Process/campaign_phase_template
+=== RUN   TestTemplateEngine_Process/intent_verb_template
+=== RUN   TestTemplateEngine_Process/frameworks_template
+=== RUN   TestTemplateEngine_Process/token_budget_template
+=== RUN   TestTemplateEngine_Process/world_states_template_-_normal
+=== RUN   TestTemplateEngine_Process/world_states_template_-_with_issues
+=== RUN   TestTemplateEngine_Process/multiple_templates
+=== RUN   TestTemplateEngine_Process/nil_context_uses_defaults
+=== RUN   TestTemplateEngine_Process/empty_language_fallback
+=== RUN   TestTemplateEngine_Process/empty_shard_type_fallback
+--- PASS: TestTemplateEngine_Process (0.00s)
+    --- PASS: TestTemplateEngine_Process/no_templates (0.00s)
+    --- PASS: TestTemplateEngine_Process/language_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/shard_type_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/operational_mode_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/campaign_phase_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/intent_verb_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/frameworks_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/token_budget_template (0.00s)
+    --- PASS: TestTemplateEngine_Process/world_states_template_-_normal (0.00s)
+    --- PASS: TestTemplateEngine_Process/world_states_template_-_with_issues (0.00s)
+    --- PASS: TestTemplateEngine_Process/multiple_templates (0.00s)
+    --- PASS: TestTemplateEngine_Process/nil_context_uses_defaults (0.00s)
+    --- PASS: TestTemplateEngine_Process/empty_language_fallback (0.00s)
+    --- PASS: TestTemplateEngine_Process/empty_shard_type_fallback (0.00s)
+=== RUN   TestTemplateEngine_ProcessFastPath
+--- PASS: TestTemplateEngine_ProcessFastPath (0.00s)
+=== RUN   TestDefaultAssemblyOptions
+--- PASS: TestDefaultAssemblyOptions (0.00s)
+=== RUN   TestFinalAssembler_AssembleWithOptions
+=== RUN   TestFinalAssembler_AssembleWithOptions/with_section_headers
+=== RUN   TestFinalAssembler_AssembleWithOptions/with_minified_whitespace
+=== RUN   TestFinalAssembler_AssembleWithOptions/with_max_length_truncation
+--- PASS: TestFinalAssembler_AssembleWithOptions (0.00s)
+    --- PASS: TestFinalAssembler_AssembleWithOptions/with_section_headers (0.00s)
+    --- PASS: TestFinalAssembler_AssembleWithOptions/with_minified_whitespace (0.00s)
+    --- PASS: TestFinalAssembler_AssembleWithOptions/with_max_length_truncation (0.00s)
+=== RUN   TestMinifyWhitespace
+=== RUN   TestMinifyWhitespace/triple_newlines_reduced_to_double
+=== RUN   TestMinifyWhitespace/quadruple_newlines_reduced
+=== RUN   TestMinifyWhitespace/trailing_whitespace_removed
+=== RUN   TestMinifyWhitespace/double_newlines_preserved
+--- PASS: TestMinifyWhitespace (0.00s)
+    --- PASS: TestMinifyWhitespace/triple_newlines_reduced_to_double (0.00s)
+    --- PASS: TestMinifyWhitespace/quadruple_newlines_reduced (0.00s)
+    --- PASS: TestMinifyWhitespace/trailing_whitespace_removed (0.00s)
+    --- PASS: TestMinifyWhitespace/double_newlines_preserved (0.00s)
+=== RUN   TestTruncatePrompt
+=== RUN   TestTruncatePrompt/no_truncation_needed
+=== RUN   TestTruncatePrompt/truncation_at_paragraph
+=== RUN   TestTruncatePrompt/truncation_message_added
+--- PASS: TestTruncatePrompt (0.00s)
+    --- PASS: TestTruncatePrompt/no_truncation_needed (0.00s)
+    --- PASS: TestTruncatePrompt/truncation_at_paragraph (0.00s)
+    --- PASS: TestTruncatePrompt/truncation_message_added (0.00s)
+=== RUN   TestAnalyzePrompt
+=== RUN   TestAnalyzePrompt/char_count
+=== RUN   TestAnalyzePrompt/token_count_estimated
+=== RUN   TestAnalyzePrompt/line_count
+=== RUN   TestAnalyzePrompt/atom_count
+=== RUN   TestAnalyzePrompt/category_counts
+=== RUN   TestAnalyzePrompt/section_count
+=== RUN   TestAnalyzePrompt/mandatory_count
+=== RUN   TestAnalyzePrompt/longest_atom_length
+=== RUN   TestAnalyzePrompt/shortest_atom_length
+--- PASS: TestAnalyzePrompt (0.00s)
+    --- PASS: TestAnalyzePrompt/char_count (0.00s)
+    --- PASS: TestAnalyzePrompt/token_count_estimated (0.00s)
+    --- PASS: TestAnalyzePrompt/line_count (0.00s)
+    --- PASS: TestAnalyzePrompt/atom_count (0.00s)
+    --- PASS: TestAnalyzePrompt/category_counts (0.00s)
+    --- PASS: TestAnalyzePrompt/section_count (0.00s)
+    --- PASS: TestAnalyzePrompt/mandatory_count (0.00s)
+    --- PASS: TestAnalyzePrompt/longest_atom_length (0.00s)
+    --- PASS: TestAnalyzePrompt/shortest_atom_length (0.00s)
+=== RUN   TestEstimateTokens
+=== RUN   TestEstimateTokens/empty_string
+=== RUN   TestEstimateTokens/single_character
+=== RUN   TestEstimateTokens/short_word
+=== RUN   TestEstimateTokens/typical_sentence
+=== RUN   TestEstimateTokens/long_content
+=== RUN   TestEstimateTokens/exact_multiple_of_4
+=== RUN   TestEstimateTokens/whitespace_only
+=== RUN   TestEstimateTokens/newlines
+--- PASS: TestEstimateTokens (0.00s)
+    --- PASS: TestEstimateTokens/empty_string (0.00s)
+    --- PASS: TestEstimateTokens/single_character (0.00s)
+    --- PASS: TestEstimateTokens/short_word (0.00s)
+    --- PASS: TestEstimateTokens/typical_sentence (0.00s)
+    --- PASS: TestEstimateTokens/long_content (0.00s)
+    --- PASS: TestEstimateTokens/exact_multiple_of_4 (0.00s)
+    --- PASS: TestEstimateTokens/whitespace_only (0.00s)
+    --- PASS: TestEstimateTokens/newlines (0.00s)
+=== RUN   TestHashContent
+=== RUN   TestHashContent/empty_string
+=== RUN   TestHashContent/simple_content
+=== RUN   TestHashContent/unicode_content
+=== RUN   TestHashContent/same_content_produces_same_hash
+=== RUN   TestHashContent/different_content_produces_different_hash
+=== RUN   TestHashContent/hash_is_deterministic
+--- PASS: TestHashContent (0.00s)
+    --- PASS: TestHashContent/empty_string (0.00s)
+    --- PASS: TestHashContent/simple_content (0.00s)
+    --- PASS: TestHashContent/unicode_content (0.00s)
+    --- PASS: TestHashContent/same_content_produces_same_hash (0.00s)
+    --- PASS: TestHashContent/different_content_produces_different_hash (0.00s)
+    --- PASS: TestHashContent/hash_is_deterministic (0.00s)
+=== RUN   TestNewPromptAtom
+=== RUN   TestNewPromptAtom/creates_atom_with_computed_fields
+=== RUN   TestNewPromptAtom/token_count_is_estimated_correctly
+=== RUN   TestNewPromptAtom/hash_matches_content
+--- PASS: TestNewPromptAtom (0.00s)
+    --- PASS: TestNewPromptAtom/creates_atom_with_computed_fields (0.00s)
+    --- PASS: TestNewPromptAtom/token_count_is_estimated_correctly (0.00s)
+    --- PASS: TestNewPromptAtom/hash_matches_content (0.00s)
+=== RUN   TestPromptAtom_MatchesContext
+=== RUN   TestPromptAtom_MatchesContext/nil_context_always_matches
+=== RUN   TestPromptAtom_MatchesContext/empty_selectors_match_any_context
+=== RUN   TestPromptAtom_MatchesContext/matching_shard_type
+=== RUN   TestPromptAtom_MatchesContext/non-matching_shard_type
+=== RUN   TestPromptAtom_MatchesContext/multiple_allowed_shard_types_-_matches_one
+=== RUN   TestPromptAtom_MatchesContext/matching_intent_verb
+=== RUN   TestPromptAtom_MatchesContext/non-matching_intent_verb
+=== RUN   TestPromptAtom_MatchesContext/matching_operational_mode
+=== RUN   TestPromptAtom_MatchesContext/matching_language
+=== RUN   TestPromptAtom_MatchesContext/matching_framework_-_single
+=== RUN   TestPromptAtom_MatchesContext/non-matching_framework
+=== RUN   TestPromptAtom_MatchesContext/matching_world_state
+=== RUN   TestPromptAtom_MatchesContext/non-matching_world_state_-_no_failing_tests
+=== RUN   TestPromptAtom_MatchesContext/multiple_world_states_-_matches_one
+=== RUN   TestPromptAtom_MatchesContext/all_dimensions_must_match
+=== RUN   TestPromptAtom_MatchesContext/one_dimension_mismatch_fails
+=== RUN   TestPromptAtom_MatchesContext/campaign_phase_matching
+=== RUN   TestPromptAtom_MatchesContext/init_phase_matching
+--- PASS: TestPromptAtom_MatchesContext (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/nil_context_always_matches (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/empty_selectors_match_any_context (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_shard_type (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/non-matching_shard_type (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/multiple_allowed_shard_types_-_matches_one (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_intent_verb (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/non-matching_intent_verb (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_operational_mode (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_language (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_framework_-_single (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/non-matching_framework (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/matching_world_state (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/non-matching_world_state_-_no_failing_tests (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/multiple_world_states_-_matches_one (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/all_dimensions_must_match (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/one_dimension_mismatch_fails (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/campaign_phase_matching (0.00s)
+    --- PASS: TestPromptAtom_MatchesContext/init_phase_matching (0.00s)
+=== RUN   TestPromptAtom_ToFact
+=== RUN   TestPromptAtom_ToFact/converts_atom_to_fact_correctly
+=== RUN   TestPromptAtom_ToFact/non-mandatory_atom
+--- PASS: TestPromptAtom_ToFact (0.00s)
+    --- PASS: TestPromptAtom_ToFact/converts_atom_to_fact_correctly (0.00s)
+    --- PASS: TestPromptAtom_ToFact/non-mandatory_atom (0.00s)
+=== RUN   TestPromptAtom_ToSelectorFacts
+=== RUN   TestPromptAtom_ToSelectorFacts/generates_selector_facts_for_all_dimensions
+=== RUN   TestPromptAtom_ToSelectorFacts/empty_selectors_produce_no_facts
+--- PASS: TestPromptAtom_ToSelectorFacts (0.00s)
+    --- PASS: TestPromptAtom_ToSelectorFacts/generates_selector_facts_for_all_dimensions (0.00s)
+    --- PASS: TestPromptAtom_ToSelectorFacts/empty_selectors_produce_no_facts (0.00s)
+=== RUN   TestPromptAtom_ToDependencyFacts
+=== RUN   TestPromptAtom_ToDependencyFacts/generates_dependency_facts
+=== RUN   TestPromptAtom_ToDependencyFacts/no_dependencies_produce_no_facts
+--- PASS: TestPromptAtom_ToDependencyFacts (0.00s)
+    --- PASS: TestPromptAtom_ToDependencyFacts/generates_dependency_facts (0.00s)
+    --- PASS: TestPromptAtom_ToDependencyFacts/no_dependencies_produce_no_facts (0.00s)
+=== RUN   TestPromptAtom_ToConflictFacts
+=== RUN   TestPromptAtom_ToConflictFacts/generates_conflict_facts
+--- PASS: TestPromptAtom_ToConflictFacts (0.00s)
+    --- PASS: TestPromptAtom_ToConflictFacts/generates_conflict_facts (0.00s)
+=== RUN   TestPromptAtom_ToExclusionFact
+=== RUN   TestPromptAtom_ToExclusionFact/generates_exclusion_fact_when_group_set
+=== RUN   TestPromptAtom_ToExclusionFact/returns_nil_when_no_exclusion_group
+--- PASS: TestPromptAtom_ToExclusionFact (0.00s)
+    --- PASS: TestPromptAtom_ToExclusionFact/generates_exclusion_fact_when_group_set (0.00s)
+    --- PASS: TestPromptAtom_ToExclusionFact/returns_nil_when_no_exclusion_group (0.00s)
+=== RUN   TestPromptAtom_Validate
+=== RUN   TestPromptAtom_Validate/valid_atom
+=== RUN   TestPromptAtom_Validate/missing_ID
+=== RUN   TestPromptAtom_Validate/missing_content
+=== RUN   TestPromptAtom_Validate/missing_category
+=== RUN   TestPromptAtom_Validate/invalid_category
+=== RUN   TestPromptAtom_Validate/self-dependency
+=== RUN   TestPromptAtom_Validate/self-conflict
+--- PASS: TestPromptAtom_Validate (0.00s)
+    --- PASS: TestPromptAtom_Validate/valid_atom (0.00s)
+    --- PASS: TestPromptAtom_Validate/missing_ID (0.00s)
+    --- PASS: TestPromptAtom_Validate/missing_content (0.00s)
+    --- PASS: TestPromptAtom_Validate/missing_category (0.00s)
+    --- PASS: TestPromptAtom_Validate/invalid_category (0.00s)
+    --- PASS: TestPromptAtom_Validate/self-dependency (0.00s)
+    --- PASS: TestPromptAtom_Validate/self-conflict (0.00s)
+=== RUN   TestPromptAtom_Clone
+=== RUN   TestPromptAtom_Clone/creates_deep_copy
+=== RUN   TestPromptAtom_Clone/handles_nil_slices
+--- PASS: TestPromptAtom_Clone (0.00s)
+    --- PASS: TestPromptAtom_Clone/creates_deep_copy (0.00s)
+    --- PASS: TestPromptAtom_Clone/handles_nil_slices (0.00s)
+=== RUN   TestAllCategories
+=== RUN   TestAllCategories/returns_all_expected_categories
+=== RUN   TestAllCategories/no_duplicates
+--- PASS: TestAllCategories (0.00s)
+    --- PASS: TestAllCategories/returns_all_expected_categories (0.00s)
+    --- PASS: TestAllCategories/no_duplicates (0.00s)
+=== RUN   TestEmbeddedCorpus
+=== RUN   TestEmbeddedCorpus/Get_returns_existing_atom
+=== RUN   TestEmbeddedCorpus/Get_returns_false_for_non-existent_atom
+=== RUN   TestEmbeddedCorpus/GetByCategory_returns_atoms_in_category
+=== RUN   TestEmbeddedCorpus/GetByCategory_returns_empty_for_unused_category
+=== RUN   TestEmbeddedCorpus/All_returns_all_atoms
+=== RUN   TestEmbeddedCorpus/Count_returns_correct_count
+--- PASS: TestEmbeddedCorpus (0.00s)
+    --- PASS: TestEmbeddedCorpus/Get_returns_existing_atom (0.00s)
+    --- PASS: TestEmbeddedCorpus/Get_returns_false_for_non-existent_atom (0.00s)
+    --- PASS: TestEmbeddedCorpus/GetByCategory_returns_atoms_in_category (0.00s)
+    --- PASS: TestEmbeddedCorpus/GetByCategory_returns_empty_for_unused_category (0.00s)
+    --- PASS: TestEmbeddedCorpus/All_returns_all_atoms (0.00s)
+    --- PASS: TestEmbeddedCorpus/Count_returns_correct_count (0.00s)
+=== RUN   TestMatchSelector
+=== RUN   TestMatchSelector/empty_selector_matches_any_value
+=== RUN   TestMatchSelector/empty_selector_matches_empty_value
+=== RUN   TestMatchSelector/non-empty_selector_with_empty_value
+=== RUN   TestMatchSelector/exact_match
+=== RUN   TestMatchSelector/no_match
+=== RUN   TestMatchSelector/one_of_multiple_matches
+--- PASS: TestMatchSelector (0.00s)
+    --- PASS: TestMatchSelector/empty_selector_matches_any_value (0.00s)
+    --- PASS: TestMatchSelector/empty_selector_matches_empty_value (0.00s)
+    --- PASS: TestMatchSelector/non-empty_selector_with_empty_value (0.00s)
+    --- PASS: TestMatchSelector/exact_match (0.00s)
+    --- PASS: TestMatchSelector/no_match (0.00s)
+    --- PASS: TestMatchSelector/one_of_multiple_matches (0.00s)
+=== RUN   TestBudgetPriority_String
+=== RUN   TestBudgetPriority_String/mandatory
+=== RUN   TestBudgetPriority_String/high
+=== RUN   TestBudgetPriority_String/medium
+=== RUN   TestBudgetPriority_String/low
+=== RUN   TestBudgetPriority_String/conditional
+=== RUN   TestBudgetPriority_String/unknown
+--- PASS: TestBudgetPriority_String (0.00s)
+    --- PASS: TestBudgetPriority_String/mandatory (0.00s)
+    --- PASS: TestBudgetPriority_String/high (0.00s)
+    --- PASS: TestBudgetPriority_String/medium (0.00s)
+    --- PASS: TestBudgetPriority_String/low (0.00s)
+    --- PASS: TestBudgetPriority_String/conditional (0.00s)
+    --- PASS: TestBudgetPriority_String/unknown (0.00s)
+=== RUN   TestNewTokenBudgetManager
+=== RUN   TestNewTokenBudgetManager/creates_manager_with_defaults
+=== RUN   TestNewTokenBudgetManager/has_default_budgets_for_all_categories
+--- PASS: TestNewTokenBudgetManager (0.00s)
+    --- PASS: TestNewTokenBudgetManager/creates_manager_with_defaults (0.00s)
+    --- PASS: TestNewTokenBudgetManager/has_default_budgets_for_all_categories (0.00s)
+=== RUN   TestTokenBudgetManager_SetCategoryBudget
+--- PASS: TestTokenBudgetManager_SetCategoryBudget (0.00s)
+=== RUN   TestTokenBudgetManager_SetStrategy
+--- PASS: TestTokenBudgetManager_SetStrategy (0.00s)
+=== RUN   TestTokenBudgetManager_SetReservedHeadroom
+--- PASS: TestTokenBudgetManager_SetReservedHeadroom (0.00s)
+=== RUN   TestTokenBudgetManager_Fit
+=== RUN   TestTokenBudgetManager_Fit/empty_input
+=== RUN   TestTokenBudgetManager_Fit/all_atoms_fit_within_budget
+=== RUN   TestTokenBudgetManager_Fit/atoms_within_reasonable_budget
+=== RUN   TestTokenBudgetManager_Fit/budget_less_than_headroom
+--- PASS: TestTokenBudgetManager_Fit (0.00s)
+    --- PASS: TestTokenBudgetManager_Fit/empty_input (0.00s)
+    --- PASS: TestTokenBudgetManager_Fit/all_atoms_fit_within_budget (0.00s)
+    --- PASS: TestTokenBudgetManager_Fit/atoms_within_reasonable_budget (0.00s)
+    --- PASS: TestTokenBudgetManager_Fit/budget_less_than_headroom (0.00s)
+=== RUN   TestTokenBudgetManager_FitMandatory
+=== RUN   TestTokenBudgetManager_FitMandatory/mandatory_atoms_always_included
+=== RUN   TestTokenBudgetManager_FitMandatory/mandatory_even_if_it_exceeds_category_allocation
+--- PASS: TestTokenBudgetManager_FitMandatory (0.00s)
+    --- PASS: TestTokenBudgetManager_FitMandatory/mandatory_atoms_always_included (0.00s)
+    --- PASS: TestTokenBudgetManager_FitMandatory/mandatory_even_if_it_exceeds_category_allocation (0.00s)
+=== RUN   TestTokenBudgetManager_FitHigherScoresPreferred
+=== RUN   TestTokenBudgetManager_FitHigherScoresPreferred/higher_scored_atoms_preferred_within_category
+--- PASS: TestTokenBudgetManager_FitHigherScoresPreferred (0.00s)
+    --- PASS: TestTokenBudgetManager_FitHigherScoresPreferred/higher_scored_atoms_preferred_within_category (0.00s)
+=== RUN   TestTokenBudgetManager_FitFillsRemainingBudget
+=== RUN   TestTokenBudgetManager_FitFillsRemainingBudget/remaining_budget_filled_with_best_unselected_atoms
+--- PASS: TestTokenBudgetManager_FitFillsRemainingBudget (0.00s)
+    --- PASS: TestTokenBudgetManager_FitFillsRemainingBudget/remaining_budget_filled_with_best_unselected_atoms (0.00s)
+=== RUN   TestTokenBudgetManager_AllocationStrategies
+=== RUN   TestTokenBudgetManager_AllocationStrategies/proportional_strategy
+=== RUN   TestTokenBudgetManager_AllocationStrategies/priority_first_strategy
+=== RUN   TestTokenBudgetManager_AllocationStrategies/balanced_strategy
+--- PASS: TestTokenBudgetManager_AllocationStrategies (0.00s)
+    --- PASS: TestTokenBudgetManager_AllocationStrategies/proportional_strategy (0.00s)
+    --- PASS: TestTokenBudgetManager_AllocationStrategies/priority_first_strategy (0.00s)
+    --- PASS: TestTokenBudgetManager_AllocationStrategies/balanced_strategy (0.00s)
+=== RUN   TestTokenBudgetManager_GenerateReport
+=== RUN   TestTokenBudgetManager_GenerateReport/calculates_total_budget_correctly
+=== RUN   TestTokenBudgetManager_GenerateReport/calculates_used_tokens_correctly
+=== RUN   TestTokenBudgetManager_GenerateReport/calculates_remaining_tokens_correctly
+=== RUN   TestTokenBudgetManager_GenerateReport/tracks_mandatory_vs_optional_tokens
+=== RUN   TestTokenBudgetManager_GenerateReport/tracks_category_usage
+=== RUN   TestTokenBudgetManager_GenerateReport/detects_over_budget_condition
+--- PASS: TestTokenBudgetManager_GenerateReport (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/calculates_total_budget_correctly (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/calculates_used_tokens_correctly (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/calculates_remaining_tokens_correctly (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/tracks_mandatory_vs_optional_tokens (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/tracks_category_usage (0.00s)
+    --- PASS: TestTokenBudgetManager_GenerateReport/detects_over_budget_condition (0.00s)
+=== RUN   TestTokenBudgetManager_CategoriesByPriority
+=== RUN   TestTokenBudgetManager_CategoriesByPriority/returns_all_categories
+=== RUN   TestTokenBudgetManager_CategoriesByPriority/mandatory_categories_come_first
+--- PASS: TestTokenBudgetManager_CategoriesByPriority (0.00s)
+    --- PASS: TestTokenBudgetManager_CategoriesByPriority/returns_all_categories (0.00s)
+    --- PASS: TestTokenBudgetManager_CategoriesByPriority/mandatory_categories_come_first (0.00s)
+=== RUN   TestClamp
+=== RUN   TestClamp/value_within_range
+=== RUN   TestClamp/value_below_min
+=== RUN   TestClamp/value_above_max
+=== RUN   TestClamp/value_equals_min
+=== RUN   TestClamp/value_equals_max
+--- PASS: TestClamp (0.00s)
+    --- PASS: TestClamp/value_within_range (0.00s)
+    --- PASS: TestClamp/value_below_min (0.00s)
+    --- PASS: TestClamp/value_above_max (0.00s)
+    --- PASS: TestClamp/value_equals_min (0.00s)
+    --- PASS: TestClamp/value_equals_max (0.00s)
+=== RUN   TestDefaultCompilerConfig
+--- PASS: TestDefaultCompilerConfig (0.00s)
+=== RUN   TestNewJITPromptCompiler
+=== RUN   TestNewJITPromptCompiler/creates_compiler_with_defaults
+=== RUN   TestNewJITPromptCompiler/applies_options
+=== RUN   TestNewJITPromptCompiler/with_kernel_option
+=== RUN   TestNewJITPromptCompiler/with_vector_searcher_option
+--- PASS: TestNewJITPromptCompiler (0.00s)
+    --- PASS: TestNewJITPromptCompiler/creates_compiler_with_defaults (0.00s)
+    --- PASS: TestNewJITPromptCompiler/applies_options (0.00s)
+    --- PASS: TestNewJITPromptCompiler/with_kernel_option (0.00s)
+    --- PASS: TestNewJITPromptCompiler/with_vector_searcher_option (0.00s)
+=== RUN   TestJITPromptCompiler_Compile
+=== RUN   TestJITPromptCompiler_Compile/nil_context_returns_error
+=== RUN   TestJITPromptCompiler_Compile/invalid_context_returns_error
+=== RUN   TestJITPromptCompiler_Compile/empty_corpus_returns_empty_prompt
+=== RUN   TestJITPromptCompiler_Compile/compiles_from_embedded_corpus
+=== RUN   TestJITPromptCompiler_Compile/respects_context_filtering
+=== RUN   TestJITPromptCompiler_Compile/mandatory_atoms_always_included
+--- PASS: TestJITPromptCompiler_Compile (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/nil_context_returns_error (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/invalid_context_returns_error (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/empty_corpus_returns_empty_prompt (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/compiles_from_embedded_corpus (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/respects_context_filtering (0.00s)
+    --- PASS: TestJITPromptCompiler_Compile/mandatory_atoms_always_included (0.00s)
+=== RUN   TestJITPromptCompiler_CompileResult
+=== RUN   TestJITPromptCompiler_CompileResult/includes_prompt_text
+=== RUN   TestJITPromptCompiler_CompileResult/tracks_included_atoms
+=== RUN   TestJITPromptCompiler_CompileResult/calculates_token_statistics
+=== RUN   TestJITPromptCompiler_CompileResult/tracks_mandatory_vs_optional
+=== RUN   TestJITPromptCompiler_CompileResult/tracks_category_tokens
+=== RUN   TestJITPromptCompiler_CompileResult/calculates_budget_usage
+=== RUN   TestJITPromptCompiler_CompileResult/tracks_candidate_and_selection_counts
+--- PASS: TestJITPromptCompiler_CompileResult (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/includes_prompt_text (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/tracks_included_atoms (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/calculates_token_statistics (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/tracks_mandatory_vs_optional (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/tracks_category_tokens (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/calculates_budget_usage (0.00s)
+    --- PASS: TestJITPromptCompiler_CompileResult/tracks_candidate_and_selection_counts (0.00s)
+=== RUN   TestJITPromptCompiler_RegisterShardDB
+=== RUN   TestJITPromptCompiler_RegisterShardDB/register_adds_to_map
+=== RUN   TestJITPromptCompiler_RegisterShardDB/unregister_removes_from_map
+--- PASS: TestJITPromptCompiler_RegisterShardDB (0.00s)
+    --- PASS: TestJITPromptCompiler_RegisterShardDB/register_adds_to_map (0.00s)
+    --- PASS: TestJITPromptCompiler_RegisterShardDB/unregister_removes_from_map (0.00s)
+=== RUN   TestJITPromptCompiler_GetSetConfig
+=== RUN   TestJITPromptCompiler_GetSetConfig/get_returns_current_config
+=== RUN   TestJITPromptCompiler_GetSetConfig/set_updates_config
+--- PASS: TestJITPromptCompiler_GetSetConfig (0.00s)
+    --- PASS: TestJITPromptCompiler_GetSetConfig/get_returns_current_config (0.00s)
+    --- PASS: TestJITPromptCompiler_GetSetConfig/set_updates_config (0.00s)
+=== RUN   TestJITPromptCompiler_GetStats
+--- PASS: TestJITPromptCompiler_GetStats (0.00s)
+=== RUN   TestJITPromptCompiler_Close
+--- PASS: TestJITPromptCompiler_Close (0.00s)
+=== RUN   TestCompileEndToEnd
+=== RUN   TestCompileEndToEnd/full_context_compilation
+=== RUN   TestCompileEndToEnd/minimal_context_compilation
+--- PASS: TestCompileEndToEnd (0.00s)
+    --- PASS: TestCompileEndToEnd/full_context_compilation (0.00s)
+    --- PASS: TestCompileEndToEnd/minimal_context_compilation (0.00s)
+=== RUN   TestCompileWithDependencies
+--- PASS: TestCompileWithDependencies (0.00s)
+=== RUN   TestCompileWithConflicts
+    compiler_test.go:623: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/compiler_test.go:623
+        	Error:      	Received unexpected error:
+        	            	failed to select atoms: Mangle kernel not configured in selector
+        	Test:       	TestCompileWithConflicts
+--- FAIL: TestCompileWithConflicts (0.00s)
+=== RUN   TestCompilePerformance
+    compiler_test.go:814: Average compilation time: 0.74 ms
+--- PASS: TestCompilePerformance (0.07s)
+=== RUN   TestNewCompilationContext
+=== RUN   TestNewCompilationContext/creates_context_with_defaults
+--- PASS: TestNewCompilationContext (0.00s)
+    --- PASS: TestNewCompilationContext/creates_context_with_defaults (0.00s)
+=== RUN   TestCompilationContext_WorldStates
+=== RUN   TestCompilationContext_WorldStates/no_world_states_when_all_zero/false
+=== RUN   TestCompilationContext_WorldStates/failing_tests
+=== RUN   TestCompilationContext_WorldStates/diagnostics
+=== RUN   TestCompilationContext_WorldStates/large_refactor
+=== RUN   TestCompilationContext_WorldStates/security_issues
+=== RUN   TestCompilationContext_WorldStates/new_files
+=== RUN   TestCompilationContext_WorldStates/high_churn
+=== RUN   TestCompilationContext_WorldStates/multiple_states
+=== RUN   TestCompilationContext_WorldStates/all_states_active
+--- PASS: TestCompilationContext_WorldStates (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/no_world_states_when_all_zero/false (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/failing_tests (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/diagnostics (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/large_refactor (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/security_issues (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/new_files (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/high_churn (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/multiple_states (0.00s)
+    --- PASS: TestCompilationContext_WorldStates/all_states_active (0.00s)
+=== RUN   TestCompilationContext_AvailableTokens
+=== RUN   TestCompilationContext_AvailableTokens/standard_calculation
+=== RUN   TestCompilationContext_AvailableTokens/zero_reserved
+=== RUN   TestCompilationContext_AvailableTokens/reserved_equals_budget
+=== RUN   TestCompilationContext_AvailableTokens/reserved_exceeds_budget_returns_zero
+--- PASS: TestCompilationContext_AvailableTokens (0.00s)
+    --- PASS: TestCompilationContext_AvailableTokens/standard_calculation (0.00s)
+    --- PASS: TestCompilationContext_AvailableTokens/zero_reserved (0.00s)
+    --- PASS: TestCompilationContext_AvailableTokens/reserved_equals_budget (0.00s)
+    --- PASS: TestCompilationContext_AvailableTokens/reserved_exceeds_budget_returns_zero (0.00s)
+=== RUN   TestCompilationContext_Validate
+=== RUN   TestCompilationContext_Validate/valid_context
+=== RUN   TestCompilationContext_Validate/zero_token_budget
+=== RUN   TestCompilationContext_Validate/negative_token_budget
+=== RUN   TestCompilationContext_Validate/negative_reserved_tokens
+=== RUN   TestCompilationContext_Validate/reserved_equals_budget
+=== RUN   TestCompilationContext_Validate/reserved_exceeds_budget
+--- PASS: TestCompilationContext_Validate (0.00s)
+    --- PASS: TestCompilationContext_Validate/valid_context (0.00s)
+    --- PASS: TestCompilationContext_Validate/zero_token_budget (0.00s)
+    --- PASS: TestCompilationContext_Validate/negative_token_budget (0.00s)
+    --- PASS: TestCompilationContext_Validate/negative_reserved_tokens (0.00s)
+    --- PASS: TestCompilationContext_Validate/reserved_equals_budget (0.00s)
+    --- PASS: TestCompilationContext_Validate/reserved_exceeds_budget (0.00s)
+=== RUN   TestCompilationContext_Clone
+=== RUN   TestCompilationContext_Clone/creates_deep_copy
+=== RUN   TestCompilationContext_Clone/handles_nil_frameworks
+--- PASS: TestCompilationContext_Clone (0.00s)
+    --- PASS: TestCompilationContext_Clone/creates_deep_copy (0.00s)
+    --- PASS: TestCompilationContext_Clone/handles_nil_frameworks (0.00s)
+=== RUN   TestCompilationContext_FluentAPI
+=== RUN   TestCompilationContext_FluentAPI/WithOperationalMode
+=== RUN   TestCompilationContext_FluentAPI/WithCampaign
+=== RUN   TestCompilationContext_FluentAPI/WithShard
+=== RUN   TestCompilationContext_FluentAPI/WithLanguage
+=== RUN   TestCompilationContext_FluentAPI/WithIntent
+=== RUN   TestCompilationContext_FluentAPI/WithTokenBudget
+=== RUN   TestCompilationContext_FluentAPI/WithSemanticQuery
+=== RUN   TestCompilationContext_FluentAPI/WithSemanticQuery_zero_topK_preserves_default
+=== RUN   TestCompilationContext_FluentAPI/chained_fluent_calls
+--- PASS: TestCompilationContext_FluentAPI (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithOperationalMode (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithCampaign (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithShard (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithLanguage (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithIntent (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithTokenBudget (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithSemanticQuery (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/WithSemanticQuery_zero_topK_preserves_default (0.00s)
+    --- PASS: TestCompilationContext_FluentAPI/chained_fluent_calls (0.00s)
+=== RUN   TestCompilationContext_String
+=== RUN   TestCompilationContext_String/returns_human-readable_summary
+--- PASS: TestCompilationContext_String (0.00s)
+    --- PASS: TestCompilationContext_String/returns_human-readable_summary (0.00s)
+=== RUN   TestCompilationContext_ToContextFacts
+=== RUN   TestCompilationContext_ToContextFacts/generates_facts_for_non-empty_fields
+=== RUN   TestCompilationContext_ToContextFacts/includes_all_frameworks
+=== RUN   TestCompilationContext_ToContextFacts/includes_world_states
+--- PASS: TestCompilationContext_ToContextFacts (0.00s)
+    --- PASS: TestCompilationContext_ToContextFacts/generates_facts_for_non-empty_fields (0.00s)
+    --- PASS: TestCompilationContext_ToContextFacts/includes_all_frameworks (0.00s)
+    --- PASS: TestCompilationContext_ToContextFacts/includes_world_states (0.00s)
+=== RUN   TestAllContextDimensions
+=== RUN   TestAllContextDimensions/returns_all_expected_dimensions
+=== RUN   TestAllContextDimensions/each_dimension_has_values
+=== RUN   TestAllContextDimensions/operational_mode_has_expected_values
+=== RUN   TestAllContextDimensions/shard_type_has_expected_values
+--- PASS: TestAllContextDimensions (0.00s)
+    --- PASS: TestAllContextDimensions/returns_all_expected_dimensions (0.00s)
+    --- PASS: TestAllContextDimensions/each_dimension_has_values (0.00s)
+    --- PASS: TestAllContextDimensions/operational_mode_has_expected_values (0.00s)
+    --- PASS: TestAllContextDimensions/shard_type_has_expected_values (0.00s)
+=== RUN   TestLoadEmbeddedCorpus
+    embedded_test.go:18: Loaded 153 atoms from embedded corpus
+    embedded_test.go:26: Categories found: map[context:1 domain:2 framework:12 hallucination:14 identity:29 init:14 language:10 methodology:23 northstar:14 ouroboros:17 protocol:8 safety:9]
+--- PASS: TestLoadEmbeddedCorpus (0.01s)
+=== RUN   TestEmbeddedCorpusHasSystemAtoms
+    embedded_test.go:67: Found system atom: system/legislator/identity (148 tokens)
+    embedded_test.go:67: Found system atom: system/perception/identity (34 tokens)
+    embedded_test.go:67: Found system atom: system/autopoiesis/executive (204 tokens)
+    embedded_test.go:67: Found system atom: system/autopoiesis/router (221 tokens)
+    embedded_test.go:67: Found system atom: system/autopoiesis/world_model (211 tokens)
+--- PASS: TestEmbeddedCorpusHasSystemAtoms (0.01s)
+=== RUN   TestMustLoadEmbeddedCorpus
+--- PASS: TestMustLoadEmbeddedCorpus (0.01s)
+=== RUN   TestEnsurePromptAtomsTable
+--- PASS: TestEnsurePromptAtomsTable (0.02s)
+=== RUN   TestLoadAgentPromptsUnifiedStorage
+    loader_test.go:126: Γ£ô Prompts successfully loaded into unified knowledge DB at C:\Users\smoor\AppData\Local\Temp\TestLoadAgentPromptsUnifiedStorage3636307328\001\.nerd\shards\testagent_knowledge.db
+--- PASS: TestLoadAgentPromptsUnifiedStorage (0.03s)
+=== RUN   TestNewDependencyResolver
+=== RUN   TestNewDependencyResolver/creates_resolver_with_default_settings
+--- PASS: TestNewDependencyResolver (0.00s)
+    --- PASS: TestNewDependencyResolver/creates_resolver_with_default_settings (0.00s)
+=== RUN   TestDependencyResolver_SetAllowMissingDeps
+--- PASS: TestDependencyResolver_SetAllowMissingDeps (0.00s)
+=== RUN   TestDependencyResolver_Resolve
+=== RUN   TestDependencyResolver_Resolve/empty_input
+=== RUN   TestDependencyResolver_Resolve/single_atom_no_dependencies
+=== RUN   TestDependencyResolver_Resolve/multiple_atoms_no_dependencies_-_sorted_by_score
+=== RUN   TestDependencyResolver_Resolve/simple_dependency_chain
+=== RUN   TestDependencyResolver_Resolve/dependency_with_missing_dep_is_excluded
+    resolver_test.go:103: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/resolver_test.go:103
+        	Error:      	"[0xc0005c47b0 0xc0005c47e0]" should have 1 item(s), but has 2
+        	Test:       	TestDependencyResolver_Resolve/dependency_with_missing_dep_is_excluded
+=== RUN   TestDependencyResolver_Resolve/multi-level_dependency_chain
+--- FAIL: TestDependencyResolver_Resolve (0.00s)
+    --- PASS: TestDependencyResolver_Resolve/empty_input (0.00s)
+    --- PASS: TestDependencyResolver_Resolve/single_atom_no_dependencies (0.00s)
+    --- PASS: TestDependencyResolver_Resolve/multiple_atoms_no_dependencies_-_sorted_by_score (0.00s)
+    --- PASS: TestDependencyResolver_Resolve/simple_dependency_chain (0.00s)
+    --- FAIL: TestDependencyResolver_Resolve/dependency_with_missing_dep_is_excluded (0.00s)
+    --- PASS: TestDependencyResolver_Resolve/multi-level_dependency_chain (0.00s)
+=== RUN   TestDependencyResolver_ResolveWithDependencies
+=== RUN   TestDependencyResolver_ResolveWithDependencies/dependency_comes_before_dependent
+=== RUN   TestDependencyResolver_ResolveWithDependencies/multiple_dependencies_all_come_before_dependent
+=== RUN   TestDependencyResolver_ResolveWithDependencies/diamond_dependency_pattern
+--- PASS: TestDependencyResolver_ResolveWithDependencies (0.00s)
+    --- PASS: TestDependencyResolver_ResolveWithDependencies/dependency_comes_before_dependent (0.00s)
+    --- PASS: TestDependencyResolver_ResolveWithDependencies/multiple_dependencies_all_come_before_dependent (0.00s)
+    --- PASS: TestDependencyResolver_ResolveWithDependencies/diamond_dependency_pattern (0.00s)
+=== RUN   TestDependencyResolver_ResolveCircularDependency
+=== RUN   TestDependencyResolver_ResolveCircularDependency/simple_cycle_-_two_atoms
+=== RUN   TestDependencyResolver_ResolveCircularDependency/three-way_cycle
+=== RUN   TestDependencyResolver_ResolveCircularDependency/self-dependency_causes_cycle_error
+--- PASS: TestDependencyResolver_ResolveCircularDependency (0.00s)
+    --- PASS: TestDependencyResolver_ResolveCircularDependency/simple_cycle_-_two_atoms (0.00s)
+    --- PASS: TestDependencyResolver_ResolveCircularDependency/three-way_cycle (0.00s)
+    --- PASS: TestDependencyResolver_ResolveCircularDependency/self-dependency_causes_cycle_error (0.00s)
+=== RUN   TestDependencyResolver_ResolveConflicts
+=== RUN   TestDependencyResolver_ResolveConflicts/lower_scored_conflicting_atom_excluded
+    resolver_test.go:255: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/resolver_test.go:255
+        	Error:      	"[0xc0005c4ed0 0xc0005c4f00]" should have 1 item(s), but has 2
+        	Test:       	TestDependencyResolver_ResolveConflicts/lower_scored_conflicting_atom_excluded
+=== RUN   TestDependencyResolver_ResolveConflicts/conflict_is_unidirectional_-_declarer_excludes_target
+=== RUN   TestDependencyResolver_ResolveConflicts/bidirectional_conflict_-_higher_wins
+    resolver_test.go:292: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/resolver_test.go:292
+        	Error:      	"[0xc0005c5140 0xc0005c5170]" should have 1 item(s), but has 2
+        	Test:       	TestDependencyResolver_ResolveConflicts/bidirectional_conflict_-_higher_wins
+=== RUN   TestDependencyResolver_ResolveConflicts/transitive_conflict_-_only_highest_survives
+    resolver_test.go:311: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/resolver_test.go:311
+        	Error:      	"[0xc0005c52f0 0xc0005c5320 0xc0005c5350]" should have 2 item(s), but has 3
+        	Test:       	TestDependencyResolver_ResolveConflicts/transitive_conflict_-_only_highest_survives
+    resolver_test.go:319: 
+        	Error Trace:	C:/CodeProjects/codeNERD/internal/prompt/resolver_test.go:319
+        	Error:      	[]string{"a", "b", "c"} should not contain "b"
+        	Test:       	TestDependencyResolver_ResolveConflicts/transitive_conflict_-_only_highest_survives
+=== RUN   TestDependencyResolver_ResolveConflicts/non-conflicting_atoms_all_survive
+--- FAIL: TestDependencyResolver_ResolveConflicts (0.00s)
+    --- FAIL: TestDependencyResolver_ResolveConflicts/lower_scored_conflicting_atom_excluded (0.00s)
+    --- PASS: TestDependencyResolver_ResolveConflicts/conflict_is_unidirectional_-_declarer_excludes_target (0.00s)
+    --- FAIL: TestDependencyResolver_ResolveConflicts/bidirectional_conflict_-_higher_wins (0.00s)
+    --- FAIL: TestDependencyResolver_ResolveConflicts/transitive_conflict_-_only_highest_survives (0.00s)
+    --- PASS: TestDependencyResolver_ResolveConflicts/non-conflicting_atoms_all_survive (0.00s)
+=== RUN   TestDependencyResolver_ValidateDependencies
+=== RUN   TestDependencyResolver_ValidateDependencies/all_dependencies_satisfied
+=== RUN   TestDependencyResolver_ValidateDependencies/missing_dependency_detected
+=== RUN   TestDependencyResolver_ValidateDependencies/multiple_missing_dependencies
+--- PASS: TestDependencyResolver_ValidateDependencies (0.00s)
+    --- PASS: TestDependencyResolver_ValidateDependencies/all_dependencies_satisfied (0.00s)
+    --- PASS: TestDependencyResolver_ValidateDependencies/missing_dependency_detected (0.00s)
+    --- PASS: TestDependencyResolver_ValidateDependencies/multiple_missing_dependencies (0.00s)
+=== RUN   TestDependencyResolver_DetectCycles
+=== RUN   TestDependencyResolver_DetectCycles/no_cycle_returns_nil
+=== RUN   TestDependencyResolver_DetectCycles/simple_cycle_detected
+=== RUN   TestDependencyResolver_DetectCycles/three-way_cycle_detected
+=== RUN   TestDependencyResolver_DetectCycles/missing_dependency_in_cycle_check_is_skipped
+--- PASS: TestDependencyResolver_DetectCycles (0.00s)
+    --- PASS: TestDependencyResolver_DetectCycles/no_cycle_returns_nil (0.00s)
+    --- PASS: TestDependencyResolver_DetectCycles/simple_cycle_detected (0.00s)
+    --- PASS: TestDependencyResolver_DetectCycles/three-way_cycle_detected (0.00s)
+    --- PASS: TestDependencyResolver_DetectCycles/missing_dependency_in_cycle_check_is_skipped (0.00s)
+=== RUN   TestDependencyResolver_SortByCategory
+=== RUN   TestDependencyResolver_SortByCategory/atoms_grouped_by_category
+=== RUN   TestDependencyResolver_SortByCategory/within_category_sorted_by_score
+=== RUN   TestDependencyResolver_SortByCategory/order_indices_updated
+--- PASS: TestDependencyResolver_SortByCategory (0.00s)
+    --- PASS: TestDependencyResolver_SortByCategory/atoms_grouped_by_category (0.00s)
+    --- PASS: TestDependencyResolver_SortByCategory/within_category_sorted_by_score (0.00s)
+    --- PASS: TestDependencyResolver_SortByCategory/order_indices_updated (0.00s)
+=== RUN   TestDependencyError_Error
+=== RUN   TestDependencyError_Error/missing_dependency_error
+=== RUN   TestDependencyError_Error/cycle_error
+=== RUN   TestDependencyError_Error/conflict_error
+--- PASS: TestDependencyError_Error (0.00s)
+    --- PASS: TestDependencyError_Error/missing_dependency_error (0.00s)
+    --- PASS: TestDependencyError_Error/cycle_error (0.00s)
+    --- PASS: TestDependencyError_Error/conflict_error (0.00s)
+=== RUN   TestDependencyResolver_MandatoryAtomsFirst
+=== RUN   TestDependencyResolver_MandatoryAtomsFirst/mandatory_atoms_ordered_before_optional
+--- PASS: TestDependencyResolver_MandatoryAtomsFirst (0.00s)
+    --- PASS: TestDependencyResolver_MandatoryAtomsFirst/mandatory_atoms_ordered_before_optional (0.00s)
+=== RUN   TestNewAtomSelector
+=== RUN   TestNewAtomSelector/creates_selector_with_defaults
+--- PASS: TestNewAtomSelector (0.00s)
+    --- PASS: TestNewAtomSelector/creates_selector_with_defaults (0.00s)
+=== RUN   TestAtomSelector_SetVectorWeight
+=== RUN   TestAtomSelector_SetVectorWeight/normal_value
+=== RUN   TestAtomSelector_SetVectorWeight/zero
+=== RUN   TestAtomSelector_SetVectorWeight/one
+=== RUN   TestAtomSelector_SetVectorWeight/negative_clamped_to_zero
+=== RUN   TestAtomSelector_SetVectorWeight/over_one_clamped
+--- PASS: TestAtomSelector_SetVectorWeight (0.00s)
+    --- PASS: TestAtomSelector_SetVectorWeight/normal_value (0.00s)
+    --- PASS: TestAtomSelector_SetVectorWeight/zero (0.00s)
+    --- PASS: TestAtomSelector_SetVectorWeight/one (0.00s)
+    --- PASS: TestAtomSelector_SetVectorWeight/negative_clamped_to_zero (0.00s)
+    --- PASS: TestAtomSelector_SetVectorWeight/over_one_clamped (0.00s)
+=== RUN   TestAtomSelector_SetMinScoreThreshold
+--- PASS: TestAtomSelector_SetMinScoreThreshold (0.00s)
+=== RUN   TestAtomSelector_SelectAtoms
+=== RUN   TestAtomSelector_SelectAtoms/empty_atoms
+=== RUN   TestAtomSelector_SelectAtoms/all_atoms_match_context
+=== RUN   TestAtomSelector_SelectAtoms/filters_by_mock_results
+=== RUN   TestAtomSelector_SelectAtoms/vector_scores_integrated
+--- PASS: TestAtomSelector_SelectAtoms (0.00s)
+    --- PASS: TestAtomSelector_SelectAtoms/empty_atoms (0.00s)
+    --- PASS: TestAtomSelector_SelectAtoms/all_atoms_match_context (0.00s)
+    --- PASS: TestAtomSelector_SelectAtoms/filters_by_mock_results (0.00s)
+    --- PASS: TestAtomSelector_SelectAtoms/vector_scores_integrated (0.00s)
+FAIL
+FAIL	codenerd/internal/prompt	0.192s
+?   	codenerd/internal/prompt/sync	[no test files]
+FAIL

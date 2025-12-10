@@ -1132,15 +1132,13 @@ When LLMs generate Mangle rules (for autopoiesis, legislator proposals, or const
 
 **Common AI Error Patterns Detected:**
 
-| Error Type | Detection | Auto-Repairable? |
-|------------|-----------|------------------|
-| Atom/String confusion | `"active"` → `/active` | YES (Sanitizer) |
-| Prolog negation `\+` | Regex `\\+` | YES → `!` |
-| Missing period | `:-` without `.` | YES |
-| Aggregation syntax | SQL-style | YES (Sanitizer) |
-| Unbound negation | Binding analysis | PARTIAL |
-| Undeclared predicate | SchemaValidator | NO - feedback |
-| Stratification | Mangle analysis | NO - feedback |
+- **Atom/String confusion**: Detects `"active"` and converts to `/active` - Auto-repairable (Sanitizer)
+- **Prolog negation**: Detects `\+` via regex and converts to Mangle negation - Auto-repairable
+- **Missing period**: Detects `:-` without terminating `.` - Auto-repairable
+- **Aggregation syntax**: Detects SQL-style aggregation - Auto-repairable (Sanitizer)
+- **Unbound negation**: Binding analysis - Partially auto-repairable
+- **Undeclared predicate**: SchemaValidator - Not auto-repairable (feedback only)
+- **Stratification**: Mangle analysis - Not auto-repairable (feedback only)
 
 **Progressive Retry Strategy:**
 
