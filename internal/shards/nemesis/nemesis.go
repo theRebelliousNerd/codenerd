@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -164,8 +166,12 @@ func (n *NemesisShard) SetPromptAssembler(assembler *articulation.PromptAssemble
 	n.assembler = assembler
 }
 
-// Execute runs the Nemesis analysis on a patch or diff.
-// Task format: "analyze:<patch_id>" or "gauntlet:<patch_id>"
+// Execute runs the Nemesis analysis on a patch, diff, or file target.
+// Task formats:
+//   - "analyze:<patch_id>" - Analyze a patch for weaknesses
+//   - "gauntlet:<patch_id>" - Run full adversarial testing
+//   - "review:<file_or_dir>" - Review files and generate/run attack scripts (for /review command)
+//   - "anti_autopoiesis:<patch_id>" - Detect lazy fix patterns
 func (n *NemesisShard) Execute(ctx context.Context, task string) (string, error) {
 	timer := logging.StartTimer(logging.CategoryShards, "NemesisShard.Execute")
 	defer timer.Stop()
@@ -177,19 +183,21 @@ func (n *NemesisShard) Execute(ctx context.Context, task string) (string, error)
 	// Parse task type
 	parts := strings.SplitN(task, ":", 2)
 	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid task format, expected 'analyze:<patch_id>' or 'gauntlet:<patch_id>'")
+		return "", fmt.Errorf("invalid task format, expected 'analyze:<patch_id>', 'gauntlet:<patch_id>', or 'review:<target>'")
 	}
 
 	action := parts[0]
-	patchID := parts[1]
+	target := parts[1]
 
 	switch action {
 	case "analyze":
-		return n.analyzePatch(ctx, patchID)
+		return n.analyzePatch(ctx, target)
 	case "gauntlet":
-		return n.runGauntlet(ctx, patchID)
+		return n.runGauntlet(ctx, target)
+	case "review":
+		return n.reviewTarget(ctx, target)
 	case "anti_autopoiesis":
-		return n.detectLazyPatterns(ctx, patchID)
+		return n.detectLazyPatterns(ctx, target)
 	default:
 		return "", fmt.Errorf("unknown action: %s", action)
 	}
@@ -373,6 +381,430 @@ func (n *NemesisShard) detectLazyPatterns(ctx context.Context, patchID string) (
 	}
 
 	return strings.Join(detectedPatterns, "\n"), nil
+}
+
+// ReviewResult holds the output of a Nemesis review for integration with /review command.
+type ReviewResult struct {
+	Target           string             `json:"target"`
+	FilesAnalyzed    []string           `json:"files_analyzed"`
+	AttacksGenerated int                `json:"attacks_generated"`
+	AttacksExecuted  int                `json:"attacks_executed"`
+	VulnsFound       int                `json:"vulns_found"`
+	Findings         []ReviewFinding    `json:"findings"`
+	AttackResults    []*AttackExecution `json:"attack_results,omitempty"`
+	Duration         time.Duration      `json:"duration"`
+}
+
+// ReviewFinding represents a vulnerability found during Nemesis review.
+type ReviewFinding struct {
+	File        string `json:"file"`
+	Line        int    `json:"line"`
+	Function    string `json:"function"`
+	Severity    string `json:"severity"` // critical, error, warning, info
+	Category    string `json:"category"` // nil_pointer, boundary, concurrency, resource, format
+	Description string `json:"description"`
+	Evidence    string `json:"evidence"` // Output from attack or code pattern
+}
+
+// reviewTarget performs adversarial review of files for the /review command.
+// This generates and executes attack scripts to find where code breaks.
+func (n *NemesisShard) reviewTarget(ctx context.Context, target string) (string, error) {
+	logging.Shards("Nemesis reviewing target: %s", target)
+	startTime := time.Now()
+
+	result := &ReviewResult{
+		Target:   target,
+		Findings: make([]ReviewFinding, 0),
+	}
+
+	// Resolve target to list of Go files
+	files, err := n.resolveTargetFiles(target)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve target files: %w", err)
+	}
+	result.FilesAnalyzed = files
+
+	if len(files) == 0 {
+		return n.formatReviewResult(result), nil
+	}
+
+	logging.Shards("Nemesis found %d Go files to analyze", len(files))
+
+	// Create attack runner
+	runner, err := NewAttackRunner(30*time.Second, 512)
+	if err != nil {
+		logging.Shards("Failed to create attack runner: %v", err)
+		// Continue without execution - just do static analysis
+	}
+	if runner != nil {
+		defer runner.Cleanup()
+	}
+
+	// Analyze each file and generate attacks
+	n.mu.RLock()
+	client := n.llmClient
+	n.mu.RUnlock()
+
+	for _, file := range files {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
+		// Read source code
+		sourceCode, err := n.readSourceFile(file)
+		if err != nil {
+			logging.Shards("Failed to read %s: %v", file, err)
+			continue
+		}
+
+		// Extract function names from source
+		functions := n.extractFunctionNames(sourceCode)
+		if len(functions) == 0 {
+			continue
+		}
+
+		// Generate attack scripts via LLM
+		if client != nil && runner != nil {
+			scripts, err := runner.GenerateAttackScripts(
+				ctx,
+				func(ctx context.Context, prompt string) (string, error) {
+					return client.Complete(ctx, prompt)
+				},
+				file,
+				functions,
+				sourceCode,
+			)
+			if err != nil {
+				logging.Shards("Failed to generate attacks for %s: %v", file, err)
+			} else {
+				result.AttacksGenerated += len(scripts)
+
+				// Execute the attacks
+				executions, err := runner.RunAttackBattery(ctx, scripts)
+				if err != nil {
+					logging.Shards("Attack execution error for %s: %v", file, err)
+				}
+
+				result.AttacksExecuted += len(executions)
+				result.AttackResults = append(result.AttackResults, executions...)
+
+				// Convert successful attacks to findings
+				for _, exec := range executions {
+					if exec.Success {
+						result.VulnsFound++
+						result.Findings = append(result.Findings, ReviewFinding{
+							File:        file,
+							Function:    exec.Script.TargetFunction,
+							Severity:    n.breakageToSeverity(exec.BreakageType),
+							Category:    exec.Script.Category,
+							Description: fmt.Sprintf("%s: %s", exec.Script.Name, exec.Script.Hypothesis),
+							Evidence:    n.truncateOutput(exec.Output, 500),
+						})
+					}
+				}
+			}
+		}
+
+		// Also do static pattern analysis
+		staticFindings := n.analyzeStaticPatterns(file, sourceCode)
+		result.Findings = append(result.Findings, staticFindings...)
+	}
+
+	result.Duration = time.Since(startTime)
+
+	// Record findings in kernel
+	n.recordReviewFindings(result)
+
+	return n.formatReviewResult(result), nil
+}
+
+// resolveTargetFiles converts a target path to a list of Go files.
+func (n *NemesisShard) resolveTargetFiles(target string) ([]string, error) {
+	var files []string
+
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+
+	if !info.IsDir() {
+		// Single file
+		if strings.HasSuffix(target, ".go") && !strings.HasSuffix(target, "_test.go") {
+			files = append(files, target)
+		}
+		return files, nil
+	}
+
+	// Walk directory
+	err = filepath.Walk(target, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			// Skip vendor, node_modules, hidden dirs
+			name := info.Name()
+			if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Include Go files but skip tests
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	return files, err
+}
+
+// readSourceFile reads a Go source file.
+func (n *NemesisShard) readSourceFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	// Limit to first 10KB for analysis
+	if len(data) > 10*1024 {
+		data = data[:10*1024]
+	}
+
+	return string(data), nil
+}
+
+// extractFunctionNames extracts function names from Go source code.
+func (n *NemesisShard) extractFunctionNames(source string) []string {
+	var functions []string
+
+	lines := strings.Split(source, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "func ") {
+			// Extract function name
+			// func Foo(
+			// func (r *Receiver) Method(
+			rest := strings.TrimPrefix(line, "func ")
+
+			// Handle method receiver
+			if strings.HasPrefix(rest, "(") {
+				idx := strings.Index(rest, ")")
+				if idx > 0 {
+					rest = strings.TrimSpace(rest[idx+1:])
+				}
+			}
+
+			// Get name up to (
+			idx := strings.Index(rest, "(")
+			if idx > 0 {
+				name := strings.TrimSpace(rest[:idx])
+				if name != "" && name[0] >= 'A' && name[0] <= 'Z' {
+					// Only exported functions
+					functions = append(functions, name)
+				}
+			}
+		}
+	}
+
+	return functions
+}
+
+// analyzeStaticPatterns looks for common vulnerability patterns without execution.
+func (n *NemesisShard) analyzeStaticPatterns(file, source string) []ReviewFinding {
+	var findings []ReviewFinding
+
+	lines := strings.Split(source, "\n")
+
+	// Pattern matchers
+	patterns := []struct {
+		Pattern   string
+		Category  string
+		Severity  string
+		Message   string
+	}{
+		{" = err", "error_handling", "warning", "Error assigned but may not be checked"},
+		{"_ = err", "error_handling", "error", "Error explicitly ignored"},
+		{"panic(", "stability", "warning", "Explicit panic - may crash in production"},
+		{".Lock()", "concurrency", "info", "Mutex usage - verify unlock on all paths"},
+		{"go func()", "concurrency", "warning", "Goroutine closure - verify variable capture"},
+		{"interface{}", "type_safety", "info", "Empty interface - type assertions may panic"},
+		{"unsafe.", "memory", "warning", "Unsafe package usage - potential memory corruption"},
+	}
+
+	for lineNum, line := range lines {
+		for _, p := range patterns {
+			if strings.Contains(line, p.Pattern) {
+				findings = append(findings, ReviewFinding{
+					File:        file,
+					Line:        lineNum + 1,
+					Severity:    p.Severity,
+					Category:    p.Category,
+					Description: p.Message,
+					Evidence:    strings.TrimSpace(line),
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// breakageToSeverity converts a breakage type to severity level.
+func (n *NemesisShard) breakageToSeverity(breakageType string) string {
+	switch breakageType {
+	case "panic":
+		return "critical"
+	case "race":
+		return "critical"
+	case "timeout":
+		return "error"
+	case "assertion":
+		return "error"
+	default:
+		return "warning"
+	}
+}
+
+// truncateOutput limits output length for display.
+func (n *NemesisShard) truncateOutput(output string, maxLen int) string {
+	if len(output) <= maxLen {
+		return output
+	}
+	return output[:maxLen] + "...[truncated]"
+}
+
+// recordReviewFindings records findings in the kernel.
+func (n *NemesisShard) recordReviewFindings(result *ReviewResult) {
+	if n.kernel == nil {
+		return
+	}
+
+	// Record summary fact
+	_ = n.kernel.Assert(core.Fact{
+		Predicate: "nemesis_review",
+		Args: []interface{}{
+			result.Target,
+			len(result.FilesAnalyzed),
+			result.AttacksGenerated,
+			result.VulnsFound,
+			time.Now().Unix(),
+		},
+	})
+
+	// Record each finding
+	for _, f := range result.Findings {
+		_ = n.kernel.Assert(core.Fact{
+			Predicate: "nemesis_finding",
+			Args: []interface{}{
+				f.File,
+				f.Line,
+				f.Severity,
+				f.Category,
+				f.Description,
+			},
+		})
+	}
+}
+
+// formatReviewResult formats the review result for output.
+func (n *NemesisShard) formatReviewResult(result *ReviewResult) string {
+	var sb strings.Builder
+
+	sb.WriteString("## Nemesis Adversarial Review\n\n")
+
+	// Summary stats
+	sb.WriteString(fmt.Sprintf("**Target:** %s\n", result.Target))
+	sb.WriteString(fmt.Sprintf("**Files Analyzed:** %d\n", len(result.FilesAnalyzed)))
+	sb.WriteString(fmt.Sprintf("**Attacks Generated:** %d\n", result.AttacksGenerated))
+	sb.WriteString(fmt.Sprintf("**Attacks Executed:** %d\n", result.AttacksExecuted))
+	sb.WriteString(fmt.Sprintf("**Vulnerabilities Found:** %d\n", result.VulnsFound))
+	sb.WriteString(fmt.Sprintf("**Duration:** %v\n\n", result.Duration.Round(time.Millisecond)))
+
+	if result.VulnsFound > 0 {
+		sb.WriteString("**STATUS: VULNERABILITIES DETECTED**\n\n")
+	} else if result.AttacksExecuted > 0 {
+		sb.WriteString("**STATUS: Code survived adversarial testing**\n\n")
+	}
+
+	// Group findings by severity
+	critical := make([]ReviewFinding, 0)
+	errors := make([]ReviewFinding, 0)
+	warnings := make([]ReviewFinding, 0)
+	info := make([]ReviewFinding, 0)
+
+	for _, f := range result.Findings {
+		switch f.Severity {
+		case "critical":
+			critical = append(critical, f)
+		case "error":
+			errors = append(errors, f)
+		case "warning":
+			warnings = append(warnings, f)
+		default:
+			info = append(info, f)
+		}
+	}
+
+	// Output by severity
+	if len(critical) > 0 {
+		sb.WriteString("### Critical Issues\n\n")
+		for _, f := range critical {
+			sb.WriteString(n.formatFinding(f))
+		}
+	}
+
+	if len(errors) > 0 {
+		sb.WriteString("### Errors\n\n")
+		for _, f := range errors {
+			sb.WriteString(n.formatFinding(f))
+		}
+	}
+
+	if len(warnings) > 0 {
+		sb.WriteString("### Warnings\n\n")
+		for _, f := range warnings {
+			sb.WriteString(n.formatFinding(f))
+		}
+	}
+
+	if len(info) > 0 && len(result.Findings) < 20 {
+		sb.WriteString("### Info\n\n")
+		for _, f := range info {
+			sb.WriteString(n.formatFinding(f))
+		}
+	}
+
+	// Attack execution details if any succeeded
+	if result.AttackResults != nil {
+		sb.WriteString(FormatAttackReport(result.AttackResults))
+	}
+
+	return sb.String()
+}
+
+// formatFinding formats a single finding for display.
+func (n *NemesisShard) formatFinding(f ReviewFinding) string {
+	var sb strings.Builder
+
+	location := f.File
+	if f.Line > 0 {
+		location = fmt.Sprintf("%s:%d", f.File, f.Line)
+	}
+	if f.Function != "" {
+		location = fmt.Sprintf("%s (%s)", location, f.Function)
+	}
+
+	sb.WriteString(fmt.Sprintf("- **[%s]** %s\n", f.Category, f.Description))
+	sb.WriteString(fmt.Sprintf("  - Location: `%s`\n", location))
+	if f.Evidence != "" {
+		sb.WriteString(fmt.Sprintf("  - Evidence: `%s`\n", f.Evidence))
+	}
+	sb.WriteString("\n")
+
+	return sb.String()
 }
 
 // runAttack executes a single attack against the patch.

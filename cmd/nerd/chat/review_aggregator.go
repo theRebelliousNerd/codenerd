@@ -160,6 +160,32 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 			}(spec)
 		}
 
+		// Spawn Nemesis adversarial reviewer if enabled
+		// Nemesis generates and executes attack scripts to find where code breaks
+		if m.enableNemesisReview() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// Resolve target path for Nemesis
+				nemesisTarget := target
+				if !filepath.IsAbs(target) && target != "." && target != "codebase" {
+					nemesisTarget = filepath.Join(m.workspace, target)
+				} else if target == "." || target == "codebase" {
+					nemesisTarget = m.workspace
+				}
+
+				// Format Nemesis task: "review:<target>"
+				nemesisTask := fmt.Sprintf("review:%s", nemesisTarget)
+
+				logging.Shards("Spawning Nemesis adversarial review: %s", nemesisTask)
+				result := spawnWithRetry("nemesis", nemesisTask)
+				mu.Lock()
+				results = append(results, result)
+				mu.Unlock()
+			}()
+		}
+
 		// Wait for all shards
 		wg.Wait()
 
@@ -496,4 +522,39 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 // For now, we'll use a method that accesses the workspace store
 func (m Model) getLocalDB() *store.LocalStore {
 	return m.localDB
+}
+
+// enableNemesisReview checks if Nemesis adversarial review should run.
+// Nemesis runs attack scripts against the code to find vulnerabilities.
+// It can be enabled via:
+// 1. NEMESIS_REVIEW=1 environment variable
+// 2. .nerd/config.json with "nemesis_review": true
+// 3. Default: enabled for Go projects (detected by presence of go.mod)
+func (m Model) enableNemesisReview() bool {
+	// Check environment variable override
+	if env := os.Getenv("NEMESIS_REVIEW"); env != "" {
+		return env == "1" || env == "true" || env == "yes"
+	}
+
+	// Check if disabled via environment
+	if env := os.Getenv("NEMESIS_REVIEW"); env == "0" || env == "false" || env == "no" {
+		return false
+	}
+
+	// Check if nemesis shard is registered in shard manager
+	if m.shardMgr != nil {
+		// Try to spawn - if it fails, shard isn't available
+		// We'll check registration differently
+	}
+
+	// Check for go.mod (Nemesis currently works best with Go code)
+	goModPath := filepath.Join(m.workspace, "go.mod")
+	if _, err := os.Stat(goModPath); err == nil {
+		// Go project detected - enable Nemesis by default
+		logging.Shards("Nemesis review enabled (Go project detected)")
+		return true
+	}
+
+	// Default: disabled for non-Go projects
+	return false
 }
