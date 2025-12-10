@@ -174,10 +174,12 @@ type Model struct {
 	browserCtxCancel    context.CancelFunc      // Cancels browser manager goroutine
 
 	// Campaign Orchestration
-	activeCampaign    *campaign.Campaign
-	campaignOrch      *campaign.Orchestrator
-	campaignProgress  *campaign.Progress
-	showCampaignPanel bool
+	activeCampaign       *campaign.Campaign
+	campaignOrch         *campaign.Orchestrator
+	campaignProgress     *campaign.Progress
+	campaignProgressChan chan campaign.Progress          // Real-time progress updates from orchestrator
+	campaignEventChan    chan campaign.OrchestratorEvent // Real-time events from orchestrator
+	showCampaignPanel    bool
 
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore *store.LearningStore
@@ -401,10 +403,13 @@ type (
 
 	// Campaign messages
 	campaignStartedMsg struct {
-		campaign *campaign.Campaign
-		orch     *campaign.Orchestrator
+		campaign     *campaign.Campaign
+		orch         *campaign.Orchestrator
+		progressChan chan campaign.Progress
+		eventChan    chan campaign.OrchestratorEvent
 	}
 	campaignProgressMsg  *campaign.Progress
+	campaignEventMsg     campaign.OrchestratorEvent // Real-time event from orchestrator
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     struct{ err error }
 
@@ -982,6 +987,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		m.activeCampaign = msg.campaign
 		m.campaignOrch = msg.orch
+		m.campaignProgressChan = msg.progressChan // Store channels for listening
+		m.campaignEventChan = msg.eventChan
 		m.showCampaignPanel = true
 		m.history = append(m.history, Message{
 			Role:    "assistant",
@@ -991,9 +998,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 
-		// Start orchestrator execution in background and return progress listener
+		// Start orchestrator execution in background and return both listeners
 		if m.campaignOrch != nil {
-			return m, m.runCampaignOrchestrator()
+			return m, tea.Batch(
+				m.runCampaignOrchestrator(),
+				m.listenCampaignEvents(), // Listen for events in parallel
+			)
 		}
 
 	case campaignProgressMsg:
@@ -1010,9 +1020,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.campaignPage.UpdateContent(&prog, m.activeCampaign)
 		}
 
-		// Continue polling for progress updates while campaign is active
-		if m.campaignOrch != nil && m.activeCampaign != nil {
-			return m, m.tickCampaignProgress()
+		// Continue listening for progress updates via channel (not polling)
+		if m.campaignProgressChan != nil && m.activeCampaign != nil {
+			return m, m.listenCampaignProgress()
+		}
+
+	case campaignEventMsg:
+		// Handle real-time events from the orchestrator
+		// Events are informational - we can log them or show in UI
+		// Continue listening for more events
+		if m.campaignEventChan != nil && m.activeCampaign != nil {
+			return m, m.listenCampaignEvents()
 		}
 
 	case campaignCompletedMsg:
@@ -1020,6 +1038,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeCampaign = nil
 		m.campaignOrch = nil
 		m.campaignProgress = nil
+		m.campaignProgressChan = nil // Clear channels to stop listeners
+		m.campaignEventChan = nil
 		m.showCampaignPanel = false
 		m.history = append(m.history, Message{
 			Role:    "assistant",
@@ -1027,8 +1047,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-
 		m.viewport.GotoBottom()
 
 	case initCompleteMsg:

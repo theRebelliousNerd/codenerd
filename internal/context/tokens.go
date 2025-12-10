@@ -1,6 +1,8 @@
 package context
 
 import (
+	"fmt"
+
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"strings"
@@ -138,6 +140,9 @@ func (tc *TokenCounter) CountCompressedContext(ctx *CompressedContext) int {
 // Token Budget Management
 // =============================================================================
 
+// ErrContextWindowExceeded is returned when context window limit is exceeded.
+var ErrContextWindowExceeded = fmt.Errorf("context window limit exceeded")
+
 // TokenBudget tracks token allocation and usage.
 type TokenBudget struct {
 	counter *TokenCounter
@@ -151,14 +156,29 @@ type TokenBudget struct {
 		recent  int
 		working int
 	}
+
+	// Hard enforcement mode - when true, Allocate() returns error instead of false
+	hardEnforcement bool
 }
 
 // NewTokenBudget creates a new token budget with the given config.
 func NewTokenBudget(config CompressorConfig) *TokenBudget {
 	return &TokenBudget{
-		counter: NewTokenCounter(),
-		config:  config,
+		counter:         NewTokenCounter(),
+		config:          config,
+		hardEnforcement: true, // Default to hard enforcement
 	}
+}
+
+// SetHardEnforcement enables or disables hard enforcement mode.
+// When enabled (default), exceeding limits returns errors instead of just false.
+func (tb *TokenBudget) SetHardEnforcement(enabled bool) {
+	tb.hardEnforcement = enabled
+}
+
+// IsHardEnforcementEnabled returns whether hard enforcement is enabled.
+func (tb *TokenBudget) IsHardEnforcementEnabled() bool {
+	return tb.hardEnforcement
 }
 
 // Allocate attempts to allocate tokens for a category.
@@ -207,6 +227,42 @@ func (tb *TokenBudget) Allocate(category string, tokens int) bool {
 	}
 	logging.ContextDebug("Token allocation: %s +%d (new total: %d)", category, tokens, tb.TotalUsed())
 	return true
+}
+
+// AllocateWithError is like Allocate but returns an error instead of bool.
+// This is the preferred method when hard enforcement is needed.
+func (tb *TokenBudget) AllocateWithError(category string, tokens int) error {
+	if !tb.Allocate(category, tokens) {
+		return fmt.Errorf("%w: category %s allocation of %d tokens exceeds budget",
+			ErrContextWindowExceeded, category, tokens)
+	}
+	return nil
+}
+
+// CheckTotalBudget verifies that total usage doesn't exceed the total budget.
+// Returns error if the hard limit is exceeded.
+func (tb *TokenBudget) CheckTotalBudget() error {
+	total := tb.TotalUsed()
+	if total > tb.config.TotalBudget {
+		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW EXCEEDED: %d tokens > %d limit",
+			total, tb.config.TotalBudget)
+		return fmt.Errorf("%w: %d tokens exceeds %d token limit",
+			ErrContextWindowExceeded, total, tb.config.TotalBudget)
+	}
+	return nil
+}
+
+// MustFitWithinBudget checks if adding tokens would exceed the total budget.
+// Returns error if adding the tokens would exceed the limit.
+func (tb *TokenBudget) MustFitWithinBudget(additionalTokens int) error {
+	newTotal := tb.TotalUsed() + additionalTokens
+	if newTotal > tb.config.TotalBudget {
+		logging.Get(logging.CategoryContext).Error("CONTEXT WINDOW WOULD EXCEED: %d + %d = %d tokens > %d limit",
+			tb.TotalUsed(), additionalTokens, newTotal, tb.config.TotalBudget)
+		return fmt.Errorf("%w: adding %d tokens would result in %d total, exceeding %d limit",
+			ErrContextWindowExceeded, additionalTokens, newTotal, tb.config.TotalBudget)
+	}
+	return nil
 }
 
 // Release releases tokens from a category.

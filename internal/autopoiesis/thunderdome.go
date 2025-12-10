@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/logging"
 )
 
@@ -211,7 +212,8 @@ go 1.21
 
 	cmd := exec.CommandContext(ctx, "go", "test", "-c", "-o", binaryPath, ".")
 	cmd.Dir = arenaDir
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	// Use unified build environment but disable CGO for sandbox isolation
+	cmd.Env = build.MergeEnv(build.GetBuildEnv(nil, arenaDir), "CGO_ENABLED=0")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -43,6 +43,16 @@ internal/
 └── world/          # Filesystem, AST projection, multi-lang data flow, holographic context
 ```
 
+## Full Specifications
+
+For detailed architecture and implementation specs, see:
+
+- [.claude/skills/codenerd-builder/references/](.claude/skills/codenerd-builder/references/) - Full architecture docs
+- [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
+
+
+## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time... 
+
 ## Skills
 
 Use skills to get specialized knowledge for different tasks. Invoke with `/skill:<name>`.

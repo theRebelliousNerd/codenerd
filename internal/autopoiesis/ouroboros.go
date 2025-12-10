@@ -76,6 +76,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mangle/transpiler"
@@ -1215,15 +1216,12 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	cmd := exec.CommandContext(compileCtx, "go", "build", "-ldflags", ldflags, "-o", outputPath, ".")
 	cmd.Dir = tmpDir
 
-	env := os.Environ()
-	env = append(env, "CGO_ENABLED=0")
-	if tc.config.TargetOS != "" {
-		env = append(env, "GOOS="+tc.config.TargetOS)
-	}
-	if tc.config.TargetArch != "" {
-		env = append(env, "GOARCH="+tc.config.TargetArch)
-	}
-	cmd.Env = env
+	// Use unified build environment with cross-compilation support
+	// CGO_ENABLED=0 for portable binaries
+	cmd.Env = build.MergeEnv(
+		build.GetBuildEnvForCompile(nil, tmpDir, tc.config.TargetOS, tc.config.TargetArch),
+		"CGO_ENABLED=0",
+	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

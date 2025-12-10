@@ -70,15 +70,19 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
 		}
 
-		// Create orchestrator - we use polling via GetProgress() instead of channels
-		// to integrate with Bubbletea's tea.Tick pattern
+		// Create channels for real-time orchestrator feedback
+		progressChan := make(chan campaign.Progress, 10)
+		eventChan := make(chan campaign.OrchestratorEvent, 20)
+
+		// Create orchestrator with channels for real-time progress/event streaming
 		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:    m.workspace,
 			Kernel:       m.kernel,
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
 			Executor:     m.executor,
-			// Note: ProgressChan/EventChan intentionally nil - using polling instead
+			ProgressChan: progressChan,
+			EventChan:    eventChan,
 		})
 
 		if err := orch.SetCampaign(result.Campaign); err != nil {
@@ -86,16 +90,18 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		}
 
 		m.ReportStatus("Campaign started")
-		// Return orchestrator reference - execution will be started by Update handler
+		// Return orchestrator reference and channels - execution will be started by Update handler
 		return campaignStartedMsg{
-			campaign: result.Campaign,
-			orch:     orch,
+			campaign:     result.Campaign,
+			orch:         orch,
+			progressChan: progressChan,
+			eventChan:    eventChan,
 		}
 	}
 }
 
 // runCampaignOrchestrator starts the orchestrator in a background goroutine and
-// returns a tea.Cmd that listens for progress updates.
+// returns a tea.Cmd that listens for real-time channel updates.
 func (m Model) runCampaignOrchestrator() tea.Cmd {
 	if m.campaignOrch == nil {
 		return nil
@@ -120,43 +126,26 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 		}
 	}()
 
-	// Return a command that polls for progress
+	// Return a command that listens on the progress channel (real-time, not polling)
 	return m.listenCampaignProgress()
 }
 
-// listenCampaignProgress returns a tea.Cmd that waits for progress updates
+// listenCampaignProgress returns a tea.Cmd that waits for real-time progress updates via channel.
+// This is more efficient than polling - we only wake up when there's actual progress.
 func (m Model) listenCampaignProgress() tea.Cmd {
-	if m.campaignOrch == nil {
+	if m.campaignProgressChan == nil {
 		return nil
 	}
 
-	return func() tea.Msg {
-		// Get progress from orchestrator
-		progress := m.campaignOrch.GetProgress()
+	progressChan := m.campaignProgressChan
 
-		// Check if campaign is complete
-		if progress.CampaignStatus == string(campaign.StatusCompleted) {
+	return func() tea.Msg {
+		// Block until we receive a progress update from the orchestrator
+		progress, ok := <-progressChan
+		if !ok {
+			// Channel closed - campaign finished or was cancelled
 			return campaignCompletedMsg(m.activeCampaign)
 		}
-
-		// Check if campaign failed
-		if progress.CampaignStatus == string(campaign.StatusFailed) {
-			return campaignErrorMsg{err: fmt.Errorf("campaign failed")}
-		}
-
-		// Return progress update
-		return campaignProgressMsg(&progress)
-	}
-}
-
-// tickCampaignProgress returns a tea.Cmd that ticks to check campaign progress periodically
-func (m Model) tickCampaignProgress() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-		if m.campaignOrch == nil || m.activeCampaign == nil {
-			return nil
-		}
-
-		progress := m.campaignOrch.GetProgress()
 
 		// Check completion states
 		if progress.CampaignStatus == string(campaign.StatusCompleted) {
@@ -167,7 +156,28 @@ func (m Model) tickCampaignProgress() tea.Cmd {
 		}
 
 		return campaignProgressMsg(&progress)
-	})
+	}
+}
+
+// listenCampaignEvents returns a tea.Cmd that waits for real-time events via channel.
+// Events include task_started, task_completed, phase_completed, learning, etc.
+func (m Model) listenCampaignEvents() tea.Cmd {
+	if m.campaignEventChan == nil {
+		return nil
+	}
+
+	eventChan := m.campaignEventChan
+
+	return func() tea.Msg {
+		// Block until we receive an event from the orchestrator
+		event, ok := <-eventChan
+		if !ok {
+			// Channel closed - stop listening
+			return nil
+		}
+
+		return campaignEventMsg(event)
+	}
 }
 
 // runLaunchCampaign runs clarifier then auto-starts a campaign using the goal plus clarifier answers (if provided).

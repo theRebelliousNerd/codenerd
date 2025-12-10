@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/logging"
 )
 
@@ -135,6 +136,7 @@ func (r *ReviewerShard) checkBuild(ctx context.Context, pkg, workingDir string) 
 
 	cmd := exec.CommandContext(buildCtx, "go", "build", "-o", nullDevice, pkg)
 	cmd.Dir = workingDir
+	cmd.Env = build.GetBuildEnv(nil, workingDir) // Use unified build environment
 
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)
@@ -190,6 +192,7 @@ func (r *ReviewerShard) checkVet(ctx context.Context, pkg, workingDir string) []
 
 	cmd := exec.CommandContext(vetCtx, "go", "vet", pkg)
 	cmd.Dir = workingDir
+	cmd.Env = build.GetBuildEnv(nil, workingDir) // Use unified build environment
 
 	output, err := cmd.CombinedOutput()
 	outputStr := string(output)

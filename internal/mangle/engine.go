@@ -29,21 +29,26 @@ import (
 
 // Config holds Mangle engine configuration.
 type Config struct {
-	FactLimit    int    `json:"fact_limit"`
-	QueryTimeout int    `json:"query_timeout"` // seconds
-	AutoEval     bool   `json:"auto_eval"`
-	SchemaPath   string `json:"schema_path"`
-	PolicyPath   string `json:"policy_path"`
+	FactLimit         int    `json:"fact_limit"`
+	DerivedFactsLimit int    `json:"derived_facts_limit"` // Gas limit for inference (0 = unlimited)
+	QueryTimeout      int    `json:"query_timeout"`       // seconds
+	AutoEval          bool   `json:"auto_eval"`
+	SchemaPath        string `json:"schema_path"`
+	PolicyPath        string `json:"policy_path"`
 }
 
 // DefaultConfig returns production defaults.
 func DefaultConfig() Config {
 	return Config{
-		FactLimit:    100000,
-		QueryTimeout: 30,
-		AutoEval:     true,
+		FactLimit:         100000,
+		DerivedFactsLimit: 100000, // Gas limit for inference
+		QueryTimeout:      30,
+		AutoEval:          true,
 	}
 }
+
+// ErrDerivedFactsLimitExceeded is returned when inference exceeds the gas limit.
+var ErrDerivedFactsLimitExceeded = fmt.Errorf("derived facts limit exceeded (inference gas limit)")
 
 // Engine wraps the production-grade Google Mangle engine.
 // Implements the Hollow Kernel pattern from Cortex 1.5.0 Section 2.1.
@@ -58,6 +63,7 @@ type Engine struct {
 	predicateIndex  map[string]ast.PredicateSym
 	schemaFragments []parse.SourceUnit
 	factCount       int
+	derivedCount    int  // Tracks derived facts for gas limit enforcement
 	factLimitWarned bool
 	autoEval        bool
 	persistence     Persistence
@@ -175,8 +181,8 @@ func (e *Engine) RecomputeRules() error {
 		}
 	}()
 
-	// Use EvalProgramWithStats for visibility
-	stats, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+	// Use EvalProgramWithStats for visibility with gas limit enforcement
+	stats, err := e.evalWithGasLimit()
 	close(done)
 
 	if err != nil {
@@ -186,6 +192,54 @@ func (e *Engine) RecomputeRules() error {
 
 	logging.Kernel("Recomputation complete. Stats: %+v", stats)
 	return nil
+}
+
+// evalWithGasLimit wraps EvalProgramWithStats with derived facts gas limit enforcement.
+// This prevents runaway inference from exhausting memory.
+func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
+	// Count facts before evaluation
+	beforeCount := e.store.EstimateFactCount()
+
+	// Run evaluation
+	stats, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+	if err != nil {
+		return mengine.Stats{}, err
+	}
+
+	// Count facts after evaluation
+	afterCount := e.store.EstimateFactCount()
+	derivedThisRound := afterCount - beforeCount
+	e.derivedCount += derivedThisRound
+
+	// ENFORCEMENT: Check gas limit
+	if e.config.DerivedFactsLimit > 0 && e.derivedCount > e.config.DerivedFactsLimit {
+		logging.Get(logging.CategoryKernel).Error("DERIVED FACTS GAS LIMIT EXCEEDED: %d derived > %d limit (this round: %d)",
+			e.derivedCount, e.config.DerivedFactsLimit, derivedThisRound)
+		return mengine.Stats{}, fmt.Errorf("%w: %d derived facts exceeds limit of %d",
+			ErrDerivedFactsLimitExceeded, e.derivedCount, e.config.DerivedFactsLimit)
+	}
+
+	if derivedThisRound > 0 {
+		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
+			derivedThisRound, e.derivedCount, e.config.DerivedFactsLimit)
+	}
+
+	return stats, nil
+}
+
+// GetDerivedFactCount returns the current count of derived facts (for monitoring).
+func (e *Engine) GetDerivedFactCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.derivedCount
+}
+
+// ResetDerivedFactCount resets the derived fact counter (e.g., at session start).
+func (e *Engine) ResetDerivedFactCount() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.derivedCount = 0
+	logging.KernelDebug("Derived fact counter reset to 0")
 }
 
 // LoadSchema loads and compiles a Mangle schema file (.mg).
@@ -298,7 +352,7 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 	e.autoEval = wasAuto
 
 	if e.autoEval {
-		_, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+		_, err := e.evalWithGasLimit()
 		if err != nil {
 			return fmt.Errorf("recompute rules after warm start: %w", err)
 		}
@@ -335,7 +389,7 @@ func (e *Engine) AddFacts(facts []Fact) error {
 	}
 
 	if e.autoEval {
-		_, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+		_, err := e.evalWithGasLimit()
 		if err != nil {
 			logging.Get(logging.CategoryKernel).Error("Rule evaluation failed after fact insertion: %v", err)
 		}
@@ -372,7 +426,7 @@ func (e *Engine) ReplaceFactsForFile(file string, facts []Fact) error {
 	}
 
 	if e.autoEval {
-		_, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+		_, err := e.evalWithGasLimit()
 		if err != nil {
 			e.mu.Unlock()
 			return err
@@ -413,7 +467,7 @@ func (e *Engine) ReplaceFactsForFileWithHash(file string, facts []Fact, contentH
 	}
 
 	if e.autoEval {
-		_, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+		_, err := e.evalWithGasLimit()
 		if err != nil {
 			e.mu.Unlock()
 			return err
