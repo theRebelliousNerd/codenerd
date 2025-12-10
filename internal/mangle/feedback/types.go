@@ -113,8 +113,10 @@ type RetryConfig struct {
 	InjectPredicates bool
 	// SimplifyOnLastRetry suggests simplification on final attempt (default: true).
 	SimplifyOnLastRetry bool
-	// Timeout for each LLM call during retry.
-	Timeout time.Duration
+	// PerAttemptTimeout is the max time per LLM call (default: 60s).
+	PerAttemptTimeout time.Duration
+	// TotalTimeout is the max total time for all retries (default: 180s).
+	TotalTimeout time.Duration
 }
 
 // DefaultConfig returns the default retry configuration.
@@ -125,7 +127,8 @@ func DefaultConfig() RetryConfig {
 		EnableAutoRepair:    true,
 		InjectPredicates:    true,
 		SimplifyOnLastRetry: true,
-		Timeout:             30 * time.Second,
+		PerAttemptTimeout:   60 * time.Second,
+		TotalTimeout:        180 * time.Second,
 	}
 }
 
