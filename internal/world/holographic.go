@@ -30,11 +30,11 @@ type HolographicContext struct {
 	TargetPkg  string `json:"target_package"`
 
 	// Package Scope (sibling files in same package)
-	PackageSiblings    []string            `json:"package_siblings"`
-	PackageSignatures  []SymbolSignature   `json:"package_signatures"`  // Exported + unexported symbols
-	PackageTypes       []TypeDefinition    `json:"package_types"`       // Struct/interface definitions
-	PackageConstants   []ConstDefinition   `json:"package_constants"`   // const/var blocks
-	PackageImports     map[string][]string `json:"package_imports"`     // File -> imports
+	PackageSiblings   []string            `json:"package_siblings"`
+	PackageSignatures []SymbolSignature   `json:"package_signatures"` // Exported + unexported symbols
+	PackageTypes      []TypeDefinition    `json:"package_types"`      // Struct/interface definitions
+	PackageConstants  []ConstDefinition   `json:"package_constants"`  // const/var blocks
+	PackageImports    map[string][]string `json:"package_imports"`    // File -> imports
 
 	// Architectural Layer (where in the system)
 	Layer         string `json:"layer"`          // e.g., "core", "api", "data", "cmd"
@@ -75,21 +75,21 @@ type PrioritizedCaller struct {
 // SymbolSignature represents a function or method signature available in package scope.
 type SymbolSignature struct {
 	Name       string `json:"name"`
-	Receiver   string `json:"receiver,omitempty"`   // For methods: "*Foo" or "Foo"
-	Params     string `json:"params"`               // "(ctx context.Context, id string)"
-	Returns    string `json:"returns"`              // "(error)" or "(string, error)"
-	File       string `json:"file"`                 // Which file defines this
-	Line       int    `json:"line"`                 // Line number
-	Exported   bool   `json:"exported"`             // Starts with uppercase?
+	Receiver   string `json:"receiver,omitempty"`    // For methods: "*Foo" or "Foo"
+	Params     string `json:"params"`                // "(ctx context.Context, id string)"
+	Returns    string `json:"returns"`               // "(error)" or "(string, error)"
+	File       string `json:"file"`                  // Which file defines this
+	Line       int    `json:"line"`                  // Line number
+	Exported   bool   `json:"exported"`              // Starts with uppercase?
 	DocComment string `json:"doc_comment,omitempty"` // First line of doc comment
 }
 
 // TypeDefinition represents a struct or interface in the package.
 type TypeDefinition struct {
 	Name     string   `json:"name"`
-	Kind     string   `json:"kind"` // "struct", "interface", "alias"
-	Fields   []string `json:"fields,omitempty"`   // For structs: field signatures
-	Methods  []string `json:"methods,omitempty"`  // For interfaces: method signatures
+	Kind     string   `json:"kind"`              // "struct", "interface", "alias"
+	Fields   []string `json:"fields,omitempty"`  // For structs: field signatures
+	Methods  []string `json:"methods,omitempty"` // For interfaces: method signatures
 	File     string   `json:"file"`
 	Line     int      `json:"line"`
 	Exported bool     `json:"exported"`
@@ -143,8 +143,8 @@ func (h *HolographicProvider) GetContext(filePath string) (*HolographicContext, 
 	logging.WorldDebug("HolographicProvider: generating context for %s", filepath.Base(filePath))
 
 	ctx := &HolographicContext{
-		TargetFile:      filePath,
-		PackageImports:  make(map[string][]string),
+		TargetFile:     filePath,
+		PackageImports: make(map[string][]string),
 	}
 
 	// Detect language and route to appropriate handler
@@ -863,8 +863,8 @@ func (h *HolographicProvider) parsePriorityFacts(facts []core.Fact) []Prioritize
 
 	for _, fact := range facts {
 		var caller PrioritizedCaller
-		caller.Depth = 1       // Default depth
-		caller.Priority = 50   // Default medium priority
+		caller.Depth = 1     // Default depth
+		caller.Priority = 50 // Default medium priority
 
 		switch fact.Predicate {
 		case "context_priority_file":
