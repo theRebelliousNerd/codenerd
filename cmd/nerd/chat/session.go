@@ -19,9 +19,10 @@ import (
 	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
-	"codenerd/internal/shards/system"
+	shardsystem "codenerd/internal/shards/system"
 	"codenerd/internal/shards/tester"
 	"codenerd/internal/store"
+	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
 	"codenerd/internal/verification"
@@ -32,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -151,7 +153,8 @@ func InitChat(cfg Config) Model {
 		DisableSystemShards: cfg.DisableSystemShards,
 		// Mouse capture enabled by default (Alt+M to toggle for text selection)
 		mouseEnabled: true,
-		// Shutdown coordination
+		// Shutdown coordination (pointer to sync.Once to allow Model copy without noCopy violation)
+		shutdownOnce:   &sync.Once{},
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
 	}
@@ -352,7 +355,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Boot("Loaded %d atoms from embedded corpus", embeddedCorpus.Count())
 		}
 
-		if jit, err := prompt.NewJITPromptCompiler(prompt.WithEmbeddedCorpus(embeddedCorpus)); err == nil {
+		// Create JIT compiler with both embedded corpus AND kernel for skeleton selection
+		// The kernel is REQUIRED for skeleton atom selection via Mangle rules
+		if jit, err := prompt.NewJITPromptCompiler(
+			prompt.WithEmbeddedCorpus(embeddedCorpus),
+			prompt.WithKernel(nerdsystem.NewKernelAdapter(kernel)),
+		); err == nil {
 			jitCompiler = jit
 
 			// Sync embedded corpus to project SQLite DB with embeddings
@@ -473,7 +481,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// System Shards
 		shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewPerceptionFirewallShard()
+			shard := shardsystem.NewPerceptionFirewallShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
 			if promptAssembler != nil {
@@ -482,7 +490,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewWorldModelIngestorShard()
+			shard := shardsystem.NewWorldModelIngestorShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
@@ -492,7 +500,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewExecutivePolicyShard()
+			shard := shardsystem.NewExecutivePolicyShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
 			if promptAssembler != nil {
@@ -501,7 +509,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewConstitutionGateShard()
+			shard := shardsystem.NewConstitutionGateShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
 			if promptAssembler != nil {
@@ -510,7 +518,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewTactileRouterShard()
+			shard := shardsystem.NewTactileRouterShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
@@ -523,7 +531,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
-			shard := system.NewSessionPlannerShard()
+			shard := shardsystem.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
 			if promptAssembler != nil {
