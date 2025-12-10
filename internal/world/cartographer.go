@@ -21,13 +21,22 @@ import (
 // It also emits legacy atoms for backward compatibility:
 // - symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
 // - dependency_link(CallerID, CalleeID, ImportPath)
+//
+// Data flow facts (via DataFlowExtractor):
+// - assigns(Var, TypeClass, File, Line)
+// - guards_return(Var, GuardType, File, Line)
+// - guards_block(Var, GuardType, File, StartLine, EndLine)
+// - uses(File, Func, Var, Line)
 type Cartographer struct {
+	dataFlowExtractor *DataFlowExtractor
 }
 
 // NewCartographer creates a new Cartographer for holographic code graph projection.
 func NewCartographer() *Cartographer {
-	logging.WorldDebug("Creating new Cartographer")
-	return &Cartographer{}
+	logging.WorldDebug("Creating new Cartographer with DataFlowExtractor")
+	return &Cartographer{
+		dataFlowExtractor: NewDataFlowExtractor(),
+	}
 }
 
 // MapFile parses a single file and returns holographic facts.
@@ -222,6 +231,22 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 		return true
 	})
 
-	logging.WorldDebug("Cartographer: mapped %s - %d facts generated in %v", filepath.Base(path), len(facts), time.Since(start))
+	symbolFactCount := len(facts)
+	logging.WorldDebug("Cartographer: extracted %d symbol facts from %s", symbolFactCount, filepath.Base(path))
+
+	// Extract data flow facts (enhancement, not critical - errors don't break symbol extraction)
+	if c.dataFlowExtractor != nil {
+		dataFlowFacts, err := c.dataFlowExtractor.ExtractDataFlow(path)
+		if err != nil {
+			logging.WorldDebug("Cartographer: data flow extraction failed for %s: %v (continuing with symbol facts only)", filepath.Base(path), err)
+			// Continue - data flow is an enhancement, not critical
+		} else {
+			facts = append(facts, dataFlowFacts...)
+			logging.WorldDebug("Cartographer: extracted %d data flow facts from %s", len(dataFlowFacts), filepath.Base(path))
+		}
+	}
+
+	logging.WorldDebug("Cartographer: mapped %s - %d total facts (%d symbol, %d data flow) in %v",
+		filepath.Base(path), len(facts), symbolFactCount, len(facts)-symbolFactCount, time.Since(start))
 	return facts, nil
 }
