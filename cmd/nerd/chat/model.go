@@ -398,7 +398,10 @@ type (
 	clarificationReply string             // User's response to clarification
 
 	// Campaign messages
-	campaignStartedMsg   *campaign.Campaign
+	campaignStartedMsg struct {
+		campaign *campaign.Campaign
+		orch     *campaign.Orchestrator
+	}
 	campaignProgressMsg  *campaign.Progress
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     struct{ err error }
@@ -975,15 +978,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Campaign message handlers
 	case campaignStartedMsg:
 		m.isLoading = false
-		m.activeCampaign = msg
+		m.activeCampaign = msg.campaign
+		m.campaignOrch = msg.orch
 		m.showCampaignPanel = true
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: m.renderCampaignStarted(msg),
+			Content: m.renderCampaignStarted(msg.campaign),
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
+
+		// Start orchestrator execution in background and return progress listener
+		if m.campaignOrch != nil {
+			return m, m.runCampaignOrchestrator()
+		}
 
 	case campaignProgressMsg:
 		m.campaignProgress = msg
@@ -997,6 +1006,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeCampaign != nil {
 			prog := campaign.Progress(*msg)
 			m.campaignPage.UpdateContent(&prog, m.activeCampaign)
+		}
+
+		// Continue polling for progress updates while campaign is active
+		if m.campaignOrch != nil && m.activeCampaign != nil {
+			return m, m.tickCampaignProgress()
 		}
 
 	case campaignCompletedMsg:

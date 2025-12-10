@@ -28,16 +28,20 @@ codeNERD's power comes from the integration of 39+ distinct systems. A feature c
 
 ## Quick Start
 
-### Run the Diagnostic Script
+### Run the Diagnostic Scripts
 
 ```bash
 cd .claude/skills/integration-auditor/scripts
 
-# Audit entire codebase
+# Full audit (all systems)
 python audit_wiring.py
+
+# Execution wiring audit (objects run, channels listened, etc.)
+python audit_execution.py --verbose
 
 # Audit specific component
 python audit_wiring.py --component coder --verbose
+python audit_execution.py --component campaign --verbose
 ```
 
 ### Three-Question Audit
@@ -59,7 +63,7 @@ If any answer is NO, the feature has a wiring gap.
 
 ---
 
-## The 39 Integration Systems
+## The 39+ Integration Systems
 
 Every feature touches multiple systems. Summary table:
 
@@ -72,6 +76,7 @@ Every feature touches multiple systems. Summary table:
 | **I/O (6)** | CLI, Transducer, Articulation, Actions, TUI, Session | `commands.go`, `transducer.go` |
 | **Orchestration (4)** | Campaign, TDD, Autopoiesis, Piggyback | `campaign/`, `autopoiesis/` |
 | **Cross-Cutting (2)** | Logging (22 categories), Config | `logging/`, `.nerd/config.json` |
+| **Execution (6)** | Object Run, Channel Listen, Message Handle, Field Assign, Goroutine Spawn, Reference Store | All `.go` files |
 
 **Full details:** See [systems-integration-map.md](references/systems-integration-map.md)
 
@@ -132,14 +137,50 @@ go build ./cmd/nerd
 # 2. Test
 go test ./...
 
-# 3. Audit
+# 3. Audit (both types!)
 python audit_wiring.py --verbose
+python audit_execution.py --verbose
 
 # 4. Smoke test
 ./nerd.exe
 ```
 
 **Full checklist:** [audit-workflows.md#workflow-3-pre-commit-integration-check](references/audit-workflows.md#workflow-3-pre-commit-integration-check)
+
+### Workflow 5: Execution Wiring Audit
+
+Detects "code exists but doesn't execute" - the most insidious bugs:
+
+```bash
+python audit_execution.py --verbose
+```
+
+**What it catches:**
+
+| Pattern | Issue | Example |
+|---------|-------|---------|
+| **Object Execution** | `New*()` without `Run()`/`Start()` | `orch := NewOrchestrator()` but no `orch.Run()` |
+| **Channel Listeners** | Channels created but never read | `ch := make(chan X)` but no `<-ch` |
+| **Message Handlers** | Bubbletea `*Msg` without case handler | `type fooMsg struct{}` but no `case fooMsg:` |
+| **Field Assignment** | Struct fields checked but never assigned | `if m.orch != nil` but `m.orch =` never set |
+| **Goroutine Spawn** | Blocking calls not in goroutines | `orch.Run(ctx)` without `go` prefix |
+| **Reference Storage** | Local vars that should be struct fields | `orch :=` in function, lost on return |
+
+**Real example (the bug that inspired this):**
+
+```go
+// cmd/nerd/chat/campaign.go:73-94
+func (m Model) startCampaign(goal string) tea.Cmd {
+    orch := campaign.NewOrchestrator(config)  // Created
+    orch.SetCampaign(result.Campaign)          // Configured
+    return campaignStartedMsg(result.Campaign) // But Run() never called!
+}
+// orch goes out of scope, gets garbage collected
+// m.campaignOrch is never assigned
+// Campaign NEVER EXECUTES
+```
+
+**Full reference:** [execution-wiring.md](references/execution-wiring.md)
 
 ---
 
@@ -201,7 +242,7 @@ Otherwise → Check output path (logging, facts, return)
 
 ---
 
-## Top 10 Failure Patterns
+## Top 15 Failure Patterns
 
 | Symptom | Root Cause | Fix |
 |---------|-----------|-----|
@@ -215,6 +256,11 @@ Otherwise → Check output path (logging, facts, return)
 | System shard won't start | Not in auto-start | Add to StartSystemShards() |
 | Context overflow (400) | Budget exceeded | Lower MemoryLimit |
 | Goroutine leak | No Stop() cleanup | Cancel contexts, close channels |
+| **Campaign never runs** | **Run() not called** | **Add `go orch.Run(ctx)`** |
+| **Orchestrator lost** | **Local var not stored** | **Add `m.orch = orch`** |
+| **Progress not shown** | **Channel not listened** | **Add goroutine reading channel** |
+| **Message ignored** | **No case handler** | **Add `case fooMsg:` in Update()** |
+| **Feature works once** | **Blocking main thread** | **Wrap in `go func()`** |
 
 **Full catalog:** [failure-patterns.md](references/failure-patterns.md)
 
@@ -295,6 +341,7 @@ Verify end-to-end wiring with proven test patterns:
 | [system-audits.md](references/system-audits.md) | System-specific audit guides |
 | [live-testing-patterns.md](references/live-testing-patterns.md) | Test code examples |
 | [failure-patterns.md](references/failure-patterns.md) | Failure catalog |
+| [execution-wiring.md](references/execution-wiring.md) | Execution wiring patterns |
 
 ### Related Skills
 
@@ -305,7 +352,8 @@ Verify end-to-end wiring with proven test patterns:
 
 ### Scripts
 
-- [audit_wiring.py](scripts/audit_wiring.py) - Automated wiring gap detection
+- [audit_wiring.py](scripts/audit_wiring.py) - Automated wiring gap detection (39 systems)
+- [audit_execution.py](scripts/audit_execution.py) - Execution wiring gap detection (6 patterns)
 
 ---
 
