@@ -1368,3 +1368,78 @@ func truncateForContext(s string, maxLen int) string {
 	}
 	return s
 }
+
+// =============================================================================
+// JIT PROMPT COMPILER HELPERS
+// =============================================================================
+
+// renderJITStatus renders the JIT Prompt Compiler status and last compilation result.
+func (m Model) renderJITStatus() string {
+	var sb strings.Builder
+
+	sb.WriteString("## JIT Prompt Compiler Status\n\n")
+
+	if m.jitCompiler == nil {
+		sb.WriteString("**Status**: ❌ Not initialized\n\n")
+		sb.WriteString("The JIT Prompt Compiler is not available. This may indicate:\n")
+		sb.WriteString("- Initialization failure during boot\n")
+		sb.WriteString("- Missing embedded corpus\n")
+		sb.WriteString("- Configuration issue\n")
+		return sb.String()
+	}
+
+	sb.WriteString("**Status**: ✅ Active\n\n")
+
+	// Get compiler stats
+	stats := m.jitCompiler.GetStats()
+	sb.WriteString("### Compiler Stats\n\n")
+	sb.WriteString(fmt.Sprintf("- Embedded Atom Count: %d\n", stats.EmbeddedAtomCount))
+	sb.WriteString(fmt.Sprintf("- Shard DBs Loaded: %d\n", stats.ShardDBCount))
+	sb.WriteString("\n")
+
+	// Get last compilation result
+	result := m.jitCompiler.GetLastResult()
+	if result == nil {
+		sb.WriteString("### Last Compilation\n\n")
+		sb.WriteString("_No compilations yet this session._\n")
+		return sb.String()
+	}
+
+	sb.WriteString("### Last Compilation Result\n\n")
+	sb.WriteString(fmt.Sprintf("- **Tokens Used**: %d (%.1f%% of budget)\n",
+		result.TotalTokens, result.BudgetUsed*100))
+	sb.WriteString(fmt.Sprintf("- **Atoms Included**: %d\n", result.AtomsIncluded))
+
+	// Show timing breakdown
+	if result.Stats != nil {
+		sb.WriteString("\n### Timing Breakdown\n\n")
+		sb.WriteString(fmt.Sprintf("- Collect Atoms: %dms\n", result.Stats.CollectAtomsMs))
+		sb.WriteString(fmt.Sprintf("- Select Atoms: %dms (vector: %dms)\n",
+			result.Stats.SelectAtomsMs, result.Stats.VectorQueryMs))
+		sb.WriteString(fmt.Sprintf("- Resolve Deps: %dms\n", result.Stats.ResolveDepsMs))
+		sb.WriteString(fmt.Sprintf("- Fit Budget: %dms\n", result.Stats.FitBudgetMs))
+		sb.WriteString(fmt.Sprintf("- Assemble: %dms\n", result.Stats.AssembleMs))
+		sb.WriteString(fmt.Sprintf("- **Total**: %dms\n", result.Stats.Duration.Milliseconds()))
+	}
+
+	// Show included atoms
+	if len(result.IncludedAtoms) > 0 {
+		sb.WriteString("\n### Included Atoms\n\n")
+		sb.WriteString("| Category | ID | Tokens |\n")
+		sb.WriteString("|----------|----|---------|\n")
+		shown := 0
+		for _, atom := range result.IncludedAtoms {
+			if shown >= 10 {
+				sb.WriteString(fmt.Sprintf("| ... | _+%d more_ | |\n", len(result.IncludedAtoms)-10))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d |\n", atom.Category, atom.ID, atom.TokenCount))
+			shown++
+		}
+	}
+
+	sb.WriteString("\n---\n")
+	sb.WriteString("_Use Alt+P to toggle the Prompt Inspector view._\n")
+
+	return sb.String()
+}

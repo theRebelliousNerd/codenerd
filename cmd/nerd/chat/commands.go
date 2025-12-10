@@ -1558,6 +1558,19 @@ You have an existing Northstar definition. What would you like to do?
 		m.textarea.Reset()
 		return m, nil
 
+	case "/jit":
+		// JIT Prompt Compiler inspector
+		content := m.renderJITStatus()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	default:
 		m.history = append(m.history, Message{
 			Role:    "assistant",

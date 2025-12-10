@@ -159,15 +159,29 @@ type CompilationContext struct {
 	// Kernel holds a reference to the Mangle kernel for queries
 	// Type: *core.RealKernel
 	Kernel interface{}
+
+	// =========================================================================
+	// Activation Scores (from Compression System)
+	// =========================================================================
+
+	// ActivatedFacts maps fact string representation to activation score (0.0-1.0).
+	// Used to boost atoms related to highly-activated facts.
+	// Populated by the compression system's GetActivationScores().
+	ActivatedFacts map[string]float64
+
+	// ActivationThreshold is the minimum score for a fact to be considered "hot".
+	// Default: 0.5
+	ActivationThreshold float64
 }
 
 // NewCompilationContext creates a new CompilationContext with defaults.
 func NewCompilationContext() *CompilationContext {
 	return &CompilationContext{
-		OperationalMode: "/active",
-		TokenBudget:     100000, // Default 100k tokens
-		ReservedTokens:  8000,   // Reserve 8k for response
-		SemanticTopK:    20,     // Top 20 semantic results
+		OperationalMode:     "/active",
+		TokenBudget:         100000, // Default 100k tokens
+		ReservedTokens:      8000,   // Reserve 8k for response
+		SemanticTopK:        20,     // Top 20 semantic results
+		ActivationThreshold: 0.5,    // Default activation threshold
 	}
 }
 
@@ -309,39 +323,56 @@ func (cc *CompilationContext) String() string {
 }
 
 // ToContextFacts generates Mangle facts representing this context.
-// These facts can be asserted into the kernel for rule-based selection.
-func (cc *CompilationContext) ToContextFacts() []interface{} {
-	var facts []interface{}
+// These facts are formatted for the compile_context(Dimension, Value) schema
+// as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
+func (cc *CompilationContext) ToContextFacts() []string {
+	var facts []string
 
-	// Helper to add non-empty string facts
-	addFact := func(predicate, value string) {
-		if value != "" {
-			facts = append(facts, map[string]interface{}{
-				"predicate": predicate,
-				"value":     value,
-			})
+	// Helper to add compile_context facts for non-empty values.
+	// Format: compile_context(/dimension, /value). or compile_context(/dimension, "string").
+	addFact := func(dimension, value string) {
+		if value == "" {
+			return
+		}
+		// Ensure dimension and value start with / for atom constants
+		if !hasPrefix(dimension, "/") {
+			dimension = "/" + dimension
+		}
+		// Values that look like name constants (start with /) stay as-is
+		// Others get quoted as strings
+		if hasPrefix(value, "/") {
+			facts = append(facts, fmt.Sprintf("compile_context(%s, %s).", dimension, value))
+		} else {
+			facts = append(facts, fmt.Sprintf("compile_context(%s, \"%s\").", dimension, value))
 		}
 	}
 
-	addFact("current_mode", cc.OperationalMode)
-	addFact("current_campaign_phase", cc.CampaignPhase)
-	addFact("current_build_layer", cc.BuildLayer)
-	addFact("current_init_phase", cc.InitPhase)
-	addFact("current_northstar_phase", cc.NorthstarPhase)
-	addFact("current_ouroboros_stage", cc.OuroborosStage)
-	addFact("current_intent_verb", cc.IntentVerb)
-	addFact("current_shard_type", cc.ShardType)
-	addFact("current_language", cc.Language)
+	// Core context dimensions (per schemas.mg Section 45)
+	addFact("operational_mode", cc.OperationalMode)
+	addFact("campaign_phase", cc.CampaignPhase)
+	addFact("build_layer", cc.BuildLayer)
+	addFact("init_phase", cc.InitPhase)
+	addFact("northstar_phase", cc.NorthstarPhase)
+	addFact("ouroboros_stage", cc.OuroborosStage)
+	addFact("intent_verb", cc.IntentVerb)
+	addFact("shard_type", cc.ShardType)
+	addFact("language", cc.Language)
 
+	// Multi-value dimensions
 	for _, fw := range cc.Frameworks {
-		addFact("current_framework", fw)
+		addFact("framework", fw)
 	}
 
 	for _, ws := range cc.WorldStates() {
-		addFact("current_world_state", ws)
+		addFact("world_state", ws)
 	}
 
 	return facts
+}
+
+// hasPrefix checks if s starts with prefix.
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // ContextDimension represents a single dimension of context.

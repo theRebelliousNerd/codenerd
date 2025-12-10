@@ -204,6 +204,42 @@ type ToolGenerationConfig struct {
 	TargetArch string `yaml:"target_arch" json:"target_arch"` // e.g., "amd64", "arm64"
 }
 
+// JITConfig configures the JIT Prompt Compiler.
+// The JIT compiler dynamically assembles system prompts from YAML atoms
+// based on the current context (operational mode, shard type, language, etc.).
+type JITConfig struct {
+	// Enabled controls whether JIT compilation is used (default: true)
+	// When false, falls back to static prompts
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// FallbackEnabled allows fallback to static prompts on JIT failure (default: true)
+	FallbackEnabled bool `yaml:"fallback_enabled" json:"fallback_enabled"`
+
+	// TokenBudget is the maximum tokens for compiled prompts (default: 100000)
+	TokenBudget int `yaml:"token_budget" json:"token_budget"`
+
+	// ReservedTokens is tokens reserved for response generation (default: 8000)
+	ReservedTokens int `yaml:"reserved_tokens" json:"reserved_tokens"`
+
+	// DebugMode enables verbose JIT logging (default: false)
+	DebugMode bool `yaml:"debug_mode" json:"debug_mode"`
+
+	// SemanticTopK is the number of semantic search results to consider (default: 20)
+	SemanticTopK int `yaml:"semantic_top_k" json:"semantic_top_k"`
+}
+
+// DefaultJITConfig returns sensible defaults for JIT compilation.
+func DefaultJITConfig() JITConfig {
+	return JITConfig{
+		Enabled:         true,
+		FallbackEnabled: true,
+		TokenBudget:     100000,
+		ReservedTokens:  8000,
+		DebugMode:       false,
+		SemanticTopK:    20,
+	}
+}
+
 // DefaultToolGenerationConfig returns default tool generation targets.
 func DefaultToolGenerationConfig() ToolGenerationConfig {
 	return ToolGenerationConfig{
@@ -789,6 +825,13 @@ type UserConfig struct {
 
 	// Logging configuration
 	Logging *LoggingConfig `json:"logging,omitempty"`
+
+	// =========================================================================
+	// JIT PROMPT COMPILER
+	// =========================================================================
+
+	// JIT Prompt Compiler configuration
+	JIT *JITConfig `json:"jit,omitempty"`
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
@@ -1302,4 +1345,23 @@ func AutoDetectContext7APIKey() string {
 	}
 
 	return ""
+}
+
+// GetJITConfig returns JIT Prompt Compiler config with defaults applied.
+func (c *UserConfig) GetJITConfig() JITConfig {
+	if c.JIT != nil {
+		cfg := *c.JIT
+		// Apply defaults for zero values (except booleans which default to false)
+		if cfg.TokenBudget == 0 {
+			cfg.TokenBudget = 100000
+		}
+		if cfg.ReservedTokens == 0 {
+			cfg.ReservedTokens = 8000
+		}
+		if cfg.SemanticTopK == 0 {
+			cfg.SemanticTopK = 20
+		}
+		return cfg
+	}
+	return DefaultJITConfig()
 }

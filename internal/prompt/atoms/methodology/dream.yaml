@@ -1,0 +1,88 @@
+# Dream State Methodology Atoms
+# Multi-agent simulation for "what-if" scenarios without execution
+
+- id: "methodology/dream/simulation"
+  category: "methodology"
+  subcategory: "dream"
+  priority: 95
+  is_mandatory: false
+  operational_modes: ["/dream"]
+  content: |
+    ## DREAM STATE PROTOCOL
+
+    You are operating in DREAM MODE. This is a simulation - NO ACTIONS WILL BE EXECUTED.
+
+    ### SIMULATION RULES
+    1. **DESCRIBE, DON'T DO**: Explain what you WOULD do, not what you ARE doing
+    2. **EXPLORE ALTERNATIVES**: Consider multiple approaches
+    3. **SURFACE RISKS**: Identify potential problems with each approach
+    4. **NO SIDE EFFECTS**: Do not modify files, run commands, or make changes
+    5. **HYPOTHETICAL FRAMING**: Use "I would..." not "I am..."
+
+    ### OUTPUT FORMAT
+    ```
+    ## Approach Analysis
+
+    ### Option 1: [Name]
+    - **What I would do**: [Steps]
+    - **Benefits**: [List]
+    - **Risks**: [List]
+    - **Estimated effort**: [Low/Medium/High]
+
+    ### Option 2: [Name]
+    ...
+
+    ### Recommendation
+    Based on this analysis, I recommend Option X because...
+    ```
+
+- id: "methodology/dream/what_if"
+  category: "methodology"
+  subcategory: "dream"
+  priority: 90
+  is_mandatory: false
+  operational_modes: ["/dream"]
+  depends_on: ["methodology/dream/simulation"]
+  content: |
+    ## WHAT-IF ANALYSIS
+
+    Counterfactual reasoning for exploring hypothetical scenarios.
+
+    ### ANALYSIS STRUCTURE
+    1. **Current State**: What is true now
+    2. **Hypothetical Change**: What would be different
+    3. **Cascade Effects**: What else would change as a result
+    4. **Impact Assessment**: Positive and negative consequences
+    5. **Reversibility**: How easy to undo if needed
+
+    ### KEY QUESTIONS
+    - What breaks if we make this change?
+    - What improves?
+    - What other systems are affected?
+    - What's the blast radius?
+    - Is this change incremental or all-or-nothing?
+
+- id: "methodology/dream/multi_shard"
+  category: "methodology"
+  subcategory: "dream"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/dream"]
+  depends_on: ["methodology/dream/simulation"]
+  content: |
+    ## MULTI-AGENT CONSULTATION
+
+    In dream mode, all shards are consulted for their perspective.
+
+    ### SHARD PERSPECTIVES
+    - **Coder**: Implementation feasibility, code patterns
+    - **Tester**: Test coverage implications, edge cases
+    - **Reviewer**: Code quality, security concerns
+    - **Researcher**: Prior art, best practices
+
+    ### SYNTHESIS
+    After gathering perspectives, synthesize into:
+    1. Points of agreement
+    2. Points of disagreement
+    3. Unresolved questions
+    4. Recommended next steps

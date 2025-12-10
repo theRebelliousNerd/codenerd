@@ -26,6 +26,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
@@ -565,10 +566,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-			m.campaignPage, cmd = m.campaignPage.Update(msg)
-			return m, cmd
-		}
-
 		// Prompt Inspector Handling
 		if m.viewMode == PromptInspector {
 			// Exit on Esc/Q
@@ -729,8 +726,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.EnableMouseCellMotion
 				}
 				return m, tea.DisableMouse
-				return m, tea.DisableMouse
-			
+
 			case 'p':
 				// Toggle Prompt Inspector (Alt+P)
 				if m.viewMode == PromptInspector {

@@ -367,7 +367,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 					logging.Boot("Warning: Failed to create prompts directory: %v", mkdirErr)
 				} else {
 					corpusPath := filepath.Join(promptsDir, "corpus.db")
-					if syncErr := prompt.SyncEmbeddedToSQLite(ctx, corpusPath, embeddingEngine); syncErr != nil {
+					if syncErr := prompt.SyncEmbeddedToSQLite(context.Background(), corpusPath, embeddingEngine); syncErr != nil {
 						logging.Boot("Warning: Failed to sync embedded corpus: %v", syncErr)
 						// Non-fatal - continue with embedded-only corpus
 					} else {

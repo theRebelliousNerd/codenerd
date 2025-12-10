@@ -388,6 +388,20 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		stats.CollectAtomsMs,
 	)
 
+	// Step 1.5: Assert context facts to kernel for Mangle-based selection
+	// This enables policy.mg Section 45/46 rules to boost atoms matching current context
+	if c.kernel != nil {
+		contextFacts := cc.ToContextFacts()
+		if len(contextFacts) > 0 {
+			if err := c.kernel.AssertBatch(toInterfaceSlice(contextFacts)); err != nil {
+				logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
+				// Non-fatal - continue without context-based boosting
+			} else {
+				logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
+			}
+		}
+	}
+
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
 	selectStart := time.Now()
 	scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
@@ -953,4 +967,14 @@ func (c *JITPromptCompiler) Close() error {
 	}
 
 	return nil
+}
+
+// toInterfaceSlice converts a string slice to an interface slice.
+// Used to pass context facts to the kernel's AssertBatch method.
+func toInterfaceSlice(strings []string) []interface{} {
+	result := make([]interface{}, len(strings))
+	for i, s := range strings {
+		result[i] = s
+	}
+	return result
 }

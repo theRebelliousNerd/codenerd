@@ -837,3 +837,61 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// GetActivationScores returns current activation scores for all facts.
+// Used by JIT Prompt Compiler to boost atoms related to highly-activated facts.
+// Returns a map of fact string representation → activation score (0.0-1.0).
+func (c *Compressor) GetActivationScores() map[string]float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	scores := make(map[string]float64)
+
+	if c.kernel == nil {
+		return scores
+	}
+
+	// Get all facts and their activation scores
+	allFacts := c.kernel.GetAllFacts()
+	if len(allFacts) == 0 {
+		return scores
+	}
+
+	// Get current intent for context-aware scoring
+	var currentIntent *core.Fact
+	intentFacts, _ := c.kernel.Query("user_intent")
+	if len(intentFacts) > 0 {
+		currentIntent = &intentFacts[len(intentFacts)-1]
+	}
+
+	// Score all facts using the activation engine
+	scoredFacts := c.activation.ScoreFacts(allFacts, currentIntent)
+	for _, sf := range scoredFacts {
+		// Normalize score to 0.0-1.0 range (scores are typically 0-100)
+		normalizedScore := sf.Score / 100.0
+		if normalizedScore > 1.0 {
+			normalizedScore = 1.0
+		}
+		scores[sf.Fact.String()] = normalizedScore
+	}
+
+	return scores
+}
+
+// GetHighActivationFactKeys returns fact keys with activation above threshold.
+// Used by JIT compiler to find atoms related to "hot" facts.
+func (c *Compressor) GetHighActivationFactKeys(threshold float64) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var keys []string
+	scores := c.GetActivationScores()
+
+	for key, score := range scores {
+		if score >= threshold {
+			keys = append(keys, key)
+		}
+	}
+
+	return keys
+}
