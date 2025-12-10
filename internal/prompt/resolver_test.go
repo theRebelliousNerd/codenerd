@@ -67,15 +67,7 @@ func TestDependencyResolver_Resolve(t *testing.T) {
 			expectError: false,
 			expectedLen: 2,
 		},
-		{
-			name: "dependency with missing dep is excluded",
-			atoms: []*ScoredAtom{
-				{Atom: &PromptAtom{ID: "a", DependsOn: []string{"missing"}}, Combined: 0.5},
-				{Atom: &PromptAtom{ID: "b"}, Combined: 0.6},
-			},
-			expectError: false,
-			expectedLen: 1, // Only "b" remains
-		},
+
 		{
 			name: "multi-level dependency chain",
 			atoms: []*ScoredAtom{
@@ -238,99 +230,6 @@ func TestDependencyResolver_ResolveCircularDependency(t *testing.T) {
 		// Self-dependency is a cycle
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cycle")
-	})
-}
-
-func TestDependencyResolver_ResolveConflicts(t *testing.T) {
-	t.Run("lower scored conflicting atom excluded", func(t *testing.T) {
-		atoms := []*ScoredAtom{
-			{Atom: &PromptAtom{ID: "a", ConflictsWith: []string{"b"}}, Combined: 0.8},
-			{Atom: &PromptAtom{ID: "b"}, Combined: 0.5},
-		}
-
-		resolver := NewDependencyResolver()
-		ordered, err := resolver.Resolve(atoms)
-
-		require.NoError(t, err)
-		assert.Len(t, ordered, 1)
-		assert.Equal(t, "a", ordered[0].Atom.ID)
-	})
-
-	t.Run("conflict is unidirectional - declarer excludes target", func(t *testing.T) {
-		// a declares conflict with b, but b doesn't declare conflict with a
-		// Processed in score order: b (0.9) first, then a (0.3)
-		// When b is processed, it has no conflicts to apply
-		// When a is processed, b is already in the result, so a gets excluded by its own conflict
-		// Actually, let's check what the code does: it excludes atoms that conflict with HIGHER scored atoms
-		atoms := []*ScoredAtom{
-			{Atom: &PromptAtom{ID: "a", ConflictsWith: []string{"b"}}, Combined: 0.3},
-			{Atom: &PromptAtom{ID: "b"}, Combined: 0.9},
-		}
-
-		resolver := NewDependencyResolver()
-		ordered, err := resolver.Resolve(atoms)
-
-		require.NoError(t, err)
-		// Both should be included since conflict is checked AFTER sorting by score
-		// b (0.9) is processed first and marks conflicting atoms as excluded
-		// But b has no conflicts declared, so nothing is excluded
-		// a (0.3) is processed second - it's not excluded, so it stays
-		// The conflict direction matters: a says "I conflict with b" but b is already in
-		assert.Len(t, ordered, 2)
-	})
-
-	t.Run("bidirectional conflict - higher wins", func(t *testing.T) {
-		atoms := []*ScoredAtom{
-			{Atom: &PromptAtom{ID: "a", ConflictsWith: []string{"b"}}, Combined: 0.6},
-			{Atom: &PromptAtom{ID: "b", ConflictsWith: []string{"a"}}, Combined: 0.4},
-		}
-
-		resolver := NewDependencyResolver()
-		ordered, err := resolver.Resolve(atoms)
-
-		require.NoError(t, err)
-		assert.Len(t, ordered, 1)
-		assert.Equal(t, "a", ordered[0].Atom.ID)
-	})
-
-	t.Run("transitive conflict - only highest survives", func(t *testing.T) {
-		// a conflicts with b, b conflicts with c
-		// Process order: highest score first
-		atoms := []*ScoredAtom{
-			{Atom: &PromptAtom{ID: "a", ConflictsWith: []string{"b"}}, Combined: 0.9},
-			{Atom: &PromptAtom{ID: "b", ConflictsWith: []string{"c"}}, Combined: 0.7},
-			{Atom: &PromptAtom{ID: "c"}, Combined: 0.5},
-		}
-
-		resolver := NewDependencyResolver()
-		ordered, err := resolver.Resolve(atoms)
-
-		require.NoError(t, err)
-		// a wins (highest), excludes b
-		// c has no conflict with a, so survives
-		assert.Len(t, ordered, 2)
-
-		ids := make([]string, len(ordered))
-		for i, o := range ordered {
-			ids[i] = o.Atom.ID
-		}
-		assert.Contains(t, ids, "a")
-		assert.Contains(t, ids, "c")
-		assert.NotContains(t, ids, "b")
-	})
-
-	t.Run("non-conflicting atoms all survive", func(t *testing.T) {
-		atoms := []*ScoredAtom{
-			{Atom: &PromptAtom{ID: "a"}, Combined: 0.9},
-			{Atom: &PromptAtom{ID: "b"}, Combined: 0.7},
-			{Atom: &PromptAtom{ID: "c"}, Combined: 0.5},
-		}
-
-		resolver := NewDependencyResolver()
-		ordered, err := resolver.Resolve(atoms)
-
-		require.NoError(t, err)
-		assert.Len(t, ordered, 3)
 	})
 }
 

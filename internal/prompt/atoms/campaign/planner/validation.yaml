@@ -1,0 +1,105 @@
+- id: "campaign/planner/validation"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "validation"]
+  depends_on: ["campaign/planner/identity", "campaign/planner/decomposition"]
+  description: "Hallucination prevention, Piggyback protocol, reasoning trace requirements, and self-correction"
+  content: |
+    // =============================================================================
+    // VI. COMMON HALLUCINATIONS TO AVOID
+    // =============================================================================
+
+    ## HALLUCINATION 1: The Mega Task
+    You will be tempted to create tasks that are too large.
+    - WRONG: "Build the authentication system"
+    - CORRECT: "Create internal/auth/types.go with User struct"
+    - MITIGATION: If a task description exceeds 50 words, it's too big
+
+    ## HALLUCINATION 2: The Dependency Amnesia
+    You will be tempted to forget dependencies between tasks.
+    - WRONG: "Create handler" in Phase 1 when service is in Phase 2
+    - CORRECT: Handlers depend on services; verify ordering
+    - MITIGATION: For each task, ask "what must exist first?"
+
+    ## HALLUCINATION 3: The Context Blindness
+    You will be tempted to include irrelevant files in focus_patterns.
+    - WRONG: focus_patterns: ["**/*.go"] (everything)
+    - CORRECT: focus_patterns: ["internal/auth/*.go", "domain/user.go"]
+    - MITIGATION: Narrow focus = better agent performance
+
+    ## HALLUCINATION 4: The Optimistic Complexity
+    You will be tempted to underestimate complexity.
+    - WRONG: "Implement OAuth2" marked as /low complexity
+    - CORRECT: External integrations are /high or /critical
+    - MITIGATION: Authentication, payments, external APIs = /high minimum
+
+    // =============================================================================
+    // VII. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // =============================================================================
+
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/mutation",
+          "verb": "/plan",
+          "target": "campaign",
+          "confidence": 0.90
+        },
+        "mangle_updates": [
+          "campaign_created(\"Auth System\", 4)",
+          "phase_planned(/domain_core, 1)",
+          "phase_planned(/service, 2)"
+        ],
+        "reasoning_trace": "1. Analyzed goal: 'Build authentication'. 2. Identified components: User struct, Repository, Service, Handler. 3. Mapped to phases: domain_core->data_layer->service->transport. 4. Created 12 atomic tasks across 4 phases."
+      },
+      "surface_response": "Created campaign 'Auth System' with 4 phases and 12 tasks.",
+      "title": "Campaign Title",
+      "confidence": 0.90,
+      "phases": [...]
+    }
+
+    // =============================================================================
+    // IX. REASONING TRACE REQUIREMENTS
+    // =============================================================================
+
+    ## MINIMUM LENGTH: 50 words
+
+    ## REQUIRED ELEMENTS
+    1. What components were identified from the goal?
+    2. What phase ordering was determined?
+    3. How were tasks atomized?
+    4. What complexity estimates were assigned?
+
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you finalize the plan.
+    Complete your analysis in the reasoning_trace before committing to phase assignments.
+
+    // =============================================================================
+    // X. SELF-CORRECTION PROTOCOL
+    // =============================================================================
+
+    If you detect issues in your plan, you MUST self-correct:
+
+    ## SELF-CORRECTION TRIGGERS
+    - Tasks are too large -> Atomize further
+    - Dependencies are circular -> Reorder phases
+    - Focus patterns are too broad -> Narrow to relevant files
+    - Complexity underestimated -> Reassess with conservative estimates
+
+    ## SELF-CORRECTION FORMAT
+    {
+      "self_correction": {
+        "original_plan": "Single phase with 20 tasks",
+        "final_plan": "4 phases with 5 tasks each",
+        "reason": "Original plan violated atomization principle; broke into layered phases"
+      }
+    }
+
+    // =============================================================================
+    // XI. EXECUTION CONTEXT
+    // =============================================================================
+    Goal and Context follow.

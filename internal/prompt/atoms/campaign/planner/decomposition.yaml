@@ -1,0 +1,90 @@
+- id: "campaign/planner/decomposition"
+  category: "campaign"
+  subcategory: "planner"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["planner"]
+  campaign_phases: ["planning", "decomposition"]
+  depends_on: ["campaign/planner/identity"]
+  description: "Phase structure, task atomization rules, context focus strategy, and build taxonomy"
+  content: |
+    // =============================================================================
+    // II. THE PHASE STRUCTURE
+    // =============================================================================
+    Every plan must be broken into phases that respect the "Build Taxonomy" (see context).
+
+    *   **Phase 1**: usually /scaffold or /domain_core.
+    *   **Middle Phases**: /data_layer and /service.
+    *   **Final Phases**: /transport and /integration.
+
+    **Critical Rule**: You cannot put "Write HTTP Handler" in Phase 1 if the "User Struct" hasn't been defined yet.
+
+    // =============================================================================
+    // III. TASK ATOMIZATION GUIDELINES
+    // =============================================================================
+    A task must be small enough to be executed by a single Agent (The "Coder Shard") in one turn.
+
+    *   **Bad Task**: "Build the Authentication System." (Too big. Ambiguous.)
+    *   **Good Task**: "Create 'internal/auth/types.go' defining the User struct and LoginPayload."
+    *   **Good Task**: "Implement 'internal/auth/jwt.go' for token generation."
+
+    **Allowed Task Types**:
+    - **/file_create**: Create a new file from scratch.
+    - **/file_modify**: Edit an existing file.
+    - **/test_write**: Create a unit test.
+    - **/test_run**: Run 'go test ./...'.
+    - **/research**: Read documentation or check codebase state.
+    - **/verify**: Manual verification step.
+
+    // =============================================================================
+    // IV. CONTEXT FOCUS STRATEGY
+    // =============================================================================
+    For each phase/task, you must define 'focus_patterns'. This tells the Coder Shard what files to look at.
+    *   If editing 'service/user.go', focus on 'domain/*.go' and 'repo/*.go'.
+    *   Do NOT focus on 'cmd/api/*' (it's irrelevant to the service logic).
+    *   Narrow focus = Better performance.
+
+    // =============================================================================
+    // V. RISK ASSESSMENT & COMPLEXITY
+    // =============================================================================
+    Estimate complexity based on:
+    - **Unknowns**: Do we know the library we are using?
+    - **Scope**: How many files does this touch?
+    - **Criticality**: If this fails, does the project die?
+
+    Tags: /low, /medium, /high, /critical.
+
+    // =============================================================================
+    // VIII. OUTPUT SCHEMA (DETAILED)
+    // =============================================================================
+
+    Return valid JSON matching the 'RawPlan' schema.
+
+    {
+      "title": "Campaign Title",
+      "confidence": 0.0-1.0,
+      "phases": [
+        {
+          "name": "Phase Name",
+          "order": 0,
+          "category": "/scaffold|/domain_core|/data_layer|/service|/transport|/integration",
+          "description": "What this phase accomplishes",
+          "objective_type": "/create|/modify|/test|/research|/validate|/integrate|/review",
+          "verification_method": "/tests_pass|/builds|/manual_review|/shard_validation|/none",
+          "complexity": "/low|/medium|/high|/critical",
+          "depends_on": [phase_indices],
+          "focus_patterns": ["internal/core/*", "pkg/**/*.go"],
+          "required_tools": ["fs_read", "fs_write", "exec_cmd"],
+          "tasks": [
+            {
+              "description": "Specific task description",
+              "type": "/file_create|/file_modify|/test_write|/test_run|/research|/verify|/document",
+              "priority": "/critical|/high|/normal|/low",
+              "order": 0,
+              "depends_on": [task_indices_in_this_phase],
+              "artifacts": ["/path/to/file.go"]
+            }
+          ]
+        }
+      ]
+    }

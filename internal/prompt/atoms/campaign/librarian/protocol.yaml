@@ -1,0 +1,99 @@
+- id: "campaign/librarian/protocol"
+  category: "campaign"
+  subcategory: "librarian"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["librarian"]
+  campaign_phases: ["taxonomy"]
+  operational_modes: ["classification"]
+  description: "Cognitive protocol - the classification algorithm decision tree for analyzing imports, structure, usage, and filenames"
+  content: |
+    // =============================================================================
+    // III. COGNITIVE PROTOCOL (THE CLASSIFICATION ALGORITHM)
+    // =============================================================================
+    You must follow this decision tree exactly:
+
+    1.  **Analyze Imports**:
+        *   Does it import 'net/http'? -> Extremely likely **/transport** (or /integration).
+        *   Does it import 'database/sql'? -> Extremely likely **/data_layer** (or /integration).
+        *   Does it import nothing but 'time' and 'strings'? -> Likely **/domain_core** or **/service**.
+
+    2.  **Analyze Structure**:
+        *   Is it an 'interface' definition? -> **/domain_core**.
+        *   Is it a struct with tags like 'json:"..."' only? -> **/transport** (DTO) or **/domain_core**.
+        *   Is it a struct with tags like 'db:"..."'? -> **/data_layer**.
+
+    3.  **Analyze Usage**:
+        *   Does it call 'Rows.Scan'? -> **/data_layer**.
+        *   Does it call 'json.NewEncoder'? -> **/transport**.
+        *   Does it enforce business rules (ifs and loops on data)? -> **/service**.
+
+    4.  **Analyze Filename**:
+        *   '*_test.go': Classify based on the file being tested, but categorize as the same layer.
+        *   'Dockerfile': **/scaffold**.
+        *   'main.go': **/integration**.
+
+    // =============================================================================
+    // VIII. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // =============================================================================
+
+    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/query",
+          "verb": "/classify",
+          "target": "path/to/file.go",
+          "confidence": 0.95
+        },
+        "mangle_updates": [
+          "file_layer(\"path/to/file.go\", /service)",
+          "classification_confidence(\"path/to/file.go\", 0.95)"
+        ],
+        "reasoning_trace": "1. Analyzed imports: no http, no sql, imports domain package. 2. Analyzed structure: defines Service struct. 3. Analyzed methods: business logic orchestration. 4. Classification: /service with high confidence."
+      },
+      "surface_response": "Classified as /service layer based on business logic orchestration patterns.",
+      "layer": "/service",
+      "confidence": 0.95,
+      "reasoning": "File defines 'UserService' struct with 'Register' method. Imports 'domain' package but no 'http' or 'sql' packages. Contains business validation logic."
+    }
+
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you finalize the classification.
+    Complete your analysis in the reasoning_trace before committing to a layer.
+
+    // =============================================================================
+    // IX. SELF-CORRECTION PROTOCOL
+    // =============================================================================
+
+    If you detect uncertainty in your classification, you MUST self-correct:
+
+    ## SELF-CORRECTION TRIGGERS
+    - Imports suggest multiple layers (e.g., both http and sql) -> Likely /integration
+    - File has no clear layer indicators -> Request more context or classify as /scaffold
+    - Classification confidence < 0.70 -> Include uncertainty in response
+
+    ## SELF-CORRECTION FORMAT
+    {
+      "self_correction": {
+        "original_classification": "/transport",
+        "final_classification": "/integration",
+        "reason": "Found both HTTP handlers and database initialization in same file"
+      }
+    }
+
+    // =============================================================================
+    // X. REASONING TRACE REQUIREMENTS
+    // =============================================================================
+
+    Your reasoning_trace must demonstrate systematic analysis:
+
+    ## MINIMUM LENGTH: 50 words
+
+    ## REQUIRED ELEMENTS
+    1. What imports were analyzed?
+    2. What structural patterns were found?
+    3. What decision points led to the classification?
+    4. What confidence level and why?

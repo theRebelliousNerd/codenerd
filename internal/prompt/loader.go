@@ -656,3 +656,308 @@ func toJSONString(data []byte) interface{} {
 	}
 	return string(data)
 }
+
+// ============================================================================
+// EMBEDDED TO SQLITE SYNC
+// ============================================================================
+
+// SyncEmbeddedToSQLite copies embedded atoms to SQLite with embedding generation.
+// This enables vector search over baked-in atoms.
+// It uses content hashing to avoid re-embedding unchanged atoms.
+//
+// The function is idempotent: safe to call multiple times. Only atoms with
+// changed content (detected via hash) will have their embeddings regenerated.
+//
+// Per System 2 Architecture guidelines, embeddings are generated from the
+// atom's description field, not its content. If description is empty,
+// the first 500 characters of content are used as a fallback.
+func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.EmbeddingEngine) error {
+	timer := logging.StartTimer(logging.CategoryStore, "SyncEmbeddedToSQLite")
+	defer timer.Stop()
+
+	if engine == nil {
+		return fmt.Errorf("embedding engine is required for SyncEmbeddedToSQLite")
+	}
+
+	logging.Get(logging.CategoryStore).Info("Syncing embedded corpus to SQLite: %s", dbPath)
+
+	// Load embedded corpus
+	corpus, err := LoadEmbeddedCorpus()
+	if err != nil {
+		return fmt.Errorf("failed to load embedded corpus: %w", err)
+	}
+
+	atoms := corpus.All()
+	if len(atoms) == 0 {
+		logging.Get(logging.CategoryStore).Info("No embedded atoms to sync")
+		return nil
+	}
+
+	logging.Get(logging.CategoryStore).Info("Loaded %d atoms from embedded corpus", len(atoms))
+
+	// Ensure parent directory exists
+	dbDir := filepath.Dir(dbPath)
+	if dbDir != "" && dbDir != "." {
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return fmt.Errorf("failed to create database directory %s: %w", dbDir, err)
+		}
+	}
+
+	// Open/create SQLite database
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
+	}
+	defer db.Close()
+
+	// Ensure schema exists
+	loader := NewAtomLoader(engine)
+	if err := loader.EnsureSchema(ctx, db); err != nil {
+		return fmt.Errorf("failed to ensure schema: %w", err)
+	}
+
+	// Build a map of existing content hashes to avoid re-embedding unchanged atoms
+	existingHashes, err := loadExistingHashes(ctx, db)
+	if err != nil {
+		return fmt.Errorf("failed to load existing hashes: %w", err)
+	}
+
+	logging.Get(logging.CategoryStore).Debug("Found %d existing atoms in database", len(existingHashes))
+
+	// Partition atoms into unchanged (skip) and changed (need embedding)
+	var atomsToEmbed []*PromptAtom
+	var atomsUnchanged []*PromptAtom
+
+	for _, atom := range atoms {
+		existingHash, exists := existingHashes[atom.ID]
+		if exists && existingHash == atom.ContentHash {
+			atomsUnchanged = append(atomsUnchanged, atom)
+		} else {
+			atomsToEmbed = append(atomsToEmbed, atom)
+		}
+	}
+
+	logging.Get(logging.CategoryStore).Info("Sync plan: %d unchanged (skip), %d new/changed (embed)",
+		len(atomsUnchanged), len(atomsToEmbed))
+
+	if len(atomsToEmbed) == 0 {
+		logging.Get(logging.CategoryStore).Info("All atoms up-to-date, nothing to sync")
+		return nil
+	}
+
+	// Prepare texts for batch embedding
+	// Per System 2 Architecture: embed DESCRIPTION, not content
+	textsToEmbed := make([]string, len(atomsToEmbed))
+	for i, atom := range atomsToEmbed {
+		textsToEmbed[i] = getTextForEmbedding(atom)
+	}
+
+	// Generate embeddings in batch for efficiency
+	logging.Get(logging.CategoryStore).Info("Generating embeddings for %d atoms using %s",
+		len(atomsToEmbed), engine.Name())
+
+	embeddings, err := engine.EmbedBatch(ctx, textsToEmbed)
+	if err != nil {
+		return fmt.Errorf("failed to generate batch embeddings: %w", err)
+	}
+
+	if len(embeddings) != len(atomsToEmbed) {
+		return fmt.Errorf("embedding count mismatch: got %d, expected %d", len(embeddings), len(atomsToEmbed))
+	}
+
+	// Store atoms with embeddings in a transaction for atomicity
+	if err := storeAtomsWithEmbeddings(ctx, db, atomsToEmbed, embeddings); err != nil {
+		return fmt.Errorf("failed to store atoms: %w", err)
+	}
+
+	logging.Get(logging.CategoryStore).Info("Successfully synced %d atoms to %s", len(atomsToEmbed), dbPath)
+	return nil
+}
+
+// loadExistingHashes retrieves atom_id -> content_hash mapping from the database.
+func loadExistingHashes(ctx context.Context, db *sql.DB) (map[string]string, error) {
+	hashes := make(map[string]string)
+
+	rows, err := db.QueryContext(ctx, "SELECT atom_id, content_hash FROM prompt_atoms")
+	if err != nil {
+		// Table might not exist yet - that's fine
+		return hashes, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var atomID, contentHash string
+		if err := rows.Scan(&atomID, &contentHash); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		hashes[atomID] = contentHash
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return hashes, nil
+}
+
+// getTextForEmbedding returns the text to embed for an atom.
+// Per System 2 Architecture: use description if available, otherwise first 500 chars of content.
+func getTextForEmbedding(atom *PromptAtom) string {
+	if atom.Description != "" {
+		return atom.Description
+	}
+
+	// Fallback: use first 500 characters of content
+	content := atom.Content
+	if len(content) > 500 {
+		content = content[:500]
+	}
+	return content
+}
+
+// storeAtomsWithEmbeddings stores atoms and their embeddings in a single transaction.
+func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAtom, embeddings [][]float32) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare statements for efficiency
+	atomStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO prompt_atoms (
+			atom_id, version, content, token_count, content_hash,
+			description, content_concise, content_min,
+			category, subcategory,
+			priority, is_mandatory, is_exclusive,
+			embedding, embedding_task, source_file
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(atom_id) DO UPDATE SET
+			version = excluded.version,
+			content = excluded.content,
+			token_count = excluded.token_count,
+			content_hash = excluded.content_hash,
+			description = excluded.description,
+			content_concise = excluded.content_concise,
+			content_min = excluded.content_min,
+			category = excluded.category,
+			subcategory = excluded.subcategory,
+			priority = excluded.priority,
+			is_mandatory = excluded.is_mandatory,
+			is_exclusive = excluded.is_exclusive,
+			embedding = excluded.embedding,
+			embedding_task = excluded.embedding_task,
+			source_file = excluded.source_file`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare atom statement: %w", err)
+	}
+	defer atomStmt.Close()
+
+	deleteTagsStmt, err := tx.PrepareContext(ctx, "DELETE FROM atom_context_tags WHERE atom_id = ?")
+	if err != nil {
+		return fmt.Errorf("failed to prepare delete tags statement: %w", err)
+	}
+	defer deleteTagsStmt.Close()
+
+	insertTagStmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert tag statement: %w", err)
+	}
+	defer insertTagStmt.Close()
+
+	// Process each atom
+	for i, atom := range atoms {
+		embeddingBlob := encodeFloat32Slice(embeddings[i])
+
+		// Insert/update atom
+		_, err := atomStmt.ExecContext(ctx,
+			atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
+			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
+			string(atom.Category), nullableString(atom.Subcategory),
+			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+			embeddingBlob, "RETRIEVAL_DOCUMENT", "embedded",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert atom %s: %w", atom.ID, err)
+		}
+
+		// Clear existing tags
+		if _, err := deleteTagsStmt.ExecContext(ctx, atom.ID); err != nil {
+			return fmt.Errorf("failed to clear tags for atom %s: %w", atom.ID, err)
+		}
+
+		// Insert context tags
+		if err := insertContextTags(ctx, insertTagStmt, atom); err != nil {
+			return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+		}
+
+		// Log progress every 50 atoms
+		if (i+1)%50 == 0 || i == len(atoms)-1 {
+			logging.Get(logging.CategoryStore).Debug("Stored %d/%d atoms", i+1, len(atoms))
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// insertContextTags inserts all context tags for an atom.
+func insertContextTags(ctx context.Context, stmt *sql.Stmt, atom *PromptAtom) error {
+	// Helper to insert tags for a dimension
+	insertDim := func(dimension string, values []string) error {
+		for _, tag := range values {
+			if _, err := stmt.ExecContext(ctx, atom.ID, dimension, tag); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Insert all dimension tags
+	if err := insertDim("mode", atom.OperationalModes); err != nil {
+		return err
+	}
+	if err := insertDim("phase", atom.CampaignPhases); err != nil {
+		return err
+	}
+	if err := insertDim("layer", atom.BuildLayers); err != nil {
+		return err
+	}
+	if err := insertDim("init_phase", atom.InitPhases); err != nil {
+		return err
+	}
+	if err := insertDim("northstar_phase", atom.NorthstarPhases); err != nil {
+		return err
+	}
+	if err := insertDim("ouroboros_stage", atom.OuroborosStages); err != nil {
+		return err
+	}
+	if err := insertDim("intent", atom.IntentVerbs); err != nil {
+		return err
+	}
+	if err := insertDim("shard", atom.ShardTypes); err != nil {
+		return err
+	}
+	if err := insertDim("lang", atom.Languages); err != nil {
+		return err
+	}
+	if err := insertDim("framework", atom.Frameworks); err != nil {
+		return err
+	}
+	if err := insertDim("state", atom.WorldStates); err != nil {
+		return err
+	}
+
+	// Insert dependency and conflict tags
+	if err := insertDim("depends_on", atom.DependsOn); err != nil {
+		return err
+	}
+	if err := insertDim("conflicts_with", atom.ConflictsWith); err != nil {
+		return err
+	}
+
+	return nil
+}

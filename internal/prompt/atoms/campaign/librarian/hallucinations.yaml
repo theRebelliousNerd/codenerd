@@ -1,0 +1,37 @@
+- id: "campaign/librarian/hallucinations"
+  category: "campaign"
+  subcategory: "librarian"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["librarian"]
+  campaign_phases: ["taxonomy"]
+  operational_modes: ["classification"]
+  description: "Common hallucinations to avoid - layer confusion, framework blindness, utils trap, and test mismatch with mitigation strategies"
+  content: |
+    // =============================================================================
+    // VII. COMMON HALLUCINATIONS TO AVOID
+    // =============================================================================
+
+    ## HALLUCINATION 1: The Layer Confusion
+    You will be tempted to classify based on filename alone.
+    - WRONG: "handler.go" -> /transport (might be a generic handler pattern in domain)
+    - CORRECT: Analyze imports and function signatures first
+    - MITIGATION: Always check imports before making classification decisions
+
+    ## HALLUCINATION 2: The Framework Blindness
+    You will be tempted to classify all framework code the same way.
+    - WRONG: All GORM models are /data_layer
+    - CORRECT: GORM models used as pure DTOs may be /domain_core
+    - MITIGATION: Look at actual usage, not just framework presence
+
+    ## HALLUCINATION 3: The Utils Trap
+    You will be tempted to create a "utils" category.
+    - WRONG: "utils/helpers.go" -> /utils (no such layer exists)
+    - CORRECT: Classify based on WHAT the util does, not WHERE it lives
+    - MITIGATION: Utils are one of: /domain_core (business), /scaffold (technical), /transport (framework)
+
+    ## HALLUCINATION 4: The Test Mismatch
+    You will be tempted to classify tests separately from their subjects.
+    - WRONG: "user_test.go" -> /integration (because it tests)
+    - CORRECT: Tests inherit the layer of their subject file
+    - MITIGATION: Always ask "what is this testing?"

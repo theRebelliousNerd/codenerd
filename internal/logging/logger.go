@@ -41,15 +41,16 @@ const (
 	CategorySystemShards Category = "system_shards" // System shards (legislator, etc.)
 
 	// Advanced system categories
-	CategoryDream      Category = "dream"      // Dream state / what-if simulations
+	CategoryDream       Category = "dream"       // Dream state / what-if simulations
 	CategoryAutopoiesis Category = "autopoiesis" // Self-learning, Ouroboros
-	CategoryCampaign   Category = "campaign"   // Campaign orchestration
-	CategoryContext    Category = "context"    // Context compression
-	CategoryWorld      Category = "world"      // World scanner (filesystem, AST)
-	CategoryEmbedding  Category = "embedding"  // Embedding engine
-	CategoryStore      Category = "store"      // Store operations (RAM, Vector, Graph, Cold)
-	CategoryBrowser    Category = "browser"    // Browser automation, DOM events
-	CategoryTactile    Category = "tactile"    // Tactile executor, command execution
+	CategoryCampaign    Category = "campaign"    // Campaign orchestration
+	CategoryContext     Category = "context"     // Context compression
+	CategoryWorld       Category = "world"       // World scanner (filesystem, AST)
+	CategoryEmbedding   Category = "embedding"   // Embedding engine
+	CategoryStore       Category = "store"       // Store operations (RAM, Vector, Graph, Cold)
+	CategoryBrowser     Category = "browser"     // Browser automation, DOM events
+	CategoryTactile     Category = "tactile"     // Tactile executor, command execution
+	CategoryJIT         Category = "jit"         // JIT Prompt Compiler operations
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
@@ -699,6 +700,26 @@ func TactileWarn(format string, args ...interface{}) {
 // TactileError logs error to the tactile category
 func TactileError(format string, args ...interface{}) {
 	Get(CategoryTactile).Error(format, args...)
+}
+
+// JIT logs to the jit category
+func JIT(format string, args ...interface{}) {
+	Get(CategoryJIT).Info(format, args...)
+}
+
+// JITDebug logs debug to the jit category
+func JITDebug(format string, args ...interface{}) {
+	Get(CategoryJIT).Debug(format, args...)
+}
+
+// JITWarn logs warning to the jit category
+func JITWarn(format string, args ...interface{}) {
+	Get(CategoryJIT).Warn(format, args...)
+}
+
+// JITError logs error to the jit category
+func JITError(format string, args ...interface{}) {
+	Get(CategoryJIT).Error(format, args...)
 }
 
 // =============================================================================

@@ -1,0 +1,36 @@
+- id: "campaign/librarian/edge_cases"
+  category: "campaign"
+  subcategory: "librarian"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["librarian"]
+  campaign_phases: ["taxonomy"]
+  operational_modes: ["classification"]
+  description: "Edge case handbook and framework-specific heuristics for Gin, Echo, GORM, Cobra, middleware, utils, and config structs"
+  content: |
+    // =============================================================================
+    // IV. EDGE CASE HANDLEBOOK
+    // =============================================================================
+    *   **Middleware**: Middlewares (logging, auth) often live in **/transport** because they wrap HTTP handlers. However, if they are "Business Middleware" (e.g., "CheckUserSubscription"), they are the bridge between Transport and Service, but usually physically reside in Transport or a 'pkg/middleware' that serves Transport. Classify as **/transport**.
+    *   **Utils/Helpers**: A generic string manipulation library. If specific to domain, **/domain_core**. If generic (e.g., 'pkg/slice'), it is a "Shared Kernel" which we map to **/domain_core** for simplicity, or **/scaffold** if it's purely technical. Prefer **/domain_core** for code helpers.
+    *   **Config Structs**: The definition of 'Config' struct is **/domain_core** (or scaffold), but the loader is **/scaffold**. If ambiguous, default to **/scaffold**.
+
+    // =============================================================================
+    // V. FRAMEWORK SPECIFIC HEURISTICS (Go Ecosystem)
+    // =============================================================================
+
+    ### GIN WEB FRAMEWORK
+    - 'gin.Context' usage is a distinct marker for **/transport**.
+    - 'gin.H{}' return values -> **/transport**.
+
+    ### ECHO FRAMEWORK
+    - 'echo.Context' -> **/transport**.
+
+    ### GORM (ORM)
+    - Structs embedded with 'gorm.Model' -> We might be tempted to call them "Domain", but strictly speaking, they are coupled to persistence.
+    - If the project clearly uses "Anemic Domain Model" (structs with DB tags used everywhere), classify these as **/data_layer** if they contain heavy ORM configs, or **/domain_core** if they are simple POJOs that happen to have tags.
+    - Prefer **/data_layer** if they are adjacent to migration scripts.
+
+    ### COBRA (CLI)
+    - 'cobra.Command' -> **/transport** (Command Line Interface is a transport).
+    - 'cmd/root.go' -> **/transport** or **/integration**.

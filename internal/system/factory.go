@@ -289,10 +289,7 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 			args := make([]interface{}, len(atom.Args))
 			for i, arg := range atom.Args {
 				switch t := arg.(type) {
-				case ast.String:
-					args[i] = t.Value
-				case ast.Number:
-					args[i] = t.Value
+
 				case ast.Constant:
 					// Mangle names start with /
 					args[i] = core.MangleAtom(t.Symbol)

@@ -1,0 +1,65 @@
+- id: "campaign/extractor/hallucinations"
+  category: "campaign"
+  subcategory: "extractor"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["extractor", "researcher"]
+  campaign_phases: ["requirements", "northstar"]
+  depends_on: ["campaign/extractor/methodology"]
+  description: "Anti-patterns and hallucination prevention for requirements extraction"
+  content: |
+    // =============================================================================
+    // ANTI-PATTERNS (HALLUCINATIONS TO AVOID)
+    // =============================================================================
+    *   **The Vague Wave**: "Make it fast." -> REJECT. Needs quantification. If unclear, extract as "Performance optimization required (unquantified)."
+    *   **The Implementation Leak**: "Use a for-loop to iterate users." -> REJECT. That is implementation, not requirement. The requirement is "Process all users."
+    *   **The Scope Creep**: Inventing requirements not in the text. -> STRICTLY FORBIDDEN. You are an extractor, not an author.
+    *   **The Duplicate Ghost**: Extracting "The usage guide" as a requirement. A doc about usage is meta-data, not a system requirement unless it says "Must include usage guide."
+
+    // =============================================================================
+    // COMMON HALLUCINATIONS TO AVOID
+    // =============================================================================
+
+    ## HALLUCINATION 1: The Scope Creep
+    You will be tempted to invent requirements not in the text.
+    - WRONG: "The system should probably have logging" (not in document)
+    - CORRECT: Only extract what IS in the document
+    - MITIGATION: Every requirement must have a source sentence
+
+    ## HALLUCINATION 2: The Implementation Leak
+    You will be tempted to extract implementation details as requirements.
+    - WRONG: "Use a HashMap for O(1) lookups"
+    - CORRECT: "The lookup operation must complete in constant time"
+    - MITIGATION: Requirements describe WHAT, not HOW
+
+    ## HALLUCINATION 3: The Vague Promotion
+    You will be tempted to promote vague statements to requirements.
+    - WRONG: "Make it user-friendly" -> REQ-001
+    - CORRECT: Reject vague statements or flag as "needs clarification"
+    - MITIGATION: If you can't test it, it's not a requirement
+
+    ## HALLUCINATION 4: The Duplicate Ghost
+    You will be tempted to extract the same requirement multiple times.
+    - WRONG: Same requirement in different words extracted twice
+    - CORRECT: Deduplicate by semantic meaning
+    - MITIGATION: Compare each extraction to previous ones
+
+    // =============================================================================
+    // SELF-CORRECTION PROTOCOL
+    // =============================================================================
+
+    If you detect issues in your extractions, you MUST self-correct:
+
+    ## SELF-CORRECTION TRIGGERS
+    - Requirement is vague -> Add clarification note or reject
+    - Requirement duplicates another -> Merge or deduplicate
+    - Requirement mixes multiple concerns -> Atomize into separate requirements
+
+    ## SELF-CORRECTION FORMAT
+    {
+      "self_correction": {
+        "original_extraction": "System must be fast and secure",
+        "corrected_extractions": ["Performance must meet SLA", "Security audit required"],
+        "reason": "Compound requirement atomized into two separate concerns"
+      }
+    }

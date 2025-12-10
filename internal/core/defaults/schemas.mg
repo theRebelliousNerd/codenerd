@@ -2785,3 +2785,85 @@ Decl category_order(Category, OrderNum).
 # Budget allocation percentage per category
 Decl category_budget(Category, Percent).
 
+# -----------------------------------------------------------------------------
+# 45.7 Additional JIT Compiler Schemas (for jit_compiler.mg compatibility)
+# -----------------------------------------------------------------------------
+
+# atom_tag(AtomID, Dimension, Tag)
+# Alternative tagging predicate used by jit_compiler.mg
+# Functionally equivalent to atom_selector but with /mode, /phase, /layer dimensions
+# Dimension: /mode, /phase, /layer, /shard, /lang, /framework, /intent, /state, /tag
+# Tag: Context value (e.g., /active, /coder, /go, /debug_only, /dream_only)
+Decl atom_tag(AtomID, Dimension, Tag).
+
+# vector_hit(AtomID, Score)
+# Vector search results injected by Go runtime before compilation
+# AtomID: Matched atom identifier
+# Score: Cosine similarity score (0.0-1.0)
+Decl vector_hit(AtomID, Score).
+
+# current_context(Dimension, Tag)
+# Runtime context state injected by Go (alternative to compile_context)
+# Used by jit_compiler.mg for context matching
+Decl current_context(Dimension, Tag).
+
+# is_mandatory(AtomID)
+# Flag indicating atom must be selected if context matches
+Decl is_mandatory(AtomID).
+
+# atom_requires(AtomID, DependencyID)
+# Hard dependency: AtomID requires DependencyID to be selected
+Decl atom_requires(AtomID, DependencyID).
+
+# atom_conflicts(AtomA, AtomB)
+# Mutual exclusion: AtomA and AtomB cannot both be selected
+Decl atom_conflicts(AtomA, AtomB).
+
+# atom_priority(AtomID, Priority)
+# Base priority score for atom ordering
+Decl atom_priority(AtomID, Priority).
+
+# -----------------------------------------------------------------------------
+# 45.8 Section 46 Selection Rule Schemas (IDB - computed by policy.mg Section 46)
+# -----------------------------------------------------------------------------
+
+# skeleton_category(Category)
+# Categories that form the mandatory skeleton of every prompt
+Decl skeleton_category(Category).
+
+# mandatory_atom(AtomID)
+# Atom must be included in prompt (Skeleton layer)
+Decl mandatory_atom(AtomID).
+
+# base_prohibited(AtomID)
+# Base prohibition from context rules (Stratum 0, no dependency on mandatory)
+Decl base_prohibited(AtomID).
+
+# prohibited_atom(AtomID)
+# Atom is blocked by firewall rules
+Decl prohibited_atom(AtomID).
+
+# candidate_atom(AtomID)
+# Atom is a valid candidate for selection (Flesh layer)
+Decl candidate_atom(AtomID).
+
+# conflict_loser(AtomID)
+# Helper: atom loses in conflict resolution (lower priority in conflict pair)
+Decl conflict_loser(AtomID).
+
+# selected_atom(AtomID)
+# Final selection: mandatory OR valid candidate (not a conflict loser)
+Decl selected_atom(AtomID).
+
+# atom_context_boost(AtomID, BoostedPriority)
+# Priority boost based on context matching
+Decl atom_context_boost(AtomID, BoostedPriority).
+
+# has_skeleton_category(Category)
+# Helper: true if at least one atom from this skeleton category is selected
+Decl has_skeleton_category(Category).
+
+# missing_skeleton_category(Category)
+# Helper: skeleton category with no selected atoms (compilation error)
+Decl missing_skeleton_category(Category).
+
