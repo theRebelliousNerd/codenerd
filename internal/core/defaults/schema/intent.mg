@@ -2342,17 +2342,19 @@ intent_category("Update the API while keeping backwards compatibility.", /mutati
 # =============================================================================
 
 # Check if input contains a multi-step keyword
+# NOTE: fn:string_contains is not a Mangle built-in. These rules need to be
+# implemented as virtual predicates in Go that perform string matching.
 Decl is_multistep_input(Input).
-is_multistep_input(Input) :-
-    multistep_keyword(Pattern, Keyword),
-    fn:contains(Input, Keyword).
+# is_multistep_input(Input) :-
+#     multistep_keyword(Pattern, Keyword),
+#     fn:string_contains(Input, Keyword).
 
 # Get the best matching pattern for input
 Decl best_multistep_pattern(Input, Pattern, Priority).
-best_multistep_pattern(Input, Pattern, Priority) :-
-    multistep_keyword(Pattern, Keyword),
-    fn:contains(Input, Keyword),
-    multistep_pattern(Pattern, _, _, Priority).
+# best_multistep_pattern(Input, Pattern, Priority) :-
+#     multistep_keyword(Pattern, Keyword),
+#     fn:string_contains(Input, Keyword),
+#     multistep_pattern(Pattern, _, _, Priority).
 
 # Get verb pairs for a pattern
 Decl pattern_verb_pair(Pattern, Verb1, Verb2).
