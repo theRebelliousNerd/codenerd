@@ -33,6 +33,9 @@ type ReviewerConfig struct {
 	IgnorePatterns  []string // File patterns to ignore
 	MaxFileSize     int64    // Max file size to review in bytes (default: 1MB)
 	CustomRulesPath string   // Path to custom rules JSON file (default: .nerd/review-rules.json)
+
+	// Neuro-symbolic pipeline configuration
+	UseNeuroSymbolic bool // Enable neuro-symbolic pipeline (default: true for Go files)
 }
 
 // DefaultReviewerConfig returns sensible defaults for code review.
@@ -48,14 +51,16 @@ func DefaultReviewerConfig() ReviewerConfig {
 			"insecure_crypto",
 			"unsafe_deserialization",
 		},
-		MaxFindings:     100,
-		BlockOnCritical: true,
-		IncludeMetrics:  true,
-		SeverityFilter:  "info",
-		WorkingDir:      ".",
-		IgnorePatterns:  []string{"vendor/", "node_modules/", ".git/", "*.min.js"},
-		MaxFileSize:     1024 * 1024, // 1MB
-		CustomRulesPath: ".nerd/review-rules.json",
+		MaxFindings:      100,
+		BlockOnCritical:  true,
+		IncludeMetrics:   true,
+		SeverityFilter:   "info",
+		WorkingDir:       ".",
+		IgnorePatterns:   []string{"vendor/", "node_modules/", ".git/", "*.min.js"},
+		MaxFileSize:      1024 * 1024, // 1MB
+		CustomRulesPath:  ".nerd/review-rules.json",
+		UseNeuroSymbolic: true, // Enable by default for Go files
+		// NeuroSymbolicConfig will be initialized with defaults in Execute if not set
 	}
 }
 
@@ -424,9 +429,21 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 
 	// Route to appropriate handler
 	var result *ReviewResult
+	var neuroResult *NeuroSymbolicResult
+
+	// Determine if we should use the neuro-symbolic pipeline
+	useNeuroSymbolic := r.shouldUseNeuroSymbolic(parsedTask)
+
 	switch parsedTask.Action {
 	case "review":
-		result, err = r.reviewFiles(ctx, parsedTask)
+		if useNeuroSymbolic {
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			if neuroResult != nil {
+				result = neuroResult.ReviewResult
+			}
+		} else {
+			result, err = r.reviewFiles(ctx, parsedTask)
+		}
 	case "security_scan":
 		result, err = r.securityScan(ctx, parsedTask)
 	case "style_check":
@@ -434,9 +451,23 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 	case "complexity":
 		result, err = r.complexityAnalysis(ctx, parsedTask)
 	case "diff":
-		result, err = r.reviewDiff(ctx, parsedTask)
+		if useNeuroSymbolic {
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			if neuroResult != nil {
+				result = neuroResult.ReviewResult
+			}
+		} else {
+			result, err = r.reviewDiff(ctx, parsedTask)
+		}
 	default:
-		result, err = r.reviewFiles(ctx, parsedTask)
+		if useNeuroSymbolic {
+			neuroResult, err = r.executeNeuroSymbolicReview(ctx, parsedTask, DefaultNeuroSymbolicConfig())
+			if neuroResult != nil {
+				result = neuroResult.ReviewResult
+			}
+		} else {
+			result, err = r.reviewFiles(ctx, parsedTask)
+		}
 	}
 
 	if err != nil {
@@ -451,8 +482,51 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 		}
 	}
 
-	// Format output
+	// Format output - use neuro-symbolic format if available
+	if neuroResult != nil {
+		return r.formatNeuroSymbolicResult(neuroResult), nil
+	}
 	return r.formatResult(result), nil
+}
+
+// shouldUseNeuroSymbolic determines if the neuro-symbolic pipeline should be used.
+// The pipeline is enabled when:
+// 1. UseNeuroSymbolic is true in config
+// 2. At least some files are Go files (pipeline is optimized for Go)
+// 3. Kernel is available for Mangle hypothesis generation
+func (r *ReviewerShard) shouldUseNeuroSymbolic(task *ReviewerTask) bool {
+	// Check config flag
+	if !r.reviewerConfig.UseNeuroSymbolic {
+		return false
+	}
+
+	// Check if kernel is available (required for hypothesis generation)
+	if r.kernel == nil {
+		logging.ReviewerDebug("Neuro-symbolic disabled: no kernel available")
+		return false
+	}
+
+	// Check if any Go files are in the task
+	hasGoFiles := false
+	for _, f := range task.Files {
+		if strings.HasSuffix(f, ".go") {
+			hasGoFiles = true
+			break
+		}
+	}
+
+	// For diff reviews, we'll check files after parsing
+	if task.Action == "diff" {
+		// Enable for diffs - they'll be parsed for Go files later
+		return true
+	}
+
+	if !hasGoFiles {
+		logging.ReviewerDebug("Neuro-symbolic disabled: no Go files in task")
+		return false
+	}
+
+	return true
 }
 
 // =============================================================================
@@ -1274,4 +1348,481 @@ func toStartInt(v interface{}) int {
 		return int(f)
 	}
 	return 0
+}
+
+// =============================================================================
+// NEURO-SYMBOLIC VERIFICATION PIPELINE
+// =============================================================================
+// Implements the 7-step beyond-SOTA review pipeline:
+// 1. Pre-flight check (go build, go vet)
+// 2. World update (parse diff, assert facts)
+// 3. Hypothesis generation (Mangle rules)
+// 4. Impact-aware context (bounded 3-hop)
+// 5. Neuro-symbolic verification (LLM verifies hypotheses)
+// 6. Autopoiesis (learn from dismissals)
+// 7. Findings output (persist and format)
+
+// NeuroSymbolicConfig holds configuration for the neuro-symbolic pipeline.
+type NeuroSymbolicConfig struct {
+	EnablePreFlight     bool    // Run go build/vet before review (default: true)
+	EnableImpactContext bool    // Build impact-aware context (default: true)
+	MaxHypotheses       int     // Maximum hypotheses to verify (default: 50)
+	MinConfidence       float64 // Minimum hypothesis confidence to consider (default: 0.3)
+	ImpactDepthLimit    int     // Maximum hops for impact analysis (default: 3)
+	BatchSize           int     // Hypotheses per LLM call (default: 10)
+}
+
+// DefaultNeuroSymbolicConfig returns sensible defaults for the pipeline.
+func DefaultNeuroSymbolicConfig() NeuroSymbolicConfig {
+	return NeuroSymbolicConfig{
+		EnablePreFlight:     true,
+		EnableImpactContext: true,
+		MaxHypotheses:       50,
+		MinConfidence:       0.3,
+		ImpactDepthLimit:    3,
+		BatchSize:           10,
+	}
+}
+
+// NeuroSymbolicResult extends ReviewResult with pipeline-specific data.
+type NeuroSymbolicResult struct {
+	*ReviewResult
+
+	// Pipeline metadata
+	PreFlightPassed    bool           `json:"preflight_passed"`
+	PreFlightDiags     []Diagnostic   `json:"preflight_diagnostics,omitempty"`
+	HypothesesTotal    int            `json:"hypotheses_total"`
+	HypothesesVerified int            `json:"hypotheses_verified"`
+	HypothesesDismissed int           `json:"hypotheses_dismissed"`
+	ImpactContext      *ImpactContext `json:"impact_context,omitempty"`
+	VerificationStats  *VerificationStats `json:"verification_stats,omitempty"`
+}
+
+// executeNeuroSymbolicReview implements the full 7-step neuro-symbolic verification pipeline.
+// This is the beyond-SOTA review flow that combines deterministic Mangle analysis with
+// LLM semantic verification.
+func (r *ReviewerShard) executeNeuroSymbolicReview(ctx context.Context, task *ReviewerTask, config NeuroSymbolicConfig) (*NeuroSymbolicResult, error) {
+	logging.Reviewer("Starting neuro-symbolic review pipeline for %d files", len(task.Files))
+	startTime := time.Now()
+
+	result := &NeuroSymbolicResult{
+		ReviewResult: &ReviewResult{
+			Files:    task.Files,
+			Findings: make([]ReviewFinding, 0),
+			Severity: ReviewSeverityClean,
+		},
+		PreFlightPassed: true,
+	}
+
+	// Collect files for review (expand diff if needed)
+	filesToReview := task.Files
+	var diffContent string
+	var modifiedFuncs []ModifiedFunction
+
+	// If this is a diff review, get the diff content and extract modified functions
+	if task.Action == "diff" && task.DiffRef != "" {
+		var err error
+		diffContent, filesToReview, modifiedFuncs, err = r.extractDiffInfo(ctx, task.DiffRef)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract diff info: %w", err)
+		}
+		result.Files = filesToReview
+		logging.ReviewerDebug("Diff analysis: %d files, %d modified functions", len(filesToReview), len(modifiedFuncs))
+	}
+
+	// ==========================================================================
+	// STEP 1: PRE-FLIGHT CHECK
+	// ==========================================================================
+	if config.EnablePreFlight && len(filesToReview) > 0 {
+		logging.Reviewer("Step 1/7: Running pre-flight checks")
+
+		failureMsg, proceed := r.RunPreFlightAndProceed(ctx, filesToReview)
+		if !proceed {
+			// Pre-flight failed - abort with diagnostics
+			result.PreFlightPassed = false
+			result.AnalysisReport = failureMsg
+			result.Severity = ReviewSeverityCritical
+			result.BlockCommit = true
+			result.Summary = "Pre-flight check failed: code does not compile"
+			result.Duration = time.Since(startTime)
+			logging.Reviewer("Pre-flight FAILED - aborting review")
+			return result, nil
+		}
+		logging.ReviewerDebug("Pre-flight passed")
+	}
+
+	// ==========================================================================
+	// STEP 2: WORLD UPDATE - Parse diff and assert facts
+	// ==========================================================================
+	logging.Reviewer("Step 2/7: Updating world model with diff facts")
+
+	// Read file contents for all files
+	fileContents := make(map[string]string)
+	for _, filePath := range filesToReview {
+		if r.shouldIgnore(filePath) {
+			continue
+		}
+		content, err := r.readFile(ctx, filePath)
+		if err != nil {
+			logging.ReviewerDebug("Could not read %s: %v", filePath, err)
+			continue
+		}
+		fileContents[filePath] = content
+
+		// Assert file facts for Mangle rules
+		r.assertFileFacts(filePath)
+	}
+
+	// Parse modified functions from diff if available
+	if diffContent != "" && len(modifiedFuncs) == 0 {
+		modifiedFuncs = ParseModifiedFunctionsFromDiff(diffContent)
+	}
+
+	// Assert modified function facts for impact analysis
+	if err := r.assertModifiedFunctionFacts(modifiedFuncs, fileContents); err != nil {
+		logging.ReviewerDebug("Failed to assert modified function facts: %v", err)
+	}
+
+	// ==========================================================================
+	// STEP 3: HYPOTHESIS GENERATION - Query Mangle for potential issues
+	// ==========================================================================
+	logging.Reviewer("Step 3/7: Generating hypotheses from Mangle rules")
+
+	// Load suppressions from learned.mg equivalent (LearningStore)
+	if err := r.LoadSuppressions(); err != nil {
+		logging.ReviewerDebug("Failed to load suppressions: %v", err)
+	}
+
+	// Generate hypotheses from Mangle
+	hypotheses, err := r.GenerateHypotheses(ctx)
+	if err != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Hypothesis generation failed: %v", err)
+		hypotheses = []Hypothesis{} // Continue with empty hypotheses
+	}
+
+	result.HypothesesTotal = len(hypotheses)
+	logging.ReviewerDebug("Generated %d hypotheses", len(hypotheses))
+
+	// Filter by minimum confidence and limit count
+	hypotheses = FilterByMinConfidence(hypotheses, config.MinConfidence)
+	if len(hypotheses) > config.MaxHypotheses {
+		hypotheses = TopN(hypotheses, config.MaxHypotheses)
+	}
+
+	// ==========================================================================
+	// STEP 4: IMPACT-AWARE CONTEXT - Build bounded 3-hop context
+	// ==========================================================================
+	if config.EnableImpactContext && len(modifiedFuncs) > 0 {
+		logging.Reviewer("Step 4/7: Building impact-aware context (max %d hops)", config.ImpactDepthLimit)
+
+		impactCtx, err := r.BuildImpactContext(ctx, modifiedFuncs)
+		if err != nil {
+			logging.ReviewerDebug("Impact context build failed: %v", err)
+		} else {
+			result.ImpactContext = impactCtx
+			logging.ReviewerDebug("Impact context: %s", impactCtx.FormatCompact())
+
+			// Add impacted caller bodies to file contents for verification
+			for _, caller := range impactCtx.ImpactedCallers {
+				if caller.File != "" && caller.Body != "" {
+					// Append caller context to file contents if not already present
+					if _, exists := fileContents[caller.File]; !exists {
+						fileContents[caller.File] = caller.Body
+					}
+				}
+			}
+		}
+	} else {
+		logging.Reviewer("Step 4/7: Skipping impact context (no modified functions)")
+	}
+
+	// ==========================================================================
+	// STEP 5: NEURO-SYMBOLIC VERIFICATION - LLM verifies hypotheses
+	// ==========================================================================
+	if len(hypotheses) > 0 && r.llmClient != nil {
+		logging.Reviewer("Step 5/7: Verifying %d hypotheses through LLM", len(hypotheses))
+
+		verifiedFindings, err := r.VerifyHypothesesBatch(ctx, hypotheses, fileContents, config.BatchSize)
+		if err != nil {
+			logging.Get(logging.CategoryReviewer).Warn("Hypothesis verification failed: %v", err)
+		} else {
+			// Convert verified findings to standard findings
+			for _, vf := range verifiedFindings {
+				result.Findings = append(result.Findings, vf.ReviewFinding)
+			}
+			result.HypothesesVerified = len(verifiedFindings)
+			result.HypothesesDismissed = len(hypotheses) - len(verifiedFindings)
+			logging.ReviewerDebug("Verification complete: %d confirmed, %d dismissed",
+				result.HypothesesVerified, result.HypothesesDismissed)
+		}
+
+		// Get verification stats
+		stats := r.GetVerificationStats()
+		result.VerificationStats = &stats
+	} else {
+		logging.Reviewer("Step 5/7: Skipping verification (no hypotheses or no LLM)")
+	}
+
+	// ==========================================================================
+	// STEP 6: AUTOPOIESIS - Learning happens in VerifyHypotheses via LearnFromDismissal
+	// ==========================================================================
+	logging.Reviewer("Step 6/7: Autopoiesis learning (integrated in verification)")
+	// Note: Learning from dismissals is already integrated into VerifyHypotheses
+	// The LearnFromDismissal method:
+	// - Writes suppression facts to LearningStore (equivalent to learned.mg)
+	// - Updates confidence scores with sigmoid growth
+	// - Promotes high-confidence patterns to global rules
+
+	// ==========================================================================
+	// STEP 7: FINDINGS OUTPUT - Persist and format results
+	// ==========================================================================
+	logging.Reviewer("Step 7/7: Finalizing findings and generating report")
+
+	// Persist findings to database
+	r.persistFindings(result.Findings)
+
+	// Assert findings to kernel for downstream rules
+	for _, finding := range result.Findings {
+		fact := core.Fact{
+			Predicate: "review_finding",
+			Args: []interface{}{
+				finding.File,
+				finding.Line,
+				finding.Severity,
+				finding.Category,
+				finding.RuleID,
+				finding.Message,
+			},
+		}
+		if r.kernel != nil {
+			_ = r.kernel.Assert(fact)
+		}
+	}
+
+	// Calculate metrics if enabled
+	if r.reviewerConfig.IncludeMetrics && len(filesToReview) > 0 {
+		result.Metrics = r.calculateMetrics(ctx, filesToReview)
+	}
+
+	// Generate analysis report with impact context
+	if result.ImpactContext != nil {
+		result.AnalysisReport = result.ImpactContext.FormatForPrompt()
+	}
+
+	// Calculate final severity and summary
+	result.Severity = r.calculateOverallSeverity(result.Findings)
+	result.BlockCommit = r.shouldBlockCommit(result.ReviewResult)
+	result.Duration = time.Since(startTime)
+	result.Summary = r.generateNeuroSymbolicSummary(result)
+
+	logging.Reviewer("Neuro-symbolic review complete: %d findings, severity=%s, duration=%v",
+		len(result.Findings), result.Severity, result.Duration)
+
+	return result, nil
+}
+
+// extractDiffInfo extracts diff content, affected files, and modified functions from a diff reference.
+func (r *ReviewerShard) extractDiffInfo(ctx context.Context, diffRef string) (string, []string, []ModifiedFunction, error) {
+	if r.virtualStore == nil {
+		return "", nil, nil, fmt.Errorf("virtualStore required for diff operations")
+	}
+
+	// Get diff via VirtualStore
+	action := core.Fact{
+		Predicate: "next_action",
+		Args:      []interface{}{"/git_diff", diffRef},
+	}
+	diffOutput, err := r.virtualStore.RouteAction(ctx, action)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	// Parse files from diff
+	files := r.parseDiffFiles(diffOutput)
+
+	// Parse modified functions from diff
+	modifiedFuncs := ParseModifiedFunctionsFromDiff(diffOutput)
+
+	return diffOutput, files, modifiedFuncs, nil
+}
+
+// assertModifiedFunctionFacts asserts modified_function facts to the kernel for impact analysis.
+func (r *ReviewerShard) assertModifiedFunctionFacts(modifiedFuncs []ModifiedFunction, fileContents map[string]string) error {
+	if r.kernel == nil {
+		return nil
+	}
+
+	for _, mf := range modifiedFuncs {
+		// Assert modified_function(Name, File, StartLine, EndLine)
+		fact := core.Fact{
+			Predicate: "modified_function",
+			Args:      []interface{}{mf.Name, mf.File, mf.StartLine, mf.EndLine},
+		}
+		if err := r.kernel.Assert(fact); err != nil {
+			logging.ReviewerDebug("Failed to assert modified_function: %v", err)
+		}
+
+		// If we have the file content, extract data flow facts
+		if content, ok := fileContents[mf.File]; ok {
+			r.extractAndAssertDataFlowFacts(mf, content)
+		}
+	}
+
+	return nil
+}
+
+// extractAndAssertDataFlowFacts extracts variable assignments, guards, and uses from a function body.
+func (r *ReviewerShard) extractAndAssertDataFlowFacts(mf ModifiedFunction, fileContent string) {
+	if r.kernel == nil {
+		return
+	}
+
+	// This is a simplified extraction - in production, use full AST analysis
+	// The key facts we want to assert:
+	// - assigns(Var, Type) - variable assignments
+	// - guards(Var, Kind) - nil checks, error checks
+	// - uses(Var) - variable usages
+
+	// Extract function body
+	body, err := r.extractGoFunctionBody(fileContent, mf.Name)
+	if err != nil {
+		return
+	}
+
+	// Simple pattern matching for common Go patterns
+	// Production implementation would use go/ast for accurate analysis
+
+	// Track nil checks (guards)
+	if strings.Contains(body, "!= nil") || strings.Contains(body, "== nil") {
+		fact := core.Fact{
+			Predicate: "has_nil_check",
+			Args:      []interface{}{mf.File, mf.Name},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+
+	// Track error handling
+	if strings.Contains(body, "if err != nil") {
+		fact := core.Fact{
+			Predicate: "has_error_handling",
+			Args:      []interface{}{mf.File, mf.Name},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+
+	// Track mutex usage (concurrency safety)
+	if strings.Contains(body, ".Lock()") || strings.Contains(body, ".RLock()") {
+		fact := core.Fact{
+			Predicate: "has_mutex_protection",
+			Args:      []interface{}{mf.File, mf.Name},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+
+	// Track defer patterns
+	if strings.Contains(body, "defer ") {
+		fact := core.Fact{
+			Predicate: "has_defer",
+			Args:      []interface{}{mf.File, mf.Name},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+
+	// Track context usage
+	if strings.Contains(body, "ctx.Done()") || strings.Contains(body, "context.WithCancel") {
+		fact := core.Fact{
+			Predicate: "respects_context",
+			Args:      []interface{}{mf.File, mf.Name},
+		}
+		_ = r.kernel.Assert(fact)
+	}
+}
+
+// generateNeuroSymbolicSummary creates a summary for the neuro-symbolic review.
+func (r *ReviewerShard) generateNeuroSymbolicSummary(result *NeuroSymbolicResult) string {
+	var sb strings.Builder
+
+	sb.WriteString("Neuro-symbolic review complete: ")
+
+	if !result.PreFlightPassed {
+		sb.WriteString("PRE-FLIGHT FAILED (code does not compile)")
+		return sb.String()
+	}
+
+	// Count by severity
+	criticalCount := 0
+	errorCount := 0
+	warningCount := 0
+	for _, f := range result.Findings {
+		switch f.Severity {
+		case "critical":
+			criticalCount++
+		case "error":
+			errorCount++
+		case "warning":
+			warningCount++
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("%d critical, %d errors, %d warnings", criticalCount, errorCount, warningCount))
+
+	if result.HypothesesTotal > 0 {
+		precision := float64(result.HypothesesVerified) / float64(result.HypothesesTotal) * 100
+		sb.WriteString(fmt.Sprintf(" | Verification: %d/%d hypotheses confirmed (%.0f%% precision)",
+			result.HypothesesVerified, result.HypothesesTotal, precision))
+	}
+
+	if result.ImpactContext != nil && len(result.ImpactContext.ImpactedCallers) > 0 {
+		sb.WriteString(fmt.Sprintf(" | Impact: %d callers analyzed", len(result.ImpactContext.ImpactedCallers)))
+	}
+
+	return sb.String()
+}
+
+// formatNeuroSymbolicResult formats the neuro-symbolic result for output.
+func (r *ReviewerShard) formatNeuroSymbolicResult(result *NeuroSymbolicResult) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Code Review Report (Neuro-Symbolic Pipeline)\n\n")
+
+	// Summary section
+	sb.WriteString("## Summary\n\n")
+	sb.WriteString(fmt.Sprintf("- **Files Reviewed:** %d\n", len(result.Files)))
+	sb.WriteString(fmt.Sprintf("- **Pre-flight:** %s\n", boolToStatus(result.PreFlightPassed)))
+	sb.WriteString(fmt.Sprintf("- **Overall Severity:** %s\n", result.Severity))
+	sb.WriteString(fmt.Sprintf("- **Duration:** %v\n", result.Duration))
+	sb.WriteString(fmt.Sprintf("- **Block Commit:** %v\n\n", result.BlockCommit))
+
+	// Verification stats
+	if result.HypothesesTotal > 0 {
+		sb.WriteString("### Verification Statistics\n\n")
+		sb.WriteString(fmt.Sprintf("- **Hypotheses Generated:** %d\n", result.HypothesesTotal))
+		sb.WriteString(fmt.Sprintf("- **Confirmed (True Positives):** %d\n", result.HypothesesVerified))
+		sb.WriteString(fmt.Sprintf("- **Dismissed (False Positives):** %d\n", result.HypothesesDismissed))
+		if result.HypothesesTotal > 0 {
+			precision := float64(result.HypothesesVerified) / float64(result.HypothesesTotal) * 100
+			sb.WriteString(fmt.Sprintf("- **Precision:** %.1f%%\n\n", precision))
+		}
+	}
+
+	// Impact context section
+	if result.ImpactContext != nil && len(result.ImpactContext.ImpactedCallers) > 0 {
+		sb.WriteString("### Impact Analysis\n\n")
+		sb.WriteString(fmt.Sprintf("- **Modified Functions:** %d\n", len(result.ImpactContext.ModifiedFunctions)))
+		sb.WriteString(fmt.Sprintf("- **Impacted Callers:** %d\n", len(result.ImpactContext.ImpactedCallers)))
+		sb.WriteString(fmt.Sprintf("- **Affected Files:** %d\n\n", len(result.ImpactContext.AffectedFiles)))
+	}
+
+	// Findings section (reuse existing format)
+	sb.WriteString(r.formatResult(result.ReviewResult))
+
+	return sb.String()
+}
+
+// boolToStatus converts a boolean to a status string.
+func boolToStatus(b bool) string {
+	if b {
+		return "PASSED"
+	}
+	return "FAILED"
 }

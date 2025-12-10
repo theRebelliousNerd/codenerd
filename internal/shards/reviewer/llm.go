@@ -820,3 +820,318 @@ Return a JSON array of findings in a code block:
 ` + "```" + `
 
 Prefer precise, non-duplicative, actionable findings. Verify symbols exist in package context before flagging as undefined.`
+
+// =============================================================================
+// VERIFICATION TEMPLATE SUPPORT
+// =============================================================================
+// This section implements template loading and rendering for hypothesis verification.
+// The neuro-symbolic pattern: Mangle generates hypotheses, LLM verifies via templates.
+
+// VerificationTemplate holds the parsed verification prompt template from YAML.
+type VerificationTemplate struct {
+	Metadata struct {
+		Name        string `yaml:"name"`
+		Version     string `yaml:"version"`
+		Description string `yaml:"description"`
+	} `yaml:"metadata"`
+	SystemPrompt       string `yaml:"system_prompt"`
+	HypothesisTemplate string `yaml:"hypothesis_template"`
+	UserPrompt         string `yaml:"user_prompt"`
+}
+
+// loadVerificationTemplate loads the verification prompt template from prompts/verification.yaml.
+// Returns a fallback inline template if the file cannot be loaded.
+func (r *ReviewerShard) loadVerificationTemplate() (*VerificationTemplate, error) {
+	r.mu.RLock()
+	vs := r.virtualStore
+	r.mu.RUnlock()
+
+	// Attempt to read template file via VirtualStore
+	var templateContent string
+	var err error
+
+	if vs != nil {
+		// Try to read via VirtualStore for consistent file access
+		action := core.Fact{
+			Predicate: "next_action",
+			Args:      []interface{}{"/read_file", "internal/shards/reviewer/prompts/verification.yaml"},
+		}
+		templateContent, err = vs.RouteAction(context.Background(), action)
+	}
+
+	if err != nil || templateContent == "" {
+		logging.ReviewerDebug("Failed to load verification.yaml, using inline fallback: %v", err)
+		return r.fallbackVerificationTemplate(), nil
+	}
+
+	// Parse YAML
+	var tmpl VerificationTemplate
+	if parseErr := parseYAML(templateContent, &tmpl); parseErr != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Failed to parse verification.yaml: %v", parseErr)
+		return r.fallbackVerificationTemplate(), nil
+	}
+
+	logging.ReviewerDebug("Loaded verification template: %s v%s", tmpl.Metadata.Name, tmpl.Metadata.Version)
+	return &tmpl, nil
+}
+
+// fallbackVerificationTemplate returns an inline verification template when the file cannot be loaded.
+func (r *ReviewerShard) fallbackVerificationTemplate() *VerificationTemplate {
+	return &VerificationTemplate{
+		Metadata: struct {
+			Name        string `yaml:"name"`
+			Version     string `yaml:"version"`
+			Description string `yaml:"description"`
+		}{
+			Name:        "hypothesis_verification_fallback",
+			Version:     "1.0",
+			Description: "Inline fallback template for hypothesis verification",
+		},
+		SystemPrompt: verificationSystemPromptFallback,
+		HypothesisTemplate: `### [{{ .Type }}] Line {{ .Line }}
+- Variable: ` + "`{{ .Variable }}`" + `
+- Confidence: {{ .ConfidencePercent }}%
+- Logic Trace: {{ .LogicTrace }}`,
+		UserPrompt: `## Mangle Hypotheses to Verify
+
+{{ .HypothesesSection }}
+
+## Code Under Review
+**File:** ` + "`{{ .File }}`" + `
+` + "```{{ .Language }}" + `
+{{ .Code }}
+` + "```" + `
+
+## Your Task
+For EACH hypothesis above, provide your verdict in the following JSON format:
+
+` + "```json" + `
+[
+  {
+    "hypothesis_type": "...",
+    "file": "...",
+    "line": N,
+    "decision": "CONFIRMED" or "DISMISSED",
+    "reasoning": "...",
+    "confidence": 0.0-1.0,
+    "fix": "..." (only if CONFIRMED),
+    "false_positive": true/false,
+    "pattern_note": "..."
+  }
+]
+` + "```" + `
+
+Analyze each hypothesis carefully. Return ONLY the JSON array, no additional text.`,
+	}
+}
+
+// verificationSystemPromptFallback is the inline fallback system prompt for verification.
+const verificationSystemPromptFallback = `You are a Senior Software Architect performing VERIFICATION review.
+
+The Mangle Logic Engine has performed static analysis and flagged POTENTIAL issues.
+Your job is to examine the code and determine if these are:
+- CONFIRMED: Real bugs that need fixing
+- DISMISSED: False positives with clear reasoning
+
+## Important Guidelines
+1. Focus ONLY on the hypotheses provided - do not look for other issues
+2. Consider the logic trace - it shows WHY Mangle flagged this
+3. Check if there are guards or safety measures Mangle might have missed
+4. For Go code, remember early return guards (if x == nil { return }) protect subsequent code
+5. Provide specific, actionable fixes for CONFIRMED issues`
+
+// renderVerificationPrompt renders the verification prompt with hypotheses and code.
+// It fills in the template placeholders with the provided data.
+func (r *ReviewerShard) renderVerificationPrompt(hypos []Hypothesis, code string, filePath string) (string, error) {
+	if len(hypos) == 0 {
+		return "", fmt.Errorf("no hypotheses to render")
+	}
+
+	tmpl, err := r.loadVerificationTemplate()
+	if err != nil {
+		return "", fmt.Errorf("failed to load verification template: %w", err)
+	}
+
+	// Build hypotheses section by rendering each hypothesis
+	var hypoBuilder strings.Builder
+	for i, h := range hypos {
+		hypoBuilder.WriteString(fmt.Sprintf("### Hypothesis %d: [%s] Line %d\n", i+1, h.Type, h.Line))
+		if h.Variable != "" {
+			hypoBuilder.WriteString(fmt.Sprintf("- **Variable**: `%s`\n", h.Variable))
+		}
+		if h.Message != "" {
+			hypoBuilder.WriteString(fmt.Sprintf("- **Issue**: %s\n", h.Message))
+		}
+		hypoBuilder.WriteString(fmt.Sprintf("- **Category**: %s\n", h.Category))
+		hypoBuilder.WriteString(fmt.Sprintf("- **Confidence**: %.0f%%\n", h.Confidence*100))
+		if h.LogicTrace != "" {
+			hypoBuilder.WriteString(fmt.Sprintf("- **Logic Trace**: `%s`\n", h.LogicTrace))
+		}
+		hypoBuilder.WriteString(fmt.Sprintf("- **Rule**: %s\n\n", h.RuleID))
+	}
+
+	// Truncate code if necessary
+	truncatedCode := code
+	if len(code) > 15000 {
+		truncatedCode = truncatePreservingHypothesisLines(code, hypos, 15000)
+	}
+
+	// Render the user prompt template
+	language := r.detectLanguage(filePath)
+	rendered := tmpl.UserPrompt
+
+	// Simple template replacement (avoiding text/template for simplicity)
+	rendered = strings.ReplaceAll(rendered, "{{ .HypothesesSection }}", hypoBuilder.String())
+	rendered = strings.ReplaceAll(rendered, "{{ .File }}", filePath)
+	rendered = strings.ReplaceAll(rendered, "{{ .Language }}", language)
+	rendered = strings.ReplaceAll(rendered, "{{ .Code }}", truncatedCode)
+
+	return rendered, nil
+}
+
+// buildVerificationSystemPrompt constructs the system prompt for verification mode.
+// This is distinct from discovery mode - verification focuses only on validating
+// Mangle-generated hypotheses, not finding new issues.
+func (r *ReviewerShard) buildVerificationSystemPrompt() string {
+	tmpl, err := r.loadVerificationTemplate()
+	if err != nil {
+		logging.ReviewerDebug("Using fallback verification system prompt")
+		return verificationSystemPromptFallback
+	}
+
+	if tmpl.SystemPrompt != "" {
+		return tmpl.SystemPrompt
+	}
+
+	return verificationSystemPromptFallback
+}
+
+// parseYAML is a simple YAML parser that handles the verification template format.
+// It uses line-based parsing for the specific YAML structure we need.
+func parseYAML(content string, tmpl *VerificationTemplate) error {
+	lines := strings.Split(content, "\n")
+	var currentKey string
+	var multilineValue strings.Builder
+	inMultiline := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Skip comments and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			if inMultiline {
+				multilineValue.WriteString("\n")
+			}
+			continue
+		}
+
+		// Check for top-level keys
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			// Save previous multiline value
+			if inMultiline {
+				setTemplateField(tmpl, currentKey, strings.TrimSpace(multilineValue.String()))
+				inMultiline = false
+				multilineValue.Reset()
+			}
+
+			// Parse key
+			if colonIdx := strings.Index(trimmed, ":"); colonIdx != -1 {
+				key := strings.TrimSpace(trimmed[:colonIdx])
+				value := strings.TrimSpace(trimmed[colonIdx+1:])
+
+				if value == "|" {
+					// Start multiline
+					currentKey = key
+					inMultiline = true
+				} else if value != "" {
+					setTemplateField(tmpl, key, strings.Trim(value, `"`))
+				} else {
+					currentKey = key
+				}
+			}
+		} else if inMultiline {
+			// Continuation of multiline value - preserve indentation relative to first line
+			multilineValue.WriteString(line)
+			multilineValue.WriteString("\n")
+		} else if strings.HasPrefix(trimmed, "name:") || strings.HasPrefix(trimmed, "version:") || strings.HasPrefix(trimmed, "description:") {
+			// Metadata fields
+			colonIdx := strings.Index(trimmed, ":")
+			key := strings.TrimSpace(trimmed[:colonIdx])
+			value := strings.Trim(strings.TrimSpace(trimmed[colonIdx+1:]), `"`)
+			setMetadataField(tmpl, key, value)
+		}
+	}
+
+	// Handle final multiline value
+	if inMultiline {
+		setTemplateField(tmpl, currentKey, strings.TrimSpace(multilineValue.String()))
+	}
+
+	return nil
+}
+
+// setTemplateField sets a field on the VerificationTemplate based on key name.
+func setTemplateField(tmpl *VerificationTemplate, key, value string) {
+	// Dedent multiline values (remove common leading whitespace)
+	value = dedentMultiline(value)
+
+	switch key {
+	case "system_prompt":
+		tmpl.SystemPrompt = value
+	case "hypothesis_template":
+		tmpl.HypothesisTemplate = value
+	case "user_prompt":
+		tmpl.UserPrompt = value
+	}
+}
+
+// setMetadataField sets a metadata field on the VerificationTemplate.
+func setMetadataField(tmpl *VerificationTemplate, key, value string) {
+	switch key {
+	case "name":
+		tmpl.Metadata.Name = value
+	case "version":
+		tmpl.Metadata.Version = value
+	case "description":
+		tmpl.Metadata.Description = value
+	}
+}
+
+// dedentMultiline removes common leading whitespace from multiline strings.
+func dedentMultiline(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) == 0 {
+		return s
+	}
+
+	// Find minimum indentation (ignoring empty lines)
+	minIndent := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if minIndent == -1 || indent < minIndent {
+			minIndent = indent
+		}
+	}
+
+	if minIndent <= 0 {
+		return s
+	}
+
+	// Remove common indentation
+	var result strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		if len(line) >= minIndent {
+			result.WriteString(line[minIndent:])
+		} else {
+			result.WriteString(strings.TrimLeft(line, " \t"))
+		}
+	}
+
+	return result.String()
+}

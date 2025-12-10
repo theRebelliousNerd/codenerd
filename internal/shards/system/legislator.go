@@ -28,6 +28,7 @@ type llmClientAdapter struct {
 }
 
 // Complete implements feedback.LLMClient by delegating to core.LLMClient.CompleteWithSystem.
+// Responses are processed through the Piggyback Protocol to extract surface content.
 func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if a.client == nil {
 		return "", fmt.Errorf("no LLM client configured")
@@ -41,7 +42,17 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 		}
 	}
 
-	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	rawResponse, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Process through Piggyback Protocol - extract surface response
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	logging.SystemShardsDebug("[%s] Piggyback: method=%s, confidence=%.2f",
+		a.shardID, processed.ParseMethod, processed.Confidence)
+
+	return processed.Surface, nil
 }
 
 // NewLegislatorShard creates a Legislator shard.
