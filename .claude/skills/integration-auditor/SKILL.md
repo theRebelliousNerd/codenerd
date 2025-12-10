@@ -7,6 +7,63 @@ description: Comprehensive audit and repair of integration wiring across all 39+
 
 Systematic verification that all codeNERD components are properly wired through the 39+ integration points.
 
+## Core Principle: Wire, Don't Remove
+
+**CRITICAL:** When finding unused code (channels, fields, functions, parameters), the correct response is to **wire it up**, not remove it.
+
+codeNERD is a living codebase where integration gaps are common. Unused code usually represents:
+
+1. **Planned functionality** that was never connected
+2. **Infrastructure** waiting for consumers
+3. **API contracts** that should be honored
+
+**Decision tree for unused code:**
+
+```text
+Unused code found?
+├─ Is it clearly obsolete? (old API, deprecated pattern)
+│   └─ Yes → Remove with explanation
+└─ No → WIRE IT UP
+    ├─ Unused channel → Add goroutine to consume it
+    ├─ Unused field → Find where it should be assigned/read
+    ├─ Unused parameter → Pass meaningful data to it
+    └─ Unused function → Find where it should be called
+```
+
+**Example - the wrong approach:**
+
+```go
+// Found: progressChan never read
+// WRONG: Remove progressChan
+// This silently discards real-time event streaming
+```
+
+**Example - the correct approach:**
+
+```go
+// Found: progressChan never read
+// CORRECT: Add consumer goroutine
+go func() {
+    for progress := range progressChan {
+        m.handleProgress(progress)  // Wire to UI/logging
+    }
+}()
+```
+
+**Before removing ANY code, ask:**
+
+1. Why was this code written in the first place?
+2. What functionality does it enable?
+3. Where should it be connected?
+
+**Only remove code when:**
+
+- It's genuinely dead (no possible use case)
+- It's been superseded by a different implementation
+- Keeping it would cause confusion or maintenance burden
+
+---
+
 ## Overview
 
 codeNERD's power comes from the integration of 39+ distinct systems. A feature can have perfect implementation but fail silently if any integration point is missed. This skill provides:
@@ -261,31 +318,71 @@ Otherwise → Check output path (logging, facts, return)
 | **Progress not shown** | **Channel not listened** | **Add goroutine reading channel** |
 | **Message ignored** | **No case handler** | **Add `case fooMsg:` in Update()** |
 | **Feature works once** | **Blocking main thread** | **Wrap in `go func()`** |
+| **Lost functionality** | **Removed "unused" code** | **Wire it up instead** |
 
 **Full catalog:** [failure-patterns.md](references/failure-patterns.md)
 
 ---
 
-## Diagnostic Script
+## Diagnostic Scripts
 
-### Usage
+### Master Audit (audit_wiring.py)
 
 ```bash
-python audit_wiring.py           # Full audit
+python audit_wiring.py           # Full audit (all 7 auditors)
 python audit_wiring.py --component coder  # Specific component
 python audit_wiring.py --verbose # With suggestions
 python audit_wiring.py --json    # For tooling
 ```
 
-### What It Checks
+**Runs 7 auditors:**
+1. Shard Registration - factory, profile, injection
+2. Mangle Schema/Policy - declarations, rules
+3. Action Layer - CLI commands, transducer verbs
+4. Logging Coverage - category usage
+5. Cross-System - boot sequence, dependencies
+6. Execution Wiring - Run() calls, channel listeners
+7. **Unwired Code** - unused params, fields, interfaces (Wire, Don't Remove!)
 
-- Shard registration (factory, profile, injection)
-- Schema declarations
-- Virtual predicate handlers
-- CLI command handlers
-- Transducer verb corpus
-- Logging category usage
-- Test coverage
+### Unwired Code Audit (audit_unwired.py)
+
+**NEW:** Dedicated script for finding code that needs wiring, not removal.
+
+```bash
+python audit_unwired.py                      # Full unwired audit
+python audit_unwired.py --verbose            # Show INFO findings
+python audit_unwired.py --fix-suggestions    # Include wiring suggestions
+python audit_unwired.py --component campaign # Focus on component
+```
+
+**Detects 10 categories of unwired code:**
+
+| Category | What It Finds | Suggestion |
+|----------|---------------|------------|
+| `unused_param` | Function params never used | Wire into function logic |
+| `unused_field` | Struct fields never accessed | Assign in constructor, use in methods |
+| `unimplemented_interface` | Missing interface methods | Implement the method |
+| `orphan_channel` | Channels never consumed | Add consumer goroutine |
+| `dead_callback` | Callbacks never registered | Register with event system |
+| `missing_injection` | DI fields never set | Add to constructor or Set method |
+| `unrouted_handler` | Handlers not connected | Register with router |
+| `unused_return` | Return values discarded | Capture and handle errors |
+| `unused_factory` | New* functions never called | Wire into initialization |
+| `incomplete_builder` | Builders without Build() | Call terminal operation |
+
+### Execution Wiring Audit (audit_execution.py)
+
+```bash
+python audit_execution.py --verbose
+```
+
+**Detects 6 execution patterns:**
+- Objects created but Run() never called
+- Channels created but never read
+- Bubbletea messages without handlers
+- Struct fields checked but never assigned
+- Blocking operations not in goroutines
+- Local variables that should be struct fields
 
 ### Exit Codes
 
@@ -352,8 +449,13 @@ Verify end-to-end wiring with proven test patterns:
 
 ### Scripts
 
-- [audit_wiring.py](scripts/audit_wiring.py) - Automated wiring gap detection (39 systems)
-- [audit_execution.py](scripts/audit_execution.py) - Execution wiring gap detection (6 patterns)
+- [audit_wiring.py](scripts/audit_wiring.py) - Master orchestrator (runs all 7 auditors)
+- [audit_unwired.py](scripts/audit_unwired.py) - Unwired code detection (10 categories, Wire Don't Remove!)
+- [audit_execution.py](scripts/audit_execution.py) - Execution wiring detection (6 patterns)
+- [audit_shards.py](scripts/audit_shards.py) - Shard registration audit
+- [audit_mangle.py](scripts/audit_mangle.py) - Mangle schema/policy audit
+- [audit_actions.py](scripts/audit_actions.py) - Action layer audit
+- [audit_logging.py](scripts/audit_logging.py) - Logging coverage audit
 
 ---
 
@@ -368,7 +470,10 @@ Integration audit is not optional. codeNERD's architecture distributes logic acr
 - Systematically debug "doesn't work" issues
 - Verify all 9 integration points are complete
 
-**Key principle:** Code that works in isolation but fails in the system has a wiring gap. Fix the wiring, not the code.
+**Key principles:**
+
+1. **Wire, don't remove** - Unused code usually needs connection, not deletion. Ask "why was this written?" before removing anything.
+2. **Fix wiring, not code** - Code that works in isolation but fails in the system has a wiring gap.
 
 **Next steps:**
 

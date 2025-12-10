@@ -1557,11 +1557,10 @@ activate_shard(/session_planner) :-
 # -----------------------------------------------------------------------------
 
 # Unhandled case tracking (for rule learning)
-# NOTE: Uses fn:list:length function in transform pipeline
+# NOTE: List length not available in Mangle; count is computed by Go VirtualStore
 unhandled_case_count(ShardName, Count) :-
     system_shard(ShardName, _),
-    unhandled_cases(ShardName, Cases)
-    |> let Count = fn:list:length(Cases).
+    unhandled_case_count_computed(ShardName, Count).
 
 # Trigger LLM for rule proposal when threshold reached
 propose_new_rule(ShardName) :-
@@ -1698,13 +1697,12 @@ safe_to_modify(Ref) :-
     code_element(Ref, _, File, _, _),
     in_scope(File).
 
-# Helper: count elements for complexity analysis
-# NOTE: Uses aggregation to avoid N^5 Cartesian product explosion
+# Helper: check if element count is high for complexity analysis
+# NOTE: Mangle aggregation requires runtime evaluation. Using virtual predicate
+# for static analysis validation. Go computes element_count_high based on
+# querying code_element cardinality.
 element_count_high() :-
-    code_element(Ref, _, _, _, _)
-    |> do fn:group_by()
-    |> let Count = fn:Count()
-    |> do fn:filter(fn:gte(Count, 5)).
+    high_element_count_flag().
 
 # Trigger campaign for complex refactors affecting many elements
 requires_campaign(Intent) :-
@@ -3703,7 +3701,7 @@ continuation_blocked(/user_interrupted) :-
 
 # Clarification is pending
 continuation_blocked(/needs_clarification) :-
-    pending_clarification(_).
+    pending_clarification(_, _, _).
 
 # Max steps reached (safety limit)
 continuation_blocked(/max_steps_reached) :-
@@ -3715,10 +3713,14 @@ continuation_blocked(/max_steps_reached) :-
 # 22.3 Auto-Continue Signal
 # -----------------------------------------------------------------------------
 
+# Helper: check if any blocking condition exists
+has_continuation_block() :-
+    continuation_blocked(_).
+
 # Should continue if there's pending work and not blocked
 should_auto_continue() :-
     has_pending_subtask(_, _, _),
-    !continuation_blocked(_).
+    !has_continuation_block().
 
 # -----------------------------------------------------------------------------
 # 22.4 Step Counting Helpers
@@ -3729,8 +3731,6 @@ has_blocking_condition() :-
     continuation_blocked(_).
 
 # Helper: count pending subtasks (for progress display)
-# NOTE: Uses proper Mangle aggregation syntax
+# NOTE: Aggregation requires runtime; use virtual predicate for static validation
 pending_subtask_count(Count) :-
-    has_pending_subtask(T, _, _)
-    |> do fn:group_by()
-    |> let Count = fn:Count().
+    pending_subtask_count_computed(Count).

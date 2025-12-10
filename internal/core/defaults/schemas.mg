@@ -162,6 +162,27 @@ Decl ooda_timeout().
 # Order = (CategoryOrder * 1000) + Score, computed by Go
 Decl atom_final_order(AtomID, Order).
 
+# unhandled_case_count_computed(ShardName, Count) - List count for unhandled cases
+# Mangle doesn't have list length function; Go computes this
+Decl unhandled_case_count_computed(ShardName, Count).
+
+# high_element_count_flag() - True when code_element count >= 5
+# Aggregation-based rules can't be validated statically; Go computes this
+Decl high_element_count_flag().
+
+# pending_subtask_count_computed(Count) - Count of pending subtasks
+# Aggregation computed by Go runtime
+Decl pending_subtask_count_computed(Count).
+
+# context_pressure_level(CampaignID, Level) - Context utilization level
+# Level: /normal, /high (>80%), /critical (>95%)
+# Computed by Go based on context_window_state Used/Total ratio
+Decl context_pressure_level(CampaignID, Level).
+
+# campaign_progress_over_50(CampaignID) - True when campaign > 50% complete
+# Computed by Go: (Completed / Total) >= 0.5
+Decl campaign_progress_over_50(CampaignID).
+
 # relevant_to_intent(Predicate, Intent) - Maps predicates to user intents
 Decl relevant_to_intent(Predicate, Intent).
 
@@ -1059,6 +1080,91 @@ Decl coder_safe_to_write(FilePath).
 
 # is_binary_file(FilePath) - file is binary (cannot edit)
 Decl is_binary_file(FilePath).
+
+# is_core_file(FilePath) - file is in core/critical path (higher risk)
+Decl is_core_file(FilePath).
+
+# dependent_count(Target, Count) - number of files depending on Target
+# Computed by Go from dependency_link graph
+Decl dependent_count(Target, Count).
+
+# is_interface_file(FilePath) - file contains interface/type definitions
+Decl is_interface_file(FilePath).
+
+# instruction_contains(Instruction, Substring) - checks if user instruction contains pattern
+# Implemented by Go string search
+Decl instruction_contains(Instruction, Substring).
+
+# instruction_contains_write(FilePath) - instruction mentions writing to file
+Decl instruction_contains_write(FilePath).
+
+# file_package(FilePath, PackageName) - maps file to its Go package
+Decl file_package(FilePath, PackageName).
+
+# same_package(File1, File2) - files are in the same Go package
+# Computed by Go: checks if file_package(File1, P) and file_package(File2, P)
+Decl same_package(File1, File2).
+
+# tdd_state(State) - current TDD phase state
+# State: /red (tests failing), /green (tests passing), /refactor
+Decl tdd_state(State).
+
+# tdd_retry_count(Count) - number of retries in current TDD loop
+Decl tdd_retry_count(Count).
+
+# type_definition_file(FilePath) - file contains type/struct definitions
+Decl type_definition_file(FilePath).
+
+# edit_analysis(FilePath, Property) - analysis results for pending edits
+# Property: /handles_errors, /has_context, /has_waitgroup, /has_context_cancel,
+#           /spawns_goroutine, /public_function, /does_io
+Decl edit_analysis(FilePath, Property).
+
+# interface_definition(FilePath, Name, MethodCount) - interface definition info
+Decl interface_definition(FilePath, Name, MethodCount).
+
+# edit_operation(FilePath, Operation) - operations in pending edit
+Decl edit_operation(FilePath, Operation).
+
+# function_metrics(FilePath, FuncName, Lines, Complexity) - function metrics
+Decl function_metrics(FilePath, FuncName, Lines, Complexity).
+
+# function_params(FilePath, FuncName, ParamCount) - parameter count
+Decl function_params(FilePath, FuncName, ParamCount).
+
+# function_nesting(FilePath, FuncName, Depth) - nesting depth
+Decl function_nesting(FilePath, FuncName, Depth).
+
+# diagnostic_count(FilePath, Severity, Count) - diagnostics per file
+Decl diagnostic_count(FilePath, Severity, Count).
+
+# previous_coder_state(State) - previous state for progress tracking
+Decl previous_coder_state(State).
+
+# state_unchanged_count(Count) - how many times state hasn't changed
+Decl state_unchanged_count(Count).
+
+# path_contains(Path, Pattern) - checks if file path contains substring
+Decl path_contains(Path, Pattern).
+
+# is_test_file(FilePath) - file is a test file (e.g., *_test.go)
+# NOTE: Also declared in tester.mg for module separation
+Decl is_test_file(FilePath).
+
+# detected_language(FilePath, Language) - detected programming language of file
+Decl detected_language(FilePath, Language).
+
+# testable_language(Language) - language supports automated testing
+Decl testable_language(Language).
+
+# is_public_api(FilePath) - file contains public API definitions
+Decl is_public_api(FilePath).
+
+# doc_exists_for(FilePath) - documentation exists for this file
+Decl doc_exists_for(FilePath).
+
+# test_file_for(TestFile, SourceFile) - TestFile contains tests for SourceFile
+Decl test_file_for(TestFile, SourceFile).
 
 # build_state(State) - current build state
 # State: /passing, /failing, /unknown
@@ -2292,6 +2398,10 @@ Decl user_accepted_finding(ReviewID, File, Line, Timestamp).
 # Computed accuracy score for a review session
 Decl review_accuracy(ReviewID, TotalFindings, Accepted, Rejected, Score).
 
+# review_rejection_rate_high(ReviewID) - True when rejection rate > 50%
+# Computed by Go: (Rejected * 2) > Total
+Decl review_rejection_rate_high(ReviewID).
+
 # false_positive_pattern(Pattern, Category, Occurrences, Confidence)
 # Learned patterns that cause false positives
 Decl false_positive_pattern(Pattern, Category, Occurrences, Confidence).
@@ -3026,6 +3136,11 @@ Decl same_scope(Var, File, Line1, Line2).
 # 47.6 Suppression Predicates (for Autopoiesis - False Positive Learning)
 # -----------------------------------------------------------------------------
 
+# suppression(DiagnosticID, Reason) - User-suppressed diagnostic warnings
+# DiagnosticID: ID of the diagnostic being suppressed
+# Reason: User-provided reason for suppression
+Decl suppression(DiagnosticID, Reason).
+
 # suppressed_rule(RuleType, File, Line, Reason) - Manually suppressed findings
 # RuleType: Type of rule suppressed (e.g., /nil_deref, /unchecked_error)
 # File: Source file path
@@ -3277,6 +3392,9 @@ Decl should_auto_continue().
 # continuation_blocked(Reason) - Derived: continuation is blocked
 # Reason: /needs_clarification, /user_interrupted, /max_steps_reached
 Decl continuation_blocked(Reason).
+
+# has_continuation_block/0 - Helper: true if any continuation block exists
+Decl has_continuation_block().
 
 # -----------------------------------------------------------------------------
 # 49.3 User Control

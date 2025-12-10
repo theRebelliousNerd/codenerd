@@ -786,6 +786,10 @@ type UserConfig struct {
 	// Theme for the TUI ("light" or "dark")
 	Theme string `json:"theme,omitempty"`
 
+	// ContinuationMode controls multi-step task execution behavior
+	// 0 = Auto (fully automatic), 1 = Confirm (pause after each step), 2 = Breakpoint (pause before mutations)
+	ContinuationMode int `json:"continuation_mode,omitempty"`
+
 	// =========================================================================
 	// EXTERNAL SERVICE KEYS
 	// =========================================================================

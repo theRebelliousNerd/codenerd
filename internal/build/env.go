@@ -128,9 +128,10 @@ func getBaseGoEnv() []string {
 		"GOROOT",
 		"GOCACHE",
 		"GOMODCACHE",
-		"HOME",      // Required on Unix
+		"HOME",        // Required on Unix
 		"USERPROFILE", // Required on Windows
-		"TEMP",      // Required for go build temp files
+		"LOCALAPPDATA", // Required for GOCACHE default on Windows
+		"TEMP",        // Required for go build temp files
 		"TMP",
 		"TMPDIR",
 	}
@@ -141,7 +142,52 @@ func getBaseGoEnv() []string {
 		}
 	}
 
+	// Ensure GOCACHE is set - Go requires this for builds
+	// If not set in environment, provide a sensible default
+	if !hasEnvKey(env, "GOCACHE") {
+		gocache := deriveGOCACHE()
+		if gocache != "" {
+			env = append(env, "GOCACHE="+gocache)
+			logging.BuildDebug("Derived GOCACHE: %s", gocache)
+		}
+	}
+
 	return env
+}
+
+// deriveGOCACHE determines a sensible GOCACHE path when not explicitly set.
+// This prevents "GOCACHE is not defined" errors in subprocess builds.
+func deriveGOCACHE() string {
+	// Try standard locations in order of preference
+
+	// 1. Check if LocalAppData is available (Windows standard)
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		return filepath.Join(localAppData, "go-build")
+	}
+
+	// 2. Check USERPROFILE (Windows fallback)
+	if userProfile := os.Getenv("USERPROFILE"); userProfile != "" {
+		return filepath.Join(userProfile, ".cache", "go-build")
+	}
+
+	// 3. Check HOME (Unix standard)
+	if home := os.Getenv("HOME"); home != "" {
+		return filepath.Join(home, ".cache", "go-build")
+	}
+
+	// 4. Use temp directory as last resort
+	if tmp := os.Getenv("TEMP"); tmp != "" {
+		return filepath.Join(tmp, "go-build")
+	}
+	if tmp := os.Getenv("TMP"); tmp != "" {
+		return filepath.Join(tmp, "go-build")
+	}
+	if tmp := os.Getenv("TMPDIR"); tmp != "" {
+		return filepath.Join(tmp, "go-build")
+	}
+
+	// Give up - Go will error but at least we tried
+	return ""
 }
 
 // loadBuildConfig loads project-specific build configuration.
@@ -151,10 +197,18 @@ func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildCon
 	// TODO: Once BuildConfig is added to UserConfig, load from there
 	// For now, use heuristics based on project structure
 
+	// Resolve workspaceRoot to absolute path for reliable detection
+	absRoot := workspaceRoot
+	if !filepath.IsAbs(workspaceRoot) {
+		if abs, err := filepath.Abs(workspaceRoot); err == nil {
+			absRoot = abs
+		}
+	}
+
 	// Check for sqlite_headers directory (codeNERD-specific)
-	sqliteHeaders := filepath.Join(workspaceRoot, "sqlite_headers")
+	sqliteHeaders := filepath.Join(absRoot, "sqlite_headers")
 	if _, err := os.Stat(sqliteHeaders); err == nil {
-		// Found sqlite_headers - add CGO_CFLAGS
+		// Found sqlite_headers - add CGO_CFLAGS with absolute path
 		cfg.EnvVars["CGO_CFLAGS"] = "-I" + sqliteHeaders
 		cfg.CGOPackages = append(cfg.CGOPackages, "sqlite-vec")
 		logging.BuildDebug("Detected sqlite_headers at: %s", sqliteHeaders)
@@ -168,6 +222,14 @@ func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildCon
 func detectCGOFlags(workspaceRoot string) string {
 	var flags []string
 
+	// Resolve to absolute path for reliable detection
+	absRoot := workspaceRoot
+	if !filepath.IsAbs(workspaceRoot) {
+		if abs, err := filepath.Abs(workspaceRoot); err == nil {
+			absRoot = abs
+		}
+	}
+
 	// Check common header locations
 	headerDirs := []string{
 		"sqlite_headers",
@@ -177,7 +239,7 @@ func detectCGOFlags(workspaceRoot string) string {
 	}
 
 	for _, dir := range headerDirs {
-		fullPath := filepath.Join(workspaceRoot, dir)
+		fullPath := filepath.Join(absRoot, dir)
 		if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
 			flags = append(flags, "-I"+fullPath)
 		}

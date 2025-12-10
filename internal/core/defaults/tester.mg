@@ -9,8 +9,8 @@
 Decl file_exists(FilePath).
 Decl package_has_dep(DepName).
 
-# Test file detection - populated by Go runtime based on file naming patterns
-Decl is_test_file(FilePath).
+# Test file detection - declared in schemas.mg (shared predicate)
+# is_test_file(FilePath) populated by Go runtime based on file naming patterns
 
 # Test package - populated by Go runtime with packages containing tests
 Decl test_package(PackagePath).
