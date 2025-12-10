@@ -24,6 +24,9 @@ type ScoredAtom struct {
 
 	// Selection reason for debugging
 	SelectionReason string
+
+	// Source of selection ("skeleton" or "flesh")
+	Source string
 }
 
 // AtomSelector selects atoms based on context using Mangle rules + vector search.
@@ -170,24 +173,36 @@ func (s *AtomSelector) SelectAtoms(
 		atomMap[a.ID] = a
 	}
 
-	// Process results
-	// Assuming results are simple maps or structs.
-	// Since we don't know the exact return type of Query (interface{}), relies on best effort.
-	// If it returns bindings, we iterate.
-	for _, rawRes := range results {
-		// Mock parsing for now: assume map[string]string
-		resMap, ok := rawRes.(map[string]string)
-		if !ok {
-			// Try debugging or inspecting type
+	for _, fact := range results {
+		// Fact: selected_result(atomID, priority, source)
+		if len(fact.Args) != 3 {
 			continue
 		}
 
-		atomID := resMap["Atom"]
+		// Extract AtomID (Arg 0)
+		var atomID string
+		switch v := fact.Args[0].(type) {
+		case string:
+			atomID = v
+		case fmt.Stringer:
+			atomID = v.String() // Handle MangleAtom
+		default:
+			atomID = fmt.Sprintf("%v", v)
+		}
+
+		// Extract Source (Arg 2)
+		var source string
+		switch v := fact.Args[2].(type) {
+		case string:
+			source = v
+		case fmt.Stringer:
+			source = v.String()
+		default:
+			source = fmt.Sprintf("%v", v)
+		}
 
 		if atom, exists := atomMap[atomID]; exists {
-			// Calculate scores locally or trust Mangle?
-			// Mangle determined it SHOULD be selected.
-			// We construct the ScoredAtom.
+			// Calculate scores locally
 			score := 1.0
 			vScore := vectorScores[atomID]
 			if vScore > 0 {
@@ -199,7 +214,8 @@ func (s *AtomSelector) SelectAtoms(
 				LogicScore:      1.0,
 				VectorScore:     vScore,
 				Combined:        score,
-				SelectionReason: "mangle_selected",
+				SelectionReason: fmt.Sprintf("mangle:%s", source),
+				Source:          source,
 			})
 		}
 	}

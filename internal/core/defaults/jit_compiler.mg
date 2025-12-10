@@ -70,45 +70,74 @@ candidate_selection(Atom, Score) :-
     vector_hit(Atom, Score),
     !blocked_by_context(Atom),
     !prohibited(Atom).
-    
-# --- 4. LINKING (Dependency Resolution) ---
 
-# If A is selected, Dep is selected.
-final_selection(Atom) :- mandatory_selection(Atom).
-final_selection(Atom) :- candidate_selection(Atom, _).
+# --- 4. CONFLICT RESOLUTION (Score-Based) ---
 
-# Recursive dependency selection
-final_selection(Dep) :-
-    final_selection(Atom),
-    atom_requires(Atom, Dep).
-    
-# Safety check: Remove if prohibited (overrules selection)
-# This handles the case where a dependency pulls in a prohibited atom -> parent must be dropped.
-# This logic is circular if not careful. "Stratified Datalog" usually handles this.
-# For now, we assume dependencies are verified safe at ingest time or handled by "prohibited" check above.
+# Conflict: A beats B if they conflict and A has higher score.
+# If scores equal, break tie using atom ID (lexicographical).
+beats(A, B) :-
+    atom_conflicts(A, B),
+    candidate_selection(A, ScoreA),
+    candidate_selection(B, ScoreB),
+    ScoreA > ScoreB.
 
-# Valid Selection Set
-valid_atom(Atom) :-
-    final_selection(Atom),
-    !prohibited(Atom).
+beats(A, B) :-
+    atom_conflicts(A, B),
+    candidate_selection(A, Score),
+    candidate_selection(B, Score),
+    A < B. # Lexicographical tie-breaker
 
-# --- 5. EXCLUSION GROUPS (Mutual Exclusion) ---
+# Atom is suppressed if something beats it.
+suppressed(Atom) :- beats(_, Atom).
 
-# Identify best score in group.
-# group_best_score(GroupID, MaxScore) :- ... (Hard in pure Datalog without aggregation)
-# Go runtime often handles the "pick best from group" final step.
-# We will flag them for Go.
+# --- 5. DEPENDENCY RESOLUTION (Recursive) ---
 
-# --- 6. OUTPUTS ---
+# Tentative Selection: Mandatory OR Candidate (if not suppressed)
+tentative(Atom) :- mandatory_selection(Atom).
+tentative(Atom) :- candidate_selection(Atom, _), !suppressed(Atom).
+
+# Recursive dependency inclusion: If A is selected, Dep must be selected.
+# This expands the set to include dependencies.
+# Note: This might pull in atoms that were NOT in candidates.
+# We must ensure pulled-in deps are not prohibited.
+tentative(Dep) :-
+    tentative(Atom),
+    atom_requires(Atom, Dep),
+    !prohibited(Dep).
+
+# Missing Dependency Check:
+# An atom has a missing dependency if it requires Dep, 
+# but Dep is NOT in the tentative set (perhaps prohibited or filtered).
+missing_dep(Atom) :-
+    tentative(Atom),
+    atom_requires(Atom, Dep),
+    !tentative(Dep).
+
+# Iterate validity: An atom is invalid if it has a missing dep.
+# This handles chains: A->B->C. If C missing, B invalid, then A invalid.
+invalid(Atom) :- missing_dep(Atom).
+
+# A parent is invalid if it requires an invalid child.
+invalid(Atom) :-
+    tentative(Atom),
+    atom_requires(Atom, Dep),
+    invalid(Dep).
+
+# --- 6. FINAL OUTPUT ---
+
+# Valid Selection: Tentative AND NOT Invalid
+final_valid(Atom) :-
+    tentative(Atom),
+    !invalid(Atom).
 
 # Report selected atoms for Go Assembly
 # selected_result(Atom, Priority, Source)
 selected_result(Atom, Prio, /skeleton) :-
-    valid_atom(Atom),
+    final_valid(Atom),
     atom_priority(Atom, Prio),
     mandatory_selection(Atom).
 
 selected_result(Atom, Prio, /flesh) :-
-    valid_atom(Atom),
+    final_valid(Atom),
     atom_priority(Atom, Prio),
     !mandatory_selection(Atom).

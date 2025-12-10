@@ -39,8 +39,11 @@ func (r *DependencyResolver) SetAllowMissingDeps(allow bool) {
 	r.allowMissingDeps = allow
 }
 
-// Resolve orders atoms by dependencies and filters conflicts.
-// Returns atoms in topological order where dependencies come before dependents.
+// Resolve orders atoms by dependencies.
+// It assumes the input set is already valid (filtered by Mangle/JIT compiler).
+// It performs:
+// 1. Topological sorting (respecting dependencies)
+// 2. Cycle detection (preventing infinite loops)
 func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "DependencyResolver.Resolve")
 	defer timer.Stop()
@@ -49,46 +52,27 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 		return nil, nil
 	}
 
-	// Build lookup maps
+	// Build lookup map
 	atomMap := make(map[string]*ScoredAtom, len(atoms))
 	for _, sa := range atoms {
 		atomMap[sa.Atom.ID] = sa
 	}
 
-	// Step 1: Remove atoms with unmet dependencies
-	filtered, err := r.filterUnmetDependencies(atoms, atomMap)
+	// Step 1: Topological sort
+	// We rely on Mangle to have already filtered out prohibited/conflicting/missing-dep atoms.
+	sorted, err := r.topologicalSort(atoms, atomMap)
 	if err != nil {
 		return nil, err
 	}
 
-	// Rebuild map after filtering
-	atomMap = make(map[string]*ScoredAtom, len(filtered))
-	for _, sa := range filtered {
-		atomMap[sa.Atom.ID] = sa
-	}
-
-	// Step 2: Remove conflicting atoms (keep higher scored)
-	filtered = r.resolveConflicts(filtered, atomMap)
-
-	// Rebuild map after conflict resolution
-	atomMap = make(map[string]*ScoredAtom, len(filtered))
-	for _, sa := range filtered {
-		atomMap[sa.Atom.ID] = sa
-	}
-
-	// Step 3: Topological sort
-	sorted, err := r.topologicalSort(filtered, atomMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 4: Convert to OrderedAtom with sequential order
+	// Step 2: Convert to OrderedAtom with sequential order
 	result := make([]*OrderedAtom, len(sorted))
 	for i, sa := range sorted {
 		result[i] = &OrderedAtom{
-			Atom:  sa.Atom,
-			Order: i,
-			Score: sa.Combined,
+			Atom:       sa.Atom,
+			Order:      i,
+			Score:      sa.Combined,
+			RenderMode: "standard", // Default mode, can be adjusted by BudgetManager
 		}
 	}
 
@@ -97,88 +81,6 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 	)
 
 	return result, nil
-}
-
-// filterUnmetDependencies removes atoms whose dependencies are not present.
-func (r *DependencyResolver) filterUnmetDependencies(
-	atoms []*ScoredAtom,
-	atomMap map[string]*ScoredAtom,
-) ([]*ScoredAtom, error) {
-	var result []*ScoredAtom
-
-	for _, sa := range atoms {
-		if len(sa.Atom.DependsOn) == 0 {
-			result = append(result, sa)
-			continue
-		}
-
-		// Check all dependencies
-		allMet := true
-		var missing []string
-		for _, depID := range sa.Atom.DependsOn {
-			if _, ok := atomMap[depID]; !ok {
-				allMet = false
-				missing = append(missing, depID)
-			}
-		}
-
-		if allMet {
-			result = append(result, sa)
-		} else {
-			if r.allowMissingDeps {
-				logging.Get(logging.CategoryContext).Warn(
-					"Atom %s has missing dependencies %v, including anyway",
-					sa.Atom.ID, missing,
-				)
-				result = append(result, sa)
-			} else {
-				logging.Get(logging.CategoryContext).Debug(
-					"Atom %s excluded: missing dependencies %v",
-					sa.Atom.ID, missing,
-				)
-			}
-		}
-	}
-
-	return result, nil
-}
-
-// resolveConflicts removes atoms that conflict with higher-scored atoms.
-func (r *DependencyResolver) resolveConflicts(
-	atoms []*ScoredAtom,
-	atomMap map[string]*ScoredAtom,
-) []*ScoredAtom {
-	// Sort by score descending so higher-scored atoms take precedence
-	sorted := make([]*ScoredAtom, len(atoms))
-	copy(sorted, atoms)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Combined > sorted[j].Combined
-	})
-
-	// Track excluded atoms
-	excluded := make(map[string]bool)
-	var result []*ScoredAtom
-
-	for _, sa := range sorted {
-		if excluded[sa.Atom.ID] {
-			continue
-		}
-
-		// Mark all atoms that conflict with this one as excluded
-		for _, conflictID := range sa.Atom.ConflictsWith {
-			if !excluded[conflictID] {
-				excluded[conflictID] = true
-				logging.Get(logging.CategoryContext).Debug(
-					"Atom %s excluded: conflicts with %s (higher scored)",
-					conflictID, sa.Atom.ID,
-				)
-			}
-		}
-
-		result = append(result, sa)
-	}
-
-	return result
 }
 
 // topologicalSort orders atoms so dependencies come before dependents.

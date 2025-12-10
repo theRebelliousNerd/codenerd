@@ -21,9 +21,10 @@ func TestEnsurePromptAtomsTable(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Test ensurePromptAtomsTable
-	if err := ensurePromptAtomsTable(db); err != nil {
-		t.Fatalf("ensurePromptAtomsTable failed: %v", err)
+	// Test EnsureSchema
+	loader := NewAtomLoader(nil)
+	if err := loader.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatalf("EnsureSchema failed: %v", err)
 	}
 
 	// Verify table was created
