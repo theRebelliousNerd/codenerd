@@ -468,6 +468,15 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	// Build prompt for rule proposal
 	userPrompt := c.buildRuleProposalPrompt(cases)
 
+	// Try JIT prompt compilation first, fall back to legacy constant
+	systemPrompt, jitUsed := c.TryJITPrompt(ctx, "constitution_autopoiesis")
+	if !jitUsed {
+		systemPrompt = constitutionAutopoiesisPrompt
+		logging.SystemShards("[ConstitutionGate] [FALLBACK] Using legacy autopoiesis prompt")
+	} else {
+		logging.SystemShards("[ConstitutionGate] [JIT] Using JIT-compiled autopoiesis prompt")
+	}
+
 	// Create LLM client adapter for feedback loop
 	llmAdapter := &constitutionLLMAdapter{
 		client:    c.LLMClient,
@@ -481,7 +490,7 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 		ctx,
 		llmAdapter,
 		c.Kernel, // RealKernel implements feedback.RuleValidator
-		constitutionAutopoiesisPrompt,
+		systemPrompt,
 		userPrompt,
 		"constitution", // Domain for valid examples
 	)
@@ -837,7 +846,9 @@ func (c *ConstitutionGateShard) processPendingAppeals(ctx context.Context) error
 	return nil
 }
 
-// constitutionAutopoiesisPrompt is the system prompt for proposing new safety rules.
+// DEPRECATED: constitutionAutopoiesisPrompt is the legacy system prompt for proposing new safety rules.
+// Prefer JIT prompt compilation via TryJITPrompt() when available.
+// This constant is retained as a fallback for when JIT is unavailable.
 const constitutionAutopoiesisPrompt = `You are the Constitution Gate's Autopoiesis system.
 Your role is to propose new Mangle safety rules based on unhandled action patterns.
 

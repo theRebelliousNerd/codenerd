@@ -6,8 +6,6 @@
 package autopoiesis
 
 import (
-	internalconfig "codenerd/internal/config"
-	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,48 +13,33 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"codenerd/internal/articulation"
+	internalconfig "codenerd/internal/config"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
 // KERNEL INTERFACE - Bridge to Mangle Logic Core
 // =============================================================================
 
-// KernelFact represents a fact that can be asserted to the kernel.
-// This mirrors core.Fact but avoids import cycles.
-type KernelFact struct {
-	Predicate string
-	Args      []interface{}
-}
+// KernelFact is an alias to types.KernelFact.
+// This represents a fact that can be asserted to the kernel.
+type KernelFact = types.KernelFact
 
-// KernelInterface defines the interface for interacting with the Mangle kernel.
-// This allows autopoiesis to assert facts and query for derived actions.
-type KernelInterface interface {
-	// AssertFact adds a fact to the kernel's EDB
-	AssertFact(fact KernelFact) error
-	// QueryPredicate queries for facts matching a predicate
-	QueryPredicate(predicate string) ([]KernelFact, error)
-	// QueryBool returns true if any facts match the predicate
-	QueryBool(predicate string) bool
-	// RetractFact removes a fact from the kernel (matching predicate and first arg)
-	RetractFact(fact KernelFact) error
-}
+// KernelInterface is an alias to types.KernelInterface.
+// This defines the interface for interacting with the Mangle kernel,
+// allowing autopoiesis to assert facts and query for derived actions.
+type KernelInterface = types.KernelInterface
 
 // =============================================================================
-// JIT PROMPT COMPILER INTERFACES - Break Import Cycle
+// JIT PROMPT TYPES - Now using concrete types (import cycle broken via types package)
 // =============================================================================
-
-// PromptAssembler is an interface for JIT prompt compilation.
-// Implemented by articulation.PromptAssembler to avoid import cycles.
-type PromptAssembler interface {
-	AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error)
-	JITReady() bool
-}
-
-// JITCompiler is an interface for the JIT prompt compiler.
-// Implemented by prompt.JITPromptCompiler to avoid import cycles.
-type JITCompiler interface {
-	Compile(ctx context.Context, cc interface{}) (interface{}, error)
-}
+// The original import cycle (core → autopoiesis → articulation → core) is now broken:
+// - core imports types (not autopoiesis for KernelFact/KernelInterface)
+// - articulation imports types (not core for Fact/SessionContext/StructuredIntent)
+// - autopoiesis can now safely import articulation without causing cycles
 
 // =============================================================================
 // AUTOPOIESIS ORCHESTRATOR
@@ -127,9 +110,8 @@ type Orchestrator struct {
 	traces      *TraceCollector // Capture reasoning during generation
 	logInjector *LogInjector    // Inject mandatory logging into tools
 
-	// JIT Prompt Compilation (Phase 5) - uses interfaces to avoid import cycles
-	promptAssembler PromptAssembler // JIT-aware prompt assembler
-	jitCompiler     JITCompiler     // JIT prompt compiler
+	// JIT Prompt Compilation (Phase 5) - using concrete types now that cycle is broken
+	promptAssembler *articulation.PromptAssembler // JIT-aware prompt assembler
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -241,20 +223,19 @@ func (o *Orchestrator) GetKernel() KernelInterface {
 	return o.kernel
 }
 
-// SetJITComponents attaches the JIT prompt compiler and assembler.
+// SetPromptAssembler attaches the JIT-aware prompt assembler.
 // This enables context-aware prompt generation for tool generation stages.
-// The parameters use interfaces to avoid import cycles.
-func (o *Orchestrator) SetJITComponents(jitCompiler JITCompiler, assembler PromptAssembler) {
+// Uses concrete type now that the import cycle is broken via internal/types.
+func (o *Orchestrator) SetPromptAssembler(assembler *articulation.PromptAssembler) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.jitCompiler = jitCompiler
 	o.promptAssembler = assembler
 
 	// Wire the assembler to ToolGenerator and ToolRefiner
 	if assembler != nil {
 		o.toolGen.SetPromptAssembler(assembler)
 		o.refiner.SetPromptAssembler(assembler)
-		logging.Autopoiesis("JIT prompt compiler attached to autopoiesis orchestrator and sub-components")
+		logging.Autopoiesis("JIT prompt assembler attached to autopoiesis orchestrator and sub-components")
 	}
 }
 

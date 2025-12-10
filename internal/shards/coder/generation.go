@@ -65,20 +65,21 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 // buildSystemPrompt creates the system prompt for code generation.
 // This uses the JIT prompt compiler when available, falling back to the God Tier template.
 func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
-	// Try JIT compilation first if kernel is available
-	if c.kernel != nil {
+	// Try JIT compilation first if promptAssembler is available and ready
+	if c.promptAssembler != nil && c.promptAssembler.JITReady() {
 		jitPrompt, err := c.buildJITSystemPrompt(task)
 		if err == nil && jitPrompt != "" {
-			logging.CoderDebug("Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			logging.Coder("[JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
 			return jitPrompt
 		}
 		if err != nil {
-			logging.CoderDebug("JIT compilation failed, falling back to template: %v", err)
+			logging.Coder("[JIT] Compilation failed, falling back to template: %v", err)
 		}
+		// Fall through to legacy on error
 	}
 
 	// Fallback to legacy template-based prompt
-	logging.CoderDebug("Using legacy template-based system prompt")
+	logging.Coder("[FALLBACK] Using legacy template-based system prompt")
 	lang := detectLanguage(task.Target)
 	langName := languageDisplayName(lang)
 
@@ -98,11 +99,10 @@ func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
 
 // buildJITSystemPrompt uses the PromptAssembler with JIT compilation to build the system prompt.
 // Returns an error if JIT compilation is not available or fails.
+// Precondition: c.promptAssembler must be non-nil and JITReady() must be true.
 func (c *CoderShard) buildJITSystemPrompt(task CoderTask) (string, error) {
-	// Create PromptAssembler
-	pa, err := articulation.NewPromptAssembler(c.kernel)
-	if err != nil {
-		return "", fmt.Errorf("failed to create prompt assembler: %w", err)
+	if c.promptAssembler == nil {
+		return "", fmt.Errorf("prompt assembler not configured")
 	}
 
 	// Build PromptContext
@@ -123,9 +123,9 @@ func (c *CoderShard) buildJITSystemPrompt(task CoderTask) (string, error) {
 		}
 	}
 
-	// Assemble the system prompt
+	// Assemble the system prompt using the injected assembler
 	ctx := context.Background()
-	prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	prompt, err := c.promptAssembler.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		return "", fmt.Errorf("failed to assemble system prompt: %w", err)
 	}
@@ -153,8 +153,10 @@ func getLanguageCognitiveModel(lang string) string {
 // =============================================================================
 // GOD TIER CODER SYSTEM PROMPT (~20,000+ chars)
 // =============================================================================
-// This prompt implements the full cognitive architecture for the Coder Shard.
-// It follows the prompt-architect skill's God Tier template specifications.
+// DEPRECATED: This prompt constant is being replaced by the JIT prompt compiler.
+// Prompts should now be defined in build/prompt_atoms/ YAML files.
+// This constant is kept only as a legacy fallback when JIT compilation fails.
+// TODO: Remove this constant once JIT compiler is fully stable and tested.
 // =============================================================================
 
 const coderSystemPromptTemplate = `// =============================================================================
@@ -513,6 +515,11 @@ For modifications, include the COMPLETE new file content, not a diff.
 
 // =============================================================================
 // LANGUAGE-SPECIFIC COGNITIVE MODELS
+// =============================================================================
+// DEPRECATED: These cognitive model constants are being replaced by the JIT prompt compiler.
+// Language-specific models should now be defined in build/prompt_atoms/ YAML files.
+// These constants are kept only as legacy fallbacks when JIT compilation fails.
+// TODO: Remove these constants once JIT compiler is fully stable and tested.
 // =============================================================================
 
 const goCognitiveModel = `## GO COGNITIVE MODEL

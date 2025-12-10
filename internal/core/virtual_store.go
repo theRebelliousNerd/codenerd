@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 )
 
 // ActionType defines the types of actions the VirtualStore can execute.
@@ -224,14 +225,7 @@ type ToolGenerator interface {
 }
 
 // ToolInfo contains information about a registered tool
-type ToolInfo struct {
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	BinaryPath   string    `json:"binary_path"`
-	Hash         string    `json:"hash"`
-	RegisteredAt time.Time `json:"registered_at"`
-	ExecuteCount int64     `json:"execute_count"`
-}
+type ToolInfo = types.ToolInfo
 
 // FileEditor is an interface for file operations with audit logging.
 // This breaks the import cycle - implemented by tactile.FileEditor.

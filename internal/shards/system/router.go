@@ -451,9 +451,18 @@ func (r *TactileRouterShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-	prompt := r.buildRouteProposalPrompt(cases)
+	userPrompt := r.buildRouteProposalPrompt(cases)
 
-	result, err := r.GuardedLLMCall(ctx, routerAutopoiesisPrompt, prompt)
+	// Try JIT prompt compilation first, fall back to legacy constant
+	systemPrompt, jitUsed := r.TryJITPrompt(ctx, "router_autopoiesis")
+	if !jitUsed {
+		systemPrompt = routerAutopoiesisPrompt
+		logging.SystemShards("[TactileRouter] [FALLBACK] Using legacy autopoiesis prompt")
+	} else {
+		logging.SystemShards("[TactileRouter] [JIT] Using JIT-compiled autopoiesis prompt")
+	}
+
+	result, err := r.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		for _, cas := range cases {
 			r.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
@@ -565,7 +574,9 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 	return result
 }
 
-// routerAutopoiesisPrompt is the system prompt for proposing new routes.
+// DEPRECATED: routerAutopoiesisPrompt is the legacy system prompt for proposing new routes.
+// Prefer JIT prompt compilation via TryJITPrompt() when available.
+// This constant is retained as a fallback for when JIT is unavailable.
 const routerAutopoiesisPrompt = `You are the Tactile Router's Autopoiesis system.
 Your role is to propose tool routes for unmapped actions.
 

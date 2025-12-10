@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
@@ -15,7 +16,8 @@ import (
 // and hot-loads them into the learned policy layer.
 type LegislatorShard struct {
 	*BaseSystemShard
-	feedbackLoop *feedback.FeedbackLoop
+	feedbackLoop    *feedback.FeedbackLoop
+	promptAssembler *articulation.PromptAssembler
 }
 
 // llmClientAdapter adapts core.LLMClient to feedback.LLMClient interface.
@@ -58,6 +60,23 @@ func NewLegislatorShard() *LegislatorShard {
 		BaseSystemShard: base,
 		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
 	}
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt compilation.
+func (l *LegislatorShard) SetPromptAssembler(pa *articulation.PromptAssembler) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.promptAssembler = pa
+	if pa != nil {
+		logging.SystemShards("[Legislator] PromptAssembler attached")
+	}
+}
+
+// GetPromptAssembler returns the current prompt assembler (may be nil).
+func (l *LegislatorShard) GetPromptAssembler() *articulation.PromptAssembler {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.promptAssembler
 }
 
 // Execute compiles the provided directive into a Mangle rule, validates it, and applies it.
@@ -160,12 +179,15 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	// Build the user prompt for directive compilation
 	userPrompt := l.buildLegislatorPrompt(directive)
 
+	// Determine system prompt: try JIT first, fallback to legacy
+	systemPrompt := l.getSystemPrompt(ctx)
+
 	// Use the feedback loop for generation with automatic validation and retry
 	result, err := l.feedbackLoop.GenerateAndValidate(
 		ctx,
 		adapter,
 		l.Kernel,
-		legislatorSystemPrompt,
+		systemPrompt,
 		userPrompt,
 		"legislator", // domain for valid examples
 	)
@@ -192,6 +214,34 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	return result.Rule, nil
 }
 
+// getSystemPrompt returns the system prompt for rule synthesis.
+// It tries JIT compilation first, falling back to the legacy constant if JIT is unavailable.
+func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
+	l.mu.RLock()
+	pa := l.promptAssembler
+	l.mu.RUnlock()
+
+	// Try JIT compilation if available
+	if pa != nil && pa.JITReady() {
+		pc := &articulation.PromptContext{
+			ShardID:   l.ID,
+			ShardType: "legislator",
+		}
+		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+		if err == nil && jitPrompt != "" {
+			logging.SystemShards("[Legislator] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			return jitPrompt
+		}
+		if err != nil {
+			logging.SystemShards("[Legislator] JIT compilation failed, using legacy: %v", err)
+		}
+	}
+
+	// Fallback to legacy constant
+	logging.SystemShards("[Legislator] [FALLBACK] Using legacy system prompt")
+	return legislatorSystemPrompt
+}
+
 // buildLegislatorPrompt constructs the user prompt for directive compilation.
 // The feedback loop enhances this with syntax guidance and predicate lists.
 func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
@@ -209,6 +259,9 @@ func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 
 // legislatorSystemPrompt is the system prompt for Mangle rule synthesis.
 // This follows the God Tier template for functional prompts (8,000+ chars).
+//
+// DEPRECATED: This constant is retained as a fallback for when JIT prompt compilation
+// is unavailable. New deployments should use the JIT compiler via SetPromptAssembler().
 const legislatorSystemPrompt = `// =============================================================================
 // I. IDENTITY & PRIME DIRECTIVE
 // =============================================================================

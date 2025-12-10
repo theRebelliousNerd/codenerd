@@ -104,6 +104,11 @@ type SessionPlannerShard struct {
 
 	// Running state
 	running bool
+
+	// JIT Prompt Compilation (Phase 5)
+	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
+	// Set via SetPromptAssembler() which accepts interface{}.
+	promptAssembler interface{}
 }
 
 // NewSessionPlannerShard creates a new Session Planner shard.
@@ -231,6 +236,7 @@ func (s *SessionPlannerShard) initializeFromTask(ctx context.Context, task strin
 }
 
 // decomposeGoal uses LLM to break down a high-level goal.
+// Uses JIT prompt compilation if available, otherwise falls back to legacy prompts.
 func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) error {
 	timer := logging.StartTimer(logging.CategorySystemShards, "[SessionPlanner] Goal decomposition")
 	defer timer.Stop()
@@ -246,9 +252,13 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 		return fmt.Errorf("LLM blocked: %s", reason)
 	}
 
-	prompt := fmt.Sprintf(decompositionPrompt, goal)
+	// Build system prompt (try JIT first, fall back to legacy)
+	systemPrompt := s.buildSystemPrompt(ctx)
 
-	result, err := s.GuardedLLMCall(ctx, plannerSystemPrompt, prompt)
+	// Build user prompt (try JIT first, fall back to legacy)
+	userPrompt := s.buildDecompositionPrompt(ctx, goal)
+
+	result, err := s.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}
@@ -288,6 +298,66 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	}
 
 	return nil
+}
+
+// buildSystemPrompt constructs the system prompt for goal decomposition.
+// Uses JIT prompt compilation if available, otherwise falls back to legacy prompt.
+func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
+	s.mu.RLock()
+	pa := s.promptAssembler
+	shardID := s.ID
+	s.mu.RUnlock()
+
+	// If PromptAssembler is not available, use legacy prompt
+	if pa == nil {
+		logging.SystemShardsDebug("[SessionPlanner] No PromptAssembler, using legacy system prompt")
+		return plannerSystemPrompt
+	}
+
+	// Define minimal interface to avoid importing articulation package
+	type jitAssembler interface {
+		JITReady() bool
+		AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
+	}
+
+	assembler, ok := pa.(jitAssembler)
+	if !ok {
+		logging.SystemShards("[SessionPlanner] [FALLBACK] PromptAssembler type mismatch, using legacy system prompt")
+		return plannerSystemPrompt
+	}
+
+	// Check if JIT is ready
+	if !assembler.JITReady() {
+		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT not ready, using legacy system prompt")
+		return plannerSystemPrompt
+	}
+
+	// Build PromptContext-like struct for JIT compilation
+	promptCtx := struct {
+		ShardID   string
+		ShardType string
+	}{
+		ShardID:   shardID,
+		ShardType: "planner",
+	}
+
+	jitPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] JIT compilation failed, using legacy: %v", err)
+		return plannerSystemPrompt
+	}
+
+	logging.SystemShards("[SessionPlanner] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+	return jitPrompt
+}
+
+// buildDecompositionPrompt constructs the user prompt for goal decomposition.
+// Currently uses the legacy decomposition prompt template.
+// Future: Could be extended to use JIT for user prompts as well.
+func (s *SessionPlannerShard) buildDecompositionPrompt(ctx context.Context, goal string) string {
+	// For now, use the legacy decomposition prompt template
+	// The JIT compiler primarily handles system prompts; user prompts are simpler
+	return fmt.Sprintf(decompositionPrompt, goal)
 }
 
 // parseAgendaItems extracts agenda items from LLM output.
@@ -663,6 +733,25 @@ func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
 	return view
 }
 
+// SetPromptAssembler sets the prompt assembler for JIT prompt compilation.
+// The assembler should be a *articulation.PromptAssembler but is stored as
+// interface{} to avoid import cycles.
+func (s *SessionPlannerShard) SetPromptAssembler(assembler interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.promptAssembler = assembler
+	if assembler != nil {
+		logging.SystemShards("[SessionPlanner] PromptAssembler attached")
+	}
+}
+
+// GetPromptAssembler returns the prompt assembler for JIT prompt compilation.
+func (s *SessionPlannerShard) GetPromptAssembler() interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.promptAssembler
+}
+
 // FormatPlanAsMarkdown formats the current plan as markdown for terminal display.
 func (s *SessionPlannerShard) FormatPlanAsMarkdown() string {
 	plan := s.GetCurrentPlan()
@@ -837,6 +926,11 @@ func generateProgressBar(percent float64, width int) string {
 
 // plannerSystemPrompt is the system prompt for goal decomposition.
 // This follows the God Tier template for functional prompts (8,000+ chars).
+//
+// DEPRECATED: This constant is kept for fallback compatibility.
+// New code should use the JIT prompt compiler via SetPromptAssembler().
+// The JIT compiler will eventually replace this static prompt with
+// context-aware, dynamically assembled prompts.
 const plannerSystemPrompt = `// =============================================================================
 // I. IDENTITY & PRIME DIRECTIVE
 // =============================================================================
@@ -980,6 +1074,10 @@ Output a JSON array of tasks:
 4. What was excluded and why?`
 
 // decompositionPrompt is the template for goal decomposition.
+//
+// DEPRECATED: This constant is kept for fallback compatibility.
+// New code should use buildDecompositionPrompt() which may be extended
+// to support JIT compilation for user prompts in the future.
 const decompositionPrompt = `Decompose this goal into actionable tasks:
 
 "%s"

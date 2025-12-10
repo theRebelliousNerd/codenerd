@@ -11,6 +11,7 @@
 package system
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
@@ -87,6 +88,9 @@ type PerceptionFirewallShard struct {
 	// Running state
 	running bool
 	// Note: patternSuccess, patternFailure, corrections, learningStore are inherited from BaseSystemShard
+
+	// JIT prompt compilation support
+	promptAssembler *articulation.PromptAssembler
 }
 
 // NewPerceptionFirewallShard creates a new Perception Firewall shard.
@@ -125,6 +129,25 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 // Delegates to BaseSystemShard which loads existing patterns.
 func (p *PerceptionFirewallShard) SetLearningStore(ls core.LearningStore) {
 	p.BaseSystemShard.SetLearningStore(ls)
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
+// When set and ready, the shard will use JIT-compiled prompts instead of the legacy
+// constant prompts, falling back to legacy if JIT compilation fails.
+func (p *PerceptionFirewallShard) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.promptAssembler = assembler
+	if assembler != nil {
+		logging.SystemShards("[PerceptionFirewall] PromptAssembler attached (JIT ready: %v)", assembler.JITReady())
+	}
+}
+
+// GetPromptAssembler returns the current prompt assembler, if any.
+func (p *PerceptionFirewallShard) GetPromptAssembler() *articulation.PromptAssembler {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.promptAssembler
 }
 
 // trackSuccess records a successful parse pattern.
@@ -338,8 +361,31 @@ func (p *PerceptionFirewallShard) parseWithLLM(ctx context.Context, input string
 		return Intent{}, fmt.Errorf("LLM blocked: %s", reason)
 	}
 
-	// Build system prompt with learned patterns
-	systemPrompt := p.buildSystemPromptWithLearning()
+	// Build system prompt - try JIT first, fall back to legacy
+	var systemPrompt string
+	p.mu.RLock()
+	assembler := p.promptAssembler
+	p.mu.RUnlock()
+
+	if assembler != nil && assembler.JITReady() {
+		pc := &articulation.PromptContext{
+			ShardID:   p.ID,
+			ShardType: "perception",
+		}
+		if jitPrompt, err := assembler.AssembleSystemPrompt(ctx, pc); err == nil {
+			systemPrompt = jitPrompt
+			logging.SystemShards("[PerceptionFirewall] [JIT] Using JIT-compiled system prompt (%d bytes)", len(systemPrompt))
+		} else {
+			logging.SystemShards("[PerceptionFirewall] JIT compilation failed, falling back to legacy: %v", err)
+		}
+	}
+
+	// Fallback to legacy prompt if JIT is not available or failed
+	if systemPrompt == "" {
+		systemPrompt = p.buildSystemPromptWithLearning()
+		logging.SystemShards("[PerceptionFirewall] [FALLBACK] Using legacy system prompt (%d bytes)", len(systemPrompt))
+	}
+
 	userPrompt := fmt.Sprintf(perceptionUserPrompt, input)
 
 	result, err := p.GuardedLLMCall(ctx, systemPrompt, userPrompt)
@@ -605,6 +651,11 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 }
 
 // perceptionSystemPrompt is the system prompt for intent parsing.
+//
+// DEPRECATED: This legacy prompt is retained for fallback when JIT compilation
+// is not available or fails. New prompt features should be added via the JIT
+// prompt compiler in internal/articulation. The JIT system provides dynamic
+// context injection, session awareness, and learned pattern integration.
 const perceptionSystemPrompt = `You are the Perception Firewall of the codeNERD agent.
 Your role is to transduce natural language input into structured intent atoms.
 
@@ -631,6 +682,10 @@ Be precise:
 If the request is ambiguous, set confidence < 0.7 and note ambiguity in constraint.`
 
 // perceptionUserPrompt is the template for user input.
+//
+// DEPRECATED: This legacy user prompt template is retained for fallback.
+// The user prompt is typically short and context-specific, so it remains
+// as a simple template. System prompt customization should use JIT.
 const perceptionUserPrompt = `Parse the following user input into a structured intent:
 
 "%s"

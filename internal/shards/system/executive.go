@@ -494,6 +494,15 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 	// Build the user prompt describing unhandled cases
 	userPrompt := e.buildPolicyProposalPrompt(cases)
 
+	// Try JIT prompt compilation first, fall back to legacy constant
+	systemPrompt, jitUsed := e.TryJITPrompt(ctx, "executive_autopoiesis")
+	if !jitUsed {
+		systemPrompt = executiveAutopoiesisPrompt
+		logging.SystemShards("[ExecutivePolicy] [FALLBACK] Using legacy autopoiesis prompt")
+	} else {
+		logging.SystemShards("[ExecutivePolicy] [JIT] Using JIT-compiled autopoiesis prompt")
+	}
+
 	// Create LLM adapter that wraps GuardedLLMCall
 	llmAdapter := &executiveLLMAdapter{
 		shard: e,
@@ -506,7 +515,7 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		ctx,
 		llmAdapter,
 		e.Kernel, // RealKernel implements RuleValidator
-		executiveAutopoiesisPrompt,
+		systemPrompt,
 		userPrompt,
 		"executive",
 	)
@@ -727,7 +736,9 @@ func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
 	return result
 }
 
-// executiveAutopoiesisPrompt is the system prompt for proposing policy rules.
+// DEPRECATED: executiveAutopoiesisPrompt is the legacy system prompt for proposing policy rules.
+// Prefer JIT prompt compilation via TryJITPrompt() when available.
+// This constant is retained as a fallback for when JIT is unavailable.
 const executiveAutopoiesisPrompt = `You are the Executive Policy's Autopoiesis system.
 Your role is to propose new Mangle policy rules for decision-making.
 

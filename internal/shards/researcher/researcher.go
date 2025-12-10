@@ -28,10 +28,6 @@
 package researcher
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/store"
-	"codenerd/internal/world"
 	"context"
 	"fmt"
 	"net/http"
@@ -41,6 +37,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/world"
 )
 
 // ResearchConfig holds configuration for the researcher shard.

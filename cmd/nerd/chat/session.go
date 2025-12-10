@@ -340,10 +340,19 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shardMgr.SetLLMClient(baseLLMClient)
 		}
 
-		// Initialize JIT Prompt Compiler
+		// Initialize JIT Prompt Compiler with embedded corpus
 		logStep("Initializing JIT prompt compiler...")
 		var jitCompiler *prompt.JITPromptCompiler
-		if jit, err := prompt.NewJITPromptCompiler(); err == nil {
+
+		// Load embedded corpus (baked-in prompt atoms)
+		embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
+		if embeddedErr != nil {
+			logging.Boot("Warning: Failed to load embedded corpus: %v", embeddedErr)
+		} else {
+			logging.Boot("Loaded %d atoms from embedded corpus", embeddedCorpus.Count())
+		}
+
+		if jit, err := prompt.NewJITPromptCompiler(prompt.WithEmbeddedCorpus(embeddedCorpus)); err == nil {
 			jitCompiler = jit
 
 			// Wire prompt loader callback (YAML → SQLite)
@@ -355,6 +364,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			// Wire JIT DB registration callbacks
 			shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
 			shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
+
+			// Sync all agent prompts.yaml → knowledge DBs at boot (upsert semantics)
+			// This ensures edited prompts are available to the JIT compiler immediately
+			nerdDir := filepath.Join(workspace, ".nerd")
+			logStep("Syncing agent prompts to knowledge DBs...")
+			if promptCount, syncErr := prompt.ReloadAllPrompts(context.Background(), nerdDir, embeddingEngine); syncErr != nil {
+				logging.Boot("Warning: Failed to sync agent prompts: %v", syncErr)
+			} else if promptCount > 0 {
+				logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
+			}
 
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
@@ -368,25 +387,43 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				Time:    time.Now(),
 			})
 		}
-		_ = jitCompiler // Will be used when PromptAssembler is wired
+		// Create PromptAssembler with JIT for dynamic prompt compilation
+		var promptAssembler *articulation.PromptAssembler
+		if jitCompiler != nil {
+			if pa, err := articulation.NewPromptAssemblerWithJIT(kernel, jitCompiler); err == nil {
+				promptAssembler = pa
+				logging.Boot("PromptAssembler created with JIT compiler")
+			} else {
+				logging.Boot("Warning: Failed to create PromptAssembler with JIT: %v", err)
+			}
+		}
 
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := reviewer.NewReviewerShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := tester.NewTesterShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -403,6 +440,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			if context7Key != "" {
 				shard.SetContext7APIKey(context7Key)
 			}
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 
@@ -411,6 +451,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard := system.NewPerceptionFirewallShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -418,18 +461,27 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := system.NewExecutivePolicyShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := system.NewConstitutionGateShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -440,12 +492,18 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 		shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := system.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
 			return shard
 		})
 

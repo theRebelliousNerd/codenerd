@@ -12,8 +12,6 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/world"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +21,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/world"
 )
 
 // FileInfo represents a tracked file.
@@ -525,9 +527,18 @@ func (w *WorldModelIngestorShard) handleAutopoiesis(ctx context.Context) {
 	}
 
 	// Use LLM to interpret complex changes
-	prompt := w.buildInterpretationPrompt(cases)
+	userPrompt := w.buildInterpretationPrompt(cases)
 
-	result, err := w.GuardedLLMCall(ctx, worldModelAutopoiesisPrompt, prompt)
+	// Try JIT prompt compilation first, fall back to legacy constant
+	systemPrompt, jitUsed := w.TryJITPrompt(ctx, "world_model_autopoiesis")
+	if !jitUsed {
+		systemPrompt = worldModelAutopoiesisPrompt
+		logging.SystemShards("[WorldModel] [FALLBACK] Using legacy autopoiesis prompt")
+	} else {
+		logging.SystemShards("[WorldModel] [JIT] Using JIT-compiled autopoiesis prompt")
+	}
+
+	result, err := w.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return
 	}
@@ -641,7 +652,9 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []core.Fact) {
 	}
 }
 
-// worldModelAutopoiesisPrompt is the system prompt for semantic interpretation.
+// DEPRECATED: worldModelAutopoiesisPrompt is the legacy system prompt for semantic interpretation.
+// Prefer JIT prompt compilation via TryJITPrompt() when available.
+// This constant is retained as a fallback for when JIT is unavailable.
 const worldModelAutopoiesisPrompt = `You are the World Model Ingestor's semantic interpreter.
 Your role is to derive meaningful facts from file changes.
 

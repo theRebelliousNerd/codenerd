@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/autopoiesis"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
 
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
@@ -23,98 +23,19 @@ import (
 	"github.com/google/mangle/parse"
 )
 
+// =============================================================================
+// TYPE ALIASES - Import from internal/types to break import cycles
+// =============================================================================
+// These types are defined in internal/types and aliased here for backward compatibility.
+// This breaks the core → autopoiesis → articulation → core import cycle.
+
 // Fact represents a single logical fact (atom) in the EDB.
-type Fact struct {
-	Predicate string
-	Args      []interface{}
-}
+// Aliased from types package to break import cycles.
+type Fact = types.Fact
 
 // MangleAtom represents a Mangle name constant (starting with /).
-// This explicit type avoids ambiguity between strings and atoms.
-type MangleAtom string
-
-// String returns the Datalog string representation of the fact.
-func (f Fact) String() string {
-	var args []string
-	for _, arg := range f.Args {
-		switch v := arg.(type) {
-		case MangleAtom:
-			args = append(args, string(v))
-		case string:
-			// Handle Mangle name constants (start with /)
-			if strings.HasPrefix(v, "/") {
-				args = append(args, v)
-			} else {
-				args = append(args, fmt.Sprintf("%q", v))
-			}
-		case int:
-			args = append(args, fmt.Sprintf("%d", v))
-		case int64:
-			args = append(args, fmt.Sprintf("%d", v))
-		case float64:
-			args = append(args, fmt.Sprintf("%f", v))
-		case bool:
-			if v {
-				args = append(args, "/true")
-			} else {
-				args = append(args, "/false")
-			}
-		default:
-			args = append(args, fmt.Sprintf("%v", v))
-		}
-	}
-	return fmt.Sprintf("%s(%s).", f.Predicate, strings.Join(args, ", "))
-}
-
-// ToAtom converts a Fact to a Mangle AST Atom for direct store insertion.
-func (f Fact) ToAtom() (ast.Atom, error) {
-	var terms []ast.BaseTerm
-	for _, arg := range f.Args {
-		switch v := arg.(type) {
-		case MangleAtom:
-			c, err := ast.Name(string(v))
-			if err != nil {
-				return ast.Atom{}, err
-			}
-			terms = append(terms, c)
-		case string:
-			if strings.HasPrefix(v, "/") {
-				// Name constant
-				c, err := ast.Name(v)
-				if err != nil {
-					return ast.Atom{}, err
-				}
-				terms = append(terms, c)
-			} else {
-				// String constant
-				terms = append(terms, ast.String(v))
-			}
-		case int:
-			terms = append(terms, ast.Number(int64(v)))
-		case int64:
-			terms = append(terms, ast.Number(v))
-		case float64:
-			// Convert floats to integers for Mangle compatibility
-			// (Mangle comparison operators don't support float types)
-			// 0.0-1.0 range -> 0-100 scale, otherwise truncate to int
-			if v >= 0.0 && v <= 1.0 {
-				terms = append(terms, ast.Number(int64(v*100)))
-			} else {
-				terms = append(terms, ast.Number(int64(v)))
-			}
-		case bool:
-			if v {
-				terms = append(terms, ast.TrueConstant)
-			} else {
-				terms = append(terms, ast.FalseConstant)
-			}
-		default:
-			terms = append(terms, ast.String(fmt.Sprintf("%v", v)))
-		}
-	}
-
-	return ast.NewAtom(f.Predicate, terms...), nil
-}
+// Aliased from types package to break import cycles.
+type MangleAtom = types.MangleAtom
 
 // Kernel defines the interface for the logic core.
 type Kernel interface {
@@ -1488,18 +1409,18 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 // AUTOPOIESIS BRIDGE (Formerly Kernel Adapter)
 // =============================================================================
 
-// AutopoiesisBridge wraps RealKernel to implement autopoiesis.KernelInterface.
+// AutopoiesisBridge wraps RealKernel to implement types.KernelInterface.
 type AutopoiesisBridge struct {
 	kernel *RealKernel
 }
 
-// NewAutopoiesisBridge creates an adapter that implements autopoiesis.KernelInterface.
+// NewAutopoiesisBridge creates an adapter that implements types.KernelInterface.
 func NewAutopoiesisBridge(kernel *RealKernel) *AutopoiesisBridge {
 	return &AutopoiesisBridge{kernel: kernel}
 }
 
-// AssertFact implements autopoiesis.KernelInterface.
-func (ab *AutopoiesisBridge) AssertFact(fact autopoiesis.KernelFact) error {
+// AssertFact implements types.KernelInterface.
+func (ab *AutopoiesisBridge) AssertFact(fact types.KernelFact) error {
 	coreFact := Fact{
 		Predicate: fact.Predicate,
 		Args:      fact.Args,
@@ -1507,16 +1428,16 @@ func (ab *AutopoiesisBridge) AssertFact(fact autopoiesis.KernelFact) error {
 	return ab.kernel.Assert(coreFact)
 }
 
-// QueryPredicate implements autopoiesis.KernelInterface.
-func (ab *AutopoiesisBridge) QueryPredicate(predicate string) ([]autopoiesis.KernelFact, error) {
+// QueryPredicate implements types.KernelInterface.
+func (ab *AutopoiesisBridge) QueryPredicate(predicate string) ([]types.KernelFact, error) {
 	facts, err := ab.kernel.Query(predicate)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]autopoiesis.KernelFact, len(facts))
+	result := make([]types.KernelFact, len(facts))
 	for i, f := range facts {
-		result[i] = autopoiesis.KernelFact{
+		result[i] = types.KernelFact{
 			Predicate: f.Predicate,
 			Args:      f.Args,
 		}
@@ -1524,7 +1445,7 @@ func (ab *AutopoiesisBridge) QueryPredicate(predicate string) ([]autopoiesis.Ker
 	return result, nil
 }
 
-// QueryBool implements autopoiesis.KernelInterface.
+// QueryBool implements types.KernelInterface.
 func (ab *AutopoiesisBridge) QueryBool(predicate string) bool {
 	facts, err := ab.kernel.Query(predicate)
 	if err != nil {
@@ -1533,8 +1454,8 @@ func (ab *AutopoiesisBridge) QueryBool(predicate string) bool {
 	return len(facts) > 0
 }
 
-// RetractFact implements autopoiesis.KernelInterface.
-func (ab *AutopoiesisBridge) RetractFact(fact autopoiesis.KernelFact) error {
+// RetractFact implements types.KernelInterface.
+func (ab *AutopoiesisBridge) RetractFact(fact types.KernelFact) error {
 	coreFact := Fact{
 		Predicate: fact.Predicate,
 		Args:      fact.Args,
@@ -1543,7 +1464,7 @@ func (ab *AutopoiesisBridge) RetractFact(fact autopoiesis.KernelFact) error {
 }
 
 // Ensure AutopoiesisBridge implements KernelInterface at compile time.
-var _ autopoiesis.KernelInterface = (*AutopoiesisBridge)(nil)
+var _ types.KernelInterface = (*AutopoiesisBridge)(nil)
 
 // Ensure RealKernel implements feedback.RuleValidator at compile time.
 var _ feedback.RuleValidator = (*RealKernel)(nil)

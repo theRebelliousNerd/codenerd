@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
@@ -759,13 +760,32 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	// =========================================================================
 	// PHASE 11: Generate Agent Registry
 	// =========================================================================
-	i.sendProgress("registry", "Generating agent registry...", 0.95)
+	i.sendProgress("registry", "Generating agent registry...", 0.93)
 
 	registryPath := filepath.Join(nerdDir, "agents.json")
 	if err := i.saveAgentRegistry(registryPath, result.CreatedAgents); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to save agent registry: %v", err))
 	} else {
 		result.FilesCreated = append(result.FilesCreated, registryPath)
+	}
+
+	// =========================================================================
+	// PHASE 12: Sync Agent Prompts to Knowledge DBs
+	// =========================================================================
+	i.sendProgress("prompt_sync", "Syncing agent prompts to knowledge DBs...", 0.97)
+	fmt.Println("\n📝 Phase 12: Syncing Agent Prompts")
+
+	// Sync all .nerd/agents/{name}/prompts.yaml → .nerd/shards/{name}_knowledge.db
+	// Uses upsert semantics: new atoms inserted, existing atoms updated
+	promptCount, syncErr := prompt.ReloadAllPrompts(ctx, nerdDir, i.embedEngine)
+	if syncErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to sync agent prompts: %v", syncErr))
+		fmt.Printf("   ⚠ Warning: %v\n", syncErr)
+	} else if promptCount > 0 {
+		fmt.Printf("   ✓ Synced %d prompt atoms to knowledge DBs\n", promptCount)
+		logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
+	} else {
+		fmt.Println("   ✓ No prompt atoms to sync")
 	}
 
 	// =========================================================================

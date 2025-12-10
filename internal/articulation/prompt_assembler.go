@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -22,16 +22,16 @@ import (
 // KernelQuerier defines the interface for querying the Mangle kernel.
 // This abstracts the kernel dependency for testability.
 type KernelQuerier interface {
-	Query(predicate string) ([]core.Fact, error)
+	Query(predicate string) ([]types.Fact, error)
 }
 
 // PromptContext holds all the context needed to assemble a system prompt.
 type PromptContext struct {
-	ShardID    string                 // Unique identifier for this shard instance
-	ShardType  string                 // Type: coder, tester, reviewer, researcher
-	SessionCtx *core.SessionContext   // Session context from the Blackboard
-	UserIntent *core.StructuredIntent // Parsed user intent from perception
-	CampaignID string                 // Active campaign ID (if any)
+	ShardID    string                  // Unique identifier for this shard instance
+	ShardType  string                  // Type: coder, tester, reviewer, researcher
+	SessionCtx *types.SessionContext   // Session context from the Blackboard
+	UserIntent *types.StructuredIntent // Parsed user intent from perception
+	CampaignID string                  // Active campaign ID (if any)
 }
 
 // defaultUseJIT is set from the USE_JIT_PROMPTS environment variable.
@@ -668,13 +668,13 @@ func AssembleQuickPrompt(ctx context.Context, kernel KernelQuerier, shardID, sha
 }
 
 // WithSessionContext returns a new PromptContext with session context added.
-func (pc *PromptContext) WithSessionContext(ctx *core.SessionContext) *PromptContext {
+func (pc *PromptContext) WithSessionContext(ctx *types.SessionContext) *PromptContext {
 	pc.SessionCtx = ctx
 	return pc
 }
 
 // WithIntent returns a new PromptContext with user intent added.
-func (pc *PromptContext) WithIntent(intent *core.StructuredIntent) *PromptContext {
+func (pc *PromptContext) WithIntent(intent *types.StructuredIntent) *PromptContext {
 	pc.UserIntent = intent
 	return pc
 }
