@@ -224,10 +224,14 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			// Emit heartbeat
 			_ = e.EmitHeartbeat()
 
-			// Check for autopoiesis (strategy gaps)
+			// Check for autopoiesis (strategy gaps) - run async to avoid blocking OODA loop
 			if e.Autopoiesis.ShouldPropose() {
-				logging.SystemShardsDebug("[ExecutivePolicy] Triggering autopoiesis rule proposal")
-				e.handleAutopoiesis(ctx)
+				logging.SystemShardsDebug("[ExecutivePolicy] Triggering async autopoiesis rule proposal")
+				go func() {
+					autoCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					defer cancel()
+					e.handleAutopoiesis(autoCtx)
+				}()
 			}
 		}
 	}

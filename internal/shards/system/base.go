@@ -13,6 +13,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -620,7 +621,7 @@ func (b *BaseSystemShard) EmitHeartbeat() error {
 	})
 }
 
-// GuardedLLMCall wraps an LLM call with cost guard checks.
+// GuardedLLMCall wraps an LLM call with cost guard checks and per-call timeout.
 func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if b.LLMClient == nil {
 		err := fmt.Errorf("no LLM client configured")
@@ -635,11 +636,23 @@ func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, user
 		return "", err
 	}
 
+	// Apply per-call timeout if none exists
+	const defaultLLMTimeout = 90 * time.Second
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultLLMTimeout)
+		defer cancel()
+	}
+
 	timer := logging.StartTimer(logging.CategorySystemShards, fmt.Sprintf("[%s] LLM call", b.ID))
 	result, err := b.LLMClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	elapsed := timer.Stop()
 
 	if err != nil {
+		// Log timeout specifically for debugging
+		if errors.Is(err, context.DeadlineExceeded) {
+			logging.Get(logging.CategorySystemShards).Warn("[%s] LLM call timed out after %v", b.ID, elapsed)
+		}
 		b.CostGuard.RecordError()
 		logging.Get(logging.CategorySystemShards).Error("[%s] LLM call failed after %v: %v", b.ID, elapsed, err)
 		return "", err
