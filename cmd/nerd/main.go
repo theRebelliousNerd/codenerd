@@ -618,20 +618,27 @@ Example:
 
 // pushCmd runs git push directly
 var pushCmd = &cobra.Command{
-	Use:   "push",
+	Use:   "push [remote] [branch]",
 	Short: "Push commits to remote repository",
-	Long: `Spawns CoderShard to execute git push.
-Equivalent to typing "push to github" in the TUI.
+	Long: `Executes git push to push commits to the remote repository.
 
 Example:
-  nerd push
-  nerd push origin main`,
+  nerd push              # pushes to origin
+  nerd push origin main  # pushes main to origin`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		target := "origin"
+		gitArgs := []string{"push"}
 		if len(args) > 0 {
-			target = strings.Join(args, " ")
+			gitArgs = append(gitArgs, args...)
 		}
-		return runDirectAction("coder", "/git")(cmd, []string{"push to " + target})
+
+		fmt.Printf("🚀 Executing: git %s\n", strings.Join(gitArgs, " "))
+		fmt.Println(strings.Repeat("─", 50))
+
+		gitCmd := exec.Command("git", gitArgs...)
+		gitCmd.Dir = workspace
+		gitCmd.Stdout = os.Stdout
+		gitCmd.Stderr = os.Stderr
+		return gitCmd.Run()
 	},
 }
 
@@ -639,13 +646,41 @@ Example:
 var commitCmd = &cobra.Command{
 	Use:   "commit <message>",
 	Short: "Commit changes with a message",
-	Long: `Spawns CoderShard to execute git commit.
-Equivalent to typing "commit <message>" in the TUI.
+	Long: `Executes git commit with the provided message.
 
 Example:
   nerd commit "fix: resolve auth bug"`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: runDirectAction("coder", "/git"),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		message := strings.Join(args, " ")
+
+		fmt.Printf("📝 Executing: git commit -m %q\n", message)
+		fmt.Println(strings.Repeat("─", 50))
+
+		// First check status
+		statusCmd := exec.Command("git", "status", "--porcelain")
+		statusCmd.Dir = workspace
+		status, _ := statusCmd.Output()
+
+		if len(status) == 0 {
+			fmt.Println("ℹ️  Nothing to commit, working tree clean")
+			return nil
+		}
+
+		// Add all changes
+		addCmd := exec.Command("git", "add", "-A")
+		addCmd.Dir = workspace
+		if err := addCmd.Run(); err != nil {
+			return fmt.Errorf("git add failed: %w", err)
+		}
+
+		// Commit
+		gitCmd := exec.Command("git", "commit", "-m", message)
+		gitCmd.Dir = workspace
+		gitCmd.Stdout = os.Stdout
+		gitCmd.Stderr = os.Stderr
+		return gitCmd.Run()
+	},
 }
 
 // explainCmd explains code directly

@@ -9175,5 +9175,5 @@ selected_result(Atom, Prio, /flesh) :-
 
 
 # Sandbox Validation
-next_action(/breadth_first_survey) :- !active_strategy(_), has_runnable_task(_).
+active_strategy(/breadth_first_survey) :- candidate_node(_), !current_task(_), !phase_had_failure(_), !systemic_error_detected(_).
 

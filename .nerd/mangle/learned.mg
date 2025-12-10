@@ -21,3 +21,19 @@ ooda_phase(/observe) :- system_startup(_,_).
 # Autopoiesis-learned rule (added 2025-12-10 16:53:11)
 system_startup(/start,/init).
 
+
+# Autopoiesis-learned rule (added 2025-12-10 17:08:30)
+next_action(/system_start) :- session_state(_,/initializing,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 17:10:39)
+strategy_activated(/initialization,/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 17:11:58)
+next_action(/system_start) :- session_turn(_,_,/init,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 17:15:53)
+active_strategy(/system_start) :- session_state(_,_,/initializing).
+
