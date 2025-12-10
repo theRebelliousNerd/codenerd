@@ -432,6 +432,32 @@ func TestExtractRuleFromResponse(t *testing.T) {
 			response: "Here is the rule:\nnext_action(/run) :- test(/fail).\nThis handles test failures.",
 			expected: "next_action(/run) :- test(/fail).",
 		},
+		// RULE: prefix handling (autopoiesis structured output format)
+		{
+			name:     "RULE prefix with CONFIDENCE and RATIONALE",
+			response: "RULE: next_action(/run) :- test(/fail).\nCONFIDENCE: 0.9\nRATIONALE: Handles failing tests",
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "RULE prefix only",
+			response: "RULE: next_action(/run) :- test(/fail).",
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "RULE prefix with multiline rule",
+			response: "RULE: next_action(/run) :-\n    test(/fail),\n    !blocked(/test).\nCONFIDENCE: 0.85",
+			expected: "next_action(/run) :-\n    test(/fail),\n    !blocked(/test).",
+		},
+		{
+			name:     "RULE prefix with extra whitespace",
+			response: "RULE:    next_action(/run) :- test(/fail).   \nCONFIDENCE: 0.9",
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "RULE prefix in middle of response",
+			response: "Here is my proposal:\nRULE: next_action(/run) :- test(/fail).\nCONFIDENCE: 0.8\nRATIONALE: Good rule",
+			expected: "next_action(/run) :- test(/fail).",
+		},
 	}
 
 	for _, tt := range tests {
