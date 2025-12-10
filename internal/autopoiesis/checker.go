@@ -58,6 +58,7 @@ const (
 	ViolationGoroutineLeak
 	ViolationParseError
 	ViolationPolicy
+	ViolationPanicMakerKill // NEW: Tool killed by PanicMaker adversarial testing
 )
 
 func (v ViolationType) String() string {
@@ -82,6 +83,8 @@ func (v ViolationType) String() string {
 		return "parse_error"
 	case ViolationPolicy:
 		return "policy_violation"
+	case ViolationPanicMakerKill:
+		return "panic_maker_kill"
 	default:
 		return "unknown"
 	}

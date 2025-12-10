@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards/coder"
+	"codenerd/internal/shards/nemesis"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
 	"codenerd/internal/shards/system"
@@ -285,6 +286,22 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		return shard
 	})
 
+	// Register Nemesis shard factory (adversarial co-evolution)
+	sm.RegisterShard("nemesis", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := nemesis.NewNemesisShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetLearningStore(getLearningStore())
+		// Initialize Armory for regression test persistence
+		if ctx.Workspace != "" {
+			armory := nemesis.NewArmory(ctx.Workspace + "/.nerd")
+			shard.SetArmory(armory)
+		}
+		shard.SetPromptAssembler(createAssembler())
+		return shard
+	})
+
 	// =========================================================================
 	// Type 1: System Shards (Permanent, Continuous)
 	// =========================================================================
@@ -439,6 +456,22 @@ func defineShardProfiles(sm *core.ShardManager) {
 		MemoryLimit: 20000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
+		},
+	})
+
+	// Nemesis profile - adversarial co-evolution specialist
+	sm.DefineProfile("nemesis", core.ShardConfig{
+		Name: "nemesis",
+		Type: core.ShardTypePersistent,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionExecCmd,
+			core.PermissionCodeGraph,
+		},
+		Timeout:     20 * 60 * 1000000000, // 20 minutes (adversarial analysis can take time)
+		MemoryLimit: 16000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityHighReasoning, // Needs reasoning to find weaknesses
 		},
 	})
 

@@ -105,6 +105,10 @@ type OuroborosLoop struct {
 	sanitizer     *transpiler.Sanitizer
 	engine        *mangle.Engine // The Mangle Engine governing the loop
 
+	// Adversarial Co-Evolution components
+	panicMaker  *PanicMaker  // Tool-level adversarial testing
+	thunderdome *Thunderdome // Arena for running adversarial tests
+
 	config OuroborosConfig
 	stats  OuroborosStats
 
@@ -125,6 +129,11 @@ type OuroborosConfig struct {
 	TargetOS        string        // Target operating system (GOOS)
 	TargetArch      string        // Target architecture (GOARCH)
 	WorkspaceRoot   string        // Absolute path to the main codeNERD workspace root
+
+	// Adversarial Co-Evolution configuration
+	EnableThunderdome bool          // Whether to run adversarial tests (default: true)
+	ThunderdomeConfig ThunderdomeConfig // Configuration for the Thunderdome arena
+	MaxPanicRetries   int           // Max regeneration attempts after PanicMaker kill (default: 2)
 }
 
 // DefaultOuroborosConfig returns safe default configuration
@@ -141,6 +150,10 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		TargetOS:        os.Getenv("GOOS"),
 		TargetArch:      os.Getenv("GOARCH"),
 		WorkspaceRoot:   workspaceRoot,
+		// Adversarial Co-Evolution defaults
+		EnableThunderdome: true,
+		ThunderdomeConfig: DefaultThunderdomeConfig(),
+		MaxPanicRetries:   2,
 	}
 }
 
@@ -153,6 +166,10 @@ type OuroborosStats struct {
 	ExecutionCount   int
 	Panics           int
 	LastGeneration   time.Time
+	// Adversarial Co-Evolution stats
+	ThunderdomeRuns     int // Number of Thunderdome battles
+	ThunderdomeKills    int // Tools killed by PanicMaker
+	ThunderdomeSurvived int // Tools that survived
 }
 
 // RetryConfig controls the feedback retry loop for safety violations.
@@ -239,6 +256,15 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 		config:        config,
 	}
 
+	// Initialize Adversarial Co-Evolution components
+	if config.EnableThunderdome {
+		logging.Autopoiesis("Initializing Adversarial Co-Evolution components (Thunderdome enabled)")
+		loop.panicMaker = NewPanicMaker(client)
+		loop.thunderdome = NewThunderdomeWithConfig(config.ThunderdomeConfig)
+	} else {
+		logging.Autopoiesis("Thunderdome disabled - tools will not undergo adversarial testing")
+	}
+
 	// Restore registry from disk
 	logging.AutopoiesisDebug("Restoring tool registry from disk")
 	loop.registry.Restore(config.ToolsDir, config.CompiledDir)
@@ -294,6 +320,7 @@ const (
 	StageDetection LoopStage = iota
 	StageSpecification
 	StageSafetyCheck
+	StageThunderdome // NEW: Adversarial testing phase
 	StageCompilation
 	StageRegistration
 	StageExecution
@@ -310,6 +337,8 @@ func (s LoopStage) String() string {
 		return "specification"
 	case StageSafetyCheck:
 		return "safety_check"
+	case StageThunderdome:
+		return "thunderdome"
 	case StageCompilation:
 		return "compilation"
 	case StageRegistration:
@@ -474,6 +503,96 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 		// Reset retry state on successful audit
 		retryCount = 0
 		lastViolations = nil
+
+		// =====================================================================
+		// PHASE 2.5: THUNDERDOME (Adversarial Co-Evolution)
+		// =====================================================================
+		if o.thunderdome != nil && o.panicMaker != nil {
+			logging.Autopoiesis("[STAGE: %s] ENTERING THE THUNDERDOME", StageThunderdome)
+			result.Stage = StageThunderdome
+
+			thunderdomeTimer := logging.StartTimer(logging.CategoryAutopoiesis, "Thunderdome")
+
+			// Generate attack vectors using PanicMaker
+			attacks, attackErr := o.panicMaker.GenerateAttacks(ctx, tool.Code)
+			if attackErr != nil {
+				logging.Get(logging.CategoryAutopoiesis).Warn("PanicMaker failed to generate attacks: %v", attackErr)
+				// Continue without Thunderdome if PanicMaker fails
+			} else if len(attacks) > 0 {
+				// Run the battle
+				battleResult, battleErr := o.thunderdome.Battle(ctx, tool, attacks)
+				thunderdomeTimer.Stop()
+
+				o.mu.Lock()
+				o.stats.ThunderdomeRuns++
+				o.mu.Unlock()
+
+				if battleErr != nil {
+					logging.Get(logging.CategoryAutopoiesis).Error("Thunderdome battle failed: %v", battleErr)
+					// Continue without Thunderdome result
+				} else if !battleResult.Survived {
+					// Tool was killed by PanicMaker
+					o.mu.Lock()
+					o.stats.ThunderdomeKills++
+					o.mu.Unlock()
+
+					// Record the kill in Mangle
+					_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/defeated", time.Now().Unix())
+					if battleResult.FatalAttack != nil {
+						_ = o.engine.AddFact("attack_killed",
+							battleResult.FatalAttack.Name,
+							tool.Name,
+							battleResult.Results[len(battleResult.Results)-1].Failure,
+							"")
+					}
+
+					// Check if we can retry
+					panicRetryCount := 0
+					for _, v := range lastViolations {
+						if v.Type == ViolationPanicMakerKill {
+							panicRetryCount++
+						}
+					}
+
+					if panicRetryCount < o.config.MaxPanicRetries {
+						// Create feedback for regeneration
+						lastViolations = []SafetyViolation{{
+							Type:        ViolationPanicMakerKill,
+							Description: o.thunderdome.FormatBattleResultForFeedback(battleResult),
+							Severity:    SeverityCritical,
+						}}
+						retryCount++
+
+						logging.Autopoiesis("Tool KILLED by PanicMaker, regenerating (attempt %d/%d)",
+							panicRetryCount+1, o.config.MaxPanicRetries)
+						continue // Retry the loop
+					}
+
+					// Max retries exceeded
+					o.mu.Lock()
+					o.stats.ToolsRejected++
+					o.mu.Unlock()
+
+					result.Error = fmt.Sprintf("tool killed by PanicMaker after %d regeneration attempts: %s",
+						o.config.MaxPanicRetries, battleResult.FatalAttack.Name)
+					logging.Get(logging.CategoryAutopoiesis).Error("Tool %s rejected: %s", need.Name, result.Error)
+					return result
+				} else {
+					// Tool survived!
+					o.mu.Lock()
+					o.stats.ThunderdomeSurvived++
+					o.mu.Unlock()
+
+					_ = o.engine.AddFact("panic_maker_verdict", tool.Name, "/survived", time.Now().Unix())
+					_ = o.engine.AddFact("battle_hardened", tool.Name, time.Now().Unix())
+
+					logging.Autopoiesis("Tool SURVIVED The Thunderdome (%d attacks defended)", len(attacks))
+				}
+			} else {
+				thunderdomeTimer.Stop()
+				logging.AutopoiesisDebug("No attacks generated, skipping Thunderdome")
+			}
+		}
 
 		// =====================================================================
 		// PHASE 3: SIMULATION
