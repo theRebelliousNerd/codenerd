@@ -143,6 +143,25 @@ Decl tool_language(Tool, Language).
 # action_violates(Action, Predicate, Args) - Check if action violates a constraint
 Decl action_violates(Action, Predicate, Args).
 
+# =============================================================================
+# SECTION 7E: TIME-BASED VIRTUAL PREDICATES
+# =============================================================================
+# These predicates handle time-based computations that cannot be done in Mangle.
+# Mangle does not support scalar arithmetic in rules (only aggregation transforms).
+# The Go VirtualStore computes these based on current time and thresholds.
+
+# checkpoint_needed() - True when checkpoint interval (600s) has elapsed
+# Computed by Go based on last_checkpoint_time vs current_time
+Decl checkpoint_needed().
+
+# ooda_timeout() - True when OODA loop has stalled (30s+ without action)
+# Computed by Go based on last_action_time vs current_time
+Decl ooda_timeout().
+
+# atom_final_order(AtomID, Order) - Computed ordering for final_atom
+# Order = (CategoryOrder * 1000) + Score, computed by Go
+Decl atom_final_order(AtomID, Order).
+
 # relevant_to_intent(Predicate, Intent) - Maps predicates to user intents
 Decl relevant_to_intent(Predicate, Intent).
 
@@ -1400,7 +1419,8 @@ Decl auto_apply_rule(RuleID).
 Decl rule_applied(RuleID).
 Decl applied_rule(RuleID, Timestamp).
 Decl learning_signal(SignalType, RuleID).
-Decl learning_signal(SignalType).  # 1-arg variant for quality signals
+# 1-arg variant renamed to avoid arity conflict (Mangle doesn't support overloading)
+Decl quality_signal(SignalType).
 Decl rule_outcome(RuleID, Outcome, Details).
 
 # OODA loop derived predicates

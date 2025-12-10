@@ -31,6 +31,35 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/quit", "/exit", "/q":
 		return m, tea.Quit
 
+	case "/continue", "/resume":
+		// Resume from paused continuation state
+		if len(m.pendingSubtasks) > 0 {
+			next := m.pendingSubtasks[0]
+			m.pendingSubtasks = m.pendingSubtasks[1:]
+			m.isLoading = true
+			m.isInterrupted = false
+			// Clear interrupt fact from kernel
+			if m.kernel != nil {
+				_ = m.kernel.Retract("interrupt_requested")
+			}
+			m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, next.Description)
+			m.textarea.Reset()
+			return m, tea.Batch(
+				m.spinner.Tick,
+				m.executeSubtask(next.ID, next.Description, next.ShardType),
+			)
+		}
+		// No pending subtasks
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "No pending tasks to continue. Start a new task.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/usage":
 		m.viewMode = UsageView
 		m.usagePage.SetSize(m.width, m.height)
@@ -102,6 +131,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /clear | Clear chat history |
 | /new-session | Start a fresh session (preserves old) |
 | /sessions | List saved sessions |
+| /continue | Resume from paused multi-step task |
 | /status | Show system status (includes tools) |
 | /init | Initialize codeNERD in the workspace |
 | /init --force | Reinitialize (preserves learned preferences) |
@@ -165,11 +195,23 @@ or you can create them on-demand with /tool generate.
 
 | Key | Action |
 |-----|--------|
+| Ctrl+X | Stop current activity (visible during loading) |
+| Shift+Tab | Cycle continuation mode (Auto → Confirm → Breakpoint) |
+| Alt+L | Toggle logic pane |
+| Alt+M | Toggle mouse capture (for text selection) |
 | Ctrl+L | Toggle logic pane |
 | Ctrl+G | Cycle pane modes |
 | Ctrl+R | Toggle pane focus |
 | Ctrl+P | Toggle campaign panel |
 | Ctrl+C | Exit |
+
+### Continuation Modes
+
+| Mode | Behavior |
+|------|----------|
+| [A] Auto | Runs all steps automatically. Ctrl+X to stop. |
+| [B] Confirm | Pauses after each step. Enter to continue. |
+| [C] Breakpoint | Auto for reads, pauses before mutations. |
 `
 		m.history = append(m.history, Message{
 			Role:    "assistant",

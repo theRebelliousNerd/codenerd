@@ -81,6 +81,33 @@ const (
 	InputModeCampaignLaunch                  // Campaign launch clarification
 )
 
+// ContinuationMode controls multi-step task execution behavior.
+// Cycle with Shift+Tab, stop anytime with Ctrl+X.
+type ContinuationMode int
+
+const (
+	ContinuationModeAuto       ContinuationMode = iota // A: Fully automatic until complete
+	ContinuationModeConfirm                            // B: Pause after each step, Enter to continue
+	ContinuationModeBreakpoint                         // C: Auto for reads, pause before mutations
+)
+
+// String returns the display name for each mode
+func (m ContinuationMode) String() string {
+	names := []string{"Auto", "Confirm", "Breakpoint"}
+	if int(m) < len(names) {
+		return names[m]
+	}
+	return "Unknown"
+}
+
+// Subtask represents a pending subtask in the continuation queue
+type Subtask struct {
+	ID          string // Unique task identifier
+	Description string // What needs to be done
+	ShardType   string // Which shard to execute
+	IsMutation  bool   // True for write/run operations (for Breakpoint mode)
+}
+
 // sessionItem is a list item for the session list
 type sessionItem struct {
 	id, date, desc string
@@ -180,6 +207,17 @@ type Model struct {
 	campaignProgressChan chan campaign.Progress          // Real-time progress updates from orchestrator
 	campaignEventChan    chan campaign.OrchestratorEvent // Real-time events from orchestrator
 	showCampaignPanel    bool
+
+	// Continuation Protocol (Multi-Step Task Execution)
+	// Enables natural multi-step task chaining with three modes:
+	// - Auto: Fully automatic until complete (Ctrl+X to stop)
+	// - Confirm: Pause after each step (Enter to continue)
+	// - Breakpoint: Auto for reads, pause before mutations
+	continuationMode  ContinuationMode // Current mode (persisted to config)
+	continuationStep  int              // Current step number (1-indexed)
+	continuationTotal int              // Total steps detected
+	pendingSubtasks   []Subtask        // Queue of pending work
+	isInterrupted     bool             // User pressed Ctrl+X
 
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore *store.LearningStore
@@ -417,6 +455,20 @@ type (
 	campaignCompletedMsg *campaign.Campaign
 	campaignErrorMsg     struct{ err error }
 
+	// Continuation messages (multi-step task execution)
+	continueMsg struct {
+		subtaskID   string // Unique identifier for this subtask
+		description string // What needs to be done
+		shardType   string // Which shard to execute
+		isMutation  bool   // True for write/run operations (for Breakpoint mode)
+	}
+	interruptMsg        struct{} // User pressed Ctrl+X to stop
+	confirmContinueMsg  struct{} // User pressed Enter to continue (Confirm/Breakpoint mode)
+	continuationDoneMsg struct { // All steps completed
+		stepCount int
+		summary   string
+	}
+
 	// Northstar document analysis message
 	northstarDocsAnalyzedMsg struct {
 		facts []string
@@ -491,12 +543,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global Keybindings (Ctrl+C, Esc)
+		// Global Keybindings (Ctrl+C, Ctrl+X, Shift+Tab, Esc)
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			// Graceful shutdown before quit
 			m.performShutdown()
 			return m, tea.Quit
+
+		case tea.KeyCtrlX:
+			// Ctrl+X: Stop current activity immediately
+			if m.isLoading {
+				m.isInterrupted = true
+				if m.kernel != nil {
+					_ = m.kernel.Assert(core.Fact{Predicate: "interrupt_requested", Args: nil})
+				}
+				m.isLoading = false
+				stepMsg := ""
+				if m.continuationTotal > 0 {
+					stepMsg = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
+				}
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("⏹️ Stopped%s. Type '/continue' to resume or give new instructions.", stepMsg),
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				return m, nil
+			}
+
+		case tea.KeyShiftTab:
+			// Shift+Tab: Cycle continuation mode (A → B → C → A)
+			m.continuationMode = (m.continuationMode + 1) % 3
+			modeName := m.continuationMode.String()
+			modeChar := 'A' + rune(m.continuationMode)
+			m.statusMessage = fmt.Sprintf("Mode: [%c] %s", modeChar, modeName)
+			// Persist to config
+			if m.Config != nil {
+				m.Config.ContinuationMode = int(m.continuationMode)
+				_ = m.Config.Save(config.DefaultUserConfigPath())
+			}
+			return m, nil
+
 		case tea.KeyEsc:
 			if m.viewMode == ListView {
 				m.viewMode = ChatView // Escape list view
@@ -1093,6 +1181,88 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 
+	// =========================================================================
+	// CONTINUATION PROTOCOL MESSAGE HANDLERS
+	// =========================================================================
+
+	case continueMsg:
+		m.continuationStep++
+
+		// Show progress for completed step
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+		// Check continuation mode to decide whether to pause
+		shouldPause := false
+		switch m.continuationMode {
+		case ContinuationModeConfirm:
+			shouldPause = true // Always pause in Confirm mode
+		case ContinuationModeBreakpoint:
+			shouldPause = msg.isMutation // Pause only for mutations
+		}
+
+		if shouldPause {
+			m.isLoading = false
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⏸️ Next: %s\n\nPress Enter to continue, or type new instructions.", msg.description),
+				Time:    time.Now(),
+			})
+			m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
+				ID:          msg.subtaskID,
+				Description: msg.description,
+				ShardType:   msg.shardType,
+				IsMutation:  msg.isMutation,
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		// Auto mode: continue immediately
+		m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.description)
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.executeSubtask(msg.subtaskID, msg.description, msg.shardType),
+		)
+
+	case confirmContinueMsg:
+		// Resume from paused state (Enter pressed in Confirm/Breakpoint mode)
+		if len(m.pendingSubtasks) > 0 {
+			next := m.pendingSubtasks[0]
+			m.pendingSubtasks = m.pendingSubtasks[1:]
+			m.isLoading = true
+			m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, next.Description)
+			return m, tea.Batch(
+				m.spinner.Tick,
+				m.executeSubtask(next.ID, next.Description, next.ShardType),
+			)
+		}
+		return m, nil
+
+	case continuationDoneMsg:
+		m.isLoading = false
+		m.continuationStep = 0
+		m.continuationTotal = 0
+		m.pendingSubtasks = nil
+		m.isInterrupted = false
+		// Clear continuation facts from kernel
+		if m.kernel != nil {
+			_ = m.kernel.Retract("interrupt_requested")
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
 	case initCompleteMsg:
 		m.isLoading = false
 		// Set up learning store and connect to shard manager via adapter
@@ -1382,6 +1552,11 @@ func extractClarificationQuestion(errMsg string) string {
 func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	input := strings.TrimSpace(m.textarea.Value())
 	if input == "" {
+		// Empty Enter: Check for continuation confirmation
+		if len(m.pendingSubtasks) > 0 {
+			// Treat Enter as confirmation to continue
+			return m, func() tea.Msg { return confirmContinueMsg{} }
+		}
 		return m, nil
 	}
 
