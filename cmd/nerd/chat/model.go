@@ -284,8 +284,10 @@ func (m *Model) Shutdown() {
 		}
 
 		// Close status channel to unblock waitForStatus
+		// Set to nil after close to prevent sends on closed channel
 		if m.statusChan != nil {
 			close(m.statusChan)
+			m.statusChan = nil
 		}
 
 		// Close local database connection

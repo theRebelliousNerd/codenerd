@@ -70,19 +70,15 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
 		}
 
-		// Create progress and event channels for orchestrator feedback
-		progressChan := make(chan campaign.Progress, 10)
-		eventChan := make(chan campaign.OrchestratorEvent, 10)
-
-		// Create orchestrator with channels for progress feedback
+		// Create orchestrator - we use polling via GetProgress() instead of channels
+		// to integrate with Bubbletea's tea.Tick pattern
 		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:    m.workspace,
 			Kernel:       m.kernel,
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
 			Executor:     m.executor,
-			ProgressChan: progressChan,
-			EventChan:    eventChan,
+			// Note: ProgressChan/EventChan intentionally nil - using polling instead
 		})
 
 		if err := orch.SetCampaign(result.Campaign); err != nil {
@@ -218,22 +214,8 @@ func (m Model) resumeCampaign() tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("no campaign to resume")}
 		}
 
-		// Use shutdown context if available for proper lifecycle management
-		var ctx context.Context
-		var cancel context.CancelFunc
-		if m.shutdownCtx != nil {
-			ctx, cancel = context.WithTimeout(m.shutdownCtx, 30*time.Minute)
-		} else {
-			ctx, cancel = context.WithTimeout(context.Background(), 30*time.Minute)
-		}
-		if m.usageTracker != nil {
-			ctx = usage.NewContext(ctx, m.usageTracker)
-		}
-		_ = cancel // Cancel will be called when context times out or shutdown occurs
-
-		// Resume execution - orchestrator handles its own error reporting
-		// via progress callbacks. When shutdown context is cancelled,
-		// the orchestrator will receive cancellation and stop gracefully.
+		// Resume execution - orchestrator handles its own context lifecycle
+		// (set when Run() was called). Resume() simply flips the paused flag.
 		m.campaignOrch.Resume()
 
 		return campaignProgressMsg(&campaign.Progress{
