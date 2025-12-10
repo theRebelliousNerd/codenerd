@@ -938,6 +938,26 @@ Format your response as a structured analysis.`
 		_ = m.kernel.Assert(dreamFact)
 	}
 
+	// Extract learnings from consultations (§8.3.1 Dream Learning)
+	if m.dreamCollector != nil {
+		// Convert to core.DreamConsultation type
+		coreConsultations := make([]core.DreamConsultation, len(consultations))
+		for i, c := range consultations {
+			coreConsultations[i] = core.DreamConsultation{
+				ShardName:   c.ShardName,
+				ShardType:   c.ShardType,
+				Perspective: c.Perspective,
+				Tools:       c.Tools,
+				Concerns:    c.Concerns,
+				Error:       c.Error,
+			}
+		}
+		learnings := m.dreamCollector.ExtractLearnings(hypothetical, coreConsultations)
+		if len(learnings) > 0 {
+			logging.Dream("Extracted %d learnable insights, staged for user confirmation", len(learnings))
+		}
+	}
+
 	return responseMsg(response)
 }
 

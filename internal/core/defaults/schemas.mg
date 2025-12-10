@@ -235,8 +235,8 @@ Decl allowed_domain(Domain).
 # network_permitted(URL) - derived predicate
 Decl network_permitted(URL).
 
-# security_violation(ViolationType) - derived predicate
-Decl security_violation(ViolationType).
+# security_violation_type(ViolationType) - derived: simple violation type flag
+Decl security_violation_type(ViolationType).
 
 # -----------------------------------------------------------------------------
 # SECTION 11A: APPEAL MECHANISM (Constitutional Appeals)
@@ -1691,6 +1691,34 @@ Decl critical_file(Path).
 Decl critical_path_prefix(Prefix).
 
 # =============================================================================
+# SECTION 38B: DREAM STATE LEARNING (§8.3.1)
+# =============================================================================
+# Learnable insights extracted from Dream State multi-agent consultations.
+# These facts persist confirmed learnings for tool generation and preference storage.
+
+# dream_state(Hypothetical, Timestamp)
+# Records a dream state consultation was performed
+Decl dream_state(Hypothetical, Timestamp).
+
+# dream_tool_need(ToolName, Description, Confidence, Hypothetical)
+# Tool capability gap identified by Dream State consultation
+# Routes to Ouroboros for potential tool generation
+Decl dream_tool_need(ToolName, Description, Confidence, Hypothetical).
+
+# dream_risk_pattern(RiskType, Content, Confidence)
+# Safety/risk awareness learned from Dream State
+# RiskType: /security, /data_integrity, /performance, /stability, /deployment, /general
+Decl dream_risk_pattern(RiskType, Content, Confidence).
+
+# dream_preference(Content, Confidence)
+# User/project preference learned from Dream State
+Decl dream_preference(Content, Confidence).
+
+# dream_learning_confirmed(LearningID, Type, Content, Timestamp)
+# Records a confirmed dream learning for audit trail
+Decl dream_learning_confirmed(LearningID, Type, Content, Timestamp).
+
+# =============================================================================
 # SECTION 39: EXTENDED METRICS (Aggregation)
 # =============================================================================
 # These facts capture shard execution results and make them available to the
@@ -1721,10 +1749,9 @@ Decl shard_error(ShardID, ErrorMessage).
 # 34B.2 Review Findings (from ReviewerShard)
 # -----------------------------------------------------------------------------
 
-# review_finding(ShardID, Severity, FilePath, Line, Message)
-# Individual findings from code review
-# Severity: /critical, /error, /warning, /info
-Decl review_finding(ShardID, Severity, FilePath, Line, Message).
+# NOTE: review_finding/6 is declared in Section 41.12 with schema:
+# review_finding(ReviewID, File, Line, Severity, Category, Message)
+# This section's 5-arg version is DEPRECATED - use the 6-arg version instead.
 
 # review_summary(ShardID, Critical, Errors, Warnings, Info)
 # Summary counts from a review execution
