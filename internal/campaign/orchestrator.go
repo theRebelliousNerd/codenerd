@@ -50,6 +50,9 @@ type Orchestrator struct {
 
 	// Concurrency control
 	maxParallelTasks int
+
+	// Configuration (including timeouts)
+	config OrchestratorConfig
 }
 
 // OrchestratorEvent represents an event during campaign execution.
@@ -72,11 +75,13 @@ type OrchestratorConfig struct {
 	VirtualStore     *core.VirtualStore
 	ProgressChan     chan Progress
 	EventChan        chan OrchestratorEvent
-	MaxRetries       int  // Max retries per task (default 3)
-	CheckpointOnFail bool // Run checkpoint after task failure
-	AutoReplan       bool // Auto-replan on too many failures
-	ReplanThreshold  int  // Failures before replan (default 3)
-	MaxParallelTasks int  // Max tasks to run in parallel (default 3)
+	MaxRetries       int           // Max retries per task (default 3)
+	CheckpointOnFail bool          // Run checkpoint after task failure
+	AutoReplan       bool          // Auto-replan on too many failures
+	ReplanThreshold  int           // Failures before replan (default 3)
+	MaxParallelTasks int           // Max tasks to run in parallel (default 3)
+	CampaignTimeout  time.Duration // Max total campaign runtime (default: 4 hours)
+	TaskTimeout      time.Duration // Max time per task (default: 30 minutes)
 }
 
 // NewOrchestrator creates a new campaign orchestrator.
@@ -86,9 +91,17 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
 
+	// Apply default timeout values
+	if cfg.CampaignTimeout == 0 {
+		cfg.CampaignTimeout = 4 * time.Hour
+	}
+	if cfg.TaskTimeout == 0 {
+		cfg.TaskTimeout = 30 * time.Minute
+	}
+
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
-	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v",
-		cfg.MaxParallelTasks, cfg.CheckpointOnFail, cfg.AutoReplan)
+	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
+		cfg.MaxParallelTasks, cfg.CheckpointOnFail, cfg.AutoReplan, cfg.CampaignTimeout, cfg.TaskTimeout)
 
 	o := &Orchestrator{
 		kernel:           cfg.Kernel,
@@ -101,6 +114,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		progressChan:     cfg.ProgressChan,
 		eventChan:        cfg.EventChan,
 		maxParallelTasks: defaultParallelTasks,
+		config:           cfg,
 	}
 
 	// Initialize sub-components
@@ -114,7 +128,8 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		o.maxParallelTasks = cfg.MaxParallelTasks
 	}
 
-	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d", o.maxParallelTasks)
+	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d, campaignTimeout=%v, taskTimeout=%v",
+		o.maxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
 
 	return o
 }
@@ -267,6 +282,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	o.updateCampaignStatus(StatusActive)
 	o.mu.Unlock()
 
+	// Apply campaign-level timeout
+	if o.config.CampaignTimeout > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, o.config.CampaignTimeout)
+		defer timeoutCancel()
+		logging.Campaign("Campaign timeout set: %v", o.config.CampaignTimeout)
+	}
+
 	defer func() {
 		o.mu.Lock()
 		o.isRunning = false
@@ -389,6 +412,16 @@ func (o *Orchestrator) Stop() {
 	}
 	o.updateCampaignStatus(StatusPaused)
 	_ = o.saveCampaign()
+
+	// Close channels to signal consumers
+	if o.progressChan != nil {
+		close(o.progressChan)
+		o.progressChan = nil
+	}
+	if o.eventChan != nil {
+		close(o.eventChan)
+		o.eventChan = nil
+	}
 }
 
 // GetProgress returns current campaign progress.
@@ -892,6 +925,13 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 
 // runSingleTask executes a task and sends the result back to the phase loop.
 func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Task, results chan<- taskResult) {
+	// Apply task-level timeout
+	if o.config.TaskTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.config.TaskTimeout)
+		defer cancel()
+	}
+
 	taskTimer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("task(%s)", task.ID))
 
 	logging.Campaign("Task started: %s (type=%s, phase=%s)", task.ID, task.Type, phase.Name)
