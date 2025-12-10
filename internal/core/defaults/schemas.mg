@@ -1412,7 +1412,7 @@ Decl last_action_time(Timestamp).
 
 # Builtin helper predicates
 # Note: time_diff removed - use fn:minus(Now, Timestamp) inline in rules instead.
-Decl list_length(List, Length).
+# Note: list_length is DEPRECATED - use fn:list:length(List) in transform pipelines instead.
 
 # =============================================================================
 # SECTION 34: CODE DOM (Interactive Code Elements)
@@ -1749,9 +1749,12 @@ Decl shard_error(ShardID, ErrorMessage).
 # 34B.2 Review Findings (from ReviewerShard)
 # -----------------------------------------------------------------------------
 
-# NOTE: review_finding/6 is declared in Section 41.12 with schema:
+# review_finding(File, Line, Severity, Category, Message)
+# Individual findings from code review (emitted by Go ReviewerShard)
+# Severity: /critical, /error, /warning, /info
+# NOTE: There's also a 6-arg version in Section 41.12 for feedback loop:
 # review_finding(ReviewID, File, Line, Severity, Category, Message)
-# This section's 5-arg version is DEPRECATED - use the 6-arg version instead.
+Decl review_finding(File, Line, Severity, Category, Message).
 
 # review_summary(ShardID, Critical, Errors, Warnings, Info)
 # Summary counts from a review execution
@@ -3213,4 +3216,58 @@ Decl patch_diff(PatchID, DiffContent).
 # DurationMs: Duration in milliseconds
 # Used by ReviewerShard hypothesis verification loop
 Decl verification_summary(Timestamp, Total, Confirmed, Dismissed, DurationMs).
+
+# =============================================================================
+# SECTION 49: CONTINUATION PROTOCOL (Multi-Step Task Execution)
+# =============================================================================
+# Enables natural multi-step task chaining in the TUI. The kernel signals
+# "there's more work to do" after each shard execution, and the TUI can
+# auto-continue based on user-selected mode (Auto/Confirm/Breakpoint).
+
+# -----------------------------------------------------------------------------
+# 49.1 Shard Result Tracking
+# -----------------------------------------------------------------------------
+
+# shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary)
+# TaskID: Unique identifier for this execution
+# Status: /complete, /incomplete, /code_generated, /tests_needed, /review_needed
+# ShardType: /coder, /reviewer, /tester, /researcher
+# TaskDescription: What was requested
+# ResultSummary: Brief summary of output
+Decl shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary).
+
+# pending_test(TaskID, Description) - Test needs to be written for generated code
+Decl pending_test(TaskID, Description).
+
+# pending_review(TaskID, Description) - Review needed for changes
+Decl pending_review(TaskID, Description).
+
+# -----------------------------------------------------------------------------
+# 49.2 Continuation Signals (Derived in policy.mg)
+# -----------------------------------------------------------------------------
+
+# has_pending_subtask(TaskID, Description, ShardType) - Derived: there's more work
+# Populated by rules that detect incomplete workflows
+Decl has_pending_subtask(TaskID, Description, ShardType).
+
+# should_auto_continue/0 - Derived: continuation should proceed automatically
+# True when has_pending_subtask exists and no blocking conditions
+Decl should_auto_continue().
+
+# continuation_blocked(Reason) - Derived: continuation is blocked
+# Reason: /needs_clarification, /user_interrupted, /max_steps_reached
+Decl continuation_blocked(Reason).
+
+# -----------------------------------------------------------------------------
+# 49.3 User Control
+# -----------------------------------------------------------------------------
+
+# interrupt_requested - User pressed Ctrl+X to stop execution
+Decl interrupt_requested().
+
+# continuation_step(StepNumber, TotalSteps) - Current progress
+Decl continuation_step(StepNumber, TotalSteps).
+
+# max_continuation_steps(Limit) - Safety limit (default 10)
+Decl max_continuation_steps(Limit).
 

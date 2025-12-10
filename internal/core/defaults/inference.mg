@@ -82,18 +82,19 @@ potential_score(Verb, Score) :- candidate_intent(Verb, Score).
 
 # 2. Boosted Scores (Apply Boost)
 # S = Base + Amount
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 potential_score(Verb, S) :-
     candidate_intent(Verb, Base),
-    boost(Verb, Amount),
-    S = fn:plus(Base, Amount).
+    boost(Verb, Amount)
+    |> let S = fn:plus(Base, Amount).
 
 # 3. Penalized Scores (Apply Penalty)
-# S = Base - Amount (using minus 0, Amount)
+# S = Base - Amount
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 potential_score(Verb, S) :-
     candidate_intent(Verb, Base),
-    penalty(Verb, Amount),
-    Neg = fn:minus(0, Amount),
-    S = fn:plus(Base, Neg).
+    penalty(Verb, Amount)
+    |> let S = fn:minus(Base, Amount).
 
 # 4. Relational Max Logic
 # Find scores that are NOT max

@@ -307,16 +307,20 @@ phase_blocked(PhaseID, "tests_failed") :-
 # -----------------------------------------------------------------------------
 
 # Context is under pressure (> 80% utilized)
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 context_pressure_high(CampaignID) :-
-    context_window_state(CampaignID, Used, Total, _),
-    Utilization = fn:mult(100, fn:div(Used, Total)),
-    Utilization > 80.
+    context_window_state(CampaignID, Used, Total, _)
+    |> let Ratio = fn:div(Used, Total)
+    |> let Utilization = fn:mult(100, Ratio)
+    |> do fn:filter(fn:gt(Utilization, 80)).
 
 # Context is critical (> 95% utilized)
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 context_pressure_critical(CampaignID) :-
-    context_window_state(CampaignID, Used, Total, _),
-    Utilization = fn:mult(100, fn:div(Used, Total)),
-    Utilization > 95.
+    context_window_state(CampaignID, Used, Total, _)
+    |> let Ratio = fn:div(Used, Total)
+    |> let Utilization = fn:mult(100, Ratio)
+    |> do fn:filter(fn:gt(Utilization, 95)).
 
 # Trigger compression when pressure is high
 next_action(/compress_context) :-
@@ -366,13 +370,14 @@ activation(Atom, 150) :-
     phase_context_atom(PhaseID, Atom, _).
 
 # Previous phase summaries get moderate activation
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 activation(Summary, 80) :-
     campaign_phase(PhaseID, CampaignID, _, Order, /completed, _),
     current_phase(CurrentPhaseID),
     campaign_phase(CurrentPhaseID, CampaignID, _, CurrentOrder, _, _),
-    PrevOrder = fn:minus(CurrentOrder, 1),
-    Order = PrevOrder,
-    context_compression(PhaseID, Summary, _, _).
+    context_compression(PhaseID, Summary, _, _)
+    |> let PrevOrder = fn:minus(CurrentOrder, 1)
+    |> do fn:filter(fn:eq(Order, PrevOrder)).
 
 # =============================================================================
 # SECTION 5: CROSS-PHASE LEARNING
@@ -580,11 +585,13 @@ phase_nearly_complete(PhaseID) :-
     all_phase_tasks_complete(PhaseID).
 
 # Campaign is past halfway point
+# NOTE: Uses transform pipeline for arithmetic per Mangle spec
 campaign_past_halfway(CampaignID) :-
     campaign_progress(CampaignID, Completed, Total, _, _),
-    Total > 0,
-    Progress = fn:mult(100, fn:div(Completed, Total)),
-    Progress >= 50.
+    Total > 0
+    |> let Ratio = fn:div(Completed, Total)
+    |> let Progress = fn:mult(100, Ratio)
+    |> do fn:filter(fn:gte(Progress, 50)).
 
 # -----------------------------------------------------------------------------
 # 7.2 Milestone Detection
