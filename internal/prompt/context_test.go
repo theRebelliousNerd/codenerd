@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -390,6 +391,12 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 		// 2 frameworks, 2 world states (failing_tests, diagnostics)
 		// Note: Empty string fields are not included
 		assert.GreaterOrEqual(t, len(facts), 6)
+
+		// Verify facts are properly formatted compile_context predicates
+		for _, fact := range facts {
+			assert.Contains(t, fact, "compile_context(")
+			assert.Contains(t, fact, ").")
+		}
 	})
 
 	t.Run("includes all frameworks", func(t *testing.T) {
@@ -401,10 +408,8 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 
 		frameworkCount := 0
 		for _, fact := range facts {
-			if m, ok := fact.(map[string]interface{}); ok {
-				if m["predicate"] == "current_framework" {
-					frameworkCount++
-				}
+			if strings.Contains(fact, "/framework") {
+				frameworkCount++
 			}
 		}
 		assert.Equal(t, 3, frameworkCount)
@@ -420,13 +425,27 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 
 		worldStateCount := 0
 		for _, fact := range facts {
-			if m, ok := fact.(map[string]interface{}); ok {
-				if m["predicate"] == "current_world_state" {
-					worldStateCount++
-				}
+			if strings.Contains(fact, "/world_state") {
+				worldStateCount++
 			}
 		}
 		assert.Equal(t, 2, worldStateCount)
+	})
+
+	t.Run("generates valid Mangle syntax", func(t *testing.T) {
+		cc := &CompilationContext{
+			OperationalMode: "/dream",
+			Language:        "/go",
+			IntentVerb:      "/debug",
+		}
+
+		facts := cc.ToContextFacts()
+
+		// Check format: compile_context(/dimension, /value).
+		for _, fact := range facts {
+			assert.True(t, strings.HasPrefix(fact, "compile_context("))
+			assert.True(t, strings.HasSuffix(fact, ")."))
+		}
 	})
 }
 
