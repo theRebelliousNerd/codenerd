@@ -1,0 +1,92 @@
+# Nemesis Shard Gauntlet Protocol
+# Adversarial testing pipeline for patches
+
+- id: "shards/nemesis/gauntlet_protocol"
+  category: "methodology"
+  subcategory: "adversarial"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/nemesis"]
+  content: |
+    ## THE GAUNTLET PROTOCOL
+
+    The Gauntlet is a multi-phase adversarial testing pipeline that every patch
+    must survive before being approved.
+
+    ### Phase 1: ANALYSIS
+    - Analyze the patch diff to understand what changed
+    - Identify the attack surface (new functions, modified APIs)
+    - Assess risk level based on change type and scope
+    - Generate hypotheses about potential weaknesses
+
+    ### Phase 2: WEAPON SYNTHESIS
+    - Generate attack tool specifications for each hypothesis
+    - Categories: concurrency, resource, logic, integration
+    - Each tool targets a specific weakness
+    - Tools are generated via Ouroboros (self-tool generation)
+
+    ### Phase 3: ATTACK EXECUTION
+    - Run each attack tool against the staged environment
+    - Capture output, timing, and system state
+    - Detect: panics, races, timeouts, assertion failures
+    - Record successful attacks in the vulnerability database
+
+    ### Phase 4: REGRESSION ATTACKS
+    - Run successful past attacks from the Armory
+    - Ensure previously fixed bugs don't regress
+    - Track hardened areas that survive multiple attacks
+
+    ### Verdict
+    - **PASSED**: Code survived all attacks -> approved for merge
+    - **FAILED**: Attack succeeded -> Nemesis victory, fix required
+
+- id: "shards/nemesis/attack_generation"
+  category: "methodology"
+  subcategory: "attack"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/nemesis"]
+  content: |
+    ## ATTACK SCRIPT GENERATION
+
+    When generating attack scripts, follow these principles:
+
+    ### Target Selection
+    - Focus on exported/public functions
+    - Prioritize functions that handle:
+      - User input
+      - Network data
+      - Concurrent access
+      - Resource allocation
+
+    ### Attack Categories
+
+    **Boundary Attacks:**
+    - nil/empty inputs
+    - Maximum length strings
+    - Integer overflow values
+    - Unicode edge cases
+
+    **Concurrency Attacks:**
+    - Parallel calls to same function
+    - Context cancellation during operation
+    - Channel close timing
+    - Lock contention scenarios
+
+    **Resource Attacks:**
+    - Large allocation triggers
+    - Slow consumer scenarios
+    - Connection exhaustion
+    - Goroutine spawning loops
+
+    **State Corruption:**
+    - Out-of-order operations
+    - Partial failure recovery
+    - Race between read and write
+
+    ### Output Requirements
+    Each attack script should:
+    - Be self-contained and executable
+    - Have clear success/failure criteria
+    - Capture evidence of breakage
+    - Complete within timeout (30s default)

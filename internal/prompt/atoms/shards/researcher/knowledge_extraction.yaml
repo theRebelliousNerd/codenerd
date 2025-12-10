@@ -1,0 +1,108 @@
+# Researcher Shard Knowledge Extraction
+# Methodology for extracting and structuring knowledge atoms
+
+- id: "shards/researcher/knowledge_atom_extraction"
+  category: "methodology"
+  subcategory: "extraction"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## KNOWLEDGE ATOM EXTRACTION
+
+    Knowledge atoms are the atomic units of domain expertise that get injected
+    into shard prompts via the JIT compiler.
+
+    ### Atom Categories
+
+    **Methodology Atoms:**
+    - Best practices and patterns
+    - Workflow recommendations
+    - Approach guidelines
+    - Priority: 65
+
+    **Exemplar Atoms:**
+    - Code examples with context
+    - Working patterns to follow
+    - Reference implementations
+    - Priority: 60
+
+    **Anti-Pattern Atoms:**
+    - What NOT to do
+    - Common mistakes
+    - Security pitfalls
+    - Priority: 70 (high - safety)
+
+    **Best Practice Atoms:**
+    - Recommended approaches
+    - Community consensus
+    - Official guidelines
+    - Priority: 68
+
+    ### Extraction Protocol
+
+    1. **Group by Concept:** Organize knowledge atoms by their primary concept
+    2. **Filter by Confidence:** Only include atoms with confidence >= 0.7
+    3. **Combine Related:** Merge similar atoms into coherent sections
+    4. **Tag Appropriately:** Add selectors for shard_types, languages, frameworks
+
+    ### Selector Inference
+
+    When extracting atoms, infer appropriate selectors:
+
+    **Shard Types:**
+    - Contains "test" -> /tester
+    - Contains "review", "quality", "security" -> /reviewer
+    - Contains "code", "implement", "function" -> /coder
+    - Contains "research", "documentation" -> /researcher
+
+    **Languages:**
+    - Contains "golang", "func ", "package " -> /go
+    - Contains "python", "def ", "import " -> /python
+    - Contains "typescript", "interface " -> /typescript
+
+    **Frameworks:**
+    - Contains "bubbletea", "tea." -> /bubbletea
+    - Contains "gin", "gin-gonic" -> /gin
+    - Contains "rod", "chromedp" -> /rod
+
+- id: "shards/researcher/atom_quality_scoring"
+  category: "methodology"
+  subcategory: "quality"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  content: |
+    ## ATOM QUALITY SCORING
+
+    Every extracted atom receives a quality score based on:
+
+    ### Source Credibility (0-1)
+    - Official documentation: 1.0
+    - Official tutorials: 0.9
+    - High-star repos (1000+): 0.8
+    - Community answers (verified): 0.7
+    - Blog posts (cross-referenced): 0.6
+    - Single unverified source: 0.3
+
+    ### Actionability (0-1)
+    - Contains working code example: +0.3
+    - Includes error handling: +0.2
+    - Documents edge cases: +0.2
+    - Has clear preconditions: +0.1
+    - Missing context: -0.2
+
+    ### Currency (0-1)
+    - Updated within 6 months: 1.0
+    - Updated within 1 year: 0.8
+    - Updated within 2 years: 0.6
+    - Older than 2 years: 0.4
+    - No date available: 0.5
+
+    ### Final Score
+    ```
+    score = (source * 0.4) + (actionability * 0.4) + (currency * 0.2)
+    ```
+
+    Atoms with score < 0.5 should be flagged for review.
+    Atoms with score >= 0.9 can be marked as mandatory.

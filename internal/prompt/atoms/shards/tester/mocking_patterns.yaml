@@ -1,0 +1,131 @@
+# Tester Shard Mocking Patterns
+# Framework-specific mocking patterns for test isolation
+
+- id: "shards/tester/go_mocking"
+  category: "methodology"
+  subcategory: "mocking"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/tester"]
+  languages: ["/go"]
+  content: |
+    ## GO INTERFACE MOCKING
+
+    ### Production Code
+    ```go
+    type UserRepository interface {
+        GetByID(ctx context.Context, id string) (*User, error)
+    }
+    ```
+
+    ### Test Mock
+    ```go
+    type mockUserRepo struct {
+        getByIDFn func(ctx context.Context, id string) (*User, error)
+    }
+
+    func (m *mockUserRepo) GetByID(ctx context.Context, id string) (*User, error) {
+        if m.getByIDFn != nil {
+            return m.getByIDFn(ctx, id)
+        }
+        return nil, nil
+    }
+    ```
+
+    ### In Test
+    ```go
+    mock := &mockUserRepo{
+        getByIDFn: func(ctx context.Context, id string) (*User, error) {
+            return &User{ID: id, Name: "Test"}, nil
+        },
+    }
+    ```
+
+    ### Mock Error Scenarios
+    ```go
+    // Success case
+    mock := &mockUserRepo{
+        getByIDFn: func(ctx context.Context, id string) (*User, error) {
+            return &User{ID: id}, nil
+        },
+    }
+
+    // Error case
+    mockErr := &mockUserRepo{
+        getByIDFn: func(ctx context.Context, id string) (*User, error) {
+            return nil, fmt.Errorf("database connection failed")
+        },
+    }
+
+    // Not found case
+    mockNotFound := &mockUserRepo{
+        getByIDFn: func(ctx context.Context, id string) (*User, error) {
+            return nil, ErrNotFound
+        },
+    }
+    ```
+
+- id: "shards/tester/python_mocking"
+  category: "methodology"
+  subcategory: "mocking"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/tester"]
+  languages: ["/python"]
+  content: |
+    ## PYTHON MOCKING
+
+    ```python
+    from unittest.mock import Mock, patch
+
+    @patch('module.external_function')
+    def test_something(mock_func):
+        mock_func.return_value = expected_value
+        result = function_under_test()
+        mock_func.assert_called_once_with(expected_arg)
+        assert result == expected_result
+    ```
+
+    ### Mock Fixtures
+    ```python
+    import pytest
+    from unittest.mock import Mock
+
+    @pytest.fixture
+    def mock_database():
+        mock = Mock()
+        mock.get_user.return_value = {"id": 1, "name": "Test"}
+        return mock
+
+    def test_with_mock(mock_database):
+        result = service.get_user_name(mock_database, 1)
+        assert result == "Test"
+    ```
+
+- id: "shards/tester/jest_mocking"
+  category: "methodology"
+  subcategory: "mocking"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/tester"]
+  languages: ["/javascript", "/typescript"]
+  content: |
+    ## JEST MOCKING
+
+    ```javascript
+    jest.mock('./module', () => ({
+        externalFunction: jest.fn().mockReturnValue(expected)
+    }));
+
+    describe('myFunction', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        it('calls dependency with correct arguments', () => {
+            const mockDep = jest.fn().mockReturnValue('result');
+            myFunction('input', mockDep);
+            expect(mockDep).toHaveBeenCalledWith('input');
+        });
+    });
+    ```

@@ -1,0 +1,87 @@
+# Coder Shard Output Protocol
+# Defines the Piggyback envelope format for all coder outputs
+
+- id: "shards/coder/output_protocol"
+  category: "protocol"
+  subcategory: "output"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/coder"]
+  depends_on: ["protocol/piggyback"]
+  content: |
+    ## OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+
+    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+
+    ```json
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/mutation",
+          "verb": "/fix",
+          "target": "path/to/file.go",
+          "confidence": 0.95
+        },
+        "mangle_updates": [
+          "task_status(/fix_task, /complete)",
+          "file_state(\"path/to/file.go\", /modified)",
+          "symbol_modified(\"FunctionName\", /function)"
+        ],
+        "memory_operations": [],
+        "reasoning_trace": "1. Identified the issue. 2. Root cause analysis. 3. Fix applied. 4. Verified correctness."
+      },
+      "surface_response": "Brief human-readable explanation of what was done.",
+      "file": "path/to/file.go",
+      "content": "COMPLETE file content here",
+      "rationale": "Detailed explanation of changes made and why",
+      "artifact_type": "project_code"
+    }
+    ```
+
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you write the surface_response.
+
+    WHY: If you write "I fixed the bug" before you've actually reasoned through the fix, you are lying. The control packet is your commitment to what you're about to say. The surface response is the human-readable summary of that commitment.
+
+    ### WRONG ORDER (causes Bug #14 - Premature Articulation):
+    ```json
+    {
+      "surface_response": "I fixed the bug!",
+      "control_packet": { /* rushed, incomplete reasoning */ }
+    }
+    ```
+
+    ### CORRECT ORDER:
+    ```json
+    {
+      "control_packet": { /* complete reasoning trace */ },
+      "surface_response": "I fixed the bug!"
+    }
+    ```
+
+- id: "shards/coder/reasoning_trace"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## REASONING TRACE REQUIREMENTS
+
+    Your reasoning_trace is not optional. It must demonstrate that you executed the 7-Phase Protocol.
+
+    ### MINIMUM REASONING TRACE LENGTH: 100 words
+
+    ### REQUIRED ELEMENTS
+    1. What was the user's intent?
+    2. What context did you use?
+    3. What pattern did you apply?
+    4. What alternatives did you consider?
+    5. Why is this the right approach?
+    6. What could go wrong?
+
+    ### EXAMPLE REASONING TRACE
+    ```
+    "reasoning_trace": "1. INTENT: User wants to fix a nil pointer dereference in ValidateToken. 2. CONTEXT: The function is called from 3 places (middleware.go:23, handler.go:45, test.go:12). None of these callers check for nil before calling. 3. PATTERN: Defensive programming - validate inputs at function entry. 4. ALTERNATIVES: Could add nil checks at call sites, but this violates DRY and is fragile. 5. APPROACH: Add guard clause returning error for nil input. This is idiomatic Go and matches the 'errors are values' philosophy. 6. RISKS: None identified - this is a strictly additive change that makes the function safer."
+    ```

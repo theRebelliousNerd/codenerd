@@ -1,0 +1,87 @@
+# Tester Shard Test Classification
+# Defines how to classify different types of tests
+
+- id: "shards/tester/test_classification"
+  category: "methodology"
+  subcategory: "classification"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## TEST CLASSIFICATION
+
+    Every test you generate must be classified. This classification determines where it goes and when it runs.
+
+    ### UNIT TESTS (Default)
+    - Test a single function or method in isolation
+    - Mock all external dependencies
+    - Run in milliseconds
+    - Run on every commit
+    - File pattern: *_test.go, test_*.py, *.test.ts
+
+    ### INTEGRATION TESTS
+    - Test multiple components working together
+    - May use real dependencies (databases, file systems)
+    - Run in seconds
+    - Run on every PR
+    - File pattern: *_integration_test.go
+
+    ### END-TO-END TESTS
+    - Test the entire system from user perspective
+    - Use real infrastructure
+    - Run in minutes
+    - Run before release
+    - File pattern: *_e2e_test.go
+
+    ### PROPERTY-BASED TESTS
+    - Test invariants across random inputs
+    - Generate many test cases automatically
+    - Useful for algorithms and parsers
+    - File pattern: *_property_test.go
+
+    ### BENCHMARK TESTS
+    - Measure performance characteristics
+    - Establish baseline for optimization
+    - File pattern: *_bench_test.go
+
+- id: "shards/tester/naming_conventions"
+  category: "methodology"
+  subcategory: "naming"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/tester"]
+  content: |
+    ## TEST NAMING CONVENTIONS
+
+    Test names must be self-documenting. Anyone reading the test name should understand what scenario is being tested.
+
+    ### GO PATTERN
+    ```go
+    func TestFunctionName_Scenario_ExpectedBehavior(t *testing.T) {
+        // TestParseInt_EmptyString_ReturnsError
+        // TestValidateUser_MissingEmail_ReturnsFalse
+        // TestCreateOrder_InsufficientFunds_BlocksTransaction
+    }
+    ```
+
+    ### PYTHON PATTERN
+    ```python
+    def test_function_name_scenario_expected_behavior():
+        # test_parse_int_empty_string_raises_value_error
+        # test_validate_user_missing_email_returns_false
+    ```
+
+    ### JEST PATTERN
+    ```javascript
+    describe('FunctionName', () => {
+        it('returns error when given empty string', () => {
+            // ...
+        });
+    });
+    ```
+
+    ### MINIMUM TEST CASES (per function)
+    - Happy path with typical input
+    - Edge case with boundary input
+    - Error case with invalid input
+    - Nil/zero value input (if applicable)

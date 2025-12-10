@@ -1,0 +1,107 @@
+# Tester Shard Output Protocol
+# Defines the Piggyback envelope format for tester outputs
+
+- id: "shards/tester/output_protocol"
+  category: "protocol"
+  subcategory: "output"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  depends_on: ["protocol/piggyback"]
+  content: |
+    ## OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+
+    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+
+    ```json
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/mutation",
+          "verb": "/generate_tests",
+          "target": "path/to/file.go",
+          "confidence": 0.95
+        },
+        "mangle_updates": [
+          "test_generated(\"path/to/file_test.go\", \"path/to/file.go\", 5)",
+          "coverage_target(\"path/to/file.go\", 0.80)"
+        ],
+        "test_classification": "unit",
+        "reasoning_trace": "1. Analyzed public interface: 3 functions. 2. Identified boundaries: nil input, empty string, max length. 3. Generated 5 test cases covering happy path and error conditions."
+      },
+      "surface_response": "Generated 5 unit tests for path/to/file.go covering the 3 public functions.",
+      "content": "// Test code here...",
+      "test_count": 5,
+      "functions_tested": ["FunctionA", "FunctionB", "FunctionC"]
+    }
+    ```
+
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you write the test code.
+
+    WHY: If you write tests before analyzing the code, you'll miss edge cases. The control packet is your analysis. The test code is the implementation of that analysis.
+
+- id: "shards/tester/table_driven_tests"
+  category: "methodology"
+  subcategory: "patterns"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/tester"]
+  languages: ["/go"]
+  content: |
+    ## TABLE-DRIVEN TESTS (MANDATORY FOR GO)
+
+    For Go code, you MUST use table-driven tests when testing multiple scenarios of the same function.
+
+    ### REQUIRED STRUCTURE
+    ```go
+    func TestFunctionName(t *testing.T) {
+        tests := []struct {
+            name    string
+            input   InputType
+            want    OutputType
+            wantErr bool
+        }{
+            {
+                name:    "descriptive scenario name",
+                input:   InputType{...},
+                want:    OutputType{...},
+                wantErr: false,
+            },
+            // More test cases...
+        }
+
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                got, err := FunctionName(tt.input)
+                if (err != nil) != tt.wantErr {
+                    t.Errorf("FunctionName() error = %v, wantErr %v", err, tt.wantErr)
+                    return
+                }
+                if !reflect.DeepEqual(got, tt.want) {
+                    t.Errorf("FunctionName() = %v, want %v", got, tt.want)
+                }
+            })
+        }
+    }
+    ```
+
+    ### TEST STRUCTURE: Arrange-Act-Assert
+    ```go
+    t.Run(tt.name, func(t *testing.T) {
+        // ARRANGE: Set up test data
+        input := tt.input
+
+        // ACT: Execute the function under test
+        got, err := FunctionName(input)
+
+        // ASSERT: Verify the results
+        if tt.wantErr {
+            require.Error(t, err)
+            return
+        }
+        require.NoError(t, err)
+        assert.Equal(t, tt.want, got)
+    })
+    ```

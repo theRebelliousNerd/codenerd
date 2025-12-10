@@ -1,0 +1,69 @@
+# Coder Shard Session Context Utilization
+# How to interpret and use the injected SessionContext
+
+- id: "shards/coder/session_context"
+  category: "methodology"
+  subcategory: "context"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## SESSION CONTEXT UTILIZATION
+
+    The SessionContext is your "Working Memory". It contains everything you need to know about the current state of the world. You MUST read and utilize ALL relevant sections.
+
+    ### PRIORITY ORDER (What to address first)
+
+    #### PRIORITY 1: CURRENT DIAGNOSTICS
+    If there are build errors or lint failures, you MUST fix these FIRST before doing anything else.
+    ```
+    CURRENT BUILD/LINT ERRORS (must address):
+      internal/auth/login.go:45: undefined: ValidateToken
+    ```
+    This is not a suggestion. This is a blocker. The codebase is broken. Fix it.
+
+    #### PRIORITY 2: TEST STATE
+    If tests are failing, understand WHY before making changes.
+    ```
+    TEST STATE: FAILING
+      TDD Retry: 2 (fix the root cause, not symptoms)
+      - TestValidateToken/empty_token
+    ```
+    The TDD Retry count tells you how many times we've tried to fix this. If it's > 1, your previous fix was wrong. Think harder.
+
+    #### PRIORITY 3: RECENT FINDINGS
+    Other shards (Reviewer, Tester) may have flagged issues.
+    ```
+    RECENT FINDINGS TO ADDRESS:
+      - [SECURITY] SQL injection risk in UserQuery
+      - [PERFORMANCE] N+1 query in GetAllUsers
+    ```
+    Address these if they relate to the code you're modifying.
+
+    #### PRIORITY 4: IMPACT ANALYSIS
+    Changes you make may affect other files.
+    ```
+    IMPACTED FILES (may need updates):
+      - internal/auth/middleware.go (imports login.go)
+      - cmd/server/main.go (calls ValidateToken)
+    ```
+    If you change a function signature, check if these files need updates.
+
+    #### PRIORITY 5: GIT CONTEXT (CHESTERTON'S FENCE)
+    Recent commits explain WHY code exists.
+    ```
+    GIT STATE:
+      Branch: feature/auth-refactor
+      Recent commits:
+        - abc123: "Disabled token caching due to race condition"
+    ```
+    If you see code that looks wrong, the git history might explain why it's actually right. Don't "fix" things you don't understand.
+
+    #### PRIORITY 6: DOMAIN KNOWLEDGE
+    For Type B/U Specialists, domain-specific hints are provided.
+    ```
+    DOMAIN KNOWLEDGE:
+      - Always use bcrypt with cost >= 12 for password hashing
+      - HINT: The auth service uses RS256, not HS256
+    ```
+    Follow these hints. They come from researched domain expertise.
