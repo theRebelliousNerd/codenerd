@@ -70,28 +70,108 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			return campaignErrorMsg{err: fmt.Errorf("failed to create campaign plan: %w", err)}
 		}
 
-		// Create orchestrator
+		// Create progress and event channels for orchestrator feedback
+		progressChan := make(chan campaign.Progress, 10)
+		eventChan := make(chan campaign.OrchestratorEvent, 10)
+
+		// Create orchestrator with channels for progress feedback
 		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:    m.workspace,
 			Kernel:       m.kernel,
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
 			Executor:     m.executor,
+			ProgressChan: progressChan,
+			EventChan:    eventChan,
 		})
 
 		if err := orch.SetCampaign(result.Campaign); err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to set campaign: %w", err)}
 		}
 
-		// Note: The orchestrator runs in the background but errors are now
-		// handled via the orchestrator's progress callback mechanism.
-		// The orchestrator should be updated to call a callback on error,
-		// or we should poll for errors via a separate mechanism.
-		// For now, we return the campaign and let the orchestrator manage itself.
-		// Errors will surface through campaign status updates.
 		m.ReportStatus("Campaign started")
-		return campaignStartedMsg(result.Campaign)
+		// Return orchestrator reference - execution will be started by Update handler
+		return campaignStartedMsg{
+			campaign: result.Campaign,
+			orch:     orch,
+		}
 	}
+}
+
+// runCampaignOrchestrator starts the orchestrator in a background goroutine and
+// returns a tea.Cmd that listens for progress updates.
+func (m Model) runCampaignOrchestrator() tea.Cmd {
+	if m.campaignOrch == nil {
+		return nil
+	}
+
+	orch := m.campaignOrch
+
+	// Use shutdown context for proper lifecycle management
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if m.shutdownCtx != nil {
+		ctx, cancel = context.WithCancel(m.shutdownCtx)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
+
+	// Start orchestrator execution in background
+	go func() {
+		defer cancel()
+		if err := orch.Run(ctx); err != nil && err != context.Canceled {
+			// Error will be captured via event channel or campaign status
+		}
+	}()
+
+	// Return a command that polls for progress
+	return m.listenCampaignProgress()
+}
+
+// listenCampaignProgress returns a tea.Cmd that waits for progress updates
+func (m Model) listenCampaignProgress() tea.Cmd {
+	if m.campaignOrch == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		// Get progress from orchestrator
+		progress := m.campaignOrch.GetProgress()
+
+		// Check if campaign is complete
+		if progress.CampaignStatus == string(campaign.StatusCompleted) {
+			return campaignCompletedMsg(m.activeCampaign)
+		}
+
+		// Check if campaign failed
+		if progress.CampaignStatus == string(campaign.StatusFailed) {
+			return campaignErrorMsg{err: fmt.Errorf("campaign failed")}
+		}
+
+		// Return progress update
+		return campaignProgressMsg(&progress)
+	}
+}
+
+// tickCampaignProgress returns a tea.Cmd that ticks to check campaign progress periodically
+func (m Model) tickCampaignProgress() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		if m.campaignOrch == nil || m.activeCampaign == nil {
+			return nil
+		}
+
+		progress := m.campaignOrch.GetProgress()
+
+		// Check completion states
+		if progress.CampaignStatus == string(campaign.StatusCompleted) {
+			return campaignCompletedMsg(m.activeCampaign)
+		}
+		if progress.CampaignStatus == string(campaign.StatusFailed) {
+			return campaignErrorMsg{err: fmt.Errorf("campaign failed")}
+		}
+
+		return campaignProgressMsg(&progress)
+	})
 }
 
 // runLaunchCampaign runs clarifier then auto-starts a campaign using the goal plus clarifier answers (if provided).

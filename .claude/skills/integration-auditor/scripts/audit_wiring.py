@@ -39,6 +39,7 @@ try:
     from audit_mangle import MangleAuditor
     from audit_actions import ActionAuditor
     from audit_logging import LoggingAuditor
+    from audit_execution import ExecutionAuditor
     IMPORTS_AVAILABLE = True
 except ImportError:
     IMPORTS_AVAILABLE = False
@@ -68,6 +69,7 @@ class AuditSummary:
     actions_ok: bool = True
     logging_ok: bool = True
     cross_system_ok: bool = True
+    execution_ok: bool = True
 
 @dataclass
 class MasterAuditResult:
@@ -98,20 +100,23 @@ class MasterAuditor:
         print()
 
         # Run individual audits
-        print("[1/5] Running Shard Registration Audit...")
+        print("[1/6] Running Shard Registration Audit...")
         self._run_shard_audit()
 
-        print("[2/5] Running Mangle Schema/Policy Audit...")
+        print("[2/6] Running Mangle Schema/Policy Audit...")
         self._run_mangle_audit()
 
-        print("[3/5] Running Action Layer Audit...")
+        print("[3/6] Running Action Layer Audit...")
         self._run_action_audit()
 
-        print("[4/5] Running Logging Coverage Audit...")
+        print("[4/6] Running Logging Coverage Audit...")
         self._run_logging_audit()
 
-        print("[5/5] Running Cross-System Integration Check...")
+        print("[5/6] Running Cross-System Integration Check...")
         self._run_cross_system_audit()
+
+        print("[6/6] Running Execution Wiring Audit...")
+        self._run_execution_audit()
 
         # Calculate summary
         self._calculate_summary()
@@ -239,6 +244,37 @@ class MasterAuditor:
                 self.result.summary.logging_ok = False
         else:
             self._run_subprocess_audit("audit_logging.py", "logging")
+
+    def _run_execution_audit(self):
+        """Run execution wiring audit."""
+        if IMPORTS_AVAILABLE:
+            try:
+                auditor = ExecutionAuditor(str(self.workspace), verbose=self.verbose, component=self.component)
+                result = auditor.audit()
+
+                for f in result.findings:
+                    if f.severity.value == "INFO" and not self.verbose:
+                        continue
+                    self.result.findings.append(Finding(
+                        severity=Severity(f.severity.value),
+                        category="execution",
+                        message=f.message,
+                        file=f.file,
+                        line=f.line,
+                        suggestion=f.suggestion
+                    ))
+
+                self.result.sub_results['execution'] = result.stats
+                self.result.summary.execution_ok = result.stats.get('errors', 0) == 0
+            except Exception as e:
+                self.result.findings.append(Finding(
+                    severity=Severity.ERROR,
+                    category="execution",
+                    message=f"Execution audit failed: {e}"
+                ))
+                self.result.summary.execution_ok = False
+        else:
+            self._run_subprocess_audit("audit_execution.py", "execution")
 
     def _run_subprocess_audit(self, script_name: str, category: str):
         """Run an audit script as subprocess and parse JSON output."""
@@ -432,7 +468,8 @@ class MasterAuditor:
             self.result.summary.mangle_ok and
             self.result.summary.actions_ok and
             self.result.summary.logging_ok and
-            self.result.summary.cross_system_ok
+            self.result.summary.cross_system_ok and
+            self.result.summary.execution_ok
         )
 
         status = "PASS" if all_ok else "FAIL"
@@ -446,6 +483,7 @@ class MasterAuditor:
         print(f"  Actions:      {'OK' if self.result.summary.actions_ok else 'ERRORS'}")
         print(f"  Logging:      {'OK' if self.result.summary.logging_ok else 'ERRORS'}")
         print(f"  Cross-System: {'OK' if self.result.summary.cross_system_ok else 'ERRORS'}")
+        print(f"  Execution:    {'OK' if self.result.summary.execution_ok else 'ERRORS'}")
         print()
 
         # Counts
@@ -520,6 +558,8 @@ class MasterAuditor:
                 print("  3. Add missing action handlers in internal/core/virtual_store.go")
             if not self.result.summary.cross_system_ok:
                 print("  4. Check boot sequence and cross-component wiring")
+            if not self.result.summary.execution_ok:
+                print("  5. Fix execution wiring: ensure Run() called, channels listened, goroutines spawned")
             print()
             print("Run with --verbose for detailed suggestions.")
             print()
@@ -577,6 +617,7 @@ Examples:
                 "actions_ok": result.summary.actions_ok,
                 "logging_ok": result.summary.logging_ok,
                 "cross_system_ok": result.summary.cross_system_ok,
+                "execution_ok": result.summary.execution_ok,
             },
             "findings": [
                 {
