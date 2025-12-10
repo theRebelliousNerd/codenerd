@@ -397,6 +397,17 @@ func init() {
 	rootCmd.AddCommand(campaignCmd)
 	rootCmd.AddCommand(checkMangleCmd) // UNCOMMENTED: Register the check-mangle command
 	rootCmd.AddCommand(authCmd)
+
+	// Direct action commands (mirror TUI verbs)
+	rootCmd.AddCommand(reviewCmd)
+	rootCmd.AddCommand(fixCmd)
+	rootCmd.AddCommand(testCmd)
+	rootCmd.AddCommand(pushCmd)
+	rootCmd.AddCommand(commitCmd)
+	rootCmd.AddCommand(explainCmd)
+	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(refactorCmd)
+	rootCmd.AddCommand(perceptionCmd)
 }
 
 // === START OF INTEGRATED check_mangle.go CONTENT ===
@@ -509,11 +520,12 @@ func checkFile(engine *mangle.Engine, path string) error {
 	// In a real tool, this would be a flag --schema or --include
 	// Try to find and load schemas.mg to provide context
 	// Iterate through search paths to find where schemas.mg actually lives
+	// The canonical location is internal/core/defaults/schemas.mg
 	searchPaths := []string{
+		"internal/core/defaults",
 		".",
-		"internal/mangle",
-		"../internal/mangle",
-		"../../internal/mangle",
+		"../internal/core/defaults",
+		"../../internal/core/defaults",
 	}
 
 	var schemaData []byte
@@ -548,6 +560,253 @@ func checkFile(engine *mangle.Engine, path string) error {
 }
 
 // === END OF INTEGRATED check_mangle.go CONTENT ===
+
+// =============================================================================
+// DIRECT ACTION COMMANDS - Mirror TUI verbs for CLI testing
+// =============================================================================
+
+// reviewCmd runs code review directly
+var reviewCmd = &cobra.Command{
+	Use:   "review <target>",
+	Short: "Run code review on a file or directory",
+	Long: `Spawns ReviewerShard to analyze code for issues.
+Equivalent to typing "review <target>" in the TUI.
+
+Example:
+  nerd review internal/core/kernel.go
+  nerd review ./internal/shards/`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("reviewer", "/review"),
+}
+
+// fixCmd runs code fix directly
+var fixCmd = &cobra.Command{
+	Use:   "fix <target>",
+	Short: "Fix bugs or issues in code",
+	Long: `Spawns CoderShard to fix bugs in the specified target.
+Equivalent to typing "fix <target>" in the TUI.
+
+Example:
+  nerd fix "the null pointer in auth.go"
+  nerd fix internal/core/kernel.go`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("coder", "/fix"),
+}
+
+// testCmd runs tests directly
+var testCmd = &cobra.Command{
+	Use:   "test <target>",
+	Short: "Run or generate tests",
+	Long: `Spawns TesterShard to run or generate tests.
+Equivalent to typing "test <target>" in the TUI.
+
+Example:
+  nerd test ./internal/core/...
+  nerd test "add tests for kernel.go"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("tester", "/test"),
+}
+
+// pushCmd runs git push directly
+var pushCmd = &cobra.Command{
+	Use:   "push",
+	Short: "Push commits to remote repository",
+	Long: `Spawns CoderShard to execute git push.
+Equivalent to typing "push to github" in the TUI.
+
+Example:
+  nerd push
+  nerd push origin main`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		target := "origin"
+		if len(args) > 0 {
+			target = strings.Join(args, " ")
+		}
+		return runDirectAction("coder", "/git")(cmd, []string{"push to " + target})
+	},
+}
+
+// commitCmd runs git commit directly
+var commitCmd = &cobra.Command{
+	Use:   "commit <message>",
+	Short: "Commit changes with a message",
+	Long: `Spawns CoderShard to execute git commit.
+Equivalent to typing "commit <message>" in the TUI.
+
+Example:
+  nerd commit "fix: resolve auth bug"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("coder", "/git"),
+}
+
+// explainCmd explains code directly
+var explainCmd = &cobra.Command{
+	Use:   "explain <target>",
+	Short: "Explain what code does",
+	Long: `Analyzes and explains the specified code.
+Equivalent to typing "explain <target>" in the TUI.
+
+Example:
+  nerd explain internal/core/kernel.go
+  nerd explain "the OODA loop"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("researcher", "/explain"),
+}
+
+// createCmd creates new code directly
+var createCmd = &cobra.Command{
+	Use:   "create <description>",
+	Short: "Create new code or files",
+	Long: `Spawns CoderShard to create new code.
+Equivalent to typing "create <description>" in the TUI.
+
+Example:
+  nerd create "a retry wrapper for HTTP calls"
+  nerd create internal/utils/retry.go`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("coder", "/create"),
+}
+
+// refactorCmd refactors code directly
+var refactorCmd = &cobra.Command{
+	Use:   "refactor <target>",
+	Short: "Refactor existing code",
+	Long: `Spawns CoderShard to refactor code.
+Equivalent to typing "refactor <target>" in the TUI.
+
+Example:
+  nerd refactor internal/core/kernel.go
+  nerd refactor "extract helper functions from process.go"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("coder", "/refactor"),
+}
+
+// perceptionCmd tests perception/intent recognition
+var perceptionCmd = &cobra.Command{
+	Use:   "perception <input>",
+	Short: "Test perception transducer (diagnostic)",
+	Long: `Tests how the perception layer interprets user input.
+Shows parsed intent, verb, target, and shard routing.
+
+Example:
+  nerd perception "review my code"
+  nerd perception "push to github"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runPerceptionTest,
+}
+
+// runDirectAction creates a handler for direct action commands
+func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		// Handle graceful shutdown
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			fmt.Println("\n⏹️  Interrupted")
+			cancel()
+		}()
+
+		target := strings.Join(args, " ")
+		task := fmt.Sprintf("%s %s", strings.TrimPrefix(verb, "/"), target)
+
+		fmt.Printf("🔧 Action: %s\n", verb)
+		fmt.Printf("🎯 Target: %s\n", target)
+		fmt.Printf("🤖 Shard:  %s\n", shardType)
+		fmt.Println(strings.Repeat("─", 50))
+
+		// Resolve API key
+		key := apiKey
+		if key == "" {
+			key = os.Getenv("ZAI_API_KEY")
+		}
+
+		// Boot Cortex
+		cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+		if err != nil {
+			return fmt.Errorf("failed to boot cortex: %w", err)
+		}
+
+		// Add usage tracker
+		if cortex.UsageTracker != nil {
+			ctx = usage.NewContext(ctx, cortex.UsageTracker)
+		}
+
+		// Spawn shard directly
+		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
+		result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
+		if err != nil {
+			return fmt.Errorf("shard execution failed: %w", err)
+		}
+
+		fmt.Println(strings.Repeat("─", 50))
+		fmt.Println("📋 Result:")
+		fmt.Println(result)
+
+		return nil
+	}
+}
+
+// runPerceptionTest tests the perception transducer
+func runPerceptionTest(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	input := strings.Join(args, " ")
+
+	fmt.Printf("🎤 Input: %q\n", input)
+	fmt.Println(strings.Repeat("─", 50))
+
+	// Resolve API key
+	key := apiKey
+	if key == "" {
+		key = os.Getenv("ZAI_API_KEY")
+	}
+
+	// Boot Cortex (lightweight - just need transducer)
+	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+
+	// Parse intent
+	intent, err := cortex.Transducer.ParseIntent(ctx, input)
+	if err != nil {
+		return fmt.Errorf("perception error: %w", err)
+	}
+
+	// Get shard routing
+	shardType := perception.GetShardTypeForVerb(intent.Verb)
+
+	fmt.Printf("📊 Perception Results:\n")
+	fmt.Printf("   Category:   %s\n", intent.Category)
+	fmt.Printf("   Verb:       %s\n", intent.Verb)
+	fmt.Printf("   Target:     %s\n", intent.Target)
+	fmt.Printf("   Constraint: %s\n", intent.Constraint)
+	fmt.Printf("   Confidence: %.2f\n", intent.Confidence)
+	fmt.Println(strings.Repeat("─", 50))
+	fmt.Printf("🔀 Routing:\n")
+	if shardType == "" || shardType == "/none" {
+		fmt.Printf("   Shard: (none - direct response)\n")
+	} else {
+		fmt.Printf("   Shard: %s\n", shardType)
+	}
+	fmt.Println(strings.Repeat("─", 50))
+	fmt.Printf("💬 Response Preview:\n%s\n", truncateResponse(intent.Response, 500))
+
+	return nil
+}
+
+// truncateResponse truncates long responses for display
+func truncateResponse(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen] + "\n... (truncated)"
+	}
+	return s
+}
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
