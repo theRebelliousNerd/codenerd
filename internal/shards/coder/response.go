@@ -70,9 +70,22 @@ func (c *CoderShard) parseCodeResponse(response string, task CoderTask) *ParsedC
 
 	// Try parsing as wrapper first
 	if err := json.Unmarshal([]byte(jsonStr), &wrapper); err == nil && len(wrapper.Result) > 0 {
+		// Check if Result is a direct string (code content) vs a JSON object
+		var codeStr string
+		if err := json.Unmarshal(wrapper.Result, &codeStr); err == nil && codeStr != "" {
+			// Result is a direct string - use it as code content
+			edit := CodeEdit{
+				File:       task.Target,
+				NewContent: codeStr,
+				Type:       task.Action,
+				Language:   detectLanguage(task.Target),
+				Rationale:  wrapper.ReasoningTrace,
+			}
+			result.Edits = append(result.Edits, edit)
+			return result
+		}
+		// Result is an object - continue to parse as CodeResponse
 		jsonStr = string(wrapper.Result)
-		// Note: reasoning trace is available in wrapper.ReasoningTrace
-		// TODO: Persist reasoning trace if needed
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &jsonResp); err == nil && jsonResp.Content != "" {
