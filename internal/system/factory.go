@@ -148,7 +148,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// Initialize JIT Prompt Compiler
 	jitCompiler, err := prompt.NewJITPromptCompiler(
-		prompt.WithKernel(&KernelAdapter{kernel: kernel}),
+		prompt.WithKernel(NewKernelAdapter(kernel)),
 	)
 	if err != nil {
 		// Fallback to nil or fail? JIT is critical for shards.
@@ -244,6 +244,14 @@ func (a *LocalStoreTraceAdapter) LoadReasoningTrace(traceID string) (*perception
 // It handles type conversion between []interface{} and []core.Fact.
 type KernelAdapter struct {
 	kernel core.Kernel
+}
+
+// NewKernelAdapter creates a new KernelAdapter for the given kernel.
+// This adapter bridges core.Kernel to prompt.KernelQuerier interface,
+// enabling the JIT Prompt Compiler to query the Mangle kernel for
+// skeleton atom selection.
+func NewKernelAdapter(kernel core.Kernel) *KernelAdapter {
+	return &KernelAdapter{kernel: kernel}
 }
 
 func (ka *KernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
