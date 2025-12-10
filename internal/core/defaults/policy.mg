@@ -2744,10 +2744,14 @@ critical_capability(CapID) :-
 high_risk(RiskID) :-
     northstar_risk(RiskID, _, /high, /high).
 
+# Helper: risk has at least one mitigation
+has_mitigation(RiskID) :-
+    northstar_mitigation(RiskID, _).
+
 # Derive unmitigated risks (high risk without any mitigation)
 unmitigated_risk(RiskID) :-
     high_risk(RiskID),
-    !northstar_mitigation(RiskID, _).
+    !has_mitigation(RiskID).
 
 # -----------------------------------------------------------------------------
 # 42.2 Alignment Analysis
@@ -2758,16 +2762,24 @@ capability_addresses_need(CapID, PersonaID, Need) :-
     northstar_serves(CapID, PersonaID),
     northstar_need(PersonaID, Need).
 
+# Helper: persona is served by at least one capability
+is_served_persona(PersonaID) :-
+    northstar_serves(_, PersonaID).
+
+# Helper: capability serves at least one persona
+capability_is_linked(CapID) :-
+    northstar_serves(CapID, _).
+
 # Unserved persona - has needs but no capability serves them
 unserved_persona(PersonaID, Name) :-
     northstar_persona(PersonaID, Name),
     northstar_need(PersonaID, _),
-    !northstar_serves(_, PersonaID).
+    !is_served_persona(PersonaID).
 
 # Orphan capability - not linked to any persona
 orphan_capability(CapID, Desc) :-
     northstar_capability(CapID, Desc, _, _),
-    !northstar_serves(CapID, _).
+    !capability_is_linked(CapID).
 
 # -----------------------------------------------------------------------------
 # 42.3 Requirements Traceability
@@ -2777,21 +2789,29 @@ orphan_capability(CapID, Desc) :-
 must_have_requirement(ReqID, Desc) :-
     northstar_requirement(ReqID, _, Desc, /must_have).
 
+# Helper: requirement is supported by at least one capability
+is_supported_req(ReqID) :-
+    northstar_supports(ReqID, _).
+
 # Orphan requirement - not linked to any capability
 orphan_requirement(ReqID, Desc) :-
     northstar_requirement(ReqID, _, Desc, _),
-    !northstar_supports(ReqID, _).
+    !is_supported_req(ReqID).
 
 # Risk-addressing requirement
 risk_addressing_requirement(ReqID, RiskID) :-
     northstar_addresses(ReqID, RiskID),
     high_risk(RiskID).
 
+# Helper: risk is addressed by at least one requirement
+risk_is_addressed(RiskID) :-
+    northstar_addresses(_, RiskID).
+
 # Unaddressed high risk - no requirement addresses it
 unaddressed_high_risk(RiskID, Desc) :-
     high_risk(RiskID),
     northstar_risk(RiskID, Desc, _, _),
-    !northstar_addresses(_, RiskID).
+    !risk_is_addressed(RiskID).
 
 # -----------------------------------------------------------------------------
 # 42.4 Timeline Planning

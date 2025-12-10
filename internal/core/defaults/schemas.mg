@@ -2380,6 +2380,9 @@ Decl context_overflow(ShardID).
 # active_shard(ShardID, ShardType) - currently active shard being configured
 Decl active_shard(ShardID, ShardType).
 
+# shard_family(ShardID, Family) - shard belongs to a family (e.g., /planner, /coder)
+Decl shard_family(ShardID, Family).
+
 # campaign_active(CampaignID) - currently active campaign
 Decl campaign_active(CampaignID).
 
@@ -2533,11 +2536,20 @@ Decl critical_capability(CapID).
 # high_risk(RiskID) - Derived: risk has high likelihood AND impact
 Decl high_risk(RiskID).
 
+# has_mitigation(RiskID) - Helper: risk has at least one mitigation
+Decl has_mitigation(RiskID).
+
 # unmitigated_risk(RiskID) - Derived: high risk without mitigation
 Decl unmitigated_risk(RiskID).
 
 # capability_addresses_need(CapID, PersonaID, Need) - Capability serves persona need
 Decl capability_addresses_need(CapID, PersonaID, Need).
+
+# is_served_persona(PersonaID) - Helper: persona is served by at least one capability
+Decl is_served_persona(PersonaID).
+
+# capability_is_linked(CapID) - Helper: capability serves at least one persona
+Decl capability_is_linked(CapID).
 
 # unserved_persona(PersonaID, Name) - Persona with needs but no capabilities
 Decl unserved_persona(PersonaID, Name).
@@ -2548,11 +2560,17 @@ Decl orphan_capability(CapID, Desc).
 # must_have_requirement(ReqID, Desc) - Requirements with must_have priority
 Decl must_have_requirement(ReqID, Desc).
 
+# is_supported_req(ReqID) - Helper: requirement is supported by at least one capability
+Decl is_supported_req(ReqID).
+
 # orphan_requirement(ReqID, Desc) - Requirement not linked to any capability
 Decl orphan_requirement(ReqID, Desc).
 
 # risk_addressing_requirement(ReqID, RiskID) - Requirement that addresses high risk
 Decl risk_addressing_requirement(ReqID, RiskID).
+
+# risk_is_addressed(RiskID) - Helper: risk is addressed by at least one requirement
+Decl risk_is_addressed(RiskID).
 
 # unaddressed_high_risk(RiskID, Desc) - High risk with no requirement addressing it
 Decl unaddressed_high_risk(RiskID, Desc).
@@ -2601,5 +2619,6 @@ Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
 
 # verb_composition(Verb1, Verb2, ComposedAction, Priority)
 # Defines valid verb compositions for compound suggestions
-Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
+# NOTE: Primary declaration is in taxonomy.mg - removed duplicate here
+# Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
 
