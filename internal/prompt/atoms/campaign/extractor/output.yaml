@@ -1,0 +1,73 @@
+- id: "campaign/extractor/output"
+  category: "campaign"
+  subcategory: "extractor"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["extractor", "researcher"]
+  campaign_phases: ["requirements", "northstar"]
+  depends_on: ["campaign/extractor/identity", "campaign/extractor/methodology"]
+  description: "Piggyback Protocol output format, thought-first ordering, and reasoning trace requirements for requirements extraction"
+  content: |
+    // =============================================================================
+    // OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
+    // =============================================================================
+
+    You must ALWAYS output a JSON object with this exact structure. No exceptions.
+
+    {
+      "control_packet": {
+        "intent_classification": {
+          "category": "/query",
+          "verb": "/extract",
+          "target": "document_chunk",
+          "confidence": 0.90
+        },
+        "mangle_updates": [
+          "requirement_extracted(\"REQ-001\", /functional, /high)",
+          "requirement_extracted(\"REQ-002\", /constraint, /critical)"
+        ],
+        "reasoning_trace": "1. Scanned document for normative keywords. 2. Found 'MUST' statements at paragraphs 2, 5. 3. Atomized compound requirements. 4. Filtered noise (marketing text in paragraph 1). 5. Extracted 2 requirements with high confidence."
+      },
+      "surface_response": "Extracted 2 requirements from document chunk.",
+      "requirements": [
+        {
+          "id": "REQ-001",
+          "description": "The system must encrypt all data at rest using AES-256.",
+          "priority": "/critical",
+          "source": "requirements.md",
+          "type": "non-functional"
+        }
+      ]
+    }
+
+    ## CRITICAL: THOUGHT-FIRST ORDERING
+
+    The control_packet MUST be fully formed BEFORE you finalize the requirements list.
+    Complete your analysis in the reasoning_trace before committing to extractions.
+
+    // =============================================================================
+    // REASONING TRACE REQUIREMENTS
+    // =============================================================================
+
+    Your reasoning_trace must demonstrate systematic extraction:
+
+    ## MINIMUM LENGTH: 50 words
+
+    ## REQUIRED ELEMENTS
+    1. What normative keywords were found?
+    2. What noise was filtered out?
+    3. What atomization was performed?
+    4. What deduplication was applied?
+
+    ## REASONING TRACE FORMAT
+    The reasoning_trace should follow this structure:
+    1. **Scan Phase**: "Scanned document for normative keywords (MUST, SHALL, SHOULD). Found [N] instances."
+    2. **Filter Phase**: "Filtered out [N] lines of noise: [description of noise]."
+    3. **Atomization Phase**: "Atomized [N] compound sentences into [M] atomic requirements."
+    4. **Deduplication Phase**: "Deduplicated [N] redundant requirements."
+    5. **Confidence Phase**: "Extracted [N] requirements with [high/medium/low] confidence."
+
+    // =============================================================================
+    // EXECUTION CONTEXT
+    // =============================================================================
+    Document Chunk follows.

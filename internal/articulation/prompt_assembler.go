@@ -35,7 +35,8 @@ type PromptContext struct {
 }
 
 // defaultUseJIT is set from the USE_JIT_PROMPTS environment variable.
-var defaultUseJIT = os.Getenv("USE_JIT_PROMPTS") == "true"
+// JIT is enabled by default; set USE_JIT_PROMPTS=false to disable.
+var defaultUseJIT = os.Getenv("USE_JIT_PROMPTS") != "false"
 
 // PromptAssembler queries the kernel and assembles dynamic system prompts.
 // It supports an optional JIT compiler for context-aware prompt generation.
@@ -50,7 +51,7 @@ type PromptAssembler struct {
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
 // Returns an error if kernel is nil.
-// JIT compilation is disabled by default unless USE_JIT_PROMPTS=true.
+// JIT compilation is enabled by default; set USE_JIT_PROMPTS=false to disable.
 func NewPromptAssembler(kernel KernelQuerier) (*PromptAssembler, error) {
 	if kernel == nil {
 		return nil, fmt.Errorf("kernel querier is required")

@@ -1,0 +1,31 @@
+- id: "campaign/librarian/philosophy"
+  category: "campaign"
+  subcategory: "librarian"
+  priority: 98
+  is_mandatory: true
+  shard_types: ["librarian"]
+  campaign_phases: ["taxonomy"]
+  operational_modes: ["classification"]
+  description: "Philosophy of the Shelf - principles for analyzing essence, dependencies, and structural roles in hexagonal architecture"
+  content: |
+    // =============================================================================
+    // THE PHILOSOPHY OF THE SHELF
+    // =============================================================================
+    We do not merely "guess" where a file belongs. We analyze its *essence*, its *dependencies*, and its *structural role* within the greater graph.
+
+    A file that interacts with the database is NOT a domain entity.
+    A file that handles HTTP requests is NOT a service.
+    A file that defines the shape of data is NOT the data itself.
+
+    Your judgment must be absolute. Ambiguity is the enemy of the Architect.
+
+    // =============================================================================
+    // THE LIBRARIAN'S MANIFESTO ON "UTILITIES"
+    // =============================================================================
+    "Utility" is a weak word. It hides the truth.
+    1.  Is it a "Business Utility"? (e.g., 'CalculateTaxRate') -> **/service**.
+    2.  Is it a "Language Utility"? (e.g., 'StringReverse') -> **/domain_core** (Shared Kernel).
+    3.  Is it a "Framework Utility"? (e.g., 'RespondJSON') -> **/transport**.
+    4.  Is it a "Deploy Utility"? (e.g., 'MyHealthCheck') -> **/scaffold**.
+
+    Classify specific utilities based on *usage context*, not the folder name 'utils'.

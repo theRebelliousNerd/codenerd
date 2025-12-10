@@ -355,8 +355,34 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if jit, err := prompt.NewJITPromptCompiler(prompt.WithEmbeddedCorpus(embeddedCorpus)); err == nil {
 			jitCompiler = jit
 
+			// Sync embedded corpus to project SQLite DB with embeddings
+			// This enables vector search over baked-in atoms
+			nerdDir := filepath.Join(workspace, ".nerd")
+			if embeddingEngine != nil {
+				logStep("Syncing embedded corpus to SQLite...")
+
+				// Ensure prompts directory exists
+				promptsDir := filepath.Join(nerdDir, "prompts")
+				if mkdirErr := os.MkdirAll(promptsDir, 0755); mkdirErr != nil {
+					logging.Boot("Warning: Failed to create prompts directory: %v", mkdirErr)
+				} else {
+					corpusPath := filepath.Join(promptsDir, "corpus.db")
+					if syncErr := prompt.SyncEmbeddedToSQLite(ctx, corpusPath, embeddingEngine); syncErr != nil {
+						logging.Boot("Warning: Failed to sync embedded corpus: %v", syncErr)
+						// Non-fatal - continue with embedded-only corpus
+					} else {
+						// Register corpus DB with JIT compiler for project-level atom queries
+						if regErr := jitCompiler.RegisterDB("corpus", corpusPath); regErr != nil {
+							logging.Boot("Warning: Failed to register corpus DB: %v", regErr)
+						} else {
+							logging.Boot("Synced embedded atoms to corpus.db")
+						}
+					}
+				}
+			}
+
 			// Wire prompt loader callback (YAML → SQLite)
-			shardMgr.SetNerdDir(filepath.Join(workspace, ".nerd"))
+			shardMgr.SetNerdDir(nerdDir)
 			shardMgr.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
 				return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, embeddingEngine)
 			})
@@ -367,7 +393,6 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 			// Sync all agent prompts.yaml → knowledge DBs at boot (upsert semantics)
 			// This ensures edited prompts are available to the JIT compiler immediately
-			nerdDir := filepath.Join(workspace, ".nerd")
 			logStep("Syncing agent prompts to knowledge DBs...")
 			if promptCount, syncErr := prompt.ReloadAllPrompts(context.Background(), nerdDir, embeddingEngine); syncErr != nil {
 				logging.Boot("Warning: Failed to sync agent prompts: %v", syncErr)
@@ -620,6 +645,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				Client:                llmClient,
 				BrowserManager:        browserMgr,
 				BrowserCtxCancel:      browserCtxCancel,
+				JITCompiler:           jitCompiler,
 			},
 		}
 	}

@@ -38,6 +38,145 @@ type SearchResult struct {
 	Score  float64
 }
 
+// CompilationStats provides comprehensive metrics for a single compilation.
+// This is the "god-tier" observability structure for JIT prompt compilation.
+type CompilationStats struct {
+	// --- Timing Metrics ---
+	// Total compilation duration from start to finish
+	Duration time.Duration
+
+	// Phase-level timing breakdown (all in milliseconds for log parsing)
+	CollectAtomsMs int64 // Time to collect atoms from all sources
+	SelectAtomsMs  int64 // Time for Mangle selection + vector search
+	ResolveDepsMs  int64 // Time for dependency resolution
+	FitBudgetMs    int64 // Time for budget fitting with polymorphism
+	AssembleMs     int64 // Time to assemble final prompt text
+	VectorQueryMs  int64 // Time spent specifically on vector search (subset of SelectAtomsMs)
+
+	// --- Atom Counts ---
+	// AtomsSelected is the number of atoms in the final compiled prompt
+	AtomsSelected int
+
+	// SkeletonAtoms is the count of mandatory/skeleton atoms (always included)
+	SkeletonAtoms int
+
+	// FleshAtoms is the count of probabilistic/flesh atoms (context-dependent)
+	FleshAtoms int
+
+	// AtomsCandidates is total atoms considered before filtering
+	AtomsCandidates int
+
+	// AtomsDropped is atoms rejected by selector or budget
+	AtomsDropped int
+
+	// --- Token Metrics ---
+	// TokensUsed is the total tokens in the compiled prompt
+	TokensUsed int
+
+	// TokenBudget is the target budget for this compilation
+	TokenBudget int
+
+	// BudgetUtilization is TokensUsed/TokenBudget as percentage (0.0-1.0)
+	BudgetUtilization float64
+
+	// SkeletonTokens is tokens used by mandatory atoms
+	SkeletonTokens int
+
+	// FleshTokens is tokens used by optional atoms
+	FleshTokens int
+
+	// --- Source Breakdown ---
+	// EmbeddedAtoms is count of atoms from embedded corpus
+	EmbeddedAtoms int
+
+	// ProjectAtoms is count of atoms from project database
+	ProjectAtoms int
+
+	// ShardAtoms is count of atoms from shard-specific database
+	ShardAtoms int
+
+	// --- Render Mode Distribution ---
+	// StandardModeCount is atoms rendered in full/standard mode
+	StandardModeCount int
+
+	// ConciseModeCount is atoms rendered in concise mode
+	ConciseModeCount int
+
+	// MinModeCount is atoms rendered in minimal mode
+	MinModeCount int
+
+	// --- Cache & Fallback ---
+	// FallbackUsed indicates whether legacy fallback compilation was used
+	FallbackUsed bool
+
+	// CacheHit indicates whether a cached skeleton was used
+	CacheHit bool
+
+	// CacheKey is the cache key used (for debugging)
+	CacheKey string
+
+	// --- Context Info (for correlation) ---
+	// ShardID is the shard this compilation was for
+	ShardID string
+
+	// OperationalMode is the mode during compilation
+	OperationalMode string
+
+	// IntentVerb is the user intent that triggered compilation
+	IntentVerb string
+}
+
+// String returns a human-readable summary of the compilation stats.
+func (s *CompilationStats) String() string {
+	return fmt.Sprintf(
+		"JIT[%s] %dms | atoms=%d (skel=%d flesh=%d) | tokens=%d/%d (%.1f%%) | vector=%dms | cache=%v",
+		s.ShardID,
+		s.Duration.Milliseconds(),
+		s.AtomsSelected,
+		s.SkeletonAtoms,
+		s.FleshAtoms,
+		s.TokensUsed,
+		s.TokenBudget,
+		s.BudgetUtilization*100,
+		s.VectorQueryMs,
+		s.CacheHit,
+	)
+}
+
+// ToLogFields returns the stats as a map for structured logging.
+func (s *CompilationStats) ToLogFields() map[string]interface{} {
+	return map[string]interface{}{
+		"duration_ms":      s.Duration.Milliseconds(),
+		"collect_ms":       s.CollectAtomsMs,
+		"select_ms":        s.SelectAtomsMs,
+		"resolve_ms":       s.ResolveDepsMs,
+		"fit_ms":           s.FitBudgetMs,
+		"assemble_ms":      s.AssembleMs,
+		"vector_ms":        s.VectorQueryMs,
+		"atoms_selected":   s.AtomsSelected,
+		"skeleton_atoms":   s.SkeletonAtoms,
+		"flesh_atoms":      s.FleshAtoms,
+		"atoms_candidates": s.AtomsCandidates,
+		"atoms_dropped":    s.AtomsDropped,
+		"tokens_used":      s.TokensUsed,
+		"token_budget":     s.TokenBudget,
+		"budget_util":      s.BudgetUtilization,
+		"skeleton_tokens":  s.SkeletonTokens,
+		"flesh_tokens":     s.FleshTokens,
+		"embedded_atoms":   s.EmbeddedAtoms,
+		"project_atoms":    s.ProjectAtoms,
+		"shard_atoms":      s.ShardAtoms,
+		"standard_mode":    s.StandardModeCount,
+		"concise_mode":     s.ConciseModeCount,
+		"min_mode":         s.MinModeCount,
+		"fallback_used":    s.FallbackUsed,
+		"cache_hit":        s.CacheHit,
+		"shard_id":         s.ShardID,
+		"operational_mode": s.OperationalMode,
+		"intent_verb":      s.IntentVerb,
+	}
+}
+
 // CompilationResult holds the output of a prompt compilation.
 type CompilationResult struct {
 	// The compiled prompt text
@@ -60,8 +199,12 @@ type CompilationResult struct {
 	AtomsCandidates   int // Total atoms considered
 	AtomsSelected     int // Atoms that matched context
 	AtomsIncluded     int // Atoms that fit in budget
+
 	// Compilation manifest (Flight Recorder)
 	Manifest *PromptManifest
+
+	// Comprehensive compilation statistics
+	Stats *CompilationStats
 }
 
 // JITPromptCompiler compiles optimal system prompts from atomic fragments.
@@ -88,6 +231,9 @@ type JITPromptCompiler struct {
 	resolver  *DependencyResolver
 	budgetMgr *TokenBudgetManager
 	assembler *FinalAssembler
+
+	// Observability
+	lastResult *CompilationResult
 
 	// Concurrency control
 	mu sync.RWMutex
@@ -201,9 +347,11 @@ func WithConfig(config CompilerConfig) CompilerOption {
 // Compile generates a system prompt for the given context.
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
-	timer := logging.StartTimer(logging.CategoryContext, "JITPromptCompiler.Compile")
+	// Legacy timer for backward compatibility
+	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
 	defer timer.Stop()
 
+	// Validate context first (before accessing any fields)
 	if cc == nil {
 		return nil, fmt.Errorf("compilation context is required")
 	}
@@ -212,80 +360,134 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		return nil, fmt.Errorf("invalid compilation context: %w", err)
 	}
 
-	logging.Get(logging.CategoryContext).Info("Compiling prompt: %s", cc.String())
+	// Start comprehensive timing after validation
+	compileStart := time.Now()
+	stats := &CompilationStats{
+		ShardID:         cc.ShardID,
+		OperationalMode: cc.OperationalMode,
+		IntentVerb:      cc.IntentVerb,
+	}
+
+	logging.Get(logging.CategoryJIT).Info("Compiling prompt: %s", cc.String())
 
 	// Step 1: Collect all candidate atoms from all sources
-	candidates, err := c.collectAtoms(ctx, cc)
+	collectStart := time.Now()
+	candidates, sourceBreakdown, err := c.collectAtomsWithStats(ctx, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect atoms: %w", err)
 	}
+	stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
+	stats.AtomsCandidates = len(candidates)
+	stats.EmbeddedAtoms = sourceBreakdown.embedded
+	stats.ProjectAtoms = sourceBreakdown.project
+	stats.ShardAtoms = sourceBreakdown.shard
 
-	logging.Get(logging.CategoryContext).Debug("Collected %d candidate atoms", len(candidates))
+	logging.Get(logging.CategoryJIT).Debug(
+		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d) in %dms",
+		len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
+		stats.CollectAtomsMs,
+	)
 
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
-	scored, err := c.selector.SelectAtoms(ctx, candidates, cc)
+	selectStart := time.Now()
+	scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select atoms: %w", err)
 	}
+	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
+	stats.VectorQueryMs = vectorMs
 
-	logging.Get(logging.CategoryContext).Debug("Selected %d atoms after scoring", len(scored))
+	logging.Get(logging.CategoryJIT).Debug(
+		"Selected %d atoms after scoring in %dms (vector=%dms)",
+		len(scored), stats.SelectAtomsMs, stats.VectorQueryMs,
+	)
 
 	// Step 3: Resolve dependencies and handle conflicts
+	resolveStart := time.Now()
 	ordered, err := c.resolver.Resolve(scored)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
 	}
+	stats.ResolveDepsMs = time.Since(resolveStart).Milliseconds()
 
-	logging.Get(logging.CategoryContext).Debug("Resolved to %d ordered atoms", len(ordered))
+	logging.Get(logging.CategoryJIT).Debug(
+		"Resolved to %d ordered atoms in %dms",
+		len(ordered), stats.ResolveDepsMs,
+	)
 
 	// Step 4: Fit within token budget
+	fitStart := time.Now()
 	budget := cc.AvailableTokens()
 	if budget <= 0 {
 		budget = c.config.DefaultTokenBudget
 	}
+	stats.TokenBudget = budget
 
 	fitted, err := c.budgetMgr.Fit(ordered, budget)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fit budget: %w", err)
 	}
+	stats.FitBudgetMs = time.Since(fitStart).Milliseconds()
 
-	logging.Get(logging.CategoryContext).Debug("Fitted %d atoms within budget of %d tokens", len(fitted), budget)
+	logging.Get(logging.CategoryJIT).Debug(
+		"Fitted %d atoms within budget of %d tokens in %dms",
+		len(fitted), budget, stats.FitBudgetMs,
+	)
 
 	// Step 5: Assemble final prompt
+	assembleStart := time.Now()
 	prompt, err := c.assembler.Assemble(fitted, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to assemble prompt: %w", err)
 	}
+	stats.AssembleMs = time.Since(assembleStart).Milliseconds()
 
-	// Build result
-	result := c.buildResult(candidates, scored, fitted, prompt, budget)
+	// Finalize timing
+	stats.Duration = time.Since(compileStart)
 
-	logging.Get(logging.CategoryContext).Info(
-		"Compiled prompt: %d atoms, %d tokens (%.1f%% budget)",
-		result.AtomsIncluded, result.TotalTokens, result.BudgetUsed*100,
-	)
+	// Build result with comprehensive stats
+	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
+
+	// Update observability state
+	c.mu.Lock()
+	c.lastResult = result
+	c.mu.Unlock()
+
+	// Log comprehensive stats using JIT category
+	c.logCompilationStats(stats, result)
 
 	return result, nil
 }
 
-// collectAtoms gathers all candidate atoms from all sources.
-func (c *JITPromptCompiler) collectAtoms(ctx context.Context, cc *CompilationContext) ([]*PromptAtom, error) {
+// sourceBreakdown tracks atom counts by source.
+type sourceBreakdown struct {
+	embedded int
+	project  int
+	shard    int
+}
+
+// collectAtomsWithStats gathers atoms and tracks source breakdown.
+func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *CompilationContext) ([]*PromptAtom, sourceBreakdown, error) {
 	var allAtoms []*PromptAtom
+	var breakdown sourceBreakdown
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	// 1. Embedded corpus (always first)
 	if c.embeddedCorpus != nil {
-		allAtoms = append(allAtoms, c.embeddedCorpus.All()...)
+		embedded := c.embeddedCorpus.All()
+		breakdown.embedded = len(embedded)
+		allAtoms = append(allAtoms, embedded...)
 	}
 
 	// 2. Project database
 	if c.projectDB != nil {
 		projectAtoms, err := c.loadAtomsFromDB(ctx, c.projectDB)
 		if err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to load project atoms: %v", err)
+			logging.Get(logging.CategoryJIT).Warn("Failed to load project atoms: %v", err)
 		} else {
+			breakdown.project = len(projectAtoms)
 			allAtoms = append(allAtoms, projectAtoms...)
 		}
 	}
@@ -295,14 +497,216 @@ func (c *JITPromptCompiler) collectAtoms(ctx context.Context, cc *CompilationCon
 		if shardDB, ok := c.shardDBs[cc.ShardID]; ok {
 			shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
 			if err != nil {
-				logging.Get(logging.CategoryContext).Warn("Failed to load shard atoms: %v", err)
+				logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
 			} else {
+				breakdown.shard = len(shardAtoms)
 				allAtoms = append(allAtoms, shardAtoms...)
 			}
 		}
 	}
 
-	return allAtoms, nil
+	return allAtoms, breakdown, nil
+}
+
+// buildResultWithStats constructs the compilation result with comprehensive stats.
+func (c *JITPromptCompiler) buildResultWithStats(
+	candidates []*PromptAtom,
+	scored []*ScoredAtom,
+	fitted []*OrderedAtom,
+	prompt string,
+	budget int,
+	stats *CompilationStats,
+) *CompilationResult {
+	result := &CompilationResult{
+		Prompt:          prompt,
+		IncludedAtoms:   make([]*PromptAtom, 0, len(fitted)),
+		CategoryTokens:  make(map[AtomCategory]int),
+		AtomsCandidates: len(candidates),
+		AtomsSelected:   len(scored),
+		AtomsIncluded:   len(fitted),
+	}
+
+	// Count atoms and tokens by type
+	var skeletonTokens, fleshTokens int
+	var standardCount, conciseCount, minCount int
+
+	for _, oa := range fitted {
+		result.IncludedAtoms = append(result.IncludedAtoms, oa.Atom)
+		result.TotalTokens += oa.Atom.TokenCount
+		result.CategoryTokens[oa.Atom.Category] += oa.Atom.TokenCount
+
+		if oa.Atom.IsMandatory {
+			result.MandatoryCount++
+			skeletonTokens += oa.Atom.TokenCount
+		} else {
+			result.OptionalCount++
+			fleshTokens += oa.Atom.TokenCount
+		}
+
+		// Track render mode distribution
+		switch oa.RenderMode {
+		case "concise":
+			conciseCount++
+		case "min":
+			minCount++
+		default:
+			standardCount++
+		}
+	}
+
+	if budget > 0 {
+		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)
+	}
+
+	result.CompilationTimeMs = stats.Duration.Milliseconds()
+
+	// Update stats with computed values
+	stats.AtomsSelected = len(fitted)
+	stats.SkeletonAtoms = result.MandatoryCount
+	stats.FleshAtoms = result.OptionalCount
+	stats.AtomsDropped = len(candidates) - len(fitted)
+	stats.TokensUsed = result.TotalTokens
+	stats.BudgetUtilization = result.BudgetUsed
+	stats.SkeletonTokens = skeletonTokens
+	stats.FleshTokens = fleshTokens
+	stats.StandardModeCount = standardCount
+	stats.ConciseModeCount = conciseCount
+	stats.MinModeCount = minCount
+
+	// Build Manifest
+	manifest := c.buildManifest(candidates, scored, fitted, budget)
+	result.Manifest = manifest
+	result.Stats = stats
+
+	return result
+}
+
+// buildManifest constructs the prompt manifest for flight recording.
+func (c *JITPromptCompiler) buildManifest(
+	candidates []*PromptAtom,
+	scored []*ScoredAtom,
+	fitted []*OrderedAtom,
+	budget int,
+) *PromptManifest {
+	manifest := &PromptManifest{
+		Timestamp:   time.Now(),
+		BudgetLimit: budget,
+		Selected:    make([]AtomManifestEntry, 0, len(fitted)),
+		Dropped:     make([]DroppedAtomEntry, 0),
+	}
+
+	// Calculate total tokens
+	for _, oa := range fitted {
+		manifest.TokenUsage += oa.Atom.TokenCount
+	}
+
+	// Lookup map for scores
+	scoreMap := make(map[string]*ScoredAtom)
+	for _, sa := range scored {
+		scoreMap[sa.Atom.ID] = sa
+	}
+
+	// Lookup map for fitted
+	fittedMap := make(map[string]bool)
+	for _, oa := range fitted {
+		fittedMap[oa.Atom.ID] = true
+
+		// Find scores
+		var logic, vector float64
+		source := "flesh"
+		if sa, ok := scoreMap[oa.Atom.ID]; ok {
+			logic = sa.LogicScore
+			vector = sa.VectorScore
+			source = sa.Source
+		}
+
+		if oa.Atom.IsMandatory {
+			source = "skeleton"
+		}
+
+		manifest.Selected = append(manifest.Selected, AtomManifestEntry{
+			ID:          oa.Atom.ID,
+			Category:    string(oa.Atom.Category),
+			Source:      source,
+			Priority:    oa.Atom.Priority,
+			LogicScore:  logic,
+			VectorScore: vector,
+			RenderMode:  oa.RenderMode,
+		})
+	}
+
+	// Identify dropped atoms
+	// 1. Candidates rejected by Selector (Logic/Vector)
+	for _, cand := range candidates {
+		if _, ok := scoreMap[cand.ID]; !ok {
+			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
+				ID:     cand.ID,
+				Reason: "Selector (Logic/Vector)",
+			})
+		}
+	}
+
+	// 2. Scored atoms rejected by Budget/Resolver
+	for _, sa := range scored {
+		if !fittedMap[sa.Atom.ID] {
+			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
+				ID:     sa.Atom.ID,
+				Reason: "Budget/Dependency",
+			})
+		}
+	}
+
+	return manifest
+}
+
+// logCompilationStats logs comprehensive stats at the end of compilation.
+func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result *CompilationResult) {
+	logger := logging.Get(logging.CategoryJIT)
+
+	// Summary line (INFO level)
+	logger.Info("%s", stats.String())
+
+	// Detailed breakdown (DEBUG level)
+	logger.Debug(
+		"Phase timing: collect=%dms select=%dms resolve=%dms fit=%dms assemble=%dms",
+		stats.CollectAtomsMs, stats.SelectAtomsMs, stats.ResolveDepsMs,
+		stats.FitBudgetMs, stats.AssembleMs,
+	)
+
+	logger.Debug(
+		"Source breakdown: embedded=%d project=%d shard=%d",
+		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms,
+	)
+
+	logger.Debug(
+		"Render modes: standard=%d concise=%d min=%d",
+		stats.StandardModeCount, stats.ConciseModeCount, stats.MinModeCount,
+	)
+
+	logger.Debug(
+		"Token distribution: skeleton=%d flesh=%d total=%d/%d (%.1f%%)",
+		stats.SkeletonTokens, stats.FleshTokens,
+		stats.TokensUsed, stats.TokenBudget, stats.BudgetUtilization*100,
+	)
+
+	// Category breakdown (DEBUG level)
+	if len(result.CategoryTokens) > 0 {
+		for cat, tokens := range result.CategoryTokens {
+			logger.Debug("Category %s: %d tokens", cat, tokens)
+		}
+	}
+
+	// Structured log for machine parsing (if JSON mode enabled)
+	logger.StructuredLog("info", "compilation_complete", stats.ToLogFields())
+}
+
+// GetLastResult returns the most recent compilation result.
+// This is used by the TUI Prompt Inspector for observability.
+func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastResult
+
 }
 
 // loadAtomsFromDB loads atoms from a SQLite database.
@@ -427,105 +831,43 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
-// buildResult constructs the compilation result.
-func (c *JITPromptCompiler) buildResult(
-	candidates []*PromptAtom,
-	scored []*ScoredAtom,
-	fitted []*OrderedAtom,
-	prompt string,
-	budget int,
-) *CompilationResult {
-	result := &CompilationResult{
-		Prompt:          prompt,
-		IncludedAtoms:   make([]*PromptAtom, 0, len(fitted)),
-		CategoryTokens:  make(map[AtomCategory]int),
-		AtomsCandidates: len(candidates),
-		AtomsSelected:   len(scored),
-		AtomsIncluded:   len(fitted),
+// RegisterDB registers a named database with the JIT compiler.
+// Known names:
+//   - "corpus": Sets the project-level corpus database (embedded atoms synced to SQLite)
+//   - "project": Alias for "corpus"
+//
+// The method opens the database file and registers it. The caller is responsible
+// for ensuring the file exists. Call Close() to release all DB connections.
+func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
 	}
 
-	for _, oa := range fitted {
-		result.IncludedAtoms = append(result.IncludedAtoms, oa.Atom)
-		result.TotalTokens += oa.Atom.TokenCount
-		result.CategoryTokens[oa.Atom.Category] += oa.Atom.TokenCount
+	// Verify connection is valid
+	if pingErr := db.Ping(); pingErr != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping database %s: %w", dbPath, pingErr)
+	}
 
-		if oa.Atom.IsMandatory {
-			result.MandatoryCount++
-		} else {
-			result.OptionalCount++
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch name {
+	case "corpus", "project":
+		// Close existing project DB if any
+		if c.projectDB != nil {
+			c.projectDB.Close()
 		}
+		c.projectDB = db
+		logging.Get(logging.CategoryContext).Info("Registered corpus database: %s", dbPath)
+	default:
+		// Treat unknown names as shard IDs for flexibility
+		c.shardDBs[name] = db
+		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
 
-	if budget > 0 {
-		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)
-	}
-
-	// --- Build Manifest ---
-	manifest := &PromptManifest{
-		Timestamp:   time.Now(),
-		TokenUsage:  result.TotalTokens,
-		BudgetLimit: budget,
-		Selected:    make([]AtomManifestEntry, 0, len(fitted)),
-		Dropped:     make([]DroppedAtomEntry, 0),
-	}
-
-	// Lookup map for scores
-	scoreMap := make(map[string]*ScoredAtom)
-	for _, sa := range scored {
-		scoreMap[sa.Atom.ID] = sa
-	}
-
-	// Lookup map for fitted
-	fittedMap := make(map[string]bool)
-	for _, oa := range fitted {
-		fittedMap[oa.Atom.ID] = true
-
-		// Find scores
-		var logic, vector float64
-		if sa, ok := scoreMap[oa.Atom.ID]; ok {
-			logic = sa.LogicScore
-			vector = sa.VectorScore
-		}
-
-		manifest.Selected = append(manifest.Selected, AtomManifestEntry{
-			ID:          oa.Atom.ID,
-			Category:    string(oa.Atom.Category),
-			Source:      "mixed", // TODO: Distinguish skeleton vs flesh
-			Priority:    oa.Atom.Priority,
-			LogicScore:  logic,
-			VectorScore: vector,
-			RenderMode:  oa.RenderMode,
-		})
-	}
-
-	// Identify dropped
-	// 1. Candidates rejected by Selector (Logic/Vector)
-	for _, cand := range candidates {
-		if _, ok := scoreMap[cand.ID]; !ok {
-			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
-				ID:     cand.ID,
-				Reason: "Selector (Logic/Vector)",
-			})
-		}
-	}
-
-	// 2. Scored atoms rejected by Budget/Resolver
-	for _, sa := range scored {
-		if !fittedMap[sa.Atom.ID] {
-			manifest.Dropped = append(manifest.Dropped, DroppedAtomEntry{
-				ID:     sa.Atom.ID,
-				Reason: "Budget/Dependency",
-			})
-		}
-	}
-
-	result.Manifest = manifest
-
-	if budget > 0 {
-		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)
-	}
-
-	return result
+	return nil
 }
 
 // RegisterShardDB registers a shard-specific atom database.

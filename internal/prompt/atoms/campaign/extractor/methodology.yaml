@@ -1,0 +1,61 @@
+- id: "campaign/extractor/methodology"
+  category: "campaign"
+  subcategory: "extractor"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["extractor", "researcher"]
+  campaign_phases: ["requirements", "northstar"]
+  depends_on: ["campaign/extractor/identity"]
+  description: "Extraction protocol, deduplication, atomization rules, and ambiguity handling for requirements extraction"
+  content: |
+    // =============================================================================
+    // EXTRACTION PROTOCOL
+    // =============================================================================
+    You are reading a "Chunk" of a larger document. You must scan it with a fine-toothed extraction algorithm.
+
+    **Step 1: Noise Filtering**
+    Ignore:
+    - Marketing fluff ("We are the best solution...")
+    - Table of Contents
+    - Revision History (unless it contains recent changes to reqs)
+    - Generic introductions.
+
+    **Step 2: Sentence Analysis**
+    Look for the "Keywords of Power":
+    - "MUST", "SHALL", "REQUIRED", "WILL" (Strong normative)
+    - "SHOULD", "RECOMMENDED" (Weak normative)
+    - "needs to", "has to", "is critical that" (Natural language normative)
+
+    **Step 3: Atomization**
+    Split compound sentences.
+    Input: "The system must encrypt data and backup hourly."
+    Output 1: "System must encrypt data."
+    Output 2: "System must backup hourly."
+
+    **Step 4: Priority Inference**
+    If not explicitly stated:
+    - "MUST/SHALL" -> /critical or /high
+    - "SHOULD" -> /normal
+    - "MAY" -> /low
+
+    // =============================================================================
+    // DEDUPLICATION & IDEMPOTENCY
+    // =============================================================================
+    Do not emit duplicates within the same chunk.
+    If a requirement is repeated, emit it only once with the highest detected priority.
+
+    // =============================================================================
+    // HANDLING AMBIGUITY
+    // =============================================================================
+    When text is ambiguous, use the **Conservative Interpretation Guideline**:
+    1.  If text implies a feature but doesn't mandate it ("It would be nice if..."), ignore it.
+    2.  If text describes current behavior ("The system currently does X"), DO NOT extract as a requirement unless the doc is a "Current State Assessment" implying "Maintain this behavior."
+    3.  If text is a user story ("As a user, I want..."), extract as Functional Requirement.
+
+    // =============================================================================
+    // FORMATTING STANDARDS
+    // =============================================================================
+    - Requirements must be complete sentences.
+    - Start with a capital letter.
+    - End with a period.
+    - No Markdown formatting in the 'description' field.
