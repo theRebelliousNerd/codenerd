@@ -262,6 +262,72 @@ ShardAgents are ephemeral sub-kernels for parallel task execution:
 | **ShellShard** | Command execution with safety gates |
 | **GitShard** | Version control operations |
 | **ToolGeneratorShard** | Self-generating tools (Ouroboros Loop) |
+| **NemesisShard** | Adversarial testing—tries to break patches before merge |
+
+---
+
+## Advanced Features
+
+### Adversarial Co-Evolution (Nemesis)
+
+codeNERD includes a built-in adversary that tries to break your patches before they ship:
+
+```
+Patch Submitted → Nemesis Analyzes → Attack Tools Generated → Thunderdome Battle
+                                                                    ↓
+                                    ← Patch Hardened ← Vulnerabilities Found?
+```
+
+- **NemesisShard** generates targeted chaos tools to expose weaknesses
+- **VulnerabilityDB** tracks successful attacks and lazy patterns
+- **Thunderdome** arena runs attack vectors in isolated sandboxes
+- Integrated into `/review` command for adversarial code review
+
+### Multi-Language Data Flow Analysis
+
+Data flow extraction now supports 5 languages via Tree-sitter:
+
+| Language | Parser | Tracks |
+|----------|--------|--------|
+| Go | Native AST | Taint propagation, nil checks, error handling |
+| Python | Tree-sitter | Variable flow, imports, function calls |
+| TypeScript | Tree-sitter | Type-aware data flow, async chains |
+| JavaScript | Tree-sitter | Variable flow, closure analysis |
+| Rust | Tree-sitter | Ownership, borrowing, unsafe blocks |
+
+### JIT Prompt Compiler
+
+Runtime prompt assembly with context-aware atom selection:
+
+- **Unified Storage** — Prompts stored in agent knowledge DBs, not separate files
+- **Token Budget** — Automatic prompt trimming to stay within context limits
+- **Contextual Selection** — Atoms selected by intent verb, language, campaign phase
+- **Semantic Search** — Embedding-based retrieval of relevant prompt fragments
+
+### Impact-Aware Code Review
+
+ReviewerShard uses Mangle to build surgical review context:
+
+1. **Pre-flight Checks** — `go build` + `go vet` before LLM review
+2. **Hypothesis Generation** — Mangle rules flag potential issues (nil deref, SQL injection, race conditions)
+3. **Impact Analysis** — Queries call graph to include affected callers
+4. **LLM Verification** — Model confirms/refutes hypotheses with semantic understanding
+
+```mangle
+# Example: Mangle flags unsafe dereference
+hypothesis(/unsafe_deref, File, Line, Var) :-
+    data_flow_sink(File, Line, Var, /deref),
+    !null_checked(File, Line, Var).
+```
+
+### Holographic Context
+
+X-Ray vision for AI agents analyzing code:
+
+- **Package Scope** — Sibling files, exported symbols, type definitions
+- **Architectural Layer** — Module, role, system purpose
+- **Dependency Graph** — Direct imports, importers, external deps
+- **Impact Priority** — Callers sorted by Mangle-derived importance
 
 ---
 
@@ -338,6 +404,7 @@ codenerd/
 | **CLI Framework** | [Cobra](https://github.com/spf13/cobra) | Command-line interface |
 | **TUI Framework** | [Bubble Tea](https://github.com/charmbracelet/bubbletea) | Terminal user interface |
 | **Browser Automation** | [Rod](https://github.com/go-rod/rod) | Chrome DevTools Protocol |
+| **Multi-Lang Parsing** | [Tree-sitter](https://github.com/smacker/go-tree-sitter) | AST parsing for Python, TS, JS, Rust |
 | **Persistence** | [SQLite](https://github.com/modernc/sqlite) | Specialist knowledge storage |
 | **Logging** | [Zap](https://github.com/uber-go/zap) | Structured logging |
 
