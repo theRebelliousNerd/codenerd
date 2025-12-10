@@ -15,7 +15,6 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/perception"
 )
 
 // nemesisIdentityAtomPath is the path to the Nemesis identity atom in the JIT prompt system.
@@ -29,7 +28,7 @@ type NemesisShard struct {
 	*core.BaseShardAgent
 
 	// Dependencies
-	llmClient     perception.LLMClient
+	llmClient     core.LLMClient
 	kernel        core.Kernel
 	virtualStore  *core.VirtualStore
 	learningStore core.LearningStore
@@ -124,7 +123,7 @@ func NewNemesisShard() *NemesisShard {
 }
 
 // SetLLMClient injects the LLM client.
-func (n *NemesisShard) SetLLMClient(client perception.LLMClient) {
+func (n *NemesisShard) SetLLMClient(client core.LLMClient) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.llmClient = client
