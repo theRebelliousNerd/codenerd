@@ -41,6 +41,8 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 - Constitutional safety or permission systems
 - Dream State or Dreamer (Precog Safety) implementation
 - Semantic classification or vector-based intent matching
+- Adversarial co-evolution or battle-testing systems (Nemesis, Thunderdome)
+- Attack generation, armory persistence, or regression attack suites
 
 ### Key Capabilities
 
@@ -54,6 +56,7 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | JIT Prompt Compilation | Dynamic prompt assembly from atomic units with dependency resolution |
 | Prompt Atom Management | Category-based atom organization, unified storage in knowledge DBs |
 | Safety Systems | Constitutional gates, Dreamer simulation, SafetyChecker |
+| Adversarial Testing | NemesisShard, Thunderdome battles, PanicMaker attacks, Armory regression |
 | Campaign System | Multi-phase goals, context paging, decomposer |
 
 ### Bundled Resources
@@ -99,6 +102,12 @@ internal/prompt/resolver.go                - Dependency resolution
 internal/prompt/budget.go                  - Token budget management
 internal/prompt/loader.go                  - YAML→SQLite prompt loading
 internal/autopoiesis/ouroboros.go          - Tool self-generation
+internal/autopoiesis/thunderdome.go        - Adversarial battle arena
+internal/autopoiesis/panic_maker.go        - Attack vector generation
+internal/autopoiesis/chaos.mg              - Adversarial Mangle schema
+internal/shards/nemesis/nemesis.go         - Adversarial testing specialist
+internal/shards/nemesis/armory.go          - Attack persistence for regression
+internal/shards/nemesis/attack_runner.go   - Sandboxed attack execution
 cmd/tools/corpus_builder/main.go           - Build-time corpus generator
 build/prompt_atoms/**/*.yaml               - Atomic prompt source files
 ```

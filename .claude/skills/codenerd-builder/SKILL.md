@@ -776,6 +776,7 @@ Implementation locations:
 - [internal/shards/tester.go](internal/shards/tester.go)
 - [internal/shards/reviewer.go](internal/shards/reviewer.go)
 - [internal/shards/researcher.go](internal/shards/researcher.go)
+- [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go)
 
 ### 6. Piggyback Protocol Implementation
 
@@ -1842,5 +1843,9 @@ For detailed specifications, consult the reference documentation:
 | Legislator | [internal/shards/system/legislator.go](internal/shards/system/legislator.go) | Rule synthesis and hot-loading |
 | CoderShard | [internal/shards/coder/coder.go](internal/shards/coder/coder.go) | Code generation |
 | ResearcherShard | [internal/shards/researcher/researcher.go](internal/shards/researcher/researcher.go) | Knowledge gathering |
+| NemesisShard | [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go) | Adversarial testing specialist |
+| Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Battle arena for tools |
+| PanicMaker | [internal/autopoiesis/panic_maker.go](internal/autopoiesis/panic_maker.go) | Attack vector generation |
+| Armory | [internal/shards/nemesis/armory.go](internal/shards/nemesis/armory.go) | Attack persistence for regression |
 | Dream State | [cmd/nerd/chat/process.go:607](cmd/nerd/chat/process.go#L607) | Multi-agent simulation mode |
 | Logging | [internal/logging/logger.go](internal/logging/logger.go) | Config-driven categorized logging |
