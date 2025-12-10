@@ -174,6 +174,14 @@ func (k *RealKernel) loadMangleFiles() {
 		logging.Get(logging.CategoryKernel).Error("Failed to load core schemas: %v", err)
 	}
 
+	// Load JIT Prompt Schema (System 2)
+	if data, err := coreLogic.ReadFile("defaults/schema/prompts.mg"); err == nil {
+		k.schemas += "\n\n" + string(data)
+		logging.KernelDebug("Loaded JIT prompt schema (%d bytes)", len(data))
+	} else {
+		logging.KernelDebug("JIT prompt schema not found (optional)")
+	}
+
 	// Load Core Policy
 	if data, err := coreLogic.ReadFile("defaults/policy.mg"); err == nil {
 		k.policy = string(data)
@@ -191,6 +199,7 @@ func (k *RealKernel) loadMangleFiles() {
 		"selection_policy.mg",
 		"taxonomy.mg",
 		"inference.mg",
+		"jit_compiler.mg", // System 2 JIT Gatekeeper
 	}
 
 	loadedModules := 0

@@ -11,14 +11,16 @@
 package system
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
 // AgendaItem represents a task in the session agenda.
@@ -310,40 +312,32 @@ func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
 
 	// If PromptAssembler is not available, use legacy prompt
 	if pa == nil {
-		logging.SystemShardsDebug("[SessionPlanner] No PromptAssembler, using legacy system prompt")
+		logging.SystemShards("[SessionPlanner] [FALLBACK] No PromptAssembler configured")
 		return plannerSystemPrompt
 	}
 
-	// Define minimal interface to avoid importing articulation package
-	type jitAssembler interface {
-		JITReady() bool
-		AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
-	}
-
-	assembler, ok := pa.(jitAssembler)
+	// Type assert to actual PromptAssembler type
+	assembler, ok := pa.(*articulation.PromptAssembler)
 	if !ok {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] PromptAssembler type mismatch, using legacy system prompt")
+		logging.SystemShards("[SessionPlanner] [FALLBACK] PromptAssembler type mismatch")
 		return plannerSystemPrompt
 	}
 
 	// Check if JIT is ready
 	if !assembler.JITReady() {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT not ready, using legacy system prompt")
+		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT not ready")
 		return plannerSystemPrompt
 	}
 
-	// Build PromptContext-like struct for JIT compilation
-	promptCtx := struct {
-		ShardID   string
-		ShardType string
-	}{
+	// Build proper PromptContext for JIT compilation
+	promptCtx := &articulation.PromptContext{
 		ShardID:   shardID,
 		ShardType: "planner",
 	}
 
 	jitPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
 	if err != nil {
-		logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] JIT compilation failed, using legacy: %v", err)
+		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT compilation failed: %v", err)
 		return plannerSystemPrompt
 	}
 

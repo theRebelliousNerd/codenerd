@@ -853,40 +853,43 @@ func (r *ResearcherShard) buildSystemPrompt(ctx context.Context, task string) (s
 
 	// If PromptAssembler is not available, use legacy prompt
 	if pa == nil {
+		logging.Researcher("[FALLBACK] PromptAssembler not configured, using legacy prompt")
 		return r.buildLegacySystemPrompt(task), nil
 	}
 
-	// Use interface assertion to call AssembleSystemPrompt
-	// We define a minimal interface to avoid importing articulation
-	type promptAssembler interface {
-		AssembleSystemPrompt(ctx context.Context, promptContext interface{}) (string, error)
+	// Type assert to actual PromptAssembler type
+	assembler, ok := pa.(*articulation.PromptAssembler)
+	if !ok {
+		logging.Researcher("[FALLBACK] PromptAssembler type mismatch, using legacy prompt")
+		return r.buildLegacySystemPrompt(task), nil
 	}
 
-	if assembler, ok := pa.(promptAssembler); ok {
-		// Build a minimal PromptContext-like struct using anonymous struct
-		// The PromptAssembler will handle this via reflection or type assertion
-		promptCtx := struct {
-			ShardID    string
-			ShardType  string
-			SessionCtx *core.SessionContext
-		}{
-			ShardID:    shardID,
-			ShardType:  "researcher",
-			SessionCtx: sessionCtx,
-		}
-
-		systemPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
-		if err != nil {
-			logging.Researcher("PromptAssembler failed, falling back to legacy: %v", err)
-			return r.buildLegacySystemPrompt(task), nil
-		}
-
-		return systemPrompt, nil
+	// Check if JIT is ready
+	if !assembler.JITReady() {
+		logging.Researcher("[FALLBACK] JIT not ready, using legacy prompt")
+		return r.buildLegacySystemPrompt(task), nil
 	}
 
-	// Fallback if type assertion fails
-	logging.Researcher("PromptAssembler type mismatch, using legacy prompt")
-	return r.buildLegacySystemPrompt(task), nil
+	// Build proper PromptContext
+	promptCtx := &articulation.PromptContext{
+		ShardID:    shardID,
+		ShardType:  "researcher",
+		SessionCtx: sessionCtx,
+	}
+
+	systemPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
+	if err != nil {
+		logging.Researcher("[FALLBACK] JIT compilation failed, using legacy: %v", err)
+		return r.buildLegacySystemPrompt(task), nil
+	}
+
+	if systemPrompt == "" {
+		logging.Researcher("[FALLBACK] JIT returned empty prompt, using legacy")
+		return r.buildLegacySystemPrompt(task), nil
+	}
+
+	logging.Researcher("[JIT] Using JIT-compiled system prompt (%d bytes)", len(systemPrompt))
+	return systemPrompt, nil
 }
 
 // buildLegacySystemPrompt returns the fallback system prompt without JIT.

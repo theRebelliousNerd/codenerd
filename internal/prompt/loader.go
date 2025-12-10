@@ -114,8 +114,7 @@ func (l *AtomLoader) LoadFromDirectory(ctx context.Context, dirPath string, db *
 	return totalStored, nil
 }
 
-// ensurePromptAtomsTable creates the prompt_atoms table in an existing knowledge database.
-// This is called when loading agent prompts to ensure the schema exists.
+// ensurePromptAtomsTable creates the prompt_atoms table and atom_context_tags table.
 func ensurePromptAtomsTable(db *sql.DB) error {
 	schema := `
 		CREATE TABLE IF NOT EXISTS prompt_atoms (
@@ -125,23 +124,15 @@ func ensurePromptAtomsTable(db *sql.DB) error {
 			content TEXT NOT NULL,
 			token_count INTEGER NOT NULL,
 			content_hash TEXT NOT NULL,
+			
+			-- Polymorphism
+			description TEXT,
+			content_concise TEXT,
+			content_min TEXT,
 
 			-- Classification
 			category TEXT NOT NULL,
 			subcategory TEXT,
-
-			-- Contextual Selectors (JSON arrays)
-			operational_modes TEXT,
-			campaign_phases TEXT,
-			build_layers TEXT,
-			init_phases TEXT,
-			northstar_phases TEXT,
-			ouroboros_stages TEXT,
-			intent_verbs TEXT,
-			shard_types TEXT,
-			languages TEXT,
-			frameworks TEXT,
-			world_states TEXT,
 
 			-- Composition
 			priority INTEGER DEFAULT 50,
@@ -159,14 +150,35 @@ func ensurePromptAtomsTable(db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
+		CREATE TABLE IF NOT EXISTS atom_context_tags (
+			atom_id TEXT NOT NULL,
+			dimension TEXT NOT NULL,
+			tag TEXT NOT NULL,
+			is_exclusion BOOLEAN DEFAULT FALSE,
+			PRIMARY KEY (atom_id, dimension, tag),
+			FOREIGN KEY(atom_id) REFERENCES prompt_atoms(atom_id) ON DELETE CASCADE
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_atoms_category ON prompt_atoms(category);
-		CREATE INDEX IF NOT EXISTS idx_atoms_hash ON prompt_atoms(content_hash);
-		CREATE INDEX IF NOT EXISTS idx_atoms_mandatory ON prompt_atoms(is_mandatory);
-		CREATE INDEX IF NOT EXISTS idx_atoms_priority ON prompt_atoms(priority DESC);
+		CREATE INDEX IF NOT EXISTS idx_atoms_description ON prompt_atoms(description);
+		CREATE INDEX IF NOT EXISTS idx_tags_lookup ON atom_context_tags(dimension, tag);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create prompt_atoms table: %w", err)
+		return fmt.Errorf("failed to create prompt tables: %w", err)
+	}
+
+	// Schema Migration: Add new columns if missing (for v4->v5 transition)
+	cols := []string{"description", "content_concise", "content_min"}
+	for _, col := range cols {
+		var dummy interface{}
+		err := db.QueryRow(fmt.Sprintf("SELECT %s FROM prompt_atoms LIMIT 1", col)).Scan(&dummy)
+		if err != nil {
+			// Column missing, add it
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN %s TEXT", col)); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to add column %s: %v", col, err)
+			}
+		}
 	}
 
 	return nil
@@ -301,8 +313,15 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 	// Generate embedding if engine is available
 	var embeddingBlob []byte
 	var embeddingTask string
+
+	// Embed DESCRIPTION if available, otherwise CONTENT
+	textToEmbed := atom.Description
+	if textToEmbed == "" {
+		textToEmbed = atom.Content
+	}
+
 	if l.embeddingEngine != nil {
-		embedding, err := l.embeddingEngine.Embed(ctx, atom.Content)
+		embedding, err := l.embeddingEngine.Embed(ctx, textToEmbed)
 		if err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to generate embedding for atom %s: %v", atom.ID, err)
 			// Continue without embedding
@@ -312,50 +331,53 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 		}
 	}
 
-	// Serialize JSON arrays
-	operationalModesJSON, _ := json.Marshal(atom.OperationalModes)
-	campaignPhasesJSON, _ := json.Marshal(atom.CampaignPhases)
-	buildLayersJSON, _ := json.Marshal(atom.BuildLayers)
-	initPhasesJSON, _ := json.Marshal(atom.InitPhases)
-	northstarPhasesJSON, _ := json.Marshal(atom.NorthstarPhases)
-	ouroborosStagesJSON, _ := json.Marshal(atom.OuroborosStages)
-	intentVerbsJSON, _ := json.Marshal(atom.IntentVerbs)
-	shardTypesJSON, _ := json.Marshal(atom.ShardTypes)
-	languagesJSON, _ := json.Marshal(atom.Languages)
-	frameworksJSON, _ := json.Marshal(atom.Frameworks)
-	worldStatesJSON, _ := json.Marshal(atom.WorldStates)
+	// Helper to collect tags
+	tags := make(map[string][]string)
+	addTags := func(dim string, values []string) {
+		if len(values) > 0 {
+			tags[dim] = values
+		}
+	}
+	addTags("mode", atom.OperationalModes)
+	addTags("phase", atom.CampaignPhases)
+	addTags("layer", atom.BuildLayers)
+	addTags("init_phase", atom.InitPhases)
+	addTags("northstar_phase", atom.NorthstarPhases)
+	addTags("ouroboros_stage", atom.OuroborosStages)
+	addTags("intent", atom.IntentVerbs)
+	addTags("shard", atom.ShardTypes)
+	addTags("lang", atom.Languages)
+	addTags("framework", atom.Frameworks)
+	addTags("state", atom.WorldStates)
+
 	dependsOnJSON, _ := json.Marshal(atom.DependsOn)
 	conflictsWithJSON, _ := json.Marshal(atom.ConflictsWith)
 
-	// Insert or replace atom
-	_, err := db.ExecContext(ctx, `
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Upsert Atom
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO prompt_atoms (
 			atom_id, version, content, token_count, content_hash,
+			description, content_concise, content_min,
 			category, subcategory,
-			operational_modes, campaign_phases, build_layers, init_phases,
-			northstar_phases, ouroboros_stages, intent_verbs, shard_types,
-			languages, frameworks, world_states,
 			priority, is_mandatory, is_exclusive, depends_on, conflicts_with,
 			embedding, embedding_task
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
 			content = excluded.content,
 			token_count = excluded.token_count,
 			content_hash = excluded.content_hash,
+			description = excluded.description,
+			content_concise = excluded.content_concise,
+			content_min = excluded.content_min,
 			category = excluded.category,
 			subcategory = excluded.subcategory,
-			operational_modes = excluded.operational_modes,
-			campaign_phases = excluded.campaign_phases,
-			build_layers = excluded.build_layers,
-			init_phases = excluded.init_phases,
-			northstar_phases = excluded.northstar_phases,
-			ouroboros_stages = excluded.ouroboros_stages,
-			intent_verbs = excluded.intent_verbs,
-			shard_types = excluded.shard_types,
-			languages = excluded.languages,
-			frameworks = excluded.frameworks,
-			world_states = excluded.world_states,
 			priority = excluded.priority,
 			is_mandatory = excluded.is_mandatory,
 			is_exclusive = excluded.is_exclusive,
@@ -364,20 +386,43 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 			embedding = excluded.embedding,
 			embedding_task = excluded.embedding_task`,
 		atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
+		nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 		string(atom.Category), nullableString(atom.Subcategory),
-		toJSONString(operationalModesJSON), toJSONString(campaignPhasesJSON),
-		toJSONString(buildLayersJSON), toJSONString(initPhasesJSON),
-		toJSONString(northstarPhasesJSON), toJSONString(ouroborosStagesJSON),
-		toJSONString(intentVerbsJSON), toJSONString(shardTypesJSON),
-		toJSONString(languagesJSON), toJSONString(frameworksJSON),
-		toJSONString(worldStatesJSON),
 		atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
 		toJSONString(dependsOnJSON), toJSONString(conflictsWithJSON),
 		embeddingBlob, nullableString(embeddingTask),
 	)
-
 	if err != nil {
-		return fmt.Errorf("failed to insert/update atom %s: %w", atom.ID, err)
+		return fmt.Errorf("upsert atom failed: %w", err)
+	}
+
+	// 2. Update Context Tags (Delete + Insert)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM atom_context_tags WHERE atom_id = ?", atom.ID); err != nil {
+		return fmt.Errorf("clear tags failed: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for dim, values := range tags {
+		for _, tag := range values {
+			// Normalize tag (ensure starts with / if not present?)
+			// User example had /mode, /active. YAML usually has raw strings.
+			// Assuming they match what's in YAML. Mangle expects constants like /foo.
+			// We will insert exactly what is in YAML. Runtime transformation to Mangle Atom might be needed if YAML is "active".
+			// But Atoms.go MatchContext expects strings.
+			// Let's assume strings are fine.
+			if _, err := stmt.ExecContext(ctx, atom.ID, dim, tag); err != nil {
+				return fmt.Errorf("insert tag failed: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit failed: %w", err)
 	}
 
 	return nil
