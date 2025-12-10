@@ -198,8 +198,31 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string) string
 
 // ExtractRuleFromResponse extracts the Mangle rule from an LLM response.
 // It handles various response formats (markdown code blocks, plain text, etc.)
+// Also sanitizes common LLM artifacts like "RULE:" prefixes that would cause parse errors.
 func ExtractRuleFromResponse(response string) string {
 	response = strings.TrimSpace(response)
+
+	// First, handle structured output format: "RULE: <code>\nCONFIDENCE: ...\nRATIONALE: ..."
+	// This format is used by autopoiesis prompts in executive.go and constitution.go
+	if idx := strings.Index(response, "RULE:"); idx >= 0 {
+		// Find the rule content after "RULE:"
+		ruleStart := idx + len("RULE:")
+		ruleContent := response[ruleStart:]
+
+		// Find where the rule ends (at CONFIDENCE:, RATIONALE:, or end of string)
+		endMarkers := []string{"CONFIDENCE:", "RATIONALE:", "\n\n"}
+		ruleEnd := len(ruleContent)
+		for _, marker := range endMarkers {
+			if markerIdx := strings.Index(ruleContent, marker); markerIdx >= 0 && markerIdx < ruleEnd {
+				ruleEnd = markerIdx
+			}
+		}
+
+		rule := strings.TrimSpace(ruleContent[:ruleEnd])
+		if rule != "" {
+			return rule
+		}
+	}
 
 	// Try to extract from markdown code block
 	codeBlockPattern := "```mangle"
