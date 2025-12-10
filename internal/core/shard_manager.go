@@ -1252,6 +1252,29 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// 4. Execute Async
 	logging.Shards("SpawnAsyncWithContext: launching goroutine for shard %s execution", id)
 	go func() {
+		// Panic recovery - shard panics should not crash the system
+		defer func() {
+			if r := recover(); r != nil {
+				panicErr := fmt.Errorf("shard %s panicked: %v", id, r)
+				logging.Get(logging.CategoryShards).Error("PANIC RECOVERED in shard %s: %v", id, r)
+				logging.Audit().ShardComplete(id, task, 0, false, panicErr.Error())
+
+				// Cleanup: retract active_shard fact
+				if sm.kernel != nil {
+					_ = sm.kernel.RetractFact(Fact{
+						Predicate: "active_shard",
+						Args:      []interface{}{id, shardTypeAtom},
+					})
+				}
+				// Clear tracing context
+				if sm.tracingClient != nil {
+					sm.tracingClient.ClearShardContext()
+				}
+				// Record the panic as an error result
+				sm.recordResult(id, "", panicErr)
+			}
+		}()
+
 		// Audit: Shard execution started
 		logging.Audit().ShardExecute(id, task)
 		logging.ShardsDebug("Shard %s: execution starting (task=%s)", id, task)
