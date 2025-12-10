@@ -32,6 +32,7 @@ type ZAIClient struct {
 	httpClient  *http.Client
 	mu          sync.Mutex
 	lastRequest time.Time
+	sem         chan struct{} // Concurrency semaphore: Z.AI allows max 5 concurrent requests
 }
 
 // ZAIConfig holds configuration for ZAI client.
@@ -69,6 +70,7 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
+		sem: make(chan struct{}, 5), // Z.AI API allows max 5 concurrent requests
 	}
 }
 
@@ -168,6 +170,14 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	// Fallback to basic completion for other requests
 	if c.apiKey == "" {
 		return "", fmt.Errorf("API key not configured")
+	}
+
+	// Acquire concurrency semaphore (max 5 concurrent requests)
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 
 	if strings.TrimSpace(systemPrompt) == "" {
@@ -372,6 +382,14 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		return "", fmt.Errorf("API key not configured")
 	}
 
+	// Acquire concurrency semaphore (max 5 concurrent requests)
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
 	if strings.TrimSpace(systemPrompt) == "" {
 		systemPrompt = defaultSystemPrompt
 	} else {
@@ -492,6 +510,15 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 
 		if c.apiKey == "" {
 			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		// Acquire concurrency semaphore (max 5 concurrent requests)
+		select {
+		case c.sem <- struct{}{}:
+			defer func() { <-c.sem }()
+		case <-ctx.Done():
+			errorChan <- ctx.Err()
 			return
 		}
 

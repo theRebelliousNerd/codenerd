@@ -14,6 +14,10 @@ import (
 // GOOGLE GENAI EMBEDDING ENGINE
 // =============================================================================
 
+// maxBatchSize is the maximum number of texts allowed in a single GenAI batch request.
+// The API returns error 400 if more than 100 requests are in one batch.
+const maxBatchSize = 100
+
 func int32Ptr(i int32) *int32 {
 	return &i
 }
@@ -114,7 +118,8 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 }
 
 // EmbedBatch generates embeddings for multiple texts.
-// GenAI has native batch support.
+// GenAI has native batch support but limits batches to 100 items.
+// This function automatically chunks larger batches and concatenates results.
 func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.EmbedBatch")
 	defer timer.Stop()
@@ -133,12 +138,61 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 	}
 	logging.EmbeddingDebug("GenAI.EmbedBatch: total input size=%d chars across %d texts", totalChars, len(texts))
 
+	// If within batch limit, process in single request
+	if len(texts) <= maxBatchSize {
+		return e.embedBatchChunk(ctx, texts)
+	}
+
+	// Chunk into batches of maxBatchSize and process sequentially
+	numBatches := (len(texts) + maxBatchSize - 1) / maxBatchSize
+	logging.Embedding("GenAI.EmbedBatch: chunking %d texts into %d batches of up to %d items", len(texts), numBatches, maxBatchSize)
+
+	allEmbeddings := make([][]float32, 0, len(texts))
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		start := batchIdx * maxBatchSize
+		end := start + maxBatchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+
+		chunk := texts[start:end]
+		logging.EmbeddingDebug("GenAI.EmbedBatch: processing batch %d/%d with %d texts (indices %d-%d)",
+			batchIdx+1, numBatches, len(chunk), start, end-1)
+
+		chunkEmbeddings, err := e.embedBatchChunk(ctx, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("batch %d/%d failed: %w", batchIdx+1, numBatches, err)
+		}
+
+		allEmbeddings = append(allEmbeddings, chunkEmbeddings...)
+	}
+
+	dimensions := 0
+	if len(allEmbeddings) > 0 && len(allEmbeddings[0]) > 0 {
+		dimensions = len(allEmbeddings[0])
+	}
+
+	logging.Embedding("GenAI.EmbedBatch: completed successfully, processed %d texts in %d batches, dimensions=%d",
+		len(texts), numBatches, dimensions)
+
+	return allEmbeddings, nil
+}
+
+// embedBatchChunk processes a single batch chunk (must be <= maxBatchSize).
+func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string) ([][]float32, error) {
 	contents := make([]*genai.Content, len(texts))
 	for i, text := range texts {
 		contents[i] = genai.NewContentFromText(text, genai.RoleUser)
 	}
 
-	logging.EmbeddingDebug("GenAI.EmbedBatch: calling EmbedContent API with %d contents", len(contents))
+	logging.EmbeddingDebug("GenAI.embedBatchChunk: calling EmbedContent API with %d contents", len(contents))
 	apiStart := time.Now()
 
 	result, err := e.client.Models.EmbedContent(ctx,
@@ -151,24 +205,16 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 	apiLatency := time.Since(apiStart)
 
 	if err != nil {
-		logging.Get(logging.CategoryEmbedding).Error("GenAI.EmbedBatch: API call failed after %v: %v", apiLatency, err)
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.embedBatchChunk: API call failed after %v: %v", apiLatency, err)
 		return nil, fmt.Errorf("GenAI batch embed failed: %w", err)
 	}
 
-	logging.EmbeddingDebug("GenAI.EmbedBatch: API response received in %v, got %d embeddings", apiLatency, len(result.Embeddings))
+	logging.EmbeddingDebug("GenAI.embedBatchChunk: API response received in %v, got %d embeddings", apiLatency, len(result.Embeddings))
 
 	embeddings := make([][]float32, len(result.Embeddings))
 	for i, emb := range result.Embeddings {
 		embeddings[i] = emb.Values
 	}
-
-	dimensions := 0
-	if len(embeddings) > 0 && len(embeddings[0]) > 0 {
-		dimensions = len(embeddings[0])
-	}
-
-	logging.Embedding("GenAI.EmbedBatch: completed successfully, processed %d texts, dimensions=%d, api_latency=%v",
-		len(texts), dimensions, apiLatency)
 
 	return embeddings, nil
 }
