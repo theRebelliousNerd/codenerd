@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/transpiler"
@@ -69,6 +71,13 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 ) (*GenerateResult, error) {
 	result := &GenerateResult{}
 
+	// Apply total timeout if context has no deadline
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && fl.config.TotalTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, fl.config.TotalTimeout)
+		defer cancel()
+	}
+
 	// Get available predicates for feedback
 	predicates := validator.GetDeclaredPredicates()
 
@@ -83,6 +92,13 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 
 	for attempt := 1; attempt <= fl.config.MaxRetries; attempt++ {
 		result.Attempts = attempt
+
+		// Check context before each attempt
+		if ctx.Err() != nil {
+			logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: deadline exhausted before attempt %d", attempt)
+			result.Errors = lastErrors
+			return result, fmt.Errorf("deadline exhausted before attempt %d: %w", attempt, ctx.Err())
+		}
 
 		// Check budget
 		canRetry, reason := fl.budget.CanRetry(promptHash)
@@ -110,9 +126,26 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			currentPrompt = userPrompt + fl.promptBuilder.BuildFeedbackPrompt(feedbackCtx)
 		}
 
-		// Call LLM
-		response, err := llmClient.Complete(ctx, systemPrompt, currentPrompt)
+		// Per-attempt timeout
+		attemptTimeout := fl.config.PerAttemptTimeout
+		if attemptTimeout == 0 {
+			attemptTimeout = 60 * time.Second
+		}
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, attemptTimeout)
+
+		// Call LLM with per-attempt timeout
+		response, err := llmClient.Complete(attemptCtx, systemPrompt, currentPrompt)
+		attemptCancel() // Cancel immediately after call completes
+
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: attempt %d/%d timed out", attempt, fl.config.MaxRetries)
+				lastErrors = []ValidationError{{
+					Category: CategoryParse,
+					Message:  fmt.Sprintf("LLM call timed out after %v", attemptTimeout),
+				}}
+				continue // Try next attempt
+			}
 			logging.Get(logging.CategoryKernel).Error("FeedbackLoop: LLM call failed: %v", err)
 			return result, fmt.Errorf("LLM call failed: %w", err)
 		}
