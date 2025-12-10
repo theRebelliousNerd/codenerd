@@ -1181,13 +1181,15 @@ func (r *ReviewerShard) assertFileFacts(filePath string) {
 	_ = r.kernel.Assert(fact)
 }
 
-// filterFindingsWithMangle asserts findings to Mangle and queries back only the active ones.
+// filterFindingsWithMangle uses Mangle rules to determine which findings should be suppressed.
+// Instead of reconstructing findings from query results (which loses metadata like line numbers),
+// we query for suppression decisions and filter the original findings list.
 func (r *ReviewerShard) filterFindingsWithMangle(findings []ReviewFinding) ([]ReviewFinding, error) {
 	if r.kernel == nil {
 		return findings, nil
 	}
 
-	// 1. Assert raw findings
+	// 1. Assert raw findings to kernel for rule evaluation
 	for _, f := range findings {
 		fact := core.Fact{
 			Predicate: "raw_finding",
@@ -1196,27 +1198,45 @@ func (r *ReviewerShard) filterFindingsWithMangle(findings []ReviewFinding) ([]Re
 		_ = r.kernel.Assert(fact)
 	}
 
-	// 2. Query active findings
-	results, err := r.kernel.Query("active_finding")
+	// 2. Query for suppressed findings (File, Line, RuleID, Reason)
+	suppressedResults, err := r.kernel.Query("suppressed_finding")
 	if err != nil {
-		return nil, err
+		logging.ReviewerDebug("Mangle suppression query failed: %v", err)
+		return findings, nil // Return original findings on error
 	}
 
-	// 3. Reconstruct list
-	var active []ReviewFinding
-	for _, res := range results {
-		if len(res.Args) < 6 {
+	// 3. Build suppression index: key = "file:line:ruleID"
+	suppressed := make(map[string]string) // key -> reason
+	for _, res := range suppressedResults {
+		if len(res.Args) < 3 {
 			continue
 		}
-		f := ReviewFinding{
-			File:     res.Args[0].(string),
-			Line:     toStartInt(res.Args[1]),
-			Severity: res.Args[2].(string),
-			Category: res.Args[3].(string),
-			RuleID:   res.Args[4].(string),
-			Message:  res.Args[5].(string),
+		file, _ := res.Args[0].(string)
+		line := toStartInt(res.Args[1])
+		ruleID, _ := res.Args[2].(string)
+		reason := ""
+		if len(res.Args) >= 4 {
+			reason, _ = res.Args[3].(string)
+		}
+		key := fmt.Sprintf("%s:%d:%s", file, line, ruleID)
+		suppressed[key] = reason
+	}
+
+	// 4. Filter original findings, keeping all metadata intact
+	active := make([]ReviewFinding, 0, len(findings))
+	for _, f := range findings {
+		key := fmt.Sprintf("%s:%d:%s", f.File, f.Line, f.RuleID)
+		if reason, isSuppressed := suppressed[key]; isSuppressed {
+			logging.ReviewerDebug("Suppressed finding [%s] at %s:%d - reason: %s",
+				f.RuleID, f.File, f.Line, reason)
+			continue
 		}
 		active = append(active, f)
+	}
+
+	if len(active) < len(findings) {
+		logging.ReviewerDebug("Mangle filtering: %d -> %d findings (%d suppressed)",
+			len(findings), len(active), len(findings)-len(active))
 	}
 
 	return active, nil

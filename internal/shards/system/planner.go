@@ -260,13 +260,23 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	// Build user prompt (try JIT first, fall back to legacy)
 	userPrompt := s.buildDecompositionPrompt(ctx, goal)
 
-	result, err := s.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	rawResponse, err := s.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}
 
-	// Parse agenda items from response
-	items := s.parseAgendaItems(result)
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	logging.SystemShardsDebug("[SessionPlanner] Piggyback: method=%s, confidence=%.2f",
+		processed.ParseMethod, processed.Confidence)
+
+	// Route control packet to kernel if present
+	if processed.Control != nil {
+		s.routeControlPacketToKernel(processed.Control)
+	}
+
+	// Parse agenda items from surface response
+	items := s.parseAgendaItems(processed.Surface)
 	if len(items) == 0 {
 		logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] Failed to parse agenda items from LLM response")
 		return fmt.Errorf("failed to decompose goal")
@@ -1084,3 +1094,75 @@ Follow the Goal Decomposition Protocol:
 5. Assign priorities respecting the build order (types → data → service → interface)
 
 Output a JSON array. Each task should be completable in a single agent turn.`
+
+// =============================================================================
+// PIGGYBACK PROTOCOL ROUTING
+// =============================================================================
+
+// routeControlPacketToKernel processes the control_packet and routes data to the kernel.
+// This handles mangle_updates, memory_operations, and self_correction signals.
+func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.ControlPacket) {
+	if control == nil {
+		return
+	}
+
+	kernel := s.Kernel
+	if kernel == nil {
+		logging.SystemShardsDebug("[SessionPlanner] No kernel available for control packet routing")
+		return
+	}
+
+	// 1. Assert mangle_updates as facts
+	if len(control.MangleUpdates) > 0 {
+		logging.SystemShardsDebug("[SessionPlanner] Routing %d mangle_updates to kernel", len(control.MangleUpdates))
+		for _, atomStr := range control.MangleUpdates {
+			if fact := parseMangleAtomPlanner(atomStr); fact != nil {
+				if err := kernel.Assert(*fact); err != nil {
+					logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] Failed to assert mangle_update %q: %v", atomStr, err)
+				}
+			}
+		}
+	}
+
+	// 2. Track self-correction for autopoiesis
+	if control.SelfCorrection != nil && control.SelfCorrection.Triggered {
+		logging.SystemShards("[SessionPlanner] Self-correction triggered: %s", control.SelfCorrection.Hypothesis)
+		selfCorrFact := core.Fact{
+			Predicate: "self_correction_triggered",
+			Args:      []interface{}{s.ID, control.SelfCorrection.Hypothesis, time.Now().Unix()},
+		}
+		_ = kernel.Assert(selfCorrFact)
+	}
+
+	// 3. Log reasoning trace for debugging/learning
+	if control.ReasoningTrace != "" {
+		logging.SystemShardsDebug("[SessionPlanner] Reasoning trace: %.200s...", control.ReasoningTrace)
+	}
+}
+
+// parseMangleAtomPlanner attempts to parse a string into a Mangle fact.
+func parseMangleAtomPlanner(atomStr string) *core.Fact {
+	atomStr = strings.TrimSpace(atomStr)
+	if atomStr == "" {
+		return nil
+	}
+
+	parenIdx := strings.Index(atomStr, "(")
+	if parenIdx == -1 {
+		return &core.Fact{Predicate: atomStr, Args: nil}
+	}
+
+	predicate := strings.TrimSpace(atomStr[:parenIdx])
+	argsStr := strings.TrimSuffix(strings.TrimSpace(atomStr[parenIdx+1:]), ")")
+
+	args := make([]interface{}, 0)
+	if argsStr != "" {
+		for _, arg := range strings.Split(argsStr, ",") {
+			arg = strings.TrimSpace(arg)
+			arg = strings.Trim(arg, `"'`)
+			args = append(args, arg)
+		}
+	}
+
+	return &core.Fact{Predicate: predicate, Args: args}
+}

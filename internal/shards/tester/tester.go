@@ -3,13 +3,15 @@
 package tester
 
 import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"context"
-	"fmt"
-	"sync"
-	"time"
 )
 
 // =============================================================================
@@ -396,4 +398,114 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 
 	// Format output
 	return t.formatResult(result), nil
+}
+
+// =============================================================================
+// PIGGYBACK PROTOCOL ROUTING
+// =============================================================================
+
+// routeControlPacketToKernel processes the control_packet and routes data to the kernel.
+// This handles mangle_updates, memory_operations, and self_correction signals.
+func (t *TesterShard) routeControlPacketToKernel(control *articulation.ControlPacket) {
+	if control == nil {
+		return
+	}
+
+	t.mu.RLock()
+	kernel := t.kernel
+	t.mu.RUnlock()
+
+	if kernel == nil {
+		logging.TesterDebug("No kernel available for control packet routing")
+		return
+	}
+
+	// 1. Assert mangle_updates as facts
+	if len(control.MangleUpdates) > 0 {
+		logging.TesterDebug("Routing %d mangle_updates to kernel", len(control.MangleUpdates))
+		for _, atomStr := range control.MangleUpdates {
+			if fact := parseMangleAtomTester(atomStr); fact != nil {
+				if err := kernel.Assert(*fact); err != nil {
+					logging.Get(logging.CategoryTester).Warn("Failed to assert mangle_update %q: %v", atomStr, err)
+				}
+			}
+		}
+	}
+
+	// 2. Process memory_operations (route to LearningStore)
+	if len(control.MemoryOperations) > 0 {
+		logging.TesterDebug("Processing %d memory_operations", len(control.MemoryOperations))
+		t.processMemoryOperations(control.MemoryOperations)
+	}
+
+	// 3. Track self-correction for autopoiesis
+	if control.SelfCorrection != nil && control.SelfCorrection.Triggered {
+		logging.Tester("Self-correction triggered: %s", control.SelfCorrection.Hypothesis)
+		selfCorrFact := core.Fact{
+			Predicate: "self_correction_triggered",
+			Args:      []interface{}{t.id, control.SelfCorrection.Hypothesis, time.Now().Unix()},
+		}
+		_ = kernel.Assert(selfCorrFact)
+	}
+
+	// 4. Log reasoning trace for debugging/learning
+	if control.ReasoningTrace != "" {
+		logging.TesterDebug("Reasoning trace: %.200s...", control.ReasoningTrace)
+	}
+}
+
+// processMemoryOperations handles memory_operations from the control packet.
+func (t *TesterShard) processMemoryOperations(ops []articulation.MemoryOperation) {
+	t.mu.RLock()
+	ls := t.learningStore
+	t.mu.RUnlock()
+
+	for _, op := range ops {
+		switch op.Op {
+		case "store_vector":
+			if ls != nil {
+				_ = ls.Save("tester_memory", op.Key, []any{op.Value}, "")
+			}
+			logging.TesterDebug("Memory store_vector: %s", op.Key)
+		case "promote_to_long_term":
+			if ls != nil {
+				_ = ls.Save("tester_long_term", op.Key, []any{op.Value}, "")
+			}
+			logging.TesterDebug("Memory promote_to_long_term: %s", op.Key)
+		case "note":
+			logging.TesterDebug("Memory note: %s = %s", op.Key, op.Value)
+		case "forget":
+			if ls != nil {
+				_ = ls.DecayConfidence("tester_memory", 0.0)
+			}
+			logging.TesterDebug("Memory forget: %s", op.Key)
+		}
+	}
+}
+
+// parseMangleAtomTester attempts to parse a string into a Mangle fact.
+func parseMangleAtomTester(atomStr string) *core.Fact {
+	atomStr = strings.TrimSpace(atomStr)
+	if atomStr == "" {
+		return nil
+	}
+
+	parenIdx := strings.Index(atomStr, "(")
+	if parenIdx == -1 {
+		return &core.Fact{Predicate: atomStr, Args: nil}
+	}
+
+	predicate := strings.TrimSpace(atomStr[:parenIdx])
+	argsStr := strings.TrimSuffix(strings.TrimSpace(atomStr[parenIdx+1:]), ")")
+
+	args := make([]interface{}, 0)
+	if argsStr != "" {
+		for _, arg := range strings.Split(argsStr, ",") {
+			arg = strings.TrimSpace(arg)
+			arg = strings.Trim(arg, `"'`)
+			args = append(args, arg)
+		}
+	}
+
+	return &core.Fact{Predicate: predicate, Args: args}
 }

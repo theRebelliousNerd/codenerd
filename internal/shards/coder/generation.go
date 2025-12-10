@@ -34,17 +34,26 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 
 	// Call LLM with retry
 	llmTimer := logging.StartTimer(logging.CategoryCoder, "LLM.Complete")
-	response, err := c.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	rawResponse, err := c.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	llmTimer.StopWithInfo()
 	if err != nil {
 		logging.Get(logging.CategoryCoder).Error("LLM request failed after retries: %v", err)
 		return nil, fmt.Errorf("LLM request failed after retries: %w", err)
 	}
-	logging.CoderDebug("LLM response length: %d chars", len(response))
+	logging.CoderDebug("LLM response length: %d chars", len(rawResponse))
 
-	// Parse response into edits
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	logging.CoderDebug("Piggyback: method=%s, confidence=%.2f", processed.ParseMethod, processed.Confidence)
+
+	// Route control packet to kernel if present
+	if processed.Control != nil {
+		c.routeControlPacketToKernel(processed.Control)
+	}
+
+	// Parse response into edits (use surface response, not raw)
 	logging.CoderDebug("Parsing LLM response into edits")
-	parsed := c.parseCodeResponse(response, task)
+	parsed := c.parseCodeResponse(processed.Surface, task)
 	logging.Coder("Parsed %d edits from LLM response (artifact_type=%s)", len(parsed.Edits), parsed.ArtifactType)
 
 	for i, edit := range parsed.Edits {

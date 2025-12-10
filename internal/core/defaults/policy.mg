@@ -3457,3 +3457,288 @@ missing_skeleton_category(Category) :-
 # Report missing skeleton as compilation error
 compilation_error(/missing_skeleton, Category) :-
     missing_skeleton_category(Category).
+
+# =============================================================================
+# SECTION 47: DATA FLOW SAFETY RULES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules implement guard-based reasoning for nil-pointer safety and
+# error handling verification. They use Mangle's stratified negation to
+# identify unsafe dereferences and unchecked errors.
+#
+# Stratification:
+# - Stratum 0: guards_block, guards_return, assigns, uses (EDB)
+# - Stratum 1: is_guarded, is_error_checked (derived from guards)
+# - Stratum 2: unsafe_deref, unchecked_error (negates is_guarded/is_error_checked)
+
+# -----------------------------------------------------------------------------
+# 47.1 Guard Derivation - Two Patterns for Go Idioms
+# -----------------------------------------------------------------------------
+
+# Pattern 1: Block-scoped guards (if x != nil { ... })
+# A variable is guarded if it's inside a safety block's scope
+is_guarded(Var, File, Line) :-
+    guards_block(Var, /nil_check, File, Start, End),
+    Line >= Start,
+    Line <= End.
+
+# Pattern 2: Return-based guards (if x == nil { return })
+# A variable is guarded after a guard clause that forces a return (Go idiom)
+is_guarded(Var, File, Line) :-
+    guards_return(Var, /nil_check, File, GuardLine),
+    Line > GuardLine,
+    same_scope(Var, File, Line, GuardLine).
+
+# Additional guard types: ok checks from type assertions and map lookups
+is_guarded(Var, File, Line) :-
+    guards_block(Var, /ok_check, File, Start, End),
+    Line >= Start,
+    Line <= End.
+
+is_guarded(Var, File, Line) :-
+    guards_return(Var, /ok_check, File, GuardLine),
+    Line > GuardLine,
+    same_scope(Var, File, Line, GuardLine).
+
+# -----------------------------------------------------------------------------
+# 47.2 Unsafe Nil Dereference Detection
+# -----------------------------------------------------------------------------
+# UNSAFE: nullable assigned but used without guard check
+# This is a HYPOTHESIS - filtered by suppression before LLM sees it
+
+# Helper: has any guard for variable at location
+has_guard_at(Var, File, Line) :-
+    is_guarded(Var, File, Line).
+
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /nullable, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# Also detect pointer types that may be nil
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /pointer, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# Interface types can also be nil
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /interface, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.3 Error Handling Verification
+# -----------------------------------------------------------------------------
+
+# Error is checked if inside error handling block
+is_error_checked(Var, File, Line) :-
+    error_checked_block(Var, File, Start, End),
+    Line >= Start,
+    Line <= End.
+
+# Error is checked if after an error return guard
+is_error_checked(Var, File, Line) :-
+    error_checked_return(Var, File, GuardLine),
+    Line > GuardLine,
+    same_scope(Var, File, Line, GuardLine).
+
+# Helper: has error check at location
+has_error_check_at(Var, File, Line) :-
+    is_error_checked(Var, File, Line).
+
+# UNCHECKED ERROR DETECTION
+# Error variable assigned but not checked before use
+unchecked_error(File, Func, Line) :-
+    assigns(ErrVar, /error, File, Line),
+    uses(File, Func, ErrVar, UseLine),
+    !has_error_check_at(ErrVar, File, UseLine).
+
+# =============================================================================
+# SECTION 48: IMPACT ANALYSIS RULES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules compute the impact graph for modified functions and interfaces.
+# Used to fetch relevant context files for review and prioritize attention.
+#
+# Stratification:
+# - Stratum 0: modified_function, modified_interface, code_calls, code_implements (EDB)
+# - Stratum 1: impact_caller, impact_implementer (direct impacts)
+# - Stratum 2: impact_graph (transitive closure with depth limit)
+# - Stratum 3: relevant_context_file, context_priority_file (derived from graph)
+
+# -----------------------------------------------------------------------------
+# 48.1 Direct Impact Detection
+# -----------------------------------------------------------------------------
+
+# Direct callers of modified functions (Distance 1)
+impact_caller(TargetFunc, CallerFunc) :-
+    modified_function(TargetFunc, _),
+    code_calls(CallerFunc, TargetFunc).
+
+# Interface implementations affected by interface changes
+impact_implementer(ImplFile, Struct) :-
+    modified_interface(Interface, _),
+    code_implements(Struct, Interface),
+    code_defines(ImplFile, Struct, /struct, _, _).
+
+# -----------------------------------------------------------------------------
+# 48.2 Bounded Transitive Impact (Max Depth 3)
+# -----------------------------------------------------------------------------
+# We limit depth to 3 to:
+# 1. Prevent infinite recursion on cyclic call graphs
+# 2. Focus on most relevant context (direct and near-callers)
+# 3. Keep context window manageable
+
+# Base case: direct callers are at depth 1
+impact_graph(Target, Caller, 1) :-
+    impact_caller(Target, Caller).
+
+# Recursive case: grandcallers at depth 2
+impact_graph(Target, GrandCaller, 2) :-
+    impact_graph(Target, Caller, 1),
+    code_calls(GrandCaller, Caller).
+
+# Recursive case: great-grandcallers at depth 3
+impact_graph(Target, GreatGrandCaller, 3) :-
+    impact_graph(Target, Caller, 2),
+    code_calls(GreatGrandCaller, Caller).
+
+# -----------------------------------------------------------------------------
+# 48.3 Context File Selection
+# -----------------------------------------------------------------------------
+
+# Files to fetch for review context
+relevant_context_file(File) :-
+    impact_graph(_, Func, _),
+    code_defines(File, Func, /function, _, _).
+
+# Also include files containing interface implementations
+relevant_context_file(File) :-
+    impact_implementer(File, _).
+
+# Prioritized context: closer callers get higher priority
+# Priority = 4 - Depth (so depth 1 = priority 3, depth 2 = priority 2, etc.)
+context_priority_file(File, Func, 3) :-
+    impact_graph(_, Func, 1),
+    code_defines(File, Func, /function, _, _).
+
+context_priority_file(File, Func, 2) :-
+    impact_graph(_, Func, 2),
+    code_defines(File, Func, /function, _, _).
+
+context_priority_file(File, Func, 1) :-
+    impact_graph(_, Func, 3),
+    code_defines(File, Func, /function, _, _).
+
+# =============================================================================
+# SECTION 49: SUPPRESSION RULES / AUTOPOIESIS (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules filter hypotheses through learned suppressions before presenting
+# to the LLM. This implements the "autopoiesis" learning loop where false
+# positives are remembered and filtered out.
+#
+# Stratification:
+# - Stratum 0: suppressed_rule (EDB - learned facts)
+# - Stratum 1: is_suppressed (derived)
+# - Stratum 2: active_hypothesis (negates is_suppressed)
+
+# -----------------------------------------------------------------------------
+# 49.1 Suppression Check
+# -----------------------------------------------------------------------------
+
+# A finding is suppressed if there's a suppression rule for it
+is_suppressed(Type, File, Line) :-
+    suppressed_rule(Type, File, Line, _).
+
+# Also suppress based on confidence score (learned from user feedback)
+is_suppressed(Type, File, Line) :-
+    suppression_confidence(Type, File, Line, Score),
+    Score >= 80.
+
+# -----------------------------------------------------------------------------
+# 49.2 Active Hypothesis Filtering
+# -----------------------------------------------------------------------------
+# Only hypotheses that pass suppression filter are presented to LLM
+
+# Helper predicates for safe negation
+has_suppression_unsafe_deref(File, Line) :-
+    is_suppressed(/unsafe_deref, File, Line).
+
+has_suppression_unchecked_error(File, Line) :-
+    is_suppressed(/unchecked_error, File, Line).
+
+# Active unsafe dereference hypotheses
+active_hypothesis(/unsafe_deref, File, Line, Var) :-
+    unsafe_deref(File, Var, Line),
+    !has_suppression_unsafe_deref(File, Line).
+
+# Active unchecked error hypotheses
+active_hypothesis(/unchecked_error, File, Line, Var) :-
+    unchecked_error(File, Var, Line),
+    !has_suppression_unchecked_error(File, Line).
+
+# =============================================================================
+# SECTION 50: HYPOTHESIS PRIORITIZATION (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules assign priority scores to hypotheses based on:
+# 1. Finding type severity (e.g., SQL injection > nil deref > unchecked error)
+# 2. File risk factors (no test coverage, bug history)
+#
+# This allows the LLM to focus on highest-priority issues first.
+
+# -----------------------------------------------------------------------------
+# 50.1 Base Type Priorities
+# -----------------------------------------------------------------------------
+# Higher numbers = higher priority (examined first)
+
+type_priority(/sql_injection, 95).
+type_priority(/command_injection, 95).
+type_priority(/path_traversal, 90).
+type_priority(/unsafe_deref, 85).
+type_priority(/unchecked_error, 75).
+type_priority(/race_condition, 70).
+type_priority(/resource_leak, 65).
+
+# -----------------------------------------------------------------------------
+# 50.2 File-Based Priority Boosts
+# -----------------------------------------------------------------------------
+
+# Helper: file has test coverage
+has_test_coverage(File) :-
+    test_coverage(File).
+
+# Helper: file has bug history
+has_bug_history(File) :-
+    bug_history(File, Count),
+    Count > 0.
+
+# Boost for files without test coverage (+20)
+priority_boost(File, 20) :-
+    active_hypothesis(_, File, _, _),
+    !has_test_coverage(File).
+
+# Boost for files with historical bugs (+15)
+priority_boost(File, 15) :-
+    active_hypothesis(_, File, _, _),
+    has_bug_history(File).
+
+# -----------------------------------------------------------------------------
+# 50.3 Final Priority Calculation
+# -----------------------------------------------------------------------------
+
+# Helper: file has any boost
+has_priority_boost(File) :-
+    priority_boost(File, _).
+
+# With boost: BasePriority + Boost
+# Note: Mangle doesn't support inline arithmetic, so we enumerate common cases
+prioritized_hypothesis(Type, File, Line, Var, Priority) :-
+    active_hypothesis(Type, File, Line, Var),
+    type_priority(Type, BasePriority),
+    priority_boost(File, Boost),
+    Priority = fn:plus(BasePriority, Boost).
+
+# Without boost: just use base priority
+prioritized_hypothesis(Type, File, Line, Var, Priority) :-
+    active_hypothesis(Type, File, Line, Var),
+    type_priority(Type, Priority),
+    !has_priority_boost(File).
