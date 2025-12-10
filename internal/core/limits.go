@@ -256,6 +256,45 @@ func (le *LimitsEnforcer) GetShardLimit() int {
 	return le.config.MaxConcurrentShards
 }
 
+// GetAvailableShardSlots returns how many more shards can be spawned.
+func (le *LimitsEnforcer) GetAvailableShardSlots(activeCount int) int {
+	if le.config.MaxConcurrentShards <= 0 {
+		return 100 // Effectively unlimited
+	}
+	available := le.config.MaxConcurrentShards - activeCount
+	if available < 0 {
+		return 0
+	}
+	return available
+}
+
+// EstimateCapacity returns a capacity estimate considering memory and shards.
+// Returns the number of available slots and a reason if capacity is reduced.
+func (le *LimitsEnforcer) EstimateCapacity(activeShards int) (slots int, reason string) {
+	// Check memory first - critical constraint
+	memUtil := le.GetMemoryUtilization()
+	if memUtil > 0.9 {
+		return 0, "memory utilization critical (>90%)"
+	}
+
+	// Check shard slots
+	slots = le.GetAvailableShardSlots(activeShards)
+	if slots == 0 {
+		return 0, "shard limit reached"
+	}
+
+	// If memory is high, reduce effective capacity
+	if memUtil > 0.7 {
+		slots = slots / 2
+		if slots < 1 {
+			slots = 1
+		}
+		return slots, "reduced due to high memory (>70%)"
+	}
+
+	return slots, ""
+}
+
 // =============================================================================
 // KERNEL FACT LIMITS
 // =============================================================================

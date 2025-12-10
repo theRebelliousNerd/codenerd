@@ -1638,6 +1638,24 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 	// Base limit from config
 	limit := o.maxParallelTasks
 
+	// Check backpressure from spawn queue first
+	if o.shardMgr != nil {
+		if status := o.shardMgr.GetBackpressureStatus(); status != nil {
+			if status.QueueUtilization > 0.8 {
+				// High queue utilization, throttle down to single task
+				logging.Campaign("Throttling concurrency: spawn queue at %.0f%%", status.QueueUtilization*100)
+				return 1
+			} else if status.QueueUtilization > 0.5 {
+				// Moderate backpressure, reduce parallelism
+				limit = limit / 2
+				if limit < 1 {
+					limit = 1
+				}
+				logging.CampaignDebug("Reducing concurrency due to spawn queue pressure (%.0f%%)", status.QueueUtilization*100)
+			}
+		}
+	}
+
 	// Count active task types
 	var researchCount, refactorCount, testCount int
 	for taskID := range active {

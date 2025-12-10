@@ -540,6 +540,9 @@ type ShardManager struct {
 	// Resource limits enforcement
 	limitsEnforcer *LimitsEnforcer
 
+	// SpawnQueue for backpressure management (optional)
+	spawnQueue *SpawnQueue
+
 	// Session context for tracing
 	sessionID string
 
@@ -570,6 +573,59 @@ func (sm *ShardManager) SetLimitsEnforcer(enforcer *LimitsEnforcer) {
 	defer sm.mu.Unlock()
 	sm.limitsEnforcer = enforcer
 	logging.ShardsDebug("LimitsEnforcer attached to ShardManager")
+}
+
+// SetSpawnQueue attaches a spawn queue for backpressure management.
+func (sm *ShardManager) SetSpawnQueue(sq *SpawnQueue) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.spawnQueue = sq
+	logging.ShardsDebug("SpawnQueue attached to ShardManager")
+}
+
+// GetBackpressureStatus returns queue status if a spawn queue is attached.
+func (sm *ShardManager) GetBackpressureStatus() *BackpressureStatus {
+	sm.mu.RLock()
+	sq := sm.spawnQueue
+	sm.mu.RUnlock()
+
+	if sq == nil {
+		return nil
+	}
+	status := sq.GetBackpressureStatus()
+	return &status
+}
+
+// SpawnWithPriority spawns a shard with priority (uses queue if available).
+// If no queue is attached, falls back to direct SpawnWithContext.
+func (sm *ShardManager) SpawnWithPriority(ctx context.Context, typeName, task string,
+	sessionCtx *SessionContext, priority SpawnPriority) (string, error) {
+
+	sm.mu.RLock()
+	sq := sm.spawnQueue
+	sm.mu.RUnlock()
+
+	if sq == nil {
+		// No queue, use direct spawn
+		return sm.SpawnWithContext(ctx, typeName, task, sessionCtx)
+	}
+
+	// Submit to queue
+	req := SpawnRequest{
+		TypeName:   typeName,
+		Task:       task,
+		SessionCtx: sessionCtx,
+		Priority:   priority,
+	}
+
+	result, err := sq.SubmitAndWait(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if result.Error != nil {
+		return result.ShardID, result.Error
+	}
+	return result.ShardID, nil
 }
 
 // GetActiveShardCount returns the number of currently active shards.
