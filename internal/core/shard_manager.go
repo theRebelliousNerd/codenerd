@@ -1,10 +1,8 @@
 package core
 
 import (
-	"codenerd/internal/logging"
-	"codenerd/internal/types"
-	"codenerd/internal/usage"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +10,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
+	"codenerd/internal/usage"
 )
 
 // =============================================================================
@@ -1310,9 +1312,25 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// Audit: Shard execution started
 		logging.Audit().ShardExecute(id, task)
 		logging.ShardsDebug("Shard %s: execution starting (task=%s)", id, task)
+
+		// Apply shard execution timeout from ShardConfig
+		execTimeout := config.Timeout
+		if execTimeout == 0 {
+			execTimeout = 15 * time.Minute // Fallback default
+		}
+		execCtx, execCancel := context.WithTimeout(ctx, execTimeout)
+		defer execCancel()
+
+		logging.ShardsDebug("Shard %s: execution timeout=%v", id, execTimeout)
+
 		startTime := time.Now()
-		res, err := agent.Execute(ctx, task)
+		res, err := agent.Execute(execCtx, task)
 		duration := time.Since(startTime)
+
+		// Log specific timeout information
+		if err != nil && errors.Is(err, context.DeadlineExceeded) {
+			logging.Get(logging.CategoryShards).Warn("Shard %s: execution timed out after %v", id, execTimeout)
+		}
 
 		// Log execution result
 		if err != nil {
