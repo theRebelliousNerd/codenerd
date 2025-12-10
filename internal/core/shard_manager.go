@@ -535,6 +535,9 @@ type ShardManager struct {
 	tracingClient TracingClient // Optional: set when llmClient implements TracingClient
 	learningStore LearningStore
 
+	// Resource limits enforcement
+	limitsEnforcer *LimitsEnforcer
+
 	// Session context for tracing
 	sessionID string
 
@@ -557,6 +560,21 @@ func NewShardManager() *ShardManager {
 	}
 	logging.ShardsDebug("ShardManager initialized with empty maps")
 	return sm
+}
+
+// SetLimitsEnforcer attaches a limits enforcer for resource constraint checking.
+func (sm *ShardManager) SetLimitsEnforcer(enforcer *LimitsEnforcer) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.limitsEnforcer = enforcer
+	logging.ShardsDebug("LimitsEnforcer attached to ShardManager")
+}
+
+// GetActiveShardCount returns the number of currently active shards.
+func (sm *ShardManager) GetActiveShardCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.shards)
 }
 
 // VirtualStoreConsumer interface for agents that need file system access.
@@ -1061,6 +1079,20 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	// ENFORCEMENT: Check concurrent shard limit before spawning
+	if sm.limitsEnforcer != nil {
+		activeCount := len(sm.shards)
+		if err := sm.limitsEnforcer.CheckShardLimit(activeCount); err != nil {
+			logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: shard limit enforcement blocked spawn: %v", err)
+			return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
+		}
+		// Also check memory limits before spawning
+		if err := sm.limitsEnforcer.CheckMemory(); err != nil {
+			logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: memory limit enforcement blocked spawn: %v", err)
+			return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
+		}
+	}
 
 	// 1. Resolve Config
 	var config ShardConfig

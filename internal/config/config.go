@@ -204,6 +204,30 @@ type ToolGenerationConfig struct {
 	TargetArch string `yaml:"target_arch" json:"target_arch"` // e.g., "amd64", "arm64"
 }
 
+// BuildConfig configures build environment for go build/test commands.
+// This ensures all components (preflight, thunderdome, ouroboros, attack_runner)
+// use consistent environment variables like CGO_CFLAGS.
+type BuildConfig struct {
+	// EnvVars are additional environment variables for builds.
+	// Key examples: CGO_CFLAGS, CGO_LDFLAGS, CGO_ENABLED, CC, CXX
+	EnvVars map[string]string `yaml:"env_vars" json:"env_vars,omitempty"`
+
+	// GoFlags are additional flags for go build/test commands.
+	GoFlags []string `yaml:"go_flags" json:"go_flags,omitempty"`
+
+	// CGOPackages lists packages that require CGO (for documentation/detection).
+	CGOPackages []string `yaml:"cgo_packages" json:"cgo_packages,omitempty"`
+}
+
+// DefaultBuildConfig returns sensible defaults.
+func DefaultBuildConfig() BuildConfig {
+	return BuildConfig{
+		EnvVars:     make(map[string]string),
+		GoFlags:     []string{},
+		CGOPackages: []string{},
+	}
+}
+
 // JITConfig configures the JIT Prompt Compiler.
 // The JIT compiler dynamically assembles system prompts from YAML atoms
 // based on the current context (operational mode, shard type, language, etc.).
@@ -813,6 +837,14 @@ type UserConfig struct {
 	ToolGeneration *ToolGenerationConfig `json:"tool_generation,omitempty"`
 
 	// =========================================================================
+	// BUILD ENVIRONMENT
+	// =========================================================================
+
+	// Build environment configuration for go build/test commands
+	// Ensures consistent CGO_CFLAGS etc. across all components
+	Build *BuildConfig `json:"build,omitempty"`
+
+	// =========================================================================
 	// EXECUTION SETTINGS
 	// =========================================================================
 
@@ -923,6 +955,23 @@ func (c *UserConfig) GetToolGenerationConfig() ToolGenerationConfig {
 		}
 		if c.ToolGeneration.TargetArch != "" {
 			cfg.TargetArch = c.ToolGeneration.TargetArch
+		}
+	}
+	return cfg
+}
+
+// GetBuildConfig returns the build configuration with defaults.
+func (c *UserConfig) GetBuildConfig() BuildConfig {
+	cfg := DefaultBuildConfig()
+	if c.Build != nil {
+		if len(c.Build.EnvVars) > 0 {
+			cfg.EnvVars = c.Build.EnvVars
+		}
+		if len(c.Build.GoFlags) > 0 {
+			cfg.GoFlags = c.Build.GoFlags
+		}
+		if len(c.Build.CGOPackages) > 0 {
+			cfg.CGOPackages = c.Build.CGOPackages
 		}
 	}
 	return cfg

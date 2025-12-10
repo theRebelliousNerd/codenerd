@@ -2867,6 +2867,284 @@ Decl has_skeleton_category(Category).
 # Helper: skeleton category with no selected atoms (compilation error)
 Decl missing_skeleton_category(Category).
 
+# =============================================================================
+# SECTION 47: STATIC ANALYSIS - DATA FLOW PREDICATES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# Advanced static analysis predicates for differential nil-pointer detection,
+# error handling verification, and data flow tracking. These enable the
+# ReviewerShard to perform precise diff-aware analysis using guard-based
+# reasoning.
+
+# -----------------------------------------------------------------------------
+# 47.1 Data Flow Predicates - Variable Tracking
+# -----------------------------------------------------------------------------
+
+# assigns(Var, ValueType, File, Line) - Variable assignment tracking
+# Var: Variable name (string)
+# ValueType: Type of value assigned (e.g., /pointer, /interface, /value, /error)
+# File: Source file path
+# Line: Line number of assignment
+Decl assigns(Var, ValueType, File, Line).
+
+# uses(File, Func, Var, Line) - Variable read sites
+# File: Source file path
+# Func: Function containing the use
+# Var: Variable being read
+# Line: Line number of use
+Decl uses(File, Func, Var, Line).
+
+# call_arg(CallSite, ArgPos, VarRef, File, Line) - Function call argument tracking
+# CallSite: Identifier for the call (e.g., "foo.Bar")
+# ArgPos: Argument position (0-indexed integer)
+# VarRef: Variable reference passed as argument
+# File: Source file path
+# Line: Line number
+Decl call_arg(CallSite, ArgPos, VarRef, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.2 Guard Predicates - Two Types for Go's Idiomatic Patterns
+# -----------------------------------------------------------------------------
+# Go uses two distinct guard patterns:
+# 1. Block guards: if x != nil { /* x is safe here */ }
+# 2. Return guards: if x == nil { return } /* x is safe after */
+
+# guards_block(Var, CheckType, File, ScopeStart, ScopeEnd) - Block-scoped guards
+# Var: Variable being guarded
+# CheckType: Type of check (/nil_check, /len_check, /type_assert, /ok_check)
+# File: Source file path
+# ScopeStart: Starting line of guarded scope
+# ScopeEnd: Ending line of guarded scope
+Decl guards_block(Var, CheckType, File, ScopeStart, ScopeEnd).
+
+# guards_return(Var, CheckType, File, Line) - Return-based guards (dominator guards)
+# Var: Variable being guarded
+# CheckType: Type of check (/nil_check, /zero_check, /err_check)
+# File: Source file path
+# Line: Line of the guard check (all lines after are guarded)
+Decl guards_return(Var, CheckType, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.3 Error Handling Predicates
+# -----------------------------------------------------------------------------
+
+# error_checked_block(Var, File, ScopeStart, ScopeEnd) - Block-scoped error handling
+# Var: Error variable being checked
+# File: Source file path
+# ScopeStart: Start of error handling scope
+# ScopeEnd: End of error handling scope
+Decl error_checked_block(Var, File, ScopeStart, ScopeEnd).
+
+# error_checked_return(Var, File, Line) - Return-based error handling
+# Var: Error variable being checked
+# File: Source file path
+# Line: Line of error check (typically: if err != nil { return err })
+Decl error_checked_return(Var, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.4 Function Metadata
+# -----------------------------------------------------------------------------
+
+# nil_returns(File, Func, Line) - Functions that can return nil
+# File: Source file path
+# Func: Function name
+# Line: Line number where nil is returned
+Decl nil_returns(File, Func, Line).
+
+# modified_function(Func, File) - Functions changed in the current diff
+# Func: Function name
+# File: Source file path
+Decl modified_function(Func, File).
+
+# modified_interface(Interface, File) - Interfaces changed in the current diff
+# Interface: Interface name
+# File: Source file path
+Decl modified_interface(Interface, File).
+
+# -----------------------------------------------------------------------------
+# 47.5 Scope Tracking (for dominator guard analysis)
+# -----------------------------------------------------------------------------
+
+# same_scope(Var, File, Line1, Line2) - Lines in same function scope
+# Var: Variable name (for context)
+# File: Source file path
+# Line1: First line number
+# Line2: Second line number
+# Used to determine if a guard at Line1 protects a use at Line2
+Decl same_scope(Var, File, Line1, Line2).
+
+# -----------------------------------------------------------------------------
+# 47.6 Suppression Predicates (for Autopoiesis - False Positive Learning)
+# -----------------------------------------------------------------------------
+
+# suppressed_rule(RuleType, File, Line, Reason) - Manually suppressed findings
+# RuleType: Type of rule suppressed (e.g., /nil_deref, /unchecked_error)
+# File: Source file path
+# Line: Line number of suppression
+# Reason: User-provided reason for suppression
+Decl suppressed_rule(RuleType, File, Line, Reason).
+
+# suppression_confidence(RuleType, File, Line, Score) - Learned suppression confidence
+# RuleType: Type of rule
+# File: Source file path
+# Line: Line number
+# Score: Confidence score (0-100) that this is a false positive
+Decl suppression_confidence(RuleType, File, Line, Score).
+
+# -----------------------------------------------------------------------------
+# 47.7 Priority and Risk Predicates
+# -----------------------------------------------------------------------------
+
+# type_priority(Type, Priority) - Severity priority by type
+# Type: Finding type (e.g., /nil_deref, /unchecked_error, /race_condition)
+# Priority: Priority level (1=critical, 2=high, 3=medium, 4=low)
+Decl type_priority(Type, Priority).
+
+# bug_history(File, Count) - Historical bug count per file
+# File: Source file path
+# Count: Number of bugs historically found in this file
+# Used for risk-based prioritization
+Decl bug_history(File, Count).
+
+# -----------------------------------------------------------------------------
+# 47.8 Derived Predicates for Data Flow Analysis
+# -----------------------------------------------------------------------------
+
+# guarded_use(Var, File, Line) - Derived: variable use is protected by a guard
+Decl guarded_use(Var, File, Line).
+
+# unguarded_use(Var, File, Line) - Derived: variable use lacks guard protection
+Decl unguarded_use(Var, File, Line).
+
+# error_ignored(Var, File, Line) - Derived: error variable is not checked
+Decl error_ignored(Var, File, Line).
+
+# nil_deref_risk(Var, File, Line, RiskLevel) - Derived: potential nil dereference
+# RiskLevel: /high (no guard), /medium (conditional guard), /low (likely safe)
+Decl nil_deref_risk(Var, File, Line, RiskLevel).
+
+# in_modified_code(File, Line) - Derived: line is within modified diff hunks
+Decl in_modified_code(File, Line).
+
+# diff_introduces_risk(File, Line, RiskType) - Derived: diff introduces new risk
+# RiskType: /nil_deref, /unchecked_error, /race_condition
+Decl diff_introduces_risk(File, Line, RiskType).
+
+# has_guard(Var, File, Line) - Helper: variable has any guard at this point
+Decl has_guard(Var, File, Line).
+
+# is_suppressed(RuleType, File, Line) - Helper: finding is suppressed
+Decl is_suppressed(RuleType, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.9 Data Flow Safety Derived Predicates (IDB - from policy.mg Section 47)
+# -----------------------------------------------------------------------------
+
+# is_guarded(Var, File, Line) - Derived: variable is protected at this point
+# Computed from guards_block and guards_return
+Decl is_guarded(Var, File, Line).
+
+# unsafe_deref(File, Var, Line) - Derived: nullable dereference without guard
+Decl unsafe_deref(File, Var, Line).
+
+# is_error_checked(Var, File, Line) - Derived: error variable is checked
+Decl is_error_checked(Var, File, Line).
+
+# unchecked_error(File, Func, Line) - Derived: error assigned but not checked
+Decl unchecked_error(File, Func, Line).
+
+# -----------------------------------------------------------------------------
+# 47.10 Impact Analysis Derived Predicates (IDB - from policy.mg Section 48)
+# -----------------------------------------------------------------------------
+
+# impact_caller(TargetFunc, CallerFunc) - Direct callers of modified function
+Decl impact_caller(TargetFunc, CallerFunc).
+
+# impact_implementer(ImplFile, Struct) - Implementers of modified interface
+Decl impact_implementer(ImplFile, Struct).
+
+# impact_graph(Target, Caller, Depth) - Transitive impact with depth (max 3)
+Decl impact_graph(Target, Caller, Depth).
+
+# relevant_context_file(File) - Files to fetch for review context
+Decl relevant_context_file(File).
+
+# context_priority_file(File, Func, Priority) - Priority-ordered context files
+Decl context_priority_file(File, Func, Priority).
+
+# -----------------------------------------------------------------------------
+# 47.11 Hypothesis Management (IDB - from policy.mg Sections 49-50)
+# -----------------------------------------------------------------------------
+
+# active_hypothesis(Type, File, Line, Var) - Post-suppression hypotheses
+Decl active_hypothesis(Type, File, Line, Var).
+
+# priority_boost(File, Boost) - Additional priority for risky files
+Decl priority_boost(File, Boost).
+
+# prioritized_hypothesis(Type, File, Line, Var, Priority) - Final prioritized findings
+Decl prioritized_hypothesis(Type, File, Line, Var, Priority).
+
+# -----------------------------------------------------------------------------
+# 47.12 Helper Predicates for Safe Negation (IDB)
+# -----------------------------------------------------------------------------
+# These helpers enable safe negation by ensuring variables are bound before
+# negation is applied. Required by Mangle's safety constraints.
+
+# has_guard_at(Var, File, Line) - Helper for guarded variable check
+Decl has_guard_at(Var, File, Line).
+
+# has_error_check_at(Var, File, Line) - Helper for error check presence
+Decl has_error_check_at(Var, File, Line).
+
+# has_suppression_unsafe_deref(File, Line) - Helper for suppression check
+Decl has_suppression_unsafe_deref(File, Line).
+
+# has_suppression_unchecked_error(File, Line) - Helper for suppression check
+Decl has_suppression_unchecked_error(File, Line).
+
+# has_test_coverage(File) - Helper: file has test coverage
+Decl has_test_coverage(File).
+
+# has_bug_history(File) - Helper: file has bug history (count > 0)
+Decl has_bug_history(File).
+
+# has_priority_boost(File) - Helper: file has any priority boost
+Decl has_priority_boost(File).
+
+# -----------------------------------------------------------------------------
+# 47.13 Multi-Language Data Flow Predicates
+# -----------------------------------------------------------------------------
+# These predicates support data flow analysis across multiple languages
+# (Go, Python, TypeScript, JavaScript, Rust) using Tree-sitter parsing.
+
+# function_scope(File, Func, Start, End) - Function scope boundaries
+# File: Source file path
+# Func: Function name
+# Start: Starting line number
+# End: Ending line number
+# Used to determine scope for guard domination
+Decl function_scope(File, Func, Start, End).
+
+# guard_dominates(File, Func, GuardLine, EndLine) - Guard domination for early returns
+# File: Source file path
+# Func: Function containing the guard
+# GuardLine: Line of the guard check (e.g., if x == nil { return })
+# EndLine: Last line of the function (guard protects all subsequent lines)
+# Early return guards dominate all code after them in the same scope
+Decl guard_dominates(File, Func, GuardLine, EndLine).
+
+# safe_access(Var, AccessType, File, Line) - Language-specific safe access patterns
+# Var: Variable being accessed
+# AccessType: Type of safe access pattern:
+#   /optional_chain - JavaScript/TypeScript x?.foo
+#   /if_let - Rust if let Some(x) = ...
+#   /match_exhaustive - Rust match expression (exhaustive)
+#   /walrus - Python x := (assignment expression)
+# File: Source file path
+# Line: Line number
+# These accesses are inherently safe by the language's semantics
+Decl safe_access(Var, AccessType, File, Line).
+
 
 
 # Prompt Atom Schema & Standard Atoms
@@ -6405,6 +6683,300 @@ missing_skeleton_category(Category) :-
 compilation_error(/missing_skeleton, Category) :-
     missing_skeleton_category(Category).
 
+# =============================================================================
+# SECTION 47: DATA FLOW SAFETY RULES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules implement guard-based reasoning for nil-pointer safety and
+# error handling verification. They use Mangle's stratified negation to
+# identify unsafe dereferences and unchecked errors.
+#
+# Stratification:
+# - Stratum 0: guards_block, guards_return, assigns, uses (EDB)
+# - Stratum 1: is_guarded, is_error_checked (derived from guards)
+# - Stratum 2: unsafe_deref, unchecked_error (negates is_guarded/is_error_checked)
+
+# -----------------------------------------------------------------------------
+# 47.1 Guard Derivation - Two Patterns for Go Idioms
+# -----------------------------------------------------------------------------
+# These rules derive guarded use sites by joining guards with actual uses.
+# This ensures the Line variable is always bound before comparison.
+
+# Pattern 1: Block-scoped guards (if x != nil { ... })
+# A use site is guarded if inside a nil_check block's scope
+is_guarded(Var, File, Line) :-
+    uses(File, _, Var, Line),
+    guards_block(Var, /nil_check, File, Start, End),
+    Line >= Start,
+    Line <= End.
+
+# Pattern 2: Return-based guards (if x == nil { return })
+# A use site is guarded after a guard clause that forces a return (Go idiom)
+is_guarded(Var, File, Line) :-
+    uses(File, _, Var, Line),
+    guards_return(Var, /nil_check, File, GuardLine),
+    Line > GuardLine,
+    same_scope(Var, File, Line, GuardLine).
+
+# Additional guard types: ok checks from type assertions and map lookups
+is_guarded(Var, File, Line) :-
+    uses(File, _, Var, Line),
+    guards_block(Var, /ok_check, File, Start, End),
+    Line >= Start,
+    Line <= End.
+
+is_guarded(Var, File, Line) :-
+    uses(File, _, Var, Line),
+    guards_return(Var, /ok_check, File, GuardLine),
+    Line > GuardLine,
+    same_scope(Var, File, Line, GuardLine).
+
+# -----------------------------------------------------------------------------
+# 47.2 Unsafe Nil Dereference Detection
+# -----------------------------------------------------------------------------
+# UNSAFE: nullable assigned but used without guard check
+# This is a HYPOTHESIS - filtered by suppression before LLM sees it
+
+# Helper: has any guard for variable at location
+has_guard_at(Var, File, Line) :-
+    is_guarded(Var, File, Line).
+
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /nullable, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# Also detect pointer types that may be nil
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /pointer, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# Interface types can also be nil
+unsafe_deref(File, Var, Line) :-
+    assigns(Var, /interface, File, _),
+    uses(File, _, Var, Line),
+    !has_guard_at(Var, File, Line).
+
+# -----------------------------------------------------------------------------
+# 47.3 Error Handling Verification
+# -----------------------------------------------------------------------------
+# These rules derive error-checked use sites by joining error checks with uses.
+
+# Error use site is checked if inside error handling block
+is_error_checked(ErrVar, File, UseLine) :-
+    uses(File, _, ErrVar, UseLine),
+    error_checked_block(ErrVar, File, Start, End),
+    UseLine >= Start,
+    UseLine <= End.
+
+# Error use site is checked if after an error return guard
+is_error_checked(ErrVar, File, UseLine) :-
+    uses(File, _, ErrVar, UseLine),
+    error_checked_return(ErrVar, File, GuardLine),
+    UseLine > GuardLine,
+    same_scope(ErrVar, File, UseLine, GuardLine).
+
+# Helper: has error check at location
+has_error_check_at(ErrVar, File, UseLine) :-
+    is_error_checked(ErrVar, File, UseLine).
+
+# UNCHECKED ERROR DETECTION
+# Error variable assigned but not checked before use
+unchecked_error(File, Func, AssignLine) :-
+    assigns(ErrVar, /error, File, AssignLine),
+    uses(File, Func, ErrVar, UseLine),
+    !has_error_check_at(ErrVar, File, UseLine).
+
+# =============================================================================
+# SECTION 48: IMPACT ANALYSIS RULES (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules compute the impact graph for modified functions and interfaces.
+# Used to fetch relevant context files for review and prioritize attention.
+#
+# Stratification:
+# - Stratum 0: modified_function, modified_interface, code_calls, code_implements (EDB)
+# - Stratum 1: impact_caller, impact_implementer (direct impacts)
+# - Stratum 2: impact_graph (transitive closure with depth limit)
+# - Stratum 3: relevant_context_file, context_priority_file (derived from graph)
+
+# -----------------------------------------------------------------------------
+# 48.1 Direct Impact Detection
+# -----------------------------------------------------------------------------
+
+# Direct callers of modified functions (Distance 1)
+impact_caller(TargetFunc, CallerFunc) :-
+    modified_function(TargetFunc, _),
+    code_calls(CallerFunc, TargetFunc).
+
+# Interface implementations affected by interface changes
+impact_implementer(ImplFile, Struct) :-
+    modified_interface(Interface, _),
+    code_implements(Struct, Interface),
+    code_defines(ImplFile, Struct, /struct, _, _).
+
+# -----------------------------------------------------------------------------
+# 48.2 Bounded Transitive Impact (Max Depth 3)
+# -----------------------------------------------------------------------------
+# We limit depth to 3 to:
+# 1. Prevent infinite recursion on cyclic call graphs
+# 2. Focus on most relevant context (direct and near-callers)
+# 3. Keep context window manageable
+
+# Base case: direct callers are at depth 1
+impact_graph(Target, Caller, 1) :-
+    impact_caller(Target, Caller).
+
+# Recursive case: grandcallers at depth 2
+impact_graph(Target, GrandCaller, 2) :-
+    impact_graph(Target, Caller, 1),
+    code_calls(GrandCaller, Caller).
+
+# Recursive case: great-grandcallers at depth 3
+impact_graph(Target, GreatGrandCaller, 3) :-
+    impact_graph(Target, Caller, 2),
+    code_calls(GreatGrandCaller, Caller).
+
+# -----------------------------------------------------------------------------
+# 48.3 Context File Selection
+# -----------------------------------------------------------------------------
+
+# Files to fetch for review context
+relevant_context_file(File) :-
+    impact_graph(_, Func, _),
+    code_defines(File, Func, /function, _, _).
+
+# Also include files containing interface implementations
+relevant_context_file(File) :-
+    impact_implementer(File, _).
+
+# Prioritized context: closer callers get higher priority
+# Priority = 4 - Depth (so depth 1 = priority 3, depth 2 = priority 2, etc.)
+context_priority_file(File, Func, 3) :-
+    impact_graph(_, Func, 1),
+    code_defines(File, Func, /function, _, _).
+
+context_priority_file(File, Func, 2) :-
+    impact_graph(_, Func, 2),
+    code_defines(File, Func, /function, _, _).
+
+context_priority_file(File, Func, 1) :-
+    impact_graph(_, Func, 3),
+    code_defines(File, Func, /function, _, _).
+
+# =============================================================================
+# SECTION 49: SUPPRESSION RULES / AUTOPOIESIS (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules filter hypotheses through learned suppressions before presenting
+# to the LLM. This implements the "autopoiesis" learning loop where false
+# positives are remembered and filtered out.
+#
+# Stratification:
+# - Stratum 0: suppressed_rule (EDB - learned facts)
+# - Stratum 1: is_suppressed (derived)
+# - Stratum 2: active_hypothesis (negates is_suppressed)
+
+# -----------------------------------------------------------------------------
+# 49.1 Suppression Check
+# -----------------------------------------------------------------------------
+
+# A finding is suppressed if there's a suppression rule for it
+is_suppressed(Type, File, Line) :-
+    suppressed_rule(Type, File, Line, _).
+
+# Also suppress based on confidence score (learned from user feedback)
+is_suppressed(Type, File, Line) :-
+    suppression_confidence(Type, File, Line, Score),
+    Score >= 80.
+
+# -----------------------------------------------------------------------------
+# 49.2 Active Hypothesis Filtering
+# -----------------------------------------------------------------------------
+# Only hypotheses that pass suppression filter are presented to LLM
+
+# Helper predicates for safe negation
+has_suppression_unsafe_deref(File, Line) :-
+    is_suppressed(/unsafe_deref, File, Line).
+
+has_suppression_unchecked_error(File, Line) :-
+    is_suppressed(/unchecked_error, File, Line).
+
+# Active unsafe dereference hypotheses
+active_hypothesis(/unsafe_deref, File, Line, Var) :-
+    unsafe_deref(File, Var, Line),
+    !has_suppression_unsafe_deref(File, Line).
+
+# Active unchecked error hypotheses
+active_hypothesis(/unchecked_error, File, Line, Var) :-
+    unchecked_error(File, Var, Line),
+    !has_suppression_unchecked_error(File, Line).
+
+# =============================================================================
+# SECTION 50: HYPOTHESIS PRIORITIZATION (ReviewerShard Beyond-SOTA)
+# =============================================================================
+# These rules assign priority scores to hypotheses based on:
+# 1. Finding type severity (e.g., SQL injection > nil deref > unchecked error)
+# 2. File risk factors (no test coverage, bug history)
+#
+# This allows the LLM to focus on highest-priority issues first.
+
+# -----------------------------------------------------------------------------
+# 50.1 Base Type Priorities
+# -----------------------------------------------------------------------------
+# Higher numbers = higher priority (examined first)
+
+type_priority(/sql_injection, 95).
+type_priority(/command_injection, 95).
+type_priority(/path_traversal, 90).
+type_priority(/unsafe_deref, 85).
+type_priority(/unchecked_error, 75).
+type_priority(/race_condition, 70).
+type_priority(/resource_leak, 65).
+
+# -----------------------------------------------------------------------------
+# 50.2 File-Based Priority Boosts
+# -----------------------------------------------------------------------------
+
+# Helper: file has test coverage
+has_test_coverage(File) :-
+    test_coverage(File).
+
+# Helper: file has bug history
+has_bug_history(File) :-
+    bug_history(File, Count),
+    Count > 0.
+
+# Boost for files without test coverage (+20)
+priority_boost(File, 20) :-
+    active_hypothesis(_, File, _, _),
+    !has_test_coverage(File).
+
+# Boost for files with historical bugs (+15)
+priority_boost(File, 15) :-
+    active_hypothesis(_, File, _, _),
+    has_bug_history(File).
+
+# -----------------------------------------------------------------------------
+# 50.3 Final Priority Calculation
+# -----------------------------------------------------------------------------
+
+# Helper: file has any boost
+has_priority_boost(File) :-
+    priority_boost(File, _).
+
+# With boost: BasePriority + Boost
+# Note: Mangle doesn't support inline arithmetic, so we enumerate common cases
+prioritized_hypothesis(Type, File, Line, Var, Priority) :-
+    active_hypothesis(Type, File, Line, Var),
+    type_priority(Type, BasePriority),
+    priority_boost(File, Boost),
+    Priority = fn:plus(BasePriority, Boost).
+
+# Without boost: just use base priority
+prioritized_hypothesis(Type, File, Line, Var, Priority) :-
+    active_hypothesis(Type, File, Line, Var),
+    type_priority(Type, Priority),
+    !has_priority_boost(File).
+
 
 # internal/mangle/doc_taxonomy.mg
 # =========================================================
@@ -8353,6 +8925,381 @@ selected_result(Atom, Prio, /flesh) :-
 #     fn:string_suffix(Path, ".tmp").
 
 
-# Sandbox Validation
-session_state(/system,/start,_).
+# Appended Policy
+# Reviewer Shard Policy - Code Review & Security Logic
+# Loaded by ReviewerShard kernel alongside base policy.gl
+# Part of Cortex 1.5.0 Architecture
+
+# =============================================================================
+# SECTION 1: REVIEWER TASK CLASSIFICATION
+# =============================================================================
+
+Decl reviewer_task(ID, Action, Files, Timestamp).
+
+reviewer_action(/review) :-
+    reviewer_task(_, /review, _, _).
+
+reviewer_action(/security_scan) :-
+    reviewer_task(_, /security_scan, _, _).
+
+reviewer_action(/style_check) :-
+    reviewer_task(_, /style_check, _, _).
+
+reviewer_action(/complexity) :-
+    reviewer_task(_, /complexity, _, _).
+
+# =============================================================================
+# SECTION 2: FINDING SEVERITY CLASSIFICATION
+# =============================================================================
+# NOTE: review_finding/6 is declared in schemas.mg
+
+# Critical severity patterns
+is_critical_finding(Finding) :-
+    review_finding(Finding, _, _, /critical, _, _).
+
+is_critical_finding(Finding) :-
+    review_finding(Finding, _, _, _, /security, _).
+
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "sql injection").
+
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "command injection").
+
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "xss").
+
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "hardcoded secret").
+
+# is_critical_finding(Finding) :-
+#    review_finding(Finding, _, _, _, _, Msg),
+#    fn:string_contains(Msg, "path traversal").
+
+# Error severity
+is_error_finding(Finding) :-
+    review_finding(Finding, _, _, /error, _, _).
+
+# Warning severity
+is_warning_finding(Finding) :-
+    review_finding(Finding, _, _, /warning, _, _).
+
+# =============================================================================
+# SECTION 3: COMMIT BLOCKING
+# =============================================================================
+
+# Block commit on critical findings
+block_commit("critical_security_finding") :-
+    is_critical_finding(_).
+
+# Block commit on high error count
+block_commit("too_many_errors") :-
+    finding_count(/error, N),
+    N > 10.
+
+# Block commit on security issues
+block_commit("security_vulnerabilities") :-
+    review_finding(_, _, _, _, /security, _).
+
+# =============================================================================
+# SECTION 4: REVIEW PRIORITIZATION
+# =============================================================================
+# Uses churn_rate from schemas.gl
+
+Decl file_contains(FilePath, Pattern).
+
+# High priority files (recently modified, high churn)
+# Note: Rate is integer (churn count), not float
+high_priority_review(File) :-
+    modified(File),
+    churn_rate(File, Rate),
+    Rate > 3.
+
+high_priority_review(File) :-
+    modified(File),
+    file_has_security_sensitive(File).
+
+# Security-sensitive markers
+file_has_security_sensitive(File) :-
+    file_contains(File, "password").
+
+file_has_security_sensitive(File) :-
+    file_contains(File, "api_key").
+
+file_has_security_sensitive(File) :-
+    file_contains(File, "secret").
+
+file_has_security_sensitive(File) :-
+    file_contains(File, "credential").
+
+file_has_security_sensitive(File) :-
+    file_contains(File, "token").
+
+file_has_security_sensitive(File) :-
+    file_contains(File, "private_key").
+
+# =============================================================================
+# SECTION 5: SECURITY RULE DEFINITIONS
+# =============================================================================
+
+Decl security_rule(RuleID, Severity, Pattern, Message).
+
+# SQL Injection
+security_rule("SEC001", /critical, "execute.*concat", "SQL injection risk").
+security_rule("SEC001", /critical, "raw.*sql.*concat", "SQL injection via raw query").
+
+# Command Injection
+security_rule("SEC002", /critical, "exec.Command.*concat", "Command injection risk").
+security_rule("SEC002", /critical, "os.system.*concat", "Command injection via os.system").
+
+# Hardcoded Secrets
+security_rule("SEC003", /critical, "password.*=.*literal", "Hardcoded password").
+security_rule("SEC003", /critical, "api_key.*=.*literal", "Hardcoded API key").
+
+# XSS
+security_rule("SEC004", /error, "innerHTML.*=", "XSS via innerHTML").
+security_rule("SEC004", /error, "document.write", "XSS via document.write").
+
+# Weak Crypto
+security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
+
+# =============================================================================
+# SECTION 6: COMPLEXITY THRESHOLDS
+# =============================================================================
+
+Decl code_metrics(TotalLines, CodeLines, CyclomaticAvg, FunctionCount).
+Decl cyclomatic_complexity(File, Function, Complexity).
+Decl nesting_depth(File, Function, Depth).
+
+# High complexity warning
+complexity_warning(File, Function) :-
+    cyclomatic_complexity(File, Function, C),
+    C > 15.
+
+# Deep nesting warning
+nesting_warning(File, Function) :-
+    nesting_depth(File, Function, D),
+    D > 5.
+
+# Long file warning
+long_file_warning(File) :-
+    file_line_count(File, Lines),
+    Lines > 500.
+
+# =============================================================================
+# SECTION 7: AUTOPOIESIS - LEARNING FROM REVIEWS
+# =============================================================================
+
+Decl pattern_count(Pattern, Count).
+Decl approval_count(Pattern, Count).
+Decl review_approved(ReviewID, Pattern).
+
+# Track patterns that get flagged repeatedly
+recurring_issue_pattern(Pattern, Category) :-
+    review_finding(_, _, _, _, Category, Pattern),
+    pattern_count(Pattern, N),
+    N >= 3.
+
+# Learn project-specific anti-patterns
+# Note: Category is implicitly tracked via recurring_issue_pattern
+promote_to_long_term(/anti_pattern, Pattern) :-
+    recurring_issue_pattern(Pattern, _).
+
+# Track patterns that pass review
+approved_pattern(Pattern) :-
+    review_approved(_, Pattern),
+    approval_count(Pattern, N),
+    N >= 3.
+
+# Promote approved styles
+promote_to_long_term(/approved_style, Pattern) :-
+    approved_pattern(Pattern).
+
+# =============================================================================
+# SECTION 8: REVIEW STATUS
+# =============================================================================
+
+Decl review_complete(Files, Severity).
+Decl security_issue(File, Line, RuleID, Message).
+
+# Helper for safe negation - true if any block_commit exists
+has_block_commit() :-
+    block_commit(_).
+
+# Overall review status
+review_passed(Files) :-
+    review_complete(Files, /clean).
+
+review_passed(Files) :-
+    review_complete(Files, /info).
+
+review_passed(Files) :-
+    review_complete(Files, /warning),
+    !has_block_commit().
+
+review_failed(Files) :-
+    review_complete(Files, /error).
+
+review_failed(Files) :-
+    review_complete(Files, /critical).
+
+review_blocked(Files) :-
+    review_complete(Files, _),
+    has_block_commit().
+
+# =============================================================================
+# SECTION 9: STYLE RULES
+# =============================================================================
+
+Decl style_violation(File, Line, Rule, Message).
+
+# Common style rules
+style_rule("STY001", "line_length", 120).
+style_rule("STY002", "trailing_whitespace", 0).
+style_rule("STY003", "todo_without_issue", "TODO|FIXME").
+style_rule("STY005", "max_nesting", 5).
+
+# Style violation from rule
+has_style_violation(File) :-
+    style_violation(File, _, _, _).
+
+# =============================================================================
+# SECTION 10: FINDING FILTERING & SUPPRESSION (Smart Rules)
+# =============================================================================
+
+# NOTE: raw_finding, active_finding declared in schemas.mg
+Decl suppressed_finding(File, Line, RuleID, Reason).
+Decl is_suppressed(File, Line, RuleID).
+
+# Helper: Projection to ignore Reason for safe negation
+is_suppressed(File, Line, RuleID) :-
+    suppressed_finding(File, Line, RuleID, _).
+
+# Finding is active if not explicitly suppressed
+active_finding(File, Line, Severity, Category, RuleID, Message) :-
+    raw_finding(File, Line, Severity, Category, RuleID, Message),
+    !is_suppressed(File, Line, RuleID).
+
+# --- Suppression Rules ---
+
+# Suppress TODOs (STY003) in test files
+suppressed_finding(File, Line, "STY003", "todo_allowed_in_tests") :-
+    raw_finding(File, Line, _, _, "STY003", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Magic Numbers (STY004) in test files
+suppressed_finding(File, Line, "STY004", "magic_numbers_allowed_in_tests") :-
+    raw_finding(File, Line, _, _, "STY004", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Complexity Warnings in test files
+suppressed_finding(File, Line, "COMPLEXITY", "complexity_allowed_in_tests") :-
+    raw_finding(File, Line, _, /maintainability, "COMPLEXITY", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Long File Warnings in test files
+suppressed_finding(File, Line, "LONG_FILE", "long_files_allowed_in_tests") :-
+    raw_finding(File, Line, _, /maintainability, "LONG_FILE", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Hardcoded Secrets (SEC003) in test files (usually mocks keys)
+suppressed_finding(File, Line, "SEC003", "secrets_allowed_in_tests") :-
+    raw_finding(File, Line, _, /security, "SEC003", _),
+    file_topology(File, _, _, _, /true).
+
+# Suppress Generated Code (common pattern)
+suppressed_finding(File, Line, RuleID, "generated_code") :-
+    raw_finding(File, Line, _, _, RuleID, _),
+    file_contains(File, "Code generated by").
+
+# =============================================================================
+# SECTION 11: REVIEWER FEEDBACK LOOP (Self-Correction)
+# =============================================================================
+# These rules enable the reviewer to learn from mistakes and self-correct.
+
+# Helper: Check if a review has any rejections
+Decl has_rejections(ReviewID).
+has_rejections(ReviewID) :-
+    user_rejected_finding(ReviewID, _, _, _, _).
+
+# Helper: Count rejections for a review (aggregation)
+# Note: Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
+Decl review_rejection_count(ReviewID, Count).
+
+# Review is suspect if user rejected multiple findings
+review_suspect(ReviewID, "multiple_rejections") :-
+    user_rejected_finding(ReviewID, File1, Line1, _, _),
+    user_rejected_finding(ReviewID, File2, Line2, _, _),
+    File1 != File2.
+
+review_suspect(ReviewID, "multiple_rejections") :-
+    user_rejected_finding(ReviewID, File, Line1, _, _),
+    user_rejected_finding(ReviewID, File, Line2, _, _),
+    Line1 != Line2.
+
+# Review is suspect if it flagged a symbol that was verified to exist
+review_suspect(ReviewID, "flagged_existing_symbol") :-
+    review_finding(ReviewID, File, Line, _, _, Message),
+    symbol_verified_exists(Symbol, File, _),
+    :string:contains(Message, "undefined").
+
+# Review is suspect if >50% findings were rejected
+review_suspect(ReviewID, "high_rejection_rate") :-
+    review_accuracy(ReviewID, Total, _, Rejected, _),
+    Total > 2,
+    DoubleRejected = fn:mult(Rejected, 2),
+    DoubleRejected > Total.
+
+# Trigger validation for suspect reviews
+reviewer_needs_validation(ReviewID) :-
+    review_suspect(ReviewID, _).
+
+# Trigger validation for reviews with "undefined" findings (common false positive)
+reviewer_needs_validation(ReviewID) :-
+    review_finding(ReviewID, _, _, /error, /bug, Message),
+    :string:contains(Message, "undefined").
+
+# Trigger validation for reviews with "not found" findings
+reviewer_needs_validation(ReviewID) :-
+    review_finding(ReviewID, _, _, /error, /bug, Message),
+    :string:contains(Message, "not found").
+
+# --- False Positive Learning ---
+
+# Suppress findings that match learned false positive patterns
+# Note: Confidence is integer 0-100, not float 0.0-1.0
+suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
+    raw_finding(File, Line, _, Category, RuleID, Message),
+    false_positive_pattern(Pattern, Category, Occurrences, Confidence),
+    Occurrences > 2,
+    Confidence > 70,
+    :string:contains(Message, Pattern).
+
+# --- Self-Correction Signals ---
+
+# Signal to main agent: recent review may be inaccurate
+Decl recent_review_unreliable().
+recent_review_unreliable() :-
+    review_suspect(_, _).
+
+
+# Learned Rules (Autopoiesis Layer - Stratified Trust)
+# Learned Taxonomy Rules (Autopoiesis)
+# This file is automatically appended to by the system when it learns new synonyms.
+
+# User Learned Rules
+
+# Autopoiesis-learned rule (added 2025-12-09 15:38:31)
+permitted(Action) :- Action = "system_start".
+
+# Autopoiesis-learned rule (added 2025-12-10 10:35:56)
+system_shard_state(/boot,/initializing).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 11:45:05)
+entry_point(/system_start).
 

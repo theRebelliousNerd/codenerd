@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/build"
 	"codenerd/internal/logging"
 )
 
@@ -113,6 +114,7 @@ func (r *AttackRunner) RunAttack(ctx context.Context, script *AttackScript) (*At
 
 	cmd := exec.CommandContext(execCtx, "go", "test", "-v", "-race", "-timeout", r.timeout.String())
 	cmd.Dir = attackDir
+	cmd.Env = build.GetBuildEnvForTest(nil, attackDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -536,12 +536,19 @@ func (c *Compressor) pruneRecentTurns() {
 
 // BuildContext creates the compressed context for an LLM call.
 // This replaces raw conversation history with semantically compressed state.
+// Returns ErrContextWindowExceeded if the context would exceed the hard limit.
 func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "BuildContext")
 	defer timer.Stop()
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	// ENFORCEMENT: Check if we're already over budget before building
+	if err := c.budget.CheckTotalBudget(); err != nil {
+		logging.Get(logging.CategoryContext).Error("BuildContext: context window limit already exceeded: %v", err)
+		return nil, err
+	}
 
 	// 1. Get all facts from kernel
 	allFacts := c.kernel.GetAllFacts()

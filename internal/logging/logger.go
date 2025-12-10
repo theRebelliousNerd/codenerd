@@ -51,6 +51,7 @@ const (
 	CategoryBrowser     Category = "browser"     // Browser automation, DOM events
 	CategoryTactile     Category = "tactile"     // Tactile executor, command execution
 	CategoryJIT         Category = "jit"         // JIT Prompt Compiler operations
+	CategoryBuild       Category = "build"       // Build environment and compilation
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
@@ -720,6 +721,26 @@ func JITWarn(format string, args ...interface{}) {
 // JITError logs error to the jit category
 func JITError(format string, args ...interface{}) {
 	Get(CategoryJIT).Error(format, args...)
+}
+
+// Build logs to the build category
+func Build(format string, args ...interface{}) {
+	Get(CategoryBuild).Info(format, args...)
+}
+
+// BuildDebug logs debug to the build category
+func BuildDebug(format string, args ...interface{}) {
+	Get(CategoryBuild).Debug(format, args...)
+}
+
+// BuildWarn logs warning to the build category
+func BuildWarn(format string, args ...interface{}) {
+	Get(CategoryBuild).Warn(format, args...)
+}
+
+// BuildError logs error to the build category
+func BuildError(format string, args ...interface{}) {
+	Get(CategoryBuild).Error(format, args...)
 }
 
 // =============================================================================
