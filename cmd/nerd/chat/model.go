@@ -63,6 +63,7 @@ const (
 	FilePickerView
 	UsageView
 	CampaignPage
+	PromptInspector // NEW: JIT Prompt Inspector
 )
 
 // InputMode represents the current input handling state.
@@ -137,6 +138,9 @@ type Model struct {
 	height    int
 	ready     bool
 	Config    *config.UserConfig
+	
+	// JIT Compiler (Observability)
+	jitCompiler *prompt.JITPromptCompiler
 
 	// Clarification Loop State (Pause/Resume Protocol)
 	awaitingClarification bool
@@ -446,6 +450,7 @@ type SystemComponents struct {
 	BrowserManager        *browser.SessionManager
 	BrowserCtxCancel      context.CancelFunc // Cancels browser manager goroutine
 	Workspace             string
+	JITCompiler           *prompt.JITPromptCompiler
 }
 
 // Init initializes the interactive chat model
@@ -557,6 +562,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Forward other keys (scrolling) to the page model
 			var cmd tea.Cmd
 			m.campaignPage, cmd = m.campaignPage.Update(msg)
+			return m, cmd
+		}
+
+			m.campaignPage, cmd = m.campaignPage.Update(msg)
+			return m, cmd
+		}
+
+		// Prompt Inspector Handling
+		if m.viewMode == PromptInspector {
+			// Exit on Esc/Q
+			if msg.String() == "esc" || msg.String() == "q" {
+				m.viewMode = ChatView
+				return m, nil
+			}
+			// Scroll handling (if we use viewport)
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 		}
 
@@ -707,6 +729,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.EnableMouseCellMotion
 				}
 				return m, tea.DisableMouse
+				return m, tea.DisableMouse
+			
+			case 'p':
+				// Toggle Prompt Inspector (Alt+P)
+				if m.viewMode == PromptInspector {
+					m.viewMode = ChatView
+				} else {
+					m.viewMode = PromptInspector
+					// Trigger content refresh for inspector
+					if m.jitCompiler != nil {
+						res := m.jitCompiler.GetLastResult()
+						if res != nil {
+							// Render manifest to viewport
+							// We'll need a helper function renderManifest(res)
+							// For now, simple textual dump
+							content := fmt.Sprintf("# JIT Prompt Inspector\n\nGenerated: %s\nTokens: %d (%.1f%% budget)\n\n## Included Atoms (%d)\n", 
+								time.Now().Format(time.RFC3339), res.TotalTokens, res.BudgetUsed*100, res.AtomsIncluded)
+							
+							for _, atom := range res.IncludedAtoms {
+								content += fmt.Sprintf("- [%s] %s (%d tokens)\n", atom.Category, atom.ID, atom.TokenCount)
+							}
+							
+							content += "\n## Prompt Preview\n\n```markdown\n" + res.Prompt + "\n```"
+							
+							// Use existing renderer
+							rendered, _ := m.renderer.Render(content)
+							m.viewport.SetContent(rendered)
+							m.viewport.GotoTop()
+						} else {
+							m.viewport.SetContent("No compilation result available yet.")
+						}
+					} else {
+						m.viewport.SetContent("JIT Compiler not available.")
+					}
+				}
+				return m, nil
 			}
 		}
 
@@ -1091,6 +1149,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			// Wire browser manager for graceful shutdown
 			m.browserMgr = c.BrowserManager
 			m.browserCtxCancel = c.BrowserCtxCancel
+			m.jitCompiler = c.JITCompiler
 		}
 
 		// Update textarea placeholder now that boot is complete
