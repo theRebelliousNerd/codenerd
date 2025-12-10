@@ -383,10 +383,11 @@ func (s *LocalStore) GetDB() *sql.DB {
 
 // VectorEntry represents a vector store entry.
 type VectorEntry struct {
-	ID        int64
-	Content   string
-	Metadata  map[string]interface{}
-	CreatedAt time.Time
+	ID         int64
+	Content    string
+	Metadata   map[string]interface{}
+	CreatedAt  time.Time
+	Similarity float64 // Cosine similarity score from vector search
 }
 
 // StoreVector stores content for semantic retrieval.

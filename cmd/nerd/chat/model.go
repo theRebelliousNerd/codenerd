@@ -184,6 +184,10 @@ type Model struct {
 	// Learning Store for Autopoiesis (§8.3)
 	learningStore *store.LearningStore
 
+	// Dream State Learning (§8.3.1) - Extracts learnings from multi-agent consultations
+	dreamCollector *core.DreamLearningCollector
+	dreamRouter    *core.DreamRouter
+
 	// Local knowledge database for research persistence
 	localDB *store.LocalStore
 
@@ -1220,6 +1224,10 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.browserMgr = c.BrowserManager
 			m.browserCtxCancel = c.BrowserCtxCancel
 			m.jitCompiler = c.JITCompiler
+
+			// Initialize Dream State learning collector and router (§8.3.1)
+			m.dreamCollector = core.NewDreamLearningCollector()
+			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
 		}
 
 		// Update textarea placeholder now that boot is complete
@@ -1446,6 +1454,16 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.triggerLearningLoop(input)
 	}
 
+	// Check for dream state learning confirmation (§8.3.1)
+	if m.dreamCollector != nil && isDreamConfirmation(input) {
+		return m.handleDreamLearningConfirmation(input)
+	}
+
+	// Check for dream state learning correction ("no, actually...", "wrong, we use...")
+	if m.dreamCollector != nil && isDreamCorrection(input) {
+		return m.handleDreamLearningCorrection(input)
+	}
+
 	// Process in background
 	return m, tea.Batch(
 		m.spinner.Tick,
@@ -1466,6 +1484,190 @@ func isNegativeFeedback(input string) bool {
 		}
 	}
 	return false
+}
+
+// isDreamConfirmation checks if user is confirming dream state learnings
+func isDreamConfirmation(input string) bool {
+	lower := strings.ToLower(input)
+	triggers := []string{
+		"correct!", "correct", "learn this", "learn that", "remember this",
+		"remember that", "yes, do that", "that's right", "exactly!",
+		"yes!", "perfect", "good approach", "sounds right",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDreamCorrection checks if user is correcting dream state learnings
+func isDreamCorrection(input string) bool {
+	lower := strings.ToLower(input)
+	triggers := []string{
+		"no, actually", "actually, we", "wrong, we", "instead, we",
+		"not that way", "we don't", "we always", "remember:",
+		"learn:", "actually:",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleDreamLearningConfirmation processes user confirmation of dream state learnings
+func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd) {
+	// Add user message to history
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: input,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+
+	// Confirm staged learnings
+	confirmed := m.dreamCollector.ConfirmLearnings(input)
+	if len(confirmed) == 0 {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "No pending learnings to confirm. Ask me a hypothetical first with phrases like \"what if\" or \"imagine\".",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.isLoading = false
+		return m, nil
+	}
+
+	// Route confirmed learnings to appropriate stores
+	results := m.dreamRouter.RouteLearnings(confirmed)
+
+	// Build response message
+	var sb strings.Builder
+	sb.WriteString("✅ **Learned from Dream State consultation:**\n\n")
+
+	successCount := 0
+	for _, r := range results {
+		if r.Success {
+			successCount++
+			// Find the learning to show what was learned
+			for _, l := range confirmed {
+				if l.ID == r.LearningID {
+					typeIcon := "📝"
+					switch l.Type {
+					case core.LearningTypeProcedural:
+						typeIcon = "📋"
+					case core.LearningTypeToolNeed:
+						typeIcon = "🔧"
+					case core.LearningTypeRiskPattern:
+						typeIcon = "⚠️"
+					case core.LearningTypePreference:
+						typeIcon = "⭐"
+					}
+					// Truncate long content
+					content := l.Content
+					if len(content) > 100 {
+						content = content[:100] + "..."
+					}
+					sb.WriteString(fmt.Sprintf("%s **%s** → %s\n   *%s*\n\n", typeIcon, l.Type, r.Destination, content))
+					break
+				}
+			}
+		}
+	}
+
+	if successCount > 0 {
+		sb.WriteString(fmt.Sprintf("I'll remember these %d insights for future tasks.", successCount))
+	}
+
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: sb.String(),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	m.isLoading = false
+	return m, nil
+}
+
+// handleDreamLearningCorrection processes user corrections to dream state learnings
+func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) {
+	// Add user message to history
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: input,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+
+	// Extract the correction content (everything after the trigger phrase)
+	correction := extractCorrectionContent(input)
+	if correction == "" {
+		correction = input
+	}
+
+	// Determine learning type from context
+	learningType := core.LearningTypePreference // Default to preference
+	lower := strings.ToLower(correction)
+	if strings.Contains(lower, "tool") || strings.Contains(lower, "command") || strings.Contains(lower, "script") {
+		learningType = core.LearningTypeToolNeed
+	} else if strings.Contains(lower, "risk") || strings.Contains(lower, "careful") || strings.Contains(lower, "never") {
+		learningType = core.LearningTypeRiskPattern
+	} else if strings.Contains(lower, "step") || strings.Contains(lower, "first") || strings.Contains(lower, "then") {
+		learningType = core.LearningTypeProcedural
+	}
+
+	// Learn the correction at high confidence
+	learning := m.dreamCollector.LearnCorrection(correction, learningType)
+
+	// Route to storage
+	results := m.dreamRouter.RouteLearnings([]*core.DreamLearning{learning})
+
+	var response string
+	if len(results) > 0 && results[0].Success {
+		response = fmt.Sprintf("✅ **Correction learned:**\n\n*%s*\n\n→ Stored in %s with high confidence (0.9)\n\nI'll apply this in future tasks.", correction, results[0].Destination)
+	} else {
+		response = fmt.Sprintf("✅ **Correction noted:**\n\n*%s*\n\nI'll remember this for future tasks.", correction)
+	}
+
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: response,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	m.isLoading = false
+	return m, nil
+}
+
+// extractCorrectionContent extracts the actual correction from user input
+func extractCorrectionContent(input string) string {
+	triggers := []string{
+		"no, actually", "actually, we", "wrong, we", "instead, we",
+		"not that way", "we don't", "we always", "remember:",
+		"learn:", "actually:",
+	}
+	lower := strings.ToLower(input)
+	for _, t := range triggers {
+		if idx := strings.Index(lower, t); idx != -1 {
+			// Return everything after the trigger
+			content := strings.TrimSpace(input[idx+len(t):])
+			if content != "" {
+				return content
+			}
+		}
+	}
+	return input
 }
 
 // triggerLearningLoop initiates the Ouroboros self-correction process
