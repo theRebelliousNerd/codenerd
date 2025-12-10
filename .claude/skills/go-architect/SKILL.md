@@ -891,9 +891,19 @@ func AddColumnIfNotExists(db *sql.DB, table, column, datatype string) error {
 }
 ```
 
-## Multi-Source Compilation Pattern
+## Multi-Source Compilation Pattern (JIT Prompt Compiler)
 
-Aggregate data from multiple sources with prioritized fallback.
+The JIT Prompt Compiler implements a **System 2 Architecture** for prompt engineering—moving from "Prompt String Concatenation" to a **JIT Linking Loader** with 50ms latency budget.
+
+### Architectural Principles
+
+| Principle | Implementation | Why It Matters |
+|-----------|----------------|----------------|
+| **Skeleton vs. Flesh** | Mandatory atoms (Mangle) + Optional atoms (Vector) | Prevents "Frankenstein Prompt" anti-pattern |
+| **Mangle as Gatekeeper** | Use Datalog for inference, Go for arithmetic | Mangle isn't a calculator—don't use `fn:mult` for scoring |
+| **Normalized Tags** | `atom_context_tags` link table | Zero JSON parsing overhead vs text columns |
+| **Atom Polymorphism** | `content`, `content_concise`, `content_min` | Graceful degradation under token pressure |
+| **Prompt Manifest** | Flight recorder for every compilation | Ouroboros can trace why atoms were included/excluded |
 
 ### JIT Compiler with Tiered Sources
 
@@ -960,10 +970,11 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 **Key Points:**
 
-- Load sources in priority order (embedded → project → shard)
-- Log warnings for failed sources, don't fail entire compilation
+- **Skeleton first**: Embedded corpus provides mandatory atoms (Identity, Safety, Protocol)—compilation fails if these are missing
+- **Flesh second**: Project/shard DBs provide contextual atoms—failures are warnings, not errors
+- **Graceful degradation**: Missing optional sources result in less helpful but still functional prompts
 - Use mutex protection when accessing shared DB maps
-- Graceful degradation when sources unavailable
+- Log warnings for failed sources, don't fail entire compilation
 
 ### Registering Dynamic Sources
 

@@ -325,6 +325,33 @@ Issues in internal/shards/coder/generation.go :: CoderSystemPrompt
 
 ## JIT Prompt Compiler Architecture
 
+### System 2 Architecture for Prompt Engineering
+
+The JIT Prompt Compiler is a **System 2 Architecture** applied to Prompt Engineering. It moves from "Prompt String Concatenation" to a **JIT Linking Loader** with a 50ms latency budget and high reliability guarantees.
+
+**Core Philosophy**: Prompts are not static text but **logic-derived assemblies** where the kernel selects the most relevant instruction atoms from a knowledge base based on current context dimensions.
+
+### The Skeleton vs. Flesh Split
+
+The biggest risk in dynamic prompt assembly is the **"Frankenstein Prompt"** anti-pattern—where 20 individually valid atoms assemble into an incoherent mess. The architecture prevents this by bifurcating selection into two distinct layers:
+
+| Layer | Source | Selection | Failure Mode |
+|-------|--------|-----------|--------------|
+| **Skeleton** (Deterministic) | Identity, Protocol, Safety, Methodology | Pure Mangle Logic | **Panic** - Cannot run without identity |
+| **Flesh** (Probabilistic) | Exemplars, Domain Knowledge, Previous Fixes | Vector Search + Mangle Filtering | Graceful degradation - prompt less helpful but safe |
+
+**Key Insight**: Safety constraints and Identity must be deterministic; Context can be fuzzy. If Skeleton atoms fail to load, the compiler **panics** (fail safe). If Flesh atoms fail, the prompt is simply less helpful but still safe and functional.
+
+### Architectural Hardening Features
+
+| Feature | Purpose | Implementation |
+|---------|---------|----------------|
+| **Normalized Context Tags** | Zero JSON parsing overhead | `atom_context_tags` link table instead of JSON columns |
+| **Description-Based Embedding** | Semantic retrieval via intent | Embed `description` field, not `content` |
+| **Atom Polymorphism** | Graceful token pressure handling | `content`, `content_concise`, `content_min` levels |
+| **Prompt Manifest** | Ouroboros debugging | Flight recorder logs atom selection rationale |
+| **Context Hashing** | Latency optimization | Cache Skeleton for repeated context hashes |
+
 ### Status: Phase 8 (Testing) - IN PROGRESS
 
 **Prompts as Compiled Binaries**: Instead of monolithic 20,000-character prompts, break them into atomic composable units. The system compiles the optimal prompt for each context dynamically using a 10-stage compilation pipeline.
