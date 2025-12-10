@@ -1,6 +1,7 @@
 package tester
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
@@ -61,7 +62,7 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 	}
 
 	// Build generation prompt
-	systemPrompt := t.buildTestGenSystemPrompt(framework)
+	systemPrompt := t.buildTestGenSystemPrompt(ctx, framework, task)
 	userPrompt := t.buildTestGenUserPrompt(sourceContent, task, framework)
 	logging.TesterDebug("Built prompts: system=%d chars, user=%d chars", len(systemPrompt), len(userPrompt))
 
@@ -117,11 +118,59 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 }
 
 // buildTestGenSystemPrompt builds the system prompt for test generation.
-// This uses the God Tier template for maximalist prompting.
-func (t *TesterShard) buildTestGenSystemPrompt(framework string) string {
-	// Get framework-specific cognitive model
-	frameworkModel := getFrameworkCognitiveModel(framework)
+// This uses the JIT prompt compiler when available, with the God Tier template as fallback.
+func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework string, task *TesterTask) string {
+	// Try to use PromptAssembler with JIT if kernel is available
+	if t.kernel != nil {
+		logging.TesterDebug("Attempting JIT prompt compilation for test generation")
 
+		// Create PromptAssembler
+		pa, err := articulation.NewPromptAssembler(t.kernel)
+		if err != nil {
+			logging.Get(logging.CategoryTester).Warn("Failed to create PromptAssembler: %v, using fallback template", err)
+		} else {
+			// Build PromptContext
+			pc := &articulation.PromptContext{
+				ShardID:   t.id,
+				ShardType: "tester",
+			}
+
+			// Add session context if available
+			if t.config.SessionContext != nil {
+				pc.SessionCtx = t.config.SessionContext
+			}
+
+			// Create a structured intent for test generation
+			if task != nil {
+				userIntent := &core.StructuredIntent{
+					ID:       fmt.Sprintf("test_gen_%d", time.Now().UnixNano()),
+					Category: "/mutation",
+					Verb:     "/generate_tests",
+					Target:   task.Target,
+				}
+				if task.Function != "" {
+					userIntent.Constraint = fmt.Sprintf("function=%s", task.Function)
+				}
+				pc.UserIntent = userIntent
+			}
+
+			// Try to assemble with JIT
+			prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+			if err != nil {
+				logging.Get(logging.CategoryTester).Warn("JIT prompt assembly failed: %v, using fallback template", err)
+			} else {
+				logging.TesterDebug("JIT prompt compiled successfully: %d bytes", len(prompt))
+				// Add framework-specific instructions to JIT-compiled prompt
+				frameworkInstructions := fmt.Sprintf("\n\n// Framework-specific instructions for %s:\n%s\n",
+					framework, getFrameworkCognitiveModel(framework))
+				return prompt + frameworkInstructions
+			}
+		}
+	}
+
+	// Fallback to legacy template
+	logging.TesterDebug("Using legacy template for test generation")
+	frameworkModel := getFrameworkCognitiveModel(framework)
 	return fmt.Sprintf(testerSystemPromptTemplate, framework, frameworkModel)
 }
 

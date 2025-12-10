@@ -1,0 +1,235 @@
+# Tool Refinement Atoms
+# These atoms guide the improvement of tools based on feedback
+
+- id: "ouroboros/refinement/feedback_analysis"
+  category: "ouroboros"
+  subcategory: "refinement"
+  priority: 70
+  is_mandatory: true
+  ouroboros_stages: ["/refinement"]
+  content: |
+    ## Feedback-Driven Refinement
+
+    You are improving an existing tool based on execution feedback.
+
+    ### Your Mission
+    Analyze execution patterns to identify recurring issues and generate improved code that fixes them.
+
+    ### Key Focus Areas
+    1. **PAGINATION** - Always fetch all pages, not just the first
+    2. **LIMITS** - Use maximum allowed limits, not defaults
+    3. **RETRIES** - Add exponential backoff for transient failures
+    4. **ERROR HANDLING** - Handle all error cases gracefully
+    5. **VALIDATION** - Validate inputs and outputs thoroughly
+
+    ### Common Anti-Patterns to Fix
+    - Only fetching first page of paginated results
+    - Using default limit (10) instead of max (100+)
+    - No retry logic for rate limits or network errors
+    - Missing error handling for edge cases
+    - Not checking for completeness of results
+
+- id: "ouroboros/refinement/pattern_detection"
+  category: "ouroboros"
+  subcategory: "refinement"
+  priority: 80
+  is_mandatory: true
+  ouroboros_stages: ["/refinement"]
+  depends_on: ["ouroboros/refinement/feedback_analysis"]
+  content: |
+    ## Recurring Pattern Detection
+
+    When analyzing feedback, look for:
+
+    ### Issue Patterns
+    - **Incomplete Data**: Output size consistently smaller than expected
+    - **Pagination Issues**: Only first page fetched (check for "page", "next", "cursor" in API)
+    - **Rate Limiting**: Errors mentioning "rate limit", "too many requests", "429"
+    - **Timeouts**: Errors about "timeout", "deadline exceeded"
+    - **Partial Failures**: Some items succeeded, others failed
+
+    ### Success Patterns
+    - Tools that handle pagination correctly fetch 5-10x more data
+    - Tools with retry logic have 90%+ success rate
+    - Tools with input validation fail fast on bad input
+    - Tools with proper error messages are easier to debug
+
+    ### Confidence Thresholds
+    - 1 occurrence: Possible issue (investigate)
+    - 2 occurrences: Likely issue (confidence 0.5)
+    - 3+ occurrences: Confirmed pattern (confidence 0.7+)
+
+- id: "ouroboros/refinement/improvement_strategies"
+  category: "ouroboros"
+  subcategory: "refinement"
+  priority: 70
+  is_mandatory: false
+  ouroboros_stages: ["/refinement"]
+  depends_on: ["ouroboros/refinement/pattern_detection"]
+  content: |
+    ## Improvement Strategies
+
+    ### For Pagination Issues
+    ```go
+    // Before: Only fetches first page
+    resp, err := http.Get(url)
+
+    // After: Fetches all pages
+    allItems := []Item{}
+    nextURL := initialURL
+    for nextURL != "" {
+        resp, err := http.Get(nextURL)
+        if err != nil {
+            return nil, fmt.Errorf("page fetch failed: %w", err)
+        }
+        var page PageResponse
+        json.Unmarshal(resp.Body, &page)
+        allItems = append(allItems, page.Items...)
+        nextURL = page.NextURL  // Continue until no more pages
+    }
+    ```
+
+    ### For Limit Issues
+    ```go
+    // Before: Uses default limit
+    url := fmt.Sprintf("api.example.com/items")
+
+    // After: Uses maximum limit
+    url := fmt.Sprintf("api.example.com/items?limit=100")  // Max allowed
+    ```
+
+    ### For Retry Issues
+    ```go
+    // Before: Single attempt
+    resp, err := http.Get(url)
+
+    // After: Exponential backoff retry
+    var resp *http.Response
+    for attempt := 0; attempt < 3; attempt++ {
+        resp, err = http.Get(url)
+        if err == nil {
+            break
+        }
+        if attempt < 2 {
+            time.Sleep(time.Duration(1<<attempt) * time.Second)  // 1s, 2s
+        }
+    }
+    ```
+
+    ### For Completeness Issues
+    ```go
+    // Before: No validation
+    return data, nil
+
+    // After: Validate completeness
+    if len(data) < expectedMinimum {
+        return data, fmt.Errorf("incomplete data: got %d items, expected at least %d",
+            len(data), expectedMinimum)
+    }
+    ```
+
+- id: "ouroboros/refinement/safety_violation_fixes"
+  category: "ouroboros"
+  subcategory: "refinement"
+  priority: 95
+  is_mandatory: true
+  ouroboros_stages: ["/refinement"]
+  content: |
+    ## Fixing Safety Violations
+
+    Your previous code had safety violations. You MUST fix these issues.
+
+    ### Violation: Forbidden Imports
+    **Fix Strategy**: Replace with safe alternatives
+    - `os/exec` → Use HTTP client or parse data directly
+    - `unsafe` → Use type-safe standard library functions
+    - `syscall` → Use `os` package functions
+
+    ### Violation: panic() Usage
+    **Fix Strategy**: Return errors instead
+    ```go
+    // Before
+    if input == "" {
+        panic("empty input")
+    }
+
+    // After
+    if input == "" {
+        return "", fmt.Errorf("input cannot be empty")
+    }
+    ```
+
+    ### Violation: Missing Context
+    **Fix Strategy**: Add context parameter and checking
+    ```go
+    // Before
+    func tool(input string) (string, error)
+
+    // After
+    func tool(ctx context.Context, input string) (string, error) {
+        select {
+        case <-ctx.Done():
+            return "", ctx.Err()
+        default:
+        }
+        // ... rest of function
+    }
+    ```
+
+    ### Violation: Goroutines Without Context
+    **Fix Strategy**: Pass context to goroutines
+    ```go
+    // Before
+    go func() {
+        // long operation
+    }()
+
+    // After
+    go func(ctx context.Context) {
+        select {
+        case <-ctx.Done():
+            return
+        default:
+        }
+        // long operation with ctx checking
+    }(ctx)
+    ```
+
+- id: "ouroboros/refinement/output_format"
+  category: "ouroboros"
+  subcategory: "refinement"
+  priority: 60
+  is_mandatory: false
+  ouroboros_stages: ["/refinement"]
+  content: |
+    ## Refinement Output Format
+
+    Return your refinement as JSON:
+    ```json
+    {
+      "improved_code": "full improved Go code here",
+      "changes": [
+        "Added pagination loop to fetch all pages",
+        "Increased limit from 10 to 100 (API maximum)",
+        "Added exponential backoff retry for rate limits"
+      ],
+      "expected_gain": 0.85,
+      "test_cases": [
+        "Verify all pages are fetched (not just first)",
+        "Verify limit parameter is set to 100",
+        "Verify retries on 429 rate limit error"
+      ]
+    }
+    ```
+
+    ### Field Descriptions
+    - **improved_code**: Complete, compilable Go code with all fixes applied
+    - **changes**: List of specific improvements made (be specific!)
+    - **expected_gain**: Estimated quality improvement (0.0-1.0 scale)
+    - **test_cases**: How to verify the improvements work
+
+    ### Expected Gain Guidelines
+    - 0.9-1.0: Major fix (pagination added, retry logic added)
+    - 0.7-0.8: Significant improvement (better error handling, validation)
+    - 0.5-0.6: Moderate improvement (minor fixes, optimizations)
+    - 0.2-0.4: Small improvement (code cleanup, better comments)

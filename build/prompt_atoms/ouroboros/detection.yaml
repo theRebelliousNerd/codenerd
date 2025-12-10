@@ -1,0 +1,65 @@
+# Tool Need Detection Atoms
+# These atoms guide the detection of when new tools are needed
+
+- id: "ouroboros/detection/capability_gap_analysis"
+  category: "ouroboros"
+  subcategory: "detection"
+  priority: 70
+  is_mandatory: false
+  ouroboros_stages: ["/detection"]
+  content: |
+    ## Capability Gap Detection
+
+    When analyzing whether a new tool is needed, consider:
+
+    ### Positive Indicators
+    - User expresses inability: "can't", "cannot", "is there a way to"
+    - Request for missing functionality: "I need a tool to", "I want to"
+    - Failed attempt: Previous operation failed due to missing capability
+    - Recurring pattern: Same type of request appears multiple times
+
+    ### Existing Tool Check
+    Before recommending a new tool, verify:
+    - No existing tool covers this capability
+    - Existing tools cannot be composed to achieve the goal
+    - The capability gap is significant enough to warrant a new tool
+
+    ### Tool Type Classification
+    Classify the needed tool type:
+    - **validator**: Checks if data is valid (JSON, YAML, config, schema)
+    - **converter**: Transforms data from one format to another
+    - **parser**: Extracts structured data from unstructured input
+    - **analyzer**: Finds patterns or insights in data
+    - **formatter**: Pretty-prints or formats data for display
+
+- id: "ouroboros/detection/confidence_calibration"
+  category: "ouroboros"
+  subcategory: "detection"
+  priority: 60
+  is_mandatory: false
+  ouroboros_stages: ["/detection"]
+  depends_on: ["ouroboros/detection/capability_gap_analysis"]
+  content: |
+    ## Confidence Calibration
+
+    Set confidence scores based on signal strength:
+
+    ### High Confidence (0.8-1.0)
+    - Explicit user request: "create a tool that does X"
+    - Failed attempt with clear error indicating missing capability
+    - Kernel delegation via Mangle facts (authoritative)
+
+    ### Medium Confidence (0.5-0.7)
+    - Implicit request: "I wish there was a way to"
+    - Pattern-based detection from user input
+    - Multiple similar requests suggesting need
+
+    ### Low Confidence (0.2-0.4)
+    - Weak pattern match
+    - Ambiguous user input
+    - Capability might exist but isn't obvious
+
+    ### Priority Weighting
+    - Critical path blocking: Priority = 1.0
+    - Nice-to-have enhancement: Priority = 0.5
+    - Exploratory/optional: Priority = 0.3

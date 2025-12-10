@@ -1,0 +1,64 @@
+# Init Phase 7a: Shared Knowledge Pool Creation
+# This atom guides creation of common knowledge shared by all agents
+
+- id: "init/kb_shared/creation"
+  category: "init"
+  subcategory: "kb_shared"
+  priority: 75
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/shared_kb"]
+  content: |
+    You are creating the shared knowledge pool - common concepts that all agents need.
+
+    ## Shared Knowledge Scope
+    The shared pool contains foundational knowledge that applies across all domain specialists:
+    - Software engineering fundamentals
+    - Common design patterns
+    - Testing best practices
+    - Version control conventions
+    - Security principles
+
+    ## Knowledge Atom Structure
+    Each atom has:
+    - Concept: Category/topic (e.g., "design_pattern", "testing_principle")
+    - Content: The actual knowledge (1-3 paragraphs)
+    - Confidence: How certain we are (0.0-1.0)
+    - Source: Where this came from (optional)
+
+    ## Research Topics for Shared Pool
+    1. **Software Design Patterns**
+       - SOLID principles
+       - Common GoF patterns
+       - Architectural patterns (MVC, layered, hexagonal)
+
+    2. **Testing Fundamentals**
+       - Unit vs integration vs e2e testing
+       - Test pyramid concept
+       - Mocking and stubbing approaches
+
+    3. **Code Quality**
+       - DRY, KISS, YAGNI principles
+       - Code smell identification
+       - Refactoring techniques
+
+    4. **Version Control**
+       - Git workflow patterns
+       - Commit message conventions
+       - Branch strategies
+
+    5. **Security Basics**
+       - OWASP Top 10 awareness
+       - Input validation principles
+       - Secure defaults concept
+
+    ## Quality Over Quantity
+    - Aim for 20-30 high-quality atoms
+    - Each atom should be actionable and practical
+    - Avoid abstract theory - focus on applied knowledge
+    - Keep atoms concise (200-500 words each)
+
+    ## Avoid Redundancy
+    - Don't duplicate language-specific knowledge (that goes in specialist agents)
+    - Don't include project-specific details (that goes in codebase KB)
+    - Focus on universal, timeless principles

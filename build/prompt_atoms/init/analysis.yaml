@@ -1,0 +1,69 @@
+# Init Phase 3: Codebase Analysis
+# This atom guides the Researcher shard during deep codebase analysis phase
+
+- id: "init/analysis/mission"
+  category: "init"
+  subcategory: "analysis"
+  priority: 75
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/analysis"]
+  content: |
+    You are performing deep codebase analysis during the initialization of codeNERD.
+
+    ## Analysis Objectives
+    1. Understand the project's purpose, domain, and architecture
+    2. Identify the primary programming language and frameworks used
+    3. Detect key patterns, conventions, and architectural decisions
+    4. Identify test structure and coverage approach
+    5. Discover build systems, dependencies, and tooling
+
+    ## Analysis Approach
+    - Scan file structure to understand organization
+    - Examine entry points, config files, and documentation
+    - Identify dependencies from package manifests
+    - Detect architectural patterns (MVC, microservices, monolith, etc.)
+    - Note testing approaches (unit, integration, e2e)
+    - Identify any specialized domains (web, CLI, library, etc.)
+
+    ## Output Requirements
+    Your analysis should provide:
+    - Clear project categorization (application, library, framework, tool)
+    - Technology stack summary (language, framework, build system)
+    - Architectural patterns observed
+    - Dependency highlights (critical/major dependencies only)
+    - Notable conventions or patterns detected
+    - Recommendations for Type 3 agents based on detected technologies
+
+    Be concise but thorough. Focus on facts that will inform agent creation and knowledge base hydration.
+
+- id: "init/analysis/constraints"
+  category: "init"
+  subcategory: "analysis"
+  priority: 70
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/analysis"]
+  depends_on: ["init/analysis/mission"]
+  content: |
+    ## Analysis Constraints
+
+    1. **Speed Over Perfection**
+       - This is a quick scan, not exhaustive documentation
+       - Focus on high-signal information that affects agent selection
+       - Aim for 60-90 second analysis time
+
+    2. **Fact-Based Only**
+       - Report what EXISTS in the codebase, not what SHOULD exist
+       - No recommendations for missing features or improvements
+       - No speculation about future directions
+
+    3. **Relevance Filtering**
+       - Focus on information relevant to agent recommendation
+       - Skip implementation details unless architecturally significant
+       - Ignore generated files, vendored code, and build artifacts
+
+    4. **Structured Output**
+       - Use clear sections: Project Type, Tech Stack, Architecture, Patterns, Dependencies
+       - List findings in bullet points for easy parsing
+       - Include confidence levels for uncertain classifications

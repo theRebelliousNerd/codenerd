@@ -1,0 +1,155 @@
+# Safety Check Atoms
+# These atoms define safety requirements and forbidden patterns
+
+- id: "ouroboros/safety/critical_requirements"
+  category: "ouroboros"
+  subcategory: "safety"
+  priority: 100
+  is_mandatory: true
+  ouroboros_stages: ["/specification", "/refinement"]
+  content: |
+    ## CRITICAL SAFETY REQUIREMENTS
+
+    These are non-negotiable. Violation will cause tool rejection.
+
+    ### Forbidden Imports
+    Do NOT use these unsafe imports:
+    - `unsafe` - Memory safety violations
+    - `syscall` - Direct system calls
+    - `runtime/cgo` - CGO foreign function interface
+    - `plugin` - Dynamic plugin loading
+    - `os/exec` - Command execution (unless explicitly allowed)
+
+    ### Forbidden Patterns
+    Do NOT use these patterns:
+    - `panic()` - Return errors instead
+    - `os.Exit()` - Return errors instead
+    - `log.Fatal()` or `log.Fatalf()` - Return errors instead
+    - Goroutines without context - Always pass cancelable context
+
+    ### Required Patterns
+    DO use these patterns:
+    - Error returns: `return err` or `return fmt.Errorf("context: %w", err)`
+    - Context checking: `select { case <-ctx.Done(): return ctx.Err(); default: }`
+    - Guard clauses: Early returns for error cases
+    - Defensive validation: Check inputs at boundaries
+
+- id: "ouroboros/safety/allowed_packages"
+  category: "ouroboros"
+  subcategory: "safety"
+  priority: 80
+  is_mandatory: true
+  ouroboros_stages: ["/specification", "/refinement"]
+  depends_on: ["ouroboros/safety/critical_requirements"]
+  content: |
+    ## Allowed Packages
+
+    Use only explicitly allowed packages (unless networking/filesystem is enabled):
+
+    ### Standard Library - Core
+    - `context` - Context for cancellation
+    - `errors` - Error handling
+    - `fmt` - Formatting
+    - `strings` - String manipulation
+    - `bytes` - Byte manipulation
+    - `io` - I/O interfaces
+    - `regexp` - Regular expressions
+    - `time` - Time handling
+    - `strconv` - String conversions
+    - `unicode/utf8` - UTF-8 utilities
+
+    ### Standard Library - Data Encoding
+    - `encoding/json` - JSON encoding/decoding
+    - `encoding/xml` - XML encoding/decoding
+    - `encoding/csv` - CSV encoding/decoding
+    - `encoding/base64` - Base64 encoding
+    - `encoding/hex` - Hex encoding
+
+    ### Standard Library - Conditional (Based on Config)
+    - `net/http` - HTTP client (if networking allowed)
+    - `net/url` - URL parsing (if networking allowed)
+    - `os` - File operations (if filesystem allowed)
+    - `path/filepath` - Path operations (if filesystem allowed)
+
+    ### Safe Pattern for Conditionally Allowed
+    If you need networking or filesystem:
+    - Document why it's necessary in comments
+    - Use timeouts and context cancellation
+    - Handle errors gracefully
+    - Validate all external input
+
+- id: "ouroboros/safety/error_handling_mandates"
+  category: "ouroboros"
+  subcategory: "safety"
+  priority: 90
+  is_mandatory: true
+  ouroboros_stages: ["/specification", "/refinement"]
+  depends_on: ["ouroboros/safety/critical_requirements"]
+  content: |
+    ## Error Handling Mandates
+
+    ### Every Error Must Be Handled
+    - Never ignore errors with `_ = someFunc()`
+    - Always check error returns: `if err != nil { return err }`
+    - Wrap errors with context: `fmt.Errorf("operation failed: %w", err)`
+
+    ### Error Types
+    Create custom error types for domain-specific failures:
+    ```go
+    type ValidationError struct {
+        Field   string
+        Message string
+        Value   interface{}
+    }
+
+    func (e ValidationError) Error() string {
+        return fmt.Sprintf("%s: %s (got: %v)", e.Field, e.Message, e.Value)
+    }
+    ```
+
+    ### Error Context
+    Include useful context in errors:
+    - What operation was being performed
+    - What input caused the error
+    - What was expected vs. what was found
+
+    ### Error Recovery
+    - Use guard clauses for early returns
+    - Clean up resources in defer if needed
+    - Return partial results with error if appropriate
+    - Never swallow errors silently
+
+- id: "ouroboros/safety/static_analysis_checks"
+  category: "ouroboros"
+  subcategory: "safety"
+  priority: 70
+  is_mandatory: false
+  ouroboros_stages: ["/safety_check"]
+  content: |
+    ## Static Analysis Checks
+
+    After generation, code will be analyzed for:
+
+    ### Import Violations
+    - Forbidden imports (unsafe, syscall, etc.)
+    - Unnecessary imports (imported but not used)
+    - Missing imports (used but not imported)
+
+    ### Function Violations
+    - Use of panic() without recover()
+    - Use of os.Exit() or log.Fatal()
+    - Goroutines without context parameter
+    - Functions without error returns
+
+    ### Code Quality Issues
+    - Missing package declaration
+    - No exported functions (for library tools)
+    - Empty function bodies
+    - Unreachable code
+    - Unused variables
+
+    ### Best Practices
+    - Context cancellation checking
+    - Error wrapping with %w
+    - Input validation
+    - Reasonable limits (size, timeout, etc.)

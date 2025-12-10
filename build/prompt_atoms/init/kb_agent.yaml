@@ -1,0 +1,145 @@
+# Init Phase 7b: Agent-Specific Knowledge Base Creation
+# This atom guides research and KB hydration for individual Type 3 agents
+
+- id: "init/kb_agent/research"
+  category: "init"
+  subcategory: "kb_agent"
+  priority: 75
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation"]
+  content: |
+    You are researching and hydrating a knowledge base for a specific Type 3 agent.
+
+    ## Agent KB Purpose
+    Each agent's KB contains specialist knowledge for their domain:
+    - Language idioms and best practices
+    - Framework-specific patterns and conventions
+    - Common pitfalls and how to avoid them
+    - Library/API usage examples
+    - Performance optimization techniques
+    - Security considerations for that domain
+
+    ## Research Strategy
+    1. **Context7 Priority**
+       - Use Context7 API for LLM-optimized documentation when available
+       - Context7 provides high-quality, structured knowledge
+       - Fallback to web search only if Context7 unavailable
+
+    2. **Concept-Aware Research**
+       - Analyze existing atoms to avoid redundancy
+       - Skip topics already covered with sufficient depth
+       - Focus on gaps in current knowledge
+
+    3. **Graceful Degradation**
+       - If Context7 fails, try web search
+       - If web search fails, use model's training knowledge
+       - Always prefer authoritative sources over speculation
+
+    ## Knowledge Quality Targets
+    - **Excellent (90-100%)**: Comprehensive coverage from authoritative sources
+    - **Good (75-89%)**: Solid coverage with some gaps
+    - **Adequate (60-74%)**: Basic coverage, usable but incomplete
+    - **Needs Improvement (<60%)**: Significant gaps, recommend re-research
+
+    ## Research Topics
+    You'll receive 3-5 specific topics to research for this agent.
+    For each topic:
+    - Research official documentation first
+    - Include practical examples and use cases
+    - Note version-specific information when relevant
+    - Capture common gotchas and anti-patterns
+
+    ## Atom Generation
+    Generate 10-30 knowledge atoms per agent:
+    - Start with 2-3 identity atoms (who this agent is, what they know)
+    - Add 8-25 specialist knowledge atoms (the actual expertise)
+    - Include cross-references to related concepts
+    - Tag atoms with confidence scores
+
+    ## Constraints
+    - Complete research in 90-120 seconds per agent
+    - Prioritize breadth over depth (overview > exhaustive detail)
+    - Focus on actionable knowledge (what the agent needs to DO)
+    - Avoid tutorial-style content (assume technical competence)
+
+- id: "init/kb_agent/quality"
+  category: "init"
+  subcategory: "kb_agent"
+  priority: 70
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation"]
+  depends_on: ["init/kb_agent/research"]
+  content: |
+    ## Knowledge Base Quality Assurance
+
+    ### Coverage Assessment
+    After researching each topic:
+    - Verify all requested topics have knowledge atoms
+    - Check for balance (no single topic dominates)
+    - Ensure foundational concepts are present
+    - Identify any critical gaps
+
+    ### Content Quality
+    Each atom should:
+    - Be factually accurate (cite sources when possible)
+    - Be concise but complete (no fluff, no missing context)
+    - Be actionable (agent can apply this knowledge)
+    - Be current (avoid deprecated practices)
+
+    ### Version Awareness
+    - Note which language/framework versions knowledge applies to
+    - Flag breaking changes between major versions
+    - Include migration guidance for version upgrades when relevant
+
+    ### Anti-Pattern Detection
+    Include "what NOT to do" knowledge:
+    - Common mistakes in this domain
+    - Deprecated patterns to avoid
+    - Security pitfalls specific to this technology
+    - Performance anti-patterns
+
+    ### Quality Metrics
+    Report quality score based on:
+    - Topic coverage: Did we cover all requested topics?
+    - Source quality: Did we use authoritative sources?
+    - Depth: Is the knowledge actionable and complete?
+    - Relevance: Is this knowledge useful for code generation?
+
+    A quality score below 75% should trigger a warning.
+
+- id: "init/kb_agent/storage"
+  category: "init"
+  subcategory: "kb_agent"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/kb_creation"]
+  content: |
+    ## Knowledge Storage Strategy
+
+    ### Deduplication
+    - Compute content hash for each atom before storage
+    - Skip atoms that duplicate existing knowledge
+    - Track skipped duplicates for reporting
+
+    ### Semantic Organization
+    - Use clear concept categories (e.g., "best_practice", "idiom", "anti_pattern")
+    - Tag atoms with relevant keywords for retrieval
+    - Link related atoms via concept hierarchies
+
+    ### Embedding Preparation
+    - Store atoms in SQLite with sqlite-vec support
+    - Generate embeddings for semantic search
+    - Index by concept, content, and metadata
+
+    ### Upgrade Mode
+    - When upgrading existing KB, preserve user-added atoms
+    - Add only new knowledge not already present
+    - Track before/after counts for transparency
+
+    ### Validation
+    - Verify atoms are well-formed before storage
+    - Check confidence scores are in valid range (0.0-1.0)
+    - Ensure concept names are consistent and normalized

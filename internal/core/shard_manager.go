@@ -5,6 +5,8 @@ import (
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -259,6 +261,22 @@ type ShardAgent interface {
 
 // ShardFactory is a function that creates a new shard instance.
 type ShardFactory func(id string, config ShardConfig) ShardAgent
+
+// PromptLoaderFunc is a callback for loading agent prompts from YAML files.
+// Parameters: ctx, agentName, nerdDir
+// Returns: number of atoms loaded, error
+type PromptLoaderFunc func(context.Context, string, string) (int, error)
+
+// JITDBRegistrar is a callback for registering agent knowledge DBs with the JIT prompt compiler.
+// This allows the JIT compiler to load prompt atoms from agent-specific databases.
+// Parameters: agentName, dbPath
+// Returns: error if registration fails
+type JITDBRegistrar func(agentName string, dbPath string) error
+
+// JITDBUnregistrar is a callback for unregistering agent knowledge DBs from the JIT prompt compiler.
+// This is called when a shard is deactivated to close the DB connection and free resources.
+// Parameters: agentName (the shard type name, not the instance ID)
+type JITDBUnregistrar func(agentName string)
 
 // =============================================================================
 // BASE IMPLEMENTATION
@@ -531,15 +549,23 @@ type ShardManager struct {
 
 	// Session context for tracing
 	sessionID string
+
+	// Workspace paths and callbacks for prompt loading
+	nerdDir        string            // Path to .nerd directory
+	promptLoader   PromptLoaderFunc  // Callback to load agent prompts (avoids import cycle)
+	jitRegistrar   JITDBRegistrar    // Callback to register agent DBs with JIT compiler
+	jitUnregistrar JITDBUnregistrar  // Callback to unregister agent DBs when shard deactivates
+	activeJITDBs   map[string]string // Tracks which shards have registered JIT DBs (shardID -> typeName)
 }
 
 func NewShardManager() *ShardManager {
 	logging.Shards("Creating new ShardManager")
 	sm := &ShardManager{
-		shards:    make(map[string]ShardAgent),
-		results:   make(map[string]ShardResult),
-		profiles:  make(map[string]ShardConfig),
-		factories: make(map[string]ShardFactory),
+		shards:       make(map[string]ShardAgent),
+		results:      make(map[string]ShardResult),
+		profiles:     make(map[string]ShardConfig),
+		factories:    make(map[string]ShardFactory),
+		activeJITDBs: make(map[string]string),
 	}
 	logging.ShardsDebug("ShardManager initialized with empty maps")
 	return sm
@@ -582,6 +608,38 @@ func (sm *ShardManager) SetSessionID(sessionID string) {
 	defer sm.mu.Unlock()
 	sm.sessionID = sessionID
 	logging.ShardsDebug("Session ID set: %s", sessionID)
+}
+
+func (sm *ShardManager) SetNerdDir(nerdDir string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.nerdDir = nerdDir
+	logging.ShardsDebug("Nerd directory set: %s", nerdDir)
+}
+
+func (sm *ShardManager) SetPromptLoader(loader PromptLoaderFunc) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.promptLoader = loader
+	logging.ShardsDebug("Prompt loader callback set")
+}
+
+// SetJITRegistrar sets the callback for registering agent DBs with the JIT prompt compiler.
+// This enables the JIT compiler to access agent-specific prompt atoms during compilation.
+func (sm *ShardManager) SetJITRegistrar(registrar JITDBRegistrar) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.jitRegistrar = registrar
+	logging.ShardsDebug("JIT registrar callback set")
+}
+
+// SetJITUnregistrar sets the callback for unregistering agent DBs from the JIT prompt compiler.
+// This is called when shards are deactivated to close DB connections and free resources.
+func (sm *ShardManager) SetJITUnregistrar(unregistrar JITDBUnregistrar) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.jitUnregistrar = unregistrar
+	logging.ShardsDebug("JIT unregistrar callback set")
 }
 
 // categorizeShardType determines the shard category based on type name and config.
@@ -1107,6 +1165,47 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	logging.Shards("SpawnAsyncWithContext: creating shard instance id=%s", id)
 	agent := factory(id, config)
 
+	// Load prompt atoms for Type B (Persistent) and Type U (User-defined) shards
+	// Uses callback to avoid import cycle with internal/prompt package
+	if (config.Type == ShardTypePersistent || config.Type == ShardTypeUser) && sm.nerdDir != "" && sm.promptLoader != nil {
+		promptsPath := filepath.Join(sm.nerdDir, "agents", typeName, "prompts.yaml")
+
+		// Check if prompts.yaml exists
+		if _, err := os.Stat(promptsPath); err == nil {
+			logging.ShardsDebug("SpawnAsyncWithContext: loading prompt atoms for %s from %s", typeName, promptsPath)
+
+			// Load prompt atoms via callback (embeddings are skipped by the callback for speed)
+			count, loadErr := sm.promptLoader(ctx, typeName, sm.nerdDir)
+			if loadErr != nil {
+				// Log warning but continue - not a fatal error
+				logging.Get(logging.CategoryShards).Warn("SpawnAsyncWithContext: failed to load prompts for %s: %v", typeName, loadErr)
+			} else if count > 0 {
+				logging.Shards("SpawnAsyncWithContext: loaded %d prompt atoms for %s", count, typeName)
+			} else {
+				logging.ShardsDebug("SpawnAsyncWithContext: no prompt atoms loaded for %s", typeName)
+			}
+		} else {
+			logging.ShardsDebug("SpawnAsyncWithContext: no prompts.yaml found for %s", typeName)
+		}
+	}
+
+	// Register agent's knowledge DB with JIT prompt compiler
+	// This allows the JIT compiler to load prompt_atoms from the agent's unified knowledge.db
+	if (config.Type == ShardTypePersistent || config.Type == ShardTypeUser) && sm.nerdDir != "" && sm.jitRegistrar != nil {
+		dbPath := filepath.Join(sm.nerdDir, "shards", fmt.Sprintf("%s_knowledge.db", strings.ToLower(typeName)))
+		if _, statErr := os.Stat(dbPath); statErr == nil {
+			if regErr := sm.jitRegistrar(typeName, dbPath); regErr != nil {
+				logging.Get(logging.CategoryShards).Warn("SpawnAsyncWithContext: failed to register JIT DB for %s: %v", typeName, regErr)
+			} else {
+				logging.ShardsDebug("SpawnAsyncWithContext: registered JIT DB for %s at %s", typeName, dbPath)
+				// Track that this shard instance has a registered JIT DB for cleanup
+				sm.activeJITDBs[id] = typeName
+			}
+		} else {
+			logging.ShardsDebug("SpawnAsyncWithContext: no knowledge DB found for %s at %s", typeName, dbPath)
+		}
+	}
+
 	// Assert active_shard for spreading activation rules
 	// This allows policy.mg rules to derive injectable_context atoms based on which shard is running
 	// The assertion happens BEFORE execution so context can be gathered during shard initialization
@@ -1217,6 +1316,15 @@ func (sm *ShardManager) recordResult(id string, result string, err error) {
 	// Clean up shard
 	delete(sm.shards, id)
 	logging.ShardsDebug("recordResult: shard %s removed from active shards (remaining: %d)", id, len(sm.shards))
+
+	// Unregister JIT DB if this shard had one registered
+	if typeName, hasJITDB := sm.activeJITDBs[id]; hasJITDB {
+		delete(sm.activeJITDBs, id)
+		if sm.jitUnregistrar != nil {
+			sm.jitUnregistrar(typeName)
+			logging.ShardsDebug("recordResult: unregistered JIT DB for shard %s (type: %s)", id, typeName)
+		}
+	}
 
 	sm.results[id] = ShardResult{
 		ShardID:   id,

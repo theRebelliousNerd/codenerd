@@ -1,0 +1,49 @@
+# Init Phase 5: Mangle Facts Generation
+# This atom guides Mangle fact generation from project profile
+
+- id: "init/facts/generation"
+  category: "init"
+  subcategory: "facts"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/facts"]
+  content: |
+    You may be consulted during Mangle facts generation from the project profile.
+
+    ## Mangle Facts Overview
+    Facts are ground-truth assertions in Datalog format that seed the kernel's knowledge.
+
+    ## Fact Categories
+    1. **Project Metadata**
+       - project_profile(ProjectID, Name, Description)
+       - project_created_at(ProjectID, Timestamp)
+
+    2. **Technical Stack**
+       - project_language(Language)
+       - project_framework(Framework)
+       - build_system(System)
+
+    3. **Architecture**
+       - architectural_pattern(Pattern)
+       - project_type(Type)
+
+    4. **Structure**
+       - entry_point(Path)
+       - test_directory(Path)
+       - config_file(Path)
+
+    5. **Dependencies**
+       - dependency(Name, Version, Type)
+       - dependency_major_version(Name, MajorVersion)
+
+    ## Fact Quality
+    - All string values must be Mangle name constants (/lowercase_underscore)
+    - Paths should be relative to workspace root
+    - Versions should be sanitized (1.2.3 → v1_2_3)
+    - Avoid duplicates and ensure each fact is unique
+
+    ## Safety
+    - Never include sensitive data (API keys, credentials, secrets)
+    - Skip user-specific paths that won't apply to other machines
+    - Ensure facts are deterministic and reproducible

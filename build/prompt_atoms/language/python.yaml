@@ -1,0 +1,109 @@
+# Python Language Prompt Atoms
+# Language-specific guidance for writing idiomatic Python code
+
+- id: "language/python/fundamentals"
+  category: "language"
+  subcategory: "python"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/python"]
+  content: |
+    ## Python Language Fundamentals
+
+    ### Type Hints (Python 3.9+)
+    - Use type hints for function signatures: `def process(data: str) -> dict[str, Any]:`
+    - Import types from `typing`: `Optional`, `Union`, `TypeVar`, `Protocol`
+    - Use `from __future__ import annotations` for forward references
+    - Use `mypy` or `pyright` for static type checking
+
+    ### Error Handling
+    - Catch specific exceptions, not bare `except:`
+    - Use `raise ... from err` to preserve exception chain
+    - Create custom exceptions inheriting from built-in types
+    - Use context managers (`with`) for resource management
+
+    ### Async/Await Patterns
+    - Use `async def` for coroutines, `await` for async calls
+    - Use `asyncio.gather()` for concurrent tasks
+    - Don't mix sync and async without `asyncio.run()` or event loop
+    - Use `aiofiles`, `httpx`, etc. for async I/O
+
+    ### Pythonic Patterns
+    - List comprehensions over `map()`/`filter()` when readable
+    - Generator expressions for memory efficiency
+    - Use `enumerate()` instead of manual indexing
+    - Use `zip()` for parallel iteration
+
+- id: "language/python/idioms"
+  category: "language"
+  subcategory: "python"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/python"]
+  content: |
+    ## Python Idioms and Best Practices
+
+    ### Code Organization
+    - Follow PEP 8 style guide (use `black` formatter)
+    - Module names: lowercase_with_underscores
+    - Class names: PascalCase
+    - Functions/variables: snake_case
+    - Constants: UPPER_SNAKE_CASE
+
+    ### Data Structures
+    - Use `dataclasses` for simple data containers
+    - Use `NamedTuple` for immutable records
+    - Use `dict.get(key, default)` over manual `if key in dict`
+    - Use `collections.defaultdict` for grouping operations
+    - Use `collections.Counter` for counting
+
+    ### Context Managers
+    - Always use `with` for files: `with open(path) as f:`
+    - Create custom context managers with `@contextmanager` or `__enter__`/`__exit__`
+    - Use `contextlib.suppress()` for expected exceptions
+
+    ### Common Pitfalls
+    - Mutable default arguments: use `None` and initialize in function
+    - Late binding in closures: capture with default arg `lambda x=x: ...`
+    - Global state: avoid or use `global`/`nonlocal` explicitly
+    - String concatenation in loops: use `''.join()` instead
+
+- id: "language/python/packaging"
+  category: "language"
+  subcategory: "python"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/python"]
+  content: |
+    ## Python Packaging and Tooling
+
+    ### Project Structure
+    ```
+    project/
+    ├── src/package/       # Source code
+    ├── tests/             # Test files
+    ├── pyproject.toml     # Build config (PEP 621)
+    ├── README.md
+    └── .gitignore
+    ```
+
+    ### Dependency Management
+    - Use `pyproject.toml` for modern projects
+    - Pin versions in `requirements.txt` or `poetry.lock`
+    - Use virtual environments: `python -m venv venv`
+    - Separate dev dependencies from production
+
+    ### Testing
+    - Use `pytest` over `unittest` for new projects
+    - Fixtures for setup/teardown: `@pytest.fixture`
+    - Parametrize tests: `@pytest.mark.parametrize()`
+    - Use `pytest-cov` for coverage reports
+
+    ### Code Quality
+    - Format with `black` (opinionated)
+    - Lint with `ruff` (fast) or `pylint` (comprehensive)
+    - Type check with `mypy` or `pyright`
+    - Sort imports with `isort`

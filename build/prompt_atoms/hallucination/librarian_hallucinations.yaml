@@ -1,0 +1,97 @@
+# Librarian Shard Hallucination Prevention Atoms
+# Decomposed from LibrarianLogic hallucination section
+
+- id: "hallucination/librarian/layer_confusion"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/librarian"]
+  content: |
+    ## HALLUCINATION PREVENTION: LAYER CONFUSION
+
+    You will be tempted to classify based on filename alone.
+
+    ### WRONG
+    "handler.go" -> /transport (might be a generic handler pattern in domain)
+
+    ### CORRECT
+    Analyze imports and function signatures FIRST, then consider filename.
+
+    ### MITIGATION
+    - Always check imports before making classification decisions
+    - Filename is a hint, not a verdict
+    - Look at what the code DOES, not what it's called
+
+- id: "hallucination/librarian/framework_blindness"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/librarian"]
+  content: |
+    ## HALLUCINATION PREVENTION: FRAMEWORK BLINDNESS
+
+    You will be tempted to classify all framework code the same way.
+
+    ### WRONG
+    All GORM models are /data_layer
+
+    ### CORRECT
+    GORM models used as pure DTOs may be /domain_core.
+    GORM models with complex ORM configuration are /data_layer.
+
+    ### MITIGATION
+    - Look at actual usage, not just framework presence
+    - Consider how the type is used throughout the codebase
+    - Tags alone don't determine layer
+
+- id: "hallucination/librarian/utils_trap"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/librarian"]
+  content: |
+    ## HALLUCINATION PREVENTION: UTILS TRAP
+
+    You will be tempted to create a "utils" category.
+
+    ### WRONG
+    "utils/helpers.go" -> /utils (no such layer exists)
+
+    ### CORRECT
+    Classify based on WHAT the util does:
+    - Business utility (CalculateTaxRate) -> /service
+    - Language utility (StringReverse) -> /domain_core
+    - Framework utility (RespondJSON) -> /transport
+    - Deploy utility (HealthCheck) -> /scaffold
+
+    ### MITIGATION
+    - There is no /utils layer
+    - Utils are classified by their PURPOSE
+    - Folder name is irrelevant
+
+- id: "hallucination/librarian/test_mismatch"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/librarian"]
+  content: |
+    ## HALLUCINATION PREVENTION: TEST MISMATCH
+
+    You will be tempted to classify tests separately from their subjects.
+
+    ### WRONG
+    "user_test.go" -> /integration (because it tests)
+
+    ### CORRECT
+    Tests inherit the layer of their subject file.
+    - user_service_test.go tests user_service.go -> /service
+    - handler_test.go tests handler.go -> /transport
+
+    ### MITIGATION
+    - Always ask: "what is this testing?"
+    - Find the subject file
+    - Classify the test with its subject

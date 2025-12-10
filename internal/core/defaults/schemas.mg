@@ -2622,3 +2622,166 @@ Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
 # NOTE: Primary declaration is in taxonomy.mg - removed duplicate here
 # Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
 
+# =============================================================================
+# SECTION 45: JIT PROMPT COMPILER SCHEMAS
+# =============================================================================
+# Universal JIT Prompt Compiler for dynamic prompt assembly.
+# Every LLM call gets a dynamically compiled prompt based on full context:
+# operational mode, campaign phase, intent verb, test state, world model,
+# shard type, init phase, northstar state, ouroboros stage, and more.
+
+# -----------------------------------------------------------------------------
+# 45.1 Prompt Atom Registry (EDB - loaded from SQLite databases)
+# -----------------------------------------------------------------------------
+
+# prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
+# Core atom metadata for selection
+# AtomID: Unique identifier for the atom (string)
+# Category: /identity, /safety, /hallucination, /methodology, /language,
+#           /framework, /domain, /campaign, /init, /northstar, /ouroboros,
+#           /context, /exemplar, /protocol
+# Priority: Base priority score (0-100)
+# TokenCount: Estimated token count for budget management
+# IsMandatory: /true if atom must be included, /false otherwise
+Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory).
+
+# atom_selector(AtomID, Dimension, Value)
+# Multi-value selectors for dimensional filtering
+# Dimension: /operational_mode, /campaign_phase, /build_layer, /init_phase,
+#            /northstar_phase, /ouroboros_stage, /intent_verb, /shard_type,
+#            /language, /framework, /world_state
+# Value: Name constant matching the dimension (e.g., /active, /coder, /go)
+Decl atom_selector(AtomID, Dimension, Value).
+
+# atom_dependency(AtomID, DependsOnID, DepType)
+# DepType: /hard (must have), /soft (prefer), /order_only (just ordering)
+Decl atom_dependency(AtomID, DependsOnID, DepType).
+
+# atom_conflict(AtomA, AtomB)
+# Mutual exclusion - cannot select both
+Decl atom_conflict(AtomA, AtomB).
+
+# atom_exclusion_group(AtomID, GroupID)
+# Only one atom per group can be selected
+Decl atom_exclusion_group(AtomID, GroupID).
+
+# atom_content(AtomID, Content)
+# Actual prompt text (loaded on demand, large strings)
+Decl atom_content(AtomID, Content).
+
+# -----------------------------------------------------------------------------
+# 45.2 Compilation Context (Set by Go before compilation)
+# -----------------------------------------------------------------------------
+
+# compile_context(Dimension, Value)
+# Current compilation context asserted by Go runtime
+# Dimension matches atom_selector dimensions
+Decl compile_context(Dimension, Value).
+
+# compile_budget(TotalTokens)
+# Available token budget for this compilation
+Decl compile_budget(TotalTokens).
+
+# compile_shard(ShardID, ShardType)
+# Target shard for this compilation
+Decl compile_shard(ShardID, ShardType).
+
+# compile_query(QueryText)
+# Semantic query for vector search boosting
+Decl compile_query(QueryText).
+
+# -----------------------------------------------------------------------------
+# 45.3 Vector Search Results (Asserted by Go after vector search)
+# -----------------------------------------------------------------------------
+
+# vector_recall_result(Query, AtomID, SimilarityScore)
+# Results from vector store semantic search
+# Query: The search query text
+# AtomID: Matched atom identifier
+# SimilarityScore: Cosine similarity (0.0-1.0)
+Decl vector_recall_result(Query, AtomID, SimilarityScore).
+
+# -----------------------------------------------------------------------------
+# 45.4 Derived Selection Predicates (IDB - computed by rules)
+# -----------------------------------------------------------------------------
+
+# atom_matches_context(AtomID, Score)
+# Computed match score based on context dimensions
+Decl atom_matches_context(AtomID, Score).
+
+# atom_selected(AtomID)
+# Atom passes all selection criteria
+Decl atom_selected(AtomID).
+
+# atom_excluded(AtomID, Reason)
+# Atom excluded with reason: /conflict, /exclusion_group, /over_budget, /missing_dependency
+Decl atom_excluded(AtomID, Reason).
+
+# atom_dependency_satisfied(AtomID)
+# All hard dependencies are satisfied
+Decl atom_dependency_satisfied(AtomID).
+
+# atom_meets_threshold(AtomID)
+# Helper: atom would meet score threshold (40) for selection
+Decl atom_meets_threshold(AtomID).
+
+# has_unsatisfied_hard_dep(AtomID)
+# Helper: atom has at least one unsatisfied hard dependency
+Decl has_unsatisfied_hard_dep(AtomID).
+
+# is_excluded(AtomID)
+# Helper: atom is excluded for any reason (for safe negation)
+Decl is_excluded(AtomID).
+
+# atom_candidate(AtomID)
+# Helper: atom passes initial selection criteria (score threshold + deps)
+Decl atom_candidate(AtomID).
+
+# atom_loses_conflict(AtomID)
+# Helper: atom loses due to conflict with higher-scoring atom
+Decl atom_loses_conflict(AtomID).
+
+# atom_loses_exclusion(AtomID)
+# Helper: atom loses due to exclusion group with higher-scoring atom
+Decl atom_loses_exclusion(AtomID).
+
+# final_atom(AtomID, Order)
+# Final ordered list for assembly
+Decl final_atom(AtomID, Order).
+
+# -----------------------------------------------------------------------------
+# 45.5 Compilation Validation
+# -----------------------------------------------------------------------------
+
+# compilation_valid()
+# True if compilation passes all constraints
+Decl compilation_valid().
+
+# compilation_error(ErrorType, Details)
+# ErrorType: /missing_mandatory, /circular_dependency, /unsatisfied_dependency, /budget_overflow
+Decl compilation_error(ErrorType, Details).
+
+# has_compilation_error()
+# Helper: true if any compilation error exists
+Decl has_compilation_error().
+
+# has_identity_atom()
+# Helper: true if at least one identity atom is selected
+Decl has_identity_atom().
+
+# has_protocol_atom()
+# Helper: true if at least one protocol atom is selected
+Decl has_protocol_atom().
+
+# -----------------------------------------------------------------------------
+# 45.6 Category Ordering
+# -----------------------------------------------------------------------------
+
+# category_order(Category, OrderNum)
+# Determines section order in final prompt
+Decl category_order(Category, OrderNum).
+
+# category_budget(Category, Percent)
+# Budget allocation percentage per category
+Decl category_budget(Category, Percent).
+

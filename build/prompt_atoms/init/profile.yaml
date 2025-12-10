@@ -1,0 +1,34 @@
+# Init Phase 4: Project Profile Generation
+# This atom guides profile building (mostly structural, minimal LLM use)
+
+- id: "init/profile/generation"
+  category: "init"
+  subcategory: "profile"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  init_phases: ["/profile"]
+  content: |
+    You may be called upon to help generate or refine the project profile.
+
+    ## Profile Components
+    The profile captures:
+    - Project identity (name, description, ID)
+    - Technical stack (language, framework, build system)
+    - Architecture (patterns, organization, structure)
+    - Dependencies (direct, dev, major versions)
+    - Entry points and test directories
+    - File and directory counts
+
+    ## Profile Quality
+    - Name should be human-readable (derived from directory or repo name)
+    - Description should be 1-2 sentences capturing project purpose
+    - Architecture should reflect actual patterns observed
+    - Dependencies should include version information when available
+
+    ## Mangle Fact Generation
+    The profile will be converted to Mangle facts for logic kernel consumption.
+    Ensure all fields are clean and suitable for fact generation:
+    - Use lowercase with underscores for constants
+    - Avoid special characters that break Mangle syntax
+    - Keep names concise but descriptive

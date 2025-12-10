@@ -1,0 +1,98 @@
+# Go Language Prompt Atoms
+# Language-specific guidance for writing idiomatic Go code
+
+- id: "language/go/fundamentals"
+  category: "language"
+  subcategory: "go"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## Go Language Fundamentals
+
+    ### Error Handling Patterns
+    - Always check errors immediately: `if err != nil { return fmt.Errorf("context: %w", err) }`
+    - Use `%w` for error wrapping to preserve error chains
+    - Create sentinel errors with `errors.New()` for package-level constants
+    - Use custom error types for rich error context
+
+    ### Interface Design
+    - Accept interfaces, return structs
+    - Keep interfaces small (1-3 methods ideal)
+    - Define interfaces at point of use, not definition
+    - The empty interface `interface{}` should be rare (prefer `any` in Go 1.18+)
+
+    ### Concurrency Patterns
+    - Don't communicate by sharing memory; share memory by communicating
+    - Always handle goroutine cleanup via `defer` or context cancellation
+    - Use `context.Context` for cancellation propagation
+    - Prefer channels for orchestration, mutexes for state protection
+    - Never start goroutines without a clear shutdown strategy
+
+- id: "language/go/idioms"
+  category: "language"
+  subcategory: "go"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## Go Idioms and Best Practices
+
+    ### Code Organization
+    - Package names: short, lowercase, no underscores (e.g., `httputil`, not `http_util`)
+    - Exported names start with uppercase, unexported with lowercase
+    - Keep package scope minimal - prefer unexported when possible
+    - Group related functionality in the same file
+
+    ### Variable Declarations
+    - Use `:=` for local variables when type is obvious
+    - Use `var` for zero values or when type needs to be explicit
+    - Declare variables close to first use
+    - Prefer `var buf bytes.Buffer` over `buf := bytes.Buffer{}`
+
+    ### Control Flow
+    - Use guard clauses to reduce nesting (early returns)
+    - Prefer `switch` over long `if-else` chains
+    - Omit unnecessary `else` blocks after `return`
+    - Use labeled breaks/continues for complex loops
+
+    ### Common Pitfalls
+    - Range loop variables are reused: capture in new variable or use index
+    - Defer runs at function exit, not block exit
+    - Slices and maps are reference types; copying requires `copy()` or manual iteration
+    - Method receivers: pointer for mutation, value for immutability
+
+- id: "language/go/testing"
+  category: "language"
+  subcategory: "go"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go"]
+  content: |
+    ## Go Testing Patterns
+
+    ### Test Structure
+    - Test files: `*_test.go` in same package
+    - Test functions: `func TestName(t *testing.T)`
+    - Use table-driven tests for multiple cases
+    - Subtests with `t.Run(name, func(t *testing.T) {...})`
+
+    ### Assertions
+    - Go has no assertion library by default - use explicit comparisons
+    - Report failures with `t.Errorf("got %v, want %v", got, want)`
+    - Use `t.Fatal()` when continuing is pointless
+    - Use `t.Helper()` in test helper functions to improve error traces
+
+    ### Test Organization
+    - Use TestMain for setup/teardown
+    - Use `t.Parallel()` for independent tests
+    - Create test fixtures in `testdata/` directories
+    - Use build tags `// +build integration` for slow tests
+
+    ### Mocking
+    - Define interfaces for dependencies you need to mock
+    - Use table-driven tests with different implementations
+    - Consider `gomock` or manual mocks for complex scenarios

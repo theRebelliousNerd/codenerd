@@ -1,0 +1,103 @@
+# Init Phase 7c: Core Shard Knowledge Base Creation
+# This atom guides KB creation for Coder, Reviewer, and Tester shards
+
+- id: "init/kb_core_shards/creation"
+  category: "init"
+  subcategory: "kb_core_shards"
+  priority: 75
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/core_shards_kb"]
+  content: |
+    You are creating knowledge bases for the core Type A generalist shards.
+
+    ## Core Shards Overview
+
+    ### CoderShard
+    - **Mission**: Code generation, modification, refactoring
+    - **Topics**: Language-specific idioms, framework patterns, code quality
+    - **Atoms Needed**: 15-25
+
+    ### ReviewerShard
+    - **Mission**: Code review, security scanning, quality metrics
+    - **Topics**: Code smells, security vulnerabilities, best practices
+    - **Atoms Needed**: 15-25
+
+    ### TesterShard
+    - **Mission**: Test execution, coverage analysis, test generation
+    - **Topics**: Testing strategies, test frameworks, mocking patterns
+    - **Atoms Needed**: 15-25
+
+    ## Research Strategy
+    For each shard:
+    1. Generate 2-3 identity atoms (shard name, mission, capabilities)
+    2. Research 1-2 quick topics relevant to detected language/framework
+    3. Store knowledge in shard-specific SQLite DB
+
+    ## CoderShard Topics (pick 2 based on project)
+    - "best practices for [language]"
+    - "common patterns in [framework]"
+    - "error handling in [language]"
+    - "testing approaches for [language]"
+    - "performance optimization [language]"
+
+    ## ReviewerShard Topics (pick 2 based on project)
+    - "code review checklist for [language]"
+    - "security scanning [language]"
+    - "common vulnerabilities [framework]"
+    - "code quality metrics [language]"
+    - "static analysis tools [language]"
+
+    ## TesterShard Topics (pick 2 based on project)
+    - "testing frameworks [language]"
+    - "mocking strategies [language]"
+    - "test coverage best practices"
+    - "integration testing [framework]"
+    - "e2e testing strategies"
+
+    ## Speed Over Depth
+    - These are quick baseline KBs (5-10 seconds of research each)
+    - Shards will learn more during actual usage
+    - Focus on immediately actionable knowledge
+    - Prefer official documentation over blog posts
+
+    ## Upgrade Mode Support
+    - Check for existing atoms before adding
+    - Compute content hashes to avoid duplicates
+    - Track new vs existing atom counts
+    - Report upgrade statistics
+
+- id: "init/kb_core_shards/quality"
+  category: "init"
+  subcategory: "kb_core_shards"
+  priority: 70
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  init_phases: ["/core_shards_kb"]
+  depends_on: ["init/kb_core_shards/creation"]
+  content: |
+    ## Core Shard KB Quality
+
+    ### Minimum Viable Knowledge
+    Each core shard KB must have:
+    - Shard identity (name, mission, role)
+    - Language-specific basics (if detected)
+    - 2-3 actionable best practices
+    - 2-3 common pitfalls to avoid
+
+    ### Balance
+    - Don't overload with theory (shards learn by doing)
+    - Don't duplicate shared knowledge pool
+    - Don't replicate language-specific agent knowledge
+    - Focus on practical, immediately applicable knowledge
+
+    ### Project Relevance
+    Tailor research topics to detected project characteristics:
+    - Web app? Include API design patterns
+    - CLI tool? Include CLI UX best practices
+    - Library? Include API design and versioning
+    - Test-heavy? Include test refactoring patterns
+
+    ### Storage
+    Store in `.nerd/shards/{coder|reviewer|tester}_knowledge.db`
+    Each KB should be 5-15 KB on disk (compact but useful).

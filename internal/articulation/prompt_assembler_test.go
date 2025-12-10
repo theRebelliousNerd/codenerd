@@ -407,3 +407,231 @@ func findSubstr(s, substr string) int {
 	}
 	return -1
 }
+
+// =============================================================================
+// JIT COMPILER INTEGRATION TESTS
+// =============================================================================
+
+func TestNewPromptAssemblerWithJIT(t *testing.T) {
+	tests := []struct {
+		name        string
+		kernel      KernelQuerier
+		jitCompiler interface{} // Use interface to allow nil
+		wantErr     bool
+		wantJIT     bool
+	}{
+		{
+			name:        "valid kernel with nil JIT compiler",
+			kernel:      newMockKernel(),
+			jitCompiler: nil,
+			wantErr:     false,
+			wantJIT:     false,
+		},
+		{
+			name:    "nil kernel with nil JIT compiler",
+			kernel:  nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pa, err := NewPromptAssemblerWithJIT(tt.kernel, nil)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewPromptAssemblerWithJIT() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if pa == nil {
+					t.Error("NewPromptAssemblerWithJIT() returned nil without error")
+					return
+				}
+				if pa.JITReady() != tt.wantJIT {
+					t.Errorf("JITReady() = %v, want %v", pa.JITReady(), tt.wantJIT)
+				}
+			}
+		})
+	}
+}
+
+func TestJITHelperMethods(t *testing.T) {
+	mk := newMockKernel()
+	pa, err := NewPromptAssembler(mk)
+	if err != nil {
+		t.Fatalf("NewPromptAssembler() error = %v", err)
+	}
+
+	// Initially JIT should not be ready (no compiler)
+	if pa.JITReady() {
+		t.Error("JITReady() should be false when no compiler is set")
+	}
+
+	// Test EnableJIT
+	pa.EnableJIT(true)
+	if !pa.IsJITEnabled() {
+		t.Error("IsJITEnabled() should be true after EnableJIT(true)")
+	}
+
+	// Still not ready because no compiler
+	if pa.JITReady() {
+		t.Error("JITReady() should be false when useJIT is true but no compiler is set")
+	}
+
+	// Test disable
+	pa.EnableJIT(false)
+	if pa.IsJITEnabled() {
+		t.Error("IsJITEnabled() should be false after EnableJIT(false)")
+	}
+
+	// Test GetJITCompiler returns nil when not set
+	if pa.GetJITCompiler() != nil {
+		t.Error("GetJITCompiler() should return nil when no compiler is set")
+	}
+}
+
+func TestToCompilationContext(t *testing.T) {
+	mk := newMockKernel()
+	pa, err := NewPromptAssembler(mk)
+	if err != nil {
+		t.Fatalf("NewPromptAssembler() error = %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		promptCtx      *PromptContext
+		wantMode       string
+		wantShardType  string
+		wantIntentVerb string
+	}{
+		{
+			name: "basic shard context",
+			promptCtx: &PromptContext{
+				ShardID:   "coder-123",
+				ShardType: "coder",
+			},
+			wantMode:      "/active",
+			wantShardType: "/coder",
+		},
+		{
+			name: "dream mode context",
+			promptCtx: &PromptContext{
+				ShardID:   "coder-456",
+				ShardType: "coder",
+				SessionCtx: &core.SessionContext{
+					DreamMode: true,
+				},
+			},
+			wantMode:      "/dream",
+			wantShardType: "/coder",
+		},
+		{
+			name: "TDD repair mode context",
+			promptCtx: &PromptContext{
+				ShardID:   "coder-789",
+				ShardType: "coder",
+				SessionCtx: &core.SessionContext{
+					TestState:    "/failing",
+					FailingTests: []string{"TestFoo", "TestBar"},
+				},
+			},
+			wantMode:      "/tdd_repair",
+			wantShardType: "/coder",
+		},
+		{
+			name: "with user intent",
+			promptCtx: &PromptContext{
+				ShardID:   "coder-fix",
+				ShardType: "coder",
+				UserIntent: &core.StructuredIntent{
+					Verb:   "/fix",
+					Target: "internal/auth/login.go",
+				},
+			},
+			wantMode:       "/active",
+			wantShardType:  "/coder",
+			wantIntentVerb: "/fix",
+		},
+		{
+			name: "with campaign context",
+			promptCtx: &PromptContext{
+				ShardID:    "coder-campaign",
+				ShardType:  "coder",
+				CampaignID: "campaign-123",
+				SessionCtx: &core.SessionContext{
+					CampaignActive: true,
+					CampaignPhase:  "/planning",
+					CampaignGoal:   "Build user authentication",
+				},
+			},
+			wantMode:      "/active",
+			wantShardType: "/coder",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cc := pa.toCompilationContext(tt.promptCtx)
+
+			if cc == nil {
+				t.Fatal("toCompilationContext() returned nil")
+			}
+
+			if cc.OperationalMode != tt.wantMode {
+				t.Errorf("OperationalMode = %q, want %q", cc.OperationalMode, tt.wantMode)
+			}
+
+			if cc.ShardType != tt.wantShardType {
+				t.Errorf("ShardType = %q, want %q", cc.ShardType, tt.wantShardType)
+			}
+
+			if tt.wantIntentVerb != "" && cc.IntentVerb != tt.wantIntentVerb {
+				t.Errorf("IntentVerb = %q, want %q", cc.IntentVerb, tt.wantIntentVerb)
+			}
+
+			// Verify token budget is set
+			if cc.TokenBudget <= 0 {
+				t.Error("TokenBudget should be positive")
+			}
+
+			if cc.ReservedTokens <= 0 {
+				t.Error("ReservedTokens should be positive")
+			}
+
+			// Verify campaign context mapping
+			if tt.promptCtx.CampaignID != "" {
+				if cc.CampaignID != tt.promptCtx.CampaignID {
+					t.Errorf("CampaignID = %q, want %q", cc.CampaignID, tt.promptCtx.CampaignID)
+				}
+			}
+		})
+	}
+}
+
+func TestAssembleSystemPromptFallsBackOnNoJIT(t *testing.T) {
+	// When JIT is not configured, should use legacy assembly
+	mk := newMockKernel()
+	pa, err := NewPromptAssembler(mk)
+	if err != nil {
+		t.Fatalf("NewPromptAssembler() error = %v", err)
+	}
+
+	pc := &PromptContext{
+		ShardID:   "coder-test",
+		ShardType: "coder",
+	}
+
+	result, err := pa.AssembleSystemPrompt(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("AssembleSystemPrompt() error = %v", err)
+	}
+
+	// Should contain fallback template content
+	if !containsString(result, "CODER SHARD") {
+		t.Error("AssembleSystemPrompt() should use fallback template when JIT is not configured")
+	}
+
+	// Should contain Piggyback Protocol
+	if !containsString(result, "PIGGYBACK ENVELOPE") {
+		t.Error("AssembleSystemPrompt() should include Piggyback Protocol suffix")
+	}
+}

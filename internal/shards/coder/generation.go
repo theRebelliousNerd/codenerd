@@ -2,10 +2,12 @@ package coder
 
 import (
 	"codenerd/internal/articulation"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // =============================================================================
@@ -61,8 +63,22 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 }
 
 // buildSystemPrompt creates the system prompt for code generation.
-// This uses the God Tier template for maximalist prompting.
+// This uses the JIT prompt compiler when available, falling back to the God Tier template.
 func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
+	// Try JIT compilation first if kernel is available
+	if c.kernel != nil {
+		jitPrompt, err := c.buildJITSystemPrompt(task)
+		if err == nil && jitPrompt != "" {
+			logging.CoderDebug("Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			return jitPrompt
+		}
+		if err != nil {
+			logging.CoderDebug("JIT compilation failed, falling back to template: %v", err)
+		}
+	}
+
+	// Fallback to legacy template-based prompt
+	logging.CoderDebug("Using legacy template-based system prompt")
 	lang := detectLanguage(task.Target)
 	langName := languageDisplayName(lang)
 
@@ -78,6 +94,46 @@ func (c *CoderShard) buildSystemPrompt(task CoderTask) string {
 	prompt := fmt.Sprintf(coderSystemPromptTemplate, langName, langModel, codeDOMContext, sessionContext)
 
 	return articulation.AppendReasoningDirective(prompt, true)
+}
+
+// buildJITSystemPrompt uses the PromptAssembler with JIT compilation to build the system prompt.
+// Returns an error if JIT compilation is not available or fails.
+func (c *CoderShard) buildJITSystemPrompt(task CoderTask) (string, error) {
+	// Create PromptAssembler
+	pa, err := articulation.NewPromptAssembler(c.kernel)
+	if err != nil {
+		return "", fmt.Errorf("failed to create prompt assembler: %w", err)
+	}
+
+	// Build PromptContext
+	pc := &articulation.PromptContext{
+		ShardID:    c.id,
+		ShardType:  "coder",
+		SessionCtx: c.config.SessionContext,
+	}
+
+	// Create user intent from task
+	if task.Action != "" || task.Target != "" {
+		pc.UserIntent = &core.StructuredIntent{
+			ID:         fmt.Sprintf("coder-task-%d", time.Now().UnixNano()),
+			Category:   "/mutation",
+			Verb:       "/" + task.Action,
+			Target:     task.Target,
+			Constraint: task.Instruction,
+		}
+	}
+
+	// Assemble the system prompt
+	ctx := context.Background()
+	prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		return "", fmt.Errorf("failed to assemble system prompt: %w", err)
+	}
+
+	// Append reasoning directive
+	prompt = articulation.AppendReasoningDirective(prompt, true)
+
+	return prompt, nil
 }
 
 // getLanguageCognitiveModel returns the cognitive model section for a specific language.

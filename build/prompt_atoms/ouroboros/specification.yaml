@@ -1,0 +1,124 @@
+# Tool Code Generation Atoms
+# These atoms guide the actual generation of tool code
+
+- id: "ouroboros/specification/generation_principles"
+  category: "ouroboros"
+  subcategory: "specification"
+  priority: 70
+  is_mandatory: true
+  ouroboros_stages: ["/specification"]
+  content: |
+    ## Code Generation Principles
+
+    Generate clean, idiomatic Go code that follows these conventions:
+    - Use standard library where possible
+    - Include proper error handling
+    - Add clear comments
+    - Make functions testable
+    - Follow Go naming conventions
+
+    The tool should be a standalone function that can be called by the agent.
+    Include a Register function to add the tool to the tool registry.
+
+- id: "ouroboros/specification/function_signature"
+  category: "ouroboros"
+  subcategory: "specification"
+  priority: 80
+  is_mandatory: true
+  ouroboros_stages: ["/specification"]
+  depends_on: ["ouroboros/specification/generation_principles"]
+  content: |
+    ## Required Function Signatures
+
+    ### Main Tool Function
+    ```go
+    func toolName(ctx context.Context, input InputType) (OutputType, error)
+    ```
+
+    **Context Parameter**: ALWAYS include `context.Context` as the first parameter
+    - Enables cancellation and timeout handling
+    - Check for cancellation: `select { case <-ctx.Done(): return ctx.Err(); default: }`
+
+    **Error Return**: ALWAYS return error as the last return value
+    - Return meaningful errors with context
+    - Use `fmt.Errorf("failed to X: %w", err)` for wrapping
+    - Never use panic() - return errors instead
+
+    ### Registration Function
+    ```go
+    func RegisterToolName(registry ToolRegistry) error {
+        return registry.Register("tool_name", toolNameDescription, toolName)
+    }
+    ```
+
+    ### Description Constant
+    ```go
+    const toolNameDescription = "Clear description of what this tool does"
+    ```
+
+- id: "ouroboros/specification/template_selection"
+  category: "ouroboros"
+  subcategory: "specification"
+  priority: 60
+  is_mandatory: false
+  ouroboros_stages: ["/specification"]
+  content: |
+    ## Template-Based Generation
+
+    For common tool types, use established patterns:
+
+    ### Validator Pattern
+    - Validation function that returns `(bool, error)`
+    - Detailed `ValidationError` type with field context
+    - `ValidationResult` struct for comprehensive results
+    - Type-specific validation functions (UTF-8, JSON, size limits)
+
+    ### Converter Pattern
+    - Conversion function with clear input/output types
+    - `ConversionError` type with position tracking
+    - Helper functions for common conversions (string↔bytes, JSON↔map)
+    - Generic fallback for uncommon conversions
+
+    ### Parser Pattern
+    - Parse function that extracts structured data
+    - Support for multiple formats (JSON, YAML, CSV, etc.)
+    - Error reporting with line/column positions
+
+    ### Analyzer Pattern
+    - Analysis function that finds patterns or insights
+    - Configurable analysis depth
+    - Structured results with confidence scores
+
+- id: "ouroboros/specification/completeness_requirement"
+  category: "ouroboros"
+  subcategory: "specification"
+  priority: 90
+  is_mandatory: true
+  ouroboros_stages: ["/specification"]
+  content: |
+    ## Output Completeness Requirement
+
+    **CRITICAL**: ALWAYS generate complete, compilable files.
+
+    ### What This Means
+    - Include the package declaration
+    - Include ALL necessary imports
+    - Implement ALL functions fully (no placeholders)
+    - Never emit "// ... rest of code" or similar shortcuts
+    - Generate a working tool from the first attempt
+
+    ### What to Include
+    1. Package declaration (`package tools` or `package main`)
+    2. All imports (standard library and necessary third-party)
+    3. Constants (description, limits, defaults)
+    4. Type definitions (errors, results, configs)
+    5. Main tool function (fully implemented)
+    6. Helper functions (fully implemented)
+    7. Registration function
+
+    ### Testing Your Output
+    Before returning, mentally verify:
+    - [ ] Can this file be compiled standalone?
+    - [ ] Are all functions fully implemented?
+    - [ ] Are all variables declared and used?
+    - [ ] Are all imports necessary and present?

@@ -1,0 +1,213 @@
+# Rod Framework Prompt Atoms
+# Framework-specific guidance for browser automation with Rod
+
+- id: "framework/rod/fundamentals"
+  category: "framework"
+  subcategory: "rod"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/rod"]
+  languages: ["/go"]
+  content: |
+    ## Rod Framework Fundamentals
+
+    ### Browser Lifecycle
+    ```go
+    browser := rod.New().MustConnect()
+    defer browser.MustClose()
+
+    page := browser.MustPage("https://example.com")
+    defer page.MustClose()
+    ```
+
+    ### Element Selection
+    - `page.MustElement(selector)` - Get first matching element
+    - `page.MustElements(selector)` - Get all matching elements
+    - `page.MustElementR(selector, regex)` - Match by text content
+    - `page.MustElementX(xpath)` - XPath selector
+    - Use CSS selectors by default: `#id`, `.class`, `tag`
+
+    ### Element Interaction
+    ```go
+    el := page.MustElement("input[name='username']")
+    el.MustInput("myuser")           // Type text
+    el.MustClick()                    // Click element
+    el.MustSelect("option value")     // Select option
+    text := el.MustText()             // Get text content
+    ```
+
+    ### Navigation
+    - `page.MustNavigate(url)` - Navigate to URL
+    - `page.MustWaitLoad()` - Wait for page load
+    - `page.MustWaitIdle()` - Wait for network idle
+    - `page.MustWaitNavigation()` - Wait for navigation event
+
+- id: "framework/rod/async_patterns"
+  category: "framework"
+  subcategory: "rod"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/rod"]
+  languages: ["/go"]
+  content: |
+    ## Rod Async and Error Handling
+
+    ### Must vs Try Pattern
+    ```go
+    // Must* panics on error (good for simple scripts)
+    page.MustElement("selector")
+
+    // Regular methods return error (better for production)
+    el, err := page.Element("selector")
+    if err != nil {
+        return err
+    }
+    ```
+
+    ### Error Handling
+    - Use `rod.Try()` to catch panics from Must* methods
+    - Convert Must* to regular with `.Do()` pattern
+    - Handle timeout errors explicitly
+    - Check element visibility before interaction
+
+    ### Wait Strategies
+    ```go
+    // Wait for element to be visible
+    page.MustElement("selector").MustWaitVisible()
+
+    // Wait for element to be stable (not moving)
+    page.MustElement("selector").MustWaitStable()
+
+    // Custom wait condition
+    page.MustWait(`() => document.querySelector('selector') !== null`)
+
+    // Timeout context
+    page.Timeout(time.Second * 10).MustElement("selector")
+    ```
+
+    ### Race Conditions
+    ```go
+    race := page.Race()
+    race.Element("button.submit")
+    race.Element("div.error")
+    el := race.MustDo()  // Wait for first match
+    ```
+
+- id: "framework/rod/javascript"
+  category: "framework"
+  subcategory: "rod"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/rod"]
+  languages: ["/go"]
+  content: |
+    ## Rod JavaScript Execution
+
+    ### Evaluate JavaScript
+    ```go
+    // Simple evaluation
+    result := page.MustEval(`() => document.title`)
+
+    // With arguments
+    result := page.MustEval(`(a, b) => a + b`, 1, 2)
+
+    // On element
+    el := page.MustElement("div")
+    text := el.MustEval(`() => this.innerText`)
+    ```
+
+    ### Script Injection
+    ```go
+    // Add script tag
+    page.MustAddScriptTag("https://cdn.example.com/lib.js")
+
+    // Execute script
+    page.MustEvaluate(rod.Eval(`console.log('hello')`).ByPromise())
+    ```
+
+    ### DOM Manipulation
+    ```go
+    // Modify attributes
+    page.MustEval(`() => {
+        document.querySelector('input').value = 'new value'
+    }`)
+
+    // Extract data
+    data := page.MustEval(`() => {
+        return Array.from(document.querySelectorAll('li'))
+            .map(el => el.textContent)
+    }`).Arr()
+    ```
+
+- id: "framework/rod/advanced"
+  category: "framework"
+  subcategory: "rod"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/rod"]
+  languages: ["/go"]
+  content: |
+    ## Rod Advanced Patterns
+
+    ### Browser Context
+    ```go
+    // Headless mode (default)
+    browser := rod.New().MustConnect()
+
+    // Headful mode (visible browser)
+    browser := rod.New().Headless(false).MustConnect()
+
+    // Custom user agent
+    browser := rod.New().UserAgent("custom-agent").MustConnect()
+    ```
+
+    ### Network Interception
+    ```go
+    router := page.HijackRequests()
+    defer router.Stop()
+
+    router.MustAdd("*.css", func(ctx *rod.Hijack) {
+        ctx.Response.Fail(proto.NetworkErrorReasonBlockedByClient)
+    })
+
+    go router.Run()
+    ```
+
+    ### Screenshots
+    ```go
+    // Full page screenshot
+    page.MustScreenshot("page.png")
+
+    // Element screenshot
+    page.MustElement("div.content").MustScreenshot("element.png")
+
+    // Screenshot to bytes
+    data := page.MustScreenshotFullPage()
+    ```
+
+    ### File Operations
+    ```go
+    // File upload
+    page.MustElement("input[type=file]").MustSetFiles("path/to/file.txt")
+
+    // File download
+    page.MustElement("a.download").MustClick()
+    wait := browser.MustWaitDownload()
+    data := wait()
+    ```
+
+    ### Multiple Pages
+    ```go
+    pages := browser.MustPages()
+    for _, page := range pages {
+        title := page.MustInfo().Title
+    }
+
+    // Handle popup windows
+    page.MustElement("button").MustClick()
+    newPage := browser.MustWaitNewPage()
+    ```

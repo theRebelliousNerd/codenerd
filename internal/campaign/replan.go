@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"context"
 	"encoding/json"
@@ -13,16 +14,25 @@ import (
 // Replanner handles campaign replanning when things go wrong.
 // It uses LLM + Mangle collaboration to adapt the plan.
 type Replanner struct {
-	kernel    *core.RealKernel
-	llmClient perception.LLMClient
+	kernel         *core.RealKernel
+	llmClient      perception.LLMClient
+	promptProvider PromptProvider // Optional JIT prompt provider
 }
 
 // NewReplanner creates a new replanner.
 func NewReplanner(kernel *core.RealKernel, llmClient perception.LLMClient) *Replanner {
 	return &Replanner{
-		kernel:    kernel,
-		llmClient: llmClient,
+		kernel:         kernel,
+		llmClient:      llmClient,
+		promptProvider: NewStaticPromptProvider(), // Default to static prompts
 	}
+}
+
+// SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
+// This allows using JIT-compiled prompts from the articulation package.
+// If not set, static prompts will be used.
+func (r *Replanner) SetPromptProvider(provider PromptProvider) {
+	r.promptProvider = provider
 }
 
 // ReplanReason represents why a replan was triggered.
@@ -233,6 +243,13 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 		upcomingTasks.WriteString(fmt.Sprintf("- %s (%s)\n", t.Description, t.Type))
 	}
 
+	// Get Replanner prompt (JIT or static)
+	replannerPrompt, err := r.promptProvider.GetPrompt(ctx, RoleReplanner, campaign.ID)
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to get Replanner prompt, using fallback: %v", err)
+		replannerPrompt = ReplannerLogic
+	}
+
 	prompt := fmt.Sprintf(`%s
 
 Campaign Goal: %s
@@ -250,7 +267,7 @@ Return JSON only:
     {"task_id": "existing-id or empty for new", "description": "...", "type": "/file_modify|/file_create|/test_run|/research|/verify|/document|/refactor|/integrate", "priority": "/high|/normal|/low|/critical", "action": "update|add|remove"}
   ],
   "summary": "one-line change summary"
-}`, ReplannerLogic, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
+}`, replannerPrompt, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
 
 	resp, err := r.llmClient.Complete(ctx, prompt)
 	if err != nil {

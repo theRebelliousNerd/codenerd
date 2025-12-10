@@ -19,6 +19,141 @@ import (
 	"time"
 )
 
+// generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
+// Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
+func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
+	// Create agent directory
+	agentDir := filepath.Join(i.config.Workspace, ".nerd", "agents", strings.ToLower(agent.Name))
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create agent directory: %w", err)
+	}
+
+	// Generate prompts.yaml path
+	promptsPath := filepath.Join(agentDir, "prompts.yaml")
+
+	// Format topics as comma-separated string
+	topicsStr := strings.Join(agent.Topics, ", ")
+
+	// Build domain expertise from topics
+	domainExpertise := formatDomainExpertise(agent.Topics)
+
+	// Lowercase agent name for shard type reference
+	agentNameLower := strings.ToLower(agent.Name)
+
+	// Build the YAML template
+	template := fmt.Sprintf(`# Prompt atoms for %s
+# These are loaded into the JIT prompt compiler when the agent is spawned.
+# Edit this file to customize the agent's identity, methodology, and domain knowledge.
+
+- id: "%s/identity"
+  category: "identity"
+  subcategory: "%s"
+  priority: 100
+  is_mandatory: true
+  shard_types: ["/%s"]
+  content: |
+    You are %s, a specialist agent in the codeNERD ecosystem.
+
+    ## Role
+    %s
+
+    ## Domain Expertise
+%s
+
+    ## Research Topics
+    %s
+
+    ## Core Responsibilities
+    - Provide expert guidance in your domain
+    - Follow best practices and established patterns
+    - Maintain high code quality standards
+    - Integrate seamlessly with the codeNERD architecture
+
+    ## Execution Mode
+    You operate under the control of the codeNERD kernel. You receive structured tasks
+    with clear objectives, focus patterns, and success criteria. Execute precisely.
+
+- id: "%s/methodology"
+  category: "methodology"
+  subcategory: "%s"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/%s"]
+  depends_on: ["%s/identity"]
+  content: |
+    ## Methodology
+
+    ### Analysis Approach
+    - Understand the full context before acting
+    - Consider edge cases and failure modes
+    - Think through implications of changes
+
+    ### Implementation Standards
+    - Follow language idioms and conventions
+    - Write clear, maintainable code
+    - Include comprehensive error handling
+    - Document non-obvious decisions
+
+    ### Quality Assurance
+    - Verify assumptions before proceeding
+    - Test critical paths
+    - Consider performance implications
+    - Ensure backward compatibility when applicable
+
+- id: "%s/domain_knowledge"
+  category: "domain_knowledge"
+  subcategory: "%s"
+  priority: 70
+  is_mandatory: false
+  shard_types: ["/%s"]
+  depends_on: ["%s/identity", "%s/methodology"]
+  content: |
+    ## Domain-Specific Knowledge
+
+    ### Key Concepts
+    [Add specific concepts, patterns, or frameworks relevant to this domain]
+
+    ### Common Pitfalls
+    [Add known issues, gotchas, or anti-patterns to avoid]
+
+    ### Best Practices
+    [Add domain-specific best practices and guidelines]
+
+    ### Resources
+    Research Topics: %s
+
+    [Add additional references, documentation links, or learning resources]
+`,
+		agent.Name,                                     // Comment: agent name
+		agentNameLower, agentNameLower, agentNameLower, // identity atom header
+		agent.Name, agent.Description, domainExpertise, topicsStr, // identity content
+		agentNameLower, agentNameLower, agentNameLower, agentNameLower, // methodology atom
+		agentNameLower, agentNameLower, agentNameLower, agentNameLower, agentNameLower, // domain_knowledge atom
+		topicsStr, // domain knowledge content
+	)
+
+	// Write the template
+	if err := os.WriteFile(promptsPath, []byte(template), 0644); err != nil {
+		return fmt.Errorf("failed to write prompts.yaml: %w", err)
+	}
+
+	logging.Boot("Generated prompts.yaml for %s at %s", agent.Name, promptsPath)
+	return nil
+}
+
+// formatDomainExpertise formats the topics as a bulleted list for the identity atom.
+func formatDomainExpertise(topics []string) string {
+	if len(topics) == 0 {
+		return "    - General expertise"
+	}
+
+	var lines []string
+	for _, topic := range topics {
+		lines = append(lines, fmt.Sprintf("    - %s", topic))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // AgentRegistry represents the persisted agent registry structure.
 type AgentRegistry struct {
 	Version   string         `json:"version"`
@@ -352,6 +487,13 @@ func (i *Initializer) createType3Agents(ctx context.Context, nerdDir string, age
 			continue
 		}
 
+		// Generate prompts.yaml for the agent (only for new agents, not upgrades)
+		if !upgradeMode {
+			if promptErr := i.generateAgentPromptsYAML(agent); promptErr != nil {
+				logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
+			}
+		}
+
 		totalKBSize := stats.TotalAtoms
 		kbSizes[agent.Name] = totalKBSize
 		i.sendAgentProgress(agent.Name, agent.Type, "ready", totalKBSize)
@@ -441,6 +583,13 @@ func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string
 					Error: err,
 				}
 				return
+			}
+
+			// Generate prompts.yaml for the agent (only for new agents, not upgrades)
+			if !upgradeMode {
+				if promptErr := i.generateAgentPromptsYAML(agent); promptErr != nil {
+					logging.Boot("Warning: failed to generate prompts.yaml for %s: %v", agent.Name, promptErr)
+				}
 			}
 
 			// Determine creation time

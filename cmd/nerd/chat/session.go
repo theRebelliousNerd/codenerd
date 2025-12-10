@@ -14,6 +14,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/researcher"
@@ -338,6 +339,36 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		} else {
 			shardMgr.SetLLMClient(baseLLMClient)
 		}
+
+		// Initialize JIT Prompt Compiler
+		logStep("Initializing JIT prompt compiler...")
+		var jitCompiler *prompt.JITPromptCompiler
+		if jit, err := prompt.NewJITPromptCompiler(); err == nil {
+			jitCompiler = jit
+
+			// Wire prompt loader callback (YAML → SQLite)
+			shardMgr.SetNerdDir(filepath.Join(workspace, ".nerd"))
+			shardMgr.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
+				return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, embeddingEngine)
+			})
+
+			// Wire JIT DB registration callbacks
+			shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
+			shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
+
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: "✓ JIT prompt compiler initialized",
+				Time:    time.Now(),
+			})
+		} else {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("⚠ JIT compiler init failed: %v", err),
+				Time:    time.Now(),
+			})
+		}
+		_ = jitCompiler // Will be used when PromptAssembler is wired
 
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {

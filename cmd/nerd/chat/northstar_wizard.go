@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/prompt"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -1311,6 +1313,31 @@ func (m Model) showNorthstarPhasePrompt() (tea.Model, tea.Cmd) {
 
 func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 	w := m.northstarWizard
+
+	// If LLM is available, use it for intelligent requirement generation
+	if m.client != nil && (len(w.Capabilities) > 0 || len(w.Risks) > 0 || len(w.ExtractedFacts) > 0) {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Analyzing vision, capabilities, and risks to generate requirements... This may take a moment.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+
+		// Start async requirement generation
+		return m, tea.Batch(m.spinner.Tick, m.generateRequirementsWithLLM())
+	}
+
+	// Fallback: Simple heuristic-based generation
+	return m.autoGenerateRequirementsHeuristic()
+}
+
+// autoGenerateRequirementsHeuristic uses simple heuristics to generate requirements.
+// This is the fallback when LLM is not available.
+func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
+	w := m.northstarWizard
 	initialCount := len(w.Requirements)
 
 	// Generate requirements from capabilities
@@ -1399,6 +1426,88 @@ _Add more manually or type "done" to continue._`, generated, sourceStr),
 	m.viewport.GotoBottom()
 	m.textarea.Reset()
 	return m, nil
+}
+
+// generateRequirementsWithLLM uses the LLM to intelligently generate requirements.
+func (m Model) generateRequirementsWithLLM() tea.Cmd {
+	return func() tea.Msg {
+		w := m.northstarWizard
+
+		// Build context for LLM
+		var contextBuilder strings.Builder
+		contextBuilder.WriteString("## Project Vision\n")
+		contextBuilder.WriteString(fmt.Sprintf("Mission: %s\n\n", w.Mission))
+		contextBuilder.WriteString(fmt.Sprintf("Problem: %s\n\n", w.Problem))
+		contextBuilder.WriteString(fmt.Sprintf("Vision: %s\n\n", w.Vision))
+
+		if len(w.Capabilities) > 0 {
+			contextBuilder.WriteString("## Capabilities\n")
+			for _, cap := range w.Capabilities {
+				contextBuilder.WriteString(fmt.Sprintf("- [%s/%s] %s\n", cap.Timeline, cap.Priority, cap.Description))
+			}
+			contextBuilder.WriteString("\n")
+		}
+
+		if len(w.Risks) > 0 {
+			contextBuilder.WriteString("## Risks\n")
+			for _, risk := range w.Risks {
+				contextBuilder.WriteString(fmt.Sprintf("- [%s/%s] %s\n", risk.Likelihood, risk.Impact, risk.Description))
+				if risk.Mitigation != "" && risk.Mitigation != "none" {
+					contextBuilder.WriteString(fmt.Sprintf("  Mitigation: %s\n", risk.Mitigation))
+				}
+			}
+			contextBuilder.WriteString("\n")
+		}
+
+		if len(w.Personas) > 0 {
+			contextBuilder.WriteString("## User Personas\n")
+			for _, p := range w.Personas {
+				contextBuilder.WriteString(fmt.Sprintf("- %s\n", p.Name))
+				contextBuilder.WriteString(fmt.Sprintf("  Needs: %s\n", strings.Join(p.Needs, ", "))			}
+			contextBuilder.WriteString("\n")
+		}
+
+		if len(w.ExtractedFacts) > 0 {
+			contextBuilder.WriteString("## Research Insights\n")
+			for _, fact := range w.ExtractedFacts {
+				contextBuilder.WriteString(fmt.Sprintf("- %s\n", fact))
+			}
+			contextBuilder.WriteString("\n")
+		}
+
+		contextBuilder.WriteString(`
+Based on the above context, generate concrete, actionable requirements.
+
+For each requirement, provide:
+1. A clear description
+2. Type: functional, non-functional, or constraint
+3. Priority: must-have, should-have, or nice-to-have
+4. Rationale: why this requirement exists
+
+Format each requirement as:
+REQ-NNN | TYPE | PRIORITY | Description | Rationale
+
+Generate between 5-15 requirements focusing on:
+- Core functionality from capabilities
+- Risk mitigations
+- User needs from personas
+- Constraints and non-functional requirements (performance, security, usability)`)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		// Build prompt using helper (supports JIT if available)
+		systemPrompt, userPrompt := m.buildNorthstarPrompt(ctx, "requirements", contextBuilder.String())
+
+		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return requirementsGeneratedMsg{err: err}
+		}
+
+		// Parse LLM response into requirements
+		requirements := parseGeneratedRequirements(response, len(w.Requirements))
+		return requirementsGeneratedMsg{requirements: requirements}
+	}
 }
 
 func getNorthstarWelcomeMessage() string {
@@ -1668,6 +1777,81 @@ func assertNorthstarFacts(kernel interface{ AssertString(fact string) error }, w
 	return errs
 }
 
+// buildNorthstarPrompt constructs system and user prompts for northstar LLM operations.
+// It attempts to use the JIT compiler if available, otherwise falls back to static prompts.
+func (m Model) buildNorthstarPrompt(ctx context.Context, phase, content string) (systemPrompt, userPrompt string) {
+	// Try to use JIT compilation via kernel and prompt compiler
+	if m.kernel != nil {
+		// Create a PromptAssembler with JIT if available
+		// Check if we have a JIT compiler configured in the emitter
+		if m.emitter != nil {
+			// For now, fall back to static prompts
+			// TODO: Wire up JIT compiler once emitter exposes PromptAssembler
+		}
+	}
+
+	// Fallback: static prompts based on phase
+	return getNorthstarStaticPrompt(phase), content
+}
+
+// buildNorthstarCompilationContext creates a CompilationContext for the northstar phase.
+func (m Model) buildNorthstarCompilationContext(phase string) *prompt.CompilationContext {
+	cc := prompt.NewCompilationContext()
+
+	// Set northstar phase
+	cc.NorthstarPhase = "/" + phase
+
+	// Set operational mode to planning
+	cc.OperationalMode = "/planning"
+
+	// Set shard type to researcher (for document analysis)
+	cc.ShardType = "/researcher"
+	cc.ShardID = "northstar_wizard"
+	cc.ShardName = "Northstar Wizard"
+
+	// Set intent verb
+	cc.IntentVerb = "/research"
+
+	// Token budget (80k for prompt, 20k for response)
+	cc.TokenBudget = 100000
+	cc.ReservedTokens = 20000
+
+	return cc
+}
+
+// getNorthstarStaticPrompt returns a static prompt for the given northstar phase.
+// This is used as a fallback when JIT compilation is not available.
+func getNorthstarStaticPrompt(phase string) string {
+	switch phase {
+	case "doc_ingestion":
+		return `You are analyzing research documents to extract key insights for defining a project's vision and requirements.
+
+Analyze the provided documents and extract key insights in the following categories:
+- Problem statements or pain points mentioned
+- Target users or personas described
+- Desired capabilities or features
+- Risks or concerns raised
+- Constraints or limitations noted
+- Success criteria or goals
+
+Return ONLY the extracted insights, one per line. Be concise but specific. Maximum 15 insights.`
+
+	case "requirements":
+		return `You are helping generate concrete requirements from a project's vision, capabilities, and risks.
+
+Based on the provided context, generate specific, actionable requirements that:
+- Are testable and measurable
+- Derive from stated capabilities and risk mitigations
+- Address user needs and pain points
+- Are categorized as functional, non-functional, or constraints
+
+Return requirements in a structured format with clear prioritization.`
+
+	default:
+		return `You are assisting with project vision and planning. Provide clear, actionable insights based on the context provided.`
+	}
+}
+
 // analyzeNorthstarDocs reads and analyzes research documents using the LLM
 // to extract key insights for the northstar definition process.
 func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
@@ -1697,26 +1881,13 @@ func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
 			return northstarDocsAnalyzedMsg{facts: []string{}}
 		}
 
-		// Send to LLM for analysis
-		prompt := fmt.Sprintf(`Analyze these research documents and extract key insights for defining a project's vision and requirements.
-
-Documents:
-%s
-
-Extract and return a list of key insights in the following format (one per line, no bullets or numbers):
-- Problem statements or pain points mentioned
-- Target users or personas described
-- Desired capabilities or features
-- Risks or concerns raised
-- Constraints or limitations noted
-- Success criteria or goals
-
-Return ONLY the extracted insights, one per line. Be concise but specific. Maximum 15 insights.`, docContents.String())
-
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		response, err := m.client.Complete(ctx, prompt)
+		// Build prompt using helper (supports JIT if available)
+		systemPrompt, userPrompt := m.buildNorthstarPrompt(ctx, "doc_ingestion", docContents.String())
+
+		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			return northstarDocsAnalyzedMsg{err: fmt.Errorf("analysis failed: %w", err)}
 		}
