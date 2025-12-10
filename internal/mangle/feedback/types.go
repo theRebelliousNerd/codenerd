@@ -195,6 +195,14 @@ func (b *ValidationBudget) Stats() (sessionUsed, sessionBudget int) {
 	return b.sessionUsed, b.sessionBudget
 }
 
+// IsSessionExhausted returns true if the session-wide budget has been exhausted.
+// This is useful for early-exit checks before attempting validation.
+func (b *ValidationBudget) IsSessionExhausted() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sessionUsed >= b.sessionBudget
+}
+
 // ErrorPattern defines a regex-based error detection pattern.
 type ErrorPattern struct {
 	Category       ErrorCategory

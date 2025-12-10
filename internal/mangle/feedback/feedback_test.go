@@ -576,6 +576,38 @@ func TestValidationBudget_Reset(t *testing.T) {
 	}
 }
 
+func TestValidationBudget_IsSessionExhausted(t *testing.T) {
+	config := RetryConfig{
+		MaxRetries:    10,
+		SessionBudget: 3,
+	}
+	budget := NewValidationBudget(config)
+
+	// Initially not exhausted
+	if budget.IsSessionExhausted() {
+		t.Error("expected session to NOT be exhausted initially")
+	}
+
+	// Use some budget, but not all
+	budget.RecordAttempt("rule1")
+	budget.RecordAttempt("rule2")
+	if budget.IsSessionExhausted() {
+		t.Error("expected session to NOT be exhausted after 2 attempts (budget is 3)")
+	}
+
+	// Exhaust the budget
+	budget.RecordAttempt("rule3")
+	if !budget.IsSessionExhausted() {
+		t.Error("expected session to BE exhausted after 3 attempts (budget is 3)")
+	}
+
+	// Reset should clear the exhaustion
+	budget.Reset()
+	if budget.IsSessionExhausted() {
+		t.Error("expected session to NOT be exhausted after reset")
+	}
+}
+
 // ============================================================================
 // FeedbackLoop Integration Tests
 // ============================================================================

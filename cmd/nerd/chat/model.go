@@ -238,7 +238,7 @@ type Model struct {
 	mouseEnabled bool
 
 	// Shutdown coordination
-	shutdownOnce    sync.Once      // Ensures Shutdown() is only called once
+	shutdownOnce    *sync.Once     // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
 	shutdownCtx     context.Context // Root context for all background operations
 	shutdownCancel  context.CancelFunc // Cancels shutdownCtx on quit
 }
