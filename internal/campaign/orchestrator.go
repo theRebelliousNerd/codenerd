@@ -1032,12 +1032,15 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	logging.CampaignDebug("Executing file task %s: path=%s", task.ID, targetPath)
 
 	// Build task string for coder shard
+	// NOTE: Don't use "instruction:<value>" format because strings.Fields() splits on spaces,
+	// causing multi-word instructions to be truncated. Use simpler format where bare words
+	// are joined into the instruction by parseTask.
 	action := "create"
 	if task.Type == TaskTypeFileModify {
 		action = "modify"
 	}
-	shardTask := fmt.Sprintf("%s file:%s instruction:%s", action, targetPath, task.Description)
-	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s", action, targetPath)
+	shardTask := fmt.Sprintf("%s file:%s %s", action, targetPath, task.Description)
+	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard
 	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
@@ -1047,7 +1050,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 		return o.executeFileTaskFallback(ctx, task, targetPath)
 	}
 
-	logging.CampaignDebug("Coder shard completed for task %s", task.ID)
+	logging.CampaignDebug("Coder shard completed for task %s, result_len=%d", task.ID, len(result))
 	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
 }
 
