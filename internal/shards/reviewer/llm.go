@@ -8,8 +8,165 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 )
+
+// =============================================================================
+// PIGGYBACK PROTOCOL PROCESSING
+// =============================================================================
+// All LLM responses MUST be processed through this layer to:
+// 1. Extract and route control_packet to the kernel
+// 2. Return only surface_response to the user
+// This prevents control data from leaking into user-facing output.
+
+// processLLMResponse handles Piggyback Protocol parsing for all LLM responses.
+// It extracts the control_packet, routes it to the kernel, and returns only
+// the surface_response for user display.
+func (r *ReviewerShard) processLLMResponse(rawResponse string) (surface string, control *articulation.ControlPacket, err error) {
+	processor := articulation.NewResponseProcessor()
+	processor.RequireValidJSON = false // Allow fallback to raw text
+
+	result, err := processor.Process(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Piggyback parse failed, using raw response: %v", err)
+		return strings.TrimSpace(rawResponse), nil, nil
+	}
+
+	logging.ReviewerDebug("Piggyback parse: method=%s, confidence=%.2f, surface_len=%d",
+		result.ParseMethod, result.Confidence, len(result.Surface))
+
+	// Route control packet to kernel if present and valid
+	if result.ParseMethod != "fallback" {
+		r.routeControlPacketToKernel(&result.Control)
+		return result.Surface, &result.Control, nil
+	}
+
+	return result.Surface, nil, nil
+}
+
+// routeControlPacketToKernel processes the control_packet and routes data to the kernel.
+// This handles mangle_updates, memory_operations, and self_correction signals.
+func (r *ReviewerShard) routeControlPacketToKernel(control *articulation.ControlPacket) {
+	if control == nil {
+		return
+	}
+
+	r.mu.RLock()
+	kernel := r.kernel
+	r.mu.RUnlock()
+
+	if kernel == nil {
+		logging.ReviewerDebug("No kernel available for control packet routing")
+		return
+	}
+
+	// 1. Assert mangle_updates as facts
+	if len(control.MangleUpdates) > 0 {
+		logging.ReviewerDebug("Routing %d mangle_updates to kernel", len(control.MangleUpdates))
+		for _, atomStr := range control.MangleUpdates {
+			// Parse and assert each atom
+			// Format: "predicate(arg1, arg2, ...)" or raw strings
+			if fact := parseMangleAtom(atomStr); fact != nil {
+				if err := kernel.Assert(*fact); err != nil {
+					logging.Get(logging.CategoryReviewer).Warn("Failed to assert mangle_update %q: %v", atomStr, err)
+				}
+			}
+		}
+	}
+
+	// 2. Process memory_operations (route to LearningStore)
+	if len(control.MemoryOperations) > 0 {
+		logging.ReviewerDebug("Processing %d memory_operations", len(control.MemoryOperations))
+		r.processMemoryOperations(control.MemoryOperations)
+	}
+
+	// 3. Track self-correction for autopoiesis
+	if control.SelfCorrection != nil && control.SelfCorrection.Triggered {
+		logging.Reviewer("Self-correction triggered: %s", control.SelfCorrection.Hypothesis)
+		// Could assert this as a fact for learning
+		selfCorrFact := core.Fact{
+			Predicate: "self_correction_triggered",
+			Args:      []interface{}{r.id, control.SelfCorrection.Hypothesis, time.Now().Unix()},
+		}
+		_ = kernel.Assert(selfCorrFact)
+	}
+
+	// 4. Log reasoning trace for debugging/learning
+	if control.ReasoningTrace != "" {
+		logging.ReviewerDebug("Reasoning trace: %.200s...", control.ReasoningTrace)
+	}
+}
+
+// processMemoryOperations handles memory_operations from the control packet.
+// Routes operations to the appropriate storage system.
+func (r *ReviewerShard) processMemoryOperations(ops []articulation.MemoryOperation) {
+	r.mu.RLock()
+	ls := r.learningStore
+	r.mu.RUnlock()
+
+	for _, op := range ops {
+		switch op.Op {
+		case "store_vector":
+			// Store in vector memory - use LearningStore.Save for persistence
+			if ls != nil {
+				_ = ls.Save("reviewer_memory", op.Key, []any{op.Value}, "")
+			}
+			logging.ReviewerDebug("Memory store_vector: %s", op.Key)
+
+		case "promote_to_long_term":
+			// Promote to cold storage via LearningStore
+			if ls != nil {
+				_ = ls.Save("reviewer_long_term", op.Key, []any{op.Value}, "")
+			}
+			logging.ReviewerDebug("Memory promote_to_long_term: %s", op.Key)
+
+		case "note":
+			// Transient note - just log for now
+			logging.ReviewerDebug("Memory note: %s = %s", op.Key, op.Value)
+
+		case "forget":
+			// Mark for forgetting - log for now (LearningStore doesn't have delete)
+			// Could use DecayConfidence to reduce relevance
+			if ls != nil {
+				_ = ls.DecayConfidence("reviewer_memory", 0.0) // Decay to zero
+			}
+			logging.ReviewerDebug("Memory forget: %s", op.Key)
+		}
+	}
+}
+
+// parseMangleAtom attempts to parse a string into a Mangle fact.
+// Returns nil if parsing fails.
+func parseMangleAtom(atomStr string) *core.Fact {
+	atomStr = strings.TrimSpace(atomStr)
+	if atomStr == "" {
+		return nil
+	}
+
+	// Simple parsing: predicate(arg1, arg2, ...)
+	parenIdx := strings.Index(atomStr, "(")
+	if parenIdx == -1 {
+		// No args - just a predicate name
+		return &core.Fact{Predicate: atomStr, Args: nil}
+	}
+
+	predicate := strings.TrimSpace(atomStr[:parenIdx])
+	argsStr := strings.TrimSuffix(strings.TrimSpace(atomStr[parenIdx+1:]), ")")
+
+	// Split args by comma (simple split, doesn't handle nested parens)
+	args := make([]interface{}, 0)
+	if argsStr != "" {
+		for _, arg := range strings.Split(argsStr, ",") {
+			arg = strings.TrimSpace(arg)
+			// Remove quotes if present
+			arg = strings.Trim(arg, `"'`)
+			args = append(args, arg)
+		}
+	}
+
+	return &core.Fact{Predicate: predicate, Args: args}
+}
 
 // =============================================================================
 // LLM ANALYSIS
@@ -71,12 +228,29 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, depContextStr)
 
-	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	rawResponse, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
 		return findings, "", fmt.Errorf("LLM analysis failed after retries: %w", err)
 	}
 
-	// Parse JSON response
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	surface, _, err := r.processLLMResponse(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Piggyback processing failed: %v", err)
+		surface = rawResponse // Fallback to raw
+	}
+
+	// Parse JSON findings from surface response
+	findings = r.extractFindingsFromResponse(filePath, surface, "LLM001")
+
+	return findings, surface, nil
+}
+
+// extractFindingsFromResponse parses JSON findings from an LLM surface response.
+// The response may contain markdown-wrapped JSON arrays of findings.
+func (r *ReviewerShard) extractFindingsFromResponse(filePath, response, ruleID string) []ReviewFinding {
+	findings := make([]ReviewFinding, 0)
+
 	var llmFindings []struct {
 		Line       int    `json:"line"`
 		Severity   string `json:"severity"`
@@ -117,7 +291,7 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 					Line:       f.Line,
 					Severity:   f.Severity,
 					Category:   f.Category,
-					RuleID:     "LLM001",
+					RuleID:     ruleID,
 					Message:    f.Message,
 					Suggestion: f.Suggestion,
 				})
@@ -127,7 +301,7 @@ func (r *ReviewerShard) llmAnalysisWithDeps(ctx context.Context, filePath, conte
 		}
 	}
 
-	return findings, response, nil
+	return findings
 }
 
 // llmAnalysisWithHolographic uses LLM for semantic analysis with FULL holographic package context.
@@ -240,60 +414,22 @@ func (r *ReviewerShard) llmAnalysisWithHolographic(ctx context.Context, filePath
 	userPrompt := fmt.Sprintf("Review this %s file (%s):\n\n```\n%s\n```%s",
 		r.detectLanguage(filePath), filePath, content, fullContext)
 
-	response, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	rawResponse, err := r.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	if err != nil {
 		return findings, "", fmt.Errorf("LLM analysis failed after retries: %w", err)
 	}
 
-	// Parse JSON response (same logic as llmAnalysisWithDeps)
-	var llmFindings []struct {
-		Line       int    `json:"line"`
-		Severity   string `json:"severity"`
-		Category   string `json:"category"`
-		Message    string `json:"message"`
-		Suggestion string `json:"suggestion"`
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	surface, _, err := r.processLLMResponse(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Piggyback processing failed: %v", err)
+		surface = rawResponse // Fallback to raw
 	}
 
-	var jsonStr string
-	if strings.Contains(response, "```json") {
-		parts := strings.Split(response, "```json")
-		if len(parts) > 1 {
-			jsonStr = strings.Split(parts[1], "```")[0]
-		}
-	} else if strings.Contains(response, "```") {
-		parts := strings.Split(response, "```")
-		if len(parts) > 1 {
-			jsonStr = parts[1]
-		}
-	} else {
-		start := strings.Index(response, "[")
-		end := strings.LastIndex(response, "]")
-		if start != -1 && end > start {
-			jsonStr = response[start : end+1]
-		}
-	}
+	// Parse JSON findings from surface response (LLM002 = holographic-aware)
+	findings = r.extractFindingsFromResponse(filePath, surface, "LLM002")
 
-	jsonStr = strings.TrimSpace(jsonStr)
-
-	if jsonStr != "" {
-		if err := json.Unmarshal([]byte(jsonStr), &llmFindings); err == nil {
-			for _, f := range llmFindings {
-				findings = append(findings, ReviewFinding{
-					File:       filePath,
-					Line:       f.Line,
-					Severity:   f.Severity,
-					Category:   f.Category,
-					RuleID:     "LLM002", // Different rule ID for holographic-aware analysis
-					Message:    f.Message,
-					Suggestion: f.Suggestion,
-				})
-			}
-		} else {
-			logging.ReviewerDebug("Failed to parse JSON findings: %v, JSON: %s", err, jsonStr)
-		}
-	}
-
-	return findings, response, nil
+	return findings, surface, nil
 }
 
 // buildSessionContextPrompt builds comprehensive session context for cross-shard awareness (Blackboard Pattern).

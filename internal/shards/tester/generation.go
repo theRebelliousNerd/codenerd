@@ -68,16 +68,25 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 
 	// Call LLM with retry
 	llmTimer := logging.StartTimer(logging.CategoryTester, "LLM.GenerateTests")
-	response, err := t.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	rawResponse, err := t.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
 	llmTimer.StopWithInfo()
 	if err != nil {
 		logging.Get(logging.CategoryTester).Error("LLM test generation failed: %v", err)
 		return "", fmt.Errorf("LLM test generation failed after retries: %w", err)
 	}
-	logging.TesterDebug("LLM response: %d chars", len(response))
+	logging.TesterDebug("LLM response: %d chars", len(rawResponse))
 
-	// Parse generated tests
-	generated := t.parseGeneratedTests(response, targetPath, framework)
+	// Process through Piggyback Protocol - extract surface, route control to kernel
+	processed := articulation.ProcessLLMResponse(rawResponse)
+	logging.TesterDebug("Piggyback: method=%s, confidence=%.2f", processed.ParseMethod, processed.Confidence)
+
+	// Route control packet to kernel if present
+	if processed.Control != nil {
+		t.routeControlPacketToKernel(processed.Control)
+	}
+
+	// Parse generated tests (use surface response, not raw)
+	generated := t.parseGeneratedTests(processed.Surface, targetPath, framework)
 	logging.Tester("Generated %d tests for %s", generated.TestCount, targetPath)
 
 	// Write test file via VirtualStore

@@ -3035,3 +3035,79 @@ Decl has_guard(Var, File, Line).
 # is_suppressed(RuleType, File, Line) - Helper: finding is suppressed
 Decl is_suppressed(RuleType, File, Line).
 
+# -----------------------------------------------------------------------------
+# 47.9 Data Flow Safety Derived Predicates (IDB - from policy.mg Section 47)
+# -----------------------------------------------------------------------------
+
+# is_guarded(Var, File, Line) - Derived: variable is protected at this point
+# Computed from guards_block and guards_return
+Decl is_guarded(Var, File, Line).
+
+# unsafe_deref(File, Var, Line) - Derived: nullable dereference without guard
+Decl unsafe_deref(File, Var, Line).
+
+# is_error_checked(Var, File, Line) - Derived: error variable is checked
+Decl is_error_checked(Var, File, Line).
+
+# unchecked_error(File, Func, Line) - Derived: error assigned but not checked
+Decl unchecked_error(File, Func, Line).
+
+# -----------------------------------------------------------------------------
+# 47.10 Impact Analysis Derived Predicates (IDB - from policy.mg Section 48)
+# -----------------------------------------------------------------------------
+
+# impact_caller(TargetFunc, CallerFunc) - Direct callers of modified function
+Decl impact_caller(TargetFunc, CallerFunc).
+
+# impact_implementer(ImplFile, Struct) - Implementers of modified interface
+Decl impact_implementer(ImplFile, Struct).
+
+# impact_graph(Target, Caller, Depth) - Transitive impact with depth (max 3)
+Decl impact_graph(Target, Caller, Depth).
+
+# relevant_context_file(File) - Files to fetch for review context
+Decl relevant_context_file(File).
+
+# context_priority_file(File, Func, Priority) - Priority-ordered context files
+Decl context_priority_file(File, Func, Priority).
+
+# -----------------------------------------------------------------------------
+# 47.11 Hypothesis Management (IDB - from policy.mg Sections 49-50)
+# -----------------------------------------------------------------------------
+
+# active_hypothesis(Type, File, Line, Var) - Post-suppression hypotheses
+Decl active_hypothesis(Type, File, Line, Var).
+
+# priority_boost(File, Boost) - Additional priority for risky files
+Decl priority_boost(File, Boost).
+
+# prioritized_hypothesis(Type, File, Line, Var, Priority) - Final prioritized findings
+Decl prioritized_hypothesis(Type, File, Line, Var, Priority).
+
+# -----------------------------------------------------------------------------
+# 47.12 Helper Predicates for Safe Negation (IDB)
+# -----------------------------------------------------------------------------
+# These helpers enable safe negation by ensuring variables are bound before
+# negation is applied. Required by Mangle's safety constraints.
+
+# has_guard_at(Var, File, Line) - Helper for guarded variable check
+Decl has_guard_at(Var, File, Line).
+
+# has_error_check_at(Var, File, Line) - Helper for error check presence
+Decl has_error_check_at(Var, File, Line).
+
+# has_suppression_unsafe_deref(File, Line) - Helper for suppression check
+Decl has_suppression_unsafe_deref(File, Line).
+
+# has_suppression_unchecked_error(File, Line) - Helper for suppression check
+Decl has_suppression_unchecked_error(File, Line).
+
+# has_test_coverage(File) - Helper: file has test coverage
+Decl has_test_coverage(File).
+
+# has_bug_history(File) - Helper: file has bug history (count > 0)
+Decl has_bug_history(File).
+
+# has_priority_boost(File) - Helper: file has any priority boost
+Decl has_priority_boost(File).
+

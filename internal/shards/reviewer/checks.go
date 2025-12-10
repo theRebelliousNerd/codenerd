@@ -21,78 +21,108 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 
 	// Security patterns to check
 	securityPatterns := []struct {
-		Pattern    *regexp.Regexp
-		RuleID     string
-		Severity   string
-		Message    string
-		Suggestion string
-		Languages  []string // Empty means all languages
+		Pattern     *regexp.Regexp
+		RuleID      string
+		Severity    string
+		Message     string
+		Suggestion  string
+		Languages   []string // Empty means all languages
+		RequireSQL  bool     // If true, line must also contain SQL keywords
+		ExcludeFunc []string // Skip if line contains these function names (safe contexts)
 	}{
-		// SQL Injection
+		// SQL Injection - requires SQL keywords to reduce false positives
+		// This pattern looks for string interpolation in database-like contexts
 		{
-			Pattern:    regexp.MustCompile(`(?i)(execute|query|raw)\s*\(\s*["'].*\+.*["']|fmt\.Sprintf\s*\(\s*["'][^"']*%[sv].*["'].*\)\s*\)`),
-			RuleID:     "SEC001",
-			Severity:   "critical",
-			Message:    "Potential SQL injection: string concatenation in query",
-			Suggestion: "Use parameterized queries instead",
-			Languages:  []string{"go", "python", "java", "javascript"},
+			Pattern:     regexp.MustCompile(`(?i)(\.Query|\.Exec|\.Raw|QueryRow|ExecContext)\s*\([^)]*(\+|fmt\.Sprintf|fmt\.Fprintf|string\()`),
+			RuleID:      "SEC001",
+			Severity:    "critical",
+			Message:     "Potential SQL injection: string interpolation in database query",
+			Suggestion:  "Use parameterized queries with ? or $1 placeholders instead",
+			Languages:   []string{"go"},
+			RequireSQL:  false, // Already specific to DB methods
+			ExcludeFunc: nil,
+		},
+		// SQL Injection - generic fmt.Sprintf with SQL keywords
+		{
+			Pattern:     regexp.MustCompile(`(?i)fmt\.Sprintf\s*\(\s*["'][^"']*(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|INTO)\s`),
+			RuleID:      "SEC001",
+			Severity:    "critical",
+			Message:     "Potential SQL injection: fmt.Sprintf with SQL keywords",
+			Suggestion:  "Use parameterized queries instead of string formatting",
+			Languages:   []string{"go"},
+			RequireSQL:  false,
+			ExcludeFunc: []string{"log.", "Log", "Error", "Warn", "Info", "Debug", "fmt.Print", "fmt.Fprint"},
 		},
 		// Command Injection
 		{
-			Pattern:    regexp.MustCompile(`(?i)(exec\.Command|os\.system|subprocess\.|child_process\.exec)\s*\([^)]*\+`),
-			RuleID:     "SEC002",
-			Severity:   "critical",
-			Message:    "Potential command injection: user input in command execution",
-			Suggestion: "Sanitize inputs or use safer alternatives",
+			Pattern:     regexp.MustCompile(`(?i)(exec\.Command|os\.system|subprocess\.|child_process\.exec)\s*\([^)]*\+`),
+			RuleID:      "SEC002",
+			Severity:    "critical",
+			Message:     "Potential command injection: user input in command execution",
+			Suggestion:  "Sanitize inputs or use safer alternatives",
+			RequireSQL:  false,
+			ExcludeFunc: nil,
 		},
 		// Hardcoded Secrets
 		{
-			Pattern:    regexp.MustCompile(`(?i)(password|secret|api_key|apikey|token|credential)\s*[:=]\s*["'][^"']{8,}["']`),
-			RuleID:     "SEC003",
-			Severity:   "critical",
-			Message:    "Hardcoded secret detected",
-			Suggestion: "Use environment variables or secret management",
+			Pattern:     regexp.MustCompile(`(?i)(password|secret|api_key|apikey|token|credential)\s*[:=]\s*["'][^"']{8,}["']`),
+			RuleID:      "SEC003",
+			Severity:    "critical",
+			Message:     "Hardcoded secret detected",
+			Suggestion:  "Use environment variables or secret management",
+			RequireSQL:  false,
+			ExcludeFunc: []string{"// ", "/* ", "* ", "test", "Test", "example", "Example", "mock", "Mock"},
 		},
 		// XSS (JavaScript/TypeScript)
 		{
-			Pattern:    regexp.MustCompile(`(?i)(innerHTML|outerHTML|document\.write)\s*=`),
-			RuleID:     "SEC004",
-			Severity:   "error",
-			Message:    "Potential XSS: unsafe DOM manipulation",
-			Suggestion: "Use textContent or sanitize HTML input",
-			Languages:  []string{"javascript", "typescript"},
+			Pattern:     regexp.MustCompile(`(?i)(innerHTML|outerHTML|document\.write)\s*=`),
+			RuleID:      "SEC004",
+			Severity:    "error",
+			Message:     "Potential XSS: unsafe DOM manipulation",
+			Suggestion:  "Use textContent or sanitize HTML input",
+			Languages:   []string{"javascript", "typescript"},
+			RequireSQL:  false,
+			ExcludeFunc: nil,
 		},
 		// Path Traversal
 		{
-			Pattern:    regexp.MustCompile(`(?i)(filepath\.Join|os\.path\.join|path\.join)\s*\([^)]*\+`),
-			RuleID:     "SEC005",
-			Severity:   "error",
-			Message:    "Potential path traversal: unchecked path construction",
-			Suggestion: "Validate and sanitize file paths",
+			Pattern:     regexp.MustCompile(`(?i)(filepath\.Join|os\.path\.join|path\.join)\s*\([^)]*\+`),
+			RuleID:      "SEC005",
+			Severity:    "error",
+			Message:     "Potential path traversal: unchecked path construction",
+			Suggestion:  "Validate and sanitize file paths",
+			RequireSQL:  false,
+			ExcludeFunc: nil,
 		},
 		// Insecure Crypto - require word boundary to avoid false positives
 		{
-			Pattern:    regexp.MustCompile(`(?i)\b(md5|sha1|des|rc4)\b\s*[\.(]|\bcrypto/(md5|sha1|des|rc4)\b`),
-			RuleID:     "SEC006",
-			Severity:   "warning",
-			Message:    "Weak cryptographic algorithm detected",
-			Suggestion: "Use SHA-256 or stronger algorithms",
+			Pattern:     regexp.MustCompile(`(?i)\b(md5|sha1|des|rc4)\b\s*[\.(]|\bcrypto/(md5|sha1|des|rc4)\b`),
+			RuleID:      "SEC006",
+			Severity:    "warning",
+			Message:     "Weak cryptographic algorithm detected",
+			Suggestion:  "Use SHA-256 or stronger algorithms",
+			RequireSQL:  false,
+			ExcludeFunc: nil,
 		},
 		// Unsafe Deserialization
 		{
-			Pattern:    regexp.MustCompile(`(?i)(pickle\.loads|yaml\.load\(|unserialize\(|eval\()`),
-			RuleID:     "SEC007",
-			Severity:   "critical",
-			Message:    "Unsafe deserialization detected",
-			Suggestion: "Use safe_load or validate input before deserialization",
+			Pattern:     regexp.MustCompile(`(?i)(pickle\.loads|yaml\.load\(|unserialize\(|eval\()`),
+			RuleID:      "SEC007",
+			Severity:    "critical",
+			Message:     "Unsafe deserialization detected",
+			Suggestion:  "Use safe_load or validate input before deserialization",
+			RequireSQL:  false,
+			ExcludeFunc: nil,
 		},
-		// Debug/Development Code
+		// Debug/Development Code - only flag in non-logging files
 		{
-			Pattern:    regexp.MustCompile(`(?i)(console\.log|print\(|fmt\.Print|debug\s*=\s*true)`),
-			RuleID:     "SEC008",
-			Severity:   "info",
-			Message:    "Debug/logging code detected",
-			Suggestion: "Remove or disable in production",
+			Pattern:     regexp.MustCompile(`(?i)(console\.log|debug\s*=\s*true)`),
+			RuleID:      "SEC008",
+			Severity:    "info",
+			Message:     "Debug/logging code detected",
+			Suggestion:  "Remove or disable in production",
+			RequireSQL:  false,
+			ExcludeFunc: []string{"logging", "logger", "log.go", "_test.go"},
 		},
 	}
 
@@ -104,6 +134,21 @@ func (r *ReviewerShard) checkSecurity(filePath, content string) []ReviewFinding 
 			}
 
 			if sp.Pattern.MatchString(line) {
+				// Check exclusion patterns (safe contexts that should not be flagged)
+				if len(sp.ExcludeFunc) > 0 {
+					excluded := false
+					for _, excl := range sp.ExcludeFunc {
+						if strings.Contains(line, excl) || strings.Contains(filePath, excl) {
+							excluded = true
+							logging.ReviewerDebug("Security [%s]: excluded by %q at line %d", sp.RuleID, excl, lineNum+1)
+							break
+						}
+					}
+					if excluded {
+						continue
+					}
+				}
+
 				logging.ReviewerDebug("Security match [%s]: line %d - %s", sp.RuleID, lineNum+1, sp.Message)
 				findings = append(findings, ReviewFinding{
 					File:        filePath,

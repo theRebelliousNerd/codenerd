@@ -611,3 +611,71 @@ func GetMemoryOperationsByType(envelope PiggybackEnvelope, opType string) []Memo
 	logging.ArticulationDebug("GetMemoryOperationsByType: found %d operations of type %q", len(result), opType)
 	return result
 }
+
+// =============================================================================
+// SHARED PIGGYBACK PROCESSING FOR SHARDS
+// =============================================================================
+// All shards that use LLM responses MUST process them through this layer to:
+// 1. Extract and route control_packet data to the kernel
+// 2. Return only surface_response to the user
+// This prevents control data from leaking into user-facing output.
+
+// ProcessedLLMResponse contains the separated components of a Piggyback response.
+type ProcessedLLMResponse struct {
+	Surface     string         // User-facing text (safe for display)
+	Control     *ControlPacket // Control packet (route to kernel)
+	ParseMethod string         // How the response was parsed
+	Confidence  float64        // Parsing confidence
+}
+
+// ProcessLLMResponse is a convenience function for shards to process LLM responses.
+// It extracts the surface_response and control_packet from a Piggyback-formatted
+// LLM response. The surface is safe for user display; the control should be
+// routed to the kernel.
+//
+// Usage in any shard:
+//
+//	rawResponse, err := llmClient.Complete(ctx, prompt)
+//	processed := articulation.ProcessLLMResponse(rawResponse)
+//	// Display: processed.Surface
+//	// Route to kernel: processed.Control
+func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
+	logging.ArticulationDebug("ProcessLLMResponse: processing %d bytes", len(rawResponse))
+
+	processor := NewResponseProcessor()
+	processor.RequireValidJSON = false // Allow fallback to raw text
+
+	result, err := processor.Process(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Warn("ProcessLLMResponse: parse failed, using raw: %v", err)
+		return &ProcessedLLMResponse{
+			Surface:     strings.TrimSpace(rawResponse),
+			Control:     nil,
+			ParseMethod: "fallback",
+			Confidence:  0.0,
+		}
+	}
+
+	logging.Articulation("ProcessLLMResponse: method=%s, confidence=%.2f, surface_len=%d",
+		result.ParseMethod, result.Confidence, len(result.Surface))
+
+	processed := &ProcessedLLMResponse{
+		Surface:     result.Surface,
+		ParseMethod: result.ParseMethod,
+		Confidence:  result.Confidence,
+	}
+
+	// Only include control packet if we actually parsed it
+	if result.ParseMethod != "fallback" {
+		processed.Control = &result.Control
+	}
+
+	return processed
+}
+
+// MustExtractSurface extracts only the surface response, returning raw on failure.
+// Use this when you only need the user-facing text and don't care about control.
+func MustExtractSurface(rawResponse string) string {
+	processed := ProcessLLMResponse(rawResponse)
+	return processed.Surface
+}
