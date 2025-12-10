@@ -3111,3 +3111,37 @@ Decl has_bug_history(File).
 # has_priority_boost(File) - Helper: file has any priority boost
 Decl has_priority_boost(File).
 
+# -----------------------------------------------------------------------------
+# 47.13 Multi-Language Data Flow Predicates
+# -----------------------------------------------------------------------------
+# These predicates support data flow analysis across multiple languages
+# (Go, Python, TypeScript, JavaScript, Rust) using Tree-sitter parsing.
+
+# function_scope(File, Func, Start, End) - Function scope boundaries
+# File: Source file path
+# Func: Function name
+# Start: Starting line number
+# End: Ending line number
+# Used to determine scope for guard domination
+Decl function_scope(File, Func, Start, End).
+
+# guard_dominates(File, Func, GuardLine, EndLine) - Guard domination for early returns
+# File: Source file path
+# Func: Function containing the guard
+# GuardLine: Line of the guard check (e.g., if x == nil { return })
+# EndLine: Last line of the function (guard protects all subsequent lines)
+# Early return guards dominate all code after them in the same scope
+Decl guard_dominates(File, Func, GuardLine, EndLine).
+
+# safe_access(Var, AccessType, File, Line) - Language-specific safe access patterns
+# Var: Variable being accessed
+# AccessType: Type of safe access pattern:
+#   /optional_chain - JavaScript/TypeScript x?.foo
+#   /if_let - Rust if let Some(x) = ...
+#   /match_exhaustive - Rust match expression (exhaustive)
+#   /walrus - Python x := (assignment expression)
+# File: Source file path
+# Line: Line number
+# These accesses are inherently safe by the language's semantics
+Decl safe_access(Var, AccessType, File, Line).
+

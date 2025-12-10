@@ -22,20 +22,25 @@ import (
 // - symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
 // - dependency_link(CallerID, CalleeID, ImportPath)
 //
-// Data flow facts (via DataFlowExtractor):
+// Data flow facts (via MultiLangDataFlowExtractor):
 // - assigns(Var, TypeClass, File, Line)
 // - guards_return(Var, GuardType, File, Line)
 // - guards_block(Var, GuardType, File, StartLine, EndLine)
 // - uses(File, Func, Var, Line)
+// - safe_access(Var, AccessType, File, Line) - for language-specific safe patterns
+// - function_scope(File, Func, Start, End) - function boundaries
+// - guard_dominates(File, Func, GuardLine, EndLine) - early return domination
+//
+// Supports: Go, Python, TypeScript, JavaScript, Rust
 type Cartographer struct {
-	dataFlowExtractor *DataFlowExtractor
+	dataFlowExtractor *MultiLangDataFlowExtractor
 }
 
 // NewCartographer creates a new Cartographer for holographic code graph projection.
 func NewCartographer() *Cartographer {
-	logging.WorldDebug("Creating new Cartographer with DataFlowExtractor")
+	logging.WorldDebug("Creating new Cartographer with MultiLangDataFlowExtractor")
 	return &Cartographer{
-		dataFlowExtractor: NewDataFlowExtractor(),
+		dataFlowExtractor: NewMultiLangDataFlowExtractor(),
 	}
 }
 
@@ -249,4 +254,27 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 	logging.WorldDebug("Cartographer: mapped %s - %d total facts (%d symbol, %d data flow) in %v",
 		filepath.Base(path), len(facts), symbolFactCount, len(facts)-symbolFactCount, time.Since(start))
 	return facts, nil
+}
+
+// Close releases resources held by the Cartographer.
+func (c *Cartographer) Close() {
+	if c.dataFlowExtractor != nil {
+		c.dataFlowExtractor.Close()
+	}
+}
+
+// SupportedLanguages returns the list of languages supported for data flow extraction.
+func (c *Cartographer) SupportedLanguages() []string {
+	return []string{"go", "python", "typescript", "javascript", "rust"}
+}
+
+// IsLanguageSupported checks if a file's language is supported for data flow extraction.
+func (c *Cartographer) IsLanguageSupported(path string) bool {
+	lang := DetectLanguage(path)
+	for _, supported := range c.SupportedLanguages() {
+		if lang == supported {
+			return true
+		}
+	}
+	return false
 }
