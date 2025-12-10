@@ -91,7 +91,8 @@ type ExecutivePolicyShard struct {
 	learningStore  core.LearningStore
 
 	// Mangle feedback loop for validated rule generation
-	feedbackLoop *feedback.FeedbackLoop
+	feedbackLoop          *feedback.FeedbackLoop
+	budgetExhaustedLogged bool // Prevents repeated "budget exhausted" warnings
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -133,6 +134,17 @@ func (e *ExecutivePolicyShard) SetLearningStore(ls core.LearningStore) {
 	e.learningStore = ls
 }
 
+// ResetValidationBudget resets the FeedbackLoop validation budget.
+// This should be called at the start of a new turn or session to allow
+// autopoiesis to resume after budget exhaustion.
+func (e *ExecutivePolicyShard) ResetValidationBudget() {
+	e.feedbackLoop.ResetBudget()
+	e.mu.Lock()
+	e.budgetExhaustedLogged = false
+	e.mu.Unlock()
+	logging.SystemShardsDebug("[ExecutivePolicy] Validation budget reset, autopoiesis re-enabled")
+}
+
 // trackSuccess records a successful action derivation.
 func (e *ExecutivePolicyShard) trackSuccess(pattern string) {
 	e.mu.Lock()
@@ -159,6 +171,15 @@ func (e *ExecutivePolicyShard) trackFailure(pattern string, reason string) {
 // This shard is AUTO-START and runs for the entire session.
 func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[ExecutivePolicy] Starting OODA decision loop")
+
+	// Reset FeedbackLoop validation budget at session start to prevent
+	// budget exhaustion from carrying over between sessions
+	e.feedbackLoop.ResetBudget()
+	e.mu.Lock()
+	e.budgetExhaustedLogged = false
+	e.mu.Unlock()
+	logging.SystemShardsDebug("[ExecutivePolicy] FeedbackLoop validation budget reset at session start")
+
 	e.SetState(core.ShardStateRunning)
 	e.mu.Lock()
 	e.running = true
@@ -478,6 +499,26 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 
 	if e.Kernel == nil {
 		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis skipped: no kernel")
+		return
+	}
+
+	// Check if FeedbackLoop's validation budget is exhausted BEFORE attempting
+	// This prevents the infinite warning spam when budget is depleted
+	if e.feedbackLoop.IsBudgetExhausted() {
+		e.mu.Lock()
+		alreadyLogged := e.budgetExhaustedLogged
+		if !alreadyLogged {
+			e.budgetExhaustedLogged = true
+		}
+		e.mu.Unlock()
+
+		if !alreadyLogged {
+			logging.SystemShards("[ExecutivePolicy] Autopoiesis suspended: FeedbackLoop validation budget exhausted (will resume on budget reset)")
+		}
+		// Re-queue cases for later processing when budget is reset
+		for _, cas := range cases {
+			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
 		return
 	}
 

@@ -227,6 +227,13 @@ func (fl *FeedbackLoop) ResetBudget() {
 	fl.budget.Reset()
 }
 
+// IsBudgetExhausted checks if the session validation budget has been exhausted.
+// This should be called before invoking GenerateAndValidate to avoid unnecessary
+// warning spam when budget is depleted.
+func (fl *FeedbackLoop) IsBudgetExhausted() bool {
+	return fl.budget.IsSessionExhausted()
+}
+
 // hashPrompt creates a short hash of a prompt for budget tracking.
 func hashPrompt(prompt string) string {
 	h := sha256.Sum256([]byte(prompt))
