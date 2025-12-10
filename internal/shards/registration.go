@@ -1,3 +1,4 @@
+```
 // Package shards implements specialized ShardAgent types.
 // This file provides registration helpers for the shard manager.
 package shards
@@ -5,6 +6,7 @@ package shards
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
@@ -23,6 +25,7 @@ type RegistryContext struct {
 	LLMClient    perception.LLMClient
 	VirtualStore *core.VirtualStore
 	Workspace    string
+	JITCompiler  *prompt.JITPromptCompiler
 }
 
 // learningStoreAdapter adapts store.LearningStore to core.LearningStore

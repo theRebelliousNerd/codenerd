@@ -10,9 +10,10 @@ import (
 // OrderedAtom is an atom with its assembly order.
 // The order determines the position in the final prompt.
 type OrderedAtom struct {
-	Atom  *PromptAtom
-	Order int
-	Score float64 // Preserved from ScoredAtom
+	Atom       *PromptAtom
+	Order      int
+	Score      float64 // Preserved from ScoredAtom
+	RenderMode string  // "standard", "concise", "min"
 }
 
 // DependencyResolver resolves atom dependencies and detects conflicts.

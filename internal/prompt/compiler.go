@@ -75,10 +75,10 @@ type JITPromptCompiler struct {
 	vectorSearcher VectorSearcher
 
 	// Sub-components
-	selector   *AtomSelector
-	resolver   *DependencyResolver
-	budgetMgr  *TokenBudgetManager
-	assembler  *FinalAssembler
+	selector  *AtomSelector
+	resolver  *DependencyResolver
+	budgetMgr *TokenBudgetManager
+	assembler *FinalAssembler
 
 	// Concurrency control
 	mu sync.RWMutex
@@ -302,14 +302,15 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 		return nil, nil
 	}
 
+	timer := logging.StartTimer(logging.CategoryContext, "JITPromptCompiler.loadAtomsFromDB")
+	defer timer.Stop()
+
+	// 1. Load Base Atoms
 	query := `
-		SELECT id, version, content, token_count, content_hash, category, subcategory,
-		       operational_modes, campaign_phases, build_layers, init_phases,
-		       northstar_phases, ouroboros_stages, intent_verbs, shard_types,
-		       languages, frameworks, world_states, priority, is_mandatory,
-		       is_exclusive, depends_on, conflicts_with, created_at
+		SELECT atom_id, version, content, token_count, content_hash,
+		       description, content_concise, content_min,
+		       category, subcategory, priority, is_mandatory, is_exclusive, created_at
 		FROM prompt_atoms
-		WHERE 1=1
 	`
 
 	rows, err := db.QueryContext(ctx, query)
@@ -319,6 +320,8 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	defer rows.Close()
 
 	var atoms []*PromptAtom
+	atomMap := make(map[string]*PromptAtom)
+
 	for rows.Next() {
 		atom, err := scanAtom(rows)
 		if err != nil {
@@ -326,10 +329,31 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 			continue
 		}
 		atoms = append(atoms, atom)
+		atomMap[atom.ID] = atom
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating atoms: %w", err)
+	}
+
+	// 2. Load Context Tags
+	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
+	if err != nil {
+		// Log warning but don't fail, maybe table is empty or migration pending
+		logging.Get(logging.CategoryContext).Warn("Failed to query atom tags: %v", err)
+		return atoms, nil
+	}
+	defer tagRows.Close()
+
+	var atomID, dim, tag string
+	for tagRows.Next() {
+		if err := tagRows.Scan(&atomID, &dim, &tag); err != nil {
+			continue
+		}
+
+		if atom, exists := atomMap[atomID]; exists {
+			c.appendTag(atom, dim, tag)
+		}
 	}
 
 	return atoms, nil
@@ -337,22 +361,61 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 
 // scanAtom scans a database row into a PromptAtom.
 func scanAtom(rows *sql.Rows) (*PromptAtom, error) {
-	// This is a placeholder - actual implementation would parse JSON arrays
-	// from the database columns into the slice fields.
 	var atom PromptAtom
 	var category string
+	var desc, conc, min, sub, excl sql.NullString
+	// Note: depends_on and conflicts_with are also relations now (via tags or separate table)
+	// We load them via tags if we stored them there.
 
 	err := rows.Scan(
 		&atom.ID, &atom.Version, &atom.Content, &atom.TokenCount, &atom.ContentHash,
-		&category, &atom.Subcategory,
-		// JSON fields would need custom scanning
+		&desc, &conc, &min,
+		&category, &sub, &atom.Priority, &atom.IsMandatory, &excl, &atom.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	atom.Category = AtomCategory(category)
+	atom.Subcategory = sub.String
+	atom.Description = desc.String
+	atom.ContentConcise = conc.String
+	atom.ContentMin = min.String
+	atom.IsExclusive = excl.String
+
 	return &atom, nil
+}
+
+// appendTag helper to hydrate atom slices based on dimension
+func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
+	switch dim {
+	case "mode":
+		atom.OperationalModes = append(atom.OperationalModes, tag)
+	case "phase":
+		atom.CampaignPhases = append(atom.CampaignPhases, tag)
+	case "layer":
+		atom.BuildLayers = append(atom.BuildLayers, tag)
+	case "init_phase":
+		atom.InitPhases = append(atom.InitPhases, tag)
+	case "northstar_phase":
+		atom.NorthstarPhases = append(atom.NorthstarPhases, tag)
+	case "ouroboros_stage":
+		atom.OuroborosStages = append(atom.OuroborosStages, tag)
+	case "intent":
+		atom.IntentVerbs = append(atom.IntentVerbs, tag)
+	case "shard":
+		atom.ShardTypes = append(atom.ShardTypes, tag)
+	case "lang":
+		atom.Languages = append(atom.Languages, tag)
+	case "framework":
+		atom.Frameworks = append(atom.Frameworks, tag)
+	case "state":
+		atom.WorldStates = append(atom.WorldStates, tag)
+	case "depends_on":
+		atom.DependsOn = append(atom.DependsOn, tag)
+	case "conflicts_with":
+		atom.ConflictsWith = append(atom.ConflictsWith, tag)
+	}
 }
 
 // buildResult constructs the compilation result.

@@ -7,7 +7,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -50,7 +49,7 @@ func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.
 	logging.Get(logging.CategoryStore).Info("Loading prompt atoms from YAML: %s", yamlPath)
 
 	// Parse YAML file
-	atoms, err := l.parseYAMLFile(yamlPath)
+	atoms, err := l.ParseYAML(yamlPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse YAML file %s: %w", yamlPath, err)
 	}
@@ -60,7 +59,7 @@ func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.
 	// Store atoms in database
 	stored := 0
 	for _, atom := range atoms {
-		if err := l.storeAtom(ctx, db, atom); err != nil {
+		if err := l.StoreAtom(ctx, db, atom); err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to store atom %s: %v", atom.ID, err)
 			continue
 		}
@@ -114,8 +113,8 @@ func (l *AtomLoader) LoadFromDirectory(ctx context.Context, dirPath string, db *
 	return totalStored, nil
 }
 
-// ensurePromptAtomsTable creates the prompt_atoms table and atom_context_tags table.
-func ensurePromptAtomsTable(db *sql.DB) error {
+// EnsureSchema creates the prompt_atoms table and atom_context_tags table.
+func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 	schema := `
 		CREATE TABLE IF NOT EXISTS prompt_atoms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,8 +183,8 @@ func ensurePromptAtomsTable(db *sql.DB) error {
 	return nil
 }
 
-// parseYAMLFile parses a YAML file containing prompt atom definitions.
-func (l *AtomLoader) parseYAMLFile(path string) ([]*PromptAtom, error) {
+// ParseYAML parses a YAML file containing prompt atom definitions.
+func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -308,8 +307,8 @@ func (l *AtomLoader) convertYAMLAtom(raw yamlAtomDefinition, sourcePath string) 
 	return atom, nil
 }
 
-// storeAtom stores a prompt atom in the database with optional embedding.
-func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom) error {
+// StoreAtom stores a prompt atom in the database with optional embedding.
+func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom) error {
 	// Generate embedding if engine is available
 	var embeddingBlob []byte
 	var embeddingTask string
@@ -350,24 +349,21 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 	addTags("framework", atom.Frameworks)
 	addTags("state", atom.WorldStates)
 
-	dependsOnJSON, _ := json.Marshal(atom.DependsOn)
-	conflictsWithJSON, _ := json.Marshal(atom.ConflictsWith)
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// 1. Upsert Atom
+	// 1. Upsert Atom (Base Fields Only)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO prompt_atoms (
 			atom_id, version, content, token_count, content_hash,
 			description, content_concise, content_min,
 			category, subcategory,
-			priority, is_mandatory, is_exclusive, depends_on, conflicts_with,
+			priority, is_mandatory, is_exclusive,
 			embedding, embedding_task
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
 			content = excluded.content,
@@ -381,15 +377,12 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 			priority = excluded.priority,
 			is_mandatory = excluded.is_mandatory,
 			is_exclusive = excluded.is_exclusive,
-			depends_on = excluded.depends_on,
-			conflicts_with = excluded.conflicts_with,
 			embedding = excluded.embedding,
 			embedding_task = excluded.embedding_task`,
 		atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
 		nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 		string(atom.Category), nullableString(atom.Subcategory),
 		atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
-		toJSONString(dependsOnJSON), toJSONString(conflictsWithJSON),
 		embeddingBlob, nullableString(embeddingTask),
 	)
 	if err != nil {
@@ -409,15 +402,27 @@ func (l *AtomLoader) storeAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 
 	for dim, values := range tags {
 		for _, tag := range values {
-			// Normalize tag (ensure starts with / if not present?)
-			// User example had /mode, /active. YAML usually has raw strings.
-			// Assuming they match what's in YAML. Mangle expects constants like /foo.
-			// We will insert exactly what is in YAML. Runtime transformation to Mangle Atom might be needed if YAML is "active".
-			// But Atoms.go MatchContext expects strings.
-			// Let's assume strings are fine.
 			if _, err := stmt.ExecContext(ctx, atom.ID, dim, tag); err != nil {
 				return fmt.Errorf("insert tag failed: %w", err)
 			}
+		}
+	}
+
+	// Handling DependsOn and ConflictsWith as tags or separate tables?
+	// The User Plan mentioned "atom_requires", "atom_conflicts" predicates.
+	// But in DB, where do they go?
+	// I should add them to `atom_context_tags` with dim='depends_on' / 'conflicts_with'?
+	// OR create separate link tables `atom_dependencies`, `atom_conflicts`.
+	// For simplicity, let's use `atom_context_tags` with reserved dimensions.
+	// This works for simple ID references.
+	for _, dep := range atom.DependsOn {
+		if _, err := stmt.ExecContext(ctx, atom.ID, "depends_on", dep); err != nil {
+			return fmt.Errorf("insert dep failed: %w", err)
+		}
+	}
+	for _, conf := range atom.ConflictsWith {
+		if _, err := stmt.ExecContext(ctx, atom.ID, "conflicts_with", conf); err != nil {
+			return fmt.Errorf("insert conflict failed: %w", err)
 		}
 	}
 
@@ -462,7 +467,7 @@ func LoadAgentPrompts(ctx context.Context, agentName string, nerdDir string, emb
 
 	// Ensure prompt_atoms table exists in this knowledge DB
 	// This is safe to call multiple times (CREATE TABLE IF NOT EXISTS)
-	if err := ensurePromptAtomsTable(db); err != nil {
+	if err := loader.EnsureSchema(ctx, db); err != nil {
 		return 0, fmt.Errorf("failed to ensure prompt_atoms table: %w", err)
 	}
 

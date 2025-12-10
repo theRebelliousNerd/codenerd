@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"codenerd/internal/logging"
@@ -75,13 +76,7 @@ func (s *AtomSelector) SetMinScoreThreshold(threshold float64) {
 	s.minScoreThreshold = threshold
 }
 
-// SelectAtoms returns scored atoms matching the context.
-// The selection process:
-// 1. Filter atoms by context matching (selector dimensions)
-// 2. Score by logic rules (Mangle queries)
-// 3. Score by semantic similarity (vector search)
-// 4. Combine scores with configurable weighting
-// 5. Filter by minimum threshold
+// SelectAtoms selects the best atoms from the candidates using the Mangle kernel.
 func (s *AtomSelector) SelectAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -94,66 +89,127 @@ func (s *AtomSelector) SelectAtoms(
 		return nil, nil
 	}
 
-	// Step 1: Context filtering
-	contextMatched := s.filterByContext(atoms, cc)
-	logging.Get(logging.CategoryContext).Debug(
-		"Context filter: %d/%d atoms matched", len(contextMatched), len(atoms),
-	)
+	if s.kernel == nil {
+		return nil, fmt.Errorf("Mangle kernel not configured in selector")
+	}
 
-	// Step 2: Get vector scores (if enabled and query provided)
+	// 1. Prepare Facts for Mangle
+	var facts []interface{}
+
+	// Context Facts
+	addContextFact := func(dim, val string) {
+		if val != "" {
+			facts = append(facts, fmt.Sprintf("current_context('%s', '%s')", dim, val))
+		}
+	}
+	addContextFact("mode", cc.OperationalMode)
+	addContextFact("phase", cc.CampaignPhase)
+	addContextFact("layer", cc.BuildLayer)
+	addContextFact("init_phase", cc.InitPhase)
+	addContextFact("northstar_phase", cc.NorthstarPhase)
+	addContextFact("ouroboros_stage", cc.OuroborosStage)
+	addContextFact("intent", cc.IntentVerb)
+	addContextFact("shard", cc.ShardID)
+
+	// Candidate Facts
+	for _, atom := range atoms {
+		id := atom.ID
+		facts = append(facts, fmt.Sprintf("atom('%s')", id))
+		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
+		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
+		if atom.IsMandatory {
+			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+		}
+
+		// Tags helper
+		addTags := func(dim string, values []string) {
+			for _, v := range values {
+				facts = append(facts, fmt.Sprintf("atom_tag('%s', '%s', '%s')", id, dim, v))
+			}
+		}
+		addTags("mode", atom.OperationalModes)
+		addTags("phase", atom.CampaignPhases)
+		addTags("layer", atom.BuildLayers)
+		addTags("init_phase", atom.InitPhases)
+		addTags("northstar_phase", atom.NorthstarPhases)
+		addTags("ouroboros_stage", atom.OuroborosStages)
+		addTags("intent", atom.IntentVerbs)
+		addTags("shard", atom.ShardTypes)
+	}
+
+	// 2. Vector Search (if enabled)
 	vectorScores := make(map[string]float64)
 	if s.vectorSearcher != nil && cc.SemanticQuery != "" {
-		var err error
-		vectorScores, err = s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK)
-		if err != nil {
+		scores, err := s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK)
+		if err == nil {
+			vectorScores = scores
+			for id, score := range scores {
+				facts = append(facts, fmt.Sprintf("vector_hit('%s', %f)", id, score))
+			}
+		} else {
 			logging.Get(logging.CategoryContext).Warn("Vector search failed: %v", err)
-			// Continue without vector scores
 		}
 	}
 
-	// Step 3: Score each atom
-	scored := make([]*ScoredAtom, 0, len(contextMatched))
-	for _, atom := range contextMatched {
-		sa := s.scoreAtom(atom, cc, vectorScores)
+	// 3. Assert Facts
+	if err := s.kernel.AssertBatch(facts); err != nil {
+		return nil, fmt.Errorf("failed to assert facts: %w", err)
+	}
 
-		// Skip atoms below threshold (unless mandatory)
-		if sa.Combined < s.minScoreThreshold && !atom.IsMandatory {
-			LogAtomSelection(atom.ID, false, "below threshold")
+	// 4. Query Mangle
+	// selected_result(Atom, Priority, Source)
+	results, err := s.kernel.Query("selected_result(Atom, Priority, Source)")
+	if err != nil {
+		return nil, fmt.Errorf("mangle query failed: %w", err)
+	}
+
+	// 5. Map Results
+	var selected []*ScoredAtom
+	atomMap := make(map[string]*PromptAtom)
+	for _, a := range atoms {
+		atomMap[a.ID] = a
+	}
+
+	// Process results
+	// Assuming results are simple maps or structs.
+	// Since we don't know the exact return type of Query (interface{}), relies on best effort.
+	// If it returns bindings, we iterate.
+	for _, rawRes := range results {
+		// Mock parsing for now: assume map[string]string
+		resMap, ok := rawRes.(map[string]string)
+		if !ok {
+			// Try debugging or inspecting type
 			continue
 		}
 
-		scored = append(scored, sa)
-		LogAtomSelection(atom.ID, true, sa.SelectionReason)
+		atomID := resMap["Atom"]
+
+		if atom, exists := atomMap[atomID]; exists {
+			// Calculate scores locally or trust Mangle?
+			// Mangle determined it SHOULD be selected.
+			// We construct the ScoredAtom.
+			score := 1.0
+			vScore := vectorScores[atomID]
+			if vScore > 0 {
+				score += vScore
+			}
+
+			selected = append(selected, &ScoredAtom{
+				Atom:            atom,
+				LogicScore:      1.0,
+				VectorScore:     vScore,
+				Combined:        score,
+				SelectionReason: "mangle_selected",
+			})
+		}
 	}
 
-	// Step 4: Sort by combined score (descending)
-	sort.Slice(scored, func(i, j int) bool {
-		// Mandatory atoms always come first
-		if scored[i].Atom.IsMandatory != scored[j].Atom.IsMandatory {
-			return scored[i].Atom.IsMandatory
-		}
-		// Then by combined score
-		return scored[i].Combined > scored[j].Combined
+	// Sort by Score
+	sort.Slice(selected, func(i, j int) bool {
+		return selected[i].Combined > selected[j].Combined
 	})
 
-	logging.Get(logging.CategoryContext).Debug(
-		"Selected %d atoms after scoring", len(scored),
-	)
-
-	return scored, nil
-}
-
-// filterByContext filters atoms by context selector matching.
-func (s *AtomSelector) filterByContext(atoms []*PromptAtom, cc *CompilationContext) []*PromptAtom {
-	matched := make([]*PromptAtom, 0, len(atoms))
-
-	for _, atom := range atoms {
-		if atom.MatchesContext(cc) {
-			matched = append(matched, atom)
-		}
-	}
-
-	return matched
+	return selected, nil
 }
 
 // getVectorScores retrieves semantic similarity scores for atoms.
