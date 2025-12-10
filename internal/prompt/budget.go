@@ -251,7 +251,7 @@ func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
 }
 
 // Fit selects atoms that fit within the total budget.
-// Implements the core budget allocation algorithm.
+// Implements the core budget allocation algorithm with polymorphism (Standard -> Concise -> Min).
 func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*OrderedAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "TokenBudgetManager.Fit")
 	defer timer.Stop()
@@ -287,6 +287,26 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	var result []*OrderedAtom
 	usedTokens := 0
 
+	// Helper to get token count for a mode
+	getTokenCount := func(atom *PromptAtom, mode string) int {
+		switch mode {
+		case "concise":
+			// If pre-calculated, use it. Otherwise estimate.
+			// We didn't store token counts for variants, so we estimate on the fly.
+			if atom.ContentConcise != "" {
+				return EstimateTokens(atom.ContentConcise)
+			}
+			return atom.TokenCount // Fallback
+		case "min":
+			if atom.ContentMin != "" {
+				return EstimateTokens(atom.ContentMin)
+			}
+			return atom.TokenCount // Fallback
+		default:
+			return atom.TokenCount
+		}
+	}
+
 	// Process categories in priority order
 	categories := m.categoriesByPriority()
 	for _, cat := range categories {
@@ -297,27 +317,73 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 		allocation, hasAlloc := allocations[cat]
 		if !hasAlloc {
+			// If generic allocation (0) but CanExceedMax is true?
+			// Usually allocation=0 means no budget.
+			// But for Low Priority, allocation might be 0 but fillRemainingBudget handles it.
+			// We follow the strict allocation first.
 			allocation = 0
 		}
 
+		// Checking CanExceed here or later?
+		// Existing logic tried to fit strictly.
+		// We'll stick to strict fit then overflow.
+
 		catTokens := 0
 		for _, oa := range atomsInCat {
-			atomTokens := oa.Atom.TokenCount
+			// Determine best mode
+			mode := "standard"
+			tokens := getTokenCount(oa.Atom, mode)
 
-			// Mandatory atoms always included
+			// Mandatory atoms always included (Standard unless forced?)
+			// Let's keep mandatory as Standard for safety.
 			if oa.Atom.IsMandatory {
+				oa.RenderMode = mode
 				result = append(result, oa)
-				catTokens += atomTokens
-				usedTokens += atomTokens
+				catTokens += tokens
+				usedTokens += tokens
 				continue
 			}
 
-			// Check if atom fits in category allocation
-			if catTokens+atomTokens <= allocation {
+			// Try Standard
+			if catTokens+tokens <= allocation {
+				oa.RenderMode = mode
 				result = append(result, oa)
-				catTokens += atomTokens
-				usedTokens += atomTokens
+				catTokens += tokens
+				usedTokens += tokens
+				continue
 			}
+
+			// Try Concise
+			if oa.Atom.ContentConcise != "" {
+				mode = "concise"
+				tokens = getTokenCount(oa.Atom, mode)
+				if catTokens+tokens <= allocation {
+					oa.RenderMode = mode
+					result = append(result, oa)
+					catTokens += tokens
+					usedTokens += tokens
+					continue
+				}
+			}
+
+			// Try Min
+			if oa.Atom.ContentMin != "" {
+				mode = "min"
+				tokens = getTokenCount(oa.Atom, mode)
+				if catTokens+tokens <= allocation {
+					oa.RenderMode = mode
+					result = append(result, oa)
+					catTokens += tokens
+					usedTokens += tokens
+					continue
+				}
+			}
+
+			// If we get here, atom doesn't fit even in Min mode.
+			// Log exclusion?
+			logging.Get(logging.CategoryContext).Debug(
+				"Atom %s excluded from cat %s (budget full)", oa.Atom.ID, cat,
+			)
 		}
 
 		logging.Get(logging.CategoryContext).Debug(
@@ -329,12 +395,68 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	// Second pass: fill remaining budget with best remaining atoms
 	remaining := availableBudget - usedTokens
 	if remaining > 0 {
-		result = m.fillRemainingBudget(result, byCategory, remaining)
+		// Polymorphic fill?
+		// The fillRemainingBudget function needs update too.
+		// For now, let's just call it, assuming it uses Standard.
+		// Or update it to use the new logic?
+		// Let's implement inline fill logic here to support polymorphism.
+
+		// Collect unselected
+		selectedSet := make(map[string]bool)
+		for _, oa := range result {
+			selectedSet[oa.Atom.ID] = true
+		}
+
+		var unselected []*OrderedAtom
+		for _, catList := range byCategory {
+			for _, oa := range catList {
+				if !selectedSet[oa.Atom.ID] {
+					unselected = append(unselected, oa)
+				}
+			}
+		}
+
+		sort.Slice(unselected, func(i, j int) bool {
+			return unselected[i].Score > unselected[j].Score
+		})
+
+		for _, oa := range unselected {
+			// Try Standard
+			tokens := getTokenCount(oa.Atom, "standard")
+			if tokens <= remaining {
+				oa.RenderMode = "standard"
+				result = append(result, oa)
+				remaining -= tokens
+				continue
+			}
+
+			// Try Concise
+			if oa.Atom.ContentConcise != "" {
+				tokens = getTokenCount(oa.Atom, "concise")
+				if tokens <= remaining {
+					oa.RenderMode = "concise"
+					result = append(result, oa)
+					remaining -= tokens
+					continue
+				}
+			}
+
+			// Try Min
+			if oa.Atom.ContentMin != "" {
+				tokens = getTokenCount(oa.Atom, "min")
+				if tokens <= remaining {
+					oa.RenderMode = "min"
+					result = append(result, oa)
+					remaining -= tokens
+					continue
+				}
+			}
+		}
 	}
 
 	logging.Get(logging.CategoryContext).Debug(
 		"Fitted %d atoms within budget of %d tokens (used %d)",
-		len(result), totalBudget, usedTokens,
+		len(result), totalBudget, availableBudget-remaining,
 	)
 
 	return result, nil
