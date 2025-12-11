@@ -30,11 +30,12 @@ type AttackRunner struct {
 
 // AttackRunnerStats tracks execution metrics.
 type AttackRunnerStats struct {
-	TotalRuns       int
-	SuccessfulBreaks int // Times the attack found a bug
-	Timeouts        int
-	Panics          int
-	CleanPasses     int
+	TotalRuns         int
+	SuccessfulBreaks  int // Times the attack found a bug
+	Timeouts          int
+	Panics            int
+	CleanPasses       int
+	CompilationErrors int // Attacks that failed to compile (false negatives!)
 }
 
 // AttackScript represents a generated attack to execute.
@@ -108,11 +109,24 @@ func (r *AttackRunner) RunAttack(ctx context.Context, script *AttackScript) (*At
 		return nil, fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
+	// FIX 1: Robust Import Management - run go mod tidy to resolve dependencies
+	// This prevents false negatives from attacks that fail to compile due to missing imports
+	tidyCtx, tidyCancel := context.WithTimeout(ctx, 30*time.Second)
+	tidyCmd := exec.CommandContext(tidyCtx, "go", "mod", "tidy")
+	tidyCmd.Dir = attackDir
+	tidyCmd.Env = build.GetBuildEnvForTest(nil, attackDir)
+	if tidyErr := tidyCmd.Run(); tidyErr != nil {
+		logging.ShardsDebug("AttackRunner: go mod tidy failed (continuing anyway): %v", tidyErr)
+	}
+	tidyCancel()
+
 	// Execute with timeout
 	execCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, "go", "test", "-v", "-race", "-timeout", r.timeout.String())
+	// FIX 3: Probabilistic Race Detection - run test multiple times to catch flaky races
+	// A single run of -race often misses subtle race conditions
+	cmd := exec.CommandContext(execCtx, "go", "test", "-v", "-race", "-count=5", "-timeout", r.timeout.String())
 	cmd.Dir = attackDir
 	cmd.Env = build.GetBuildEnvForTest(nil, attackDir)
 
@@ -141,6 +155,26 @@ func (r *AttackRunner) RunAttack(ctx context.Context, script *AttackScript) (*At
 
 		// Check what kind of failure
 		output := execution.Output
+
+		// FIX 2: Distinguish Compilation Failure from Test Failure
+		// A compilation error is NOT a clean pass - it's a "fizzle" where the attack
+		// couldn't even run. This is a false negative risk that must be tracked.
+		if strings.Contains(output, "[build failed]") ||
+			strings.Contains(output, "undefined:") ||
+			strings.Contains(output, "cannot find package") ||
+			strings.Contains(output, "could not import") ||
+			strings.Contains(output, "syntax error") ||
+			strings.Contains(output, "expected ") && strings.Contains(output, "found ") {
+			execution.Success = false
+			execution.BreakageType = "compilation_error"
+			r.mu.Lock()
+			r.stats.CompilationErrors++
+			r.mu.Unlock()
+			logging.Shards("AttackRunner: COMPILATION FAILED - attack %s could not compile (FALSE NEGATIVE RISK)", script.Name)
+			// Do NOT count this as clean pass - the attack never actually ran
+			return execution, nil
+		}
+
 		if strings.Contains(output, "panic:") {
 			execution.Success = true
 			execution.BreakageType = "panic"
@@ -381,9 +415,13 @@ func FormatAttackReport(executions []*AttackExecution) string {
 
 	// Summary
 	breaksFound := 0
+	compilationErrors := 0
 	for _, e := range executions {
 		if e.Success {
 			breaksFound++
+		}
+		if e.BreakageType == "compilation_error" {
+			compilationErrors++
 		}
 	}
 
@@ -393,12 +431,20 @@ func FormatAttackReport(executions []*AttackExecution) string {
 		sb.WriteString("**No vulnerabilities found** - code survived the gauntlet.\n\n")
 	}
 
+	// Warn about compilation errors - these are false negative risks!
+	if compilationErrors > 0 {
+		sb.WriteString(fmt.Sprintf("**WARNING: %d attack(s) failed to compile** - these are potential false negatives!\n", compilationErrors))
+		sb.WriteString("Consider reviewing the generated attack code for missing imports or syntax issues.\n\n")
+	}
+
 	// Details
 	sb.WriteString("### Attack Results\n\n")
 	for i, exec := range executions {
 		status := "SURVIVED"
 		if exec.Success {
 			status = fmt.Sprintf("**BROKEN** (%s)", exec.BreakageType)
+		} else if exec.BreakageType == "compilation_error" {
+			status = "**FIZZLED** (compilation failed)"
 		}
 
 		sb.WriteString(fmt.Sprintf("%d. **%s** [%s]\n", i+1, exec.Script.Name, status))
