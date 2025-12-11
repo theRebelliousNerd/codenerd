@@ -439,15 +439,36 @@ func (sq *SpawnQueue) processRequest(workerID int, req *SpawnRequest) {
 func (sq *SpawnQueue) waitForSlot(ctx context.Context, deadline time.Time) error {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
+	waitStart := time.Now()
+	loggedWait := false
 
 	for {
 		// Check if we can spawn now
 		if sq.CanSpawnNow() {
+			if loggedWait {
+				logging.Shards("SpawnQueue: slot became available after %v", time.Since(waitStart))
+			}
 			return nil
+		}
+
+		// Log queue status on first wait
+		if !loggedWait {
+			activeCount := 0
+			limit := 0
+			if sq.shardManager != nil {
+				activeCount = sq.shardManager.GetActiveShardCount()
+			}
+			if sq.limitsEnforcer != nil {
+				limit = sq.limitsEnforcer.GetShardLimit()
+			}
+			logging.Shards("SpawnQueue: waiting for slot (active=%d, limit=%d, queued=%d)",
+				activeCount, limit, atomic.LoadInt64(&sq.totalQueued)-atomic.LoadInt64(&sq.totalSpawned))
+			loggedWait = true
 		}
 
 		// Check deadline
 		if !deadline.IsZero() && time.Now().After(deadline) {
+			logging.Get(logging.CategoryShards).Warn("SpawnQueue: slot wait timed out after %v", time.Since(waitStart))
 			return ErrQueueTimeout
 		}
 
@@ -462,6 +483,7 @@ func (sq *SpawnQueue) waitForSlot(ctx context.Context, deadline time.Time) error
 
 		select {
 		case <-ctx.Done():
+			logging.Get(logging.CategoryShards).Warn("SpawnQueue: slot wait canceled after %v", time.Since(waitStart))
 			return ctx.Err()
 		case <-time.After(waitTime):
 			// Double backoff, cap at max
