@@ -98,6 +98,14 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		return nil, fmt.Errorf("failed to boot kernel: %w", err)
 	}
 
+	// Load persisted scan facts if available (world topology)
+	scanPath := filepath.Join(workspace, ".nerd", "mangle", "scan.mg")
+	if _, statErr := os.Stat(scanPath); statErr == nil {
+		if loadErr := kernel.LoadFactsFromFile(scanPath); loadErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load scan facts: %v\n", loadErr)
+		}
+	}
+
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	if localDB != nil {
@@ -183,6 +191,27 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
+	}
+
+	// 5b. Register discovered user agents with JIT compiler and ShardManager
+	// This wires up agents from .nerd/agents/{name}/prompts.yaml
+	discoveredAgents := synchronizer.GetDiscoveredAgents()
+	for _, agent := range discoveredAgents {
+		// Register agent DB with JIT compiler for dynamic prompt compilation
+		if err := prompt.RegisterAgentDBWithJIT(jitCompiler, agent.ID, agent.DBPath); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Failed to register agent %s with JIT: %v", agent.ID, err)
+		} else {
+			logging.Get(logging.CategoryContext).Info("Registered user agent '%s' with JIT compiler", agent.ID)
+		}
+
+		// Register agent profile with ShardManager as Type U (user-defined)
+		shardManager.DefineProfile(agent.ID, core.ShardConfig{
+			Type:          core.ShardTypeUser,
+			KnowledgePath: agent.DBPath,
+		})
+	}
+	if len(discoveredAgents) > 0 {
+		logging.Get(logging.CategoryContext).Info("Registered %d user-defined agents", len(discoveredAgents))
 	}
 
 	// Register Shards (The Critical Fix)
