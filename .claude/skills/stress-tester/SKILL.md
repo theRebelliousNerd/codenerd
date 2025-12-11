@@ -51,7 +51,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-### 01-kernel-core (4 workflows)
+### 01-kernel-core (5 workflows)
 
 Tests the Mangle kernel, SpawnQueue, and core runtime.
 
@@ -61,6 +61,7 @@ Tests the Mangle kernel, SpawnQueue, and core runtime.
 | [mangle-explosion.md](references/workflows/01-kernel-core/mangle-explosion.md) | Cyclic rules + large EDB causing derivation explosion | 15-30 min |
 | [memory-pressure.md](references/workflows/01-kernel-core/memory-pressure.md) | Load 250k facts, trigger emergency compression | 20-40 min |
 | [concurrent-derivations.md](references/workflows/01-kernel-core/concurrent-derivations.md) | 4 shards querying kernel simultaneously | 10-20 min |
+| [mangle-self-healing.md](references/workflows/01-kernel-core/mangle-self-healing.md) | PredicateCorpus validation, MangleRepairShard repair loops, JIT selection | 15-30 min |
 
 ### 02-perception-articulation (3 workflows)
 
