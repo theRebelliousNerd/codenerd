@@ -96,17 +96,20 @@ The engine is configured in `.nerd/config.json`:
 
 ```json
 {
-  "engine": "claude-cli",
+  "engine": "codex-cli",
   "claude_cli": {
     "model": "sonnet",
     "timeout": 300,
     "max_turns": 3,
-    "fallback_model": "haiku"
+    "fallback_model": "haiku",
+    "streaming": false
   },
   "codex_cli": {
-    "model": "gpt-5",
+    "model": "gpt-5.1-codex-max",
     "sandbox": "read-only",
-    "timeout": 300
+    "timeout": 300,
+    "fallback_model": "gpt-5.1-codex-mini",
+    "streaming": false
   }
 }
 ```
@@ -172,9 +175,13 @@ nerd auth codex
 
 | Model | Flag | Description |
 |-------|------|-------------|
-| GPT-5 | `--model gpt-5` | Default, best for coding |
-| o4-mini | `--model o4-mini` | Fast reasoning |
-| codex-mini-latest | `--model codex-mini-latest` | Optimized for Codex |
+| GPT-5.1-Codex-Max | `--model gpt-5.1-codex-max` | **Recommended** - Best for agentic coding |
+| GPT-5.1-Codex-Mini | `--model gpt-5.1-codex-mini` | Cost-effective, faster |
+| GPT-5.1 | `--model gpt-5.1` | General coding and reasoning |
+| GPT-5-Codex | `--model gpt-5-codex` | Legacy agentic model |
+| GPT-5 | `--model gpt-5` | Legacy general model |
+| o4-mini | `--model o4-mini` | Fast reasoning (legacy) |
+| codex-mini-latest | `--model codex-mini-latest` | Low-latency code Q&A |
 
 ## SchemaCapableLLMClient Interface
 
@@ -202,21 +209,62 @@ When CLI rate limits are hit, codeNERD displays a message prompting the user to 
 Claude CLI rate limit reached. Switch engine with /config engine codex-cli
 ```
 
-Fallback model handling is done in Go code (since `--fallback-model` doesn't exist):
+Fallback model handling is done in Go code for both Claude CLI and Codex CLI:
 
 ```go
-func (c *ClaudeCodeCLIClient) executeWithFallback(ctx context.Context, prompt string, opts *ExecutionOptions) (string, error) {
-    response, err := c.executeCLI(ctx, prompt, c.model, opts)
+func (c *CodexCLIClient) executeWithOptions(ctx context.Context, prompt string, opts *CodexExecutionOptions) (string, error) {
+    // Build combined prompt with system instructions
+    combinedPrompt := c.buildPrompt(opts.SystemPrompt, prompt)
+
+    // Try primary model first
+    response, err := c.executeCLI(ctx, combinedPrompt, c.model)
     if err != nil {
+        // If rate limited and we have a fallback, try it
         var rateLimitErr *RateLimitError
         if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
-            return c.executeCLI(ctx, prompt, c.fallbackModel, opts)
+            return c.executeCLI(ctx, combinedPrompt, c.fallbackModel)
         }
         return "", err
     }
     return response, nil
 }
 ```
+
+## Streaming Support
+
+Both CLI clients support streaming for real-time responses:
+
+```go
+// Codex CLI streaming
+func (c *CodexCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error
+
+// Claude CLI streaming
+func (c *ClaudeCodeCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error
+
+// Callback type
+type StreamCallback func(chunk StreamChunk) error
+
+type StreamChunk struct {
+    Type    string `json:"type"`
+    Content string `json:"content,omitempty"`
+    Text    string `json:"text,omitempty"`
+    Done    bool   `json:"done,omitempty"`
+    Error   string `json:"error,omitempty"`
+}
+```
+
+## Feature Comparison
+
+| Feature | Claude CLI | Codex CLI |
+|---------|-----------|-----------|
+| Basic completion | Yes | Yes |
+| System prompts | `--system-prompt` | XML wrapped |
+| JSON Schema | `--json-schema` | No (prompt-based) |
+| Streaming | Yes | Yes |
+| Fallback model | Yes | Yes |
+| Timeout handling | Yes | Yes |
+| Rate limit detection | Yes | Yes |
+| SchemaCapableLLMClient | Yes | No |
 
 ## Implementation Reference
 

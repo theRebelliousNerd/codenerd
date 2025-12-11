@@ -1705,11 +1705,19 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 
 // DetectProvider checks .nerd/config.json first, then environment variables.
 // Priority: config.json > env vars (ANTHROPIC > OPENAI > GEMINI > XAI > ZAI)
+// CLI engines (claude-cli, codex-cli) are detected from config.json and don't require API keys.
 func DetectProvider() (*ProviderConfig, error) {
 	// First, try to load from .nerd/config.json
 	configPath := DefaultConfigPath()
-	if cfg, err := LoadConfigJSON(configPath); err == nil && cfg.APIKey != "" {
-		return cfg, nil
+	if cfg, err := LoadConfigJSON(configPath); err == nil {
+		// CLI engines don't need API keys (subscription-based)
+		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
+			return cfg, nil
+		}
+		// API mode requires an API key
+		if cfg.APIKey != "" {
+			return cfg, nil
+		}
 	}
 
 	// Fall back to environment variables
