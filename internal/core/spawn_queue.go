@@ -62,15 +62,16 @@ func (p SpawnPriority) String() string {
 
 // SpawnRequest represents a queued spawn request.
 type SpawnRequest struct {
-	ID          string          // Unique request ID
-	TypeName    string          // Shard type to spawn (e.g., "coder", "reviewer")
-	Task        string          // Task description
-	SessionCtx  *SessionContext // Optional session context
-	Priority    SpawnPriority   // Scheduling priority
-	SubmittedAt time.Time       // When request was submitted
-	Deadline    time.Time       // Hard deadline (from context or config)
+	ID          string           // Unique request ID
+	TypeName    string           // Shard type to spawn (e.g., "coder", "reviewer")
+	Task        string           // Task description
+	SessionCtx  *SessionContext  // Optional session context
+	Priority    SpawnPriority    // Scheduling priority
+	SubmittedAt time.Time        // When request was submitted
+	Deadline    time.Time        // Hard deadline (from context or config)
 	ResultCh    chan SpawnResult // Channel to receive result
-	Ctx         context.Context // Caller's context for cancellation
+	Ctx         context.Context  // Caller's context for cancellation
+	Detached    bool             // If true, worker won't wait for shard completion
 }
 
 // SpawnResult contains the outcome of a spawn request.
@@ -424,7 +425,20 @@ func (sq *SpawnQueue) processRequest(workerID int, req *SpawnRequest) {
 		return
 	}
 
-	// Wait for shard completion
+	// For detached requests (e.g. system shards), don't wait for completion
+	if req.Detached {
+		atomic.AddInt64(&sq.totalSpawned, 1) // Count as spawned
+		sq.sendResult(req, SpawnResult{
+			ShardID: shardID,
+			Result:  "Shard started (detached)",
+			Queued:  time.Since(req.SubmittedAt),
+		})
+		logging.ShardsDebug("SpawnQueue: request %s detached (shard=%s, queued=%v)",
+			req.ID, shardID, time.Since(req.SubmittedAt))
+		return
+	}
+
+	// Wait for shard completion (normal behavior)
 	result := sq.waitForShardCompletion(req.Ctx, shardID)
 	result.Queued = time.Since(req.SubmittedAt)
 
