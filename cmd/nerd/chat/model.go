@@ -489,12 +489,7 @@ type (
 		learningStore *store.LearningStore
 	}
 
-	// System Boot messages
-	systemBootMsg struct {
-		components *SystemComponents
-		err        error
-	}
-
+	// System Boot message
 	bootCompleteMsg struct {
 		components *SystemComponents
 		err        error
@@ -1291,54 +1286,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Persist session after init
 		m.saveSessionState()
 
-	case systemBootMsg:
-		m.isLoading = false
-		m.statusMessage = "" // Clear booting message
-		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
-
-		if msg.err != nil {
-			m.history = append(m.history, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("CRITICAL: System boot failed: %v", msg.err),
-				Time:    time.Now(),
-			})
-			m.err = msg.err
-		} else {
-			// Hydrate Model with initialized components
-			c := msg.components
-			m.kernel = c.Kernel
-			m.shardMgr = c.ShardMgr
-			m.virtualStore = c.VirtualStore
-			m.client = c.LLMClient
-			m.localDB = c.LocalDB
-			m.transducer = c.Transducer
-			m.executor = c.Executor
-			m.scanner = c.Scanner
-			m.autopoiesis = c.Autopoiesis
-			m.verifier = c.Verifier
-			m.compressor = c.Compressor
-			m.shadowMode = c.ShadowMode
-
-			// Wire Autopoiesis listener
-			if c.Autopoiesis != nil {
-				autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
-				m.autopoiesisCancel = autopoiesisCancel
-				m.autopoiesisListenerCh = c.Autopoiesis.StartKernelListener(autopoiesisCtx, 2*time.Second)
-			}
-
-			// Append initial messages (e.g. "Embedding engine ready")
-			if len(c.InitialMessages) > 0 {
-				m.history = append(m.history, c.InitialMessages...)
-			}
-
-			// Load previous session state if available (now that kernel is ready)
-			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
-			m.sessionID = resolveSessionID(loadedSession)
-			m.turnCount = resolveTurnCount(loadedSession)
-		}
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
-
 	case scanCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
@@ -1410,6 +1357,11 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
+
+			// Load previous session state if available (now that kernel is ready)
+			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
+			m.sessionID = resolveSessionID(loadedSession)
+			m.turnCount = resolveTurnCount(loadedSession)
 		}
 
 		// Update textarea placeholder now that boot is complete

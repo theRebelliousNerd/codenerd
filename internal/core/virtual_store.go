@@ -868,7 +868,8 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	logging.VirtualStoreDebug("Parsed action: type=%s, target=%s", req.Type, req.Target)
 
 	// Speculative dreaming: block obviously unsafe actions before constitutional checks.
-	if v.dreamer != nil {
+	// Skip for read-only actions to prevent false positives on file content (Bug #9)
+	if v.dreamer != nil && req.Type != ActionReadFile && req.Type != ActionFSRead {
 		logging.VirtualStoreDebug("Running speculative dream simulation for action %s", req.Type)
 		dream := v.dreamer.SimulateAction(ctx, req)
 		if dream.Unsafe {
