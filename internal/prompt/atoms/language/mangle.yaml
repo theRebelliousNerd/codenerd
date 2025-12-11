@@ -1,0 +1,200 @@
+# Mangle Logic Programming Language Atoms
+# Google Mangle (Datalog variant) for codeNERD kernel
+
+- id: "language/mangle/core"
+  category: "language"
+  subcategory: "mangle"
+  priority: 95
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## MANGLE LANGUAGE CORE
+
+    Mangle is Google's Datalog variant for deductive databases.
+
+    ### SYNTAX BASICS
+    ```mangle
+    # Facts (EDB - Extensional Database)
+    user("alice", "/admin").
+    user("bob", "/user").
+    file("/src/main.go", 100).
+
+    # Rules (IDB - Intensional Database)
+    admin(Name) :- user(Name, "/admin").
+    can_edit(User, File) :- admin(User), file(File, _).
+    ```
+
+    ### VARIABLE CONVENTIONS
+    - **UPPERCASE**: Variables (unbound)
+    - **/lowercase**: Constants (atoms)
+    - **_**: Anonymous variable (don't care)
+
+    ### DATA TYPES
+    ```mangle
+    # Strings
+    name("alice").
+
+    # Numbers
+    count(42).
+    price(19.99).
+
+    # Atoms (constants)
+    status(/active).
+    role(/admin).
+
+    # Lists
+    items([1, 2, 3]).
+    ```
+
+- id: "language/mangle/rules"
+  category: "language"
+  subcategory: "mangle"
+  priority: 90
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## MANGLE RULES
+
+    ### RULE STRUCTURE
+    ```mangle
+    # head :- body.
+    # "head is true if body is true"
+
+    # Single condition
+    admin(X) :- user(X, "/admin").
+
+    # Multiple conditions (AND)
+    can_access(User, File) :-
+        user(User, Role),
+        permission(Role, File).
+
+    # Negation
+    no_access(User, File) :-
+        user(User, _),
+        file(File, _),
+        !can_access(User, File).
+    ```
+
+    ### SAFETY RULES
+    All variables in head must appear in positive body:
+    ```mangle
+    # SAFE: X bound in user()
+    admin(X) :- user(X, "/admin").
+
+    # UNSAFE: X not bound
+    admin(X) :- !blocked(X).  # ERROR
+
+    # FIX: Bind X first
+    admin(X) :- user(X, _), !blocked(X).
+    ```
+
+    ### RECURSION
+    ```mangle
+    # Base case
+    reachable(X, Y) :- edge(X, Y).
+
+    # Recursive case
+    reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+    ```
+
+- id: "language/mangle/aggregation"
+  category: "language"
+  subcategory: "mangle"
+  priority: 85
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## MANGLE AGGREGATION
+
+    ### TRANSFORM SYNTAX
+    ```mangle
+    # Count
+    user_count(Count) :-
+        user(_, _) |> do fn:group_by(), let Count = fn:count().
+
+    # Sum
+    total_size(Total) :-
+        file(_, Size) |> do fn:group_by(), let Total = fn:sum(Size).
+
+    # Group by
+    role_count(Role, Count) :-
+        user(_, Role) |> do fn:group_by(Role), let Count = fn:count().
+    ```
+
+    ### COMMON AGGREGATIONS
+    | Function | Purpose |
+    |----------|---------|
+    | `fn:count()` | Count rows |
+    | `fn:sum(X)` | Sum values |
+    | `fn:min(X)` | Minimum value |
+    | `fn:max(X)` | Maximum value |
+    | `fn:collect(X)` | Collect into list |
+
+    ### AGGREGATION PATTERNS
+    ```mangle
+    # Files per directory
+    files_in_dir(Dir, Count) :-
+        file(Path, _),
+        fn:starts_with(Path, Dir)
+        |> do fn:group_by(Dir), let Count = fn:count().
+
+    # Largest file
+    largest_file(Path, Size) :-
+        file(Path, Size),
+        max_size(Size).
+    max_size(Max) :-
+        file(_, Size) |> do fn:group_by(), let Max = fn:max(Size).
+    ```
+
+- id: "language/mangle/codenerd"
+  category: "language"
+  subcategory: "mangle"
+  priority: 80
+  is_mandatory: false
+  languages: ["/mangle"]
+  content: |
+    ## MANGLE IN CODENERD
+
+    ### COMMON PREDICATES
+    ```mangle
+    # Intent classification
+    user_intent(Category, Verb, Target, Constraint, Mode).
+
+    # Actions
+    next_action(Action).
+    permitted(Action).
+
+    # Context
+    current_file(Path).
+    current_function(Name, File, Line).
+
+    # Safety
+    forbidden_action(Action).
+    requires_confirmation(Action).
+    ```
+
+    ### POLICY RULES
+    ```mangle
+    # Derive next action from intent
+    next_action("/code") :-
+        user_intent("/mutation", "/create", _, _, _),
+        !forbidden_action("/code").
+
+    # Permission gate
+    permitted(Action) :-
+        next_action(Action),
+        !forbidden_action(Action),
+        !requires_confirmation(Action).
+    ```
+
+    ### SCHEMA DECLARATIONS
+    ```mangle
+    # Declare predicate signatures
+    Decl user_intent(category: /category, verb: /verb,
+                     target: String, constraint: String, mode: /mode).
+
+    Decl file_modified(path: String, lines: Number).
+
+    Decl hypothesis(type: /hypothesis_type, file: String,
+                    line: Number, confidence: Number).
+    ```

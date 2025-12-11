@@ -1,0 +1,118 @@
+# Error Context Atoms
+# Current errors, stack traces, diagnostics
+
+- id: "context/error/analysis"
+  category: "context"
+  subcategory: "error"
+  priority: 95
+  is_mandatory: false
+  content: |
+    ## ERROR ANALYSIS PROTOCOL
+
+    When presented with errors, analyze systematically.
+
+    ### ERROR ANATOMY
+    ```
+    [Location]: [File:Line]
+    [Category]: [Compile/Runtime/Logic]
+    [Message]: [What went wrong]
+    [Context]: [Surrounding code]
+    ```
+
+    ### ERROR CLASSIFICATION
+    | Type | When | Fix Priority |
+    |------|------|--------------|
+    | Compile | Build time | Immediate |
+    | Runtime | Execution | High |
+    | Logic | Incorrect output | High |
+    | Resource | IO/Network | Medium |
+    | Configuration | Setup | Medium |
+
+    ### ERROR ANALYSIS STEPS
+    1. Read the full error message
+    2. Identify the error type
+    3. Locate the source (file:line)
+    4. Understand the cause
+    5. Determine the fix
+
+- id: "context/error/stack_trace"
+  category: "context"
+  subcategory: "error"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## STACK TRACE ANALYSIS
+
+    Stack traces reveal the execution path to an error.
+
+    ### STACK TRACE ANATOMY
+    ```
+    panic: runtime error: invalid memory address
+
+    goroutine 1 [running]:
+    main.processUser(...)
+        /app/main.go:45          <- Error location
+    main.handleRequest(...)
+        /app/main.go:32          <- Caller
+    main.main()
+        /app/main.go:15          <- Entry point
+    ```
+
+    ### READING STACK TRACES
+    - Read from TOP (error) to BOTTOM (entry)
+    - First frame is where error occurred
+    - Lower frames show call path
+    - Look for YOUR code (not library code)
+
+    ### KEY INFORMATION
+    - **Function name**: What was executing
+    - **File:line**: Exact location
+    - **Goroutine**: Which execution context
+    - **State**: [running, waiting, etc.]
+
+    ### COMMON PATTERNS
+    - `nil pointer dereference`: Accessed nil value
+    - `index out of range`: Array bounds exceeded
+    - `deadlock`: All goroutines blocked
+    - `stack overflow`: Infinite recursion
+
+- id: "context/error/resolution"
+  category: "context"
+  subcategory: "error"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## ERROR RESOLUTION PROTOCOL
+
+    Systematic approach to fixing errors.
+
+    ### RESOLUTION WORKFLOW
+    1. **Reproduce**: Confirm the error occurs
+    2. **Isolate**: Find minimal reproduction
+    3. **Analyze**: Understand root cause
+    4. **Fix**: Apply minimal change
+    5. **Verify**: Confirm error is gone
+    6. **Test**: Ensure no regressions
+
+    ### FIX QUALITY CHECKLIST
+    - [ ] Fixes the root cause, not symptom
+    - [ ] Handles edge cases
+    - [ ] Doesn't introduce new issues
+    - [ ] Has test coverage
+    - [ ] Is documented if complex
+
+    ### ERROR PREVENTION
+    After fixing, consider:
+    - Can this error class be prevented?
+    - Should we add validation?
+    - Should we add better error messages?
+    - Should we add monitoring?
+
+    ### ERROR MESSAGE IMPROVEMENT
+    ```go
+    // BAD
+    return errors.New("failed")
+
+    // GOOD
+    return fmt.Errorf("load user %s: %w", userID, err)
+    ```

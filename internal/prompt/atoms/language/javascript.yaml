@@ -1,0 +1,198 @@
+# JavaScript Language Atoms
+# JS/Node patterns, async/await, NPM
+
+- id: "language/javascript/core"
+  category: "language"
+  subcategory: "javascript"
+  priority: 90
+  is_mandatory: false
+  languages: ["/javascript"]
+  content: |
+    ## JAVASCRIPT PATTERNS
+
+    ### MODERN JS CONVENTIONS
+    - Use `const` by default, `let` when needed
+    - Never use `var`
+    - Use arrow functions for callbacks
+    - Use template literals for strings
+    - Use destructuring
+
+    ### FUNCTION PATTERNS
+    ```javascript
+    // Arrow function
+    const add = (a, b) => a + b;
+
+    // Object method
+    const user = {
+      name: 'Alice',
+      greet() {
+        return `Hello, ${this.name}`;
+      }
+    };
+
+    // Destructuring
+    const { name, age } = user;
+    const [first, ...rest] = items;
+
+    // Default parameters
+    function greet(name = 'World') {
+      return `Hello, ${name}`;
+    }
+
+    // Rest/spread
+    const merged = { ...defaults, ...options };
+    ```
+
+    ### ERROR HANDLING
+    ```javascript
+    // Try-catch
+    try {
+      const result = await riskyOperation();
+      return result;
+    } catch (error) {
+      console.error('Operation failed:', error.message);
+      throw error;
+    }
+
+    // Custom errors
+    class ValidationError extends Error {
+      constructor(field, message) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+      }
+    }
+    ```
+
+- id: "language/javascript/async"
+  category: "language"
+  subcategory: "javascript"
+  priority: 85
+  is_mandatory: false
+  languages: ["/javascript"]
+  content: |
+    ## ASYNC/AWAIT PATTERNS
+
+    ### BASIC ASYNC
+    ```javascript
+    // Async function
+    async function fetchUser(id) {
+      const response = await fetch(`/api/users/${id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.json();
+    }
+
+    // Arrow async
+    const fetchUser = async (id) => {
+      const response = await fetch(`/api/users/${id}`);
+      return response.json();
+    };
+    ```
+
+    ### PARALLEL EXECUTION
+    ```javascript
+    // Parallel - all at once
+    const [users, orders] = await Promise.all([
+      fetchUsers(),
+      fetchOrders()
+    ]);
+
+    // Sequential - one at a time
+    const user = await fetchUser(id);
+    const orders = await fetchOrders(user.id);
+    ```
+
+    ### ERROR HANDLING
+    ```javascript
+    // Individual error handling
+    const results = await Promise.allSettled([
+      fetchUsers(),
+      fetchOrders()
+    ]);
+
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        console.log(result.value);
+      } else {
+        console.error(result.reason);
+      }
+    });
+    ```
+
+    ### ASYNC ITERATION
+    ```javascript
+    async function* paginate(url) {
+      let page = 1;
+      while (true) {
+        const response = await fetch(`${url}?page=${page}`);
+        const data = await response.json();
+        if (data.length === 0) break;
+        yield* data;
+        page++;
+      }
+    }
+
+    for await (const item of paginate('/api/items')) {
+      console.log(item);
+    }
+    ```
+
+- id: "language/javascript/node"
+  category: "language"
+  subcategory: "javascript"
+  priority: 80
+  is_mandatory: false
+  languages: ["/javascript"]
+  content: |
+    ## NODE.JS PATTERNS
+
+    ### MODULE SYSTEM
+    ```javascript
+    // ES Modules (recommended)
+    import express from 'express';
+    import { readFile } from 'fs/promises';
+    export const handler = () => {};
+    export default app;
+
+    // CommonJS (legacy)
+    const express = require('express');
+    module.exports = { handler };
+    ```
+
+    ### EXPRESS PATTERNS
+    ```javascript
+    import express from 'express';
+
+    const app = express();
+    app.use(express.json());
+
+    // Route handler
+    app.get('/users/:id', async (req, res, next) => {
+      try {
+        const user = await UserService.findById(req.params.id);
+        if (!user) {
+          return res.status(404).json({ error: 'Not found' });
+        }
+        res.json(user);
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Error handler
+    app.use((err, req, res, next) => {
+      console.error(err);
+      res.status(500).json({ error: 'Internal error' });
+    });
+    ```
+
+    ### NPM COMMANDS
+    ```bash
+    npm init -y              # Create package.json
+    npm install express      # Add dependency
+    npm install -D jest      # Add dev dependency
+    npm run test             # Run script
+    npm ci                   # Clean install
+    ```

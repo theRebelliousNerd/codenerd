@@ -1,0 +1,199 @@
+# Integration Build Layer Atoms
+# External service integration, adapters
+
+- id: "build_layer/integration/principles"
+  category: "build_layer"
+  subcategory: "integration"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/integration"]
+  content: |
+    ## INTEGRATION LAYER PROTOCOL
+
+    You are operating in the integration layer - external systems.
+    This layer implements adapters for third-party services.
+
+    ### INTEGRATION PRINCIPLES
+    1. **Adapter Pattern**: Wrap external APIs behind domain interfaces
+    2. **Failure Isolation**: External failures don't cascade
+    3. **Circuit Breakers**: Prevent thundering herd
+    4. **Retry Logic**: Transient failures handled gracefully
+    5. **Timeout Enforcement**: All external calls have timeouts
+
+    ### INTEGRATION STRUCTURE
+    ```
+    internal/
+    ├── integration/
+    │   ├── stripe/          # Payment provider
+    │   │   ├── client.go    # Stripe client wrapper
+    │   │   └── payment.go   # PaymentGateway implementation
+    │   ├── sendgrid/        # Email provider
+    │   ├── s3/              # File storage
+    │   └── redis/           # Cache implementation
+    └── domain/
+        └── payment.go       # PaymentGateway interface
+    ```
+
+- id: "build_layer/integration/adapter"
+  category: "build_layer"
+  subcategory: "integration"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/integration"]
+  depends_on: ["build_layer/integration/principles"]
+  content: |
+    ## ADAPTER PATTERNS
+
+    ### DOMAIN INTERFACE
+    ```go
+    // internal/domain/payment/gateway.go
+    package payment
+
+    import "context"
+
+    type Gateway interface {
+        Charge(ctx context.Context, req ChargeRequest) (*ChargeResult, error)
+        Refund(ctx context.Context, chargeID string, amount int64) error
+    }
+
+    type ChargeRequest struct {
+        Amount      int64
+        Currency    string
+        CustomerID  string
+        Description string
+    }
+
+    type ChargeResult struct {
+        ID     string
+        Status ChargeStatus
+    }
+    ```
+
+    ### ADAPTER IMPLEMENTATION
+    ```go
+    // internal/integration/stripe/payment.go
+    package stripe
+
+    import (
+        "context"
+        "fmt"
+        "project/internal/domain/payment"
+        "github.com/stripe/stripe-go/v76"
+        "github.com/stripe/stripe-go/v76/charge"
+    )
+
+    type PaymentAdapter struct {
+        apiKey string
+    }
+
+    func NewPaymentAdapter(apiKey string) *PaymentAdapter {
+        stripe.Key = apiKey
+        return &PaymentAdapter{apiKey: apiKey}
+    }
+
+    func (a *PaymentAdapter) Charge(ctx context.Context, req payment.ChargeRequest) (*payment.ChargeResult, error) {
+        params := &stripe.ChargeParams{
+            Amount:      stripe.Int64(req.Amount),
+            Currency:    stripe.String(req.Currency),
+            Customer:    stripe.String(req.CustomerID),
+            Description: stripe.String(req.Description),
+        }
+
+        ch, err := charge.New(params)
+        if err != nil {
+            return nil, fmt.Errorf("stripe charge: %w", err)
+        }
+
+        return &payment.ChargeResult{
+            ID:     ch.ID,
+            Status: mapStatus(ch.Status),
+        }, nil
+    }
+    ```
+
+- id: "build_layer/integration/resilience"
+  category: "build_layer"
+  subcategory: "integration"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/integration"]
+  content: |
+    ## RESILIENCE PATTERNS
+
+    ### CIRCUIT BREAKER
+    ```go
+    // internal/integration/circuitbreaker/breaker.go
+    package circuitbreaker
+
+    import (
+        "errors"
+        "sync"
+        "time"
+    )
+
+    type State int
+
+    const (
+        Closed State = iota
+        Open
+        HalfOpen
+    )
+
+    type CircuitBreaker struct {
+        mu           sync.Mutex
+        state        State
+        failures     int
+        threshold    int
+        timeout      time.Duration
+        lastFailure  time.Time
+    }
+
+    func (cb *CircuitBreaker) Execute(fn func() error) error {
+        cb.mu.Lock()
+        if cb.state == Open {
+            if time.Since(cb.lastFailure) > cb.timeout {
+                cb.state = HalfOpen
+            } else {
+                cb.mu.Unlock()
+                return ErrCircuitOpen
+            }
+        }
+        cb.mu.Unlock()
+
+        err := fn()
+
+        cb.mu.Lock()
+        defer cb.mu.Unlock()
+
+        if err != nil {
+            cb.failures++
+            cb.lastFailure = time.Now()
+            if cb.failures >= cb.threshold {
+                cb.state = Open
+            }
+            return err
+        }
+
+        cb.failures = 0
+        cb.state = Closed
+        return nil
+    }
+    ```
+
+    ### RETRY WITH BACKOFF
+    ```go
+    func RetryWithBackoff(ctx context.Context, maxRetries int, fn func() error) error {
+        var err error
+        for i := 0; i < maxRetries; i++ {
+            if err = fn(); err == nil {
+                return nil
+            }
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case <-time.After(time.Duration(1<<i) * 100 * time.Millisecond):
+            }
+        }
+        return err
+    }
+    ```

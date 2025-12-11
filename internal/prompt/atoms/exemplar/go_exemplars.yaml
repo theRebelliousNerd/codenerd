@@ -1,0 +1,203 @@
+# Go Code Exemplars
+# Go code examples (error handling, goroutines, etc.)
+
+- id: "exemplar/go/error_handling"
+  category: "exemplar"
+  subcategory: "go"
+  priority: 90
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    ## GO ERROR HANDLING EXEMPLARS
+
+    ### BASIC ERROR HANDLING
+    ```go
+    // GOOD: Check and wrap errors
+    func LoadConfig(path string) (*Config, error) {
+        data, err := os.ReadFile(path)
+        if err != nil {
+            return nil, fmt.Errorf("read config file: %w", err)
+        }
+
+        var cfg Config
+        if err := json.Unmarshal(data, &cfg); err != nil {
+            return nil, fmt.Errorf("parse config: %w", err)
+        }
+
+        return &cfg, nil
+    }
+    ```
+
+    ### SENTINEL ERRORS
+    ```go
+    // Define at package level
+    var (
+        ErrNotFound = errors.New("not found")
+        ErrInvalid  = errors.New("invalid input")
+    )
+
+    // Check with errors.Is
+    if errors.Is(err, ErrNotFound) {
+        // Handle not found case
+    }
+    ```
+
+    ### ERROR TYPES
+    ```go
+    type ValidationError struct {
+        Field   string
+        Message string
+    }
+
+    func (e *ValidationError) Error() string {
+        return fmt.Sprintf("%s: %s", e.Field, e.Message)
+    }
+
+    // Check with errors.As
+    var valErr *ValidationError
+    if errors.As(err, &valErr) {
+        log.Printf("validation failed: field=%s", valErr.Field)
+    }
+    ```
+
+- id: "exemplar/go/concurrency"
+  category: "exemplar"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    ## GO CONCURRENCY EXEMPLARS
+
+    ### GOROUTINE WITH WAITGROUP
+    ```go
+    func processItems(items []Item) error {
+        var wg sync.WaitGroup
+        errCh := make(chan error, len(items))
+
+        for _, item := range items {
+            wg.Add(1)
+            go func(item Item) {
+                defer wg.Done()
+                if err := process(item); err != nil {
+                    errCh <- err
+                }
+            }(item) // Pass item to avoid closure capture bug
+        }
+
+        wg.Wait()
+        close(errCh)
+
+        // Collect first error
+        for err := range errCh {
+            return err
+        }
+        return nil
+    }
+    ```
+
+    ### CONTEXT CANCELLATION
+    ```go
+    func worker(ctx context.Context) error {
+        for {
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case task := <-taskCh:
+                if err := process(task); err != nil {
+                    return err
+                }
+            }
+        }
+    }
+    ```
+
+    ### CHANNEL PATTERNS
+    ```go
+    // Fan-out: One to many
+    func fanOut(input <-chan int, workers int) []<-chan int {
+        outputs := make([]<-chan int, workers)
+        for i := 0; i < workers; i++ {
+            outputs[i] = process(input)
+        }
+        return outputs
+    }
+
+    // Fan-in: Many to one
+    func fanIn(inputs ...<-chan int) <-chan int {
+        out := make(chan int)
+        var wg sync.WaitGroup
+        for _, in := range inputs {
+            wg.Add(1)
+            go func(c <-chan int) {
+                defer wg.Done()
+                for v := range c {
+                    out <- v
+                }
+            }(in)
+        }
+        go func() { wg.Wait(); close(out) }()
+        return out
+    }
+    ```
+
+- id: "exemplar/go/interfaces"
+  category: "exemplar"
+  subcategory: "go"
+  priority: 80
+  is_mandatory: false
+  languages: ["/go"]
+  content: |
+    ## GO INTERFACE EXEMPLARS
+
+    ### INTERFACE DEFINITION
+    ```go
+    // Small interfaces (1-2 methods)
+    type Reader interface {
+        Read(p []byte) (n int, err error)
+    }
+
+    type Writer interface {
+        Write(p []byte) (n int, err error)
+    }
+
+    // Compose interfaces
+    type ReadWriter interface {
+        Reader
+        Writer
+    }
+    ```
+
+    ### INTERFACE IMPLEMENTATION
+    ```go
+    type FileStore struct {
+        basePath string
+    }
+
+    // Compile-time interface check
+    var _ Storage = (*FileStore)(nil)
+
+    func (f *FileStore) Save(key string, data []byte) error {
+        path := filepath.Join(f.basePath, key)
+        return os.WriteFile(path, data, 0644)
+    }
+
+    func (f *FileStore) Load(key string) ([]byte, error) {
+        path := filepath.Join(f.basePath, key)
+        return os.ReadFile(path)
+    }
+    ```
+
+    ### ACCEPT INTERFACES, RETURN STRUCTS
+    ```go
+    // GOOD: Accept interface
+    func Process(r io.Reader) error {
+        data, err := io.ReadAll(r)
+        // ...
+    }
+
+    // GOOD: Return concrete type
+    func NewFileStore(path string) *FileStore {
+        return &FileStore{basePath: path}
+    }
+    ```

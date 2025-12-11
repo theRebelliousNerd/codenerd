@@ -1,0 +1,190 @@
+# Django Framework Atoms
+# Django ORM, views, middleware
+
+- id: "framework/django/models"
+  category: "framework"
+  subcategory: "django"
+  priority: 90
+  is_mandatory: false
+  languages: ["/python"]
+  frameworks: ["/django"]
+  content: |
+    ## DJANGO MODELS
+
+    ### MODEL DEFINITION
+    ```python
+    from django.db import models
+    from django.contrib.auth.models import User
+
+    class Post(models.Model):
+        title = models.CharField(max_length=200)
+        content = models.TextField()
+        author = models.ForeignKey(User, on_delete=models.CASCADE)
+        created_at = models.DateTimeField(auto_now_add=True)
+        updated_at = models.DateTimeField(auto_now=True)
+        is_published = models.BooleanField(default=False)
+
+        class Meta:
+            ordering = ['-created_at']
+            indexes = [
+                models.Index(fields=['author', 'is_published']),
+            ]
+
+        def __str__(self):
+            return self.title
+
+        def publish(self):
+            self.is_published = True
+            self.save()
+    ```
+
+    ### QUERYSETS
+    ```python
+    # Get all published posts
+    Post.objects.filter(is_published=True)
+
+    # Get posts by author
+    Post.objects.filter(author=user)
+
+    # Chained filters
+    Post.objects.filter(is_published=True).exclude(author=user)
+
+    # Ordering
+    Post.objects.order_by('-created_at')
+
+    # Get single object
+    Post.objects.get(pk=1)  # Raises DoesNotExist if not found
+    Post.objects.filter(pk=1).first()  # Returns None if not found
+
+    # Aggregation
+    from django.db.models import Count, Avg
+    Post.objects.aggregate(total=Count('id'), avg_length=Avg('content'))
+    ```
+
+- id: "framework/django/views"
+  category: "framework"
+  subcategory: "django"
+  priority: 85
+  is_mandatory: false
+  languages: ["/python"]
+  frameworks: ["/django"]
+  content: |
+    ## DJANGO VIEWS
+
+    ### FUNCTION-BASED VIEW
+    ```python
+    from django.shortcuts import render, get_object_or_404
+    from django.http import JsonResponse
+
+    def post_list(request):
+        posts = Post.objects.filter(is_published=True)
+        return render(request, 'posts/list.html', {'posts': posts})
+
+    def post_detail(request, pk):
+        post = get_object_or_404(Post, pk=pk, is_published=True)
+        return render(request, 'posts/detail.html', {'post': post})
+    ```
+
+    ### CLASS-BASED VIEW
+    ```python
+    from django.views.generic import ListView, DetailView, CreateView
+    from django.contrib.auth.mixins import LoginRequiredMixin
+
+    class PostListView(ListView):
+        model = Post
+        template_name = 'posts/list.html'
+        context_object_name = 'posts'
+        paginate_by = 10
+
+        def get_queryset(self):
+            return Post.objects.filter(is_published=True)
+
+    class PostCreateView(LoginRequiredMixin, CreateView):
+        model = Post
+        fields = ['title', 'content']
+        template_name = 'posts/create.html'
+
+        def form_valid(self, form):
+            form.instance.author = self.request.user
+            return super().form_valid(form)
+    ```
+
+    ### API VIEW (DRF)
+    ```python
+    from rest_framework import viewsets, permissions
+    from rest_framework.decorators import action
+    from rest_framework.response import Response
+
+    class PostViewSet(viewsets.ModelViewSet):
+        queryset = Post.objects.all()
+        serializer_class = PostSerializer
+        permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+        @action(detail=True, methods=['post'])
+        def publish(self, request, pk=None):
+            post = self.get_object()
+            post.publish()
+            return Response({'status': 'published'})
+    ```
+
+- id: "framework/django/middleware"
+  category: "framework"
+  subcategory: "django"
+  priority: 80
+  is_mandatory: false
+  languages: ["/python"]
+  frameworks: ["/django"]
+  content: |
+    ## DJANGO MIDDLEWARE
+
+    ### CUSTOM MIDDLEWARE
+    ```python
+    import time
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    class RequestTimingMiddleware:
+        def __init__(self, get_response):
+            self.get_response = get_response
+
+        def __call__(self, request):
+            start_time = time.time()
+
+            response = self.get_response(request)
+
+            duration = time.time() - start_time
+            logger.info(f'{request.method} {request.path} - {duration:.3f}s')
+
+            return response
+    ```
+
+    ### MIDDLEWARE REGISTRATION
+    ```python
+    # settings.py
+    MIDDLEWARE = [
+        'django.middleware.security.SecurityMiddleware',
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'django.middleware.common.CommonMiddleware',
+        'django.middleware.csrf.CsrfViewMiddleware',
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+        'myapp.middleware.RequestTimingMiddleware',  # Custom
+    ]
+    ```
+
+    ### PROCESS VIEW HOOK
+    ```python
+    class PermissionMiddleware:
+        def __init__(self, get_response):
+            self.get_response = get_response
+
+        def __call__(self, request):
+            return self.get_response(request)
+
+        def process_view(self, request, view_func, view_args, view_kwargs):
+            # Called before the view
+            if hasattr(view_func, 'requires_admin'):
+                if not request.user.is_staff:
+                    return HttpResponseForbidden()
+            return None  # Continue processing
+    ```

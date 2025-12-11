@@ -1,0 +1,139 @@
+# Data Layer Build Layer Atoms
+# Database schemas, repositories, migrations
+
+- id: "build_layer/data_layer/principles"
+  category: "build_layer"
+  subcategory: "data_layer"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/data_layer"]
+  content: |
+    ## DATA LAYER PROTOCOL
+
+    You are operating in the data layer - persistence infrastructure.
+    This layer implements repository interfaces defined by the domain.
+
+    ### DATA LAYER PRINCIPLES
+    1. **Repository Pattern**: Domain defines interfaces, data layer implements
+    2. **Persistence Ignorance**: Domain doesn't know storage mechanism
+    3. **Transaction Boundaries**: Controlled by service layer
+    4. **Query Separation**: Complex queries get dedicated query objects
+
+    ### DATA LAYER STRUCTURE
+    ```
+    internal/
+    ├── domain/user/
+    │   └── repository.go    # Interface definition
+    └── data/
+        ├── postgres/
+        │   ├── user_repo.go # PostgreSQL implementation
+        │   └── migrations/
+        └── sqlite/
+            └── user_repo.go # SQLite implementation
+    ```
+
+- id: "build_layer/data_layer/repository"
+  category: "build_layer"
+  subcategory: "data_layer"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/data_layer"]
+  depends_on: ["build_layer/data_layer/principles"]
+  content: |
+    ## REPOSITORY PATTERNS
+
+    ### INTERFACE IN DOMAIN
+    ```go
+    // internal/domain/user/repository.go
+    package user
+
+    import "context"
+
+    type Repository interface {
+        Save(ctx context.Context, user *User) error
+        FindByID(ctx context.Context, id UserID) (*User, error)
+        FindByEmail(ctx context.Context, email Email) (*User, error)
+        Delete(ctx context.Context, id UserID) error
+    }
+    ```
+
+    ### IMPLEMENTATION IN DATA
+    ```go
+    // internal/data/postgres/user_repo.go
+    package postgres
+
+    import (
+        "context"
+        "database/sql"
+        "project/internal/domain/user"
+    )
+
+    type UserRepository struct {
+        db *sql.DB
+    }
+
+    func NewUserRepository(db *sql.DB) *UserRepository {
+        return &UserRepository{db: db}
+    }
+
+    func (r *UserRepository) FindByID(ctx context.Context, id user.UserID) (*user.User, error) {
+        row := r.db.QueryRowContext(ctx,
+            "SELECT id, email, name, status, version FROM users WHERE id = $1",
+            id.String())
+
+        var u userRow
+        if err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Status, &u.Version); err != nil {
+            if err == sql.ErrNoRows {
+                return nil, user.ErrNotFound
+            }
+            return nil, fmt.Errorf("query user: %w", err)
+        }
+        return u.toDomain()
+    }
+    ```
+
+- id: "build_layer/data_layer/migrations"
+  category: "build_layer"
+  subcategory: "data_layer"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/data_layer"]
+  content: |
+    ## MIGRATION PATTERNS
+
+    ### MIGRATION STRUCTURE
+    ```
+    internal/data/migrations/
+    ├── 001_create_users.up.sql
+    ├── 001_create_users.down.sql
+    ├── 002_add_user_status.up.sql
+    └── 002_add_user_status.down.sql
+    ```
+
+    ### MIGRATION CONTENT
+    ```sql
+    -- 001_create_users.up.sql
+    CREATE TABLE users (
+        id UUID PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'active',
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_users_email ON users(email);
+    CREATE INDEX idx_users_status ON users(status);
+    ```
+
+    ```sql
+    -- 001_create_users.down.sql
+    DROP TABLE IF EXISTS users;
+    ```
+
+    ### MIGRATION RULES
+    - Migrations are immutable once applied
+    - Each migration is atomic
+    - Down migrations must reverse up
+    - Test both directions

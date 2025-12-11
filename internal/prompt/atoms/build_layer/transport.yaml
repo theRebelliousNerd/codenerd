@@ -1,0 +1,162 @@
+# Transport Build Layer Atoms
+# HTTP handlers, gRPC, API endpoints
+
+- id: "build_layer/transport/principles"
+  category: "build_layer"
+  subcategory: "transport"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/transport"]
+  content: |
+    ## TRANSPORT LAYER PROTOCOL
+
+    You are operating in the transport layer - external interface.
+    This layer handles protocol-specific concerns (HTTP, gRPC, CLI).
+
+    ### TRANSPORT LAYER PRINCIPLES
+    1. **Protocol Translation**: HTTP/gRPC to service DTOs
+    2. **Error Mapping**: Domain errors to HTTP status codes
+    3. **Validation**: Request format validation (JSON schema, etc.)
+    4. **No Business Logic**: Handlers delegate to service layer
+
+    ### TRANSPORT STRUCTURE
+    ```
+    internal/
+    ├── transport/
+    │   ├── http/
+    │   │   ├── handler.go      # Route setup
+    │   │   ├── user_handler.go # User endpoints
+    │   │   ├── middleware/     # Auth, logging, etc.
+    │   │   └── response.go     # Response helpers
+    │   └── grpc/
+    │       └── server.go
+    └── service/                # Service layer
+    ```
+
+- id: "build_layer/transport/http_handlers"
+  category: "build_layer"
+  subcategory: "transport"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/transport"]
+  depends_on: ["build_layer/transport/principles"]
+  content: |
+    ## HTTP HANDLER PATTERNS
+
+    ### HANDLER DEFINITION
+    ```go
+    // internal/transport/http/user_handler.go
+    package http
+
+    import (
+        "encoding/json"
+        "net/http"
+        "project/internal/service"
+        "project/internal/service/dto"
+    )
+
+    type UserHandler struct {
+        svc *service.UserService
+    }
+
+    func NewUserHandler(svc *service.UserService) *UserHandler {
+        return &UserHandler{svc: svc}
+    }
+
+    func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
+        // 1. Parse request
+        var req dto.RegisterUserInput
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+            writeError(w, http.StatusBadRequest, "invalid JSON")
+            return
+        }
+
+        // 2. Call service
+        output, err := h.svc.RegisterUser(r.Context(), req)
+        if err != nil {
+            // 3. Map errors to HTTP status
+            switch {
+            case errors.Is(err, service.ErrEmailAlreadyExists):
+                writeError(w, http.StatusConflict, err.Error())
+            case errors.Is(err, service.ErrValidation):
+                writeError(w, http.StatusBadRequest, err.Error())
+            default:
+                writeError(w, http.StatusInternalServerError, "internal error")
+            }
+            return
+        }
+
+        // 4. Write response
+        writeJSON(w, http.StatusCreated, output)
+    }
+    ```
+
+- id: "build_layer/transport/routing"
+  category: "build_layer"
+  subcategory: "transport"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/transport"]
+  content: |
+    ## ROUTING PATTERNS
+
+    ### ROUTE SETUP
+    ```go
+    // internal/transport/http/router.go
+    package http
+
+    import (
+        "net/http"
+        "github.com/go-chi/chi/v5"
+        "github.com/go-chi/chi/v5/middleware"
+    )
+
+    func NewRouter(
+        userHandler *UserHandler,
+        orderHandler *OrderHandler,
+    ) http.Handler {
+        r := chi.NewRouter()
+
+        // Global middleware
+        r.Use(middleware.Logger)
+        r.Use(middleware.Recoverer)
+        r.Use(middleware.RequestID)
+
+        // API routes
+        r.Route("/api/v1", func(r chi.Router) {
+            // User routes
+            r.Route("/users", func(r chi.Router) {
+                r.Post("/", userHandler.Register)
+                r.Get("/{id}", userHandler.Get)
+                r.Put("/{id}", userHandler.Update)
+                r.Delete("/{id}", userHandler.Delete)
+            })
+
+            // Order routes
+            r.Route("/orders", func(r chi.Router) {
+                r.Post("/", orderHandler.Create)
+                r.Get("/", orderHandler.List)
+            })
+        })
+
+        // Health check (no auth)
+        r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+            w.WriteHeader(http.StatusOK)
+        })
+
+        return r
+    }
+    ```
+
+    ### ERROR RESPONSE FORMAT
+    ```go
+    type ErrorResponse struct {
+        Error   string `json:"error"`
+        Code    string `json:"code,omitempty"`
+        Details any    `json:"details,omitempty"`
+    }
+
+    func writeError(w http.ResponseWriter, status int, msg string) {
+        writeJSON(w, status, ErrorResponse{Error: msg})
+    }
+    ```

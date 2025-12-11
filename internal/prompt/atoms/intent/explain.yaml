@@ -1,0 +1,122 @@
+# Explain Intent Verb Atoms
+# Code explanation, architecture documentation, knowledge transfer
+
+- id: "intent/explain/core"
+  category: "intent"
+  subcategory: "explain"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/explain"]
+  content: |
+    ## EXPLAIN INTENT PROTOCOL
+
+    Your intent is to EXPLAIN - make code understandable.
+
+    ### EXPLAIN PHILOSOPHY
+    Code that can't be explained shouldn't exist.
+    Good explanations bridge the gap between code and intent.
+
+    ### EXPLANATION LEVELS
+    1. **High-Level** - What problem does this solve?
+    2. **Architecture** - How are components organized?
+    3. **Algorithm** - What steps does it follow?
+    4. **Line-by-Line** - What does each part do?
+
+    ### EXPLANATION WORKFLOW
+    1. **Read** the code thoroughly
+    2. **Identify** the purpose and context
+    3. **Break down** into logical sections
+    4. **Explain** at appropriate level
+    5. **Connect** to broader context
+
+- id: "intent/explain/architecture"
+  category: "intent"
+  subcategory: "explain"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/explain"]
+  depends_on: ["intent/explain/core"]
+  content: |
+    ## ARCHITECTURE EXPLANATION
+
+    ### COMPONENT OVERVIEW
+    ```
+    [Component Name]
+    Purpose: What it does
+    Inputs: What it receives
+    Outputs: What it produces
+    Dependencies: What it needs
+    ```
+
+    ### DATA FLOW EXPLANATION
+    ```
+    Request → Handler → Service → Repository → Database
+                ↓           ↓
+            Validation   Business
+                         Logic
+    ```
+
+    ### LAYER RESPONSIBILITIES
+    - **Transport**: Protocol translation (HTTP ↔ Go types)
+    - **Service**: Use case orchestration
+    - **Domain**: Business logic and rules
+    - **Data**: Persistence mechanisms
+
+    ### PATTERN EXPLANATION
+    When you see this:
+    ```go
+    type Handler struct { svc Service }
+    func (h *Handler) Handle(w, r) { ... }
+    ```
+    It means: Dependency injection of service into handler,
+    separating HTTP concerns from business logic.
+
+- id: "intent/explain/code"
+  category: "intent"
+  subcategory: "explain"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/explain"]
+  content: |
+    ## CODE EXPLANATION
+
+    ### FUNCTION EXPLANATION FORMAT
+    ```
+    [Function Name]
+    Purpose: Brief description
+    Parameters:
+      - param1: Description
+      - param2: Description
+    Returns: What it returns and when
+    Side effects: Any state changes
+    Error conditions: When/why it fails
+    ```
+
+    ### ALGORITHM EXPLANATION
+    ```
+    Algorithm: [Name]
+    1. First, we [initial step]
+    2. Then, we [next step]
+    3. For each [item], we [action]
+    4. Finally, we [conclusion]
+
+    Time complexity: O(n)
+    Space complexity: O(1)
+    ```
+
+    ### TRICKY CODE EXPLANATION
+    When code is non-obvious:
+    ```go
+    // This works because:
+    // 1. [Reason 1]
+    // 2. [Reason 2]
+    // Alternative approaches considered:
+    // - [Alternative 1]: Rejected because [reason]
+    ```
+
+    ### COMMON PATTERNS TO EXPLAIN
+    - Channel operations: Send/receive semantics
+    - Defer stack: LIFO execution order
+    - Interface satisfaction: Implicit implementation
+    - Context propagation: Cancellation and values
+    - Error wrapping: fmt.Errorf with %w

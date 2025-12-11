@@ -1,0 +1,139 @@
+# Knowledge Persistence Atoms
+# 4-tier memory storage patterns
+
+- id: "knowledge/persistence/tiers"
+  category: "knowledge"
+  subcategory: "persistence"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## 4-TIER MEMORY ARCHITECTURE
+
+    Knowledge persists across different storage tiers.
+
+    ### TIER 1: RAM (Session Memory)
+    - **Lifespan**: Current session only
+    - **Content**: Working facts, active context
+    - **Access**: Instant
+    - **Capacity**: Limited by context window
+
+    ### TIER 2: VECTOR (Semantic Memory)
+    - **Lifespan**: Persistent across sessions
+    - **Content**: Embeddings, semantic search
+    - **Access**: Fast similarity search
+    - **Capacity**: Millions of vectors
+
+    ### TIER 3: GRAPH (Relational Memory)
+    - **Lifespan**: Persistent
+    - **Content**: Entity relationships
+    - **Access**: Graph traversal
+    - **Capacity**: Large knowledge graphs
+
+    ### TIER 4: COLD (Archive Memory)
+    - **Lifespan**: Permanent
+    - **Content**: Learned preferences, patterns
+    - **Access**: On-demand loading
+    - **Capacity**: Unlimited
+
+- id: "knowledge/persistence/storage"
+  category: "knowledge"
+  subcategory: "persistence"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## STORAGE PATTERNS
+
+    ### RAM STORAGE
+    ```go
+    type SessionMemory struct {
+        facts    map[string]Fact
+        context  []ContextItem
+        capacity int
+    }
+
+    func (m *SessionMemory) Add(fact Fact) {
+        if len(m.facts) >= m.capacity {
+            m.evictLRU()
+        }
+        m.facts[fact.ID] = fact
+    }
+    ```
+
+    ### VECTOR STORAGE
+    ```go
+    type VectorStore struct {
+        db *sql.DB  // SQLite with sqlite-vec
+    }
+
+    func (v *VectorStore) Store(id string, embedding []float32, content string) error {
+        _, err := v.db.Exec(`
+            INSERT INTO knowledge_vectors (id, embedding, content)
+            VALUES (?, ?, ?)
+        `, id, embedding, content)
+        return err
+    }
+
+    func (v *VectorStore) Search(query []float32, k int) ([]Result, error) {
+        // Vector similarity search
+    }
+    ```
+
+    ### GRAPH STORAGE
+    ```go
+    type GraphStore struct {
+        db *sql.DB
+    }
+
+    func (g *GraphStore) AddRelation(from, relation, to string) error {
+        _, err := g.db.Exec(`
+            INSERT INTO knowledge_graph (subject, predicate, object)
+            VALUES (?, ?, ?)
+        `, from, relation, to)
+        return err
+    }
+    ```
+
+- id: "knowledge/persistence/lifecycle"
+  category: "knowledge"
+  subcategory: "persistence"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## KNOWLEDGE LIFECYCLE
+
+    ### CREATION
+    ```
+    Source → Extract → Validate → Classify → Store
+    ```
+
+    ### PROMOTION
+    ```
+    RAM → Vector: When semantically valuable
+    RAM → Graph: When relationally important
+    Any → Cold: When established pattern
+    ```
+
+    ### RETRIEVAL
+    ```
+    Query → Check RAM → Check Vector → Check Graph → Load Cold
+    ```
+
+    ### EVICTION
+    ```
+    RAM: LRU eviction when full
+    Vector: Periodic cleanup of unused
+    Graph: Archive stale relationships
+    Cold: Never evicted (permanent)
+    ```
+
+    ### REFRESH
+    ```
+    Detect stale → Re-extract from source → Update storage
+    ```
+
+    ### CONFLICT RESOLUTION
+    When knowledge conflicts:
+    1. Prefer newer source
+    2. Prefer higher-trust source
+    3. Keep both with metadata
+    4. Flag for human review

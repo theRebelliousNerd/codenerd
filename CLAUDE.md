@@ -6,6 +6,10 @@ A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic archit
 
 ## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM. IT IS THE CENTRAL PARADIGM OF THE SYSTEM. JIT, PIGGYBACKING, CONTROL PACKETS, MANGLE, THAT IS THE NAME OF THE GAME!
 
+all prompt atoms from internal go into centralized category folders in C:\CodeProjects\codeNERD\internal\prompt\atoms
+
+all prompt atoms from project specific shards go C:\CodeProjects\codeNERD\.nerd\agents in the agents subdirectory. 
+
 
 **Kernel:** Google Mangle (Datalog) | **Runtime:** Go | **Philosophy:** Logic determines Reality; the Model merely describes it.
 
@@ -13,9 +17,7 @@ A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic archit
 > **Build Instruction for Vector DB Support**
 > To enable `sqlite-vec` mappings, you MUST use the following build command:
 >
-> ```powershell
-> $env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go build ./cmd/nerd
-> ```
+>rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null; cd c:/ CodeProjects/codeNERD && CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -o nerd.exe ./cmd/nerd 2>&1 | grep -v "warning:" | grep -v note:
 
 ## Vision
 
@@ -230,3 +232,250 @@ For detailed architecture and implementation specs, see:
 
 - [.claude/skills/codenerd-builder/references/](.claude/skills/codenerd-builder/references/) - Full architecture docs
 - [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
+
+here is the definitive list of the Top 30 Common Errors AI coding agents make when writing Mangle code.
+
+
+These are categorized by the layer of the stack where the "Stochastic Gap" occurs: Syntax, Logic/Safety, Data Structures, and Integration.
+
+I. Syntactic Hallucinations (The "Soufflé/SQL" Bias)
+AI models trained on SQL, Prolog, and Soufflé often force those syntaxes into Mangle.
+
+
+Atom vs. String Confusion 
+
+
+Error: Using "active" when the schema requires /active.
+
+Correction: Use /atom for enums/IDs. Mangle treats these as disjoint types; they will never unify.
+
+
+Soufflé Declarations 
+
+
+Error: .decl edge(x:number, y:number).
+
+Correction: Decl edge(X.Type<int>, Y.Type<int>). (Note uppercase Decl and type syntax).
+
+
+Lowercase Variables 
+
+Error: ancestor(x, y) :- parent(x, y). (Prolog style).
+
+Correction: ancestor(X, Y) :- parent(X, Y). Variables must be UPPERCASE.
+
+
+Inline Aggregation (SQL Style) 
+
+
+Error: total(Sum) :- item(X), Sum = sum(X).
+
+Correction: Use the pipe operator: ... |> do fn:group_by(), let Sum = fn:Sum(X).
+
+
+Implicit Grouping 
+
+
+Error: Assuming variables in the head automatically trigger GROUP BY (like SQL).
+
+Correction: Grouping is explicit in the do fn:group_by(...) transform step.
+
+
+Missing Periods 
+
+Error: Ending a rule with a newline instead of ..
+
+Correction: Every clause must end with a period ..
+
+
+Comment Syntax 
+
+Error: // This is a comment or /* ... */.
+
+Correction: Use # This is a comment.
+
+
+Assignment vs. Unification 
+
+Error: X := 5 or let X = 5 inside a rule body (without pipe).
+
+Correction: Use unification X = 5 inside the body, or let only within a transform block.
+
+II. Semantic Safety & Logic (The "Datalog" Gap)
+Mangle requires strict logical validity that probabilistic models often miss.
+
+
+Unsafe Head Variables 
+
+
+Error: result(X) :- other(Y). (X is unbounded).
+
+Correction: Every variable in the head must appear in a positive atom in the body.
+
+
+Unsafe Negation 
+
+
+Error: safe(X) :- not distinct(X).
+
+Correction: Variables in a negated atom must be bound first: safe(X) :- candidate(X), not distinct(X).
+
+
+Stratification Cycles 
+
+
+Error: p(X) :- not q(X). q(X) :- not p(X).
+
+Correction: Ensure no recursion passes through a negation. Restructure logic into strict layers (strata).
+
+
+Infinite Recursion (Counter Fallacy) 
+
+Error: count(N) :- count(M), N = fn:plus(M, 1). (Unbounded generation).
+
+Correction: Always bound recursion with a limit or a finite domain (e.g., N < 100).
+
+
+Cartesian Product Explosion 
+
+Error: Placing large tables before filters: res(X) :- huge_table(X), X = /specific_id.
+
+Correction: Selectivity first: res(X) :- X = /specific_id, huge_table(X).
+
+
+Null Checking (Open World Bias) 
+
+
+Error: check(X) :- data(X), X != null.
+
+Correction: Mangle follows the Closed World Assumption. If a fact exists, it is not null. "Missing" facts are simply not there.
+
+
+Duplicate Rule Definitions 
+
+Error: Thinking multiple rules overwrite each other.
+
+Correction: Multiple rules create a UNION. p(x) :- a(x). and p(x) :- b(x). means p is true if a OR b is true.
+
+
+Anonymous Variable Misuse 
+
+Error: Using _ when the value is actually needed later in the rule.
+
+Correction: Use _ only for values you truly don't care about. It never binds.
+
+III. Data Types & Functions (The "JSON" Bias)
+AI agents often hallucinate object-oriented accessors for Mangle's structured data.
+
+
+Map Dot Notation 
+
+Error: Val = Map.key or Map['key'].
+
+Correction: Use :match_entry(Map, /key, Val) or :match_field(Struct, /key, Val).
+
+
+List Indexing 
+
+Error: Head = List[0].
+
+Correction: Use :match_cons(List, Head, Tail) or fn:list:get(List, 0).
+
+
+Type Mismatch (Int vs Float) 
+
+Error: X = 5 when X is declared Type<float>.
+
+Correction: Mangle is strict. Use 5.0 for floats, 5 for ints.
+
+
+String Interpolation 
+
+Error: msg("Error: $Code").
+
+Correction: Use fn:string_concat or build list structures. Mangle has no string interpolation.
+
+
+Hallucinated Functions 
+
+Error: fn:split, fn:date, fn:substring (assuming StdLib parity with Python).
+
+Correction: Verify function existence in builtin package. Mangle's standard library is minimal.
+
+
+Aggregation Safety 
+
+Error: ... |> do fn:group_by(UnboundVar) ...
+
+Correction: Grouping variables must be bound in the rule body before the pipe |>.
+
+
+Struct Syntax 
+
+Error: {"key": "value"} (JSON style).
+
+Correction: { /key: "value" } (Note the atom key and spacing).
+
+IV. Go Integration & Architecture (The "API" Gap)
+When embedding Mangle, AI agents fail to navigate the boundary between Go and Logic.
+
+
+Fact Store Type Errors 
+
+
+Error: store.Add("pred", "arg").
+
+Correction: Must use engine.Atom, engine.Number types wrapped in engine.Value.
+
+
+Incorrect Engine Entry Point 
+
+Error: engine.Run() (Hallucination).
+
+Correction: Use engine.EvalProgram or engine.EvalProgramNaive.
+
+
+Ignoring Imports 
+
+Error: Generating Mangle code without necessary package references or failing to import the Go engine package correctly.
+
+Correction: Explicitly manage github.com/google/mangle/engine.
+
+
+External Predicate Signature 
+
+Error: Writing a Go function for a predicate that returns (interface{}, error).
+
+Correction: External predicates require func(query engine.Query, cb func(engine.Fact)) error.
+
+
+Parsing vs. Execution 
+
+Error: Passing raw strings to EvalProgram.
+
+Correction: Code must be parsed (parse.Unit) and analyzed (analysis.AnalyzeOneUnit) before evaluation.
+
+
+Assuming IO access 
+
+Error: read_file(Path, Content).
+
+Correction: Mangle is pure. IO must happen in Go before execution (loading facts) or via external predicates.
+
+
+Package Hallucination (Slopsquatting) 
+
+
+Error: Importing non-existent Mangle libraries (use /std/date).
+
+Correction: Verify imports. Mangle has a very small, specific ecosystem.
+
+How to Avoid These Mistakes (For the Mangle Architect)
+Feed the Grammar: Provide the "Complete Syntax Reference" (File 200) in the prompt context.
+
+Solver-in-the-Loop: Do not trust "Zero-Shot" code. Run a loop: Generate -> Parse (with mangle/parse) -> Feed Errors back to LLM -> Regenerate.
+
+Explicit Typing: Force the AI to declare types (Decl) first. This forces it to decide between /atoms and "strings" early.
+
+
+Review for Liveness: Manually audit recursive rules for termination conditions.

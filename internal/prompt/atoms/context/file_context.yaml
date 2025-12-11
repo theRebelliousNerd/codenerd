@@ -1,0 +1,93 @@
+# File Context Atoms
+# Current file state, modifications, diffs
+
+- id: "context/file/reading"
+  category: "context"
+  subcategory: "file"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## FILE CONTEXT PROTOCOL
+
+    When provided with file content, analyze it systematically.
+
+    ### FILE ANALYSIS CHECKLIST
+    1. **Purpose**: What does this file do?
+    2. **Structure**: How is it organized?
+    3. **Dependencies**: What does it import/require?
+    4. **Exports**: What does it expose?
+    5. **Quality**: Any obvious issues?
+
+    ### FILE METADATA TO NOTE
+    - File path and name
+    - Package/module
+    - Line count (complexity indicator)
+    - Last modified (recency)
+    - Test file exists?
+
+- id: "context/file/diff"
+  category: "context"
+  subcategory: "file"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## DIFF ANALYSIS PROTOCOL
+
+    When analyzing diffs, understand the change intent.
+
+    ### DIFF NOTATION
+    ```diff
+    - Removed line (old)
+    + Added line (new)
+      Unchanged line (context)
+    @@ -old_start,count +new_start,count @@ function_name
+    ```
+
+    ### DIFF ANALYSIS QUESTIONS
+    1. What was removed and why?
+    2. What was added and why?
+    3. Is the change complete?
+    4. Any unintended changes?
+    5. Does it break anything?
+
+    ### CHANGE CLASSIFICATION
+    - **Addition**: New functionality
+    - **Removal**: Deleted functionality
+    - **Modification**: Changed behavior
+    - **Refactor**: Same behavior, different structure
+    - **Fix**: Corrects broken behavior
+
+- id: "context/file/modification"
+  category: "context"
+  subcategory: "file"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## MODIFICATION TRACKING
+
+    When modifying files, track changes carefully.
+
+    ### MODIFICATION TYPES
+    | Type | Impact | Verification |
+    |------|--------|--------------|
+    | Add function | Low | Compile |
+    | Modify function | Medium | Tests |
+    | Delete function | High | Full test suite |
+    | Change signature | High | All callers |
+    | Change types | High | Full test suite |
+
+    ### MODIFICATION CHECKLIST
+    - [ ] Understand existing code first
+    - [ ] Make minimal changes
+    - [ ] Preserve formatting style
+    - [ ] Update related tests
+    - [ ] Update documentation if needed
+
+    ### MODIFICATION LOG FORMAT
+    ```
+    File: path/to/file.go
+    Change: Brief description
+    Lines: start-end
+    Impact: Low/Medium/High
+    Tests: Needed/Updated/N/A
+    ```

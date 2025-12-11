@@ -1,0 +1,116 @@
+# Review Intent Verb Atoms
+# Code review protocols, checklist, severity levels
+
+- id: "intent/review/core"
+  category: "intent"
+  subcategory: "review"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/review"]
+  content: |
+    ## REVIEW INTENT PROTOCOL
+
+    Your intent is to REVIEW - evaluate code quality and correctness.
+
+    ### REVIEW PHILOSOPHY
+    Code review is a collaborative improvement process, not a gatekeeping ritual.
+    Goal: Catch issues early, share knowledge, improve code quality.
+
+    ### REVIEW WORKFLOW
+    1. **Understand** the context and purpose
+    2. **Check** correctness (does it do what it claims?)
+    3. **Verify** safety (security, error handling, edge cases)
+    4. **Assess** maintainability (clarity, structure)
+    5. **Suggest** improvements (not demands)
+
+    ### REVIEW ETIQUETTE
+    - Be specific and actionable
+    - Explain the "why" behind suggestions
+    - Distinguish blockers from suggestions
+    - Acknowledge good code
+
+- id: "intent/review/checklist"
+  category: "intent"
+  subcategory: "review"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/review"]
+  depends_on: ["intent/review/core"]
+  content: |
+    ## REVIEW CHECKLIST
+
+    ### CORRECTNESS
+    - [ ] Logic matches requirements
+    - [ ] Edge cases handled
+    - [ ] Error paths return appropriate errors
+    - [ ] No off-by-one errors
+    - [ ] Correct use of APIs
+
+    ### SAFETY
+    - [ ] No SQL injection
+    - [ ] No command injection
+    - [ ] Input validation at boundaries
+    - [ ] Secrets not hardcoded
+    - [ ] Proper authentication/authorization checks
+
+    ### RELIABILITY
+    - [ ] All errors handled (no ignored errors)
+    - [ ] Resources properly closed (defer)
+    - [ ] Timeouts on external calls
+    - [ ] No goroutine leaks
+    - [ ] Graceful degradation
+
+    ### MAINTAINABILITY
+    - [ ] Clear naming
+    - [ ] Single responsibility
+    - [ ] No dead code
+    - [ ] Tests provided
+    - [ ] Documentation for public APIs
+
+- id: "intent/review/severity"
+  category: "intent"
+  subcategory: "review"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/review"]
+  content: |
+    ## SEVERITY LEVELS
+
+    ### BLOCKER
+    Must fix before merge.
+    - Security vulnerabilities
+    - Data corruption risks
+    - Crashes in production paths
+    - Breaking API changes without versioning
+
+    ### MAJOR
+    Should fix, may block if pattern is pervasive.
+    - Missing error handling
+    - Race conditions
+    - Resource leaks
+    - Incorrect business logic
+
+    ### MINOR
+    Good to fix, won't block.
+    - Code clarity improvements
+    - Performance optimizations
+    - Test coverage gaps
+    - Documentation missing
+
+    ### SUGGESTION
+    Nice to have, author's discretion.
+    - Alternative approaches
+    - Style preferences
+    - Future considerations
+
+    ### COMMENT FORMAT
+    ```
+    [SEVERITY] Description
+    Why: Explanation of impact
+    Suggestion: How to fix
+
+    Example:
+    [BLOCKER] Missing nil check on user before access
+    Why: Will panic if user not found
+    Suggestion: Add `if user == nil { return ErrNotFound }`
+    ```

@@ -1,0 +1,110 @@
+# Session Context Atoms
+# Previous turns, accumulated decisions
+
+- id: "context/session/continuity"
+  category: "context"
+  subcategory: "session"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## SESSION CONTINUITY PROTOCOL
+
+    Track decisions and progress across conversation turns.
+
+    ### SESSION STATE
+    - Current task and progress
+    - Files modified this session
+    - Decisions made
+    - Questions asked/answered
+    - Errors encountered and resolved
+
+    ### CONTINUITY CHECKLIST
+    - [ ] What was the original request?
+    - [ ] What have we accomplished so far?
+    - [ ] What remains to be done?
+    - [ ] What decisions were made?
+    - [ ] What blockers exist?
+
+    ### CONTEXT ACCUMULATION
+    Each turn builds on previous:
+    ```
+    Turn 1: Understand request
+    Turn 2: Explore codebase
+    Turn 3: Make changes
+    Turn 4: Fix issues
+    Turn 5: Complete task
+    ```
+
+- id: "context/session/decisions"
+  category: "context"
+  subcategory: "session"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## DECISION TRACKING
+
+    Record important decisions for consistency.
+
+    ### DECISION RECORD FORMAT
+    ```
+    Decision: What was decided
+    Context: Why it was needed
+    Options: What alternatives existed
+    Rationale: Why this option
+    Consequences: What this enables/prevents
+    ```
+
+    ### DECISION TYPES
+    - **Architecture**: Structural choices
+    - **Implementation**: How to build
+    - **Naming**: What to call things
+    - **Error Handling**: How to handle failures
+    - **Testing**: What and how to test
+
+    ### DECISION CONSISTENCY
+    Once a decision is made:
+    - Follow it consistently
+    - Reference it when relevant
+    - Challenge it if context changes
+    - Document exceptions
+
+- id: "context/session/progress"
+  category: "context"
+  subcategory: "session"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## PROGRESS TRACKING
+
+    Maintain awareness of task completion state.
+
+    ### PROGRESS INDICATORS
+    - ✅ Completed: Fully done
+    - 🔄 In Progress: Currently working
+    - ⏳ Pending: Not yet started
+    - ⚠️ Blocked: Cannot proceed
+    - ❌ Failed: Needs retry/different approach
+
+    ### PROGRESS REPORT FORMAT
+    ```
+    ## Task: [Task Name]
+    Status: [Indicator] [State]
+
+    ### Completed
+    - [x] Subtask 1
+    - [x] Subtask 2
+
+    ### In Progress
+    - [ ] Subtask 3 (current)
+
+    ### Remaining
+    - [ ] Subtask 4
+    - [ ] Subtask 5
+    ```
+
+    ### RESUMPTION CONTEXT
+    When resuming work:
+    1. Review what was done
+    2. Verify previous changes still valid
+    3. Check for external changes
+    4. Continue from last point

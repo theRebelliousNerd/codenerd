@@ -1,0 +1,141 @@
+# Knowledge Retrieval Atoms
+# Semantic search, context retrieval
+
+- id: "knowledge/retrieval/semantic"
+  category: "knowledge"
+  subcategory: "retrieval"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## SEMANTIC RETRIEVAL PROTOCOL
+
+    Find relevant knowledge using semantic similarity.
+
+    ### RETRIEVAL WORKFLOW
+    1. **Embed** the query
+    2. **Search** vector store
+    3. **Rank** by relevance
+    4. **Filter** by context constraints
+    5. **Return** top-k results
+
+    ### QUERY EMBEDDING
+    ```go
+    func RetrieveRelevant(ctx context.Context, query string, k int) ([]Knowledge, error) {
+        // 1. Embed query
+        embedding, err := embedder.Embed(ctx, query)
+        if err != nil {
+            return nil, err
+        }
+
+        // 2. Vector search
+        results, err := vectorStore.Search(embedding, k*2) // Over-fetch
+        if err != nil {
+            return nil, err
+        }
+
+        // 3. Re-rank by relevance
+        ranked := rerank(query, results)
+
+        // 4. Return top-k
+        return ranked[:k], nil
+    }
+    ```
+
+    ### RELEVANCE SCORING
+    | Factor | Weight |
+    |--------|--------|
+    | Vector similarity | 0.5 |
+    | Keyword match | 0.2 |
+    | Recency | 0.1 |
+    | Source trust | 0.1 |
+    | Usage frequency | 0.1 |
+
+- id: "knowledge/retrieval/context"
+  category: "knowledge"
+  subcategory: "retrieval"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## CONTEXT-AWARE RETRIEVAL
+
+    Retrieve knowledge based on current context.
+
+    ### CONTEXT FACTORS
+    - Current file/package being edited
+    - Recent conversation topics
+    - Active task type
+    - User preferences
+    - Error messages (if debugging)
+
+    ### RETRIEVAL STRATEGIES
+    ```
+    Task: /fix error
+    Strategy: Retrieve error handling knowledge + similar past fixes
+
+    Task: /create feature
+    Strategy: Retrieve similar implementations + patterns
+
+    Task: /review code
+    Strategy: Retrieve style guides + security checklists
+    ```
+
+    ### ADAPTIVE K
+    Adjust number of results based on context:
+    ```go
+    func AdaptiveK(ctx *Context) int {
+        switch {
+        case ctx.TokenBudget < 1000:
+            return 3  // Tight budget
+        case ctx.TaskComplexity == "high":
+            return 10 // Need more context
+        default:
+            return 5  // Normal
+        }
+    }
+    ```
+
+- id: "knowledge/retrieval/augmentation"
+  category: "knowledge"
+  subcategory: "retrieval"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## RETRIEVAL AUGMENTATION
+
+    Enhance retrieved knowledge before use.
+
+    ### AUGMENTATION STEPS
+    1. **Expand**: Add related concepts
+    2. **Summarize**: Condense if too long
+    3. **Contextualize**: Add task-specific framing
+    4. **Validate**: Check for staleness
+
+    ### EXPANSION
+    ```
+    Retrieved: "Go error handling with fmt.Errorf"
+    Expanded: + "error wrapping" + "errors.Is/As" + "sentinel errors"
+    ```
+
+    ### SUMMARIZATION
+    ```
+    Original: 500 tokens on error handling
+    Budget: 200 tokens
+    Summarized: Key points only, preserve code examples
+    ```
+
+    ### CONTEXTUALIZATION
+    ```
+    Retrieved: Generic Go patterns
+    Task: Fixing user service
+    Contextualized: "For your UserService, apply these patterns..."
+    ```
+
+    ### STALENESS CHECK
+    ```go
+    func IsStale(k Knowledge) bool {
+        // Check source still exists
+        // Check content hasn't changed
+        // Check age vs typical refresh
+        return k.Age > 7*24*time.Hour || !sourceExists(k.Source)
+    }
+    ```

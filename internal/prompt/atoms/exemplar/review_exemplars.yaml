@@ -1,0 +1,163 @@
+# Review Comment Exemplars
+# Review comment examples
+
+- id: "exemplar/review/comments"
+  category: "exemplar"
+  subcategory: "review"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/review"]
+  content: |
+    ## REVIEW COMMENT EXEMPLARS
+
+    ### BLOCKER COMMENT
+    ```
+    [BLOCKER] SQL injection vulnerability
+
+    This code concatenates user input directly into the SQL query:
+    query := "SELECT * FROM users WHERE name = '" + name + "'"
+
+    This allows attackers to execute arbitrary SQL.
+
+    Fix: Use parameterized queries:
+    query := "SELECT * FROM users WHERE name = $1"
+    db.Query(query, name)
+    ```
+
+    ### MAJOR COMMENT
+    ```
+    [MAJOR] Missing error handling
+
+    Line 45: The error from `db.Query()` is ignored:
+    result, _ := db.Query(ctx, query)
+
+    This will cause silent failures and make debugging difficult.
+
+    Suggestion:
+    result, err := db.Query(ctx, query)
+    if err != nil {
+        return nil, fmt.Errorf("query users: %w", err)
+    }
+    ```
+
+    ### MINOR COMMENT
+    ```
+    [MINOR] Consider extracting magic number
+
+    Line 23: `time.Sleep(5 * time.Second)`
+
+    The 5-second timeout is used in multiple places.
+    Consider extracting to a named constant:
+
+    const defaultTimeout = 5 * time.Second
+    ```
+
+    ### SUGGESTION COMMENT
+    ```
+    [SUGGESTION] Alternative approach
+
+    This works correctly, but you might consider using
+    `strings.Builder` instead of concatenation for
+    better performance with many strings:
+
+    var sb strings.Builder
+    for _, s := range items {
+        sb.WriteString(s)
+    }
+    return sb.String()
+
+    Not a blocker, just a performance consideration.
+    ```
+
+- id: "exemplar/review/positive"
+  category: "exemplar"
+  subcategory: "review"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/review"]
+  content: |
+    ## POSITIVE REVIEW EXEMPLARS
+
+    ### ACKNOWLEDGING GOOD CODE
+    ```
+    Nice use of the functional options pattern here!
+    This makes the API much more flexible and readable.
+    ```
+
+    ```
+    Good catch on the race condition - the mutex
+    placement is correct and the critical section
+    is minimal. Well done!
+    ```
+
+    ```
+    Excellent test coverage. The edge cases for
+    empty input and unicode handling are especially
+    thorough.
+    ```
+
+    ### LEARNING OPPORTUNITY
+    ```
+    TIL about `sync.OnceValue` - this is cleaner than
+    the manual sync.Once + value pattern I've been using.
+    Thanks for introducing this!
+    ```
+
+    ### DESIGN APPRECIATION
+    ```
+    The separation between the domain logic and
+    the HTTP handler is clean. This will make
+    testing much easier.
+    ```
+
+- id: "exemplar/review/constructive"
+  category: "exemplar"
+  subcategory: "review"
+  priority: 80
+  is_mandatory: false
+  intent_verbs: ["/review"]
+  content: |
+    ## CONSTRUCTIVE CRITICISM EXEMPLARS
+
+    ### QUESTIONING APPROACH
+    ```
+    I'm curious about the decision to use a map here
+    instead of a slice. With the current access patterns,
+    a slice might be more cache-friendly.
+
+    Was there a specific reason for choosing a map?
+    Happy to discuss the tradeoffs.
+    ```
+
+    ### SUGGESTING ALTERNATIVES
+    ```
+    This works, but there might be a simpler approach.
+    Instead of maintaining state across iterations:
+
+    Current:
+    var result []int
+    for i, v := range items {
+        if i > 0 && items[i-1].Type == v.Type {
+            // complex logic
+        }
+    }
+
+    Alternative:
+    result := slices.CompactFunc(items, func(a, b Item) bool {
+        return a.Type == b.Type
+    })
+
+    Would this work for your use case?
+    ```
+
+    ### REQUESTING CLARIFICATION
+    ```
+    I'm not sure I understand the intent of this block.
+    Could you add a comment explaining when this branch
+    would be taken and why it returns early?
+
+    // Why return here? Under what conditions?
+    if x.State == StateUnknown {
+        return nil
+    }
+    ```

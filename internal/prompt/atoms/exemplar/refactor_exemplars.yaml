@@ -1,0 +1,235 @@
+# Refactor Exemplars
+# Before/after refactoring examples
+
+- id: "exemplar/refactor/extract_method"
+  category: "exemplar"
+  subcategory: "refactor"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## EXTRACT METHOD EXEMPLAR
+
+    ### BEFORE
+    ```go
+    func ProcessOrder(order *Order) error {
+        // Validate order
+        if order.CustomerID == "" {
+            return errors.New("customer ID required")
+        }
+        if len(order.Items) == 0 {
+            return errors.New("order must have items")
+        }
+        for _, item := range order.Items {
+            if item.Quantity <= 0 {
+                return errors.New("invalid quantity")
+            }
+            if item.Price < 0 {
+                return errors.New("invalid price")
+            }
+        }
+
+        // Calculate total
+        var total float64
+        for _, item := range order.Items {
+            total += float64(item.Quantity) * item.Price
+        }
+        if order.DiscountCode != "" {
+            discount := lookupDiscount(order.DiscountCode)
+            total = total * (1 - discount)
+        }
+        order.Total = total
+
+        // Process payment
+        // ... more code
+    }
+    ```
+
+    ### AFTER
+    ```go
+    func ProcessOrder(order *Order) error {
+        if err := validateOrder(order); err != nil {
+            return fmt.Errorf("validation: %w", err)
+        }
+
+        order.Total = calculateTotal(order)
+
+        return processPayment(order)
+    }
+
+    func validateOrder(order *Order) error {
+        if order.CustomerID == "" {
+            return errors.New("customer ID required")
+        }
+        if len(order.Items) == 0 {
+            return errors.New("order must have items")
+        }
+        for _, item := range order.Items {
+            if err := validateItem(item); err != nil {
+                return err
+            }
+        }
+        return nil
+    }
+
+    func calculateTotal(order *Order) float64 {
+        var total float64
+        for _, item := range order.Items {
+            total += float64(item.Quantity) * item.Price
+        }
+        return applyDiscount(total, order.DiscountCode)
+    }
+    ```
+
+- id: "exemplar/refactor/simplify_conditional"
+  category: "exemplar"
+  subcategory: "refactor"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## SIMPLIFY CONDITIONAL EXEMPLAR
+
+    ### BEFORE: Nested Conditionals
+    ```go
+    func getDiscount(user *User, order *Order) float64 {
+        if user != nil {
+            if user.IsPremium {
+                if order.Total > 100 {
+                    return 0.20
+                } else {
+                    return 0.10
+                }
+            } else {
+                if order.Total > 100 {
+                    return 0.05
+                } else {
+                    return 0
+                }
+            }
+        } else {
+            return 0
+        }
+    }
+    ```
+
+    ### AFTER: Guard Clauses
+    ```go
+    func getDiscount(user *User, order *Order) float64 {
+        if user == nil {
+            return 0
+        }
+        if !user.IsPremium && order.Total <= 100 {
+            return 0
+        }
+        if !user.IsPremium {
+            return 0.05
+        }
+        if order.Total <= 100 {
+            return 0.10
+        }
+        return 0.20
+    }
+    ```
+
+    ### AFTER: Table-Driven
+    ```go
+    func getDiscount(user *User, order *Order) float64 {
+        if user == nil {
+            return 0
+        }
+
+        type discountRule struct {
+            premium   bool
+            minAmount float64
+            discount  float64
+        }
+
+        rules := []discountRule{
+            {true, 100, 0.20},
+            {true, 0, 0.10},
+            {false, 100, 0.05},
+        }
+
+        for _, r := range rules {
+            if user.IsPremium == r.premium && order.Total > r.minAmount {
+                return r.discount
+            }
+        }
+        return 0
+    }
+    ```
+
+- id: "exemplar/refactor/replace_type_code"
+  category: "exemplar"
+  subcategory: "refactor"
+  priority: 80
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REPLACE TYPE CODE WITH POLYMORPHISM
+
+    ### BEFORE: Switch on Type
+    ```go
+    type Shape struct {
+        Type   string // "circle", "square", "triangle"
+        Radius float64
+        Side   float64
+        Base   float64
+        Height float64
+    }
+
+    func Area(s Shape) float64 {
+        switch s.Type {
+        case "circle":
+            return math.Pi * s.Radius * s.Radius
+        case "square":
+            return s.Side * s.Side
+        case "triangle":
+            return 0.5 * s.Base * s.Height
+        default:
+            return 0
+        }
+    }
+    ```
+
+    ### AFTER: Interface Polymorphism
+    ```go
+    type Shape interface {
+        Area() float64
+    }
+
+    type Circle struct {
+        Radius float64
+    }
+
+    func (c Circle) Area() float64 {
+        return math.Pi * c.Radius * c.Radius
+    }
+
+    type Square struct {
+        Side float64
+    }
+
+    func (s Square) Area() float64 {
+        return s.Side * s.Side
+    }
+
+    type Triangle struct {
+        Base   float64
+        Height float64
+    }
+
+    func (t Triangle) Area() float64 {
+        return 0.5 * t.Base * t.Height
+    }
+
+    // Usage
+    func TotalArea(shapes []Shape) float64 {
+        var total float64
+        for _, s := range shapes {
+            total += s.Area()
+        }
+        return total
+    }
+    ```
