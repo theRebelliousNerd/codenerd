@@ -1,0 +1,94 @@
+# Fix: Stratification Error
+
+## Error Pattern
+```
+stratification error
+negation cycle detected
+cannot stratify program
+```
+
+## Cause
+Predicates depend on each other through negation, creating a cycle that cannot be evaluated.
+
+## Detection
+
+Look for these patterns:
+
+### Pattern 1: Direct Self-Negation
+```mangle
+# INVALID
+p(X) :- not p(X).
+```
+
+### Pattern 2: Mutual Negation
+```mangle
+# INVALID
+a(X) :- not b(X).
+b(X) :- not a(X).
+```
+
+### Pattern 3: Transitive Cycle
+```mangle
+# INVALID - a -> not b -> c -> not a
+a(X) :- not b(X).
+b(X) :- c(X).
+c(X) :- not a(X).
+```
+
+## Fix Strategy
+
+### 1. Identify the Base Truth
+Determine which predicate should be grounded in facts:
+
+**Before:**
+```mangle
+allowed(X) :- not blocked(X).
+blocked(X) :- not allowed(X).
+```
+
+**After:**
+```mangle
+# Ground truth: explicit allow list
+allowed(X) :- explicit_allow(X).
+blocked(X) :- user(X), not allowed(X).
+```
+
+### 2. Use Positive Derivation
+Replace one negation path with positive logic:
+
+**Before:**
+```mangle
+winner(X) :- not loser(X).
+loser(X) :- not winner(X).
+```
+
+**After:**
+```mangle
+# Derive from game outcome
+winner(X) :- game_result(X, /won).
+loser(X) :- player(X), not winner(X).
+```
+
+### 3. Break Cycle with Intermediate
+Add a non-negated intermediate predicate:
+
+**Before:**
+```mangle
+active(X) :- not inactive(X).
+inactive(X) :- not active(X).
+```
+
+**After:**
+```mangle
+# Use explicit status as ground truth
+has_active_status(X) :- status(X, /active).
+active(X) :- user(X), has_active_status(X).
+inactive(X) :- user(X), not has_active_status(X).
+```
+
+## Prevention
+
+Before writing rules with negation:
+1. Decide which predicate is "primary" (grounded in facts)
+2. Derive secondary predicates from the primary
+3. Only use negation in one direction

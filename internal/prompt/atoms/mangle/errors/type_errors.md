@@ -1,0 +1,772 @@
+# Mangle Type Errors Reference
+
+Complete catalog of type mismatch and type system errors.
+
+---
+
+## 1. Type Mismatch Errors
+
+### 1.1 Cannot Unify Fact and Declaration
+
+**Error Pattern:**
+```
+could not unify <fact> and <decl>: <details>
+```
+
+**Exact Message:**
+```
+could not unify parent("alice", "bob") and Decl parent(X.Type<int>, Y.Type<int>): type mismatch
+```
+
+**What Causes It:**
+- Fact arguments don't match declared types
+- Attempting to insert wrong type into predicate
+
+**Reproducing Example:**
+```mangle
+Decl parent(X.Type<int>, Y.Type<int>).
+
+# WRONG - inserting strings when ints expected
+parent("alice", "bob").
+```
+
+**How to Fix:**
+
+**Option 1:** Match the declared type
+```mangle
+Decl parent(X.Type<int>, Y.Type<int>).
+
+# CORRECT - use integers
+parent(1, 2).
+```
+
+**Option 2:** Change declaration
+```mangle
+# CORRECT - declare as strings
+Decl parent(X.Type<string>, Y.Type<string>).
+
+parent("alice", "bob").
+```
+
+---
+
+### 1.2 Type Mismatch in Rule Body
+
+**Error Pattern:**
+```
+type mismatch <premise> : <error>
+```
+
+**Exact Message:**
+```
+type mismatch score(X, Y) : variable X has type string but predicate expects int
+```
+
+**What Causes It:**
+- Variable with inferred type used in predicate expecting different type
+- Type inference detected incompatibility
+
+**Reproducing Example:**
+```mangle
+Decl name(X.Type<string>).
+Decl score(X.Type<int>, Y.Type<float>).
+
+# WRONG - X is string from name, but score expects int
+result(X, Y) :- name(X), score(X, Y).
+              # X can't be both string and int!
+```
+
+**How to Fix:**
+
+**Option 1:** Use different variables
+```mangle
+# CORRECT - separate variables for different types
+result(Name, Score) :-
+    name(Name),
+    person_id(Name, ID),
+    score(ID, Score).
+```
+
+**Option 2:** Use type conversion (if supported)
+```mangle
+# CORRECT - convert types explicitly
+result(X, Y) :-
+    name(X),
+    id_from_name(X, XInt),
+    score(XInt, Y).
+```
+
+---
+
+### 1.3 Left Type vs Right Type Mismatch
+
+**Error Pattern:**
+```
+type mismatch <premise>: left type <type1> right type <type2>
+```
+
+**Exact Message:**
+```
+type mismatch X = Y : left type int right type string
+```
+
+**What Causes It:**
+- Unification of incompatible types
+- Comparison operators require compatible types
+
+**Reproducing Example:**
+```mangle
+Decl age(X.Type<int>).
+Decl name(X.Type<string>).
+
+# WRONG - comparing int to string
+result(A, N) :- age(A), name(N), A = N.
+              # Can't unify int with string!
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - compare compatible types
+result(A, N) :- age(A), name(N), A > 18.  # int comparison
+```
+
+---
+
+## 2. Field Access Type Errors
+
+### 2.1 match_field Must Be Applied to Variable
+
+**Error Pattern:**
+```
+:match_field must be applied to a variable
+```
+
+**What Causes It:**
+- Using constant or expression instead of variable in match_field
+- First argument must be a bound variable
+
+**Reproducing Example:**
+```mangle
+# WRONG - using constant
+result(Name) :- :match_field(/person, /name, Name).
+
+# WRONG - using expression
+result(Name) :- :match_field(fn:some_func(), /name, Name).
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - use variable
+result(Name) :- person(P), :match_field(P, /name, Name).
+```
+
+---
+
+### 2.2 match_field Applied to Unbound Variable
+
+**Error Pattern:**
+```
+:match_field must be applied to a bound variable
+```
+
+**What Causes It:**
+- Variable not bound before match_field
+- Variable must have value before field extraction
+
+**Reproducing Example:**
+```mangle
+# WRONG - P not bound
+result(Name) :- :match_field(P, /name, Name), person(P).
+              # P used before binding!
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - bind P first
+result(Name) :- person(P), :match_field(P, /name, Name).
+```
+
+---
+
+### 2.3 Field Selector Must Be Constant
+
+**Error Pattern:**
+```
+:match_field field selector must be a constant
+```
+
+**What Causes It:**
+- Using variable as field name
+- Field names must be atom constants
+
+**Reproducing Example:**
+```mangle
+# WRONG - Field is a variable
+result(Value) :- person(P), :match_field(P, Field, Value).
+```
+
+**How to Fix:**
+
+**Option 1:** Use constant field name
+```mangle
+# CORRECT - field name is constant
+result(Name) :- person(P), :match_field(P, /name, Name).
+```
+
+**Option 2:** Match multiple fields separately
+```mangle
+# CORRECT - check each field explicitly
+result(Name) :- person(P), :match_field(P, /name, Name).
+result(Age) :- person(P), :match_field(P, /age, Age).
+```
+
+---
+
+### 2.4 Struct Type Does Not Have Field
+
+**Error Pattern:**
+```
+:match_field struct type <type> does not have field <field>
+```
+
+**Exact Message:**
+```
+:match_field struct type Person does not have field /email
+```
+
+**What Causes It:**
+- Accessing non-existent field
+- Field not declared in struct type definition
+
+**Reproducing Example:**
+```mangle
+Decl person(P.Type<struct{name:string, age:int}>).
+
+# WRONG - email field doesn't exist
+result(Email) :- person(P), :match_field(P, /email, Email).
+```
+
+**How to Fix:**
+
+**Option 1:** Use correct field name
+```mangle
+# CORRECT - use declared fields
+result(Name, Age) :-
+    person(P),
+    :match_field(P, /name, Name),
+    :match_field(P, /age, Age).
+```
+
+**Option 2:** Add field to type declaration
+```mangle
+# CORRECT - extend struct definition
+Decl person(P.Type<struct{name:string, age:int, email:string}>).
+
+result(Email) :- person(P), :match_field(P, /email, Email).
+```
+
+---
+
+## 3. Atom vs String Type Errors
+
+### 3.1 Atom Where String Expected
+
+**Error Pattern:**
+```
+type mismatch: expected string, got atom
+```
+
+**What Causes It:**
+- Using `/atom` syntax where "string" is declared
+- Type declarations enforce atom vs string distinction
+
+**Reproducing Example:**
+```mangle
+Decl message(X.Type<string>).
+
+# WRONG - using atom where string expected
+message(/hello).
+```
+
+**How to Fix:**
+
+**Option 1:** Use string
+```mangle
+Decl message(X.Type<string>).
+
+# CORRECT - use string literal
+message("hello").
+```
+
+**Option 2:** Change declaration to name/atom
+```mangle
+# CORRECT - declare as name type
+Decl message(X.Type<name>).
+
+message(/hello).
+```
+
+---
+
+### 3.2 String Where Atom Expected
+
+**Error Pattern:**
+```
+type mismatch: expected atom/name, got string
+```
+
+**What Causes It:**
+- Using "string" where `/atom` is declared
+- Common for status/enum fields
+
+**Reproducing Example:**
+```mangle
+Decl status(X.Type<name>).
+
+# WRONG - using string where atom expected
+status("active").
+```
+
+**How to Fix:**
+
+**Option 1:** Use atom
+```mangle
+Decl status(X.Type<name>).
+
+# CORRECT - use atom syntax
+status(/active).
+```
+
+**Option 2:** Change declaration to string
+```mangle
+# CORRECT - declare as string
+Decl status(X.Type<string>).
+
+status("active").
+```
+
+---
+
+## 4. Numeric Type Errors
+
+### 4.1 Integer vs Float Mismatch
+
+**Error Pattern:**
+```
+type mismatch: expected int, got float
+type mismatch: expected float, got int
+```
+
+**What Causes It:**
+- Mangle distinguishes int and float types
+- Cannot mix in comparisons without conversion
+
+**Reproducing Example:**
+```mangle
+Decl score(X.Type<int>).
+
+# WRONG - 0.5 is float, but int expected
+score(0.5).
+
+# WRONG in comparison
+result(X) :- score(X), X > 0.5.
+              # X is int, 0.5 is float
+```
+
+**How to Fix:**
+
+**Option 1:** Match the declared type
+```mangle
+Decl score(X.Type<int>).
+
+# CORRECT - use integer
+score(50).
+
+result(X) :- score(X), X > 50.
+```
+
+**Option 2:** Use float type
+```mangle
+# CORRECT - declare as float
+Decl score(X.Type<float>).
+
+score(0.5).
+result(X) :- score(X), X > 0.5.
+```
+
+---
+
+### 4.2 Number Type (Generic)
+
+**Error Pattern:**
+```
+type mismatch: expected number
+```
+
+**What Causes It:**
+- Using non-numeric value where number expected
+- Arithmetic operations require numeric types
+
+**Reproducing Example:**
+```mangle
+# WRONG - can't add strings
+result(Y) :- X = "5", Y = fn:plus(X, 1).
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - use numeric value
+result(Y) :- X = 5, Y = fn:plus(X, 1).
+```
+
+---
+
+## 5. List Type Errors
+
+### 5.1 List Element Type Mismatch
+
+**Error Pattern:**
+```
+type mismatch: list elements must have uniform type
+```
+
+**What Causes It:**
+- List contains mixed types
+- All elements must be same type
+
+**Reproducing Example:**
+```mangle
+# WRONG - mixing ints and strings
+result([1, 2, "three", 4]).
+```
+
+**How to Fix:**
+
+**Option 1:** Use uniform type
+```mangle
+# CORRECT - all integers
+result([1, 2, 3, 4]).
+
+# CORRECT - all strings
+result(["one", "two", "three", "four"]).
+```
+
+**Option 2:** Convert to string
+```mangle
+# CORRECT - convert all to strings
+result(["1", "2", "three", "4"]).
+```
+
+---
+
+### 5.2 List vs Single Value
+
+**Error Pattern:**
+```
+type mismatch: expected list, got <type>
+type mismatch: expected <type>, got list
+```
+
+**What Causes It:**
+- Using single value where list expected or vice versa
+
+**Reproducing Example:**
+```mangle
+Decl items(X.Type<list<int>>).
+
+# WRONG - single int where list expected
+items(42).
+```
+
+**How to Fix:**
+```mangle
+Decl items(X.Type<list<int>>).
+
+# CORRECT - wrap in list
+items([42]).
+
+# CORRECT - multiple items
+items([1, 2, 3]).
+```
+
+---
+
+## 6. Declaration Type Errors
+
+### 6.1 Decl Requires Atom With Variables
+
+**Error Pattern:**
+```
+Decl requires an atom with variables got <term>
+```
+
+**What Causes It:**
+- Declaration uses constants instead of variables
+- Decl must use variable names
+
+**Reproducing Example:**
+```mangle
+# WRONG - using constants
+Decl parent("alice", "bob").
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - use variables
+Decl parent(X.Type<string>, Y.Type<string>).
+```
+
+---
+
+### 6.2 Expected Bounds vs Got Bounds
+
+**Error Pattern:**
+```
+in decl <pred>: expected <N> bounds, got <M>: <bounds>
+```
+
+**What Causes It:**
+- Number of type bounds doesn't match arity
+- Each argument needs a type bound
+
+**Reproducing Example:**
+```mangle
+# WRONG - 3 args but only 2 type bounds
+Decl parent(X.Type<string>, Y.Type<string>, Z).
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - type bound for each argument
+Decl parent(X.Type<string>, Y.Type<string>, Z.Type<int>).
+```
+
+---
+
+### 6.3 Bound Must Be Parseable as Predicate Name
+
+**Error Pattern:**
+```
+in decl <pred>: the bound for argument <N> must be parseable as predicate name: <bound>
+```
+
+**What Causes It:**
+- Invalid type syntax in bound
+- Type bounds must be valid type expressions
+
+**Reproducing Example:**
+```mangle
+# WRONG - invalid type syntax
+Decl parent(X.Type<invalid-type>).
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - valid type syntax
+Decl parent(X.Type<string>).
+Decl score(X.Type<int>).
+Decl data(X.Type<struct{field:string}>).
+```
+
+---
+
+## 7. Common Type Issues in codeNERD
+
+### 7.1 Confidence Scores (Float vs Int)
+
+**Common Mistake:**
+```mangle
+# WRONG - confidence is usually 0.0-1.0, not 0-100
+Decl hypothesis_confidence(H.Type<name>, C.Type<int>).
+hypothesis_confidence(/h1, 80).
+```
+
+**Fix:**
+```mangle
+# CORRECT - use float for 0.0-1.0 range
+Decl hypothesis_confidence(H.Type<name>, C.Type<float>).
+hypothesis_confidence(/h1, 0.8).
+```
+
+**Note:** codeNERD's engine.go converts floats to ints (0.0-1.0 → 0-100) for comparison compatibility.
+
+---
+
+### 7.2 File Paths (String vs Atom)
+
+**Common Mistake:**
+```mangle
+# WRONG - file paths should be strings, not atoms
+Decl file_content(Path.Type<name>, Content.Type<string>).
+file_content(/path/to/file, "content").
+```
+
+**Fix:**
+```mangle
+# CORRECT - paths are strings
+Decl file_content(Path.Type<string>, Content.Type<string>).
+file_content("c:/path/to/file.go", "content").
+```
+
+---
+
+### 7.3 Status/Category (Atom vs String)
+
+**Common Mistake:**
+```mangle
+# WRONG - status values should be atoms, not strings
+Decl task_status(ID.Type<name>, Status.Type<string>).
+task_status(/task1, "pending").
+```
+
+**Fix:**
+```mangle
+# CORRECT - status/category are atoms
+Decl task_status(ID.Type<name>, Status.Type<name>).
+task_status(/task1, /pending).
+```
+
+**Rule of thumb:**
+- **Atoms (`/name`):** IDs, enums, statuses, categories, boolean-like values
+- **Strings (`"text"`):** Free-form text, file paths, descriptions, error messages
+
+---
+
+## 8. Type Inference Conflicts
+
+### 8.1 Variable Cannot Have Both Types
+
+**Error Pattern:**
+```
+variable <Var> cannot have both <type1> and <type2>
+```
+
+**What Causes It:**
+- Variable used in multiple predicates with incompatible type requirements
+- Type system detects contradiction
+
+**Reproducing Example:**
+```mangle
+Decl name_string(X.Type<string>).
+Decl age_int(X.Type<int>).
+
+# WRONG - X can't be both types
+result(X) :- name_string(X), age_int(X).
+```
+
+**How to Fix:**
+```mangle
+# CORRECT - use different variables
+result(Name, Age) :- name_string(Name), age_int(Age).
+```
+
+---
+
+### 8.2 Variable Bounded Cannot Be Refined with Negative
+
+**Error Pattern:**
+```
+variable <Var> bounded by <type1> cannot be refined with negative <type2>
+```
+
+**What Causes It:**
+- Type refinement conflict in negative contexts
+- Type inference failed
+
+**How to Fix:**
+- Review predicate declarations
+- Ensure consistent type usage across rules
+- Consider splitting into multiple predicates
+
+---
+
+## Type System Quick Reference
+
+### Built-in Types
+
+| Type | Example | Usage |
+|------|---------|-------|
+| `int` | `42`, `-10` | Integers, counts, IDs |
+| `float` | `0.5`, `3.14` | Decimals, ratios, scores |
+| `string` | `"hello"` | Free text, paths, messages |
+| `name` | `/active`, `/pending` | Atoms, enums, IDs |
+| `bytes` | Binary data | Binary content |
+| `list<T>` | `[1, 2, 3]` | Collections |
+| `struct{...}` | `{/name: "alice"}` | Structured data |
+
+### Type Compatibility Rules
+
+1. **No implicit conversion:** `int` ≠ `float`, must match exactly
+2. **String ≠ Atom:** `"active"` ≠ `/active`
+3. **Lists are homogeneous:** All elements must be same type
+4. **Structs are nominal:** Fields must match declaration exactly
+5. **Variables flow type:** Type inferred from first binding predicate
+
+### Common Type Patterns
+
+```mangle
+# IDs and keys - use atoms
+Decl user_id(ID.Type<name>).
+user_id(/user123).
+
+# Text content - use strings
+Decl file_content(Path.Type<string>, Content.Type<string>).
+file_content("main.go", "package main...").
+
+# Enums and statuses - use atoms
+Decl status(Entity.Type<name>, Status.Type<name>).
+status(/task1, /pending).
+
+# Numeric scores - use float for ratios, int for counts
+Decl confidence(H.Type<name>, C.Type<float>).
+confidence(/hypothesis, 0.85).
+
+# Collections - use list<T>
+Decl tags(File.Type<string>, Tags.Type<list<string>>).
+tags("main.go", ["core", "entry"]).
+```
+
+---
+
+## Debugging Type Errors
+
+### Step 1: Check Declarations
+- Look at `Decl` statements for all predicates in the error
+- Note the declared types for each argument position
+
+### Step 2: Trace Variable Bindings
+- Find where each variable is first bound
+- Check if bound from predicate with matching type
+
+### Step 3: Check Type Flow
+- Variables "carry" type from first binding
+- Subsequent uses must match that type
+
+### Step 4: Verify Constants
+- Check if using `/atom` vs `"string"` correctly
+- Check if using `int` vs `float` correctly
+
+### Example Diagnosis:
+```mangle
+Decl name(X.Type<string>).
+Decl status(X.Type<name>).
+
+result(X) :- name(X), status(X).
+# ERROR: type mismatch
+
+# Diagnosis:
+# 1. name(X) binds X to Type<string>
+# 2. status(X) expects Type<name>
+# 3. string ≠ name, incompatible!
+
+# Fix: use different variables
+result(Name, Status) :- name(Name), status(Status).
+```
+
+---
+
+## Related Documentation
+
+- [parse_errors.md](./parse_errors.md) - Syntax errors
+- [analysis_errors.md](./analysis_errors.md) - Safety and stratification
+- [type_system.md](../type_system.md) - Complete type system reference

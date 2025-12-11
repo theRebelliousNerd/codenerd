@@ -1,0 +1,625 @@
+# Anti-Pattern: Object-Oriented Programming (OOP) Thinking
+
+## Category
+Paradigm Mismatch (Relational/Logic vs Object-Oriented)
+
+## Description
+Trying to use classes, objects, methods, inheritance, and encapsulation when Mangle uses predicates, facts, and relations.
+
+---
+
+## Anti-Pattern 1: Dot Notation for Property Access
+
+### Wrong Approach
+```javascript
+// OOP:
+user.name
+user.age
+person.address.city
+```
+
+Attempting:
+```mangle
+# WRONG - no dot notation
+get_name(Name) :- user.name = Name.
+get_city(City) :- person.address.city = City.
+```
+
+### Why It Fails
+Mangle has no object property access syntax.
+
+### Correct Mangle Way
+```mangle
+# Use :match_field for structs:
+get_name(Name) :-
+    user(U),
+    :match_field(U, /name, Name).
+
+# Or flatten the structure:
+Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
+
+get_name(Id, Name) :- user(Id, Name, _).
+
+# For nested structures, use separate predicates:
+Decl person(Id.Type</atom>, Name.Type<string>).
+Decl address(PersonId.Type</atom>, Street.Type<string>, City.Type<string>).
+
+get_city(PersonId, City) :-
+    person(PersonId, _),
+    address(PersonId, _, City).
+```
+
+---
+
+## Anti-Pattern 2: Methods / Member Functions
+
+### Wrong Approach
+```python
+class User:
+    def get_full_name(self):
+        return f"{self.first} {self.last}"
+
+    def is_adult(self):
+        return self.age >= 18
+
+user = User()
+name = user.get_full_name()
+```
+
+Attempting:
+```mangle
+# WRONG - no methods
+get_full_name(User, Name) :- User.get_full_name() = Name.
+```
+
+### Why It Fails
+No methods. Use predicates that take the "object" as an argument.
+
+### Correct Mangle Way
+```mangle
+Decl user(Id.Type</atom>, First.Type<string>, Last.Type<string>, Age.Type<int>).
+
+# "Method" as predicate:
+full_name(UserId, FullName) :-
+    user(UserId, First, Last, _),
+    fn:string_concat([First, " ", Last], FullName).
+
+is_adult(UserId) :-
+    user(UserId, _, _, Age),
+    Age >= 18.
+
+# Usage:
+# Query: full_name(/user123, Name)?
+# Query: is_adult(/user123)?
+```
+
+**Key Insight:** The first argument is the "this/self" object. Predicates are like static methods.
+
+---
+
+## Anti-Pattern 3: Constructors / Object Creation
+
+### Wrong Approach
+```java
+User user = new User("Alice", 25);
+user.setStatus("active");
+```
+
+Attempting:
+```mangle
+# WRONG - no constructors
+create_user(Id, Name, Age) :-
+    User = new User(Name, Age),
+    User.id = Id.
+```
+
+### Why It Fails
+No `new` keyword or constructors. Facts are "created" by asserting them.
+
+### Correct Mangle Way
+```mangle
+# In Go, add facts directly:
+// store.Add(engine.NewAtom("user",
+//     engine.Atom("user123"),
+//     engine.String("Alice"),
+//     engine.Number(25),
+//     engine.Atom("active")))
+
+# Or derive them from other facts:
+Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+
+new_user(Id, Name, Age) :-
+    pending_user(Id, Name, Age),
+    Status = /active,
+    user(Id, Name, Age, Status).  # This doesn't "create" - it derives!
+```
+
+**Important:** Mangle doesn't "create objects" - it derives facts from existing facts. Mutation happens in Go.
+
+---
+
+## Anti-Pattern 4: Inheritance / Subclasses
+
+### Wrong Approach
+```python
+class Animal:
+    def speak(self):
+        pass
+
+class Dog(Animal):
+    def speak(self):
+        return "Woof"
+
+class Cat(Animal):
+    def speak(self):
+        return "Meow"
+```
+
+Attempting:
+```mangle
+# WRONG - no inheritance
+Dog extends Animal.
+```
+
+### Why It Fails
+No class hierarchy. Use predicates with type tags or separate predicates.
+
+### Correct Mangle Way
+```mangle
+# Option 1: Type tags
+Decl animal(Id.Type</atom>, Type.Type</atom>, Name.Type<string>).
+
+animal(/dog1, /dog, "Buddy").
+animal(/cat1, /cat, "Whiskers").
+
+speaks(Id, "Woof") :-
+    animal(Id, /dog, _).
+
+speaks(Id, "Meow") :-
+    animal(Id, /cat, _).
+
+# Option 2: Separate predicates (more common)
+Decl dog(Id.Type</atom>, Name.Type<string>).
+Decl cat(Id.Type</atom>, Name.Type<string>).
+
+dog(/dog1, "Buddy").
+cat(/cat1, "Whiskers").
+
+# "Polymorphism" via union:
+animal(Id) :- dog(Id, _).
+animal(Id) :- cat(Id, _).
+
+speaks(Id, "Woof") :- dog(Id, _).
+speaks(Id, "Meow") :- cat(Id, _).
+```
+
+---
+
+## Anti-Pattern 5: Method Chaining / Fluent Interface
+
+### Wrong Approach
+```javascript
+user
+    .setName("Alice")
+    .setAge(25)
+    .setStatus("active")
+    .save();
+```
+
+Attempting:
+```mangle
+# WRONG - no method chaining
+update_user(User) :-
+    User.setName("Alice").setAge(25).setStatus(/active).save().
+```
+
+### Why It Fails
+No method chaining. Use sequential derivations or aggregation.
+
+### Correct Mangle Way
+```mangle
+# Option 1: Derive final state directly
+Decl final_user(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+
+final_user(/user1, "Alice", 25, /active) :-
+    base_user(/user1).
+
+# Option 2: Sequential derivations
+Decl user_step1(Id.Type</atom>, Name.Type<string>).
+Decl user_step2(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
+Decl user_final(Id.Type</atom>, Name.Type<string>, Age.Type<int>, Status.Type</atom>).
+
+user_step1(Id, "Alice") :- base_user(Id).
+user_step2(Id, Name, 25) :- user_step1(Id, Name).
+user_final(Id, Name, Age, /active) :- user_step2(Id, Name, Age).
+```
+
+**Note:** This is usually over-engineered. Just derive the final state directly.
+
+---
+
+## Anti-Pattern 6: Encapsulation / Private Fields
+
+### Wrong Approach
+```java
+class User {
+    private String password;
+
+    public boolean checkPassword(String input) {
+        return password.equals(input);
+    }
+}
+```
+
+Attempting:
+```mangle
+# WRONG - no private/public
+Decl private password(User.Type</atom>, Pass.Type<string>).
+```
+
+### Why It Fails
+No access modifiers. All predicates are "public" to queries.
+
+### Correct Mangle Way
+```mangle
+# Convention: prefix with underscore for "internal" predicates
+Decl _password_hash(UserId.Type</atom>, Hash.Type<string>).
+
+# Public predicate for checking:
+password_valid(UserId, Input) :-
+    _password_hash(UserId, Hash),
+    fn:hash(Input, Hash).  # Assuming hash function exists
+
+# In Go, only expose specific queries:
+// Public API: store.Query("password_valid", userId, input)
+// Don't expose: store.Query("_password_hash", ...)
+```
+
+**Design:** Encapsulation happens at the Go API level, not in Mangle.
+
+---
+
+## Anti-Pattern 7: Static Methods / Class Methods
+
+### Wrong Approach
+```python
+class Math:
+    @staticmethod
+    def add(a, b):
+        return a + b
+
+result = Math.add(5, 3)
+```
+
+Attempting:
+```mangle
+# WRONG - no static methods
+result(R) :- R = Math.add(5, 3).
+```
+
+### Why It Fails
+All predicates are already "static" in the sense that they're not bound to instances.
+
+### Correct Mangle Way
+```mangle
+# Just use predicates:
+add(A, B, Result) :-
+    Result = fn:plus(A, B).
+
+# Or use built-in functions directly:
+result(R) :- R = fn:plus(5, 3).
+```
+
+---
+
+## Anti-Pattern 8: Interfaces / Protocols
+
+### Wrong Approach
+```go
+type Speaker interface {
+    Speak() string
+}
+
+type Dog struct{}
+func (d Dog) Speak() string { return "Woof" }
+
+type Cat struct{}
+func (c Cat) Speak() string { return "Meow" }
+```
+
+Attempting:
+```mangle
+# WRONG - no interfaces
+Dog implements Speaker.
+Cat implements Speaker.
+```
+
+### Why It Fails
+No interface system. Use predicates with pattern matching.
+
+### Correct Mangle Way
+```mangle
+# Define the "interface" as a predicate:
+Decl can_speak(Entity.Type</atom>).
+
+# "Implement" by deriving facts:
+can_speak(Id) :- dog(Id, _).
+can_speak(Id) :- cat(Id, _).
+
+# Define behavior:
+speak(Id, "Woof") :- dog(Id, _).
+speak(Id, "Meow") :- cat(Id, _).
+
+# "Polymorphic" query:
+all_speakers(Id) :- can_speak(Id).
+```
+
+---
+
+## Anti-Pattern 9: Getters and Setters
+
+### Wrong Approach
+```java
+class User {
+    private String name;
+
+    public String getName() { return name; }
+    public void setName(String n) { name = n; }
+}
+```
+
+Attempting:
+```mangle
+# WRONG - no getters/setters
+get_name(User, Name) :- Name = User.getName().
+set_name(User, Name) :- User.setName(Name).
+```
+
+### Why It Fails
+No mutation. Just query or derive facts.
+
+### Correct Mangle Way
+```mangle
+# "Getter" - just a query:
+Decl user(Id.Type</atom>, Name.Type<string>).
+
+name(UserId, Name) :- user(UserId, Name).
+
+# "Setter" - derive new fact (in Go):
+// old := store.Query("user", userId, _)
+// store.Retract(old)
+// store.Add(engine.NewAtom("user", userId, newName))
+
+# Or derive updated state:
+updated_user(UserId, NewName) :-
+    user(UserId, _),
+    change_request(UserId, NewName).
+```
+
+---
+
+## Anti-Pattern 10: Null Object Pattern
+
+### Wrong Approach
+```java
+class NullUser extends User {
+    public String getName() { return "Guest"; }
+    public boolean isNull() { return true; }
+}
+
+User user = users.get(id) ?? new NullUser();
+```
+
+Attempting:
+```mangle
+# WRONG - no null objects
+null_user(/null, "Guest").
+```
+
+### Why It Fails
+No null. Use optional patterns or default derivations.
+
+### Correct Mangle Way
+```mangle
+# Option 1: Explicit /none variant
+Decl user(Id.Type</atom>, Name.Type<string>).
+Decl no_user(Id.Type</atom>).
+
+user(/user1, "Alice").
+no_user(/user2).
+
+display_name(Id, Name) :- user(Id, Name).
+display_name(Id, "Guest") :- no_user(Id).
+
+# Option 2: Always derive a value
+user_or_guest(Id, Name) :- user(Id, Name).
+user_or_guest(Id, "Guest") :-
+    requested_id(Id),
+    not user(Id, _).
+```
+
+---
+
+## Anti-Pattern 11: Factory Pattern
+
+### Wrong Approach
+```python
+class UserFactory:
+    def create(self, type):
+        if type == "admin":
+            return AdminUser()
+        elif type == "guest":
+            return GuestUser()
+```
+
+Attempting:
+```mangle
+# WRONG - no factory pattern
+create_user(Type, User) :- User = UserFactory.create(Type).
+```
+
+### Why It Fails
+No factory methods. Use conditional derivation.
+
+### Correct Mangle Way
+```mangle
+# Derive user based on type:
+Decl user_request(Id.Type</atom>, Type.Type</atom>).
+Decl admin_user(Id.Type</atom>, Permissions.Type<string>).
+Decl guest_user(Id.Type</atom>).
+
+# "Factory" as derivation rules:
+admin_user(Id, "full") :-
+    user_request(Id, /admin).
+
+guest_user(Id) :-
+    user_request(Id, /guest).
+
+# Load requests in Go, query results
+```
+
+---
+
+## Anti-Pattern 12: Singleton Pattern
+
+### Wrong Approach
+```java
+class Config {
+    private static Config instance;
+
+    public static Config getInstance() {
+        if (instance == null) {
+            instance = new Config();
+        }
+        return instance;
+    }
+}
+```
+
+Attempting:
+```mangle
+# WRONG - no singleton pattern
+get_config(C) :- C = Config.getInstance().
+```
+
+### Why It Fails
+No object lifecycle management. Just load one fact.
+
+### Correct Mangle Way
+```mangle
+# Just assert a single fact in Go:
+Decl config(Key.Type<string>, Value.Type<string>).
+
+# In Go: load exactly one set of config facts
+// store.Add(engine.NewAtom("config", engine.String("max_users"), engine.String("100")))
+
+# Query anywhere:
+max_users(N) :- config("max_users", N).
+```
+
+**Note:** "Singleton" is implicit - just don't load duplicate facts.
+
+---
+
+## Key Differences: OOP vs Logic Programming
+
+| OOP | Mangle |
+|-----|--------|
+| `object.property` | `:match_field(Object, /key, Value)` |
+| `object.method()` | `predicate(ObjectId, ...)` |
+| `new Object()` | `store.Add(fact)` in Go |
+| Inheritance | Type tags or separate predicates |
+| Method chaining | Sequential derivations |
+| Private fields | Naming conventions + Go API control |
+| Static methods | All predicates are "static" |
+| Interfaces | Predicates with pattern matching |
+| Getters/Setters | Query / derive new facts |
+| Null objects | Optional patterns |
+| Factory pattern | Conditional derivation |
+| Singleton | Load one fact |
+
+---
+
+## Mental Model Shift
+
+**OOP:** "Objects with behaviors and state that can be mutated."
+
+**Logic Programming:** "Immutable facts related by predicates. Derive new facts from existing ones."
+
+### Example: User System
+
+**OOP:**
+```python
+class User:
+    def __init__(self, name, age):
+        self.name = name
+        self.age = age
+
+    def is_adult(self):
+        return self.age >= 18
+
+user = User("Alice", 25)
+if user.is_adult():
+    print(f"{user.name} is an adult")
+```
+
+**Mangle:**
+```mangle
+Decl user(Id.Type</atom>, Name.Type<string>, Age.Type<int>).
+
+# Facts:
+user(/alice, "Alice", 25).
+
+# Derivation:
+adult(Id, Name) :-
+    user(Id, Name, Age),
+    Age >= 18.
+
+# Query: adult(/alice, Name)?
+# Result: Name = "Alice"
+```
+
+---
+
+## Migration Checklist
+
+When translating OOP to Mangle:
+
+- [ ] Replace `object.property` with predicates or `:match_field`
+- [ ] Replace methods with predicates (first arg = "this")
+- [ ] Replace constructors with `store.Add()` in Go
+- [ ] Replace inheritance with type tags or separate predicates
+- [ ] Replace method chaining with direct derivation
+- [ ] Replace private fields with naming conventions
+- [ ] All predicates are "static" - no instance methods
+- [ ] Replace interfaces with pattern matching predicates
+- [ ] Replace getters/setters with queries/derivations
+- [ ] Replace null objects with optional patterns
+- [ ] Replace factories with conditional derivation
+- [ ] Replace singletons with single facts
+- [ ] Think relations, not objects
+
+---
+
+## Pro Tip: Normalize Your Data
+
+OOP tends toward deep object graphs:
+```
+User -> Profile -> Address -> City
+```
+
+Mangle works best with normalized relations:
+```mangle
+Decl user(UserId.Type</atom>, Name.Type<string>).
+Decl profile(UserId.Type</atom>, Bio.Type<string>).
+Decl address(UserId.Type</atom>, Street.Type<string>, CityId.Type</atom>).
+Decl city(CityId.Type</atom>, Name.Type<string>).
+
+# Join through queries:
+user_city(UserId, CityName) :-
+    user(UserId, _),
+    address(UserId, _, CityId),
+    city(CityId, CityName).
+```
+
+Think relational database normalization, not object composition.

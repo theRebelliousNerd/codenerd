@@ -1,0 +1,379 @@
+# Failure Mode 10: Closed World Assumption Errors
+
+## Category
+Semantic Safety & Logic (World Model Mismatch)
+
+## Severity
+MEDIUM - Logic errors, incorrect results
+
+## Error Pattern
+Treating Mangle as "open world" (unknown ≠ false) when it uses "closed world" semantics (unknown = false). AI models often try to handle NULL, UNKNOWN, or UNDEFINED states that don't exist in Mangle.
+
+## Wrong Code
+```mangle
+# WRONG - Attempting to handle "unknown" status
+handle(X, Status) :-
+    item(X),
+    Status = case
+        when known_status(X, S) then S
+        else /unknown.  # WRONG - no case/else in Mangle!
+
+# WRONG - Checking for NULL
+valid(X) :- data(X, Val), Val != null.  # null doesn't exist!
+
+# WRONG - Three-valued logic (true/false/unknown)
+maybe_active(X) :-
+    entity(X),
+    status(X, S),
+    S = /active or S = /unknown.  # Trying to represent uncertainty
+
+# WRONG - Explicit "undefined" handling
+defined(X, Val) :- mapping(X, Val), Val != /undefined.
+
+# WRONG - Default value with coalesce pattern
+value_or_default(X, Val) :-
+    (data(X, V), Val = V) ; Val = /default.  # Wrong syntax
+
+# WRONG - Optional relationship
+has_manager(Employee, Manager) :-
+    reports_to(Employee, Manager).
+has_manager(Employee, /none) :-
+    employee(Employee),
+    not reports_to(Employee, _).  # Don't use /none for "no manager"
+```
+
+## Correct Code
+```mangle
+# CORRECT - Use closed world directly
+known(X) :- known_status(X, _).
+unknown(X) :- item(X), not known(X).
+# If known_status(X, S) doesn't exist, X is unknown by CWA
+
+# CORRECT - No NULL checks needed
+valid(X) :- data(X, _).
+# If data(X, Val) exists, Val is valid (not null)
+
+# CORRECT - Binary classification
+active(X) :- status(X, /active).
+inactive(X) :- status(X, /inactive).
+unknown_status(X) :- entity(X), not status(X, _).
+# Explicitly derive "unknown status" from absence
+
+# CORRECT - Derive "missing" from closed world
+has_value(X) :- mapping(X, _).
+missing_value(X) :- expected(X), not has_value(X).
+
+# CORRECT - Default values using separate rule
+actual_value(X, Val) :- data(X, Val).
+effective_value(X, Val) :- actual_value(X, Val).
+effective_value(X, /default_val) :-
+    expected(X),
+    not actual_value(X, _).
+
+# CORRECT - Employees without managers
+has_manager(Emp, Mgr) :- reports_to(Emp, Mgr).
+no_manager(Emp) :-
+    employee(Emp),
+    not has_manager(Emp, _).
+```
+
+## Detection
+- **Symptom**: Trying to check for `null`, `undefined`, `none`
+- **Symptom**: Using `case` statements or conditional expressions
+- **Symptom**: Three-valued logic (true/false/unknown)
+- **Pattern**: Explicit handling of "missing data" with special values
+- **Pattern**: Coalesce or default value patterns from SQL
+- **Test**: Search for `null`, `undefined`, `case`, `else` keywords
+
+## Prevention
+
+### Closed World Assumption (CWA) Principles
+
+**Core Rule**: If a fact cannot be derived, it is FALSE (not unknown).
+
+```mangle
+# These are equivalent under CWA:
+# 1. Fact doesn't exist
+# 2. Fact is false
+# 3. Fact is unknown
+
+# If parent(/alice, /bob) is not in the database,
+# then parent(/alice, /bob) is FALSE.
+```
+
+### Mental Model: Existence = Truth
+
+| Statement | Mangle Semantics | Open World (SQL) |
+|-----------|------------------|------------------|
+| Fact exists | TRUE | TRUE |
+| Fact missing | FALSE | UNKNOWN or NULL |
+| Negation | Not derivable | Could be unknown |
+
+### Handling "Missing" Data Correctly
+
+**Don't**: Use special sentinel values (`/none`, `/null`, `/undefined`)
+**Do**: Derive "missing" predicates from absence
+
+```mangle
+# DON'T use sentinel values
+# status(X, /unknown).  # Bad pattern
+
+# DO derive missing status
+has_status(X) :- status(X, _).
+missing_status(X) :- entity(X), not has_status(X).
+```
+
+## Correct Patterns Reference
+
+### Pattern 1: Optional Relationships
+```mangle
+# Schema
+Decl employee(ID.Type<n>).
+Decl reports_to(Employee.Type<n>, Manager.Type<n>).
+
+# Derive who has managers
+has_manager(Emp) :- reports_to(Emp, _).
+
+# Derive who doesn't (by absence)
+no_manager(Emp) :-
+    employee(Emp),
+    not has_manager(Emp).
+
+# Query direct manager
+manager_of(Emp, Mgr) :- reports_to(Emp, Mgr).
+
+# Don't use sentinel: reports_to(Emp, /none)  # WRONG
+```
+
+### Pattern 2: Default Values
+```mangle
+# Base data (sparse - not all items have values)
+Decl item(ID.Type<n>).
+Decl config(ID.Type<n>, Val.Type<int>).
+
+# Explicit values
+explicit_config(ID, Val) :- config(ID, Val).
+
+# Effective values (with defaults)
+effective_config(ID, Val) :-
+    explicit_config(ID, Val).  # Use explicit if exists
+
+effective_config(ID, 100) :-
+    item(ID),
+    not explicit_config(ID, _).  # Default 100 if missing
+```
+
+### Pattern 3: Three-State Logic
+```mangle
+# Don't use /unknown as a value
+# DO use three separate predicates
+
+confirmed(X) :- status(X, /confirmed).
+rejected(X) :- status(X, /rejected).
+pending(X) :-
+    entity(X),
+    not confirmed(X),
+    not rejected(X).
+# Pending = neither confirmed nor rejected (by CWA)
+```
+
+### Pattern 4: Nullable Fields
+```mangle
+# In SQL: SELECT * FROM users WHERE email IS NOT NULL
+# In Mangle: Derive "has email" from presence
+
+Decl user(ID.Type<n>).
+Decl user_email(ID.Type<n>, Email.Type<string>).
+
+# Users with email
+has_email(ID) :- user_email(ID, _).
+
+# Users without email (by absence)
+no_email(ID) :-
+    user(ID),
+    not has_email(ID).
+
+# Don't store: user_email(ID, /null)  # WRONG
+```
+
+### Pattern 5: Conditional Logic Without Case
+```mangle
+# Don't try to use case/when/else
+# DO use multiple rules
+
+# WRONG
+# priority(Task, P) :-
+#     P = case
+#         when critical(Task) then /high
+#         when urgent(Task) then /medium
+#         else /low.
+
+# CORRECT - Multiple rules
+priority(Task, /high) :- critical(Task).
+priority(Task, /medium) :- urgent(Task), not critical(Task).
+priority(Task, /low) :-
+    task(Task),
+    not critical(Task),
+    not urgent(Task).
+```
+
+## Complex Example: User Status Management
+
+```mangle
+# Schema
+Decl user(ID.Type<n>).
+Decl active_until(ID.Type<n>, Date.Type<int>).
+Decl banned(ID.Type<n>).
+Decl current_date(Date.Type<int>).
+
+# Base facts
+user(/alice).
+user(/bob).
+user(/charlie).
+active_until(/alice, 20250101).
+banned(/bob).
+current_date(20241215).
+
+# WRONG - Using sentinel values
+# status(/alice, /active).
+# status(/bob, /banned).
+# status(/charlie, /unknown).  # DON'T DO THIS
+
+# CORRECT - Derive status from conditions
+is_banned(ID) :- banned(ID).
+
+is_active(ID) :-
+    user(ID),
+    active_until(ID, Until),
+    current_date(Now),
+    Now < Until,
+    not is_banned(ID).
+
+is_expired(ID) :-
+    user(ID),
+    active_until(ID, Until),
+    current_date(Now),
+    Now >= Until.
+
+is_never_activated(ID) :-
+    user(ID),
+    not active_until(ID, _),
+    not is_banned(ID).
+
+# Query: What's charlie's status?
+# ?is_banned(/charlie)         → false (no banned fact)
+# ?is_active(/charlie)         → false (no active_until fact)
+# ?is_never_activated(/charlie) → TRUE (by CWA)
+```
+
+## Why CWA Matters
+
+### Database Semantics
+Mangle follows **database semantics** (like Datalog, Prolog):
+- Facts represent complete knowledge
+- Absence = falsity
+- Queries return definite answers (not "maybe")
+
+### Contrast with Open World (OWL/RDF)
+| Aspect | Closed World (Mangle) | Open World (OWL) |
+|--------|----------------------|------------------|
+| Missing fact | FALSE | UNKNOWN |
+| Negation | Safe (if variables bound) | Complicated |
+| Query result | Definite (yes/no) | Maybe (yes/no/unknown) |
+| Use case | Databases, logic programs | Knowledge graphs, reasoning |
+
+### Performance Benefits
+CWA enables efficient evaluation:
+- No need to track "unknown" state
+- Negation is simple complement
+- Fixpoint computation terminates
+
+## Training Bias Origins
+| Language | Pattern | Leads to Wrong Mangle |
+|----------|---------|----------------------|
+| SQL | `IS NULL`, `COALESCE` | Checking for null |
+| JavaScript | `value ?? default` | Nullish coalescing |
+| Python | `value or default` | Default value patterns |
+| OWL/RDF | Open world reasoning | Three-valued logic |
+
+## Quick Check
+Before writing Mangle code:
+1. Do you check for `null`, `undefined`, `none`? → Remove these
+2. Are you using sentinel values for "missing"? → Derive from absence
+3. Do you need "unknown" state? → Create explicit predicate from negation
+4. Are you using `case`/`else`? → Use multiple rules instead
+5. Is there a "default value" pattern? → Separate rules for explicit + derived
+
+## Debugging Aid
+```mangle
+# To understand what's missing vs present:
+
+# Pattern: Create "census" predicates
+all_expected_values(ID) :- entity(ID).
+has_value(ID) :- actual_data(ID, _).
+missing_value(ID) :- all_expected_values(ID), not has_value(ID).
+
+# Query all three:
+# ?all_expected_values(X)  → Shows universe
+# ?has_value(X)            → Shows what exists
+# ?missing_value(X)        → Shows what's absent (by CWA)
+
+# This makes CWA behavior explicit
+```
+
+## Common Misconceptions
+
+### Misconception 1: "I need to store missing data"
+```mangle
+# WRONG
+data(X, /null).  # Don't store absence!
+
+# CORRECT
+# Just don't store anything - absence is implicit
+```
+
+### Misconception 2: "I need three-valued logic"
+```mangle
+# WRONG
+status(X, /unknown).  # Don't use unknown value
+
+# CORRECT
+has_known_status(X) :- status(X, _).
+unknown_status(X) :- entity(X), not has_known_status(X).
+```
+
+### Misconception 3: "I need to check if a fact exists"
+```mangle
+# WRONG (and doesn't work)
+if exists(data(X, _)) then ...
+
+# CORRECT
+has_data(X) :- data(X, _).
+# Then use has_data(X) in other rules
+```
+
+### Misconception 4: "NULL propagation is needed"
+```mangle
+# In SQL: If input is NULL, output is NULL
+# In Mangle: If input fact doesn't exist, rule doesn't fire
+
+# Example: Computing sum
+# SQL: SUM(NULL) = NULL
+# Mangle: If no facts exist, sum predicate is not derived (FALSE by CWA)
+
+total(Sum) :-
+    value(X) |>
+    let Sum = fn:Sum(X).
+# If no value(X) facts exist, total(Sum) is not derived
+```
+
+## Comparison Table: SQL vs Mangle
+
+| SQL Pattern | Mangle Equivalent |
+|-------------|-------------------|
+| `WHERE col IS NOT NULL` | `predicate(X, _)` (fact exists) |
+| `WHERE col IS NULL` | `entity(X), not predicate(X, _)` (fact absent) |
+| `COALESCE(col, default)` | Two rules: explicit + default |
+| `CASE WHEN ... ELSE` | Multiple rules with different conditions |
+| `LEFT JOIN` (nullable) | Optional relationship via negation |
+| `COUNT(*) = 0` | `not exists_pred(...)` |

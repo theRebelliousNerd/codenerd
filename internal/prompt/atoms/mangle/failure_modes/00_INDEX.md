@@ -1,0 +1,291 @@
+# Mangle Failure Modes - Complete Index
+
+**Purpose**: Comprehensive catalog of common AI coding agent mistakes when generating Mangle code. Each atom is self-contained and JIT-injectable for repair shards.
+
+## Critical Understanding
+
+Mangle operates on fundamentally different principles than languages AI models are trained on:
+
+| Paradigm | LLM Training Bias | Mangle Reality |
+|----------|-------------------|----------------|
+| **Evaluation** | Procedural/lazy | Bottom-up fixpoint (all facts computed) |
+| **World Assumption** | Open (unknown ≠ false) | Closed (unknown = false) |
+| **Negation** | Boolean NOT | Stratified, requires variable binding |
+| **Aggregation** | Implicit GROUP BY | Explicit `\|>` transform pipeline |
+| **Constants** | Strings everywhere | Atoms (`/name`) are distinct type |
+
+---
+
+## Failure Mode Catalog
+
+### Category 1: Syntactic Hallucinations (Souffle/SQL Bias)
+
+#### 01. Atom vs String Confusion ⚠️ CRITICAL
+**File**: `01_atom_vs_string_confusion.md`
+**Severity**: CRITICAL - Silent failure with empty results
+**Pattern**: Using `"string"` when Mangle requires `/atom`
+**Detection**: Query returns empty despite facts existing
+**Key Rule**: Use `/atom` for identifiers/enums/flags, `"string"` for prose/data
+
+#### 02. Aggregation Syntax Errors
+**File**: `02_aggregation_syntax_errors.md`
+**Severity**: HIGH - Parse errors or incorrect results
+**Pattern**: Missing `|>`, `do`, `let` keywords; SQL-style implicit grouping
+**Detection**: Parse error near aggregation; wrong function casing
+**Key Rule**: Always use `|> do fn:group_by(), let Sum = fn:Sum(X)` pipeline
+
+#### 03. Type Declaration Syntax
+**File**: `03_type_declaration_syntax.md`
+**Severity**: HIGH - Parse errors preventing load
+**Pattern**: `.decl` (Souffle), TypeScript, or SQL declaration styles
+**Detection**: Parse error on declaration line
+**Key Rule**: `Decl pred(X.Type<type>).` with uppercase Decl, period at end
+
+#### 13. Missing Period Terminator
+**File**: `13_missing_period_terminator.md`
+**Severity**: HIGH - Parse errors
+**Pattern**: Forgetting `.` at end of statements
+**Detection**: "Expected '.'" parse error
+**Key Rule**: Every declaration, fact, and rule ends with period
+
+#### 14. Comment Syntax Errors
+**File**: `14_comment_syntax_errors.md`
+**Severity**: MEDIUM - Parse errors
+**Pattern**: Using `//`, `/* */`, or `--` instead of `#`
+**Detection**: Parse error on comment lines
+**Key Rule**: Only `#` for comments (like Python/Shell)
+
+#### 15. Lowercase Variable Names
+**File**: `15_lowercase_variable_names.md`
+**Severity**: HIGH - Logic errors, unintended constants
+**Pattern**: Using lowercase `x, y` (Prolog style) instead of uppercase
+**Detection**: Variables don't unify; no results from valid queries
+**Key Rule**: ALL variables UPPERCASE, lowercase = constants
+
+---
+
+### Category 2: Semantic Safety & Logic (Datalog Gaps)
+
+#### 04. Unsafe Negation (Unbounded Variables) ⚠️ CRITICAL
+**File**: `04_unsafe_negation.md`
+**Severity**: CRITICAL - Runtime error or panic
+**Pattern**: `not pred(X)` where X is not bound by positive atom first
+**Detection**: "Unsafe variable in negation" error
+**Key Rule**: Generate (positive atom) before filtering (negation)
+
+#### 05. Stratification Violations ⚠️ CRITICAL
+**File**: `05_stratification_violations.md`
+**Severity**: CRITICAL - Program rejected at analysis
+**Pattern**: Circular dependencies through negation (A → NOT B → NOT A)
+**Detection**: "Stratification violation" error
+**Key Rule**: No cycles through negation; layer rules into strata
+
+#### 06. Infinite Recursion ⚠️ CRITICAL
+**File**: `06_infinite_recursion.md`
+**Severity**: CRITICAL - Infinite loop, program hangs
+**Pattern**: Unbounded value generation (counters, sequences)
+**Detection**: Program runs forever, memory grows
+**Key Rule**: Recursion must be bounded by finite domain, depth limit, or decreasing measure
+
+#### 10. Closed World Assumption Errors
+**File**: `10_closed_world_assumption.md`
+**Severity**: MEDIUM - Logic errors, incorrect results
+**Pattern**: Checking for NULL/UNKNOWN/UNDEFINED; three-valued logic
+**Detection**: Using sentinel values like `/none`, `/null`
+**Key Rule**: Absence = false; derive "missing" from negation, not sentinel values
+
+---
+
+### Category 3: Performance Anti-Patterns
+
+#### 07. Cartesian Product Explosion
+**File**: `07_cartesian_product_explosion.md`
+**Severity**: MEDIUM - Severe performance degradation
+**Pattern**: Large unfiltered predicates before selective ones
+**Detection**: Query runs for minutes on small datasets
+**Key Rule**: Most selective predicates first; bind constants early
+
+---
+
+### Category 4: Data Types & Functions (JSON Bias)
+
+#### 08. Structured Data Access Errors
+**File**: `08_struct_access_errors.md`
+**Severity**: HIGH - Parse errors or runtime failures
+**Pattern**: Dot notation `R.field` or brackets `R[key]` instead of `:match_field`
+**Detection**: Parse error with `.` or `[` tokens
+**Key Rule**: Use `:match_field(Struct, /key, Value)` for all field access
+
+---
+
+### Category 5: Go Integration (API Gaps)
+
+#### 09. Go Integration Errors
+**File**: `09_go_integration_errors.md`
+**Severity**: HIGH - Runtime errors, type mismatches
+**Pattern**: String-based fact construction; missing parse step; wrong external predicate signature
+**Detection**: Type assertion errors; "Unknown predicate" errors
+**Key Rule**: Use typed constructors (`engine.Atom`, `factstore.MakeFact`); parse before eval
+
+---
+
+### Category 6: Architectural Anti-Patterns
+
+#### 11. Mangle as HashMap Anti-Pattern ⚠️ CRITICAL
+**File**: `11_mangle_as_hashmap_antipattern.md`
+**Severity**: CRITICAL - Architectural misuse
+**Pattern**: Storing 400+ exact patterns expecting fuzzy matching
+**Detection**: Hundreds of `*_definition` facts; hallucinated `fn:string_contains`
+**Key Rule**: Use Vector DB for fuzzy matching; Mangle for deductive logic only
+
+#### 12. JIT Prompt Compiler Pattern ✓ CORRECT EXAMPLE
+**File**: `12_jit_prompt_compiler_pattern.md`
+**Severity**: N/A - This is a CORRECT pattern (counter-example)
+**Pattern**: Neuro-symbolic architecture (Vector DB + Mangle + Go)
+**Key Rule**: Vector DB for search, Mangle for reasoning, Go for assembly
+
+---
+
+## Quick Reference by Symptom
+
+| Symptom | Likely Failure Mode | File |
+|---------|---------------------|------|
+| Empty results despite facts | #01 Atom vs String | `01_atom_vs_string_confusion.md` |
+| Parse error near aggregation | #02 Aggregation Syntax | `02_aggregation_syntax_errors.md` |
+| Parse error on declaration | #03 Type Declaration | `03_type_declaration_syntax.md` |
+| "Unsafe variable" error | #04 Unsafe Negation | `04_unsafe_negation.md` |
+| "Stratification violation" | #05 Stratification | `05_stratification_violations.md` |
+| Program hangs/infinite loop | #06 Infinite Recursion | `06_infinite_recursion.md` |
+| Slow on small dataset | #07 Cartesian Product | `07_cartesian_product_explosion.md` |
+| Parse error with `.` or `[` | #08 Struct Access | `08_struct_access_errors.md` |
+| Type assertion error (Go) | #09 Go Integration | `09_go_integration_errors.md` |
+| Checking for NULL/UNKNOWN | #10 Closed World | `10_closed_world_assumption.md` |
+| 100+ pattern facts | #11 HashMap Anti-Pattern | `11_mangle_as_hashmap_antipattern.md` |
+| "Expected '.'" | #13 Missing Period | `13_missing_period_terminator.md` |
+| Parse error on comments | #14 Comment Syntax | `14_comment_syntax_errors.md` |
+| Variables don't unify | #15 Lowercase Variables | `15_lowercase_variable_names.md` |
+
+---
+
+## Quick Reference by Language Bias
+
+| Training Language | Leads to Mangle Error | File |
+|-------------------|------------------------|------|
+| SQL | Implicit GROUP BY | #02 Aggregation |
+| SQL | `IS NULL`, `COALESCE` | #10 Closed World |
+| Souffle | `.decl` declarations | #03 Type Declaration |
+| Prolog | Lowercase variables | #15 Lowercase Variables |
+| Python/JS | Dot notation `obj.field` | #08 Struct Access |
+| Python/JS | `"string"` for everything | #01 Atom vs String |
+| Prolog | Negation without safety | #04 Unsafe Negation |
+| Game theory | Mutual negation | #05 Stratification |
+| Python | Unbounded generators | #06 Infinite Recursion |
+| C/C++/Java | `//` or `/* */` comments | #14 Comment Syntax |
+
+---
+
+## Validation Checklist
+
+Before running Mangle code, verify:
+
+- [ ] **Atoms**: All constants use `/atom` syntax (not `"string"`)
+- [ ] **Aggregations**: Use `|> do fn:group_by()` pipeline
+- [ ] **Declarations**: Use `Decl ... Type<>` syntax
+- [ ] **Variables**: ALL UPPERCASE (not lowercase)
+- [ ] **Negation**: All variables bound by positive atom first
+- [ ] **Cycles**: No circular dependencies through negation
+- [ ] **Recursion**: Bounded by finite domain or explicit limit
+- [ ] **Ordering**: Most selective predicates first
+- [ ] **Struct access**: Use `:match_field`, not dot notation
+- [ ] **Periods**: Every statement ends with `.`
+- [ ] **Comments**: Only `#` style comments
+- [ ] **No NULL checks**: Derive missing via negation
+- [ ] **No fuzzy matching**: Don't store 100+ patterns in Mangle
+
+---
+
+## Critical Patterns to Memorize
+
+### Correct Atom Usage
+```mangle
+status(/user1, /active).          # CORRECT - atoms for identifiers
+status(U, /active) :- user(U).    # CORRECT - atom for constant
+```
+
+### Correct Aggregation
+```mangle
+total(Sum) :-
+    value(X) |>
+    do fn:group_by(),
+    let Sum = fn:Sum(X).
+```
+
+### Correct Negation
+```mangle
+valid(X) :- candidate(X), not excluded(X).  # CORRECT - X bound first
+```
+
+### Correct Struct Access
+```mangle
+name(N) :- record(R), :match_field(R, /name, N).  # CORRECT - explicit match
+```
+
+---
+
+## JIT Injection Strategy
+
+Each atom is designed for targeted injection:
+
+1. **Diagnostic Phase**: Detect error by symptom (empty results, parse error, etc.)
+2. **Lookup**: Use index to find relevant failure mode
+3. **Inject**: Include specific atom in repair prompt
+4. **Context**: Atom includes wrong code, correct code, detection, and prevention
+
+---
+
+## Usage in codeNERD
+
+These atoms power the **Mangle Repair Shard**:
+
+```go
+// Detect failure mode
+failureMode := DetectMangleError(parseError, runtimeError, symptom)
+
+// Load specific atom
+atomPath := fmt.Sprintf("atoms/mangle/failure_modes/%s.md", failureMode)
+atom := LoadAtom(atomPath)
+
+// Inject into repair prompt
+repairPrompt := CompilePrompt(
+    basePrompt,
+    atom,  // JIT-injected failure mode knowledge
+    brokenCode,
+)
+```
+
+---
+
+## Contribution Guidelines
+
+When adding new failure modes:
+
+1. **Self-contained**: Each atom includes all necessary context
+2. **Structure**: Wrong Code → Correct Code → Detection → Prevention
+3. **Examples**: Multiple examples showing pattern variations
+4. **Training bias**: Explain which language patterns cause the error
+5. **Quick check**: Bullet-point checklist for prevention
+6. **Mnemonic**: Include memorable rules where possible
+
+---
+
+## Further Reading
+
+- **Mangle Syntax Reference**: `C:\CodeProjects\codeNERD\.claude\skills\mangle-programming\references\200-SYNTAX_REFERENCE.md`
+- **AI Failure Modes (source)**: `C:\CodeProjects\codeNERD\.claude\skills\mangle-programming\references\150-AI_FAILURE_MODES.md`
+- **Mangle Skill**: `/skill:mangle-programming`
+
+---
+
+**Last Updated**: 2024-12-11
+**Total Failure Modes**: 15 (12 errors + 1 correct pattern + 2 basic syntax)
+**Coverage**: Syntax, Logic Safety, Performance, Data Types, Go Integration, Architecture

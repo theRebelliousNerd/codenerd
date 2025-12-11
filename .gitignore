@@ -39,6 +39,7 @@ Docs/*
 !**/CLAUDE.md
 !Docs/research/**
 !.claude/skills/**/*.md
+!internal/prompt/atoms/**/*.md
 
 # Debug files
 debug_program*.mg

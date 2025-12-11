@@ -1,0 +1,482 @@
+# Mangle List Functions and Predicates
+
+Complete reference for list manipulation in Mangle.
+
+## List Construction Functions
+
+---
+
+### fn:list
+
+**Signature:** `fn:list(Element, Element, ...) -> List<T>`
+
+**Description:** Constructs a list from zero or more elements. Variable-arity function.
+
+**Parameters:**
+- Zero or more arguments of the same type
+- Returns `Type<list<T>>` where T is element type
+
+**Examples:**
+
+```mangle
+# Empty list
+Empty = fn:list().                               # []
+
+# Single element
+Single = fn:list(42).                            # [42]
+
+# Multiple elements
+Numbers = fn:list(1, 2, 3, 4).                   # [1, 2, 3, 4]
+
+# List of atoms
+Names = fn:list(/alice, /bob, /charlie).         # [/alice, /bob, /charlie]
+
+# List of strings
+Words = fn:list("hello", "world").               # ["hello", "world"]
+
+# In a rule
+tags(T) :- T = fn:list(/urgent, /important, /review).
+```
+
+**Common Mistakes:**
+- ❌ Mixing types: `fn:list(1, "two", /three)` - type error
+- ❌ Using brackets: `[1,2,3]` - not valid Mangle syntax, use fn:list
+
+---
+
+### fn:cons
+
+**Signature:** `fn:cons(Element, List) -> List`
+
+**Description:** Prepends an element to the front of a list (cons cell construction).
+
+**Parameters:**
+- First arg: element of type T
+- Second arg: `Type<list<T>>`
+- Returns `Type<list<T>>`
+
+**Examples:**
+
+```mangle
+# Add to front
+X = fn:cons(1, fn:list(2, 3)).                   # [1, 2, 3]
+
+# Building list recursively
+build_list(0, fn:list()).
+build_list(N, fn:cons(N, Rest)) :-
+  N > 0,
+  N1 = fn:minus(N, 1),
+  build_list(N1, Rest).
+
+# Add to empty list
+Y = fn:cons(/first, fn:list()).                  # [/first]
+
+# Multiple cons operations
+Z = fn:cons(1, fn:cons(2, fn:cons(3, fn:list()))).  # [1, 2, 3]
+```
+
+**Common Mistakes:**
+- ❌ Reversing arguments: `fn:cons(List, Element)` - wrong order
+- ❌ Using with non-list: `fn:cons(1, 2)` - second arg must be a list
+
+---
+
+### fn:append
+
+**Signature:** `fn:append(List, Element) -> List`
+
+**Description:** Appends an element to the end of a list.
+
+**Parameters:**
+- First arg: `Type<list<T>>`
+- Second arg: element of type T
+- Returns `Type<list<T>>`
+
+**Examples:**
+
+```mangle
+# Add to end
+X = fn:append(fn:list(1, 2), 3).                 # [1, 2, 3]
+
+# Add to empty list
+Y = fn:append(fn:list(), 42).                    # [42]
+
+# Building list forward
+collect_item(Item, Current, fn:append(Current, Item)).
+
+# Multiple appends
+Z = fn:append(fn:append(fn:list(1), 2), 3).      # [1, 2, 3]
+```
+
+**Performance Note:**
+- `fn:append` is O(n) - less efficient than `fn:cons` which is O(1)
+- Prefer `fn:cons` when order doesn't matter or you're building lists
+
+---
+
+## List Deconstruction Predicates
+
+---
+
+### :match_nil
+
+**Signature:** `:match_nil(List)`
+
+**Mode:** `(Input)`
+
+**Description:** Succeeds if the list is empty.
+
+**Parameters:**
+- Single arg: `Type<list<T>>`
+
+**Examples:**
+
+```mangle
+# Check if empty
+:match_nil(fn:list()).                           # Succeeds
+:match_nil(fn:list(1, 2, 3)).                    # Fails
+
+# Base case for recursion
+process_list(L) :- :match_nil(L).                # Empty list case
+
+# Conditional logic
+empty_or_not(L, "empty") :- :match_nil(L).
+empty_or_not(L, "not empty") :- not :match_nil(L).
+```
+
+---
+
+### :match_cons
+
+**Signature:** `:match_cons(List, Head, Tail)`
+
+**Mode:** `(Input, Output, Output)`
+
+**Description:** Deconstructs a non-empty list into head (first element) and tail (rest of list).
+
+**Parameters:**
+- First arg: `Type<list<T>>` (input, must be bound)
+- Second arg: variable to bind to head element (output)
+- Third arg: variable to bind to tail list (output)
+
+**Examples:**
+
+```mangle
+# Basic deconstruction
+:match_cons(fn:list(1, 2, 3), H, T).
+# Binds H = 1, T = [2, 3]
+
+# Single element list
+:match_cons(fn:list(42), X, Y).
+# Binds X = 42, Y = []
+
+# Empty list fails
+:match_cons(fn:list(), H, T).                    # Fails
+
+# Recursive list processing
+sum_list(List, Sum) :-
+  :match_nil(List),
+  Sum = 0.
+sum_list(List, Sum) :-
+  :match_cons(List, Head, Tail),
+  sum_list(Tail, RestSum),
+  Sum = fn:plus(Head, RestSum).
+
+# Get first element
+first(List, Element) :- :match_cons(List, Element, _).
+
+# Get second element
+second(List, Element) :-
+  :match_cons(List, _, Tail),
+  :match_cons(Tail, Element, _).
+```
+
+**Common Mistakes:**
+- ❌ Using on empty list - use `:match_nil` first to check
+- ❌ Expecting head to be a list - it's a single element
+- ❌ Unbound list variable - list must be bound before matching
+
+---
+
+## List Query Functions
+
+---
+
+### fn:list:len (or fn:len)
+
+**Signature:** `fn:list:len(List) -> Int`
+
+**Description:** Returns the number of elements in a list.
+
+**Parameters:**
+- Single arg: `Type<list<T>>`
+- Returns `Type<int>`
+
+**Examples:**
+
+```mangle
+# Basic usage
+X = fn:list:len(fn:list(1, 2, 3)).               # X = 3
+
+# Empty list
+Y = fn:list:len(fn:list()).                      # Y = 0
+
+# In a rule
+list_size(L, Size) :- Size = fn:list:len(L).
+
+# Filtering by size
+large_list(L) :-
+  data(L),
+  Size = fn:list:len(L),
+  :gt(Size, 100).
+
+# Single element
+Z = fn:list:len(fn:list(42)).                    # Z = 1
+```
+
+---
+
+### fn:list:get
+
+**Signature:** `fn:list:get(List, Index) -> Option<T>`
+
+**Description:** Gets the element at a specific index (0-based). Returns an option type.
+
+**Parameters:**
+- First arg: `Type<list<T>>`
+- Second arg: `Type<int>` (0-based index)
+- Returns `Type<option<T>>`
+
+**Behavior:**
+- Index 0 returns first element
+- Negative indices not supported
+- Out of bounds returns error (not option none)
+
+**Examples:**
+
+```mangle
+# Get first element (index 0)
+X = fn:list:get(fn:list(/a, /b, /c), 0).         # X = /a
+
+# Get second element
+Y = fn:list:get(fn:list(10, 20, 30), 1).         # Y = 20
+
+# Get last element (if you know length)
+Last = fn:list:get(fn:list(1, 2, 3), 2).         # Last = 3
+
+# In a rule
+third_element(List, Elem) :- Elem = fn:list:get(List, 2).
+
+# Out of bounds raises error
+fn:list:get(fn:list(1, 2), 5).                   # Runtime error
+```
+
+**Common Mistakes:**
+- ❌ 1-based indexing: indices start at 0
+- ❌ Negative indices unsupported
+- ❌ Out of bounds behavior - raises error, doesn't return "none"
+
+---
+
+### fn:list:contains
+
+**Signature:** `fn:list:contains(List, Element) -> Bool`
+
+**Description:** Returns true if element is in the list, false otherwise.
+
+**Parameters:**
+- First arg: `Type<list<T>>`
+- Second arg: element of type T
+- Returns `Type<bool>` (true/false constant)
+
+**Examples:**
+
+```mangle
+# Basic membership test
+X = fn:list:contains(fn:list(1, 2, 3), 2).       # X = true
+Y = fn:list:contains(fn:list(1, 2, 3), 5).       # Y = false
+
+# Empty list
+Z = fn:list:contains(fn:list(), 42).             # Z = false
+
+# In condition with :filter
+has_tag(Item) :-
+  tags(Item, Tags),
+  :filter(fn:list:contains(Tags, /important)).
+
+# Checking membership
+valid_status(Status) :-
+  Status = /active,
+  Valid = fn:list:contains(fn:list(/active, /pending, /done), Status),
+  :filter(Valid).
+```
+
+---
+
+## List Membership Predicate
+
+### :list:member
+
+**Signature:** `:list:member(Element, List)`
+
+**Mode:** `(Output, Input)` - generates or checks membership
+
+**Description:** Binds Element to each member of List. Can be used for iteration or membership checking.
+
+**Parameters:**
+- First arg: variable (output mode) or value (input mode)
+- Second arg: `Type<list<T>>` (input, must be bound)
+
+**Examples:**
+
+```mangle
+# Generate all members (iteration)
+member(X) :- :list:member(X, fn:list(1, 2, 3)).
+# Derives member(1), member(2), member(3)
+
+# Check membership (non-deterministic)
+:list:member(2, fn:list(1, 2, 3)).               # Succeeds
+:list:member(5, fn:list(1, 2, 3)).               # Fails
+
+# Iterate over list in rule
+process_each(X) :-
+  data(List),
+  :list:member(X, List),
+  # ... process X ...
+
+# Cartesian product
+pair(X, Y) :-
+  :list:member(X, fn:list(1, 2)),
+  :list:member(Y, fn:list(/a, /b)).
+# Derives pair(1, /a), pair(1, /b), pair(2, /a), pair(2, /b)
+```
+
+**Common Mistakes:**
+- ❌ Confusing with `fn:list:contains` - this is a predicate, not a function
+- ❌ Unbound list - list must be bound
+- ❌ Performance - generates all members, can be expensive for large lists
+
+---
+
+## List Patterns
+
+### Length Checking
+```mangle
+# Empty list check
+is_empty(L) :- :match_nil(L).
+
+# Has at least one element
+non_empty(L) :- :match_cons(L, _, _).
+
+# Has exactly N elements
+has_length(L, N) :- fn:list:len(L) = N.
+```
+
+### List Traversal
+```mangle
+# Recursive pattern
+process_list(L) :- :match_nil(L).                # Base case
+process_list(L) :-
+  :match_cons(L, Head, Tail),                    # Recursive case
+  process_element(Head),
+  process_list(Tail).
+```
+
+### List Building
+```mangle
+# Build list with cons (efficient, but reversed)
+build_reversed(0, fn:list()).
+build_reversed(N, fn:cons(N, Rest)) :-
+  N > 0,
+  N1 = fn:minus(N, 1),
+  build_reversed(N1, Rest).
+
+# Build list with append (preserves order, less efficient)
+build_forward(0, fn:list()).
+build_forward(N, fn:append(Rest, N)) :-
+  N > 0,
+  N1 = fn:minus(N, 1),
+  build_forward(N1, Rest).
+```
+
+### Filtering
+```mangle
+# Filter odd numbers from list
+odd(N) :- :list:member(N, fn:list(1, 3, 5, 7, 9)).
+
+# Check all elements satisfy condition
+all_positive(L) :-
+  :match_nil(L).
+all_positive(L) :-
+  :match_cons(L, H, T),
+  :gt(H, 0),
+  all_positive(T).
+```
+
+---
+
+## Comparison: Function vs Predicate
+
+| Operation | Function | Predicate | Use Case |
+|-----------|----------|-----------|----------|
+| Membership test | `fn:list:contains(L, X)` | `:list:member(X, L)` | Function for boolean, predicate for iteration |
+| Length | `fn:list:len(L)` | N/A | Get count as value |
+| Empty check | N/A | `:match_nil(L)` | Conditional logic |
+| Deconstruct | N/A | `:match_cons(L, H, T)` | Recursive processing |
+| Get by index | `fn:list:get(L, I)` | N/A | Direct access |
+
+---
+
+## Performance Notes
+
+- **fn:cons** - O(1), very fast
+- **fn:append** - O(n), slower (must copy list)
+- **fn:list:len** - O(n), iterates entire list
+- **fn:list:get** - O(n), iterates to index
+- **fn:list:contains** - O(n), linear search
+- **:list:member** - O(n) per solution, generates all members
+
+**Best Practices:**
+- Use `fn:cons` for building lists when order doesn't matter
+- Use `:match_cons` for recursive processing
+- Cache list length if used multiple times
+- Prefer direct iteration over indexed access
+
+---
+
+## Type Safety
+
+```mangle
+# ✓ Homogeneous lists
+fn:list(1, 2, 3).                                # List<int>
+fn:list(/a, /b).                                 # List<name>
+
+# ✗ Heterogeneous lists
+fn:list(1, /atom, "string").                     # Type error
+
+# ✓ Empty list (generic)
+fn:list().                                       # Can be any type
+
+# ✓ Nested lists
+fn:list(fn:list(1, 2), fn:list(3, 4)).          # List<List<int>>
+```
+
+---
+
+## Complete Example: List Sum
+
+```mangle
+# Compute sum of list elements
+
+# Base case: empty list sums to 0
+list_sum(L, 0) :- :match_nil(L).
+
+# Recursive case: sum = head + sum(tail)
+list_sum(L, Sum) :-
+  :match_cons(L, Head, Tail),
+  list_sum(Tail, TailSum),
+  Sum = fn:plus(Head, TailSum).
+
+# Usage
+total(T) :- list_sum(fn:list(1, 2, 3, 4), T).   # T = 10
+```

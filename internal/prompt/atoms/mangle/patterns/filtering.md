@@ -1,0 +1,485 @@
+# Filtering Patterns
+
+## Problem Description
+
+Filtering is fundamental to all queries. Common needs:
+- Multi-condition filters (AND, OR)
+- Range checks
+- Pattern matching
+- Exclusion filters
+- Conditional filtering based on other predicates
+
+## Core Pattern: Basic Filtering
+
+### Template
+```mangle
+# Single condition
+filtered(X) :- data(X), X > 100.
+
+# Multiple AND conditions
+filtered(X, Y) :- data(X, Y), X > 100, Y < 200.
+
+# OR conditions (multiple rules)
+filtered(X) :- data(X), X < 10.
+filtered(X) :- data(X), X > 100.
+```
+
+### Complete Working Example
+```mangle
+# Schema
+Decl item(Id.Type<string>, Price.Type<int>, Category.Type<string>).
+Decl affordable(Id.Type<string>, Price.Type<int>).
+Decl premium(Id.Type<string>, Price.Type<int>).
+
+# Facts
+item("i1", 50, "electronics").
+item("i2", 500, "electronics").
+item("i3", 25, "books").
+item("i4", 150, "electronics").
+
+# Filters
+affordable(Id, Price) :- item(Id, Price, _), Price < 100.
+premium(Id, Price) :- item(Id, Price, _), Price > 200.
+
+# Query: affordable(Id, P)
+# Results: ("i1", 50), ("i3", 25)
+
+# Query: premium(Id, P)
+# Results: ("i2", 500)
+```
+
+## Variation 1: Range Filtering
+
+### Problem
+Filter values within a range (inclusive/exclusive bounds).
+
+### Solution
+```mangle
+# Schema
+Decl value(Id.Type<string>, Val.Type<int>).
+Decl in_range(Id.Type<string>, Val.Type<int>).
+
+# Inclusive range [50, 150]
+in_range(Id, Val) :- value(Id, Val), Val >= 50, Val <= 150.
+
+# Exclusive range (50, 150)
+Decl in_range_exclusive(Id.Type<string>, Val.Type<int>).
+in_range_exclusive(Id, Val) :- value(Id, Val), Val > 50, Val < 150.
+```
+
+### Example
+```mangle
+value("v1", 25).
+value("v2", 50).
+value("v3", 100).
+value("v4", 150).
+value("v5", 200).
+
+# in_range results: v2, v3, v4
+# in_range_exclusive results: v3
+```
+
+## Variation 2: Multi-Attribute Filtering (AND)
+
+### Problem
+Filter based on multiple attributes simultaneously.
+
+### Solution
+```mangle
+# Schema
+Decl product(Id.Type<string>, Price.Type<int>, Stock.Type<int>, Rating.Type<float>).
+Decl recommended(Id.Type<string>).
+
+# Must satisfy ALL conditions
+recommended(Id) :-
+  product(Id, Price, Stock, Rating),
+  Price < 1000,          # Affordable
+  Stock > 0,             # In stock
+  Rating >= 4.0.         # Highly rated
+```
+
+### Example
+```mangle
+product("p1", 500, 10, 4.5).   # YES - all conditions met
+product("p2", 1500, 5, 4.8).   # NO - too expensive
+product("p3", 800, 0, 4.2).    # NO - out of stock
+product("p4", 900, 2, 3.5).    # NO - low rating
+
+# Result: recommended("p1")
+```
+
+## Variation 3: Multi-Predicate Filtering (OR)
+
+### Problem
+Filter based on conditions from different predicates (union).
+
+### Solution
+```mangle
+# Schema
+Decl vip_user(UserId.Type<string>).
+Decl high_spender(UserId.Type<string>).
+Decl long_term_member(UserId.Type<string>).
+Decl eligible_for_discount(UserId.Type<string>).
+
+# OR: any of these conditions make you eligible
+eligible_for_discount(UserId) :- vip_user(UserId).
+eligible_for_discount(UserId) :- high_spender(UserId).
+eligible_for_discount(UserId) :- long_term_member(UserId).
+```
+
+### Example
+```mangle
+vip_user("u1").
+high_spender("u2").
+long_term_member("u3").
+
+# Results:
+# eligible_for_discount("u1")
+# eligible_for_discount("u2")
+# eligible_for_discount("u3")
+```
+
+## Variation 4: Exclusion Filtering (NOT)
+
+### Problem
+Filter out items that match certain criteria.
+
+### Solution
+```mangle
+# Schema
+Decl all_items(Id.Type<string>).
+Decl blacklisted(Id.Type<string>).
+Decl allowed_items(Id.Type<string>).
+
+# Only items NOT in blacklist
+allowed_items(Id) :- all_items(Id), not blacklisted(Id).
+```
+
+### Example
+```mangle
+all_items("i1").
+all_items("i2").
+all_items("i3").
+
+blacklisted("i2").
+
+# Results: allowed_items("i1"), allowed_items("i3")
+# NOT allowed_items("i2")
+```
+
+## Variation 5: Pattern Matching on Atoms
+
+### Problem
+Filter based on atom/enum values.
+
+### Solution
+```mangle
+# Schema
+Decl event(Id.Type<string>, EventType.Type<atom>, Severity.Type<atom>).
+Decl critical_events(Id.Type<string>).
+
+# Filter by specific atom values
+critical_events(Id) :-
+  event(Id, EventType, /critical),
+  EventType != /info.
+
+# Multiple allowed values (OR on atoms)
+Decl important_events(Id.Type<string>).
+important_events(Id) :- event(Id, _, /critical).
+important_events(Id) :- event(Id, _, /error).
+```
+
+### Example
+```mangle
+event("e1", /login, /info).
+event("e2", /payment, /critical).
+event("e3", /logout, /error).
+event("e4", /click, /debug).
+
+# critical_events results: e2
+# important_events results: e2, e3
+```
+
+## Variation 6: Conditional Filtering (Based on Other Predicates)
+
+### Problem
+Apply filter only if another condition is met.
+
+### Solution
+```mangle
+# Schema
+Decl user(UserId.Type<string>, Country.Type<string>).
+Decl product(ProductId.Type<string>, Price.Type<int>).
+Decl discount_active(Country.Type<string>).
+Decl eligible_for_discount(UserId.Type<string>, ProductId.Type<string>).
+
+# Discount applies only if user's country has active discount
+eligible_for_discount(UserId, ProductId) :-
+  user(UserId, Country),
+  discount_active(Country),
+  product(ProductId, Price),
+  Price > 100.
+```
+
+### Example
+```mangle
+user("u1", "USA").
+user("u2", "Canada").
+
+discount_active("USA").
+
+product("p1", 150).
+product("p2", 50).
+
+# Results:
+# eligible_for_discount("u1", "p1")  # USA has discount, price > 100
+# NOT u2 (Canada has no discount)
+# NOT ("u1", "p2") - price too low
+```
+
+## Variation 7: Threshold Filtering with Aggregation
+
+### Problem
+Filter items that exceed an aggregated threshold.
+
+### Solution
+```mangle
+# Schema
+Decl purchase(UserId.Type<string>, Amount.Type<int>).
+Decl total_spent(UserId.Type<string>, Total.Type<int>).
+Decl high_value_customer(UserId.Type<string>).
+
+# Calculate total per user
+total_spent(UserId, Total) :-
+  purchase(UserId, Amount)
+  |> do fn:group_by(UserId),
+     let Total = fn:Sum(Amount).
+
+# Filter users above threshold
+high_value_customer(UserId) :- total_spent(UserId, Total), Total > 1000.
+```
+
+### Example
+```mangle
+purchase("u1", 500).
+purchase("u1", 600).  # Total: 1100
+purchase("u2", 300).
+purchase("u2", 200).  # Total: 500
+
+# Results:
+# total_spent("u1", 1100)
+# total_spent("u2", 500)
+# high_value_customer("u1")
+# NOT high_value_customer("u2")
+```
+
+## Variation 8: List/Set Membership
+
+### Problem
+Filter items that belong to a set of allowed values.
+
+### Solution
+```mangle
+# Schema
+Decl item(Id.Type<string>, Category.Type<string>).
+Decl allowed_category(Category.Type<string>).
+Decl visible_item(Id.Type<string>).
+
+# Define allowed set
+allowed_category("electronics").
+allowed_category("books").
+allowed_category("toys").
+
+# Filter by membership
+visible_item(Id) :- item(Id, Category), allowed_category(Category).
+```
+
+### Example
+```mangle
+item("i1", "electronics").
+item("i2", "books").
+item("i3", "furniture").
+item("i4", "toys").
+
+# Results:
+# visible_item("i1")
+# visible_item("i2")
+# visible_item("i4")
+# NOT i3 (furniture not allowed)
+```
+
+## Variation 9: Null/Missing Value Handling
+
+### Problem
+Filter based on presence or absence of data.
+
+### Solution
+```mangle
+# Schema
+Decl user(UserId.Type<string>).
+Decl email(UserId.Type<string>, Email.Type<string>).
+Decl users_with_email(UserId.Type<string>).
+Decl users_without_email(UserId.Type<string>).
+
+# Has email (data exists)
+users_with_email(UserId) :- email(UserId, _).
+
+# Missing email (data does not exist)
+users_without_email(UserId) :- user(UserId), not email(UserId, _).
+```
+
+### Example
+```mangle
+user("u1").
+user("u2").
+user("u3").
+
+email("u1", "u1@example.com").
+email("u3", "u3@example.com").
+
+# Results:
+# users_with_email("u1")
+# users_with_email("u3")
+# users_without_email("u2")
+```
+
+## Variation 10: Complex Boolean Logic
+
+### Problem
+Combine AND, OR, NOT in complex filters.
+
+### Solution
+```mangle
+# Schema
+Decl item(Id.Type<string>, Price.Type<int>, InStock.Type<atom>, Featured.Type<atom>).
+Decl promoted_item(Id.Type<string>).
+
+# (Featured AND InStock) OR (Cheap AND InStock)
+promoted_item(Id) :-
+  item(Id, _, /yes, /yes).  # Featured and in stock
+
+promoted_item(Id) :-
+  item(Id, Price, /yes, /no),  # In stock but not featured
+  Price < 50.                  # Must be cheap
+```
+
+### Example
+```mangle
+item("i1", 100, /yes, /yes).   # Featured & in stock
+item("i2", 30, /yes, /no).     # Cheap & in stock
+item("i3", 200, /yes, /no).    # Expensive, not featured
+item("i4", 40, /no, /yes).     # Featured but out of stock
+
+# Results:
+# promoted_item("i1")  # Featured & in stock
+# promoted_item("i2")  # Cheap & in stock
+# NOT i3 (too expensive, not featured)
+# NOT i4 (out of stock)
+```
+
+## Variation 11: Filtering with String Operations
+
+### Problem
+Filter based on string patterns (prefix, suffix, contains).
+
+### Solution
+```mangle
+# Schema
+Decl file(Path.Type<string>).
+Decl go_file(Path.Type<string>).
+Decl test_file(Path.Type<string>).
+
+# Files ending with .go (using suffix check)
+# Note: Mangle doesn't have built-in string pattern matching
+# You'd use external predicates or pre-process in Go
+
+# Workaround: Use atoms for known patterns
+Decl file_ext(Path.Type<string>, Ext.Type<atom>).
+file_ext("main.go", /go).
+file_ext("main_test.go", /go).
+file_ext("readme.md", /md).
+
+go_file(Path) :- file_ext(Path, /go).
+test_file(Path) :- file_ext(Path, /go), :match_field(Path, "test", _).
+```
+
+## Anti-Patterns
+
+### WRONG: Unbound Variables in Filters
+```mangle
+# Bad - X is never bound!
+expensive(X) :- X > 100.
+
+# Fix - bind X first
+expensive(X) :- product(X, Price), Price > 100.
+```
+
+### WRONG: Negation Without Grounding
+```mangle
+# Bad - X not grounded before negation
+result(X) :- not blacklisted(X).
+
+# Fix - ground X first
+result(X) :- candidate(X), not blacklisted(X).
+```
+
+### WRONG: Multiple Negations (Hard to Read)
+```mangle
+# Bad - double negatives are confusing
+active(X) :- user(X), not not verified(X).
+
+# Fix - use positive logic
+active(X) :- user(X), verified(X).
+```
+
+### WRONG: Cartesian Product Before Filter
+```mangle
+# Bad - huge cross product then filter
+result(X, Y) :- big_table1(X), big_table2(Y), X = Y.
+
+# Fix - filter early
+result(X, Y) :- big_table1(X), X = Y, big_table2(Y).
+```
+
+## Performance Tips
+
+1. **Selectivity First**: Most restrictive filters first
+2. **Avoid Cartesian Products**: Always join on variables
+3. **Materialize Complex Filters**: If reused, compute once
+4. **Push Filters Down**: Apply before joins and aggregations
+5. **Index Filter Columns**: In external data sources
+
+## Common Use Cases in codeNERD
+
+### File Filtering
+```mangle
+Decl file(Path.Type<string>, Size.Type<int>, Modified.Type<int>).
+Decl large_recent_files(Path.Type<string>).
+
+large_recent_files(Path) :-
+  file(Path, Size, Modified),
+  Size > 1000000,          # > 1MB
+  Modified > 1700000000.   # Recent timestamp
+```
+
+### Code Analysis Filtering
+```mangle
+Decl function(Name.Type<string>, Complexity.Type<int>, Lines.Type<int>).
+Decl refactor_candidate(Name.Type<string>).
+
+refactor_candidate(Name) :-
+  function(Name, Complexity, Lines),
+  Complexity > 10,         # High complexity
+  Lines > 100.             # Long function
+```
+
+### Test Selection
+```mangle
+Decl test(Name.Type<string>, Duration.Type<int>, Flaky.Type<atom>).
+Decl fast_stable_tests(Name.Type<string>).
+
+fast_stable_tests(Name) :-
+  test(Name, Duration, Flaky),
+  Duration < 1000,         # < 1 second
+  Flaky = /no.             # Not flaky
+```
