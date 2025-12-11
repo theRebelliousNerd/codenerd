@@ -115,7 +115,8 @@ func (l *AtomLoader) LoadFromDirectory(ctx context.Context, dirPath string, db *
 
 // EnsureSchema creates the prompt_atoms table and atom_context_tags table.
 func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
-	schema := `
+	// Step 1: Create tables WITHOUT indexes first (so we can run migrations)
+	tableSchema := `
 		CREATE TABLE IF NOT EXISTS prompt_atoms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			atom_id TEXT NOT NULL UNIQUE,
@@ -123,7 +124,7 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			content TEXT NOT NULL,
 			token_count INTEGER NOT NULL,
 			content_hash TEXT NOT NULL,
-			
+
 			-- Polymorphism
 			description TEXT,
 			content_concise TEXT,
@@ -157,27 +158,57 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			PRIMARY KEY (atom_id, dimension, tag),
 			FOREIGN KEY(atom_id) REFERENCES prompt_atoms(atom_id) ON DELETE CASCADE
 		);
+	`
 
+	if _, err := db.Exec(tableSchema); err != nil {
+		return fmt.Errorf("failed to create prompt tables: %w", err)
+	}
+
+	// Step 2: Run schema migrations BEFORE creating indexes
+	// This ensures columns exist before we try to index them
+	cols := []string{"description", "content_concise", "content_min"}
+	for _, col := range cols {
+		// Check if column exists by querying pragma
+		var exists bool
+		rows, err := db.Query("PRAGMA table_info(prompt_atoms)")
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to query table info: %v", err)
+			continue
+		}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+				continue
+			}
+			if name == col {
+				exists = true
+				break
+			}
+		}
+		rows.Close()
+
+		if !exists {
+			// Column missing, add it
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN %s TEXT", col)); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to add column %s: %v", col, err)
+			} else {
+				logging.Get(logging.CategoryStore).Info("Added missing column %s to prompt_atoms", col)
+			}
+		}
+	}
+
+	// Step 3: Create indexes AFTER migrations (columns now exist)
+	indexSchema := `
 		CREATE INDEX IF NOT EXISTS idx_atoms_category ON prompt_atoms(category);
 		CREATE INDEX IF NOT EXISTS idx_atoms_description ON prompt_atoms(description);
 		CREATE INDEX IF NOT EXISTS idx_tags_lookup ON atom_context_tags(dimension, tag);
 	`
 
-	if _, err := db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create prompt tables: %w", err)
-	}
-
-	// Schema Migration: Add new columns if missing (for v4->v5 transition)
-	cols := []string{"description", "content_concise", "content_min"}
-	for _, col := range cols {
-		var dummy interface{}
-		err := db.QueryRow(fmt.Sprintf("SELECT %s FROM prompt_atoms LIMIT 1", col)).Scan(&dummy)
-		if err != nil {
-			// Column missing, add it
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN %s TEXT", col)); err != nil {
-				logging.Get(logging.CategoryStore).Warn("Failed to add column %s: %v", col, err)
-			}
-		}
+	if _, err := db.Exec(indexSchema); err != nil {
+		return fmt.Errorf("failed to create indexes: %w", err)
 	}
 
 	return nil

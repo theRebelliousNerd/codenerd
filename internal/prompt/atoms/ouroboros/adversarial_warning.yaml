@@ -1,119 +1,144 @@
-# Adversarial Warning - Injected into ToolGenerator prompts
-# Part of the Adversarial Co-Evolution system
+# Adversarial Warning Atoms
+# Injected into ToolGenerator prompts to warn about Thunderdome testing
 
-adversary: "The PanicMaker"
-consequence: "Rejection"
+- id: "ouroboros/adversarial_warning/core"
+  category: "ouroboros"
+  subcategory: "adversarial"
+  priority: 100
+  is_mandatory: true
+  ouroboros_stages: ["/codegen", "/testing"]
+  content: |
+    ## WARNING: YOUR CODE WILL BE TESTED IN 'THE THUNDERDOME'
 
-context: |
-  ## WARNING: YOUR CODE WILL BE TESTED IN 'THE THUNDERDOME'
+    Immediately after generation, your tool will be attacked by The PanicMaker.
+    The PanicMaker will attempt to:
 
-  Immediately after generation, your tool will be attacked by The PanicMaker.
-  The PanicMaker will attempt to:
+    1. **Nil Attacks**: Send nil pointers, empty structs, zero-length slices
+    2. **Boundary Violations**: math.MaxInt64, negative indices, invalid UTF-8
+    3. **Resource Exhaustion**: 10MB payloads, deeply nested structures, goroutine bombs
+    4. **Concurrency Chaos**: Rapid concurrent calls, channel flooding, context storms
+    5. **Format Exploits**: Malicious format strings, template injection
 
-  1. **Nil Attacks**: Send nil pointers, empty structs, zero-length slices
-  2. **Boundary Violations**: math.MaxInt64, negative indices, invalid UTF-8
-  3. **Resource Exhaustion**: 10MB payloads, deeply nested structures, goroutine bombs
-  4. **Concurrency Chaos**: Rapid concurrent calls, channel flooding, context storms
-  5. **Format Exploits**: Malicious format strings, template injection
+    ## SURVIVAL REQUIREMENTS
 
-  ## SURVIVAL REQUIREMENTS
+    If your tool panics, hangs (>5s), or exceeds 100MB RAM, it will be REJECTED.
 
-  If your tool panics, hangs (>5s), or exceeds 100MB RAM, it will be REJECTED.
+    Do NOT write "happy path" code. Write defensible code.
 
-  Do NOT write "happy path" code. Write defensible code:
+- id: "ouroboros/adversarial_warning/defensive_patterns"
+  category: "ouroboros"
+  subcategory: "adversarial"
+  priority: 95
+  is_mandatory: true
+  ouroboros_stages: ["/codegen"]
+  depends_on: ["ouroboros/adversarial_warning/core"]
+  content: |
+    ## Defensive Patterns You MUST Use
 
-  ### Defensive Patterns You MUST Use:
+    ```go
+    // 1. ALWAYS check for nil
+    func Process(data *Data) error {
+        if data == nil {
+            return errors.New("data cannot be nil")
+        }
+        // ...
+    }
 
-  ```go
-  // 1. ALWAYS check for nil
-  func Process(data *Data) error {
-      if data == nil {
-          return errors.New("data cannot be nil")
-      }
-      // ...
-  }
+    // 2. ALWAYS bound slice operations
+    func GetElement(slice []string, idx int) (string, error) {
+        if idx < 0 || idx >= len(slice) {
+            return "", fmt.Errorf("index %d out of bounds [0, %d)", idx, len(slice))
+        }
+        return slice[idx], nil
+    }
 
-  // 2. ALWAYS bound slice operations
-  func GetElement(slice []string, idx int) (string, error) {
-      if idx < 0 || idx >= len(slice) {
-          return "", fmt.Errorf("index %d out of bounds [0, %d)", idx, len(slice))
-      }
-      return slice[idx], nil
-  }
+    // 3. ALWAYS use bounded buffers
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    func ReadData(r io.Reader) ([]byte, error) {
+        limited := io.LimitReader(r, maxSize)
+        return io.ReadAll(limited)
+    }
 
-  // 3. ALWAYS use bounded buffers
-  const maxSize = 10 * 1024 * 1024 // 10MB
-  func ReadData(r io.Reader) ([]byte, error) {
-      limited := io.LimitReader(r, maxSize)
-      return io.ReadAll(limited)
-  }
+    // 4. ALWAYS use context with timeouts
+    func DoWork(ctx context.Context) error {
+        ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+        defer cancel()
+        // ...
+    }
 
-  // 4. ALWAYS use context with timeouts
-  func DoWork(ctx context.Context) error {
-      ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-      defer cancel()
-      // ...
-  }
+    // 5. ALWAYS recover from panics in goroutines
+    func SafeGoroutine(ctx context.Context, fn func()) {
+        go func() {
+            defer func() {
+                if r := recover(); r != nil {
+                    log.Printf("recovered from panic: %v", r)
+                }
+            }()
+            fn()
+        }()
+    }
 
-  // 5. ALWAYS recover from panics in goroutines
-  func SafeGoroutine(ctx context.Context, fn func()) {
-      go func() {
-          defer func() {
-              if r := recover(); r != nil {
-                  log.Printf("recovered from panic: %v", r)
-              }
-          }()
-          fn()
-      }()
-  }
+    // 6. ALWAYS validate JSON before unmarshaling
+    func ParseJSON(data []byte, v interface{}) error {
+        if len(data) > maxSize {
+            return errors.New("payload too large")
+        }
+        return json.Unmarshal(data, v)
+    }
+    ```
 
-  // 6. ALWAYS validate JSON before unmarshaling
-  func ParseJSON(data []byte, v interface{}) error {
-      if len(data) > maxSize {
-          return errors.New("payload too large")
-      }
-      return json.Unmarshal(data, v)
-  }
-  ```
+- id: "ouroboros/adversarial_warning/anti_patterns"
+  category: "ouroboros"
+  subcategory: "adversarial"
+  priority: 90
+  is_mandatory: true
+  ouroboros_stages: ["/codegen"]
+  depends_on: ["ouroboros/adversarial_warning/core"]
+  content: |
+    ## Anti-Patterns That WILL Get You Killed
 
-  ### Anti-Patterns That WILL Get You Killed:
+    ```go
+    // BAD: Unchecked pointer dereference
+    func Bad(data *Data) {
+        fmt.Println(data.Name) // PANIC if data is nil
+    }
 
-  ```go
-  // BAD: Unchecked pointer dereference
-  func Bad(data *Data) {
-      fmt.Println(data.Name) // PANIC if data is nil
-  }
+    // BAD: Unbounded slice allocation
+    func Bad(count int) []string {
+        return make([]string, count) // OOM if count is huge
+    }
 
-  // BAD: Unbounded slice allocation
-  func Bad(count int) []string {
-      return make([]string, count) // OOM if count is huge
-  }
+    // BAD: Blocking channel read
+    func Bad(ch chan int) int {
+        return <-ch // DEADLOCK if channel is empty and closed
+    }
 
-  // BAD: Blocking channel read
-  func Bad(ch chan int) int {
-      return <-ch // DEADLOCK if channel is empty and closed
-  }
+    // BAD: No timeout on operations
+    func Bad() {
+        resp, _ := http.Get(url) // HANG if server is slow
+    }
+    ```
 
-  // BAD: No timeout on operations
-  func Bad() {
-      resp, _ := http.Get(url) // HANG if server is slow
-  }
-  ```
+- id: "ouroboros/adversarial_warning/stakes"
+  category: "ouroboros"
+  subcategory: "adversarial"
+  priority: 85
+  is_mandatory: false
+  ouroboros_stages: ["/codegen", "/testing"]
+  content: |
+    ## THE STAKES
 
-  ## THE STAKES
+    Your tool will face 3-5 targeted attacks based on static analysis of your code.
+    The PanicMaker reads your source and crafts specific inputs to break it.
 
-  Your tool will face 3-5 targeted attacks based on static analysis of your code.
-  The PanicMaker reads your source and crafts specific inputs to break it.
+    Think like a paranoid systems programmer. Trust nothing. Validate everything.
 
-  Think like a paranoid systems programmer. Trust nothing. Validate everything.
+    ### Tools that survive The Thunderdome:
+    - Added to the codebase
+    - Registered in the kernel
+    - Made available for future use
 
-additional_context: |
-  Tools that survive The Thunderdome are:
-  - Added to the codebase
-  - Registered in the kernel
-  - Made available for future use
-
-  Tools that die in The Thunderdome are:
-  - Rejected with feedback
-  - Regenerated with the failure as a constraint
-  - Never exposed to the user's environment
+    ### Tools that die in The Thunderdome:
+    - Rejected with feedback
+    - Regenerated with the failure as a constraint
+    - Never exposed to the user's environment
