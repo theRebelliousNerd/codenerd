@@ -1371,6 +1371,9 @@ Decl routing_error(ActionType, Reason, Timestamp).
 # route_added(ActionPattern, ToolName, Timestamp) - new route added via autopoiesis
 Decl route_added(ActionPattern, ToolName, Timestamp).
 
+# system_event_handled(ActionType, Target, Timestamp) - internal kernel lifecycle event acknowledged
+Decl system_event_handled(ActionType, Target, Timestamp).
+
 # -----------------------------------------------------------------------------
 # 33.7 Agenda & Planning
 # -----------------------------------------------------------------------------

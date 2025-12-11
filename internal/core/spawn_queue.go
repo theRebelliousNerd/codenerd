@@ -580,6 +580,13 @@ func (sq *SpawnQueue) GetQueueDepth() int {
 	return total
 }
 
+// IsRunning returns true if the spawn queue is running and accepting requests.
+func (sq *SpawnQueue) IsRunning() bool {
+	sq.mu.RLock()
+	defer sq.mu.RUnlock()
+	return sq.isRunning
+}
+
 // GetAvailableSlots returns estimated available spawn capacity.
 func (sq *SpawnQueue) GetAvailableSlots() int {
 	if sq.limitsEnforcer == nil {
