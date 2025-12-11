@@ -8,10 +8,12 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards"
+	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -63,12 +65,12 @@ Architecture: Logic determines Reality; the Model merely describes it.
 
 Run without arguments to start the interactive chat interface.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip logger init for interactive mode (it has its own UI)
+		// Skip logger init for interactive mode (it has its own UI and logging setup)
 		if cmd.Use == "nerd" && cmd.CalledAs() == "nerd" {
 			return nil
 		}
 
-		// Initialize logger
+		// Initialize zap logger for CLI output
 		config := zap.NewProductionConfig()
 		if verbose {
 			config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
@@ -78,12 +80,26 @@ Run without arguments to start the interactive chat interface.`,
 		if err != nil {
 			return fmt.Errorf("failed to initialize logger: %w", err)
 		}
+
+		// Initialize internal file-based logging system for telemetry/debugging
+		// This enables .nerd/logs/ output for non-interactive commands
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+		if err := logging.Initialize(ws); err != nil {
+			// Don't fail hard on logging init, but warn
+			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging: %v\n", err)
+		}
+
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		if logger != nil {
 			_ = logger.Sync()
 		}
+		// Close internal file-based logging system
+		logging.CloseAll()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Default behavior: launch interactive chat
@@ -2288,6 +2304,24 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
+
+	// FIX: Wire persistence layers - enables autopoiesis and knowledge persistence
+	// Without this, shards are "amnesiac" and cannot save learnings or access knowledge graph
+	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
+	if localDB, err := store.NewLocalStore(knowledgeDBPath); err == nil {
+		virtualStore.SetLocalDB(localDB)
+		virtualStore.SetKernel(kernel)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to open knowledge DB: %v\n", err)
+	}
+
+	learningStorePath := filepath.Join(nerdDir, "shards")
+	if learningStore, err := store.NewLearningStore(learningStorePath); err == nil {
+		virtualStore.SetLearningStore(learningStore)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
+	}
+
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kernel)
 
