@@ -48,6 +48,14 @@ type Kernel interface {
 	UpdateSystemFacts() error    // Updates system-level facts (time, OS, etc.)
 }
 
+// LearnedRuleInterceptor intercepts learned rules before persistence.
+// This allows the MangleRepairShard to validate and repair rules without import cycles.
+type LearnedRuleInterceptor interface {
+	// InterceptLearnedRule validates and optionally repairs a rule before persistence.
+	// Returns the (possibly repaired) rule, or an error if the rule is rejected.
+	InterceptLearnedRule(ctx context.Context, rule string) (string, error)
+}
+
 // RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
 type RealKernel struct {
 	mu              sync.RWMutex
@@ -64,6 +72,7 @@ type RealKernel struct {
 	policyDirty     bool   // True when schemas/policy changed and need reparse
 	userLearnedPath string // Path to user learned.mg for self-healing persistence
 	predicateCorpus *PredicateCorpus // Baked-in predicate corpus for validation
+	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
 }
 
 //go:embed defaults/*.mg defaults/schema/*.mg
@@ -154,6 +163,25 @@ func (k *RealKernel) GetWorkspace() string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	return k.workspaceRoot
+}
+
+// SetRepairInterceptor sets the repair interceptor for learned rule validation.
+// The interceptor is called before any learned rule is persisted, allowing
+// the MangleRepairShard to validate and repair rules.
+func (k *RealKernel) SetRepairInterceptor(interceptor LearnedRuleInterceptor) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.repairInterceptor = interceptor
+	if interceptor != nil {
+		logging.Kernel("Repair interceptor attached to kernel")
+	}
+}
+
+// GetRepairInterceptor returns the current repair interceptor, or nil if not set.
+func (k *RealKernel) GetRepairInterceptor() LearnedRuleInterceptor {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.repairInterceptor
 }
 
 // nerdPath returns the correct path for a .nerd subdirectory.
@@ -922,52 +950,138 @@ func (k *RealKernel) ValidateLearnedProgram(programText string) error {
 	return k.schemaValidator.ValidateProgram(programText)
 }
 
+// StartupValidationResult contains statistics from startup learned rule validation.
+type StartupValidationResult struct {
+	TotalRules         int
+	ValidRules         int
+	InvalidRules       int
+	CommentedRules     int // Previously self-healed rules
+	PreviouslyHealed   int // Rules with "# SELF-HEALED:" marker
+	FilePath           string
+	InvalidRuleErrors  []string
+}
+
 // healLearnedRules validates learned rules and comments out invalid ones.
 // This is a self-healing mechanism to recover from corrupted learned.mg files.
 // Returns the healed rules text with invalid rules commented out.
 // If filePath is provided and rules were healed, persists the healed version to disk.
 func (k *RealKernel) healLearnedRules(learnedText string, filePath string) string {
+	result := k.validateLearnedRulesContent(learnedText, filePath, true)
+	return result.healedText
+}
+
+// validateLearnedRulesContent performs startup validation of learned rules.
+// Returns validation statistics and optionally the healed text.
+type learnedValidationResult struct {
+	stats      StartupValidationResult
+	healedText string
+}
+
+func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath string, heal bool) learnedValidationResult {
+	result := learnedValidationResult{
+		stats: StartupValidationResult{
+			FilePath: filePath,
+		},
+		healedText: learnedText,
+	}
+
 	if k.schemaValidator == nil || learnedText == "" {
-		return learnedText
+		return result
 	}
 
 	lines := strings.Split(learnedText, "\n")
 	var healedLines []string
-	invalidCount := 0
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Skip empty lines and comments
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		// Skip empty lines
+		if trimmed == "" {
 			healedLines = append(healedLines, line)
 			continue
 		}
 
-		// Check if this is a rule (contains :-)
-		if strings.Contains(trimmed, ":-") {
-			if err := k.schemaValidator.ValidateRule(trimmed); err != nil {
-				// Invalid rule - comment it out with explanation
-				logging.Get(logging.CategoryKernel).Warn("Self-healing: commenting out invalid learned rule at line %d: %v", i+1, err)
-				healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
-				healedLines = append(healedLines, "# "+line)
-				invalidCount++
+		// Track previously self-healed rules
+		if strings.HasPrefix(trimmed, "# SELF-HEALED:") {
+			result.stats.PreviouslyHealed++
+			healedLines = append(healedLines, line)
+			continue
+		}
+
+		// Track commented-out rules (potential previous self-healing)
+		if strings.HasPrefix(trimmed, "#") {
+			// Check if this is a commented-out rule (starts with # and contains :-)
+			commentContent := strings.TrimPrefix(trimmed, "#")
+			commentContent = strings.TrimSpace(commentContent)
+			if strings.Contains(commentContent, ":-") && !strings.HasPrefix(commentContent, "SELF-HEALED") {
+				result.stats.CommentedRules++
+			}
+			healedLines = append(healedLines, line)
+			continue
+		}
+
+		// Check if this is a rule (contains :-) or a fact (no :-)
+		isRule := strings.Contains(trimmed, ":-")
+		isFact := !isRule && strings.Contains(trimmed, "(") && strings.HasSuffix(trimmed, ").")
+
+		if isRule || isFact {
+			result.stats.TotalRules++
+
+			// Schema validation for rules with bodies
+			if isRule {
+				if err := k.schemaValidator.ValidateRule(trimmed); err != nil {
+					result.stats.InvalidRules++
+					errMsg := fmt.Sprintf("line %d: %v", i+1, err)
+					result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
+					logging.Get(logging.CategoryKernel).Warn("Startup validation: invalid learned rule at %s", errMsg)
+
+					if heal {
+						healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
+						healedLines = append(healedLines, "# "+line)
+					} else {
+						healedLines = append(healedLines, line)
+					}
+					continue
+				}
+			}
+
+			// Infinite loop risk detection for next_action rules
+			if loopErr := k.checkInfiniteLoopRisk(trimmed); loopErr != "" {
+				result.stats.InvalidRules++
+				errMsg := fmt.Sprintf("line %d: %s", i+1, loopErr)
+				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
+				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
+
+				if heal {
+					healedLines = append(healedLines, "# SELF-HEALED: "+loopErr)
+					healedLines = append(healedLines, "# "+line)
+				} else {
+					healedLines = append(healedLines, line)
+				}
 				continue
 			}
+
+			result.stats.ValidRules++
 		}
 
 		// Valid line - keep as is
 		healedLines = append(healedLines, line)
 	}
 
-	healedText := strings.Join(healedLines, "\n")
+	result.healedText = strings.Join(healedLines, "\n")
 
-	if invalidCount > 0 {
-		logging.Kernel("Self-healing: commented out %d invalid learned rules", invalidCount)
+	// Log validation summary
+	if result.stats.TotalRules > 0 {
+		logging.Kernel("Startup validation: %d rules total, %d valid, %d invalid, %d previously healed",
+			result.stats.TotalRules, result.stats.ValidRules, result.stats.InvalidRules, result.stats.PreviouslyHealed)
+	}
+
+	if result.stats.InvalidRules > 0 && heal {
+		logging.Kernel("Self-healing: commented out %d invalid learned rules", result.stats.InvalidRules)
 
 		// Persist healed rules back to disk if we have a file path
 		if filePath != "" {
-			if err := os.WriteFile(filePath, []byte(healedText), 0644); err != nil {
+			if err := os.WriteFile(filePath, []byte(result.healedText), 0644); err != nil {
 				logging.Get(logging.CategoryKernel).Error("Self-healing: failed to persist healed rules to %s: %v", filePath, err)
 			} else {
 				logging.Kernel("Self-healing: persisted healed rules to %s", filePath)
@@ -975,7 +1089,83 @@ func (k *RealKernel) healLearnedRules(learnedText string, filePath string) strin
 		}
 	}
 
-	return healedText
+	if result.stats.PreviouslyHealed > 0 {
+		logging.Get(logging.CategoryKernel).Warn("Startup validation: %d rules were previously self-healed (may indicate recurring issues)", result.stats.PreviouslyHealed)
+	}
+
+	return result
+}
+
+// checkInfiniteLoopRisk detects rules that could cause infinite derivation loops.
+// Returns an error message if the rule is problematic, empty string if OK.
+func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
+	// Skip comments
+	trimmed := strings.TrimSpace(rule)
+	if strings.HasPrefix(trimmed, "#") {
+		return ""
+	}
+
+	// Only check next_action rules
+	if !strings.Contains(rule, "next_action(") {
+		return ""
+	}
+
+	// Parse head and body
+	parts := strings.SplitN(rule, ":-", 2)
+	head := strings.TrimSpace(parts[0])
+
+	// Check 1: Unconditional next_action fact (no body) for system actions
+	if len(parts) == 1 && strings.HasPrefix(head, "next_action(") {
+		if strings.Contains(head, "/system_start") || strings.Contains(head, "/initialize") {
+			return "infinite loop risk: unconditional next_action for system action will fire every tick"
+		}
+	}
+
+	// Check 2: next_action depending on always-true system predicates
+	if len(parts) == 2 {
+		body := strings.TrimSpace(parts[1])
+
+		// Predicates that are always true at system startup
+		alwaysTruePredicates := []string{
+			"system_startup(", "system_shard_state(", "entry_point(",
+			"current_phase(", "build_system(",
+		}
+
+		for _, pred := range alwaysTruePredicates {
+			if strings.Contains(body, pred) {
+				// Check for wildcards which make it always-true
+				if strings.Contains(body, "_,_)") || strings.Contains(body, "(_,") || strings.Contains(body, ",_)") {
+					// Count predicates - if only 1-2, it's likely always-true
+					predCount := strings.Count(body, "(")
+					if predCount <= 2 {
+						return fmt.Sprintf("infinite loop risk: next_action depends on always-true predicate %s with wildcards", strings.TrimSuffix(pred, "("))
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// GetStartupValidationResult returns the result of the last startup validation.
+// This can be called after kernel initialization to check learned rule health.
+func (k *RealKernel) GetStartupValidationResult() *StartupValidationResult {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.userLearnedPath == "" {
+		return nil
+	}
+
+	// Re-validate current learned rules (read-only, no healing)
+	data, err := os.ReadFile(k.userLearnedPath)
+	if err != nil {
+		return nil
+	}
+
+	result := k.validateLearnedRulesContent(string(data), k.userLearnedPath, false)
+	return &result.stats
 }
 
 // IsPredicateDeclared checks if a predicate is declared in schemas.
@@ -1254,6 +1444,26 @@ Output ONLY the rule, no explanation. The rule must compile.`
 // It validates the rule, loads it into memory, and writes it to disk for persistence.
 func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	logging.Kernel("HotLoadLearnedRule: loading and persisting learned rule")
+
+	// 0. If repair interceptor is set, use it for validation and repair FIRST
+	// This allows MangleRepairShard to fix rules before we even try to load them
+	k.mu.RLock()
+	interceptor := k.repairInterceptor
+	k.mu.RUnlock()
+
+	if interceptor != nil {
+		logging.Kernel("HotLoadLearnedRule: invoking repair interceptor")
+		ctx := context.Background()
+		repairedRule, err := interceptor.InterceptLearnedRule(ctx, rule)
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: repair interceptor rejected rule: %v", err)
+			return fmt.Errorf("rule rejected by repair interceptor: %w", err)
+		}
+		if repairedRule != rule {
+			logging.Kernel("HotLoadLearnedRule: rule was repaired by interceptor")
+			rule = repairedRule
+		}
+	}
 
 	// 1. Validate using sandbox (same as HotLoadRule)
 	if err := k.HotLoadRule(rule); err != nil {

@@ -538,6 +538,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
+			// Wire the repair shard as the kernel's learned rule interceptor
+			// This ensures all learned rules pass through validation/repair before persistence
+			kernel.SetRepairInterceptor(shard)
 			return shard
 		})
 		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
@@ -652,6 +655,21 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
+		// Start Mangle file watcher for .nerd/mangle/*.mg validation
+		logStep("Starting Mangle file watcher...")
+		var mangleWatcher *core.MangleWatcher
+		if mw, err := core.NewMangleWatcher(workspace, kernel); err == nil {
+			mangleWatcher = mw
+			watchCtx := context.Background()
+			if err := mangleWatcher.Start(watchCtx); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to start Mangle watcher: %v", err)
+			} else {
+				logging.Kernel("Mangle file watcher started for %s/.nerd/mangle", workspace)
+			}
+		} else {
+			logging.Get(logging.CategoryKernel).Warn("Failed to create Mangle watcher: %v", err)
+		}
+
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
 			components: &SystemComponents{
@@ -677,6 +695,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				BrowserManager:        browserMgr,
 				BrowserCtxCancel:      browserCtxCancel,
 				JITCompiler:           jitCompiler,
+				MangleWatcher:         mangleWatcher,
 			},
 		}
 	}

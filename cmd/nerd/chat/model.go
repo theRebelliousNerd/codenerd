@@ -237,6 +237,9 @@ type Model struct {
 	autopoiesisCancel     context.CancelFunc // Cancels kernel listener goroutine
 	autopoiesisListenerCh <-chan struct{}    // Closed when listener stops
 
+	// Mangle File Watcher - monitors .nerd/mangle/*.mg for changes and triggers validation/repair
+	mangleWatcher *core.MangleWatcher
+
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
 
@@ -337,6 +340,11 @@ func (m *Model) Shutdown() {
 		// Close local database connection
 		if m.localDB != nil {
 			m.localDB.Close()
+		}
+
+		// Stop Mangle file watcher
+		if m.mangleWatcher != nil {
+			m.mangleWatcher.Stop()
 		}
 
 		// Stop all active shards
@@ -518,6 +526,7 @@ type SystemComponents struct {
 	BrowserCtxCancel      context.CancelFunc // Cancels browser manager goroutine
 	Workspace             string
 	JITCompiler           *prompt.JITPromptCompiler
+	MangleWatcher         *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
 }
 
 // Init initializes the interactive chat model
@@ -1394,6 +1403,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.browserMgr = c.BrowserManager
 			m.browserCtxCancel = c.BrowserCtxCancel
 			m.jitCompiler = c.JITCompiler
+
+			// Wire Mangle file watcher for real-time .mg validation
+			m.mangleWatcher = c.MangleWatcher
 
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
