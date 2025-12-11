@@ -376,15 +376,31 @@ Watch for these issues in logs:
 
 ### Adversarial Mangle Test Suite
 
-The `assets/mangle-adversarial/` directory contains test files organized by error category matching the Top 30 Common Mangle Errors:
+The `assets/mangle-adversarial/` directory contains **264+ invalid Mangle code patterns** systematically organized to test parser robustness, validation, and self-healing capabilities. This comprehensive suite covers all **Top 30 Common Mangle Errors** that AI agents make.
 
-- **syntactic/** - Atom vs string confusion, declaration syntax, variable casing, missing periods
-- **safety/** - Unsafe variables, negation safety, stratification, recursion bounds
-- **types/** - Type mismatches, struct/map syntax, function hallucinations
-- **loops/** - Infinite recursion, cartesian explosions, termination conditions
-- **structures/** - Map/list accessors, JSON-style syntax, data structure operations
+**Organization by Error Category:**
 
-These files are used by the Mangle self-healing workflows to test validation and repair capabilities.
+| Category | Files | Test Patterns | Coverage |
+|----------|-------|---------------|----------|
+| **syntactic/** | 7 files | 60 patterns | Atom/string confusion, Soufflé syntax, lowercase vars, missing periods, wrong comments, SQL-style aggregation, assignment operators |
+| **safety/** | 5 files | 52 patterns | Unsafe negation, unbound head vars, negation ordering, stratification cycles, anonymous variable misuse |
+| **types/** | 4 files | 51 patterns | Atom vs string, int vs float, list vs scalar, hallucinated functions from Python/JS/SQL |
+| **loops/** | 4 files | 52 patterns | Direct self-reference, mutual recursion, unbounded counters, cartesian explosions |
+| **structures/** | 3 files | 49 patterns | Dot notation, JSON syntax, bracket notation, OOP-style access |
+
+**Total: 23 test files, 264+ adversarial patterns**
+
+Each test file includes:
+- Multiple invalid code examples with `# ERROR:` annotations
+- Clear explanations of what's wrong and why
+- Correct syntax examples marked with `# CORRECT:` for comparison
+- Numbered test cases for easy reference
+
+**Documentation:**
+- [README.md](assets/mangle-adversarial/README.md) - Complete test suite overview with statistics
+- [INDEX.md](assets/mangle-adversarial/INDEX.md) - Quick reference by error type, severity, and language source
+
+These files are used by the Mangle self-healing workflows to test validation and repair capabilities. See the README for usage examples and integration with parser testing.
 
 ### Input Generators
 
