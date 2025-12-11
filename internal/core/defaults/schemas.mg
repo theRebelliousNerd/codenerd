@@ -2385,9 +2385,11 @@ Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration).
 # 41.12 Reviewer Feedback Loop Predicates (Self-Correction)
 # -----------------------------------------------------------------------------
 
-# review_finding(ReviewID, File, Line, Severity, Category, Message)
-# A finding from a specific review session
-Decl review_finding(ReviewID, File, Line, Severity, Category, Message).
+# review_finding_with_id(ReviewID, File, Line, Severity, Category, Message)
+# A finding from a specific review session (6-arg variant with ReviewID)
+# NOTE: The 5-arg review_finding/5 is declared in Section 29 and emitted by Go.
+# This 6-arg variant is derived via bridge rule when active_review(ReviewID) is set.
+Decl review_finding_with_id(ReviewID, File, Line, Severity, Category, Message).
 
 # user_rejected_finding(ReviewID, File, Line, Reason, Timestamp)
 # User explicitly rejected a finding as incorrect
@@ -2451,6 +2453,28 @@ Decl specialist_match(ReviewID, AgentName, Score, Reason).
 # symbol_verified_exists(Symbol, File, VerifiedAt)
 # Symbol was verified to exist (counters false "undefined" claims)
 Decl symbol_verified_exists(Symbol, File, VerifiedAt).
+
+# =============================================================================
+# SECTION 41.13: LANGUAGE-AGNOSTIC SECURITY FLOW ANALYSIS
+# =============================================================================
+# These predicates enable security detection across any programming language
+# by abstracting sink/source relationships rather than language-specific patterns.
+
+# detected_security_flow(File, Line, SinkType, SourceType, Confidence)
+# Flow analysis result: untrusted data flows to security-sensitive sink
+# SinkType: /sql_sink, /command_sink, /dom_sink, /hardcoded_secret, /weak_crypto
+# SourceType: /user_input, /file_read, /network, /env_var
+# Confidence: 0-100 integer
+Decl detected_security_flow(File, Line, SinkType, SourceType, Confidence).
+
+# security_sink_type(Language, SinkType, Pattern, Description)
+# Configuration: Maps language-specific patterns to abstract sink types
+# Emitted by language-specific analyzers (Go, Python, JS, Rust, etc.)
+Decl security_sink_type(Language, SinkType, Pattern, Description).
+
+# flow_security_rule(RuleID, Severity, SinkType, Message)
+# Abstract security rules keyed by sink type (language-agnostic)
+Decl flow_security_rule(RuleID, Severity, SinkType, Message).
 
 # =============================================================================
 # SECTION 42: DYNAMIC PROMPT COMPOSITION (Context Injection)

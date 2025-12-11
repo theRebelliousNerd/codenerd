@@ -43,6 +43,18 @@ is_warning_finding(File, Line) :-
     review_finding(File, Line, /warning, _, _).
 
 # =============================================================================
+# SECTION 2B: FINDING COUNT AGGREGATIONS
+# =============================================================================
+# These aggregations enable commit blocking and statistics rules.
+# Uses the |> do fn:group_by() syntax required by Mangle.
+
+# Count findings by severity level
+finding_count(Severity, N) :-
+    review_finding(_, _, Severity, _, _) |>
+    do fn:group_by(Severity),
+    let N = fn:Count().
+
+# =============================================================================
 # SECTION 3: COMMIT BLOCKING
 # =============================================================================
 
@@ -122,6 +134,30 @@ security_rule("SEC004", /error, "document.write", "XSS via document.write").
 security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
 
 # =============================================================================
+# SECTION 5B: FLOW-BASED SECURITY DETECTION (Language-Agnostic)
+# =============================================================================
+# These rules enable security detection across ANY programming language by
+# abstracting sink/source relationships rather than language-specific patterns.
+# Flow-based rules take precedence when detected_security_flow facts are available;
+# regex-based security_rule/4 facts (above) serve as fallback.
+
+# Abstract security rules keyed by sink type (language-agnostic)
+# SinkType: /sql_sink, /command_sink, /dom_sink, /hardcoded_secret, /weak_crypto
+flow_security_rule(/SEC001, /critical, /sql_sink, "SQL injection: user input flows to SQL execution").
+flow_security_rule(/SEC002, /critical, /command_sink, "Command injection: user input flows to command execution").
+flow_security_rule(/SEC003, /critical, /hardcoded_secret, "Hardcoded credential detected in source").
+flow_security_rule(/SEC004, /error, /dom_sink, "XSS: untrusted data flows to DOM manipulation").
+flow_security_rule(/SEC006, /warning, /weak_crypto, "Weak cryptographic algorithm detected").
+
+# Derive security findings from flow analysis results
+# detected_security_flow/5 facts are emitted by language-specific analyzers
+# (Go, Python, JavaScript, Rust, etc.) in internal/world/dataflow_multilang.go
+raw_finding(File, Line, Severity, /security, RuleID, Message) :-
+    detected_security_flow(File, Line, SinkType, _, Confidence),
+    Confidence > 50,
+    flow_security_rule(RuleID, Severity, SinkType, Message).
+
+# =============================================================================
 # SECTION 6: COMPLEXITY THRESHOLDS
 # =============================================================================
 
@@ -148,11 +184,23 @@ long_file_warning(File) :-
 # SECTION 7: AUTOPOIESIS - LEARNING FROM REVIEWS
 # =============================================================================
 
-Decl pattern_count(Pattern, Count).
-Decl approval_count(Pattern, Count).
 Decl review_approved(ReviewID, Pattern).
 
-# Track patterns that get flagged repeatedly
+# Aggregation: Count how many times each message pattern appears in findings
+# Enables recurring issue detection for autopoiesis learning
+pattern_count(Message, N) :-
+    review_finding(_, _, _, _, Message) |>
+    do fn:group_by(Message),
+    let N = fn:Count().
+
+# Aggregation: Count how many times each pattern was approved by users
+# Enables approved_pattern learning
+approval_count(Pattern, N) :-
+    review_approved(_, Pattern) |>
+    do fn:group_by(Pattern),
+    let N = fn:Count().
+
+# Track patterns that get flagged repeatedly (>= 3 times)
 # NOTE: Pattern is extracted from Message (5th arg) in 5-arg schema
 recurring_issue_pattern(Message, Category) :-
     review_finding(_, _, _, Category, Message),
@@ -164,7 +212,7 @@ recurring_issue_pattern(Message, Category) :-
 promote_to_long_term(/anti_pattern, Pattern) :-
     recurring_issue_pattern(Pattern, _).
 
-# Track patterns that pass review
+# Track patterns that pass review (approved >= 3 times)
 approved_pattern(Pattern) :-
     review_approved(_, Pattern),
     approval_count(Pattern, N),
@@ -276,14 +324,26 @@ suppressed_finding(File, Line, RuleID, "generated_code") :-
 # =============================================================================
 # These rules enable the reviewer to learn from mistakes and self-correct.
 
+# Bridge rule: Associate 5-arg findings with the active review session
+# This derives review_finding_with_id/6 from review_finding/5 when a review is active.
+# The active_review(ReviewID) fact is asserted by Go when a review session starts.
+Decl active_review(ReviewID).
+
+review_finding_with_id(ReviewID, File, Line, Severity, Category, Message) :-
+    active_review(ReviewID),
+    review_finding(File, Line, Severity, Category, Message).
+
 # Helper: Check if a review has any rejections
 Decl has_rejections(ReviewID).
 has_rejections(ReviewID) :-
     user_rejected_finding(ReviewID, _, _, _, _).
 
-# Helper: Count rejections for a review (aggregation)
-# Note: Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
-Decl review_rejection_count(ReviewID, Count).
+# Aggregation: Count rejections per review session
+# Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
+review_rejection_count(ReviewID, N) :-
+    user_rejected_finding(ReviewID, _, _, _, _) |>
+    do fn:group_by(ReviewID),
+    let N = fn:Count().
 
 # Review is suspect if user rejected multiple findings
 review_suspect(ReviewID, "multiple_rejections") :-
@@ -298,7 +358,7 @@ review_suspect(ReviewID, "multiple_rejections") :-
 
 # Review is suspect if it flagged a symbol that was verified to exist
 review_suspect(ReviewID, "flagged_existing_symbol") :-
-    review_finding(ReviewID, File, Line, _, _, Message),
+    review_finding_with_id(ReviewID, File, Line, _, _, Message),
     symbol_verified_exists(Symbol, File, _),
     :string:contains(Message, "undefined").
 
@@ -315,12 +375,12 @@ reviewer_needs_validation(ReviewID) :-
 
 # Trigger validation for reviews with "undefined" findings (common false positive)
 reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
+    review_finding_with_id(ReviewID, _, _, /error, /bug, Message),
     :string:contains(Message, "undefined").
 
 # Trigger validation for reviews with "not found" findings
 reviewer_needs_validation(ReviewID) :-
-    review_finding(ReviewID, _, _, /error, /bug, Message),
+    review_finding_with_id(ReviewID, _, _, /error, /bug, Message),
     :string:contains(Message, "not found").
 
 # --- False Positive Learning ---
@@ -344,16 +404,19 @@ Decl recent_review_unreliable().
 # =============================================================================
 
 Decl unwired_function(ID, File).
+Decl is_called(CalleeID).
+
+# Helper: ID is called by something
+is_called(CalleeID) :- dependency_link(_, CalleeID, _).
 
 # Identify public functions containing no incoming dependency links
 # Exclude test files to avoid false positives on test helpers
 unwired_function(ID, File) :-
     symbol_graph(ID, /function, /public, File, _),
-    !dependency_link(_, ID, _),
+    !is_called(ID),
     file_topology(File, _, _, _, /false).
 
-# Emit raw finding
-# We use the Symbol ID as the message to ensure unique findings per symbol
+# Emit raw finding with Symbol ID as message to ensure unique findings per symbol
 
 # =============================================================================
 # SECTION 14: ARCHITECTURAL INSIGHTS
@@ -361,15 +424,12 @@ unwired_function(ID, File) :-
 
 # --- 1. Shotgun Surgery (Hidden Temporal Coupling) ---
 # Files that change together often but have no static dependency
+# OPTIMIZED: Avoids Cartesian explosion on large git histories by:
+# 1. Using FileA < FileB to eliminate duplicate pairs
+# 2. Aggregating co-commits first to limit the search space
+# 3. Only checking dependency for frequently co-committed pairs (>= 3 times)
 
 Decl hidden_coupling(FileA, FileB).
-Decl dependency_connected(FileA, FileB).
-
-# Helper: Check connection in either direction
-dependency_connected(A, B) :- dependency_link(_, _, _, A, B). # Assuming dependency_link schema allows File mapping or we use ID
-# Wait, schema is dependency_link(CallerID, CalleeID, ImportPath).
-# We need to map ID to File using symbol_graph or file_topology?
-# symbol_graph(SymbolID, Type, Visibility, File, Signature).
 
 # Redefine helper to work with Symbol IDs -> Files
 Decl dependency_link_exists(FileA, FileB).
@@ -379,11 +439,28 @@ dependency_link_exists(FileA, FileB) :-
     symbol_graph(CallerID, _, _, FileA, _),
     symbol_graph(CalleeID, _, _, FileB, _).
 
-# Temporal coupling rule
-hidden_coupling(FileA, FileB) :-
+# Helper: Files committed together in the same commit hash
+# Use FileA < FileB to avoid duplicate pairs (A,B) and (B,A)
+Decl co_committed_files(FileA, FileB, Hash).
+
+co_committed_files(FileA, FileB, Hash) :-
     git_history(FileA, Hash, _, _, _),
     git_history(FileB, Hash, _, _, _),
-    FileA != FileB,
+    FileA < FileB.
+
+# Aggregation: Count how many times each file pair was co-committed
+Decl co_commit_count(FileA, FileB, Count).
+
+co_commit_count(FileA, FileB, N) :-
+    co_committed_files(FileA, FileB, _) |>
+    do fn:group_by(FileA, FileB),
+    let N = fn:Count().
+
+# Hidden coupling: Files that change together frequently (>= 3 times)
+# but have no static dependency between them
+hidden_coupling(FileA, FileB) :-
+    co_commit_count(FileA, FileB, N),
+    N >= 3,
     !dependency_link_exists(FileA, FileB),
     !dependency_link_exists(FileB, FileA).
 
@@ -395,11 +472,13 @@ raw_finding(FileA, 1, /warning, /architecture, "SHOTGUN_SURGERY", FileB) :-
 # --- 2. The "Hero" Risk (Bus Factor) ---
 # High churn + High complexity + Single Author
 
+
 Decl hero_risk(File, Author).
 Decl has_other_author(File, Author).
 
 has_other_author(File, Author) :-
-    git_history(File, _, Other, _, _),
+    git_history(File, _, Author, _, _),     # Bind Author to File history
+    git_history(File, _, Other, _, _),      # Check for Other author
     Author != Other.
 
 hero_risk(File, Author) :-
@@ -414,23 +493,42 @@ raw_finding(File, 1, /warning, /risk, "HERO_RISK", Author) :-
 
 
 # --- 3. Architectural Layer Leakage ---
-# Core should not import UI
+# Library Code (Low level) should not import Application Entrypoints (High level)
+# Uses configurable patterns for adaptability.
 
 Decl layer(File, LayerName).
 Decl architecture_violation(Caller, Callee).
 
-layer(File, /core) :- :string:contains(File, "internal/core").
-layer(File, /ui)   :- :string:contains(File, "cmd/nerd").
+# Configuration Point: Users can extend this in extensions.mg
+# Decl configured_layer_pattern(Pattern, Layer).
+Decl configured_layer_pattern(Pattern, Layer).
+
+# Default Standard Conventions
+configured_layer_pattern("/internal/", /library).
+configured_layer_pattern("/pkg/", /library).
+configured_layer_pattern("/lib/", /library).
+configured_layer_pattern("/core/", /library).
+
+configured_layer_pattern("/cmd/", /entrypoint).
+configured_layer_pattern("/app/", /entrypoint).
+configured_layer_pattern("/cli/", /entrypoint).
+configured_layer_pattern("/bin/", /entrypoint).
+
+# Derive Layer from Configuration
+layer(File, Layer) :-
+    symbol_graph(_, _, _, File, _),
+    configured_layer_pattern(Pattern, Layer),
+    :string:contains(File, Pattern).
 
 architecture_violation(CallerFile, CalleeFile) :-
     dependency_link(CallerID, CalleeID, _),
     symbol_graph(CallerID, _, _, CallerFile, _),
     symbol_graph(CalleeID, _, _, CalleeFile, _),
-    layer(CallerFile, /core),
-    layer(CalleeFile, /ui).
+    layer(CallerFile, /library),
+    layer(CalleeFile, /entrypoint).
 
 # Finding
-raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", CalleeFile) :-
+raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", "Library imports Entrypoint") :-
     architecture_violation(CallerFile, CalleeFile).
 
 
@@ -444,16 +542,20 @@ test_imports_internal(TestFile) :-
     symbol_graph(TestID, _, _, TestFile, _),
     dependency_link(TestID, CalleeID, _),
     symbol_graph(CalleeID, _, _, CalleeFile, _),
-    FileA != FileB, # Should be different file
+    TestFile != CalleeFile, # Ensure it's external import (or at least different file)
     # Check if Callee is internal (e.g., same project prefix or not stdlib)
     # Simple heuristic: CalleeFile is in the file_topology (known project file)
     file_topology(CalleeFile, _, _, _, _).
 
+
 zombie_test(TestFile) :-
     file_topology(TestFile, _, _, _, /true), # Is Test
+    symbol_graph(_, _, _, TestFile, _),      # Generator/Safety
     !test_imports_internal(TestFile).
 
 # Finding
+raw_finding(TestFile, 1, /warning, /maintenance, "ZOMBIE_TEST", "Test imports no internal code") :-
+    zombie_test(TestFile).
 
 # --- 5. Circular Dependencies (File Level) ---
 # A -> B -> ... -> A (Structural Cycle)

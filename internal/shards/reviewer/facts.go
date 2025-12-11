@@ -48,7 +48,7 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 				finding.File,
 				int64(finding.Line),
 				"/" + finding.Severity,
-				finding.Category,
+				"/" + finding.Category, // Emit as atom for Mangle type consistency
 				finding.Message,
 			},
 		})
