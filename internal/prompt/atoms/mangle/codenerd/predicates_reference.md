@@ -1,0 +1,897 @@
+# codeNERD Predicates Reference
+
+Quick reference guide for every predicate in codeNERD with purpose, usage patterns, and examples.
+
+## How to Use This Reference
+
+Each predicate entry includes:
+- **Purpose**: What the predicate represents
+- **Arity**: Number of arguments (e.g., `/5` means 5 arguments)
+- **Type**: EDB (fact) or IDB (derived)
+- **Section**: Logical grouping
+- **Usage**: When and how to use it
+- **Examples**: Concrete usage patterns
+
+---
+
+## Core Intent Predicates
+
+### user_intent/5
+
+**Purpose**: Seed fact for all logic - captures parsed user intent from NL input
+
+**Type**: EDB
+
+**Arguments**:
+1. ID (Name) - Unique intent identifier
+2. Category (Name) - `/query`, `/mutation`, `/instruction`
+3. Verb (Name) - Action verb like `/fix`, `/review`, `/explain`
+4. Target (String) - What to operate on
+5. Constraint (String) - Constraints or preferences
+
+**Usage**: Created by Perception transducer from NL input. Primary dispatch point for strategy selection.
+
+**Examples**:
+```mangle
+user_intent(/u1, /mutation, /fix, "auth.go", "preserve error handling").
+user_intent(/u2, /query, /explain, "src/main.go", "").
+user_intent(/u3, /mutation, /refactor, "database layer", "use repository pattern").
+```
+
+**Queries**:
+```mangle
+# Find all mutation intents
+? user_intent(ID, /mutation, Verb, Target, _).
+
+# Find all fix requests
+? user_intent(ID, _, /fix, Target, _).
+```
+
+---
+
+### focus_resolution/4
+
+**Purpose**: Maps fuzzy references to concrete paths/symbols
+
+**Type**: EDB
+
+**Arguments**:
+1. RawReference (String) - User's fuzzy reference
+2. ResolvedPath (String) - Concrete file path
+3. SymbolName (String) - Symbol if applicable
+4. Confidence (Float) - 0.0-1.0 confidence score
+
+**Usage**: Populated by focus resolution system. Triggers clarification if confidence < 0.85.
+
+**Examples**:
+```mangle
+focus_resolution("the auth thing", "src/auth/handler.go", "AuthHandler", 0.92).
+focus_resolution("login", "ui/login.go", "LoginButton", 0.65).
+```
+
+---
+
+### ambiguity_flag/3
+
+**Purpose**: Marks missing information requiring clarification
+
+**Type**: EDB
+
+**Arguments**:
+1. MissingParam (String) - What's missing
+2. ContextClue (String) - Hints from user input
+3. Hypothesis (String) - LLM's best guess
+
+**Usage**: Blocks execution until resolved. Triggers `/interrogative_mode`.
+
+**Examples**:
+```mangle
+ambiguity_flag("target_file", "mentioned 'handler'", "auth/handler.go").
+```
+
+---
+
+### clarification_needed/1
+
+**Purpose**: Derived when user input needs clarification
+
+**Type**: IDB
+
+**Arguments**:
+1. Reference (String) - What needs clarification
+
+**Usage**: Triggers before action execution.
+
+**Derivation**:
+```mangle
+clarification_needed(Ref) :-
+    focus_resolution(Ref, _, _, Score),
+    Score < 0.85.
+
+clarification_needed(_) :-
+    ambiguity_flag(_, _, _).
+```
+
+---
+
+## File System Predicates
+
+### file_topology/5
+
+**Purpose**: Core filesystem metadata - the "file exists" predicate
+
+**Type**: EDB
+
+**Arguments**:
+1. Path (String) - Absolute or relative path
+2. Hash (String) - SHA-256 content hash
+3. Language (Name) - `/go`, `/python`, `/typescript`, etc.
+4. LastModified (Int) - Unix timestamp
+5. IsTestFile (Name) - `/true` or `/false`
+
+**Usage**: Populated by filesystem scanner. Used for impact analysis, test detection, language routing.
+
+**Examples**:
+```mangle
+file_topology("src/main.go", "a3f4b2c1...", /go, 1702345678, /false).
+file_topology("src/main_test.go", "d7e8f9a0...", /go, 1702345679, /true).
+```
+
+**Common Queries**:
+```mangle
+# All Go files
+? file_topology(Path, _, /go, _, _).
+
+# All test files
+? file_topology(Path, _, _, _, /true).
+
+# Recently modified (last 5 min)
+? file_topology(Path, _, _, LastMod, _), current_time(Now), Now - LastMod < 300.
+```
+
+---
+
+### file_imports/3
+
+**Purpose**: Import/dependency relationships between files
+
+**Type**: EDB
+
+**Arguments**:
+1. SourcePath (String) - Importing file
+2. ImportPath (String) - Imported file/module
+3. ImportType (Name) - `/direct` or `/transitive`
+
+**Usage**: Enables transitive dependency analysis and impact tracking.
+
+**Examples**:
+```mangle
+file_imports("src/main.go", "src/auth/handler.go", /direct).
+file_imports("src/main.go", "encoding/json", /direct).
+```
+
+---
+
+### modified/1
+
+**Purpose**: Marks files that have been modified in current session
+
+**Type**: EDB
+
+**Arguments**:
+1. Path (String) - Modified file path
+
+**Usage**: Seed for impact analysis propagation.
+
+**Examples**:
+```mangle
+modified("src/auth/handler.go").
+```
+
+---
+
+### impacted/1
+
+**Purpose**: Files affected by modifications (transitive closure)
+
+**Type**: IDB
+
+**Arguments**:
+1. Path (String) - Impacted file path
+
+**Usage**: Automatically derived from `modified` via dependency links.
+
+**Derivation**:
+```mangle
+# Direct impact
+impacted(X) :-
+    dependency_link(X, Y, _),
+    modified(Y).
+
+# Recursive closure
+impacted(X) :-
+    dependency_link(X, Z, _),
+    impacted(Z).
+```
+
+---
+
+## Symbol Graph Predicates
+
+### symbol_graph/5
+
+**Purpose**: AST-derived symbol definitions
+
+**Type**: EDB
+
+**Arguments**:
+1. SymbolID (String) - Unique identifier like "func:main:AuthHandler"
+2. Type (Name) - `/function`, `/class`, `/struct`, `/variable`
+3. Visibility (Name) - `/public`, `/private`, `/protected`
+4. DefinedAt (String) - "path:line"
+5. Signature (String) - Type signature
+
+**Usage**: Enables semantic reasoning over code structure.
+
+**Examples**:
+```mangle
+symbol_graph("func:main:AuthHandler", /function, /public, "src/auth/handler.go:42", "(req Request) Response").
+symbol_graph("struct:User", /struct, /public, "src/models/user.go:10", "{ID int, Name string}").
+```
+
+---
+
+### dependency_link/3
+
+**Purpose**: Call graph - symbol A uses symbol B
+
+**Type**: EDB
+
+**Arguments**:
+1. CallerID (String) - Calling symbol
+2. CalleeID (String) - Called symbol
+3. ImportPath (String) - Module path
+
+**Usage**: Transitive impact analysis, refactoring safety.
+
+**Examples**:
+```mangle
+dependency_link("func:main:main", "func:auth:AuthHandler", "src/auth").
+```
+
+---
+
+## Diagnostic Predicates
+
+### diagnostic/5
+
+**Purpose**: Compiler/linter errors as logical constraints
+
+**Type**: EDB
+
+**Arguments**:
+1. Severity (Name) - `/panic`, `/error`, `/warning`, `/info`
+2. FilePath (String) - File with issue
+3. Line (Int) - Line number
+4. ErrorCode (String) - Language-specific code
+5. Message (String) - Error message
+
+**Usage**: Blocks commits, triggers TDD repair, enables error-driven logic.
+
+**Examples**:
+```mangle
+diagnostic(/error, "src/main.go", 42, "undefined: DoThing", "undefined variable").
+diagnostic(/warning, "src/auth.go", 15, "SA1019", "deprecated function").
+```
+
+**Commit Barrier**:
+```mangle
+block_commit("Build Broken") :-
+    diagnostic(/error, _, _, _, _).
+```
+
+---
+
+### test_result/5
+
+**Purpose**: Test execution outcomes
+
+**Type**: EDB
+
+**Arguments**:
+1. TestName (String) - Test function name
+2. FilePath (String) - Test file
+3. Status (Name) - `/passed`, `/failed`, `/skipped`, `/panic`
+4. Duration (Int) - Milliseconds
+5. Message (String) - Failure message if applicable
+
+**Usage**: TDD loop state, coverage analysis, regression detection.
+
+**Examples**:
+```mangle
+test_result("TestAuthHandler", "src/auth/handler_test.go", /passed, 42, "").
+test_result("TestDBQuery", "src/db/db_test.go", /failed, 88, "expected 5, got 3").
+```
+
+---
+
+## TDD Loop Predicates
+
+### test_state/1
+
+**Purpose**: Current TDD state machine state
+
+**Type**: EDB (typically set once per loop iteration)
+
+**Arguments**:
+1. State (Name) - Current state
+
+**States**:
+- `/passing` - Tests green
+- `/failing` - Tests red
+- `/compiling` - Build in progress
+- `/unknown` - Initial state
+- `/log_read` - Error log parsed
+- `/cause_found` - Root cause identified
+- `/patch_applied` - Fix applied
+
+**Usage**: Drives TDD repair loop state transitions.
+
+**Examples**:
+```mangle
+test_state(/failing).
+test_state(/passing).
+```
+
+---
+
+### next_action/1
+
+**Purpose**: Mangle-derived next action to execute
+
+**Type**: IDB (derived from state machine)
+
+**Arguments**:
+1. Action (Name) - Action to execute
+
+**Common Actions**:
+- `/read_error_log` - Parse test output
+- `/analyze_root_cause` - Diagnose failure
+- `/generate_patch` - Create fix
+- `/run_tests` - Execute tests
+- `/escalate_to_user` - Give up after retries
+
+**Usage**: Central dispatch predicate - drives executive loop.
+
+**Derivation**:
+```mangle
+next_action(/read_error_log) :-
+    test_state(/failing),
+    retry_count(N),
+    N < 3.
+
+next_action(/escalate_to_user) :-
+    test_state(/failing),
+    retry_count(N),
+    N >= 3.
+```
+
+---
+
+### permitted/1
+
+**Purpose**: Constitutional permission gate
+
+**Type**: IDB (derived from safety policy)
+
+**Arguments**:
+1. Action (Name) - Action to check
+
+**Usage**: **Every** action must derive `permitted` before execution. Default deny.
+
+**Derivation**:
+```mangle
+permitted(Action) :- safe_action(Action).
+permitted(Action) :- dangerous_action(Action), admin_override(_), signed_approval(Action).
+```
+
+---
+
+## Strategy Predicates
+
+### active_strategy/1
+
+**Purpose**: Current execution strategy/workflow
+
+**Type**: IDB
+
+**Arguments**:
+1. Strategy (Name) - Active strategy
+
+**Strategies**:
+- `/tdd_repair_loop` - Test failure repair
+- `/breadth_first_survey` - Large codebase exploration
+- `/project_init` - New project scaffolding
+- `/security_scan` - Vulnerability analysis
+
+**Usage**: Polymorphic dispatch - same verb, different strategy based on context.
+
+**Derivation**:
+```mangle
+active_strategy(/tdd_repair_loop) :-
+    user_intent(_, /mutation, /fix, Target, _),
+    file_topology(Target, _, _, _, /true).
+```
+
+**Conflict Detection**:
+```mangle
+strategy_conflict() :-
+    active_strategy(A),
+    active_strategy(B),
+    A != B.
+```
+
+---
+
+## Shard Predicates
+
+### shard_profile/4
+
+**Purpose**: Specialist agent definitions
+
+**Type**: EDB
+
+**Arguments**:
+1. AgentName (Name) - `/agent_rust`, `/agent_k8s`
+2. Description (String) - Mission statement
+3. Topics (String) - JSON array of research topics
+4. Tools (String) - JSON array of allowed tools
+
+**Usage**: Type 3 persistent specialists. Loaded on `init`.
+
+**Examples**:
+```mangle
+shard_profile(/agent_rust, "Rust specialist", "[\"ownership\",\"lifetimes\"]", "[\"cargo\"]").
+```
+
+---
+
+### delegate_task/3
+
+**Purpose**: Task delegation to shards
+
+**Type**: EDB (asserted to trigger spawn)
+
+**Arguments**:
+1. ShardType (Name) - Target shard type
+2. Task (String) - Task description
+3. Priority (Int) - Task priority
+
+**Usage**: Triggers shard spawn when asserted.
+
+**Examples**:
+```mangle
+delegate_task(/reviewer, "review auth.go for security", 100).
+delegate_task(/tester, "run integration tests", 90).
+```
+
+**Spawning Rule**:
+```mangle
+spawn_shard(ShardType) :-
+    delegate_task(ShardType, _, _).
+```
+
+---
+
+## Context Selection Predicates
+
+### activation/3
+
+**Purpose**: Spreading activation weights for attention
+
+**Type**: IDB (derived from recency, goals, dependencies)
+
+**Arguments**:
+1. Concept (String) - File path, tool name, symbol
+2. Weight (Float) - 0.0-1.0 activation strength
+3. Source (Name) - `/recency`, `/goal`, `/dependency`
+
+**Usage**: Implements attention mechanism for prompt context.
+
+**Derivation**:
+```mangle
+# Recency boost
+activation(Fact, 100, /recency) :-
+    new_fact(Fact).
+
+# Spread via dependencies (decay 0.5)
+activation(FileB, Score2, /dependency) :-
+    activation(FileA, Score, _),
+    Score > 40,
+    dependency_link(FileA, FileB, _),
+    Score2 = fn:times(Score, 0.5).
+```
+
+---
+
+### context_atom/1
+
+**Purpose**: Facts selected for LLM context injection
+
+**Type**: IDB
+
+**Arguments**:
+1. Fact (String) - Fact to include
+
+**Usage**: Derived from activation > threshold.
+
+**Derivation**:
+```mangle
+context_atom(Fact) :-
+    activation(Fact, Score, _),
+    Score > 30.
+```
+
+---
+
+## Verb Taxonomy Predicates
+
+### verb_def/4
+
+**Purpose**: Verb definitions in taxonomy
+
+**Type**: EDB
+
+**Arguments**:
+1. Verb (Name) - Verb like `/fix`, `/review`
+2. Category (Name) - `/query`, `/mutation`, `/instruction`
+3. ShardType (Name) - Target shard or `/none`
+4. Priority (Int) - Selection priority
+
+**Usage**: Verb classification and routing.
+
+**Examples**:
+```mangle
+verb_def(/review, /query, /reviewer, 100).
+verb_def(/fix, /mutation, /coder, 90).
+```
+
+---
+
+### verb_synonym/2
+
+**Purpose**: Synonym mapping for NL parsing
+
+**Type**: EDB
+
+**Arguments**:
+1. Verb (Name) - Canonical verb
+2. Synonym (String) - Synonym phrase
+
+**Examples**:
+```mangle
+verb_synonym(/review, "audit").
+verb_synonym(/review, "code review").
+```
+
+---
+
+### candidate_intent/2
+
+**Purpose**: Intent candidates with raw scores (transient)
+
+**Type**: EDB (cleared after classification)
+
+**Arguments**:
+1. Verb (Name) - Candidate verb
+2. RawScore (Float) - Base score
+
+**Usage**: Populated by regex matching, boosted by semantic rules.
+
+---
+
+### selected_verb/1
+
+**Purpose**: Final selected verb after inference
+
+**Type**: IDB
+
+**Arguments**:
+1. Verb (Name) - Selected verb
+
+**Derivation**:
+```mangle
+selected_verb(Verb) :-
+    potential_score(Verb, S),
+    best_score(Max),
+    S = Max.
+```
+
+---
+
+## Campaign Predicates
+
+### campaign/3
+
+**Purpose**: Multi-phase goal tracking
+
+**Type**: EDB
+
+**Arguments**:
+1. ID (Name) - Campaign identifier
+2. Goal (String) - High-level goal
+3. Status (Name) - `/active`, `/paused`, `/completed`
+
+**Examples**:
+```mangle
+campaign(/c1, "Implement authentication system", /active).
+```
+
+---
+
+### campaign_phase/4
+
+**Purpose**: Individual campaign phases
+
+**Type**: EDB
+
+**Arguments**:
+1. CampaignID (Name) - Parent campaign
+2. PhaseNum (Int) - Phase number
+3. Description (String) - Phase description
+4. Status (Name) - Phase status
+
+**Examples**:
+```mangle
+campaign_phase(/c1, 1, "Design auth schema", /completed).
+campaign_phase(/c1, 2, "Implement handlers", /active).
+```
+
+---
+
+### phase_depends/3
+
+**Purpose**: Phase dependency constraints
+
+**Type**: EDB
+
+**Arguments**:
+1. CampaignID (Name) - Campaign
+2. Phase (Int) - Dependent phase
+3. DependsOn (Int) - Prerequisite phase
+
+**Examples**:
+```mangle
+phase_depends(/c1, 2, 1).  # Phase 2 needs Phase 1
+```
+
+---
+
+### phase_ready/2
+
+**Purpose**: Derived when phase can execute
+
+**Type**: IDB
+
+**Arguments**:
+1. CampaignID (Name) - Campaign
+2. Phase (Int) - Ready phase
+
+**Derivation**:
+```mangle
+phase_ready(CID, Phase) :-
+    campaign_phase(CID, Phase, _, /pending),
+    !has_incomplete_dependency(CID, Phase).
+```
+
+---
+
+## Autopoiesis Predicates (Ouroboros Loop)
+
+### state/3
+
+**Purpose**: Ouroboros loop transactional state
+
+**Type**: EDB
+
+**Arguments**:
+1. StepID (Name) - Step identifier
+2. Stability (Float) - Code stability score
+3. Location (String) - Code location
+
+**Examples**:
+```mangle
+state(/step1, 0.85, "internal/autopoiesis/tool_gen.go").
+```
+
+---
+
+### history/2
+
+**Purpose**: Code hash history for stagnation detection
+
+**Type**: EDB
+
+**Arguments**:
+1. StepID (Name) - Step identifier
+2. Hash (String) - Code hash
+
+**Examples**:
+```mangle
+history(/step1, "a3f4b2c1").
+history(/step2, "d7e8f9a0").
+```
+
+---
+
+### stagnation_detected/0
+
+**Purpose**: Derived when code hash repeats
+
+**Type**: IDB (nullary)
+
+**Derivation**:
+```mangle
+stagnation_detected() :-
+    history(StepA, Hash),
+    history(StepB, Hash),
+    StepA != StepB.
+```
+
+---
+
+### effective_stability/2
+
+**Purpose**: Stability adjusted for penalties
+
+**Type**: IDB
+
+**Arguments**:
+1. StepID (Name) - Step
+2. Effective (Float) - Adjusted score
+
+**Derivation**:
+```mangle
+effective_stability(StepID, Effective) :-
+    base_stability(StepID, Base),
+    cumulative_penalty(StepID, Penalty),
+    Effective = fn:minus(Base, Penalty).
+```
+
+---
+
+### should_halt/1
+
+**Purpose**: Derived when loop should terminate (failure)
+
+**Type**: IDB
+
+**Arguments**:
+1. StepID (Name) - Step to halt
+
+**Derivation**:
+```mangle
+should_halt(StepID) :-
+    stagnation_detected().
+
+should_halt(StepID) :-
+    max_iterations_exceeded(StepID).
+```
+
+---
+
+### should_complete/1
+
+**Purpose**: Derived when loop completed successfully
+
+**Type**: IDB
+
+**Arguments**:
+1. StepID (Name) - Step to complete
+
+**Derivation**:
+```mangle
+should_complete(StepID) :-
+    converged(StepID).
+```
+
+---
+
+## Safety Predicates
+
+### safe_action/1
+
+**Purpose**: Actions safe to execute
+
+**Type**: EDB (facts) or IDB (rules)
+
+**Arguments**:
+1. Action (Name) - Safe action
+
+**Examples**:
+```mangle
+safe_action(/read_file).
+safe_action(/list_directory).
+```
+
+---
+
+### dangerous_action/1
+
+**Purpose**: Actions requiring oversight
+
+**Type**: IDB
+
+**Arguments**:
+1. Action (Name) - Dangerous action
+
+**Derivation**:
+```mangle
+dangerous_action(Action) :-
+    action_type(Action, /exec_cmd),
+    cmd_string(Action, Cmd),
+    fn:string_contains(Cmd, "rm").
+```
+
+---
+
+### block_action/2
+
+**Purpose**: Explicitly blocked actions
+
+**Type**: IDB
+
+**Arguments**:
+1. ActionType (Name) - Action type
+2. Details (varies) - Action details
+
+**Derivation**:
+```mangle
+block_action(/write_file, Target) :-
+    unsafe_to_refactor(Target).
+
+block_action(/shell_exec, Req) :-
+    shell_exec_request(Binary, _, _, _, _),
+    not binary_allowlist(Binary).
+```
+
+---
+
+## Usage Patterns
+
+### Querying for Derivation
+
+```mangle
+# What's the next action?
+? next_action(Action).
+
+# Is this action permitted?
+? permitted(/write_file).
+
+# What files are impacted by changes?
+? impacted(Path).
+```
+
+### Asserting Facts
+
+```go
+engine.AddFact("file_topology", "src/main.go", "hash123", "/go", 1702345678, "/false")
+engine.AddFact("user_intent", "/u1", "/mutation", "/fix", "auth.go", "")
+engine.AddFact("test_state", "/failing")
+```
+
+### Checking Derived Facts
+
+```go
+result, _ := engine.Query(ctx, "next_action(Action)")
+if len(result.Bindings) > 0 {
+    action := result.Bindings[0]["Action"]
+}
+```
+
+## See Also
+
+- [schemas.md](schemas.md) - Full predicate declarations
+- [policy.md](policy.md) - IDB derivation rules
+- [fact_patterns.md](fact_patterns.md) - How to create facts
+- [query_patterns.md](query_patterns.md) - Query examples
