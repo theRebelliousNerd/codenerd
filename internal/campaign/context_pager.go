@@ -67,6 +67,17 @@ func (cp *ContextPager) GetUsage() (used, total int, utilization float64) {
 	return cp.usedTokens, cp.totalBudget, utilization
 }
 
+// ResetPhaseContext clears phase-scoped activation and context atoms.
+// This prevents boosts from accumulating across phases.
+func (cp *ContextPager) ResetPhaseContext() {
+	if cp.kernel == nil {
+		return
+	}
+	// Best-effort: these predicates are phase-scoped in campaign execution.
+	_ = cp.kernel.Retract("activation")
+	_ = cp.kernel.Retract("phase_context_atom")
+}
+
 // ActivatePhase loads context for a new phase.
 func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 	if phase == nil {

@@ -98,3 +98,20 @@ func GetCampaignPhaseForRole(role CampaignRole) string {
 		return "/active"
 	}
 }
+
+// GetShardTypeForRole returns the shard type to use for JIT prompt compilation
+// for a given campaign role. Some roles share the /planner or /analyzer shards.
+func GetShardTypeForRole(role CampaignRole) string {
+	switch role {
+	case RoleLibrarian:
+		return "librarian"
+	case RoleExtractor:
+		return "extractor"
+	case RoleAnalysis:
+		return "analyzer"
+	case RolePlanner, RoleTaxonomy, RoleReplanner:
+		return "planner"
+	default:
+		return "planner"
+	}
+}

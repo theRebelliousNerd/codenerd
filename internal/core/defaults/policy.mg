@@ -1258,16 +1258,13 @@ failed_campaign_task(CampaignID, TaskID) :-
     campaign_task(TaskID, PhaseID, Desc, /failed, TaskType),
     campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
 
-# Trigger replan on repeated failures (threshold checked in Go runtime)
-# The Go runtime counts failed_campaign_task facts and triggers replan if > 3
+# Trigger replan on repeated failures (configurable threshold).
+# The Go runtime asserts failed_campaign_task_count_computed/2 and campaign_config/5.
 replan_needed(CampaignID, "task_failure_cascade") :-
     current_campaign(CampaignID),
-    failed_campaign_task(CampaignID, TaskID1),
-    failed_campaign_task(CampaignID, TaskID2),
-    failed_campaign_task(CampaignID, TaskID3),
-    TaskID1 != TaskID2,
-    TaskID2 != TaskID3,
-    TaskID1 != TaskID3.
+    campaign_config(CampaignID, _, Threshold, /true, _),
+    failed_campaign_task_count_computed(CampaignID, Count),
+    Count >= Threshold.
 
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, "user_instruction") :-
