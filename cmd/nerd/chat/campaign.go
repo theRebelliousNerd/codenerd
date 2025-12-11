@@ -55,6 +55,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 
 		// Create decomposer to break down the goal
 		decomposer := campaign.NewDecomposer(m.kernel, m.client, m.workspace)
+		decomposer.SetShardLister(m.shardMgr) // Enable shard-aware planning
 
 		// Build request
 		req := campaign.DecomposeRequest{

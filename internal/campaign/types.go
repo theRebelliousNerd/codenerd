@@ -226,6 +226,11 @@ type Task struct {
 	SoftDeps  []string `json:"soft_deps,omitempty"`  // Soft dependencies (preferred order)
 	Resources []string `json:"resources,omitempty"`  // Required resources (semaphores)
 
+	// Shard routing (explicit shard selection, overrides type-based inference)
+	Shard       string   `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
+	ShardInput  string   `json:"shard_input,omitempty"`  // Full input to pass to shard
+	ContextFrom []string `json:"context_from,omitempty"` // Task IDs to pull results from for context injection
+
 	// Recursion
 	SubCampaignID string `json:"sub_campaign_id,omitempty"` // If set, this task is a sub-campaign
 

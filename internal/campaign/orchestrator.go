@@ -48,6 +48,10 @@ type Orchestrator struct {
 	cancelFunc context.CancelFunc
 	lastError  error
 
+	// Task result storage for context injection between tasks
+	taskResults map[string]string
+	resultsMu   sync.RWMutex
+
 	// Concurrency control
 	maxParallelTasks int
 
@@ -114,6 +118,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		progressChan:     cfg.ProgressChan,
 		eventChan:        cfg.EventChan,
 		maxParallelTasks: defaultParallelTasks,
+		taskResults:      make(map[string]string),
 		config:           cfg,
 	}
 
@@ -122,6 +127,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.ShardManager, cfg.Workspace)
 	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
 	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
+	o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
 	o.transducer = perception.NewRealTransducer(cfg.LLMClient)
 
 	if cfg.MaxParallelTasks > 0 {
@@ -964,12 +970,18 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 
 // executeTask executes a single task.
 func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error) {
-	logging.CampaignDebug("Executing task %s with type %s", task.ID, task.Type)
+	logging.CampaignDebug("Executing task %s with type %s, shard=%s", task.ID, task.Type, task.Shard)
 
 	// Update task status
 	o.updateTaskStatus(task, TaskInProgress)
 
-	// Determine execution strategy based on task type
+	// If task has explicit shard specified, use generic shard routing with context injection
+	if task.Shard != "" {
+		logging.CampaignDebug("Using explicit shard routing: %s", task.Shard)
+		return o.executeWithExplicitShard(ctx, task)
+	}
+
+	// Fallback to type-based routing for backward compatibility
 	switch task.Type {
 	case TaskTypeResearch:
 		logging.CampaignDebug("Delegating to research task handler")
@@ -1008,6 +1020,32 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 		logging.CampaignDebug("Using generic task handler for type: %s", task.Type)
 		return o.executeGenericTask(ctx, task)
 	}
+}
+
+// executeWithExplicitShard handles tasks with explicitly specified shard routing.
+// This enables the campaign system to call ANY shard at will with context injection.
+func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task) (any, error) {
+	shardType := task.Shard
+	logging.Campaign("Executing task %s with explicit shard: %s", task.ID, shardType)
+
+	// Build input with context injection from dependent tasks
+	input := o.buildTaskInput(task)
+	logging.CampaignDebug("Built shard input (%d bytes) for task %s", len(input), task.ID)
+
+	// Spawn the shard
+	result, err := o.shardMgr.Spawn(ctx, shardType, input)
+	if err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Shard %s failed for task %s: %v", shardType, task.ID, err)
+		return nil, fmt.Errorf("shard %s failed: %w", shardType, err)
+	}
+
+	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
+
+	return map[string]interface{}{
+		"shard":  shardType,
+		"result": result,
+		"task":   task.ID,
+	}, nil
 }
 
 // executeResearchTask spawns a researcher shard.
@@ -1409,6 +1447,68 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 		Predicate: "task_result",
 		Args:      []interface{}{task.ID, "/success", resultSummary},
 	})
+
+	// Store result for context injection into dependent tasks
+	o.storeTaskResult(task.ID, resultSummary)
+}
+
+// storeTaskResult stores a task's result for context injection into dependent tasks.
+func (o *Orchestrator) storeTaskResult(taskID, result string) {
+	o.resultsMu.Lock()
+	defer o.resultsMu.Unlock()
+	// Truncate if too large (keep first 10KB for context injection)
+	if len(result) > 10240 {
+		result = result[:10240] + "\n... [truncated]"
+	}
+	o.taskResults[taskID] = result
+	logging.CampaignDebug("Stored result for task %s (%d bytes)", taskID, len(result))
+}
+
+// getTaskResult retrieves a stored task result for context injection.
+func (o *Orchestrator) getTaskResult(taskID string) (string, bool) {
+	o.resultsMu.RLock()
+	defer o.resultsMu.RUnlock()
+	result, ok := o.taskResults[taskID]
+	return result, ok
+}
+
+// buildTaskInput constructs the input for a shard by combining the task's
+// ShardInput/Description with context from dependent tasks.
+func (o *Orchestrator) buildTaskInput(task *Task) string {
+	// Start with explicit shard input if provided, otherwise use description
+	input := task.ShardInput
+	if input == "" {
+		input = task.Description
+	}
+
+	// Inject context from dependent tasks specified in ContextFrom
+	if len(task.ContextFrom) > 0 {
+		for _, depID := range task.ContextFrom {
+			if result, ok := o.getTaskResult(depID); ok && result != "" {
+				input += fmt.Sprintf("\n\n=== CONTEXT FROM TASK %s ===\n%s", depID, result)
+				logging.CampaignDebug("Injected context from task %s (%d bytes)", depID, len(result))
+			}
+		}
+	}
+
+	return input
+}
+
+// inferShardFromTaskType maps a TaskType to its default shard for backward compatibility.
+// Tasks with explicit Shard fields bypass this inference.
+func inferShardFromTaskType(taskType TaskType) string {
+	switch taskType {
+	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeRefactor, TaskTypeDocument, TaskTypeIntegrate:
+		return "coder"
+	case TaskTypeTestWrite, TaskTypeTestRun:
+		return "tester"
+	case TaskTypeResearch:
+		return "researcher"
+	case TaskTypeVerify:
+		return "reviewer"
+	default:
+		return "coder" // Default to coder for unknown types
+	}
 }
 
 // handleTaskFailure handles task execution failure.
