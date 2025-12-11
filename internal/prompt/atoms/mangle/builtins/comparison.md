@@ -1,0 +1,310 @@
+# Mangle Comparison Predicates
+
+Complete reference for all comparison predicates in Mangle. These are **predicates**, not functions - they succeed or fail rather than returning values.
+
+## Numeric Comparison Predicates
+
+All comparison predicates work on numeric types (`Type<int>` and `Type<float64>`). Arguments must be **input mode** (bound values).
+
+---
+
+### :lt (Less Than)
+
+**Signature:** `:lt(Number, Number)`
+
+**Mode:** `(Input, Input)` - both arguments must be bound
+
+**Description:** Succeeds if first argument is strictly less than the second.
+
+**Type Support:**
+- `Type<int>` compared with `Type<int>`
+- `Type<float64>` compared with `Type<float64>`
+- Mixed types compared numerically
+
+**Examples:**
+
+```mangle
+# Basic comparison
+:lt(1, 2).                    # Succeeds
+:lt(2, 1).                    # Fails
+:lt(5, 5).                    # Fails (not strictly less)
+
+# In rule body
+younger(X) :- age(X, A), :lt(A, 18).
+
+# With variables
+ordered(X, Y) :- value(X), value(Y), :lt(X, Y).
+
+# Negative numbers
+:lt(-5, -3).                  # Succeeds (-5 < -3)
+
+# Filter pattern
+adult(Person) :- age(Person, Age), not :lt(Age, 18).
+```
+
+**Common Mistakes:**
+- ❌ Using with unbound variables: `:lt(X, 10)` where X is not bound - will fail
+- ❌ Comparing strings: `:lt("a", "b")` - type error (use atoms, not strings)
+- ❌ Wrong number of arguments: `:lt(1, 2, 3)` - error
+
+---
+
+### :le (Less Than or Equal)
+
+**Signature:** `:le(Number, Number)`
+
+**Mode:** `(Input, Input)`
+
+**Description:** Succeeds if first argument is less than or equal to the second.
+
+**Examples:**
+
+```mangle
+# Basic comparison
+:le(1, 2).                    # Succeeds
+:le(5, 5).                    # Succeeds (equal counts)
+:le(10, 5).                   # Fails
+
+# In rule body
+child_or_teen(X) :- age(X, A), :le(A, 19).
+
+# Boundary checking
+in_range(X) :- value(X), :le(0, X), :le(X, 100).
+
+# With floats
+:le(3.14, 3.15).              # Succeeds
+```
+
+**Common Mistakes:**
+- ❌ Confusing with `<` from other languages - this is `<=`
+- ❌ Assuming it generates values - it only checks
+
+---
+
+### :gt (Greater Than)
+
+**Signature:** `:gt(Number, Number)`
+
+**Mode:** `(Input, Input)`
+
+**Description:** Succeeds if first argument is strictly greater than the second.
+
+**Examples:**
+
+```mangle
+# Basic comparison
+:gt(5, 3).                    # Succeeds
+:gt(3, 3).                    # Fails (not strictly greater)
+:gt(2, 10).                   # Fails
+
+# In rule body
+expensive(Item) :- price(Item, P), :gt(P, 1000).
+
+# Multiple conditions
+high_priority(Task) :-
+  urgency(Task, U),
+  importance(Task, I),
+  :gt(U, 7),
+  :gt(I, 5).
+```
+
+---
+
+### :ge (Greater Than or Equal)
+
+**Signature:** `:ge(Number, Number)`
+
+**Mode:** `(Input, Input)`
+
+**Description:** Succeeds if first argument is greater than or equal to the second.
+
+**Examples:**
+
+```mangle
+# Basic comparison
+:ge(10, 5).                   # Succeeds
+:ge(5, 5).                    # Succeeds (equal counts)
+:ge(3, 7).                    # Fails
+
+# In rule body
+adult(Person) :- age(Person, A), :ge(A, 18).
+
+# Range checking
+valid_percentage(X) :- :ge(X, 0), :le(X, 100).
+
+# Threshold pattern
+meets_threshold(X) :- score(X, S), threshold(T), :ge(S, T).
+```
+
+---
+
+## Comparison Chains
+
+You can chain comparisons to express ranges and ordering:
+
+```mangle
+# Range check (10 <= X <= 20)
+in_range(X) :- value(X), :le(10, X), :le(X, 20).
+
+# Three-way ordering (A < B < C)
+ascending(A, B, C) :- :lt(A, B), :lt(B, C).
+
+# Non-negative and bounded
+valid_score(S) :- score(S), :ge(S, 0), :le(S, 100).
+```
+
+---
+
+## Sorting Patterns
+
+Comparisons are often used to establish ordering:
+
+```mangle
+# Find minimum by checking nothing is smaller
+min_value(X) :-
+  value(X),
+  not exists_smaller(X).
+
+exists_smaller(X) :-
+  value(X),
+  value(Y),
+  :lt(Y, X).
+
+# Find all pairs in order
+ordered_pair(X, Y) :- value(X), value(Y), :lt(X, Y).
+```
+
+---
+
+## Type Behavior
+
+### Integer Comparison
+```mangle
+:lt(5, 10).                   # Succeeds
+:le(10, 10).                  # Succeeds
+:gt(-3, -5).                  # Succeeds
+:ge(0, -1).                   # Succeeds
+```
+
+### Float Comparison
+```mangle
+:lt(3.14, 3.15).              # Succeeds
+:ge(2.718, 2.718).            # Succeeds
+
+# Be careful with float equality!
+:le(X, Y), :ge(X, Y).         # Approximates equality, but watch precision
+```
+
+### Mixed Comparison (Int and Float)
+Mangle allows comparison between int and float by converting int to float:
+```mangle
+:lt(3, 3.14).                 # Succeeds (3.0 < 3.14)
+:ge(5, 4.99).                 # Succeeds (5.0 >= 4.99)
+```
+
+---
+
+## Safety Rules
+
+All comparison predicates require **both arguments to be bound** (Input mode):
+
+```mangle
+# ✓ SAFE - both arguments bound
+safe_check(X) :- value(X), :lt(X, 100).
+
+# ✗ UNSAFE - Y is unbound
+unsafe_check(Y) :- :lt(Y, 100).  # Will fail at runtime
+
+# ✓ SAFE - bind first, then compare
+safe_filter(Y) :- candidate(Y), :lt(Y, 100).
+```
+
+---
+
+## Common Patterns
+
+### Threshold Filtering
+```mangle
+high_value(X) :- measurement(X, M), :gt(M, threshold).
+```
+
+### Range Queries
+```mangle
+in_range(X, Low, High) :- value(X), :le(Low, X), :le(X, High).
+```
+
+### Ranking
+```mangle
+# X is better than Y
+better(X, Y) :- score(X, SX), score(Y, SY), :gt(SX, SY).
+
+# Top performer (no one better)
+top(X) :- score(X, _), not has_better(X).
+has_better(X) :- better(Y, X).
+```
+
+### Boundary Conditions
+```mangle
+# Exclusive range (Low < X < High)
+strictly_between(X, Low, High) :-
+  value(X),
+  :gt(X, Low),
+  :lt(X, High).
+
+# Inclusive range (Low <= X <= High)
+between(X, Low, High) :-
+  value(X),
+  :ge(X, Low),
+  :le(X, High).
+```
+
+---
+
+## Error Conditions
+
+### Type Errors
+```mangle
+# ✗ Comparing non-numbers
+:lt("hello", "world").        # Type error
+:gt(/atom1, /atom2).          # Type error
+```
+
+### Arity Errors
+```mangle
+# ✗ Wrong number of arguments
+:lt(1).                       # Error: needs 2 arguments
+:lt(1, 2, 3).                 # Error: too many arguments
+```
+
+### Unbound Variables
+```mangle
+# ✗ Unbound variable
+:lt(X, 10).                   # Fails if X unbound
+```
+
+---
+
+## Comparison Table
+
+| Predicate | Symbol | Math | Example | Result |
+|-----------|--------|------|---------|--------|
+| `:lt` | < | Strictly less | `:lt(3, 5)` | Success |
+| `:le` | ≤ | Less or equal | `:le(5, 5)` | Success |
+| `:gt` | > | Strictly greater | `:gt(10, 7)` | Success |
+| `:ge` | ≥ | Greater or equal | `:ge(4, 4)` | Success |
+
+---
+
+## Performance Notes
+
+- Comparisons are very fast (constant time)
+- No indexing benefit - must evaluate all candidates
+- Place more selective predicates before comparisons when possible:
+
+```mangle
+# BETTER - filter by predicate first
+expensive(X) :- rare_item(X), price(X, P), :gt(P, 1000).
+
+# WORSE - comparison doesn't reduce search space
+expensive(X) :- price(X, P), :gt(P, 1000), rare_item(X).
+```

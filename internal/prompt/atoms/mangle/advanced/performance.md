@@ -1,0 +1,368 @@
+# Mangle Performance Optimization
+
+## Query Optimization Principles
+
+### 1. Selectivity Ordering (Most Critical)
+
+**Rule: Place the most selective predicates FIRST in the rule body.**
+
+Selectivity = How many results does this predicate produce?
+- High selectivity = Few results (GOOD - place first)
+- Low selectivity = Many results (BAD - place last)
+
+#### Bad Example (Cartesian Product Explosion)
+```mangle
+# WRONG: huge_table first generates millions of candidates
+result(X, Y) :-
+  huge_table(X),           # 1,000,000 rows
+  small_filter(Y),         # 10 rows
+  X = Y.                   # Join condition last
+```
+
+#### Good Example (Selective First)
+```mangle
+# CORRECT: Filter first, then join
+result(X, Y) :-
+  small_filter(Y),         # 10 rows first
+  Y = X,                   # Bind X early
+  huge_table(X).           # Only check 10 specific values
+```
+
+### 2. Constant Binding Early
+
+Always bind variables to constants as early as possible.
+
+#### Bad Example
+```mangle
+# WRONG: ID binding happens late
+find_user(Name, Email) :-
+  user(ID, Name, Email, Status, Department),
+  ID = /user_12345.
+```
+
+#### Good Example
+```mangle
+# CORRECT: Bind ID immediately
+find_user(Name, Email) :-
+  ID = /user_12345,
+  user(ID, Name, Email, Status, Department).
+```
+
+### 3. Join Ordering
+
+Order joins from most selective to least selective.
+
+#### Example: Multi-table Join
+```mangle
+# Schema
+Decl employee(Id.Type<atom>, Name.Type<string>, DeptId.Type<atom>).
+Decl department(Id.Type<atom>, Name.Type<string>, Budget.Type<int>).
+Decl project(Id.Type<atom>, Name.Type<string>, DeptId.Type<atom>).
+
+# BAD: Cartesian product of all employees × all projects
+expensive_query(EName, PName) :-
+  employee(EId, EName, DeptId),     # 10,000 rows
+  project(PId, PName, PDeptId),      # 5,000 rows
+  DeptId = PDeptId.                  # 50M comparisons!
+
+# GOOD: Use shared department as anchor
+efficient_query(EName, PName) :-
+  DeptId = /engineering,             # 1 value
+  employee(EId, EName, DeptId),      # ~500 rows
+  project(PId, PName, DeptId).       # ~100 rows
+```
+
+### 4. Negation Optimization
+
+Negation can be expensive. Minimize the candidate set before applying negation.
+
+#### Bad Example
+```mangle
+# WRONG: Checks negation for all users
+inactive_users(ID, Name) :-
+  user(ID, Name, Email),             # 100,000 users
+  not recent_login(ID).              # 100,000 negation checks
+```
+
+#### Good Example
+```mangle
+# CORRECT: Filter first, then check negation
+inactive_flagged_users(ID, Name) :-
+  flagged_for_review(ID),            # Only 50 users
+  user(ID, Name, Email),             # Lookup 50 specific users
+  not recent_login(ID).              # Only 50 negation checks
+```
+
+### 5. Recursion Optimization
+
+#### Limit Recursion Depth
+```mangle
+# Without limit: infinite recursion risk
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+
+# With depth limit
+Decl depth_limited_ancestor(Anc.Type<atom>, Desc.Type<atom>, Depth.Type<int>).
+
+depth_limited_ancestor(X, Y, 1) :- parent(X, Y).
+depth_limited_ancestor(X, Z, D) :-
+  parent(X, Y),
+  depth_limited_ancestor(Y, Z, D1),
+  D = fn:plus(D1, 1),
+  D < 10.  # Maximum 10 generations
+```
+
+#### Tail Recursion Optimization
+```mangle
+# Non-tail recursive (builds call stack)
+count_nodes(Root, Count) :-
+  leaf(Root),
+  Count = 1.
+count_nodes(Root, Count) :-
+  child(Root, C),
+  count_nodes(C, SubCount),
+  Count = fn:plus(SubCount, 1).
+
+# Better: Use aggregation instead
+node_count(Root, Count) :-
+  descendant(Root, D)  # Compute all descendants first
+  |> do fn:group_by(Root),
+  let Count = fn:count(D).
+```
+
+### 6. Aggregation Performance
+
+#### Pre-filter Before Aggregation
+```mangle
+# BAD: Aggregate everything, then filter
+expensive_avg(Dept, Avg) :-
+  employee(ID, Name, Dept, Salary)
+  |> do fn:group_by(Dept),
+  let Avg = fn:mean(Salary),
+  Avg > 100000.  # Filter after aggregation
+
+# GOOD: Filter first, then aggregate
+efficient_avg(Dept, Avg) :-
+  Dept = /engineering,               # Filter department first
+  employee(ID, Name, Dept, Salary)
+  |> do fn:group_by(Dept),
+  let Avg = fn:mean(Salary).
+```
+
+#### Multiple Aggregations on Same Data
+```mangle
+# BAD: Scan data twice
+dept_stats_bad(Dept, Avg, Max) :-
+  employee(ID, Name, Dept, Salary)
+  |> do fn:group_by(Dept),
+  let Avg = fn:mean(Salary).
+
+dept_max_bad(Dept, Max) :-
+  employee(ID, Name, Dept, Salary)
+  |> do fn:group_by(Dept),
+  let Max = fn:max(Salary).
+
+# GOOD: Compute all aggregations in one pass
+dept_stats_good(Dept, Avg, Max, Min, Count) :-
+  employee(ID, Name, Dept, Salary)
+  |> do fn:group_by(Dept),
+  let Avg = fn:mean(Salary),
+  let Max = fn:max(Salary),
+  let Min = fn:min(Salary),
+  let Count = fn:count(ID).
+```
+
+### 7. Avoiding Redundant Computation
+
+#### Extract Common Subexpressions
+```mangle
+# BAD: Recomputes is_manager multiple times
+high_paid_manager(ID) :-
+  employee(ID, Name, Dept, Salary),
+  manager(ID, TeamSize),
+  Salary > 150000.
+
+manager_with_large_team(ID) :-
+  employee(ID, Name, Dept, Salary),
+  manager(ID, TeamSize),
+  TeamSize > 10.
+
+# GOOD: Materialize is_manager once
+is_manager(ID, TeamSize) :-
+  manager(ID, TeamSize).
+
+high_paid_manager(ID) :-
+  is_manager(ID, TeamSize),
+  employee(ID, Name, Dept, Salary),
+  Salary > 150000.
+
+manager_with_large_team(ID) :-
+  is_manager(ID, TeamSize),
+  TeamSize > 10.
+```
+
+### 8. Index-Friendly Patterns
+
+Mangle's engine can optimize certain patterns better than others.
+
+#### Good Patterns (Index-Friendly)
+```mangle
+# Direct lookup by first argument (usually indexed)
+user_by_id(Name) :-
+  ID = /user_123,
+  user(ID, Name, Email).
+
+# Equality constraint (can use index)
+find_email(Email) :-
+  user(/user_123, Name, Email).
+```
+
+#### Bad Patterns (Full Scans)
+```mangle
+# Inequality constraints require full scan
+expensive_users(ID, Name) :-
+  user(ID, Name, Email),
+  ID != /user_123.  # Must check every row
+
+# Function calls on indexed fields prevent index use
+computed_lookup(ID, Name) :-
+  user(ID, Name, Email),
+  fn:string_concat("user_", "123") = ID.  # Full scan
+```
+
+### 9. Memory Management
+
+#### Avoid Generating Huge Intermediate Results
+```mangle
+# BAD: Generates all pairs (O(n²))
+all_pairs(X, Y) :-
+  item(X),
+  item(Y),
+  X != Y.
+
+# If you need pairs, limit the domain
+limited_pairs(X, Y) :-
+  recent_item(X),      # Only last 100 items
+  recent_item(Y),
+  X != Y.
+```
+
+### 10. Benchmark-Driven Optimization
+
+Always measure before optimizing.
+
+#### Profiling Template
+```mangle
+# Add timing predicates
+Decl query_start_time(QueryName.Type<atom>, Time.Type<int>).
+Decl query_end_time(QueryName.Type<atom>, Time.Type<int>).
+Decl query_duration(QueryName.Type<atom>, Duration.Type<int>).
+
+# Compute duration
+query_duration(Name, Duration) :-
+  query_start_time(Name, Start),
+  query_end_time(Name, End),
+  Duration = fn:minus(End, Start).
+
+# Identify slow queries
+slow_query(Name, Duration) :-
+  query_duration(Name, Duration),
+  Duration > 1000.  # More than 1 second
+```
+
+## Performance Anti-Patterns
+
+### 1. The "Generator" Anti-Pattern
+```mangle
+# WRONG: Generates unbounded results
+infinite_numbers(N) :-
+  infinite_numbers(M),
+  N = fn:plus(M, 1).
+
+infinite_numbers(0).
+```
+
+### 2. The "Unconstrained Search" Anti-Pattern
+```mangle
+# WRONG: Searches entire space
+find_anything(X, Y, Z) :-
+  predicate1(X),
+  predicate2(Y),
+  predicate3(Z).
+  # No constraints! Generates all combinations
+```
+
+### 3. The "Late Filter" Anti-Pattern
+```mangle
+# WRONG: Filters after expensive computation
+expensive(Result) :-
+  huge_join(X, Y, Z),
+  complex_computation(X, Y, Z, Result),
+  Result > 100.  # Should filter earlier
+
+# CORRECT: Filter inputs before computation
+efficient(Result) :-
+  X > 50,  # Early filter
+  Y < 1000,  # Early filter
+  huge_join(X, Y, Z),
+  complex_computation(X, Y, Z, Result),
+  Result > 100.
+```
+
+## Performance Checklist
+
+Before finalizing a Mangle program:
+
+- [ ] Most selective predicates appear first in rule bodies
+- [ ] Constants are bound as early as possible
+- [ ] Joins are ordered from small to large tables
+- [ ] Negation is applied after narrowing the candidate set
+- [ ] Recursion has explicit termination conditions
+- [ ] Aggregations operate on pre-filtered data
+- [ ] Common subexpressions are extracted into helper predicates
+- [ ] Inequality constraints appear after equality constraints
+- [ ] No unbounded generators exist
+- [ ] Memory usage is bounded for all intermediate results
+
+## Example: Full Optimization
+
+```mangle
+# BEFORE: Slow query (multiple anti-patterns)
+find_high_value_customers_slow(CustomerID, TotalSpent) :-
+  order(OrderID, CustomerID, Amount, Date),
+  customer(CustomerID, Name, Status),
+  Status = /active,
+  Amount > 1000
+  |> do fn:group_by(CustomerID),
+  let TotalSpent = fn:sum(Amount),
+  TotalSpent > 50000.
+
+# AFTER: Optimized query
+find_high_value_customers_fast(CustomerID, TotalSpent) :-
+  Status = /active,                    # 1. Bind constant first
+  customer(CustomerID, Name, Status),  # 2. Filter to active customers
+  order(OrderID, CustomerID, Amount, Date),  # 3. Join on smaller set
+  Amount > 1000                        # 4. Filter before aggregation
+  |> do fn:group_by(CustomerID),
+  let TotalSpent = fn:sum(Amount),
+  TotalSpent > 50000.
+```
+
+## Advanced: Gas Limits
+
+For production systems, enforce computational limits:
+
+```mangle
+# Track computation cost
+Decl operation_cost(Op.Type<atom>, Cost.Type<int>).
+Decl total_cost(Cost.Type<int>).
+
+operation_cost(/join, 10).
+operation_cost(/filter, 1).
+operation_cost(/aggregate, 50).
+
+# Enforce gas limit
+exceeds_budget(TotalCost) :-
+  total_cost(TotalCost),
+  TotalCost > 10000.  # Maximum allowed cost
+```

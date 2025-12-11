@@ -1,0 +1,687 @@
+# Anti-Pattern: Dynamic Predicates
+
+## Category
+Meta-Programming Limitations
+
+## Description
+Trying to create predicates dynamically at runtime, use computed predicate names, or treat predicates as first-class values when Mangle requires static predicate definitions.
+
+---
+
+## Anti-Pattern 1: Creating Predicates at Runtime
+
+### Wrong Approach
+```python
+# Dynamically create functions
+def create_function(name):
+    globals()[name] = lambda x: x * 2
+
+create_function("double")
+result = double(5)  # Dynamically created function
+```
+
+Attempting:
+```mangle
+# WRONG - can't create predicates at runtime
+create_predicate(Name) :-
+    predicate_name(Name),
+    Decl Name(X.Type<int>).  # Not possible!
+```
+
+### Why It Fails
+All predicates must be **declared statically** before evaluation. No runtime predicate creation.
+
+### Correct Mangle Way
+```mangle
+# Declare all possible predicates upfront:
+Decl operation_double(X.Type<int>, Result.Type<int>).
+Decl operation_triple(X.Type<int>, Result.Type<int>).
+Decl operation_square(X.Type<int>, Result.Type<int>).
+
+operation_double(X, R) :- input(X), R = fn:times(X, 2).
+operation_triple(X, R) :- input(X), R = fn:times(X, 3).
+operation_square(X, R) :- input(X), R = fn:times(X, X).
+
+# Use atoms to select which operation:
+Decl requested_operation(Op.Type</atom>).
+
+result(R) :-
+    requested_operation(/double),
+    operation_double(_, R).
+
+result(R) :-
+    requested_operation(/triple),
+    operation_triple(_, R).
+```
+
+---
+
+## Anti-Pattern 2: Computed Predicate Names
+
+### Wrong Approach
+```javascript
+// Dynamically call functions
+const operation = "calculate" + type;
+window[operation](value);  // Call calculate_sum, calculate_avg, etc.
+```
+
+Attempting:
+```mangle
+# WRONG - no computed predicate names
+dynamic_call(Type, Value, Result) :-
+    operation_name(Type, Name),
+    call(Name, Value, Result).  # Can't call by name
+```
+
+### Why It Fails
+Predicate names are static identifiers, not runtime values.
+
+### Correct Mangle Way
+```mangle
+# Use pattern matching on operation types:
+Decl operation(Type.Type</atom>, Value.Type<int>, Result.Type<int>).
+
+operation(/sum, Value, Result) :-
+    sum_data(Data),
+    aggregate_sum(Data, Result).
+
+operation(/avg, Value, Result) :-
+    avg_data(Data),
+    aggregate_avg(Data, Result).
+
+operation(/max, Value, Result) :-
+    max_data(Data),
+    aggregate_max(Data, Result).
+
+# Dispatch based on type:
+compute(Type, Result) :-
+    requested_operation(Type),
+    operation(Type, _, Result).
+```
+
+---
+
+## Anti-Pattern 3: Predicates as First-Class Values
+
+### Wrong Approach
+```python
+# Pass functions as arguments
+def apply(func, x):
+    return func(x)
+
+result = apply(lambda x: x * 2, 5)
+```
+
+Attempting:
+```mangle
+# WRONG - predicates are not values
+apply(Func, X, Result) :-
+    Func(X, Result).  # Can't pass predicate as variable
+```
+
+### Why It Fails
+Predicates are not first-class values. Can't store them in variables or pass them around.
+
+### Correct Mangle Way
+```mangle
+# Use atoms as tags to represent operations:
+Decl apply(Op.Type</atom>, X.Type<int>, Result.Type<int>).
+
+apply(/double, X, R) :- R = fn:times(X, 2).
+apply(/triple, X, R) :- R = fn:times(X, 3).
+apply(/square, X, R) :- R = fn:times(X, X).
+
+# "Pass" the operation by passing the atom:
+Decl computation(Op.Type</atom>, Input.Type<int>).
+
+computation(/double, 5).
+
+result(R) :-
+    computation(Op, X),
+    apply(Op, X, R).
+```
+
+---
+
+## Anti-Pattern 4: Reflection / Introspection
+
+### Wrong Approach
+```python
+# Introspect available functions
+for name in dir(module):
+    if callable(getattr(module, name)):
+        print(f"Found function: {name}")
+```
+
+Attempting:
+```mangle
+# WRONG - no reflection
+all_predicates(Name) :-
+    Name = get_all_predicates().  # Not possible
+```
+
+### Why It Fails
+No reflection API to query available predicates at runtime.
+
+### Correct Mangle Way
+```mangle
+# Manually maintain a registry:
+Decl registered_predicate(Name.Type</atom>).
+
+registered_predicate(/user).
+registered_predicate(/order).
+registered_predicate(/product).
+
+# Use the registry:
+all_data(Type, Data) :-
+    registered_predicate(/user),
+    user(Data).
+
+all_data(Type, Data) :-
+    registered_predicate(/order),
+    order(Data).
+```
+
+---
+
+## Anti-Pattern 5: Dynamic Arity
+
+### Wrong Approach
+```javascript
+// Variable number of arguments
+function sum(...args) {
+    return args.reduce((a, b) => a + b, 0);
+}
+
+sum(1, 2, 3, 4, 5);  // Any number of args
+```
+
+Attempting:
+```mangle
+# WRONG - arity is fixed
+sum(Args, Result) :-
+    # Can't have variable arity
+    Result = sum_all(Args...).  # Not possible
+```
+
+### Why It Fails
+Every predicate has a **fixed arity** (number of arguments).
+
+### Correct Mangle Way
+```mangle
+# Use lists for variable-length data:
+Decl sum_list(Values.Type<list>, Result.Type<int>).
+
+sum_list([], 0).
+sum_list(List, Sum) :-
+    :match_cons(List, Head, Tail),
+    sum_list(Tail, TailSum),
+    Sum = fn:plus(Head, TailSum).
+
+# Or use aggregation:
+total(Sum) :-
+    value(V)
+    |> do fn:group_by()
+    |> let Sum = fn:Sum(V).
+
+# Load variable-length data as separate facts:
+value(1).
+value(2).
+value(3).
+value(4).
+value(5).
+```
+
+---
+
+## Anti-Pattern 6: Predicate Aliasing
+
+### Wrong Approach
+```python
+# Alias a function
+calculate = expensive_calculation
+result = calculate(x)  # Same as expensive_calculation(x)
+```
+
+Attempting:
+```mangle
+# WRONG - no predicate aliases
+alias(X, Y) :- expensive_calculation = alias, alias(X, Y).
+```
+
+### Why It Fails
+No aliasing mechanism for predicates.
+
+### Correct Mangle Way
+```mangle
+# Define a wrapper predicate:
+Decl expensive_calculation(X.Type<int>, Y.Type<int>).
+Decl calc(X.Type<int>, Y.Type<int>).  # Alias
+
+calc(X, Y) :- expensive_calculation(X, Y).
+
+# Both predicates work:
+result1(Y) :- expensive_calculation(10, Y).
+result2(Y) :- calc(10, Y).  # Same result
+```
+
+---
+
+## Anti-Pattern 7: Conditional Predicate Definition
+
+### Wrong Approach
+```python
+# Define function conditionally
+if config.enable_feature:
+    def process(x):
+        return advanced_process(x)
+else:
+    def process(x):
+        return simple_process(x)
+```
+
+Attempting:
+```mangle
+# WRONG - can't conditionally define predicates
+if feature_enabled then
+    process(X, Y) :- advanced_process(X, Y).
+else
+    process(X, Y) :- simple_process(X, Y).
+```
+
+### Why It Fails
+No conditional predicate definition. All predicates exist.
+
+### Correct Mangle Way
+```mangle
+# Define both, use guards to select:
+Decl process(X.Type<int>, Y.Type<int>).
+
+process(X, Y) :-
+    feature_enabled(/advanced),
+    advanced_process(X, Y).
+
+process(X, Y) :-
+    not feature_enabled(/advanced),
+    simple_process(X, Y).
+
+# Or use explicit selection:
+process(X, Y) :-
+    config(/use_advanced),
+    advanced_process(X, Y).
+
+process(X, Y) :-
+    config(/use_simple),
+    simple_process(X, Y).
+```
+
+---
+
+## Anti-Pattern 8: Predicate Overloading
+
+### Wrong Approach
+```java
+// Method overloading
+int add(int a, int b) { return a + b; }
+double add(double a, double b) { return a + b; }
+String add(String a, String b) { return a + b; }
+```
+
+Attempting:
+```mangle
+# WRONG - no overloading by type
+Decl add(A.Type<int>, B.Type<int>, Result.Type<int>).
+Decl add(A.Type<float>, B.Type<float>, Result.Type<float>).  # Name collision!
+```
+
+### Why It Fails
+Predicate names are unique. Can't overload by type.
+
+### Correct Mangle Way
+```mangle
+# Use different predicate names:
+Decl add_int(A.Type<int>, B.Type<int>, Result.Type<int>).
+Decl add_float(A.Type<float>, B.Type<float>, Result.Type<float>).
+Decl add_string(A.Type<string>, B.Type<string>, Result.Type<string>).
+
+add_int(A, B, R) :- R = fn:plus(A, B).
+add_float(A, B, R) :- R = fn:plus_float(A, B).
+add_string(A, B, R) :- fn:string_concat([A, B], R).
+
+# Or use tagged unions:
+Decl add(Type.Type</atom>, A, B, Result).
+
+add(/int, A, B, R) :-
+    # A and B are ints
+    R = fn:plus(A, B).
+
+add(/string, A, B, R) :-
+    # A and B are strings
+    fn:string_concat([A, B], R).
+```
+
+---
+
+## Anti-Pattern 9: Storing Predicates in Data Structures
+
+### Wrong Approach
+```python
+# Store functions in a dictionary
+handlers = {
+    "add": lambda a, b: a + b,
+    "mul": lambda a, b: a * b,
+}
+
+result = handlers["add"](5, 3)
+```
+
+Attempting:
+```mangle
+# WRONG - can't store predicates in structures
+handler_map({/add: add_pred, /mul: mul_pred}).
+
+call_handler(Op, A, B, R) :-
+    handler_map(Map),
+    Map[Op](A, B, R).  # Not possible
+```
+
+### Why It Fails
+Predicates are not values that can be stored in data structures.
+
+### Correct Mangle Way
+```mangle
+# Use pattern matching:
+Decl handler(Op.Type</atom>, A.Type<int>, B.Type<int>, Result.Type<int>).
+
+handler(/add, A, B, R) :- R = fn:plus(A, B).
+handler(/mul, A, B, R) :- R = fn:times(A, B).
+handler(/sub, A, B, R) :- R = fn:minus(A, B).
+
+# Dispatch:
+compute(Op, A, B, Result) :-
+    handler(Op, A, B, Result).
+
+# Usage:
+result(R) :- compute(/add, 5, 3, R).  # R = 8
+```
+
+---
+
+## Anti-Pattern 10: Meta-Circular Evaluation
+
+### Wrong Approach
+```lisp
+; Lisp-style eval
+(eval '(+ 1 2))  ; Evaluates to 3
+```
+
+Attempting:
+```mangle
+# WRONG - no eval
+evaluate(Expr, Result) :-
+    Result = eval(Expr).
+```
+
+### Why It Fails
+No `eval` or meta-circular evaluation.
+
+### Correct Mangle Way
+```mangle
+# Build an interpreter:
+Decl expr(Id.Type</atom>, Type.Type</atom>).
+Decl expr_arg(Id.Type</atom>, Index.Type<int>, Value.Type<int>).
+
+# Represent: add(1, 2)
+expr(/e1, /add).
+expr_arg(/e1, 0, 1).
+expr_arg(/e1, 1, 2).
+
+# Interpret:
+eval_expr(Id, Result) :-
+    expr(Id, /add),
+    expr_arg(Id, 0, A),
+    expr_arg(Id, 1, B),
+    Result = fn:plus(A, B).
+
+eval_expr(Id, Result) :-
+    expr(Id, /mul),
+    expr_arg(Id, 0, A),
+    expr_arg(Id, 1, B),
+    Result = fn:times(A, B).
+
+# This is tedious - better to evaluate in Go!
+```
+
+---
+
+## Anti-Pattern 11: Higher-Order Predicates
+
+### Wrong Approach
+```haskell
+-- Higher-order function
+map :: (a -> b) -> [a] -> [b]
+map f xs = [f x | x <- xs]
+
+doubled = map (*2) [1,2,3]
+```
+
+Attempting:
+```mangle
+# WRONG - no higher-order predicates
+map(Func, List, Result) :-
+    # Can't apply Func to each element
+    Result = [Func(X) for X in List].
+```
+
+### Why It Fails
+Predicates are not first-class. Can't pass them to other predicates.
+
+### Correct Mangle Way
+```mangle
+# Use atoms to represent operations:
+Decl map_operation(Op.Type</atom>, Input.Type<int>, Output.Type<int>).
+
+map_operation(/double, X, Y) :- Y = fn:times(X, 2).
+map_operation(/triple, X, Y) :- Y = fn:times(X, 3).
+
+# Apply operation to list:
+Decl input_list(Index.Type<int>, Value.Type<int>).
+
+input_list(0, 1).
+input_list(1, 2).
+input_list(2, 3).
+
+mapped(Op, Index, Result) :-
+    input_list(Index, Value),
+    map_operation(Op, Value, Result).
+
+# Query: mapped(/double, _, Result)?
+# Results: (0, 2), (1, 4), (2, 6)
+```
+
+---
+
+## Anti-Pattern 12: Dynamic Composition
+
+### Wrong Approach
+```javascript
+// Compose functions dynamically
+function compose(...funcs) {
+    return x => funcs.reduceRight((acc, f) => f(acc), x);
+}
+
+const transform = compose(triple, double, addOne);
+```
+
+Attempting:
+```mangle
+# WRONG - no dynamic composition
+compose(Funcs, X, Result) :-
+    Result = apply_all(Funcs, X).  # Not possible
+```
+
+### Why It Fails
+Can't compose predicates dynamically.
+
+### Correct Mangle Way
+```mangle
+# Pre-define compositions:
+Decl transform_a(X.Type<int>, Result.Type<int>).
+Decl transform_b(X.Type<int>, Result.Type<int>).
+
+transform_a(X, R) :-
+    Y = fn:plus(X, 1),
+    Z = fn:times(Y, 2),
+    R = fn:times(Z, 3).
+
+transform_b(X, R) :-
+    Y = fn:times(X, 2),
+    R = fn:plus(Y, 10).
+
+# Or chain explicitly:
+Decl step1(X.Type<int>, Y.Type<int>).
+Decl step2(Y.Type<int>, Z.Type<int>).
+Decl step3(Z.Type<int>, Result.Type<int>).
+
+step1(X, Y) :- Y = fn:plus(X, 1).
+step2(Y, Z) :- Z = fn:times(Y, 2).
+step3(Z, R) :- R = fn:times(Z, 3).
+
+final_result(X, R) :-
+    step1(X, Y),
+    step2(Y, Z),
+    step3(Z, R).
+```
+
+---
+
+## Pattern: Simulating Dynamic Behavior
+
+### Strategy Table Pattern
+
+Instead of dynamic predicates, use a **strategy table**:
+
+```mangle
+# Define all strategies:
+Decl strategy(Name.Type</atom>, Input.Type<int>, Output.Type<int>).
+
+strategy(/double, X, Y) :- Y = fn:times(X, 2).
+strategy(/triple, X, Y) :- Y = fn:times(X, 3).
+strategy(/square, X, Y) :- Y = fn:times(X, X).
+
+# Select strategy dynamically:
+Decl active_strategy(Name.Type</atom>).
+
+active_strategy(/double).  # Load from config
+
+apply_strategy(Input, Output) :-
+    active_strategy(Name),
+    strategy(Name, Input, Output).
+```
+
+### Interpreter Pattern
+
+For complex dynamic behavior, build an interpreter:
+
+```mangle
+# AST representation:
+Decl ast(Id.Type</atom>, Type.Type</atom>).
+Decl ast_child(Parent.Type</atom>, Index.Type<int>, Child.Type</atom>).
+Decl ast_value(Id.Type</atom>, Value.Type<int>).
+
+# Example: (add 1 (mul 2 3))
+ast(/e1, /add).
+ast_child(/e1, 0, /e2).
+ast_child(/e1, 1, /e3).
+ast_value(/e2, 1).
+ast(/e3, /mul).
+ast_child(/e3, 0, /e4).
+ast_child(/e3, 1, /e5).
+ast_value(/e4, 2).
+ast_value(/e5, 3).
+
+# Evaluate:
+eval(Id, Result) :-
+    ast_value(Id, Result).
+
+eval(Id, Result) :-
+    ast(Id, /add),
+    ast_child(Id, 0, Left),
+    ast_child(Id, 1, Right),
+    eval(Left, LResult),
+    eval(Right, RResult),
+    Result = fn:plus(LResult, RResult).
+
+# Recurse for /mul, /sub, etc.
+```
+
+---
+
+## Key Principle: Static Predicates, Dynamic Data
+
+| Dynamic Code | Static Mangle |
+|--------------|---------------|
+| Create predicates at runtime | Declare all predicates upfront |
+| Computed predicate names | Pattern match on atoms |
+| Predicates as values | Use atoms as tags |
+| Reflection | Manual registry |
+| Variable arity | Use lists |
+| Predicate aliases | Wrapper predicates |
+| Conditional definitions | Guards in rule bodies |
+| Overloading | Different names or tagged unions |
+| Store predicates | Pattern matching tables |
+| `eval` | Build interpreter |
+| Higher-order predicates | Atoms represent operations |
+| Dynamic composition | Pre-define compositions |
+
+---
+
+## Migration Checklist
+
+When translating dynamic code to Mangle:
+
+- [ ] Declare all predicates statically
+- [ ] Replace computed names with pattern matching
+- [ ] Replace predicate values with atom tags
+- [ ] Replace reflection with manual registries
+- [ ] Replace varargs with lists
+- [ ] Create wrapper predicates for aliases
+- [ ] Use guards instead of conditional definitions
+- [ ] Rename overloaded predicates
+- [ ] Replace predicate storage with pattern matching
+- [ ] Build interpreters instead of using eval
+- [ ] Represent operations as atoms, not closures
+- [ ] Pre-define compositions explicitly
+- [ ] Remember: static schema, dynamic data
+
+---
+
+## Pro Tip: Atoms Are Your Friends
+
+Whenever you want "dynamic behavior," use **atoms** as tags:
+
+```mangle
+# Instead of:
+# - Dynamic function names
+# - Function pointers
+# - First-class functions
+# - Strategy objects
+
+# Use atoms:
+Decl operation(Op.Type</atom>, Input, Output).
+
+operation(/strategy_a, X, Y) :- # ...
+operation(/strategy_b, X, Y) :- # ...
+operation(/strategy_c, X, Y) :- # ...
+
+# Then "dynamically" select by loading different atom facts:
+Decl selected_operation(Op.Type</atom>).
+
+selected_operation(/strategy_a).  # Load from config/user input
+
+result(Y) :-
+    selected_operation(Op),
+    operation(Op, input_value, Y).
+```
+
+This pattern gives you runtime flexibility with static predicate definitions.

@@ -1,0 +1,308 @@
+# Anti-Pattern: SQL Thinking
+
+## Category
+Syntax Translation Error (Soufflé/SQL Bias)
+
+## Description
+Treating Mangle like SQL with SELECT, FROM, WHERE, GROUP BY, and JOIN syntax patterns.
+
+---
+
+## Anti-Pattern 1: SELECT-FROM-WHERE Syntax
+
+### Wrong Approach
+```sql
+SELECT name, age
+FROM person
+WHERE age > 18;
+```
+
+### Why It Fails
+Mangle is not a query language; it's a logic programming language. There is no SELECT/FROM/WHERE syntax.
+
+### Correct Mangle Way
+```mangle
+adult(Name, Age) :-
+    person(Name, Age),
+    Age > 18.
+```
+
+**Explanation:** The head `adult(Name, Age)` is what you're "selecting". The body after `:-` contains the conditions.
+
+---
+
+## Anti-Pattern 2: Inline Aggregation (SQL SUM/COUNT)
+
+### Wrong Approach
+```sql
+SELECT COUNT(*) as total
+FROM items
+WHERE category = 'active';
+```
+
+Or attempting:
+```mangle
+total(Count) :- item(/active, X), Count = sum(X).
+```
+
+### Why It Fails
+Mangle doesn't support inline aggregation syntax. Aggregation requires explicit transform steps using the pipe operator `|>`.
+
+### Correct Mangle Way
+```mangle
+active_total(Total) :-
+    item(/active, X)
+    |> do fn:group_by()
+    |> let Total = fn:Sum(X).
+```
+
+**Key Points:**
+- Use `|>` to chain transform operations
+- `fn:group_by()` must be explicit (no implicit grouping)
+- Aggregation functions are in `fn:` namespace
+
+---
+
+## Anti-Pattern 3: Implicit GROUP BY
+
+### Wrong Approach
+```sql
+SELECT category, SUM(amount)
+FROM transactions
+GROUP BY category;
+```
+
+Attempting:
+```mangle
+category_total(Cat, Total) :-
+    transaction(Cat, Amt),
+    Total = sum(Amt).
+```
+
+### Why It Fails
+Variables in the head do NOT automatically trigger grouping. Grouping must be explicit.
+
+### Correct Mangle Way
+```mangle
+category_total(Cat, Total) :-
+    transaction(Cat, Amt)
+    |> do fn:group_by(Cat)
+    |> let Total = fn:Sum(Amt).
+```
+
+---
+
+## Anti-Pattern 4: JOIN Syntax
+
+### Wrong Approach
+```sql
+SELECT p.name, o.amount
+FROM person p
+JOIN orders o ON p.id = o.person_id;
+```
+
+### Why It Fails
+No JOIN keyword exists in Mangle. Joins are implicit through variable unification.
+
+### Correct Mangle Way
+```mangle
+person_order(Name, Amount) :-
+    person(Id, Name),
+    order(Id, Amount).
+```
+
+**Explanation:** The shared variable `Id` creates the join. Mangle automatically performs the join through unification.
+
+---
+
+## Anti-Pattern 5: NULL Checking
+
+### Wrong Approach
+```sql
+SELECT *
+FROM data
+WHERE value IS NOT NULL;
+```
+
+Attempting:
+```mangle
+valid_data(X, Val) :-
+    data(X, Val),
+    Val != null.
+```
+
+### Why It Fails
+Mangle follows the **Closed World Assumption**: if a fact exists, it's valid. There is no concept of NULL.
+
+### Correct Mangle Way
+```mangle
+# If the fact exists, it's valid - no null check needed
+valid_data(X, Val) :- data(X, Val).
+
+# To check for missing data, use negation:
+missing_data(X) :-
+    entity(X),
+    not data(X, _).
+```
+
+---
+
+## Anti-Pattern 6: String Concatenation (SQL ||)
+
+### Wrong Approach
+```sql
+SELECT first_name || ' ' || last_name as full_name
+FROM person;
+```
+
+Attempting:
+```mangle
+full_name(Full) :-
+    person(First, Last),
+    Full = First + " " + Last.
+```
+
+### Why It Fails
+Mangle has no string interpolation or `+` operator for strings.
+
+### Correct Mangle Way
+```mangle
+# Use fn:string_concat
+full_name(Full) :-
+    person(First, Last),
+    fn:string_concat([First, " ", Last], Full).
+
+# Or build in Go before loading facts
+```
+
+---
+
+## Anti-Pattern 7: DISTINCT
+
+### Wrong Approach
+```sql
+SELECT DISTINCT category
+FROM items;
+```
+
+### Why It Fails
+Mangle facts are already sets. Duplicates don't exist by the nature of logic programming.
+
+### Correct Mangle Way
+```mangle
+# Just derive the predicate - duplicates are impossible
+category(Cat) :- item(Cat, _).
+```
+
+**Explanation:** If `item(/books, _)` appears 100 times, `category(/books)` is derived once. Mangle's semantics guarantee set behavior.
+
+---
+
+## Anti-Pattern 8: UPDATE/INSERT Thinking
+
+### Wrong Approach
+```sql
+UPDATE user
+SET status = 'active'
+WHERE id = 123;
+```
+
+### Why It Fails
+Mangle is **immutable**. You cannot update facts; you can only add new facts or retract old ones (which requires engine API in Go).
+
+### Correct Mangle Way
+```mangle
+# Define a new state predicate
+new_status(Id, /active) :-
+    user(Id, _),
+    Id = 123.
+
+# Or retract old fact and add new one via Go API:
+# store.Retract(oldFact)
+# store.Add(newFact)
+```
+
+---
+
+## Anti-Pattern 9: CASE/WHEN
+
+### Wrong Approach
+```sql
+SELECT
+    CASE
+        WHEN age < 18 THEN 'minor'
+        WHEN age < 65 THEN 'adult'
+        ELSE 'senior'
+    END as category
+FROM person;
+```
+
+### Why It Fails
+No CASE statement exists in Mangle.
+
+### Correct Mangle Way
+```mangle
+# Use multiple rules (union semantics)
+age_category(Name, /minor) :-
+    person(Name, Age),
+    Age < 18.
+
+age_category(Name, /adult) :-
+    person(Name, Age),
+    Age >= 18,
+    Age < 65.
+
+age_category(Name, /senior) :-
+    person(Name, Age),
+    Age >= 65.
+```
+
+---
+
+## Anti-Pattern 10: Alias Confusion
+
+### Wrong Approach
+```sql
+SELECT p.name as person_name, c.name as city_name
+FROM person p, city c
+WHERE p.city_id = c.id;
+```
+
+### Why It Fails
+No alias system. Variables are the "aliases".
+
+### Correct Mangle Way
+```mangle
+person_city(PersonName, CityName) :-
+    person(PersonName, CityId),
+    city(CityId, CityName).
+```
+
+---
+
+## Key Takeaways
+
+1. **No SELECT/FROM/WHERE** - Use `head :- body` pattern
+2. **No implicit aggregation** - Use `|> do fn:group_by()` explicitly
+3. **No NULL** - Closed World Assumption (absent facts are false, not null)
+4. **No JOINs** - Use variable unification
+5. **No DISTINCT** - Facts are sets by nature
+6. **No UPDATE/INSERT** - Immutable fact store
+7. **No CASE** - Use multiple rules with union semantics
+8. **Variables are your "aliases"** - Name them clearly
+
+---
+
+## Migration Checklist
+
+When translating SQL to Mangle:
+
+- [ ] Replace SELECT columns with predicate head
+- [ ] Replace FROM tables with body atoms
+- [ ] Replace WHERE with body conditions
+- [ ] Replace JOINs with shared variables
+- [ ] Replace GROUP BY with explicit `|> do fn:group_by()`
+- [ ] Replace CASE with multiple rules
+- [ ] Remove NULL checks (use negation for "missing")
+- [ ] Replace string concatenation with `fn:string_concat`
+- [ ] Remember: facts are immutable sets

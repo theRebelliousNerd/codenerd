@@ -1,0 +1,241 @@
+# Mangle Analysis: Safety Checks
+
+## What is Safety?
+
+Safety in Datalog ensures that:
+1. **All variables are bound** - No free variables in query results
+2. **Termination is possible** - Rules can compute to fixpoint
+3. **Evaluation is deterministic** - Same inputs always produce same outputs
+
+Safety violations lead to **infinite result sets** or **undefined behavior**.
+
+## CheckRule Function
+
+The analysis package provides `CheckRule` which checks:
+
+1. **Arity correctness** - Predicates used with correct number of arguments
+2. **Variable binding** - Every variable appearing is bound
+
+### What Makes a Variable Bound?
+
+A variable is **bound** when it:
+
+1. **Appears in a positive atom** (not negated, not in inequality)
+2. **Is unified via equality** with a constant or bound variable
+3. **Is forced as input** by a mode declaration
+
+### Binding Examples
+
+**SAFE**: Variables bound in positive atoms
+```mangle
+result(X, Y) :- parent(X, Y).
+```
+`X` and `Y` are bound because they appear in the positive atom `parent(X, Y)`.
+
+**SAFE**: Variables bound via unification
+```mangle
+result(X) :- parent(X, Y), Y = /john.
+```
+`X` is bound by `parent`, `Y` is bound by both `parent` and the equality.
+
+**UNSAFE**: Free variable in head
+```mangle
+result(X) :- parent(Y, Z).
+```
+`X` never appears in the body, so it's unbound. This would generate infinite results.
+
+**UNSAFE**: Variable only in negation
+```mangle
+result(X) :- not parent(X, Y).
+```
+`X` is not bound before the negation. This asks "what are all X not in parent?" - infinite answers.
+
+**SAFE**: Variable bound before negation
+```mangle
+result(X) :- person(X), not parent(X, Y).
+```
+`X` is bound by `person` first, then checked for absence in `parent`.
+
+## Mode Declarations
+
+Mode declarations modify binding rules by specifying argument directions:
+
+- `+` (input) - Must be bound before predicate is evaluated
+- `-` (output) - Will be bound after predicate succeeds
+- `?` (both) - Can be either input or output
+
+### Mode Example
+
+```mangle
+Decl parent(Person, Child)
+  descr [mode(+, -)].
+```
+
+This declares: "first argument must be bound (input), second will be bound (output)".
+
+Usage:
+```mangle
+# SAFE: X is bound, Y will be bound by parent
+has_child(X) :- person(X), parent(X, Y).
+```
+
+With modes, a variable is bound when:
+- A mode declaration forces it as input (marked `+`)
+- It appears in a positive atom column NOT declared as input
+- It's unified with a constant or bound variable
+
+## Unsafe Head Variables
+
+**Critical Rule**: Every variable in the head MUST appear in a positive atom in the body (or be bound via unification).
+
+### Violation Examples
+
+**UNSAFE**:
+```mangle
+ancestor(X, Y) :- parent(X, Z).
+```
+`Y` is in the head but never bound in the body.
+
+**SAFE** (corrected):
+```mangle
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+```
+
+## Unsafe Negation
+
+**Critical Rule**: All variables in a negated atom must be bound BEFORE the negation.
+
+### Why This Matters
+
+Negation in Datalog uses the **Closed World Assumption**: something is false if we can't prove it true.
+
+If a variable in a negated atom is unbound, we're asking: "What values make this false?" - which is infinite.
+
+### Violation Examples
+
+**UNSAFE**:
+```mangle
+safe(X) :- not dangerous(X).
+```
+`X` is unbound. This asks "what is not dangerous?" - infinite answers.
+
+**SAFE** (corrected):
+```mangle
+safe(X) :- thing(X), not dangerous(X).
+```
+`X` is bound by `thing` first, then we check if it's NOT in `dangerous`.
+
+**UNSAFE**:
+```mangle
+orphan(X) :- person(X), not parent(Y, X).
+```
+`Y` is unbound in the negation.
+
+**SAFE** (corrected):
+```mangle
+orphan(X) :- person(X), not parent(_, X).
+```
+Use `_` (anonymous variable) when you don't care about the value.
+
+## Equality Safety
+
+Variables unified via `=` are considered bound if the right-hand side is bound.
+
+### Unification Chains
+
+```mangle
+result(X) :- parent(Y, Z), X = Y.
+```
+- `Y` is bound by `parent`
+- `X` is bound by unification with `Y`
+- This is **SAFE**
+
+### Constant Binding
+
+```mangle
+result(X) :- parent(X, Y), Y = /john.
+```
+- `Y` is bound by both `parent` AND the equality
+- This is **SAFE** and often used for filtering
+
+## Inequality Safety
+
+**Critical**: Variables in inequality (`!=`, `<`, `<=`) do NOT become bound.
+
+```mangle
+# UNSAFE
+different(X, Y) :- X != Y.
+```
+Neither variable is bound - infinite pairs exist.
+
+```mangle
+# SAFE
+different(X, Y) :- person(X), person(Y), X != Y.
+```
+Both bound by `person`, then filtered by inequality.
+
+## Function Application Safety
+
+The analyzer checks that every function application has the **right number of arguments**.
+
+### Arity Mismatch Examples
+
+**INVALID**:
+```mangle
+result(X) :- parent(Y, Z), X = fn:plus(Y).  # fn:plus needs 2 args
+```
+
+**VALID**:
+```mangle
+result(X) :- age(Y, A1), age(Z, A2), X = fn:plus(A1, A2).
+```
+
+## Anonymous Variables
+
+The `_` (underscore) is used for values you don't care about:
+
+```mangle
+has_parent(X) :- parent(_, X).
+```
+
+`_` is always considered bound but never unifies with anything. Each `_` is a distinct don't-care variable.
+
+## Safety Violations Error Messages
+
+When safety is violated, the analyzer reports:
+
+- **"Variable X appears in head but is not bound in body"**
+  - Fix: Ensure X appears in a positive atom
+
+- **"Variable X in negated atom is not bound"**
+  - Fix: Bind X before the negation
+
+- **"Wrong number of arguments to function F"**
+  - Fix: Check function arity in builtin docs
+
+## Best Practices
+
+1. **Positive atoms first** - Bind variables before using them
+2. **Negation last** - Always bind variables before negating
+3. **Explicit is better** - Don't rely on implicit binding
+4. **Use modes** - Document input/output expectations
+5. **Test safety** - Run analyzer on all rules before evaluation
+
+## Safety Checking in Go
+
+```go
+import "github.com/google/mangle/analysis"
+
+// Check a single rule for safety
+err := analysis.CheckRule(rule, decls)
+if err != nil {
+    log.Printf("Safety violation: %v", err)
+}
+```
+
+The analyzer will catch:
+- Unsafe head variables
+- Unsafe negation
+- Arity mismatches
+- Mode violations (if modes are declared)

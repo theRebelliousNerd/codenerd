@@ -1,0 +1,521 @@
+# Mangle List Operations
+
+## List Syntax
+
+```mangle
+# Empty list
+[]
+
+# List with elements
+[1, 2, 3]
+
+# Cons notation (head | tail)
+[Head | Tail]
+
+# Example
+[1, 2, 3] = [1 | [2, 3]] = [1 | [2 | [3 | []]]]
+```
+
+## List Patterns
+
+### 1. Matching Empty List
+```mangle
+Decl is_empty(List.Type<list<int>>).
+
+is_empty([]).
+
+# Query: is_empty([])
+# Result: TRUE
+
+# Query: is_empty([1, 2])
+# Result: FALSE
+```
+
+### 2. Matching Head and Tail (Destructuring)
+```mangle
+Decl first_element(List.Type<list<int>>, First.Type<int>).
+
+first_element(List, First) :-
+  :match_cons(List, First, Tail).
+
+# Query: first_element([10, 20, 30], ?X)
+# Result: X = 10
+```
+
+### 3. Matching Multiple Elements
+```mangle
+Decl first_two(List.Type<list<int>>, A.Type<int>, B.Type<int>).
+
+first_two(List, A, B) :-
+  :match_cons(List, A, Tail1),
+  :match_cons(Tail1, B, Tail2).
+
+# Query: first_two([10, 20, 30], ?A, ?B)
+# Result: A = 10, B = 20
+```
+
+### 4. Cons Construction (Building Lists)
+```mangle
+Decl prepend(Elem.Type<int>, List.Type<list<int>>, Result.Type<list<int>>).
+
+prepend(Elem, List, Result) :-
+  :cons(Elem, List, Result).
+
+# Query: prepend(1, [2, 3], ?Result)
+# Result: Result = [1, 2, 3]
+```
+
+## Built-in List Functions
+
+### fn:length
+```mangle
+Decl list_size(List.Type<list<int>>, Size.Type<int>).
+
+list_size(List, Size) :-
+  Size = fn:length(List).
+
+# Example:
+# Query: list_size([1, 2, 3], ?Size)
+# Result: Size = 3
+
+# Query: list_size([], ?Size)
+# Result: Size = 0
+```
+
+### fn:list:get (Index Access)
+```mangle
+Decl get_element(List.Type<list<int>>, Index.Type<int>, Elem.Type<int>).
+
+get_element(List, Index, Elem) :-
+  Elem = fn:list:get(List, Index).
+
+# Example (0-indexed):
+# Query: get_element([10, 20, 30], 1, ?Elem)
+# Result: Elem = 20
+
+# Query: get_element([10, 20, 30], 5, ?Elem)
+# Result: ERROR (index out of bounds)
+```
+
+### fn:list:append (Concatenation)
+```mangle
+Decl concat_lists(A.Type<list<int>>, B.Type<list<int>>, Result.Type<list<int>>).
+
+concat_lists(A, B, Result) :-
+  Result = fn:list:append(A, B).
+
+# Example:
+# Query: concat_lists([1, 2], [3, 4], ?Result)
+# Result: Result = [1, 2, 3, 4]
+```
+
+### fn:list:reverse
+```mangle
+Decl reverse_list(List.Type<list<int>>, Reversed.Type<list<int>>).
+
+reverse_list(List, Reversed) :-
+  Reversed = fn:list:reverse(List).
+
+# Example:
+# Query: reverse_list([1, 2, 3], ?Rev)
+# Result: Rev = [3, 2, 1]
+```
+
+### fn:list:contains
+```mangle
+Decl contains_element(List.Type<list<int>>, Elem.Type<int>).
+
+contains_element(List, Elem) :-
+  fn:list:contains(List, Elem).
+
+# Example:
+# Query: contains_element([10, 20, 30], 20)
+# Result: TRUE
+
+# Query: contains_element([10, 20, 30], 99)
+# Result: FALSE
+```
+
+### fn:collect (Build List from Aggregation)
+```mangle
+Decl user(Id.Type<atom>, Dept.Type<atom>).
+Decl dept_users(Dept.Type<atom>, Users.Type<list<atom>>).
+
+user(/u1, /eng).
+user(/u2, /eng).
+user(/u3, /sales).
+
+dept_users(Dept, Users) :-
+  user(Id, Dept)
+  |> do fn:group_by(Dept),
+  let Users = fn:collect(Id).
+
+# Result:
+#   dept_users(/eng, [/u1, /u2])
+#   dept_users(/sales, [/u3])
+```
+
+## Recursive List Processing
+
+### Example 1: Sum of List
+```mangle
+Decl sum_list(List.Type<list<int>>, Sum.Type<int>).
+
+# Base case: empty list
+sum_list([], 0).
+
+# Recursive case
+sum_list(List, Sum) :-
+  :match_cons(List, Head, Tail),
+  sum_list(Tail, TailSum),
+  Sum = fn:plus(Head, TailSum).
+
+# Query: sum_list([10, 20, 30], ?Sum)
+# Trace:
+#   sum_list([10, 20, 30], Sum)
+#   → Head=10, Tail=[20, 30]
+#   → sum_list([20, 30], TailSum)
+#     → Head=20, Tail=[30]
+#     → sum_list([30], TailSum2)
+#       → Head=30, Tail=[]
+#       → sum_list([], 0)
+#       → TailSum2 = 30
+#     → TailSum = 20 + 30 = 50
+#   → Sum = 10 + 50 = 60
+```
+
+### Example 2: List Length (Manual)
+```mangle
+Decl list_length(List.Type<list<int>>, Len.Type<int>).
+
+list_length([], 0).
+
+list_length(List, Len) :-
+  :match_cons(List, _, Tail),
+  list_length(Tail, TailLen),
+  Len = fn:plus(TailLen, 1).
+
+# Query: list_length([1, 2, 3], ?Len)
+# Result: Len = 3
+```
+
+### Example 3: Maximum Element
+```mangle
+Decl list_max(List.Type<list<int>>, Max.Type<int>).
+
+# Single element
+list_max(List, Max) :-
+  :match_cons(List, Max, []).
+
+# Multiple elements
+list_max(List, Max) :-
+  :match_cons(List, Head, Tail),
+  Tail != [],
+  list_max(Tail, TailMax),
+  Head > TailMax,
+  Max = Head.
+
+list_max(List, Max) :-
+  :match_cons(List, Head, Tail),
+  Tail != [],
+  list_max(Tail, TailMax),
+  Head <= TailMax,
+  Max = TailMax.
+
+# Query: list_max([10, 30, 20], ?Max)
+# Result: Max = 30
+```
+
+### Example 4: Filter List
+```mangle
+Decl filter_positive(List.Type<list<int>>, Filtered.Type<list<int>>).
+
+# Base case
+filter_positive([], []).
+
+# Head is positive: include it
+filter_positive(List, Filtered) :-
+  :match_cons(List, Head, Tail),
+  Head > 0,
+  filter_positive(Tail, TailFiltered),
+  :cons(Head, TailFiltered, Filtered).
+
+# Head is non-positive: exclude it
+filter_positive(List, Filtered) :-
+  :match_cons(List, Head, Tail),
+  Head <= 0,
+  filter_positive(Tail, Filtered).
+
+# Query: filter_positive([10, -5, 20, -3, 30], ?Filtered)
+# Result: Filtered = [10, 20, 30]
+```
+
+### Example 5: Map (Transform Each Element)
+```mangle
+Decl double_elements(List.Type<list<int>>, Doubled.Type<list<int>>).
+
+# Base case
+double_elements([], []).
+
+# Recursive case
+double_elements(List, Doubled) :-
+  :match_cons(List, Head, Tail),
+  DoubledHead = fn:mult(Head, 2),
+  double_elements(Tail, DoubledTail),
+  :cons(DoubledHead, DoubledTail, Doubled).
+
+# Query: double_elements([1, 2, 3], ?Doubled)
+# Result: Doubled = [2, 4, 6]
+```
+
+### Example 6: Reverse (Manual)
+```mangle
+Decl reverse_manual(List.Type<list<int>>, Reversed.Type<list<int>>).
+
+# Helper with accumulator
+Decl reverse_acc(List.Type<list<int>>, Acc.Type<list<int>>, Result.Type<list<int>>).
+
+reverse_manual(List, Reversed) :-
+  reverse_acc(List, [], Reversed).
+
+# Base case
+reverse_acc([], Acc, Acc).
+
+# Recursive case
+reverse_acc(List, Acc, Result) :-
+  :match_cons(List, Head, Tail),
+  :cons(Head, Acc, NewAcc),
+  reverse_acc(Tail, NewAcc, Result).
+
+# Query: reverse_manual([1, 2, 3], ?Rev)
+# Trace:
+#   reverse_acc([1, 2, 3], [], Rev)
+#   → reverse_acc([2, 3], [1], Rev)
+#   → reverse_acc([3], [2, 1], Rev)
+#   → reverse_acc([], [3, 2, 1], Rev)
+#   → Rev = [3, 2, 1]
+```
+
+### Example 7: Membership Check
+```mangle
+Decl member(Elem.Type<int>, List.Type<list<int>>).
+
+# Base case: head matches
+member(Elem, List) :-
+  :match_cons(List, Elem, _).
+
+# Recursive case: check tail
+member(Elem, List) :-
+  :match_cons(List, _, Tail),
+  member(Elem, Tail).
+
+# Query: member(20, [10, 20, 30])
+# Result: TRUE
+
+# Query: member(99, [10, 20, 30])
+# Result: FALSE
+```
+
+### Example 8: Nth Element (Manual)
+```mangle
+Decl nth_element(List.Type<list<int>>, N.Type<int>, Elem.Type<int>).
+
+# Base case: N = 0, return head
+nth_element(List, 0, Elem) :-
+  :match_cons(List, Elem, _).
+
+# Recursive case: N > 0, recurse on tail
+nth_element(List, N, Elem) :-
+  N > 0,
+  :match_cons(List, _, Tail),
+  N1 = fn:minus(N, 1),
+  nth_element(Tail, N1, Elem).
+
+# Query: nth_element([10, 20, 30], 1, ?Elem)
+# Result: Elem = 20
+```
+
+## Nested Lists
+
+```mangle
+Decl matrix(M.Type<list<list<int>>>).
+
+# 2D matrix
+matrix([[1, 2], [3, 4], [5, 6]]).
+
+# Access first row
+first_row(Row) :-
+  matrix(M),
+  :match_cons(M, Row, _).
+
+# Result: Row = [1, 2]
+
+# Access element at [row, col]
+Decl matrix_get(Row.Type<int>, Col.Type<int>, Elem.Type<int>).
+
+matrix_get(R, C, Elem) :-
+  matrix(M),
+  nth_element(M, R, Row),
+  nth_element(Row, C, Elem).
+
+# Query: matrix_get(1, 1, ?Elem)
+# Result: Elem = 4
+#   (Row 1 is [3, 4], Col 1 is 4)
+```
+
+## List Construction Patterns
+
+### Build List from Facts
+```mangle
+Decl number(N.Type<int>).
+number(1). number(2). number(3).
+
+Decl all_numbers(List.Type<list<int>>).
+
+all_numbers(List) :-
+  number(N)
+  |> do fn:group_by(),
+  let List = fn:collect(N).
+
+# Result: all_numbers([1, 2, 3])
+```
+
+### Build List with Cons
+```mangle
+Decl build_list(List.Type<list<int>>).
+
+build_list(List) :-
+  :cons(1, [], L1),
+  :cons(2, L1, L2),
+  :cons(3, L2, List).
+
+# Result: build_list([3, 2, 1])
+```
+
+## Performance Considerations
+
+### 1. Avoid Repeated Length Calls
+```mangle
+# BAD: Computes length multiple times
+rule(List) :-
+  data(List),
+  fn:length(List) > 5,
+  fn:length(List) < 10.
+
+# GOOD: Compute once
+rule(List) :-
+  data(List),
+  Len = fn:length(List),
+  Len > 5,
+  Len < 10.
+```
+
+### 2. Prefer Built-in Functions Over Recursion
+```mangle
+# BAD: Manual recursion
+count_manual(List, Count) :-
+  count_acc(List, 0, Count).
+
+count_acc([], Acc, Acc).
+count_acc(List, Acc, Count) :-
+  :match_cons(List, _, Tail),
+  NewAcc = fn:plus(Acc, 1),
+  count_acc(Tail, NewAcc, Count).
+
+# GOOD: Use built-in
+count_builtin(List, Count) :-
+  Count = fn:length(List).
+```
+
+### 3. Tail Recursion with Accumulator
+```mangle
+# Non-tail recursive (bad for large lists)
+sum_list_bad([], 0).
+sum_list_bad(List, Sum) :-
+  :match_cons(List, Head, Tail),
+  sum_list_bad(Tail, TailSum),
+  Sum = fn:plus(Head, TailSum).  # Computation after recursive call
+
+# Tail recursive (better)
+sum_list_good(List, Sum) :-
+  sum_acc(List, 0, Sum).
+
+sum_acc([], Acc, Acc).
+sum_acc(List, Acc, Sum) :-
+  :match_cons(List, Head, Tail),
+  NewAcc = fn:plus(Acc, Head),
+  sum_acc(Tail, NewAcc, Sum).  # Recursive call is last operation
+```
+
+## Common Patterns
+
+### Flatten List of Lists
+```mangle
+Decl flatten(ListOfLists.Type<list<list<int>>>, Flat.Type<list<int>>).
+
+flatten([], []).
+
+flatten(ListOfLists, Flat) :-
+  :match_cons(ListOfLists, Head, Tail),
+  flatten(Tail, FlatTail),
+  Flat = fn:list:append(Head, FlatTail).
+
+# Query: flatten([[1, 2], [3], [4, 5]], ?Flat)
+# Result: Flat = [1, 2, 3, 4, 5]
+```
+
+### Zip Two Lists
+```mangle
+Decl zip(A.Type<list<int>>, B.Type<list<int>>, Pairs.Type<list<list<int>>>).
+
+# Base case: one list is empty
+zip([], _, []).
+zip(_, [], []).
+
+# Recursive case
+zip(A, B, Pairs) :-
+  :match_cons(A, HeadA, TailA),
+  :match_cons(B, HeadB, TailB),
+  zip(TailA, TailB, TailPairs),
+  :cons([HeadA, HeadB], TailPairs, Pairs).
+
+# Query: zip([1, 2, 3], [10, 20, 30], ?Pairs)
+# Result: Pairs = [[1, 10], [2, 20], [3, 30]]
+```
+
+### Partition List
+```mangle
+Decl partition(List.Type<list<int>>, Threshold.Type<int>,
+               Low.Type<list<int>>, High.Type<list<int>>).
+
+partition([], _, [], []).
+
+# Element < threshold
+partition(List, Threshold, Low, High) :-
+  :match_cons(List, Head, Tail),
+  Head < Threshold,
+  partition(Tail, Threshold, TailLow, TailHigh),
+  :cons(Head, TailLow, Low),
+  High = TailHigh.
+
+# Element >= threshold
+partition(List, Threshold, Low, High) :-
+  :match_cons(List, Head, Tail),
+  Head >= Threshold,
+  partition(Tail, Threshold, TailLow, TailHigh),
+  Low = TailLow,
+  :cons(Head, TailHigh, High).
+
+# Query: partition([1, 5, 3, 8, 2], 5, ?Low, ?High)
+# Result: Low = [1, 3, 2], High = [5, 8]
+```
+
+## Checklist
+
+- [ ] Use `:match_cons` for destructuring
+- [ ] Use `:cons` for building
+- [ ] Prefer built-in functions when available
+- [ ] Use tail recursion with accumulators for performance
+- [ ] Handle empty list base case
+- [ ] Check list bounds before accessing by index
+- [ ] Avoid repeated computation (cache length, etc.)
