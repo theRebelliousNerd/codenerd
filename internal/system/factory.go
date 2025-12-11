@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -48,6 +49,12 @@ type Cortex struct {
 func BootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
 	if workspace == "" {
 		workspace, _ = os.Getwd()
+	}
+
+	// 0. Initialize Logging System (critical for debugging)
+	if err := logging.Initialize(workspace); err != nil {
+		// Non-fatal - continue without file logging
+		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
 	}
 
 	// 1. Initialize Usage Tracker

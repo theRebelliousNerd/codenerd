@@ -137,6 +137,10 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		TargetOS:        config.TargetOS,
 		TargetArch:      config.TargetArch,
 		WorkspaceRoot:   config.WorkspaceRoot,
+		// Adversarial Co-Evolution (Thunderdome)
+		EnableThunderdome: true,
+		ThunderdomeConfig: DefaultThunderdomeConfig(),
+		MaxPanicRetries:   2,
 	}
 
 	logging.AutopoiesisDebug("Creating ToolGenerator")
