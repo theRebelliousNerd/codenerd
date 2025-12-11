@@ -417,6 +417,10 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 	// Use the ouroboros loop to generate the tool
 	logging.AutopoiesisDebug("Invoking Ouroboros loop for delegation: %s", capability)
 	result := o.ouroboros.Execute(ctx, need)
+
+	// Record generation learning (success or failure)
+	o.recordGenerationLearning(ctx, need, result)
+
 	if !result.Success {
 		if result.Error != "" {
 			logging.Get(logging.CategoryAutopoiesis).Error("Delegation tool generation failed: %s: %s",
@@ -1313,7 +1317,83 @@ func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed)
 		o.assertToolRegistered(result.ToolHandle)
 	}
 
+	// Record generation learning for persistence
+	o.recordGenerationLearning(ctx, need, result)
+
 	return result
+}
+
+// recordGenerationLearning converts a LoopResult to ExecutionFeedback and records it.
+// This captures tool generation outcomes (success, safety failures, Thunderdome results)
+// as learnings for future reference and analysis.
+func (o *Orchestrator) recordGenerationLearning(ctx context.Context, need *ToolNeed, result *LoopResult) {
+	if o.learnings == nil {
+		return
+	}
+
+	// Create execution feedback from generation result
+	feedback := &ExecutionFeedback{
+		ToolName:    need.Name,
+		ExecutionID: fmt.Sprintf("gen_%s_%d", need.Name, time.Now().Unix()),
+		Timestamp:   time.Now(),
+		Input:       need.Purpose,
+		Duration:    result.Duration,
+		Success:     result.Success,
+	}
+
+	// Add quality assessment based on generation outcome
+	var issues []QualityIssue
+	if !result.Success {
+		feedback.ErrorType = string(result.Stage)
+		feedback.ErrorMsg = result.Error
+
+		// Extract issues from safety report if available
+		if result.SafetyReport != nil {
+			for _, v := range result.SafetyReport.Violations {
+				issues = append(issues, QualityIssue{
+					Type:        IssueType(v.Type),
+					Description: v.Description,
+					Severity:    float64(v.Severity) / 10.0,
+				})
+			}
+		}
+	}
+
+	// Calculate quality score based on generation stage reached
+	score := 0.0
+	switch result.Stage {
+	case StageComplete, StageRegistration, StageExecution:
+		score = 1.0 // Made it all the way - fully successful
+	case StageCompilation:
+		score = 0.9 // Compiled successfully
+	case StageSimulation:
+		score = 0.8 // Passed simulation/Thunderdome
+	case StageThunderdome:
+		score = 0.7 // Passed safety, in Thunderdome
+	case StageSafetyCheck:
+		score = 0.4 // Generated but failed safety
+	case StageSpecification:
+		score = 0.2 // Generation started
+	default:
+		score = 0.1
+	}
+
+	feedback.Quality = &QualityAssessment{
+		Score:  score,
+		Issues: issues,
+	}
+
+	// Record the learning
+	patterns := o.patterns.GetToolPatterns(need.Name)
+	o.learnings.RecordLearning(need.Name, feedback, patterns)
+
+	// Sync learnings to kernel for logic-driven refinement decisions
+	if o.kernel != nil {
+		o.SyncLearningsToKernel()
+	}
+
+	logging.Autopoiesis("Recorded generation learning for %s: success=%v, stage=%s, score=%.2f",
+		need.Name, result.Success, result.Stage, score)
 }
 
 // ExecuteGeneratedTool runs a previously generated and compiled tool
@@ -1601,6 +1681,9 @@ func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need
 
 	// Execute the loop
 	result := o.ouroboros.Execute(ctx, need)
+
+	// Record generation learning for persistence
+	o.recordGenerationLearning(ctx, need, result)
 
 	// Inject logging if successful
 	if result.Success && result.ToolHandle != nil {
