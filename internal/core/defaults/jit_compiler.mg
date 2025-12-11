@@ -63,9 +63,12 @@ satisfied_constraint(Atom, Dim) :-
     atom_tag(Atom, Dim, Tag),
     current_context(Dim, Tag).
     
-# An atom is blocked if it has a constraint on Dim, but constraint is not satisfied.
+# An atom is blocked only if context EXPLICITLY has a different value for Dim.
+# If context doesn't specify a dimension at all, atoms with that dimension pass through.
+# This prevents atoms from being blocked when their dimension isn't relevant to current context.
 blocked_by_context(Atom) :-
     has_constraint(Atom, Dim),
+    current_context(Dim, _),
     !satisfied_constraint(Atom, Dim).
 
 # Safe Skeleton: Mandatory atoms that are NOT blocked.

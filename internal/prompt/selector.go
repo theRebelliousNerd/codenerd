@@ -471,6 +471,22 @@ func (s *AtomSelector) loadSkeletonAtoms(
 		return nil, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
 	}
 
+	// Debug: Query blocked atoms to diagnose context matching issues
+	blockedResults, blockedErr := s.kernel.Query("blocked_by_context(Atom)")
+	if blockedErr == nil && len(blockedResults) > 0 {
+		logging.Get(logging.CategoryJIT).Debug(
+			"JIT: %d atoms blocked by context constraints", len(blockedResults),
+		)
+	}
+
+	// Debug: Query mandatory selection to see what passed
+	mandatoryResults, mandatoryErr := s.kernel.Query("mandatory_selection(Atom)")
+	if mandatoryErr == nil {
+		logging.Get(logging.CategoryJIT).Debug(
+			"JIT: %d atoms passed mandatory_selection", len(mandatoryResults),
+		)
+	}
+
 	// Query for selected skeleton atoms
 	// The Mangle rule should match based on:
 	// - is_mandatory flag
@@ -797,6 +813,20 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		addTags("ouroboros_stage", atom.OuroborosStages)
 		addTags("intent", atom.IntentVerbs)
 		addTags("shard", atom.ShardTypes)
+
+		// Dependencies - needed for atom_requires() in jit_compiler.mg
+		for _, dep := range atom.DependsOn {
+			if dep != "" {
+				facts = append(facts, fmt.Sprintf("atom_requires('%s', '%s')", id, dep))
+			}
+		}
+
+		// Conflicts - needed for atom_conflicts() in jit_compiler.mg
+		for _, conflict := range atom.ConflictsWith {
+			if conflict != "" {
+				facts = append(facts, fmt.Sprintf("atom_conflicts('%s', '%s')", id, conflict))
+			}
+		}
 	}
 
 	return facts, nil

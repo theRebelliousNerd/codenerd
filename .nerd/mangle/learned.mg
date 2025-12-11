@@ -113,3 +113,7 @@ next_action(/system_start).
 # Autopoiesis-learned rule (added 2025-12-10 20:36:01)
 next_action(/system_start) :- session_state(_,_,/initializing).
 
+
+# Autopoiesis-learned rule (added 2025-12-10 21:25:16)
+next_action(/system_start) :- system_shard_unhealthy(/true).
+
