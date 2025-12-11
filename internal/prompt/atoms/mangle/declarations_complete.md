@@ -1,0 +1,316 @@
+# Mangle Type Declarations - Complete Reference
+
+## Declaration Syntax
+
+### Basic Structure
+```mangle
+Decl predicate_name(Arg1.Type<type1>, Arg2.Type<type2>, ...).
+```
+
+**CRITICAL**:
+- Keyword is `Decl` (capital D)
+- Each argument: `ArgumentName.Type<TypeSpec>`
+- Must end with period (`.`)
+
+## Primitive Types
+
+### Integer
+```mangle
+Decl age(Person.Type<n>, Age.Type<int>).
+Decl count(Category.Type<n>, Count.Type<int>).
+```
+
+### Float
+```mangle
+Decl price(Item.Type<n>, Price.Type<float>).
+Decl salary(Employee.Type<n>, Amount.Type<float>).
+```
+
+### String
+```mangle
+Decl message(ID.Type<int>, Text.Type<string>).
+Decl error(Code.Type<int>, Message.Type<string>).
+```
+
+### Name (Atom)
+```mangle
+Decl status(Entity.Type<n>, State.Type<n>).
+Decl tag(Item.Type<n>, Tag.Type<n>).
+```
+Type code `n` means "name" (atom constant like `/active`)
+
+## Structured Types
+
+### List Types
+```mangle
+# List of integers
+Decl scores(Student.Type<n>, Scores.Type<[int]>).
+
+# List of strings
+Decl tags(ID.Type<int>, Tags.Type<[string]>).
+
+# List of names
+Decl dependencies(Project.Type<n>, Deps.Type<[n]>).
+
+# Nested list
+Decl matrix(ID.Type<int>, Data.Type<[[int]]>).
+```
+
+### Map Types
+```mangle
+# Simple map
+Decl config(ID.Type<int>, Settings.Type<{/key: string}>).
+
+# Map with multiple value types
+Decl metadata(ID.Type<int>, Data.Type<{/name: string, /count: int}>).
+```
+
+### Struct Types
+```mangle
+# Person struct
+Decl person(ID.Type<int>, Info.Type<{/name: string, /age: int, /city: string}>).
+
+# Configuration struct
+Decl server_config(Name.Type<n>, Config.Type<{/host: string, /port: int, /ssl: n}>).
+
+# Nested struct
+Decl record(ID.Type<int>, Data.Type<{/user: {/name: string, /id: int}, /timestamp: int}>).
+```
+
+### Union Types
+```mangle
+# Value can be int OR string
+Decl flexible_value(ID.Type<int>, Val.Type<int | string>).
+
+# Multiple type options
+Decl mixed_data(Key.Type<n>, Value.Type<int | float | string | n>).
+```
+
+### Any Type
+```mangle
+# Accept any type
+Decl generic(ID.Type<int>, Value.Type<Any>).
+```
+
+## Mode Declarations (Advanced)
+
+### Input/Output Modes
+```mangle
+# Both arguments are input (bound)
+Decl edge(From.Type<n> [bound], To.Type<n> [bound]).
+
+# First input, second output (free)
+Decl parent(Parent.Type<n> [bound], Child.Type<n> [free]).
+
+# Mixed modes
+Decl lookup(Key.Type<n> [bound], Value.Type<string> [free]).
+```
+
+### Mode Patterns
+- `[bound]` - Argument must be provided (input)
+- `[free]` - Argument will be generated (output)
+- No mode specified = both directions allowed
+
+## Type Checking
+
+### Gradual Typing
+Declarations are **optional** in Mangle:
+
+```mangle
+# No declaration needed - types inferred
+data(1, "test").
+data(2, 42).
+```
+
+### Runtime Type Checking
+When declarations exist, Mangle checks types at runtime:
+
+```mangle
+Decl score(Player.Type<n>, Points.Type<int>).
+
+score(/alice, 100).       # ✅ OK
+score(/bob, "fifty").     # ❌ Type error!
+```
+
+## Common Declaration Patterns
+
+### EDB Predicates (Base Facts)
+```mangle
+# External data from files/databases
+Decl employee(ID.Type<int>, Name.Type<string>, Dept.Type<n>).
+Decl salary(EmpID.Type<int>, Amount.Type<float>).
+Decl project(ID.Type<n>, Name.Type<string>, Status.Type<n>).
+```
+
+### IDB Predicates (Derived Rules)
+```mangle
+# Computed predicates
+Decl high_earner(Name.Type<string>, Salary.Type<float>).
+Decl department_count(Dept.Type<n>, Count.Type<int>).
+```
+
+### Virtual Predicates (Go Integration)
+```mangle
+# Implemented in Go via VirtualStore
+Decl file_content(Path.Type<string>, Content.Type<string>).
+Decl recall_similar(Query.Type<string>, Results.Type<[string]>).
+Decl symbol_at(Path.Type<string>, Line.Type<int>, Symbol.Type<string>).
+```
+
+## Type Declaration Anti-Patterns
+
+### Soufflé Syntax (WRONG)
+```mangle
+# ❌ WRONG - Soufflé style
+.decl dependency(app: string, lib: string)
+
+# ✅ CORRECT - Mangle syntax
+Decl dependency(App.Type<string>, Lib.Type<string>).
+```
+
+### Missing Type<> Wrapper (WRONG)
+```mangle
+# ❌ WRONG
+Decl person(Name.string, Age.int).
+
+# ✅ CORRECT
+Decl person(Name.Type<string>, Age.Type<int>).
+```
+
+### TypeScript/Java Style (WRONG)
+```mangle
+# ❌ WRONG
+type Person = { name: string, age: int }
+
+# ✅ CORRECT
+Decl person(ID.Type<int>, Info.Type<{/name: string, /age: int}>).
+```
+
+### SQL Style (WRONG)
+```mangle
+# ❌ WRONG
+CREATE TABLE employee (id INT, name VARCHAR)
+
+# ✅ CORRECT
+Decl employee(ID.Type<int>, Name.Type<string>).
+```
+
+## Type Code Reference
+
+| Type Code | Mangle Type | Go Type | Examples |
+|-----------|-------------|---------|----------|
+| `int` | 64-bit integer | `int64` | `42`, `-17` |
+| `float` | 64-bit float | `float64` | `3.14`, `-2.5` |
+| `string` | UTF-8 string | `string` | `"hello"` |
+| `n` | Name (atom) | `Atom` | `/active`, `/user1` |
+| `[T]` | List of T | `List` | `[1, 2, 3]` |
+| `{/k: v}` | Map/Struct | `Map`/`Struct` | `{/x: 10}` |
+| `T1 \| T2` | Union type | - | (runtime check) |
+| `Any` | Universal type | `Value` | (any value) |
+
+## Advanced Type Features
+
+### Lattice Types (Experimental)
+```mangle
+# Track maximal elements under partial order
+Decl interval(Var.Type<n>, Lower.Type<int>, Upper.Type<int>) [lattice].
+```
+**Status**: Experimental feature in newer Mangle versions
+
+### Recursive Types
+```mangle
+# List is recursively defined
+Decl tree(Node.Type<n>, Children.Type<[n]>).
+
+# Each child can have its own children
+tree_node(Node, Children) :- tree(Node, Children).
+```
+
+## Type Inference
+
+Mangle infers types from usage when no declaration:
+
+```mangle
+# No declaration
+fact(1, "test", /atom).
+
+# Mangle infers:
+# fact(Type<int>, Type<string>, Type<n>)
+```
+
+Type inference works bottom-up from base facts through rules.
+
+## Type Safety Guarantees
+
+### With Declarations
+- Type errors caught at runtime
+- Clear API contract for predicates
+- Better error messages
+
+### Without Declarations
+- Flexible development
+- No type checking overhead
+- Types inferred from data
+
+## Virtual Predicate Type Mapping (Go Integration)
+
+When implementing virtual predicates in Go:
+
+```mangle
+Decl virtual_pred(ID.Type<int>, Name.Type<string>, Value.Type<float>).
+```
+
+Maps to Go signature:
+```go
+func VirtualPred(query Query, callback func(Atom) error) error {
+    // query.Args[0] - int64
+    // query.Args[1] - string
+    // query.Args[2] - float64
+}
+```
+
+### Type Mapping Table
+
+| Mangle Type | Go Constant Type |
+|-------------|------------------|
+| `Type<int>` | `engine.Number` (int64) |
+| `Type<float>` | `engine.Float64` |
+| `Type<string>` | `engine.String` |
+| `Type<n>` | `engine.Atom` |
+| `Type<[T]>` | `engine.List` |
+| `Type<{...}>` | `engine.Map` or `engine.Struct` |
+
+## Best Practices
+
+### When to Declare Types
+
+**DO declare types for:**
+- Public APIs and interfaces
+- Virtual predicates (Go integration)
+- External data predicates
+- Complex structured data
+
+**Can SKIP declarations for:**
+- Internal helper predicates
+- Rapid prototyping
+- Simple fact-only data
+
+### Naming Conventions
+
+```mangle
+# Descriptive argument names
+Decl employee(EmployeeID.Type<int>, FullName.Type<string>, Department.Type<n>).
+
+# NOT generic names
+Decl employee(X.Type<int>, Y.Type<string>, Z.Type<n>).
+```
+
+### Consistency
+
+Keep related predicates consistent:
+```mangle
+Decl employee(ID.Type<int>, Name.Type<string>).
+Decl department(ID.Type<int>, Name.Type<string>).
+Decl project(ID.Type<int>, Name.Type<string>).
+# All use same ID/Name pattern
+```
