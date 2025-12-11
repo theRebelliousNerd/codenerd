@@ -124,6 +124,60 @@ func DefaultRouterConfig() RouterConfig {
 
 			// Corrective operations (prefix matches corrective_*)
 			{ActionPattern: "corrective_", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
+
+			// =====================================================================
+			// PASS 2 ROUTES: Full coverage for all derived actions
+			// =====================================================================
+
+			// Investigation operations
+			{ActionPattern: "investigate_anomaly", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: false},
+
+			// Review operations (delegate to specialized shards)
+			{ActionPattern: "review", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+			{ActionPattern: "lint", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: false},
+			{ActionPattern: "check_security", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: false},
+
+			// Code analysis operations
+			{ActionPattern: "analyze_code", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
+			{ActionPattern: "parse_ast", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "query_symbols", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "check_syntax", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "code_graph", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
+
+			// Additional test operations
+			{ActionPattern: "coverage", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "test_single", ToolName: "test_runner", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+
+			// Knowledge/vector operations (kernel internal - query only)
+			{ActionPattern: "vector_search", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "knowledge_query", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "embed_text", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
+
+			// Browser operations
+			{ActionPattern: "browser_navigate", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
+			{ActionPattern: "browser_screenshot", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
+			{ActionPattern: "browser_read_dom", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 30},
+
+			// File search operations
+			{ActionPattern: "glob_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "search_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+
+			// Extended Code DOM operations
+			{ActionPattern: "close_scope", ToolName: "kernel_internal", Timeout: 5 * time.Second, RequiresSafe: false},
+			{ActionPattern: "edit_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+			{ActionPattern: "insert_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+			{ActionPattern: "delete_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+			{ActionPattern: "get_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "get_element", ToolName: "code_search", Timeout: 10 * time.Second, RequiresSafe: false},
+
+			// Autopoiesis tool execution
+			{ActionPattern: "exec_tool", ToolName: "shell_exec", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+
+			// Delegate routing (explicit shard delegation)
+			{ActionPattern: "delegate_reviewer", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+			{ActionPattern: "delegate_coder", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
+			{ActionPattern: "delegate_researcher", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+			{ActionPattern: "delegate_tool_generator", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: true},
 		},
 		TickInterval:         100 * time.Millisecond,
 		IdleTimeout:          30 * time.Second,

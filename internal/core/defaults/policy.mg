@@ -300,6 +300,26 @@ safe_action(/corrective_research).
 # Execution operations
 safe_action(/exec_cmd).
 
+# Investigation operations
+safe_action(/investigate_anomaly).
+
+# Extended Code DOM operations
+safe_action(/close_scope).
+safe_action(/edit_lines).
+safe_action(/insert_lines).
+safe_action(/delete_lines).
+safe_action(/get_elements).
+safe_action(/get_element).
+
+# Autopoiesis tool execution
+safe_action(/exec_tool).
+
+# Delegate routing patterns (action_mapping derived)
+safe_action(/delegate_reviewer).
+safe_action(/delegate_coder).
+safe_action(/delegate_researcher).
+safe_action(/delegate_tool_generator).
+
 # Network policy - allowlist approach
 allowed_domain("github.com").
 allowed_domain("pypi.org").
