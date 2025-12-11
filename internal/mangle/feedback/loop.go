@@ -24,6 +24,9 @@ type RuleValidator interface {
 	// HotLoadRule attempts to load a rule into the kernel sandbox.
 	// Returns nil if valid, error otherwise.
 	HotLoadRule(rule string) error
+	// ValidateLearnedRule validates that a rule only uses declared predicates.
+	// Returns nil if valid, error otherwise.
+	ValidateLearnedRule(rule string) error
 	// GetDeclaredPredicates returns all declared predicate signatures.
 	GetDeclaredPredicates() []string
 }
@@ -190,20 +193,33 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 
 		// Phase 3: Sandbox compilation (HotLoadRule)
 		compileErr := validator.HotLoadRule(sanitizedRule)
-		if compileErr == nil {
-			// Success!
-			result.Rule = sanitizedRule
-			result.Valid = true
-			logging.Kernel("FeedbackLoop: rule validated successfully on attempt %d", attempt)
-			return result, nil
+		if compileErr != nil {
+			// Compilation failed - classify error for feedback
+			compileErrors := fl.errorClassifier.ClassifyWithContext(compileErr.Error(), sanitizedRule)
+			lastErrors = append(preErrors, compileErrors...)
+			logging.KernelDebug("FeedbackLoop: compilation failed: %v", compileErr)
+			continue // Retry
 		}
 
-		// Compilation failed - classify error for feedback
-		compileErrors := fl.errorClassifier.ClassifyWithContext(compileErr.Error(), sanitizedRule)
-		lastErrors = append(preErrors, compileErrors...)
+		// Phase 4: Schema validation (ensure all predicates are declared)
+		schemaErr := validator.ValidateLearnedRule(sanitizedRule)
+		if schemaErr != nil {
+			// Rule uses undeclared predicates - add to errors for feedback
+			schemaError := ValidationError{
+				Category:   CategoryUndeclaredPredicate,
+				Message:    schemaErr.Error(),
+				Suggestion: "Use only predicates declared in schemas. Check available predicates list.",
+			}
+			lastErrors = append(preErrors, schemaError)
+			logging.KernelDebug("FeedbackLoop: schema validation failed: %v", schemaErr)
+			continue // Retry
+		}
 
-		logging.KernelDebug("FeedbackLoop: compilation failed: %v (found %d errors for feedback)",
-			compileErr, len(lastErrors))
+		// Both validations passed!
+		result.Rule = sanitizedRule
+		result.Valid = true
+		logging.Kernel("FeedbackLoop: rule validated successfully on attempt %d", attempt)
+		return result, nil
 	}
 
 	// All retries exhausted
@@ -215,22 +231,15 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 // ValidateOnly validates a rule without generation (for testing existing rules).
 func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *ValidationResult {
 	result := &ValidationResult{
-		Original:   rule,
-		AttemptNum: 1,
+		Original: rule,
 	}
 
 	// Pre-validation
 	preErrors := fl.preValidator.Validate(rule)
-	result.Errors = append(result.Errors, preErrors...)
+	result.Errors = preErrors
 
-	// Auto-repair
-	sanitized := rule
-	if fl.config.EnableAutoRepair {
-		sanitized = fl.preValidator.QuickFix(rule)
-		if fullSanitized, err := fl.sanitizer.Sanitize(sanitized); err == nil {
-			sanitized = fullSanitized
-		}
-	}
+	// Sanitize
+	sanitized, _ := fl.sanitizer.Sanitize(rule)
 	result.Sanitized = sanitized
 
 	// Compilation check
@@ -238,10 +247,22 @@ func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *Vali
 		compileErrors := fl.errorClassifier.ClassifyWithContext(compileErr.Error(), sanitized)
 		result.Errors = append(result.Errors, compileErrors...)
 		result.Valid = false
-	} else {
-		result.Valid = true
+		return result
 	}
 
+	// Schema validation (predicate declarations)
+	if schemaErr := validator.ValidateLearnedRule(sanitized); schemaErr != nil {
+		schemaError := ValidationError{
+			Category:   CategoryUndeclaredPredicate,
+			Message:    schemaErr.Error(),
+			Suggestion: "Use only predicates declared in schemas.",
+		}
+		result.Errors = append(result.Errors, schemaError)
+		result.Valid = false
+		return result
+	}
+
+	result.Valid = true
 	return result
 }
 

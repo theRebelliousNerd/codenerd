@@ -62,6 +62,7 @@ type RealKernel struct {
 	manglePath      string // Path to mangle files directory
 	workspaceRoot   string // Explicit workspace root (for .nerd paths)
 	policyDirty     bool   // True when schemas/policy changed and need reparse
+	userLearnedPath string // Path to user learned.mg for self-healing persistence
 }
 
 //go:embed defaults/*.mg defaults/schema/*.mg
@@ -256,20 +257,37 @@ func (k *RealKernel) loadMangleFiles() {
 		// Append User Learned Rules (learned.mg)
 		learnedPath := filepath.Join(wsPath, "learned.mg")
 		if data, err := os.ReadFile(learnedPath); err == nil {
-			// User learned rules append to base learned rules
-			k.learned += "\n\n# User Learned Rules\n" + string(data)
+			userLearnedContent := string(data)
 			userExtensionsLoaded++
 			logging.Kernel("Loaded user learned rules from %s (%d bytes)", learnedPath, len(data))
+
+			// Track path and content for self-healing
+			k.userLearnedPath = learnedPath
+
+			// Initialize schema validator early so we can heal user rules before appending
+			if k.schemas != "" && k.schemaValidator == nil {
+				k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned+"\n"+userLearnedContent)
+				if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
+					logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
+				}
+			}
+
+			// Self-heal user learned rules BEFORE appending to k.learned
+			if k.schemaValidator != nil {
+				userLearnedContent = k.healLearnedRules(userLearnedContent, learnedPath)
+			}
+
+			// Append healed user rules to base learned rules
+			k.learned += "\n\n# User Learned Rules\n" + userLearnedContent
 		}
 	}
 	logging.KernelDebug("Loaded %d user extension files", userExtensionsLoaded)
 
-	// Initialize schema validator (Bug #18 Fix - Schema Drift Prevention)
-	if k.schemas != "" {
+	// Ensure schema validator is initialized (if not done above)
+	if k.schemas != "" && k.schemaValidator == nil {
 		logging.KernelDebug("Initializing schema validator...")
 		k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned)
 		if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
-			// Log but don't fail - validator is defensive, not critical
 			logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
 		} else {
 			logging.KernelDebug("Schema validator initialized successfully")
@@ -870,6 +888,62 @@ func (k *RealKernel) ValidateLearnedProgram(programText string) error {
 	return k.schemaValidator.ValidateProgram(programText)
 }
 
+// healLearnedRules validates learned rules and comments out invalid ones.
+// This is a self-healing mechanism to recover from corrupted learned.mg files.
+// Returns the healed rules text with invalid rules commented out.
+// If filePath is provided and rules were healed, persists the healed version to disk.
+func (k *RealKernel) healLearnedRules(learnedText string, filePath string) string {
+	if k.schemaValidator == nil || learnedText == "" {
+		return learnedText
+	}
+
+	lines := strings.Split(learnedText, "\n")
+	var healedLines []string
+	invalidCount := 0
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			healedLines = append(healedLines, line)
+			continue
+		}
+
+		// Check if this is a rule (contains :-)
+		if strings.Contains(trimmed, ":-") {
+			if err := k.schemaValidator.ValidateRule(trimmed); err != nil {
+				// Invalid rule - comment it out with explanation
+				logging.Get(logging.CategoryKernel).Warn("Self-healing: commenting out invalid learned rule at line %d: %v", i+1, err)
+				healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
+				healedLines = append(healedLines, "# "+line)
+				invalidCount++
+				continue
+			}
+		}
+
+		// Valid line - keep as is
+		healedLines = append(healedLines, line)
+	}
+
+	healedText := strings.Join(healedLines, "\n")
+
+	if invalidCount > 0 {
+		logging.Kernel("Self-healing: commented out %d invalid learned rules", invalidCount)
+
+		// Persist healed rules back to disk if we have a file path
+		if filePath != "" {
+			if err := os.WriteFile(filePath, []byte(healedText), 0644); err != nil {
+				logging.Get(logging.CategoryKernel).Error("Self-healing: failed to persist healed rules to %s: %v", filePath, err)
+			} else {
+				logging.Kernel("Self-healing: persisted healed rules to %s", filePath)
+			}
+		}
+	}
+
+	return healedText
+}
+
 // IsPredicateDeclared checks if a predicate is declared in schemas.
 func (k *RealKernel) IsPredicateDeclared(predicate string) bool {
 	k.mu.RLock()
@@ -1152,6 +1226,14 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: validation failed: %v", err)
 		return err
 	}
+
+	// 1b. Schema validation - ensure all predicates in rule body are declared
+	// This prevents "Schema Drift" where rules use hallucinated predicates
+	if err := k.ValidateLearnedRule(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: schema validation failed: %v", err)
+		return fmt.Errorf("rule uses undeclared predicates: %w", err)
+	}
+	logging.KernelDebug("HotLoadLearnedRule: schema validation passed")
 
 	// 2. Persist to learned.mg file
 	if err := k.appendToLearnedFile(rule); err != nil {

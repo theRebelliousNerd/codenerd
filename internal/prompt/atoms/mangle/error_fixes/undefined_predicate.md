@@ -1,0 +1,48 @@
+# Fix: Undefined Predicate Error
+
+## Error Pattern
+```
+rule uses undefined predicates: [predicate_name]
+```
+
+## Cause
+The rule body references a predicate that is not declared in schemas.mg.
+
+## Fix Strategy
+
+### 1. Check for Typos
+Common typos:
+- `user_intnet` → `user_intent`
+- `file_topolgy` → `file_topology`
+- `shard_excuted` → `shard_executed`
+
+### 2. Find Similar Declared Predicates
+Search the available predicates list for similar names:
+- Same prefix (e.g., `user_*`, `shard_*`, `file_*`)
+- Similar meaning (e.g., `is_active` vs `active`)
+
+### 3. Use Correct Domain Predicate
+Common replacements:
+| Hallucinated | Actual Predicate |
+|--------------|------------------|
+| `server_health` | `system_shard_healthy` |
+| `is_running` | `system_shard_state` |
+| `user_action` | `user_intent` |
+| `file_exists` | `file_topology` |
+
+### 4. Check if Predicate Needs to be Added
+If this is a genuinely new concept:
+1. Add declaration to schemas.mg
+2. Ensure Go code provides facts for it
+
+## Example Fix
+
+### Before (Invalid)
+```mangle
+candidate_action(/monitor) :- server_health(/degraded).
+```
+
+### After (Valid)
+```mangle
+candidate_action(/monitor) :- system_shard_unhealthy(/true).
+```
