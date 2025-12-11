@@ -73,6 +73,15 @@ const (
 
 	// CategoryKnowledge contains knowledge extraction and management atoms.
 	CategoryKnowledge AtomCategory = "knowledge"
+
+	// CategoryBuildLayer contains build layer guidance (scaffold, domain_core, etc.).
+	CategoryBuildLayer AtomCategory = "build_layer"
+
+	// CategoryIntent contains intent-specific guidance for user intent classification.
+	CategoryIntent AtomCategory = "intent"
+
+	// CategoryWorldState contains world state awareness atoms (diagnostics, errors, etc.).
+	CategoryWorldState AtomCategory = "world_state"
 )
 
 // AllCategories returns all defined atom categories.
@@ -94,6 +103,9 @@ func AllCategories() []AtomCategory {
 		CategoryExemplar,
 		CategoryReviewer,
 		CategoryKnowledge,
+		CategoryBuildLayer,
+		CategoryIntent,
+		CategoryWorldState,
 	}
 }
 

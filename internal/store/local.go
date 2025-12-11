@@ -246,7 +246,8 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Prompt Atoms (for Universal JIT Prompt Compiler)
-	promptAtomsTable := `
+	// NOTE: Table creation WITHOUT indexes - indexes created after migrations
+	promptAtomsTableOnly := `
 	CREATE TABLE IF NOT EXISTS prompt_atoms (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		atom_id TEXT NOT NULL UNIQUE,
@@ -293,10 +294,6 @@ func (s *LocalStore) initialize() error {
 
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_category ON prompt_atoms(category);
-	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_hash ON prompt_atoms(content_hash);
-	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_mandatory ON prompt_atoms(is_mandatory);
-	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_description ON prompt_atoms(description);
 	`
 
 	// First, create tables WITHOUT indexes that depend on migrated columns
@@ -338,13 +335,13 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Create base tables first (without columns that need migration)
-	for _, table := range []string{vectorTable, graphTable, coldTableOnly, archivedTableOnly, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable, promptAtomsTable} {
+	for _, table := range []string{vectorTable, graphTable, coldTableOnly, archivedTableOnly, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable, promptAtomsTableOnly} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
 	}
 
-	// Run schema migrations for existing databases (adds missing columns like last_accessed)
+	// Run schema migrations for existing databases (adds missing columns like last_accessed, description)
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -357,6 +354,18 @@ func (s *LocalStore) initialize() error {
 	if _, err := s.db.Exec(coldIndexes); err != nil {
 		// Non-fatal: indexes improve performance but aren't required
 		logging.Get(logging.CategoryStore).Warn("Failed to create cold storage indexes: %v", err)
+	}
+
+	// Create prompt atoms indexes after migrations (description column added by migration)
+	promptAtomsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_category ON prompt_atoms(category);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_hash ON prompt_atoms(content_hash);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_mandatory ON prompt_atoms(is_mandatory);
+	CREATE INDEX IF NOT EXISTS idx_prompt_atoms_description ON prompt_atoms(description);
+	`
+	if _, err := s.db.Exec(promptAtomsIndexes); err != nil {
+		// Non-fatal: indexes improve performance but aren't required
+		logging.Get(logging.CategoryStore).Warn("Failed to create prompt atoms indexes: %v", err)
 	}
 
 	return nil

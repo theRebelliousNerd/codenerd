@@ -14,6 +14,7 @@ import (
 	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"database/sql"
 	"strings"
 
 	"codenerd/internal/store"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
+	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
 )
 
 // Cortex represents a fully initialized system instance.
@@ -154,11 +156,32 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	// Initialize JIT Prompt Compiler
-	jitCompiler, err := prompt.NewJITPromptCompiler(
-		prompt.WithKernel(NewKernelAdapter(kernel)),
-	)
+	// Load embedded corpus from internal/prompt/atoms/ (baked into binary)
+	embeddedCorpus, err := prompt.LoadEmbeddedCorpus()
 	if err != nil {
-		// Fallback to nil or fail? JIT is critical for shards.
+		return nil, fmt.Errorf("failed to load embedded corpus: %w", err)
+	}
+
+	// Build compiler options
+	compilerOpts := []prompt.CompilerOption{
+		prompt.WithKernel(NewKernelAdapter(kernel)),
+		prompt.WithEmbeddedCorpus(embeddedCorpus),
+	}
+
+	// Load project corpus.db if it exists (user-defined atoms)
+	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
+	if _, statErr := os.Stat(corpusPath); statErr == nil {
+		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
+		if dbErr == nil {
+			compilerOpts = append(compilerOpts, prompt.WithProjectDB(projectDB))
+			logging.Get(logging.CategoryContext).Info("Registered project corpus: %s", corpusPath)
+		} else {
+			logging.Get(logging.CategoryContext).Warn("Failed to open project corpus: %v", dbErr)
+		}
+	}
+
+	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
+	if err != nil {
 		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
 
