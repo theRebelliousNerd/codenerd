@@ -33,7 +33,10 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	}
 
 	// Build sandbox with current schemas/policy/learned rules
-	sandbox := NewRealKernel()
+	sandbox, err := NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create sandbox kernel for ratification: %w", err)
+	}
 	sandbox.SetSchemas(kernel.GetSchemas())
 	sandbox.SetPolicy(kernel.GetPolicy() + "\n\n# Proposed Rule (Legislator)\n" + newRule)
 	sandbox.SetLearned(kernel.GetLearned())

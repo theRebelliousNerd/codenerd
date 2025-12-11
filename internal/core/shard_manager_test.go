@@ -124,7 +124,10 @@ func TestShardManagerStopAll(t *testing.T) {
 
 func TestShardManagerSetParentKernel(t *testing.T) {
 	sm := NewShardManager()
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 
 	sm.SetParentKernel(kernel)
 
@@ -241,7 +244,10 @@ func TestBaseShardAgentStop(t *testing.T) {
 
 func TestQueryToolsFromKernel(t *testing.T) {
 	sm := NewShardManager()
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	sm.SetParentKernel(kernel)
 
 	// Assert tool facts to kernel
@@ -272,7 +278,10 @@ func TestQueryToolsFromKernel(t *testing.T) {
 
 func TestQueryRelevantTools(t *testing.T) {
 	sm := NewShardManager()
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	sm.SetParentKernel(kernel)
 
 	// Register two tools with different capabilities

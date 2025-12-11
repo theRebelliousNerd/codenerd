@@ -71,6 +71,10 @@ func DefaultConfig(workspaceRoot string) Config {
 		TargetOS:      toolDefaults.TargetOS,
 		TargetArch:    toolDefaults.TargetArch,
 		WorkspaceRoot: workspaceRoot,
+		// Safety: Explicit gas limit for Ouroboros self-generated logic.
+		// Prevents infinite recursion in self-modifying autopoiesis loops.
+		// This bounds the number of learning_event facts the kernel will retain.
+		MaxLearningFacts: 1000,
 	}
 
 	if userCfg, err := internalconfig.LoadUserConfig(internalconfig.DefaultUserConfigPath()); err == nil && userCfg != nil {

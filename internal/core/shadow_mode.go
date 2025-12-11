@@ -99,7 +99,10 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	simID := fmt.Sprintf("sim_%d", time.Now().UnixNano())
 
 	// Create shadow kernel as a copy of parent state
-	shadowKernel := NewRealKernel()
+	shadowKernel, err := NewRealKernel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create shadow kernel: %w", err)
+	}
 	shadowKernel.SetSchemas(sm.parentKernel.GetSchemas())
 	shadowKernel.SetPolicy(sm.parentKernel.GetPolicy())
 
