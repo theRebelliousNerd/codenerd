@@ -245,6 +245,15 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		return ctx.Err()
 
 	case <-s.stopCh:
+		// Clean up wait queue on scheduler stop
+		s.mu.Lock()
+		for i, e := range s.waitQueue {
+			if e.shardID == shardID {
+				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
+				break
+			}
+		}
+		s.mu.Unlock()
 		return fmt.Errorf("scheduler stopped")
 	}
 }
@@ -298,6 +307,7 @@ func (s *APIScheduler) LoadCheckpoint(shardID string, key string) (interface{}, 
 }
 
 // GetShardState returns the current state of a shard.
+// Returns a deep copy to avoid races with checkpoint map.
 func (s *APIScheduler) GetShardState(shardID string) (*ShardExecutionState, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -306,9 +316,14 @@ func (s *APIScheduler) GetShardState(shardID string) (*ShardExecutionState, bool
 	if !ok {
 		return nil, false
 	}
-	// Return a copy to avoid races
-	copy := *state
-	return &copy, true
+	// Return a deep copy to avoid races
+	stateCopy := *state
+	// Deep copy the checkpoint map
+	stateCopy.Checkpoint = make(map[string]interface{}, len(state.Checkpoint))
+	for k, v := range state.Checkpoint {
+		stateCopy.Checkpoint[k] = v
+	}
+	return &stateCopy, true
 }
 
 // GetMetrics returns current scheduler metrics.
@@ -369,11 +384,15 @@ func (s *APIScheduler) Stop() {
 
 // ScheduledLLMCall wraps an LLM call with slot acquisition/release.
 // This is the primary integration point for shards making API calls.
+// Implements LLMClient interface so it can be injected transparently.
 type ScheduledLLMCall struct {
 	Scheduler *APIScheduler
 	ShardID   string
 	Client    LLMClient
 }
+
+// Compile-time assertion that ScheduledLLMCall implements LLMClient
+var _ LLMClient = (*ScheduledLLMCall)(nil)
 
 // Complete makes an LLM call with cooperative scheduling (single prompt).
 // Acquires a slot, makes the call, releases the slot.

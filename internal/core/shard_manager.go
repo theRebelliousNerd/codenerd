@@ -1307,8 +1307,17 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		depsInjected = append(depsInjected, "kernel")
 	}
 	if sm.llmClient != nil {
-		agent.SetLLMClient(sm.llmClient)
-		depsInjected = append(depsInjected, "llmClient")
+		// Wrap LLM client with APIScheduler for cooperative slot management
+		// This ensures shards release their API slot between LLM calls
+		scheduler := GetAPIScheduler()
+		scheduler.RegisterShard(id, typeName)
+		scheduledClient := &ScheduledLLMCall{
+			Scheduler: scheduler,
+			ShardID:   id,
+			Client:    sm.llmClient,
+		}
+		agent.SetLLMClient(scheduledClient)
+		depsInjected = append(depsInjected, "llmClient(scheduled)")
 	}
 	if sm.virtualStore != nil {
 		if vsc, ok := agent.(VirtualStoreConsumer); ok {
@@ -1420,6 +1429,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		if sm.tracingClient != nil {
 			sm.tracingClient.ClearShardContext()
 		}
+
+		// Unregister shard from APIScheduler
+		GetAPIScheduler().UnregisterShard(id)
+
 		sm.recordResult(id, res, err)
 	}()
 

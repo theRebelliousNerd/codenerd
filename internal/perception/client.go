@@ -33,15 +33,17 @@ type ZAIClient struct {
 	mu          sync.Mutex
 	lastRequest time.Time
 	sem         chan struct{} // Concurrency semaphore: Z.AI allows max 5 concurrent requests
+	semDisabled bool          // When true, skip semaphore (external scheduler manages concurrency)
 }
 
 // ZAIConfig holds configuration for ZAI client.
 type ZAIConfig struct {
-	APIKey       string
-	BaseURL      string
-	Model        string
-	Timeout      time.Duration
-	SystemPrompt string
+	APIKey           string
+	BaseURL          string
+	Model            string
+	Timeout          time.Duration
+	SystemPrompt     string
+	DisableSemaphore bool // Set true when using external APIScheduler for concurrency control
 }
 
 // DefaultZAIConfig returns sensible defaults.
@@ -63,15 +65,20 @@ func NewZAIClient(apiKey string) *ZAIClient {
 
 // NewZAIClientWithConfig creates a new ZAI client with custom config.
 func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
-	return &ZAIClient{
+	client := &ZAIClient{
 		apiKey:  config.APIKey,
 		baseURL: config.BaseURL,
 		model:   config.Model,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
-		sem: make(chan struct{}, 5), // Z.AI API allows max 5 concurrent requests
+		semDisabled: config.DisableSemaphore,
 	}
+	// Only create semaphore if not disabled (external scheduler handles concurrency)
+	if !config.DisableSemaphore {
+		client.sem = make(chan struct{}, 5) // Z.AI API allows max 5 concurrent requests
+	}
+	return client
 }
 
 // ZAIRequest represents the API request structure (Enhanced for v1.2.0).
@@ -173,11 +180,14 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	}
 
 	// Acquire concurrency semaphore (max 5 concurrent requests)
-	select {
-	case c.sem <- struct{}{}:
-		defer func() { <-c.sem }()
-	case <-ctx.Done():
-		return "", ctx.Err()
+	// Skip if disabled (external APIScheduler manages concurrency)
+	if !c.semDisabled {
+		select {
+		case c.sem <- struct{}{}:
+			defer func() { <-c.sem }()
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 
 	if strings.TrimSpace(systemPrompt) == "" {
@@ -383,11 +393,14 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 	}
 
 	// Acquire concurrency semaphore (max 5 concurrent requests)
-	select {
-	case c.sem <- struct{}{}:
-		defer func() { <-c.sem }()
-	case <-ctx.Done():
-		return "", ctx.Err()
+	// Skip if disabled (external APIScheduler manages concurrency)
+	if !c.semDisabled {
+		select {
+		case c.sem <- struct{}{}:
+			defer func() { <-c.sem }()
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 
 	if strings.TrimSpace(systemPrompt) == "" {
@@ -514,12 +527,15 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 		}
 
 		// Acquire concurrency semaphore (max 5 concurrent requests)
-		select {
-		case c.sem <- struct{}{}:
-			defer func() { <-c.sem }()
-		case <-ctx.Done():
-			errorChan <- ctx.Err()
-			return
+		// Skip if disabled (external APIScheduler manages concurrency)
+		if !c.semDisabled {
+			select {
+			case c.sem <- struct{}{}:
+				defer func() { <-c.sem }()
+			case <-ctx.Done():
+				errorChan <- ctx.Err()
+				return
+			}
 		}
 
 		if strings.TrimSpace(systemPrompt) == "" {
