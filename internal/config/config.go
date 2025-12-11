@@ -358,6 +358,7 @@ type ShardProfile struct {
 type CoreLimits struct {
 	MaxTotalMemoryMB      int `yaml:"max_total_memory_mb" json:"max_total_memory_mb"`           // Total RAM limit
 	MaxConcurrentShards   int `yaml:"max_concurrent_shards" json:"max_concurrent_shards"`       // Max parallel shards
+	MaxConcurrentAPICalls int `yaml:"max_concurrent_api_calls" json:"max_concurrent_api_calls"` // Max simultaneous LLM API calls
 	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"` // Auto-save interval
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
 	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
@@ -1258,7 +1259,10 @@ func (c *UserConfig) GetCoreLimits() CoreLimits {
 			limits.MaxTotalMemoryMB = 12288
 		}
 		if limits.MaxConcurrentShards == 0 {
-			limits.MaxConcurrentShards = 4
+			limits.MaxConcurrentShards = 12
+		}
+		if limits.MaxConcurrentAPICalls == 0 {
+			limits.MaxConcurrentAPICalls = 5
 		}
 		if limits.MaxSessionDurationMin == 0 {
 			limits.MaxSessionDurationMin = 120
@@ -1274,7 +1278,8 @@ func (c *UserConfig) GetCoreLimits() CoreLimits {
 	// Return defaults
 	return CoreLimits{
 		MaxTotalMemoryMB:      12288,
-		MaxConcurrentShards:   4,
+		MaxConcurrentShards:   12,
+		MaxConcurrentAPICalls: 5,
 		MaxSessionDurationMin: 120,
 		MaxFactsInKernel:      250000,
 		MaxDerivedFactsLimit:  100000,

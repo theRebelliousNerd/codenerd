@@ -390,11 +390,7 @@ func findFunctionEnd(lines []string, startIdx int) int {
 	}
 
 	// If no matching brace found, return a reasonable range
-	endIdx := startIdx + maxFunctionBodyLines
-	if endIdx > len(lines)-1 {
-		endIdx = len(lines) - 1
-	}
-	return endIdx
+	return startIdx + maxFunctionBodyLines
 }
 
 // extractLineRange extracts a range of lines from content with truncation.
@@ -411,7 +407,8 @@ func extractLineRange(content string, startLine, endLine, maxLines int) (string,
 	if endIdx > len(lines) {
 		endIdx = len(lines)
 	}
-	if startIdx >= endIdx {
+	// endLine is inclusive; require at least one full line of range.
+	if endLine <= startLine || startIdx >= endIdx {
 		return "", fmt.Errorf("invalid line range: %d-%d", startLine, endLine)
 	}
 

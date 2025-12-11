@@ -139,6 +139,35 @@ func TestKernelRetract(t *testing.T) {
 	}
 }
 
+func TestKernelRetractExactFact(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	f1 := Fact{Predicate: "pending_action", Args: []interface{}{"id1", "/write_file", "a.go", map[string]interface{}{}, int64(1)}}
+	f2 := Fact{Predicate: "pending_action", Args: []interface{}{"id2", "/write_file", "b.go", map[string]interface{}{}, int64(2)}}
+
+	if err := kernel.LoadFacts([]Fact{f1, f2}); err != nil {
+		t.Fatalf("LoadFacts() error = %v", err)
+	}
+
+	if err := kernel.RetractExactFact(f1); err != nil {
+		t.Fatalf("RetractExactFact() error = %v", err)
+	}
+
+	remaining, err := kernel.Query("pending_action")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("remaining pending_action facts = %d, want 1", len(remaining))
+	}
+	if len(remaining[0].Args) < 3 || remaining[0].Args[2] != "b.go" {
+		t.Fatalf("remaining fact = %v, want target b.go", remaining[0])
+	}
+}
+
 func TestKernelClear(t *testing.T) {
 	kernel, err := NewRealKernel()
 	if err != nil {

@@ -207,13 +207,13 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 		case <-ticker.C:
 			if err := c.processPendingActions(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
-				c.recordViolation("internal_error", "", err.Error(), nil)
+				c.recordViolation("internal_error", "", err.Error(), nil, "")
 			}
 
 			// Process pending appeals from Mangle facts
 			if err := c.processPendingAppeals(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
-				c.recordViolation("appeal_error", "", err.Error(), nil)
+				c.recordViolation("appeal_error", "", err.Error(), nil, "")
 			}
 
 			// Emit heartbeat
@@ -241,18 +241,19 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 	}
 
 	for _, fact := range pending {
-		if len(fact.Args) < 1 {
+		if len(fact.Args) < 3 {
 			continue
 		}
 
-		actionType, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		var target string
-		if len(fact.Args) > 1 {
-			target, _ = fact.Args[1].(string)
+		// pending_action(ActionID, ActionType, Target, Payload, Timestamp)
+		actionID := fmt.Sprintf("%v", fact.Args[0])
+		actionType := fmt.Sprintf("%v", fact.Args[1])
+		target := fmt.Sprintf("%v", fact.Args[2])
+		payload := map[string]interface{}{}
+		if len(fact.Args) > 3 {
+			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
+				payload = pm
+			}
 		}
 
 		logging.SystemShardsDebug("[ConstitutionGate] Checking action: type=%s, target=%s", actionType, truncateForLog(target, 50))
@@ -262,10 +263,16 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 
 		if permitted {
 			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
-			// Mark as permitted
+			ts := time.Now().Unix()
+			// Primary permitted stream for tactile router
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "permitted_action",
+				Args:      []interface{}{actionID, actionType, target, payload, ts},
+			})
+			// Unary permitted marker for OODA/debug rules
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "action_permitted",
-				Args:      []interface{}{actionType, target, time.Now().Unix()},
+				Args:      []interface{}{actionType},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
@@ -273,7 +280,13 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		} else {
 			logging.Get(logging.CategorySystemShards).Warn("[ConstitutionGate] Action BLOCKED: type=%s, reason=%s", actionType, reason)
 			// Record violation and get action ID for appeals
-			actionID := c.recordViolation(actionType, target, reason, nil)
+			actionID = c.recordViolation(actionType, target, reason, nil, actionID)
+
+			// Emit routing_result failure so waiting shards can observe denial
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "routing_result",
+				Args:      []interface{}{actionID, "failure", reason},
+			})
 
 			// Emit security_violation fact
 			_ = c.Kernel.Assert(core.Fact{
@@ -294,8 +307,10 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			}
 		}
 
-		// Clear the pending action regardless of result
-		_ = c.Kernel.RetractFact(fact)
+		// Clear the pending action regardless of result (exact match)
+		if c.Kernel != nil {
+			_ = c.Kernel.RetractExactFact(fact)
+		}
 	}
 
 	return nil
@@ -433,12 +448,15 @@ func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, 
 }
 
 // recordViolation records a security violation for audit.
-func (c *ConstitutionGateShard) recordViolation(actionType, target, reason string, ctx map[string]string) string {
+func (c *ConstitutionGateShard) recordViolation(actionType, target, reason string, ctx map[string]string, providedID string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Generate unique action ID for appeal tracking
-	actionID := fmt.Sprintf("action_%d_%s", time.Now().UnixNano(), actionType)
+	actionID := providedID
+	if actionID == "" {
+		actionID = fmt.Sprintf("action_%d_%s", time.Now().UnixNano(), actionType)
+	}
 
 	c.violations = append(c.violations, SecurityViolation{
 		Timestamp:  time.Now(),

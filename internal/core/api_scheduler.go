@@ -434,11 +434,16 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 			return "", fmt.Errorf("failed to acquire API slot (attempt %d): %w", attempt+1, err)
 		}
 
-		// Make the call
-		result, err := c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-
-		// Release slot immediately after call
-		c.Scheduler.ReleaseAPISlot(c.ShardID)
+		// Make the call and guarantee slot release even on panic
+		result, err := func() (res string, callErr error) {
+			defer func() {
+				if r := recover(); r != nil {
+					callErr = fmt.Errorf("panic during LLM call: %v", r)
+				}
+				c.Scheduler.ReleaseAPISlot(c.ShardID)
+			}()
+			return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		}()
 
 		if err == nil {
 			return result, nil
@@ -474,12 +479,42 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 var (
 	globalScheduler     *APIScheduler
 	globalSchedulerOnce sync.Once
+	globalSchedulerConfigMu sync.Mutex
+	globalSchedulerConfig   = DefaultAPISchedulerConfig()
 )
+
+// ConfigureGlobalAPIScheduler sets the config used for the global scheduler.
+// Must be called before the first GetAPIScheduler() to take effect.
+// If the global scheduler is already initialized, the call is ignored.
+func ConfigureGlobalAPIScheduler(cfg APISchedulerConfig) {
+	globalSchedulerConfigMu.Lock()
+	defer globalSchedulerConfigMu.Unlock()
+
+	if globalScheduler != nil {
+		logging.Shards("APIScheduler: global already initialized; ignoring reconfigure (requested_max=%d)",
+			cfg.MaxConcurrentAPICalls)
+		return
+	}
+
+	// Apply defaults for unset fields
+	if cfg.MaxConcurrentAPICalls <= 0 {
+		cfg.MaxConcurrentAPICalls = DefaultAPISchedulerConfig().MaxConcurrentAPICalls
+	}
+	if cfg.SlotAcquireTimeout <= 0 {
+		cfg.SlotAcquireTimeout = DefaultAPISchedulerConfig().SlotAcquireTimeout
+	}
+
+	globalSchedulerConfig = cfg
+	logging.Shards("APIScheduler: global config set (max_slots=%d)", cfg.MaxConcurrentAPICalls)
+}
 
 // GetAPIScheduler returns the global API scheduler instance.
 func GetAPIScheduler() *APIScheduler {
 	globalSchedulerOnce.Do(func() {
-		globalScheduler = NewAPIScheduler(DefaultAPISchedulerConfig())
+		globalSchedulerConfigMu.Lock()
+		cfg := globalSchedulerConfig
+		globalSchedulerConfigMu.Unlock()
+		globalScheduler = NewAPIScheduler(cfg)
 		logging.Shards("APIScheduler: initialized global instance (max_slots=%d)",
 			globalScheduler.config.MaxConcurrentAPICalls)
 	})

@@ -622,6 +622,12 @@ func findMangleFile(t *testing.T, filename string) string {
 		filepath.Join(".", filename),
 		filepath.Join("..", "mangle", filename),
 		filepath.Join("internal", "mangle", filename),
+		// When tests run from internal/mangle package dir
+		filepath.Join("..", "core", "defaults", filename),
+		filepath.Join("..", "core", "defaults", "schema", filename),
+		// When tests run from repo root
+		filepath.Join("internal", "core", "defaults", filename),
+		filepath.Join("internal", "core", "defaults", "schema", filename),
 		filepath.Join("..", "..", "internal", "mangle", filename),
 	}
 

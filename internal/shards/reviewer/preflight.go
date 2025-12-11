@@ -356,6 +356,8 @@ func categorizeVetMessage(message string) string {
 		return "shadowing"
 	case strings.Contains(lowerMsg, "lock"):
 		return "concurrency"
+	case strings.Contains(lowerMsg, "mutex"):
+		return "concurrency"
 	case strings.Contains(lowerMsg, "race"):
 		return "concurrency"
 	case strings.Contains(lowerMsg, "nil"):

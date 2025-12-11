@@ -666,6 +666,28 @@ func (c *Compressor) GetCompressionRatio() float64 {
 	return float64(c.totalOriginalTokens) / float64(c.totalCompressedTokens)
 }
 
+// GetBudgetUtilization returns the fraction of the configured context budget used.
+// Safe for UI display; returns 0 when budget is unavailable.
+func (c *Compressor) GetBudgetUtilization() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.budget == nil || c.config.TotalBudget == 0 {
+		return 0
+	}
+	return c.budget.Utilization()
+}
+
+// GetBudgetUsage returns (used, total) token counts for the context window.
+// This is approximate and based on the internal token counter heuristic.
+func (c *Compressor) GetBudgetUsage() (int, int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.budget == nil {
+		return 0, c.config.TotalBudget
+	}
+	return c.budget.TotalUsed(), c.config.TotalBudget
+}
+
 // IsCompressionActive returns true if callers should use compressed context
 // instead of raw conversation history. This is token-budget driven:
 // - Returns false when we have room for raw history (use full context)

@@ -57,6 +57,25 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 	parsed := c.parseCodeResponse(rawResponse, task)
 	logging.Coder("Parsed %d edits from LLM response (artifact_type=%s)", len(parsed.Edits), parsed.ArtifactType)
 
+	// Fill old_content for target-file modifications when missing.
+	// This enables apply-time mismatch detection if the file changed since context read.
+	if fileContext != "" && task.Target != "" {
+		targetResolved := c.resolvePath(task.Target)
+		for i := range parsed.Edits {
+			edit := &parsed.Edits[i]
+			if edit.OldContent != "" {
+				continue
+			}
+			switch edit.Type {
+			case "modify", "refactor", "fix", "delete":
+				editResolved := c.resolvePath(edit.File)
+				if edit.File == task.Target || editResolved == targetResolved {
+					edit.OldContent = fileContext
+				}
+			}
+		}
+	}
+
 	for i, edit := range parsed.Edits {
 		logging.CoderDebug("Edit[%d]: type=%s, file=%s, language=%s, content_len=%d",
 			i, edit.Type, edit.File, edit.Language, len(edit.NewContent))

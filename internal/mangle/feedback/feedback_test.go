@@ -634,10 +634,16 @@ type MockRuleValidator struct {
 }
 
 func (m *MockRuleValidator) HotLoadRule(rule string) error {
-	if m.validRules[rule] {
+	normalized := strings.TrimSpace(rule)
+	if m.validRules[rule] || m.validRules[normalized] {
 		return nil
 	}
 	return errors.New("invalid rule: parse error")
+}
+
+func (m *MockRuleValidator) ValidateLearnedRule(rule string) error {
+	// Tests using this mock control validity via HotLoadRule; accept schema by default.
+	return nil
 }
 
 func (m *MockRuleValidator) GetDeclaredPredicates() []string {
@@ -655,6 +661,11 @@ func (m *FlexibleMockRuleValidator) HotLoadRule(rule string) error {
 		return nil
 	}
 	return errors.New("invalid rule: does not contain expected pattern")
+}
+
+func (m *FlexibleMockRuleValidator) ValidateLearnedRule(rule string) error {
+	// Accept schema by default; specific schema validation is covered elsewhere.
+	return nil
 }
 
 func (m *FlexibleMockRuleValidator) GetDeclaredPredicates() []string {

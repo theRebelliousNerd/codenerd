@@ -163,6 +163,14 @@ safe_to_commit() :-
     checks_passed(),
     !has_block_commit().
 
+# Require Nemesis gauntlet to pass before committing any modifications.
+gauntlet_passed() :-
+    gauntlet_result(_, _, /passed, _).
+
+block_commit("Gauntlet Not Passed") :-
+    modified(_),
+    !gauntlet_passed().
+
 # =============================================================================
 # SECTION 7: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
 # =============================================================================

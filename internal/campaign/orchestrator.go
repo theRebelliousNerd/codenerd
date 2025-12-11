@@ -102,6 +102,12 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	if cfg.TaskTimeout == 0 {
 		cfg.TaskTimeout = 30 * time.Minute
 	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 3
+	}
+	if cfg.ReplanThreshold == 0 {
+		cfg.ReplanThreshold = 3
+	}
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
 	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
@@ -1168,11 +1174,11 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		// Fallback to direct execution
 		cmd := tactile.ShellCommand{
 			Binary:           "go",
-			Arguments:        []string{"test", "./..."},
+			Arguments:        []string{"test", target},
 			WorkingDirectory: o.workspace,
 			TimeoutSeconds:   300,
 		}
-		logging.CampaignDebug("Executing tests directly via tactile: go test ./...")
+		logging.CampaignDebug("Executing tests directly via tactile: go test %s", target)
 		output, execErr := o.executor.Execute(ctx, cmd)
 		if execErr != nil {
 			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
@@ -1536,14 +1542,18 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 				o.campaign.Phases[i].Tasks[j].LastError = err.Error()
 
 				// Check if max retries exceeded
-				if attemptNum >= 3 {
-					logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (3), marking as failed", task.ID)
+				maxRetries := o.config.MaxRetries
+				if maxRetries <= 0 {
+					maxRetries = 3
+				}
+				if attemptNum >= maxRetries {
+					logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
 					o.campaign.Phases[i].Tasks[j].Status = TaskFailed
 
 					// Record in kernel
 					o.kernel.Assert(core.Fact{
 						Predicate: "task_error",
-						Args:      []interface{}{task.ID, "max_retries", err.Error()},
+						Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), err.Error()},
 					})
 				}
 				break
@@ -1564,7 +1574,6 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 			o.emitEvent("replan_failed", "", "", err.Error(), nil)
 		} else {
 			o.mu.Lock()
-			o.campaign.RevisionNumber++
 			logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
 			o.saveCampaign()
 			o.mu.Unlock()

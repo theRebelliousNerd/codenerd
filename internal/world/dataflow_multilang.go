@@ -78,24 +78,27 @@ func (m *MultiLangDataFlowExtractor) ExtractDataFlowForLanguage(path string, lan
 	start := time.Now()
 	logging.WorldDebug("MultiLangDataFlowExtractor: analyzing %s file: %s", lang, filepath.Base(path))
 
+	var facts []core.Fact
+	var err error
+
 	switch lang {
 	case "go":
-		return m.goExtractor.ExtractDataFlow(path)
+		facts, err = m.goExtractor.ExtractDataFlow(path)
 	case "python":
-		return m.extractPython(path)
+		facts, err = m.extractPython(path)
 	case "javascript":
-		return m.extractJavaScript(path)
+		facts, err = m.extractJavaScript(path)
 	case "typescript":
-		return m.extractTypeScript(path)
+		facts, err = m.extractTypeScript(path)
 	case "rust":
-		return m.extractRust(path)
+		facts, err = m.extractRust(path)
 	default:
 		logging.WorldDebug("MultiLangDataFlowExtractor: unsupported language for %s", filepath.Base(path))
 		return nil, nil
 	}
 
 	logging.WorldDebug("MultiLangDataFlowExtractor: analyzed %s in %v", filepath.Base(path), time.Since(start))
-	return nil, nil
+	return facts, err
 }
 
 // =========================================================================

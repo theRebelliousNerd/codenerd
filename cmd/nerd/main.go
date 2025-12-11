@@ -1860,7 +1860,11 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	predicate := args[0]
 	logger.Info("Querying facts", zap.String("predicate", predicate))
 
-	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	baseCtx := cmd.Context()
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
 
 	// Resolve API key
@@ -2326,7 +2330,25 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	shardMgr.SetParentKernel(kernel)
 
 	// Initialize limits enforcer and spawn queue for backpressure management
-	limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+	userCfgPath := filepath.Join(nerdDir, "config.json")
+	appCfg, _ := config.LoadUserConfig(userCfgPath)
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	coreLimits := appCfg.GetCoreLimits()
+
+	// Configure global LLM API concurrency before shards start
+	schedulerCfg := core.DefaultAPISchedulerConfig()
+	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	core.ConfigureGlobalAPIScheduler(schedulerCfg)
+
+	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
+		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
+		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
+		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
+		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
+		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
 	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
@@ -2616,7 +2638,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize components
-	llmClient := perception.NewZAIClient(key)
+	llmClient, clientErr := perception.NewClientFromEnv()
+	if clientErr != nil {
+		llmClient = perception.NewZAIClient(key)
+		fmt.Printf("? Using fallback ZAI client: %v\n", clientErr)
+	}
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
@@ -2627,7 +2653,25 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	shardMgr.SetParentKernel(kernel)
 
 	// Initialize limits enforcer and spawn queue for backpressure management
-	limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+	cfgPath := config.DefaultUserConfigPath()
+	appCfg, _ := config.LoadUserConfig(cfgPath)
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	coreLimits := appCfg.GetCoreLimits()
+
+	// Configure global LLM API concurrency before shards start
+	schedulerCfg := core.DefaultAPISchedulerConfig()
+	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	core.ConfigureGlobalAPIScheduler(schedulerCfg)
+
+	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
+		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
+		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
+		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
+		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
+		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
 	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
