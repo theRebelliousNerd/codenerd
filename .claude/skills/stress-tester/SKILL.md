@@ -1,6 +1,6 @@
 ---
 name: stress-tester
-description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 25+ subsystems. Includes comprehensive multi-minute workflows with conservative, aggressive, chaos, and hybrid severity levels.
+description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 25+ subsystems. Includes 28 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation.
 ---
 
 # Stress Tester
@@ -9,6 +9,10 @@ description: Live stress testing of codeNERD via CLI. Use when testing system st
 
 Live stress testing skill for codeNERD that systematically pushes all subsystems to their limits via CLI commands. Unlike unit tests, these are extensive end-to-end scenarios designed to find panics, race conditions, resource exhaustion, and edge cases across the entire system.
 
+### Special Focus: Mangle Self-Healing
+
+This skill includes comprehensive testing of codeNERD's Mangle validation and repair infrastructure, which prevents the **Top 30 Common Mangle Errors** that AI agents make. The PredicateCorpus (799 predicates), MangleRepairShard, and JIT predicate selection are tested across adversarial inputs organized by error category.
+
 **When to use:**
 
 - Pre-release stability verification
@@ -16,6 +20,7 @@ Live stress testing skill for codeNERD that systematically pushes all subsystems
 - Debugging intermittent failures
 - Validating resource limits
 - Finding panic vectors
+- Testing Mangle self-healing and validation systems
 
 ## Quick Start
 
@@ -51,7 +56,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-### 01-kernel-core (5 workflows)
+### 01-kernel-core (7 workflows)
 
 Tests the Mangle kernel, SpawnQueue, and core runtime.
 
@@ -61,7 +66,9 @@ Tests the Mangle kernel, SpawnQueue, and core runtime.
 | [mangle-explosion.md](references/workflows/01-kernel-core/mangle-explosion.md) | Cyclic rules + large EDB causing derivation explosion | 15-30 min |
 | [memory-pressure.md](references/workflows/01-kernel-core/memory-pressure.md) | Load 250k facts, trigger emergency compression | 20-40 min |
 | [concurrent-derivations.md](references/workflows/01-kernel-core/concurrent-derivations.md) | 4 shards querying kernel simultaneously | 10-20 min |
-| [mangle-self-healing.md](references/workflows/01-kernel-core/mangle-self-healing.md) | PredicateCorpus validation, MangleRepairShard repair loops, JIT selection | 15-30 min |
+| [mangle-self-healing.md](references/workflows/01-kernel-core/mangle-self-healing.md) | **PredicateCorpus (799 predicates), MangleRepairShard, JIT selection, FeedbackLoop integration** | 15-30 min |
+| [mangle-startup-validation.md](references/workflows/01-kernel-core/mangle-startup-validation.md) | Boot-time validation of learned.mg, invalid rule handling, self-healing markers | 10-30 min |
+| [mangle-failure-modes.md](references/workflows/01-kernel-core/mangle-failure-modes.md) | **All 69 AI failure modes from AI_FAILURE_MODES.md - comprehensive validation testing** | 30-60 min |
 
 ### 02-perception-articulation (3 workflows)
 
@@ -135,6 +142,30 @@ Tests cross-subsystem integration under load.
 | [ouroboros-thunderdome-nemesis.md](references/workflows/08-hybrid-integration/ouroboros-thunderdome-nemesis.md) | Adversarial tool evolution loop | 35-50 min |
 | [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle under pressure | 40-60 min |
 
+### Workflow Coverage Summary
+
+**Total Workflows:** 28 across 8 categories
+
+**Mangle-Specific Coverage:**
+
+- **2 dedicated Mangle workflows** (mangle-self-healing.md, mangle-startup-validation.md)
+- **30 adversarial test patterns** covering all common AI agent Mangle errors
+- **799-predicate corpus** validation across all workflows
+- **Self-healing integration** tested in 7+ workflows (autopoiesis, TDD loops, tool generation, scanning)
+
+**Subsystem Coverage:**
+
+All 25+ subsystems have dedicated stress tests, with comprehensive coverage of:
+
+- Kernel & Core Runtime (6 workflows) - **includes Mangle self-healing**
+- Perception & Articulation (3 workflows)
+- Shards & Campaigns (4 workflows)
+- Autopoiesis & Ouroboros (3 workflows) - **Mangle validation integrated**
+- World & Context (3 workflows) - **scan.mg validation**
+- Advanced Features (3 workflows)
+- Full System Chaos (3 workflows)
+- Hybrid Integration (4 workflows) - **end-to-end Mangle safety**
+
 ## Severity Levels
 
 Each workflow supports 4 severity levels:
@@ -169,20 +200,191 @@ cd logquery
 
 The skill includes [stress_queries.mg](assets/stress_queries.mg) with predicates for:
 
+**Error Detection:**
+
 - `panic_detected/3` - Panic events with stack traces
 - `nil_pointer_error/3` - Nil pointer dereferences
 - `oom_event/3` - Out of memory events
 - `timeout_event/3` - Operation timeouts
-- `queue_full/3` - Queue saturation events
-- `gas_limit_hit/3` - Mangle gas limit exceeded
 - `critical_issue/3` - Any critical failure
+
+**Resource Stress:**
+
+- `queue_full/2` - Queue saturation events
+- `gas_limit_hit/2` - Mangle gas limit exceeded
+- `memory_warning/2` - Memory pressure events
+- `limit_exceeded/3` - Resource limit violations
+
+**Mangle Self-Healing:**
+
+- `corpus_loaded/2` - PredicateCorpus initialization events
+- `corpus_validation/2` - Schema validation via check-mangle
+- `repair_shard_event/2` - MangleRepairShard activity
+- `repair_attempt/2` - Repair loop attempts on invalid rules
+- `validation_error/2` - Rule validation failures
+- `undefined_predicate/2` - Undeclared predicate errors
+- `jit_selection/2` - JIT-style context-aware predicate selection
+- `selection_fallback/2` - JIT selector fallback to full corpus
+- `rule_rejected/2` - Rules rejected after repair attempts
+- `schema_drift/2` - Schema inconsistency detection
+- `healing_success/2` - Successful self-repair operations
+- `healing_critical/3` - Critical self-healing issues (corpus missing, validation failed, etc.)
+
+## Mangle Self-Healing System
+
+The Mangle self-healing workflows test codeNERD's comprehensive Mangle validation and repair infrastructure, designed to prevent the **Top 30 Common Mangle Errors** that AI agents make when generating logic code.
+
+### Architecture Components
+
+#### PredicateCorpus (799 predicates)
+
+- Embedded database of all valid predicates in codeNERD's schema
+- Loaded at kernel boot time for instant validation
+- Includes predicate signatures (name, arity, argument types)
+- Source of truth for schema validation
+
+#### MangleRepairShard (Type S System Shard)
+
+- Long-running background process monitoring rule generation
+- Intercepts rules before persistence to `.nerd/mangle/*.mg` files
+- Uses LLM to repair invalid rules detected by corpus validation
+- Multi-attempt repair loop with exponential backoff
+- Rejects unrepairable rules with detailed error logs
+
+#### PredicateSelector (JIT-style)
+
+- Context-aware predicate selection during rule generation
+- Selects relevant predicates based on domain/task context
+- Reduces hallucination by limiting available predicates
+- Integrates with FeedbackLoop for real-time validation
+
+#### FeedbackLoop Integration
+
+- Validates rules during generation (not just at load time)
+- Provides immediate feedback to LLM during autopoiesis
+- Enables repair-before-persistence workflow
+- Tracks rejection patterns for learning
+
+### Testing Coverage
+
+The Mangle self-healing workflows provide comprehensive coverage across 4 severity levels:
+
+**Conservative (5-10 min):**
+
+- Corpus loading verification
+- Known-good rule validation
+- Schema error detection
+
+**Aggressive (10-15 min):**
+
+- Bulk validation (100+ rules)
+- Mixed valid/invalid rule detection
+- Corpus completeness checks
+
+**Chaos (15-20 min):**
+
+- Adversarial patterns from Top 30 Common Errors
+- Rapid validation stress (concurrency)
+- LLM hallucination patterns (SQL-style, Soufflé-style, Prolog-style)
+
+**Hybrid (20-30 min):**
+
+- Live autopoiesis with repair loop
+- JIT predicate selection under load
+- Schema drift detection after multi-turn sessions
+
+### Adversarial Test Categories
+
+The `assets/mangle-adversarial/` test suite is organized to match error categories:
+
+| Category | Error Count | Example Errors |
+|----------|-------------|----------------|
+| **Syntactic** | 8 errors | Atom vs string confusion, lowercase variables, missing periods, wrong comments |
+| **Safety** | 4 errors | Unsafe negation, stratification cycles, unbounded recursion |
+| **Types** | 5 errors | Type mismatches, function hallucinations, struct syntax |
+| **Loops** | 4 errors | Infinite recursion, cartesian explosions, counter fallacy |
+| **Structures** | 4 errors | Map dot notation, list indexing, JSON-style syntax |
+| **Integration** | 5 errors | Fact store type errors, parsing vs execution, external predicate signatures |
+
+**Total Coverage: 30 error patterns** matching the complete catalog of AI agent Mangle mistakes.
+
+### Self-Healing Query Examples
+
+After running Mangle self-healing tests, analyze results with these queries:
+
+```bash
+# Parse logs to Mangle facts
+cd .claude/skills/log-analyzer/scripts
+python parse_log.py .nerd/logs/* --no-schema > /tmp/stress.mg
+
+# Query self-healing events
+cd logquery
+./logquery.exe /tmp/stress.mg -q "corpus_loaded(T, M)."
+./logquery.exe /tmp/stress.mg -q "repair_attempt(T, M)."
+./logquery.exe /tmp/stress.mg -q "healing_critical(T, Type, M)."
+
+# Count validation failures
+./logquery.exe /tmp/stress.mg -q "validation_error(T, M)." | wc -l
+
+# Check JIT selection activity
+./logquery.exe /tmp/stress.mg -q "jit_selection(T, M)."
+```
+
+### Integration Points
+
+Mangle self-healing integrates with multiple subsystems:
+
+| Subsystem | Integration Point | Tested By |
+|-----------|------------------|-----------|
+| **Kernel** | PredicateCorpus loads at boot | mangle-self-healing (conservative) |
+| **Autopoiesis** | Rule generation validation | mangle-self-healing (hybrid) |
+| **FeedbackLoop** | Real-time predicate selection | mangle-self-healing (chaos) |
+| **FactRecorder** | Validates facts before persistence | memory-pressure + mangle-self-healing |
+| **Scanner** | Validates scan.mg before write | large-codebase-scan |
+| **TesterShard** | Validates learned rules from TDD loops | tdd-infinite-loop |
+| **Ouroboros** | Validates generated tool predicates | tool-generation-nesting |
+
+### Success Metrics
+
+After Mangle self-healing tests, verify:
+
+- [ ] **Zero schema drift** - No invalid rules in `.nerd/mangle/*.mg`
+- [ ] **Corpus coverage** - All 799 predicates loadable
+- [ ] **Repair success rate** - >80% of repairable rules fixed
+- [ ] **JIT selection active** - Context-aware selection in logs
+- [ ] **No validation panics** - Kernel stable during validation
+- [ ] **Rejection logging** - Unrepairable rules logged with reasons
+
+### Known Self-Healing Failure Modes
+
+Watch for these issues in logs:
+
+| Issue | Log Pattern | Root Cause | Fix |
+|-------|-------------|------------|-----|
+| Corpus missing | `corpus not available` | Embed failed during build | Rebuild with proper embed tags |
+| JIT selector failed | `falling back to full corpus` | Context extraction failed | Check perception logs |
+| Repair exceeded max attempts | `repair attempt 3 failed` | Rule fundamentally invalid | Expected for truly bad rules |
+| Schema drift detected | `predicate X undeclared` | Corpus out of sync with schema | Regenerate corpus from schemas.gl |
+| Concurrent validation race | Validation timeout/deadlock | Lock contention | Check for excessive concurrency |
 
 ## Test Fixtures
 
 ### Mangle Stress Files
 
 - [cyclic_rules.mg](assets/cyclic_rules.mg) - Rules causing derivation explosion
-- [stress_queries.mg](assets/stress_queries.mg) - Log analysis queries
+- [stress_queries.mg](assets/stress_queries.mg) - Extended log analysis queries (includes self-healing predicates)
+
+### Adversarial Mangle Test Suite
+
+The `assets/mangle-adversarial/` directory contains test files organized by error category matching the Top 30 Common Mangle Errors:
+
+- **syntactic/** - Atom vs string confusion, declaration syntax, variable casing, missing periods
+- **safety/** - Unsafe variables, negation safety, stratification, recursion bounds
+- **types/** - Type mismatches, struct/map syntax, function hallucinations
+- **loops/** - Infinite recursion, cartesian explosions, termination conditions
+- **structures/** - Map/list accessors, JSON-style syntax, data structure operations
+
+These files are used by the Mangle self-healing workflows to test validation and repair capabilities.
 
 ### Input Generators
 
@@ -558,3 +760,177 @@ After implementing a root-cause fix:
 3. **Run related workflows** - If you fixed kernel, run all kernel tests
 4. **Check for regressions** - Run full test suite
 5. **Document the fix** - Add to [panic-catalog.md](references/panic-catalog.md) if novel failure mode
+
+---
+
+## Advanced: Mangle Query-Based Analysis
+
+After running Mangle self-healing stress tests, leverage the **log-analyzer skill** to perform sophisticated Mangle-based analysis of test results.
+
+### Workflow Integration
+
+The stress-tester and log-analyzer skills are designed to work together:
+
+1. **Run stress test** → Generates `.nerd/logs/*.log` files
+2. **Parse logs to Mangle** → `parse_log.py` converts logs to `log_entry/6` facts
+3. **Query with Mangle** → `logquery` uses Mangle rules to analyze patterns
+4. **Generate reports** → `analyze_stress_logs.py` produces markdown reports
+
+### Complete Analysis Pipeline
+
+```bash
+# 1. Run a Mangle self-healing stress test
+./nerd.exe # ... follow workflow steps from mangle-self-healing.md
+
+# 2. Parse all logs to Mangle facts
+cd .claude/skills/log-analyzer/scripts
+python parse_log.py ../../../.nerd/logs/* --no-schema > /tmp/stress_test.mg
+
+# 3. Load into logquery and run self-healing queries
+cd logquery
+./logquery.exe /tmp/stress_test.mg -i
+
+# 4. In logquery REPL, query self-healing events:
+> corpus_loaded(T, M).
+> repair_attempt(T, M).
+> healing_critical(T, Type, M).
+> validation_error(T, M).
+> jit_selection(T, M).
+
+# 5. Count specific events
+> critical_issue(T, Type, M).  # All critical failures
+> panic_detected(T, C, M).      # Any panics
+> schema_drift(T, M).           # Schema inconsistencies
+
+# 6. Export results
+> :export corpus_activity.txt corpus_loaded
+> :export repairs.txt repair_attempt
+> :quit
+
+# 7. Generate summary report
+cd ../..
+python analyze_stress_logs.py --verbose --output mangle_test_report.md
+```
+
+### Mangle Query Examples for Self-Healing
+
+The `stress_queries.mg` file provides predicates specifically for analyzing Mangle self-healing:
+
+```mangle
+# Find all corpus validation events
+corpus_validation(T, M) :-
+    log_entry(T, /kernel, _, M, _, _),
+    fn:contains(M, "check-mangle").
+
+# Find repair loop activity
+repair_attempt(T, M) :-
+    log_entry(T, /system_shards, _, M, _, _),
+    fn:contains(M, "repair attempt").
+
+# Find critical self-healing failures
+healing_critical(T, /corpus_missing, M) :-
+    log_entry(T, /kernel, /warn, M, _, _),
+    fn:contains(M, "corpus not available").
+
+healing_critical(T, /validation_failed, M) :-
+    validation_error(T, M).
+
+healing_critical(T, /rule_rejected, M) :-
+    rule_rejected(T, M).
+
+# Success metrics
+healing_success(T, M) :-
+    log_entry(T, /system_shards, _, M, _, _),
+    fn:contains(M, "repaired successfully").
+
+# JIT selection metrics
+jit_selection(T, M) :-
+    log_entry(T, /kernel, _, M, _, _),
+    fn:contains(M, "JIT selected").
+
+selection_fallback(T, M) :-
+    log_entry(T, /kernel, /warn, M, _, _),
+    fn:contains(M, "JIT selector failed").
+```
+
+### Success Criteria via Mangle Queries
+
+After Mangle stress tests, run these queries to verify success:
+
+```bash
+# Should return results (corpus loaded)
+./logquery.exe /tmp/stress.mg -q "corpus_loaded(T, M)."
+
+# Should be empty (no critical issues)
+./logquery.exe /tmp/stress.mg -q "healing_critical(T, Type, M)."
+
+# Should be empty (no panics)
+./logquery.exe /tmp/stress.mg -q "panic_detected(T, C, M)."
+
+# Should be empty (no schema drift)
+./logquery.exe /tmp/stress.mg -q "schema_drift(T, M)."
+
+# Count repairs (should be low or zero)
+./logquery.exe /tmp/stress.mg -q "repair_attempt(T, M)." | wc -l
+
+# Check JIT selection was active
+./logquery.exe /tmp/stress.mg -q "jit_selection(T, M)." | wc -l
+```
+
+### Cross-Skill Integration
+
+The stress-tester skill integrates with:
+
+- **log-analyzer** - Mangle-based log analysis (this section)
+- **mangle-programming** - Understanding query syntax and debugging rules
+- **integration-auditor** - Verifying Mangle validation wiring across subsystems
+- **codenerd-builder** - Understanding architecture when debugging failures
+
+### Automated Reporting
+
+The `analyze_stress_logs.py` script automatically uses the self-healing queries:
+
+```bash
+# Basic analysis
+python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
+
+# Verbose with Mangle query results
+python .claude/skills/stress-tester/scripts/analyze_stress_logs.py -v
+
+# Custom output file
+python .claude/skills/stress-tester/scripts/analyze_stress_logs.py -o reports/mangle_test_$(date +%Y%m%d).md
+
+# The script outputs:
+# - Summary statistics
+# - Critical issues found (via critical_issue/3)
+# - Mangle self-healing events (via healing_critical/3)
+# - Repair activity timeline (via repair_attempt/2)
+# - JIT selection stats (via jit_selection/2)
+# - Success/failure verdict
+```
+
+---
+
+## Final Notes
+
+### Test Incrementally
+
+Don't run all 28 workflows at once. Start with:
+
+1. **Conservative smoke test** - Pick 1 workflow from each category at conservative level
+2. **Aggressive on failures** - Re-run failed workflows at aggressive level
+3. **Chaos for unknowns** - Use chaos mode to find novel failure patterns
+4. **Hybrid for integration** - Test cross-subsystem interactions
+
+### Mangle Self-Healing Priority
+
+The Mangle self-healing workflows are **critical for system stability**:
+
+- Run `mangle-self-healing.md` before any major release
+- Run `mangle-startup-validation.md` after schema changes
+- Monitor `healing_critical` events in production logs
+- Keep corpus up-to-date with schema changes
+
+### Remember the Root-Cause Mandate
+
+**NO BAND-AIDS ALLOWED.** When stress tests reveal broken artifacts created by codeNERD, trace back to the generation code and fix the source, not the symptom.
