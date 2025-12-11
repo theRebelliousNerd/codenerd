@@ -173,3 +173,70 @@ next_action(/system_start) :- system_startup(/ready,/system_start).
 # Autopoiesis-learned rule (added 2025-12-11 00:36:38)
 next_action(/initialize) :- session_planner_status(_,/idle,_,_,_,_).
 
+
+# Autopoiesis-learned rule (added 2025-12-11 12:48:59)
+next_action(/system_start) :- coder_state(/idle).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:51:32)
+active_strategy(/system_start) :- northstar_defined().
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:51:54)
+next_action(/system_start) :- entry_point(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:51:57)
+next_action(/system_start) :- current_task(/idle).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:52:00)
+system_startup(/initialized,/cold_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:54:40)
+next_action(/initialize) :- generation_state(/system,/start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:55:24)
+next_action(/system_start) :- current_time(_).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:55:26)
+# SELF-HEALED: infinite loop risk: unconditional next_action for system action will fire every tick
+# next_action(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:55:38)
+next_action(/initialize) :- system_startup(1,/start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:55:42)
+system_startup(/initialized,T) :- current_time(T).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:55:57)
+# SELF-HEALED: infinite loop risk: next_action depends on always-true predicate system_startup with wildcards
+# next_action(/initialize) :- system_startup(1,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:56:12)
+system_startup(/system,/start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:56:24)
+# SELF-HEALED: infinite loop risk: next_action depends on always-true predicate system_startup with wildcards
+# next_action(/initialize) :- system_startup(_,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:56:29)
+next_action(/initialize) :- system_heartbeat(_,/cold_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:56:36)
+next_action(/initialize) :- system_heartbeat(_,/boot).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 12:56:38)
+build_state(/starting).
+

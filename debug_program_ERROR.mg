@@ -1371,6 +1371,9 @@ Decl routing_error(ActionType, Reason, Timestamp).
 # route_added(ActionPattern, ToolName, Timestamp) - new route added via autopoiesis
 Decl route_added(ActionPattern, ToolName, Timestamp).
 
+# system_event_handled(ActionType, Target, Timestamp) - internal kernel lifecycle event acknowledged
+Decl system_event_handled(ActionType, Target, Timestamp).
+
 # -----------------------------------------------------------------------------
 # 33.7 Agenda & Planning
 # -----------------------------------------------------------------------------
@@ -2949,6 +2952,14 @@ Decl category_budget(Category, Percent).
 # 45.7 Additional JIT Compiler Schemas (for jit_compiler.mg compatibility)
 # -----------------------------------------------------------------------------
 
+# atom(AtomID)
+# Base predicate for prompt atom existence
+Decl atom(AtomID).
+
+# atom_category(AtomID, Category)
+# Atom's primary category (identity, protocol, safety, methodology, etc.)
+Decl atom_category(AtomID, Category).
+
 # atom_tag(AtomID, Dimension, Tag)
 # Alternative tagging predicate used by jit_compiler.mg
 # Functionally equivalent to atom_selector but with /mode, /phase, /layer dimensions
@@ -3719,6 +3730,95 @@ safe_action(/embed_text).
 safe_action(/browser_navigate).
 safe_action(/browser_screenshot).
 safe_action(/browser_read_dom).
+
+# System lifecycle operations (internal kernel actions)
+safe_action(/initialize).
+safe_action(/system_start).
+safe_action(/shutdown).
+safe_action(/heartbeat).
+
+# Campaign operations (orchestrated multi-step tasks)
+safe_action(/campaign_create_file).
+safe_action(/campaign_modify_file).
+safe_action(/campaign_write_test).
+safe_action(/campaign_run_test).
+safe_action(/campaign_research).
+safe_action(/campaign_verify).
+safe_action(/campaign_document).
+safe_action(/campaign_refactor).
+safe_action(/campaign_integrate).
+safe_action(/campaign_clarify).
+safe_action(/campaign_cleanup).
+safe_action(/campaign_complete).
+safe_action(/campaign_final_verify).
+safe_action(/archive_campaign).
+safe_action(/ask_campaign_interrupt).
+safe_action(/show_campaign_progress).
+safe_action(/show_campaign_status).
+safe_action(/run_phase_checkpoint).
+safe_action(/investigate_systemic).
+safe_action(/pause_and_replan).
+
+# TDD repair loop operations
+safe_action(/read_error_log).
+safe_action(/analyze_root_cause).
+safe_action(/generate_patch).
+safe_action(/complete).
+
+# Autopoiesis/Ouroboros operations (self-improvement)
+safe_action(/generate_tool).
+safe_action(/refine_tool).
+safe_action(/ouroboros_detect).
+safe_action(/ouroboros_generate).
+safe_action(/ouroboros_compile).
+safe_action(/ouroboros_register).
+
+# Strategic/control operations
+safe_action(/ask_user).
+safe_action(/resume_task).
+safe_action(/escalate_to_user).
+safe_action(/interrogative_mode).
+safe_action(/refresh_shard_context).
+safe_action(/update_world_model).
+
+# Context management operations
+safe_action(/compress_context).
+safe_action(/emergency_compress).
+safe_action(/create_checkpoint).
+
+# Code DOM operations
+safe_action(/edit_element).
+safe_action(/open_file).
+safe_action(/query_elements).
+safe_action(/refresh_scope).
+
+# Corrective operations
+safe_action(/corrective_decompose).
+safe_action(/corrective_docs).
+safe_action(/corrective_research).
+
+# Execution operations
+safe_action(/exec_cmd).
+
+# Investigation operations
+safe_action(/investigate_anomaly).
+
+# Extended Code DOM operations
+safe_action(/close_scope).
+safe_action(/edit_lines).
+safe_action(/insert_lines).
+safe_action(/delete_lines).
+safe_action(/get_elements).
+safe_action(/get_element).
+
+# Autopoiesis tool execution
+safe_action(/exec_tool).
+
+# Delegate routing patterns (action_mapping derived)
+safe_action(/delegate_reviewer).
+safe_action(/delegate_coder).
+safe_action(/delegate_researcher).
+safe_action(/delegate_tool_generator).
 
 # Network policy - allowlist approach
 allowed_domain("github.com").
@@ -9020,6 +9120,35 @@ selected_verb(Verb) :-
 # JIT Compiler Logic (The "Gatekeeper")
 # Determines which atoms are selected for the final prompt.
 
+# =============================================================================
+# IDB (Derived) Predicate Declarations
+# =============================================================================
+
+# Context matching helpers
+Decl has_constraint(Atom, Dim).
+Decl satisfied_constraint(Atom, Dim).
+Decl blocked_by_context(Atom).
+
+# Selection predicates
+Decl mandatory_selection(Atom).
+Decl prohibited(Atom).
+Decl candidate_selection(Atom, Score).
+
+# Conflict resolution
+Decl beats(A, B).
+Decl suppressed(Atom).
+
+# Dependency resolution
+Decl tentative(Atom).
+Decl missing_dep(Atom).
+Decl invalid(Atom).
+
+# Final output
+Decl final_valid(Atom).
+Decl selected_result(Atom, Priority, Source).
+
+# =============================================================================
+
 # --- 1. SKELETON (Deterministic Selection) ---
 
 # Context Matching Helper
@@ -9053,9 +9182,12 @@ satisfied_constraint(Atom, Dim) :-
     atom_tag(Atom, Dim, Tag),
     current_context(Dim, Tag).
     
-# An atom is blocked if it has a constraint on Dim, but constraint is not satisfied.
+# An atom is blocked only if context EXPLICITLY has a different value for Dim.
+# If context doesn't specify a dimension at all, atoms with that dimension pass through.
+# This prevents atoms from being blocked when their dimension isn't relevant to current context.
 blocked_by_context(Atom) :-
     has_constraint(Atom, Dim),
+    current_context(Dim, _),
     !satisfied_constraint(Atom, Dim).
 
 # Safe Skeleton: Mandatory atoms that are NOT blocked.
