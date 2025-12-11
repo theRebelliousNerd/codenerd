@@ -322,3 +322,49 @@ func (ps *PredicateSelector) GetPredicateSignatures(names []string) []string {
 	}
 	return signatures
 }
+
+// SelectForContext implements PredicateSelectorInterface for FeedbackLoop integration.
+// Returns predicate signatures relevant to the given context.
+func (ps *PredicateSelector) SelectForContext(shardType, intentVerb, domain string) ([]string, error) {
+	ctx := SelectionContext{
+		ShardType:     shardType,
+		IntentVerb:    intentVerb,
+		MaxPredicates: 100,
+	}
+
+	// Map domain to relevant predicate domains
+	if domain != "" {
+		switch domain {
+		case "executive", "action":
+			ctx.Domains = []string{"core", "routing", "shard_lifecycle"}
+		case "constitution", "safety":
+			ctx.Domains = []string{"core", "safety", "routing"}
+		case "campaign":
+			ctx.Domains = []string{"core", "campaign", "shard_lifecycle"}
+		default:
+			ctx.Domains = []string{domain}
+		}
+	}
+
+	predicates, err := ps.Select(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to signature strings
+	signatures := make([]string, 0, len(predicates))
+	for _, p := range predicates {
+		sig := fmt.Sprintf("%s/%d", p.Name, p.Arity)
+		if p.Description != "" {
+			// Truncate description for readability
+			desc := p.Description
+			if len(desc) > 50 {
+				desc = desc[:50] + "..."
+			}
+			sig += " - " + desc
+		}
+		signatures = append(signatures, sig)
+	}
+
+	return signatures, nil
+}
