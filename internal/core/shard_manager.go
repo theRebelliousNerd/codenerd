@@ -1079,10 +1079,11 @@ func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 }
 
 // Spawn creates and executes a shard synchronously.
+// Routes through SpawnQueue for backpressure management if queue is attached.
 func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (string, error) {
 	logging.Shards("Spawn: synchronous spawn of %s shard for task", typeName)
 	logging.ShardsDebug("Spawn: task=%s", task)
-	return sm.SpawnWithContext(ctx, typeName, task, nil)
+	return sm.SpawnWithPriority(ctx, typeName, task, nil, PriorityNormal)
 }
 
 // SpawnWithContext creates and executes a shard with session context (Blackboard Pattern).

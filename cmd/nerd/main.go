@@ -1003,7 +1003,8 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 
 		prompt := fmt.Sprintf("Dream Mode Consultation:\n\nScenario: %s\n\nProvide your perspective on this hypothetical. Do NOT execute any actions - only describe what you would do and the implications.", scenario)
 
-		result, err := cortex.ShardManager.SpawnWithContext(ctx, shard.Name, prompt, dreamCtx)
+		// Dream mode = low priority (background speculation)
+		result, err := cortex.ShardManager.SpawnWithPriority(ctx, shard.Name, prompt, dreamCtx, core.PriorityLow)
 		if err != nil {
 			fmt.Printf("   ❌ Error: %v\n\n", err)
 			continue
@@ -1050,7 +1051,8 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	shadowCtx := &core.SessionContext{DreamMode: true}
 	prompt := fmt.Sprintf("SHADOW MODE - Describe what would happen without executing:\n\n%s\n\nList the files that would be affected, changes that would be made, and potential risks. Do NOT actually make any changes.", action)
 
-	result, err := cortex.ShardManager.SpawnWithContext(ctx, "coder", prompt, shadowCtx)
+	// Shadow mode = normal priority (user CLI command but speculative)
+	result, err := cortex.ShardManager.SpawnWithPriority(ctx, "coder", prompt, shadowCtx, core.PriorityNormal)
 	if err != nil {
 		return fmt.Errorf("shadow simulation failed: %w", err)
 	}
