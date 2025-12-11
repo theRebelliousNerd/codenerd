@@ -1,0 +1,436 @@
+# Mangle Recursion Mastery
+
+## Recursion Fundamentals
+
+### Linear Recursion
+**Single recursive call per rule**
+
+```mangle
+# Base case
+ancestor(X, Y) :- parent(X, Y).
+
+# Recursive case
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+```
+
+### Non-Linear Recursion
+**Multiple recursive paths**
+
+```mangle
+# Symmetric reachability
+connected(X, Y) :- edge(X, Y).
+connected(X, Y) :- edge(Y, X).  # Symmetric
+connected(X, Z) :- connected(X, Y), connected(Y, Z).  # Transitive
+```
+
+## Path Construction Techniques
+
+### Simple Path Tracking
+```mangle
+# Base: direct edge
+path(X, Y, [X, Y]) :- edge(X, Y).
+
+# Recursive: extend path
+path(X, Z, [X|Rest]) :-
+    edge(X, Y),
+    path(Y, Z, Rest).
+```
+
+### Path with Length
+```mangle
+# Base: single hop
+path_len(X, Y, 1) :- edge(X, Y).
+
+# Recursive: accumulate length
+path_len(X, Z, Len) :-
+    edge(X, Y),
+    path_len(Y, Z, SubLen) |>
+    let Len = fn:plus(SubLen, 1).
+```
+
+### Path with Cost/Weight
+```mangle
+# Base: direct cost
+path_cost(X, Y, Cost) :- edge(X, Y, Cost).
+
+# Recursive: accumulate cost
+path_cost(X, Z, TotalCost) :-
+    edge(X, Y, Cost1),
+    path_cost(Y, Z, Cost2) |>
+    let TotalCost = fn:plus(Cost1, Cost2).
+```
+
+### Path with Multiple Attributes
+```mangle
+# Track length, cost, and path
+path_full(X, Y, 1, Cost, [X, Y]) :-
+    edge(X, Y, Cost).
+
+path_full(X, Z, Len, TotalCost, [X|RestPath]) :-
+    edge(X, Y, Cost1),
+    path_full(Y, Z, SubLen, Cost2, RestPath) |>
+    let Len = fn:plus(SubLen, 1),
+    let TotalCost = fn:plus(Cost1, Cost2).
+```
+
+## Cycle Detection and Prevention
+
+### Detect Cycles (Back Edges)
+```mangle
+# Reachability
+reachable(X, Y) :- edge(X, Y).
+reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+
+# Back edge = cycle
+cycle_edge(X, Y) :-
+    edge(X, Y),
+    reachable(Y, X).
+```
+
+### Check if Node Has Cycle
+```mangle
+has_cycle(X) :- cycle_edge(X, _).
+```
+
+### Acyclic Paths Only
+```mangle
+# Prevent revisiting nodes
+acyclic_path(X, Y, [X, Y]) :- edge(X, Y).
+
+acyclic_path(X, Z, [X|Rest]) :-
+    edge(X, Y),
+    acyclic_path(Y, Z, Rest),
+    not member(X, Rest).  # X not already in path
+
+# Helper: list membership
+member(X, [X|_]).
+member(X, [_|Tail]) :- member(X, Tail).
+```
+
+## Distance and Optimization
+
+### Shortest Path
+```mangle
+# Step 1: All paths with lengths
+path_len(X, Y, Len) :- ...  # As above
+
+# Step 2: Find minimum length
+shortest(X, Y, MinLen) :-
+    path_len(X, Y, Len) |>
+    do fn:group_by(X, Y),
+    let MinLen = fn:Min(Len).
+```
+
+### Longest Path
+```mangle
+longest(X, Y, MaxLen) :-
+    path_len(X, Y, Len) |>
+    do fn:group_by(X, Y),
+    let MaxLen = fn:Max(Len).
+```
+
+### Maximum Depth (Tree)
+```mangle
+# Root has depth 0
+depth(Root, 0) :- root(Root).
+
+# Children have parent's depth + 1
+depth(Node, D) :-
+    child(Parent, Node),
+    depth(Parent, PD) |>
+    let D = fn:plus(PD, 1).
+
+# Find maximum depth
+max_depth(MaxD) :-
+    depth(_, D) |>
+    let MaxD = fn:Max(D).
+```
+
+## Mutual Recursion
+
+### Even/Odd Pattern
+```mangle
+# Base cases
+even(0).
+odd(1).
+
+# Mutually recursive
+even(N) :-
+    N > 0,
+    M = fn:minus(N, 1),
+    odd(M).
+
+odd(N) :-
+    N > 1,
+    M = fn:minus(N, 1),
+    even(M).
+```
+
+### Game Theory (Winning/Losing Positions)
+```mangle
+# Terminal losing position
+losing(X) :-
+    position(X),
+    not has_move(X).
+
+has_move(X) :- move(X, _).
+
+# Winning = can move to losing position
+winning(X) :-
+    move(X, Y),
+    losing(Y).
+
+# NOT mutually recursive through negation (stratified)
+```
+
+## Transitive Closure Patterns
+
+### Simple Reachability
+```mangle
+reachable(X, Y) :- edge(X, Y).
+reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+```
+
+### Dependency Closure
+```mangle
+depends(P, Lib) :- depends_direct(P, Lib).
+depends(P, Lib) :-
+    depends_direct(P, Q),
+    depends(Q, Lib).
+```
+
+### Bill of Materials (Quantity Multiplication)
+```mangle
+# Direct components
+bom(Product, Part, Qty) :- assembly(Product, Part, Qty).
+
+# Recursive components (multiply quantities)
+bom(Product, Part, TotalQty) :-
+    assembly(Product, SubAssy, Qty1),
+    bom(SubAssy, Part, Qty2) |>
+    let TotalQty = fn:multiply(Qty1, Qty2).
+```
+
+## Tree Operations
+
+### Subtree Size
+```mangle
+# Leaf nodes have size 1
+subtree_size(Node, 1) :- leaf(Node).
+
+# Internal nodes sum children + 1
+subtree_size(Node, Size) :-
+    child(Node, C),
+    subtree_size(C, ChildSize) |>
+    do fn:group_by(Node),
+    let TotalChildren = fn:Sum(ChildSize),
+    let Size = fn:plus(TotalChildren, 1).
+```
+
+### Tree Height
+```mangle
+# Leaf height is 0
+height(Leaf, 0) :- leaf(Leaf).
+
+# Internal node height = max child height + 1
+height(Node, H) :-
+    child(Node, C),
+    height(C, CH) |>
+    do fn:group_by(Node),
+    let MaxChildHeight = fn:Max(CH),
+    let H = fn:plus(MaxChildHeight, 1).
+```
+
+### Topological Sort (Dependency Levels)
+```mangle
+# Level 0: no dependencies
+level(Node, 0) :-
+    node(Node),
+    not has_dependency(Node).
+
+has_dependency(Node) :- depends_on(Node, _).
+
+# Level N+1: max dependency level + 1
+level(Node, Lev) :-
+    depends_on(Node, Dep),
+    level(Dep, DepLev) |>
+    do fn:group_by(Node),
+    let MaxDepLevel = fn:Max(DepLev),
+    let Lev = fn:plus(MaxDepLevel, 1).
+```
+
+## Termination Analysis
+
+### Guaranteed Termination
+✅ **Conditions for termination:**
+1. Finite base facts
+2. Monotonic rules (only derive new facts, never retract)
+3. Each recursion step moves toward base case
+
+```mangle
+# SAFE: Bounded by existing edges
+reachable(X, Y) :- edge(X, Y).
+reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
+# Terminates when all paths explored
+```
+
+### Potential Non-Termination
+❌ **Infinite recursion patterns:**
+
+```mangle
+# WRONG: Unbounded generation
+count_up(N) :-
+    count_up(M),
+    N = fn:plus(M, 1).
+# Generates 1, 2, 3, ... forever!
+
+# WRONG: No decreasing measure
+infinite(X) :-
+    infinite(Y),
+    X = Y.
+```
+
+### Safe Bounded Recursion
+```mangle
+# Explicit depth limit
+path_bounded(X, Y, 1) :- edge(X, Y).
+path_bounded(X, Z, D) :-
+    edge(X, Y),
+    path_bounded(Y, Z, D1),
+    D = fn:plus(D1, 1),
+    D < 10.  # Hard limit prevents infinite recursion
+```
+
+## Advanced Recursive Patterns
+
+### Connected Components (Union-Find Style)
+```mangle
+# Symmetric edge
+symmetric_edge(X, Y) :- edge(X, Y).
+symmetric_edge(Y, X) :- edge(X, Y).
+
+# Transitive closure
+same_component(X, Y) :- symmetric_edge(X, Y).
+same_component(X, Z) :-
+    symmetric_edge(X, Y),
+    same_component(Y, Z).
+```
+
+### All Paths Enumeration
+```mangle
+# Enumerate all paths (can be exponential!)
+all_paths(X, Y, [X, Y]) :- edge(X, Y).
+all_paths(X, Z, [X|Rest]) :-
+    edge(X, Y),
+    all_paths(Y, Z, Rest),
+    not member(X, Rest).  # Prevent cycles
+```
+
+### Distance-Limited Reachability
+```mangle
+# Reachable within N hops
+reachable_within(X, Y, N) :-
+    edge(X, Y),
+    N > 0.
+
+reachable_within(X, Z, N) :-
+    edge(X, Y),
+    N1 = fn:minus(N, 1),
+    N1 > 0,
+    reachable_within(Y, Z, N1).
+```
+
+### Recursive Aggregation (Sum of Descendants)
+```mangle
+# Sum values in subtree
+subtree_sum(Node, Value) :-
+    leaf(Node),
+    node_value(Node, Value).
+
+subtree_sum(Node, Total) :-
+    child(Node, C),
+    subtree_sum(C, ChildSum),
+    node_value(Node, NodeValue) |>
+    do fn:group_by(Node),
+    let ChildrenTotal = fn:Sum(ChildSum),
+    let Total = fn:plus(ChildrenTotal, NodeValue).
+```
+
+## Recursion with Memoization (Via Rules)
+
+Mangle automatically memoizes derived facts (semi-naive evaluation), so recursive predicates are efficiently computed:
+
+```mangle
+# This is automatically memoized
+fibonacci(0, 0).
+fibonacci(1, 1).
+fibonacci(N, F) :-
+    N > 1,
+    N1 = fn:minus(N, 1),
+    N2 = fn:minus(N, 2),
+    fibonacci(N1, F1),
+    fibonacci(N2, F2) |>
+    let F = fn:plus(F1, F2).
+
+# Each fibonacci(N, F) computed only once per fixpoint iteration
+```
+
+## Common Recursion Mistakes
+
+### Unbounded Generation
+```mangle
+# ❌ WRONG: Generates infinitely
+next(N) :- next(M), N = fn:plus(M, 1).
+```
+
+### Missing Base Case
+```mangle
+# ❌ WRONG: No base case = no facts derived
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+# Need: ancestor(X, Y) :- parent(X, Y).
+```
+
+### Negative Cycle (Stratification Error)
+```mangle
+# ❌ WRONG: Cycle through negation
+p(X) :- not q(X).
+q(X) :- not p(X).
+# No stable semantics!
+```
+
+### Incorrect Termination Condition
+```mangle
+# ❌ WRONG: Condition never true
+path(X, Y, 0) :- edge(X, Y), false.  # Never fires
+path(X, Z, N) :- ...  # No base case!
+```
+
+## Performance Considerations
+
+### Left vs Right Recursion
+Both are equivalent in Mangle (bottom-up evaluation), but right recursion is more common:
+
+```mangle
+# Right recursion (preferred style)
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+
+# Left recursion (equivalent, less common)
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- ancestor(X, Y), parent(Y, Z).
+```
+
+### Minimize Recursive Calls
+Place non-recursive filters early:
+
+```mangle
+# ✅ GOOD: Filter before recursion
+expensive_reachable(X, Y) :-
+    expensive_check(X),
+    reachable(X, Y).
+
+# ❌ BAD: Recursion then filter
+expensive_reachable(X, Y) :-
+    reachable(X, Y),
+    expensive_check(X).
+```
