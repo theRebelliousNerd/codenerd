@@ -1,0 +1,84 @@
+# Mangle Aggregation Syntax
+
+## Pipeline Operator (`|>`)
+
+Mangle aggregation uses explicit pipeline syntax, NOT SQL-style implicit grouping.
+
+### Basic Structure
+```mangle
+result(GroupKey, AggValue) :-
+    source(GroupKey, Value) |>
+    do fn:group_by(GroupKey),
+    let AggValue = fn:Sum(Value).
+```
+
+## Required Keywords
+
+| Keyword | Purpose | Example |
+|---------|---------|---------|
+| `\|>` | Start pipeline | `source() \|>` |
+| `do` | Apply transform | `do fn:group_by(K)` |
+| `let` | Bind result | `let N = fn:Count()` |
+
+## Function Casing (Critical)
+
+Aggregation functions use SPECIFIC casing:
+- `fn:Count()` - Capital C
+- `fn:Sum(X)` - Capital S
+- `fn:Min(X)` - Capital M
+- `fn:Max(X)` - Capital M
+- `fn:group_by(X)` - lowercase
+
+### Wrong vs Right
+```mangle
+# WRONG - lowercase
+... let N = fn:count().
+
+# CORRECT - capital C
+... let N = fn:Count().
+```
+
+## Common Patterns
+
+### Count by Group
+```mangle
+files_per_lang(Lang, Count) :-
+    file_topology(_, _, Lang, _, _) |>
+    do fn:group_by(Lang),
+    let Count = fn:Count().
+```
+
+### Sum by Group
+```mangle
+total_by_category(Cat, Total) :-
+    item(Cat, Amount) |>
+    do fn:group_by(Cat),
+    let Total = fn:Sum(Amount).
+```
+
+### Multiple Aggregations
+```mangle
+stats(Project, Min, Max, Total) :-
+    metric(Project, Value) |>
+    do fn:group_by(Project),
+    let Min = fn:Min(Value),
+    let Max = fn:Max(Value),
+    let Total = fn:Sum(Value).
+```
+
+## Anti-Patterns
+
+### SQL-Style (Wrong)
+```mangle
+# WRONG - SQL mental model
+total(Sum) :- item(X), Sum = sum(X).
+```
+
+### Missing `do` (Wrong)
+```mangle
+# WRONG - missing 'do' keyword
+result(K, N) :-
+    source(K, _) |>
+    fn:group_by(K),  # Missing 'do'!
+    let N = fn:Count().
+```
