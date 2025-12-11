@@ -329,16 +329,27 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 				switch t := arg.(type) {
 
 				case ast.Constant:
-					// Mangle name constants must start with /
-					// If the symbol doesn't start with /, treat it as a plain string
-					// to avoid ToAtom failures later
-					if strings.HasPrefix(t.Symbol, "/") {
+					// Handle different constant types based on the Type field
+					switch t.Type {
+					case ast.NameType:
+						// Mangle name constants (start with /)
 						args[i] = core.MangleAtom(t.Symbol)
-					} else {
+					case ast.StringType:
+						// String constants - Symbol contains the raw value (no quotes)
+						args[i] = t.Symbol
+					case ast.NumberType:
+						// Integer constants
+						args[i] = t.NumValue
+					case ast.Float64Type:
+						// Float constants
+						args[i] = t.Float64Value
+					default:
+						// Unknown constant type - use Symbol as fallback
 						args[i] = t.Symbol
 					}
 				default:
-					args[i] = t.String()
+					// Fallback for non-constant types (e.g., variables)
+					args[i] = fmt.Sprintf("%v", arg)
 				}
 			}
 
