@@ -926,15 +926,21 @@ func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence f
 func (o *OuroborosLoop) hotReload(toolName string) {
 	logging.Autopoiesis("Hot-reloading tool: %s", toolName)
 
+	// Guard against nil engine
+	if o.engine == nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("hotReload: engine is nil, skipping")
+		return
+	}
+
 	// Record the hot-load event in Mangle
 	_ = o.engine.AddFact("tool_hot_loaded", toolName, time.Now().Unix())
 
 	// Query current version to increment
-	result, _ := o.engine.Query(context.Background(),
+	result, err := o.engine.Query(context.Background(),
 		fmt.Sprintf("?tool_version(%q, V)", toolName))
 
 	version := 1
-	if len(result.Bindings) > 0 {
+	if err == nil && result != nil && len(result.Bindings) > 0 {
 		if v, ok := result.Bindings[0]["V"].(int); ok {
 			version = v + 1
 		}

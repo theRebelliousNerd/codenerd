@@ -232,7 +232,8 @@ go 1.21
 func (t *Thunderdome) generateTestHarness(tool *GeneratedTool) string {
 	// Generate a test harness that reads attack input from stdin
 	// and executes the tool's entry point
-	return fmt.Sprintf(`package main
+	// NOTE: Must match the tool's package (tools) for Go test to work
+	return fmt.Sprintf(`package tools
 
 import (
 	"bufio"

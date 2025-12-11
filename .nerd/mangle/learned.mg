@@ -77,3 +77,23 @@ next_action(/initialize) :- current_intent(/system_start).
 # Autopoiesis-learned rule (added 2025-12-10 18:19:56)
 action_permitted(/system_start).
 
+
+# Autopoiesis-learned rule (added 2025-12-10 19:47:55)
+next_action(/initialize) :- session_planner_status(_,_,/idle,_,_,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 19:49:40)
+next_action(/initialize) :- system_startup(_,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 19:50:15)
+final_action(/system_start) :- session_state(_,/initializing,_).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 19:57:39)
+permitted(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 19:59:27)
+next_action(/system_start) :- entry_point(/init).
+

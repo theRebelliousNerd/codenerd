@@ -551,8 +551,9 @@ Output Type: %s
 
 The tool should be in package "tools" and include:
 1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
-2. Registration function: Register%s(registry ToolRegistry) error
-3. Tool description constant
+2. Tool description constant (e.g., const ToolDescription%s = "...")
+
+IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.
 
 Generate complete, compilable Go code:`,
 		need.Name, need.Purpose, need.InputType, need.OutputType,
@@ -598,8 +599,9 @@ Output Type: %s
 
 The tool should be in package "tools" and include:
 1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
-2. Registration function: Register%s(registry ToolRegistry) error
-3. Tool description constant
+2. Tool description constant (e.g., const ToolDescription%s = "...")
+
+IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.
 
 Generate complete, compilable Go code:`,
 		need.Name, need.Purpose, need.InputType, need.OutputType,
@@ -1589,10 +1591,6 @@ func validate{{.PascalName}}Input(input {{.InputType}}) ValidationResult {
 // Helper validation functions
 var _ = regexp.Compile // Ensure regexp is used
 
-// Register{{.PascalName}} adds this tool to the registry
-func Register{{.PascalName}}(registry ToolRegistry) error {
-	return registry.Register("{{.Name}}", {{.Name}}Description, {{.FuncName}})
-}
 `,
 	"converter": `package tools
 
@@ -1705,10 +1703,6 @@ var (
 	_ = json.Marshal
 )
 
-// Register{{.PascalName}} adds this tool to the registry
-func Register{{.PascalName}}(registry ToolRegistry) error {
-	return registry.Register("{{.Name}}", {{.Name}}Description, {{.FuncName}})
-}
 `,
 }
 
