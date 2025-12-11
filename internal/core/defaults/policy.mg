@@ -231,6 +231,12 @@ safe_action(/browser_navigate).
 safe_action(/browser_screenshot).
 safe_action(/browser_read_dom).
 
+# System lifecycle operations (internal kernel actions)
+safe_action(/initialize).
+safe_action(/system_start).
+safe_action(/shutdown).
+safe_action(/heartbeat).
+
 # Network policy - allowlist approach
 allowed_domain("github.com").
 allowed_domain("pypi.org").
