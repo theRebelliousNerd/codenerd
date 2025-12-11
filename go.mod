@@ -90,4 +90,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace codenerd => C:\CodeProjects\codeNERD
+// replace codenerd => C:\CodeProjects\codeNERD  // Windows-specific path, disabled for Linux

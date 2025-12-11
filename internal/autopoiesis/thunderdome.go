@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -181,14 +185,27 @@ func (t *Thunderdome) prepareArena(ctx context.Context, tool *GeneratedTool) (ar
 
 	logging.AutopoiesisDebug("Arena prepared at: %s", arenaDir)
 
-	// Write the tool code to arena
+	// FIX: Normalize package name to "tools" to match the harness
+	// This fixes the "Package Schism" bug where tools with "package main"
+	// would fail to compile alongside the "package tools" harness.
+	toolCode := t.normalizePackage(tool.Code)
+
+	// Detect the entry point function using AST parsing
+	entryPoint, err := t.findEntryPoint(toolCode)
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to find entry point, defaulting to 'Execute': %v", err)
+		entryPoint = "Execute"
+	}
+	logging.AutopoiesisDebug("Detected entry point function: %s", entryPoint)
+
+	// Write the normalized tool code to arena
 	sourcePath := filepath.Join(arenaDir, "tool.go")
-	if err := os.WriteFile(sourcePath, []byte(tool.Code), 0644); err != nil {
+	if err := os.WriteFile(sourcePath, []byte(toolCode), 0644); err != nil {
 		return arenaDir, "", fmt.Errorf("failed to write tool source: %w", err)
 	}
 
-	// Create a test harness that wraps the tool
-	harnessCode := t.generateTestHarness(tool)
+	// Create a test harness that wraps the tool and ACTUALLY CALLS IT
+	harnessCode := t.generateTestHarness(tool, entryPoint)
 	harnessPath := filepath.Join(arenaDir, "harness_test.go")
 	if err := os.WriteFile(harnessPath, []byte(harnessCode), 0644); err != nil {
 		return arenaDir, "", fmt.Errorf("failed to write test harness: %w", err)
@@ -229,14 +246,17 @@ go 1.21
 }
 
 // generateTestHarness creates Go test code that wraps the tool for attack execution.
-func (t *Thunderdome) generateTestHarness(tool *GeneratedTool) string {
+// FIX: Now accepts entryPoint parameter to actually call the tool's function with attack input.
+// This fixes the "Phantom Punch" bug where attack inputs were being discarded.
+func (t *Thunderdome) generateTestHarness(tool *GeneratedTool, entryPoint string) string {
 	// Generate a test harness that reads attack input from stdin
-	// and executes the tool's entry point
+	// and ACTUALLY executes the tool's entry point with that input
 	// NOTE: Must match the tool's package (tools) for Go test to work
 	return fmt.Sprintf(`package tools
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -251,6 +271,8 @@ func TestThunderdomeArena(t *testing.T) {
 
 	// Read attack input from stdin
 	scanner := bufio.NewScanner(os.Stdin)
+	// Use larger buffer for potential attack payloads
+	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 	var input string
 	if scanner.Scan() {
 		input = scanner.Text()
@@ -265,15 +287,10 @@ func TestThunderdomeArena(t *testing.T) {
 		}
 	}()
 
-	// Set up timeout
-	done := make(chan bool)
-	go func() {
-		time.Sleep(%d * time.Second)
-		fmt.Fprintln(os.Stderr, "TIMEOUT: Operation exceeded time limit")
-		os.Exit(2)
-	}()
+	// Set up timeout goroutine
+	timeoutCh := time.After(%d * time.Second)
 
-	// Monitor memory
+	// Monitor memory in background
 	go func() {
 		for {
 			var m runtime.MemStats
@@ -286,22 +303,181 @@ func TestThunderdomeArena(t *testing.T) {
 		}
 	}()
 
-	// Execute the tool's entry point
+	// Execute the tool's ACTUAL entry point with the attack input
+	done := make(chan struct{})
+	var toolErr error
 	go func() {
-		// TODO: Call the tool's actual entry point with 'input'
-		// For now, we just validate the tool compiles and runs
-		_ = input
-		done <- true
+		defer close(done)
+		// Create context with timeout for the tool execution
+		ctx, cancel := context.WithTimeout(context.Background(), %d*time.Second)
+		defer cancel()
+
+		// *** FIX: ACTUALLY CALL THE TOOL'S ENTRY POINT ***
+		// This invokes the tool's logic with the attack payload
+		_, toolErr = %s(ctx, input)
 	}()
 
+	// Wait for completion or timeout
 	select {
 	case <-done:
+		if toolErr != nil {
+			// Tool returned an error - this is fine, not a crash
+			fmt.Fprintf(os.Stderr, "TOOL_ERROR: %%v\n", toolErr)
+		}
 		fmt.Println("SURVIVED")
-	case <-time.After(%d * time.Second):
-		t.Fatal("timeout")
+	case <-timeoutCh:
+		fmt.Fprintln(os.Stderr, "TIMEOUT: Operation exceeded time limit")
+		os.Exit(2)
 	}
 }
-`, t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()))
+`, t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), entryPoint)
+}
+
+// normalizePackage ensures the tool code uses "package tools" to match the harness.
+// This fixes the "Package Schism" bug where mismatched packages cause compilation failures.
+func (t *Thunderdome) normalizePackage(code string) string {
+	// Pattern to match package declaration
+	packagePattern := regexp.MustCompile(`(?m)^package\s+(\w+)`)
+	match := packagePattern.FindStringSubmatch(code)
+
+	if len(match) < 2 {
+		// No package found, prepend one
+		return "package tools\n\n" + code
+	}
+
+	if match[1] == "tools" {
+		// Already correct
+		return code
+	}
+
+	// Replace the package name with "tools"
+	logging.AutopoiesisDebug("Normalizing package from '%s' to 'tools'", match[1])
+	return packagePattern.ReplaceAllString(code, "package tools")
+}
+
+// findEntryPoint uses AST parsing to locate the tool's main entry function.
+// It looks for exported functions with context + string signatures that match
+// the standard tool interface: func Name(ctx context.Context, input string) (string, error)
+func (t *Thunderdome) findEntryPoint(code string) (string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "tool.go", code, 0)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse tool code: %w", err)
+	}
+
+	var bestFunc string
+	var bestScore int
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok {
+			return true
+		}
+
+		// Skip main, init, and test functions
+		name := fn.Name.Name
+		if name == "main" || name == "init" || strings.HasPrefix(name, "Test") ||
+			strings.HasPrefix(name, "Benchmark") || strings.HasPrefix(name, "Register") {
+			return true
+		}
+
+		score := 0
+
+		// Exported functions are preferred
+		if fn.Name.IsExported() {
+			score += 10
+		}
+
+		// Check parameters - prefer (context.Context, string)
+		if fn.Type.Params != nil {
+			params := fn.Type.Params.List
+			if len(params) >= 2 {
+				// First param should be context
+				if t.isContextParam(params[0]) {
+					score += 15
+				}
+				// Second param should be string
+				if t.isStringParam(params[1]) {
+					score += 10
+				}
+			} else if len(params) == 1 {
+				// Single param functions are acceptable
+				if t.isContextParam(params[0]) {
+					score += 5
+				} else if t.isStringParam(params[0]) {
+					score += 5
+				}
+			}
+		}
+
+		// Check return type - prefer (string, error) or (T, error)
+		if fn.Type.Results != nil {
+			results := fn.Type.Results.List
+			if len(results) == 2 {
+				score += 10
+				// Check if second return is error
+				if t.isErrorResult(results[1]) {
+					score += 5
+				}
+			} else if len(results) == 1 {
+				score += 3
+			}
+		}
+
+		// Prefer common tool function names
+		lowerName := strings.ToLower(name)
+		if strings.Contains(lowerName, "execute") ||
+			strings.Contains(lowerName, "run") ||
+			strings.Contains(lowerName, "process") ||
+			strings.Contains(lowerName, "handle") {
+			score += 8
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestFunc = name
+		}
+
+		return true
+	})
+
+	if bestFunc == "" {
+		return "", fmt.Errorf("no suitable entry point function found in tool code")
+	}
+
+	logging.AutopoiesisDebug("Found entry point '%s' with score %d", bestFunc, bestScore)
+	return bestFunc, nil
+}
+
+// isContextParam checks if a parameter is context.Context
+func (t *Thunderdome) isContextParam(field *ast.Field) bool {
+	sel, ok := field.Type.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == "context" && sel.Sel.Name == "Context"
+}
+
+// isStringParam checks if a parameter is a string type
+func (t *Thunderdome) isStringParam(field *ast.Field) bool {
+	ident, ok := field.Type.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == "string"
+}
+
+// isErrorResult checks if a result type is error
+func (t *Thunderdome) isErrorResult(field *ast.Field) bool {
+	ident, ok := field.Type.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == "error"
 }
 
 // runAttack executes a single attack against the tool.
