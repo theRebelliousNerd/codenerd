@@ -221,8 +221,8 @@ func (m Model) processInput(input string) tea.Cmd {
 				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 			}
 
-			// Fallback: Direct shard spawn without verification (with session context)
-			result, spawnErr := m.shardMgr.SpawnWithContext(ctx, shardType, task, sessionCtx)
+			// Shard spawn with queue backpressure management (user-initiated = high priority)
+			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
 
 			// CRITICAL FIX: Inject shard results as facts for cross-turn context
 			// This enables the main agent to reference shard outputs in future turns
@@ -887,7 +887,8 @@ Format your response as a structured analysis.`
 		dreamCtx := &core.SessionContext{
 			DreamMode: true,
 		}
-		result, err := m.shardMgr.SpawnWithContext(consultCtx, name, prompt, dreamCtx)
+		// Dream mode = low priority (background speculation)
+		result, err := m.shardMgr.SpawnWithPriority(consultCtx, name, prompt, dreamCtx, core.PriorityLow)
 
 		consultation := DreamConsultation{
 			ShardName: name,
@@ -1731,8 +1732,8 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		// Build session context for shard execution
 		sessionCtx := m.buildSessionContext(ctx)
 
-		// Execute the shard
-		result, err := m.shardMgr.SpawnWithContext(ctx, shardType, description, sessionCtx)
+		// Execute the shard with queue backpressure (user-initiated = high priority)
+		result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, description, sessionCtx, core.PriorityHigh)
 
 		// Inject result facts into kernel
 		m.injectShardResultFacts(shardType, description, result, err)
