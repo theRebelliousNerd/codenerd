@@ -1209,7 +1209,9 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 	}
 
 	// Build phases
-	phaseIDMap := make(map[int]string) // Map order -> phaseID
+	phaseIDMap := make(map[int]string)       // Map phase order -> phaseID
+	globalTaskIDMap := make(map[int]string)  // Map global task index -> taskID (for cross-phase context_from)
+	globalTaskIndex := 0                     // Running counter for global task indices
 	for i, rawPhase := range plan.Phases {
 		phaseID := fmt.Sprintf("/phase_%s_%d", campaignID[10:], i)
 		phaseIDMap[i] = phaseID
@@ -1265,11 +1267,13 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 		}
 
 		// Build tasks
-		taskIDMap := make(map[int]string)
+		taskIDMap := make(map[int]string) // Phase-local map for depends_on
 		logging.CampaignDebug("Building %d tasks for phase %s", len(rawPhase.Tasks), phaseID)
 		for j, rawTask := range rawPhase.Tasks {
 			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignID[10:], i, j)
 			taskIDMap[j] = taskID
+			globalTaskIDMap[globalTaskIndex] = taskID // Track global index for cross-phase context_from
+			globalTaskIndex++
 			orderIndex := j
 			if rawTask.Order > 0 {
 				orderIndex = rawTask.Order
@@ -1307,10 +1311,11 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			}
 
 			// Context injection references (for shard-aware planning)
+			// Use globalTaskIDMap for cross-phase references
 			for _, ctxIdx := range rawTask.ContextFrom {
-				if ctxTaskID, ok := taskIDMap[ctxIdx]; ok {
+				if ctxTaskID, ok := globalTaskIDMap[ctxIdx]; ok {
 					task.ContextFrom = append(task.ContextFrom, ctxTaskID)
-					logging.CampaignDebug("Task %s will receive context from task %s", taskID, ctxTaskID)
+					logging.CampaignDebug("Task %s will receive context from task %s (global index %d)", taskID, ctxTaskID, ctxIdx)
 				} else {
 					logging.Get(logging.CategoryCampaign).Warn("Task %s references unknown context source index %d", taskID, ctxIdx)
 				}
