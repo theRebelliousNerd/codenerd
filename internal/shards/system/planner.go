@@ -169,7 +169,11 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 	// Initialize kernel if not set
 	if s.Kernel == nil {
 		logging.SystemShardsDebug("[SessionPlanner] Creating new kernel (none attached)")
-		s.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		s.Kernel = kernel
 	}
 
 	// Parse task for initial goal or campaign

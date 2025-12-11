@@ -12,7 +12,11 @@ func TestPlanView(t *testing.T) {
 	t.Skip("Skipping: constitution stratification issues need refactoring")
 
 	planner := NewSessionPlannerShard()
-	planner.Kernel = core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	planner.Kernel = kernel
 
 	// Add some tasks
 	planner.AddTask("Implement feature A", 1)
@@ -44,7 +48,11 @@ func TestPlanViewWithProgress(t *testing.T) {
 	t.Skip("Skipping: constitution stratification issues need refactoring")
 
 	planner := NewSessionPlannerShard()
-	planner.Kernel = core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	planner.Kernel = kernel
 
 	// Add tasks
 	planner.AddTask("Task 1", 1)
@@ -85,7 +93,11 @@ func TestPlanViewWithProgress(t *testing.T) {
 
 func TestFormatPlanAsMarkdown(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	planner.Kernel = kernel
 
 	// Add some tasks
 	planner.AddTask("Implement feature A", 1)
@@ -117,7 +129,11 @@ func TestFormatPlanAsMarkdown(t *testing.T) {
 
 func TestFormatPlanAsJSON(t *testing.T) {
 	planner := NewSessionPlannerShard()
-	planner.Kernel = core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	planner.Kernel = kernel
 
 	// Add a task
 	planner.AddTask("Test task", 1)

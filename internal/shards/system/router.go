@@ -330,7 +330,11 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 
 	// Initialize kernel if not set
 	if r.Kernel == nil {
-		r.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		r.Kernel = kernel
 	}
 
 	ticker := time.NewTicker(r.config.TickInterval)

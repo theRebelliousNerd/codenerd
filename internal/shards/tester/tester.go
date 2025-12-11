@@ -323,7 +323,11 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 	// Initialize kernel if not set
 	if t.kernel == nil {
 		logging.TesterDebug("Creating new RealKernel instance")
-		t.kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		t.kernel = kernel
 	}
 	// Load tester-specific policy (only once to avoid duplicate Decl errors)
 	if !t.policyLoaded {

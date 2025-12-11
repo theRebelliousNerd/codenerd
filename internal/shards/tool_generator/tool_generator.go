@@ -86,7 +86,7 @@ func NewToolGeneratorShard(id string, config core.ShardConfig) *ToolGeneratorSha
 		config:          config,
 		state:           core.ShardStateIdle,
 		generatorConfig: DefaultToolGeneratorConfig(),
-		kernel:          core.NewRealKernel(),
+		kernel:          nil, // Lazily initialized in Execute() to handle errors
 		stopCh:          make(chan struct{}),
 	}
 }
@@ -214,6 +214,15 @@ func (s *ToolGeneratorShard) Execute(ctx context.Context, task string) (string, 
 		s.state = core.ShardStateCompleted
 		s.mu.Unlock()
 	}()
+
+	// Lazy kernel initialization
+	if s.kernel == nil {
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		s.kernel = kernel
+	}
 
 	// Parse the task to determine action
 	action := s.parseAction(task)
