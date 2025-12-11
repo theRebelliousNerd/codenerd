@@ -260,3 +260,7 @@ current_phase(/system_start).
 # Autopoiesis-learned rule (added 2025-12-11 14:11:01)
 current_phase(/system_start).
 
+
+# Autopoiesis-learned rule (added 2025-12-11 14:29:56)
+next_action(/system_start) :- in_scope(/initialization).
+

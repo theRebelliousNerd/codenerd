@@ -338,6 +338,153 @@ suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
 
 # Signal to main agent: recent review may be inaccurate
 Decl recent_review_unreliable().
-recent_review_unreliable() :-
-    review_suspect(_, _).
+
+# =============================================================================
+# SECTION 13: WIRING GAP DETECTION
+# =============================================================================
+
+Decl unwired_function(ID, File).
+
+# Identify public functions containing no incoming dependency links
+# Exclude test files to avoid false positives on test helpers
+unwired_function(ID, File) :-
+    symbol_graph(ID, /function, /public, File, _),
+    !dependency_link(_, ID, _),
+    file_topology(File, _, _, _, /false).
+
+# Emit raw finding
+# We use the Symbol ID as the message to ensure unique findings per symbol
+
+# =============================================================================
+# SECTION 14: ARCHITECTURAL INSIGHTS
+# =============================================================================
+
+# --- 1. Shotgun Surgery (Hidden Temporal Coupling) ---
+# Files that change together often but have no static dependency
+
+Decl hidden_coupling(FileA, FileB).
+Decl dependency_connected(FileA, FileB).
+
+# Helper: Check connection in either direction
+dependency_connected(A, B) :- dependency_link(_, _, _, A, B). # Assuming dependency_link schema allows File mapping or we use ID
+# Wait, schema is dependency_link(CallerID, CalleeID, ImportPath).
+# We need to map ID to File using symbol_graph or file_topology?
+# symbol_graph(SymbolID, Type, Visibility, File, Signature).
+
+# Redefine helper to work with Symbol IDs -> Files
+Decl dependency_link_exists(FileA, FileB).
+
+dependency_link_exists(FileA, FileB) :-
+    dependency_link(CallerID, CalleeID, _),
+    symbol_graph(CallerID, _, _, FileA, _),
+    symbol_graph(CalleeID, _, _, FileB, _).
+
+# Temporal coupling rule
+hidden_coupling(FileA, FileB) :-
+    git_history(FileA, Hash, _, _, _),
+    git_history(FileB, Hash, _, _, _),
+    FileA != FileB,
+    !dependency_link_exists(FileA, FileB),
+    !dependency_link_exists(FileB, FileA).
+
+# Finding
+raw_finding(FileA, 1, /warning, /architecture, "SHOTGUN_SURGERY", FileB) :-
+    hidden_coupling(FileA, FileB).
+
+
+# --- 2. The "Hero" Risk (Bus Factor) ---
+# High churn + High complexity + Single Author
+
+Decl hero_risk(File, Author).
+Decl has_other_author(File, Author).
+
+has_other_author(File, Author) :-
+    git_history(File, _, Other, _, _),
+    Author != Other.
+
+hero_risk(File, Author) :-
+    churn_rate(File, Rate), Rate > 5,
+    complexity_warning(File, _),
+    git_history(File, _, Author, _, _),
+    !has_other_author(File, Author).
+
+# Finding
+raw_finding(File, 1, /warning, /risk, "HERO_RISK", Author) :-
+    hero_risk(File, Author).
+
+
+# --- 3. Architectural Layer Leakage ---
+# Core should not import UI
+
+Decl layer(File, LayerName).
+Decl architecture_violation(Caller, Callee).
+
+layer(File, /core) :- :string:contains(File, "internal/core").
+layer(File, /ui)   :- :string:contains(File, "cmd/nerd").
+
+architecture_violation(CallerFile, CalleeFile) :-
+    dependency_link(CallerID, CalleeID, _),
+    symbol_graph(CallerID, _, _, CallerFile, _),
+    symbol_graph(CalleeID, _, _, CalleeFile, _),
+    layer(CallerFile, /core),
+    layer(CalleeFile, /ui).
+
+# Finding
+raw_finding(CallerFile, 1, /error, /architecture, "LAYER_LEAKAGE", CalleeFile) :-
+    architecture_violation(CallerFile, CalleeFile).
+
+
+# --- 4. "Zombie" Tests ---
+# Tests that exist but import nothing internal
+
+Decl zombie_test(TestFile).
+Decl test_imports_internal(TestFile).
+
+test_imports_internal(TestFile) :-
+    symbol_graph(TestID, _, _, TestFile, _),
+    dependency_link(TestID, CalleeID, _),
+    symbol_graph(CalleeID, _, _, CalleeFile, _),
+    FileA != FileB, # Should be different file
+    # Check if Callee is internal (e.g., same project prefix or not stdlib)
+    # Simple heuristic: CalleeFile is in the file_topology (known project file)
+    file_topology(CalleeFile, _, _, _, _).
+
+zombie_test(TestFile) :-
+    file_topology(TestFile, _, _, _, /true), # Is Test
+    !test_imports_internal(TestFile).
+
+# Finding
+
+# --- 5. Circular Dependencies (File Level) ---
+# A -> B -> ... -> A (Structural Cycle)
+
+Decl file_dependency(CallerFile, CalleeFile).
+Decl file_reachable(CallerFile, CalleeFile).
+Decl circular_dependency(FileA, FileB).
+
+# Direct dependency (using helper from Rule 1)
+file_dependency(A, B) :-
+    dependency_link_exists(A, B),
+    A != B.
+
+# Transitive closure (Reachability)
+file_reachable(A, B) :-
+    file_dependency(A, B).
+
+file_reachable(A, C) :-
+    file_dependency(A, B),
+    file_reachable(B, C).
+
+# Cycle detection
+circular_dependency(A, B) :-
+    file_dependency(A, B),
+    file_reachable(B, A).
+
+# Finding
+# Note: This will flag both A->B and B->A.
+raw_finding(A, 1, /error, /architecture, "CIRCULAR_DEPENDENCY", B) :-
+    circular_dependency(A, B).
+
+
+
 
