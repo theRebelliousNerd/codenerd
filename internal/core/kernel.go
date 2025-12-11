@@ -293,6 +293,20 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	k.facts = append(k.facts, facts...)
 	logging.KernelDebug("LoadFacts: EDB grew from %d to %d facts", prevCount, len(k.facts))
 
+	// Count JIT-related facts for debugging
+	jitCounts := make(map[string]int)
+	for _, f := range facts {
+		switch f.Predicate {
+		case "is_mandatory", "atom_tag", "atom_priority", "current_context", "atom":
+			jitCounts[f.Predicate]++
+		}
+	}
+	if len(jitCounts) > 0 {
+		logging.Kernel("LoadFacts JIT: is_mandatory=%d atom_tag=%d atom_priority=%d current_context=%d atom=%d",
+			jitCounts["is_mandatory"], jitCounts["atom_tag"], jitCounts["atom_priority"],
+			jitCounts["current_context"], jitCounts["atom"])
+	}
+
 	// Log sample of facts being loaded (first 5)
 	if len(facts) > 0 && logging.IsDebugMode() {
 		sampleSize := 5
@@ -634,6 +648,9 @@ func (k *RealKernel) rebuild() error {
 }
 
 // Query retrieves all facts matching a predicate pattern.
+// Accepts either a bare predicate name (e.g., "user_intent") or a pattern with
+// arguments (e.g., "selected_result(Atom, Priority, Source)"). For patterns,
+// only the predicate name is used for lookup; argument filtering is not supported.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
 	logging.KernelDebug("Query: predicate=%s", predicate)
@@ -656,10 +673,18 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return results, nil
 	}
 
+	// Extract predicate name from pattern (e.g., "foo(X, Y)" -> "foo")
+	// This supports both bare predicate names and full patterns
+	predicateName := predicate
+	if idx := strings.Index(predicate, "("); idx > 0 {
+		predicateName = predicate[:idx]
+		logging.KernelDebug("Query: extracted predicate name '%s' from pattern '%s'", predicateName, predicate)
+	}
+
 	// Find the predicate in the decls
 	predicateFound := false
 	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicate {
+		if pred.Symbol == predicateName {
 			predicateFound = true
 			// Query the store for all atoms of this predicate
 			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
@@ -672,7 +697,16 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	}
 
 	if !predicateFound {
-		logging.KernelDebug("Query: predicate '%s' not found in declarations", predicate)
+		logging.KernelDebug("Query: predicate '%s' not found in declarations", predicateName)
+	}
+
+	// JIT-related predicate debugging - log at INFO level for visibility
+	jitPredicates := map[string]bool{
+		"selected_result": true, "is_mandatory": true, "mandatory_selection": true,
+		"blocked_by_context": true, "final_valid": true, "tentative": true,
+	}
+	if jitPredicates[predicateName] {
+		logging.Kernel("JIT-Query: %s found=%v results=%d", predicateName, predicateFound, len(results))
 	}
 
 	elapsed := timer.Stop()
