@@ -71,25 +71,27 @@ type ModelConfig struct {
 // StructuredIntent represents the parsed user intent from the perception transducer.
 // NOTE: This type has been moved to internal/types to avoid import cycles.
 // Original definition (kept for reference):
-// type StructuredIntent struct {
-// 	ID         string // Unique intent ID
-// 	Category   string // /query, /mutation, /instruction
-// 	Verb       string // /explain, /refactor, /debug, /generate
-// 	Target     string // File, symbol, or concept target
-// 	Constraint string // Additional constraints
-// }
+//
+//	type StructuredIntent struct {
+//		ID         string // Unique intent ID
+//		Category   string // /query, /mutation, /instruction
+//		Verb       string // /explain, /refactor, /debug, /generate
+//		Target     string // File, symbol, or concept target
+//		Constraint string // Additional constraints
+//	}
 type StructuredIntent = types.StructuredIntent
 
 // ShardSummary represents a compressed summary of a prior shard execution.
 // NOTE: This type has been moved to internal/types to avoid import cycles.
 // Original definition (kept for reference):
-// type ShardSummary struct {
-// 	ShardType string    // "reviewer", "coder", "tester", "researcher"
-// 	Task      string    // Original task (truncated)
-// 	Summary   string    // Compressed output summary
-// 	Timestamp time.Time // When executed
-// 	Success   bool      // Whether it succeeded
-// }
+//
+//	type ShardSummary struct {
+//		ShardType string    // "reviewer", "coder", "tester", "researcher"
+//		Task      string    // Original task (truncated)
+//		Summary   string    // Compressed output summary
+//		Timestamp time.Time // When executed
+//		Success   bool      // Whether it succeeded
+//	}
 type ShardSummary = types.ShardSummary
 
 // SessionContext holds compressed session context for shard injection (Blackboard Pattern).
@@ -97,60 +99,61 @@ type ShardSummary = types.ShardSummary
 // Extended to include all context types specified in the codeNERD architecture.
 // NOTE: This type has been moved to internal/types to avoid import cycles.
 // Original definition (kept for reference):
-// type SessionContext struct {
-// 	// CORE CONTEXT (Original)
-// 	CompressedHistory string            // Semantically compressed session (from compressor)
-// 	RecentFindings    []string          // Recent reviewer/tester findings
-// 	RecentActions     []string          // Recent shard actions taken
-// 	ActiveFiles       []string          // Files currently in focus
-// 	ExtraContext      map[string]string // Additional context key-values
 //
-// 	// DREAM MODE (Simulation/Learning)
-// 	DreamMode bool // When true, shard should ONLY describe what it would do, not execute
+//	type SessionContext struct {
+//		// CORE CONTEXT (Original)
+//		CompressedHistory string            // Semantically compressed session (from compressor)
+//		RecentFindings    []string          // Recent reviewer/tester findings
+//		RecentActions     []string          // Recent shard actions taken
+//		ActiveFiles       []string          // Files currently in focus
+//		ExtraContext      map[string]string // Additional context key-values
 //
-// 	// WORLD MODEL / EDB FACTS
-// 	ImpactedFiles      []string // Files transitively affected by current changes (impacted/1)
-// 	CurrentDiagnostics []string // Active errors/warnings from diagnostic/5
-// 	SymbolContext      []string // Relevant symbols in scope (symbol_graph)
-// 	DependencyContext  []string // 1-hop dependencies for target file(s)
+//		// DREAM MODE (Simulation/Learning)
+//		DreamMode bool // When true, shard should ONLY describe what it would do, not execute
 //
-// 	// USER INTENT & FOCUS
-// 	UserIntent       *StructuredIntent // Parsed intent from perception transducer
-// 	FocusResolutions []string          // Resolved paths from fuzzy references
+//		// WORLD MODEL / EDB FACTS
+//		ImpactedFiles      []string // Files transitively affected by current changes (impacted/1)
+//		CurrentDiagnostics []string // Active errors/warnings from diagnostic/5
+//		SymbolContext      []string // Relevant symbols in scope (symbol_graph)
+//		DependencyContext  []string // 1-hop dependencies for target file(s)
 //
-// 	// CAMPAIGN CONTEXT (Multi-Phase Goals)
-// 	CampaignActive     bool     // Whether a campaign is in progress
-// 	CampaignPhase      string   // Current phase name/ID
-// 	CampaignGoal       string   // Current phase objective
-// 	TaskDependencies   []string // What this task depends on (blocking tasks)
-// 	LinkedRequirements []string // Requirements/specs this task fulfills
+//		// USER INTENT & FOCUS
+//		UserIntent       *StructuredIntent // Parsed intent from perception transducer
+//		FocusResolutions []string          // Resolved paths from fuzzy references
 //
-// 	// GIT STATE / CHESTERTON'S FENCE
-// 	GitBranch        string   // Current branch name
-// 	GitModifiedFiles []string // Uncommitted/modified files
-// 	GitRecentCommits []string // Recent commit messages (for Chesterton's Fence)
-// 	GitUnstagedCount int      // Number of unstaged changes
+//		// CAMPAIGN CONTEXT (Multi-Phase Goals)
+//		CampaignActive     bool     // Whether a campaign is in progress
+//		CampaignPhase      string   // Current phase name/ID
+//		CampaignGoal       string   // Current phase objective
+//		TaskDependencies   []string // What this task depends on (blocking tasks)
+//		LinkedRequirements []string // Requirements/specs this task fulfills
 //
-// 	// TEST STATE (TDD LOOP)
-// 	TestState     string   // /passing, /failing, /pending, /unknown
-// 	FailingTests  []string // Names/paths of failing tests
-// 	TDDRetryCount int      // Current TDD repair loop iteration
+//		// GIT STATE / CHESTERTON'S FENCE
+//		GitBranch        string   // Current branch name
+//		GitModifiedFiles []string // Uncommitted/modified files
+//		GitRecentCommits []string // Recent commit messages (for Chesterton's Fence)
+//		GitUnstagedCount int      // Number of unstaged changes
 //
-// 	// CROSS-SHARD EXECUTION HISTORY
-// 	PriorShardOutputs []ShardSummary // Recent shard executions with summaries
+//		// TEST STATE (TDD LOOP)
+//		TestState     string   // /passing, /failing, /pending, /unknown
+//		FailingTests  []string // Names/paths of failing tests
+//		TDDRetryCount int      // Current TDD repair loop iteration
 //
-// 	// DOMAIN KNOWLEDGE (Type B Specialists)
-// 	KnowledgeAtoms  []string // Relevant domain expertise facts
-// 	SpecialistHints []string // Hints from specialist knowledge base
+//		// CROSS-SHARD EXECUTION HISTORY
+//		PriorShardOutputs []ShardSummary // Recent shard executions with summaries
 //
-// 	// AVAILABLE TOOLS (Autopoiesis/Ouroboros)
-// 	AvailableTools []ToolInfo // Self-generated tools available for execution
+//		// DOMAIN KNOWLEDGE (Type B Specialists)
+//		KnowledgeAtoms  []string // Relevant domain expertise facts
+//		SpecialistHints []string // Hints from specialist knowledge base
 //
-// 	// CONSTITUTIONAL CONSTRAINTS
-// 	AllowedActions []string // Permitted actions for this shard
-// 	BlockedActions []string // Explicitly denied actions
-// 	SafetyWarnings []string // Active safety concerns
-// }
+//		// AVAILABLE TOOLS (Autopoiesis/Ouroboros)
+//		AvailableTools []ToolInfo // Self-generated tools available for execution
+//
+//		// CONSTITUTIONAL CONSTRAINTS
+//		AllowedActions []string // Permitted actions for this shard
+//		BlockedActions []string // Explicitly denied actions
+//		SafetyWarnings []string // Active safety concerns
+//	}
 type SessionContext = types.SessionContext
 
 // ShardConfig holds configuration for a shard.
@@ -625,7 +628,7 @@ func (sm *ShardManager) SpawnWithPriority(ctx context.Context, typeName, task st
 	if result.Error != nil {
 		return result.ShardID, result.Error
 	}
-	return result.ShardID, nil
+	return result.Result, nil
 }
 
 // GetActiveShardCount returns the number of currently active shards.
@@ -1579,6 +1582,7 @@ func (sm *ShardManager) startSystemShardsWithQueue(ctx context.Context, toStart 
 			Priority:    PriorityCritical,
 			SubmittedAt: time.Now(),
 			Ctx:         ctx,
+			Detached:    true, // Critical: Don't block worker waiting for infinite system shard
 		}
 
 		// Submit to queue - don't wait for result, let them process asynchronously
