@@ -1,0 +1,116 @@
+# Reviewer Hypothesis Verification Atoms
+# LLM verification of kernel-derived hypotheses
+
+- id: "shards/reviewer/hypothesis_protocol"
+  category: "methodology"
+  subcategory: "verification"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HYPOTHESIS VERIFICATION PROTOCOL
+
+    The kernel derives hypotheses; the LLM verifies them.
+    This is the neuro-symbolic bridge.
+
+    ### HYPOTHESIS SOURCES
+    Hypotheses come from Mangle rules:
+    - `potential_null_deref(Symbol, File, Line)`
+    - `unchecked_error(Symbol, File, Line)`
+    - `race_condition_risk(Symbol1, Symbol2)`
+    - `breaking_change(Symbol, Reason)`
+
+    ### VERIFICATION TASK
+    For each hypothesis:
+    1. Read the relevant code
+    2. Determine if the hypothesis is TRUE or FALSE
+    3. Provide evidence for your verdict
+    4. Rate confidence (0.0-1.0)
+
+    ### OUTPUT FORMAT
+    ```json
+    {
+      "hypothesis": "potential_null_deref",
+      "verdict": "CONFIRMED|REFUTED|UNCERTAIN",
+      "confidence": 0.85,
+      "evidence": "Line 45 dereferences 'user' but nil check at line 42 guards against this",
+      "recommendation": "No action needed - defensive code present"
+    }
+    ```
+
+- id: "shards/reviewer/evidence_requirements"
+  category: "methodology"
+  subcategory: "verification"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  depends_on: ["shards/reviewer/hypothesis_protocol"]
+  content: |
+    ## EVIDENCE REQUIREMENTS
+
+    Every verdict must cite specific evidence.
+
+    ### CONFIRMED HYPOTHESIS
+    To confirm, you must show:
+    - The exact line where the issue occurs
+    - Why the issue is reachable (execution path)
+    - What input would trigger the issue
+    - What the impact would be
+
+    Example:
+    ```
+    CONFIRMED: potential_null_deref at user.go:45
+    Evidence: GetUser() returns nil on not-found (line 30).
+    Caller processUser() does not check for nil before
+    accessing user.Name (line 45). Triggered by invalid userID.
+    Impact: Runtime panic in production.
+    ```
+
+    ### REFUTED HYPOTHESIS
+    To refute, you must show:
+    - Why the issue cannot occur
+    - What defensive code prevents it
+    - Why the kernel's analysis was incomplete
+
+    Example:
+    ```
+    REFUTED: potential_null_deref at user.go:45
+    Evidence: While GetUser() can return nil, the guard
+    clause at line 42 (if user == nil { return error })
+    prevents any nil access. The kernel missed this check.
+    ```
+
+    ### UNCERTAIN VERDICT
+    Use UNCERTAIN when:
+    - Code is too complex to trace
+    - Multiple paths with different outcomes
+    - External factors affect execution
+
+- id: "shards/reviewer/priority_triage"
+  category: "methodology"
+  subcategory: "verification"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  content: |
+    ## HYPOTHESIS PRIORITY TRIAGE
+
+    Process hypotheses in priority order.
+
+    ### PRIORITY LEVELS
+    1. **CRITICAL**: Security vulnerabilities, data corruption
+    2. **HIGH**: Runtime panics, crashes, data loss
+    3. **MEDIUM**: Logic errors, incorrect behavior
+    4. **LOW**: Performance issues, style problems
+
+    ### TRIAGE RULES
+    - Process CRITICAL hypotheses first
+    - Stop if CRITICAL/HIGH issue confirmed
+    - Batch LOW priority for summary report
+    - Skip already-verified hypotheses
+
+    ### TIME BUDGET
+    - CRITICAL: Unlimited analysis time
+    - HIGH: Up to 5 minutes per hypothesis
+    - MEDIUM: Up to 2 minutes per hypothesis
+    - LOW: Quick scan only

@@ -1,0 +1,181 @@
+# Testify Framework Prompt Atoms
+# Go testing with stretchr/testify
+
+- id: "framework/testify/assertions"
+  category: "framework"
+  subcategory: "testify"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go"]
+  frameworks: ["/testify"]
+  content: |
+    ## Testify Assertions
+
+    ### require vs assert
+    - `require.*` - Test stops on failure (for setup)
+    - `assert.*` - Test continues on failure (for assertions)
+
+    ### Common Assertions
+    ```go
+    import (
+        "github.com/stretchr/testify/assert"
+        "github.com/stretchr/testify/require"
+    )
+
+    func TestExample(t *testing.T) {
+        // Setup with require (fatal on failure)
+        conn, err := connect()
+        require.NoError(t, err)
+        require.NotNil(t, conn)
+
+        // Assertions with assert (continue on failure)
+        result := conn.Query()
+        assert.Equal(t, expected, result)
+        assert.Len(t, result.Items, 3)
+        assert.Contains(t, result.Name, "test")
+        assert.True(t, result.Valid)
+        assert.Empty(t, result.Errors)
+    }
+    ```
+
+    ### Error Assertions
+    ```go
+    // Check error occurred
+    assert.Error(t, err)
+
+    // Check specific error
+    assert.ErrorIs(t, err, ErrNotFound)
+
+    // Check error type
+    assert.ErrorAs(t, err, &MyError{})
+
+    // Check error message contains
+    assert.ErrorContains(t, err, "not found")
+    ```
+
+- id: "framework/testify/suites"
+  category: "framework"
+  subcategory: "testify"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go"]
+  frameworks: ["/testify"]
+  content: |
+    ## Testify Test Suites
+
+    ### Suite Structure
+    ```go
+    import (
+        "testing"
+        "github.com/stretchr/testify/suite"
+    )
+
+    type MyTestSuite struct {
+        suite.Suite
+        db *Database
+    }
+
+    // Run once before suite
+    func (s *MyTestSuite) SetupSuite() {
+        s.db = NewDatabase()
+    }
+
+    // Run once after suite
+    func (s *MyTestSuite) TearDownSuite() {
+        s.db.Close()
+    }
+
+    // Run before each test
+    func (s *MyTestSuite) SetupTest() {
+        s.db.Truncate()
+    }
+
+    // Actual test methods
+    func (s *MyTestSuite) TestCreate() {
+        err := s.db.Create(item)
+        s.NoError(err)
+    }
+
+    func (s *MyTestSuite) TestRead() {
+        result := s.db.Read(id)
+        s.Equal(expected, result)
+    }
+
+    // Entry point
+    func TestMyTestSuite(t *testing.T) {
+        suite.Run(t, new(MyTestSuite))
+    }
+    ```
+
+    ### Suite Assertions
+    Inside suite methods, use `s.Assert()` or direct methods:
+    - `s.Equal(expected, actual)`
+    - `s.NoError(err)`
+    - `s.True(condition)`
+
+- id: "framework/testify/mocks"
+  category: "framework"
+  subcategory: "testify"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go"]
+  frameworks: ["/testify"]
+  content: |
+    ## Testify Mocks
+
+    ### Mock Definition
+    ```go
+    import "github.com/stretchr/testify/mock"
+
+    type MockRepository struct {
+        mock.Mock
+    }
+
+    func (m *MockRepository) GetByID(ctx context.Context, id string) (*User, error) {
+        args := m.Called(ctx, id)
+        if args.Get(0) == nil {
+            return nil, args.Error(1)
+        }
+        return args.Get(0).(*User), args.Error(1)
+    }
+    ```
+
+    ### Mock Usage
+    ```go
+    func TestService(t *testing.T) {
+        // Setup
+        mockRepo := new(MockRepository)
+        mockRepo.On("GetByID", mock.Anything, "123").
+            Return(&User{ID: "123", Name: "Test"}, nil)
+
+        // Execute
+        service := NewService(mockRepo)
+        user, err := service.FindUser(context.Background(), "123")
+
+        // Verify
+        require.NoError(t, err)
+        assert.Equal(t, "Test", user.Name)
+        mockRepo.AssertExpectations(t)
+    }
+    ```
+
+    ### Advanced Mocking
+    ```go
+    // Match any argument
+    mock.On("Method", mock.Anything).Return(result)
+
+    // Match specific type
+    mock.On("Method", mock.AnythingOfType("string")).Return(result)
+
+    // Custom matcher
+    mock.On("Method", mock.MatchedBy(func(x int) bool {
+        return x > 0
+    })).Return(result)
+
+    // Different returns on successive calls
+    mock.On("Method").Return(1).Once()
+    mock.On("Method").Return(2).Once()
+    ```

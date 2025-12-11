@@ -1,0 +1,137 @@
+# Autopoiesis Methodology Atoms
+# Self-modification and learning patterns for codeNERD
+
+- id: "methodology/autopoiesis/core"
+  category: "methodology"
+  subcategory: "autopoiesis"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## AUTOPOIESIS: SELF-MODIFYING SYSTEMS
+
+    Autopoiesis is the capacity for self-improvement through experience.
+    codeNERD learns from rejections, failures, and corrections.
+
+    ### CORE PRINCIPLE
+    Every failure is a learning opportunity. Every rejection is feedback.
+    The system must become better over time without retraining.
+
+    ### LEARNING CHANNELS
+    1. **Rejection Patterns** - User rejects output → learn to avoid
+    2. **Correction Patterns** - User corrects output → learn replacement
+    3. **Success Patterns** - Output accepted → reinforce behavior
+    4. **Failure Patterns** - Runtime errors → prevent recurrence
+
+- id: "methodology/autopoiesis/rejection_learning"
+  category: "methodology"
+  subcategory: "autopoiesis"
+  priority: 80
+  is_mandatory: false
+  depends_on: ["methodology/autopoiesis/core"]
+  content: |
+    ## REJECTION LEARNING PROTOCOL
+
+    When output is rejected, analyze and remember the pattern.
+
+    ### REJECTION CAPTURE
+    1. Record the exact output that was rejected
+    2. Record the user's reason (if provided)
+    3. Extract the pattern that caused rejection
+    4. Store in rejection_pattern fact
+
+    ### PATTERN EXTRACTION
+    Examples of extractable patterns:
+    - "Used deprecated API X" → avoid API X
+    - "Wrong indentation style" → prefer style Y
+    - "Too verbose" → prefer concise output
+    - "Missing error handling" → always include error handling
+
+    ### THRESHOLD LEARNING
+    - 1 rejection: Note the pattern
+    - 2 rejections: Include in "avoid" prompt section
+    - 3+ rejections: Hard-coded avoidance rule
+
+    ### FACT FORMAT
+    ```
+    rejection_pattern(Pattern, Count, LastSeen).
+    learned_avoidance(Pattern, "avoid X because Y").
+    ```
+
+- id: "methodology/autopoiesis/ouroboros"
+  category: "methodology"
+  subcategory: "autopoiesis"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/ouroboros"]
+  content: |
+    ## OUROBOROS: SELF-GENERATING TOOLS
+
+    When codeNERD encounters a capability gap, it generates the missing tool.
+
+    ### TRIGGER CONDITIONS
+    - Task requires capability not in current toolset
+    - Repeated manual workarounds for same operation
+    - Kernel emits `missing_tool_for(Intent, Capability)`
+
+    ### TOOL GENERATION PROTOCOL
+    1. **Identify Gap**: What capability is missing?
+    2. **Specify Tool**: What inputs/outputs does it need?
+    3. **Generate Code**: Write the tool in Go (self_tool artifact)
+    4. **Compile**: Build the tool to .nerd/tools/.compiled/
+    5. **Register**: Add to kernel as available_tool fact
+    6. **Persist**: Save tool metadata for future sessions
+
+    ### TOOL REQUIREMENTS
+    - MUST be standalone Go executable
+    - MUST accept input via stdin or args
+    - MUST output to stdout (JSON preferred)
+    - MUST handle errors gracefully (exit 1)
+    - MUST include -help flag
+
+    ### SELF-TOOL CLASSIFICATION
+    When generating code, classify artifact_type:
+    - "project_code" → user's codebase
+    - "self_tool" → codeNERD's toolchain
+    - "diagnostic" → one-time debug script
+
+- id: "methodology/autopoiesis/thunderdome"
+  category: "methodology"
+  subcategory: "autopoiesis"
+  priority: 80
+  is_mandatory: false
+  operational_modes: ["/thunderdome"]
+  content: |
+    ## THUNDERDOME: ADVERSARIAL CO-EVOLUTION
+
+    Tools evolve through competition against attack vectors.
+    Two tools enter, one tool leaves.
+
+    ### ARENA STRUCTURE
+    1. **Challenger**: Attack vector trying to break a tool
+    2. **Defender**: Tool trying to survive the attack
+    3. **Judge**: Kernel evaluating victory conditions
+
+    ### BATTLE PROTOCOL
+    1. Generate attack vector for target tool
+    2. Execute attack in sandboxed environment
+    3. Record outcome (survived/broken)
+    4. If broken: tool is mutated to defend
+    5. If survived: attack is added to regression suite
+
+    ### VICTORY CONDITIONS
+    Attack wins if:
+    - Tool panics
+    - Tool enters infinite loop
+    - Tool produces incorrect output
+    - Tool leaks resources
+
+    Tool wins if:
+    - Handles attack gracefully
+    - Returns meaningful error
+    - Maintains invariants
+
+    ### EVOLUTION METRICS
+    Track per tool:
+    - survival_rate: attacks survived / total
+    - mutation_count: defensive changes made
+    - coverage: attack categories tested

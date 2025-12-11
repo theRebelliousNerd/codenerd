@@ -1,0 +1,144 @@
+# Rust Language Prompt Atoms
+# Language-specific guidance for writing idiomatic Rust code
+
+- id: "language/rust/fundamentals"
+  category: "language"
+  subcategory: "rust"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/rust"]
+  content: |
+    ## Rust Language Fundamentals
+
+    ### Ownership Principles
+    - Every value has exactly one owner
+    - When the owner goes out of scope, the value is dropped
+    - References cannot outlive their referent
+    - Either one mutable reference OR multiple immutable references
+
+    ### Error Handling
+    - Use `Result<T, E>` for recoverable errors
+    - Use `panic!` only for unrecoverable bugs
+    - Use `?` operator for propagating errors
+    - Create custom error types for domain errors
+
+    ### Pattern Matching
+    - `match` is exhaustive - handle all cases
+    - Use `if let` for single-pattern matching
+    - Use `while let` for loop patterns
+    - Guards: `match x { n if n > 0 => ... }`
+
+- id: "language/rust/idioms"
+  category: "language"
+  subcategory: "rust"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/rust"]
+  content: |
+    ## Rust Idioms and Best Practices
+
+    ### API Design
+    - Prefer taking `&self` over `self` when possible
+    - Use `impl Trait` in argument position for flexibility
+    - Return `impl Trait` to hide implementation details
+    - Use `Into<T>` for flexible parameter types
+
+    ### Iterator Usage
+    - Prefer iterators over index-based loops
+    - Use `collect()` to transform iterators to collections
+    - Chain iterator methods for data pipelines
+    - `map`, `filter`, `fold` are your friends
+
+    ### Memory Patterns
+    - Use `Box<T>` for heap allocation
+    - Use `Rc<T>` for shared ownership (single-threaded)
+    - Use `Arc<T>` for shared ownership (multi-threaded)
+    - Use `RefCell<T>` for interior mutability
+
+    ### Common Pitfalls
+    - Avoid cloning when borrowing works
+    - Watch for lifetime elision confusion
+    - `String` vs `&str`: owned vs borrowed
+    - `Vec<T>` vs `&[T]`: owned vs borrowed slice
+
+- id: "language/rust/concurrency"
+  category: "language"
+  subcategory: "rust"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/rust"]
+  content: |
+    ## Rust Concurrency Patterns
+
+    ### Thread Safety
+    - `Send`: Safe to transfer between threads
+    - `Sync`: Safe to share references between threads
+    - Compiler enforces these at compile time!
+
+    ### Synchronization Primitives
+    - `Mutex<T>`: Mutual exclusion, locks data
+    - `RwLock<T>`: Multiple readers OR single writer
+    - `atomic` types: Lock-free primitives
+    - Channels: `mpsc`, `crossbeam`
+
+    ### Async/Await
+    - `async fn` returns `impl Future`
+    - `.await` suspends until future completes
+    - Use runtime like `tokio` or `async-std`
+    - Avoid blocking in async contexts
+
+    ### Best Practices
+    - Minimize lock scope
+    - Prefer message passing to shared state
+    - Use `Arc<Mutex<T>>` for shared mutable state
+    - Watch for deadlocks with multiple locks
+
+- id: "language/rust/testing"
+  category: "language"
+  subcategory: "rust"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/rust"]
+  content: |
+    ## Rust Testing Patterns
+
+    ### Test Organization
+    - Unit tests in same file with `#[cfg(test)]`
+    - Integration tests in `tests/` directory
+    - Doc tests in documentation comments
+
+    ### Test Attributes
+    - `#[test]` - Mark function as test
+    - `#[ignore]` - Skip test by default
+    - `#[should_panic]` - Expect panic
+    - `#[should_panic(expected = "...")]` - Expect specific panic
+
+    ### Assertions
+    - `assert!` - Boolean assertion
+    - `assert_eq!` - Equality with debug output
+    - `assert_ne!` - Inequality
+    - `debug_assert!` - Debug-only assertion
+
+    ### Test Patterns
+    ```rust
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_basic() {
+            assert_eq!(add(2, 2), 4);
+        }
+
+        #[test]
+        fn test_with_result() -> Result<(), Error> {
+            let result = operation()?;
+            assert!(result.is_valid());
+            Ok(())
+        }
+    }
+    ```

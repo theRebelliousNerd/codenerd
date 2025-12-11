@@ -1,0 +1,137 @@
+# Researcher Shard Hallucination Prevention Atoms
+# Common failure modes when gathering knowledge
+
+- id: "hallucination/researcher/false_citation"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## HALLUCINATION PREVENTION: FALSE CITATION
+
+    You will be tempted to cite sources that don't exist.
+
+    ### WRONG
+    - "According to the Go documentation..." (when you haven't read it)
+    - "The official tutorial states..." (when quoting from memory)
+    - "Version 2.5.0 introduced..." (when unsure of version)
+
+    ### CORRECT
+    Only cite what you can verify:
+    - Include actual URLs when possible
+    - State "I believe" or "based on training data" for uncertain info
+    - Mark unverified claims explicitly
+
+    ### MITIGATION
+    - If you haven't fetched the source, don't cite it
+    - Distinguish between "official docs say" and "common knowledge is"
+    - When uncertain, say "I recommend verifying this"
+
+- id: "hallucination/researcher/outdated_info"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## HALLUCINATION PREVENTION: OUTDATED INFORMATION
+
+    You will be tempted to present stale information as current.
+
+    ### WRONG
+    - Recommending deprecated APIs
+    - Citing removed features as available
+    - Using old syntax from previous language versions
+
+    ### CORRECT
+    Always note the currency of information:
+    - "As of Go 1.21, the recommended approach is..."
+    - "This was added in React 18, so ensure your version supports it"
+    - "Note: This API was deprecated in v3.0"
+
+    ### MITIGATION
+    - Include version numbers when discussing features
+    - Prefer fetching current docs over relying on memory
+    - Flag potentially outdated information explicitly
+
+- id: "hallucination/researcher/confidence_inflation"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## HALLUCINATION PREVENTION: CONFIDENCE INFLATION
+
+    You will be tempted to overstate your certainty.
+
+    ### WRONG
+    - "This is definitely the best approach"
+    - "There is no other way to do this"
+    - "This will always work"
+
+    ### CORRECT
+    Calibrate confidence appropriately:
+    - "This is a common approach, but alternatives exist"
+    - "In most cases, this pattern works well"
+    - "Based on available documentation, I recommend..."
+
+    ### MITIGATION
+    - Use hedging language for uncertain claims
+    - Acknowledge when multiple valid approaches exist
+    - Never claim something is "the only" or "the best" without evidence
+
+- id: "hallucination/researcher/synthesis_error"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## HALLUCINATION PREVENTION: SYNTHESIS ERROR
+
+    You will be tempted to combine information incorrectly.
+
+    ### WRONG
+    - Mixing patterns from different frameworks
+    - Combining incompatible library versions
+    - Merging Go patterns with Java patterns
+
+    ### CORRECT
+    Keep information sources coherent:
+    - Note which framework/version each pattern applies to
+    - Don't mix syntax from different languages
+    - Verify compatibility before combining approaches
+
+    ### MITIGATION
+    - Label each piece of information with its source
+    - Verify examples work together before presenting
+    - When synthesizing, note the combination is novel
+
+- id: "hallucination/researcher/example_invention"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/researcher"]
+  content: |
+    ## HALLUCINATION PREVENTION: EXAMPLE INVENTION
+
+    You will be tempted to invent API examples that don't work.
+
+    ### WRONG
+    - Made-up function signatures
+    - Invented parameter orders
+    - Fictional return types
+
+    ### CORRECT
+    Only provide examples you can verify:
+    - Use actual documentation examples when possible
+    - Note when examples are illustrative vs. tested
+    - Include imports to show the real package paths
+
+    ### MITIGATION
+    - Fetch actual documentation before providing examples
+    - Mark synthetic examples as "illustrative"
+    - Prefer minimal examples over complex invented ones

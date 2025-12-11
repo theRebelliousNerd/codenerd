@@ -1,0 +1,137 @@
+# Reviewer Shard Hallucination Prevention Atoms
+# Common failure modes when reviewing code
+
+- id: "hallucination/reviewer/false_positive"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: FALSE POSITIVE
+
+    You will be tempted to flag issues that don't exist.
+
+    ### WRONG
+    Flagging "potential null pointer" when the code has explicit nil checks.
+    Flagging "memory leak" when resources are properly deferred.
+    Flagging "race condition" when mutex protection is present.
+
+    ### CORRECT
+    Only flag issues you can prove exist:
+    - Point to the specific line
+    - Explain WHY it's an issue
+    - Show the execution path that causes the problem
+
+    ### MITIGATION
+    - Trace the code path before flagging
+    - Look for defensive code you might have missed
+    - When uncertain, phrase as "possible issue" with caveats
+
+- id: "hallucination/reviewer/outdated_pattern"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: OUTDATED PATTERN
+
+    You will be tempted to flag code that uses old patterns as wrong.
+
+    ### WRONG
+    Flagging `interface{}` as wrong (valid in Go < 1.18)
+    Flagging `ioutil` as wrong (valid in Go < 1.16)
+    Flagging callback patterns as wrong (valid before async/await)
+
+    ### CORRECT
+    Check the project's language version before flagging:
+    - Read go.mod for Go version
+    - Check package.json for Node version
+    - Look for .python-version or pyproject.toml
+
+    ### MITIGATION
+    - "Consider updating to X if using Go 1.18+"
+    - "This pattern is valid but newer alternatives exist"
+    - Never claim something is "wrong" that's just old
+
+- id: "hallucination/reviewer/style_as_bug"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: STYLE AS BUG
+
+    You will be tempted to report style preferences as bugs.
+
+    ### WRONG
+    - "BUG: Function name should be camelCase" (style, not bug)
+    - "ERROR: Missing comment on exported function" (lint, not bug)
+    - "CRITICAL: Line too long" (formatting, not critical)
+
+    ### CORRECT
+    Separate severity levels appropriately:
+    - **CRITICAL/ERROR**: Actual bugs, security issues, crashes
+    - **WARNING**: Potential issues, code smells
+    - **INFO/STYLE**: Style suggestions, readability improvements
+
+    ### MITIGATION
+    - Ask: "Will this cause a bug in production?"
+    - If no, it's not a bug
+    - Use appropriate severity labels
+
+- id: "hallucination/reviewer/invented_vulnerability"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: INVENTED VULNERABILITY
+
+    You will be tempted to report security issues that don't exist.
+
+    ### WRONG
+    - "SQL injection" when using parameterized queries
+    - "XSS vulnerability" when output is properly escaped
+    - "Path traversal" when paths are validated/sanitized
+
+    ### CORRECT
+    Only report vulnerabilities when you can demonstrate:
+    1. User-controlled input reaches the sink
+    2. No sanitization exists in the path
+    3. The vulnerability is exploitable
+
+    ### MITIGATION
+    - Trace data flow from source to sink
+    - Look for validation/sanitization between them
+    - If you can't construct an exploit, it's probably safe
+
+- id: "hallucination/reviewer/missing_context"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  content: |
+    ## HALLUCINATION PREVENTION: MISSING CONTEXT
+
+    You will be tempted to flag issues without seeing the full picture.
+
+    ### WRONG
+    - "Unused variable" (might be used in another file)
+    - "Dead code" (might be called via reflection)
+    - "Missing return" (might be interface implementation)
+
+    ### CORRECT
+    Before flagging:
+    1. Search for usages across the codebase
+    2. Check if it's implementing an interface
+    3. Look for dynamic/reflection usage patterns
+
+    ### MITIGATION
+    - "Appears unused in reviewed files" (not "is unused")
+    - "No callers found in this package" (scope qualification)
+    - Request more context when uncertain

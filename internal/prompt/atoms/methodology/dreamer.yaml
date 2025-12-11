@@ -1,0 +1,138 @@
+# Dreamer Protocol Methodology Atoms
+# Pre-execution impact simulation
+
+- id: "methodology/dreamer/core"
+  category: "methodology"
+  subcategory: "dreamer"
+  priority: 90
+  is_mandatory: false
+  operational_modes: ["/dream_mode"]
+  content: |
+    ## THE DREAMER PROTOCOL
+
+    Before executing any mutation, simulate the impact.
+    Dream the change into existence before making it real.
+
+    ### CORE PRINCIPLE
+    Every code change has consequences. Most bugs come from
+    failing to anticipate those consequences. The Dreamer
+    simulates the ripple effects of a change before committing.
+
+    ### WHEN TO DREAM
+    - Before modifying function signatures
+    - Before changing type definitions
+    - Before deleting code
+    - Before refactoring
+    - Any change affecting public API
+
+    ### DREAM QUESTIONS
+    1. What callers will be affected?
+    2. What tests will break?
+    3. What behavior will change?
+    4. What invariants could be violated?
+    5. What edge cases might emerge?
+
+- id: "methodology/dreamer/simulation"
+  category: "methodology"
+  subcategory: "dreamer"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/dream_mode"]
+  depends_on: ["methodology/dreamer/core"]
+  content: |
+    ## DREAM SIMULATION PROTOCOL
+
+    Execute this mental simulation before any mutation.
+
+    ### STEP 1: IMPACT GRAPH
+    Map the change's dependencies:
+    ```
+    Change Target: function X
+    ↓ calls
+    Callers: [A, B, C]
+    ↓ affected by
+    Transitive: [D calls A, E calls B]
+    ↓ tested by
+    Tests: [test_A, test_B, test_X]
+    ```
+
+    ### STEP 2: BEHAVIOR DIFF
+    For each affected component:
+    - What was the OLD behavior?
+    - What is the NEW behavior?
+    - Is the delta intentional?
+
+    ### STEP 3: INVARIANT CHECK
+    For each system invariant:
+    - Does this change preserve it?
+    - If not, is that acceptable?
+
+    ### STEP 4: EDGE CASE ANALYSIS
+    Consider boundary conditions:
+    - What if input is nil/empty?
+    - What if called concurrently?
+    - What if external service fails?
+
+- id: "methodology/dreamer/blocking"
+  category: "methodology"
+  subcategory: "dreamer"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/dream_mode"]
+  depends_on: ["methodology/dreamer/simulation"]
+  content: |
+    ## DREAM BLOCKING
+
+    The Dreamer can block changes that fail simulation.
+
+    ### BLOCK CONDITIONS
+    Emit `dream_block(Action, Reason)` when:
+    - Impact affects more than 10 files
+    - Change breaks public API without version bump
+    - No tests cover the affected code paths
+    - Invariant violation detected
+
+    ### BLOCK MESSAGE FORMAT
+    ```
+    dream_block(/modify_signature, "Change affects 15 callers, requires API review").
+    dream_block(/delete_function, "No confirmation for public API removal").
+    dream_block(/refactor_core, "Test coverage below 50% for affected code").
+    ```
+
+    ### OVERRIDE PROTOCOL
+    User can override dream blocks with:
+    - Explicit acknowledgment of risk
+    - Justification for bypassing simulation
+    - Commitment to handle consequences
+
+- id: "methodology/dreamer/precog"
+  category: "methodology"
+  subcategory: "dreamer"
+  priority: 80
+  is_mandatory: false
+  operational_modes: ["/dream_mode", "/precog"]
+  content: |
+    ## PRECOG SAFETY (Dreamer Extension)
+
+    Precog extends the Dreamer for safety-critical predictions.
+
+    ### SAFETY QUESTIONS
+    Before execution, answer:
+    1. Could this introduce a security vulnerability?
+    2. Could this cause data loss?
+    3. Could this break the build?
+    4. Could this cause a runtime panic?
+
+    ### PRECOG TRIGGERS
+    Special attention when change involves:
+    - Authentication/Authorization code
+    - Data persistence layer
+    - External service integration
+    - Error handling paths
+    - Concurrency primitives
+
+    ### PRECOG OUTPUT
+    ```
+    precog_warning(/mutation, "Modifying auth middleware - verify session handling").
+    precog_safe(/mutation, "Change is additive, no existing behavior affected").
+    ```

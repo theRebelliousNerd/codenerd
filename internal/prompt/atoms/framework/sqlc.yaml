@@ -1,0 +1,192 @@
+# SQLC Framework Prompt Atoms
+# Type-safe SQL in Go with sqlc
+
+- id: "framework/sqlc/basics"
+  category: "framework"
+  subcategory: "sqlc"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  frameworks: ["/sqlc"]
+  content: |
+    ## SQLC Basics
+
+    ### Configuration (sqlc.yaml)
+    ```yaml
+    version: "2"
+    sql:
+      - engine: "postgresql"
+        queries: "query.sql"
+        schema: "schema.sql"
+        gen:
+          go:
+            package: "db"
+            out: "internal/db"
+            emit_json_tags: true
+            emit_empty_slices: true
+    ```
+
+    ### Query Annotations
+    ```sql
+    -- name: GetUser :one
+    SELECT * FROM users WHERE id = $1;
+
+    -- name: ListUsers :many
+    SELECT * FROM users ORDER BY created_at;
+
+    -- name: CreateUser :one
+    INSERT INTO users (name, email)
+    VALUES ($1, $2)
+    RETURNING *;
+
+    -- name: UpdateUser :exec
+    UPDATE users SET name = $1 WHERE id = $2;
+
+    -- name: DeleteUser :exec
+    DELETE FROM users WHERE id = $1;
+    ```
+
+    ### Generated Code Usage
+    ```go
+    queries := db.New(conn)
+
+    // :one - returns single row
+    user, err := queries.GetUser(ctx, userID)
+
+    // :many - returns slice
+    users, err := queries.ListUsers(ctx)
+
+    // :exec - no return value
+    err := queries.DeleteUser(ctx, userID)
+    ```
+
+- id: "framework/sqlc/advanced"
+  category: "framework"
+  subcategory: "sqlc"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  frameworks: ["/sqlc"]
+  content: |
+    ## SQLC Advanced Patterns
+
+    ### Named Parameters
+    ```sql
+    -- name: CreateUserNamed :one
+    INSERT INTO users (name, email, role)
+    VALUES (
+        sqlc.arg(name),
+        sqlc.arg(email),
+        sqlc.narg(role)  -- nullable
+    )
+    RETURNING *;
+    ```
+
+    ### Batch Operations
+    ```sql
+    -- name: CreateUsers :copyfrom
+    INSERT INTO users (name, email) VALUES ($1, $2);
+    ```
+    ```go
+    // Generated batch insert
+    err := queries.CreateUsers(ctx, []db.CreateUsersParams{
+        {Name: "Alice", Email: "alice@example.com"},
+        {Name: "Bob", Email: "bob@example.com"},
+    })
+    ```
+
+    ### Dynamic Queries with sqlc.embed
+    ```sql
+    -- name: SearchUsers :many
+    SELECT * FROM users
+    WHERE
+        CASE WHEN sqlc.narg(name)::text IS NOT NULL
+            THEN name ILIKE sqlc.narg(name)
+            ELSE true
+        END
+    AND
+        CASE WHEN sqlc.narg(email)::text IS NOT NULL
+            THEN email = sqlc.narg(email)
+            ELSE true
+        END;
+    ```
+
+    ### Transactions
+    ```go
+    tx, err := conn.Begin(ctx)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback(ctx)
+
+    qtx := queries.WithTx(tx)
+
+    user, err := qtx.CreateUser(ctx, params)
+    if err != nil {
+        return err
+    }
+
+    return tx.Commit(ctx)
+    ```
+
+- id: "framework/sqlc/patterns"
+  category: "framework"
+  subcategory: "sqlc"
+  priority: 55
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  frameworks: ["/sqlc"]
+  content: |
+    ## SQLC Design Patterns
+
+    ### Repository Pattern
+    ```go
+    type UserRepository struct {
+        queries *db.Queries
+    }
+
+    func NewUserRepository(conn *pgx.Conn) *UserRepository {
+        return &UserRepository{
+            queries: db.New(conn),
+        }
+    }
+
+    func (r *UserRepository) FindByID(ctx context.Context, id int64) (*User, error) {
+        row, err := r.queries.GetUser(ctx, id)
+        if err != nil {
+            if errors.Is(err, pgx.ErrNoRows) {
+                return nil, ErrUserNotFound
+            }
+            return nil, fmt.Errorf("get user: %w", err)
+        }
+        return mapRowToUser(row), nil
+    }
+    ```
+
+    ### Custom Types
+    ```yaml
+    # sqlc.yaml
+    gen:
+      go:
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - column: "users.status"
+            go_type: "UserStatus"
+    ```
+
+    ### Nullable Handling
+    ```go
+    // Use sql.NullString, sql.NullInt64, etc.
+    // Or with pgx: pgtype.Text, pgtype.Int8
+
+    // sqlc.yaml option for better nullable handling:
+    gen:
+      go:
+        emit_pointers_for_null_types: true
+    ```
