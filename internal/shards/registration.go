@@ -359,10 +359,13 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
 		// Wire the predicate corpus from kernel for schema validation
+		// Also wire the shard as the kernel's learned rule interceptor
 		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
 			if corpus := realKernel.GetPredicateCorpus(); corpus != nil {
 				shard.SetCorpus(corpus)
 			}
+			// Wire repair interceptor for learned rule validation/repair before persistence
+			realKernel.SetRepairInterceptor(shard)
 		}
 		return shard
 	})

@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // MangleRepairShard validates and repairs Mangle rules before persistence.
@@ -30,9 +31,10 @@ import (
 // Maximum 3 repair attempts before rejection.
 type MangleRepairShard struct {
 	*BaseSystemShard
-	corpus          *core.PredicateCorpus
-	promptAssembler *articulation.PromptAssembler
-	maxRetries      int
+	corpus            *core.PredicateCorpus
+	predicateSelector *prompt.PredicateSelector
+	promptAssembler   *articulation.PromptAssembler
+	maxRetries        int
 }
 
 // RepairResult contains the outcome of a repair attempt.
@@ -71,6 +73,19 @@ func (m *MangleRepairShard) SetCorpus(corpus *core.PredicateCorpus) {
 	m.corpus = corpus
 	if corpus != nil {
 		logging.SystemShards("[MangleRepair] PredicateCorpus attached")
+		// Auto-create PredicateSelector when corpus is set
+		m.predicateSelector = prompt.NewPredicateSelector(corpus)
+		logging.SystemShards("[MangleRepair] PredicateSelector initialized")
+	}
+}
+
+// SetPredicateSelector sets the predicate selector for targeted context selection.
+func (m *MangleRepairShard) SetPredicateSelector(selector *prompt.PredicateSelector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.predicateSelector = selector
+	if selector != nil {
+		logging.SystemShards("[MangleRepair] PredicateSelector attached")
 	}
 }
 
@@ -319,6 +334,9 @@ func (m *MangleRepairShard) extractPredicatesFromRule(rule string) []string {
 func (m *MangleRepairShard) checkSafety(rule string) []string {
 	var errors []string
 
+	// Check for infinite loop risk in next_action rules
+	errors = append(errors, m.checkInfiniteLoopRisk(rule)...)
+
 	// Check for common issues
 	if strings.Contains(rule, "not ") {
 		// Check if negated variables might be unbound
@@ -348,7 +366,77 @@ func (m *MangleRepairShard) checkSafety(rule string) []string {
 	return errors
 }
 
+// checkInfiniteLoopRisk detects rules that could cause infinite derivation loops.
+// This catches:
+// 1. Unconditional next_action facts (no body)
+// 2. next_action rules depending on always-true system predicates
+func (m *MangleRepairShard) checkInfiniteLoopRisk(rule string) []string {
+	var errors []string
+
+	// Skip comments
+	trimmed := strings.TrimSpace(rule)
+	if strings.HasPrefix(trimmed, "#") {
+		return errors
+	}
+
+	// Check if this is a next_action rule
+	if !strings.Contains(rule, "next_action(") {
+		return errors
+	}
+
+	// Parse head and body
+	parts := strings.SplitN(rule, ":-", 2)
+	head := strings.TrimSpace(parts[0])
+
+	// Check 1: Unconditional next_action fact (no body)
+	// e.g., "next_action(/system_start)."
+	if len(parts) == 1 && strings.HasPrefix(head, "next_action(") {
+		// Extract the action
+		actionMatch := regexp.MustCompile(`next_action\((/[a-z_]+)\)`).FindStringSubmatch(head)
+		if len(actionMatch) > 1 {
+			action := actionMatch[1]
+			// System actions without conditions cause infinite loops
+			if action == "/system_start" || action == "/initialize" {
+				errors = append(errors, fmt.Sprintf("infinite loop risk: unconditional next_action(%s) will fire every tick", action))
+			}
+		}
+		return errors
+	}
+
+	// Check 2: next_action depending on always-true predicates
+	if len(parts) == 2 {
+		body := strings.TrimSpace(parts[1])
+
+		// List of predicates that are always true at system startup
+		alwaysTruePredicates := []string{
+			"system_startup(",
+			"system_shard_state(",
+			"entry_point(",
+			"current_phase(",
+		}
+
+		// Check if body ONLY contains always-true predicates (no real conditions)
+		for _, pred := range alwaysTruePredicates {
+			if strings.Contains(body, pred) {
+				// Check if there are other meaningful conditions
+				// A body with just wildcards like "system_startup(_,_)" is always true
+				wildcardPattern := regexp.MustCompile(regexp.QuoteMeta(pred) + `[^)]*_[^)]*\)`)
+				if wildcardPattern.MatchString(body) {
+					// Count how many predicates are in the body
+					predCount := strings.Count(body, "(")
+					if predCount <= 2 { // Only 1-2 predicates, likely always-true
+						errors = append(errors, fmt.Sprintf("infinite loop risk: next_action depends on always-true predicate %s with wildcards", strings.TrimSuffix(pred, "(")))
+					}
+				}
+			}
+		}
+	}
+
+	return errors
+}
+
 // buildRepairPrompt builds a prompt for LLM repair.
+// Uses PredicateSelector to inject only ~60 relevant predicates instead of all 799.
 func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corpus *core.PredicateCorpus) string {
 	var sb strings.Builder
 
@@ -365,8 +453,47 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	}
 	sb.WriteString("\n")
 
-	// Add guidance based on error types
-	if corpus != nil {
+	// Use PredicateSelector for targeted predicate selection
+	m.mu.RLock()
+	selector := m.predicateSelector
+	m.mu.RUnlock()
+
+	if selector != nil {
+		// Extract error types for context-aware selection
+		errorTypes := m.extractErrorTypes(errors)
+
+		// Select ~60 most relevant predicates based on error context
+		selectedPreds, err := selector.SelectForRepair(errorTypes)
+		if err == nil && len(selectedPreds) > 0 {
+			sb.WriteString("Available predicates (use ONLY these):\n\n")
+
+			// Group by domain for readability
+			byDomain := make(map[string][]prompt.SelectedPredicate)
+			for _, p := range selectedPreds {
+				byDomain[p.Domain] = append(byDomain[p.Domain], p)
+			}
+
+			// Write predicates grouped by domain
+			for domain, preds := range byDomain {
+				sb.WriteString(fmt.Sprintf("### %s\n", domain))
+				for _, p := range preds {
+					sb.WriteString(fmt.Sprintf("- `%s/%d`", p.Name, p.Arity))
+					if p.Description != "" {
+						desc := p.Description
+						if len(desc) > 50 {
+							desc = desc[:50] + "..."
+						}
+						sb.WriteString(fmt.Sprintf(" - %s", desc))
+					}
+					sb.WriteString("\n")
+				}
+				sb.WriteString("\n")
+			}
+
+			logging.SystemShardsDebug("[MangleRepair] Injected %d predicates (vs full corpus of ~799)", len(selectedPreds))
+		}
+	} else if corpus != nil {
+		// Fallback: use old method if PredicateSelector not available
 		sb.WriteString("Available predicates that might be relevant:\n")
 
 		// Extract predicates from the rule to find similar ones
@@ -382,8 +509,11 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 			}
 		}
 		sb.WriteString("\n")
+		logging.SystemShardsDebug("[MangleRepair] Using fallback predicate selection (PredicateSelector not wired)")
+	}
 
-		// Add error pattern guidance
+	// Add error pattern guidance
+	if corpus != nil {
 		for _, err := range errors {
 			if strings.Contains(err, "undefined predicate") {
 				if pattern, _ := corpus.FindErrorPattern("undefined_predicate"); pattern != nil {
@@ -412,6 +542,40 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	sb.WriteString("Output ONLY the corrected rule, nothing else:\n")
 
 	return sb.String()
+}
+
+// extractErrorTypes extracts error type keywords from error messages for PredicateSelector.
+func (m *MangleRepairShard) extractErrorTypes(errors []string) []string {
+	var types []string
+	seen := make(map[string]bool)
+
+	for _, err := range errors {
+		errLower := strings.ToLower(err)
+
+		// Extract domain hints from error messages
+		if strings.Contains(errLower, "shard") && !seen["shard"] {
+			types = append(types, "shard")
+			seen["shard"] = true
+		}
+		if strings.Contains(errLower, "campaign") && !seen["campaign"] {
+			types = append(types, "campaign")
+			seen["campaign"] = true
+		}
+		if strings.Contains(errLower, "tool") && !seen["tool"] {
+			types = append(types, "tool")
+			seen["tool"] = true
+		}
+		if strings.Contains(errLower, "next_action") && !seen["routing"] {
+			types = append(types, "routing")
+			seen["routing"] = true
+		}
+		if strings.Contains(errLower, "safety") || strings.Contains(errLower, "permitted") && !seen["safety"] {
+			types = append(types, "safety")
+			seen["safety"] = true
+		}
+	}
+
+	return types
 }
 
 // getSystemPrompt returns the system prompt for repair.
