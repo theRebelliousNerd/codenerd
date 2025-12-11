@@ -2181,6 +2181,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Create decomposer
 	decomposer := campaign.NewDecomposer(kernel, llmClient, cwd)
+	decomposer.SetShardLister(shardMgr) // Enable shard-aware planning
 
 	// Build request
 	req := campaign.DecomposeRequest{

@@ -19,6 +19,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// ShardLister provides shard discovery for campaign planning.
+type ShardLister interface {
+	ListAvailableShards() []core.ShardInfo
+}
+
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
 // It parses messy specifications and user goals into structured, validated plans.
 type Decomposer struct {
@@ -26,6 +31,7 @@ type Decomposer struct {
 	llmClient      perception.LLMClient
 	workspace      string
 	promptProvider PromptProvider // Optional JIT prompt provider
+	shardLister    ShardLister    // Optional shard discovery for shard-aware planning
 }
 
 // NewDecomposer creates a new decomposer.
@@ -46,6 +52,15 @@ func (d *Decomposer) SetPromptProvider(provider PromptProvider) {
 	d.promptProvider = provider
 	if provider != nil {
 		logging.CampaignDebug("Decomposer configured with custom prompt provider")
+	}
+}
+
+// SetShardLister sets the shard discovery interface for shard-aware planning.
+// When set, the decomposer can inform the LLM about available shards.
+func (d *Decomposer) SetShardLister(lister ShardLister) {
+	d.shardLister = lister
+	if lister != nil {
+		logging.CampaignDebug("Decomposer configured with shard discovery")
 	}
 }
 
@@ -1036,6 +1051,11 @@ type RawTask struct {
 	Order       int      `json:"order,omitempty"`
 	DependsOn   []int    `json:"depends_on"` // Indices of dependent tasks in same phase
 	Artifacts   []string `json:"artifacts"`
+
+	// Shard routing (optional - enables explicit shard selection)
+	Shard       string `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
+	ShardInput  string `json:"shard_input,omitempty"`  // Full input to pass to shard
+	ContextFrom []int  `json:"context_from,omitempty"` // Task indices to pull results from for context
 }
 
 // llmProposePlan asks LLM to propose a plan structure using retrieved context.
@@ -1092,6 +1112,18 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		contextBuilder.WriteString("TOPOLOGY HINTS:\n")
 		contextBuilder.WriteString(topo)
 		contextBuilder.WriteString("\n\n")
+	}
+
+	// Add available shards for shard-aware planning
+	if d.shardLister != nil {
+		shards := d.shardLister.ListAvailableShards()
+		if shardList := formatShardList(shards); shardList != "" {
+			contextBuilder.WriteString(shardList)
+			contextBuilder.WriteString("\n")
+			logging.Campaign("Shard-aware planning: injected %d available shards into prompt", len(shards))
+		}
+	} else {
+		logging.Campaign("Shard-aware planning: shardLister is nil, skipping shard injection")
 	}
 
 	// Retrieve goal-focused snippets for context
@@ -1255,6 +1287,10 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				Order:       orderIndex,
 				DependsOn:   make([]string, 0),
 				Artifacts:   make([]TaskArtifact, 0),
+				// Shard routing fields (explicit shard selection)
+				Shard:       rawTask.Shard,
+				ShardInput:  rawTask.ShardInput,
+				ContextFrom: make([]string, 0),
 			}
 			if task.Priority == "" {
 				task.Priority = PriorityNormal
@@ -1268,6 +1304,21 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				} else {
 					logging.Get(logging.CategoryCampaign).Warn("Task %s references unknown dependency index %d", taskID, depIdx)
 				}
+			}
+
+			// Context injection references (for shard-aware planning)
+			for _, ctxIdx := range rawTask.ContextFrom {
+				if ctxTaskID, ok := taskIDMap[ctxIdx]; ok {
+					task.ContextFrom = append(task.ContextFrom, ctxTaskID)
+					logging.CampaignDebug("Task %s will receive context from task %s", taskID, ctxTaskID)
+				} else {
+					logging.Get(logging.CategoryCampaign).Warn("Task %s references unknown context source index %d", taskID, ctxIdx)
+				}
+			}
+
+			// Log explicit shard routing if present
+			if task.Shard != "" {
+				logging.CampaignDebug("Task %s has explicit shard routing: %s", taskID, task.Shard)
 			}
 
 			// Artifacts
@@ -1443,4 +1494,72 @@ func cleanJSONResponse(resp string) string {
 	resp = strings.TrimPrefix(resp, "```")
 	resp = strings.TrimSuffix(resp, "```")
 	return strings.TrimSpace(resp)
+}
+
+// formatShardList formats available shards for injection into the planner prompt.
+func formatShardList(shards []core.ShardInfo) string {
+	if len(shards) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("AVAILABLE SHARDS (you can specify any of these for tasks):\n")
+
+	// Group by type for clarity
+	groups := make(map[core.ShardType][]core.ShardInfo)
+	for _, s := range shards {
+		groups[s.Type] = append(groups[s.Type], s)
+	}
+
+	typeOrder := []core.ShardType{core.ShardTypeEphemeral, core.ShardTypePersistent, core.ShardTypeUser}
+	for _, shardType := range typeOrder {
+		if list, ok := groups[shardType]; ok && len(list) > 0 {
+			typeLabel := "Ephemeral"
+			switch shardType {
+			case core.ShardTypePersistent:
+				typeLabel = "Specialist"
+			case core.ShardTypeUser:
+				typeLabel = "User-defined"
+			}
+			sb.WriteString(fmt.Sprintf("\n[%s shards]\n", typeLabel))
+			for _, s := range list {
+				desc := s.Description
+				if desc == "" {
+					desc = "General purpose"
+				}
+				sb.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, desc))
+			}
+		}
+	}
+
+	sb.WriteString(`
+SHARD ROUTING INSTRUCTIONS:
+- For each task, you MAY specify "shard" to route to a specific shard
+- Use "shard_input" to provide the exact input for the shard
+- Use "context_from" to inject results from previous tasks (array of task indices)
+- If shard is not specified, the system infers based on task type
+
+IMPORTANT: For documentation tasks needing directory content awareness:
+1. First use "researcher" shard to enumerate/read directory contents
+2. Then use "coder" with context_from referencing the research task
+
+Example task with explicit shard routing:
+{
+  "description": "Read contents of internal/core directory",
+  "type": "/research",
+  "shard": "researcher",
+  "shard_input": "List all files in internal/core and summarize their purpose",
+  "order": 0
+}
+
+Example task with context injection:
+{
+  "description": "Create agents.md for internal/core",
+  "type": "/file_create",
+  "shard": "coder",
+  "context_from": [0],
+  "order": 1
+}
+`)
+	return sb.String()
 }
