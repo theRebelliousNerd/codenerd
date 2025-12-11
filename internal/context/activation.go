@@ -44,7 +44,7 @@ type ActivationEngine struct {
 	// Campaign context for phase-aware activation
 	campaignContext *CampaignActivationContext
 
-	// Issue context for SWE-bench and issue-driven activation
+	// Issue context for issue-driven activation (GitHub issues, bug reports, etc.)
 	issueContext *IssueActivationContext
 
 	// Session tracking
@@ -64,15 +64,51 @@ type CampaignActivationContext struct {
 }
 
 // IssueActivationContext holds issue-specific activation state.
-// Used for SWE-bench and similar issue-driven workflows.
+// Used for ANY issue-driven workflow: GitHub issues, bug reports, support tickets,
+// Jira tasks, or benchmark instances (SWE-bench, HumanEval, etc.).
+//
+// This is a GENERAL-PURPOSE context that works with any issue tracking system.
+// The key insight: all issue-driven development shares common patterns:
+// - A problem description with extractable keywords
+// - Files that are likely relevant (mentioned, suspected, or discovered)
+// - Error signatures that help identify root cause
+// - Tests that validate the fix
 type IssueActivationContext struct {
-	IssueID       string             // SWE-bench instance ID or GitHub issue ID
-	IssueText     string             // Problem statement / issue description
-	Keywords      map[string]float64 // Extracted keywords with weights
-	MentionedFiles []string          // Files explicitly mentioned in issue
-	TieredFiles   map[string]int     // File path -> tier (1-4)
-	ErrorTypes    []string           // Error types mentioned (e.g., "TypeError", "KeyError")
-	FailingTests  []string           // Test names that should fail -> pass
+	// IssueID is the unique identifier for this issue.
+	// Examples: "GH-1234", "JIRA-5678", "django__django-12345", "BUG-99"
+	IssueID string
+
+	// IssueText is the full problem description / issue body.
+	// Used for keyword extraction and semantic matching.
+	IssueText string
+
+	// Keywords are extracted terms with relevance weights (0.0-1.0).
+	// Higher weights indicate stronger relevance to the issue.
+	Keywords map[string]float64
+
+	// MentionedFiles are files explicitly referenced in the issue text.
+	// These are Tier 1 files with highest relevance.
+	MentionedFiles []string
+
+	// TieredFiles maps file paths to their relevance tier (1-4).
+	// Tier 1: Directly mentioned in issue
+	// Tier 2: High keyword match score
+	// Tier 3: Import/dependency neighbors of Tier 1-2
+	// Tier 4: Semantic similarity matches
+	TieredFiles map[string]int
+
+	// ErrorTypes are error/exception types mentioned in the issue.
+	// Examples: "TypeError", "NullPointerException", "ENOENT", "404"
+	ErrorTypes []string
+
+	// ExpectedTests are tests that should pass after the fix.
+	// For bug fixes: tests that currently fail and should pass.
+	// For features: new tests that validate the implementation.
+	ExpectedTests []string
+
+	// Source identifies where this issue came from (optional metadata).
+	// Examples: "github", "jira", "swebench", "manual"
+	Source string
 }
 
 
@@ -100,7 +136,8 @@ func (ae *ActivationEngine) ClearCampaignContext() {
 	ae.campaignContext = nil
 }
 
-// SetIssueContext sets the current issue context for SWE-bench activation boosting.
+// SetIssueContext sets the current issue context for issue-driven activation boosting.
+// Works with any issue source: GitHub issues, Jira tickets, bug reports, or benchmarks.
 func (ae *ActivationEngine) SetIssueContext(ctx *IssueActivationContext) {
 	ae.issueContext = ctx
 }
@@ -568,8 +605,9 @@ func (ae *ActivationEngine) computeSessionScore(fact core.Fact) float64 {
 	return 0.0
 }
 
-// computeIssueScore adds issue/SWE-bench specific activation boost.
-// Facts related to the issue keywords, mentioned files, or failing tests get higher scores.
+// computeIssueScore adds issue-driven activation boost.
+// Facts related to the issue keywords, mentioned files, or expected tests get higher scores.
+// This works with ANY issue source: GitHub, Jira, bug reports, or benchmarks.
 func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 	if ae.issueContext == nil {
 		return 0.0
@@ -621,30 +659,40 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 		}
 	}
 
-	// Boost facts related to failing tests
-	for _, testName := range ae.issueContext.FailingTests {
+	// Boost facts related to expected tests (tests that should pass after fix)
+	for _, testName := range ae.issueContext.ExpectedTests {
 		if strings.Contains(factStr, strings.ToLower(testName)) {
 			score += 45.0
 			break
 		}
 	}
 
-	// Issue-specific predicates get extra boost
+	// Issue-related predicates get extra boost
+	// Organized by category for clarity:
 	issuePredicates := map[string]float64{
-		"swebench_instance":        50.0,
-		"swebench_environment":     40.0,
-		"swebench_test_result":     45.0,
+		// General issue tracking predicates
+		"issue_keyword":    40.0,
+		"keyword_hit":      35.0,
+		"candidate_file":   30.0,
+		"context_tier":     25.0,
+		"activation_boost": 20.0,
+
+		// Test/diagnostic predicates (general-purpose)
+		"pytest_failure":       50.0,
+		"assertion_mismatch":   45.0,
+		"traceback_frame":      35.0,
+		"pytest_root_cause":    55.0,
+		"source_file_failure":  50.0,
+		"test_failure":         50.0,
+		"diagnostic":           45.0,
+		"error_context":        40.0,
+
+		// Benchmark-specific predicates (loaded only when running benchmarks)
+		// These are in benchmarks.mg and only relevant during benchmark evaluation
+		"swebench_instance":          50.0,
+		"swebench_environment":       40.0,
+		"swebench_test_result":       45.0,
 		"swebench_evaluation_result": 45.0,
-		"pytest_failure":           50.0,
-		"assertion_mismatch":       45.0,
-		"traceback_frame":          35.0,
-		"pytest_root_cause":        55.0,
-		"source_file_failure":      50.0,
-		"issue_keyword":            40.0,
-		"keyword_hit":              35.0,
-		"candidate_file":           30.0,
-		"context_tier":             25.0,
-		"activation_boost":         20.0,
 	}
 
 	if boost, ok := issuePredicates[fact.Predicate]; ok {
