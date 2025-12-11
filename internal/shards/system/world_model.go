@@ -251,7 +251,9 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 	w.dependencies = make([]Dependency, 0)
 	w.mu.Unlock()
 
-	return filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
+	batchFacts := make([]core.Fact, 0)
+
+	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
@@ -317,19 +319,30 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 				fileInfo.IsTestFile,
 			},
 		}
-		_ = w.Kernel.Assert(ft)
 		facts = append(facts, ft)
+
+		// Batch all facts for a single evaluation pass.
+		batchFacts = append(batchFacts, facts...)
 
 		// Persist to knowledge.db if available
 		w.persistToKnowledge(facts)
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	if len(batchFacts) > 0 {
+		return w.Kernel.AssertBatch(batchFacts)
+	}
+	return nil
 }
 
 // performIncrementalScan checks for changes since last scan.
 func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) error {
 	changedFiles := 0
+	batchFacts := make([]core.Fact, 0)
 
 	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -389,14 +402,14 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 				fileInfo.IsTestFile,
 			},
 		}
-		_ = w.Kernel.Assert(ft)
-		facts = append(facts, ft)
-
 		// Mark file as modified for impact analysis
-		_ = w.Kernel.Assert(core.Fact{
+		mod := core.Fact{
 			Predicate: "modified",
 			Args:      []interface{}{fileInfo.Path},
-		})
+		}
+
+		facts = append(facts, ft, mod)
+		batchFacts = append(batchFacts, facts...)
 
 		// Persist updated facts to knowledge.db
 		w.persistToKnowledge(facts)
@@ -408,7 +421,14 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 	w.lastScan = time.Now()
 	w.mu.Unlock()
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	if len(batchFacts) > 0 {
+		return w.Kernel.AssertBatch(batchFacts)
+	}
+	return nil
 }
 
 // processFile extracts information from a file.
@@ -440,9 +460,6 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 		if w.parser != nil {
 			parsedFacts, err := w.parser.Parse(path)
 			if err == nil && len(parsedFacts) > 0 {
-				for _, f := range parsedFacts {
-					_ = w.Kernel.Assert(f)
-				}
 				facts = append(facts, parsedFacts...)
 			}
 		}

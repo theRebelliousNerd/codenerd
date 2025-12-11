@@ -217,6 +217,8 @@ Trigger Patterns: %v
 
 Existing tools available: %v
 
+Only recommend a new tool if there is a clear capability gap that cannot be met by existing tools. New tools are expensive and risky; default to reuse unless strongly justified.
+
 Return JSON only:
 {
   "needs_new_tool": true/false,
@@ -1415,6 +1417,12 @@ func (tg *ToolGenerator) listExistingTools() []string {
 		tools = append(tools, name)
 	}
 	return tools
+}
+
+// HasTool returns true if a tool with the given name is already registered.
+func (tg *ToolGenerator) HasTool(name string) bool {
+	_, ok := tg.existingTools[name]
+	return ok
 }
 
 // LoadExistingTools loads tool schemas from the tools directory

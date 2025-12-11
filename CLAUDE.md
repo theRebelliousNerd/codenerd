@@ -46,6 +46,322 @@ internal/
 ├── store/          # Memory tiers (RAM, Vector, Graph, Cold)
 ├── campaign/       # Multi-phase goal orchestration
 └── world/          # Filesystem, AST projection, multi-lang data flow, holographic context
+
+codeNERD Architecture and Philosophy Report
+
+  1. Architecture
+
+  codeNERD utilizes a Neuro-Symbolic architecture designed to bridge the gap between probabilistic Large Language Models (LLMs) and deterministic execution environments. It functions as a
+  high-assurance coding agent framework.
+
+   * Neuro-Symbolic & Creative-Executive Partnership:
+      The system fundamentally separates concerns into two distinct domains:
+       * Creative Center (LLM): Responsible for problem-solving, solution synthesis, and insight generation. It handles ambiguity and creativity.
+       * Executive (Logic/Mangle): Responsible for planning, memory, orchestration, and safety. It uses deterministic rules to harness the LLM's output.
+
+   * Perception Transducer:
+       * Implementation: internal/perception/transducer.go
+       * Function: Converts unstructured natural language user input into formal logic "atoms" (e.g., user_intent). It grounds fuzzy references to concrete file paths and symbols, calculating       
+         confidence scores to trigger clarification loops if necessary.
+
+   * Articulation Transducer:
+       * Implementation: internal/articulation/emitter.go
+       * Function: Converts internal logic states and atomic facts back into natural language for the user. It ensures that the user sees a helpful response while the system maintains precise       
+         logical state.
+
+   * World Model (Extensional Database - EDB):
+       * Implementation: internal/world/fs.go, internal/world/ast.go
+       * Function: Maintains the "Ground Truth" of the project. It projects the filesystem and abstract syntax trees (AST) into logic facts (e.g., file_topology, symbol_graph, dependency_link),     
+         allowing the logic engine to reason about the codebase structure and state.
+
+   * Executive Policy (Intensional Database - IDB):
+       * Implementation: internal/mangle/policy.gl, internal/core/kernel.go
+       * Function: A collection of deductive rules that derive the system's next_action. It encodes workflows like TDD repair loops (test_state -> next_action) and enforces safety constraints.      
+
+   * Virtual Predicates:
+       * Implementation: internal/core/virtual_store.go
+       * Function: Serves as a Foreign Function Interface (FFI) that abstracts external APIs (filesystem, shell, MCP tools) into logic predicates. When the logic engine queries a virtual predicate  
+         (e.g., file_content), it triggers the actual underlying system call.
+
+   * Shard Agents:
+       * Implementation: internal/shards/ (coder.go, tester.go, reviewer.go, researcher.go)
+       * Function: Ephemeral, specialized sub-kernels spawned for parallel task execution.
+           * Coder: Code generation and refactoring.
+           * Tester: Test execution and coverage analysis.
+           * Reviewer: Security scans and code review.
+           * Researcher: Knowledge gathering and documentation.
+
+   * Memory Tiers:
+       * RAM: Short-term working memory (FactStore) for the current session.
+       * Vector: Persistent semantic memory (SQLite + embeddings) for similar content retrieval.
+       * Cold: Permanent storage (cold_storage table) for learned preferences and patterns.
+
+   * Piggyback Protocol:
+       * Implementation: internal/articulation/emitter.go
+       * Function: A dual-channel communication protocol. The agent outputs a JSON object containing a visible surface_response for the user and a hidden control_packet for the kernel. This allows  
+         the agent to update its internal logical state (e.g., task_status) independently of the conversational text.
+
+  2. Core Philosophy
+
+   * Logic-First CLI:
+      Unlike chat-first agents, codeNERD is driven by a logic kernel. Text generation is a side effect of logical processes, not the primary driver. The state of the system is defined by facts, not 
+  conversation history.
+
+   * Separation of Concerns:
+      By decoupling creativity (LLM) from execution (Mangle Engine), codeNERD prevents the LLM from hallucinating actions or violating safety protocols. The LLM suggests; the Kernel executes.       
+
+   * Deterministic Safety:
+      Safety is not a prompt instruction but a logic rule. The "Constitutional Gate" (permitted(Action) :- safe_action(Action)) ensures that dangerous actions (like rm -rf) are blocked
+  deterministically unless specific override conditions are met.
+
+   * LLM as Creative Center:
+      The architecture acknowledges that LLMs excel at synthesis and pattern matching. codeNERD leverages this by feeding the LLM highly specific, logic-derived context ("Context Atoms") and asking 
+  it to solve specific problems, rather than asking it to manage the entire workflow.
+
+  3. Implementation Patterns
+
+   * Hallucination Firewall:
+       * Pattern: permitted(Action) check.
+       * Details: Every action proposed by the Transducer or a Shard is validated against the Mangle logic policy. If the logic cannot derive a permission rule for the action, it is strictly        
+         blocked, preventing the execution of hallucinated or malicious commands.
+
+   * Grammar-Constrained Decoding:
+       * Pattern: Schema validation and recovery.
+       * Details: Output from the LLM is forced to conform to strict Mangle syntax and JSON schemas. This ensures that the "thoughts" of the agent can be parsed and executed reliably by the
+         deterministic kernel.
+
+   * OODA Loop:
+       * Pattern: Observe -> Orient -> Decide -> Act.
+       * Details: The system cycles through:
+           1. Observe: Transducer converts input to atoms.
+           2. Orient: Spreading Activation selects relevant context facts based on logical dependencies.
+           3. Decide: Mangle Engine derives the single best next_action.
+           4. Act: Virtual Store executes the tool or command.
+
+   * Autopoiesis (Self-Learning):
+       * Pattern: Runtime feedback loops (internal/autopoiesis/).
+       * Details: The system tracks rejection and acceptance of its actions. Repeated rejections of a specific pattern trigger a preference_signal, which promotes a new rule to long-term memory. The
+         Ouroboros Loop detects missing capabilities and can trigger a generate_tool action to self-implement missing functionality.
+
+   * Campaign Orchestration:
+       * Pattern: Context Paging and Multi-Phase Goals (internal/campaign/).
+       * Details: For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current     
+         phase while keeping core facts and working memory available.
+
+
+
+  Adversarial Engineering Report: Nemesis & Panic Maker
+
+  codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely on passive testing, it actively attempts to break its own code using two distinct but related components: the Panic
+  Maker (tactical tool breaker) and the Nemesis Shard (strategic system breaker).
+
+  1. Panic Maker (The Tactical Breaker)
+   * Implementation: internal/autopoiesis/panic_maker.go
+   * Scope: Micro-level. Focused on breaking individual tools and functions during the generation phase (Ouroboros loop).
+   * Workflow:
+       1. Static Analysis: Analyzes the generated tool's source code to identify specific vulnerability patterns (e.g., pointer dereferences, channel operations).
+       2. Attack Vector Generation: Uses the LLM to craft targeted JSON inputs designed to trigger crashes.
+       3. Thunderdome: Executes the attacks against the tool. If the tool crashes (panics, OOMs, deadlocks), it is rejected and sent back for hardening.
+   * Attack Categories:
+       * nil_pointer: Exploits unchecked pointer dereferences.
+       * boundary: Max int, negative indices, empty slices.
+       * resource: Massive allocations to trigger OOM (Out of Memory).
+       * concurrency: Race conditions and channel deadlocks.
+       * format: Malformed JSON/XML inputs.
+  2. Nemesis Shard (The Strategic Adversary)
+   * Implementation: internal/shards/nemesis/nemesis.go
+   * Scope: System-level. A persistent "Type B" Specialist Shard that acts as a gatekeeper for code changes.
+   * Philosophy: "The Nemesis does not seek destruction - it seeks truth." It acts as a hostile sparring partner for the Coder Shard.
+   * Core Capabilities:
+       * The Gauntlet: A required pipeline phase. A patch is only "battle-hardened" if it survives the Nemesis.
+       * Attack Tool Generation: Unlike Panic Maker (which sends inputs), Nemesis writes and compiles full Go attack binaries (nemesis_attack_tool) to exploit logic flaws or race conditions in the
+         target system.
+       * Lazy Pattern Detection: actively scans for "lazy" coding patterns (e.g., return nil, generic error messages) that signal weakness.
+       * The Armory: (internal/shards/nemesis/armory.go) A persistent store where Nemesis remembers effective attack strategies, allowing it to get smarter over time.
+
+  Summary of Differences
+
+
+  ┌─────────────┬──────────────────────┬────────────────────────────┬────────────────────────────────────┐
+  │ Feature     │ Scope                │ Method                     │ Goal                               │
+  ├─────────────┼──────────────────────┼────────────────────────────┼────────────────────────────────────┤
+  │ Panic Maker │ Single Function/Tool │ Malformed Inputs (Fuzzing) │ Ensure tool robustness before use. │
+  │ Nemesis     │ Full System/Patch    │ Compilable Attack Programs │ Reject weak architecture & logic.  │
+  └─────────────┴──────────────────────┴────────────────────────────┴────────────────────────────────────┘
+
+
+✦ Thunderdome: The Adversarial Battleground
+
+  Thunderdome is the conceptual and operational environment within codeNERD where adversarial attacks are executed against generated code and submitted patches. It serves as the ultimate proving    
+  ground for code resilience, feeding back results that drive the autopoietic self-improvement loops.
+
+  Role and Functionality
+
+   * Adversarial Testing Environment: Thunderdome is where the offensive capabilities of the PanicMaker and the Nemesis Shard are unleashed.
+   * Code Hardening: Its primary purpose is to expose weaknesses (panics, deadlocks, OOMs, logic flaws) in code and patches, thereby driving their regeneration and improvement. Code that survives   
+     Thunderdome is considered "battle-hardened."
+   * Feedback Loop: The outcomes from Thunderdome (whether code "survived" or was "defeated") are crucial feedback for the ToolGenerator (when PanicMaker is involved) and for the overall patch      
+     review process (when Nemesis is involved), dictating whether code needs further refinement or can proceed.
+
+  Integration
+
+   * Panic Maker: Attacks generated by the PanicMaker (adversarial inputs designed to break individual tools) are run within the Thunderdome context. The results (THUNDERDOME RESULT: SURVIVED or
+     THUNDERDOME RESULT: DEFEATED) directly inform the tool generation and regeneration process.
+   * Nemesis Shard: The Nemesis Shard orchestrates its comprehensive adversarial analysis, often referred to as "The Gauntlet," within the conceptual framework of Thunderdome. This involves
+     deploying and executing Go attack binaries against a target patch to find systemic vulnerabilities.
+
+  Key Aspects
+
+   * Outcome-Oriented: Thunderdome is not just about running tests; it's about definitively determining if the code can withstand targeted attacks.
+   * Deterministic Feedback: It provides clear, actionable results that the logical kernel can process, ensuring that the system learns from its vulnerabilities.
+   * Foundational to Autopoiesis: The continuous cycle of attack and defense within Thunderdome is fundamental to codeNERD's self-learning and self-improving capabilities.
+
+> are there any other features like:
+  - Contextual awareness
+  - Dynamic adaptation
+  - Multi-modal input
+  - Real-time feedback
+  - Advanced analytics
+  - Cross-platform sync
+  - Customizable workflows
+  - Predictive suggestions
+  - Security enhancements
+  - Performance optimization
+
+  
+✦ Contextual Awareness
+
+  codeNERD exhibits a highly advanced and multi-layered approach to contextual awareness, a cornerstone of its neuro-symbolic architecture. It moves beyond simple chat history to a dynamic,
+  logic-driven context management system.
+
+   * `CompilationContext` (internal/prompt/context.go): This central structure encapsulates up to 10 distinct contextual dimensions, including:
+       * Operational Mode: (e.g., /debugging, /dream)
+       * Campaign Phase: For multi-phase goal management.
+       * Shard Type: (e.g., /coder, /reviewer)
+       * Language & Framework: (e.g., /go, /bubbletea)
+       * Intent: User's current verb and target.
+       * World States: Real-time conditions like failing tests, active diagnostics, security issues, new files, and code churn.
+       * Token Budget: Managed dynamically to optimize LLM interactions.
+      This CompilationContext is critical for JIT Prompt Compilation, ensuring that only the most relevant "prompt atoms" are selected for LLM injection.
+
+   * `SessionContext` (internal/types/types.go, internal/core/shard_manager.go): Implementing a "Blackboard Pattern," the SessionContext acts as a shared working memory across different shards and
+     turns. It provides a comprehensive snapshot of the current operational state, including:
+       * Compressed History: Semantically condensed past interactions.
+       * Current Diagnostics & Test State: Immediate feedback on code health.
+       * Active Files, Symbols, and Dependencies: A view into the code being worked on.
+       * Git Context: Branch, modified files, recent commits for historical awareness ("Chesterton's Fence").
+       * Campaign Context: Details of active campaigns, phases, and goals.
+       * Prior Shard Outputs: Results from other shards to enable cross-shard collaboration.
+       * Knowledge Atoms & Specialist Hints: Retrieved relevant knowledge.
+       * Allowed/Blocked Actions & Safety Warnings: Enforced constitutional guards.
+
+   * Memory Tiers: codeNERD utilizes a tiered memory system:
+       * RAM (FactStore): The kernel's immediate working memory for the current session.
+       * Vector Store: Used for semantic retrieval, particularly in prompt atom selection and research.
+       * Knowledge Graph: A persistent, relational store of facts, symbols, and relationships within the codebase, crucial for logical reasoning and long-term memory.
+       * Cold Storage: For permanent learned patterns and preferences.
+
+   * Spreading Activation (internal/context/activation.go, internal/core/defaults/policy.mg): This is a core mechanism for Logical Context Selection, replacing traditional vector-based RAG. It
+     operates on the Mangle knowledge graph, dynamically identifying and retrieving facts structurally relevant to the current user intent and system state. Key aspects include:
+       * Context-Directed Spreading Activation (CDSA): Dynamically adjusts activation flow based on logical rules (e.g., prioritizing dependency links in a "security" context).
+       * Activation Scores: Facts are assigned scores based on recency, relevance, dependency, and campaign/issue context, ensuring that only high-priority information enters the LLM context window.
+
+   * Context Paging & Compression (internal/campaign/context_pager.go, internal/context/compressor.go):
+       * Context Paging: Manages the context window during long-running campaigns by activating context for the current phase, compressing completed phase contexts, and prefetching for upcoming
+         tasks.
+       * Semantic Compression: The Compressor achieves "Infinite Context" by transforming verbose conversational history into concise, logical Mangle facts. This dramatically reduces token usage,
+         allowing for extended, multi-turn interactions without LLM context window exhaustion.
+
+   * `context.Context` (Go Standard Library): Go's native context.Context is ubiquitous throughout the codebase, providing robust support for:
+       * Cancellation: Propagating cancellation signals across goroutines and operations.
+       * Timeouts: Enforcing execution limits on various tasks.
+       * Request-Scoped Values: Passing metadata throughout a request's lifecycle.
+
+   * Context7 (internal/shards/researcher/tools.go): An integrated research tool specifically designed to fetch curated, LLM-optimized documentation for libraries and frameworks, enriching the
+     contextual knowledge available to the agent.
+
+  In summary, codeNERD's contextual awareness is deeply integrated into its architecture, ensuring that the agent always operates with a precise, relevant, and budget-conscious understanding of its
+  environment, tasks, and history.
+
+✦ Dynamic Adaptation is a foundational and deeply integrated feature within codeNERD, primarily implemented through its Autopoiesis (self-creation) system.
+  This goes beyond simple learning to enable the agent to self-modify and evolve its capabilities based on experience.
+
+  Dynamic Adaptation
+
+  codeNERD’s dynamic adaptation is primarily driven by its Autopoiesis system, which allows the agent to learn from its interactions, failures, and successes, and to adapt its behavior and even its
+  own tools over time.
+
+   * Autopoiesis Orchestrator (internal/autopoiesis/autopoiesis.go): This central component coordinates all self-modification capabilities. It monitors the agent's performance, detects needs for new
+     tools or rule adjustments, and manages the entire learning lifecycle.
+
+   * Self-Learning from Experience:
+       * LearningStore (internal/store/learning.go): This dedicated persistence layer records successful and failed patterns across sessions for each shard. Learnings are stored in SQLite databases
+         per shard type.
+       * Feedback & Learning System (internal/autopoiesis/feedback.go): This closes the autopoiesis loop by evaluating tool quality, recording patterns of success and failure, and using this
+         feedback to refine existing tools or generate new ones.
+       * Rejection/Acceptance Tracking (internal/shards/coder/autopoiesis.go, internal/shards/tester/autopoiesis.go): Individual shards track the outcomes of their actions. For instance, the Coder
+         shard tracks rejected code edits, and the Tester shard tracks test failures and successes. Recurring patterns (e.g., 3 rejections of a specific code change) trigger learning.
+       * Decay Confidence: The LearningStore implements a "forgetting" mechanism (DecayConfidence) where the confidence of old learnings reduces over time if they are not reinforced.
+
+   * Ouroboros Loop (internal/autopoiesis/ouroboros.go): This is codeNERD's self-correction and tool-generation engine. It's a transactional state machine that attempts to fulfill a ToolNeed (a
+     detected capability gap). The loop involves:
+       1. Specification: Defining the new tool's purpose and interface.
+       2. Generation: Producing the tool's code and tests.
+       3. Safety Check: Ensuring the generated code meets constitutional safety standards.
+       4. Thunderdome: Adversarial testing against the PanicMaker and Nemesis Shard to identify vulnerabilities.
+       5. Simulation: Testing the tool in a simulated environment (Dream Mode).
+       6. Compilation & Registration: Making the new tool available to the system.
+      This iterative process ensures that new capabilities are robust and validated before integration.
+
+   * Dream State Learning (internal/core/dream_learning.go): This is a multi-agent simulation mode (DreamMode) where the agent can explore hypothetical scenarios, consult with specialist shards, and
+     extract learnable insights without affecting the live operational state. User confirmation of these learnings then routes them to appropriate persistence stores.
+
+   * Dynamic Policy Adjustment:
+       * FeedbackLoop (internal/mangle/feedback/loop.go): This system uses Mangle logic and LLM interaction to propose and validate new policy rules based on observed behavior and system
+         performance. This allows the core policy to adapt dynamically.
+       * Legislator Shard (internal/shards/system/legislator.go): Can compile and incorporate new Mangle rules into the system's policy, enabling runtime adaptation of its executive functions.
+
+   * Adaptive Workflows:
+       * Campaign Replanning (internal/campaign/replan.go): Campaigns are long-running, multi-phase goals that can dynamically adapt their plans in response to failures, new requirements, or        
+         changing conditions. The "Replanning Engine" is an "Adaptive Controller" that takes corrective actions based on current status.
+       * Adaptive Batch Sizing (internal/shards/researcher/researcher.go): The Researcher shard can dynamically adjust the size of its research batches based on topic complexity and historical      
+         performance, optimizing its approach to knowledge gathering.
+
+  In essence, codeNERD is designed to be a continuously improving system, actively seeking out its own limitations, learning from every interaction, and dynamically adapting its capabilities and    
+  internal policies to become more effective over time.
+
+✦ The JIT (Just-In-Time) Prompt Compiler is a core component of codeNERD, replacing static system prompts with dynamically assembled ones. It represents a paradigm shift from fixed instructions to
+  fluid, context-aware prompt engineering.
+
+  JIT System Architecture
+
+   1. Atom-Based Architecture:
+       * System prompts are not stored as monolithic strings. Instead, they are broken down into thousands of atomic units called Prompt Atoms (stored in internal/prompt/atoms/ as YAML files).
+       * Each atom has metadata: id, category (e.g., identity, capability, context), content, and Contextual Selectors (rules for when to include it).
+
+   2. Compilation Process (internal/prompt/compiler.go):
+      When a shard (like CoderShard or ReviewerShard) needs to interact with an LLM, the JIT compiler executes the following pipeline:
+       * Context Gathering: Collects the current CompilationContext (Operational Mode, Campaign Phase, Shard Type, Language, Intent, World State, Token Budget).
+       * Skeleton Selection: Uses Mangle logic (e.g., jit_compiler.mg) to select mandatory atoms that define the shard's core identity and mission.
+       * Flesh Selection: Uses vector search and context matching to select optional, relevant atoms (e.g., specific framework documentation, project-specific domain knowledge, or recent error
+         patterns).
+       * Budgeting: Fits the selected atoms into the available token budget, prioritizing high-value information.
+       * Assembly: Concatenates the selected atoms into a coherent system prompt string.
+
+   3. Key Benefits:
+       * Infinite Effective Prompt Length: The system can draw from a corpus of millions of tokens but only sends the relevant ~20k tokens to the LLM for any given task.
+       * Contextual Specialization: A "Coder" shard working on a Python/Django project in a "Debugging" phase receives a drastically different prompt than one working on a Go/Mangle project in a
+         "Planning" phase.
+       * Dynamic Evolution: New atoms (learnings, new tool definitions) can be added to the corpus at runtime and immediately become available for future compilations.
+
+   4. Integration:
+       * Shard Integration: Shards use the PromptAssembler (backed by the JIT compiler) to generate their system prompts (AssembleSystemPrompt).
+       * Autopoiesis: The Autopoiesis system leverages JIT to inject learned patterns and tool usage instructions dynamically.
+       * Observability: The /jit command in the CLI allows users to inspect the last compiled prompt and view compilation statistics (atoms selected, tokens used, etc.).
+
+  In summary, the JIT Prompt Compiler acts as a dynamic "knowledge hypervisor," ensuring that the LLM is always primed with the exact instructions and context needed for the specific millisecond of 
+  execution, maximizing performance and minimizing hallucination.
+
 ```
 
 ## Full Specifications

@@ -344,13 +344,21 @@ func (t *TesterShard) generateMockViaLLM(ctx context.Context, interfacePath, moc
 
 	mockCode := t.extractCodeFromResponse(processed.Surface)
 
-	writeAction := core.Fact{
-		Predicate: "next_action",
-		Args:      []interface{}{"/write_file", mockFilePath, mockCode},
-	}
-	_, err = t.virtualStore.RouteAction(ctx, writeAction)
-	if err != nil {
-		return fmt.Errorf("failed to write mock file: %w", err)
+	// Write mock via kernel pipeline when available (unsafe mutation)
+	if t.virtualStore != nil && t.kernel != nil {
+		if err := t.assertNextActionAndWait(ctx, "/write_file", mockFilePath,
+			map[string]interface{}{"content": mockCode}); err != nil {
+			return fmt.Errorf("failed to write mock file: %w", err)
+		}
+	} else {
+		writeAction := core.Fact{
+			Predicate: "next_action",
+			Args:      []interface{}{"/write_file", mockFilePath, map[string]interface{}{"content": mockCode}},
+		}
+		_, err = t.virtualStore.RouteAction(ctx, writeAction)
+		if err != nil {
+			return fmt.Errorf("failed to write mock file: %w", err)
+		}
 	}
 
 	if t.kernel != nil {

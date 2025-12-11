@@ -917,6 +917,11 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// Kernel-level permission gate (default deny if kernel says not permitted)
 	if v.kernel != nil {
+		// Refresh permission cache in case policy/facts changed since last action.
+		v.mu.Lock()
+		v.rebuildPermissionCache()
+		v.mu.Unlock()
+
 		permitted := v.checkKernelPermitted(string(req.Type))
 		if !permitted {
 			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)

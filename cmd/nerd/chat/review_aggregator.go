@@ -24,6 +24,13 @@ import (
 // =============================================================================
 // Orchestrates parallel reviews from multiple specialist shards and aggregates results.
 
+// reviewCommandOptions holds parsed flags for /review.
+// It is shared between the Bubbletea command handler and the multi-shard aggregator.
+type reviewCommandOptions struct {
+	EnableEnhancement bool
+	PassThroughFlags  []string
+}
+
 // AggregatedReview holds the combined results from all shards
 type AggregatedReview struct {
 	ID               string
@@ -36,6 +43,7 @@ type AggregatedReview struct {
 	FindingsByShard  map[string][]reviewer.ParsedFinding
 	DeduplicatedList []reviewer.ParsedFinding
 	HolisticInsights []string
+	EnhancementSection string
 	TotalFindings    int
 	StartTime        time.Time
 	Duration         time.Duration
@@ -58,7 +66,7 @@ type multiShardReviewMsg struct {
 
 // spawnMultiShardReview orchestrates a parallel multi-shard review.
 // It spawns ReviewerShard + matching specialists, collects results, and aggregates.
-func (m Model) spawnMultiShardReview(target string) tea.Cmd {
+func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background() // No hard timeout - wait for all shards
 		startTime := time.Now()
@@ -76,13 +84,20 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 			}
 		}
 
-		logging.Shards("Resolved %d files for review", len(files))
+		// Normalize, filter, and cap files for review
+		absFiles, relFiles := normalizeReviewFiles(files, m.workspace)
+		if len(absFiles) == 0 {
+			absFiles = files
+			relFiles = files
+		}
+
+		logging.Shards("Resolved %d files for review (normalized to %d)", len(files), len(absFiles))
 
 		// 2. Load agent registry
 		registry := m.loadAgentRegistry()
 
 		// 3. Match specialists BEFORE review
-		specialists := reviewer.MatchSpecialistsForReview(ctx, files, registry)
+		specialists := reviewer.MatchSpecialistsForReview(ctx, absFiles, registry)
 		logging.Shards("Matched %d specialists for review", len(specialists))
 
 		// 4. Track results and failures
@@ -124,8 +139,15 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 		// 5. Spawn all shards in parallel
 		var wg sync.WaitGroup
 
-		// Format base task for ReviewerShard
-		baseTask := formatShardTask("/review", target, "", m.workspace)
+		// Format base task for ReviewerShard using the resolved file list.
+		// This keeps multi-shard and single-shard paths aligned.
+		baseTask := fmt.Sprintf("review files:%s", strings.Join(relFiles, ","))
+		if opts.EnableEnhancement {
+			baseTask += " --andEnhance"
+		}
+		if len(opts.PassThroughFlags) > 0 {
+			baseTask += " " + strings.Join(opts.PassThroughFlags, " ")
+		}
 
 		// Always spawn ReviewerShard
 		wg.Add(1)
@@ -150,7 +172,7 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 				}
 
 				// Build specialist task
-				specTask := reviewer.BuildSpecialistTask(s, files, knowledge)
+				specTask := reviewer.BuildSpecialistTask(s, absFiles, knowledge)
 				taskStr := reviewer.FormatSpecialistReviewTask(specTask)
 
 				result := spawnWithRetry(s.AgentName, taskStr)
@@ -192,7 +214,7 @@ func (m Model) spawnMultiShardReview(target string) tea.Cmd {
 		logging.Shards("All %d shards completed", len(results))
 
 		// 6. Aggregate results
-		agg := m.aggregateReviewResults(results, target, files, startTime)
+		agg := m.aggregateReviewResults(results, target, relFiles, startTime)
 
 		// 7. Mark incomplete if any failures
 		for _, r := range results {
@@ -263,6 +285,11 @@ func (m Model) aggregateReviewResults(results []ShardReviewResult, target string
 		findings := reviewer.ParseShardOutput(result.Result, result.Shard)
 		agg.FindingsByShard[result.Shard] = findings
 		agg.TotalFindings += len(findings)
+
+		// Capture enhancement suggestions from ReviewerShard output
+		if result.Shard == "reviewer" && agg.EnhancementSection == "" {
+			agg.EnhancementSection = extractEnhancementSection(result.Result)
+		}
 	}
 
 	// Deduplicate by file:line (keep highest severity)
@@ -459,6 +486,109 @@ func (m Model) resolveReviewTarget(target string) []string {
 	return files
 }
 
+// normalizeReviewFiles converts mixed absolute/relative paths into parallel absolute and
+// workspace-relative lists, filters to reviewable extensions, skips hidden/vendor dirs,
+// and caps the result to 50 files. If filtering removes everything, it falls back to
+// allowing all files so explicit non-code targets still get reviewed.
+func normalizeReviewFiles(files []string, workspace string) ([]string, []string) {
+	abs, rel := normalizeReviewFilesInternal(files, workspace, true)
+	if len(abs) == 0 {
+		return normalizeReviewFilesInternal(files, workspace, false)
+	}
+	return abs, rel
+}
+
+func normalizeReviewFilesInternal(files []string, workspace string, filterExt bool) ([]string, []string) {
+	allowedExts := map[string]bool{
+		".go":  true,
+		".py":  true,
+		".js":  true,
+		".jsx": true,
+		".ts":  true,
+		".tsx": true,
+		".rs":  true,
+		".java": true,
+		".c":   true,
+		".cpp": true,
+		".h":   true,
+		".mg":  true,
+		".gl":  true,
+	}
+
+	skipDirs := []string{"vendor", "node_modules", ".git", ".nerd", "dist", "build"}
+	seen := make(map[string]bool)
+	var absOut, relOut []string
+
+	for _, f := range files {
+		if f == "" {
+			continue
+		}
+		absPath := f
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(workspace, absPath)
+		}
+		absPath = filepath.Clean(absPath)
+
+		// Skip hidden paths
+		if strings.Contains(absPath, string(filepath.Separator)+".") {
+			continue
+		}
+
+		// Skip common vendor/build dirs
+		skip := false
+		for _, dir := range skipDirs {
+			if strings.Contains(absPath, string(filepath.Separator)+dir+string(filepath.Separator)) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
+		// Filter by extension if requested
+		if filterExt {
+			ext := strings.ToLower(filepath.Ext(absPath))
+			if ext != "" && !allowedExts[ext] {
+				continue
+			}
+		}
+
+		relPath, err := filepath.Rel(workspace, absPath)
+		if err != nil {
+			relPath = absPath
+		}
+		if seen[relPath] {
+			continue
+		}
+		seen[relPath] = true
+
+		absOut = append(absOut, absPath)
+		relOut = append(relOut, relPath)
+
+		if len(absOut) >= 50 {
+			break
+		}
+	}
+
+	return absOut, relOut
+}
+
+// extractEnhancementSection pulls the "Enhancement Suggestions" markdown block
+// from a ReviewerShard output so it can be displayed in aggregated reviews.
+func extractEnhancementSection(output string) string {
+	if output == "" {
+		return ""
+	}
+	lower := strings.ToLower(output)
+	marker := "## enhancement suggestions"
+	idx := strings.Index(lower, marker)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(output[idx:])
+}
+
 // loadAgentRegistry loads the agent registry from .nerd/agents.json
 func (m Model) loadAgentRegistry() *reviewer.AgentRegistry {
 	registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
@@ -513,6 +643,13 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 	sb.WriteString("## Findings by Specialist\n\n")
 	for shard, findings := range review.FindingsByShard {
 		sb.WriteString(reviewer.FormatShardSection(shard, findings))
+	}
+
+	// Enhancement suggestions (from ReviewerShard) if present
+	if strings.TrimSpace(review.EnhancementSection) != "" {
+		sb.WriteString("\n---\n\n")
+		sb.WriteString(strings.TrimSpace(review.EnhancementSection))
+		sb.WriteString("\n")
 	}
 
 	return sb.String()

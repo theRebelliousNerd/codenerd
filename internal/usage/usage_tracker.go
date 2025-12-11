@@ -158,12 +158,24 @@ func (t *Tracker) Track(ctx context.Context, model, provider string, input, outp
 func (t *Tracker) Stats() AggregatedStats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	// Deep copy if needed, but for primitives struct copy is fine if maps aren't modified concurrently during read.
-	// Since maps are reference types, we should manually copy them to be thread-safe for the UI.
-	// For quick implementation, we return the struct which holds references.
-	// The UI is read-only, so race is only if Track() modifies the map while UI reads.
-	// TODO: Implement deep copy for true safety.
-	return t.data.Aggregate
+	stats := t.data.Aggregate
+	stats.ByProvider = copyTokenCountsMap(stats.ByProvider)
+	stats.ByModel = copyTokenCountsMap(stats.ByModel)
+	stats.ByShardType = copyTokenCountsMap(stats.ByShardType)
+	stats.ByOperation = copyTokenCountsMap(stats.ByOperation)
+	stats.BySession = copyTokenCountsMap(stats.BySession)
+	return stats
+}
+
+func copyTokenCountsMap(src map[string]TokenCounts) map[string]TokenCounts {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]TokenCounts, len(src))
+	for key, counts := range src {
+		dst[key] = counts
+	}
+	return dst
 }
 
 func addToMap(m map[string]TokenCounts, key string, input, output int) {

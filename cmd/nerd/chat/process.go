@@ -78,6 +78,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1. PERCEPTION (Transducer) - with conversation history for context
+		m.ReportStatus("Perception: parsing intent...")
 		// Convert history to perception.ConversationTurn format
 		// Use ALL history until compression kicks in, then use recent window only
 		var historyForPerception []perception.ConversationTurn
@@ -103,6 +104,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		if strings.TrimSpace(intent.Response) == "" {
 			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
 		}
+		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
@@ -149,11 +151,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 1.3.2 DREAM STATE: Multi-agent simulation/learning mode
 		// When user asks "what if", "imagine", "hypothetically" - consult all shards without executing
 		if intent.Verb == "/dream" {
+			m.ReportStatus("Dream: consulting shards...")
 			return m.handleDreamState(ctx, intent, input)
 		}
 
 		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
 		if m.shouldAutoClarify(&intent, input) {
+			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				m.lastClarifyInput = input
 				m.launchClarifyPending = true
@@ -172,6 +176,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// This implements autonomous multi-step execution without campaigns
 		isMultiStep := detectMultiStepTask(input, intent)
 		if isMultiStep {
+			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)
 			if len(steps) > 1 {
 				return m.executeMultiStepTask(ctx, intent, steps)
@@ -183,6 +188,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
 		if shardType != "" && intent.Confidence >= 0.5 {
+			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
 			task := formatShardTaskWithContext(intent.Verb, intent.Target, intent.Constraint, m.workspace, m.lastShardResult)
@@ -1254,6 +1260,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 		results = append(results, fmt.Sprintf("## Multi-Step Task Execution\n\n**Original Request**: %s\n**Steps**: %d\n", intent.Response, len(steps)))
 
 		for i, step := range steps {
+			m.ReportStatus(fmt.Sprintf("Step %d/%d: %s...", i+1, len(steps), step.Verb))
 			// Check dependencies
 			canExecute := true
 			for _, depIdx := range step.DependsOn {
@@ -1718,7 +1725,15 @@ func (m *Model) checkContinuation(shardType, task, result string) *tea.Msg {
 // Returns either a continueMsg (more work) or continuationDoneMsg (complete).
 func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		// Use per-shard execution timeout from config when available.
+		timeout := 5 * time.Minute
+		if m.Config != nil {
+			profile := m.Config.GetShardProfile(shardType)
+			if profile.MaxExecutionTimeSec > 0 {
+				timeout = time.Duration(profile.MaxExecutionTimeSec) * time.Second
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
 		// Check for interrupt before starting

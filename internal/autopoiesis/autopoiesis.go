@@ -52,6 +52,10 @@ type Config struct {
 	ToolsDir         string  // Directory for generated tools
 	AgentsDir        string  // Directory for agent definitions
 	MinConfidence    float64 // Minimum confidence to trigger autopoiesis
+	MinToolConfidence float64 // Minimum confidence to trigger tool generation
+	EnableToolGeneration bool  // Master switch for Ouroboros tool generation
+	MaxToolsPerSession   int   // Hard cap on tools per session (0 = unlimited)
+	ToolGenerationCooldown time.Duration // Cooldown between tool generations (0 = none)
 	EnableLLM        bool    // Whether to use LLM for analysis
 	TargetOS         string  // Target GOOS for tool compilation
 	TargetArch       string  // Target GOARCH for tool compilation
@@ -67,6 +71,10 @@ func DefaultConfig(workspaceRoot string) Config {
 		ToolsDir:      filepath.Join(workspaceRoot, ".nerd", "tools"),
 		AgentsDir:     filepath.Join(workspaceRoot, ".nerd", "agents"),
 		MinConfidence: 0.6,
+		MinToolConfidence: 0.75,
+		EnableToolGeneration: true,
+		MaxToolsPerSession:   3,
+		ToolGenerationCooldown: 0,
 		EnableLLM:     true,
 		TargetOS:      toolDefaults.TargetOS,
 		TargetArch:    toolDefaults.TargetArch,
@@ -117,6 +125,10 @@ type Orchestrator struct {
 
 	// JIT Prompt Compilation (Phase 5) - using concrete types now that cycle is broken
 	promptAssembler *articulation.PromptAssembler // JIT-aware prompt assembler
+
+	// Tool generation throttling (session-local)
+	toolsGenerated int
+	lastToolGen    time.Time
 }
 
 // NewOrchestrator creates a new autopoiesis orchestrator
@@ -410,6 +422,13 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 
 	logging.Autopoiesis("Generating tool from kernel delegation: %s", capability)
 
+	// If tool already exists, treat delegation as satisfied.
+	if o.toolGen != nil && o.toolGen.HasTool(capability) {
+		logging.AutopoiesisDebug("Delegated tool already exists: %s", capability)
+		_ = o.assertToKernel("tool_delegation_complete", capability, capability)
+		return nil
+	}
+
 	// Create a tool need from the capability
 	need := &ToolNeed{
 		Name:       capability,
@@ -446,6 +465,12 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 		o.assertToolRegistered(result.ToolHandle)
 		// Also assert delegation completion
 		_ = o.assertToKernel("tool_delegation_complete", capability, result.ToolHandle.Name)
+
+		// Update throttling counters on success.
+		o.mu.Lock()
+		o.toolsGenerated++
+		o.lastToolGen = time.Now()
+		o.mu.Unlock()
 	}
 
 	return nil
@@ -849,9 +874,9 @@ func (o *Orchestrator) Analyze(ctx context.Context, input string, target string)
 	}
 
 	// 3. Tool need detection (only if task seems to need new capability)
-	if shouldCheckToolNeed(input) {
+	if o.config.EnableToolGeneration && shouldCheckToolNeed(input) {
 		toolNeed, err := o.toolGen.DetectToolNeed(ctx, input, "")
-		if err == nil && toolNeed != nil && toolNeed.Confidence >= o.config.MinConfidence {
+		if err == nil && toolNeed != nil && o.shouldGenerateToolNeed(toolNeed) {
 			result.ToolNeeds = append(result.ToolNeeds, *toolNeed)
 
 			result.Actions = append(result.Actions, AutopoiesisAction{
@@ -913,6 +938,12 @@ func (o *Orchestrator) executeToolGeneration(ctx context.Context, action Autopoi
 	if err := o.toolGen.RegisterTool(tool); err != nil {
 		return fmt.Errorf("failed to register tool: %w", err)
 	}
+
+	// Update throttling counters on success.
+	o.mu.Lock()
+	o.toolsGenerated++
+	o.lastToolGen = time.Now()
+	o.mu.Unlock()
 
 	return nil
 }
@@ -1355,14 +1386,14 @@ func (o *Orchestrator) recordGenerationLearning(ctx context.Context, need *ToolN
 	// Add quality assessment based on generation outcome
 	var issues []QualityIssue
 	if !result.Success {
-		feedback.ErrorType = string(result.Stage)
+		feedback.ErrorType = result.Stage.String()
 		feedback.ErrorMsg = result.Error
 
 		// Extract issues from safety report if available
 		if result.SafetyReport != nil {
 			for _, v := range result.SafetyReport.Violations {
 				issues = append(issues, QualityIssue{
-					Type:        IssueType(v.Type),
+					Type:        IssueType(v.Type.String()),
 					Description: v.Description,
 					Severity:    float64(v.Severity) / 10.0,
 				})
@@ -2033,6 +2064,61 @@ func shouldCheckToolNeed(input string) bool {
 		}
 	}
 	return false
+}
+
+// shouldGenerateToolNeed applies a conservative, evidence-based gate before
+// scheduling Ouroboros tool generation. This protects general-purpose runs
+// from expensive or distracting tool creation unless clearly warranted.
+func (o *Orchestrator) shouldGenerateToolNeed(need *ToolNeed) bool {
+	if need == nil {
+		return false
+	}
+
+	// Baseline confidence gate (shared with other autopoiesis actions).
+	if need.Confidence < o.config.MinConfidence {
+		logging.AutopoiesisDebug("Tool need below MinConfidence: %.2f < %.2f", need.Confidence, o.config.MinConfidence)
+		return false
+	}
+
+	strongEvidence := hasStrongToolEvidence(need)
+	if need.Confidence < o.config.MinToolConfidence && !strongEvidence {
+		logging.AutopoiesisDebug("Tool need gated: confidence %.2f below MinToolConfidence %.2f without strong evidence",
+			need.Confidence, o.config.MinToolConfidence)
+		return false
+	}
+
+	// Avoid duplicate generation.
+	if o.toolGen != nil && o.toolGen.HasTool(need.Name) {
+		logging.AutopoiesisDebug("Tool need gated: tool already exists (%s)", need.Name)
+		return false
+	}
+
+	// Session-local cap.
+	if o.config.MaxToolsPerSession > 0 && o.toolsGenerated >= o.config.MaxToolsPerSession {
+		logging.AutopoiesisDebug("Tool need gated: MaxToolsPerSession reached (%d)", o.config.MaxToolsPerSession)
+		return false
+	}
+
+	// Cooldown between generations unless strong evidence overrides.
+	if o.config.ToolGenerationCooldown > 0 && !o.lastToolGen.IsZero() && !strongEvidence {
+		if time.Since(o.lastToolGen) < o.config.ToolGenerationCooldown {
+			logging.AutopoiesisDebug("Tool need gated: cooldown active (%v)", o.config.ToolGenerationCooldown)
+			return false
+		}
+	}
+
+	return true
+}
+
+func hasStrongToolEvidence(need *ToolNeed) bool {
+	// Strong evidence includes failed attempts or multiple independent triggers.
+	for _, t := range need.Triggers {
+		lower := strings.ToLower(t)
+		if strings.Contains(lower, "previous attempt failed") || strings.Contains(lower, "failed") {
+			return true
+		}
+	}
+	return len(need.Triggers) >= 2
 }
 
 // sortActionsByPriority sorts actions by priority (highest first)

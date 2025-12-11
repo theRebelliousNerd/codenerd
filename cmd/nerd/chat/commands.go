@@ -1031,15 +1031,29 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/review":
 		target := "."
-		enableEnhancement := false
+		opts := reviewCommandOptions{}
 
-		// Parse args for target and --andEnhance flag
+		// Parse args for target and flags (case-insensitive)
 		for _, arg := range parts[1:] {
-			if arg == "--andEnhance" || arg == "--enhance" {
-				enableEnhancement = true
-			} else if !strings.HasPrefix(arg, "-") {
-				target = arg
+			if strings.HasPrefix(arg, "--") {
+				lower := strings.ToLower(arg)
+				switch lower {
+				case "--andenhance", "--and-enhance", "--enhance":
+					opts.EnableEnhancement = true
+				default:
+					opts.PassThroughFlags = append(opts.PassThroughFlags, arg)
+				}
+				continue
 			}
+
+			if strings.HasPrefix(arg, "-") {
+				// Preserve unknown short flags for shards to interpret
+				opts.PassThroughFlags = append(opts.PassThroughFlags, arg)
+				continue
+			}
+
+			// Bare argument - treat as target path
+			target = arg
 		}
 
 		// Check if multi-shard review is available (has registered specialists)
@@ -1047,7 +1061,7 @@ You have an existing Northstar definition. What would you like to do?
 		if registry != nil && len(registry.Agents) > 0 {
 			// Use multi-shard orchestrated review
 			msg := fmt.Sprintf("Running multi-shard review on: %s (with specialists)", target)
-			if enableEnhancement {
+			if opts.EnableEnhancement {
 				msg += " with creative enhancement"
 			}
 			m.history = append(m.history, Message{
@@ -1059,17 +1073,20 @@ You have an existing Northstar definition. What would you like to do?
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.spawnMultiShardReview(target))
+			return m, tea.Batch(m.spinner.Tick, m.spawnMultiShardReview(target, opts))
 		}
 
 		// Fallback to single ReviewerShard
 		task := formatShardTask("/review", target, "", m.workspace)
 		// Append --andEnhance flag if requested
-		if enableEnhancement {
+		if opts.EnableEnhancement {
 			task += " --andEnhance"
 		}
+		if len(opts.PassThroughFlags) > 0 {
+			task += " " + strings.Join(opts.PassThroughFlags, " ")
+		}
 		msg := fmt.Sprintf("Running code review on: %s", target)
-		if enableEnhancement {
+		if opts.EnableEnhancement {
 			msg += " with creative enhancement (Steps 8-12)"
 		}
 		m.history = append(m.history, Message{

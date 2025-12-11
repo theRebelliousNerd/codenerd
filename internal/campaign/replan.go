@@ -164,7 +164,13 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	for _, newTask := range changes.NewTasks {
 		if newTask.PhaseOrder >= 0 && newTask.PhaseOrder < len(campaign.Phases) {
 			phase := &campaign.Phases[newTask.PhaseOrder]
-			taskID := fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], newTask.PhaseOrder, len(phase.Tasks))
+
+			// Derive a stable slug from campaign ID without assuming prefix length.
+			campaignSlug := strings.TrimPrefix(campaign.ID, "/campaign_")
+			if campaignSlug == campaign.ID {
+				campaignSlug = sanitizeCampaignID(campaign.ID)
+			}
+			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug, newTask.PhaseOrder, len(phase.Tasks))
 
 			task := Task{
 				ID:          taskID,
@@ -628,5 +634,8 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 
 // ClearReplanTriggers clears all replan triggers for a campaign.
 func (r *Replanner) ClearReplanTriggers(campaignID string) error {
-	return r.kernel.Retract("replan_trigger")
+	return r.kernel.RetractFact(core.Fact{
+		Predicate: "replan_trigger",
+		Args:      []interface{}{campaignID},
+	})
 }

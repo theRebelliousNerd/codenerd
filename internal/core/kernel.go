@@ -60,6 +60,9 @@ type LearnedRuleInterceptor interface {
 type RealKernel struct {
 	mu              sync.RWMutex
 	facts           []Fact
+	bootFacts       []Fact // EDB facts extracted from hybrid .mg data sections
+	bootIntents     []HybridIntent // Canonical intents extracted from hybrid .mg files
+	bootPrompts     []HybridPrompt // Prompt atoms extracted from hybrid .mg files
 	store           factstore.FactStore
 	programInfo     *analysis.ProgramInfo
 	schemas         string
@@ -96,6 +99,9 @@ func NewRealKernel() (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:       make([]Fact, 0),
+		bootFacts:   make([]Fact, 0),
+		bootIntents: make([]HybridIntent, 0),
+		bootPrompts: make([]HybridPrompt, 0),
 		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true, // Need to parse on first use
 	}
@@ -109,6 +115,11 @@ func NewRealKernel() (*RealKernel, error) {
 
 	// Load the baked-in predicate corpus for validation
 	k.loadPredicateCorpus()
+
+	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	if len(k.bootFacts) > 0 {
+		k.facts = append(k.facts, k.bootFacts...)
+	}
 
 	// Force initial evaluation to boot the Mangle engine.
 	// The embedded core MUST compile, otherwise the binary is corrupt.
@@ -132,6 +143,9 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:       make([]Fact, 0),
+		bootFacts:   make([]Fact, 0),
+		bootIntents: make([]HybridIntent, 0),
+		bootPrompts: make([]HybridPrompt, 0),
 		store:       factstore.NewSimpleInMemoryStore(),
 		manglePath:  manglePath,
 		policyDirty: true,
@@ -145,6 +159,11 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 
 	// Load the baked-in predicate corpus for validation
 	k.loadPredicateCorpus()
+
+	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	if len(k.bootFacts) > 0 {
+		k.facts = append(k.facts, k.bootFacts...)
+	}
 
 	// Force initial evaluation
 	logging.Kernel("Booting Mangle engine...")
@@ -286,26 +305,48 @@ func (k *RealKernel) loadMangleFiles() error {
 
 		// Append User Schemas (extensions.mg)
 		extPath := filepath.Join(wsPath, "extensions.mg")
-		if data, err := os.ReadFile(extPath); err == nil {
-			k.schemas += "\n\n# User Extensions\n" + string(data)
-			userExtensionsLoaded++
-			logging.Kernel("Loaded user schema extensions from %s (%d bytes)", extPath, len(data))
+		if _, err := os.Stat(extPath); err == nil {
+			if res, err := LoadHybridMangleFile(extPath); err == nil {
+				k.schemas += "\n\n# User Extensions\n" + res.Logic
+				k.bootFacts = append(k.bootFacts, res.Facts...)
+				k.bootIntents = append(k.bootIntents, res.Intents...)
+				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+				userExtensionsLoaded++
+				logging.Kernel("Loaded user schema extensions from %s (%d bytes, %d data facts, %d intents, %d prompts)", extPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+			} else {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid extensions from %s: %v", extPath, err)
+			}
 		}
 
 		// Append User Policy (policy_overrides.mg)
 		policyPath := filepath.Join(wsPath, "policy_overrides.mg")
-		if data, err := os.ReadFile(policyPath); err == nil {
-			k.policy += "\n\n# User Policy Overrides\n" + string(data)
-			userExtensionsLoaded++
-			logging.Kernel("Loaded user policy overrides from %s (%d bytes)", policyPath, len(data))
+		if _, err := os.Stat(policyPath); err == nil {
+			if res, err := LoadHybridMangleFile(policyPath); err == nil {
+				k.policy += "\n\n# User Policy Overrides\n" + res.Logic
+				k.bootFacts = append(k.bootFacts, res.Facts...)
+				k.bootIntents = append(k.bootIntents, res.Intents...)
+				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
+				userExtensionsLoaded++
+				logging.Kernel("Loaded user policy overrides from %s (%d bytes, %d data facts, %d intents, %d prompts)", policyPath, len(res.Logic), len(res.Facts), len(res.Intents), len(res.Prompts))
+			} else {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid policy overrides from %s: %v", policyPath, err)
+			}
 		}
 
 		// Append User Learned Rules (learned.mg)
 		learnedPath := filepath.Join(wsPath, "learned.mg")
-		if data, err := os.ReadFile(learnedPath); err == nil {
-			userLearnedContent := string(data)
+		if _, err := os.Stat(learnedPath); err == nil {
+			res, err := LoadHybridMangleFile(learnedPath)
+			if err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load hybrid learned rules from %s: %v", learnedPath, err)
+				continue
+			}
+			userLearnedContent := res.Logic
+			k.bootFacts = append(k.bootFacts, res.Facts...)
+			k.bootIntents = append(k.bootIntents, res.Intents...)
+			k.bootPrompts = append(k.bootPrompts, res.Prompts...)
 			userExtensionsLoaded++
-			logging.Kernel("Loaded user learned rules from %s (%d bytes)", learnedPath, len(data))
+			logging.Kernel("Loaded user learned rules from %s (%d bytes, %d data facts, %d intents, %d prompts)", learnedPath, len(userLearnedContent), len(res.Facts), len(res.Intents), len(res.Prompts))
 
 			// Track path and content for self-healing
 			k.userLearnedPath = learnedPath
@@ -371,6 +412,34 @@ func (k *RealKernel) loadPredicateCorpus() {
 // GetPredicateCorpus returns the baked-in predicate corpus (may be nil if not loaded).
 func (k *RealKernel) GetPredicateCorpus() *PredicateCorpus {
 	return k.predicateCorpus
+}
+
+// ConsumeBootPrompts returns any PROMPT directives extracted during boot
+// and clears the internal buffer to avoid double-ingest.
+func (k *RealKernel) ConsumeBootPrompts() []HybridPrompt {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if len(k.bootPrompts) == 0 {
+		return nil
+	}
+	out := make([]HybridPrompt, len(k.bootPrompts))
+	copy(out, k.bootPrompts)
+	k.bootPrompts = nil
+	return out
+}
+
+// ConsumeBootIntents returns any INTENT directives extracted during boot
+// and clears the internal buffer.
+func (k *RealKernel) ConsumeBootIntents() []HybridIntent {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if len(k.bootIntents) == 0 {
+		return nil
+	}
+	out := make([]HybridIntent, len(k.bootIntents))
+	copy(out, k.bootIntents)
+	k.bootIntents = nil
+	return out
 }
 
 // LoadFacts adds facts to the EDB and rebuilds the program.
@@ -577,6 +646,46 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 	return nil
 }
 
+// RetractExactFact removes facts that exactly match predicate and all arguments.
+// This is safer for multi-arity predicates where multiple facts may share a first arg.
+// It does NOT replace RetractFact, which intentionally matches only the first arg.
+func (k *RealKernel) RetractExactFact(fact Fact) error {
+	logging.KernelDebug("RetractExactFact: removing exact fact predicate=%s args=%v", fact.Predicate, fact.Args)
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if len(fact.Args) == 0 {
+		err := fmt.Errorf("fact must have at least one argument for exact matching")
+		logging.Get(logging.CategoryKernel).Error("RetractExactFact: %v", err)
+		return err
+	}
+
+	prevCount := len(k.facts)
+	filtered := make([]Fact, 0, prevCount)
+	retractedCount := 0
+	for _, f := range k.facts {
+		if f.Predicate != fact.Predicate || !argsSliceEqual(f.Args, fact.Args) {
+			filtered = append(filtered, f)
+			continue
+		}
+		retractedCount++
+	}
+	k.facts = filtered
+
+	logging.KernelDebug("RetractExactFact: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	// Only rebuild if something changed
+	if retractedCount > 0 {
+		if err := k.rebuild(); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RetractExactFact: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
 // argsEqual compares two fact arguments for equality.
 func argsEqual(a, b interface{}) bool {
 	switch av := a.(type) {
@@ -598,6 +707,19 @@ func argsEqual(a, b interface{}) bool {
 		}
 	}
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// argsSliceEqual compares two argument slices for full equality.
+func argsSliceEqual(a, b []interface{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !argsEqual(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // rebuildProgram parses schemas+policy and caches programInfo.

@@ -487,7 +487,7 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 		// but for simple queries we assume all-output (unbound).
 		modes := make([]ast.ArgMode, len(shape.atom.Args))
 		for i := range modes {
-			modes[i] = ast.ArgMode(0)
+			modes[i] = ast.ArgModeOutput
 		}
 		mode = ast.Mode(modes)
 	}
@@ -498,8 +498,8 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 
 	go func() {
 		var results []map[string]interface{}
-		// We use convertBaseTermToInterface from engine.go
-		err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), func(fact ast.Atom) error {
+
+		emitRow := func(fact ast.Atom) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -515,11 +515,23 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 			}
 			results = append(results, row)
 			return nil
-		})
-		if err != nil {
+		}
+
+		// 1) Always include matching stored facts (EDB or cached IDB).
+		if err := queryContext.Store.GetFacts(shape.atom, emitRow); err != nil {
 			errChan <- err
 			return
 		}
+
+		// 2) If there are rules for this predicate, also derive answers top-down.
+		if len(queryContext.PredToRules[shape.atom.Predicate]) > 0 {
+			err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), emitRow)
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}
+
 		resultChan <- results
 	}()
 
@@ -559,9 +571,9 @@ func (fsp *FactStoreProxy) RegisterLoader(predicate string, loader func(atom ast
 func (fsp *FactStoreProxy) GetFacts(query ast.Atom, fn func(ast.Atom) error) error {
 	// Check if this predicate has a lazy loader
 	if loader, ok := fsp.lazyLoaders[query.Predicate.Symbol]; ok {
-		// synthesize an atom for the loader if needed, or just call it
-		// The loader might populate the store.
-		loader(ast.Atom{Predicate: query.Predicate})
+		// Trigger lazy loader with the full query atom (including args).
+		// The loader may populate the underlying store.
+		loader(query)
 	}
 	return fsp.FactStore.GetFacts(query, fn)
 }

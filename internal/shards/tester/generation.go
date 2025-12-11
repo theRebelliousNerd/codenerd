@@ -89,18 +89,29 @@ func (t *TesterShard) generateTests(ctx context.Context, task *TesterTask) (stri
 	generated := t.parseGeneratedTests(processed.Surface, targetPath, framework)
 	logging.Tester("Generated %d tests for %s", generated.TestCount, targetPath)
 
-	// Write test file via VirtualStore
-	if t.virtualStore != nil && generated.Content != "" {
+	// Write test file via kernel pipeline when available (unsafe mutation)
+	if generated.Content != "" {
 		logging.TesterDebug("Writing test file: %s", generated.FilePath)
-		writeAction := core.Fact{
-			Predicate: "next_action",
-			Args:      []interface{}{"/write_file", generated.FilePath, generated.Content},
+
+		if t.virtualStore != nil && t.kernel != nil {
+			if err := t.assertNextActionAndWait(ctx, "/write_file", generated.FilePath,
+				map[string]interface{}{"content": generated.Content}); err != nil {
+				logging.Get(logging.CategoryTester).Error("Failed to write test file %s via kernel: %v", generated.FilePath, err)
+				return "", fmt.Errorf("failed to write test file: %w", err)
+			}
+		} else if t.virtualStore != nil {
+			// Legacy/testing fallback: direct VirtualStore routing with proper payload
+			writeAction := core.Fact{
+				Predicate: "next_action",
+				Args:      []interface{}{"/write_file", generated.FilePath, map[string]interface{}{"content": generated.Content}},
+			}
+			_, err := t.virtualStore.RouteAction(ctx, writeAction)
+			if err != nil {
+				logging.Get(logging.CategoryTester).Error("Failed to write test file %s: %v", generated.FilePath, err)
+				return "", fmt.Errorf("failed to write test file: %w", err)
+			}
 		}
-		_, err := t.virtualStore.RouteAction(ctx, writeAction)
-		if err != nil {
-			logging.Get(logging.CategoryTester).Error("Failed to write test file %s: %v", generated.FilePath, err)
-			return "", fmt.Errorf("failed to write test file: %w", err)
-		}
+
 		logging.Tester("Test file written: %s", generated.FilePath)
 	}
 

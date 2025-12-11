@@ -157,7 +157,7 @@ func (m Model) renderHeader() string {
 		}
 		status = lipgloss.JoinHorizontal(lipgloss.Center, spin, " ", m.styles.Badge.Render(msg))
 	} else {
-		status = m.styles.Success.Render("âœ“ Ready")
+		status = m.styles.Success.Render("Ready")
 	}
 
 	headerLine := lipgloss.JoinHorizontal(
@@ -210,6 +210,23 @@ func (m Model) renderFooter() string {
 		continuationIndicator = fmt.Sprintf(" | Step %d/%d", m.continuationStep, m.continuationTotal)
 	}
 
+	// Context window utilization indicator
+	contextIndicator := ""
+	if m.compressor != nil {
+		used, total := m.compressor.GetBudgetUsage()
+		if total > 0 {
+			pct := float64(used) / float64(total) * 100
+			contextIndicator = fmt.Sprintf(" | Ctx: %.0f%%", pct)
+		}
+	}
+
+	// Memory usage indicator (process RAM)
+	memoryIndicator := ""
+	if m.memSysBytes > 0 {
+		mb := float64(m.memSysBytes) / (1024 * 1024)
+		memoryIndicator = fmt.Sprintf(" | RAM: %.0fMB", mb)
+	}
+
 	// Mouse mode indicator
 	mouseIndicator := ""
 	if !m.mouseEnabled {
@@ -224,8 +241,8 @@ func (m Model) renderFooter() string {
 	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+M: select | /help"
 
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s | %s | %s",
-		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, mouseIndicator, timestamp, hotkeys))
+	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s | %s | %s",
+		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, timestamp, hotkeys))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)
@@ -234,7 +251,18 @@ func (m Model) renderFooter() string {
 func (m Model) renderBootScreen() string {
 	spin := m.spinner.View()
 	title := m.styles.Header.Render(" codeNERD ")
-	subtitle := m.styles.Badge.Render("System Booting")
+
+	subtitleText := "System Booting"
+	detailText := "Initializing Kernel, Shards, and Knowledge Base..."
+	if m.bootStage == BootStageScanning {
+		subtitleText = "Indexing Workspace"
+		if strings.TrimSpace(m.statusMessage) != "" {
+			detailText = m.statusMessage
+		} else {
+			detailText = "Scanning workspace for fresh facts..."
+		}
+	}
+	subtitle := m.styles.Badge.Render(subtitleText)
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -243,7 +271,7 @@ func (m Model) renderBootScreen() string {
 		spin,
 		"\n",
 		subtitle,
-		m.styles.Muted.Render("Initializing Kernel, Shards, and Knowledge Base..."),
+		m.styles.Muted.Render(detailText),
 	)
 
 	return lipgloss.Place(

@@ -5,6 +5,7 @@ package system
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
@@ -66,19 +67,53 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
 	}
 
-	// 2. Initialize Core Components
-	baseLLMClient := perception.NewZAIClient(apiKey)
+	// 2. Load user config for limits and provider selection
+	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
+	appCfg, _ := config.LoadUserConfig(userCfgPath)
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	coreLimits := appCfg.GetCoreLimits()
+
+	// Configure global LLM API concurrency before any scheduled calls
+	schedulerCfg := core.DefaultAPISchedulerConfig()
+	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	core.ConfigureGlobalAPIScheduler(schedulerCfg)
+
+	// 3. Initialize LLM client using workspace config/env detection
+	var baseLLMClient perception.LLMClient
+	if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
+		if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
+			baseLLMClient = client
+		}
+	}
+	if baseLLMClient == nil {
+		if client, err := perception.NewClientFromEnv(); err == nil {
+			baseLLMClient = client
+		}
+	}
+	if baseLLMClient == nil {
+		// Final fallback: explicit ZAI key (legacy flag/env)
+		key := apiKey
+		if key == "" {
+			key = os.Getenv("ZAI_API_KEY")
+		}
+		baseLLMClient = perception.NewZAIClient(key)
+	}
 
 	// Tracing Layer (if local DB available)
-	var llmClient perception.LLMClient = baseLLMClient
+	var rawLLMClient perception.LLMClient = baseLLMClient
 	localDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
 	var localDB *store.LocalStore
 	if db, err := store.NewLocalStore(localDBPath); err == nil {
 		localDB = db
 		// Wrap with tracing
 		traceStore := createTraceStoreAdapter(db)
-		llmClient = perception.NewTracingLLMClient(baseLLMClient, traceStore)
+		rawLLMClient = perception.NewTracingLLMClient(baseLLMClient, traceStore)
 	}
+
+	// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
+	var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
 
 	// Learning Layer - Autopoiesis persistence (§8.3)
 	learningStorePath := filepath.Join(workspace, ".nerd", "shards")
@@ -121,7 +156,21 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	shardManager := core.NewShardManager()
 	shardManager.SetParentKernel(kernel)
-	shardManager.SetLLMClient(llmClient)
+	shardManager.SetLLMClient(rawLLMClient)
+
+	// Limits enforcement and spawn queue backpressure (config-driven)
+	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
+		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
+		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
+		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
+		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
+		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+	})
+	shardManager.SetLimitsEnforcer(limitsEnforcer)
+
+	spawnQueue := core.NewSpawnQueue(shardManager, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	shardManager.SetSpawnQueue(spawnQueue)
+	_ = spawnQueue.Start()
 
 	// 3. Autopoiesis & Tools
 	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
@@ -158,6 +207,15 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// Initialize Atom Loader
 	atomLoader := prompt.NewAtomLoader(embeddingEngine)
+
+	// Enable semantic vector operations on the LocalStore if possible.
+	if localDB != nil && embeddingEngine != nil {
+		localDB.SetEmbeddingEngine(embeddingEngine)
+	}
+
+	// Ingest any PROMPT directives extracted from hybrid .mg files into the
+	// project prompt corpus so JIT can pick them up.
+	ingestHybridPrompts(ctx, workspace, kernel, atomLoader)
 
 	// Sync Agents (Distributed Storage)
 	// This ensures .nerd/shards/*.db are up-to-date with .nerd/agents/*.yaml
@@ -279,6 +337,93 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		Workspace:      workspace,
 		JITCompiler:    jitCompiler,
 	}, nil
+}
+
+// ingestHybridPrompts loads PROMPT directives extracted from hybrid .mg files
+// into the project prompt corpus database (.nerd/prompts/corpus.db).
+// This keeps hybrid files as a readable single source of truth while still
+// routing prompt atoms into the JIT system.
+func ingestHybridPrompts(ctx context.Context, workspace string, kernel *core.RealKernel, atomLoader *prompt.AtomLoader) {
+	if kernel == nil || atomLoader == nil {
+		return
+	}
+
+	hybridPrompts := kernel.ConsumeBootPrompts()
+	if len(hybridPrompts) == 0 {
+		return
+	}
+
+	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
+	if err := os.MkdirAll(filepath.Dir(corpusPath), 0755); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to create prompts dir for hybrid corpus: %v", err)
+		return
+	}
+
+	db, err := sql.Open("sqlite3", corpusPath)
+	if err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to open hybrid prompt corpus DB: %v", err)
+		return
+	}
+	defer db.Close()
+
+	if err := atomLoader.EnsureSchema(ctx, db); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to ensure hybrid prompt corpus schema: %v", err)
+		return
+	}
+
+	stored := 0
+	for _, hp := range hybridPrompts {
+		cat, sub := mapHybridPromptCategory(hp.Category)
+		atom := prompt.NewPromptAtom(hp.ID, cat, hp.Content)
+		if sub != "" {
+			atom.Subcategory = sub
+		}
+		if len(hp.Tags) > 1 {
+			extras := strings.Join(hp.Tags[1:], ",")
+			if atom.Subcategory != "" {
+				atom.Subcategory = atom.Subcategory + "," + extras
+			} else {
+				atom.Subcategory = extras
+			}
+		}
+
+		// Default priority; skeleton categories are always included by selector.
+		if err := atomLoader.StoreAtom(ctx, db, atom); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Failed to store hybrid prompt atom %s: %v", hp.ID, err)
+			continue
+		}
+		stored++
+	}
+
+	logging.Get(logging.CategoryContext).Info("Ingested %d hybrid PROMPT atoms into %s", stored, corpusPath)
+}
+
+// mapHybridPromptCategory maps legacy hybrid category tags into JIT atom categories.
+// Unknown categories default to /domain with subcategory preserved.
+func mapHybridPromptCategory(raw string) (prompt.AtomCategory, string) {
+	clean := strings.ToLower(strings.TrimSpace(raw))
+	if clean == "" {
+		return prompt.CategoryDomain, ""
+	}
+
+	for _, cat := range prompt.AllCategories() {
+		if string(cat) == clean {
+			return cat, ""
+		}
+	}
+
+	switch clean {
+	case "role":
+		return prompt.CategoryIdentity, "role"
+	case "tool":
+		return prompt.CategoryProtocol, "tool"
+	case "safety":
+		return prompt.CategorySafety, "safety"
+	case "phase":
+		return prompt.CategoryMethodology, "phase"
+	}
+
+	return prompt.CategoryDomain, clean
 }
 
 // LocalStoreTraceAdapter wraps LocalStore to implement perception.TraceStore.

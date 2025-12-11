@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
 	"context"
 	"crypto/sha256"
@@ -15,8 +16,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ErrMaxRetriesExceeded is returned when verification fails after max retries.
@@ -524,9 +529,33 @@ func (v *TaskVerifier) storeVerification(
 
 // fetchContext7Docs fetches documentation from Context7 API.
 func (v *TaskVerifier) fetchContext7Docs(ctx context.Context, query string) string {
-	// TODO: Implement Context7 API integration
-	// For now, this is a placeholder - will be implemented when Context7 client is available
-	return ""
+	if v.context7Key == "" || query == "" {
+		return ""
+	}
+
+	cacheDir := filepath.Join(os.TempDir(), "codenerd_context7_cache")
+	_ = os.MkdirAll(cacheDir, 0755)
+
+	cache := researcher.NewResearchCache(cacheDir)
+	client := &http.Client{Timeout: 60 * time.Second}
+	c7 := researcher.NewContext7Tool(client, cache)
+	c7.SetAPIKey(v.context7Key)
+
+	atoms, err := c7.ResearchTopic(ctx, query, nil)
+	if err != nil || len(atoms) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for _, atom := range atoms {
+		if atom.Title != "" {
+			sb.WriteString(atom.Title)
+			sb.WriteString("\n")
+		}
+		sb.WriteString(atom.Content)
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
 }
 
 // basicQualityCheck performs simple pattern matching for quality violations.

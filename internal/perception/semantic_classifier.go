@@ -201,6 +201,11 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 		logging.Get(logging.CategoryPerception).Warn("Failed to load embedded corpus: %v", err)
 		embeddedStore = nil
 	}
+	if embeddedStore != nil && embedEngine != nil {
+		if err := embeddedStore.LoadFromKernel(context.Background(), kernel, embedEngine); err != nil {
+			logging.Get(logging.CategoryPerception).Warn("Failed to hydrate embedded intent corpus from kernel: %v", err)
+		}
+	}
 
 	// Initialize learned corpus store
 	learnedStore, err := NewLearnedCorpusStore(cfg, embedEngine.Dimensions())
@@ -531,11 +536,93 @@ func NewEmbeddedCorpusStore(dimensions int) (*EmbeddedCorpusStore, error) {
 		dimensions: dimensions,
 	}
 
-	// TODO: Load from embedded intent_corpus.db when available
-	// For now, return empty store - the classifier will rely on regex fallback
+	// Base store is empty; canonical patterns can be hydrated from kernel at runtime.
 	logging.PerceptionDebug("Embedded corpus store initialized (entries=%d)", len(store.entries))
 
 	return store, nil
+}
+
+// LoadFromKernel hydrates the embedded corpus from intent_definition facts in the kernel.
+// This preserves the split-brain architecture: Mangle stores canonical patterns as data,
+// while semantic matching uses embeddings over those patterns.
+func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
+	if s == nil || kernel == nil || engine == nil {
+		return nil
+	}
+
+	facts, err := kernel.Query("intent_definition")
+	if err != nil {
+		return err
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+
+	entries := make([]CorpusEntry, 0, len(facts))
+	texts := make([]string, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		phrase := argToString(f.Args[0])
+		verb := argToString(f.Args[1])
+		target := ""
+		if len(f.Args) > 2 {
+			target = argToString(f.Args[2])
+		}
+		if phrase == "" || verb == "" {
+			continue
+		}
+		entries = append(entries, CorpusEntry{
+			TextContent: phrase,
+			Verb:        verb,
+			Target:      target,
+			Confidence:  0.9,
+		})
+		texts = append(texts, phrase)
+	}
+
+	if len(texts) == 0 {
+		return nil
+	}
+
+	embeds, err := engine.EmbedBatch(ctx, texts)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	added := 0
+	for i, entry := range entries {
+		if i >= len(embeds) {
+			break
+		}
+		vec := embeds[i]
+		if len(vec) != s.dimensions {
+			continue
+		}
+		s.entries = append(s.entries, entry)
+		s.embeddings[entry.TextContent] = vec
+		added++
+	}
+
+	logging.PerceptionDebug("Hydrated embedded intent corpus from kernel: added=%d", added)
+	return nil
+}
+
+func argToString(arg interface{}) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case core.MangleAtom:
+		return string(v)
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // Search performs cosine similarity search on the embedded corpus.

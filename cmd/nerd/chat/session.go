@@ -147,7 +147,8 @@ func InitChat(cfg Config) Model {
 		kernel:              nil,
 		shardMgr:            nil,
 		client:              nil,  // Will be set in boot
-		isBooting:           true, // Flag for UI
+		isBooting:           true,            // Flag for UI
+		bootStage:           BootStageBooting, // Startup phase
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
 		DisableSystemShards: cfg.DisableSystemShards,
@@ -187,6 +188,14 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				appCfg = config.DefaultUserConfig()
 			}
 		}
+
+		// Resolve core limits once for boot wiring
+		coreLimits := appCfg.GetCoreLimits()
+
+		// Configure global LLM API concurrency before any scheduled calls
+		schedulerCfg := core.DefaultAPISchedulerConfig()
+		schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+		core.ConfigureGlobalAPIScheduler(schedulerCfg)
 		initialMessages := []Message{}
 
 		// Initialize LLM client using the perception package's provider detection
@@ -218,10 +227,6 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 		}
 
-		// Initialize backend components
-		logStep("Creating transducer...")
-		transducer := perception.NewRealTransducer(baseLLMClient)
-
 		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally
 		logStep("Booting Mangle kernel...")
 		kernel, err := core.NewRealKernel()
@@ -242,7 +247,13 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		shardMgr.SetParentKernel(kernel)
 
 		// Initialize limits enforcer and spawn queue for backpressure management
-		limitsEnforcer := core.NewLimitsEnforcer(core.DefaultLimitsConfig())
+		limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
+			MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
+			MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
+			MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
+			MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
+			MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+		})
 		shardMgr.SetLimitsEnforcer(limitsEnforcer)
 
 		spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
@@ -337,20 +348,26 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		logStep("Configuring LLM client...")
-		var llmClient perception.LLMClient = baseLLMClient
+		var rawLLMClient perception.LLMClient = baseLLMClient
 		if localDB != nil {
 			traceStore := NewLocalStoreTraceAdapter(localDB)
 			tracingClient := perception.NewTracingLLMClient(baseLLMClient, traceStore)
-			llmClient = tracingClient
-			shardMgr.SetLLMClient(tracingClient)
+			rawLLMClient = tracingClient
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
 				Content: "✓ Reasoning trace capture enabled",
 				Time:    time.Now(),
 			})
-		} else {
-			shardMgr.SetLLMClient(baseLLMClient)
 		}
+
+		shardMgr.SetLLMClient(rawLLMClient)
+
+		// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
+		var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+
+		// Initialize backend components that depend on the scheduled client.
+		logStep("Creating transducer...")
+		transducer := perception.NewRealTransducer(llmClient)
 
 		// Initialize JIT Prompt Compiler with embedded corpus
 		logStep("Initializing JIT prompt compiler...")

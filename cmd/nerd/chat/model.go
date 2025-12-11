@@ -13,6 +13,7 @@ package chat
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	"codenerd/cmd/nerd/ui"
@@ -79,6 +80,15 @@ const (
 	InputModeAgentWizard                     // Agent definition wizard active
 	InputModeConfigWizard                    // Config wizard active
 	InputModeCampaignLaunch                  // Campaign launch clarification
+)
+
+// BootStage represents the startup phase for the interactive UI.
+// While any boot stage is active, the chat input is hidden.
+type BootStage int
+
+const (
+	BootStageBooting BootStage = iota
+	BootStageScanning
 )
 
 // ContinuationMode controls multi-step task execution behavior.
@@ -263,6 +273,11 @@ type Model struct {
 
 	// Boot State
 	isBooting bool
+	bootStage BootStage
+
+	// Process memory usage (bytes). Updated periodically for UI.
+	memAllocBytes uint64
+	memSysBytes   uint64
 
 	// Input History
 	inputHistory []string
@@ -390,6 +405,16 @@ func (m Model) ReportStatus(msg string) {
 	}
 }
 
+// tickMemory samples Go runtime memory usage for UI display.
+// Runs periodically regardless of loading state so the footer stays fresh.
+func (m Model) tickMemory() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		return memUsageMsg{Alloc: ms.Alloc, Sys: ms.Sys}
+	})
+}
+
 // ShardResult stores the full output from a shard execution for follow-up queries.
 // This enables conversational follow-ups like "show me more" or "what are the warnings?".
 type ShardResult struct {
@@ -450,6 +475,12 @@ type (
 	windowSizeMsg      tea.WindowSizeMsg
 	clarificationMsg   ClarificationState // Request for user clarification
 	clarificationReply string             // User's response to clarification
+
+	// Memory sampling message
+	memUsageMsg struct {
+		Alloc uint64
+		Sys   uint64
+	}
 
 	// Campaign messages
 	campaignStartedMsg struct {
@@ -534,6 +565,7 @@ func (m Model) Init() tea.Cmd {
 		tea.EnableMouseCellMotion,
 		tea.EnableBracketedPaste, // Allow multi-line paste without sending early
 		m.waitForStatus(),        // Start status listener
+		m.tickMemory(),           // Start memory sampler
 		performSystemBoot(m.Config, m.DisableSystemShards, m.workspace), // Start heavy system initialization
 	)
 }
@@ -942,7 +974,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent)
 
 	case spinner.TickMsg:
-		if m.isLoading {
+		if m.isLoading || m.isBooting {
 			m.spinner, spCmd = m.spinner.Update(msg)
 			return m, spCmd
 		}
@@ -1287,6 +1319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveSessionState()
 
 	case scanCompleteMsg:
+		startupScan := m.isBooting && m.bootStage == BootStageScanning
 		m.isLoading = false
 		if msg.err != nil {
 			m.history = append(m.history, Message{
@@ -1314,13 +1347,27 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		m.viewport.GotoBottom()
 		m.saveSessionState()
 
+		// If this was the startup scan, unlock chat input now that we're green.
+		if startupScan {
+			m.isBooting = false
+			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
+			m.textarea.Focus()
+		}
+
 	case statusMsg:
 		m.statusMessage = string(msg)
 		return m, m.waitForStatus() // Listen for next update
 
+	case memUsageMsg:
+		m.memAllocBytes = msg.Alloc
+		m.memSysBytes = msg.Sys
+		return m, m.tickMemory()
+
 	case bootCompleteMsg:
-		m.isBooting = false
 		if msg.err != nil {
+			// Boot failed - unlock input so user can fix config.
+			m.isBooting = false
+			m.bootStage = BootStageBooting
 			m.err = msg.err
 			m.history = append(m.history, Message{
 				Role:    "assistant",
@@ -1328,6 +1375,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 				Time:    time.Now(),
 			})
 		} else {
+			// Boot succeeded - keep UI in boot screen while we scan/index workspace.
+			m.isBooting = true
+			m.bootStage = BootStageScanning
 			// Populate components from the heavy initialization
 			c := msg.components
 			m.kernel = c.Kernel
@@ -1364,17 +1414,21 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.turnCount = resolveTurnCount(loadedSession)
 		}
 
-		// Update textarea placeholder now that boot is complete
-		m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
-		m.textarea.Focus()
+		// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
+		if msg.err != nil {
+			m.textarea.Placeholder = "System boot failed. Fix config then retry /scan or restart."
+			m.textarea.Focus()
+		} else {
+			m.textarea.Placeholder = "Indexing workspace..."
+		}
 
 		// Append any initial messages generated during boot
 		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
 			m.history = append(m.history, msg.components.InitialMessages...)
 		}
 
-		// Now trigger the workspace scan (deferred)
-		return m, m.checkWorkspaceSync()
+		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
+		return m, m.runScan()
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)

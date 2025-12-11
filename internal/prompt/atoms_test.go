@@ -668,6 +668,11 @@ func TestAllCategories(t *testing.T) {
 			CategoryOuroboros,
 			CategoryContext,
 			CategoryExemplar,
+			CategoryReviewer,
+			CategoryKnowledge,
+			CategoryBuildLayer,
+			CategoryIntent,
+			CategoryWorldState,
 		}
 
 		assert.ElementsMatch(t, expected, categories)

@@ -378,25 +378,26 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		return nil
 	}
 
-	// Query action_permitted facts
-	permitted, err := r.Kernel.Query("action_permitted")
+	// Query permitted_action facts (constitution-cleared actions)
+	permitted, err := r.Kernel.Query("permitted_action")
 	if err != nil {
-		return fmt.Errorf("failed to query action_permitted: %w", err)
+		return fmt.Errorf("failed to query permitted_action: %w", err)
 	}
 
 	for _, fact := range permitted {
-		if len(fact.Args) < 1 {
+		if len(fact.Args) < 3 {
 			continue
 		}
 
-		actionType, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		var target string
-		if len(fact.Args) > 1 {
-			target, _ = fact.Args[1].(string)
+		// permitted_action(ActionID, ActionType, Target, Payload, Timestamp)
+		actionID := fmt.Sprintf("%v", fact.Args[0])
+		actionType := fmt.Sprintf("%v", fact.Args[1])
+		target := fmt.Sprintf("%v", fact.Args[2])
+		payload := map[string]interface{}{}
+		if len(fact.Args) > 3 {
+			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
+				payload = pm
+			}
 		}
 
 		// Update activity tracking
@@ -446,15 +447,24 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				Predicate: "system_event_handled",
 				Args:      []interface{}{actionType, target, time.Now().Unix()},
 			})
+			// Clear the permitted action to avoid repeated processing
+			if r.Kernel != nil {
+				_ = r.Kernel.RetractExactFact(fact)
+				_ = r.Kernel.RetractFact(core.Fact{
+					Predicate: "action_permitted",
+					Args:      []interface{}{actionType},
+				})
+			}
 			continue
 		}
 
 		// Create tool call
 		call := ToolCall{
-			ID:       fmt.Sprintf("call-%d", time.Now().UnixNano()),
+			ID:       actionID,
 			Tool:     route.ToolName,
 			Action:   actionType,
 			Target:   target,
+			Payload:  payload,
 			Timeout:  route.Timeout,
 			QueuedAt: time.Now(),
 			Status:   "pending",
@@ -470,10 +480,10 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			call.StartedAt = time.Now()
 			logging.Tools("Executing tool: %s (action=%s, target=%s, call_id=%s)", route.ToolName, actionType, target, call.ID)
 
-			// Create action fact for VirtualStore
+			// Create action fact for VirtualStore (preserve payload)
 			actionFact := core.Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{actionType, target},
+				Args:      []interface{}{actionType, target, payload},
 			}
 
 			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
@@ -521,8 +531,15 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			})
 		}
 
-		// Clear the permitted action
-		_ = r.Kernel.RetractFact(fact)
+		// Clear the permitted action (exact match)
+		if r.Kernel != nil {
+			_ = r.Kernel.RetractExactFact(fact)
+		}
+		// Also clear unary marker for this action type
+		_ = r.Kernel.RetractFact(core.Fact{
+			Predicate: "action_permitted",
+			Args:      []interface{}{actionType},
+		})
 	}
 
 	return nil

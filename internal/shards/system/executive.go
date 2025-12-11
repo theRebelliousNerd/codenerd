@@ -33,8 +33,11 @@ type Strategy struct {
 
 // ActionDecision represents a derived next action.
 type ActionDecision struct {
+	ID          string
 	Action      string
 	Target      string
+	Payload     map[string]interface{}
+	RawFact     core.Fact
 	Rationale   string
 	DerivedAt   time.Time
 	FromRule    string
@@ -313,10 +316,17 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 
 		logging.SystemShards("[ExecutivePolicy] Derived action: %s (from rule: %s)", action.Action, action.FromRule)
 		// Emit pending_action for constitution gate to check
+		payload := action.Payload
+		if payload == nil {
+			payload = map[string]interface{}{}
+		}
 		_ = e.Kernel.Assert(core.Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{action.Action, action.Target, time.Now().Unix()},
+			Args:      []interface{}{action.ID, action.Action, action.Target, payload, time.Now().Unix()},
 		})
+		// Consume one-shot next_action facts asserted by shards.
+		// Derived next_action from policy are not in EDB, so this is a safe no-op for them.
+		_ = e.Kernel.RetractExactFact(action.RawFact)
 
 		e.mu.Lock()
 		e.pendingActions = append(e.pendingActions, action)
@@ -411,11 +421,38 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 			Action:    actionName,
 			DerivedAt: time.Now(),
 			FromRule:  fact.Predicate,
+			Payload:   make(map[string]interface{}),
+			RawFact:   fact,
 		}
 
 		// Extract target if present
 		if len(fact.Args) > 1 {
 			decision.Target, _ = fact.Args[1].(string)
+		}
+
+		// Extract payload from remaining args
+		if len(fact.Args) > 2 {
+			for i := 2; i < len(fact.Args); i++ {
+				if argMap, ok := fact.Args[i].(map[string]interface{}); ok {
+					for k, v := range argMap {
+						decision.Payload[k] = v
+					}
+					continue
+				}
+				key := fmt.Sprintf("arg%d", i-2)
+				decision.Payload[key] = fact.Args[i]
+			}
+		}
+
+		// Allow shards/policy to pre-seed action IDs via payload
+		if rawID, ok := decision.Payload["action_id"]; ok {
+			if idStr, ok := rawID.(string); ok && idStr != "" {
+				decision.ID = idStr
+			}
+			delete(decision.Payload, "action_id")
+		}
+		if decision.ID == "" {
+			decision.ID = fmt.Sprintf("action-%d", time.Now().UnixNano())
 		}
 
 		actions = append(actions, decision)
