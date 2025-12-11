@@ -1506,6 +1506,8 @@ func (sm *ShardManager) ToFacts() []Fact {
 }
 
 // StartSystemShards starts all registered system shards (Type S).
+// Uses the spawn queue with PriorityCritical to queue shards when limits are reached
+// instead of failing immediately.
 func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryShards, "StartSystemShards")
 	defer timer.Stop()
@@ -1524,14 +1526,19 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 			toStart = append(toStart, name)
 		}
 	}
+	sq := sm.spawnQueue
 	sm.mu.RUnlock()
 
 	logging.Shards("StartSystemShards: starting %d system shards", len(toStart))
 
+	// If spawn queue is available, use it for queuing instead of failing
+	if sq != nil && sq.IsRunning() {
+		return sm.startSystemShardsWithQueue(ctx, toStart, sq)
+	}
+
+	// Fallback: direct spawn (may hit limits)
 	started := 0
 	for _, name := range toStart {
-		// SpawnAsync handles locking internally
-		// We use the profile name as the type name
 		_, err := sm.SpawnAsync(ctx, name, "system_start")
 		if err != nil {
 			logging.Get(logging.CategoryShards).Error("StartSystemShards: failed to start system shard %s: %v", name, err)
@@ -1542,6 +1549,53 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	}
 
 	logging.Shards("StartSystemShards: started %d/%d system shards", started, len(toStart))
+	return nil
+}
+
+// startSystemShardsWithQueue uses the spawn queue to queue system shards.
+// This allows system shards to start sequentially when LLM concurrency limits are reached.
+func (sm *ShardManager) startSystemShardsWithQueue(ctx context.Context, toStart []string, sq *SpawnQueue) error {
+	started := 0
+	queued := 0
+
+	for _, name := range toStart {
+		req := SpawnRequest{
+			ID:          fmt.Sprintf("system-%s-%d", name, time.Now().UnixNano()),
+			TypeName:    name,
+			Task:        "system_start",
+			Priority:    PriorityCritical,
+			SubmittedAt: time.Now(),
+			Ctx:         ctx,
+		}
+
+		// Submit to queue - don't wait for result, let them process asynchronously
+		resultCh, err := sq.Submit(ctx, req)
+		if err != nil {
+			logging.Get(logging.CategoryShards).Error("StartSystemShards: queue rejected shard %s: %v", name, err)
+			continue
+		}
+
+		queued++
+		logging.ShardsDebug("StartSystemShards: queued system shard %s", name)
+
+		// Start a goroutine to track completion
+		go func(shardName string, ch <-chan SpawnResult) {
+			select {
+			case result := <-ch:
+				if result.Error != nil {
+					logging.Get(logging.CategoryShards).Error("StartSystemShards: system shard %s failed: %v", shardName, result.Error)
+				} else {
+					logging.ShardsDebug("StartSystemShards: system shard %s started (waited %v)", shardName, result.Queued)
+				}
+			case <-ctx.Done():
+				logging.Get(logging.CategoryShards).Error("StartSystemShards: context cancelled waiting for shard %s", shardName)
+			}
+		}(name, resultCh)
+
+		started++
+	}
+
+	logging.Shards("StartSystemShards: queued %d/%d system shards (will start as capacity allows)", queued, len(toStart))
 	return nil
 }
 

@@ -48,6 +48,12 @@ type RouterConfig struct {
 func DefaultRouterConfig() RouterConfig {
 	return RouterConfig{
 		DefaultRoutes: []ToolRoute{
+			// System lifecycle actions (internal kernel events - no external tool)
+			{ActionPattern: "system_start", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "initialize", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "shutdown", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "heartbeat", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+
 			// File operations
 			{ActionPattern: "read_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
 			{ActionPattern: "write_file", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
@@ -332,6 +338,16 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				})
 				continue
 			}
+		}
+
+		// Handle kernel internal actions (system lifecycle events)
+		if route.ToolName == "kernel_internal" {
+			logging.Routing("Internal kernel action acknowledged: %s", actionType)
+			_ = r.Kernel.Assert(core.Fact{
+				Predicate: "system_event_handled",
+				Args:      []interface{}{actionType, target, time.Now().Unix()},
+			})
+			continue
 		}
 
 		// Create tool call
