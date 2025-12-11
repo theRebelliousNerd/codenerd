@@ -3444,3 +3444,170 @@ Decl continuation_step(StepNumber, TotalSteps).
 # max_continuation_steps(Limit) - Safety limit (default 10)
 Decl max_continuation_steps(Limit).
 
+# =============================================================================
+# SECTION 50: SWE-BENCH EVALUATION SCHEMA
+# =============================================================================
+# Predicates for SWE-bench benchmark evaluation tracking.
+# SWE-bench tests AI coding agents on real-world GitHub issues.
+
+# -----------------------------------------------------------------------------
+# 50.1 Instance Management
+# -----------------------------------------------------------------------------
+
+# swebench_instance(InstanceID, Repo, BaseCommit, Version)
+# Tracks loaded SWE-bench instances from the dataset.
+Decl swebench_instance(InstanceID, Repo, BaseCommit, Version).
+
+# swebench_problem_statement(InstanceID, Statement)
+# The natural language problem description from the GitHub issue.
+Decl swebench_problem_statement(InstanceID, Statement).
+
+# swebench_test_spec(InstanceID, TestType, TestName)
+# TestType: /fail_to_pass (should flip), /pass_to_pass (should stay passing)
+Decl swebench_test_spec(InstanceID, TestType, TestName).
+
+# -----------------------------------------------------------------------------
+# 50.2 Environment State
+# -----------------------------------------------------------------------------
+
+# swebench_environment(InstanceID, ContainerID, State, Timestamp)
+# State: /initializing, /cloning, /setup, /ready, /patch_applied, /testing, /error
+Decl swebench_environment(InstanceID, ContainerID, State, Timestamp).
+
+# swebench_setup_complete(InstanceID, ContainerID, Timestamp)
+# Marks when setup finished (venv created, deps installed).
+Decl swebench_setup_complete(InstanceID, ContainerID, Timestamp).
+
+# swebench_snapshot(SnapshotID, ContainerID, Description, Timestamp)
+# Tracks container snapshots for rollback capability.
+Decl swebench_snapshot(SnapshotID, ContainerID, Description, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 50.3 Patch Tracking
+# -----------------------------------------------------------------------------
+
+# swebench_patch_applied(InstanceID, PatchHash, Timestamp)
+# Records when a model's patch was applied.
+Decl swebench_patch_applied(InstanceID, PatchHash, Timestamp).
+
+# swebench_patch_failed(InstanceID, PatchHash, Reason, Timestamp)
+# Records patch application failures.
+Decl swebench_patch_failed(InstanceID, PatchHash, Reason, Timestamp).
+
+# -----------------------------------------------------------------------------
+# 50.4 Test Results
+# -----------------------------------------------------------------------------
+
+# swebench_test_result(InstanceID, TestName, Passed, DurationMs)
+# Individual test outcomes.
+Decl swebench_test_result(InstanceID, TestName, Passed, DurationMs).
+
+# swebench_evaluation_result(InstanceID, Resolved, PassedCount, FailedCount, Timestamp)
+# Overall evaluation outcome. Resolved = all F2P passed AND all P2P passed.
+Decl swebench_evaluation_result(InstanceID, Resolved, PassedCount, FailedCount, Timestamp).
+
+# swebench_error(InstanceID, Phase, ErrorMessage, Timestamp)
+# Phase: /clone, /setup, /patch, /test
+Decl swebench_error(InstanceID, Phase, ErrorMessage, Timestamp).
+
+# =============================================================================
+# SECTION 51: PYTEST DIAGNOSTIC SCHEMA
+# =============================================================================
+# Enhanced pytest output parsing for SWE-bench and TDD loop.
+
+# -----------------------------------------------------------------------------
+# 51.1 Core Failure Tracking
+# -----------------------------------------------------------------------------
+
+# pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message)
+# ErrorCategory: /assertion, /type, /import, /fixture, /timeout, /attribute, /value, /other
+Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message).
+
+# pytest_error_type(TestName, ErrorTypeString, ErrorCategory)
+# Maps Python exception types to categories.
+Decl pytest_error_type(TestName, ErrorTypeString, ErrorCategory).
+
+# -----------------------------------------------------------------------------
+# 51.2 Assertion Context
+# -----------------------------------------------------------------------------
+
+# assertion_mismatch(TestName, Expected, Actual)
+# Captures expected vs actual values from assertion failures.
+Decl assertion_mismatch(TestName, Expected, Actual).
+
+# assertion_operator(TestName, Operator)
+# The comparison operator: ==, !=, in, is, etc.
+Decl assertion_operator(TestName, Operator).
+
+# -----------------------------------------------------------------------------
+# 51.3 Traceback Analysis
+# -----------------------------------------------------------------------------
+
+# traceback_frame(TestName, Depth, File, Line, Function, IsTestFile)
+# Depth: 0 = innermost (where exception was raised)
+# IsTestFile: /true or /false
+Decl traceback_frame(TestName, Depth, File, Line, Function, IsTestFile).
+
+# pytest_root_cause(TestName, FilePath, Line, Function)
+# The first non-test file in the traceback (likely source of bug).
+Decl pytest_root_cause(TestName, FilePath, Line, Function).
+
+# =============================================================================
+# SECTION 52: SPARSE RETRIEVAL SCHEMA
+# =============================================================================
+# Predicates for keyword-based file discovery and tiered context building.
+# Critical for handling SWE-bench's 50,000+ file repositories.
+
+# -----------------------------------------------------------------------------
+# 52.1 Keyword Extraction
+# -----------------------------------------------------------------------------
+
+# issue_keyword(IssueID, Keyword, Weight)
+# Keywords extracted from issue description with importance weights.
+# Weight: 1.0 = highest (primary), 0.5 = medium, 0.2 = low
+Decl issue_keyword(IssueID, Keyword, Weight).
+
+# keyword_weight(Keyword, Category)
+# Category: /primary, /secondary, /tertiary
+Decl keyword_weight(Keyword, Category).
+
+# -----------------------------------------------------------------------------
+# 52.2 File Candidates
+# -----------------------------------------------------------------------------
+
+# keyword_hit(File, Keyword, Count)
+# Records how many times a keyword appears in a file.
+Decl keyword_hit(File, Keyword, Count).
+
+# candidate_file(File, RelevanceScore)
+# Files identified as potentially relevant to the current issue.
+Decl candidate_file(File, RelevanceScore).
+
+# file_mentioned(File, IssueID)
+# File was explicitly mentioned in the issue description.
+Decl file_mentioned(File, IssueID).
+
+# -----------------------------------------------------------------------------
+# 52.3 Tiered Context
+# -----------------------------------------------------------------------------
+
+# context_tier(File, Tier)
+# Tier: /tier1 (mentioned), /tier2 (keyword), /tier3 (import), /tier4 (semantic)
+Decl context_tier(File, Tier).
+
+# tiered_context_file(IssueID, File, Tier, Relevance, TokenCount)
+# Individual file selected for context with tier and relevance.
+Decl tiered_context_file(IssueID, File, Tier, Relevance, TokenCount).
+
+# issue_context(IssueID, TotalFiles, TotalTokens)
+# Summary of context built for an issue.
+Decl issue_context(IssueID, TotalFiles, TotalTokens).
+
+# -----------------------------------------------------------------------------
+# 52.4 Activation Boost
+# -----------------------------------------------------------------------------
+
+# activation_boost(File, BoostAmount)
+# Additional activation score for issue-related files.
+Decl activation_boost(File, BoostAmount).
+

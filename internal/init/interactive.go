@@ -73,7 +73,7 @@ func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig)
 	sortAgentsForDisplay(agents)
 
 	// Display detected agents
-	fmt.Fprintln(config.Writer, "\nDetected specialist agents for your project:\n")
+	fmt.Fprintln(config.Writer, "\nDetected specialist agents for your project:")
 	displayAgentList(agents, config.Writer)
 
 	// Prompt for quick selection
@@ -127,7 +127,7 @@ func InteractiveAgentSelection(agents []DetectedAgent, config InteractiveConfig)
 // customizeAgentSelection allows the user to toggle individual agents.
 func customizeAgentSelection(agents []DetectedAgent, config InteractiveConfig) ([]DetectedAgent, error) {
 	fmt.Fprintln(config.Writer, "\nCustomize agent selection:")
-	fmt.Fprintln(config.Writer, "Enter agent numbers to toggle (comma-separated), or 'done' to finish.\n")
+	fmt.Fprintln(config.Writer, "Enter agent numbers to toggle (comma-separated), or 'done' to finish.")
 
 	// Pre-select recommended
 	for i := range agents {

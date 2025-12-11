@@ -102,6 +102,149 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 	return deps
 }
 
+// detectEntryPoints identifies the application entry points based on language patterns.
+func (i *Initializer) detectEntryPoints() []string {
+	workspace := i.config.Workspace
+	entryPoints := []string{}
+
+	// Helper to check for file existence
+	exists := func(path string) bool {
+		_, err := os.Stat(filepath.Join(workspace, path))
+		return err == nil
+	}
+
+	// Helper to check file content pattern
+	hasContent := func(path, pattern string) bool {
+		content, err := os.ReadFile(filepath.Join(workspace, path))
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(content), pattern)
+	}
+
+	// 1. Go Detection
+	// Standard main.go
+	if exists("main.go") {
+		entryPoints = append(entryPoints, "main.go")
+	}
+	// cmd/ directory pattern
+	if info, err := os.Stat(filepath.Join(workspace, "cmd")); err == nil && info.IsDir() {
+		_ = filepath.Walk(filepath.Join(workspace, "cmd"), func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".go") {
+				// Calculate relative path first
+				rel, err := filepath.Rel(workspace, path)
+				if err != nil {
+					return nil
+				}
+
+				// Check for package main
+				if hasContent(rel, "package main") && hasContent(rel, "func main()") {
+					entryPoints = append(entryPoints, rel)
+				}
+			}
+			return nil
+		})
+	}
+
+	// 2. Python Detection
+	pythonCandidates := []string{"main.py", "app.py", "manage.py", "wsgi.py", "asgi.py", "__main__.py"}
+	for _, f := range pythonCandidates {
+		if exists(f) {
+			entryPoints = append(entryPoints, f)
+		}
+	}
+	// Check for files with if __name__ == "__main__":
+	// Limit scan to root and src directories to avoid scanning venv
+	scanDirs := []string{".", "src"}
+	for _, dir := range scanDirs {
+		dirPath := filepath.Join(workspace, dir)
+		if _, err := os.Stat(dirPath); err != nil {
+			continue
+		}
+
+		entries, _ := os.ReadDir(dirPath)
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
+				relPath := filepath.Join(dir, entry.Name())
+				if dir == "." {
+					relPath = entry.Name()
+				}
+
+				// Avoid duplicates if already added by candidate list
+				alreadyAdded := false
+				for _, ep := range entryPoints {
+					if ep == relPath {
+						alreadyAdded = true
+						break
+					}
+				}
+
+				if !alreadyAdded && hasContent(relPath, `if __name__ == "__main__":`) {
+					entryPoints = append(entryPoints, relPath)
+				}
+			}
+		}
+	}
+
+	// 3. Node/TypeScript Detection
+	if exists("package.json") {
+		data, err := os.ReadFile(filepath.Join(workspace, "package.json"))
+		if err == nil {
+			var pkg struct {
+				Main    string            `json:"main"`
+				Bin     interface{}       `json:"bin"` // Can be string or map
+				Scripts map[string]string `json:"scripts"`
+			}
+			if json.Unmarshal(data, &pkg) == nil {
+				if pkg.Main != "" {
+					entryPoints = append(entryPoints, pkg.Main)
+				}
+				// Handle 'bin' field
+				switch v := pkg.Bin.(type) {
+				case string:
+					entryPoints = append(entryPoints, v)
+				case map[string]interface{}:
+					for _, val := range v {
+						if strVal, ok := val.(string); ok {
+							entryPoints = append(entryPoints, strVal)
+						}
+					}
+				}
+				// Heuristic: check start script
+				if start, ok := pkg.Scripts["start"]; ok {
+					// Extract filename from "node dist/index.js" or "ts-node src/index.ts"
+					parts := strings.Fields(start)
+					for _, part := range parts {
+						if strings.HasSuffix(part, ".js") || strings.HasSuffix(part, ".ts") {
+							entryPoints = append(entryPoints, part)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	// Common Node files if not in package.json
+	nodeCandidates := []string{"index.js", "index.ts", "server.js", "server.ts", "app.js", "app.ts"}
+	for _, f := range nodeCandidates {
+		if exists(f) {
+			// Only add if not already covered (avoid duplicates)
+			found := false
+			for _, ep := range entryPoints {
+				if ep == f {
+					found = true
+					break
+				}
+			}
+			if !found {
+				entryPoints = append(entryPoints, f)
+			}
+		}
+	}
+
+	return entryPoints
+}
+
 // extractGoModVersion extracts the version of a dependency from go.mod content.
 func (i *Initializer) extractGoModVersion(content, pkg string) string {
 	lines := strings.Split(content, "\n")
@@ -358,38 +501,38 @@ func (i *Initializer) parsePackageLock(data []byte) []DependencyInfo {
 
 	// Notable transitive dependencies
 	notableDeps := map[string]string{
-		"@babel/core":          "babel",
-		"webpack":              "webpack",
-		"vite":                 "vite",
-		"esbuild":              "esbuild",
-		"rollup":               "rollup",
-		"jest":                 "jest",
-		"mocha":                "mocha",
-		"cypress":              "cypress",
-		"eslint":               "eslint",
-		"prettier":             "prettier",
-		"typescript":           "typescript",
-		"axios":                "axios",
-		"lodash":               "lodash",
-		"moment":               "moment",
-		"dayjs":                "dayjs",
-		"rxjs":                 "rxjs",
-		"socket.io":            "socket.io",
-		"mongoose":             "mongoose",
-		"sequelize":            "sequelize",
-		"@prisma/client":       "prisma",
-		"redis":                "redis",
-		"@aws-sdk/client-s3":   "aws-sdk",
-		"@google-cloud/storage":"gcp-sdk",
-		"nuxt":                 "nuxt",
-		"@nuxt/kit":            "nuxt",
-		"gatsby":               "gatsby",
-		"svelte":               "svelte",
-		"solid-js":             "solid",
-		"htmx.org":             "htmx",
-		"tailwindcss":          "tailwind",
-		"@emotion/react":       "emotion",
-		"styled-components":    "styled-components",
+		"@babel/core":           "babel",
+		"webpack":               "webpack",
+		"vite":                  "vite",
+		"esbuild":               "esbuild",
+		"rollup":                "rollup",
+		"jest":                  "jest",
+		"mocha":                 "mocha",
+		"cypress":               "cypress",
+		"eslint":                "eslint",
+		"prettier":              "prettier",
+		"typescript":            "typescript",
+		"axios":                 "axios",
+		"lodash":                "lodash",
+		"moment":                "moment",
+		"dayjs":                 "dayjs",
+		"rxjs":                  "rxjs",
+		"socket.io":             "socket.io",
+		"mongoose":              "mongoose",
+		"sequelize":             "sequelize",
+		"@prisma/client":        "prisma",
+		"redis":                 "redis",
+		"@aws-sdk/client-s3":    "aws-sdk",
+		"@google-cloud/storage": "gcp-sdk",
+		"nuxt":                  "nuxt",
+		"@nuxt/kit":             "nuxt",
+		"gatsby":                "gatsby",
+		"svelte":                "svelte",
+		"solid-js":              "solid",
+		"htmx.org":              "htmx",
+		"tailwindcss":           "tailwind",
+		"@emotion/react":        "emotion",
+		"styled-components":     "styled-components",
 	}
 
 	seen := make(map[string]bool)
@@ -477,25 +620,25 @@ func (i *Initializer) parseCargoLock(content string) []DependencyInfo {
 
 	// Notable Rust transitive dependencies
 	notableDeps := map[string]string{
-		"tokio":       "tokio",
-		"async-std":   "async-std",
-		"hyper":       "hyper",
-		"actix-web":   "actix-web",
-		"axum":        "axum",
-		"rocket":      "rocket",
-		"warp":        "warp",
-		"diesel":      "diesel",
-		"sqlx":        "sqlx",
-		"serde":       "serde",
-		"tracing":     "tracing",
-		"clap":        "clap",
-		"reqwest":     "reqwest",
-		"tonic":       "tonic",   // gRPC
-		"prost":       "prost",   // protobuf
-		"redis":       "redis",
-		"lapin":       "lapin",   // RabbitMQ
-		"rdkafka":     "kafka",
-		"aws-sdk-s3":  "aws-sdk",
+		"tokio":      "tokio",
+		"async-std":  "async-std",
+		"hyper":      "hyper",
+		"actix-web":  "actix-web",
+		"axum":       "axum",
+		"rocket":     "rocket",
+		"warp":       "warp",
+		"diesel":     "diesel",
+		"sqlx":       "sqlx",
+		"serde":      "serde",
+		"tracing":    "tracing",
+		"clap":       "clap",
+		"reqwest":    "reqwest",
+		"tonic":      "tonic", // gRPC
+		"prost":      "prost", // protobuf
+		"redis":      "redis",
+		"lapin":      "lapin", // RabbitMQ
+		"rdkafka":    "kafka",
+		"aws-sdk-s3": "aws-sdk",
 	}
 
 	lines := strings.Split(content, "\n")
@@ -529,23 +672,23 @@ func (i *Initializer) parsePipfileLock(data []byte) []DependencyInfo {
 	}
 
 	notableDeps := map[string]string{
-		"django":        "django",
-		"flask":         "flask",
-		"fastapi":       "fastapi",
-		"celery":        "celery",
-		"redis":         "redis",
-		"sqlalchemy":    "sqlalchemy",
-		"pytest":        "pytest",
-		"numpy":         "numpy",
-		"pandas":        "pandas",
-		"tensorflow":    "tensorflow",
-		"torch":         "pytorch",
-		"boto3":         "aws-sdk",
-		"google-cloud":  "gcp-sdk",
-		"azure":         "azure-sdk",
-		"pydantic":      "pydantic",
-		"httpx":         "httpx",
-		"aiohttp":       "aiohttp",
+		"django":       "django",
+		"flask":        "flask",
+		"fastapi":      "fastapi",
+		"celery":       "celery",
+		"redis":        "redis",
+		"sqlalchemy":   "sqlalchemy",
+		"pytest":       "pytest",
+		"numpy":        "numpy",
+		"pandas":       "pandas",
+		"tensorflow":   "tensorflow",
+		"torch":        "pytorch",
+		"boto3":        "aws-sdk",
+		"google-cloud": "gcp-sdk",
+		"azure":        "azure-sdk",
+		"pydantic":     "pydantic",
+		"httpx":        "httpx",
+		"aiohttp":      "aiohttp",
 	}
 
 	seen := make(map[string]bool)
