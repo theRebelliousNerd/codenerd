@@ -237,6 +237,69 @@ safe_action(/system_start).
 safe_action(/shutdown).
 safe_action(/heartbeat).
 
+# Campaign operations (orchestrated multi-step tasks)
+safe_action(/campaign_create_file).
+safe_action(/campaign_modify_file).
+safe_action(/campaign_write_test).
+safe_action(/campaign_run_test).
+safe_action(/campaign_research).
+safe_action(/campaign_verify).
+safe_action(/campaign_document).
+safe_action(/campaign_refactor).
+safe_action(/campaign_integrate).
+safe_action(/campaign_clarify).
+safe_action(/campaign_cleanup).
+safe_action(/campaign_complete).
+safe_action(/campaign_final_verify).
+safe_action(/archive_campaign).
+safe_action(/ask_campaign_interrupt).
+safe_action(/show_campaign_progress).
+safe_action(/show_campaign_status).
+safe_action(/run_phase_checkpoint).
+safe_action(/investigate_systemic).
+safe_action(/pause_and_replan).
+
+# TDD repair loop operations
+safe_action(/read_error_log).
+safe_action(/analyze_root_cause).
+safe_action(/generate_patch).
+safe_action(/complete).
+
+# Autopoiesis/Ouroboros operations (self-improvement)
+safe_action(/generate_tool).
+safe_action(/refine_tool).
+safe_action(/ouroboros_detect).
+safe_action(/ouroboros_generate).
+safe_action(/ouroboros_compile).
+safe_action(/ouroboros_register).
+
+# Strategic/control operations
+safe_action(/ask_user).
+safe_action(/resume_task).
+safe_action(/escalate_to_user).
+safe_action(/interrogative_mode).
+safe_action(/refresh_shard_context).
+safe_action(/update_world_model).
+
+# Context management operations
+safe_action(/compress_context).
+safe_action(/emergency_compress).
+safe_action(/create_checkpoint).
+
+# Code DOM operations
+safe_action(/edit_element).
+safe_action(/open_file).
+safe_action(/query_elements).
+safe_action(/refresh_scope).
+
+# Corrective operations
+safe_action(/corrective_decompose).
+safe_action(/corrective_docs).
+safe_action(/corrective_research).
+
+# Execution operations
+safe_action(/exec_cmd).
+
 # Network policy - allowlist approach
 allowed_domain("github.com").
 allowed_domain("pypi.org").
