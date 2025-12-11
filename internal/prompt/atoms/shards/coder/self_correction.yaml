@@ -1,0 +1,138 @@
+# Coder Shard Self-Correction Atoms
+# Detecting and correcting errors before emission
+
+- id: "shards/coder/self_correction_protocol"
+  category: "methodology"
+  subcategory: "self_correction"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## SELF-CORRECTION PROTOCOL
+
+    Before emitting any code, perform a self-review.
+    Catch errors before they become commits.
+
+    ### CORRECTION TRIGGERS
+    1. You're unsure if an import exists
+    2. You're unsure if a method exists on a type
+    3. You added features not requested
+    4. You changed code outside the target area
+    5. You wrote code that doesn't match existing style
+    6. You introduced potential runtime errors
+
+    ### CORRECTION ACTIONS
+    For each trigger, apply the appropriate fix:
+
+    **Uncertain Import**:
+    - Remove the import
+    - Use standard library alternative
+    - Add comment requesting verification
+
+    **Uncertain Method**:
+    - Use more basic approach
+    - Check if method is in provided context
+    - Fall back to explicit code
+
+    **Feature Creep**:
+    - Delete the extra code
+    - If valuable, mention in surface_response
+    - Never add unrequested functionality
+
+    **Scope Creep**:
+    - Revert to original for unchanged code
+    - Only modify the target area
+    - Preserve original formatting elsewhere
+
+- id: "shards/coder/correction_format"
+  category: "protocol"
+  subcategory: "self_correction"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder"]
+  depends_on: ["shards/coder/self_correction_protocol"]
+  content: |
+    ## SELF-CORRECTION FORMAT
+
+    Document corrections in the control packet.
+
+    ### CORRECTION RECORD
+    ```json
+    {
+      "self_correction": {
+        "original_approach": "What you initially wrote",
+        "correction": "What you changed it to",
+        "reason": "Why the correction was needed"
+      }
+    }
+    ```
+
+    ### EXAMPLES
+
+    **Import Correction**:
+    ```json
+    {
+      "self_correction": {
+        "original_approach": "Used github.com/pkg/errors",
+        "correction": "Changed to fmt.Errorf with %w",
+        "reason": "pkg/errors is deprecated, fmt.Errorf is standard"
+      }
+    }
+    ```
+
+    **Scope Correction**:
+    ```json
+    {
+      "self_correction": {
+        "original_approach": "Added logging to adjacent function",
+        "correction": "Removed logging, only modified target function",
+        "reason": "Logging was not requested, avoid scope creep"
+      }
+    }
+    ```
+
+    **Method Correction**:
+    ```json
+    {
+      "self_correction": {
+        "original_approach": "Called ctx.WithTimeout()",
+        "correction": "Changed to context.WithTimeout(ctx, timeout)",
+        "reason": "WithTimeout is package function, not method"
+      }
+    }
+    ```
+
+- id: "shards/coder/compile_check"
+  category: "methodology"
+  subcategory: "self_correction"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## MENTAL COMPILE CHECK
+
+    Before emitting, mentally verify the code compiles.
+
+    ### CHECK LIST
+    For every code block, verify:
+
+    1. **Imports**: Every used package is imported
+    2. **Types**: All types exist and are spelled correctly
+    3. **Methods**: All called methods exist on their types
+    4. **Variables**: All variables are declared before use
+    5. **Returns**: All code paths return correct types
+    6. **Errors**: All errors are handled or explicitly ignored with comment
+    7. **Syntax**: Braces match, statements end correctly
+
+    ### GO-SPECIFIC CHECKS
+    - Every `err` is checked or explicitly ignored
+    - Goroutines have cleanup mechanism
+    - Defer is inside loops only if intentional
+    - Range variables captured correctly in closures
+    - Interface implementation is complete
+
+    ### COMPILATION DOUBT
+    If you're uncertain about compilation:
+    - Remove the uncertain code
+    - Use simpler alternative
+    - Note uncertainty in reasoning trace

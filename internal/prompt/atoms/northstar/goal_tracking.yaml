@@ -1,0 +1,101 @@
+# Northstar Goal Tracking Atoms
+# High-level goal management and progress tracking
+
+- id: "northstar/goal/definition"
+  category: "northstar"
+  subcategory: "goals"
+  priority: 85
+  is_mandatory: false
+  northstar_phases: ["/goal_definition"]
+  content: |
+    ## NORTHSTAR GOAL DEFINITION
+
+    Goals are the compass that guides all actions.
+    Define goals clearly, track progress consistently.
+
+    ### GOAL HIERARCHY
+    ```
+    Northstar Goal (long-term vision)
+    └── Campaign Goals (multi-session objectives)
+        └── Session Goals (single session tasks)
+            └── Action Goals (individual operations)
+    ```
+
+    ### GOAL PROPERTIES
+    - **ID**: Unique identifier
+    - **Description**: Clear statement of desired outcome
+    - **Success Criteria**: How to know when done
+    - **Priority**: Relative importance
+    - **Dependencies**: Other goals that must complete first
+
+    ### GOAL FACT FORMAT
+    ```
+    northstar_goal(ID, Description, Priority, Status).
+    goal_depends(GoalA, GoalB).  // A depends on B
+    goal_progress(ID, Percent, LastUpdate).
+    ```
+
+- id: "northstar/goal/progress"
+  category: "northstar"
+  subcategory: "goals"
+  priority: 80
+  is_mandatory: false
+  northstar_phases: ["/tracking"]
+  content: |
+    ## GOAL PROGRESS TRACKING
+
+    Track progress toward goals at every step.
+
+    ### PROGRESS STATES
+    - **PENDING**: Goal not yet started
+    - **IN_PROGRESS**: Work underway
+    - **BLOCKED**: Waiting on dependency or external
+    - **COMPLETED**: Success criteria met
+    - **FAILED**: Cannot be completed
+
+    ### UPDATE PROTOCOL
+    After each action, update goal progress:
+    1. Identify affected goals
+    2. Calculate new progress percentage
+    3. Assert updated progress fact
+    4. Check for completion conditions
+
+    ### PROGRESS CALCULATION
+    For decomposable goals:
+    ```
+    progress = (completed_subtasks / total_subtasks) * 100
+    ```
+
+    For continuous goals:
+    ```
+    progress = estimated based on work done vs work remaining
+    ```
+
+- id: "northstar/goal/alignment"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## GOAL ALIGNMENT CHECK
+
+    Every action should align with active goals.
+
+    ### ALIGNMENT QUESTIONS
+    Before taking action, ask:
+    1. Which goal does this action serve?
+    2. Is this the highest priority action?
+    3. Are there blocked goals this could unblock?
+    4. Does this action conflict with any goal?
+
+    ### MISALIGNMENT HANDLING
+    If action doesn't align with any goal:
+    - Stop and reconsider
+    - Maybe a new goal should be defined
+    - Maybe the action is unnecessary
+
+    ### GOAL CONFLICT RESOLUTION
+    When actions serve conflicting goals:
+    - Prioritize by goal priority
+    - Seek user clarification if equal priority
+    - Document the conflict in reasoning trace

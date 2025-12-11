@@ -1,0 +1,176 @@
+# OODA Loop Methodology Atoms
+# The core decision-making cycle of codeNERD
+
+- id: "methodology/ooda/core"
+  category: "methodology"
+  subcategory: "ooda"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## OODA LOOP: THE DECISION CYCLE
+
+    codeNERD operates on a continuous Observe-Orient-Decide-Act loop.
+    This is the fundamental cognitive architecture.
+
+    ### THE FOUR PHASES
+
+    **1. OBSERVE (Perception)**
+    - Ingest user input via Perception Firewall
+    - Capture world state via sensors
+    - Receive feedback from previous actions
+    - Monitor system health and diagnostics
+
+    **2. ORIENT (Spreading Activation)**
+    - Activate relevant facts in the kernel
+    - Query world model for context
+    - Load specialist knowledge atoms
+    - Identify patterns and precedents
+
+    **3. DECIDE (Mangle Engine)**
+    - Derive next_action from policy rules
+    - Check constitutional constraints
+    - Select appropriate shard for execution
+    - Plan multi-step operations
+
+    **4. ACT (Virtual Store)**
+    - Execute the decided action
+    - Route to appropriate peripheral
+    - Capture results and side effects
+    - Assert outcome facts to kernel
+
+- id: "methodology/ooda/observation"
+  category: "methodology"
+  subcategory: "ooda"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["methodology/ooda/core"]
+  content: |
+    ## OBSERVATION PHASE
+
+    Observation is the entry point for all information.
+
+    ### OBSERVATION CHANNELS
+    - **User Input**: Natural language via Perception Firewall
+    - **File System**: Changed files via World Model Ingestor
+    - **Diagnostics**: Build errors, lint warnings, test failures
+    - **Git State**: Branch, commits, modifications
+    - **Shard Output**: Results from other shards
+
+    ### OBSERVATION QUALITY
+    Garbage in, garbage out. Ensure observations are:
+    - **Complete**: Capture all relevant information
+    - **Accurate**: Verify before asserting facts
+    - **Timely**: Process quickly to maintain responsiveness
+    - **Structured**: Convert to typed atoms, not raw strings
+
+    ### FACT EMISSION
+    Observations become kernel facts:
+    ```
+    user_intent(ID, Category, Verb, Target, Constraint).
+    file_topology(Path, Hash, Lang, Timestamp, Exists).
+    diagnostic(Type, Message, File, Line).
+    ```
+
+- id: "methodology/ooda/orientation"
+  category: "methodology"
+  subcategory: "ooda"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["methodology/ooda/core"]
+  content: |
+    ## ORIENTATION PHASE
+
+    Orientation builds mental model from observations.
+
+    ### SPREADING ACTIVATION
+    From the user_intent seed, activate related facts:
+    1. Query file_topology for target files
+    2. Query symbol_graph for related symbols
+    3. Query knowledge_atom for domain expertise
+    4. Query shard_executed for prior results
+
+    ### CONTEXT PRIORITIZATION
+    Not all context is equal. Prioritize by:
+    1. **Relevance**: How related to current intent?
+    2. **Recency**: When was this fact asserted?
+    3. **Authority**: Is this from a trusted source?
+    4. **Impact**: How much does this affect the task?
+
+    ### HOLOGRAPHIC CONTEXT
+    Build a compressed view of the relevant world:
+    - Target package and its role
+    - Affected functions and their signatures
+    - Dependencies and dependents
+    - Recent changes and their reasons
+
+- id: "methodology/ooda/decision"
+  category: "methodology"
+  subcategory: "ooda"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["methodology/ooda/core"]
+  content: |
+    ## DECISION PHASE
+
+    Decision derives the next action from policy.
+
+    ### MANGLE DERIVATION
+    The kernel derives next_action using:
+    1. user_intent as the seed
+    2. Policy rules in IDB layer
+    3. World state facts in EDB
+    4. Constitutional constraints
+
+    ### DECISION CRITERIA
+    For any potential action, evaluate:
+    - **Permitted**: Does permitted(Action) derive?
+    - **Effective**: Will this action achieve the goal?
+    - **Minimal**: Is this the smallest sufficient action?
+    - **Safe**: Does this pass the Constitution Gate?
+
+    ### SHARD SELECTION
+    Match action to appropriate shard:
+    - /mutation verbs → CoderShard
+    - /query verbs → ResearcherShard or ReviewerShard
+    - /instruction verbs → TesterShard or SystemShard
+    - /adversarial verbs → NemesisShard
+
+- id: "methodology/ooda/action"
+  category: "methodology"
+  subcategory: "ooda"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["methodology/ooda/core"]
+  content: |
+    ## ACTION PHASE
+
+    Action executes decisions through peripherals.
+
+    ### VIRTUAL STORE ROUTING
+    Actions are routed to appropriate handlers:
+    - `/read_file` → Filesystem Peripheral
+    - `/write_file` → Filesystem Peripheral
+    - `/run_command` → Shell Peripheral
+    - `/search_code` → CodeGraph Peripheral
+    - `/query_kernel` → Kernel Direct
+
+    ### EXECUTION PROTOCOL
+    1. Validate action parameters
+    2. Check permissions for peripheral
+    3. Execute with timeout
+    4. Capture stdout, stderr, exit code
+    5. Assert result facts to kernel
+
+    ### RESULT HANDLING
+    Every action produces outcome facts:
+    ```
+    action_result(ActionID, /success, Output).
+    action_result(ActionID, /failure, Error).
+    file_modified(Path, OldHash, NewHash).
+    ```
+
+    ### FEEDBACK LOOP
+    Action results feed back to Observation phase:
+    - Success → Continue with next action
+    - Failure → Re-orient with error context
+    - Ambiguity → Request clarification

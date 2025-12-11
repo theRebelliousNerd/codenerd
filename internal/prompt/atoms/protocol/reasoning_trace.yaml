@@ -1,0 +1,119 @@
+# Reasoning Trace Protocol Atoms
+# Requirements for LLM reasoning documentation
+
+- id: "protocol/reasoning/requirements"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 90
+  is_mandatory: true
+  content: |
+    ## REASONING TRACE REQUIREMENTS
+
+    Every non-trivial LLM response must include a reasoning trace.
+    This is not optional. It demonstrates cognitive protocol execution.
+
+    ### MINIMUM LENGTH
+    - Trivial responses (acknowledgments): May omit
+    - Simple queries: 50+ words
+    - Code modifications: 100+ words
+    - Complex analysis: 200+ words
+
+    ### REQUIRED ELEMENTS
+    1. **Intent Understanding**: What is the user's TRUE goal?
+    2. **Context Used**: What information informed your decision?
+    3. **Alternatives Considered**: What other approaches exist?
+    4. **Chosen Approach**: Why this specific solution?
+    5. **Risk Assessment**: What could go wrong?
+
+- id: "protocol/reasoning/format"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 85
+  is_mandatory: true
+  depends_on: ["protocol/reasoning/requirements"]
+  content: |
+    ## REASONING TRACE FORMAT
+
+    Use numbered steps for clarity and auditability.
+
+    ### EXAMPLE TRACE
+    ```
+    "reasoning_trace": "1. INTENT: User wants to fix null pointer in validateToken.
+    2. CONTEXT: Error occurs at line 45 when token is nil. Function is called
+    from 3 places: middleware.go:23, handler.go:45, test.go:12. None check nil.
+    3. ALTERNATIVES: (a) Add nil check at each call site (DRY violation),
+    (b) Add guard clause in function (chosen), (c) Change signature to non-pointer.
+    4. APPROACH: Guard clause with early return. This is idiomatic Go and
+    centralizes the check. Returns wrapped error for context.
+    5. RISKS: None identified - strictly additive change that makes function safer.
+    Existing tests should continue passing."
+    ```
+
+    ### ANTI-PATTERNS TO AVOID
+    - "I analyzed the code and fixed it" (too vague)
+    - "The fix is obvious" (arrogant, unhelpful)
+    - "Trust me, this works" (no justification)
+    - Copying the user's request verbatim (no analysis)
+
+- id: "protocol/reasoning/verification"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 80
+  is_mandatory: false
+  depends_on: ["protocol/reasoning/format"]
+  content: |
+    ## REASONING VERIFICATION
+
+    Before emitting output, verify your reasoning trace.
+
+    ### SELF-CHECK QUESTIONS
+    1. Does the trace explain WHY, not just WHAT?
+    2. Does it acknowledge uncertainty where present?
+    3. Does it reference specific code/context used?
+    4. Does it consider failure modes?
+    5. Would another developer understand the decision?
+
+    ### TRACE QUALITY METRICS
+    - **Completeness**: All required elements present
+    - **Specificity**: References concrete code/facts
+    - **Honesty**: Acknowledges limitations
+    - **Clarity**: Numbered steps, clear language
+
+    ### WHEN TO EXPAND
+    Expand your trace if:
+    - The change affects multiple files
+    - The change modifies public API
+    - The change has security implications
+    - The change is in unfamiliar territory
+
+- id: "protocol/reasoning/self_correction"
+  category: "protocol"
+  subcategory: "reasoning"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## SELF-CORRECTION IN REASONING
+
+    If you detect an error during reasoning, document the correction.
+
+    ### SELF-CORRECTION TRIGGERS
+    - Realized an assumption was wrong
+    - Found a better approach mid-reasoning
+    - Detected a potential bug in your solution
+    - Noticed missing error handling
+
+    ### CORRECTION FORMAT
+    Include in control_packet:
+    ```json
+    "self_correction": {
+      "original_approach": "Used custom error type",
+      "correction": "Reverted to fmt.Errorf for simplicity",
+      "reason": "No evidence of custom error types in codebase"
+    }
+    ```
+
+    ### CORRECTION VISIBILITY
+    Self-corrections are:
+    - Logged for analysis
+    - Used for autopoiesis learning
+    - NOT shown to user (internal process)
