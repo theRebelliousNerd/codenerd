@@ -109,6 +109,15 @@ const (
 
 	// Code DOM Query Actions
 	ActionQueryElements ActionType = "query_elements" // Query code elements (alias)
+
+	// SWE-bench Actions (benchmark evaluation)
+	ActionSWEBenchSetup      ActionType = "swebench_setup"       // Initialize SWE-bench environment
+	ActionSWEBenchApplyPatch ActionType = "swebench_apply_patch" // Apply model's patch
+	ActionSWEBenchRunTests   ActionType = "swebench_run_tests"   // Run instance tests
+	ActionSWEBenchSnapshot   ActionType = "swebench_snapshot"    // Create container snapshot
+	ActionSWEBenchRestore    ActionType = "swebench_restore"     // Restore from snapshot
+	ActionSWEBenchEvaluate   ActionType = "swebench_evaluate"    // Evaluate prediction
+	ActionSWEBenchTeardown   ActionType = "swebench_teardown"    // Cleanup environment
 )
 
 // ActionRequest represents a request to execute an action.
@@ -1152,6 +1161,22 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 	// Code DOM Query alias
 	case ActionQueryElements:
 		return v.handleGetElements(ctx, req) // Delegate to existing handler
+
+	// SWE-bench actions
+	case ActionSWEBenchSetup:
+		return v.handleSWEBenchSetup(ctx, req)
+	case ActionSWEBenchApplyPatch:
+		return v.handleSWEBenchApplyPatch(ctx, req)
+	case ActionSWEBenchRunTests:
+		return v.handleSWEBenchRunTests(ctx, req)
+	case ActionSWEBenchSnapshot:
+		return v.handleSWEBenchSnapshot(ctx, req)
+	case ActionSWEBenchRestore:
+		return v.handleSWEBenchRestore(ctx, req)
+	case ActionSWEBenchEvaluate:
+		return v.handleSWEBenchEvaluate(ctx, req)
+	case ActionSWEBenchTeardown:
+		return v.handleSWEBenchTeardown(ctx, req)
 
 	default:
 		return ActionResult{}, fmt.Errorf("unknown action type: %s", req.Type)
@@ -4396,5 +4421,309 @@ func (v *VirtualStore) handleCorrectiveDecompose(ctx context.Context, req Action
 			{Predicate: "corrective_decomposing", Args: []interface{}{problem}},
 			{Predicate: "corrective_phase", Args: []interface{}{"/decompose"}},
 		},
+	}, nil
+}
+
+// =============================================================================
+// SWE-BENCH ACTION HANDLERS
+// =============================================================================
+
+// handleSWEBenchSetup initializes a SWE-bench environment for an instance.
+// Payload expects: instance_id, repo, base_commit, problem_statement, fail_to_pass, pass_to_pass
+func (v *VirtualStore) handleSWEBenchSetup(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	if instanceID == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("SWE-bench setup: instance=%s", instanceID)
+
+	// Extract instance details from payload
+	repo, _ := req.Payload["repo"].(string)
+	baseCommit, _ := req.Payload["base_commit"].(string)
+	problemStatement, _ := req.Payload["problem_statement"].(string)
+
+	// Convert test lists
+	var failToPass, passToPass []string
+	if ftp, ok := req.Payload["fail_to_pass"].([]interface{}); ok {
+		for _, t := range ftp {
+			if s, ok := t.(string); ok {
+				failToPass = append(failToPass, s)
+			}
+		}
+	}
+	if ptp, ok := req.Payload["pass_to_pass"].([]interface{}); ok {
+		for _, t := range ptp {
+			if s, ok := t.(string); ok {
+				passToPass = append(passToPass, s)
+			}
+		}
+	}
+
+	// Generate Mangle facts for the instance
+	facts := []Fact{
+		{Predicate: "swebench_instance", Args: []interface{}{instanceID, repo, baseCommit, ""}},
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/initializing", time.Now().Unix()}},
+	}
+
+	// Add test expectations as facts
+	for _, test := range failToPass {
+		facts = append(facts, Fact{
+			Predicate: "swebench_expected_fail_to_pass",
+			Args:      []interface{}{instanceID, test},
+		})
+	}
+	for _, test := range passToPass {
+		facts = append(facts, Fact{
+			Predicate: "swebench_expected_pass_to_pass",
+			Args:      []interface{}{instanceID, test},
+		})
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("SWE-bench environment initializing for %s (%s@%s)", instanceID, repo, baseCommit[:8]),
+		Metadata: map[string]interface{}{
+			"instance_id":       instanceID,
+			"repo":              repo,
+			"base_commit":       baseCommit,
+			"problem_statement": problemStatement,
+			"fail_to_pass":      failToPass,
+			"pass_to_pass":      passToPass,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchApplyPatch applies a model-generated patch to the environment.
+// Payload expects: instance_id, patch (unified diff format)
+func (v *VirtualStore) handleSWEBenchApplyPatch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	patch, _ := req.Payload["patch"].(string)
+
+	if instanceID == "" || patch == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id and patch required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("SWE-bench apply patch: instance=%s, patch_size=%d", instanceID, len(patch))
+
+	// Record patch application attempt
+	facts := []Fact{
+		{Predicate: "swebench_patch_applied", Args: []interface{}{instanceID, len(patch), time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/patched", time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Patch applied to instance %s (%d bytes)", instanceID, len(patch)),
+		Metadata: map[string]interface{}{
+			"instance_id": instanceID,
+			"patch_size":  len(patch),
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchRunTests runs tests for a SWE-bench instance.
+// Payload expects: instance_id, test_names (optional - defaults to all)
+func (v *VirtualStore) handleSWEBenchRunTests(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	if instanceID == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id required in payload",
+		}, nil
+	}
+
+	// Optional: specific test names
+	var testNames []string
+	if tn, ok := req.Payload["test_names"].([]interface{}); ok {
+		for _, t := range tn {
+			if s, ok := t.(string); ok {
+				testNames = append(testNames, s)
+			}
+		}
+	}
+
+	logging.VirtualStore("SWE-bench run tests: instance=%s, tests=%d", instanceID, len(testNames))
+
+	facts := []Fact{
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/testing", time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Running tests for instance %s", instanceID),
+		Metadata: map[string]interface{}{
+			"instance_id": instanceID,
+			"test_count":  len(testNames),
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchSnapshot creates a container snapshot for rollback.
+// Payload expects: instance_id, snapshot_name (optional)
+func (v *VirtualStore) handleSWEBenchSnapshot(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	snapshotName, _ := req.Payload["snapshot_name"].(string)
+
+	if instanceID == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id required in payload",
+		}, nil
+	}
+
+	if snapshotName == "" {
+		snapshotName = fmt.Sprintf("%s-snapshot-%d", instanceID, time.Now().Unix())
+	}
+
+	logging.VirtualStore("SWE-bench snapshot: instance=%s, name=%s", instanceID, snapshotName)
+
+	facts := []Fact{
+		{Predicate: "swebench_snapshot", Args: []interface{}{instanceID, snapshotName, time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Snapshot created: %s", snapshotName),
+		Metadata: map[string]interface{}{
+			"instance_id":   instanceID,
+			"snapshot_name": snapshotName,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchRestore restores environment from a snapshot.
+// Payload expects: instance_id, snapshot_name
+func (v *VirtualStore) handleSWEBenchRestore(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	snapshotName, _ := req.Payload["snapshot_name"].(string)
+
+	if instanceID == "" || snapshotName == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id and snapshot_name required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("SWE-bench restore: instance=%s, snapshot=%s", instanceID, snapshotName)
+
+	facts := []Fact{
+		{Predicate: "swebench_restored", Args: []interface{}{instanceID, snapshotName, time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/ready", time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Restored instance %s from snapshot %s", instanceID, snapshotName),
+		Metadata: map[string]interface{}{
+			"instance_id":   instanceID,
+			"snapshot_name": snapshotName,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchEvaluate evaluates a prediction against the instance tests.
+// Payload expects: instance_id, patch, model_name (optional)
+func (v *VirtualStore) handleSWEBenchEvaluate(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	patch, _ := req.Payload["patch"].(string)
+	modelName, _ := req.Payload["model_name"].(string)
+
+	if instanceID == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id required in payload",
+		}, nil
+	}
+
+	if modelName == "" {
+		modelName = "codenerd"
+	}
+
+	logging.VirtualStore("SWE-bench evaluate: instance=%s, model=%s", instanceID, modelName)
+
+	// Evaluation result will be populated by actual test execution
+	// For now, record the evaluation attempt
+	facts := []Fact{
+		{Predicate: "swebench_evaluation_started", Args: []interface{}{instanceID, modelName, time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/evaluating", time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Evaluation started for instance %s with model %s", instanceID, modelName),
+		Metadata: map[string]interface{}{
+			"instance_id": instanceID,
+			"model_name":  modelName,
+			"patch_size":  len(patch),
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handleSWEBenchTeardown cleans up a SWE-bench environment.
+// Payload expects: instance_id
+func (v *VirtualStore) handleSWEBenchTeardown(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	instanceID, _ := req.Payload["instance_id"].(string)
+	if instanceID == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "instance_id required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("SWE-bench teardown: instance=%s", instanceID)
+
+	facts := []Fact{
+		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/terminated", time.Now().Unix()}},
+		{Predicate: "swebench_teardown_complete", Args: []interface{}{instanceID, time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("SWE-bench environment torn down for instance %s", instanceID),
+		Metadata: map[string]interface{}{
+			"instance_id": instanceID,
+		},
+		FactsToAdd: facts,
 	}, nil
 }

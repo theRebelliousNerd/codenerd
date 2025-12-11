@@ -68,16 +68,9 @@ func (t *TesterShard) parseFailedTests(output, framework string) []FailedTest {
 		}
 
 	case "pytest":
-		pytestFailRegex := regexp.MustCompile(`FAILED (.+)::(.+)`)
-		for _, line := range lines {
-			if matches := pytestFailRegex.FindStringSubmatch(line); len(matches) > 2 {
-				failed = append(failed, FailedTest{
-					FilePath: matches[1],
-					Name:     matches[2],
-					Message:  line,
-				})
-			}
-		}
+		// Use enhanced pytest parser for comprehensive diagnostic extraction
+		_, parsedFailed := ParsePytestOutput(output)
+		failed = append(failed, parsedFailed...)
 
 	case "cargo":
 		cargoFailRegex := regexp.MustCompile(`test (.+) \.\.\. FAILED`)

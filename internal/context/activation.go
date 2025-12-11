@@ -44,6 +44,9 @@ type ActivationEngine struct {
 	// Campaign context for phase-aware activation
 	campaignContext *CampaignActivationContext
 
+	// Issue context for SWE-bench and issue-driven activation
+	issueContext *IssueActivationContext
+
 	// Session tracking
 	sessionID       string
 	sessionStarted  time.Time
@@ -59,6 +62,19 @@ type CampaignActivationContext struct {
 	RelevantFiles []string
 	RelevantSymbols []string
 }
+
+// IssueActivationContext holds issue-specific activation state.
+// Used for SWE-bench and similar issue-driven workflows.
+type IssueActivationContext struct {
+	IssueID       string             // SWE-bench instance ID or GitHub issue ID
+	IssueText     string             // Problem statement / issue description
+	Keywords      map[string]float64 // Extracted keywords with weights
+	MentionedFiles []string          // Files explicitly mentioned in issue
+	TieredFiles   map[string]int     // File path -> tier (1-4)
+	ErrorTypes    []string           // Error types mentioned (e.g., "TypeError", "KeyError")
+	FailingTests  []string           // Test names that should fail -> pass
+}
+
 
 // NewActivationEngine creates a new activation engine.
 func NewActivationEngine(config CompressorConfig) *ActivationEngine {
@@ -82,6 +98,16 @@ func (ae *ActivationEngine) SetCampaignContext(ctx *CampaignActivationContext) {
 // ClearCampaignContext clears the campaign context.
 func (ae *ActivationEngine) ClearCampaignContext() {
 	ae.campaignContext = nil
+}
+
+// SetIssueContext sets the current issue context for SWE-bench activation boosting.
+func (ae *ActivationEngine) SetIssueContext(ctx *IssueActivationContext) {
+	ae.issueContext = ctx
+}
+
+// ClearIssueContext clears the issue context.
+func (ae *ActivationEngine) ClearIssueContext() {
+	ae.issueContext = nil
 }
 
 // =============================================================================
@@ -245,12 +271,13 @@ type scoreComponents struct {
 	recency    float64
 	relevance  float64
 	dependency float64
-	campaign   float64 // NEW: Campaign-specific boost
-	session    float64 // NEW: Session-specific boost
+	campaign   float64 // Campaign-specific boost
+	session    float64 // Session-specific boost
+	issue      float64 // Issue/SWE-bench specific boost
 }
 
 func (s *scoreComponents) Total() float64 {
-	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session
+	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue
 }
 
 // computeScore calculates the activation score for a fact.
@@ -262,6 +289,7 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 		dependency: ae.computeDependencyScore(fact),
 		campaign:   ae.computeCampaignScore(fact),
 		session:    ae.computeSessionScore(fact),
+		issue:      ae.computeIssueScore(fact),
 	}
 }
 
@@ -540,6 +568,92 @@ func (ae *ActivationEngine) computeSessionScore(fact core.Fact) float64 {
 	return 0.0
 }
 
+// computeIssueScore adds issue/SWE-bench specific activation boost.
+// Facts related to the issue keywords, mentioned files, or failing tests get higher scores.
+func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
+	if ae.issueContext == nil {
+		return 0.0
+	}
+
+	score := 0.0
+	factStr := strings.ToLower(fact.String())
+
+	// Boost facts mentioning issue ID
+	if ae.issueContext.IssueID != "" {
+		if strings.Contains(factStr, strings.ToLower(ae.issueContext.IssueID)) {
+			score += 30.0
+		}
+	}
+
+	// Boost facts matching keywords (weighted)
+	for keyword, weight := range ae.issueContext.Keywords {
+		if strings.Contains(factStr, strings.ToLower(keyword)) {
+			// Scale weight (0.0-1.0) to score points (0-50)
+			score += weight * 50.0
+		}
+	}
+
+	// Boost facts related to mentioned files (Tier 1 files)
+	for _, file := range ae.issueContext.MentionedFiles {
+		if strings.Contains(factStr, strings.ToLower(file)) {
+			score += 40.0
+			break
+		}
+	}
+
+	// Boost facts related to tiered files based on tier
+	// Tier 1: +50, Tier 2: +35, Tier 3: +20, Tier 4: +10
+	tierBoosts := map[int]float64{1: 50.0, 2: 35.0, 3: 20.0, 4: 10.0}
+	for file, tier := range ae.issueContext.TieredFiles {
+		if strings.Contains(factStr, strings.ToLower(file)) {
+			if boost, ok := tierBoosts[tier]; ok {
+				score += boost
+			}
+			break
+		}
+	}
+
+	// Boost facts mentioning error types
+	for _, errorType := range ae.issueContext.ErrorTypes {
+		if strings.Contains(factStr, strings.ToLower(errorType)) {
+			score += 35.0
+			break
+		}
+	}
+
+	// Boost facts related to failing tests
+	for _, testName := range ae.issueContext.FailingTests {
+		if strings.Contains(factStr, strings.ToLower(testName)) {
+			score += 45.0
+			break
+		}
+	}
+
+	// Issue-specific predicates get extra boost
+	issuePredicates := map[string]float64{
+		"swebench_instance":        50.0,
+		"swebench_environment":     40.0,
+		"swebench_test_result":     45.0,
+		"swebench_evaluation_result": 45.0,
+		"pytest_failure":           50.0,
+		"assertion_mismatch":       45.0,
+		"traceback_frame":          35.0,
+		"pytest_root_cause":        55.0,
+		"source_file_failure":      50.0,
+		"issue_keyword":            40.0,
+		"keyword_hit":              35.0,
+		"candidate_file":           30.0,
+		"context_tier":             25.0,
+		"activation_boost":         20.0,
+	}
+
+	if boost, ok := issuePredicates[fact.Predicate]; ok {
+		score += boost
+	}
+
+	return math.Min(score, 80.0) // Cap at 80
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -674,6 +788,7 @@ func (ae *ActivationEngine) ClearState() {
 	ae.symbolGraph = make(map[string][]string)
 	ae.sessionFacts = make(map[string]bool)
 	ae.campaignContext = nil
+	ae.issueContext = nil
 }
 
 // MarkNewFacts marks a set of facts as newly added (high recency).
@@ -727,5 +842,6 @@ func (ae *ActivationEngine) GetSessionStats() map[string]interface{} {
 		"dependencies":    len(ae.dependencies),
 		"symbols":         len(ae.symbolGraph),
 		"has_campaign":    ae.campaignContext != nil,
+		"has_issue":       ae.issueContext != nil,
 	}
 }

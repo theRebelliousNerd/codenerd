@@ -69,6 +69,9 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 	// Detect project type (app vs library) (D2 enhancement)
 	profile.ProjectType = i.detectProjectType()
 
+	// Detect entry points (Smart /init detection)
+	profile.EntryPoints = i.detectEntryPoints()
+
 	// Set defaults for any missing values
 	if profile.Language == "" {
 		profile.Language = "unknown"

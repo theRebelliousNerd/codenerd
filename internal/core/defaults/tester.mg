@@ -206,3 +206,98 @@ require_tests(File) :-
     file_topology(File, _, _, _, /false),
     file_has_public_api(File),
     !test_coverage(File).
+
+# =============================================================================
+# SECTION 9: PYTEST DIAGNOSTIC RULES (SWE-bench)
+# =============================================================================
+# Uses predicates from schemas.mg Section 51:
+#   pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message)
+#   assertion_mismatch(TestName, Expected, Actual)
+#   traceback_frame(TestName, Depth, File, Line, Function, IsTestFile)
+#   pytest_root_cause(TestName, FilePath, Line, Function)
+
+# Identify source file failures (not test file failures)
+# These are the actual bugs we need to fix
+source_file_failure(TestName, File, Line) :-
+    pytest_root_cause(TestName, File, Line, _),
+    !is_test_file(File).
+
+# Repair priority by error category
+# Import errors are highest priority - they block everything
+pytest_repair_priority(TestName, 100) :-
+    pytest_failure(TestName, /import, _, _, _).
+
+# Type errors indicate fundamental issues
+pytest_repair_priority(TestName, 90) :-
+    pytest_failure(TestName, /type, _, _, _).
+
+# Attribute errors often from API changes
+pytest_repair_priority(TestName, 85) :-
+    pytest_failure(TestName, /attribute, _, _, _).
+
+# Key errors from dict/mapping issues
+pytest_repair_priority(TestName, 80) :-
+    pytest_failure(TestName, /key, _, _, _).
+
+# Assertion errors are the most common test failures
+pytest_repair_priority(TestName, 70) :-
+    pytest_failure(TestName, /assertion, _, _, _).
+
+# Value errors from input validation
+pytest_repair_priority(TestName, 60) :-
+    pytest_failure(TestName, /value, _, _, _).
+
+# Runtime errors are catch-all
+pytest_repair_priority(TestName, 50) :-
+    pytest_failure(TestName, /runtime, _, _, _).
+
+# Fixture errors from test setup
+pytest_repair_priority(TestName, 40) :-
+    pytest_failure(TestName, /fixture, _, _, _).
+
+# Unknown errors get lowest priority
+pytest_repair_priority(TestName, 10) :-
+    pytest_failure(TestName, /unknown, _, _, _).
+
+# Find the next pytest test to repair (highest priority, source file failure)
+next_pytest_repair(TestName, File, Line, Msg) :-
+    source_file_failure(TestName, File, Line),
+    pytest_failure(TestName, _, _, _, Msg),
+    pytest_repair_priority(TestName, Priority),
+    !higher_priority_repair(TestName, Priority).
+
+# Helper: check if there's a higher priority repair waiting
+higher_priority_repair(TestName, Priority) :-
+    source_file_failure(OtherTest, _, _),
+    pytest_repair_priority(OtherTest, OtherPriority),
+    OtherPriority > Priority,
+    TestName != OtherTest.
+
+# Assertion mismatch analysis for targeted fixes
+assertion_fix_needed(TestName, Expected, Actual) :-
+    assertion_mismatch(TestName, Expected, Actual),
+    source_file_failure(TestName, _, _).
+
+# Count traceback depth to source (useful for complexity estimation)
+traceback_to_source_depth(TestName, Depth) :-
+    pytest_root_cause(TestName, File, _, _),
+    traceback_frame(TestName, Depth, File, _, _, /false).
+
+# Identify tests with deep call stacks (may need more context)
+complex_failure(TestName) :-
+    traceback_to_source_depth(TestName, Depth),
+    Depth > 5.
+
+# Identify tests failing in same source file (likely related bugs)
+related_failures(TestA, TestB, File) :-
+    source_file_failure(TestA, File, _),
+    source_file_failure(TestB, File, _),
+    TestA != TestB.
+
+# Prioritize file with most failures for batch repair
+# Note: Requires aggregation in Go runtime to populate failure_count_by_file
+Decl failure_count_by_file(File, Count).
+
+hotspot_file(File) :-
+    failure_count_by_file(File, Count),
+    Count >= 3.
