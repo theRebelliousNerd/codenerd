@@ -309,9 +309,22 @@ func (s *AtomSelector) SelectAtomsLegacy(
 		}
 
 		// Tags helper
+		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
+		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
+		// String 'shard' != atom /shard in Mangle (disjoint types)
 		addTags := func(dim string, values []string) {
 			for _, v := range values {
-				facts = append(facts, fmt.Sprintf("atom_tag('%s', '%s', '%s')", id, dim, v))
+				// Ensure dimension has leading / for atom format
+				atomDim := dim
+				if !strings.HasPrefix(atomDim, "/") {
+					atomDim = "/" + atomDim
+				}
+				// Ensure value has leading / for atom format
+				atomVal := v
+				if !strings.HasPrefix(atomVal, "/") {
+					atomVal = "/" + atomVal
+				}
+				facts = append(facts, fmt.Sprintf("atom_tag('%s', %s, %s)", id, atomDim, atomVal))
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -758,9 +771,22 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		}
 
 		// Tags helper
+		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
+		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
+		// String 'shard' != atom /shard in Mangle (disjoint types)
 		addTags := func(dim string, values []string) {
 			for _, v := range values {
-				facts = append(facts, fmt.Sprintf("atom_tag('%s', '%s', '%s')", id, dim, v))
+				// Ensure dimension has leading / for atom format
+				atomDim := dim
+				if !strings.HasPrefix(atomDim, "/") {
+					atomDim = "/" + atomDim
+				}
+				// Ensure value has leading / for atom format
+				atomVal := v
+				if !strings.HasPrefix(atomVal, "/") {
+					atomVal = "/" + atomVal
+				}
+				facts = append(facts, fmt.Sprintf("atom_tag('%s', %s, %s)", id, atomDim, atomVal))
 			}
 		}
 		addTags("mode", atom.OperationalModes)
