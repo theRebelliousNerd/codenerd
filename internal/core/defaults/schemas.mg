@@ -2952,6 +2952,14 @@ Decl category_budget(Category, Percent).
 # 45.7 Additional JIT Compiler Schemas (for jit_compiler.mg compatibility)
 # -----------------------------------------------------------------------------
 
+# atom(AtomID)
+# Base predicate for prompt atom existence
+Decl atom(AtomID).
+
+# atom_category(AtomID, Category)
+# Atom's primary category (identity, protocol, safety, methodology, etc.)
+Decl atom_category(AtomID, Category).
+
 # atom_tag(AtomID, Dimension, Tag)
 # Alternative tagging predicate used by jit_compiler.mg
 # Functionally equivalent to atom_selector but with /mode, /phase, /layer dimensions

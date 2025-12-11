@@ -1,6 +1,35 @@
 # JIT Compiler Logic (The "Gatekeeper")
 # Determines which atoms are selected for the final prompt.
 
+# =============================================================================
+# IDB (Derived) Predicate Declarations
+# =============================================================================
+
+# Context matching helpers
+Decl has_constraint(Atom, Dim).
+Decl satisfied_constraint(Atom, Dim).
+Decl blocked_by_context(Atom).
+
+# Selection predicates
+Decl mandatory_selection(Atom).
+Decl prohibited(Atom).
+Decl candidate_selection(Atom, Score).
+
+# Conflict resolution
+Decl beats(A, B).
+Decl suppressed(Atom).
+
+# Dependency resolution
+Decl tentative(Atom).
+Decl missing_dep(Atom).
+Decl invalid(Atom).
+
+# Final output
+Decl final_valid(Atom).
+Decl selected_result(Atom, Priority, Source).
+
+# =============================================================================
+
 # --- 1. SKELETON (Deterministic Selection) ---
 
 # Context Matching Helper
