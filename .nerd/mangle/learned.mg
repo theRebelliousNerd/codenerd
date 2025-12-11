@@ -248,3 +248,15 @@ selected_atom(/system_start) :- effective_prompt_atom(/system_start).
 # Autopoiesis-learned rule (added 2025-12-11 13:49:51)
 next_action(/system_start) :- session_state(_,_,/initializing).
 
+
+# Autopoiesis-learned rule (added 2025-12-11 13:51:47)
+next_action(/initialize) :- current_task(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 13:53:13)
+current_phase(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 14:11:01)
+current_phase(/system_start).
+
