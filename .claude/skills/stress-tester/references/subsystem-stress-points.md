@@ -194,6 +194,140 @@ nerd run "execute rm -rf /"  # Should be blocked by constitution
 
 ---
 
+### 1.6 Mangle Self-Healing System
+
+The Mangle Self-Healing system provides validation and auto-repair for Mangle rules.
+
+#### 1.6.1 PredicateCorpus (internal/core/predicate_corpus.go)
+
+**Entry Points:**
+- Loaded automatically at kernel boot
+- Used by MangleRepairShard for validation
+- Used by check-mangle CLI command
+
+**Critical Methods:**
+- `NewPredicateCorpus()` - Load embedded corpus
+- `IsDeclared(name)` - Check if predicate exists
+- `ValidatePredicates(names)` - Bulk validation
+- `GetByDomain(domain)` - Domain-specific predicates
+- `GetErrorPatterns()` - Common error patterns
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Corpus not loaded | Embedded DB missing | `Predicate corpus not available` |
+| Query failure | Corrupted DB | SQL errors |
+| Stats unavailable | Missing tables | Stats return zeros |
+
+**Data:**
+- 799 predicates (EDB + IDB)
+- 474 examples
+- 12 error patterns
+
+**Stress Commands:**
+```bash
+# Conservative: Check corpus loaded
+nerd status  # Should show kernel initialized
+
+# Aggressive: Validate many predicates
+nerd check-mangle .nerd/mangle/learned.mg
+nerd check-mangle internal/mangle/*.gl
+
+# Chaos: Invalid predicate detection
+echo "bad(X) :- hallucinated_pred(X)." > /tmp/bad.mg
+nerd check-mangle /tmp/bad.mg
+```
+
+---
+
+#### 1.6.2 MangleRepairShard (internal/shards/system/mangle_repair.go)
+
+**Entry Points:**
+- Registered as Type S system shard (auto-start)
+- Intercepts rule validation via ValidateAndRepair()
+- Called by autopoiesis before rule persistence
+
+**Critical Methods:**
+- `ValidateAndRepair(ctx, rule)` - Validate and auto-repair
+- `validateRule(rule, kernel, corpus)` - Multi-phase validation
+- `classifyErrors(errors)` - Error categorization
+- `repairRule(ctx, rule, errors)` - LLM-powered repair
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Repair loop exceeded | Max 3 retries | Rule rejected |
+| LLM unavailable | No client configured | Falls back to rejection |
+| Corpus not attached | Missing SetCorpus() | Schema check skipped |
+| Kernel not attached | Missing SetParentKernel() | Syntax check skipped |
+
+**Config:**
+- `maxRetries: 3` - Max repair attempts before rejection
+
+**Stress Commands:**
+```bash
+# Logs show repair shard activity
+Select-String -Path ".nerd/logs/*system*.log" -Pattern "MangleRepair"
+
+# Check repair shard registered
+nerd agents  # Should show mangle_repair in system shards
+```
+
+---
+
+#### 1.6.3 PredicateSelector (internal/prompt/predicate_selector.go)
+
+**Entry Points:**
+- Used by FeedbackLoop for JIT predicate selection
+- Called during Mangle rule generation prompts
+
+**Critical Methods:**
+- `Select(ctx)` - Context-aware selection
+- `SelectForContext(shardType, intentVerb, domain)` - Interface for FeedbackLoop
+- `FormatForPrompt(predicates)` - Format for LLM injection
+- `SelectForMangleGeneration(shardType, intentVerb)` - Convenience method
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Empty corpus | Corpus not configured | `no predicate corpus configured` |
+| No matching domain | Unknown domain | Falls back to core predicates |
+| Selection overflow | MaxPredicates=0 | Default to 100 |
+
+**Config:**
+- `MaxPredicates: 100` - Default max predicates to select
+
+**Stress Commands:**
+```bash
+# Check JIT selection in logs
+Select-String -Path ".nerd/logs/*kernel*.log" -Pattern "JIT selected"
+
+# Trigger rule generation (uses selector)
+nerd run "create a rule to track file modifications"
+```
+
+---
+
+#### 1.6.4 FeedbackLoop Integration (internal/mangle/feedback/loop.go)
+
+**Entry Points:**
+- GenerateAndValidate() - Main rule generation
+- SetPredicateSelector() - Configure JIT selection
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Selector not set | Missing SetPredicateSelector() | Uses full predicate list |
+| Selection fails | Corpus error | Falls back to validator.GetDeclaredPredicates() |
+
+**Stress Commands:**
+```bash
+# Check predicate count in prompts
+Select-String -Path ".nerd/logs/*kernel*.log" -Pattern "predicates for domain"
+```
+
+---
+
 ## 2. PERCEPTION LAYER
 
 ### 2.1 Transducer (internal/perception/transducer.go)

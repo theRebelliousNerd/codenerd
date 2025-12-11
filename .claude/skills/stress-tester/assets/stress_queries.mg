@@ -157,6 +157,60 @@ Decl thunderdome_event(time: num, message: name).
 thunderdome_event(T, M) :- log_entry(T, /autopoiesis, _, M, _, _), fn:contains(M, "thunderdome").
 
 # =============================================================================
+# MANGLE SELF-HEALING QUERIES
+# =============================================================================
+
+# PredicateCorpus loading events
+Decl corpus_loaded(time: num, message: name).
+corpus_loaded(T, M) :- log_entry(T, /kernel, _, M, _, _), fn:contains(M, "corpus loaded").
+
+# Corpus validation events
+Decl corpus_validation(time: num, message: name).
+corpus_validation(T, M) :- log_entry(T, /kernel, _, M, _, _), fn:contains(M, "check-mangle").
+
+# MangleRepairShard activity
+Decl repair_shard_event(time: num, message: name).
+repair_shard_event(T, M) :- log_entry(T, /system_shards, _, M, _, _), fn:contains(M, "MangleRepair").
+
+# Repair attempts
+Decl repair_attempt(time: num, message: name).
+repair_attempt(T, M) :- log_entry(T, /system_shards, _, M, _, _), fn:contains(M, "repair attempt").
+
+# Rule validation errors
+Decl validation_error(time: num, message: name).
+validation_error(T, M) :- log_entry(T, /kernel, /error, M, _, _), fn:contains(M, "undeclared").
+
+# Undefined predicate errors
+Decl undefined_predicate(time: num, message: name).
+undefined_predicate(T, M) :- log_entry(T, /kernel, _, M, _, _), fn:contains(M, "undefined predicate").
+
+# JIT predicate selection events
+Decl jit_selection(time: num, message: name).
+jit_selection(T, M) :- log_entry(T, /kernel, _, M, _, _), fn:contains(M, "JIT selected").
+
+# Predicate selection fallback
+Decl selection_fallback(time: num, message: name).
+selection_fallback(T, M) :- log_entry(T, /kernel, /warn, M, _, _), fn:contains(M, "JIT selector failed").
+
+# Rule rejection events
+Decl rule_rejected(time: num, message: name).
+rule_rejected(T, M) :- log_entry(T, /system_shards, _, M, _, _), fn:contains(M, "rejected").
+
+# Schema drift detected
+Decl schema_drift(time: num, message: name).
+schema_drift(T, M) :- log_entry(T, /kernel, /error, M, _, _), fn:contains(M, "schema drift").
+
+# Self-healing success
+Decl healing_success(time: num, message: name).
+healing_success(T, M) :- log_entry(T, /system_shards, _, M, _, _), fn:contains(M, "repaired successfully").
+
+# Self-healing critical issues
+Decl healing_critical(time: num, type: name, message: name).
+healing_critical(T, /corpus_missing, M) :- log_entry(T, /kernel, /warn, M, _, _), fn:contains(M, "corpus not available").
+healing_critical(T, /validation_failed, M) :- validation_error(T, M).
+healing_critical(T, /rule_rejected, M) :- rule_rejected(T, M).
+
+# =============================================================================
 # AGGREGATION QUERIES (require fn:count)
 # =============================================================================
 
