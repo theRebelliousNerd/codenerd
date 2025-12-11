@@ -554,6 +554,7 @@ Generate clean, idiomatic Go code that follows these conventions:
 The tool should be a standalone function that can be called by the agent.
 Include a Register function to add the tool to the tool registry.`
 
+	// Build base user prompt
 	userPrompt := fmt.Sprintf(`Generate a Go tool with these specifications:
 
 Tool Name: %s
@@ -565,12 +566,23 @@ The tool should be in package "tools" and include:
 1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
 2. Tool description constant (e.g., const ToolDescription%s = "...")
 
-IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.
-
-Generate complete, compilable Go code:`,
+IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.`,
 		need.Name, need.Purpose, need.InputType, need.OutputType,
 		toCamelCase(need.Name), need.InputType, need.OutputType,
 		toPascalCase(need.Name))
+
+	// Inject learnings context if available
+	if tg.learningsContext != "" {
+		userPrompt += fmt.Sprintf(`
+
+LEARNINGS FROM PAST TOOL GENERATION:
+%s
+
+Apply these learnings to generate better code.`, tg.learningsContext)
+		logging.AutopoiesisDebug("Injected learnings into generation prompt")
+	}
+
+	userPrompt += "\n\nGenerate complete, compilable Go code:"
 
 	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
@@ -613,12 +625,23 @@ The tool should be in package "tools" and include:
 1. Main tool function: %s(ctx context.Context, input %s) (%s, error)
 2. Tool description constant (e.g., const ToolDescription%s = "...")
 
-IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.
-
-Generate complete, compilable Go code:`,
+IMPORTANT: Generate ONLY standalone code. Do NOT generate registration functions or reference any types like ToolRegistry or Tool that aren't defined in this file.`,
 		need.Name, need.Purpose, need.InputType, need.OutputType,
 		toCamelCase(need.Name), need.InputType, need.OutputType,
 		toPascalCase(need.Name))
+
+	// Inject learnings context if available
+	if tg.learningsContext != "" {
+		userPrompt += fmt.Sprintf(`
+
+LEARNINGS FROM PAST TOOL GENERATION:
+%s
+
+Apply these learnings to generate better code.`, tg.learningsContext)
+		logging.AutopoiesisDebug("Injected learnings into JIT generation prompt")
+	}
+
+	userPrompt += "\n\nGenerate complete, compilable Go code:"
 
 	code, err := tg.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
