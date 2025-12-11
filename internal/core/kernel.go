@@ -792,11 +792,15 @@ func baseTermToValue(term ast.BaseTerm) interface{} {
 			return t.Symbol
 		case ast.StringType:
 			return t.Symbol
+		case ast.BytesType:
+			return t.Symbol
 		case ast.NumberType:
 			return t.NumValue
 		case ast.Float64Type:
 			return t.Float64Value
 		default:
+			// DEFENSIVE: Log unknown constant types to catch new AST types early
+			logging.Kernel("baseTermToValue: unknown constant type %v, using Symbol fallback", t.Type)
 			return t.Symbol
 		}
 	case ast.Variable:

@@ -1284,15 +1284,21 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("🔧 Tool Info: %s\n", toolName)
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Query tool details
-		details, _ := cortex.Kernel.Query(fmt.Sprintf("tool_description(%q, Desc)", toolName))
-		if len(details) > 0 {
-			fmt.Printf("Description: %v\n", details[0].Args[1])
+		// Query tool details (filter results in Go since kernel.Query returns all facts)
+		allDetails, _ := cortex.Kernel.Query("tool_description")
+		for _, d := range allDetails {
+			if len(d.Args) >= 2 && fmt.Sprintf("%v", d.Args[0]) == toolName {
+				fmt.Printf("Description: %v\n", d.Args[1])
+				break
+			}
 		}
 
-		binary, _ := cortex.Kernel.Query(fmt.Sprintf("tool_binary_path(%q, Path)", toolName))
-		if len(binary) > 0 {
-			fmt.Printf("Binary: %v\n", binary[0].Args[1])
+		allBinaries, _ := cortex.Kernel.Query("tool_binary_path")
+		for _, b := range allBinaries {
+			if len(b.Args) >= 2 && fmt.Sprintf("%v", b.Args[0]) == toolName {
+				fmt.Printf("Binary: %v\n", b.Args[1])
+				break
+			}
 		}
 
 	case "generate":
