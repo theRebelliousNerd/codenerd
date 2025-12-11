@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -17,9 +16,16 @@ import (
 // AgentSynchronizer handles the synchronization of agent definitions
 // from YAML files into shard-specific SQLite databases.
 type AgentSynchronizer struct {
-	baseDir    string // .nerd/agents
-	shardsDir  string // .nerd/shards
-	atomLoader *prompt.AtomLoader
+	baseDir          string // .nerd/agents
+	shardsDir        string // .nerd/shards
+	atomLoader       *prompt.AtomLoader
+	discoveredAgents []DiscoveredAgent // Agents found during last SyncAll
+}
+
+// DiscoveredAgent contains info about a user-defined agent found during sync.
+type DiscoveredAgent struct {
+	ID     string // Agent name (e.g., "bubbleteaexpert")
+	DBPath string // Path to knowledge DB (e.g., ".nerd/shards/bubbleteaexpert_knowledge.db")
 }
 
 // NewAgentSynchronizer creates a new synchronizer.
@@ -32,6 +38,7 @@ func NewAgentSynchronizer(projectRoot string, loader *prompt.AtomLoader) *AgentS
 }
 
 // SyncAll syncs all agent configurations found in baseDir to their respective shard databases.
+// It scans subdirectories of .nerd/agents/ looking for prompts.yaml files.
 func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryStore, "AgentSynchronizer.SyncAll")
 	defer timer.Stop()
@@ -41,7 +48,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 		return fmt.Errorf("failed to create shards dir: %w", err)
 	}
 
-	// 1. Discover Agent YAMLs
+	// 1. Discover Agent subdirectories
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -52,24 +59,45 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	}
 
 	syncedCount := 0
+	s.discoveredAgents = make([]DiscoveredAgent, 0)
+
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+		// Agents are stored in subdirectories: .nerd/agents/{agentName}/prompts.yaml
+		if !entry.IsDir() {
 			continue
 		}
 
-		agentID := strings.TrimSuffix(entry.Name(), ".yaml")
-		yamlPath := filepath.Join(s.baseDir, entry.Name())
+		agentID := entry.Name()
+		yamlPath := filepath.Join(s.baseDir, agentID, "prompts.yaml")
+
+		// Check if prompts.yaml exists in this subdirectory
+		if _, err := os.Stat(yamlPath); os.IsNotExist(err) {
+			continue
+		}
 
 		if err := s.syncAgent(ctx, agentID, yamlPath); err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to sync agent %s: %v", agentID, err)
 			// Continue with other agents? Yes.
 			continue
 		}
+
+		// Track discovered agent for JIT registration
+		dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", agentID))
+		s.discoveredAgents = append(s.discoveredAgents, DiscoveredAgent{
+			ID:     agentID,
+			DBPath: dbPath,
+		})
 		syncedCount++
 	}
 
-	logging.Get(logging.CategoryStore).Info("Synced %d agents to shard databases", syncedCount)
+	logging.Get(logging.CategoryStore).Info("Synced %d user agents to shard databases", syncedCount)
 	return nil
+}
+
+// GetDiscoveredAgents returns all agents found during the last SyncAll call.
+// Used by BootCortex to register agents with JIT compiler and ShardManager.
+func (s *AgentSynchronizer) GetDiscoveredAgents() []DiscoveredAgent {
+	return s.discoveredAgents
 }
 
 // syncAgent syncs a single agent's atoms to its shard database.
@@ -94,17 +122,6 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	defer db.Close()
 
 	// 3. Ensure Table Schema
-	// We reuse AtomLoader's EnsureTable method if exposed or duplicate it?
-	// AtomLoader.EnsureTable is private: ensurePromptAtomsTable.
-	// We should expose it or make it accessible.
-	// Alternatively, we can rely on `internal/store` migrations if this was a shared DB.
-	// But these are ad-hoc shard DBs.
-	// Let's assume we need to instantiate the schema.
-	// To minimize duplication, we should expose `EnsureTable` in `loader.go`.
-	// For now, I'll assume valid schema or call a helper.
-	// User rule: "normalized link tables".
-	// I'll add `EnsureSchema(db)` to AtomLoader interface as well.
-
 	if err := s.atomLoader.EnsureSchema(ctx, db); err != nil {
 		return fmt.Errorf("schema init failed: %w", err)
 	}
@@ -112,12 +129,6 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	// 4. Store Atoms
 	count := 0
 	for _, atom := range atoms {
-		// Override ShardType in atom matches agentID?
-		// Or assume YAML author set it correctly?
-		// Authors usually define atoms for that agent.
-
-		// We use AtomLoader.StoreAtom (private).
-		// Need `StoreAtom` (public).
 		if err := s.atomLoader.StoreAtom(ctx, db, atom); err != nil {
 			return fmt.Errorf("store atom %s failed: %w", atom.ID, err)
 		}

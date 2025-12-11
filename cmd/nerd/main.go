@@ -1267,13 +1267,31 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("🔧 Running tool: %s\n", toolName)
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Execute tool via shard (tools are executed by tactile routing in shards)
-		prompt := fmt.Sprintf("Execute the tool '%s' with input: %s", toolName, toolInput)
-		result, err := cortex.ShardManager.Spawn(ctx, "coder", prompt)
-		if err != nil {
+		// Find tool binary path from kernel facts
+		var binaryPath string
+		allBinaries, _ := cortex.Kernel.Query("tool_binary_path")
+		for _, b := range allBinaries {
+			if len(b.Args) >= 2 && fmt.Sprintf("%v", b.Args[0]) == toolName {
+				binaryPath = fmt.Sprintf("%v", b.Args[1])
+				break
+			}
+		}
+
+		if binaryPath == "" {
+			return fmt.Errorf("tool '%s' not found. Run 'nerd tool list' to see available tools", toolName)
+		}
+
+		// Execute tool binary directly
+		toolCmd := exec.CommandContext(ctx, binaryPath)
+		if toolInput != "" {
+			toolCmd.Stdin = strings.NewReader(toolInput)
+		}
+		toolCmd.Stdout = os.Stdout
+		toolCmd.Stderr = os.Stderr
+
+		if err := toolCmd.Run(); err != nil {
 			return fmt.Errorf("tool execution failed: %w", err)
 		}
-		fmt.Println(result)
 
 	case "info":
 		if len(args) < 2 {
@@ -1585,9 +1603,23 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
 
-	result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
-	if err != nil {
-		return fmt.Errorf("spawn failed: %w", err)
+	// Generate shard ID for fact recording
+	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+
+	result, spawnErr := cortex.ShardManager.Spawn(ctx, shardType, task)
+
+	// Record execution facts regardless of success/failure
+	facts := cortex.ShardManager.ResultToFacts(shardID, shardType, task, result, spawnErr)
+	if len(facts) > 0 {
+		if loadErr := cortex.Kernel.LoadFacts(facts); loadErr != nil {
+			logger.Warn("Failed to load shard facts into kernel", zap.Error(loadErr))
+		} else {
+			logger.Debug("Recorded shard execution facts", zap.Int("count", len(facts)))
+		}
+	}
+
+	if spawnErr != nil {
+		return fmt.Errorf("spawn failed: %w", spawnErr)
 	}
 
 	fmt.Printf("Shard Result: %s\n", result)
@@ -1812,11 +1844,22 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	predicate := args[0]
 	logger.Info("Querying facts", zap.String("predicate", predicate))
 
-	kernel := core.NewRealKernel()
-	if err := kernel.LoadFacts(nil); err != nil {
-		return fmt.Errorf("query init failed: %w", err)
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
+
+	// Resolve API key
+	key := apiKey
+	if key == "" {
+		key = os.Getenv("ZAI_API_KEY")
 	}
-	facts, err := kernel.Query(predicate)
+
+	// Boot Cortex to load all persisted facts (including scan.mg)
+	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
+	if err != nil {
+		return fmt.Errorf("failed to boot cortex: %w", err)
+	}
+
+	facts, err := cortex.Kernel.Query(predicate)
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
@@ -2002,6 +2045,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Persist scan facts to .nerd/mangle/scan.mg for reloading on boot
+	scanPath := filepath.Join(cwd, ".nerd", "mangle", "scan.mg")
+	if writeErr := writeScanFacts(scanPath, facts); writeErr != nil {
+		fmt.Printf("⚠️ Warning: failed to persist scan facts: %v\n", writeErr)
+	} else {
+		fmt.Printf("   Facts persisted: %s\n", scanPath)
+	}
+
 	// Count files and directories
 	fileCount := 0
 	dirCount := 0
@@ -2040,6 +2091,69 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// writeScanFacts persists scan facts to a .mg file for reloading on boot.
+func writeScanFacts(path string, facts []core.Fact) error {
+	// Ensure parent directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Build content
+	var sb strings.Builder
+	sb.WriteString("# Auto-generated scan facts - DO NOT EDIT\n")
+	sb.WriteString("# Re-run 'nerd scan' to update\n\n")
+
+	for _, fact := range facts {
+		// Sanitize fact args to remove characters that Mangle parser can't handle
+		sanitizedFact := sanitizeFactForMangle(fact)
+		sb.WriteString(sanitizedFact.String())
+		sb.WriteString("\n")
+	}
+
+	// Write atomically via temp file
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(sb.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath) // Clean up
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	return nil
+}
+
+// sanitizeFactForMangle sanitizes fact arguments to be Mangle-parser friendly.
+// Mangle's parser doesn't handle certain escape sequences like \r \n \t in strings.
+func sanitizeFactForMangle(fact core.Fact) core.Fact {
+	sanitized := core.Fact{
+		Predicate: fact.Predicate,
+		Args:      make([]interface{}, len(fact.Args)),
+	}
+
+	for i, arg := range fact.Args {
+		switch v := arg.(type) {
+		case string:
+			// Replace newlines, carriage returns, tabs with spaces
+			s := strings.ReplaceAll(v, "\r\n", " ")
+			s = strings.ReplaceAll(s, "\n", " ")
+			s = strings.ReplaceAll(s, "\r", " ")
+			s = strings.ReplaceAll(s, "\t", " ")
+			// Collapse multiple spaces into one
+			for strings.Contains(s, "  ") {
+				s = strings.ReplaceAll(s, "  ", " ")
+			}
+			sanitized.Args[i] = strings.TrimSpace(s)
+		default:
+			sanitized.Args[i] = arg
+		}
+	}
+
+	return sanitized
 }
 
 // runWhy explains the reasoning behind decisions
