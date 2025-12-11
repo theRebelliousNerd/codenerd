@@ -43,6 +43,7 @@ Start with a conservative test from any category:
 | Quick Test | Category | Duration |
 |------------|----------|----------|
 | [queue-saturation.md](references/workflows/01-kernel-core/queue-saturation.md) | Kernel | 10-15 min |
+| [api-scheduler-stress.md](references/workflows/01-kernel-core/api-scheduler-stress.md) | API Scheduling | 25-45 min |
 | [intent-fuzzing.md](references/workflows/02-perception-articulation/intent-fuzzing.md) | Perception | 15-20 min |
 | [shard-explosion.md](references/workflows/03-shards-campaigns/shard-explosion.md) | Shards | 15-25 min |
 
@@ -56,13 +57,14 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-### 01-kernel-core (7 workflows)
+### 01-kernel-core (8 workflows)
 
-Tests the Mangle kernel, SpawnQueue, and core runtime.
+Tests the Mangle kernel, SpawnQueue, APIScheduler, and core runtime.
 
 | Workflow | What It Stresses | Duration |
 |----------|------------------|----------|
 | [queue-saturation.md](references/workflows/01-kernel-core/queue-saturation.md) | SpawnQueue backpressure with 100+ spawn requests | 10-25 min |
+| [api-scheduler-stress.md](references/workflows/01-kernel-core/api-scheduler-stress.md) | **APIScheduler cooperative scheduling: 5 API slots, 12 shards, slot contention, cancellation** | 25-45 min |
 | [mangle-explosion.md](references/workflows/01-kernel-core/mangle-explosion.md) | Cyclic rules + large EDB causing derivation explosion | 15-30 min |
 | [memory-pressure.md](references/workflows/01-kernel-core/memory-pressure.md) | Load 250k facts, trigger emergency compression | 20-40 min |
 | [concurrent-derivations.md](references/workflows/01-kernel-core/concurrent-derivations.md) | 4 shards querying kernel simultaneously | 10-20 min |
@@ -144,7 +146,7 @@ Tests cross-subsystem integration under load.
 
 ### Workflow Coverage Summary
 
-**Total Workflows:** 28 across 8 categories
+**Total Workflows:** 29 across 8 categories
 
 **Mangle-Specific Coverage:**
 
@@ -153,11 +155,18 @@ Tests cross-subsystem integration under load.
 - **799-predicate corpus** validation across all workflows
 - **Self-healing integration** tested in 7+ workflows (autopoiesis, TDD loops, tool generation, scanning)
 
+**API Scheduler Coverage:**
+
+- **1 dedicated APIScheduler workflow** (api-scheduler-stress.md)
+- **5 failure modes** tracked (slot leak, double release, wait queue leak, starvation, deadlock)
+- **4 severity levels** (conservative, aggressive, chaos, hybrid)
+- **Integration testing** with campaigns and multi-shard operations
+
 **Subsystem Coverage:**
 
 All 25+ subsystems have dedicated stress tests, with comprehensive coverage of:
 
-- Kernel & Core Runtime (6 workflows) - **includes Mangle self-healing**
+- Kernel & Core Runtime (8 workflows) - **includes Mangle self-healing + APIScheduler**
 - Perception & Articulation (3 workflows)
 - Shards & Campaigns (4 workflows)
 - Autopoiesis & Ouroboros (3 workflows) - **Mangle validation integrated**

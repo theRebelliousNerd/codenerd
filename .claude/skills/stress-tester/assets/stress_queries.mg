@@ -26,6 +26,11 @@
 # SECTION 4: API STRESS (lines 90-102)
 #   - api_call/2, api_error/2, rate_limit_hit/2
 #
+# SECTION 4.5: API SCHEDULER (lines ~233-290)
+#   - slot_acquired/3, slot_released/3, slot_wait/3
+#   - scheduler_initialized/2, shard_registered/2, shard_unregistered/2
+#   - api_scheduler_metrics/2, slot_contention/2, slot_leak/2
+#
 # SECTION 5: KERNEL STRESS (lines 106-122)
 #   - kernel_event/3, kernel_error/2, derivation_event/2
 #   - fact_operation/2
@@ -239,6 +244,111 @@ api_error(T, M) :- log_entry(T, /api, /error, M, _, _).
 # Rate limit hits
 Decl rate_limit_hit(time: num, message: name).
 rate_limit_hit(T, M) :- log_entry(T, /api, _, M, _, _), fn:contains(M, "rate").
+
+# =============================================================================
+# API SCHEDULER STRESS QUERIES
+# =============================================================================
+
+# Scheduler initialization
+Decl scheduler_initialized(time: num, message: name).
+scheduler_initialized(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "APIScheduler: initialized").
+
+# Shard registration with scheduler
+Decl shard_registered(time: num, message: name).
+shard_registered(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "APIScheduler: registered shard").
+
+# Shard unregistration
+Decl shard_unregistered(time: num, message: name).
+shard_unregistered(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "APIScheduler: unregistered shard").
+
+# Slot acquisition events
+Decl slot_acquired(time: num, shard_id: name, message: name).
+slot_acquired(T, /unknown, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "acquired slot").
+
+# Slot release events
+Decl slot_released(time: num, shard_id: name, message: name).
+slot_released(T, /unknown, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "released slot").
+
+# Slot wait events (contention detected)
+Decl slot_wait(time: num, shard_id: name, message: name).
+slot_wait(T, /unknown, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "waiting for slot").
+
+# Slot acquisition after wait (shows wait duration)
+Decl slot_acquired_after_wait(time: num, message: name).
+slot_acquired_after_wait(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "acquired slot after").
+
+# Scheduler metrics in logs
+Decl api_scheduler_metrics(time: num, message: name).
+api_scheduler_metrics(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "api_calls=").
+api_scheduler_metrics(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "total_calls=").
+api_scheduler_metrics(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "total_wait=").
+
+# Slot contention (5 slots in use)
+Decl slot_contention(time: num, message: name).
+slot_contention(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "active=5/5").
+
+# Potential slot leak (release without acquire)
+Decl slot_leak_warning(time: num, message: name).
+slot_leak_warning(T, M) :- log_entry(T, /shards, /error, M, _, _), fn:contains(M, "released slot it didn't hold").
+
+# Context cancellation during slot wait
+Decl slot_wait_cancelled(time: num, message: name).
+slot_wait_cancelled(T, M) :- log_entry(T, /shards, /warn, M, _, _), fn:contains(M, "cancelled while waiting for slot").
+
+# Scheduler stop events
+Decl scheduler_stopped(time: num, message: name).
+scheduler_stopped(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "scheduler stopped").
+
+# API slot timeout
+Decl slot_acquire_timeout(time: num, message: name).
+slot_acquire_timeout(T, M) :- log_entry(T, /shards, /error, M, _, _), fn:contains(M, "failed to acquire API slot").
+
+# Checkpoint events in scheduler
+Decl scheduler_checkpoint(time: num, message: name).
+scheduler_checkpoint(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "checkpoint").
+
+# Retry with slot release
+Decl retry_with_slot_release(time: num, message: name).
+retry_with_slot_release(T, M) :- log_entry(T, /shards, _, M, _, _), fn:contains(M, "retrying after error").
+
+# =============================================================================
+# API SCHEDULER FAILURE MODES
+# =============================================================================
+
+# 76. Slot leak (ActiveSlots > 0 when idle)
+Decl api_scheduler_slot_leak(time: num, message: name).
+api_scheduler_slot_leak(T, M) :- slot_leak_warning(T, M).
+
+# 77. Double release
+Decl api_scheduler_double_release(time: num, message: name).
+api_scheduler_double_release(T, M) :- log_entry(T, /shards, /error, M, _, _), fn:contains(M, "released slot it didn't hold").
+
+# 78. Wait queue leak
+Decl api_scheduler_wait_queue_leak(time: num, message: name).
+api_scheduler_wait_queue_leak(T, M) :- log_entry(T, /shards, /warn, M, _, _), fn:contains(M, "wait queue").
+
+# 79. Slot starvation (long waits)
+Decl api_scheduler_starvation(time: num, message: name).
+api_scheduler_starvation(T, M) :- slot_acquired_after_wait(T, M), fn:contains(M, "after 30").
+api_scheduler_starvation(T, M) :- slot_acquired_after_wait(T, M), fn:contains(M, "after 60").
+
+# 80. Deadlock (scheduler stopped while shards waiting)
+Decl api_scheduler_deadlock(time: num, message: name).
+api_scheduler_deadlock(T, M) :- log_entry(T, /shards, /error, M, _, _), fn:contains(M, "scheduler stopped").
+
+# Add API scheduler failures to aggregation
+any_failure_mode(T, /slot_leak, /api_scheduler, M) :- api_scheduler_slot_leak(T, M).
+any_failure_mode(T, /double_release, /api_scheduler, M) :- api_scheduler_double_release(T, M).
+any_failure_mode(T, /wait_queue_leak, /api_scheduler, M) :- api_scheduler_wait_queue_leak(T, M).
+any_failure_mode(T, /slot_starvation, /api_scheduler, M) :- api_scheduler_starvation(T, M).
+any_failure_mode(T, /scheduler_deadlock, /api_scheduler, M) :- api_scheduler_deadlock(T, M).
+
+# API scheduler health check
+Decl api_scheduler_health(status: name, message: name).
+api_scheduler_health(/initialized, "OK") :- scheduler_initialized(_, _).
+api_scheduler_health(/slots_working, "OK") :- slot_acquired(_, _, _).
+api_scheduler_health(/slots_releasing, "OK") :- slot_released(_, _, _).
+api_scheduler_health(/no_leaks, "OK") :- scheduler_initialized(_, _), !slot_leak_warning(_, _).
 
 # =============================================================================
 # KERNEL STRESS QUERIES
