@@ -141,33 +141,42 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 		// impacted(X) :- dependency_link(X, Y, _), modified(Y).
 		// We look for dependency_link facts where Arg0 matches our Arg0
 		if len(fact.Args) > 0 {
-			deps, _ := k.Query(fmt.Sprintf("dependency_link(%q, ?y, ?type)", fact.Args[0]))
+			deps, _ := k.Query("dependency_link")
 			for _, d := range deps {
-				premises = append(premises, convertCoreFactToMangle(d))
+				// Filter to facts where first arg matches
+				if len(d.Args) > 0 && fmt.Sprintf("%v", d.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+					premises = append(premises, convertCoreFactToMangle(d))
+				}
 			}
 		}
 
 	case "permission_gate":
 		// permitted(Action) :- safe_action(Action).
 		if len(fact.Args) > 0 {
-			safes, _ := k.Query(fmt.Sprintf("safe_action(%q)", fact.Args[0]))
+			safes, _ := k.Query("safe_action")
 			for _, s := range safes {
-				premises = append(premises, convertCoreFactToMangle(s))
+				// Filter to facts where arg matches
+				if len(s.Args) > 0 && fmt.Sprintf("%v", s.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+					premises = append(premises, convertCoreFactToMangle(s))
+				}
 			}
 		}
 
 	case "focus_threshold":
 		// clarification_needed(Ref) :- focus_resolution(Ref, ..., Score), Score < ...
 		if len(fact.Args) > 0 {
-			focus, _ := k.Query(fmt.Sprintf("focus_resolution(%q, ?b, ?c, ?d)", fact.Args[0]))
+			focus, _ := k.Query("focus_resolution")
 			for _, f := range focus {
-				premises = append(premises, convertCoreFactToMangle(f))
+				// Filter to facts where first arg matches
+				if len(f.Args) > 0 && fmt.Sprintf("%v", f.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+					premises = append(premises, convertCoreFactToMangle(f))
+				}
 			}
 		}
 
 	case "strategy_selector":
 		// next_action depends on user_intent
-		intents, _ := k.Query("user_intent(?id, ?type, ?desc)")
+		intents, _ := k.Query("user_intent")
 		for _, i := range intents {
 			premises = append(premises, convertCoreFactToMangle(i))
 		}
