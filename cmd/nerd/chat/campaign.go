@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/usage"
 	"context"
@@ -53,9 +54,20 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 
 		m.ReportStatus("Analyzing goal and docs...")
 
+		// JIT prompt provider for campaign roles (if compiler available)
+		var promptProvider campaign.PromptProvider
+		if m.jitCompiler != nil {
+			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
+				promptProvider = &campaignJITProvider{assembler: pa}
+			}
+		}
+
 		// Create decomposer to break down the goal
 		decomposer := campaign.NewDecomposer(m.kernel, m.client, m.workspace)
 		decomposer.SetShardLister(m.shardMgr) // Enable shard-aware planning
+		if promptProvider != nil {
+			decomposer.SetPromptProvider(promptProvider)
+		}
 
 		// Build request
 		req := campaign.DecomposeRequest{
@@ -85,6 +97,9 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			ProgressChan: progressChan,
 			EventChan:    eventChan,
 		})
+		if promptProvider != nil {
+			orch.SetPromptProvider(promptProvider)
+		}
 
 		if err := orch.SetCampaign(result.Campaign); err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to set campaign: %w", err)}

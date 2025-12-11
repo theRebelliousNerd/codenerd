@@ -41,6 +41,7 @@ type Orchestrator struct {
 	nerdDir      string
 	progressChan chan Progress
 	eventChan    chan OrchestratorEvent
+	lastPhaseID  string
 
 	// Execution tracking
 	isRunning  bool
@@ -146,6 +147,20 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	return o
 }
 
+// SetPromptProvider wires a PromptProvider into the orchestrator's planning components.
+// This enables JIT-compiled prompts for decomposition and replanning.
+func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
+	if provider == nil {
+		return
+	}
+	if o.decomposer != nil {
+		o.decomposer.SetPromptProvider(provider)
+	}
+	if o.replanner != nil {
+		o.replanner.SetPromptProvider(provider)
+	}
+}
+
 // LoadCampaign loads an existing campaign from disk.
 func (o *Orchestrator) LoadCampaign(campaignID string) error {
 	timer := logging.StartTimer(logging.CategoryCampaign, "LoadCampaign")
@@ -179,7 +194,15 @@ func (o *Orchestrator) LoadCampaign(campaignID string) error {
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
 	logging.CampaignDebug("Loading %d facts into kernel", len(facts))
-	return o.kernel.LoadFacts(facts)
+	if err := o.kernel.LoadFacts(facts); err != nil {
+		return err
+	}
+	// Apply runtime config + budget
+	o.assertCampaignConfigFacts()
+	if o.contextPager != nil && o.campaign.ContextBudget > 0 {
+		o.contextPager.SetBudget(o.campaign.ContextBudget)
+	}
+	return nil
 }
 
 // SetCampaign sets the campaign to execute.
@@ -197,6 +220,11 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 	if err := o.kernel.LoadFacts(facts); err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Failed to load campaign facts: %v", err)
 		return err
+	}
+	// Apply runtime config + budget
+	o.assertCampaignConfigFacts()
+	if o.contextPager != nil && campaign.ContextBudget > 0 {
+		o.contextPager.SetBudget(campaign.ContextBudget)
 	}
 
 	// Save campaign to disk
@@ -378,10 +406,22 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 		logging.CampaignDebug("Current phase: %s (%s)", currentPhase.Name, currentPhase.ID)
 
-		// 2. Page in context for current phase
-		if err := o.contextPager.ActivatePhase(ctx, currentPhase); err != nil {
-			logging.Get(logging.CategoryCampaign).Warn("Context activation error: %v", err)
-			o.emitEvent("context_error", currentPhase.ID, "", err.Error(), nil)
+		// 2. Page in context for current phase only on transition
+		if o.contextPager != nil && currentPhase.ID != o.lastPhaseID {
+			o.contextPager.ResetPhaseContext()
+			if err := o.contextPager.ActivatePhase(ctx, currentPhase); err != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Context activation error: %v", err)
+				o.emitEvent("context_error", currentPhase.ID, "", err.Error(), nil)
+			}
+			// Prefetch upcoming tasks for this phase
+			var upcoming []Task
+			for _, t := range currentPhase.Tasks {
+				if t.Status == TaskPending {
+					upcoming = append(upcoming, t)
+				}
+			}
+			_ = o.contextPager.PrefetchNextTasks(ctx, upcoming, 3)
+			o.lastPhaseID = currentPhase.ID
 		}
 
 		// 3. Execute the phase with parallelism + rolling checkpoints
@@ -1522,6 +1562,7 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, err)
 
 	o.mu.Lock()
+	markedFailed := false
 
 	// Record attempt
 	for i := range o.campaign.Phases {
@@ -1549,6 +1590,7 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 				if attemptNum >= maxRetries {
 					logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
 					o.campaign.Phases[i].Tasks[j].Status = TaskFailed
+					markedFailed = true
 
 					// Record in kernel
 					o.kernel.Assert(core.Fact{
@@ -1563,6 +1605,17 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	o.mu.Unlock()
 
 	o.emitEvent("task_failed", phase.ID, task.ID, err.Error(), nil)
+
+	// Update computed failed-task count for Mangle replanning threshold rules.
+	o.updateFailedTaskCount()
+
+	// Optionally run checkpoint immediately after a task is fully failed.
+	if markedFailed && o.config.CheckpointOnFail {
+		if chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Checkpoint-on-fail error: %v", chkErr)
+			o.emitEvent("checkpoint_failed", phase.ID, "", chkErr.Error(), nil)
+		}
+	}
 
 	// Check if replan is needed
 	facts, _ := o.kernel.Query("replan_needed")
@@ -1579,6 +1632,67 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 			o.mu.Unlock()
 		}
 	}
+}
+
+// assertCampaignConfigFacts publishes runtime configuration to the kernel for policy rules.
+func (o *Orchestrator) assertCampaignConfigFacts() {
+	if o.campaign == nil || o.kernel == nil {
+		return
+	}
+	campaignID := o.campaign.ID
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "campaign_config",
+		Args:      []interface{}{campaignID},
+	})
+
+	maxRetries := o.config.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	threshold := o.config.ReplanThreshold
+	if threshold <= 0 {
+		threshold = 3
+	}
+	autoReplan := "/false"
+	if o.config.AutoReplan {
+		autoReplan = "/true"
+	}
+	checkpointOnFail := "/false"
+	if o.config.CheckpointOnFail {
+		checkpointOnFail = "/true"
+	}
+
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "campaign_config",
+		Args:      []interface{}{campaignID, maxRetries, threshold, autoReplan, checkpointOnFail},
+	})
+}
+
+// updateFailedTaskCount recomputes failed task totals and asserts a computed count fact.
+func (o *Orchestrator) updateFailedTaskCount() {
+	if o.campaign == nil || o.kernel == nil {
+		return
+	}
+	failedCount := 0
+	o.mu.RLock()
+	for _, phase := range o.campaign.Phases {
+		for _, t := range phase.Tasks {
+			if t.Status == TaskFailed {
+				failedCount++
+			}
+		}
+	}
+	campaignID := o.campaign.ID
+	o.mu.RUnlock()
+
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "failed_campaign_task_count_computed",
+		Args:      []interface{}{campaignID},
+	})
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "failed_campaign_task_count_computed",
+		Args:      []interface{}{campaignID, failedCount},
+	})
 }
 
 // runPhaseCheckpoint runs the checkpoint for a phase.

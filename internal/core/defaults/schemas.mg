@@ -641,6 +641,14 @@ Decl campaign_metadata(CampaignID, CreatedAt, EstimatedPhases, Confidence).
 # The high-level goal in natural language
 Decl campaign_goal(CampaignID, GoalDescription).
 
+# campaign_config(CampaignID, MaxRetries, ReplanThreshold, AutoReplan, CheckpointOnFail)
+# Runtime configuration asserted by the Go Campaign Orchestrator.
+Decl campaign_config(CampaignID, MaxRetries, ReplanThreshold, AutoReplan, CheckpointOnFail).
+
+# failed_campaign_task_count_computed(CampaignID, Count)
+# Runtime-computed count of fully failed tasks in the current campaign.
+Decl failed_campaign_task_count_computed(CampaignID, Count).
+
 # -----------------------------------------------------------------------------
 # 27.2 Phase Decomposition (LLM + Mangle Collaboration)
 # -----------------------------------------------------------------------------

@@ -1878,6 +1878,9 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	if cortex.LocalDB != nil {
+		defer cortex.LocalDB.Close()
+	}
 
 	facts, err := cortex.Kernel.Query(predicate)
 	if err != nil {
@@ -2388,9 +2391,18 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Campaign Type: %s\n\n", campaignType)
 
+	// Create a PromptAssembler-backed provider so campaign roles use JIT atoms by default.
+	var campaignPromptProvider campaign.PromptProvider
+	if pa, err := articulation.NewPromptAssemblerWithJIT(kernel, jitCompiler); err == nil {
+		campaignPromptProvider = &CampaignJITProvider{assembler: pa}
+	}
+
 	// Create decomposer
 	decomposer := campaign.NewDecomposer(kernel, llmClient, cwd)
 	decomposer.SetShardLister(shardMgr) // Enable shard-aware planning
+	if campaignPromptProvider != nil {
+		decomposer.SetPromptProvider(campaignPromptProvider)
+	}
 
 	// Build request
 	req := campaign.DecomposeRequest{
@@ -2443,6 +2455,9 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		ProgressChan: progressChan,
 		EventChan:    eventChan,
 	})
+	if campaignPromptProvider != nil {
+		orchestrator.SetPromptProvider(campaignPromptProvider)
+	}
 
 	if err := orchestrator.SetCampaign(result.Campaign); err != nil {
 		return fmt.Errorf("failed to set campaign: %w", err)
