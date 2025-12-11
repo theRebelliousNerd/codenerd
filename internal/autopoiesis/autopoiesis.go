@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -413,6 +414,9 @@ func (o *Orchestrator) generateToolFromDelegation(ctx context.Context, capabilit
 		Confidence: 1.0, // Kernel delegations are authoritative
 		Priority:   1.0, // Kernel delegations are high priority
 	}
+
+	// Inject learnings from past tool generation into prompts
+	o.RefreshLearningsContext()
 
 	// Use the ouroboros loop to generate the tool
 	logging.AutopoiesisDebug("Invoking Ouroboros loop for delegation: %s", capability)
@@ -1310,6 +1314,9 @@ func (o *Orchestrator) WriteAndRegisterTool(tool *GeneratedTool) error {
 // ExecuteOuroborosLoop runs the complete tool self-generation cycle.
 // On success, it asserts tool_registered facts to the kernel.
 func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed) *LoopResult {
+	// Inject learnings from past tool generation into prompts
+	o.RefreshLearningsContext()
+
 	result := o.ouroboros.Execute(ctx, need)
 
 	// Wire to kernel: Assert tool registration facts on success
@@ -1552,6 +1559,94 @@ func (o *Orchestrator) GetAllLearnings() []*ToolLearning {
 	return o.learnings.GetAllLearnings()
 }
 
+// AggregateLearningsForPrompt converts learnings into a prompt-friendly format.
+// This extracts actionable patterns from past tool generation to inject into
+// future generation prompts, enabling cross-tool learning.
+func (o *Orchestrator) AggregateLearningsForPrompt() string {
+	learnings := o.learnings.GetAllLearnings()
+	if len(learnings) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Aggregate success/failure statistics
+	var totalSuccess, totalFail int
+	var commonIssues = make(map[IssueType]int)
+	var antiPatterns []string
+
+	for _, l := range learnings {
+		if l.SuccessRate >= 0.5 {
+			totalSuccess++
+		} else {
+			totalFail++
+		}
+		for _, issue := range l.KnownIssues {
+			commonIssues[issue]++
+		}
+		antiPatterns = append(antiPatterns, l.AntiPatterns...)
+	}
+
+	// Generate summary
+	sb.WriteString(fmt.Sprintf("Based on %d previous tool generations:\n", len(learnings)))
+
+	// Top issues to avoid
+	if len(commonIssues) > 0 {
+		sb.WriteString("\nCOMMON ISSUES TO AVOID:\n")
+		for issue, count := range commonIssues {
+			if count >= 2 {
+				sb.WriteString(fmt.Sprintf("- %s (occurred %d times)\n", issue, count))
+			}
+		}
+	}
+
+	// Anti-patterns from patterns detector
+	if len(antiPatterns) > 0 {
+		sb.WriteString("\nANTI-PATTERNS DETECTED:\n")
+		seen := make(map[string]bool)
+		for _, ap := range antiPatterns {
+			if !seen[ap] && len(ap) > 0 {
+				sb.WriteString(fmt.Sprintf("- %s\n", ap))
+				seen[ap] = true
+			}
+		}
+	}
+
+	// Best practices (from successful tools)
+	sb.WriteString("\nBEST PRACTICES:\n")
+	sb.WriteString("- Always check context.Done() for cancellation\n")
+	sb.WriteString("- Handle empty/nil inputs gracefully\n")
+	sb.WriteString("- Don't import unused packages\n")
+	sb.WriteString("- Return descriptive errors\n")
+
+	// Tool-specific learnings for low-quality tools
+	for _, l := range learnings {
+		if l.AverageQuality < 0.5 && l.TotalExecutions >= 2 {
+			sb.WriteString(fmt.Sprintf("\nTool '%s' had issues (quality=%.1f):\n", l.ToolName, l.AverageQuality))
+			for _, issue := range l.KnownIssues {
+				sb.WriteString(fmt.Sprintf("  - %s\n", issue))
+			}
+		}
+	}
+
+	result := sb.String()
+	if len(result) > 2000 {
+		result = result[:2000] + "...[truncated]"
+	}
+
+	return result
+}
+
+// RefreshLearningsContext updates the ToolGenerator with latest learnings.
+// Call this before tool generation to inject accumulated knowledge.
+func (o *Orchestrator) RefreshLearningsContext() {
+	ctx := o.AggregateLearningsForPrompt()
+	o.toolGen.SetLearningsContext(ctx)
+	if o.ouroboros != nil && o.ouroboros.toolGen != nil {
+		o.ouroboros.toolGen.SetLearningsContext(ctx)
+	}
+}
+
 // GenerateLearningFacts creates Mangle facts from all learnings
 func (o *Orchestrator) GenerateLearningFacts() []string {
 	return o.learnings.GenerateMangleFacts()
@@ -1676,6 +1771,9 @@ func (o *Orchestrator) GenerateToolWithTracing(ctx context.Context, need *ToolNe
 
 // ExecuteOuroborosLoopWithTracing runs the full loop with reasoning trace capture
 func (o *Orchestrator) ExecuteOuroborosLoopWithTracing(ctx context.Context, need *ToolNeed, userRequest string) (*LoopResult, *ReasoningTrace) {
+	// Inject learnings from past tool generation into prompts
+	o.RefreshLearningsContext()
+
 	// Start trace
 	trace := o.StartToolTrace(need.Name, need, userRequest)
 
