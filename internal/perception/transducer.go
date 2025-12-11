@@ -402,6 +402,13 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 	logging.PerceptionDebug("RealTransducer initialized with repair loop")
 	return t
 }
+
+// withSystemContext creates a SystemLLMContext for this transducer's LLM calls.
+// This ensures proper trace attribution for all transducer operations.
+func (t *RealTransducer) withSystemContext(taskContext string) *SystemLLMContext {
+	return NewSystemLLMContext(t.client, "transducer", taskContext)
+}
+
 // Cortex 1.5.0 Piggyback Protocol System Prompt
 // Updated with comprehensive verb taxonomy for reliable intent classification.
 //
@@ -676,8 +683,13 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 	userPrompt := sb.String()
 
 	logging.PerceptionDebug("Calling LLM for intent extraction (prompt: %d chars)", len(userPrompt))
+
+	// Set system context for trace attribution
+	sysCtx := t.withSystemContext("intent-extraction")
+	defer sysCtx.Clear()
+
 	llmTimer := logging.StartTimer(logging.CategoryPerception, "LLM-CompleteWithSystem")
-	resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+	resp, err := sysCtx.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
 	llmTimer.Stop()
 
 	if err != nil {
@@ -788,6 +800,10 @@ func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 	logging.Perception("Parsing intent with GCD (maxRetries: %d, input: %d chars)", maxRetries, len(input))
 	logging.PerceptionDebug("GCD input: %q", truncateForLog(input, 200))
 
+	// Set system context for trace attribution
+	sysCtx := t.withSystemContext("intent-extraction-gcd")
+	defer sysCtx.Clear()
+
 	var lastEnvelope PiggybackEnvelope
 	var lastErr error
 
@@ -829,7 +845,7 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 		}
 
 		llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
-		resp, err := t.client.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+		resp, err := sysCtx.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
 		llmTimer.Stop()
 
 		if err != nil {
@@ -922,6 +938,10 @@ func (t *RealTransducer) parseSimple(ctx context.Context, input string) (Intent,
 	timer := logging.StartTimer(logging.CategoryPerception, "parseSimple")
 	defer timer.Stop()
 
+	// Set system context for trace attribution
+	sysCtx := t.withSystemContext("simple-parse")
+	defer sysCtx.Clear()
+
 	logging.Perception("Using simple (pipe-delimited) fallback parser")
 	logging.PerceptionDebug("Simple parse input: %q", truncateForLog(input, 100))
 
@@ -941,7 +961,7 @@ Input: "%s"
 Output ONLY pipes, no explanation:`, verbList, input)
 
 	llmTimer := logging.StartTimer(logging.CategoryPerception, "SimpleParser-LLM-Call")
-	resp, err := t.client.Complete(ctx, prompt)
+	resp, err := sysCtx.Complete(ctx, prompt)
 	llmTimer.Stop()
 
 	if err != nil {
@@ -1033,6 +1053,10 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 	timer := logging.StartTimer(logging.CategoryPerception, "ResolveFocus")
 	defer timer.Stop()
 
+	// Set system context for trace attribution
+	sysCtx := t.withSystemContext("focus-resolution")
+	defer sysCtx.Clear()
+
 	logging.Perception("Resolving focus for reference: %q (%d candidates)", truncateForLog(reference, 50), len(candidates))
 
 	if len(candidates) == 0 {
@@ -1085,7 +1109,7 @@ JSON only:`, reference, candidateList)
 
 	focusSystemPrompt := `You are a code resolution assistant. Output ONLY JSON.`
 	llmTimer := logging.StartTimer(logging.CategoryPerception, "ResolveFocus-LLM-Call")
-	resp, err := t.client.CompleteWithSystem(ctx, focusSystemPrompt, prompt)
+	resp, err := sysCtx.CompleteWithSystem(ctx, focusSystemPrompt, prompt)
 	llmTimer.Stop()
 
 	if err != nil {

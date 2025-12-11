@@ -19,6 +19,15 @@ type LLMClient interface {
 	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
 
+// TracingLLMClient extends LLMClient with context-setting for trace attribution.
+// If the LLMClient implements this interface, the feedback loop will set context
+// for proper logging attribution of its LLM calls.
+type TracingLLMClient interface {
+	LLMClient
+	SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
+	ClearShardContext()
+}
+
 // RuleValidator validates Mangle rules via compilation.
 type RuleValidator interface {
 	// HotLoadRule attempts to load a rule into the kernel sandbox.
@@ -93,6 +102,13 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, fl.config.TotalTimeout)
 		defer cancel()
+	}
+
+	// Set system context for trace attribution if the client supports it
+	if tracingClient, ok := llmClient.(TracingLLMClient); ok {
+		sessionID := fmt.Sprintf("feedback-%d", time.Now().UnixNano())
+		tracingClient.SetShardContext(sessionID, "feedback_loop", "system", sessionID, "mangle-validation")
+		defer tracingClient.ClearShardContext()
 	}
 
 	// Get available predicates for feedback - use JIT selector if available
