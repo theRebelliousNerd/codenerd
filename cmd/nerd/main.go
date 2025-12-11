@@ -1904,7 +1904,10 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✓ Workspace: %s\n", cwd)
 
 	// Initialize kernel and show stats
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create kernel: %w", err)
+	}
 	fmt.Printf("✓ Mangle kernel initialized\n")
 	fmt.Printf("  Schemas: %d bytes\n", len(kernel.GetSchemas()))
 	fmt.Printf("  Policy:  %d bytes\n", len(kernel.GetPolicy()))
@@ -1993,7 +1996,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run initialization
-	initializer := nerdinit.NewInitializer(config)
+	initializer, err := nerdinit.NewInitializer(config)
+	if err != nil {
+		return fmt.Errorf("failed to create initializer: %w", err)
+	}
 	result, err := initializer.Initialize(ctx)
 	if err != nil {
 		return fmt.Errorf("initialization failed: %w", err)
@@ -2032,7 +2038,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize kernel and load facts
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create kernel: %w", err)
+	}
 	if err := kernel.LoadFacts(facts); err != nil {
 		return fmt.Errorf("failed to load facts: %w", err)
 	}
@@ -2179,7 +2188,10 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	fmt.Println("=" + string(make([]byte, 40)))
 
 	// Initialize kernel
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create kernel: %w", err)
+	}
 	if err := kernel.LoadFacts(nil); err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
@@ -2261,7 +2273,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Initialize components
 	llmClient := perception.NewZAIClient(key)
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create kernel: %w", err)
+	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	shardMgr := core.NewShardManager()
@@ -2552,7 +2567,10 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// Initialize components
 	llmClient := perception.NewZAIClient(key)
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("failed to create kernel: %w", err)
+	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	shardMgr := core.NewShardManager()

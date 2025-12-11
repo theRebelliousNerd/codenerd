@@ -353,7 +353,7 @@ func (i *Initializer) completePhaseWithETA(phaseName string) {
 }
 
 // NewInitializer creates a new initializer.
-func NewInitializer(initConfig InitConfig) *Initializer {
+func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 	researcher := researcher.NewResearcherShard()
 	researcher.SetWorkspaceRoot(initConfig.Workspace) // Ensure .nerd paths resolve correctly
 
@@ -372,7 +372,10 @@ func NewInitializer(initConfig InitConfig) *Initializer {
 		researcher.SetContext7APIKey(context7Key)
 	}
 
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kernel: %w", err)
+	}
 	kernel.SetWorkspace(initConfig.Workspace) // Ensure .nerd paths resolve correctly
 
 	init := &Initializer{
@@ -395,7 +398,7 @@ func NewInitializer(initConfig InitConfig) *Initializer {
 		init.shardMgr.SetLLMClient(initConfig.LLMClient)
 	}
 
-	return init
+	return init, nil
 }
 
 // ensureEmbeddingEngine initializes a shared embedding engine for sqlite-vec.
@@ -802,14 +805,31 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 }
 
 // sendProgress sends a progress update if channel is configured.
+// E2: Now includes ETA tracking data when available.
 func (i *Initializer) sendProgress(phase, message string, percent float64) {
 	if i.config.ProgressChan != nil {
-		select {
-		case i.config.ProgressChan <- InitProgress{
+		progress := InitProgress{
 			Phase:   phase,
 			Message: message,
 			Percent: percent,
-		}:
+		}
+
+		// E2: Wire in ETA tracker data if available
+		if i.etaTracker != nil {
+			progress.ElapsedTime = i.etaTracker.GetElapsed()
+			progress.CurrentPhaseNo = i.etaTracker.GetCurrentPhase()
+			progress.TotalPhases = i.etaTracker.GetTotalPhases()
+			// Note: ETARemaining requires remaining phases list for accuracy
+			// Use percent-based estimate as fallback
+			if percent > 0 && percent < 1.0 {
+				elapsed := i.etaTracker.GetElapsed()
+				estimatedTotal := time.Duration(float64(elapsed) / percent)
+				progress.ETARemaining = estimatedTotal - elapsed
+			}
+		}
+
+		select {
+		case i.config.ProgressChan <- progress:
 		default:
 			// Don't block if channel is full
 		}

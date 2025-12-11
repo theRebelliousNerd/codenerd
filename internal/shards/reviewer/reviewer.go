@@ -410,7 +410,11 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 
 	// Initialize kernel if not set
 	if r.kernel == nil {
-		r.kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		r.kernel = kernel
 	}
 	// Load reviewer-specific policy (only once to avoid duplicate Decl errors)
 	if !r.policyLoaded {

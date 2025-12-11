@@ -37,7 +37,11 @@ func main() {
 	// Create researcher with toolkit
 	researcherShard := researcher.NewResearcherShard()
 	// Inject a real kernel
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		fmt.Printf("FATAL: Failed to create kernel: %v\n", err)
+		os.Exit(1)
+	}
 	researcherShard.SetParentKernel(kernel)
 	
 	if context7Key != "" {

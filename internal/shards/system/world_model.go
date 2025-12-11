@@ -189,7 +189,11 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 
 	// Initialize kernel if not set
 	if w.Kernel == nil {
-		w.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		w.Kernel = kernel
 	}
 
 	// Parse task for root path

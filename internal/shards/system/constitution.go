@@ -186,7 +186,11 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 	// Initialize kernel if not set
 	if c.Kernel == nil {
 		logging.SystemShardsDebug("[ConstitutionGate] Creating new kernel (none attached)")
-		c.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		c.Kernel = kernel
 	}
 
 	ticker := time.NewTicker(c.config.TickInterval)

@@ -304,7 +304,11 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	// Initialize kernel if not set
 	if c.kernel == nil {
 		logging.CoderDebug("Creating new RealKernel instance")
-		c.kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		c.kernel = kernel
 	}
 	// Load coder-specific policy (only once to avoid duplicate Decl errors)
 	if !c.policyLoaded {

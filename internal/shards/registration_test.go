@@ -27,7 +27,10 @@ func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 
 func TestRegisterAllShardFactories_HollowShardsFixed(t *testing.T) {
 	// 1. Setup Dependencies
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	llmClient := &MockLLMClient{}
 	virtualStore := core.NewVirtualStore(nil) // Nil executor is fine for this test
 

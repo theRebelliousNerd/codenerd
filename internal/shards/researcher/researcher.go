@@ -184,7 +184,7 @@ func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShar
 				return nil
 			},
 		},
-		kernel:            core.NewRealKernel(),
+		kernel:            nil, // Lazy-initialized in Execute() to handle errors
 		scanner:           world.NewScanner(),
 		toolkit:           NewResearchToolkit(""), // Uses default cache dir
 		llmSemaphore:      make(chan struct{}, 1), // Serialize LLM calls (1 at a time)
@@ -998,6 +998,15 @@ func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, err
 		r.state = core.ShardStateCompleted
 		r.mu.Unlock()
 	}()
+
+	// Initialize kernel if not set
+	if r.kernel == nil {
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		r.kernel = kernel
+	}
 
 	// DREAM MODE: Only describe what we would do, don't execute
 	if r.config.SessionContext != nil && r.config.SessionContext.DreamMode {

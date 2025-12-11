@@ -38,7 +38,10 @@ func TestReviewerPersistenceAndFiltering(t *testing.T) {
 	shard.SetVirtualStore(virtualStore)
 
 	// Manually set kernel
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	shard.SetParentKernel(kernel)
 
 	// 3. Create a dummy test file that triggers a rule (TODO) but should be suppressed

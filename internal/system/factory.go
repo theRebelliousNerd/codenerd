@@ -91,7 +91,10 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	transducer := perception.NewRealTransducer(llmClient)
-	kernel := core.NewRealKernel()
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kernel: %w", err)
+	}
 	// Force initial evaluation to boot the Mangle engine (even with 0 facts)
 	// This is CRITICAL to prevent "kernel not initialized" errors when shards query it early.
 	if err := kernel.Evaluate(); err != nil {

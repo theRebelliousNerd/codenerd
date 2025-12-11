@@ -425,7 +425,11 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			return errorMsg(fmt.Errorf("failed to create .nerd directory: %w", err))
 		}
 
-		initializer := nerdinit.NewInitializer(initConfig)
+		initializer, err := nerdinit.NewInitializer(initConfig)
+		if err != nil {
+			close(progressCh)
+			return errorMsg(fmt.Errorf("failed to create initializer: %w", err))
+		}
 
 		// Run the comprehensive initialization
 		result, err := initializer.Initialize(ctx)

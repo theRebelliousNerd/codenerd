@@ -100,7 +100,11 @@ func (l *LegislatorShard) Execute(ctx context.Context, task string) (string, err
 
 	if l.Kernel == nil {
 		logging.SystemShardsDebug("[Legislator] Creating new kernel (none attached)")
-		l.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		l.Kernel = kernel
 	}
 
 	directive := strings.TrimSpace(task)

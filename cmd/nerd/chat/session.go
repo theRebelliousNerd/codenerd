@@ -222,16 +222,15 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Creating transducer...")
 		transducer := perception.NewRealTransducer(baseLLMClient)
 
-		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally?
-		// We verified NewRealKernel calls evaluate().
+		// HEAVY OPERATION: NewRealKernel calls Evaluate() internally
 		logStep("Booting Mangle kernel...")
-		kernel := core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return fmt.Errorf("failed to create kernel: %w", err)
+		}
 
-		// If NewRealKernel didn't error (it returns *RealKernel), we check if it's usable.
-		// Actually NewRealKernel swallows errors?
-		// Let's assume it initializes generic state.
-		// But we should explicitely Evaluate if needed or trust NewRealKernel.
-		// The original code called kernel.Evaluate() explicitly.
+		// NewRealKernel now properly returns errors instead of panicking.
+		// The kernel is already evaluated during construction.
 		logStep("Evaluating kernel rules...")
 		if err := kernel.Evaluate(); err != nil {
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}

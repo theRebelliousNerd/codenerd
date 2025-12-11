@@ -209,7 +209,11 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 	// Initialize kernel if not set
 	if p.Kernel == nil {
 		logging.SystemShardsDebug("[PerceptionFirewall] Creating new kernel (none attached)")
-		p.Kernel = core.NewRealKernel()
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return "", fmt.Errorf("failed to create kernel: %w", err)
+		}
+		p.Kernel = kernel
 	}
 
 	ticker := time.NewTicker(p.config.TickInterval)
