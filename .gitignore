@@ -12,7 +12,7 @@
 debug_output*.txt
 *.log
 nul
-*.db
+.nerd/**/*.db
 *.json
 *.tmp
 *.temp
