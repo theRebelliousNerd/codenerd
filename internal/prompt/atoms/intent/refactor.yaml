@@ -1,0 +1,119 @@
+# Refactor Intent Verb Atoms
+# Refactoring patterns, safe transformations, code smell detection
+
+- id: "intent/refactor/core"
+  category: "intent"
+  subcategory: "refactor"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REFACTOR INTENT PROTOCOL
+
+    Your intent is to REFACTOR - improve code structure without changing behavior.
+
+    ### REFACTOR GOLDEN RULE
+    **Behavior must remain IDENTICAL before and after refactoring.**
+    Tests should pass without modification.
+
+    ### REFACTOR WORKFLOW
+    1. **Identify** the code smell or improvement opportunity
+    2. **Verify** tests exist that cover the behavior
+    3. **Transform** in small, reversible steps
+    4. **Test** after each transformation
+    5. **Review** the final result for clarity
+
+    ### SAFE REFACTORING CHECKLIST
+    - [ ] Tests pass before starting
+    - [ ] Each step is < 20 lines changed
+    - [ ] No functionality added
+    - [ ] No functionality removed
+    - [ ] Tests pass after each step
+
+- id: "intent/refactor/patterns"
+  category: "intent"
+  subcategory: "refactor"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  depends_on: ["intent/refactor/core"]
+  content: |
+    ## REFACTORING PATTERNS
+
+    ### EXTRACT METHOD
+    When: Block of code can be named
+    ```go
+    // Before
+    func process(items []Item) {
+        for _, item := range items {
+            // 20 lines of validation
+            // 20 lines of transformation
+        }
+    }
+
+    // After
+    func process(items []Item) {
+        for _, item := range items {
+            if err := validate(item); err != nil {
+                continue
+            }
+            transform(item)
+        }
+    }
+    ```
+
+    ### INLINE VARIABLE
+    When: Variable adds no clarity
+    ```go
+    // Before
+    basePrice := product.BasePrice()
+    return basePrice
+
+    // After
+    return product.BasePrice()
+    ```
+
+    ### REPLACE CONDITIONAL WITH POLYMORPHISM
+    When: Switch on type is scattered
+    ```go
+    // Before
+    func area(shape Shape) float64 {
+        switch s := shape.(type) {
+        case Circle: return math.Pi * s.R * s.R
+        case Square: return s.Side * s.Side
+        }
+    }
+
+    // After - behavior on types
+    type Shape interface { Area() float64 }
+    func (c Circle) Area() float64 { return math.Pi * c.R * c.R }
+    func (s Square) Area() float64 { return s.Side * s.Side }
+    ```
+
+- id: "intent/refactor/smells"
+  category: "intent"
+  subcategory: "refactor"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## CODE SMELL DETECTION
+
+    ### HIGH-PRIORITY SMELLS
+    1. **Long Method** (>30 lines): Extract methods
+    2. **Large Class** (>300 lines): Extract class
+    3. **Long Parameter List** (>4 params): Introduce parameter object
+    4. **Duplicate Code**: Extract to shared function
+    5. **Feature Envy**: Move method to the class it envies
+
+    ### MEDIUM-PRIORITY SMELLS
+    1. **Comments explaining "what"**: Refactor for clarity
+    2. **Dead Code**: Delete it
+    3. **Speculative Generality**: Remove unused abstractions
+    4. **Middle Man**: Inline delegation
+
+    ### SMELL SEVERITY
+    - **Critical**: Causes bugs (duplicated validation)
+    - **High**: Slows development (spaghetti code)
+    - **Medium**: Reduces clarity (poor names)
+    - **Low**: Style issues (inconsistent formatting)

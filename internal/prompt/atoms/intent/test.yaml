@@ -1,0 +1,119 @@
+# Test Intent Verb Atoms
+# Test generation, coverage strategies, test categories
+
+- id: "intent/test/core"
+  category: "intent"
+  subcategory: "test"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/test"]
+  content: |
+    ## TEST INTENT PROTOCOL
+
+    Your intent is to TEST - verify behavior through automated tests.
+
+    ### TEST PHILOSOPHY
+    Tests are executable documentation. They:
+    1. Verify behavior works as expected
+    2. Document how code should be used
+    3. Catch regressions early
+    4. Enable confident refactoring
+
+    ### TEST WORKFLOW
+    1. **Identify** what behavior to test
+    2. **Design** test cases (happy path, edge cases, errors)
+    3. **Write** tests following project conventions
+    4. **Run** tests to verify they pass/fail correctly
+    5. **Review** for clarity and maintainability
+
+    ### TEST NAMING
+    ```go
+    func TestFunctionName_Scenario_ExpectedBehavior(t *testing.T)
+    func TestUser_EmptyEmail_ReturnsValidationError(t *testing.T)
+    func TestCache_Expired_ReturnsNilAndFalse(t *testing.T)
+    ```
+
+- id: "intent/test/categories"
+  category: "intent"
+  subcategory: "test"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/test"]
+  depends_on: ["intent/test/core"]
+  content: |
+    ## TEST CATEGORIES
+
+    ### UNIT TESTS
+    - Test single function/method in isolation
+    - Mock all dependencies
+    - Fast (<100ms)
+    - Location: `*_test.go` next to source
+
+    ### INTEGRATION TESTS
+    - Test interaction between components
+    - May use real databases (testcontainers)
+    - Medium speed (1-10s)
+    - Location: `*_integration_test.go` or `/test/integration/`
+
+    ### END-TO-END TESTS
+    - Test full user flows
+    - Real services, real data
+    - Slow (10s-1min)
+    - Location: `/test/e2e/`
+
+    ### PROPERTY-BASED TESTS
+    - Generate random inputs
+    - Verify properties hold for all inputs
+    - Use rapid/gopter
+    ```go
+    rapid.Check(t, func(t *rapid.T) {
+        input := rapid.String().Draw(t, "input")
+        result := Reverse(Reverse(input))
+        assert.Equal(t, input, result)
+    })
+    ```
+
+- id: "intent/test/coverage"
+  category: "intent"
+  subcategory: "test"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/test"]
+  content: |
+    ## COVERAGE STRATEGIES
+
+    ### COVERAGE TARGETS
+    - **Critical Paths**: 100% (auth, payments, data)
+    - **Business Logic**: 80%+
+    - **Utilities**: 70%+
+    - **Generated Code**: 0% (exclude from coverage)
+
+    ### EDGE CASE CHECKLIST
+    - [ ] Empty input
+    - [ ] Nil/null input
+    - [ ] Single element
+    - [ ] Maximum size input
+    - [ ] Invalid format
+    - [ ] Boundary values (0, -1, MAX_INT)
+    - [ ] Unicode/special characters
+    - [ ] Concurrent access
+
+    ### ERROR PATH TESTING
+    ```go
+    func TestCreateUser_DatabaseError_ReturnsError(t *testing.T) {
+        repo := &mockRepo{err: errors.New("connection failed")}
+        svc := NewUserService(repo)
+
+        _, err := svc.CreateUser(ctx, input)
+
+        assert.Error(t, err)
+        assert.Contains(t, err.Error(), "connection failed")
+    }
+    ```
+
+    ### COVERAGE COMMANDS
+    ```bash
+    go test -coverprofile=coverage.out ./...
+    go tool cover -html=coverage.out
+    go tool cover -func=coverage.out
+    ```

@@ -1,0 +1,92 @@
+# Diagnostics World State Atoms
+# Diagnostic mode, error analysis, troubleshooting
+
+- id: "world_state/diagnostics/core"
+  category: "world_state"
+  subcategory: "diagnostics"
+  priority: 95
+  is_mandatory: true
+  world_states: ["diagnostics"]
+  content: |
+    ## DIAGNOSTICS MODE ACTIVE
+
+    The system has detected diagnostic information requiring attention.
+    LSP/compiler diagnostics are present.
+
+    ### DIAGNOSTIC PRIORITY
+    1. **Errors**: Must fix - blocks compilation
+    2. **Warnings**: Should fix - potential problems
+    3. **Info**: May fix - suggestions
+    4. **Hints**: Optional - style improvements
+
+    ### DIAGNOSTIC WORKFLOW
+    1. Parse all diagnostic messages
+    2. Group by file and severity
+    3. Address errors first (blocks progress)
+    4. Resolve warnings if time permits
+    5. Note patterns for systemic issues
+
+- id: "world_state/diagnostics/errors"
+  category: "world_state"
+  subcategory: "diagnostics"
+  priority: 90
+  is_mandatory: false
+  world_states: ["diagnostics"]
+  depends_on: ["world_state/diagnostics/core"]
+  content: |
+    ## ERROR ANALYSIS PROTOCOL
+
+    ### COMMON GO ERRORS
+    | Error | Cause | Fix |
+    |-------|-------|-----|
+    | `undefined: X` | Missing import or declaration | Add import or declare |
+    | `cannot use X as Y` | Type mismatch | Convert or fix types |
+    | `not enough arguments` | Missing function args | Add required arguments |
+    | `declared but not used` | Unused variable | Use or remove variable |
+    | `imported but not used` | Unused import | Use or remove import |
+
+    ### ERROR RESOLUTION STEPS
+    1. Read the full error message
+    2. Identify the file and line number
+    3. Understand the root cause
+    4. Apply the minimal fix
+    5. Verify the fix compiles
+
+    ### CASCADING ERRORS
+    One error often causes many.
+    Fix the FIRST error in the file first.
+    Many subsequent errors will resolve.
+
+- id: "world_state/diagnostics/warnings"
+  category: "world_state"
+  subcategory: "diagnostics"
+  priority: 85
+  is_mandatory: false
+  world_states: ["diagnostics"]
+  content: |
+    ## WARNING ANALYSIS
+
+    ### COMMON GO WARNINGS
+    - **Shadow**: Variable shadows outer scope
+    - **Unreachable**: Code after return/panic
+    - **Deprecated**: Using deprecated API
+    - **Ineffassign**: Assignment has no effect
+
+    ### WARNING RESPONSE
+    ```
+    If warning indicates bug → Fix immediately
+    If warning is false positive → Document why
+    If warning is style → Fix if convenient
+    ```
+
+    ### GO VET WARNINGS
+    - `printf: format %d has arg of wrong type`
+    - `unreachable: unreachable code`
+    - `copylocks: assignment copies lock value`
+    - `loopclosure: loop variable captured by func literal`
+
+    ### STATICCHECK WARNINGS
+    - `SA1000`: Invalid regexp
+    - `SA4006`: Ineffective assignment
+    - `SA9003`: Empty branch
+    - `ST1000`: Missing package comment

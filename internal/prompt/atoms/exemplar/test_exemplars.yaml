@@ -1,0 +1,201 @@
+# Test Pattern Exemplars
+# Test pattern examples (table-driven, mocks)
+
+- id: "exemplar/test/table_driven"
+  category: "exemplar"
+  subcategory: "test"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## TABLE-DRIVEN TEST EXEMPLAR
+
+    ### BASIC TABLE-DRIVEN TEST
+    ```go
+    func TestAdd(t *testing.T) {
+        tests := []struct {
+            name     string
+            a, b     int
+            expected int
+        }{
+            {"positive numbers", 2, 3, 5},
+            {"negative numbers", -2, -3, -5},
+            {"mixed", -2, 3, 1},
+            {"zeros", 0, 0, 0},
+        }
+
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                result := Add(tt.a, tt.b)
+                if result != tt.expected {
+                    t.Errorf("Add(%d, %d) = %d; want %d",
+                        tt.a, tt.b, result, tt.expected)
+                }
+            })
+        }
+    }
+    ```
+
+    ### WITH ERROR CASES
+    ```go
+    func TestDivide(t *testing.T) {
+        tests := []struct {
+            name      string
+            a, b      int
+            expected  int
+            wantErr   bool
+        }{
+            {"normal division", 10, 2, 5, false},
+            {"divide by zero", 10, 0, 0, true},
+        }
+
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                result, err := Divide(tt.a, tt.b)
+                if (err != nil) != tt.wantErr {
+                    t.Errorf("Divide() error = %v, wantErr %v", err, tt.wantErr)
+                    return
+                }
+                if result != tt.expected {
+                    t.Errorf("Divide() = %v, want %v", result, tt.expected)
+                }
+            })
+        }
+    }
+    ```
+
+- id: "exemplar/test/mocking"
+  category: "exemplar"
+  subcategory: "test"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## MOCK TEST EXEMPLAR
+
+    ### MANUAL MOCK
+    ```go
+    // Interface to mock
+    type UserRepository interface {
+        GetByID(ctx context.Context, id string) (*User, error)
+    }
+
+    // Mock implementation
+    type mockUserRepo struct {
+        user *User
+        err  error
+    }
+
+    func (m *mockUserRepo) GetByID(ctx context.Context, id string) (*User, error) {
+        return m.user, m.err
+    }
+
+    // Test using mock
+    func TestUserService_GetUser(t *testing.T) {
+        mock := &mockUserRepo{
+            user: &User{ID: "123", Name: "Test"},
+        }
+        svc := NewUserService(mock)
+
+        user, err := svc.GetUser(context.Background(), "123")
+
+        assert.NoError(t, err)
+        assert.Equal(t, "Test", user.Name)
+    }
+    ```
+
+    ### MOCK WITH EXPECTATIONS
+    ```go
+    type mockRepo struct {
+        calls    []string
+        getByID  func(string) (*User, error)
+    }
+
+    func (m *mockRepo) GetByID(ctx context.Context, id string) (*User, error) {
+        m.calls = append(m.calls, "GetByID:"+id)
+        if m.getByID != nil {
+            return m.getByID(id)
+        }
+        return nil, nil
+    }
+
+    func TestUserService_CachesResult(t *testing.T) {
+        mock := &mockRepo{
+            getByID: func(id string) (*User, error) {
+                return &User{ID: id}, nil
+            },
+        }
+        svc := NewCachedUserService(mock)
+
+        // Call twice
+        svc.GetUser(ctx, "123")
+        svc.GetUser(ctx, "123")
+
+        // Should only call repo once (cached)
+        assert.Len(t, mock.calls, 1)
+    }
+    ```
+
+- id: "exemplar/test/testify"
+  category: "exemplar"
+  subcategory: "test"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## TESTIFY EXEMPLAR
+
+    ### ASSERT PACKAGE
+    ```go
+    import "github.com/stretchr/testify/assert"
+
+    func TestUser(t *testing.T) {
+        user, err := CreateUser("test@example.com")
+
+        assert.NoError(t, err)
+        assert.NotNil(t, user)
+        assert.Equal(t, "test@example.com", user.Email)
+        assert.True(t, user.IsActive())
+        assert.Contains(t, user.Email, "@")
+    }
+    ```
+
+    ### REQUIRE PACKAGE (FAILS FAST)
+    ```go
+    import "github.com/stretchr/testify/require"
+
+    func TestUserCreation(t *testing.T) {
+        user, err := CreateUser("test@example.com")
+        require.NoError(t, err)  // Stops test if error
+        require.NotNil(t, user)  // Stops test if nil
+
+        // Only runs if above passed
+        assert.Equal(t, "test@example.com", user.Email)
+    }
+    ```
+
+    ### TEST SUITE
+    ```go
+    import "github.com/stretchr/testify/suite"
+
+    type UserServiceSuite struct {
+        suite.Suite
+        svc  *UserService
+        repo *mockRepo
+    }
+
+    func (s *UserServiceSuite) SetupTest() {
+        s.repo = &mockRepo{}
+        s.svc = NewUserService(s.repo)
+    }
+
+    func (s *UserServiceSuite) TestGetUser_Success() {
+        s.repo.user = &User{ID: "123"}
+
+        user, err := s.svc.GetUser(context.Background(), "123")
+
+        s.NoError(err)
+        s.Equal("123", user.ID)
+    }
+
+    func TestUserServiceSuite(t *testing.T) {
+        suite.Run(t, new(UserServiceSuite))
+    }
+    ```

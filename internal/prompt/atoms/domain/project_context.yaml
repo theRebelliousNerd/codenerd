@@ -1,0 +1,133 @@
+# Project Context Atoms
+# Project-specific conventions, patterns
+
+- id: "domain/project/discovery"
+  category: "domain"
+  subcategory: "project"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## PROJECT CONTEXT DISCOVERY
+
+    Understand project-specific conventions before making changes.
+
+    ### DISCOVERY CHECKLIST
+    - [ ] Read README.md and CLAUDE.md
+    - [ ] Identify project structure
+    - [ ] Note naming conventions
+    - [ ] Find existing patterns
+    - [ ] Check for configuration files
+
+    ### KEY FILES TO EXAMINE
+    ```
+    /README.md         - Project overview
+    /CLAUDE.md         - AI-specific instructions
+    /go.mod            - Dependencies and module name
+    /Makefile          - Build conventions
+    /.golangci.yml     - Linting rules
+    /internal/         - Private packages
+    /cmd/              - Entry points
+    ```
+
+    ### PATTERN RECOGNITION
+    When examining existing code:
+    - How are errors handled?
+    - How is logging done?
+    - How are configs loaded?
+    - How are tests organized?
+    - How is DI structured?
+
+- id: "domain/project/conventions"
+  category: "domain"
+  subcategory: "project"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## PROJECT CONVENTIONS
+
+    Respect and follow established project conventions.
+
+    ### COMMON CONVENTION AREAS
+    | Area | What to Check |
+    |------|---------------|
+    | Naming | snake_case vs camelCase |
+    | Errors | Sentinel vs custom types |
+    | Logging | Structured vs printf |
+    | Config | Env vars vs files |
+    | Testing | Testify vs stdlib |
+
+    ### CONVENTION DETECTION
+    ```go
+    // Look for patterns like:
+
+    // Error style
+    var ErrNotFound = errors.New("not found")  // Sentinel
+    type NotFoundError struct { ID string }     // Custom type
+
+    // Logging style
+    log.Printf("user %s logged in", userID)    // Printf
+    log.Info("user logged in", "userID", id)   // Structured
+
+    // Config style
+    os.Getenv("PORT")                          // Env vars
+    viper.Get("server.port")                   // Viper config
+    ```
+
+    ### CONVENTION ADHERENCE
+    When adding new code:
+    1. Find 2-3 similar existing examples
+    2. Match their structure exactly
+    3. Use same imports/dependencies
+    4. Follow same error handling
+    5. Match test organization
+
+- id: "domain/project/integration"
+  category: "domain"
+  subcategory: "project"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## PROJECT INTEGRATION
+
+    Integrate new code with existing project structure.
+
+    ### INTEGRATION POINTS
+    - **Dependency injection**: Wire up in main/app
+    - **Routing**: Register handlers
+    - **Configuration**: Add config fields
+    - **Logging**: Use project logger
+    - **Errors**: Follow error patterns
+
+    ### INTEGRATION CHECKLIST
+    ```
+    [ ] Added to appropriate package
+    [ ] Wired into DI container
+    [ ] Registered routes (if handler)
+    [ ] Added config (if configurable)
+    [ ] Uses project logger
+    [ ] Follows error conventions
+    [ ] Has tests in expected location
+    [ ] Added to build (if needed)
+    ```
+
+    ### COMMON INTEGRATION PATTERNS
+    ```go
+    // main.go or app.go
+    func NewApp(cfg Config) *App {
+        // Create dependencies
+        db := database.New(cfg.DB)
+        logger := logging.New(cfg.Log)
+
+        // Create services
+        userSvc := user.NewService(db, logger)
+        orderSvc := order.NewService(db, userSvc, logger)
+
+        // Create handlers
+        userHandler := http.NewUserHandler(userSvc)
+
+        // Wire routes
+        router := http.NewRouter(userHandler, orderHandler)
+
+        return &App{router: router}
+    }
+    ```

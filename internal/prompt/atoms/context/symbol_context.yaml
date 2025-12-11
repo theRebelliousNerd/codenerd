@@ -1,0 +1,109 @@
+# Symbol Context Atoms
+# Symbol resolution, call graphs, dependencies
+
+- id: "context/symbol/resolution"
+  category: "context"
+  subcategory: "symbol"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## SYMBOL RESOLUTION PROTOCOL
+
+    When working with symbols, resolve their full context.
+
+    ### SYMBOL TYPES
+    - **Package**: Namespace container
+    - **Type**: struct, interface, alias
+    - **Function**: Package-level function
+    - **Method**: Function on a type
+    - **Variable**: Package or local variable
+    - **Constant**: Immutable value
+
+    ### SYMBOL CONTEXT QUESTIONS
+    1. Where is it defined?
+    2. What is its visibility? (public/private)
+    3. What uses it?
+    4. What does it use?
+    5. Is it tested?
+
+    ### SYMBOL LOOKUP STRATEGY
+    ```
+    1. Check current file
+    2. Check imported packages
+    3. Check standard library
+    4. Search codebase
+    ```
+
+- id: "context/symbol/dependencies"
+  category: "context"
+  subcategory: "symbol"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## DEPENDENCY CONTEXT
+
+    Understanding dependencies is crucial for safe changes.
+
+    ### DEPENDENCY TYPES
+    - **Direct**: Explicitly imported/called
+    - **Transitive**: Dependencies of dependencies
+    - **Interface**: Implicit through interfaces
+    - **Runtime**: Dynamic dependencies
+
+    ### DEPENDENCY GRAPH NOTATION
+    ```
+    A → B    A depends on B
+    A ⇄ B    Circular dependency (BAD)
+    A ⊳ B    A implements interface B
+    ```
+
+    ### IMPACT ANALYSIS
+    When changing symbol X:
+    ```
+    1. Find all direct dependents of X
+    2. For each dependent, find its dependents
+    3. Continue until no more dependents
+    4. Result: Full impact set
+    ```
+
+    ### SAFE CHANGE BOUNDARIES
+    - Private symbols: Safe to change freely
+    - Package-public: Check package consumers
+    - Module-public: Check all consumers
+    - Interface changes: Most impactful
+
+- id: "context/symbol/call_graph"
+  category: "context"
+  subcategory: "symbol"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## CALL GRAPH ANALYSIS
+
+    Understanding call relationships enables safe refactoring.
+
+    ### CALL GRAPH FORMAT
+    ```
+    main()
+    ├── app.Run()
+    │   ├── config.Load()
+    │   ├── db.Connect()
+    │   └── server.Start()
+    │       ├── handler.New()
+    │       └── http.ListenAndServe()
+    └── defer app.Shutdown()
+    ```
+
+    ### CALL GRAPH QUESTIONS
+    - What is the entry point?
+    - What are the leaf nodes (no further calls)?
+    - Are there cycles?
+    - What's the depth of the call tree?
+
+    ### CALL PATTERNS
+    | Pattern | Risk | Handling |
+    |---------|------|----------|
+    | Deep chain | Medium | May need simplification |
+    | Wide fan-out | Low | Check coordination |
+    | Cycle | High | Break the cycle |
+    | Recursion | Medium | Ensure termination |

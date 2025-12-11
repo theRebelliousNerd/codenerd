@@ -1,0 +1,131 @@
+# Knowledge Extraction Atoms
+# Knowledge extraction protocol from sources
+
+- id: "knowledge/extraction/protocol"
+  category: "knowledge"
+  subcategory: "extraction"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  content: |
+    ## KNOWLEDGE EXTRACTION PROTOCOL
+
+    Extract structured knowledge from unstructured sources.
+
+    ### EXTRACTION WORKFLOW
+    1. **Identify** source type (docs, code, API, etc.)
+    2. **Parse** content structure
+    3. **Extract** key concepts and relationships
+    4. **Classify** knowledge type
+    5. **Store** in appropriate format
+
+    ### KNOWLEDGE TYPES
+    - **Conceptual**: What something IS
+    - **Procedural**: How to DO something
+    - **Referential**: Where to FIND something
+    - **Relational**: How things CONNECT
+
+    ### EXTRACTION OUTPUT FORMAT
+    ```json
+    {
+      "source": "url or path",
+      "extracted_at": "timestamp",
+      "knowledge_items": [
+        {
+          "type": "conceptual",
+          "topic": "error handling",
+          "content": "...",
+          "confidence": 0.9
+        }
+      ]
+    }
+    ```
+
+- id: "knowledge/extraction/sources"
+  category: "knowledge"
+  subcategory: "extraction"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  content: |
+    ## KNOWLEDGE SOURCE HANDLING
+
+    ### DOCUMENTATION SOURCES
+    - **README.md**: Project overview, setup
+    - **API docs**: Endpoint definitions, schemas
+    - **Code comments**: Implementation details
+    - **Wiki/Confluence**: Design decisions
+
+    ### CODE AS KNOWLEDGE SOURCE
+    ```
+    Source: Function definition
+    Extract: Purpose, parameters, return values, errors
+    ```
+    ```
+    Source: Interface definition
+    Extract: Contract, methods, typical implementations
+    ```
+    ```
+    Source: Test files
+    Extract: Expected behavior, edge cases
+    ```
+
+    ### EXTERNAL SOURCES
+    - Official documentation sites
+    - Stack Overflow (verified answers)
+    - GitHub issues/discussions
+    - Blog posts (with caution)
+
+    ### SOURCE QUALITY SCORING
+    | Source Type | Trust Level |
+    |-------------|-------------|
+    | Official docs | High |
+    | Code/tests | High |
+    | Author blogs | Medium |
+    | Stack Overflow | Medium |
+    | Random blogs | Low |
+
+- id: "knowledge/extraction/atoms"
+  category: "knowledge"
+  subcategory: "extraction"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/researcher"]
+  content: |
+    ## KNOWLEDGE ATOM CREATION
+
+    Transform extracted knowledge into reusable atoms.
+
+    ### ATOM TEMPLATE
+    ```yaml
+    - id: "domain/{project}/{topic}"
+      category: "domain"
+      subcategory: "{topic}"
+      priority: 70
+      is_mandatory: false
+      content: |
+        ## {TOPIC_TITLE}
+
+        {Extracted and synthesized content}
+
+        ### Key Concepts
+        - {concept_1}
+        - {concept_2}
+
+        ### Usage Patterns
+        {code_examples}
+
+        ### Common Pitfalls
+        - {pitfall_1}
+    ```
+
+    ### ATOM QUALITY CRITERIA
+    - Self-contained (usable without context)
+    - Actionable (provides clear guidance)
+    - Accurate (verified against source)
+    - Concise (minimal but complete)
+
+    ### ATOM SIZING
+    - **Micro**: Single concept (50-100 tokens)
+    - **Standard**: Topic with examples (200-500 tokens)
+    - **Comprehensive**: Full guide (500-1000 tokens)

@@ -1,0 +1,129 @@
+# Large Refactor World State Atoms
+# Multi-file changes, migration strategies, rollback
+
+- id: "world_state/large_refactor/core"
+  category: "world_state"
+  subcategory: "large_refactor"
+  priority: 95
+  is_mandatory: true
+  world_states: ["large_refactor"]
+  content: |
+    ## LARGE REFACTOR MODE ACTIVE
+
+    This operation affects many files.
+    Proceed with extra caution.
+
+    ### LARGE REFACTOR PRINCIPLES
+    1. **Small Steps**: Break into reversible increments
+    2. **Test Frequently**: Verify after each step
+    3. **Commit Often**: Preserve rollback points
+    4. **Document Changes**: Track what was modified
+
+    ### REFACTOR SIZE THRESHOLDS
+    - **Small**: 1-3 files, < 50 lines
+    - **Medium**: 4-10 files, 50-200 lines
+    - **Large**: 10+ files, 200+ lines
+    - **Massive**: 50+ files, structural change
+
+    ### LARGE REFACTOR WORKFLOW
+    1. Create branch for changes
+    2. Write down the transformation plan
+    3. Execute in small, testable chunks
+    4. Run tests after each chunk
+    5. Review diff before committing
+    6. Squash or organize commits
+
+- id: "world_state/large_refactor/strategy"
+  category: "world_state"
+  subcategory: "large_refactor"
+  priority: 90
+  is_mandatory: false
+  world_states: ["large_refactor"]
+  depends_on: ["world_state/large_refactor/core"]
+  content: |
+    ## REFACTOR STRATEGIES
+
+    ### STRANGLER FIG PATTERN
+    Gradually replace old with new:
+    ```
+    1. Create new implementation alongside old
+    2. Route some traffic to new
+    3. Verify correctness
+    4. Route more traffic
+    5. Remove old implementation
+    ```
+
+    ### EXPAND-CONTRACT PATTERN
+    ```
+    1. EXPAND: Add new structure (keeping old)
+    2. MIGRATE: Update all consumers to use new
+    3. CONTRACT: Remove old structure
+    ```
+
+    ### PARALLEL CHANGE
+    ```go
+    // Step 1: Old function still works
+    func OldAPI(x int) int { return x * 2 }
+
+    // Step 2: Add new function
+    func NewAPI(x int) (int, error) { return x * 2, nil }
+
+    // Step 3: Update callers one by one
+    // Step 4: Deprecate OldAPI
+    // Step 5: Remove OldAPI
+    ```
+
+    ### BRANCH BY ABSTRACTION
+    1. Create abstraction layer
+    2. Implement for old code
+    3. Implement for new code
+    4. Switch implementations
+    5. Remove old implementation
+
+- id: "world_state/large_refactor/rollback"
+  category: "world_state"
+  subcategory: "large_refactor"
+  priority: 85
+  is_mandatory: false
+  world_states: ["large_refactor"]
+  content: |
+    ## ROLLBACK STRATEGY
+
+    ### COMMIT CHECKPOINTS
+    Create meaningful commits at safe points:
+    ```bash
+    git commit -m "refactor(step1): extract interface"
+    git commit -m "refactor(step2): implement new version"
+    git commit -m "refactor(step3): migrate consumers"
+    ```
+
+    ### ROLLBACK COMMANDS
+    ```bash
+    # Undo last commit (keep changes)
+    git reset --soft HEAD~1
+
+    # Undo last commit (discard changes)
+    git reset --hard HEAD~1
+
+    # Revert specific commit
+    git revert <commit-hash>
+
+    # Return to specific point
+    git reset --hard <commit-hash>
+    ```
+
+    ### FEATURE FLAGS
+    For risky changes, use feature flags:
+    ```go
+    if config.UseNewImplementation {
+        return newImplementation(ctx, args)
+    }
+    return oldImplementation(ctx, args)
+    ```
+
+    ### EMERGENCY ROLLBACK
+    If things go wrong:
+    1. `git stash` current work
+    2. `git checkout main`
+    3. Assess damage
+    4. Plan recovery

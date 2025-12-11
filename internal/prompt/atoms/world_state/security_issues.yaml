@@ -1,0 +1,115 @@
+# Security Issues World State Atoms
+# Vulnerability context, security-first coding
+
+- id: "world_state/security/core"
+  category: "world_state"
+  subcategory: "security"
+  priority: 100
+  is_mandatory: true
+  world_states: ["security_issues"]
+  content: |
+    ## SECURITY ISSUES DETECTED
+
+    The codebase has security concerns that require attention.
+    Security takes priority over features.
+
+    ### SECURITY PRIORITIES
+    1. **Critical**: Active vulnerabilities (fix immediately)
+    2. **High**: Potential exploits (fix in this session)
+    3. **Medium**: Defense weaknesses (fix soon)
+    4. **Low**: Hardening opportunities (fix when convenient)
+
+    ### SECURITY MINDSET
+    - Assume all input is malicious
+    - Validate at every boundary
+    - Fail closed (deny by default)
+    - Log security events
+    - Never trust client-side validation
+
+- id: "world_state/security/vulnerabilities"
+  category: "world_state"
+  subcategory: "security"
+  priority: 95
+  is_mandatory: false
+  world_states: ["security_issues"]
+  depends_on: ["world_state/security/core"]
+  content: |
+    ## VULNERABILITY PATTERNS
+
+    ### INJECTION ATTACKS
+    | Type | Vector | Defense |
+    |------|--------|---------|
+    | SQL Injection | User input in queries | Parameterized queries |
+    | Command Injection | User input in shell | Avoid shell, escape args |
+    | XSS | User input in HTML | Escape output, CSP |
+    | Path Traversal | User input in paths | Validate, canonicalize |
+
+    ### AUTHENTICATION ISSUES
+    - Weak passwords allowed
+    - Missing rate limiting
+    - Insecure session management
+    - Credential exposure in logs
+
+    ### AUTHORIZATION ISSUES
+    - Missing permission checks
+    - IDOR (Insecure Direct Object Reference)
+    - Privilege escalation paths
+    - Missing resource ownership validation
+
+    ### DATA EXPOSURE
+    - Secrets in code/config
+    - Sensitive data in logs
+    - Overly verbose error messages
+    - Unencrypted sensitive data
+
+- id: "world_state/security/fixes"
+  category: "world_state"
+  subcategory: "security"
+  priority: 90
+  is_mandatory: false
+  world_states: ["security_issues"]
+  content: |
+    ## SECURITY FIX PATTERNS
+
+    ### SQL INJECTION FIX
+    ```go
+    // BAD
+    query := "SELECT * FROM users WHERE id = " + userInput
+
+    // GOOD
+    query := "SELECT * FROM users WHERE id = $1"
+    db.Query(query, userInput)
+    ```
+
+    ### COMMAND INJECTION FIX
+    ```go
+    // BAD
+    exec.Command("sh", "-c", "echo " + userInput)
+
+    // GOOD
+    exec.Command("echo", userInput)  // No shell
+    ```
+
+    ### PATH TRAVERSAL FIX
+    ```go
+    // BAD
+    path := filepath.Join(baseDir, userInput)
+
+    // GOOD
+    path := filepath.Join(baseDir, filepath.Clean(userInput))
+    if !strings.HasPrefix(path, baseDir) {
+        return ErrInvalidPath
+    }
+    ```
+
+    ### SECRET HANDLING
+    ```go
+    // BAD
+    apiKey := "sk_live_abc123"
+
+    // GOOD
+    apiKey := os.Getenv("API_KEY")
+    if apiKey == "" {
+        return errors.New("API_KEY not set")
+    }
+    ```

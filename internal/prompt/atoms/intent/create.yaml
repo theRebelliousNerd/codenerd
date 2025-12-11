@@ -1,0 +1,144 @@
+# Create Intent Verb Atoms
+# New file/feature creation, scaffolding, templates
+
+- id: "intent/create/core"
+  category: "intent"
+  subcategory: "create"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/create"]
+  content: |
+    ## CREATE INTENT PROTOCOL
+
+    Your intent is to CREATE - bring new code into existence.
+
+    ### CREATE PHILOSOPHY
+    New code should fit seamlessly into the existing codebase.
+    Follow established patterns, conventions, and structure.
+
+    ### CREATE WORKFLOW
+    1. **Analyze** existing patterns in the codebase
+    2. **Plan** the structure and interfaces
+    3. **Create** files following project conventions
+    4. **Integrate** with existing code
+    5. **Test** the new functionality
+
+    ### PRE-CREATE CHECKLIST
+    - [ ] Understand similar existing code
+    - [ ] Know the directory structure conventions
+    - [ ] Identify interfaces to implement
+    - [ ] Know the naming conventions
+    - [ ] Plan test coverage
+
+- id: "intent/create/scaffolding"
+  category: "intent"
+  subcategory: "create"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/create"]
+  depends_on: ["intent/create/core"]
+  content: |
+    ## SCAFFOLDING PATTERNS
+
+    ### NEW PACKAGE
+    ```go
+    // internal/newpkg/newpkg.go
+    package newpkg
+
+    // Package documentation goes here.
+    // Explain the purpose and how to use it.
+
+    // New creates a new instance of Service.
+    func New(deps Dependencies) *Service {
+        return &Service{deps: deps}
+    }
+
+    // Service provides newpkg functionality.
+    type Service struct {
+        deps Dependencies
+    }
+    ```
+
+    ### NEW INTERFACE IMPLEMENTATION
+    ```go
+    // 1. Define interface (if not existing)
+    type Repository interface {
+        Get(ctx context.Context, id string) (*Entity, error)
+        Save(ctx context.Context, e *Entity) error
+    }
+
+    // 2. Implement
+    type sqlRepository struct {
+        db *sql.DB
+    }
+
+    // 3. Compile-time verification
+    var _ Repository = (*sqlRepository)(nil)
+
+    func NewSQLRepository(db *sql.DB) Repository {
+        return &sqlRepository{db: db}
+    }
+    ```
+
+    ### NEW HANDLER
+    ```go
+    // internal/transport/http/new_handler.go
+    type NewHandler struct {
+        svc *service.NewService
+    }
+
+    func NewNewHandler(svc *service.NewService) *NewHandler {
+        return &NewHandler{svc: svc}
+    }
+
+    func (h *NewHandler) Handle(w http.ResponseWriter, r *http.Request) {
+        // Parse → Validate → Execute → Respond
+    }
+    ```
+
+- id: "intent/create/conventions"
+  category: "intent"
+  subcategory: "create"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/create"]
+  content: |
+    ## CREATION CONVENTIONS
+
+    ### FILE NAMING
+    - Go: `snake_case.go`
+    - Test: `snake_case_test.go`
+    - Internal: `internal/pkg/`
+    - Command: `cmd/name/main.go`
+
+    ### TYPE NAMING
+    - Interfaces: `-er` suffix (Reader, Writer, Handler)
+    - Implementations: descriptive (FileReader, HTTPHandler)
+    - Options: `Option` or `Config` suffix
+
+    ### FUNCTION NAMING
+    - Constructors: `New` + TypeName
+    - Getters: Just the field name (not `Get`)
+    - Setters: `Set` + FieldName (if needed)
+    - Boolean getters: `Is` or `Has` prefix
+
+    ### PACKAGE STRUCTURE
+    ```
+    internal/newfeature/
+    ├── newfeature.go      # Main types and New()
+    ├── newfeature_test.go # Tests
+    ├── options.go         # Configuration options
+    ├── errors.go          # Package-specific errors
+    └── doc.go             # Package documentation
+    ```
+
+    ### DOCUMENTATION
+    ```go
+    // Package newfeature provides functionality for X.
+    //
+    // Example usage:
+    //
+    //     svc := newfeature.New(deps)
+    //     result, err := svc.Process(ctx, input)
+    package newfeature
+    ```

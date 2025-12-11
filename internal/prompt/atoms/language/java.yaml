@@ -1,0 +1,187 @@
+# Java Language Atoms
+# Java patterns, Spring conventions, Maven/Gradle
+
+- id: "language/java/core"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  languages: ["/java"]
+  content: |
+    ## JAVA LANGUAGE PATTERNS
+
+    ### JAVA CONVENTIONS
+    - Classes: `PascalCase`
+    - Methods/variables: `camelCase`
+    - Constants: `SCREAMING_SNAKE_CASE`
+    - Packages: `all.lowercase`
+
+    ### CLASS STRUCTURE
+    ```java
+    package com.example.service;
+
+    import java.util.List;
+    import java.util.Optional;
+
+    public class UserService {
+        private final UserRepository repository;
+
+        public UserService(UserRepository repository) {
+            this.repository = repository;
+        }
+
+        public Optional<User> findById(Long id) {
+            return repository.findById(id);
+        }
+
+        public User save(User user) {
+            validateUser(user);
+            return repository.save(user);
+        }
+
+        private void validateUser(User user) {
+            if (user.getName() == null || user.getName().isBlank()) {
+                throw new IllegalArgumentException("Name is required");
+            }
+        }
+    }
+    ```
+
+    ### EXCEPTION HANDLING
+    ```java
+    public User getUser(Long id) {
+        return repository.findById(id)
+            .orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    // Custom exception
+    public class UserNotFoundException extends RuntimeException {
+        public UserNotFoundException(Long id) {
+            super("User not found: " + id);
+        }
+    }
+    ```
+
+- id: "language/java/spring"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  languages: ["/java"]
+  frameworks: ["/spring"]
+  content: |
+    ## SPRING BOOT PATTERNS
+
+    ### CONTROLLER
+    ```java
+    @RestController
+    @RequestMapping("/api/users")
+    public class UserController {
+        private final UserService service;
+
+        public UserController(UserService service) {
+            this.service = service;
+        }
+
+        @GetMapping("/{id}")
+        public ResponseEntity<User> getUser(@PathVariable Long id) {
+            return service.findById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+        }
+
+        @PostMapping
+        public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
+            User user = service.create(request);
+            return ResponseEntity.created(URI.create("/api/users/" + user.getId()))
+                .body(user);
+        }
+    }
+    ```
+
+    ### SERVICE
+    ```java
+    @Service
+    @Transactional
+    public class UserService {
+        private final UserRepository repository;
+
+        @Autowired
+        public UserService(UserRepository repository) {
+            this.repository = repository;
+        }
+    }
+    ```
+
+    ### REPOSITORY
+    ```java
+    @Repository
+    public interface UserRepository extends JpaRepository<User, Long> {
+        Optional<User> findByEmail(String email);
+        List<User> findByStatusOrderByCreatedAtDesc(UserStatus status);
+    }
+    ```
+
+- id: "language/java/build"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  languages: ["/java"]
+  content: |
+    ## JAVA BUILD TOOLS
+
+    ### MAVEN (pom.xml)
+    ```xml
+    <project>
+        <groupId>com.example</groupId>
+        <artifactId>my-app</artifactId>
+        <version>1.0.0</version>
+
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-web</artifactId>
+            </dependency>
+        </dependencies>
+
+        <build>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                </plugin>
+            </plugins>
+        </build>
+    </project>
+    ```
+
+    ### GRADLE (build.gradle)
+    ```groovy
+    plugins {
+        id 'java'
+        id 'org.springframework.boot' version '3.2.0'
+    }
+
+    dependencies {
+        implementation 'org.springframework.boot:spring-boot-starter-web'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+    ```
+
+    ### COMMON COMMANDS
+    ```bash
+    # Maven
+    mvn clean install
+    mvn spring-boot:run
+    mvn test
+
+    # Gradle
+    ./gradlew build
+    ./gradlew bootRun
+    ./gradlew test
+    ```

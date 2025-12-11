@@ -1,0 +1,114 @@
+# High Churn World State Atoms
+# Frequently modified code, stability concerns
+
+- id: "world_state/high_churn/core"
+  category: "world_state"
+  subcategory: "high_churn"
+  priority: 90
+  is_mandatory: true
+  world_states: ["high_churn"]
+  content: |
+    ## HIGH CHURN AREA DETECTED
+
+    This code changes frequently - a sign of instability or complexity.
+    Tread carefully.
+
+    ### HIGH CHURN INDICATORS
+    - Many recent commits to same file
+    - Frequent bug fixes in area
+    - Multiple authors with conflicting styles
+    - Unclear responsibility boundaries
+
+    ### HIGH CHURN RESPONSE
+    1. **Understand** why this area churns
+    2. **Stabilize** with tests before changing
+    3. **Refactor** if the churn is due to poor design
+    4. **Document** decisions to reduce future churn
+    5. **Monitor** after changes
+
+    ### CHURN REDUCTION STRATEGIES
+    - Extract stable core from volatile parts
+    - Add comprehensive test coverage
+    - Clarify ownership and responsibilities
+    - Document architectural decisions
+    - Consider freezing for stabilization
+
+- id: "world_state/high_churn/analysis"
+  category: "world_state"
+  subcategory: "high_churn"
+  priority: 85
+  is_mandatory: false
+  world_states: ["high_churn"]
+  depends_on: ["world_state/high_churn/core"]
+  content: |
+    ## CHURN ANALYSIS
+
+    ### MEASURING CHURN
+    ```bash
+    # Files with most commits
+    git log --format=format: --name-only | sort | uniq -c | sort -rn | head -20
+
+    # Recent changes to file
+    git log --oneline -20 -- path/to/file.go
+
+    # Authors of file
+    git shortlog -sn -- path/to/file.go
+    ```
+
+    ### CHURN PATTERNS
+    | Pattern | Meaning | Action |
+    |---------|---------|--------|
+    | Bug fix churn | Area has bugs | Add tests, review logic |
+    | Feature churn | Requirements unclear | Stabilize requirements |
+    | Refactor churn | Design issues | Major refactor needed |
+    | Style churn | No standards | Establish conventions |
+
+    ### ROOT CAUSE QUESTIONS
+    - Is the code too coupled?
+    - Are responsibilities unclear?
+    - Are there hidden dependencies?
+    - Is the interface unstable?
+    - Are tests inadequate?
+
+- id: "world_state/high_churn/stabilization"
+  category: "world_state"
+  subcategory: "high_churn"
+  priority: 80
+  is_mandatory: false
+  world_states: ["high_churn"]
+  content: |
+    ## STABILIZATION PROTOCOL
+
+    ### BEFORE MODIFYING HIGH-CHURN CODE
+    1. Read recent commit history
+    2. Understand why changes were made
+    3. Identify any patterns or anti-patterns
+    4. Ensure adequate test coverage
+    5. Make minimal changes
+
+    ### TEST COVERAGE FIRST
+    Before changing high-churn code:
+    ```go
+    // Add characterization tests
+    func TestCurrentBehavior(t *testing.T) {
+        // Document what the code currently does
+        // Not what it should do
+        result := functionUnderTest(input)
+        assert.Equal(t, "current output", result)
+    }
+    ```
+
+    ### INCREMENTAL STABILIZATION
+    ```
+    Week 1: Add monitoring/logging
+    Week 2: Add comprehensive tests
+    Week 3: Minor cleanups
+    Week 4: Evaluate for larger refactor
+    ```
+
+    ### CHURN FREEZE
+    For critical high-churn areas:
+    - Require additional review
+    - Require test coverage increase
+    - Document reason for every change
+    - Consider feature flag for changes

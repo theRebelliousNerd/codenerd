@@ -1,0 +1,141 @@
+# Domain Core Build Layer Atoms
+# Core business logic, domain models, value objects
+
+- id: "build_layer/domain_core/principles"
+  category: "build_layer"
+  subcategory: "domain_core"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/domain_core"]
+  content: |
+    ## DOMAIN CORE LAYER PROTOCOL
+
+    You are operating in the domain core layer - the heart of business logic.
+    This layer is technology-agnostic and framework-independent.
+
+    ### DOMAIN CORE PRINCIPLES
+    1. **No External Dependencies**: Domain knows nothing of HTTP, DB, or frameworks
+    2. **Rich Domain Models**: Behavior lives with data
+    3. **Value Objects**: Immutable, identity by value
+    4. **Entities**: Mutable, identity by ID
+    5. **Aggregates**: Consistency boundaries
+
+    ### DOMAIN STRUCTURE
+    ```
+    internal/domain/
+    ├── user/           # User aggregate
+    │   ├── user.go     # Entity + behavior
+    │   ├── email.go    # Value object
+    │   └── events.go   # Domain events
+    ├── order/          # Order aggregate
+    └── shared/         # Shared value objects
+    ```
+
+- id: "build_layer/domain_core/entities"
+  category: "build_layer"
+  subcategory: "domain_core"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/domain_core"]
+  depends_on: ["build_layer/domain_core/principles"]
+  content: |
+    ## ENTITY PATTERNS
+
+    ### ENTITY DEFINITION
+    ```go
+    // internal/domain/user/user.go
+    package user
+
+    import "errors"
+
+    type User struct {
+        id       UserID
+        email    Email
+        name     string
+        status   Status
+        version  int
+    }
+
+    func NewUser(email Email, name string) (*User, error) {
+        if name == "" {
+            return nil, errors.New("name cannot be empty")
+        }
+        return &User{
+            id:      NewUserID(),
+            email:   email,
+            name:    name,
+            status:  StatusActive,
+            version: 1,
+        }, nil
+    }
+
+    // Behavior belongs to entity
+    func (u *User) Deactivate() error {
+        if u.status == StatusDeactivated {
+            return errors.New("user already deactivated")
+        }
+        u.status = StatusDeactivated
+        u.version++
+        return nil
+    }
+
+    // ID is immutable, only getter
+    func (u *User) ID() UserID { return u.id }
+    ```
+
+    ### INVARIANT ENFORCEMENT
+    - All mutations through methods
+    - Methods validate invariants before state change
+    - Invalid states are unrepresentable
+
+- id: "build_layer/domain_core/value_objects"
+  category: "build_layer"
+  subcategory: "domain_core"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/domain_core"]
+  content: |
+    ## VALUE OBJECT PATTERNS
+
+    ### VALUE OBJECT DEFINITION
+    ```go
+    // internal/domain/user/email.go
+    package user
+
+    import (
+        "errors"
+        "regexp"
+        "strings"
+    )
+
+    var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+    type Email struct {
+        value string
+    }
+
+    func NewEmail(s string) (Email, error) {
+        normalized := strings.ToLower(strings.TrimSpace(s))
+        if !emailRegex.MatchString(normalized) {
+            return Email{}, errors.New("invalid email format")
+        }
+        return Email{value: normalized}, nil
+    }
+
+    func (e Email) String() string { return e.value }
+    func (e Email) Domain() string {
+        parts := strings.Split(e.value, "@")
+        return parts[1]
+    }
+
+    // Value objects are compared by value
+    func (e Email) Equals(other Email) bool {
+        return e.value == other.value
+    }
+    ```
+
+    ### VALUE OBJECT RULES
+    - Immutable after creation
+    - Validated at construction
+    - Equality by value, not reference
+    - Can have derived behavior

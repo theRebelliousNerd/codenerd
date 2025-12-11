@@ -1,0 +1,114 @@
+# Research Intent Verb Atoms
+# Codebase exploration, documentation search, API discovery
+
+- id: "intent/research/core"
+  category: "intent"
+  subcategory: "research"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/research"]
+  content: |
+    ## RESEARCH INTENT PROTOCOL
+
+    Your intent is to RESEARCH - gather information before action.
+
+    ### RESEARCH PHILOSOPHY
+    Understanding precedes modification.
+    Read more code than you write.
+    Map the territory before changing it.
+
+    ### RESEARCH WORKFLOW
+    1. **Question** - What do I need to know?
+    2. **Locate** - Where is this information?
+    3. **Read** - Understand the code/docs
+    4. **Map** - Build mental model of relationships
+    5. **Synthesize** - Form actionable insights
+
+    ### RESEARCH QUESTIONS
+    - How does X work?
+    - Where is Y defined?
+    - What calls Z?
+    - What does A depend on?
+    - How is B tested?
+
+- id: "intent/research/exploration"
+  category: "intent"
+  subcategory: "research"
+  priority: 90
+  is_mandatory: false
+  intent_verbs: ["/research"]
+  depends_on: ["intent/research/core"]
+  content: |
+    ## CODEBASE EXPLORATION
+
+    ### FINDING DEFINITIONS
+    - `grep -r "func FunctionName"` - Function definition
+    - `grep -r "type TypeName"` - Type definition
+    - `grep -r "package name"` - Package location
+
+    ### FINDING USAGES
+    - `grep -r "FunctionName("` - Function calls
+    - `grep -r "TypeName{"` - Type instantiation
+    - `grep -r ".MethodName("` - Method calls
+
+    ### UNDERSTANDING FLOW
+    1. Start at entry point (main, handler)
+    2. Follow the call chain
+    3. Note interfaces and implementations
+    4. Map data transformations
+
+    ### DEPENDENCY MAPPING
+    ```
+    Function A
+    ├── calls B
+    │   └── calls C
+    └── calls D
+        ├── calls E
+        └── calls F
+    ```
+
+    ### KEY QUESTIONS TO ANSWER
+    - What are the public APIs?
+    - What are the main abstractions?
+    - Where are the side effects?
+    - What invariants are maintained?
+
+- id: "intent/research/documentation"
+  category: "intent"
+  subcategory: "research"
+  priority: 85
+  is_mandatory: false
+  intent_verbs: ["/research"]
+  content: |
+    ## DOCUMENTATION RESEARCH
+
+    ### DOCUMENTATION SOURCES
+    1. **README.md** - Project overview
+    2. **CLAUDE.md** - AI-specific instructions
+    3. **Package docs** - `doc.go` files
+    4. **Inline comments** - Implementation details
+    5. **Test files** - Usage examples
+
+    ### EXTERNAL DOCUMENTATION
+    - Go docs: `go doc package/path`
+    - Official sites: pkg.go.dev, docs.rs, etc.
+    - Source code: When docs are unclear
+
+    ### API DISCOVERY
+    ```go
+    // List exported symbols
+    go doc -all package/path
+
+    // Show specific function
+    go doc package/path.FunctionName
+
+    // Show examples
+    go doc -ex package/path
+    ```
+
+    ### SYNTHESIZING FINDINGS
+    After research, document:
+    - **What** - Key facts discovered
+    - **Where** - File locations
+    - **How** - Patterns and conventions
+    - **Why** - Design rationale (if found)

@@ -1,0 +1,211 @@
+# Lipgloss Framework Atoms
+# Terminal styling with Lipgloss
+
+- id: "framework/lipgloss/basics"
+  category: "framework"
+  subcategory: "lipgloss"
+  priority: 90
+  is_mandatory: false
+  languages: ["/go"]
+  frameworks: ["/lipgloss"]
+  content: |
+    ## LIPGLOSS BASICS
+
+    Lipgloss provides declarative terminal styling.
+
+    ### STYLE DEFINITION
+    ```go
+    import "github.com/charmbracelet/lipgloss"
+
+    var (
+        // Basic style
+        titleStyle = lipgloss.NewStyle().
+            Bold(true).
+            Foreground(lipgloss.Color("205")).
+            MarginLeft(2)
+
+        // With background
+        highlightStyle = lipgloss.NewStyle().
+            Background(lipgloss.Color("62")).
+            Foreground(lipgloss.Color("230")).
+            Padding(0, 1)
+
+        // Border style
+        boxStyle = lipgloss.NewStyle().
+            Border(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("63")).
+            Padding(1, 2)
+    )
+    ```
+
+    ### APPLYING STYLES
+    ```go
+    // Render styled text
+    title := titleStyle.Render("Hello, World!")
+
+    // Chain rendering
+    content := boxStyle.Render(
+        titleStyle.Render("Title") + "\n" +
+        bodyStyle.Render("Content here"),
+    )
+
+    fmt.Println(content)
+    ```
+
+    ### COLORS
+    ```go
+    // ANSI colors (0-15)
+    lipgloss.Color("1")  // Red
+
+    // 256 colors (0-255)
+    lipgloss.Color("205")  // Pink
+
+    // True color (hex)
+    lipgloss.Color("#FF5733")
+
+    // Adaptive (light/dark mode)
+    lipgloss.AdaptiveColor{Light: "236", Dark: "248"}
+    ```
+
+- id: "framework/lipgloss/layout"
+  category: "framework"
+  subcategory: "lipgloss"
+  priority: 85
+  is_mandatory: false
+  languages: ["/go"]
+  frameworks: ["/lipgloss"]
+  content: |
+    ## LIPGLOSS LAYOUT
+
+    ### JOINING ELEMENTS
+    ```go
+    // Horizontal join
+    row := lipgloss.JoinHorizontal(
+        lipgloss.Top,
+        leftPanel.Render("Left"),
+        rightPanel.Render("Right"),
+    )
+
+    // Vertical join
+    col := lipgloss.JoinVertical(
+        lipgloss.Left,
+        header.Render("Header"),
+        body.Render("Body"),
+        footer.Render("Footer"),
+    )
+    ```
+
+    ### PLACING ELEMENTS
+    ```go
+    // Place at position
+    result := lipgloss.Place(
+        80,  // width
+        24,  // height
+        lipgloss.Center,  // horizontal
+        lipgloss.Center,  // vertical
+        content,
+    )
+    ```
+
+    ### SIZING
+    ```go
+    // Fixed width
+    style := lipgloss.NewStyle().
+        Width(40).
+        MaxWidth(80)
+
+    // Fixed height
+    style := lipgloss.NewStyle().
+        Height(10).
+        MaxHeight(20)
+
+    // Get dimensions
+    width := lipgloss.Width(rendered)
+    height := lipgloss.Height(rendered)
+    ```
+
+- id: "framework/lipgloss/components"
+  category: "framework"
+  subcategory: "lipgloss"
+  priority: 80
+  is_mandatory: false
+  languages: ["/go"]
+  frameworks: ["/lipgloss"]
+  content: |
+    ## LIPGLOSS COMPONENT PATTERNS
+
+    ### REUSABLE STYLE COMPONENTS
+    ```go
+    // Style factory
+    func makeButton(label string, active bool) string {
+        style := lipgloss.NewStyle().
+            Padding(0, 2).
+            Border(lipgloss.RoundedBorder())
+
+        if active {
+            style = style.
+                Background(lipgloss.Color("62")).
+                Foreground(lipgloss.Color("230"))
+        } else {
+            style = style.
+                Foreground(lipgloss.Color("240"))
+        }
+
+        return style.Render(label)
+    }
+    ```
+
+    ### TABLE RENDERING
+    ```go
+    func renderTable(headers []string, rows [][]string) string {
+        headerStyle := lipgloss.NewStyle().
+            Bold(true).
+            BorderBottom(true).
+            BorderStyle(lipgloss.NormalBorder())
+
+        cellStyle := lipgloss.NewStyle().
+            Padding(0, 1)
+
+        // Render headers
+        var headerCells []string
+        for _, h := range headers {
+            headerCells = append(headerCells, headerStyle.Render(h))
+        }
+        header := lipgloss.JoinHorizontal(lipgloss.Top, headerCells...)
+
+        // Render rows
+        var renderedRows []string
+        renderedRows = append(renderedRows, header)
+        for _, row := range rows {
+            var cells []string
+            for _, cell := range row {
+                cells = append(cells, cellStyle.Render(cell))
+            }
+            renderedRows = append(renderedRows,
+                lipgloss.JoinHorizontal(lipgloss.Top, cells...))
+        }
+
+        return lipgloss.JoinVertical(lipgloss.Left, renderedRows...)
+    }
+    ```
+
+    ### STATUS INDICATORS
+    ```go
+    func statusDot(status string) string {
+        colors := map[string]string{
+            "success": "42",   // Green
+            "warning": "214",  // Orange
+            "error":   "196",  // Red
+            "pending": "240",  // Gray
+        }
+
+        color := colors[status]
+        if color == "" {
+            color = "240"
+        }
+
+        return lipgloss.NewStyle().
+            Foreground(lipgloss.Color(color)).
+            Render("●")
+    }
+    ```

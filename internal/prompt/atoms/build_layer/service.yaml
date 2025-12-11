@@ -1,0 +1,155 @@
+# Service Build Layer Atoms
+# Service layer, business rules, orchestration
+
+- id: "build_layer/service/principles"
+  category: "build_layer"
+  subcategory: "service"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/service"]
+  content: |
+    ## SERVICE LAYER PROTOCOL
+
+    You are operating in the service layer - application orchestration.
+    This layer coordinates domain operations and manages transactions.
+
+    ### SERVICE LAYER PRINCIPLES
+    1. **Use Case Orchestration**: One service method = one use case
+    2. **Transaction Boundaries**: Service methods define transaction scope
+    3. **Domain Delegation**: Business logic lives in domain, not service
+    4. **Input Validation**: DTOs validated at service boundary
+
+    ### SERVICE STRUCTURE
+    ```
+    internal/
+    ├── service/
+    │   ├── user_service.go    # User use cases
+    │   ├── order_service.go   # Order use cases
+    │   └── dto/               # Input/Output DTOs
+    └── domain/                # Domain logic
+    ```
+
+- id: "build_layer/service/patterns"
+  category: "build_layer"
+  subcategory: "service"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/service"]
+  depends_on: ["build_layer/service/principles"]
+  content: |
+    ## SERVICE PATTERNS
+
+    ### SERVICE DEFINITION
+    ```go
+    // internal/service/user_service.go
+    package service
+
+    import (
+        "context"
+        "project/internal/domain/user"
+    )
+
+    type UserService struct {
+        repo   user.Repository
+        hasher PasswordHasher
+        events EventPublisher
+    }
+
+    func NewUserService(repo user.Repository, hasher PasswordHasher, events EventPublisher) *UserService {
+        return &UserService{repo: repo, hasher: hasher, events: events}
+    }
+
+    // RegisterUser orchestrates user registration use case
+    func (s *UserService) RegisterUser(ctx context.Context, input RegisterUserInput) (*RegisterUserOutput, error) {
+        // 1. Validate input (service boundary)
+        if err := input.Validate(); err != nil {
+            return nil, fmt.Errorf("invalid input: %w", err)
+        }
+
+        // 2. Create domain objects
+        email, err := user.NewEmail(input.Email)
+        if err != nil {
+            return nil, fmt.Errorf("invalid email: %w", err)
+        }
+
+        // 3. Check business rules via domain
+        existing, _ := s.repo.FindByEmail(ctx, email)
+        if existing != nil {
+            return nil, ErrEmailAlreadyExists
+        }
+
+        // 4. Create and persist
+        u, err := user.NewUser(email, input.Name)
+        if err != nil {
+            return nil, fmt.Errorf("create user: %w", err)
+        }
+
+        if err := s.repo.Save(ctx, u); err != nil {
+            return nil, fmt.Errorf("save user: %w", err)
+        }
+
+        // 5. Publish events
+        s.events.Publish(ctx, user.UserRegisteredEvent{UserID: u.ID()})
+
+        return &RegisterUserOutput{ID: u.ID().String()}, nil
+    }
+    ```
+
+- id: "build_layer/service/dto"
+  category: "build_layer"
+  subcategory: "service"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/service"]
+  content: |
+    ## DTO PATTERNS
+
+    ### INPUT DTO
+    ```go
+    // internal/service/dto/user.go
+    package dto
+
+    import "errors"
+
+    type RegisterUserInput struct {
+        Email string `json:"email"`
+        Name  string `json:"name"`
+    }
+
+    func (i RegisterUserInput) Validate() error {
+        if i.Email == "" {
+            return errors.New("email is required")
+        }
+        if i.Name == "" {
+            return errors.New("name is required")
+        }
+        if len(i.Name) > 255 {
+            return errors.New("name too long")
+        }
+        return nil
+    }
+    ```
+
+    ### OUTPUT DTO
+    ```go
+    type RegisterUserOutput struct {
+        ID        string    `json:"id"`
+        Email     string    `json:"email"`
+        Name      string    `json:"name"`
+        CreatedAt time.Time `json:"created_at"`
+    }
+
+    func NewRegisterUserOutput(u *user.User) RegisterUserOutput {
+        return RegisterUserOutput{
+            ID:        u.ID().String(),
+            Email:     u.Email().String(),
+            Name:      u.Name(),
+            CreatedAt: u.CreatedAt(),
+        }
+    }
+    ```
+
+    ### DTO RULES
+    - Input DTOs: Validation methods
+    - Output DTOs: Factory functions from domain
+    - Never expose domain objects directly

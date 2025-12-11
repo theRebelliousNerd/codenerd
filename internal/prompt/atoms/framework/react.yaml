@@ -1,0 +1,213 @@
+# React Framework Atoms
+# React patterns, hooks, state management
+
+- id: "framework/react/components"
+  category: "framework"
+  subcategory: "react"
+  priority: 90
+  is_mandatory: false
+  languages: ["/javascript", "/typescript"]
+  frameworks: ["/react"]
+  content: |
+    ## REACT COMPONENT PATTERNS
+
+    ### FUNCTIONAL COMPONENT
+    ```tsx
+    interface UserCardProps {
+      user: User;
+      onSelect?: (user: User) => void;
+    }
+
+    export function UserCard({ user, onSelect }: UserCardProps) {
+      const handleClick = () => {
+        onSelect?.(user);
+      };
+
+      return (
+        <div className="user-card" onClick={handleClick}>
+          <img src={user.avatar} alt={user.name} />
+          <h3>{user.name}</h3>
+          <p>{user.email}</p>
+        </div>
+      );
+    }
+    ```
+
+    ### COMPONENT WITH STATE
+    ```tsx
+    export function Counter() {
+      const [count, setCount] = useState(0);
+
+      return (
+        <div>
+          <p>Count: {count}</p>
+          <button onClick={() => setCount(c => c + 1)}>
+            Increment
+          </button>
+        </div>
+      );
+    }
+    ```
+
+    ### CONTROLLED INPUT
+    ```tsx
+    export function SearchInput({ onSearch }: { onSearch: (q: string) => void }) {
+      const [query, setQuery] = useState('');
+
+      const handleSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        onSearch(query);
+      };
+
+      return (
+        <form onSubmit={handleSubmit}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search..."
+          />
+          <button type="submit">Search</button>
+        </form>
+      );
+    }
+    ```
+
+- id: "framework/react/hooks"
+  category: "framework"
+  subcategory: "react"
+  priority: 85
+  is_mandatory: false
+  languages: ["/javascript", "/typescript"]
+  frameworks: ["/react"]
+  content: |
+    ## REACT HOOKS
+
+    ### useState
+    ```tsx
+    const [value, setValue] = useState(initialValue);
+    const [user, setUser] = useState<User | null>(null);
+    ```
+
+    ### useEffect
+    ```tsx
+    // Run on mount
+    useEffect(() => {
+      fetchData();
+    }, []);
+
+    // Run on dependency change
+    useEffect(() => {
+      fetchUser(userId);
+    }, [userId]);
+
+    // Cleanup
+    useEffect(() => {
+      const sub = subscribe();
+      return () => sub.unsubscribe();
+    }, []);
+    ```
+
+    ### useCallback
+    ```tsx
+    const handleClick = useCallback((id: string) => {
+      setSelected(id);
+    }, [setSelected]);
+    ```
+
+    ### useMemo
+    ```tsx
+    const sortedItems = useMemo(() => {
+      return items.sort((a, b) => a.name.localeCompare(b.name));
+    }, [items]);
+    ```
+
+    ### Custom Hook
+    ```tsx
+    function useUser(userId: string) {
+      const [user, setUser] = useState<User | null>(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState<Error | null>(null);
+
+      useEffect(() => {
+        setLoading(true);
+        fetchUser(userId)
+          .then(setUser)
+          .catch(setError)
+          .finally(() => setLoading(false));
+      }, [userId]);
+
+      return { user, loading, error };
+    }
+    ```
+
+- id: "framework/react/state"
+  category: "framework"
+  subcategory: "react"
+  priority: 80
+  is_mandatory: false
+  languages: ["/javascript", "/typescript"]
+  frameworks: ["/react"]
+  content: |
+    ## REACT STATE MANAGEMENT
+
+    ### CONTEXT API
+    ```tsx
+    // Create context
+    const UserContext = createContext<UserContextType | null>(null);
+
+    // Provider
+    export function UserProvider({ children }: { children: ReactNode }) {
+      const [user, setUser] = useState<User | null>(null);
+
+      const login = async (credentials: Credentials) => {
+        const user = await authService.login(credentials);
+        setUser(user);
+      };
+
+      return (
+        <UserContext.Provider value={{ user, login }}>
+          {children}
+        </UserContext.Provider>
+      );
+    }
+
+    // Hook
+    export function useUser() {
+      const context = useContext(UserContext);
+      if (!context) {
+        throw new Error('useUser must be used within UserProvider');
+      }
+      return context;
+    }
+    ```
+
+    ### REDUCER PATTERN
+    ```tsx
+    type State = { count: number; loading: boolean };
+    type Action =
+      | { type: 'increment' }
+      | { type: 'decrement' }
+      | { type: 'setLoading'; payload: boolean };
+
+    function reducer(state: State, action: Action): State {
+      switch (action.type) {
+        case 'increment':
+          return { ...state, count: state.count + 1 };
+        case 'decrement':
+          return { ...state, count: state.count - 1 };
+        case 'setLoading':
+          return { ...state, loading: action.payload };
+        default:
+          return state;
+      }
+    }
+
+    function Counter() {
+      const [state, dispatch] = useReducer(reducer, { count: 0, loading: false });
+      return (
+        <button onClick={() => dispatch({ type: 'increment' })}>
+          {state.count}
+        </button>
+      );
+    }
+    ```

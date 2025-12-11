@@ -1,0 +1,141 @@
+# Codebase Style Atoms
+# Style guide adherence, naming conventions
+
+- id: "domain/style/detection"
+  category: "domain"
+  subcategory: "style"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## STYLE DETECTION PROTOCOL
+
+    Detect and follow existing codebase style.
+
+    ### STYLE DIMENSIONS
+    - **Naming**: How things are named
+    - **Formatting**: How code is laid out
+    - **Organization**: How code is structured
+    - **Documentation**: How things are documented
+    - **Testing**: How tests are written
+
+    ### DETECTION STEPS
+    1. Read 3-5 similar files
+    2. Note recurring patterns
+    3. Identify explicit style guides
+    4. Check linter configuration
+    5. Follow the majority pattern
+
+    ### STYLE SIGNALS
+    ```go
+    // Naming style signals
+    getUserByID    // camelCase
+    get_user_by_id // snake_case
+    GetUserByID    // PascalCase (exported)
+
+    // Import style signals
+    import "single"
+    import (
+        "grouped"
+        "imports"
+    )
+
+    // Comment style signals
+    // Single line comment
+    /* Block comment */
+    // Package comment - first line of doc.go
+    ```
+
+- id: "domain/style/naming"
+  category: "domain"
+  subcategory: "style"
+  priority: 85
+  is_mandatory: false
+  content: |
+    ## NAMING CONVENTIONS
+
+    Names should be consistent with codebase patterns.
+
+    ### GO NAMING RULES
+    | Element | Convention | Example |
+    |---------|------------|---------|
+    | Package | short, lowercase | `user` |
+    | Interface | -er suffix | `Reader` |
+    | Struct | noun | `UserService` |
+    | Method | verb phrase | `GetByID` |
+    | Variable | short, clear | `ctx`, `err`, `u` |
+    | Constant | MixedCaps | `MaxRetries` |
+
+    ### CONTEXT-SPECIFIC NAMING
+    ```go
+    // Loop variables
+    for i, item := range items { }      // Standard
+    for _, user := range users { }       // Descriptive when needed
+
+    // Receivers
+    func (s *Service) Method() { }       // Short
+    func (svc *UserService) Method() { } // When ambiguous
+
+    // Error variables
+    err                                  // Single error
+    queryErr, validateErr                // Multiple errors
+    ```
+
+    ### ABBREVIATION RULES
+    - Use well-known abbreviations: `ctx`, `err`, `req`, `resp`
+    - Spell out domain terms: `user` not `u`, `order` not `o`
+    - Acronyms in caps: `userID`, `httpURL`, `xmlParser`
+
+- id: "domain/style/formatting"
+  category: "domain"
+  subcategory: "style"
+  priority: 80
+  is_mandatory: false
+  content: |
+    ## FORMATTING CONVENTIONS
+
+    Match existing code formatting exactly.
+
+    ### GO FORMATTING (gofmt)
+    Go has enforced formatting via `gofmt`:
+    - Tabs for indentation
+    - Specific brace placement
+    - Import grouping (stdlib, external, internal)
+
+    ### BEYOND GOFMT
+    Projects may have additional conventions:
+    ```go
+    // Import ordering (example)
+    import (
+        // Standard library
+        "context"
+        "fmt"
+
+        // External
+        "github.com/pkg/errors"
+
+        // Internal
+        "project/internal/user"
+    )
+
+    // Error message style
+    return fmt.Errorf("fetch user: %w", err)  // Lowercase, no period
+
+    // Struct field alignment (some projects)
+    type Config struct {
+        Host     string
+        Port     int
+        Timeout  time.Duration
+    }
+    ```
+
+    ### LINE LENGTH
+    - Go has no official limit
+    - Projects may set limits (80, 100, 120)
+    - Check existing code for patterns
+    - Break long lines thoughtfully
+
+    ### WHITESPACE
+    - Blank line between functions
+    - Blank line between logical blocks
+    - No trailing whitespace
+    - Single blank line at file end

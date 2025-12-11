@@ -1,0 +1,115 @@
+# New Files World State Atoms
+# New file detection, initial setup guidance
+
+- id: "world_state/new_files/core"
+  category: "world_state"
+  subcategory: "new_files"
+  priority: 90
+  is_mandatory: true
+  world_states: ["new_files"]
+  content: |
+    ## NEW FILES DETECTED
+
+    Untracked files exist in the working directory.
+    These need to be reviewed and integrated.
+
+    ### NEW FILE WORKFLOW
+    1. **Review** - Examine each new file
+    2. **Categorize** - Source, config, test, generated?
+    3. **Integrate** - Wire into build/imports
+    4. **Track** - Add to version control
+    5. **Test** - Verify integration works
+
+    ### NEW FILE CATEGORIES
+    - **Source Code**: Needs tests, documentation
+    - **Tests**: Needs to be run and pass
+    - **Config**: Needs environment handling
+    - **Generated**: May need .gitignore
+    - **Documentation**: Needs review for accuracy
+
+- id: "world_state/new_files/integration"
+  category: "world_state"
+  subcategory: "new_files"
+  priority: 85
+  is_mandatory: false
+  world_states: ["new_files"]
+  depends_on: ["world_state/new_files/core"]
+  content: |
+    ## NEW FILE INTEGRATION
+
+    ### GO FILE INTEGRATION
+    ```go
+    // 1. Package declaration matches directory
+    package correctpkg
+
+    // 2. Imports are correct and used
+    import "needed/package"
+
+    // 3. Exports follow conventions
+    // Public: Uppercase first letter
+    // Private: Lowercase first letter
+
+    // 4. Tests exist
+    // foo.go → foo_test.go
+    ```
+
+    ### INTEGRATION CHECKLIST
+    - [ ] Package name matches directory
+    - [ ] All imports resolve
+    - [ ] No circular dependencies
+    - [ ] Builds without errors
+    - [ ] Tests pass
+    - [ ] Added to git
+
+    ### COMMON ISSUES
+    | Issue | Symptom | Fix |
+    |-------|---------|-----|
+    | Wrong package | Import error | Fix package declaration |
+    | Missing import | Undefined error | Add import |
+    | Circular import | Import cycle | Refactor dependencies |
+    | Wrong directory | Can't find package | Move file |
+
+- id: "world_state/new_files/gitignore"
+  category: "world_state"
+  subcategory: "new_files"
+  priority: 80
+  is_mandatory: false
+  world_states: ["new_files"]
+  content: |
+    ## GITIGNORE DECISIONS
+
+    ### SHOULD BE TRACKED
+    - Source code (*.go, *.py, *.ts)
+    - Configuration templates (*.yaml.example)
+    - Documentation (*.md)
+    - Test files (*_test.go)
+    - Build scripts (Makefile, justfile)
+
+    ### SHOULD BE IGNORED
+    - Build artifacts (*.exe, *.bin)
+    - Dependencies (vendor/, node_modules/)
+    - IDE files (.idea/, .vscode/)
+    - Environment files (.env, *.local)
+    - Generated files (if reproducible)
+    - Secrets (*.pem, *.key)
+
+    ### GITIGNORE PATTERNS
+    ```gitignore
+    # Build artifacts
+    /bin/
+    *.exe
+
+    # Dependencies
+    /vendor/
+
+    # IDE
+    .idea/
+    .vscode/
+
+    # Environment
+    .env
+    .env.local
+
+    # Generated
+    *.gen.go
+    ```

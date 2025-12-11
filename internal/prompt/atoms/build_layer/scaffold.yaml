@@ -1,0 +1,130 @@
+# Scaffold Build Layer Atoms
+# Initial project structure, directory creation, boilerplate
+
+- id: "build_layer/scaffold/core"
+  category: "build_layer"
+  subcategory: "scaffold"
+  priority: 95
+  is_mandatory: true
+  build_layers: ["/scaffold"]
+  content: |
+    ## SCAFFOLD LAYER PROTOCOL
+
+    You are operating in the scaffold layer - the foundation of the codebase.
+    This layer establishes project structure before any business logic.
+
+    ### SCAFFOLD PRIORITIES
+    1. Directory structure mirrors architecture
+    2. Entry points are minimal and clear
+    3. Configuration is externalized
+    4. Dependencies are declared, not hardcoded
+
+    ### DIRECTORY CONVENTIONS
+    ```
+    cmd/            # Entry points only
+    internal/       # Private packages
+    pkg/            # Public packages (if needed)
+    configs/        # Configuration templates
+    scripts/        # Build/deploy scripts
+    ```
+
+    ### SCAFFOLD ARTIFACTS
+    - main.go: Minimal bootstrap, delegates to internal/
+    - go.mod: Dependency declaration
+    - Makefile/justfile: Build automation
+    - .gitignore: Standard ignores for language
+
+- id: "build_layer/scaffold/boilerplate"
+  category: "build_layer"
+  subcategory: "scaffold"
+  priority: 90
+  is_mandatory: false
+  build_layers: ["/scaffold"]
+  depends_on: ["build_layer/scaffold/core"]
+  content: |
+    ## BOILERPLATE GENERATION
+
+    ### GO PROJECT SCAFFOLD
+    ```go
+    // cmd/app/main.go
+    package main
+
+    import (
+        "context"
+        "os"
+        "os/signal"
+        "syscall"
+
+        "project/internal/app"
+    )
+
+    func main() {
+        ctx, cancel := signal.NotifyContext(context.Background(),
+            os.Interrupt, syscall.SIGTERM)
+        defer cancel()
+
+        if err := app.Run(ctx); err != nil {
+            os.Exit(1)
+        }
+    }
+    ```
+
+    ### INTERNAL APP BOOTSTRAP
+    ```go
+    // internal/app/app.go
+    package app
+
+    import "context"
+
+    func Run(ctx context.Context) error {
+        // Initialize dependencies
+        // Start services
+        // Wait for shutdown
+        <-ctx.Done()
+        return nil
+    }
+    ```
+
+- id: "build_layer/scaffold/config"
+  category: "build_layer"
+  subcategory: "scaffold"
+  priority: 85
+  is_mandatory: false
+  build_layers: ["/scaffold"]
+  content: |
+    ## CONFIGURATION SCAFFOLD
+
+    ### ENVIRONMENT-BASED CONFIG
+    Configuration flows: ENV > File > Defaults
+
+    ```go
+    // internal/config/config.go
+    package config
+
+    import "os"
+
+    type Config struct {
+        Port     string
+        LogLevel string
+        Database DatabaseConfig
+    }
+
+    func Load() (*Config, error) {
+        return &Config{
+            Port:     getEnv("PORT", "8080"),
+            LogLevel: getEnv("LOG_LEVEL", "info"),
+        }, nil
+    }
+
+    func getEnv(key, fallback string) string {
+        if v := os.Getenv(key); v != "" {
+            return v
+        }
+        return fallback
+    }
+    ```
+
+    ### CONFIG VALIDATION
+    - Validate required fields at startup
+    - Fail fast on invalid configuration
+    - Log loaded config (mask secrets)
