@@ -240,3 +240,11 @@ next_action(/initialize) :- system_heartbeat(_,/boot).
 # Autopoiesis-learned rule (added 2025-12-11 12:56:38)
 build_state(/starting).
 
+
+# Autopoiesis-learned rule (added 2025-12-11 13:46:07)
+selected_atom(/system_start) :- effective_prompt_atom(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-11 13:49:51)
+next_action(/system_start) :- session_state(_,_,/initializing).
+
