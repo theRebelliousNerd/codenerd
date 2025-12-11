@@ -474,7 +474,12 @@ func (c *Compressor) generateSummary(ctx context.Context, turns []CompressedTurn
 	sb.WriteString("\nSummary:")
 
 	logging.ContextDebug("Generating LLM summary for %d turns", len(turns))
-	resp, err := c.llmClient.Complete(ctx, sb.String())
+
+	// Set system context for trace attribution (routes through shard infrastructure)
+	sysCtx := perception.NewSystemLLMContext(c.llmClient, "compressor", "context-compression")
+	defer sysCtx.Clear()
+
+	resp, err := sysCtx.Complete(ctx, sb.String())
 	if err != nil {
 		return "", err
 	}

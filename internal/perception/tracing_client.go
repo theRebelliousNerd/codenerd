@@ -307,3 +307,61 @@ func CategoryFromShardType(typeName string) string {
 	// Everything else is a specialist (LLM-created or user-created)
 	return "specialist"
 }
+
+// SystemLLMContext provides a helper for non-shard system components to make
+// tracked LLM calls. This ensures proper logging attribution even for components
+// that operate outside the shard lifecycle (e.g., compressor, transducer, feedback loop).
+//
+// Usage:
+//
+//	ctx := perception.NewSystemLLMContext(client, "compressor", "context-compression")
+//	defer ctx.Clear()
+//	response, err := ctx.Complete(ctx, prompt)
+type SystemLLMContext struct {
+	client      LLMClient
+	componentID string
+	taskContext string
+	sessionID   string
+}
+
+// NewSystemLLMContext creates a context for a system component to make LLM calls.
+// componentID should identify the component (e.g., "compressor", "transducer", "feedback_loop")
+// taskContext describes the current operation (e.g., "context-compression", "intent-extraction")
+func NewSystemLLMContext(client LLMClient, componentID, taskContext string) *SystemLLMContext {
+	ctx := &SystemLLMContext{
+		client:      client,
+		componentID: componentID,
+		taskContext: taskContext,
+		sessionID:   fmt.Sprintf("system-%d", time.Now().UnixNano()),
+	}
+
+	// Set tracing context if client supports it
+	if tc, ok := client.(*TracingLLMClient); ok {
+		tc.SetShardContext(
+			fmt.Sprintf("system-%s-%d", componentID, time.Now().UnixNano()),
+			componentID,
+			"system",
+			ctx.sessionID,
+			taskContext,
+		)
+	}
+
+	return ctx
+}
+
+// Complete makes an LLM call with proper system context tracking.
+func (s *SystemLLMContext) Complete(ctx context.Context, prompt string) (string, error) {
+	return s.client.Complete(ctx, prompt)
+}
+
+// CompleteWithSystem makes an LLM call with system prompt and proper tracking.
+func (s *SystemLLMContext) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return s.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+// Clear clears the system context after operations complete.
+func (s *SystemLLMContext) Clear() {
+	if tc, ok := s.client.(*TracingLLMClient); ok {
+		tc.ClearShardContext()
+	}
+}

@@ -402,11 +402,6 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 	logging.PerceptionDebug("RealTransducer initialized with repair loop")
 	return t
 }
-
-// NOTE: PiggybackEnvelope, ControlPacket, IntentClassification, MemoryOperation,
-// and SelfCorrection are now type aliases to the canonical types in articulation package.
-// See the type aliases defined at the top of this file.
-
 // Cortex 1.5.0 Piggyback Protocol System Prompt
 // Updated with comprehensive verb taxonomy for reliable intent classification.
 //
