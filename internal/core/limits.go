@@ -30,7 +30,7 @@ type LimitsConfig struct {
 func DefaultLimitsConfig() LimitsConfig {
 	return LimitsConfig{
 		MaxTotalMemoryMB:      12288,  // 12GB RAM limit
-		MaxConcurrentShards:   4,      // Max 4 parallel shards
+		MaxConcurrentShards:   12,     // Max 12 parallel shards (7 system + 5 user)
 		MaxSessionDurationMin: 120,    // 2 hour sessions
 		MaxFactsInKernel:      250000, // Increase working-set ceiling with larger RAM
 		MaxDerivedFactsLimit:  100000, // Mangle gas limit scales with fact budget
