@@ -7,11 +7,14 @@ import (
 
 func TestToolRegistry_RegisterTool(t *testing.T) {
 	registry := NewToolRegistry(".")
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	registry.SetKernel(kernel)
 
 	// Register a tool
-	err := registry.RegisterTool("test_tool", "test_command", "/coder")
+	err = registry.RegisterTool("test_tool", "test_command", "/coder")
 	if err != nil {
 		t.Fatalf("RegisterTool failed: %v", err)
 	}
@@ -81,14 +84,17 @@ func TestToolRegistry_GetToolsForShard(t *testing.T) {
 
 func TestToolRegistry_UnregisterTool(t *testing.T) {
 	registry := NewToolRegistry(".")
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	registry.SetKernel(kernel)
 
 	// Register and then unregister
 	_ = registry.RegisterTool("temp_tool", "temp_cmd", "/all")
 	_ = kernel.Evaluate()
 
-	err := registry.UnregisterTool("temp_tool")
+	err = registry.UnregisterTool("temp_tool")
 	if err != nil {
 		t.Fatalf("UnregisterTool failed: %v", err)
 	}
@@ -102,7 +108,10 @@ func TestToolRegistry_UnregisterTool(t *testing.T) {
 
 func TestToolRegistry_RegisterToolWithInfo(t *testing.T) {
 	registry := NewToolRegistry(".")
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	registry.SetKernel(kernel)
 
 	tool := &Tool{
@@ -116,7 +125,7 @@ func TestToolRegistry_RegisterToolWithInfo(t *testing.T) {
 		ExecuteCount:  42,
 	}
 
-	err := registry.RegisterToolWithInfo(tool)
+	err = registry.RegisterToolWithInfo(tool)
 	if err != nil {
 		t.Fatalf("RegisterToolWithInfo failed: %v", err)
 	}

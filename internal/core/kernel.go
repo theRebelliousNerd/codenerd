@@ -89,7 +89,8 @@ func GetDefaultContent(path string) (string, error) {
 }
 
 // NewRealKernel creates a new kernel instance.
-func NewRealKernel() *RealKernel {
+// Returns an error if the embedded constitution fails to compile (e.g., corrupted binary).
+func NewRealKernel() (*RealKernel, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernel")
 	logging.Kernel("Initializing new RealKernel instance")
 
@@ -101,7 +102,10 @@ func NewRealKernel() *RealKernel {
 	logging.KernelDebug("Kernel struct created, store initialized, policyDirty=true")
 
 	// Find and load mangle files from the project
-	k.loadMangleFiles()
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
 
 	// Load the baked-in predicate corpus for validation
 	k.loadPredicateCorpus()
@@ -111,16 +115,18 @@ func NewRealKernel() *RealKernel {
 	logging.Kernel("Booting Mangle engine with embedded constitution...")
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed: %v", err)
-		panic(fmt.Sprintf("CRITICAL: Kernel failed to boot embedded constitution: %v", err))
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot embedded constitution: %w", err)
 	}
 
 	timer.StopWithInfo()
 	logging.Kernel("Kernel initialized successfully")
-	return k
+	return k, nil
 }
 
 // NewRealKernelWithPath creates a kernel with explicit mangle path.
-func NewRealKernelWithPath(manglePath string) *RealKernel {
+// Returns an error if the kernel fails to boot.
+func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernelWithPath")
 	logging.Kernel("Initializing RealKernel with explicit path: %s", manglePath)
 
@@ -132,7 +138,10 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 	}
 	logging.KernelDebug("Kernel struct created with manglePath=%s", manglePath)
 
-	k.loadMangleFiles()
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
 
 	// Load the baked-in predicate corpus for validation
 	k.loadPredicateCorpus()
@@ -141,12 +150,13 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 	logging.Kernel("Booting Mangle engine...")
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed (path: %s): %v", manglePath, err)
-		panic(fmt.Sprintf("CRITICAL: Kernel failed to boot (path: %s): %v", manglePath, err))
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot (path: %s): %w", manglePath, err)
 	}
 
 	timer.StopWithInfo()
 	logging.Kernel("Kernel with path initialized successfully")
-	return k
+	return k, nil
 }
 
 // SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
@@ -194,7 +204,8 @@ func (k *RealKernel) nerdPath(subpath string) string {
 }
 
 // loadMangleFiles loads schemas and policy from the embedded core and user extensions.
-func (k *RealKernel) loadMangleFiles() {
+// Returns an error if critical embedded files cannot be loaded.
+func (k *RealKernel) loadMangleFiles() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "loadMangleFiles")
 	logging.Kernel("Loading Mangle files (schemas, policy, learned rules)")
 
@@ -332,6 +343,7 @@ func (k *RealKernel) loadMangleFiles() {
 	timer.Stop()
 	logging.Kernel("Mangle files loaded: schemas=%d bytes, policy=%d bytes, learned=%d bytes",
 		len(k.schemas), len(k.policy), len(k.learned))
+	return nil
 }
 
 // loadPredicateCorpus loads the baked-in predicate corpus for validation.

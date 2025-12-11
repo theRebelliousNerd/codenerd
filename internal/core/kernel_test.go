@@ -5,7 +5,10 @@ import (
 )
 
 func TestNewRealKernel(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 	if kernel == nil {
 		t.Fatal("NewRealKernel() returned nil")
 	}
@@ -17,13 +20,16 @@ func TestNewRealKernel(t *testing.T) {
 }
 
 func TestKernelLoadFacts(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	facts := []Fact{
 		{Predicate: "test_state", Args: []interface{}{"/passing"}},
 	}
 
-	err := kernel.LoadFacts(facts)
+	err = kernel.LoadFacts(facts)
 	if err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)
 	}
@@ -34,21 +40,27 @@ func TestKernelLoadFacts(t *testing.T) {
 }
 
 func TestKernelAssert(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	fact := Fact{
 		Predicate: "retry_count",
 		Args:      []interface{}{int64(0)},
 	}
 
-	err := kernel.Assert(fact)
+	err = kernel.Assert(fact)
 	if err != nil {
 		t.Fatalf("Assert() error = %v", err)
 	}
 }
 
 func TestKernelQuery(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	// Load a fact
 	facts := []Fact{
@@ -56,7 +68,7 @@ func TestKernelQuery(t *testing.T) {
 		{Predicate: "retry_count", Args: []interface{}{int64(1)}},
 	}
 
-	err := kernel.LoadFacts(facts)
+	err = kernel.LoadFacts(facts)
 	if err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)
 	}
@@ -73,14 +85,17 @@ func TestKernelQuery(t *testing.T) {
 }
 
 func TestKernelQueryAll(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	facts := []Fact{
 		{Predicate: "test_state", Args: []interface{}{"/passing"}},
 		{Predicate: "retry_count", Args: []interface{}{int64(2)}},
 	}
 
-	err := kernel.LoadFacts(facts)
+	err = kernel.LoadFacts(facts)
 	if err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)
 	}
@@ -96,7 +111,10 @@ func TestKernelQueryAll(t *testing.T) {
 }
 
 func TestKernelRetract(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	// Load facts
 	facts := []Fact{
@@ -104,7 +122,7 @@ func TestKernelRetract(t *testing.T) {
 		{Predicate: "retry_count", Args: []interface{}{int64(1)}},
 	}
 
-	err := kernel.LoadFacts(facts)
+	err = kernel.LoadFacts(facts)
 	if err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)
 	}
@@ -122,7 +140,10 @@ func TestKernelRetract(t *testing.T) {
 }
 
 func TestKernelClear(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	facts := []Fact{
 		{Predicate: "test_state", Args: []interface{}{"/passing"}},
@@ -230,7 +251,10 @@ func TestFactToAtom(t *testing.T) {
 // correctly derives permitted/1 facts from safe_action/1 facts.
 // This is critical for the VirtualStore constitutional permission checks.
 func TestKernelPermissionDerivation(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
 
 	// Query the derived permitted predicate
 	permittedFacts, err := kernel.Query("permitted")

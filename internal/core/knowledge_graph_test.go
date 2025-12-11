@@ -127,7 +127,10 @@ func TestKnowledgeGraphEmptyDatabase(t *testing.T) {
 	defer db.Close()
 
 	// Create kernel and VirtualStore
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	vs := NewVirtualStore(nil)
 	vs.SetLocalDB(db)
 	vs.SetKernel(kernel)
@@ -147,7 +150,10 @@ func TestKnowledgeGraphEmptyDatabase(t *testing.T) {
 
 // TestKnowledgeGraphNoDatabase verifies graceful handling when no database is configured.
 func TestKnowledgeGraphNoDatabase(t *testing.T) {
-	kernel := NewRealKernel()
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
 	vs := NewVirtualStore(nil)
 	vs.SetKernel(kernel)
 	// Don't set LocalDB
