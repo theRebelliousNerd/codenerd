@@ -1,0 +1,643 @@
+# Mangle Complete Syntax Reference
+
+## Basic Structure
+
+### Source Unit
+
+A Mangle program consists of:
+1. **Package declarations** (optional)
+2. **Use declarations** (optional imports)
+3. **Predicate declarations**
+4. **Facts** (extensional database)
+5. **Rules** (intensional database)
+
+### Comments
+
+```mangle
+# This is a single-line comment
+# Comments start with # and continue to end of line
+
+# NOT SUPPORTED (not Mangle syntax):
+// C-style comment - INVALID
+/* Block comment - INVALID */
+```
+
+**Critical**: Only `#` is valid for comments.
+
+---
+
+## Declarations
+
+### Package Declaration
+
+```mangle
+Package my_package!
+```
+
+**Rules**:
+- One per source unit
+- Ends with `!`
+- Defines namespace for predicates
+
+### Use Declaration
+
+```mangle
+Use other_package!
+```
+
+**Rules**:
+- Imports predicates from other packages
+- Multiple use declarations allowed
+- Ends with `!`
+
+### Predicate Declaration
+
+```mangle
+Decl predicate_name(Arg1, Arg2, ..., ArgN).
+```
+
+**Notes**:
+- `Decl` is capitalized
+- Ends with period `.`
+- Arguments are type variables or type expressions
+
+**With Descriptors**:
+```mangle
+Decl predicate_name(Arg1, Arg2)
+  descr [
+    doc("Description of what this predicate does"),
+    mode(+, -),
+    extensional(),
+    fundep([/arg1], [/arg2])
+  ].
+```
+
+**With Type Bounds**:
+```mangle
+Decl person(Name, Age, City)
+  bounds [ /string, /number, /string ].
+```
+
+**Multiple Bounds**:
+```mangle
+Decl value(Val)
+  bounds [ /number ]
+  bounds [ /string ].
+```
+
+This means value can be number OR string.
+
+---
+
+## Constants
+
+### Names (Atoms)
+
+```mangle
+/atom_name
+/hierarchical/path/name
+/person/alice
+/color/red
+```
+
+**Rules**:
+- Start with `/`
+- Can contain letters, numbers, underscores
+- Case-sensitive
+- Hierarchical with `/` separator
+
+### Numbers
+
+```mangle
+42
+-17
+0
+999999999
+```
+
+**Rules**:
+- Decimal integers
+- Optional `-` sign
+- No underscores or separators
+- Range: int64 (-2^63 to 2^63-1)
+
+### Floats
+
+```mangle
+3.14
+-0.5
+1.0
+2.71828
+```
+
+**Rules**:
+- Must have decimal point
+- Optional `-` sign
+- Scientific notation likely supported (not documented)
+
+### Strings
+
+```mangle
+"Hello, world!"
+"Alice Smith"
+""
+"Path: /home/user/file.txt"
+```
+
+**Rules**:
+- Double quotes only (not single quotes)
+- Escape sequences (likely): `\"`, `\\`, `\n`, `\t`
+
+---
+
+## Variables
+
+```mangle
+X
+Y
+Person
+Value
+ResultList
+```
+
+**Rules**:
+- **UPPERCASE** first letter (critical)
+- Can contain letters, numbers, underscores
+- Case-sensitive
+
+**Anonymous Variable**:
+```mangle
+_
+```
+
+**Rules**:
+- Underscore alone
+- Represents "don't care"
+- Each `_` is distinct (don't unify with each other)
+
+---
+
+## Facts
+
+```mangle
+predicate_name(Const1, Const2, ..., ConstN).
+```
+
+**Examples**:
+```mangle
+person("Alice", 30, "NYC").
+parent(/alice, /bob).
+edge(/a, /b).
+color(/red).
+```
+
+**Rules**:
+- All arguments are constants
+- Ends with period `.`
+- Lowercase predicate name
+
+---
+
+## Rules
+
+### Basic Rule
+
+```mangle
+head(Args) :- body_atom_1(Args1), body_atom_2(Args2).
+```
+
+**Components**:
+- **Head**: Single atom (what's being defined)
+- `:-` Operator (if-sign)
+- **Body**: Comma-separated atoms (conditions)
+- Ends with period `.`
+
+**Example**:
+```mangle
+ancestor(X, Y) :- parent(X, Y).
+```
+
+### Multiple Body Atoms
+
+```mangle
+grandparent(X, Z) :-
+    parent(X, Y),
+    parent(Y, Z).
+```
+
+**Rules**:
+- Comma `,` means AND (conjunction)
+- All conditions must be satisfied
+
+### Negation
+
+```mangle
+unrelated(X, Y) :-
+    person(X),
+    person(Y),
+    not ancestor(X, Y),
+    not ancestor(Y, X).
+```
+
+**Rules**:
+- `not` keyword before atom
+- All variables in negated atom must be bound before the negation
+- Requires stratification (no cycles through negation)
+
+---
+
+## Equality and Inequality
+
+### Equality
+
+```mangle
+result(X) :- data(Y), X = Y.
+result(X) :- data(X), X = 42.
+```
+
+**Uses**:
+- Unification (bind variables)
+- Constant matching
+
+### Inequality
+
+```mangle
+different(X, Y) :- person(X), person(Y), X != Y.
+```
+
+**Rules**:
+- Both sides must be bound
+- Does NOT bind variables
+
+### Comparison
+
+```mangle
+adult(X) :- person(X), age(X, A), A >= 18.
+cheaper(X, Y) :- price(X, P1), price(Y, P2), P1 < P2.
+```
+
+**Operators**:
+- `<` - Less than
+- `<=` - Less than or equal
+- **Note**: No `>` or `>=` operators. Use flipped operands:
+  - `X > Y` → `Y < X`
+  - `X >= Y` → `Y <= X` or `not (X < Y)` after binding both
+
+---
+
+## Function Application
+
+```mangle
+result(R) :- a(X), b(Y), R = fn:plus(X, Y).
+```
+
+**Syntax**:
+- `fn:` prefix
+- Function name
+- Arguments in parentheses
+
+**Examples**:
+```mangle
+# Arithmetic
+sum(S) :- x(X), y(Y), S = fn:plus(X, Y).
+
+# String operations
+name(N) :- first(F), last(L), N = fn:string_concat(F, " ", L).
+
+# List construction
+list(L) :- L = fn:list(1, 2, 3).
+
+# Structured data
+person(P) :- P = {/name: "Alice", /age: 30}.
+```
+
+---
+
+## Pattern Matching
+
+### Pair Matching
+
+```mangle
+first_element(F) :- data(P), :match_pair(P, F, _).
+```
+
+### List Matching
+
+```mangle
+head(H) :- data(L), :match_cons(L, H, T).
+is_empty :- data(L), :match_nil(L).
+```
+
+### Map Matching
+
+```mangle
+age(A) :- person(M), :match_entry(M, /age, A).
+```
+
+### Struct Matching
+
+```mangle
+name(N) :- person(S), :match_field(S, /name, N).
+```
+
+---
+
+## Aggregation and Transforms
+
+### Transform Block
+
+```mangle
+result(R) :-
+    base_data(X)
+    |> do fn:group_by(GroupVar),
+       let R = fn:Aggregator(X).
+```
+
+**Components**:
+- `|>` - Pipe operator
+- `do fn:group_by(...)` - Grouping specification
+- `let Var = fn:Aggregator(...)` - Aggregator application
+
+### Examples
+
+```mangle
+# Total sum
+total(T) :-
+    item(X)
+    |> do fn:group_by(),
+       let T = fn:Sum(X).
+
+# Sum per category
+category_total(Cat, Total) :-
+    item(Cat, Value)
+    |> do fn:group_by(Cat),
+       let Total = fn:Sum(Value).
+
+# Multiple aggregators
+stats(Cat, Total, Avg, Count) :-
+    data(Cat, Value)
+    |> do fn:group_by(Cat),
+       let Total = fn:Sum(Value),
+       let Avg = fn:Avg(Value),
+       let Count = fn:Count().
+```
+
+**Available Aggregators**:
+- `fn:Sum(X)`, `fn:FloatSum(X)`
+- `fn:Max(X)`, `fn:Min(X)`, `fn:FloatMax(X)`, `fn:FloatMin(X)`
+- `fn:Avg(X)`
+- `fn:Count()`, `fn:CountDistinct(X)`
+- `fn:Collect(X)`, `fn:CollectDistinct(X)`
+- `fn:CollectToMap(K, V)`
+
+---
+
+## Recursive Rules
+
+```mangle
+# Base case
+ancestor(X, Y) :- parent(X, Y).
+
+# Recursive case
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+```
+
+**Rules**:
+- Must have base case (termination condition)
+- Recursive call should work on "smaller" inputs
+- Avoid unbounded recursion
+
+---
+
+## Multiple Rules for Same Predicate
+
+```mangle
+path(X, Y) :- edge(X, Y).
+path(X, Z) :- edge(X, Y), path(Y, Z).
+```
+
+**Semantics**:
+- Multiple rules create a UNION
+- `path` is true if ANY rule succeeds
+- All rules are evaluated
+
+---
+
+## Syntax Errors to Avoid
+
+### 1. Lowercase Variables
+
+```mangle
+# WRONG
+result(x) :- data(y).
+
+# RIGHT
+result(X) :- data(Y).
+```
+
+### 2. Missing Periods
+
+```mangle
+# WRONG
+result(X) :- data(X)  # Missing period
+
+# RIGHT
+result(X) :- data(X).
+```
+
+### 3. Atom vs String Confusion
+
+```mangle
+# WRONG - using string for atom
+person("alice", 30).  # If person expects name atom
+
+# RIGHT
+person(/alice, 30).
+```
+
+### 4. SQL-style Syntax
+
+```mangle
+# WRONG - SQL style
+.decl edge(x:number, y:number).  # Soufflé syntax
+
+# RIGHT - Mangle style
+Decl edge(X, Y)
+  bounds [ /number, /number ].
+```
+
+### 5. Inline Aggregation
+
+```mangle
+# WRONG - inline aggregation
+total(Sum) :- item(X), Sum = sum(X).  # SQL style
+
+# RIGHT - transform block
+total(Sum) :-
+    item(X)
+    |> do fn:group_by(),
+       let Sum = fn:Sum(X).
+```
+
+### 6. Assignment Syntax
+
+```mangle
+# WRONG - assignment
+X := 5.  # Not Mangle
+
+# RIGHT - unification
+X = 5.
+```
+
+---
+
+## Structured Data Syntax
+
+### Lists
+
+```mangle
+# Bracket notation (preferred)
+numbers([1, 2, 3, 4, 5]).
+
+# Function notation
+numbers(fn:list(1, 2, 3, 4, 5)).
+
+# Empty list
+empty([]).
+
+# Nested lists
+matrix([[1, 2], [3, 4]]).
+```
+
+### Maps
+
+```mangle
+# Bracket notation (preferred)
+person([/name: "Alice", /age: 30, /city: "NYC"]).
+
+# Function notation
+person(fn:map(/name, "Alice", /age, 30, /city, "NYC")).
+
+# Empty map
+empty([:]).
+```
+
+### Structs
+
+```mangle
+# Brace notation (preferred)
+person({/name: "Alice", /age: 30, /city: "NYC"}).
+
+# Function notation
+person(fn:struct(/name, "Alice", /age, 30, /city, "NYC")).
+```
+
+### Pairs
+
+```mangle
+# Function notation (only option)
+coordinate(fn:pair(10, 20)).
+
+# No bracket notation for pairs
+```
+
+### Tuples
+
+```mangle
+# Function notation (only option)
+rgb(fn:tuple(255, 128, 0)).
+
+# For 3+ elements only
+```
+
+---
+
+## Whitespace Rules
+
+**Flexible**: Whitespace is generally insignificant
+
+```mangle
+# All equivalent
+result(X) :- data(X).
+result(X):-data(X).
+result(X) :-
+    data(X).
+
+result(X) :-
+    data(X),
+    other(X).
+```
+
+**Conventions**:
+- One rule per line
+- Indent body atoms
+- Space around `:-`
+- Space after commas
+
+---
+
+## Complete Example
+
+```mangle
+# Package and imports
+Package genealogy!
+Use common_types!
+
+# Declarations
+Decl person(Name, Age).
+Decl parent(Person, Child).
+Decl ancestor(Person, Descendant).
+
+# Facts (EDB)
+person(/alice, 60).
+person(/bob, 35).
+person(/charlie, 10).
+
+parent(/alice, /bob).
+parent(/bob, /charlie).
+
+# Rules (IDB)
+ancestor(X, Y) :- parent(X, Y).
+ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).
+
+adult(P) :- person(P, Age), Age >= 18.
+
+# Complex rule with negation
+orphan(P) :-
+    person(P, _),
+    not parent(_, P).
+
+# Aggregation
+total_age(Total) :-
+    person(P, Age)
+    |> do fn:group_by(),
+       let Total = fn:Sum(Age).
+
+# Pattern matching
+full_name(Name) :-
+    person_record(R),
+    :match_field(R, /name, Name).
+```
+
+---
+
+## Syntax Summary Table
+
+| Construct | Syntax | Example |
+|-----------|--------|---------|
+| Comment | `#` | `# This is a comment` |
+| Declaration | `Decl pred(Args).` | `Decl person(Name, Age).` |
+| Fact | `pred(consts).` | `person("Alice", 30).` |
+| Rule | `head :- body.` | `ancestor(X,Y) :- parent(X,Y).` |
+| Negation | `not atom` | `not parent(X, Y)` |
+| Equality | `X = Y` | `X = 42` |
+| Inequality | `X != Y` | `X != Y` |
+| Comparison | `X < Y`, `X <= Y` | `Age >= 18` |
+| Function | `fn:name(args)` | `fn:plus(X, Y)` |
+| List | `[elems]` | `[1, 2, 3]` |
+| Map | `[k:v, ...]` | `[/a: 1, /b: 2]` |
+| Struct | `{l:v, ...}` | `{/x: 1, /y: 2}` |
+| Transform | `\|> do ...` | `\|> do fn:group_by()` |
+| Variable | `UPPERCASE` | `X`, `Result` |
+| Atom | `/lowercase` | `/alice`, `/red` |
+| String | `"text"` | `"Hello"` |
