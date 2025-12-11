@@ -77,6 +77,9 @@ type ToolGenerator struct {
 	// JIT prompt compilation support
 	promptAssembler *articulation.PromptAssembler
 	jitEnabled      bool
+
+	// Learnings injection - aggregated patterns from past tool generation
+	learningsContext string
 }
 
 // NewToolGenerator creates a new tool generator
@@ -86,6 +89,15 @@ func NewToolGenerator(client LLMClient, toolsDir string) *ToolGenerator {
 		client:        client,
 		toolsDir:      toolsDir,
 		existingTools: make(map[string]ToolSchema),
+	}
+}
+
+// SetLearningsContext injects aggregated learnings from past tool generation.
+// These learnings are added to generation prompts to improve future tools.
+func (tg *ToolGenerator) SetLearningsContext(ctx string) {
+	tg.learningsContext = ctx
+	if ctx != "" {
+		logging.Autopoiesis("ToolGenerator: Injected learnings context (%d bytes)", len(ctx))
 	}
 }
 

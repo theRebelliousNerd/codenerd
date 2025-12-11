@@ -97,3 +97,7 @@ permitted(/system_start).
 # Autopoiesis-learned rule (added 2025-12-10 19:59:27)
 next_action(/system_start) :- entry_point(/init).
 
+
+# Autopoiesis-learned rule (added 2025-12-10 20:15:45)
+permitted(/system_start).
+
