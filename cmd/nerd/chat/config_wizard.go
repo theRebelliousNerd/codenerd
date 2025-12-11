@@ -153,7 +153,7 @@ func NewConfigWizard() *ConfigWizardState {
 		Engine:           "api", // Default to HTTP API mode
 		ClaudeCLIModel:   "sonnet",
 		ClaudeCLITimeout: 300,
-		CodexCLIModel:    "gpt-5",
+		CodexCLIModel:    "gpt-5.1-codex-max",
 		CodexCLISandbox:  "read-only",
 		CodexCLITimeout:  300,
 		// Embedding defaults
@@ -307,17 +307,20 @@ You selected **Codex CLI** engine.
 
 | # | Model | Description |
 |---|-------|-------------|
-| 1 | gpt-5 | Best for coding (default) |
-| 2 | o4-mini | Fast reasoning |
-| 3 | o3 | Advanced reasoning |
-| 4 | codex-mini-latest | Optimized for Codex |
+| 1 | gpt-5.1-codex-max | **Recommended** - Best for agentic coding |
+| 2 | gpt-5.1-codex-mini | Cost-effective, faster |
+| 3 | gpt-5.1 | General coding and reasoning |
+| 4 | gpt-5-codex | Legacy agentic model |
+| 5 | gpt-5 | Legacy general model |
+| 6 | o4-mini | Fast reasoning (legacy) |
+| 7 | codex-mini-latest | Low-latency code Q&A |
 
 Current: **%s**
 
 Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
 			Time: time.Now(),
 		})
-		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5)..."
+		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5.1-codex-max)..."
 
 	default: // "api"
 		m.configWizard.Step = StepProvider
@@ -395,10 +398,13 @@ Would you like to configure individual shard settings?
 // configWizardCodexCLI handles Codex CLI configuration.
 func (m Model) configWizardCodexCLI(input string) (tea.Model, tea.Cmd) {
 	codexModels := map[string]string{
-		"1": "gpt-5", "gpt-5": "gpt-5",
-		"2": "o4-mini", "o4-mini": "o4-mini",
-		"3": "o3", "o3": "o3",
-		"4": "codex-mini-latest", "codex-mini-latest": "codex-mini-latest",
+		"1": "gpt-5.1-codex-max", "gpt-5.1-codex-max": "gpt-5.1-codex-max",
+		"2": "gpt-5.1-codex-mini", "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
+		"3": "gpt-5.1", "gpt-5.1": "gpt-5.1",
+		"4": "gpt-5-codex", "gpt-5-codex": "gpt-5-codex",
+		"5": "gpt-5", "gpt-5": "gpt-5",
+		"6": "o4-mini", "o4-mini": "o4-mini",
+		"7": "codex-mini-latest", "codex-mini-latest": "codex-mini-latest",
 	}
 
 	if input != "" {

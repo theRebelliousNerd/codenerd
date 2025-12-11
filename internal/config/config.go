@@ -89,8 +89,13 @@ type ClaudeCLIConfig struct {
 
 // CodexCLIConfig holds configuration for Codex CLI backend.
 // Used when Engine="codex-cli" to execute Codex via subprocess.
+//
+// IMPORTANT: Codex CLI is used as a SUBPROCESS LLM API, not as an agent.
+// - Sandbox is always "read-only" (codeNERD has its own Tactile Layer)
+// - Single completion per call, no agentic loops
 type CodexCLIConfig struct {
-	// Model: "gpt-5", "o4-mini", "o3", "o3-mini", "codex-mini-latest"
+	// Model: "gpt-5.1-codex-max" (recommended), "gpt-5.1-codex-mini", "gpt-5.1",
+	// "gpt-5-codex", "gpt-5", "o4-mini", "codex-mini-latest"
 	Model string `json:"model,omitempty"`
 
 	// Sandbox mode: "read-only" (default), "workspace-write"
@@ -99,6 +104,15 @@ type CodexCLIConfig struct {
 
 	// Timeout in seconds for CLI execution (default: 300)
 	Timeout int `json:"timeout,omitempty"`
+
+	// FallbackModel is used when the primary model is rate-limited or overloaded
+	// Example: "o4-mini" as fallback for "gpt-5"
+	// NOTE: This is handled in Go code, not via CLI flag
+	FallbackModel string `json:"fallback_model,omitempty"`
+
+	// Streaming enables real-time streaming output
+	// When true, responses are streamed as they arrive
+	Streaming bool `json:"streaming,omitempty"`
 }
 
 // MangleConfig configures the Mangle kernel.
