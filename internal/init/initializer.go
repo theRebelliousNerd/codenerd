@@ -224,19 +224,31 @@ type ETATracker struct {
 
 // DefaultPhaseDurations returns expected durations for each init phase.
 // These are baseline estimates that get refined based on actual performance.
+// E2: Updated to include all 22 phases for accurate ETA calculation.
 func DefaultPhaseDurations() map[string]time.Duration {
 	return map[string]time.Duration{
-		"setup":         5 * time.Second,
-		"scanning":      20 * time.Second,
-		"analysis":      75 * time.Second,  // 60-90s average
-		"profile":       5 * time.Second,
-		"facts":         10 * time.Second,
-		"agents":        5 * time.Second,
-		"kb_creation":   105 * time.Second, // 90-120s average
-		"core_shards":   30 * time.Second,
-		"tools":         20 * time.Second,
-		"preferences":   4 * time.Second,
-		"registry":      5 * time.Second,
+		"setup":          2 * time.Second,
+		"migration":      3 * time.Second,
+		"directory":      5 * time.Second,
+		"scanning":       20 * time.Second,
+		"analysis":       75 * time.Second,  // 60-90s average
+		"profile":        5 * time.Second,
+		"facts":          10 * time.Second,
+		"prompt_atoms":   3 * time.Second,
+		"prompt_db":      5 * time.Second,
+		"agents":         5 * time.Second,
+		"shared_kb":      30 * time.Second,
+		"kb_creation":    105 * time.Second, // 90-120s average
+		"codebase_kb":    20 * time.Second,
+		"core_shards_kb": 30 * time.Second,
+		"campaign_kb":    15 * time.Second,
+		"tool_generation": 10 * time.Second,
+		"preferences":    4 * time.Second,
+		"session":        2 * time.Second,
+		"tools":          20 * time.Second,
+		"registry":       5 * time.Second,
+		"prompt_sync":    10 * time.Second,
+		"complete":       1 * time.Second,
 	}
 }
 
@@ -385,7 +397,7 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 		kernel:        kernel,
 		createdAgents: make([]CreatedAgent, 0),
 		embedEngine:   nil,
-		etaTracker:    NewETATracker(11), // E2: 11 phases in total
+		etaTracker:    NewETATracker(22), // E2: 22 phases in total (see allPhases in Initialize)
 	}
 
 	// Use provided shard manager or create new one
@@ -750,11 +762,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	} else {
 		fmt.Println("   ⓘ No tools generated (may be skipped or not needed)")
 	}
+	i.completePhaseWithETA("tool_generation")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 8: Initialize Preferences
 	// =========================================================================
-	i.sendProgress("preferences", "Initializing preferences...", 0.88)
+	i.startPhaseWithETA(phaseNum, "preferences", "Initializing preferences...", 0.88, remainingPhases)
 	fmt.Println("\n⚙️ Phase 8: Initializing Preferences")
 
 	preferences := i.initPreferences()
@@ -767,11 +781,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, prefsPath)
 		fmt.Println("✓ Initialized preferences")
 	}
+	i.completePhaseWithETA("preferences")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 9: Create Session State
 	// =========================================================================
-	i.sendProgress("session", "Creating session state...", 0.90)
+	i.startPhaseWithETA(phaseNum, "session", "Creating session state...", 0.90, remainingPhases)
 
 	sessionPath := filepath.Join(nerdDir, "session.json")
 	if err := i.initSessionState(sessionPath); err != nil {
@@ -779,11 +795,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	} else {
 		result.FilesCreated = append(result.FilesCreated, sessionPath)
 	}
+	i.completePhaseWithETA("session")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 10: Generate Tool Definitions
 	// =========================================================================
-	i.sendProgress("tools", "Generating tool definitions...", 0.92)
+	i.startPhaseWithETA(phaseNum, "tools", "Generating tool definitions...", 0.92, remainingPhases)
 	fmt.Println("\n🔧 Phase 10: Generating Tool Definitions")
 
 	detectedTech := []string{profile.Language}
@@ -808,11 +826,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 			fmt.Printf("      - %s: %d\n", cat, count)
 		}
 	}
+	i.completePhaseWithETA("tools")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 11: Generate Agent Registry
 	// =========================================================================
-	i.sendProgress("registry", "Generating agent registry...", 0.93)
+	i.startPhaseWithETA(phaseNum, "registry", "Generating agent registry...", 0.93, remainingPhases)
 
 	registryPath := filepath.Join(nerdDir, "agents.json")
 	if err := i.saveAgentRegistry(registryPath, result.CreatedAgents); err != nil {
@@ -820,11 +840,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	} else {
 		result.FilesCreated = append(result.FilesCreated, registryPath)
 	}
+	i.completePhaseWithETA("registry")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 12: Sync Agent Prompts to Knowledge DBs
 	// =========================================================================
-	i.sendProgress("prompt_sync", "Syncing agent prompts to knowledge DBs...", 0.97)
+	i.startPhaseWithETA(phaseNum, "prompt_sync", "Syncing agent prompts to knowledge DBs...", 0.97, remainingPhases)
 	fmt.Println("\n📝 Phase 12: Syncing Agent Prompts")
 
 	// Sync all .nerd/agents/{name}/prompts.yaml → .nerd/shards/{name}_knowledge.db
@@ -839,13 +861,16 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	} else {
 		fmt.Println("   ✓ No prompt atoms to sync")
 	}
+	i.completePhaseWithETA("prompt_sync")
+	advancePhase()
 
 	// =========================================================================
 	// COMPLETE
 	// =========================================================================
 	result.Success = true
 	result.Duration = time.Since(startTime)
-	i.sendProgress("complete", "Initialization complete!", 1.0)
+	i.startPhaseWithETA(phaseNum, "complete", "Initialization complete!", 1.0, remainingPhases)
+	i.completePhaseWithETA("complete")
 
 	// Print summary
 	i.printSummary(result, profile)
