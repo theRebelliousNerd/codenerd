@@ -9175,5 +9175,5 @@ selected_result(Atom, Prio, /flesh) :-
 
 
 # Sandbox Validation
-permitted(/initialize) :- !interrupt_requested(0).
+next_action(/system_start) :- session_state(/initializing).
 

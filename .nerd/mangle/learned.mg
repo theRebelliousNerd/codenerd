@@ -101,3 +101,15 @@ next_action(/system_start) :- entry_point(/init).
 # Autopoiesis-learned rule (added 2025-12-10 20:15:45)
 permitted(/system_start).
 
+
+# Autopoiesis-learned rule (added 2025-12-10 20:25:42)
+next_action(/initialize) :- current_phase(/start).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 20:35:38)
+next_action(/system_start).
+
+
+# Autopoiesis-learned rule (added 2025-12-10 20:36:01)
+next_action(/system_start) :- session_state(_,_,/initializing).
+
