@@ -432,7 +432,26 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		CreatedAgents: make([]CreatedAgent, 0),
 	}
 
-	i.sendProgress("setup", "Initializing codeNERD...", 0.0)
+	// E2: Define all phases for accurate ETA calculation based on historical durations
+	allPhases := []string{
+		"setup", "migration", "directory", "scanning", "analysis", "profile",
+		"facts", "prompt_atoms", "prompt_db", "agents", "shared_kb", "kb_creation",
+		"codebase_kb", "core_shards_kb", "campaign_kb", "tool_generation",
+		"preferences", "session", "tools", "registry", "prompt_sync", "complete",
+	}
+	remainingPhases := make([]string, len(allPhases))
+	copy(remainingPhases, allPhases)
+	phaseNum := 0
+
+	// Helper to advance to next phase
+	advancePhase := func() {
+		if len(remainingPhases) > 0 {
+			remainingPhases = remainingPhases[1:]
+		}
+		phaseNum++
+	}
+
+	i.startPhaseWithETA(phaseNum, "setup", "Initializing codeNERD...", 0.0, remainingPhases)
 	fmt.Println("🚀 Initializing codeNERD...")
 	fmt.Printf("   Workspace: %s\n\n", i.config.Workspace)
 
@@ -440,13 +459,15 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	if err := i.shardMgr.StartSystemShards(ctx); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to start system shards: %v", err))
 	}
+	i.completePhaseWithETA("setup")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 0: Database Schema Migrations (for existing installations)
 	// =========================================================================
 	existingNerdDir := filepath.Join(i.config.Workspace, ".nerd")
 	if _, statErr := os.Stat(existingNerdDir); statErr == nil {
-		i.sendProgress("migration", "Checking database schemas...", 0.02)
+		i.startPhaseWithETA(phaseNum, "migration", "Checking database schemas...", 0.02, remainingPhases)
 		migrationResults, migErr := store.MigrateAllAgentDBs(existingNerdDir)
 		if migErr != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Migration check failed: %v", migErr))
@@ -461,12 +482,14 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 				}
 			}
 		}
+		i.completePhaseWithETA("migration")
 	}
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 1: Directory Structure & Database Setup
 	// =========================================================================
-	i.sendProgress("setup", "Creating directory structure...", 0.05)
+	i.startPhaseWithETA(phaseNum, "directory", "Creating directory structure...", 0.05, remainingPhases)
 
 	nerdDir, err := i.createDirectoryStructure()
 	if err != nil {
@@ -500,11 +523,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	if i.config.LLMClient != nil {
 		i.researcher.SetLLMClient(i.config.LLMClient)
 	}
+	i.completePhaseWithETA("directory")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 2: Deep Codebase Scan
 	// =========================================================================
-	i.sendProgress("scanning", "Scanning codebase...", 0.10)
+	i.startPhaseWithETA(phaseNum, "scanning", "Scanning codebase...", 0.10, remainingPhases)
 	fmt.Println("\n📊 Phase 2: Deep Codebase Scan")
 
 	// Use the scanner for comprehensive file analysis
@@ -519,11 +544,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 			_ = i.kernel.Assert(fact)
 		}
 	}
+	i.completePhaseWithETA("scanning")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 3: Run Researcher Shard for Analysis
 	// =========================================================================
-	i.sendProgress("analysis", "Running deep analysis...", 0.20)
+	i.startPhaseWithETA(phaseNum, "analysis", "Running deep analysis...", 0.20, remainingPhases)
 	fmt.Println("\n🔬 Phase 3: Deep Analysis via Researcher Shard")
 
 	researchTask := fmt.Sprintf("analyze codebase: %s", i.config.Workspace)
@@ -533,11 +560,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	} else {
 		fmt.Println(summary)
 	}
+	i.completePhaseWithETA("analysis")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 4: Build Project Profile
 	// =========================================================================
-	i.sendProgress("profile", "Building project profile...", 0.35)
+	i.startPhaseWithETA(phaseNum, "profile", "Building project profile...", 0.35, remainingPhases)
 	fmt.Println("\n📋 Phase 4: Building Project Profile")
 
 	profile := i.buildProjectProfile()
@@ -555,11 +584,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, profilePath)
 		fmt.Println("✓ Saved project profile")
 	}
+	i.completePhaseWithETA("profile")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 5: Generate Initial Mangle Facts
 	// =========================================================================
-	i.sendProgress("facts", "Generating Mangle facts...", 0.45)
+	i.startPhaseWithETA(phaseNum, "facts", "Generating Mangle facts...", 0.45, remainingPhases)
 	fmt.Println("\n🧠 Phase 5: Generating Mangle Facts")
 
 	factsPath := filepath.Join(nerdDir, "profile.mg")
@@ -571,21 +602,25 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FactsGenerated = factsCount
 		fmt.Printf("✓ Generated %d Mangle facts\n", factsCount)
 	}
+	i.completePhaseWithETA("facts")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 5b: Populate Project-Specific Prompt Atoms
 	// =========================================================================
-	i.sendProgress("prompt_atoms", "Populating project-specific prompt atoms...", 0.47)
+	i.startPhaseWithETA(phaseNum, "prompt_atoms", "Populating project-specific prompt atoms...", 0.47, remainingPhases)
 	fmt.Println("\n📝 Phase 5b: Populating Project-Specific Prompt Atoms")
 
 	if err := i.populateProjectAtoms(profile); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to populate prompt atoms: %v", err))
 	}
+	i.completePhaseWithETA("prompt_atoms")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 5c: Initialize Prompt Database (atoms.db)
 	// =========================================================================
-	i.sendProgress("prompt_db", "Initializing prompt atoms database...", 0.48)
+	i.startPhaseWithETA(phaseNum, "prompt_db", "Initializing prompt atoms database...", 0.48, remainingPhases)
 	fmt.Println("\n📦 Phase 5c: Initializing Prompt Atoms Database")
 
 	if err := i.initializePromptDatabase(ctx, nerdDir); err != nil {
@@ -594,11 +629,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		atomsDBPath := filepath.Join(nerdDir, "prompts", "atoms.db")
 		result.FilesCreated = append(result.FilesCreated, atomsDBPath)
 	}
+	i.completePhaseWithETA("prompt_db")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 6: Determine Required Type 3 Agents
 	// =========================================================================
-	i.sendProgress("agents", "Analyzing required agents...", 0.50)
+	i.startPhaseWithETA(phaseNum, "agents", "Analyzing required agents...", 0.50, remainingPhases)
 	fmt.Println("\n🤖 Phase 6: Determining Required Type 3 Agents")
 
 	recommendedAgents := i.determineRequiredAgents(profile)
@@ -608,25 +645,29 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	for _, agent := range recommendedAgents {
 		fmt.Printf("   • %s: %s\n", agent.Name, agent.Reason)
 	}
+	i.completePhaseWithETA("agents")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 7: Create Knowledge Bases & Type 3 Agents
 	// =========================================================================
 	if !i.config.SkipAgentCreate && len(recommendedAgents) > 0 {
 		// Create shared knowledge pool first (common concepts all agents share)
-		i.sendProgress("shared_kb", "Creating shared knowledge pool...", 0.52)
+		i.startPhaseWithETA(phaseNum, "shared_kb", "Creating shared knowledge pool...", 0.52, remainingPhases)
 		fmt.Println("\n📚 Phase 7a: Creating Shared Knowledge Pool")
 
 		sharedPoolErr := CreateSharedKnowledgePool(ctx, i.config.Workspace, i.researcher, func(status string, progress float64) {
-			i.sendProgress("shared_kb", status, 0.52+progress*0.03)
+			i.sendProgressWithETA("shared_kb", status, 0.52+progress*0.03, remainingPhases)
 		})
 		if sharedPoolErr != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Shared knowledge pool creation had issues: %v", sharedPoolErr))
 		} else {
 			fmt.Println("   ✓ Shared knowledge pool ready")
 		}
+		i.completePhaseWithETA("shared_kb")
+		advancePhase()
 
-		i.sendProgress("kb_creation", "Creating agent knowledge bases...", 0.55)
+		i.startPhaseWithETA(phaseNum, "kb_creation", "Creating agent knowledge bases...", 0.55, remainingPhases)
 		fmt.Println("\n📚 Phase 7b: Creating Agent Knowledge Bases")
 
 		createdAgents, agentKBs := i.createType3Agents(ctx, nerdDir, recommendedAgents, result)
@@ -637,12 +678,14 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		i.registerAgentsWithShardManager(createdAgents)
 
 		fmt.Printf("   Created %d Type 3 agents with knowledge bases\n", len(createdAgents))
+		i.completePhaseWithETA("kb_creation")
 	}
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 7b: Create Codebase Knowledge Base
 	// =========================================================================
-	i.sendProgress("codebase_kb", "Creating codebase knowledge base...", 0.80)
+	i.startPhaseWithETA(phaseNum, "codebase_kb", "Creating codebase knowledge base...", 0.80, remainingPhases)
 	fmt.Println("\n📖 Phase 7b: Creating Codebase Knowledge Base")
 
 	codebaseKBPath, codebaseAtoms, err := i.createCodebaseKnowledgeBase(ctx, nerdDir, profile, scanResult)
@@ -652,11 +695,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, codebaseKBPath)
 		fmt.Printf("   ✓ Codebase KB ready (%d atoms)\n", codebaseAtoms)
 	}
+	i.completePhaseWithETA("codebase_kb")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 7c: Create Core Shard Knowledge Bases (Coder, Reviewer, Tester)
 	// =========================================================================
-	i.sendProgress("core_shards_kb", "Creating core shard knowledge bases...", 0.82)
+	i.startPhaseWithETA(phaseNum, "core_shards_kb", "Creating core shard knowledge bases...", 0.82, remainingPhases)
 	fmt.Println("\n🔧 Phase 7c: Creating Core Shard Knowledge Bases")
 
 	coreShardKBs, err := i.createCoreShardKnowledgeBases(ctx, nerdDir, profile)
@@ -667,11 +712,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 			fmt.Printf("   ✓ %s KB ready (%d atoms)\n", strings.Title(name), atoms)
 		}
 	}
+	i.completePhaseWithETA("core_shards_kb")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 7d: Create Campaign Knowledge Base
 	// =========================================================================
-	i.sendProgress("campaign_kb", "Creating campaign knowledge base...", 0.84)
+	i.startPhaseWithETA(phaseNum, "campaign_kb", "Creating campaign knowledge base...", 0.84, remainingPhases)
 	fmt.Println("\n🎯 Phase 7d: Creating Campaign Knowledge Base")
 
 	campaignKBPath, campaignAtoms, err := i.createCampaignKnowledgeBase(ctx, nerdDir, profile)
@@ -681,11 +728,13 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, campaignKBPath)
 		fmt.Printf("   ✓ Campaign KB ready (%d atoms)\n", campaignAtoms)
 	}
+	i.completePhaseWithETA("campaign_kb")
+	advancePhase()
 
 	// =========================================================================
 	// PHASE 7e: Generate Project-Specific Tools
 	// =========================================================================
-	i.sendProgress("tool_generation", "Generating project-specific tools...", 0.86)
+	i.startPhaseWithETA(phaseNum, "tool_generation", "Generating project-specific tools...", 0.86, remainingPhases)
 	fmt.Println("\n🛠️  Phase 7e: Generating Project-Specific Tools")
 
 	generatedTools, err := i.generateProjectTools(ctx, nerdDir, profile)

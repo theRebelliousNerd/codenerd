@@ -2265,14 +2265,23 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	docs, _ := cmd.Flags().GetStringArray("docs")
 	campaignType, _ := cmd.Flags().GetString("type")
 
-	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
+	// FIX: Respect authenticated engine configuration instead of hardcoding ZAI
+	// This uses the same detection logic as the chat session (claude-cli, codex-cli, etc.)
+	llmClient, clientErr := perception.NewClientFromEnv()
+	if clientErr != nil {
+		// Fallback to ZAI if config detection fails
+		key := apiKey
+		if key == "" {
+			key = os.Getenv("ZAI_API_KEY")
+		}
+		llmClient = perception.NewZAIClient(key)
+		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
 	}
 
+	// Resolve .nerd directory for JIT prompt system
+	nerdDir := filepath.Join(cwd, ".nerd")
+
 	// Initialize components
-	llmClient := perception.NewZAIClient(key)
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
@@ -2296,6 +2305,13 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
+
+	// FIX: Wire JIT lifecycle callbacks - CRITICAL for Type B/U shard prompt hydration
+	// Without this, specialist agents launch without their specialized prompts (Identity,
+	// Methodology, Domain Knowledge) and revert to generic base behavior.
+	shardMgr.SetNerdDir(nerdDir)
+	shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
+	shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
 
 	// Register shard factories - CRITICAL: without this, shards fall back to BaseShardAgent
 	shardMgr.SetLLMClient(llmClient)
