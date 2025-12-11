@@ -177,6 +177,7 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 	for _, filePath := range files {
 		content, err := r.readFile(ctx, filePath)
 		if err != nil {
+			logging.ReviewerDebug("calculateMetrics: failed to read file %s: %v", filePath, err)
 			continue
 		}
 
