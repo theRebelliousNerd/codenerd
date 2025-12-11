@@ -330,7 +330,8 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 
 	// 3. Query Mangle for permitted(Action)
 	// The kernel should derive permitted(Action) from safe_action or admin_override
-	results, err := c.Kernel.Query(fmt.Sprintf("permitted(%s)", actionType))
+	// kernel.Query returns ALL permitted facts; filter in Go for matching actionType
+	allPermitted, err := c.Kernel.Query("permitted")
 	if err != nil {
 		// If query fails, default deny in strict mode
 		if c.config.StrictMode {
@@ -345,7 +346,21 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 		return true, "" // Allow if not strict
 	}
 
-	if len(results) == 0 {
+	// Filter to find permitted facts matching our actionType
+	// permitted facts have format: permitted(/action_type) where action_type may or may not have /
+	found := false
+	for _, p := range allPermitted {
+		if len(p.Args) > 0 {
+			argStr := fmt.Sprintf("%v", p.Args[0])
+			// Match with or without leading /
+			if argStr == actionType || argStr == "/"+actionType {
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
 		if c.config.StrictMode {
 			// Record as unhandled for autopoiesis
 			c.Autopoiesis.RecordUnhandled(

@@ -337,6 +337,9 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 					case ast.StringType:
 						// String constants - Symbol contains the raw value (no quotes)
 						args[i] = t.Symbol
+					case ast.BytesType:
+						// Byte string constants
+						args[i] = t.Symbol
 					case ast.NumberType:
 						// Integer constants
 						args[i] = t.NumValue
@@ -344,7 +347,8 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 						// Float constants
 						args[i] = t.Float64Value
 					default:
-						// Unknown constant type - use Symbol as fallback
+						// DEFENSIVE: Unknown constant type - log and use Symbol as fallback
+						logging.Get(logging.CategoryContext).Warn("AssertBatch: unknown constant type %v, using Symbol fallback", t.Type)
 						args[i] = t.Symbol
 					}
 				default:

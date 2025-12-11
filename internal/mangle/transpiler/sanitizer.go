@@ -184,20 +184,24 @@ func (s *Sanitizer) repairAggregations(clause ast.Clause) (ast.Clause, error) {
 				// Found a marker!
 				// Args: "Func", ResVar, ArgVar
 				if len(atom.Args) == 3 {
-					funcNameStr := atom.Args[0].(ast.Constant).Symbol
-					// Remove quotes
-					funcName := strings.Trim(funcNameStr, "\"")
+					// DEFENSIVE: Safe type assertions to prevent panics
+					funcConst, funcOk := atom.Args[0].(ast.Constant)
+					resVar, resOk := atom.Args[1].(ast.Variable)
+					argVar, argOk := atom.Args[2].(ast.Variable)
 
-					resVar := atom.Args[1].(ast.Variable)
-					argVar := atom.Args[2].(ast.Variable)
+					if funcOk && resOk && argOk {
+						// Remove quotes from function name
+						funcName := strings.Trim(funcConst.Symbol, "\"")
 
-					aggInfo = &aggDetails{
-						Fn:     funcName,
-						Result: resVar,
-						Arg:    argVar,
+						aggInfo = &aggDetails{
+							Fn:     funcName,
+							Result: resVar,
+							Arg:    argVar,
+						}
+						// Do NOT append to cleanPremises
+						continue
 					}
-					// Do NOT append to cleanPremises
-					continue
+					// If type assertions fail, fall through to append as regular premise
 				}
 			}
 		}

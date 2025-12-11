@@ -939,7 +939,10 @@ func constantToInterface(constant ast.Constant) interface{} {
 	case ast.Float64Type:
 		return math.Float64frombits(uint64(constant.NumValue))
 	default:
-		return constant.String()
+		// DEFENSIVE: Fallback to Symbol instead of String() to avoid quotes/formatting
+		// Log warning for unknown types to catch new AST types early
+		logging.Get(logging.CategoryKernel).Warn("constantToInterface: unknown constant type %v, using Symbol fallback", constant.Type)
+		return constant.Symbol
 	}
 }
 
