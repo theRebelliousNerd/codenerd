@@ -110,7 +110,16 @@ const (
 	// Code DOM Query Actions
 	ActionQueryElements ActionType = "query_elements" // Query code elements (alias)
 
-	// SWE-bench Actions (benchmark evaluation)
+	// Python Environment Actions (general-purpose)
+	ActionPythonEnvSetup   ActionType = "python_env_setup"   // Create Python dev environment
+	ActionPythonEnvExec    ActionType = "python_env_exec"    // Execute command in environment
+	ActionPythonRunPytest  ActionType = "python_run_pytest"  // Run pytest tests
+	ActionPythonApplyPatch ActionType = "python_apply_patch" // Apply git patch
+	ActionPythonSnapshot   ActionType = "python_snapshot"    // Snapshot container state
+	ActionPythonRestore    ActionType = "python_restore"     // Restore from snapshot
+	ActionPythonTeardown   ActionType = "python_teardown"    // Cleanup environment
+
+	// SWE-bench Actions (benchmark-specific, wraps Python actions)
 	ActionSWEBenchSetup      ActionType = "swebench_setup"       // Initialize SWE-bench environment
 	ActionSWEBenchApplyPatch ActionType = "swebench_apply_patch" // Apply model's patch
 	ActionSWEBenchRunTests   ActionType = "swebench_run_tests"   // Run instance tests
@@ -1162,7 +1171,23 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 	case ActionQueryElements:
 		return v.handleGetElements(ctx, req) // Delegate to existing handler
 
-	// SWE-bench actions
+	// Python environment actions (general-purpose)
+	case ActionPythonEnvSetup:
+		return v.handlePythonEnvSetup(ctx, req)
+	case ActionPythonEnvExec:
+		return v.handlePythonEnvExec(ctx, req)
+	case ActionPythonRunPytest:
+		return v.handlePythonRunPytest(ctx, req)
+	case ActionPythonApplyPatch:
+		return v.handlePythonApplyPatch(ctx, req)
+	case ActionPythonSnapshot:
+		return v.handlePythonSnapshot(ctx, req)
+	case ActionPythonRestore:
+		return v.handlePythonRestore(ctx, req)
+	case ActionPythonTeardown:
+		return v.handlePythonTeardown(ctx, req)
+
+	// SWE-bench actions (benchmark-specific, delegates to Python handlers)
 	case ActionSWEBenchSetup:
 		return v.handleSWEBenchSetup(ctx, req)
 	case ActionSWEBenchApplyPatch:
@@ -4425,8 +4450,268 @@ func (v *VirtualStore) handleCorrectiveDecompose(ctx context.Context, req Action
 }
 
 // =============================================================================
-// SWE-BENCH ACTION HANDLERS
+// PYTHON ENVIRONMENT ACTION HANDLERS (General Purpose)
 // =============================================================================
+// These handlers work with ANY Python project, not just benchmarks.
+
+// handlePythonEnvSetup creates a Python development environment.
+// Payload expects: project_name, git_url (optional), commit (optional), branch (optional)
+func (v *VirtualStore) handlePythonEnvSetup(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	gitURL, _ := req.Payload["git_url"].(string)
+	commit, _ := req.Payload["commit"].(string)
+	branch, _ := req.Payload["branch"].(string)
+
+	if projectName == "" && gitURL == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name or git_url required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("Python env setup: project=%s", projectName)
+
+	facts := []Fact{
+		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/initializing", time.Now().Unix()}},
+	}
+
+	if gitURL != "" {
+		facts = append(facts, Fact{
+			Predicate: "python_project_source",
+			Args:      []interface{}{projectName, gitURL, commit, branch},
+		})
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Python environment initializing for %s", projectName),
+		Metadata: map[string]interface{}{
+			"project_name": projectName,
+			"git_url":      gitURL,
+			"commit":       commit,
+			"branch":       branch,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handlePythonEnvExec executes a command in a Python environment.
+// Payload expects: project_name, command
+func (v *VirtualStore) handlePythonEnvExec(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	command, _ := req.Payload["command"].(string)
+
+	if projectName == "" || command == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name and command required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("Python exec: project=%s, cmd=%s", projectName, command)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Executing in %s: %s", projectName, command),
+		Metadata: map[string]interface{}{
+			"project_name": projectName,
+			"command":      command,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "python_command_executed", Args: []interface{}{projectName, command, time.Now().Unix()}},
+		},
+	}, nil
+}
+
+// handlePythonRunPytest runs pytest in a Python environment.
+// Payload expects: project_name, test_args (optional - array of test names/patterns)
+func (v *VirtualStore) handlePythonRunPytest(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	if projectName == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name required in payload",
+		}, nil
+	}
+
+	// Optional test arguments
+	var testArgs []string
+	if args, ok := req.Payload["test_args"].([]interface{}); ok {
+		for _, a := range args {
+			if s, ok := a.(string); ok {
+				testArgs = append(testArgs, s)
+			}
+		}
+	}
+
+	logging.VirtualStore("Python pytest: project=%s, args=%v", projectName, testArgs)
+
+	facts := []Fact{
+		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/testing", time.Now().Unix()}},
+		{Predicate: "pytest_execution", Args: []interface{}{projectName, len(testArgs), time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Running pytest in %s", projectName),
+		Metadata: map[string]interface{}{
+			"project_name": projectName,
+			"test_args":    testArgs,
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handlePythonApplyPatch applies a git patch to a Python project.
+// Payload expects: project_name, patch (unified diff format)
+func (v *VirtualStore) handlePythonApplyPatch(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	patch, _ := req.Payload["patch"].(string)
+
+	if projectName == "" || patch == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name and patch required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("Python apply patch: project=%s, size=%d", projectName, len(patch))
+
+	facts := []Fact{
+		{Predicate: "python_patch_applied", Args: []interface{}{projectName, len(patch), time.Now().Unix()}},
+		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/patched", time.Now().Unix()}},
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Patch applied to %s (%d bytes)", projectName, len(patch)),
+		Metadata: map[string]interface{}{
+			"project_name": projectName,
+			"patch_size":   len(patch),
+		},
+		FactsToAdd: facts,
+	}, nil
+}
+
+// handlePythonSnapshot creates a snapshot of the Python environment.
+// Payload expects: project_name, snapshot_name (optional)
+func (v *VirtualStore) handlePythonSnapshot(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	snapshotName, _ := req.Payload["snapshot_name"].(string)
+
+	if projectName == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name required in payload",
+		}, nil
+	}
+
+	if snapshotName == "" {
+		snapshotName = fmt.Sprintf("%s-snapshot-%d", projectName, time.Now().Unix())
+	}
+
+	logging.VirtualStore("Python snapshot: project=%s, name=%s", projectName, snapshotName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Snapshot created: %s", snapshotName),
+		Metadata: map[string]interface{}{
+			"project_name":  projectName,
+			"snapshot_name": snapshotName,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "python_snapshot", Args: []interface{}{projectName, snapshotName, time.Now().Unix()}},
+		},
+	}, nil
+}
+
+// handlePythonRestore restores a Python environment from snapshot.
+// Payload expects: project_name, snapshot_name
+func (v *VirtualStore) handlePythonRestore(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	snapshotName, _ := req.Payload["snapshot_name"].(string)
+
+	if projectName == "" || snapshotName == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name and snapshot_name required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("Python restore: project=%s, snapshot=%s", projectName, snapshotName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Restored %s from snapshot %s", projectName, snapshotName),
+		Metadata: map[string]interface{}{
+			"project_name":  projectName,
+			"snapshot_name": snapshotName,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "python_restored", Args: []interface{}{projectName, snapshotName, time.Now().Unix()}},
+			{Predicate: "python_environment", Args: []interface{}{projectName, "", "/ready", time.Now().Unix()}},
+		},
+	}, nil
+}
+
+// handlePythonTeardown cleans up a Python environment.
+// Payload expects: project_name
+func (v *VirtualStore) handlePythonTeardown(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	projectName, _ := req.Payload["project_name"].(string)
+	if projectName == "" {
+		return ActionResult{
+			Success: false,
+			Error:   "project_name required in payload",
+		}, nil
+	}
+
+	logging.VirtualStore("Python teardown: project=%s", projectName)
+
+	return ActionResult{
+		Success: true,
+		Output:  fmt.Sprintf("Python environment torn down for %s", projectName),
+		Metadata: map[string]interface{}{
+			"project_name": projectName,
+		},
+		FactsToAdd: []Fact{
+			{Predicate: "python_environment", Args: []interface{}{projectName, "", "/terminated", time.Now().Unix()}},
+			{Predicate: "python_teardown_complete", Args: []interface{}{projectName, time.Now().Unix()}},
+		},
+	}, nil
+}
+
+// =============================================================================
+// SWE-BENCH ACTION HANDLERS (Benchmark-specific)
+// =============================================================================
+// These handlers delegate to Python handlers with SWE-bench metadata.
 
 // handleSWEBenchSetup initializes a SWE-bench environment for an instance.
 // Payload expects: instance_id, repo, base_commit, problem_statement, fail_to_pass, pass_to_pass

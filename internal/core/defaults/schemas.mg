@@ -3445,75 +3445,19 @@ Decl continuation_step(StepNumber, TotalSteps).
 Decl max_continuation_steps(Limit).
 
 # =============================================================================
-# SECTION 50: SWE-BENCH EVALUATION SCHEMA
+# SECTION 50: BENCHMARK SCHEMAS (REFERENCE)
 # =============================================================================
-# Predicates for SWE-bench benchmark evaluation tracking.
-# SWE-bench tests AI coding agents on real-world GitHub issues.
-
-# -----------------------------------------------------------------------------
-# 50.1 Instance Management
-# -----------------------------------------------------------------------------
-
-# swebench_instance(InstanceID, Repo, BaseCommit, Version)
-# Tracks loaded SWE-bench instances from the dataset.
-Decl swebench_instance(InstanceID, Repo, BaseCommit, Version).
-
-# swebench_problem_statement(InstanceID, Statement)
-# The natural language problem description from the GitHub issue.
-Decl swebench_problem_statement(InstanceID, Statement).
-
-# swebench_test_spec(InstanceID, TestType, TestName)
-# TestType: /fail_to_pass (should flip), /pass_to_pass (should stay passing)
-Decl swebench_test_spec(InstanceID, TestType, TestName).
-
-# -----------------------------------------------------------------------------
-# 50.2 Environment State
-# -----------------------------------------------------------------------------
-
-# swebench_environment(InstanceID, ContainerID, State, Timestamp)
-# State: /initializing, /cloning, /setup, /ready, /patch_applied, /testing, /error
-Decl swebench_environment(InstanceID, ContainerID, State, Timestamp).
-
-# swebench_setup_complete(InstanceID, ContainerID, Timestamp)
-# Marks when setup finished (venv created, deps installed).
-Decl swebench_setup_complete(InstanceID, ContainerID, Timestamp).
-
-# swebench_snapshot(SnapshotID, ContainerID, Description, Timestamp)
-# Tracks container snapshots for rollback capability.
-Decl swebench_snapshot(SnapshotID, ContainerID, Description, Timestamp).
-
-# -----------------------------------------------------------------------------
-# 50.3 Patch Tracking
-# -----------------------------------------------------------------------------
-
-# swebench_patch_applied(InstanceID, PatchHash, Timestamp)
-# Records when a model's patch was applied.
-Decl swebench_patch_applied(InstanceID, PatchHash, Timestamp).
-
-# swebench_patch_failed(InstanceID, PatchHash, Reason, Timestamp)
-# Records patch application failures.
-Decl swebench_patch_failed(InstanceID, PatchHash, Reason, Timestamp).
-
-# -----------------------------------------------------------------------------
-# 50.4 Test Results
-# -----------------------------------------------------------------------------
-
-# swebench_test_result(InstanceID, TestName, Passed, DurationMs)
-# Individual test outcomes.
-Decl swebench_test_result(InstanceID, TestName, Passed, DurationMs).
-
-# swebench_evaluation_result(InstanceID, Resolved, PassedCount, FailedCount, Timestamp)
-# Overall evaluation outcome. Resolved = all F2P passed AND all P2P passed.
-Decl swebench_evaluation_result(InstanceID, Resolved, PassedCount, FailedCount, Timestamp).
-
-# swebench_error(InstanceID, Phase, ErrorMessage, Timestamp)
-# Phase: /clone, /setup, /patch, /test
-Decl swebench_error(InstanceID, Phase, ErrorMessage, Timestamp).
+# Benchmark-specific predicates (SWE-bench, HumanEval, MBPP) are in:
+#   internal/core/defaults/benchmarks.mg
+#
+# This keeps the core schemas focused on general-purpose code assistance.
+# Load benchmarks.mg only when running benchmark evaluations.
 
 # =============================================================================
 # SECTION 51: PYTEST DIAGNOSTIC SCHEMA
 # =============================================================================
-# Enhanced pytest output parsing for SWE-bench and TDD loop.
+# General-purpose pytest output parsing for any Python project.
+# Used by TDD loop, code review, and debugging workflows.
 
 # -----------------------------------------------------------------------------
 # 51.1 Core Failure Tracking
@@ -3555,8 +3499,8 @@ Decl pytest_root_cause(TestName, FilePath, Line, Function).
 # =============================================================================
 # SECTION 52: SPARSE RETRIEVAL SCHEMA
 # =============================================================================
-# Predicates for keyword-based file discovery and tiered context building.
-# Critical for handling SWE-bench's 50,000+ file repositories.
+# General-purpose predicates for keyword-based file discovery.
+# Used for large codebases, issue-driven development, and context building.
 
 # -----------------------------------------------------------------------------
 # 52.1 Keyword Extraction
