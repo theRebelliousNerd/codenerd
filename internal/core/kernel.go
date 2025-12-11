@@ -63,6 +63,7 @@ type RealKernel struct {
 	workspaceRoot   string // Explicit workspace root (for .nerd paths)
 	policyDirty     bool   // True when schemas/policy changed and need reparse
 	userLearnedPath string // Path to user learned.mg for self-healing persistence
+	predicateCorpus *PredicateCorpus // Baked-in predicate corpus for validation
 }
 
 //go:embed defaults/*.mg defaults/schema/*.mg
@@ -93,6 +94,9 @@ func NewRealKernel() *RealKernel {
 	// Find and load mangle files from the project
 	k.loadMangleFiles()
 
+	// Load the baked-in predicate corpus for validation
+	k.loadPredicateCorpus()
+
 	// Force initial evaluation to boot the Mangle engine.
 	// The embedded core MUST compile, otherwise the binary is corrupt.
 	logging.Kernel("Booting Mangle engine with embedded constitution...")
@@ -120,6 +124,9 @@ func NewRealKernelWithPath(manglePath string) *RealKernel {
 	logging.KernelDebug("Kernel struct created with manglePath=%s", manglePath)
 
 	k.loadMangleFiles()
+
+	// Load the baked-in predicate corpus for validation
+	k.loadPredicateCorpus()
 
 	// Force initial evaluation
 	logging.Kernel("Booting Mangle engine...")
@@ -297,6 +304,33 @@ func (k *RealKernel) loadMangleFiles() {
 	timer.Stop()
 	logging.Kernel("Mangle files loaded: schemas=%d bytes, policy=%d bytes, learned=%d bytes",
 		len(k.schemas), len(k.policy), len(k.learned))
+}
+
+// loadPredicateCorpus loads the baked-in predicate corpus for validation.
+func (k *RealKernel) loadPredicateCorpus() {
+	timer := logging.StartTimer(logging.CategoryKernel, "loadPredicateCorpus")
+	logging.Kernel("Loading baked-in predicate corpus...")
+
+	corpus, err := NewPredicateCorpus()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Predicate corpus not available: %v", err)
+		timer.Stop()
+		return
+	}
+
+	k.predicateCorpus = corpus
+	if stats, err := corpus.Stats(); err == nil {
+		logging.Kernel("Predicate corpus loaded: %d predicates, %d examples, %d error patterns",
+			stats["total_predicates"], stats["examples"], stats["error_patterns"])
+	} else {
+		logging.Kernel("Predicate corpus loaded (stats unavailable: %v)", err)
+	}
+	timer.Stop()
+}
+
+// GetPredicateCorpus returns the baked-in predicate corpus (may be nil if not loaded).
+func (k *RealKernel) GetPredicateCorpus() *PredicateCorpus {
+	return k.predicateCorpus
 }
 
 // LoadFacts adds facts to the EDB and rebuilds the program.

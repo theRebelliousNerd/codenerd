@@ -31,14 +31,21 @@ type RuleValidator interface {
 	GetDeclaredPredicates() []string
 }
 
+// PredicateSelectorInterface allows JIT-style context-aware predicate selection.
+type PredicateSelectorInterface interface {
+	// SelectForContext returns predicates relevant to the given context.
+	SelectForContext(shardType, intentVerb, domain string) ([]string, error)
+}
+
 // FeedbackLoop orchestrates the validate-retry cycle for LLM-generated Mangle.
 type FeedbackLoop struct {
-	config          RetryConfig
-	preValidator    *PreValidator
-	errorClassifier *ErrorClassifier
-	promptBuilder   *PromptBuilder
-	sanitizer       *transpiler.Sanitizer
-	budget          *ValidationBudget
+	config            RetryConfig
+	preValidator      *PreValidator
+	errorClassifier   *ErrorClassifier
+	promptBuilder     *PromptBuilder
+	sanitizer         *transpiler.Sanitizer
+	budget            *ValidationBudget
+	predicateSelector PredicateSelectorInterface // Optional: JIT-style selector
 }
 
 // NewFeedbackLoop creates a new feedback loop with the given configuration.
@@ -51,6 +58,13 @@ func NewFeedbackLoop(config RetryConfig) *FeedbackLoop {
 		sanitizer:       transpiler.NewSanitizer(),
 		budget:          NewValidationBudget(config),
 	}
+}
+
+// SetPredicateSelector sets a JIT-style predicate selector for context-aware selection.
+// When set, predicates are selected based on shard type, intent, and domain instead of
+// using the full list from the validator.
+func (fl *FeedbackLoop) SetPredicateSelector(selector PredicateSelectorInterface) {
+	fl.predicateSelector = selector
 }
 
 // GenerateResult holds the outcome of a generation attempt.
@@ -81,8 +95,20 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		defer cancel()
 	}
 
-	// Get available predicates for feedback
-	predicates := validator.GetDeclaredPredicates()
+	// Get available predicates for feedback - use JIT selector if available
+	var predicates []string
+	if fl.predicateSelector != nil {
+		// JIT-style: select context-relevant predicates (~50-100 instead of 799)
+		if selected, err := fl.predicateSelector.SelectForContext("", "", domain); err == nil {
+			predicates = selected
+			logging.Get(logging.CategoryKernel).Debug("FeedbackLoop: JIT selected %d predicates for domain %q", len(predicates), domain)
+		} else {
+			logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: JIT selector failed, falling back to full list: %v", err)
+			predicates = validator.GetDeclaredPredicates()
+		}
+	} else {
+		predicates = validator.GetDeclaredPredicates()
+	}
 
 	// Add syntax guidance to initial prompt
 	enhancedPrompt := userPrompt + "\n" + fl.promptBuilder.BuildInitialPromptAdditions(predicates)

@@ -527,6 +527,19 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
+		shardMgr.RegisterShard("mangle_repair", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shardsystem.NewMangleRepairShard()
+			shard.SetParentKernel(kernel)
+			shard.SetLLMClient(llmClient)
+			// Wire the predicate corpus from kernel for schema validation
+			if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+				shard.SetCorpus(corpus)
+			}
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
 		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := shardsystem.NewTactileRouterShard()
 			shard.SetParentKernel(kernel)

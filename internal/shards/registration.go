@@ -353,6 +353,20 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		return shard
 	})
 
+	// Register Mangle Repair - AUTO-START, Logic-primary (self-healing rules)
+	sm.RegisterShard("mangle_repair", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewMangleRepairShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetLLMClient(ctx.LLMClient)
+		// Wire the predicate corpus from kernel for schema validation
+		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
+			if corpus := realKernel.GetPredicateCorpus(); corpus != nil {
+				shard.SetCorpus(corpus)
+			}
+		}
+		return shard
+	})
+
 	// Register Tactile Router - ON-DEMAND, Logic-primary
 	sm.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewTactileRouterShard()
