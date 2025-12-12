@@ -610,7 +610,8 @@ func DetectCodePatterns(content string, elements []CodeElement) CodePatterns {
 		for _, hp := range handlerPatterns {
 			if strings.Contains(body, hp) {
 				patterns.APIHandlerFuncs = append(patterns.APIHandlerFuncs, APIPattern{
-					Ref: elem.Ref,
+					Ref:    elem.Ref,
+					Method: "ANY",
 				})
 				break
 			}
@@ -623,6 +624,15 @@ func DetectCodePatterns(content string, elements []CodeElement) CodePatterns {
 // ToPatternFacts converts CodePatterns to Mangle facts.
 func (p *CodePatterns) ToPatternFacts(file string, elements []CodeElement) []core.Fact {
 	var facts []core.Fact
+
+	normalizeHTTPMethodAtom := func(method string) string {
+		m := strings.TrimSpace(method)
+		m = strings.TrimPrefix(m, "/")
+		if m == "" {
+			m = "any"
+		}
+		return "/" + strings.ToLower(m)
+	}
 
 	if p.IsGenerated {
 		facts = append(facts, core.Fact{
@@ -655,14 +665,14 @@ func (p *CodePatterns) ToPatternFacts(file string, elements []CodeElement) []cor
 	for _, api := range p.APIClientFuncs {
 		facts = append(facts, core.Fact{
 			Predicate: "api_client_function",
-			Args:      []interface{}{api.Ref, api.Endpoint, "/" + api.Method},
+			Args:      []interface{}{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
 		})
 	}
 
 	for _, api := range p.APIHandlerFuncs {
 		facts = append(facts, core.Fact{
 			Predicate: "api_handler_function",
-			Args:      []interface{}{api.Ref, api.Endpoint, "/" + api.Method},
+			Args:      []interface{}{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
 		})
 	}
 
