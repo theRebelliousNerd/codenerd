@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -109,6 +110,11 @@ type embeddedYAMLAtom struct {
 	Category    string `yaml:"category"`
 	Subcategory string `yaml:"subcategory,omitempty"`
 
+	// Polymorphism / semantic embedding helpers
+	Description    string `yaml:"description,omitempty"`
+	ContentConcise string `yaml:"content_concise,omitempty"`
+	ContentMin     string `yaml:"content_min,omitempty"`
+
 	Priority      int      `yaml:"priority"`
 	IsMandatory   bool     `yaml:"is_mandatory"`
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
@@ -127,8 +133,9 @@ type embeddedYAMLAtom struct {
 	Frameworks       []string `yaml:"frameworks,omitempty"`
 	WorldStates      []string `yaml:"world_states,omitempty"`
 
-	Content string `yaml:"content,omitempty"`
-	// Note: ContentFile is not supported for embedded atoms - content must be inline
+	// Content can be inline or reference a file relative to this YAML file.
+	Content     string `yaml:"content,omitempty"`
+	ContentFile string `yaml:"content_file,omitempty"`
 }
 
 // convertEmbeddedAtom converts an embedded YAML atom definition to a PromptAtom.
@@ -141,22 +148,37 @@ func convertEmbeddedAtom(raw embeddedYAMLAtom, sourcePath string) (*PromptAtom, 
 		return nil, fmt.Errorf("atom %s missing category", raw.ID)
 	}
 
-	if raw.Content == "" {
-		return nil, fmt.Errorf("atom %s has no content (embedded atoms must have inline content)", raw.ID)
+	// Resolve content (inline or referenced file)
+	content := raw.Content
+	if raw.ContentFile != "" && strings.TrimSpace(content) == "" {
+		// Use slash-separated paths for embedded FS access.
+		contentPath := path.Join(path.Dir(sourcePath), raw.ContentFile)
+		contentData, err := embeddedAtoms.ReadFile(contentPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read embedded content file %s: %w", raw.ContentFile, err)
+		}
+		content = string(contentData)
+	}
+
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("atom %s has no content", raw.ID)
 	}
 
 	// Compute token count and hash
-	tokenCount := EstimateTokens(raw.Content)
-	contentHash := HashContent(raw.Content)
+	tokenCount := EstimateTokens(content)
+	contentHash := HashContent(content)
 
 	atom := &PromptAtom{
 		ID:               raw.ID,
 		Version:          1,
 		Category:         AtomCategory(raw.Category),
 		Subcategory:      raw.Subcategory,
-		Content:          raw.Content,
+		Content:          content,
 		TokenCount:       tokenCount,
 		ContentHash:      contentHash,
+		Description:      raw.Description,
+		ContentConcise:   raw.ContentConcise,
+		ContentMin:       raw.ContentMin,
 		Priority:         raw.Priority,
 		IsMandatory:      raw.IsMandatory,
 		IsExclusive:      raw.IsExclusive,
