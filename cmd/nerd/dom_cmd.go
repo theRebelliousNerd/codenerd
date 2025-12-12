@@ -20,6 +20,7 @@ import (
 var (
 	domDemoKeep       bool
 	domDemoDeepWorker int
+	domInspectLimit   int
 )
 
 // domCmd groups Code DOM utilities.
@@ -35,10 +36,22 @@ var domDemoCmd = &cobra.Command{
 	RunE:  runDomDemo,
 }
 
+// domInspectCmd opens a real file and prints a Code DOM scope summary.
+var domInspectCmd = &cobra.Command{
+	Use:   "inspect <file>",
+	Short: "Inspect Code DOM scope for a Go file",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runDomInspect,
+}
+
 func init() {
 	domCmd.AddCommand(domDemoCmd)
+	domCmd.AddCommand(domInspectCmd)
 	domDemoCmd.Flags().BoolVar(&domDemoKeep, "keep", false, "Keep the temporary demo workspace on disk")
 	domDemoCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
+
+	domInspectCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
+	domInspectCmd.Flags().IntVar(&domInspectLimit, "limit", 25, "Max elements to print")
 }
 
 func runDomDemo(cmd *cobra.Command, args []string) error {
@@ -180,6 +193,96 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runDomInspect(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	defer cancel()
+
+	target := args[0]
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target path: %w", err)
+	}
+
+	ws := workspace
+	if ws == "" {
+		if root, err := findGoWorkspaceRoot(absTarget); err == nil && root != "" {
+			ws = root
+		} else {
+			ws, _ = os.Getwd()
+		}
+	}
+	ws, _ = filepath.Abs(ws)
+
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(ws); err != nil {
+		return fmt.Errorf("chdir workspace: %w", err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("create kernel: %w", err)
+	}
+	kernel.SetWorkspace(ws)
+
+	executor := tactile.NewSafeExecutor()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = ws
+	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
+	vs.SetKernel(kernel)
+
+	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, domDemoDeepWorker)
+	vs.SetCodeScope(scope)
+
+	fileEditor := tactile.NewFileEditor()
+	fileEditor.SetWorkingDir(ws)
+	vs.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
+
+	fmt.Printf("Workspace: %s\n", ws)
+	fmt.Printf("Opening:   %s\n", absTarget)
+
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+		return fmt.Errorf("open_file failed: %w", err)
+	}
+
+	inScope := scope.GetInScopeFiles()
+	fmt.Printf("Files in scope: %d\n", len(inScope))
+
+	fileElementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/get_elements", absTarget}})
+	if err != nil {
+		return fmt.Errorf("get_elements failed: %w", err)
+	}
+
+	var fileElements []core.CodeElement
+	if err := json.Unmarshal([]byte(fileElementsJSON), &fileElements); err != nil {
+		return fmt.Errorf("parse get_elements output: %w", err)
+	}
+
+	sort.Slice(fileElements, func(i, j int) bool { return fileElements[i].StartLine < fileElements[j].StartLine })
+	fmt.Printf("Elements in file: %d\n", len(fileElements))
+	printElementSample(fileElements, domInspectLimit)
+
+	printPredicateCounts(kernel, []string{
+		"file_in_scope",
+		"code_element",
+		"parse_error",
+		"file_not_found",
+		"encoding_issue",
+		"large_file_warning",
+		"generated_code",
+		"cgo_code",
+		"build_tag",
+		"embed_directive",
+		"api_client_function",
+		"api_handler_function",
+		"code_defines",
+		"code_calls",
+	})
+
+	_ = closeScopeQuiet(ctx, vs)
+	return nil
+}
+
 func writeDomDemoWorkspace(workspace, modulePath string) error {
 	if err := os.MkdirAll(filepath.Join(workspace, "util"), 0755); err != nil {
 		return fmt.Errorf("create util dir: %w", err)
@@ -279,6 +382,21 @@ func TestAdd(t *testing.T) {
 	return nil
 }
 
+func findGoWorkspaceRoot(filePath string) (string, error) {
+	dir := filepath.Dir(filePath)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("no go.mod found above %s", filePath)
+}
+
 func printElementSample(elements []core.CodeElement, limit int) {
 	if limit <= 0 || len(elements) == 0 {
 		return
@@ -302,6 +420,11 @@ func printPredicateCounts(kernel core.Kernel, predicates []string) {
 		}
 		fmt.Printf("%s: %d\n", p, len(facts))
 	}
+}
+
+func closeScopeQuiet(ctx context.Context, vs *core.VirtualStore) error {
+	_, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/close_scope", ""}})
+	return err
 }
 
 func runGoTest(ctx context.Context, dir string) error {

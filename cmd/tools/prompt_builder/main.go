@@ -1,6 +1,7 @@
-// Package main implements the prompt builder tool for creating a baked-in vector database
-// for JIT prompt compilation. It parses YAML atom definitions from build/prompt_atoms/ and
-// generates embeddings for semantic search during prompt assembly.
+// Package main implements the prompt builder tool for creating a baked-in prompt corpus
+// database for JIT prompt compilation. It parses YAML atom definitions from
+// internal/prompt/atoms/ (or a custom -input path) and optionally generates embeddings
+// for semantic search during prompt assembly.
 //
 // Usage: go run ./cmd/tools/prompt_builder
 //
@@ -15,7 +16,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -44,6 +44,11 @@ type AtomDefinition struct {
 	ID          string `yaml:"id"`
 	Category    string `yaml:"category"`
 	Subcategory string `yaml:"subcategory,omitempty"`
+
+	// Polymorphism / embedding helpers (optional)
+	Description    string `yaml:"description,omitempty"`
+	ContentConcise string `yaml:"content_concise,omitempty"`
+	ContentMin     string `yaml:"content_min,omitempty"`
 
 	// Composition
 	Priority      int      `yaml:"priority"`
@@ -79,7 +84,7 @@ type ProcessedAtom struct {
 }
 
 func main() {
-	inputDir := flag.String("input", "build/prompt_atoms", "Input directory with YAML atom definitions")
+	inputDir := flag.String("input", "internal/prompt/atoms", "Input directory with YAML atom definitions")
 	outputDB := flag.String("output", "internal/core/defaults/prompt_corpus.db", "Output SQLite database")
 	skipEmbeddings := flag.Bool("skip-embeddings", false, "Skip embedding generation (faster for testing)")
 	flag.Parse()
@@ -416,7 +421,7 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Create schema matching the plan specification
+	// Create schema that matches the runtime loader/compiler expectations.
 	schema := `
 		CREATE TABLE prompt_atoms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -426,22 +431,14 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 			token_count INTEGER NOT NULL,
 			content_hash TEXT NOT NULL,
 
+			-- Polymorphism
+			description TEXT,
+			content_concise TEXT,
+			content_min TEXT,
+
 			-- Classification
 			category TEXT NOT NULL,
 			subcategory TEXT,
-
-			-- Contextual Selectors (JSON arrays)
-			operational_modes TEXT,
-			campaign_phases TEXT,
-			build_layers TEXT,
-			init_phases TEXT,
-			northstar_phases TEXT,
-			ouroboros_stages TEXT,
-			intent_verbs TEXT,
-			shard_types TEXT,
-			languages TEXT,
-			frameworks TEXT,
-			world_states TEXT,
 
 			-- Composition
 			priority INTEGER DEFAULT 50,
@@ -452,17 +449,25 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 
 			-- Embeddings
 			embedding BLOB,
-			embedding_task TEXT,
+			embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
 
 			-- Metadata
 			source_file TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
-		CREATE INDEX idx_atoms_category ON prompt_atoms(category);
-		CREATE INDEX idx_atoms_hash ON prompt_atoms(content_hash);
-		CREATE INDEX idx_atoms_mandatory ON prompt_atoms(is_mandatory);
-		CREATE INDEX idx_atoms_priority ON prompt_atoms(priority DESC);
+		CREATE TABLE IF NOT EXISTS atom_context_tags (
+			atom_id TEXT NOT NULL,
+			dimension TEXT NOT NULL,
+			tag TEXT NOT NULL,
+			is_exclusion BOOLEAN DEFAULT FALSE,
+			PRIMARY KEY (atom_id, dimension, tag),
+			FOREIGN KEY(atom_id) REFERENCES prompt_atoms(atom_id) ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_atoms_category ON prompt_atoms(category);
+		CREATE INDEX IF NOT EXISTS idx_atoms_description ON prompt_atoms(description);
+		CREATE INDEX IF NOT EXISTS idx_tags_lookup ON atom_context_tags(dimension, tag);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -495,22 +500,33 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 	total := len(atoms)
 	processed := 0
 
-	// Prepare insert statement
-	insertStmt, err := db.Prepare(`
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	insertAtomStmt, err := tx.Prepare(`
 		INSERT INTO prompt_atoms (
-			atom_id, content, token_count, content_hash,
+			atom_id, version, content, token_count, content_hash,
+			description, content_concise, content_min,
 			category, subcategory,
-			operational_modes, campaign_phases, build_layers,
-			init_phases, northstar_phases, ouroboros_stages,
-			intent_verbs, shard_types, languages, frameworks, world_states,
-			priority, is_mandatory, is_exclusive, depends_on, conflicts_with,
+			priority, is_mandatory, is_exclusive,
 			embedding, embedding_task, source_file
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare insert statement: %w", err)
+		return fmt.Errorf("failed to prepare atom insert statement: %w", err)
 	}
-	defer insertStmt.Close()
+	defer insertAtomStmt.Close()
+
+	insertTagStmt, err := tx.Prepare(`
+		INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare tag insert statement: %w", err)
+	}
+	defer insertTagStmt.Close()
 
 	// Check if vec_prompt_atoms exists
 	var vecAvailable bool
@@ -521,7 +537,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 
 	var vecStmt *sql.Stmt
 	if vecAvailable && !skipEmbeddings {
-		vecStmt, err = db.Prepare(`INSERT INTO vec_prompt_atoms (embedding, atom_id, category, priority) VALUES (?, ?, ?, ?)`)
+		vecStmt, err = tx.Prepare(`INSERT INTO vec_prompt_atoms (embedding, atom_id, category, priority) VALUES (?, ?, ?, ?)`)
 		if err != nil {
 			fmt.Printf("  WARNING: Failed to prepare vec statement: %v\n", err)
 			vecAvailable = false
@@ -549,8 +565,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 		if !skipEmbeddings && engine != nil {
 			texts := make([]string, len(batch))
 			for j, atom := range batch {
-				// Use content for embedding
-				texts[j] = atom.Content
+				texts[j] = getTextForEmbedding(atom)
 			}
 
 			var embedErr error
@@ -570,35 +585,80 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 				embeddingTask = "RETRIEVAL_DOCUMENT"
 			}
 
-			_, err := insertStmt.Exec(
+			_, err := insertAtomStmt.Exec(
 				atom.ID,
+				1, // version
 				atom.Content,
 				atom.TokenCount,
 				atom.ContentHash,
+				nullableString(atom.Description),
+				nullableString(atom.ContentConcise),
+				nullableString(atom.ContentMin),
 				atom.Category,
 				nullableString(atom.Subcategory),
-				toJSONArray(atom.OperationalModes),
-				toJSONArray(atom.CampaignPhases),
-				toJSONArray(atom.BuildLayers),
-				toJSONArray(atom.InitPhases),
-				toJSONArray(atom.NorthstarPhases),
-				toJSONArray(atom.OuroborosStages),
-				toJSONArray(atom.IntentVerbs),
-				toJSONArray(atom.ShardTypes),
-				toJSONArray(atom.Languages),
-				toJSONArray(atom.Frameworks),
-				toJSONArray(atom.WorldStates),
 				atom.Priority,
 				atom.IsMandatory,
 				nullableString(atom.IsExclusive),
-				toJSONArray(atom.DependsOn),
-				toJSONArray(atom.ConflictsWith),
 				embeddingBlob,
 				embeddingTask,
 				atom.SourceFile,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert atom %s: %w", atom.ID, err)
+			}
+
+			// Context tags (normalized, matches runtime loader).
+			insertTags := func(dim string, values []string) error {
+				for _, v := range values {
+					if strings.TrimSpace(v) == "" {
+						continue
+					}
+					if _, err := insertTagStmt.Exec(atom.ID, dim, v); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+
+			if err := insertTags("mode", atom.OperationalModes); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("phase", atom.CampaignPhases); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("layer", atom.BuildLayers); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("init_phase", atom.InitPhases); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("northstar_phase", atom.NorthstarPhases); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("ouroboros_stage", atom.OuroborosStages); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("intent", atom.IntentVerbs); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("shard", atom.ShardTypes); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("lang", atom.Languages); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("framework", atom.Frameworks); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("state", atom.WorldStates); err != nil {
+				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
+			}
+
+			if err := insertTags("depends_on", atom.DependsOn); err != nil {
+				return fmt.Errorf("failed to insert depends_on tags for atom %s: %w", atom.ID, err)
+			}
+			if err := insertTags("conflicts_with", atom.ConflictsWith); err != nil {
+				return fmt.Errorf("failed to insert conflicts_with tags for atom %s: %w", atom.ID, err)
 			}
 
 			// Also insert into vec_prompt_atoms if available
@@ -618,7 +678,18 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 	}
 	fmt.Println() // New line after progress
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
+}
+
+func getTextForEmbedding(atom ProcessedAtom) string {
+	if atom.Description != "" {
+		return atom.Description
+	}
+	return atom.Content
 }
 
 // encodeFloat32Slice converts a float32 slice to bytes (little-endian).
@@ -636,18 +707,6 @@ func nullableString(s string) interface{} {
 		return nil
 	}
 	return s
-}
-
-// toJSONArray converts a string slice to a JSON array string.
-func toJSONArray(slice []string) interface{} {
-	if len(slice) == 0 {
-		return nil
-	}
-	data, err := json.Marshal(slice)
-	if err != nil {
-		return nil
-	}
-	return string(data)
 }
 
 // printSummary prints statistics about the generated database.
