@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -76,5 +77,29 @@ func TestMustLoadEmbeddedCorpus(t *testing.T) {
 	}
 	if corpus.Count() == 0 {
 		t.Error("MustLoadEmbeddedCorpus returned empty corpus")
+	}
+}
+
+func TestEmbeddedCorpusLoadsContentFileAtoms(t *testing.T) {
+	corpus, err := LoadEmbeddedCorpus()
+	if err != nil {
+		t.Fatalf("LoadEmbeddedCorpus failed: %v", err)
+	}
+
+	// This atom is generated from internal/prompt/atoms/mangle/aggregation_syntax.md via mangle_docs.yaml.
+	const id = "language/mangle/docs/aggregation_syntax"
+
+	atom, found := corpus.Get(id)
+	if !found {
+		t.Fatalf("Expected atom %s not found in corpus", id)
+	}
+	if atom.Content == "" {
+		t.Fatalf("Atom %s has empty content", id)
+	}
+	if atom.Description != "Mangle Aggregation Syntax" {
+		t.Fatalf("Atom %s description mismatch: got %q", id, atom.Description)
+	}
+	if !strings.Contains(atom.Content, "Pipeline Operator") {
+		t.Fatalf("Atom %s content did not appear to load from file", id)
 	}
 }

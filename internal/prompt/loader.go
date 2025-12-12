@@ -252,6 +252,11 @@ type yamlAtomDefinition struct {
 	Category    string `yaml:"category"`
 	Subcategory string `yaml:"subcategory,omitempty"`
 
+	// Polymorphism / semantic embedding helpers
+	Description    string `yaml:"description,omitempty"`
+	ContentConcise string `yaml:"content_concise,omitempty"`
+	ContentMin     string `yaml:"content_min,omitempty"`
+
 	Priority      int      `yaml:"priority"`
 	IsMandatory   bool     `yaml:"is_mandatory"`
 	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
@@ -311,6 +316,9 @@ func (l *AtomLoader) convertYAMLAtom(raw yamlAtomDefinition, sourcePath string) 
 		Content:          content,
 		TokenCount:       tokenCount,
 		ContentHash:      contentHash,
+		Description:      raw.Description,
+		ContentConcise:   raw.ContentConcise,
+		ContentMin:       raw.ContentMin,
 		Priority:         raw.Priority,
 		IsMandatory:      raw.IsMandatory,
 		IsExclusive:      raw.IsExclusive,
