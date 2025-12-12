@@ -382,61 +382,73 @@ func init() {
 	initCmd.Flags().BoolVar(&cleanupBackups, "cleanup-backups", false, "Remove backup files from previous migrations")
 
 	// Browser subcommands
-	browserCmd.AddCommand(browserLaunchCmd)
-	browserCmd.AddCommand(browserSessionCmd)
-	browserCmd.AddCommand(browserSnapshotCmd)
+	browserCmd.AddCommand(
+		browserLaunchCmd,
+		browserSessionCmd,
+		browserSnapshotCmd,
+	)
 
 	// Campaign subcommands
 	var campaignDocs []string
 	var campaignType string
 	campaignStartCmd.Flags().StringArrayVar(&campaignDocs, "docs", nil, "Paths to spec/requirement documents")
 	campaignStartCmd.Flags().StringVar(&campaignType, "type", "feature", "Campaign type (greenfield, feature, audit, migration, remediation)")
-	campaignCmd.AddCommand(campaignStartCmd)
-	campaignCmd.AddCommand(campaignStatusCmd)
-	campaignCmd.AddCommand(campaignPauseCmd)
-	campaignCmd.AddCommand(campaignResumeCmd)
-	campaignCmd.AddCommand(campaignListCmd)
+	campaignCmd.AddCommand(
+		campaignStartCmd,
+		campaignStatusCmd,
+		campaignPauseCmd,
+		campaignResumeCmd,
+		campaignListCmd,
+	)
 
 	// Auth subcommands
-	authCmd.AddCommand(authClaudeCmd)
-	authCmd.AddCommand(authCodexCmd)
-	authCmd.AddCommand(authStatusCmd)
+	authCmd.AddCommand(
+		authClaudeCmd,
+		authCodexCmd,
+		authStatusCmd,
+	)
 
 	// Add commands to root
-	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(defineAgentCmd)
-	rootCmd.AddCommand(spawnCmd)
-	rootCmd.AddCommand(browserCmd)
-	rootCmd.AddCommand(queryCmd)
-	rootCmd.AddCommand(statusCmd)
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(scanCmd)
-	rootCmd.AddCommand(whyCmd)
-	rootCmd.AddCommand(campaignCmd)
-	rootCmd.AddCommand(checkMangleCmd) // UNCOMMENTED: Register the check-mangle command
-	rootCmd.AddCommand(authCmd)
+	rootCmd.AddCommand(
+		runCmd,
+		defineAgentCmd,
+		spawnCmd,
+		browserCmd,
+		queryCmd,
+		statusCmd,
+		initCmd,
+		scanCmd,
+		whyCmd,
+		campaignCmd,
+		checkMangleCmd, // UNCOMMENTED: Register the check-mangle command
+		authCmd,
+	)
 
 	// Direct action commands (mirror TUI verbs)
-	rootCmd.AddCommand(reviewCmd)
-	rootCmd.AddCommand(fixCmd)
-	rootCmd.AddCommand(testCmd)
-	rootCmd.AddCommand(pushCmd)
-	rootCmd.AddCommand(commitCmd)
-	rootCmd.AddCommand(explainCmd)
-	rootCmd.AddCommand(createCmd)
-	rootCmd.AddCommand(refactorCmd)
-	rootCmd.AddCommand(perceptionCmd)
+	rootCmd.AddCommand(
+		reviewCmd,
+		fixCmd,
+		testCmd,
+		pushCmd,
+		commitCmd,
+		explainCmd,
+		createCmd,
+		refactorCmd,
+		perceptionCmd,
+	)
 
 	// Advanced commands (dream state, shadow mode, etc.)
-	rootCmd.AddCommand(dreamCmd)
-	rootCmd.AddCommand(shadowCmd)
-	rootCmd.AddCommand(whatifCmd)
-	rootCmd.AddCommand(logicCmd)
-	rootCmd.AddCommand(agentsCmd)
-	rootCmd.AddCommand(toolCmd)
-	rootCmd.AddCommand(jitCmd)
-	rootCmd.AddCommand(domCmd)
-	rootCmd.AddCommand(embeddingCmd)
+	rootCmd.AddCommand(
+		dreamCmd,
+		shadowCmd,
+		whatifCmd,
+		logicCmd,
+		agentsCmd,
+		toolCmd,
+		jitCmd,
+		domCmd,
+		embeddingCmd,
+	)
 }
 
 // === START OF INTEGRATED check_mangle.go CONTENT ===

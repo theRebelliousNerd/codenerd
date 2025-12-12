@@ -17,6 +17,7 @@ The compiler can draw candidate atoms from three places:
    - Convention: `.nerd/prompts/corpus.db`
    - Registered via: `compiler.RegisterDB("corpus", ".../corpus.db")` or `prompt.WithProjectDB(db)`
    - Used for: project-level atoms + semantic search over atoms with embeddings.
+   - Boot seeding: when available, the baked default corpus (`internal/core/defaults/prompt_corpus.db`, embedded into the binary) is materialized to this path via `prompt.MaterializeDefaultPromptCorpus(...)`.
    - Boot ingestion: hybrid `.mg` files can emit `PROMPT:` directives which get ingested into the corpus (see `internal/system/factory.go` and `internal/core/hybrid_loader.go`).
 
 3. **Agent / shard DBs (agent-scoped)**

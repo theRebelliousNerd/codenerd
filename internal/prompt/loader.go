@@ -246,7 +246,8 @@ func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
 	return atoms, nil
 }
 
-// yamlAtomDefinition matches the YAML structure used in build/prompt_atoms/*.yaml
+// yamlAtomDefinition matches the YAML structure used in internal/prompt/atoms/*.yaml
+// and .nerd/agents/*/prompts.yaml.
 type yamlAtomDefinition struct {
 	ID          string `yaml:"id"`
 	Category    string `yaml:"category"`

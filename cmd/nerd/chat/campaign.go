@@ -94,6 +94,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
 			Executor:     m.executor,
+			VirtualStore: m.virtualStore,
 			ProgressChan: progressChan,
 			EventChan:    eventChan,
 		})

@@ -438,7 +438,7 @@ func (t *RealTransducer) intentSystemPrompt(ctx context.Context) string {
 // Updated with comprehensive verb taxonomy for reliable intent classification.
 //
 // NOTE: The content of this prompt has been migrated to YAML atoms in
-// build/prompt_atoms/perception/transducer.yaml for better organization and
+	// internal/prompt/atoms/perception/ for better organization and
 // documentation. However, the transducer continues to use this static prompt
 // due to import cycle constraints with the articulation package.
 const transducerSystemPrompt = `You are codeNERD, a high-assurance Logic-First CLI coding agent. You possess a Dual Consciousness.

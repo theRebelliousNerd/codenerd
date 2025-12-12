@@ -21,12 +21,13 @@ func (t *TesterShard) assertNextActionAndWait(ctx context.Context, actionType, t
 	actionID := fmt.Sprintf("action-%d", time.Now().UnixNano())
 	payload["action_id"] = actionID
 
-	nextAction := core.Fact{
-		Predicate: "next_action",
-		Args:      []interface{}{actionType, target, payload},
+	// Use the canonical executable envelope. next_action/1 is reserved for IDB decisions.
+	pending := core.Fact{
+		Predicate: "pending_action",
+		Args:      []interface{}{actionID, actionType, target, payload, time.Now().Unix()},
 	}
 
-	if err := t.kernel.Assert(nextAction); err != nil {
+	if err := t.kernel.Assert(pending); err != nil {
 		return err
 	}
 
@@ -80,4 +81,3 @@ func (t *TesterShard) waitForRoutingResult(ctx context.Context, actionID string)
 		}
 	}
 }
-

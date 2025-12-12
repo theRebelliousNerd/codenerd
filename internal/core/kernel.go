@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -1109,10 +1110,13 @@ func (k *RealKernel) rebuild() error {
 	return k.evaluate()
 }
 
-// Query retrieves all facts matching a predicate pattern.
+// Query retrieves facts for a predicate, optionally filtering by a pattern.
 // Accepts either a bare predicate name (e.g., "user_intent") or a pattern with
-// arguments (e.g., "selected_result(Atom, Priority, Source)"). For patterns,
-// only the predicate name is used for lookup; argument filtering is not supported.
+// arguments (e.g., "selected_result(Atom, Priority, Source)" or "next_action(/generate_tool)").
+//
+// Pattern filtering rules:
+// - Variables (e.g., Atom, X, _) are treated as wildcards.
+// - Constants (name constants like /foo, strings like "bar", numbers) must match.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
 	logging.KernelDebug("Query: predicate=%s", predicate)
@@ -1126,6 +1130,25 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, err
 	}
 
+	// Parse optional pattern form, using the official Mangle parser for correctness.
+	// If parsing fails, fall back to predicate-only query.
+	var (
+		patternFact   Fact
+		hasPattern    bool
+		desiredArity  int
+		predicateName = predicate
+	)
+	if idx := strings.Index(predicate, "("); idx > 0 {
+		// Fast path: extract predicate name even if full parse fails.
+		predicateName = strings.TrimSpace(predicate[:idx])
+		if parsedFact, err := ParseFactString(predicate); err == nil {
+			patternFact = parsedFact
+			hasPattern = true
+			desiredArity = len(parsedFact.Args)
+			predicateName = parsedFact.Predicate
+		}
+	}
+
 	results := make([]Fact, 0)
 
 	// Get the predicate symbol from the program
@@ -1135,23 +1158,18 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return results, nil
 	}
 
-	// Extract predicate name from pattern (e.g., "foo(X, Y)" -> "foo")
-	// This supports both bare predicate names and full patterns
-	predicateName := predicate
-	if idx := strings.Index(predicate, "("); idx > 0 {
-		predicateName = predicate[:idx]
-		logging.KernelDebug("Query: extracted predicate name '%s' from pattern '%s'", predicateName, predicate)
-	}
-
 	// Find the predicate in the decls
 	predicateFound := false
 	for pred := range k.programInfo.Decls {
-		if pred.Symbol == predicateName {
+		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
 			predicateFound = true
 			// Query the store for all atoms of this predicate
 			k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
 				fact := atomToFact(a)
-				results = append(results, fact)
+				// If a pattern was provided, filter by constants.
+				if !hasPattern || factMatchesPattern(fact, patternFact) {
+					results = append(results, fact)
+				}
 				return nil
 			})
 			break
@@ -1175,6 +1193,43 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	logging.KernelDebug("Query: predicate=%s returned %d results", predicate, len(results))
 	logging.Audit().KernelQuery(predicate, len(results), elapsed.Milliseconds())
 	return results, nil
+}
+
+func factMatchesPattern(f Fact, pattern Fact) bool {
+	if f.Predicate != pattern.Predicate {
+		return false
+	}
+	if len(f.Args) != len(pattern.Args) {
+		return false
+	}
+	for i := range pattern.Args {
+		if !patternArgMatches(pattern.Args[i], f.Args[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func patternArgMatches(pattern interface{}, value interface{}) bool {
+	// Variables are represented as strings like "?X" by atomToFact/baseTermToValue.
+	if s, ok := pattern.(string); ok && strings.HasPrefix(s, "?") {
+		return true
+	}
+	return reflect.DeepEqual(normalizeQueryValue(pattern), normalizeQueryValue(value))
+}
+
+func normalizeQueryValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case int:
+		return int64(t)
+	case int64:
+		return t
+	case float64:
+		// Mangle numeric constants are integers; normalize defensively.
+		return int64(t)
+	default:
+		return v
+	}
 }
 
 // QueryAll retrieves all derived facts organized by predicate.

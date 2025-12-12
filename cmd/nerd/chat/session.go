@@ -423,33 +423,56 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		); err == nil {
 			jitCompiler = jit
 
-			// Sync embedded corpus to project SQLite DB with embeddings
-			// This enables vector search over baked-in atoms
+			// Ensure a project corpus DB exists for semantic retrieval.
+			// Prefer the baked-in defaults corpus; fall back to SyncEmbeddedToSQLite when needed.
 			nerdDir := filepath.Join(workspace, ".nerd")
-			if embeddingEngine != nil {
-				logStep("Syncing embedded corpus to SQLite...")
+			promptsDir := filepath.Join(nerdDir, "prompts")
+			if mkdirErr := os.MkdirAll(promptsDir, 0755); mkdirErr != nil {
+				logging.Boot("Warning: Failed to create prompts directory: %v", mkdirErr)
+			} else {
+				corpusPath := filepath.Join(promptsDir, "corpus.db")
 
-				// Ensure prompts directory exists
-				promptsDir := filepath.Join(nerdDir, "prompts")
-				if mkdirErr := os.MkdirAll(promptsDir, 0755); mkdirErr != nil {
-					logging.Boot("Warning: Failed to create prompts directory: %v", mkdirErr)
-				} else {
-					corpusPath := filepath.Join(promptsDir, "corpus.db")
+				if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
+					logging.Boot("Warning: Failed to materialize default prompt corpus: %v", err)
+				} else if wrote {
+					logging.Boot("Materialized default prompt corpus to corpus.db")
+				}
+
+				// If no embedded default corpus is available, fall back to generating embeddings at runtime.
+				if _, err := os.Stat(corpusPath); os.IsNotExist(err) && embeddingEngine != nil {
+					logStep("Syncing embedded corpus to SQLite...")
 					if syncErr := prompt.SyncEmbeddedToSQLite(context.Background(), corpusPath, embeddingEngine); syncErr != nil {
 						logging.Boot("Warning: Failed to sync embedded corpus: %v", syncErr)
-						// Non-fatal - continue with embedded-only corpus
+					}
+				}
+
+				// Ensure schema is up-to-date and tags are present, then register with JIT compiler.
+				if _, err := os.Stat(corpusPath); err == nil {
+					db, err := sql.Open("sqlite3", corpusPath)
+					if err != nil {
+						logging.Boot("Warning: Failed to open corpus DB for migrations: %v", err)
 					} else {
-						// Register corpus DB with JIT compiler for project-level atom queries
-						if regErr := jitCompiler.RegisterDB("corpus", corpusPath); regErr != nil {
-							logging.Boot("Warning: Failed to register corpus DB: %v", regErr)
-						} else {
-							logging.Boot("Synced embedded atoms to corpus.db")
+						loader := prompt.NewAtomLoader(nil)
+						if err := loader.EnsureSchema(context.Background(), db); err != nil {
+							logging.Boot("Warning: Failed to ensure corpus schema: %v", err)
+						} else if embeddedCorpus != nil {
+							if err := prompt.HydrateAtomContextTags(context.Background(), db, embeddedCorpus.All()); err != nil {
+								logging.Boot("Warning: Failed to hydrate corpus tags: %v", err)
+							}
 						}
+						_ = db.Close()
+					}
+
+					// Register corpus DB with JIT compiler for project-level atom queries.
+					if regErr := jitCompiler.RegisterDB("corpus", corpusPath); regErr != nil {
+						logging.Boot("Warning: Failed to register corpus DB: %v", regErr)
+					} else {
+						logging.Boot("Registered corpus DB: %s", corpusPath)
 					}
 				}
 			}
 
-			// Wire prompt loader callback (YAML → SQLite)
+			// Wire prompt loader callback (YAML -> SQLite)
 			shardMgr.SetNerdDir(nerdDir)
 			shardMgr.SetPromptLoader(func(ctx context.Context, agentName, nerdDir string) (int, error) {
 				return prompt.LoadAgentPrompts(ctx, agentName, nerdDir, embeddingEngine)
@@ -459,7 +482,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shardMgr.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
 			shardMgr.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
 
-			// Sync all agent prompts.yaml → knowledge DBs at boot (upsert semantics)
+			// Sync all agent prompts.yaml -> knowledge DBs at boot (upsert semantics)
 			// This ensures edited prompts are available to the JIT compiler immediately
 			logStep("Syncing agent prompts to knowledge DBs...")
 			if promptCount, syncErr := prompt.ReloadAllPrompts(context.Background(), nerdDir, embeddingEngine); syncErr != nil {

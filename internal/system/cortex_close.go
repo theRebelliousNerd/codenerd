@@ -20,6 +20,13 @@ func (c *Cortex) Close() error {
 		c.ShardManager.StopAll()
 	}
 
+	if c.JITCompiler != nil {
+		if err := c.JITCompiler.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.JITCompiler = nil
+	}
+
 	if c.LocalDB != nil {
 		if err := c.LocalDB.Close(); err != nil {
 			errs = append(errs, err)

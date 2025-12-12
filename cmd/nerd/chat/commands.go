@@ -1462,7 +1462,7 @@ You have an existing Northstar definition. What would you like to do?
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: "Usage: `/campaign <start|status|pause|resume|list> [args]`",
+				Content: "Usage: `/campaign <start|assault|status|pause|resume|list> [args]`",
 				Time:    time.Now(),
 			})
 		} else {
@@ -1488,6 +1488,17 @@ You have an existing Northstar definition. What would you like to do?
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 				}
+			case "assault":
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Starting adversarial assault campaign...",
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				m.isLoading = true
+				return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
 			case "status":
 				content := m.renderCampaignStatus()
 				m.history = append(m.history, Message{
