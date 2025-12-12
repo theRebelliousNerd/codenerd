@@ -6,7 +6,7 @@
   subcategory: "goals"
   priority: 85
   is_mandatory: false
-  northstar_phases: ["/goal_definition"]
+  northstar_phases: ["/doc_ingestion", "/problem", "/vision"]
   content: |
     ## NORTHSTAR GOAL DEFINITION
 
@@ -40,7 +40,7 @@
   subcategory: "goals"
   priority: 80
   is_mandatory: false
-  northstar_phases: ["/tracking"]
+  northstar_phases: ["/requirements", "/roadmap", "/validation"]
   content: |
     ## GOAL PROGRESS TRACKING
 
@@ -76,6 +76,7 @@
   subcategory: "alignment"
   priority: 85
   is_mandatory: false
+  northstar_phases: ["/doc_ingestion", "/problem", "/vision", "/requirements", "/architecture", "/roadmap", "/validation"]
   content: |
     ## GOAL ALIGNMENT CHECK
 
