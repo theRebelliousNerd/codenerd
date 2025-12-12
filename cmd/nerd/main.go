@@ -435,6 +435,7 @@ func init() {
 	rootCmd.AddCommand(agentsCmd)
 	rootCmd.AddCommand(toolCmd)
 	rootCmd.AddCommand(jitCmd)
+	rootCmd.AddCommand(domCmd)
 	rootCmd.AddCommand(embeddingCmd)
 }
 

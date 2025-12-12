@@ -1,0 +1,317 @@
+package main
+
+import (
+	"context"
+	"codenerd/internal/core"
+	coresys "codenerd/internal/system"
+	"codenerd/internal/tactile"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+)
+
+var (
+	domDemoKeep       bool
+	domDemoDeepWorker int
+)
+
+// domCmd groups Code DOM utilities.
+var domCmd = &cobra.Command{
+	Use:   "dom",
+	Short: "Code DOM tools (semantic code editing)",
+}
+
+// domDemoCmd runs a self-contained end-to-end Code DOM demo.
+var domDemoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Run an end-to-end Code DOM demo in a temp workspace",
+	RunE:  runDomDemo,
+}
+
+func init() {
+	domCmd.AddCommand(domDemoCmd)
+	domDemoCmd.Flags().BoolVar(&domDemoKeep, "keep", false, "Keep the temporary demo workspace on disk")
+	domDemoCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
+}
+
+func runDomDemo(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	defer cancel()
+
+	ws, err := os.MkdirTemp("", "nerd-dom-demo-")
+	if err != nil {
+		return fmt.Errorf("create temp workspace: %w", err)
+	}
+	if !domDemoKeep {
+		defer func() { _ = os.RemoveAll(ws) }()
+	}
+	if err := os.MkdirAll(filepath.Join(ws, ".nerd", "mangle"), 0755); err != nil {
+		return fmt.Errorf("create demo .nerd dirs: %w", err)
+	}
+
+	modulePath := "example.com/nerd-dom-demo"
+	if err := writeDomDemoWorkspace(ws, modulePath); err != nil {
+		return err
+	}
+
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(ws); err != nil {
+		return fmt.Errorf("chdir demo workspace: %w", err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return fmt.Errorf("create kernel: %w", err)
+	}
+	kernel.SetWorkspace(ws)
+
+	executor := tactile.NewSafeExecutor()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = ws
+	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
+	vs.SetKernel(kernel)
+
+	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, domDemoDeepWorker)
+	vs.SetCodeScope(scope)
+
+	fileEditor := tactile.NewFileEditor()
+	fileEditor.SetWorkingDir(ws)
+	vs.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
+
+	demoFile := filepath.Join(ws, "demo.go")
+
+	fmt.Printf("Code DOM demo workspace: %s\n", ws)
+	fmt.Printf("Opening: %s\n", demoFile)
+
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", demoFile}}); err != nil {
+		return fmt.Errorf("open_file failed: %w", err)
+	}
+
+	elementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/get_elements", ""}})
+	if err != nil {
+		return fmt.Errorf("get_elements failed: %w", err)
+	}
+
+	var elements []core.CodeElement
+	if err := json.Unmarshal([]byte(elementsJSON), &elements); err != nil {
+		return fmt.Errorf("parse get_elements output: %w", err)
+	}
+
+	sort.Slice(elements, func(i, j int) bool {
+		if elements[i].File != elements[j].File {
+			return elements[i].File < elements[j].File
+		}
+		return elements[i].StartLine < elements[j].StartLine
+	})
+
+	fmt.Printf("Elements in scope: %d\n", len(elements))
+	printElementSample(elements, 10)
+
+	printPredicateCounts(kernel, []string{
+		"file_in_scope",
+		"code_element",
+		"build_tag",
+		"embed_directive",
+		"api_client_function",
+		"api_handler_function",
+		"generated_code",
+		"edit_unsafe",
+		"code_defines",
+		"code_calls",
+	})
+
+	// Edit a known function to prove semantic editing works.
+	refToEdit := "fn:domdemo.Add"
+	newAdd := "func Add(a, b int) int {\n\tsum := a + b\n\treturn sum\n}"
+
+	fmt.Printf("Editing element: %s\n", refToEdit)
+	if _, err := vs.RouteAction(ctx, core.Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/edit_element",
+			refToEdit,
+			map[string]interface{}{"content": newAdd},
+		},
+	}); err != nil {
+		return fmt.Errorf("edit_element failed: %w", err)
+	}
+
+	afterJSON, err := vs.RouteAction(ctx, core.Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/get_element",
+			refToEdit,
+			map[string]interface{}{"include_body": true},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("get_element after edit failed: %w", err)
+	}
+
+	var after core.CodeElement
+	if err := json.Unmarshal([]byte(afterJSON), &after); err != nil {
+		return fmt.Errorf("parse get_element output: %w", err)
+	}
+	if !strings.Contains(after.Body, "sum := a + b") {
+		return fmt.Errorf("edit verification failed: expected updated body to contain %q", "sum := a + b")
+	}
+	fmt.Printf("Edit verified (Add now uses a local sum variable).\n")
+
+	if err := runGoTest(ctx, ws); err != nil {
+		return err
+	}
+
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/close_scope", ""}}); err != nil {
+		return fmt.Errorf("close_scope failed: %w", err)
+	}
+
+	fmt.Printf("Scope closed.\n")
+	if domDemoKeep {
+		fmt.Printf("Kept demo workspace: %s\n", ws)
+	}
+	return nil
+}
+
+func writeDomDemoWorkspace(workspace, modulePath string) error {
+	if err := os.MkdirAll(filepath.Join(workspace, "util"), 0755); err != nil {
+		return fmt.Errorf("create util dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "consumer"), 0755); err != nil {
+		return fmt.Errorf("create consumer dir: %w", err)
+	}
+
+	goMod := fmt.Sprintf("module %s\n\ngo 1.22\n", modulePath)
+	if err := os.WriteFile(filepath.Join(workspace, "go.mod"), []byte(goMod), 0644); err != nil {
+		return fmt.Errorf("write go.mod: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workspace, "hello.txt"), []byte("hello from go:embed\n"), 0644); err != nil {
+		return fmt.Errorf("write hello.txt: %w", err)
+	}
+
+	demoGo := fmt.Sprintf(`//go:build !ignore
+
+package domdemo
+
+import (
+	_ "embed"
+	"fmt"
+	"net/http"
+
+	"%s/util"
+)
+
+//go:embed hello.txt
+var embeddedHello string
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func TwiceViaUtil(n int) int {
+	return util.Twice(n)
+}
+
+func FetchURL(url string) (int, error) {
+	resp, err := http.Get(url) // triggers api_client_function
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
+}
+
+func RegisterHandlers() {
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "pong")
+	})
+	fmt.Println(embeddedHello)
+}
+`, modulePath)
+	if err := os.WriteFile(filepath.Join(workspace, "demo.go"), []byte(demoGo), 0644); err != nil {
+		return fmt.Errorf("write demo.go: %w", err)
+	}
+
+	utilGo := `package util
+
+func Twice(n int) int {
+	return n * 2
+}
+`
+	if err := os.WriteFile(filepath.Join(workspace, "util", "util.go"), []byte(utilGo), 0644); err != nil {
+		return fmt.Errorf("write util.go: %w", err)
+	}
+
+	consumerGo := fmt.Sprintf(`package consumer
+
+import dd "%s"
+
+func UsesDomDemo() int {
+	return dd.Add(20, 22)
+}
+`, modulePath)
+	if err := os.WriteFile(filepath.Join(workspace, "consumer", "consumer.go"), []byte(consumerGo), 0644); err != nil {
+		return fmt.Errorf("write consumer.go: %w", err)
+	}
+
+	testGo := `package domdemo
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(20, 22) != 42 {
+		t.Fatalf("expected 42")
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(workspace, "demo_test.go"), []byte(testGo), 0644); err != nil {
+		return fmt.Errorf("write demo_test.go: %w", err)
+	}
+
+	return nil
+}
+
+func printElementSample(elements []core.CodeElement, limit int) {
+	if limit <= 0 || len(elements) == 0 {
+		return
+	}
+	if limit > len(elements) {
+		limit = len(elements)
+	}
+	fmt.Printf("Sample elements:\n")
+	for i := 0; i < limit; i++ {
+		e := elements[i]
+		fmt.Printf("  - %s (%s) %s:%d-%d\n", e.Ref, e.Type, filepath.Base(e.File), e.StartLine, e.EndLine)
+	}
+}
+
+func printPredicateCounts(kernel core.Kernel, predicates []string) {
+	for _, p := range predicates {
+		facts, err := kernel.Query(p)
+		if err != nil {
+			fmt.Printf("%s: (query error: %v)\n", p, err)
+			continue
+		}
+		fmt.Printf("%s: %d\n", p, len(facts))
+	}
+}
+
+func runGoTest(ctx context.Context, dir string) error {
+	fmt.Printf("Running: go test ./... (demo workspace)\n")
+	testCmd := exec.CommandContext(ctx, "go", "test", "./...")
+	testCmd.Dir = dir
+	out, err := testCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go test failed: %w\n%s", err, string(out))
+	}
+	fmt.Printf("go test: PASS\n")
+	return nil
+}
