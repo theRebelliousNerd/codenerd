@@ -80,13 +80,13 @@ func TestMustLoadEmbeddedCorpus(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCorpusLoadsContentFileAtoms(t *testing.T) {
+func TestEmbeddedCorpusLoadsMangleDocAtoms(t *testing.T) {
 	corpus, err := LoadEmbeddedCorpus()
 	if err != nil {
 		t.Fatalf("LoadEmbeddedCorpus failed: %v", err)
 	}
 
-	// This atom is generated from internal/prompt/atoms/mangle/aggregation_syntax.md via mangle_docs.yaml.
+	// This atom is generated from the Mangle doc corpus under internal/prompt/atoms/mangle/.
 	const id = "language/mangle/docs/aggregation_syntax"
 
 	atom, found := corpus.Get(id)
