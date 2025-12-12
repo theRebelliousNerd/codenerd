@@ -140,6 +140,59 @@ func NewRealKernel() (*RealKernel, error) {
 	return k, nil
 }
 
+// NewRealKernelWithWorkspace creates a kernel rooted at an explicit workspace directory.
+// This ensures `.nerd/...` resolution is stable even when the process CWD is not the workspace root.
+func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
+	timer := logging.StartTimer(logging.CategoryKernel, "NewRealKernelWithWorkspace")
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot != "" {
+		if abs, err := filepath.Abs(workspaceRoot); err == nil {
+			workspaceRoot = abs
+		}
+	}
+	logging.Kernel("Initializing RealKernel with workspace root: %s", workspaceRoot)
+
+	k := &RealKernel{
+		facts:         make([]Fact, 0),
+		factIndex:     make(map[string]struct{}),
+		bootFacts:     make([]Fact, 0),
+		bootIntents:   make([]HybridIntent, 0),
+		bootPrompts:   make([]HybridPrompt, 0),
+		store:         factstore.NewSimpleInMemoryStore(),
+		workspaceRoot: workspaceRoot,
+		policyDirty:   true, // Need to parse on first use
+	}
+	logging.KernelDebug("Kernel struct created with workspaceRoot=%s, policyDirty=true", workspaceRoot)
+
+	// Find and load mangle files from the project
+	if err := k.loadMangleFiles(); err != nil {
+		timer.Stop()
+		return nil, fmt.Errorf("failed to load mangle files: %w", err)
+	}
+
+	// Load the baked-in predicate corpus for validation
+	k.loadPredicateCorpus()
+
+	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	if len(k.bootFacts) > 0 {
+		k.facts = append(k.facts, k.bootFacts...)
+	}
+	k.rebuildFactIndexLocked()
+
+	// Force initial evaluation to boot the Mangle engine.
+	// The embedded core MUST compile, otherwise the binary is corrupt.
+	logging.Kernel("Booting Mangle engine with embedded constitution...")
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("CRITICAL: Kernel boot failed: %v", err)
+		timer.Stop()
+		return nil, fmt.Errorf("kernel failed to boot embedded constitution: %w", err)
+	}
+
+	timer.StopWithInfo()
+	logging.Kernel("Kernel initialized successfully")
+	return k, nil
+}
+
 // NewRealKernelWithPath creates a kernel with explicit mangle path.
 // Returns an error if the kernel fails to boot.
 func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {

@@ -148,7 +148,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	transducer := perception.NewRealTransducer(llmClient)
-	kernel, err := core.NewRealKernel()
+	kernel, err := core.NewRealKernelWithWorkspace(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kernel: %w", err)
 	}
