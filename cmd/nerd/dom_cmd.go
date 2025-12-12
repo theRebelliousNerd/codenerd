@@ -21,6 +21,11 @@ var (
 	domDemoKeep       bool
 	domDemoDeepWorker int
 	domInspectLimit   int
+	domGetIncludeBody bool
+	domEditGoFmt      bool
+	domEditGoTest     bool
+	domEditContent    string
+	domEditContentFile string
 )
 
 // domCmd groups Code DOM utilities.
@@ -44,14 +49,40 @@ var domInspectCmd = &cobra.Command{
 	RunE:  runDomInspect,
 }
 
+// domGetCmd opens a file and prints a single element (optionally with body).
+var domGetCmd = &cobra.Command{
+	Use:   "get <file> <ref>",
+	Short: "Get a Code DOM element by ref",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runDomGet,
+}
+
+// domEditCmd opens a file and replaces an element by ref.
+var domEditCmd = &cobra.Command{
+	Use:   "edit <file> <ref>",
+	Short: "Edit a Code DOM element by ref (semantic replace)",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runDomEdit,
+}
+
 func init() {
 	domCmd.AddCommand(domDemoCmd)
 	domCmd.AddCommand(domInspectCmd)
+	domCmd.AddCommand(domGetCmd)
+	domCmd.AddCommand(domEditCmd)
 	domDemoCmd.Flags().BoolVar(&domDemoKeep, "keep", false, "Keep the temporary demo workspace on disk")
 	domDemoCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
 
 	domInspectCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
 	domInspectCmd.Flags().IntVar(&domInspectLimit, "limit", 25, "Max elements to print")
+
+	domGetCmd.Flags().BoolVar(&domGetIncludeBody, "include-body", false, "Include element body content")
+	domGetCmd.Flags().IntVar(&domDemoDeepWorker, "deep-workers", 0, "Deep fact workers (0=auto)")
+
+	domEditCmd.Flags().BoolVar(&domEditGoFmt, "gofmt", false, "Run gofmt on the target file after edit")
+	domEditCmd.Flags().BoolVar(&domEditGoTest, "test", false, "Run `go test ./...` in workspace after edit")
+	domEditCmd.Flags().StringVar(&domEditContent, "content", "", "Replacement content (full element text, including signature)")
+	domEditCmd.Flags().StringVar(&domEditContentFile, "content-file", "", "Path to a file containing replacement content")
 }
 
 func runDomDemo(cmd *cobra.Command, args []string) error {
@@ -281,6 +312,176 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 
 	_ = closeScopeQuiet(ctx, vs)
 	return nil
+}
+
+func runDomGet(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
+	defer cancel()
+
+	target := args[0]
+	ref := args[1]
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target path: %w", err)
+	}
+
+	ws := workspace
+	if ws == "" {
+		if root, err := findGoWorkspaceRoot(absTarget); err == nil && root != "" {
+			ws = root
+		} else {
+			ws, _ = os.Getwd()
+		}
+	}
+	ws, _ = filepath.Abs(ws)
+
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(ws); err != nil {
+		return fmt.Errorf("chdir workspace: %w", err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	_, vs, _, err := newDOMHarness(ws, domDemoDeepWorker)
+	if err != nil {
+		return err
+	}
+
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+		return fmt.Errorf("open_file failed: %w", err)
+	}
+
+	out, err := vs.RouteAction(ctx, core.Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/get_element",
+			ref,
+			map[string]interface{}{"include_body": domGetIncludeBody},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("get_element failed: %w", err)
+	}
+
+	// Pretty-print for humans.
+	var obj any
+	if jsonErr := json.Unmarshal([]byte(out), &obj); jsonErr == nil {
+		if pretty, err := json.MarshalIndent(obj, "", "  "); err == nil {
+			out = string(pretty)
+		}
+	}
+	fmt.Println(out)
+
+	_ = closeScopeQuiet(ctx, vs)
+	return nil
+}
+
+func runDomEdit(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+	defer cancel()
+
+	target := args[0]
+	ref := args[1]
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target path: %w", err)
+	}
+
+	content := domEditContent
+	if strings.TrimSpace(domEditContentFile) != "" {
+		b, err := os.ReadFile(domEditContentFile)
+		if err != nil {
+			return fmt.Errorf("read --content-file: %w", err)
+		}
+		content = string(b)
+	}
+	if strings.TrimSpace(content) == "" {
+		return fmt.Errorf("edit requires --content or --content-file")
+	}
+
+	ws := workspace
+	if ws == "" {
+		if root, err := findGoWorkspaceRoot(absTarget); err == nil && root != "" {
+			ws = root
+		} else {
+			ws, _ = os.Getwd()
+		}
+	}
+	ws, _ = filepath.Abs(ws)
+
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(ws); err != nil {
+		return fmt.Errorf("chdir workspace: %w", err)
+	}
+	defer func() { _ = os.Chdir(origWD) }()
+
+	_, vs, _, err := newDOMHarness(ws, domDemoDeepWorker)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Workspace: %s\n", ws)
+	fmt.Printf("Opening:   %s\n", absTarget)
+
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+		return fmt.Errorf("open_file failed: %w", err)
+	}
+
+	fmt.Printf("Editing:   %s\n", ref)
+	if _, err := vs.RouteAction(ctx, core.Fact{
+		Predicate: "next_action",
+		Args: []interface{}{
+			"/edit_element",
+			ref,
+			map[string]interface{}{"content": content},
+		},
+	}); err != nil {
+		return fmt.Errorf("edit_element failed: %w", err)
+	}
+
+	if domEditGoFmt {
+		gofmtCmd := exec.CommandContext(ctx, "gofmt", "-w", absTarget)
+		gofmtCmd.Dir = ws
+		if out, err := gofmtCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("gofmt failed: %w\n%s", err, string(out))
+		}
+		fmt.Printf("gofmt: OK\n")
+	}
+
+	if domEditGoTest {
+		fmt.Printf("Running: go test ./... (workspace)\n")
+		testCmd := exec.CommandContext(ctx, "go", "test", "./...")
+		testCmd.Dir = ws
+		out, err := testCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("go test failed: %w\n%s", err, string(out))
+		}
+		fmt.Printf("go test: PASS\n")
+	}
+
+	return nil
+}
+
+func newDOMHarness(ws string, deepWorkers int) (*core.RealKernel, *core.VirtualStore, *coresys.HolographicCodeScope, error) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create kernel: %w", err)
+	}
+	kernel.SetWorkspace(ws)
+
+	executor := tactile.NewSafeExecutor()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = ws
+	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
+	vs.SetKernel(kernel)
+
+	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, deepWorkers)
+	vs.SetCodeScope(scope)
+
+	fileEditor := tactile.NewFileEditor()
+	fileEditor.SetWorkingDir(ws)
+	vs.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
+
+	return kernel, vs, scope, nil
 }
 
 func writeDomDemoWorkspace(workspace, modulePath string) error {
