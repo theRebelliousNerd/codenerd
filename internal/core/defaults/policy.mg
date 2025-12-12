@@ -1746,15 +1746,9 @@ escalation_needed(/ooda_loop, "stalled", Reason) :-
 # A file is in scope if it's the active file
 in_scope(File) :- active_file(File).
 
-# A file is in scope if the active file imports it
+# A file is in scope if Code DOM loaded it into scope.
 in_scope(File) :-
-    active_file(ActiveFile),
-    dependency_link(ActiveFile, File, _).
-
-# A file is in scope if it imports the active file
-in_scope(File) :-
-    active_file(ActiveFile),
-    dependency_link(File, ActiveFile, _).
+    file_in_scope(File, _, _, _).
 
 # -----------------------------------------------------------------------------
 # 22.2 Element Accessibility Rules

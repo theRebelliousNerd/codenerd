@@ -22,6 +22,8 @@ import (
 // and files that directly import it.
 type FileScope struct {
 	mu sync.RWMutex
+	diagMu sync.Mutex
+	cbMu   sync.RWMutex
 
 	// ActiveFile is the primary file being worked on
 	ActiveFile string
@@ -52,6 +54,12 @@ type FileScope struct {
 
 	// Fact callback for injecting facts to kernel
 	factCallback func(core.Fact)
+
+	// diagnosticFacts captures non-element scope facts (encoding issues, parse errors,
+	// generated-code warnings, etc.) so they can be included in ScopeFacts even when
+	// no callback is wired.
+	diagnosticFacts     []core.Fact
+	diagnosticFactIndex map[string]struct{}
 }
 
 // NewFileScope creates a new FileScope.
@@ -65,15 +73,39 @@ func NewFileScope(projectRoot string) *FileScope {
 		FileHashes:   make(map[string]string),
 		ProjectRoot:  projectRoot,
 		parser:       NewCodeElementParser(),
+		diagnosticFacts:     make([]core.Fact, 0),
+		diagnosticFactIndex: make(map[string]struct{}),
 	}
 }
 
 // SetFactCallback sets the callback for fact injection to the kernel.
 func (s *FileScope) SetFactCallback(callback func(core.Fact)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.cbMu.Lock()
+	defer s.cbMu.Unlock()
 	s.factCallback = callback
 	logging.WorldDebug("Fact callback registered for FileScope")
+}
+
+func (s *FileScope) resetDiagnostics() {
+	s.diagMu.Lock()
+	defer s.diagMu.Unlock()
+	s.diagnosticFacts = nil
+	s.diagnosticFactIndex = make(map[string]struct{})
+}
+
+func (s *FileScope) recordDiagnosticFact(fact core.Fact) {
+	s.diagMu.Lock()
+	defer s.diagMu.Unlock()
+
+	if s.diagnosticFactIndex == nil {
+		s.diagnosticFactIndex = make(map[string]struct{})
+	}
+	key := fact.String()
+	if _, exists := s.diagnosticFactIndex[key]; exists {
+		return
+	}
+	s.diagnosticFactIndex[key] = struct{}{}
+	s.diagnosticFacts = append(s.diagnosticFacts, fact)
 }
 
 // Open opens a file and loads its 1-hop dependency scope.
@@ -83,6 +115,9 @@ func (s *FileScope) Open(path string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// New scope session: clear per-scope diagnostics.
+	s.resetDiagnostics()
 
 	// Resolve to absolute path
 	absPath, err := filepath.Abs(path)
@@ -102,6 +137,9 @@ func (s *FileScope) Open(path string) error {
 	s.ActiveFile = absPath
 	s.InScope = []string{absPath}
 	s.Elements = nil
+	s.OutboundDeps = make(map[string][]string)
+	s.InboundDeps = make(map[string][]string)
+	s.FileHashes = make(map[string]string)
 
 	// 1. Parse active file and find its imports
 	logging.WorldDebug("Finding outbound dependencies for: %s", filepath.Base(absPath))
@@ -173,6 +211,7 @@ func (s *FileScope) Refresh() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.resetDiagnostics()
 	s.Elements = nil
 	var loadErrors int
 
@@ -248,6 +287,7 @@ func (s *FileScope) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.resetDiagnostics()
 	logging.WorldDebug("Clearing scope: %d files, %d elements", len(s.InScope), len(s.Elements))
 	s.ActiveFile = ""
 	s.InScope = nil
@@ -281,6 +321,10 @@ func (s *FileScope) loadFile(path string) error {
 	lines := strings.Split(string(content), "\n")
 	lineCount := len(lines)
 	isLarge := byteSize > 1024*1024 || lineCount > 10000
+
+	// Update hash early so it is available even if parsing fails.
+	hash := computeFileHash(content)
+	s.FileHashes[path] = hash
 
 	if isLarge {
 		logging.Get(logging.CategoryWorld).Warn("Large file detected: %s (%d lines, %d bytes)", filepath.Base(path), lineCount, byteSize)
@@ -342,10 +386,11 @@ func (s *FileScope) loadFile(path string) error {
 		})
 	}
 
-	// Update hash
-	hash := computeFileHash(content)
-	s.FileHashes[path] = hash
-	logging.WorldDebug("File loaded: %s (hash=%s, %d elements, %v)", filepath.Base(path), hash[:16], len(elements), time.Since(start))
+	hashPreview := hash
+	if len(hashPreview) > 16 {
+		hashPreview = hashPreview[:16]
+	}
+	logging.WorldDebug("File loaded: %s (hash=%s, %d elements, %v)", filepath.Base(path), hashPreview, len(elements), time.Since(start))
 
 	return nil
 }
@@ -363,19 +408,34 @@ func (s *FileScope) safeParseFile(path string) (elements []CodeElement, err erro
 
 // emitFact emits a single fact via the callback.
 func (s *FileScope) emitFact(fact core.Fact) {
-	if s.factCallback != nil {
-		s.factCallback(fact)
+	s.recordDiagnosticFact(fact)
+
+	s.cbMu.RLock()
+	callback := s.factCallback
+	s.cbMu.RUnlock()
+	if callback != nil {
+		callback(fact)
 	}
 }
 
 // emitErrorFact emits an error fact with timestamp.
 func (s *FileScope) emitErrorFact(predicate, path, errMsg string) {
-	if s.factCallback != nil {
-		s.factCallback(core.Fact{
-			Predicate: predicate,
-			Args:      []interface{}{path, errMsg, time.Now().Unix()},
-		})
+	ts := time.Now().Unix()
+	var args []interface{}
+	switch predicate {
+	case "file_not_found":
+		args = []interface{}{path, ts}
+	case "scope_refresh_failed":
+		args = []interface{}{path, errMsg}
+	case "parse_error":
+		args = []interface{}{path, errMsg, ts}
+	default:
+		args = []interface{}{path, errMsg, ts}
 	}
+	s.emitFact(core.Fact{
+		Predicate: predicate,
+		Args:      args,
+	})
 }
 
 // VerifyFileHash checks if a file has been modified since it was loaded.
@@ -603,12 +663,15 @@ func (s *FileScope) detectModulePath() error {
 
 // emitScopeFacts emits Mangle facts for the current scope.
 func (s *FileScope) emitScopeFacts() {
-	if s.factCallback == nil {
+	s.cbMu.RLock()
+	callback := s.factCallback
+	s.cbMu.RUnlock()
+	if callback == nil {
 		return
 	}
 
 	// Emit active_file fact
-	s.factCallback(core.Fact{
+	callback(core.Fact{
 		Predicate: "active_file",
 		Args:      []interface{}{s.ActiveFile},
 	})
@@ -620,7 +683,7 @@ func (s *FileScope) emitScopeFacts() {
 		if lines, err := readFileLines(file); err == nil {
 			lineCount = len(lines)
 		}
-		s.factCallback(core.Fact{
+		callback(core.Fact{
 			Predicate: "file_in_scope",
 			Args:      []interface{}{file, hash, "/go", int64(lineCount)},
 		})
@@ -629,7 +692,7 @@ func (s *FileScope) emitScopeFacts() {
 	// Emit code element facts
 	for _, elem := range s.Elements {
 		for _, fact := range elem.ToFacts() {
-			s.factCallback(fact)
+			callback(fact)
 		}
 	}
 }
@@ -714,21 +777,28 @@ type FileLoadResult struct {
 // ScopeFacts returns all current scope facts as a slice.
 func (s *FileScope) ScopeFacts() []core.Fact {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	activeFile := s.ActiveFile
+	inScope := append([]string(nil), s.InScope...)
+	elements := append([]CodeElement(nil), s.Elements...)
+	fileHashes := make(map[string]string, len(s.FileHashes))
+	for k, v := range s.FileHashes {
+		fileHashes[k] = v
+	}
+	s.mu.RUnlock()
 
 	var facts []core.Fact
 
 	// Active file
-	if s.ActiveFile != "" {
+	if activeFile != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "active_file",
-			Args:      []interface{}{s.ActiveFile},
+			Args:      []interface{}{activeFile},
 		})
 	}
 
 	// Files in scope
-	for _, file := range s.InScope {
-		hash := s.FileHashes[file]
+	for _, file := range inScope {
+		hash := fileHashes[file]
 		lineCount := 0
 		if lines, err := readFileLines(file); err == nil {
 			lineCount = len(lines)
@@ -740,9 +810,16 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 	}
 
 	// Elements
-	for _, elem := range s.Elements {
+	for _, elem := range elements {
 		facts = append(facts, elem.ToFacts()...)
 	}
+
+	// Per-scope diagnostics/meta facts
+	s.diagMu.Lock()
+	if len(s.diagnosticFacts) > 0 {
+		facts = append(facts, append([]core.Fact(nil), s.diagnosticFacts...)...)
+	}
+	s.diagMu.Unlock()
 
 	return facts
 }

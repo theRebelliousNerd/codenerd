@@ -268,7 +268,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		var browserCtxCancel context.CancelFunc
 
 		logStep("Creating virtual store...")
-		virtualStore := core.NewVirtualStore(executor)
+		vsCfg := core.DefaultVirtualStoreConfig()
+		vsCfg.WorkingDir = workspace
+		virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
+		virtualStore.SetKernel(kernel)
 
 		logStep("Opening knowledge database...")
 		var localDB *store.LocalStore
@@ -276,6 +279,13 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
 			localDB = db
 		}
+
+		logStep("Wiring Code DOM...")
+		worldCfg := appCfg.GetWorldConfig()
+		virtualStore.SetCodeScope(nerdsystem.NewHolographicCodeScope(workspace, kernel, localDB, worldCfg.DeepWorkers))
+		fileEditor := tactile.NewFileEditor()
+		fileEditor.SetWorkingDir(workspace)
+		virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
 		// Initialize embedding engine
 		logStep("Initializing embedding engine...")
@@ -319,7 +329,6 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if localDB != nil {
 			logStep("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
-			virtualStore.SetKernel(kernel)
 
 			logStep("Initializing taxonomy store...")
 			taxStore := perception.NewTaxonomyStore(localDB)

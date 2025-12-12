@@ -114,10 +114,10 @@ func (e *CodeElement) ToFacts() []core.Fact {
 		})
 	}
 
-	// interactable(ref, action_type) - for each action
+	// code_interactable(ref, action_type) - for each action
 	for _, action := range e.Actions {
 		facts = append(facts, core.Fact{
-			Predicate: "interactable",
+			Predicate: "code_interactable",
 			Args:      []interface{}{e.Ref, "/" + string(action)},
 		})
 	}
