@@ -54,21 +54,21 @@ Decl focus_resolution(
     RawReference.Type<string>,  # "the auth thing"
     ResolvedPath.Type<string>,  # "src/auth/handler.go"
     SymbolName.Type<string>,    # "AuthHandler"
-    Confidence.Type<float>      # 0.0 - 1.0
+    ConfidencePercent.Type<int> # 0 - 100
 ).
 ```
 
 **Examples**:
 ```mangle
-focus_resolution("the auth thing", "src/auth/handler.go", "AuthHandler", 0.92).
-focus_resolution("login button", "ui/login.go", "LoginButton", 0.65).
+focus_resolution("the auth thing", "src/auth/handler.go", "AuthHandler", 92).
+focus_resolution("login button", "ui/login.go", "LoginButton", 65).
 ```
 
 **Triggers Clarification**:
 ```mangle
 clarification_needed(Ref) :-
     focus_resolution(Ref, _, _, Score),
-    Score < 0.85.
+    Score < 85.
 ```
 
 ### ambiguity_flag/3
@@ -713,14 +713,14 @@ Decl learned_exemplar(
     Verb.Type<n>,
     Target.Type<string>,
     Constraint.Type<string>,
-    Confidence.Type<float>
+    ConfidencePercent.Type<int> # 0 - 100
 ).
 ```
 
 **Examples**:
 ```mangle
-learned_exemplar("push to github", /git, "remote", "push", 0.95).
-learned_exemplar("run the tests", /test, "all", "", 0.90).
+learned_exemplar("push to github", /git, "remote", "push", 95).
+learned_exemplar("run the tests", /test, "all", "", 90).
 ```
 
 ---

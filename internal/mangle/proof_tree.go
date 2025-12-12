@@ -290,7 +290,7 @@ func (t *ProofTreeTracer) findPremises(ctx context.Context, fact Fact, ruleName 
 		}
 
 	case "focus_threshold":
-		// clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 0.85.
+		// clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 85.
 		focuses, _ := t.engine.GetFacts("focus_resolution")
 		for _, f := range focuses {
 			if len(f.Args) >= 1 && len(fact.Args) >= 1 && f.Args[0] == fact.Args[0] {

@@ -14,8 +14,8 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -23,23 +23,11 @@ import (
 	"time"
 )
 
-// Intent represents a parsed user intent.
-type Intent struct {
-	ID         string  `json:"id"`
-	Category   string  `json:"category"`   // query, mutation, instruction
-	Verb       string  `json:"verb"`       // explain, refactor, debug, generate, etc.
-	Target     string  `json:"target"`     // file path or symbol
-	Constraint string  `json:"constraint"` // additional constraints
-	Confidence float64 `json:"confidence"`
-}
+// Intent is the canonical perception intent type (re-exported for system shard compatibility).
+type Intent = perception.Intent
 
-// FocusResolution represents a resolved reference.
-type FocusResolution struct {
-	RawReference string
-	ResolvedPath string
-	SymbolName   string
-	Confidence   float64
-}
+// FocusResolution is the canonical focus resolution type (re-exported).
+type FocusResolution = perception.FocusResolution
 
 // PerceptionConfig holds configuration for the perception firewall.
 type PerceptionConfig struct {
@@ -91,6 +79,9 @@ type PerceptionFirewallShard struct {
 
 	// JIT prompt compilation support
 	promptAssembler *articulation.PromptAssembler
+
+	// Canonical Perception transducer (NL -> Piggyback -> intent)
+	transducer *perception.RealTransducer
 }
 
 // NewPerceptionFirewallShard creates a new Perception Firewall shard.
@@ -137,7 +128,12 @@ func (p *PerceptionFirewallShard) SetLearningStore(ls core.LearningStore) {
 func (p *PerceptionFirewallShard) SetPromptAssembler(assembler *articulation.PromptAssembler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Keep BaseSystemShard in sync for generic JIT helpers.
+	p.BaseSystemShard.SetPromptAssembler(assembler)
 	p.promptAssembler = assembler
+	if p.transducer != nil {
+		p.transducer.SetPromptAssembler(assembler)
+	}
 	if assembler != nil {
 		logging.SystemShards("[PerceptionFirewall] PromptAssembler attached (JIT ready: %v)", assembler.JITReady())
 	}
@@ -148,6 +144,88 @@ func (p *PerceptionFirewallShard) GetPromptAssembler() *articulation.PromptAssem
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.promptAssembler
+}
+
+// guardedPerceptionClient routes LLM calls through the BaseSystemShard cost guard.
+// This prevents Perception from bypassing system shard rate limits.
+type guardedPerceptionClient struct {
+	base *BaseSystemShard
+}
+
+func (g guardedPerceptionClient) Complete(ctx context.Context, prompt string) (string, error) {
+	if g.base == nil {
+		return "", fmt.Errorf("no base shard configured")
+	}
+	return g.base.GuardedLLMCall(ctx, "", prompt)
+}
+
+func (g guardedPerceptionClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if g.base == nil {
+		return "", fmt.Errorf("no base shard configured")
+	}
+	return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+}
+
+func (p *PerceptionFirewallShard) ensureTransducer() *perception.RealTransducer {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.transducer != nil {
+		return p.transducer
+	}
+
+	t := perception.NewRealTransducer(guardedPerceptionClient{base: p.BaseSystemShard})
+	if p.promptAssembler != nil {
+		t.SetPromptAssembler(p.promptAssembler)
+	}
+	p.transducer = t
+	return t
+}
+
+func normalizeAtom(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return v
+	}
+	if v == "none" {
+		return v
+	}
+	if strings.HasPrefix(v, "/") {
+		return v
+	}
+	return "/" + v
+}
+
+func (p *PerceptionFirewallShard) applyPerceptionMangleUpdates(updates []string) {
+	if p.Kernel == nil || len(updates) == 0 {
+		return
+	}
+
+	// Perception is an untrusted boundary: only allow a conservative subset of facts.
+	allowed := map[string]struct{}{
+		"ambiguity_flag":       {},
+		"clarification_needed": {},
+	}
+
+	const maxUpdates = 50
+	facts := make([]core.Fact, 0, min(len(updates), maxUpdates))
+	for i, s := range updates {
+		if i >= maxUpdates {
+			break
+		}
+		f, err := core.ParseSingleFact(s)
+		if err != nil {
+			continue
+		}
+		if _, ok := allowed[f.Predicate]; !ok {
+			continue
+		}
+		facts = append(facts, f)
+	}
+
+	if len(facts) > 0 {
+		_ = p.Kernel.AssertBatch(facts)
+	}
 }
 
 // trackSuccess records a successful parse pattern.
@@ -259,33 +337,73 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 	timer := logging.StartTimer(logging.CategorySystemShards, "[PerceptionFirewall] processInput")
 	defer timer.Stop()
 
+	_, err := p.Perceive(ctx, input, nil)
+	return err
+}
+
+// Perceive parses user input into an intent and emits canonical facts into the parent kernel.
+//
+// This is the synchronous entry point used by interactive UIs. It is designed to be resilient:
+// if LLM parsing fails or is blocked by CostGuard, it degrades to deterministic fallback parsing.
+func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, history []perception.ConversationTurn) (Intent, error) {
+	timer := logging.StartTimer(logging.CategorySystemShards, "[PerceptionFirewall] Perceive")
+	defer timer.Stop()
+
 	p.mu.Lock()
 	p.lastInput = time.Now()
 	p.mu.Unlock()
 
-	// Try LLM-based parsing first
-	intent, err := p.parseWithLLM(ctx, input)
-	if err != nil {
-		// Fallback to regex-based parsing
+	// Ensure kernel is available.
+	if p.Kernel == nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Creating new kernel (none attached)")
+		kernel, err := core.NewRealKernel()
+		if err != nil {
+			return Intent{}, fmt.Errorf("failed to create kernel: %w", err)
+		}
+		p.Kernel = kernel
+	}
+
+	transducer := p.ensureTransducer()
+
+	// Prefer GCD so control_packet.mangle_updates are syntax-validated.
+	maxRetries := 3
+	if p.CostGuard != nil && p.CostGuard.MaxValidationRetries > 0 {
+		maxRetries = p.CostGuard.MaxValidationRetries
+	}
+
+	intent, validatedUpdates, parseErr := transducer.ParseIntentWithGCD(ctx, input, history, maxRetries)
+	if parseErr != nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] Transducer parse failed (degrading): %v", parseErr)
 		if p.config.UseFallbackParsing {
-			logging.SystemShardsDebug("[PerceptionFirewall] LLM parsing failed, using fallback: %v", err)
 			intent = p.parseWithFallback(input)
-		} else {
-			logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] LLM parsing failed, no fallback: %v", err)
-			return err
+			validatedUpdates = nil
+			parseErr = nil
 		}
 	}
 
-	logging.SystemShardsDebug("[PerceptionFirewall] Parsed intent: id=%s, verb=%s, category=%s, confidence=%.2f",
-		intent.ID, intent.Verb, intent.Category, intent.Confidence)
+	// Normalize category/verb to name constants (leading '/').
+	intent.Category = normalizeAtom(intent.Category)
+	intent.Verb = normalizeAtom(intent.Verb)
+	if strings.TrimSpace(intent.Response) == "" {
+		// Ensure callers relying on a non-empty surface response (e.g. chat routing)
+		// do not fail hard when we degrade to deterministic parsing.
+		intent.Response = "Understood."
+	}
 
-	// Emit user_intent fact
+	intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
+
+	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
+	_ = p.Kernel.Retract("ambiguity_flag")
+	_ = p.Kernel.Retract("clarification_needed")
+	_ = p.Kernel.Retract("focus_resolution")
+
+	// Emit user_intent/5
 	_ = p.Kernel.Assert(core.Fact{
 		Predicate: "user_intent",
 		Args: []interface{}{
-			intent.ID,
-			intent.Category,
-			intent.Verb,
+			intentID,
+			core.MangleAtom(intent.Category),
+			core.MangleAtom(intent.Verb),
 			intent.Target,
 			intent.Constraint,
 		},
@@ -301,13 +419,16 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 		p.trackSuccess(pattern)
 	}
 
-	// Check confidence thresholds
+	// Ambiguity handling
 	if intent.Confidence < p.config.AmbiguityThreshold {
-		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: id=%s, confidence=%.2f", intent.ID, intent.Confidence)
-		// Emit ambiguity_flag
+		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: confidence=%.2f", intent.Confidence)
 		_ = p.Kernel.Assert(core.Fact{
 			Predicate: "ambiguity_flag",
-			Args:      []interface{}{intent.ID, intent.Confidence, time.Now().Unix()},
+			Args: []interface{}{
+				intentID,
+				truncateForLog(input, 120),
+				fmt.Sprintf("confidence=%.2f", intent.Confidence),
+			},
 		})
 
 		// Track ambiguity pattern (autopoiesis)
@@ -315,176 +436,43 @@ func (p *PerceptionFirewallShard) processInput(ctx context.Context, input string
 		p.trackFailure(pattern, "low_confidence")
 	}
 
-	if intent.Confidence < p.config.ConfidenceThreshold {
-		logging.SystemShardsDebug("[PerceptionFirewall] Clarification needed for intent: %s", intent.ID)
-		// Emit clarification_needed
-		_ = p.Kernel.Assert(core.Fact{
-			Predicate: "clarification_needed",
-			Args:      []interface{}{intent.ID, "low_confidence", time.Now().Unix()},
-		})
-
-		p.mu.Lock()
-		p.clarifications++
-		p.mu.Unlock()
-	}
-
-	// Resolve focus if target present
-	if intent.Target != "" {
+	// Resolve focus if target present (drives clarification_needed/1 via policy)
+	if strings.TrimSpace(intent.Target) != "" && intent.Target != "none" {
 		resolution := p.resolveTarget(ctx, intent.Target)
-		logging.SystemShardsDebug("[PerceptionFirewall] Target resolution: raw=%s, resolved=%s, confidence=%.2f",
-			resolution.RawReference, resolution.ResolvedPath, resolution.Confidence)
-		_ = p.Kernel.Assert(core.Fact{
-			Predicate: "focus_resolution",
-			Args: []interface{}{
-				resolution.RawReference,
-				resolution.ResolvedPath,
-				resolution.SymbolName,
-				resolution.Confidence,
-			},
-		})
+		logging.SystemShardsDebug("[PerceptionFirewall] Target resolution: raw=%s, resolved=%s, confidence=%d",
+			resolution.RawReference, resolution.ResolvedPath, resolution.ConfidencePercent)
+		_ = p.Kernel.Assert(resolution.ToFact())
+		if resolution.ConfidencePercent < 85 {
+			p.mu.Lock()
+			p.clarifications++
+			p.mu.Unlock()
+		}
 	}
+
+	// Apply a conservative subset of validated mangle_updates from the control packet.
+	p.applyPerceptionMangleUpdates(validatedUpdates)
 
 	// Mark as processed
 	_ = p.Kernel.Assert(core.Fact{
 		Predicate: "processed_intent",
-		Args:      []interface{}{intent.ID},
+		Args:      []interface{}{intentID},
 	})
 
-	logging.SystemShards("[PerceptionFirewall] Intent processed: id=%s, verb=%s", intent.ID, intent.Verb)
-	return nil
-}
-
-// parseWithLLM uses the LLM to parse natural language input.
-func (p *PerceptionFirewallShard) parseWithLLM(ctx context.Context, input string) (Intent, error) {
-	if p.LLMClient == nil {
-		return Intent{}, fmt.Errorf("no LLM client")
-	}
-
-	can, reason := p.CostGuard.CanCall()
-	if !can {
-		return Intent{}, fmt.Errorf("LLM blocked: %s", reason)
-	}
-
-	// Build system prompt - try JIT first, fall back to legacy
-	var systemPrompt string
-	p.mu.RLock()
-	assembler := p.promptAssembler
-	p.mu.RUnlock()
-
-	if assembler != nil && assembler.JITReady() {
-		pc := &articulation.PromptContext{
-			ShardID:   p.ID,
-			ShardType: "perception",
-		}
-		if jitPrompt, err := assembler.AssembleSystemPrompt(ctx, pc); err == nil {
-			systemPrompt = jitPrompt
-			logging.SystemShards("[PerceptionFirewall] [JIT] Using JIT-compiled system prompt (%d bytes)", len(systemPrompt))
-		} else {
-			logging.SystemShards("[PerceptionFirewall] JIT compilation failed, falling back to legacy: %v", err)
-		}
-	}
-
-	// Fallback to legacy prompt if JIT is not available or failed
-	if systemPrompt == "" {
-		systemPrompt = p.buildSystemPromptWithLearning()
-		logging.SystemShards("[PerceptionFirewall] [FALLBACK] Using legacy system prompt (%d bytes)", len(systemPrompt))
-	}
-
-	userPrompt := fmt.Sprintf(perceptionUserPrompt, input)
-
-	result, err := p.GuardedLLMCall(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		return Intent{}, err
-	}
-
-	// Parse JSON response
-	intent := p.parseIntentJSON(result, input)
-	return intent, nil
-}
-
-// buildSystemPromptWithLearning builds the system prompt with learned patterns.
-func (p *PerceptionFirewallShard) buildSystemPromptWithLearning() string {
-	basePrompt := perceptionSystemPrompt
-
-	// Use base class mutex for accessing learning maps
-	p.BaseSystemShard.mu.RLock()
-	defer p.BaseSystemShard.mu.RUnlock()
-
-	// Add learned corrections if any
-	if len(p.BaseSystemShard.corrections) > 0 {
-		basePrompt += "\n\nLEARNED CORRECTIONS (from user feedback):\n"
-		for pattern, count := range p.BaseSystemShard.corrections {
-			if count >= 2 {
-				basePrompt += fmt.Sprintf("- %s\n", pattern)
-			}
-		}
-	}
-
-	// Add patterns to avoid
-	if len(p.BaseSystemShard.patternFailure) > 0 {
-		basePrompt += "\n\nPATTERNS TO AVOID (low confidence/ambiguous):\n"
-		for pattern, count := range p.BaseSystemShard.patternFailure {
-			if count >= 2 {
-				basePrompt += fmt.Sprintf("- %s\n", pattern)
-			}
-		}
-	}
-
-	return basePrompt
-}
-
-// parseIntentJSON extracts intent from LLM JSON output.
-func (p *PerceptionFirewallShard) parseIntentJSON(output, originalInput string) Intent {
-	intent := Intent{
-		ID:         fmt.Sprintf("intent-%d", time.Now().UnixNano()),
-		Confidence: 0.5, // Default
-	}
-
-	// Try to parse as JSON
-	var parsed struct {
-		Category   string  `json:"category"`
-		Verb       string  `json:"verb"`
-		Target     string  `json:"target"`
-		Constraint string  `json:"constraint"`
-		Confidence float64 `json:"confidence"`
-	}
-
-	// Find JSON in output
-	start := strings.Index(output, "{")
-	end := strings.LastIndex(output, "}")
-	if start >= 0 && end > start {
-		jsonStr := output[start : end+1]
-		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
-			intent.Category = parsed.Category
-			intent.Verb = parsed.Verb
-			intent.Target = parsed.Target
-			intent.Constraint = parsed.Constraint
-			if parsed.Confidence > 0 {
-				intent.Confidence = parsed.Confidence
-			}
-		}
-	}
-
-	// Fallback if parsing failed
-	if intent.Verb == "" {
-		intent = p.parseWithFallback(originalInput)
-	}
-
-	return intent
+	logging.SystemShards("[PerceptionFirewall] Intent processed: id=%s, verb=%s", intentID, intent.Verb)
+	return intent, parseErr
 }
 
 // parseWithFallback uses regex patterns for parsing.
 func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 	intent := Intent{
-		ID:         fmt.Sprintf("intent-%d", time.Now().UnixNano()),
-		Category:   "instruction",
+		Category:   "/instruction",
 		Confidence: 0.6, // Lower confidence for fallback
 	}
 
 	// Match verb patterns
 	for verb, pattern := range p.verbPatterns {
 		if pattern.MatchString(input) {
-			intent.Verb = verb
+			intent.Verb = normalizeAtom(verb)
 			break
 		}
 	}
@@ -497,12 +485,12 @@ func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 
 	// Determine category
 	switch intent.Verb {
-	case "explain", "search", "review":
-		intent.Category = "query"
-	case "fix", "refactor", "create", "delete", "implement":
-		intent.Category = "mutation"
+	case "/explain", "/search", "/review":
+		intent.Category = "/query"
+	case "/fix", "/refactor", "/create", "/delete", "/implement":
+		intent.Category = "/mutation"
 	default:
-		intent.Category = "instruction"
+		intent.Category = "/instruction"
 	}
 
 	// Store original as constraint if no specific constraint found
@@ -516,14 +504,14 @@ func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 // resolveTarget attempts to resolve a fuzzy reference to a concrete path.
 func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target string) FocusResolution {
 	resolution := FocusResolution{
-		RawReference: target,
-		Confidence:   0.5,
+		RawReference:      target,
+		ConfidencePercent: 50,
 	}
 
 	// Direct file path
 	if strings.Contains(target, "/") || strings.Contains(target, "\\") || strings.Contains(target, ".") {
 		resolution.ResolvedPath = target
-		resolution.Confidence = 0.9
+		resolution.ConfidencePercent = 90
 		return resolution
 	}
 
@@ -539,7 +527,7 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 				if path, ok := fact.Args[3].(string); ok {
 					resolution.ResolvedPath = path
 					resolution.SymbolName = target
-					resolution.Confidence = 0.85
+					resolution.ConfidencePercent = 85
 					return resolution
 				}
 			}
@@ -554,7 +542,7 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 				if path, ok := fact.Args[0].(string); ok {
 					if strings.Contains(strings.ToLower(path), strings.ToLower(target)) {
 						resolution.ResolvedPath = path
-						resolution.Confidence = 0.7
+						resolution.ConfidencePercent = 70
 						return resolution
 					}
 				}
@@ -563,7 +551,7 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 	}
 
 	// Unable to resolve - emit for clarification
-	resolution.Confidence = 0.3
+	resolution.ConfidencePercent = 30
 	return resolution
 }
 

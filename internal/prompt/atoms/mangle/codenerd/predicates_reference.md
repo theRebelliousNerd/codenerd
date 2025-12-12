@@ -59,14 +59,14 @@ user_intent(/u3, /mutation, /refactor, "database layer", "use repository pattern
 1. RawReference (String) - User's fuzzy reference
 2. ResolvedPath (String) - Concrete file path
 3. SymbolName (String) - Symbol if applicable
-4. Confidence (Float) - 0.0-1.0 confidence score
+4. ConfidencePercent (Int) - 0-100 confidence score
 
-**Usage**: Populated by focus resolution system. Triggers clarification if confidence < 0.85.
+**Usage**: Populated by focus resolution system. Triggers clarification if confidence < 85.
 
 **Examples**:
 ```mangle
-focus_resolution("the auth thing", "src/auth/handler.go", "AuthHandler", 0.92).
-focus_resolution("login", "ui/login.go", "LoginButton", 0.65).
+focus_resolution("the auth thing", "src/auth/handler.go", "AuthHandler", 92).
+focus_resolution("login", "ui/login.go", "LoginButton", 65).
 ```
 
 ---
@@ -106,7 +106,7 @@ ambiguity_flag("target_file", "mentioned 'handler'", "auth/handler.go").
 ```mangle
 clarification_needed(Ref) :-
     focus_resolution(Ref, _, _, Score),
-    Score < 0.85.
+    Score < 85.
 
 clarification_needed(_) :-
     ambiguity_flag(_, _, _).

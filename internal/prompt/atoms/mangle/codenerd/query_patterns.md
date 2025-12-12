@@ -63,7 +63,7 @@ for _, b := range result.Bindings {
 ? clarification_needed(Ref).
 
 # Low-confidence focus resolution
-? focus_resolution(Ref, _, _, Score), Score < 0.85.
+? focus_resolution(Ref, _, _, Score), Score < 85.
 ```
 
 ```go
@@ -667,7 +667,7 @@ fmt.Printf("Go files: %d\n", count)
 ```mangle
 # References with low confidence
 ? focus_resolution(Ref, _, _, Score),
-  Score < 0.85,
+  Score < 85,
   not ambiguity_flag(Ref, _, _).  # Not yet flagged
 ```
 

@@ -128,7 +128,17 @@ func (t *TaxonomyEngine) HydrateFromDB() error {
 	if t.store == nil {
 		return fmt.Errorf("no store configured")
 	}
-	return t.store.HydrateEngine(t.engine)
+	if err := t.store.HydrateEngine(t.engine); err != nil {
+		return err
+	}
+
+	// Keep the package-level VerbCorpus in sync after hydration so parsing reflects
+	// any newly learned verbs/synonyms/patterns persisted in SQLite.
+	if verbs, err := t.GetVerbs(); err == nil && len(verbs) > 0 {
+		VerbCorpus = verbs
+	}
+
+	return nil
 }
 
 // EnsureDefaults populates the database with the default taxonomy if it's empty.

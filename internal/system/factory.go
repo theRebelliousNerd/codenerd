@@ -3,6 +3,7 @@
 package system
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
@@ -52,7 +53,14 @@ type Cortex struct {
 // This ensures consistent wiring across CLI, TUI, and Workers.
 func BootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
 	if workspace == "" {
-		workspace, _ = os.Getwd()
+		if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
+			workspace = root
+		} else {
+			workspace, _ = os.Getwd()
+		}
+	}
+	if perception.SharedTaxonomy != nil {
+		perception.SharedTaxonomy.SetWorkspace(workspace)
 	}
 
 	// 0. Initialize Logging System (critical for debugging)
@@ -115,6 +123,19 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
 	var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+	if perception.SharedTaxonomy != nil {
+		perception.SharedTaxonomy.SetClient(llmClient)
+		if localDB != nil {
+			taxStore := perception.NewTaxonomyStore(localDB)
+			perception.SharedTaxonomy.SetStore(taxStore)
+			if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Taxonomy defaults init failed: %v\n", err)
+			}
+			if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Taxonomy rehydration failed: %v\n", err)
+			}
+		}
+	}
 
 	// Learning Layer - Autopoiesis persistence (§8.3)
 	learningStorePath := filepath.Join(workspace, ".nerd", "shards")
@@ -135,6 +156,10 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// This is CRITICAL to prevent "kernel not initialized" errors when shards query it early.
 	if err := kernel.Evaluate(); err != nil {
 		return nil, fmt.Errorf("failed to boot kernel: %w", err)
+	}
+	// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
+	if err := perception.InitPerceptionLayer(kernel, appCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Perception init failed: %v\n", err)
 	}
 
 	// Load persisted world facts if available.
@@ -293,6 +318,13 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	if defaultVectorSearcher != nil {
 		defaultVectorSearcher.SetCompiler(jitCompiler)
 	}
+	var promptAssembler *articulation.PromptAssembler
+	if pa, err := articulation.NewPromptAssembler(kernel); err == nil {
+		pa.SetJITCompiler(jitCompiler)
+		pa.EnableJIT(true)
+		promptAssembler = pa
+		transducer.SetPromptAssembler(pa)
+	}
 
 	// 5b. Register discovered user agents with JIT compiler and ShardManager
 	// This wires up agents from .nerd/agents/{name}/prompts.yaml
@@ -339,6 +371,9 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		if browserMgr != nil {
 			shard.SetBrowserManager(browserMgr)
 		}
+		if promptAssembler != nil {
+			shard.SetPromptAssembler(promptAssembler)
+		}
 		return shard
 	})
 
@@ -350,6 +385,9 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		shard.SetLLMClient(llmClient)
 		shard.SetWorkspaceRoot(workspace)
 		shard.SetShardManager(shardManager)
+		if promptAssembler != nil {
+			shard.SetPromptAssembler(promptAssembler)
+		}
 		return shard
 	})
 

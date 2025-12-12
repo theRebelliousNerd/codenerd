@@ -310,6 +310,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 		_ = embeddingEngine
 
+		// Ensure .nerd paths resolve to the active workspace for learned rules,
+		// even if SQLite is unavailable (file-based persistence still uses .nerd/mangle).
+		if perception.SharedTaxonomy != nil {
+			perception.SharedTaxonomy.SetWorkspace(workspace)
+		}
+
 		if localDB != nil {
 			logStep("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
@@ -317,24 +323,27 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 			logStep("Initializing taxonomy store...")
 			taxStore := perception.NewTaxonomyStore(localDB)
-			perception.SharedTaxonomy.SetStore(taxStore)
+			if perception.SharedTaxonomy != nil {
+				perception.SharedTaxonomy.SetStore(taxStore)
 
-			if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
-				initialMessages = append(initialMessages, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⚠ Taxonomy defaults init failed: %v", err),
-					Time:    time.Now(),
-				})
-			}
+				if err := perception.SharedTaxonomy.EnsureDefaults(); err != nil {
+					initialMessages = append(initialMessages, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("⚠ Taxonomy defaults init failed: %v", err),
+						Time:    time.Now(),
+					})
+				}
 
-			// HEAVY OPERATION: Rehydration
-			logStep("Hydrating taxonomy from DB...")
-			if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
-				initialMessages = append(initialMessages, Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⚠ Taxonomy rehydration failed: %v", err),
-					Time:    time.Now(),
-				})
+				// HEAVY OPERATION: Rehydration
+				logStep("Hydrating taxonomy from DB...")
+				if err := perception.SharedTaxonomy.HydrateFromDB(); err != nil {
+					initialMessages = append(initialMessages, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("⚠ Taxonomy rehydration failed: %v", err),
+						Time:    time.Now(),
+					})
+				}
+
 			}
 
 			logStep("Migrating old sessions...")
@@ -364,10 +373,23 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
 		var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+		if perception.SharedTaxonomy != nil {
+			perception.SharedTaxonomy.SetClient(llmClient)
+		}
 
 		// Initialize backend components that depend on the scheduled client.
 		logStep("Creating transducer...")
 		transducer := perception.NewRealTransducer(llmClient)
+		// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
+		// Previously, InitPerceptionLayer existed but was never wired, leaving semantic intent
+		// classification dormant even when embeddings are configured.
+		if err := perception.InitPerceptionLayer(kernel, appCfg); err != nil {
+			initialMessages = append(initialMessages, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("? Perception init failed: %v", err),
+				Time:    time.Now(),
+			})
+		}
 
 		// Initialize JIT Prompt Compiler with embedded corpus
 		logStep("Initializing JIT prompt compiler...")
@@ -455,6 +477,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			} else {
 				logging.Boot("Warning: Failed to create PromptAssembler with JIT: %v", err)
 			}
+		}
+		if promptAssembler != nil {
+			transducer.SetPromptAssembler(promptAssembler)
 		}
 
 		logStep("Registering shard types...")

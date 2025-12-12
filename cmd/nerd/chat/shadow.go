@@ -188,14 +188,14 @@ func (m Model) buildDerivationTrace(fact string) string {
 func getRuleForPredicate(predicate string) string {
 	// Common rules in the system
 	rules := map[string]string{
-		"next_action":           "next_action(X) :- user_intent(_, Verb, _), action_for_verb(Verb, X).",
-		"impacted":              "impacted(X) :- dependency_link(X, Y, _), modified(Y).",
-		"clarification_needed":  "clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 0.85.",
-		"block_commit":          "block_commit(Reason) :- diagnostic(/error, _, _, _, _).",
-		"permitted":             "permitted(Action) :- safe_action(Action).",
-		"context_to_inject":     "context_to_inject(Fact) :- activation(Fact, Score), Score > 30.",
-		"unsafe_to_refactor":    "unsafe_to_refactor(Target) :- impacted(Dep), not test_coverage(Dep).",
-		"needs_research":        "needs_research(Agent) :- shard_profile(Agent, _, Topics, _), not knowledge_ingested(Agent).",
+		"next_action":          "next_action(X) :- user_intent(_, Verb, _), action_for_verb(Verb, X).",
+		"impacted":             "impacted(X) :- dependency_link(X, Y, _), modified(Y).",
+		"clarification_needed": "clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 85.",
+		"block_commit":         "block_commit(Reason) :- diagnostic(/error, _, _, _, _).",
+		"permitted":            "permitted(Action) :- safe_action(Action).",
+		"context_to_inject":    "context_to_inject(Fact) :- activation(Fact, Score), Score > 30.",
+		"unsafe_to_refactor":   "unsafe_to_refactor(Target) :- impacted(Dep), not test_coverage(Dep).",
+		"needs_research":       "needs_research(Agent) :- shard_profile(Agent, _, Topics, _), not knowledge_ingested(Agent).",
 	}
 
 	if rule, ok := rules[predicate]; ok {

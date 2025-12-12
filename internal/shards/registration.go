@@ -313,6 +313,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -322,6 +323,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -332,6 +334,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable strategy pattern learning
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -341,6 +344,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -350,6 +354,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
@@ -358,6 +363,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard := system.NewMangleRepairShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetPromptAssembler(createAssembler())
 		// Wire the predicate corpus from kernel for schema validation
 		// Also wire the shard as the kernel's learned rule interceptor
 		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
@@ -376,6 +382,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetPromptAssembler(createAssembler())
 		// BrowserManager will be injected separately if available
 		return shard
 	})
@@ -387,6 +394,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetWorkspaceRoot(ctx.Workspace)
+		shard.SetPromptAssembler(createAssembler())
 		// Shared ShardManager is injected in system factory to avoid cycles.
 		return shard
 	})
@@ -397,6 +405,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetVirtualStore(ctx.VirtualStore) // FIX: Enable codebase scanning for planning
+		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 
