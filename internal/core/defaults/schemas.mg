@@ -196,6 +196,14 @@ Decl related_context(Content).
 Decl constraint_violation(Action, Reason).
 
 # =============================================================================
+# SECTION 7F: TELEMETRY / OBSERVABILITY (Go-Asserted)
+# =============================================================================
+
+# jit_fallback(ShardType, Reason)
+# Asserted by Go when JIT prompt compilation fails and Articulation falls back.
+Decl jit_fallback(ShardType, Reason).
+
+# =============================================================================
 # SECTION 8: BROWSER PHYSICS (§9.0)
 # =============================================================================
 

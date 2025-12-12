@@ -520,12 +520,12 @@ type (
 
 	// Continuation messages (multi-step task execution)
 	continueMsg struct {
-		subtaskID            string               // Unique identifier for this subtask
-		description          string               // What needs to be done
-		shardType            string               // Which shard to execute
-		isMutation           bool                 // True for write/run operations (for Breakpoint mode)
-		totalSteps           int                  // Updated total steps if discovered (optional)
-		completedShardResult *ShardResultPayload  // Result of the just-completed subtask (optional)
+		subtaskID            string              // Unique identifier for this subtask
+		description          string              // What needs to be done
+		shardType            string              // Which shard to execute
+		isMutation           bool                // True for write/run operations (for Breakpoint mode)
+		totalSteps           int                 // Updated total steps if discovered (optional)
+		completedShardResult *ShardResultPayload // Result of the just-completed subtask (optional)
 	}
 	// continuationInitMsg starts a continuation chain with the first step's surface output.
 	continuationInitMsg struct {
@@ -1571,6 +1571,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
 			m.sessionID = resolveSessionID(loadedSession)
 			m.turnCount = resolveTurnCount(loadedSession)
+
+			// Rehydrate semantic compression state for this session (if persisted).
+			m.hydrateCompressorForSession(m.sessionID)
 		}
 
 		// If boot failed, allow input immediately. If boot succeeded, wait until scan completes.
