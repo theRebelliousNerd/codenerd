@@ -72,7 +72,7 @@ type LLMClient interface {
 Read-only operations: `/explain`, `/search`, `/read`, `/explore`, `/analyze`
 
 ### Mutation Verbs (/mutation)
-Code-changing operations: `/fix`, `/refactor`, `/create`, `/delete`, `/test`
+Code-changing operations: `/fix`, `/refactor`, `/create`, `/delete`, `/test`, `/assault` (adversarial assault campaigns)
 
 ### Instruction Verbs (/instruction)
 Preference setting: `/configure`, `/always`, `/prefer`
@@ -86,10 +86,9 @@ Preference setting: `/configure`, `/always`, `/prefer`
 
 ## Adding New Verbs
 
-1. Add VerbEntry to VerbCorpus in `transducer.go`
-2. Include synonyms, patterns, priority, and shardType
-3. Update transducerSystemPrompt with new verb
-4. Add action_mapping in `internal/mangle/policy.gl`
+1. Add a `VerbEntry` to `DefaultTaxonomyData` in `taxonomy.go` (synonyms, patterns, priority, shardType)
+2. Ensure the intent prompt schema/atoms allow the verb (e.g., `internal/prompt/atoms/perception/transducer.yaml`)
+3. If the verb should execute, wire routing (chat/CLI) and/or policy mappings as appropriate
 
 ## LLM Provider System
 

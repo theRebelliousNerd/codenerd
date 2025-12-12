@@ -2,8 +2,9 @@
 
 Perception/grounding prompt atoms used by the Perception Firewall and transducer.
 
-## Useful cross‑refs
+These atoms define the intent schema/verb affordances (including `/assault` for adversarial assault campaigns).
+
+## Useful cross-refs
 
 - `internal/perception/`
 - `internal/world/`
-

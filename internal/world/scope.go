@@ -21,7 +21,7 @@ import (
 // When a file is "opened", it loads the file plus its direct imports
 // and files that directly import it.
 type FileScope struct {
-	mu sync.RWMutex
+	mu     sync.RWMutex
 	diagMu sync.Mutex
 	cbMu   sync.RWMutex
 
@@ -66,13 +66,13 @@ type FileScope struct {
 func NewFileScope(projectRoot string) *FileScope {
 	logging.World("Creating new FileScope for project: %s", projectRoot)
 	return &FileScope{
-		InScope:      make([]string, 0),
-		Elements:     make([]CodeElement, 0),
-		OutboundDeps: make(map[string][]string),
-		InboundDeps:  make(map[string][]string),
-		FileHashes:   make(map[string]string),
-		ProjectRoot:  projectRoot,
-		parser:       NewCodeElementParser(),
+		InScope:             make([]string, 0),
+		Elements:            make([]CodeElement, 0),
+		OutboundDeps:        make(map[string][]string),
+		InboundDeps:         make(map[string][]string),
+		FileHashes:          make(map[string]string),
+		ProjectRoot:         projectRoot,
+		parser:              NewCodeElementParser(),
 		diagnosticFacts:     make([]core.Fact, 0),
 		diagnosticFactIndex: make(map[string]struct{}),
 	}
@@ -141,6 +141,36 @@ func (s *FileScope) Open(path string) error {
 	s.InboundDeps = make(map[string][]string)
 	s.FileHashes = make(map[string]string)
 
+	// 0. For Go, include all non-test files in the same package directory.
+	// Go packages compile as a unit; sibling files are effectively 0-hop dependencies.
+	seen := make(map[string]bool)
+	seen[absPath] = true
+	if filepath.Ext(absPath) == ".go" {
+		pkgDir := filepath.Dir(absPath)
+		entries, err := os.ReadDir(pkgDir)
+		if err != nil {
+			logging.WorldDebug("Failed to read package dir (non-fatal): %v", err)
+		} else {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !strings.HasSuffix(name, ".go") {
+					continue
+				}
+				if strings.HasSuffix(name, "_test.go") {
+					continue
+				}
+				p := filepath.Join(pkgDir, name)
+				if !seen[p] {
+					s.InScope = append(s.InScope, p)
+					seen[p] = true
+				}
+			}
+		}
+	}
+
 	// 1. Parse active file and find its imports
 	logging.WorldDebug("Finding outbound dependencies for: %s", filepath.Base(absPath))
 	outbound, err := s.findOutboundDeps(absPath)
@@ -162,9 +192,6 @@ func (s *FileScope) Open(path string) error {
 	logging.WorldDebug("Found %d inbound dependencies", len(inbound))
 
 	// 3. Add 1-hop files to scope
-	seen := make(map[string]bool)
-	seen[absPath] = true
-
 	for _, dep := range outbound {
 		resolved := s.resolveImportPath(dep)
 		if resolved != "" && !seen[resolved] {
@@ -763,15 +790,15 @@ func detectEncoding(content []byte) EncodingInfo {
 
 // FileLoadResult contains the result of loading a file with metadata.
 type FileLoadResult struct {
-	Path         string
-	Elements     []CodeElement
-	Hash         string
-	LineCount    int
-	Encoding     EncodingInfo
-	ParseError   error
-	LoadTime     time.Time
-	ByteSize     int64
-	IsLargeFile  bool // > 10K lines or > 1MB
+	Path        string
+	Elements    []CodeElement
+	Hash        string
+	LineCount   int
+	Encoding    EncodingInfo
+	ParseError  error
+	LoadTime    time.Time
+	ByteSize    int64
+	IsLargeFile bool // > 10K lines or > 1MB
 }
 
 // ScopeFacts returns all current scope facts as a slice.

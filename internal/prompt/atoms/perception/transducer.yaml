@@ -68,6 +68,7 @@
     - /test [target] - Generate/run tests
     - /fix <issue> - Fix an issue
     - /campaign start <goal> - Start multi-phase task
+    - /campaign assault [scope] [include...] - Start adversarial assault sweep
 
     ### Advanced Features
     - **Campaigns**: Multi-phase, long-running tasks with planning and tracking
@@ -125,6 +126,7 @@
     | "Document this function." | {verb: "/document", target: "function", category: "/mutation"} |
     | "Add JSDoc comments to this file." | {verb: "/document", target: "file", category: "/mutation"} |
     | "Start a campaign to rewrite auth." | {verb: "/campaign", target: "rewrite auth", category: "/mutation"} |
+    | "Run an assault campaign on internal/core." | {verb: "/assault", target: "internal/core", category: "/mutation"} |
     | "Plan how to implement feature X." | {verb: "/plan", target: "feature X", category: "/query"} |
     | "Summarize what this module does." | {verb: "/summarize", target: "module", category: "/query"} |
     | "How many files are in the codebase?" | {verb: "/stats", target: "codebase", category: "/query"} |
@@ -199,6 +201,7 @@
     - "scaffold", "boilerplate", "generate skeleton" → /scaffold
     - "document", "add comments", "jsdoc" → /document
     - "campaign", "epic", "multi-step project" → /campaign
+    - "assault", "assault campaign", "adversarial assault", "soak test", "stress test", "gauntlet" → /assault
 
     ### INSTRUCTIONS (category: /instruction)
     - "configure", "set", "change setting" → /configure

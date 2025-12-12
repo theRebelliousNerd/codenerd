@@ -69,11 +69,20 @@ The chat interface is built with [Bubble Tea](https://github.com/charmbracelet/b
 | `/facts` | Show current fact count |
 | `/shadow` | Enter shadow mode |
 | `/whatif <action>` | Project effects |
+| `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Manage multi-phase campaigns (including adversarial assault sweeps) |
 | `/approve` | Approve pending changes |
 | `/agents` | Show active shards |
 | `/config` | Configuration menu |
 | `/clear` | Clear chat history |
 | `/quit` | Exit TUI |
+
+#### Adversarial Assault Campaigns
+
+In chat mode you can launch a long-horizon soak/stress + Nemesis sweep:
+- Slash command: `/campaign assault subsystem internal/core --race --vet --batch 25 --cycles 3`
+- Natural language: `run an assault campaign on internal/core`
+
+Artifacts persist under `.nerd/campaigns/<campaign>/assault/` (targets, batches, logs, results, triage).
 
 ### Keybindings
 

@@ -93,7 +93,7 @@ type CreatedAgent struct {
    - Save profile.json
 
 6. **Phase 5: Generate Mangle Facts** (profile.go)
-   - Create profile.gl with Mangle facts
+   - Create profile.mg with Mangle facts
    - Include project identity, language, framework
 
 7. **Phase 6: Determine Required Type 3 Agents** (agents.go)
@@ -197,12 +197,14 @@ entry_point("/cmd/nerd/main.go").
 
 ```
 .nerd/
-├── profile.gl          # Generated Mangle facts
+├── profile.mg          # Generated Mangle facts
 ├── profile.json        # Project metadata
 ├── session.json        # Session state
 ├── preferences.json    # User preferences
 ├── agents.json         # Agent registry
 ├── knowledge.db        # Main knowledge store
+├── prompts/            # Project prompt corpus (JIT)
+│   └── corpus.db       # Shared/project-scoped prompt atoms DB
 ├── .gitignore          # Git ignore rules
 ├── sessions/           # Session histories
 ├── shards/             # Shard knowledge DBs
@@ -257,7 +259,7 @@ Each agent includes:
 
 `nerd init --force` will:
 - Preserve learned preferences from `.nerd/preferences.json`
-- Regenerate profile.gl with fresh codebase scan
+- Regenerate profile.mg with fresh codebase scan
 - Keep existing agent definitions
 
 ## Dependencies

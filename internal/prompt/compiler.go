@@ -215,7 +215,7 @@ type JITPromptCompiler struct {
 	// Embedded corpus (baked-in atoms)
 	embeddedCorpus *EmbeddedCorpus
 
-	// Project-level atom database (.nerd/prompts/atoms.db)
+	// Project-level corpus database (.nerd/prompts/corpus.db)
 	projectDB *sql.DB
 
 	// Shard-specific atom databases (keyed by shard ID)

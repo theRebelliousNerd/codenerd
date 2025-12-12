@@ -19,7 +19,7 @@ activation(Tool, 80) :-
 
 # 3. Intent-driven activation
 activation(Target, 90) :-
-    user_intent(_, _, _, Target, _).
+    user_intent(/current_intent, _, _, Target, _).
 
 # 4. File modification spreads to dependents
 activation(Dep, 70) :-
@@ -38,29 +38,29 @@ context_atom(Fact) :-
 
 # TDD Repair Loop for bug fixes
 active_strategy(/tdd_repair_loop) :-
-    user_intent(_, _, /fix, _, _),
+    user_intent(/current_intent, _, /fix, _, _),
     diagnostic(/error, _, _, _, _).
 
 active_strategy(/tdd_repair_loop) :-
-    user_intent(_, _, /debug, _, _).
+    user_intent(/current_intent, _, /debug, _, _).
 
 # Exploration for queries
 active_strategy(/breadth_first_survey) :-
-    user_intent(_, /query, /explore, _, _).
+    user_intent(/current_intent, /query, /explore, _, _).
 
 active_strategy(/breadth_first_survey) :-
-    user_intent(_, /query, /explain, _, _).
+    user_intent(/current_intent, /query, /explain, _, _).
 
 # Code generation for scaffolding
 active_strategy(/project_init) :-
-    user_intent(_, /mutation, /scaffold, _, _).
+    user_intent(/current_intent, /mutation, /scaffold, _, _).
 
 active_strategy(/project_init) :-
-    user_intent(_, /mutation, /init, _, _).
+    user_intent(/current_intent, /mutation, /init, _, _).
 
 # Refactor guard for modifications
 active_strategy(/refactor_guard) :-
-    user_intent(_, /mutation, /refactor, _, _).
+    user_intent(/current_intent, /mutation, /refactor, _, _).
 
 # =============================================================================
 # SECTION 3: TDD REPAIR LOOP (§3.2)
@@ -83,7 +83,7 @@ next_action(/run_tests) :-
 
 next_action(/run_tests) :-
     test_state(/unknown),
-    user_intent(_, _, /test, _, _).
+    user_intent(/current_intent, _, /test, _, _).
 
 # Surrender Logic - Escalate after 3 retries
 next_action(/escalate_to_user) :-
@@ -433,27 +433,27 @@ appeal_pattern_detected(ActionType) :-
 
 # Delegate to researcher for init/explore
 delegate_task(/researcher, "Initialize codebase analysis", /pending) :-
-    user_intent(_, _, /init, _, _).
+    user_intent(/current_intent, _, /init, _, _).
 
 delegate_task(/researcher, Task, /pending) :-
-    user_intent(_, _, /research, Task, _).
+    user_intent(/current_intent, _, /research, Task, _).
 
 delegate_task(/researcher, Task, /pending) :-
-    user_intent(_, /query, /explore, Task, _).
+    user_intent(/current_intent, /query, /explore, Task, _).
 
 # Delegate to coder for coding tasks
 delegate_task(/coder, Task, /pending) :-
-    user_intent(_, /mutation, /implement, Task, _).
+    user_intent(/current_intent, /mutation, /implement, Task, _).
 
 # Note: Negation with unbound variables is unsafe in Datalog
 # Delegate refactoring task only when block_refactor facts don't exist
 # This is handled at runtime by checking block_refactor before delegation
 delegate_task(/coder, Task, /pending) :-
-    user_intent(_, /mutation, /refactor, Task, _).
+    user_intent(/current_intent, /mutation, /refactor, Task, _).
 
 # Delegate to tester for test tasks
 delegate_task(/tester, Task, /pending) :-
-    user_intent(_, _, /test, Task, _).
+    user_intent(/current_intent, _, /test, Task, _).
 
 delegate_task(/tester, "Generate tests for impacted code", /pending) :-
     impacted(File),
@@ -461,7 +461,7 @@ delegate_task(/tester, "Generate tests for impacted code", /pending) :-
 
 # Delegate to reviewer for review tasks
 delegate_task(/reviewer, Task, /pending) :-
-    user_intent(_, _, /review, Task, _).
+    user_intent(/current_intent, _, /review, Task, _).
 
 # =============================================================================
 # SECTION 9: BROWSER PHYSICS (§9.0)
@@ -527,16 +527,16 @@ tool_capabilities(/code_graph, /dependencies).
 
 # Goal capability requirements
 goal_requires(Goal, /read) :-
-    user_intent(_, /query, _, Goal, _).
+    user_intent(/current_intent, /query, _, Goal, _).
 
 goal_requires(Goal, /write) :-
-    user_intent(_, /mutation, _, Goal, _).
+    user_intent(/current_intent, /mutation, _, Goal, _).
 
 goal_requires(Goal, /execute) :-
-    user_intent(_, _, /run, Goal, _).
+    user_intent(/current_intent, _, /run, Goal, _).
 
 goal_requires(Goal, /analyze) :-
-    user_intent(_, _, /explain, Goal, _).
+    user_intent(/current_intent, _, /explain, Goal, _).
 
 # Action Mappings: Map intent verbs to executable actions
 # Core actions
@@ -578,38 +578,38 @@ action_mapping(/diff, /show_diff).
 
 # Derive next_action from intent and mapping
 next_action(Action) :-
-    user_intent(_, _, Verb, _, _),
+    user_intent(/current_intent, _, Verb, _, _),
     action_mapping(Verb, Action).
 
 # Specific file system actions
 next_action(/fs_read) :-
-    user_intent(_, _, /read, _, _).
+    user_intent(/current_intent, _, /read, _, _).
 
 next_action(/fs_write) :-
-    user_intent(_, _, /write, _, _).
+    user_intent(/current_intent, _, /write, _, _).
 
 # Review delegation - high confidence triggers immediate delegation
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(_, _, /review, Target, _).
+    user_intent(/current_intent, _, /review, Target, _).
 
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(_, _, /security, Target, _).
+    user_intent(/current_intent, _, /security, Target, _).
 
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(_, _, /analyze, Target, _).
+    user_intent(/current_intent, _, /analyze, Target, _).
 
 # Tool generator delegation - autopoiesis operations
 delegate_task(/tool_generator, Target, /pending) :-
-    user_intent(_, _, /generate_tool, Target, _).
+    user_intent(/current_intent, _, /generate_tool, Target, _).
 
 delegate_task(/tool_generator, Target, /pending) :-
-    user_intent(_, _, /refine_tool, Target, _).
+    user_intent(/current_intent, _, /refine_tool, Target, _).
 
 delegate_task(/tool_generator, "", /pending) :-
-    user_intent(_, _, /list_tools, _, _).
+    user_intent(/current_intent, _, /list_tools, _, _).
 
 delegate_task(/tool_generator, Target, /pending) :-
-    user_intent(_, _, /tool_status, Target, _).
+    user_intent(/current_intent, _, /tool_status, Target, _).
 
 # Auto-delegate when missing capability detected (implicit tool generation)
 delegate_task(/tool_generator, Cap, /pending) :-
@@ -659,8 +659,8 @@ has_capability(Cap) :-
     tool_capabilities(_, Cap).
 
 # Derive missing_tool_for if user intent requires a capability we don't have
-missing_tool_for(IntentID, Cap) :-
-    user_intent(IntentID, _, _, _, _),
+missing_tool_for(/current_intent, Cap) :-
+    user_intent(/current_intent, _, _, _, _),
     goal_requires(_, Cap),
     !has_capability(Cap).
 
@@ -693,7 +693,7 @@ capability_available(Cap) :-
 
 # Need new tool when capability missing and user explicitly requests it
 explicit_tool_request(Cap) :-
-    user_intent(_, /mutation, /generate_tool, Cap, _).
+    user_intent(/current_intent, /mutation, /generate_tool, Cap, _).
 
 # Need new tool when repeated failures suggest capability gap
 capability_gap_detected(Cap) :-
@@ -858,11 +858,11 @@ recent_change_by_other(File) :-
 
 # Chesterton's Fence warning - warn before deleting recently-changed code
 chesterton_fence_warning(File, "recent_change_by_other") :-
-    user_intent(_, /mutation, /delete, File, _),
+    user_intent(/current_intent, /mutation, /delete, File, _),
     recent_change_by_other(File).
 
 chesterton_fence_warning(File, "high_churn_file") :-
-    user_intent(_, /mutation, /refactor, File, _),
+    user_intent(/current_intent, /mutation, /refactor, File, _),
     churn_rate(File, Freq),
     Freq > 5.
 
@@ -940,7 +940,7 @@ next_action(/resume_task) :-
 active_strategy(/domain_expert) :-
     knowledge_atom(_, _, _, Confidence),
     Confidence > 80,
-    user_intent(_, _, _, _, _).
+    user_intent(/current_intent, _, _, _, _).
 
 # =============================================================================
 # SECTION 17B: LEARNED KNOWLEDGE APPLICATION
@@ -967,7 +967,7 @@ constraint_violation(Action, Reason) :-
 context_atom(fn:pair(Pred, Args)) :-
     learned_fact(Pred, Args),
     relevant_to_intent(Pred, Intent),
-    user_intent(_, _, _, _, Intent).
+    user_intent(/current_intent, _, _, _, Intent).
 
 # 4. Knowledge graph links spread activation
 # Entity relationships from knowledge_graph propagate energy
@@ -1280,7 +1280,7 @@ replan_needed(CampaignID, "task_failure_cascade") :-
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, "user_instruction") :-
     current_campaign(CampaignID),
-    user_intent(_, /instruction, _, _, _).
+    user_intent(/current_intent, /instruction, _, _, _).
 
 # Trigger replan if explicit trigger exists
 replan_needed(CampaignID, Reason) :-
@@ -1385,15 +1385,15 @@ tool_advisory_block(Tool, "not_in_phase_profile") :-
 
 # Trigger campaign mode when user wants to start a campaign
 active_strategy(/campaign_planning) :-
-    user_intent(_, /mutation, /campaign, _, _).
+    user_intent(/current_intent, /mutation, /campaign, _, _).
 
 # Alternative triggers for campaign-like requests
 active_strategy(/campaign_planning) :-
-    user_intent(_, /mutation, /build, Target, _),
+    user_intent(/current_intent, /mutation, /build, Target, _),
     target_is_large(Target).
 
 active_strategy(/campaign_planning) :-
-    user_intent(_, /mutation, /implement, Target, _),
+    user_intent(/current_intent, /mutation, /implement, Target, _),
     target_is_complex(Target).
 
 # Heuristics for complexity (implemented in Go builtins)
@@ -1412,9 +1412,9 @@ active_strategy(/campaign_planning) :-
 # -----------------------------------------------------------------------------
 
 # A user_intent is pending if not yet processed by executive
-pending_intent(IntentID) :-
-    user_intent(IntentID, _, _, _, _),
-    !intent_processed(IntentID).
+pending_intent(/current_intent) :-
+    user_intent(/current_intent, _, _, _, _),
+    !intent_processed(/current_intent).
 
 # Helper for safe negation
 intent_processed(IntentID) :-
@@ -1426,8 +1426,8 @@ focus_needs_resolution(Ref) :-
     Score < 70.
 
 # Intent ready for executive processing
-intent_ready_for_executive(IntentID) :-
-    user_intent(IntentID, _, _, Target, _),
+intent_ready_for_executive(/current_intent) :-
+    user_intent(/current_intent, _, _, Target, _),
     !focus_needs_resolution(Target).
 
 # -----------------------------------------------------------------------------
@@ -1654,7 +1654,7 @@ activate_shard(/session_planner) :-
     !system_shard_healthy(/session_planner).
 
 activate_shard(/session_planner) :-
-    user_intent(_, _, /plan, _, _),
+    user_intent(/current_intent, _, /plan, _, _),
     !system_shard_healthy(/session_planner).
 
 # -----------------------------------------------------------------------------
@@ -1804,8 +1804,8 @@ element_count_high() :-
     high_element_count_flag().
 
 # Trigger campaign for complex refactors affecting many elements
-requires_campaign(Intent) :-
-    user_intent(Intent, /mutation, _, Target, _),
+requires_campaign(/current_intent) :-
+    user_intent(/current_intent, /mutation, _, Target, _),
     in_scope(Target),
     element_count_high().
 
@@ -1815,7 +1815,7 @@ requires_campaign(Intent) :-
 
 # Open file when targeting a file that's not yet in scope
 next_action(/open_file) :-
-    user_intent(_, _, _, Target, _),
+    user_intent(/current_intent, _, _, Target, _),
     file_topology(Target, _, /go, _, _),
     !active_file(Target),
     !in_scope(Target).
@@ -1823,11 +1823,11 @@ next_action(/open_file) :-
 # Query elements when file is open and we need to find something
 next_action(/query_elements) :-
     active_file(_),
-    user_intent(_, /query, _, _, _).
+    user_intent(/current_intent, /query, _, _, _).
 
 # Edit element when mutation targets a known element
 next_action(/edit_element) :-
-    user_intent(_, /mutation, _, Ref, _),
+    user_intent(/current_intent, /mutation, _, Ref, _),
     code_element(Ref, _, File, _, _),
     in_scope(File).
 
@@ -1877,7 +1877,7 @@ activation(Ref, 100) :-
 # Boost activation for elements matching current intent target
 activation(Ref, 120) :-
     code_element(Ref, _, _, _, _),
-    user_intent(_, _, _, Ref, _).
+    user_intent(/current_intent, _, _, Ref, _).
 
 # Suppress activation for elements in files outside scope
 activation(Ref, -50) :-
@@ -2388,7 +2388,7 @@ delegate_task(SpecialistName, Task, /pending) :-
     shard_profile(SpecialistName, /specialist, _),
     trace_task_type(_, TaskType),
     shard_can_handle(SpecialistName, TaskType),
-    user_intent(_, _, _, Task, _).
+    user_intent(/current_intent, _, _, Task, _).
 
 # Learn which tasks specialists handle well
 shard_can_handle(ShardType, TaskType) :-
@@ -2404,23 +2404,23 @@ shard_can_handle(ShardType, TaskType) :-
 
 # 1. Callers of the target symbol
 relevant_context(File) :-
-    user_intent(_, _, _, TargetSymbol, _),
+    user_intent(/current_intent, _, _, TargetSymbol, _),
     code_calls(Caller, TargetSymbol),
     code_defines(File, Caller, _, _, _).
 
 # 2. Definitions in the target file
 relevant_context(Symbol) :-
-    user_intent(_, _, _, TargetFile, _),
+    user_intent(/current_intent, _, _, TargetFile, _),
     code_defines(TargetFile, Symbol, _, _, _).
 
 # 3. Implementations of target interface
 relevant_context(Struct) :-
-    user_intent(_, _, _, Interface, _),
+    user_intent(/current_intent, _, _, Interface, _),
     code_implements(Struct, Interface).
 
 # 4. Structs implementing the target interface (if target is interface)
 relevant_context(StructFile) :-
-    user_intent(_, _, _, Interface, _),
+    user_intent(/current_intent, _, _, Interface, _),
     code_implements(Struct, Interface),
     code_defines(StructFile, Struct, _, _, _).
 
@@ -2653,7 +2653,7 @@ has_tool_usage(ToolName) :- tool_usage_stats(ToolName, _, _, _).
 # When shard type matches intent category, target is highly relevant
 shard_context_atom(ShardID, Target, 90) :-
     active_shard(ShardID, ShardType),
-    user_intent(_, ShardType, _, Target, _).
+    user_intent(/current_intent, ShardType, _, Target, _).
 
 # Propagate specialist knowledge to context - HIGH relevance (80)
 shard_context_atom(ShardID, Knowledge, 80) :-
@@ -2669,7 +2669,7 @@ shard_context_atom(ShardID, Constraint, 70) :-
 # Include learned exemplars - MEDIUM relevance (60)
 shard_context_atom(ShardID, Exemplar, 60) :-
     active_shard(ShardID, ShardType),
-    user_intent(_, Category, _, _, _),
+    user_intent(/current_intent, Category, _, _, _),
     prompt_exemplar(ShardType, Category, Exemplar).
 
 # Include relevant tool descriptions - MEDIUM relevance (65)

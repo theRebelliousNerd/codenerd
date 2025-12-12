@@ -3,6 +3,7 @@ package perception
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -388,8 +389,8 @@ type Transducer interface {
 // It supports JIT prompt compilation when provided an articulation.PromptAssembler, and
 // falls back to the legacy static prompt when JIT is unavailable.
 type RealTransducer struct {
-	client         LLMClient
-	repairLoop     *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	client          LLMClient
+	repairLoop      *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
 	promptAssembler *articulation.PromptAssembler
 }
 
@@ -438,7 +439,7 @@ func (t *RealTransducer) intentSystemPrompt(ctx context.Context) string {
 // Updated with comprehensive verb taxonomy for reliable intent classification.
 //
 // NOTE: The content of this prompt has been migrated to YAML atoms in
-	// internal/prompt/atoms/perception/ for better organization and
+// internal/prompt/atoms/perception/ for better organization and
 // documentation. However, the transducer continues to use this static prompt
 // due to import cycle constraints with the articulation package.
 const transducerSystemPrompt = `You are codeNERD, a high-assurance Logic-First CLI coding agent. You possess a Dual Consciousness.
@@ -488,6 +489,7 @@ Users can:
 - /test [target] - Generate/run tests
 - /fix <issue> - Fix an issue
 - /campaign start <goal> - Start multi-phase task
+- /campaign assault [scope] [include...] - Start adversarial assault sweep
 
 ### Advanced Features
 - **Campaigns**: Multi-phase, long-running tasks with planning and tracking
@@ -540,6 +542,7 @@ Instead of guessing verbs, match the user's request to the closest CANONICAL EXA
 | "Document this function." | {verb: "/document", target: "function", category: "/mutation"} |
 | "Add JSDoc comments to this file." | {verb: "/document", target: "file", category: "/mutation"} |
 | "Start a campaign to rewrite auth." | {verb: "/campaign", target: "rewrite auth", category: "/mutation"} |
+| "Run an assault campaign on internal/core." | {verb: "/assault", target: "internal/core", category: "/mutation"} |
 | "Plan how to implement feature X." | {verb: "/plan", target: "feature X", category: "/query"} |
 | "Summarize what this module does." | {verb: "/summarize", target: "module", category: "/query"} |
 | "How many files are in the codebase?" | {verb: "/stats", target: "codebase", category: "/query"} |
@@ -574,7 +577,7 @@ Required JSON Schema (CONTROL FIRST, SURFACE SECOND):
   "control_packet": {
     "intent_classification": {
       "category": "/query|/mutation|/instruction",
-      "verb": "/review|/security|/analyze|/fix|/refactor|/explain|/debug|/test|/build|/run|/deploy|/research|/create|/write|/read|/delete|/rename|/move|/search|/explore|/format|/lint|/install|/update|/commit|/diff|/git|/scaffold|/document|/campaign|/plan|/summarize|/stats|/help|/greet|/knowledge|/dream|/configure|/remember|/stop|/undo",
+      "verb": "/review|/security|/analyze|/fix|/refactor|/explain|/debug|/test|/build|/run|/deploy|/research|/create|/write|/read|/delete|/rename|/move|/search|/explore|/format|/lint|/install|/update|/commit|/diff|/git|/scaffold|/document|/campaign|/assault|/plan|/summarize|/stats|/help|/greet|/knowledge|/dream|/configure|/remember|/stop|/undo",
       "target": "primary target string - extract file paths, function names, or 'codebase' for broad requests, or 'none'",
       "constraint": "any constraints (e.g., 'security only', 'go files', 'without tests') or 'none'",
       "confidence": 0.0-1.0
@@ -636,6 +639,7 @@ MUTATIONS (category: /mutation):
 - "scaffold", "boilerplate", "generate skeleton" → /scaffold
 - "document", "add comments", "jsdoc" → /document
 - "campaign", "epic", "multi-step project" → /campaign
+- "assault", "assault campaign", "adversarial assault", "soak test", "stress test", "gauntlet" → /assault
 
 INSTRUCTIONS (category: /instruction):
 - "configure", "set", "change setting" → /configure
@@ -864,18 +868,47 @@ func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 			logging.PerceptionDebug("GCD retry: injecting error context from previous attempt")
 			userPrompt = fmt.Sprintf(`%s
 
-PREVIOUS ATTEMPT FAILED - SYNTAX ERRORS DETECTED:
+PREVIOUS ATTEMPT FAILED - VALIDATION ERRORS DETECTED:
 %s
 
-Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Error())
+Fix the issues and try again. Output valid Piggyback JSON with corrected mangle_updates.`, userPrompt, lastErr.Error())
 		}
 
+		systemPrompt := t.intentSystemPrompt(ctx)
+		var resp string
+		var streamedAtoms []string
+		usedStreaming := false
+
 		llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
-		resp, err := sysCtx.CompleteWithSystem(ctx, t.intentSystemPrompt(ctx), userPrompt)
+		streamResp, streamAtoms, streamErr := t.completeWithGCDStreaming(ctx, sysCtx, systemPrompt, userPrompt, 4096)
 		llmTimer.Stop()
 
-		if err != nil {
-			logging.Get(logging.CategoryPerception).Warn("GCD LLM call failed, falling back to simple: %v", err)
+		if streamErr == nil {
+			resp = streamResp
+			streamedAtoms = streamAtoms
+			usedStreaming = true
+		} else {
+			var abortErr *gcdStreamAbortError
+			if errors.As(streamErr, &abortErr) {
+				logging.PerceptionDebug("GCD attempt %d: stream gate aborted early: %v", attempt+1, streamErr)
+				lastErr = streamErr
+				continue
+			}
+		}
+
+		if streamErr != nil && errors.Is(streamErr, ErrStreamingNotSupported) {
+			// Fallback to non-streaming if the active provider doesn't support streaming.
+			llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
+			raw, err := sysCtx.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+			llmTimer.Stop()
+			if err != nil {
+				logging.Get(logging.CategoryPerception).Warn("GCD LLM call failed, falling back to simple: %v", err)
+				intent, fallbackErr := t.parseSimple(ctx, input)
+				return intent, nil, fallbackErr
+			}
+			resp = raw
+		} else if streamErr != nil {
+			logging.Get(logging.CategoryPerception).Warn("GCD streaming call failed, falling back to simple: %v", streamErr)
 			intent, fallbackErr := t.parseSimple(ctx, input)
 			return intent, nil, fallbackErr
 		}
@@ -893,6 +926,21 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 		// Validate Mangle atoms using GCD
 		if len(result.Control.MangleUpdates) > 0 {
 			logging.PerceptionDebug("GCD validating %d Mangle updates", len(result.Control.MangleUpdates))
+			if usedStreaming && streamedAtoms != nil {
+				logging.Perception("GCD succeeded on attempt %d (stream-gated): verb=%s, %d valid atoms",
+					attempt+1, result.Control.IntentClassification.Verb, len(streamedAtoms))
+				return Intent{
+					Category:         result.Control.IntentClassification.Category,
+					Verb:             result.Control.IntentClassification.Verb,
+					Target:           result.Control.IntentClassification.Target,
+					Constraint:       result.Control.IntentClassification.Constraint,
+					Confidence:       result.Control.IntentClassification.Confidence,
+					Response:         result.Surface,
+					Ambiguity:        []string{},
+					MemoryOperations: result.Control.MemoryOperations,
+				}, streamedAtoms, nil
+			}
+
 			validAtoms, results := t.ValidateMangleAtoms(result.Control.MangleUpdates)
 
 			// Check for validation errors
@@ -962,6 +1010,84 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 	logging.Get(logging.CategoryPerception).Error("GCD complete failure after %d retries, falling back to simple parsing", maxRetries)
 	intent, err := t.parseSimple(ctx, input)
 	return intent, nil, err
+}
+
+var ErrStreamingNotSupported = errors.New("streaming not supported")
+
+type gcdStreamAbortError struct {
+	Reason string
+}
+
+func (e *gcdStreamAbortError) Error() string {
+	if strings.TrimSpace(e.Reason) == "" {
+		return "gcd stream aborted"
+	}
+	return "gcd stream aborted: " + e.Reason
+}
+
+type llmStreamingCallback interface {
+	CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error
+}
+
+type llmStreamingChannels interface {
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+}
+
+func (t *RealTransducer) completeWithGCDStreaming(ctx context.Context, sysCtx *SystemLLMContext, systemPrompt, userPrompt string, _ int) (string, []string, error) {
+	if sysCtx == nil || sysCtx.client == nil {
+		return "", nil, fmt.Errorf("nil sysCtx client")
+	}
+
+	// Prefer callback-based streaming (Codex/Claude CLI clients).
+	if streamer, ok := sysCtx.client.(llmStreamingCallback); ok {
+		var sb strings.Builder
+		if err := streamer.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
+			if chunk.Error != "" {
+				return fmt.Errorf("stream error: %s", chunk.Error)
+			}
+			if chunk.Text != "" {
+				sb.WriteString(chunk.Text)
+			} else if chunk.Content != "" {
+				sb.WriteString(chunk.Content)
+			}
+			return nil
+		}); err != nil {
+			return "", nil, err
+		}
+		return sb.String(), []string{}, nil
+	}
+
+	// Fallback to channel-based streaming (ZAI).
+	if streamer, ok := sysCtx.client.(llmStreamingChannels); ok {
+		contentCh, errCh := streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, false)
+		var sb strings.Builder
+
+		for {
+			select {
+			case <-ctx.Done():
+				return "", nil, ctx.Err()
+			case chunk, ok := <-contentCh:
+				if !ok {
+					// Drain any terminal error, if present.
+					select {
+					case err, ok := <-errCh:
+						if ok && err != nil {
+							return "", nil, err
+						}
+					default:
+					}
+					return sb.String(), []string{}, nil
+				}
+				sb.WriteString(chunk)
+			case err, ok := <-errCh:
+				if ok && err != nil {
+					return "", nil, err
+				}
+			}
+		}
+	}
+
+	return "", nil, ErrStreamingNotSupported
 }
 
 // parseSimple is a fallback parser using pipe-delimited format.
@@ -1093,7 +1219,7 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 	if len(candidates) == 0 {
 		logging.PerceptionDebug("No candidates provided, returning empty resolution")
 		return FocusResolution{
-			RawReference: reference,
+			RawReference:      reference,
 			ConfidencePercent: 0,
 		}, nil
 	}
@@ -1101,8 +1227,8 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 	if len(candidates) == 1 {
 		logging.PerceptionDebug("Single candidate, auto-resolving to: %s", candidates[0])
 		return FocusResolution{
-			RawReference: reference,
-			ResolvedPath: candidates[0],
+			RawReference:      reference,
+			ResolvedPath:      candidates[0],
 			ConfidencePercent: 90,
 		}, nil
 	}
@@ -1146,8 +1272,8 @@ JSON only:`, reference, candidateList)
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Focus resolution LLM call failed, using first candidate: %v", err)
 		return FocusResolution{
-			RawReference: reference,
-			ResolvedPath: candidates[0],
+			RawReference:      reference,
+			ResolvedPath:      candidates[0],
 			ConfidencePercent: 50,
 		}, nil
 	}
@@ -1160,16 +1286,16 @@ JSON only:`, reference, candidateList)
 	resp = strings.TrimSpace(resp)
 
 	var parsed struct {
-		ResolvedPath string  `json:"resolved_path"`
-		SymbolName   string  `json:"symbol_name"`
-		Confidence   int64   `json:"confidence"`
+		ResolvedPath string `json:"resolved_path"`
+		SymbolName   string `json:"symbol_name"`
+		Confidence   int64  `json:"confidence"`
 	}
 
 	if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Focus resolution JSON parse failed, using first candidate: %v", err)
 		return FocusResolution{
-			RawReference: reference,
-			ResolvedPath: candidates[0],
+			RawReference:      reference,
+			ResolvedPath:      candidates[0],
 			ConfidencePercent: 50,
 		}, nil
 	}
@@ -1185,9 +1311,9 @@ JSON only:`, reference, candidateList)
 		truncateForLog(reference, 30), truncateForLog(parsed.ResolvedPath, 50), parsed.SymbolName, conf)
 
 	return FocusResolution{
-		RawReference: reference,
-		ResolvedPath: parsed.ResolvedPath,
-		SymbolName:   parsed.SymbolName,
+		RawReference:      reference,
+		ResolvedPath:      parsed.ResolvedPath,
+		SymbolName:        parsed.SymbolName,
 		ConfidencePercent: conf,
 	}, nil
 }

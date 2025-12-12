@@ -2,6 +2,20 @@
 
 This directory contains codeNERD configuration files and custom review rules.
 
+## Campaigns
+
+Campaign state and run artifacts are stored under `.nerd/campaigns/`:
+
+- `.nerd/campaigns/*.json` - campaign plans/progress snapshots
+- `.nerd/campaigns/<campaign>/assault/` - adversarial assault artifacts (targets, batches, logs, results, triage)
+
+## Prompts (JIT)
+
+JIT prompt atoms can be stored in two places:
+
+- `.nerd/prompts/corpus.db` - shared/project-scoped prompt corpus (seeded from baked `internal/core/defaults/prompt_corpus.db`)
+- `.nerd/agents/<agent>/prompts.yaml` → `.nerd/shards/<agent>_knowledge.db` - agent-scoped prompt atoms (synced on spawn/boot)
+
 ## Files
 
 ### review-rules.json

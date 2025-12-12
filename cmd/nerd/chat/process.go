@@ -141,7 +141,10 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
-				intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
+				// Use a stable ID so the kernel doesn't accumulate historical intents.
+				intentID := "/current_intent"
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
 				intentFact := core.Fact{
 					Predicate: "user_intent",
 					Args: []interface{}{
@@ -155,6 +158,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if err := m.kernel.Assert(intentFact); err != nil {
 					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 				}
+				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
 			}
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
@@ -183,6 +187,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		if intent.Verb == "/dream" {
 			m.ReportStatus("Dream: consulting shards...")
 			return m.handleDreamState(ctx, intent, input)
+		}
+
+		// 1.3.3 ASSAULT CAMPAIGN: Auto-start adversarial assault campaigns from natural language.
+		// Example: "run an assault campaign on internal/core"
+		if args, ok := assaultArgsFromNaturalLanguage(m.workspace, input, intent); ok {
+			m.ReportStatus("Assault: starting campaign...")
+			cmd := m.startAssaultCampaign(args)
+			return cmd()
 		}
 
 		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard

@@ -3,6 +3,7 @@ package init
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
@@ -193,9 +194,12 @@ func (i *Initializer) savePreferences(path string, prefs UserPreferences) error 
 }
 
 // populateProjectAtoms creates project-specific prompt atoms based on detected
-// language, frameworks, and conventions. These atoms are stored in the project's
-// local database and will be available for JIT prompt compilation.
-// Uses store.PromptAtom directly to avoid import cycles with prompt package.
+// language, frameworks, and conventions.
+//
+// Note: These atoms are currently persisted into `.nerd/knowledge.db` (LocalStore).
+// JIT prompt compilation registers `.nerd/prompts/corpus.db` (project) and
+// `.nerd/shards/{agent}_knowledge.db` (agent-scoped) databases, so if you want
+// these atoms to participate in JIT selection, also ingest them into the corpus DB.
 func (i *Initializer) populateProjectAtoms(profile ProjectProfile) error {
 	if i.localDB == nil {
 		return fmt.Errorf("local database not initialized")
@@ -941,20 +945,23 @@ func sanitizeForMangle(s string) string {
 	return sanitized
 }
 
-// initializePromptDatabase creates and populates the .nerd/prompts/atoms.db
-// with project-level and agent-specific prompt atoms from YAML files.
-// NOTE: This function creates the database schema but defers YAML loading to runtime
-// to avoid import cycles with internal/prompt package.
+// initializePromptDatabase ensures the .nerd/prompts/corpus.db exists and has the
+// prompt atom schema required by the JIT prompt compiler.
 func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir string) error {
-	logging.Boot("Initializing prompt atoms database...")
+	logging.Boot("Initializing prompt corpus database...")
 
-	// Path to the atoms database
-	dbPath := filepath.Join(nerdDir, "prompts", "atoms.db")
+	// Path to the corpus database
+	dbPath := filepath.Join(nerdDir, "prompts", "corpus.db")
 
 	// Ensure directory exists
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	// Seed from baked defaults if available (never overwrites an existing DB).
+	if _, err := prompt.MaterializeDefaultPromptCorpus(dbPath); err != nil {
+		return fmt.Errorf("failed to materialize default prompt corpus: %w", err)
 	}
 
 	// Open database
@@ -964,69 +971,19 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 	}
 	defer db.Close()
 
-	// Create schema (matches internal/prompt/loader.go schema)
-	schema := `
-		CREATE TABLE IF NOT EXISTS prompt_atoms (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			atom_id TEXT NOT NULL UNIQUE,
-			version INTEGER DEFAULT 1,
-			content TEXT NOT NULL,
-			token_count INTEGER NOT NULL,
-			content_hash TEXT NOT NULL,
-
-			-- Classification
-			category TEXT NOT NULL,
-			subcategory TEXT,
-
-			-- Contextual Selectors (JSON arrays)
-			operational_modes TEXT,
-			campaign_phases TEXT,
-			build_layers TEXT,
-			init_phases TEXT,
-			northstar_phases TEXT,
-			ouroboros_stages TEXT,
-			intent_verbs TEXT,
-			shard_types TEXT,
-			languages TEXT,
-			frameworks TEXT,
-			world_states TEXT,
-
-			-- Composition
-			priority INTEGER DEFAULT 50,
-			is_mandatory BOOLEAN DEFAULT FALSE,
-			is_exclusive TEXT,
-			depends_on TEXT,
-			conflicts_with TEXT,
-
-			-- Embeddings
-			embedding BLOB,
-			embedding_task TEXT DEFAULT 'RETRIEVAL_DOCUMENT',
-
-			-- Metadata
-			source_file TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_atoms_category ON prompt_atoms(category);
-		CREATE INDEX IF NOT EXISTS idx_atoms_hash ON prompt_atoms(content_hash);
-		CREATE INDEX IF NOT EXISTS idx_atoms_mandatory ON prompt_atoms(is_mandatory);
-		CREATE INDEX IF NOT EXISTS idx_atoms_priority ON prompt_atoms(priority DESC);
-	`
-
-	if _, err := db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
+	atomLoader := prompt.NewAtomLoader(nil)
+	if err := atomLoader.EnsureSchema(ctx, db); err != nil {
+		return fmt.Errorf("failed to ensure corpus schema: %w", err)
 	}
 
-	logging.Boot("Created prompt atoms database schema")
-	fmt.Println("   ✓ Created prompt atoms database")
-	fmt.Println("   ⓘ YAML prompt loading will occur at runtime (to avoid import cycles)")
+	// Best-effort: ensure tag rows exist for embedded atoms (older corpora may be missing tags).
+	if embedded, err := prompt.LoadEmbeddedCorpus(); err == nil {
+		if err := prompt.HydrateAtomContextTags(ctx, db, embedded.All()); err != nil {
+			logging.Boot("Warning: failed to hydrate corpus atom tags: %v", err)
+		}
+	}
 
-	// NOTE: We don't load YAML files here to avoid import cycles.
-	// The YAML loading happens at runtime via internal/prompt/loader.go functions:
-	// - prompt.LoadProjectPrompts() for .nerd/prompts/*.yaml
-	// - prompt.LoadAgentPrompts() for .nerd/agents/*/prompts.yaml
-	// These are called by the shard manager when shards are spawned.
-
-	logging.Boot("Prompt atoms database initialized successfully")
+	logging.Boot("Prompt corpus database initialized successfully")
+	fmt.Println("   ✓ Prompt corpus database ready")
 	return nil
 }

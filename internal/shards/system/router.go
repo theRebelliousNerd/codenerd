@@ -56,7 +56,9 @@ func DefaultRouterConfig() RouterConfig {
 
 			// File operations
 			{ActionPattern: "read_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "fs_read", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
 			{ActionPattern: "write_file", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
+			{ActionPattern: "fs_write", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
 			{ActionPattern: "edit_file", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
 			{ActionPattern: "delete_file", ToolName: "fs_delete", Timeout: 10 * time.Second, RequiresSafe: true},
 
@@ -71,6 +73,7 @@ func DefaultRouterConfig() RouterConfig {
 
 			// Git operations
 			{ActionPattern: "git_operation", ToolName: "git_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 20},
+			{ActionPattern: "show_diff", ToolName: "git_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
 
 			// Network
 			{ActionPattern: "fetch", ToolName: "http_fetch", Timeout: 30 * time.Second, RequiresSafe: true, RateLimit: 30},
@@ -547,19 +550,67 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 
 // findRoute finds a route for the given action type.
 func (r *TactileRouterShard) findRoute(actionType string) (ToolRoute, bool) {
-	// Exact match first
+	normalizedAction := strings.TrimPrefix(actionType, "/")
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Exact match (prefer normalized form, but allow raw key too).
+	if route, exists := r.routes[normalizedAction]; exists {
+		return route, true
+	}
 	if route, exists := r.routes[actionType]; exists {
 		return route, true
 	}
 
-	// Prefix matching
+	// Deterministic best-match routing:
+	// - Prefer prefix matches over contains matches.
+	// - Prefer longer (more specific) patterns.
+	// - Tie-break lexicographically on normalized pattern.
+	const (
+		matchNone    = 0
+		matchContains = 1
+		matchPrefix   = 2
+		matchExact    = 3
+	)
+
+	bestScore := matchNone
+	bestLen := -1
+	bestPattern := ""
+	bestRoute := ToolRoute{}
+
 	for pattern, route := range r.routes {
-		if strings.HasPrefix(actionType, pattern) || strings.Contains(actionType, pattern) {
-			return route, true
+		normalizedPattern := strings.TrimPrefix(pattern, "/")
+		if normalizedPattern == "" {
+			continue
+		}
+
+		score := matchNone
+		switch {
+		case normalizedAction == normalizedPattern:
+			score = matchExact
+		case strings.HasPrefix(normalizedAction, normalizedPattern):
+			score = matchPrefix
+		case strings.Contains(normalizedAction, normalizedPattern):
+			score = matchContains
+		default:
+			continue
+		}
+
+		if score > bestScore ||
+			(score == bestScore && len(normalizedPattern) > bestLen) ||
+			(score == bestScore && len(normalizedPattern) == bestLen && normalizedPattern < bestPattern) {
+			bestScore = score
+			bestLen = len(normalizedPattern)
+			bestPattern = normalizedPattern
+			bestRoute = route
 		}
 	}
 
-	return ToolRoute{}, false
+	if bestScore == matchNone {
+		return ToolRoute{}, false
+	}
+	return bestRoute, true
 }
 
 // handleAutopoiesis uses LLM to propose new tool routes.

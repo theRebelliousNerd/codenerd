@@ -18,6 +18,7 @@ type TaxonomyEngine struct {
 	store         *TaxonomyStore
 	client        LLMClient
 	workspaceRoot string // Explicit workspace root (for .nerd paths)
+	learnedPath   string // Absolute path of loaded .nerd/mangle/learned.mg (if any)
 }
 
 // SharedTaxonomy is the global instance loaded on init.
@@ -40,6 +41,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
 	}
+	t := &TaxonomyEngine{engine: eng}
 
 	// Load Intent Definition Schema (Canonical Examples)
 	intentContent, err := core.GetDefaultContent("schema/intent.mg")
@@ -91,16 +93,9 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		}
 	}
 
-	// Load learned rules if available
-	learnedPath := "internal/mangle/learned.mg"
-	if _, err := os.Stat(learnedPath); err == nil {
-		// Only load if it's valid
-		if err := eng.LoadSchema(learnedPath); err != nil {
-			fmt.Printf("WARNING: Failed to load learned taxonomy: %v\n", err)
-		}
-	}
-
-	return &TaxonomyEngine{engine: eng}, nil
+	// Load learned rules if available (workspace-aware; SetWorkspace() will re-attempt).
+	t.tryLoadLearned()
+	return t, nil
 }
 
 // SetStore attaches a persistence store to the taxonomy engine.
@@ -112,6 +107,7 @@ func (t *TaxonomyEngine) SetStore(s *TaxonomyStore) {
 // This MUST be called to ensure learned facts are persisted in the correct location.
 func (t *TaxonomyEngine) SetWorkspace(root string) {
 	t.workspaceRoot = root
+	t.tryLoadLearned()
 }
 
 // nerdPath returns the correct path for a .nerd subdirectory.
@@ -121,6 +117,24 @@ func (t *TaxonomyEngine) nerdPath(subpath string) string {
 		return filepath.Join(t.workspaceRoot, ".nerd", subpath)
 	}
 	return filepath.Join(".nerd", subpath)
+}
+
+func (t *TaxonomyEngine) tryLoadLearned() {
+	learnedPath := filepath.Join(t.nerdPath("mangle"), "learned.mg")
+	if abs, err := filepath.Abs(learnedPath); err == nil {
+		learnedPath = abs
+	}
+	if learnedPath == t.learnedPath {
+		return
+	}
+	if _, err := os.Stat(learnedPath); err != nil {
+		return
+	}
+	if err := t.engine.LoadSchema(learnedPath); err != nil {
+		fmt.Printf("WARNING: Failed to load learned taxonomy from %s: %v\n", learnedPath, err)
+		return
+	}
+	t.learnedPath = learnedPath
 }
 
 // HydrateFromDB loads all taxonomy facts from the database into the engine.
@@ -527,6 +541,17 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Verb: "/campaign", Category: "/mutation", ShardType: "/coder", Priority: 95,
 		Synonyms: []string{"campaign", "epic", "feature"},
 		Patterns: []string{"(?i)start.*campaign"},
+	},
+	{
+		Verb: "/assault", Category: "/mutation", ShardType: "/none", Priority: 99,
+		Synonyms: []string{"assault", "assault campaign", "adversarial assault", "adversarial campaign", "gauntlet", "soak test", "stress test", "torture test", "adversarial sweep"},
+		Patterns: []string{
+			"(?i)\\bassault\\b",
+			"(?i)\\badversarial\\s+(assault|campaign|sweep)\\b",
+			"(?i)\\b(soak|stress|torture)\\s+test\\b",
+			"(?i)\\b(run|launch|start)\\s+(an\\s+)?assault\\b",
+			"(?i)\\bgauntlet\\b",
+		},
 	},
 	{
 		Verb: "/generate_tool", Category: "/mutation", ShardType: "/tool_generator", Priority: 95,

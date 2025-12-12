@@ -8,7 +8,7 @@ The init system performs cold-start initialization of codeNERD in a new project,
 
 ## Init Phases
 
-The initialization process has 11 phases. These atoms support the phases that require LLM guidance:
+The init pipeline has many phases (currently 22 in `internal/init/initializer.go`). These atoms focus on the phases that require LLM guidance:
 
 | Phase | File | Description |
 |-------|------|-------------|

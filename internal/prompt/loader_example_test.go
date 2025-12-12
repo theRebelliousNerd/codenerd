@@ -5,11 +5,14 @@ package prompt_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"codenerd/internal/prompt"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // ExampleLoadProjectPrompts demonstrates loading project-level prompt atoms
@@ -45,16 +48,23 @@ func ExampleLoadAgentPrompts() {
 
 // ExampleInitializePromptDatabase demonstrates creating a new prompt database
 func ExampleInitializePromptDatabase() {
-	dbPath := filepath.Join(".nerd", "prompts", "atoms.db")
+	ctx := context.Background()
+	dbPath := filepath.Join(".nerd", "prompts", "corpus.db")
 
-	// Initialize the database
-	err := prompt.InitializePromptDatabase(dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
+	defer db.Close()
 
-	fmt.Printf("Initialized prompt database at %s\n", dbPath)
+	loader := prompt.NewAtomLoader(nil)
+	if err := loader.EnsureSchema(ctx, db); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Initialized corpus database at %s\n", dbPath)
 }
 
 // ExampleCreateAgentPrompts demonstrates creating prompts.yaml for an agent
