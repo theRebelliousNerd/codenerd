@@ -310,11 +310,29 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// Load project corpus.db if it exists (user-defined atoms)
 	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
+	if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to materialize default prompt corpus: %v", err)
+	} else if wrote {
+		logging.Get(logging.CategoryContext).Info("Materialized default prompt corpus to %s", corpusPath)
+	}
 	if _, statErr := os.Stat(corpusPath); statErr == nil {
 		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
 		if dbErr == nil {
-			compilerOpts = append(compilerOpts, prompt.WithProjectDB(projectDB))
-			logging.Get(logging.CategoryContext).Info("Registered project corpus: %s", corpusPath)
+			// Ensure schema/migrations are applied (safe/idempotent).
+			if err := atomLoader.EnsureSchema(ctx, projectDB); err != nil {
+				logging.Get(logging.CategoryContext).Warn("Failed to ensure project corpus schema: %v", err)
+				_ = projectDB.Close()
+			} else {
+				// Backfill normalized tags from embedded atoms when missing.
+				if embeddedCorpus != nil {
+					if err := prompt.HydrateAtomContextTags(ctx, projectDB, embeddedCorpus.All()); err != nil {
+						logging.Get(logging.CategoryContext).Warn("Failed to hydrate project corpus tags: %v", err)
+					}
+				}
+
+				compilerOpts = append(compilerOpts, prompt.WithProjectDB(projectDB))
+				logging.Get(logging.CategoryContext).Info("Registered project corpus: %s", corpusPath)
+			}
 		} else {
 			logging.Get(logging.CategoryContext).Warn("Failed to open project corpus: %v", dbErr)
 		}
@@ -456,6 +474,11 @@ func ingestHybridPrompts(ctx context.Context, workspace string, kernel *core.Rea
 	}
 
 	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
+	if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to materialize default prompt corpus for hybrid ingest: %v", err)
+	} else if wrote {
+		logging.Get(logging.CategoryContext).Info("Materialized default prompt corpus to %s (hybrid ingest)", corpusPath)
+	}
 	if err := os.MkdirAll(filepath.Dir(corpusPath), 0755); err != nil {
 		logging.Get(logging.CategoryContext).Warn("Failed to create prompts dir for hybrid corpus: %v", err)
 		return

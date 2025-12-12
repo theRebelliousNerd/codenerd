@@ -28,6 +28,7 @@ import (
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,6 +39,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
+
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"

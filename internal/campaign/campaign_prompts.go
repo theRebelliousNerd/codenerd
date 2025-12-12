@@ -25,6 +25,7 @@ const (
 	RolePlanner   CampaignRole = "planner"
 	RoleReplanner CampaignRole = "replanner"
 	RoleAnalysis  CampaignRole = "analysis"
+	RoleAssault   CampaignRole = "assault"
 )
 
 // PromptProvider is an interface for generating prompts for campaign roles.
@@ -69,6 +70,8 @@ func getStaticPrompt(role CampaignRole) string {
 		return ReplannerLogic
 	case RoleAnalysis:
 		return AnalysisLogic
+	case RoleAssault:
+		return AssaultLogic
 	default:
 		logging.Get(logging.CategoryCampaign).Warn("Unknown campaign role: %s, using generic prompt", role)
 		return "You are a specialized campaign agent. Execute your task precisely and efficiently."
@@ -94,6 +97,8 @@ func GetCampaignPhaseForRole(role CampaignRole) string {
 		return "/replanning"
 	case RoleAnalysis:
 		return "/analysis"
+	case RoleAssault:
+		return "/assault"
 	default:
 		return "/active"
 	}
@@ -108,6 +113,8 @@ func GetShardTypeForRole(role CampaignRole) string {
 	case RoleExtractor:
 		return "extractor"
 	case RoleAnalysis:
+		return "analyzer"
+	case RoleAssault:
 		return "analyzer"
 	case RolePlanner, RoleTaxonomy, RoleReplanner:
 		return "planner"
