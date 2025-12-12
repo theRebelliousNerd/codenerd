@@ -339,6 +339,13 @@ or you can create them on-demand with /tool generate.
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runInitialization(forceInit))
 	case "/scan":
+		deep := false
+		for _, part := range parts[1:] {
+			if part == "--deep" || part == "-d" {
+				deep = true
+				break
+			}
+		}
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: "Scanning workspace...",
@@ -348,7 +355,7 @@ or you can create them on-demand with /tool generate.
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
 		m.isLoading = true
-		return m, tea.Batch(m.spinner.Tick, m.runScan())
+		return m, tea.Batch(m.spinner.Tick, m.runScan(deep))
 
 	case "/scan-path":
 		if len(parts) < 2 {
@@ -552,7 +559,7 @@ Press **Enter** to begin...`,
 				Content: `Embedding commands:
   /embedding set <provider> [api-key]  - Set embedding provider (ollama or genai)
   /embedding stats                      - Show embedding statistics
-  /embedding reembed                    - Re-generate all embeddings`,
+  /embedding reembed                    - Force re-embed all .nerd + internal DBs (vectors + prompt atoms)`,
 				Time: time.Now(),
 			})
 		} else {
@@ -632,24 +639,14 @@ Press **Enter** to begin...`,
 				if m.localDB != nil {
 					m.history = append(m.history, Message{
 						Role:    "assistant",
-						Content: "Re-embedding all vectors... (this may take a moment)",
+						Content: "Re-embedding all databases (vectors + prompt atoms)... this may take a while.",
 						Time:    time.Now(),
 					})
-					ctx := context.Background()
-					if err := m.localDB.ReembedAllVectors(ctx); err != nil {
-						m.history = append(m.history, Message{
-							Role:    "assistant",
-							Content: fmt.Sprintf("Re-embedding failed: %v", err),
-							Time:    time.Now(),
-						})
-					} else {
-						stats, _ := m.localDB.GetVectorStats()
-						m.history = append(m.history, Message{
-							Role:    "assistant",
-							Content: fmt.Sprintf("✓ Re-embedding complete! Vectors with embeddings: %v", stats["with_embeddings"]),
-							Time:    time.Now(),
-						})
-					}
+					m.viewport.SetContent(m.renderHistory())
+					m.viewport.GotoBottom()
+					m.textarea.Reset()
+					m.isLoading = true
+					return m, tea.Batch(m.spinner.Tick, m.runReembedAllDBs())
 				} else {
 					m.history = append(m.history, Message{
 						Role:    "assistant",

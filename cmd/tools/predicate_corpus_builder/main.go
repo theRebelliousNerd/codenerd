@@ -4,9 +4,7 @@
 //
 // Usage: go run ./cmd/tools/predicate_corpus_builder
 //
-// Build with sqlite-vec support:
-//
-//	$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go run ./cmd/tools/predicate_corpus_builder
+// (This tool does not use sqlite-vec; no CGO flags needed.)
 package main
 
 import (
@@ -737,14 +735,14 @@ func createErrorPatterns() []ErrorPattern {
 			Name:             "missing_do_keyword",
 			ErrorRegex:       `expected 'do' after|parse error.*group_by`,
 			CauseDescription: "Aggregation pipeline missing 'do' keyword before fn:group_by",
-			FixTemplate:      "Use: source() |> do fn:group_by(X), let N = fn:Count()",
+			FixTemplate:      "Use: source() |> do fn:group_by(X), let N = fn:count()",
 			Severity:         "parse_error",
 		},
 		{
 			Name:             "wrong_aggregation_casing",
-			ErrorRegex:       `undefined function fn:count|fn:sum|fn:min|fn:max`,
-			CauseDescription: "Aggregation functions require capital letters: fn:Count, fn:Sum, fn:Min, fn:Max",
-			FixTemplate:      "Use capital letters for aggregation functions: fn:Count(), fn:Sum(X), fn:Min(X), fn:Max(X)",
+			ErrorRegex:       `(?i)unknown function fn:(count|sum|min|max|avg)`,
+			CauseDescription: "Aggregation functions use lowercase: fn:count, fn:sum, fn:min, fn:max, fn:avg",
+			FixTemplate:      "Use lowercase for aggregation functions: fn:count(), fn:sum(X), fn:min(X), fn:max(X), fn:avg(X)",
 			Severity:         "runtime_error",
 		},
 		{

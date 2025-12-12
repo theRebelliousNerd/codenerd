@@ -24,7 +24,7 @@ const defaultSyntaxReminder = `## Mangle Syntax Reminders
 CRITICAL - Avoid these common mistakes:
 - Use /atom for identifiers, NOT "string" (e.g., /active not "active")
 - Negation: Use ! not \+ (e.g., !blocked(X) not \+ blocked(X))
-- Aggregation: source() |> do fn:group_by(X), let N = fn:Count()
+- Aggregation: source() |> do fn:group_by(X), let N = fn:count()
 - Variables: UPPERCASE (X, User), constants: /lowercase
 - End every rule with a period (.)
 - Bind variables in positive predicates BEFORE using in negation
@@ -131,7 +131,7 @@ func (pb *PromptBuilder) buildAttempt2Additions(ctx FeedbackContext) string {
 		sb.WriteString("count_by_type(Type, N) :-\n")
 		sb.WriteString("    item(Type, _) |>\n")
 		sb.WriteString("    do fn:group_by(Type),\n")
-		sb.WriteString("    let N = fn:Count().\n")
+		sb.WriteString("    let N = fn:count().\n")
 		sb.WriteString("```\n\n")
 	}
 

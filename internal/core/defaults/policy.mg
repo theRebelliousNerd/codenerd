@@ -369,9 +369,13 @@ learned_proposal(Action) :-
     candidate_action(Action).
 
 # Metrics: Count how many learned rules are being blocked
-# TODO: Re-enable when aggregation functions are fully implemented
+blocked_learned_action_count(C) :-
+    action_denied(_, _)
+    |> do fn:group_by(), let C = fn:count().
+
+# Default to 0 when no blocks exist
 blocked_learned_action_count(0) :-
-    action_denied(_, _).
+    !action_denied(_, _).
 
 # =============================================================================
 # SECTION 7C: APPEAL MECHANISM (Constitutional Appeals)

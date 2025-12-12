@@ -971,6 +971,7 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 		config := core.ShardConfig{
 			Name:          agent.Name,
 			Type:          core.ShardTypePersistent,
+			BaseType:      "researcher",
 			KnowledgePath: agent.KnowledgePath,
 			Timeout:       30 * time.Minute,
 			MemoryLimit:   10000,

@@ -17,7 +17,7 @@ all prompt atoms from project specific shards go C:\CodeProjects\codeNERD\.nerd\
 > **Build Instruction for Vector DB Support**
 > To enable `sqlite-vec` mappings, you MUST use the following build command:
 >
->rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null; cd c:/ CodeProjects/codeNERD && CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -o nerd.exe ./cmd/nerd 2>&1 | grep -v "warning:" | grep -v note:
+>rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null; cd c:/ CodeProjects/codeNERD && CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd 2>&1 | grep -v "warning:" | grep -v note:
 
 ## Vision
 

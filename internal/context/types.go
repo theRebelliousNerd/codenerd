@@ -2,7 +2,7 @@
 // This is the core implementation of §8.2 from the Cortex 1.5.0 specification.
 //
 // The system achieves "Infinite Context" by continuously discarding surface text
-// and retaining only logical state. Target compression ratio: >100:1.
+// and retaining only logical state.
 package context
 
 import (

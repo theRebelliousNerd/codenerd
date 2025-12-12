@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -59,54 +60,102 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 	textLen := len(text)
 	logging.EmbeddingDebug("Ollama.Embed: starting embed request, text_length=%d chars", textLen)
 
-	req := ollamaEmbedRequest{
-		Model:  e.model,
-		Prompt: text,
+	// Retry transient Ollama runner/network failures.
+	const maxRetries = 3
+	backoff := 300 * time.Millisecond
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		req := ollamaEmbedRequest{
+			Model:  e.model,
+			Prompt: text,
+		}
+
+		body, err := json.Marshal(req)
+		if err != nil {
+			logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: failed to marshal request: %v", err)
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		logging.EmbeddingDebug("Ollama.Embed: sending POST to %s/api/embeddings (attempt %d/%d)", e.endpoint, attempt, maxRetries)
+		apiStart := time.Now()
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/embeddings", bytes.NewReader(body))
+		if err != nil {
+			logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: failed to create HTTP request: %v", err)
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := e.client.Do(httpReq)
+		apiLatency := time.Since(apiStart)
+
+		if err != nil {
+			if attempt < maxRetries && ctx.Err() == nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: request failed after %v (attempt %d/%d): %v; retrying in %v",
+					apiLatency, attempt, maxRetries, err, backoff)
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+			logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: request failed after %v: %v", apiLatency, err)
+			return nil, fmt.Errorf("ollama request failed: %w", err)
+		}
+
+		respBytes, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			if attempt < maxRetries && ctx.Err() == nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: failed to read response (attempt %d/%d): %v; retrying in %v",
+					attempt, maxRetries, readErr, backoff)
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+			return nil, fmt.Errorf("failed to read response: %w", readErr)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyStr := string(respBytes)
+			retryable := resp.StatusCode >= 500 && resp.StatusCode <= 599
+			if !retryable && strings.Contains(bodyStr, "connection was forcibly closed") {
+				retryable = true
+			}
+
+			if retryable && attempt < maxRetries && ctx.Err() == nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: non-OK status %d (attempt %d/%d): %s; retrying in %v",
+					resp.StatusCode, attempt, maxRetries, bodyStr, backoff)
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+
+			logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: non-OK status %d: %s", resp.StatusCode, bodyStr)
+			return nil, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, bodyStr)
+		}
+
+		var result ollamaEmbedResponse
+		if err := json.Unmarshal(respBytes, &result); err != nil {
+			if attempt < maxRetries && ctx.Err() == nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: decode failed (attempt %d/%d): %v; retrying in %v",
+					attempt, maxRetries, err, backoff)
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		timer.Stop()
+		logging.Embedding("Ollama.Embed: completed successfully, dimensions=%d, api_latency=%v", len(result.Embedding), apiLatency)
+
+		return result.Embedding, nil
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: failed to marshal request: %v", err)
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	logging.EmbeddingDebug("Ollama.Embed: sending POST to %s/api/embeddings", e.endpoint)
-	apiStart := time.Now()
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/embeddings", bytes.NewReader(body))
-	if err != nil {
-		logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: failed to create HTTP request: %v", err)
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := e.client.Do(httpReq)
-	apiLatency := time.Since(apiStart)
-
-	if err != nil {
-		logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: request failed after %v: %v", apiLatency, err)
-		return nil, fmt.Errorf("ollama request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logging.EmbeddingDebug("Ollama.Embed: API response received in %v, status=%d", apiLatency, resp.StatusCode)
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: non-OK status %d: %s", resp.StatusCode, string(bodyBytes))
-		return nil, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var result ollamaEmbedResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: failed to decode response: %v", err)
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	timer.Stop()
-	logging.Embedding("Ollama.Embed: completed successfully, dimensions=%d, api_latency=%v", len(result.Embedding), apiLatency)
-
-	return result.Embedding, nil
+	return nil, fmt.Errorf("ollama embed failed after %d attempts", maxRetries)
 }
 
 // EmbedBatch generates embeddings for multiple texts.

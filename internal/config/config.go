@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -362,6 +363,18 @@ type CoreLimits struct {
 	MaxSessionDurationMin int `yaml:"max_session_duration_min" json:"max_session_duration_min"` // Auto-save interval
 	MaxFactsInKernel      int `yaml:"max_facts_in_kernel" json:"max_facts_in_kernel"`           // EDB size limit
 	MaxDerivedFactsLimit  int `yaml:"max_derived_facts_limit" json:"max_derived_facts_limit"`   // Mangle gas limit (Bug #17)
+}
+
+// WorldConfig controls world-model scanning and AST parsing.
+type WorldConfig struct {
+	// FastWorkers caps concurrent fast parse workers (tree-sitter).
+	FastWorkers int `yaml:"fast_workers" json:"fast_workers,omitempty"`
+	// DeepWorkers caps concurrent deep parse workers (Cartographer/Go AST).
+	DeepWorkers int `yaml:"deep_workers" json:"deep_workers,omitempty"`
+	// IgnorePatterns skips matching paths/dirs (relative to workspace).
+	IgnorePatterns []string `yaml:"ignore_patterns" json:"ignore_patterns,omitempty"`
+	// MaxFastASTBytes skips fast AST parsing for large files.
+	MaxFastASTBytes int64 `yaml:"max_fast_ast_bytes" json:"max_fast_ast_bytes,omitempty"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -841,6 +854,9 @@ type UserConfig struct {
 	// Core resource limits enforced system-wide
 	CoreLimits *CoreLimits `json:"core_limits,omitempty"`
 
+	// World model scanning/AST parsing configuration
+	World *WorldConfig `json:"world,omitempty"`
+
 	// =========================================================================
 	// INTEGRATIONS
 	// =========================================================================
@@ -1284,6 +1300,66 @@ func (c *UserConfig) GetCoreLimits() CoreLimits {
 		MaxFactsInKernel:      250000,
 		MaxDerivedFactsLimit:  100000,
 	}
+}
+
+// DefaultWorldConfig returns defaults for world-model scanning.
+func DefaultWorldConfig() WorldConfig {
+	fast := runtime.NumCPU()
+	if fast > 20 {
+		fast = 20
+	}
+	if fast < 4 {
+		fast = 4
+	}
+	deep := runtime.NumCPU()
+	if deep > 8 {
+		deep = 8
+	}
+	if deep < 2 {
+		deep = 2
+	}
+	return WorldConfig{
+		FastWorkers: fast,
+		DeepWorkers: deep,
+		IgnorePatterns: []string{
+			".git",
+			".nerd",
+			"node_modules",
+			"vendor",
+			"dist",
+			"build",
+			".next",
+			"target",
+			"bin",
+			"obj",
+			".terraform",
+			".venv",
+			".cache",
+		},
+		MaxFastASTBytes: 2 * 1024 * 1024,
+	}
+}
+
+// GetWorldConfig returns world-model scanning settings with defaults.
+func (c *UserConfig) GetWorldConfig() WorldConfig {
+	def := DefaultWorldConfig()
+	if c != nil && c.World != nil {
+		cfg := *c.World
+		if cfg.FastWorkers <= 0 {
+			cfg.FastWorkers = def.FastWorkers
+		}
+		if cfg.DeepWorkers <= 0 {
+			cfg.DeepWorkers = def.DeepWorkers
+		}
+		if len(cfg.IgnorePatterns) == 0 {
+			cfg.IgnorePatterns = def.IgnorePatterns
+		}
+		if cfg.MaxFastASTBytes <= 0 {
+			cfg.MaxFastASTBytes = def.MaxFastASTBytes
+		}
+		return cfg
+	}
+	return def
 }
 
 // GetIntegrations returns integration settings with defaults.

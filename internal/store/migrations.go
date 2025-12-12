@@ -74,6 +74,13 @@ func RunMigrations(db *sql.DB) error {
 	for _, m := range pendingMigrations {
 		logging.StoreDebug("Checking migration: %s.%s", m.Table, m.Column)
 
+		// If the table doesn't exist in this DB, skip quietly.
+		if !tableExists(db, m.Table) {
+			logging.StoreDebug("Table missing, skipping migration: %s.%s", m.Table, m.Column)
+			skippedCount++
+			continue
+		}
+
 		if !columnExists(db, m.Table, m.Column) {
 			query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", m.Table, m.Column, m.Def)
 			logging.StoreDebug("Executing migration: %s", query)

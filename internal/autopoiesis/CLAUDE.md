@@ -33,9 +33,9 @@ Autopoiesis provides nine core capabilities:
 | `checker.go` | ~400 | Go safety checker, forbidden imports/calls validation |
 | `panic_maker.go` | ~300 | Chaos engineering attack vector generation |
 | `yaegi_executor.go` | ~200 | Yaegi Go interpreter for sandboxed tool execution |
-| `chaos.mg` | ~250 | Mangle rules for chaos attack derivation |
-| `state.mg` | ~200 | Mangle rules for autopoiesis state tracking |
-| `go_safety.mg` | ~100 | Mangle rules for Go safety analysis |
+| `internal/core/defaults/chaos.mg` | ~250 | Mangle rules for chaos attack derivation |
+| `internal/core/defaults/state.mg` | ~200 | Mangle rules for autopoiesis state tracking |
+| `internal/core/defaults/go_safety.mg` | ~100 | Mangle rules for Go safety analysis |
 
 ## The Ouroboros Loop
 

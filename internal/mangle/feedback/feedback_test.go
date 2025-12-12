@@ -121,13 +121,13 @@ func TestPreValidator_AggregationSyntax(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "lowercase aggregate function",
-			input:   `|> do fn:count()`,
+			name:    "uppercase aggregate function",
+			input:   `|> do fn:Count()`,
 			wantErr: true,
 		},
 		{
 			name:    "correct aggregation",
-			input:   `source() |> do fn:group_by(X), let N = fn:Count()`,
+			input:   `source() |> do fn:group_by(X), let N = fn:count()`,
 			wantErr: false,
 		},
 	}
@@ -225,14 +225,14 @@ func TestPreValidator_QuickFix(t *testing.T) {
 			expected: "!permitted(X)",
 		},
 		{
-			name:     "fix lowercase count",
-			input:    `fn:count()`,
-			expected: `fn:Count()`,
+			name:     "fix uppercase count",
+			input:    `fn:Count()`,
+			expected: `fn:count()`,
 		},
 		{
-			name:     "fix lowercase sum",
-			input:    `fn:sum(X)`,
-			expected: `fn:Sum(X)`,
+			name:     "fix uppercase sum",
+			input:    `fn:Sum(X)`,
+			expected: `fn:sum(X)`,
 		},
 		{
 			name:     "fix missing do keyword",
@@ -792,10 +792,10 @@ func TestFeedbackLoop_AutoRepair(t *testing.T) {
 	config.EnableAutoRepair = true
 	fl := NewFeedbackLoop(config)
 
-	// Rule with fixable issue (lowercase count)
-	ruleWithIssue := `count_items(N) :- item(_) |> do fn:count(), let N = fn:count().`
-	// After QuickFix, fn:count becomes fn:Count
-	fixedRule := `count_items(N) :- item(_) |> do fn:Count(), let N = fn:Count().`
+	// Rule with fixable issue (uppercase count)
+	ruleWithIssue := `count_items(N) :- item(_) |> do fn:Count(), let N = fn:Count().`
+	// After QuickFix, fn:Count becomes fn:count
+	fixedRule := `count_items(N) :- item(_) |> do fn:count(), let N = fn:count().`
 
 	mockLLM := &MockLLMClient{
 		responses: []string{ruleWithIssue},
@@ -803,7 +803,7 @@ func TestFeedbackLoop_AutoRepair(t *testing.T) {
 
 	// Use flexible validator that accepts any rule containing the fixed function casing
 	mockValidator := &FlexibleMockRuleValidator{
-		acceptContains: "fn:Count()",
+		acceptContains: "fn:count()",
 		predicates:     []string{"item/1", "count_items/1"},
 	}
 
@@ -826,8 +826,8 @@ func TestFeedbackLoop_AutoRepair(t *testing.T) {
 		t.Error("expected AutoFixed to be true")
 	}
 	// Verify the fixed rule contains properly cased function
-	if !strings.Contains(result.Rule, "fn:Count()") {
-		t.Errorf("expected rule to contain fn:Count(), got %q", result.Rule)
+	if !strings.Contains(result.Rule, "fn:count()") {
+		t.Errorf("expected rule to contain fn:count(), got %q", result.Rule)
 	}
 	_ = fixedRule // suppress unused warning
 }

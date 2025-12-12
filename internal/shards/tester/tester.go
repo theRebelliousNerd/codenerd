@@ -494,22 +494,10 @@ func parseMangleAtomTester(atomStr string) *core.Fact {
 		return nil
 	}
 
-	parenIdx := strings.Index(atomStr, "(")
-	if parenIdx == -1 {
-		return &core.Fact{Predicate: atomStr, Args: nil}
+	fact, err := core.ParseFactString(atomStr)
+	if err != nil {
+		logging.Get(logging.CategoryTester).Warn("Failed to parse mangle atom %q: %v", atomStr, err)
+		return nil
 	}
-
-	predicate := strings.TrimSpace(atomStr[:parenIdx])
-	argsStr := strings.TrimSuffix(strings.TrimSpace(atomStr[parenIdx+1:]), ")")
-
-	args := make([]interface{}, 0)
-	if argsStr != "" {
-		for _, arg := range strings.Split(argsStr, ",") {
-			arg = strings.TrimSpace(arg)
-			arg = strings.Trim(arg, `"'`)
-			args = append(args, arg)
-		}
-	}
-
-	return &core.Fact{Predicate: predicate, Args: args}
+	return &fact
 }

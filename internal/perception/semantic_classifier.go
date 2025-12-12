@@ -25,6 +25,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	storepkg "codenerd/internal/store"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -78,7 +79,7 @@ type LearnedCorpusStore struct {
 	embeddings map[string][]float32 // TextContent -> embedding vector
 	entries    []CorpusEntry        // All corpus entries
 	dimensions int                  // Embedding dimensions
-	dbPath     string               // Path to the learned patterns database
+	backend    *storepkg.LearnedCorpusStore
 }
 
 // CorpusEntry represents a single entry in either corpus store.
@@ -208,7 +209,7 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 	}
 
 	// Initialize learned corpus store
-	learnedStore, err := NewLearnedCorpusStore(cfg, embedEngine.Dimensions())
+	learnedStore, err := NewLearnedCorpusStore(cfg, embedEngine.Dimensions(), embedEngine)
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Failed to load learned corpus: %v", err)
 		learnedStore = nil
@@ -694,7 +695,8 @@ func (s *EmbeddedCorpusStore) Search(queryEmbed []float32, topK int) ([]Semantic
 // =============================================================================
 
 // NewLearnedCorpusStore initializes the learned patterns store.
-func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int) (*LearnedCorpusStore, error) {
+// In production this is backed by `.nerd/learned_patterns.db`; tests/dev fall back to memory.
+func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine embedding.EmbeddingEngine) (*LearnedCorpusStore, error) {
 	timer := logging.StartTimer(logging.CategoryPerception, "NewLearnedCorpusStore")
 	defer timer.Stop()
 
@@ -706,14 +708,48 @@ func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int) (*LearnedCorp
 		dimensions: dimensions,
 	}
 
-	// TODO: Load from .nerd/learned_patterns.db when available
-	logging.PerceptionDebug("Learned corpus store initialized (entries=%d)", len(store.entries))
+	// If no config or embedding engine, fall back to in-memory store (tests/dev).
+	if cfg == nil || embedEngine == nil {
+		logging.PerceptionDebug("Learned corpus store initialized in-memory (entries=%d)", len(store.entries))
+		return store, nil
+	}
+
+	backend, err := storepkg.NewLearnedCorpusStore(".nerd/learned_patterns.db", embedEngine)
+	if err != nil {
+		return nil, err
+	}
+	store.backend = backend
+	logging.PerceptionDebug("Learned corpus store initialized with DB backend (path=.nerd/learned_patterns.db)")
 
 	return store, nil
 }
 
 // Search performs cosine similarity search on the learned corpus.
 func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticMatch, error) {
+	s.mu.RLock()
+	backend := s.backend
+	s.mu.RUnlock()
+
+	if backend != nil {
+		matches, err := backend.Search(queryEmbed, topK)
+		if err != nil {
+			return nil, err
+		}
+		results := make([]SemanticMatch, len(matches))
+		for i, m := range matches {
+			results[i] = SemanticMatch{
+				TextContent: m.TextContent,
+				Verb:        m.Verb,
+				Target:      m.Target,
+				Constraint:  "",
+				Similarity:  m.Similarity,
+				Rank:        m.Rank,
+				Source:      "learned",
+			}
+		}
+		return results, nil
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -778,6 +814,18 @@ func (s *LearnedCorpusStore) Search(queryEmbed []float32, topK int) ([]SemanticM
 
 // Add adds a new pattern to the learned store.
 func (s *LearnedCorpusStore) Add(entry CorpusEntry, entryEmbed []float32) error {
+	s.mu.RLock()
+	backend := s.backend
+	dims := s.dimensions
+	s.mu.RUnlock()
+
+	if backend != nil {
+		if dims > 0 && len(entryEmbed) != 0 && len(entryEmbed) != dims {
+			return fmt.Errorf("embedding dimension mismatch: expected %d, got %d", dims, len(entryEmbed))
+		}
+		return backend.AddPattern(context.Background(), entry.TextContent, entry.Verb, entry.Target, entry.Constraint, entry.Confidence)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -790,20 +838,21 @@ func (s *LearnedCorpusStore) Add(entry CorpusEntry, entryEmbed []float32) error 
 	s.entries = append(s.entries, entry)
 	s.embeddings[entry.TextContent] = entryEmbed
 
-	// TODO: Persist to .nerd/learned_patterns.db
-
 	logging.PerceptionDebug("Added learned pattern: verb=%s, text=%q", entry.Verb, truncateForLog(entry.TextContent, 50))
 	return nil
 }
 
 // Close persists any pending changes and closes the store.
 func (s *LearnedCorpusStore) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	backend := s.backend
+	s.mu.RUnlock()
 
-	// TODO: Persist to database if dirty
+	if backend != nil {
+		return backend.Close()
+	}
 
-	logging.PerceptionDebug("Learned corpus store closed")
+	logging.PerceptionDebug("Learned corpus store closed (in-memory)")
 	return nil
 }
 

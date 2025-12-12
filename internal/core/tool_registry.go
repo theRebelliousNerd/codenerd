@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -154,9 +155,16 @@ func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName stri
 	tool.ExecuteCount++
 	tr.mu.Unlock()
 
-	// Execute via the tool executor interface if available
-	// This is handled by VirtualStore.handleExecTool which uses the ToolExecutor
-	return "", fmt.Errorf("direct execution not implemented - use VirtualStore.handleExecTool")
+	cmd := exec.CommandContext(ctx, tool.Command, args...)
+	if tr.workDir != "" {
+		cmd.Dir = tr.workDir
+	}
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+	if err != nil {
+		return output, fmt.Errorf("tool execution failed: %w", err)
+	}
+	return output, nil
 }
 
 // UnregisterTool removes a tool from the registry and retracts its facts
