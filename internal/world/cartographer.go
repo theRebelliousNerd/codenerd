@@ -213,8 +213,8 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			var callee string
 			switch fun := x.Fun.(type) {
 			case *ast.Ident:
-				// Local call or import
-				callee = fun.Name // simplified
+				// Local call (best-effort qualification for in-repo symbol matching)
+				callee = fmt.Sprintf("%s.%s", pkgName, fun.Name)
 			case *ast.SelectorExpr:
 				// pkg.Func or obj.Method
 				if x, ok := fun.X.(*ast.Ident); ok {

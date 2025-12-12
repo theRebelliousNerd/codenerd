@@ -949,16 +949,14 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		return "", err
 	}
 
-	// Inject result facts into kernel
-	for _, fact := range result.FactsToAdd {
-		v.injectFact(fact)
-	}
-
-	// Record execution result
-	v.injectFact(Fact{
+	// Inject result facts into kernel (batched when possible).
+	factsToInject := make([]Fact, 0, len(result.FactsToAdd)+1)
+	factsToInject = append(factsToInject, result.FactsToAdd...)
+	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
 		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output},
 	})
+	v.injectFacts(factsToInject)
 
 	if result.Success {
 		logging.VirtualStore("Action %s completed: success=%v, output_len=%d", req.Type, result.Success, len(result.Output))
@@ -2216,6 +2214,77 @@ func (v *VirtualStore) injectFact(fact Fact) {
 	}
 }
 
+func (v *VirtualStore) injectFacts(facts []Fact) {
+	if len(facts) == 0 {
+		return
+	}
+
+	v.mu.RLock()
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if kernel == nil {
+		return
+	}
+
+	// Fast path: RealKernel supports batch assertion (single evaluation pass).
+	if realKernel, ok := kernel.(*RealKernel); ok {
+		_ = realKernel.AssertBatch(facts)
+		return
+	}
+
+	for _, fact := range facts {
+		_ = kernel.Assert(fact)
+	}
+}
+
+func (v *VirtualStore) clearCodeDOMFacts() {
+	v.mu.RLock()
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if kernel == nil {
+		return
+	}
+
+	preds := map[string]struct{}{
+		// Scope state
+		"active_file":        {},
+		"file_in_scope":      {},
+		"code_element":       {},
+		"element_signature":  {},
+		"element_visibility": {},
+		"element_parent":     {},
+		"code_interactable":  {},
+
+		// Scope diagnostics/meta (emitted by world.FileScope)
+		"parse_error":          {},
+		"file_not_found":       {},
+		"scope_refresh_failed": {},
+		"file_hash_mismatch":   {},
+		"element_stale":        {},
+		"encoding_issue":       {},
+		"large_file_warning":   {},
+		"generated_code":       {},
+		"cgo_code":             {},
+		"build_tag":            {},
+		"embed_directive":      {},
+		"api_client_function":  {},
+		"api_handler_function": {},
+		"edit_unsafe":          {},
+	}
+
+	// Fast path: RealKernel can remove a predicate set with a single rebuild pass.
+	if realKernel, ok := kernel.(*RealKernel); ok {
+		_ = realKernel.RemoveFactsByPredicateSet(preds)
+		return
+	}
+
+	for p := range preds {
+		_ = kernel.Retract(p)
+	}
+}
+
 func (v *VirtualStore) parseBuildDiagnostics(output string) []Fact {
 	facts := make([]Fact, 0)
 	lines := strings.Split(output, "\n")
@@ -2340,11 +2409,10 @@ func (v *VirtualStore) handleOpenFile(ctx context.Context, req ActionRequest) (A
 		}, nil
 	}
 
-	// Inject scope facts into kernel
+	// Replace previous Code DOM state with the new scope.
+	v.clearCodeDOMFacts()
+
 	facts := scope.ScopeFacts()
-	for _, fact := range facts {
-		v.injectFact(fact)
-	}
 
 	inScopeFiles := scope.GetInScopeFiles()
 	return ActionResult{
@@ -2526,17 +2594,23 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 		}, nil
 	}
 
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+	factsToAdd = append(factsToAdd,
+		Fact{Predicate: "element_modified", Args: []interface{}{ref, req.SessionID, time.Now().Unix()}},
+		Fact{Predicate: "modified", Args: []interface{}{elem.File}},
+	)
+
 	// Refresh scope to update line numbers with retry
 	if err := scope.RefreshWithRetry(3); err != nil {
-		v.injectFact(Fact{
+		factsToAdd = append(factsToAdd, Fact{
 			Predicate: "scope_refresh_failed",
 			Args:      []interface{}{elem.File, err.Error()},
 		})
-	}
-
-	// Inject the new scope facts
-	for _, fact := range scope.ScopeFacts() {
-		v.injectFact(fact)
+	} else {
+		// Replace previous Code DOM state with the refreshed scope.
+		v.clearCodeDOMFacts()
+		factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
 	}
 
 	return ActionResult{
@@ -2547,10 +2621,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 			"lines_affected": result.LinesAffected,
 			"new_line_count": result.LineCount,
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "element_modified", Args: []interface{}{ref, req.SessionID}},
-			{Predicate: "modified", Args: []interface{}{elem.File}},
-		},
+		FactsToAdd: factsToAdd,
 	}, nil
 }
 
@@ -2575,11 +2646,10 @@ func (v *VirtualStore) handleRefreshScope(ctx context.Context, req ActionRequest
 		}, nil
 	}
 
-	// Re-inject all scope facts
+	// Replace previous Code DOM state with the refreshed scope.
+	v.clearCodeDOMFacts()
+
 	facts := scope.ScopeFacts()
-	for _, fact := range facts {
-		v.injectFact(fact)
-	}
 
 	return ActionResult{
 		Success:    true,
@@ -2603,6 +2673,7 @@ func (v *VirtualStore) handleCloseScope(ctx context.Context, req ActionRequest) 
 	}
 
 	scope.Close()
+	v.clearCodeDOMFacts()
 
 	return ActionResult{
 		Success: true,
@@ -2652,13 +2723,20 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 		}, nil
 	}
 
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
 		if err := scope.RefreshWithRetry(3); err != nil {
-			v.injectFact(Fact{
+			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
 				Args:      []interface{}{path, err.Error()},
 			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
 		}
 	}
 
@@ -2671,10 +2749,7 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 			"end_line":       int(endLine),
 			"lines_affected": result.LinesAffected,
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "lines_edited", Args: []interface{}{path, int64(startLine), int64(endLine), req.SessionID}},
-			{Predicate: "modified", Args: []interface{}{path}},
-		},
+		FactsToAdd: factsToAdd,
 	}, nil
 }
 
@@ -2712,13 +2787,20 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 		}, nil
 	}
 
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
 		if err := scope.RefreshWithRetry(3); err != nil {
-			v.injectFact(Fact{
+			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
 				Args:      []interface{}{path, err.Error()},
 			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
 		}
 	}
 
@@ -2730,10 +2812,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 			"after_line":  int(afterLine),
 			"lines_added": result.LinesAffected,
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "lines_inserted", Args: []interface{}{path, int64(afterLine), int64(len(newLines)), req.SessionID}},
-			{Predicate: "modified", Args: []interface{}{path}},
-		},
+		FactsToAdd: factsToAdd,
 	}, nil
 }
 
@@ -2769,13 +2848,20 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		}, nil
 	}
 
+	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
+	factsToAdd = append(factsToAdd, result.Facts...)
+
 	// Refresh scope if active with retry
 	if scope != nil && scope.IsInScope(path) {
 		if err := scope.RefreshWithRetry(3); err != nil {
-			v.injectFact(Fact{
+			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
 				Args:      []interface{}{path, err.Error()},
 			})
+		} else {
+			// Replace previous Code DOM state with the refreshed scope.
+			v.clearCodeDOMFacts()
+			factsToAdd = append(factsToAdd, scope.ScopeFacts()...)
 		}
 	}
 
@@ -2788,10 +2874,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 			"end_line":      int(endLine),
 			"lines_deleted": result.LinesAffected,
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "lines_deleted", Args: []interface{}{path, int64(startLine), int64(endLine), req.SessionID}},
-			{Predicate: "modified", Args: []interface{}{path}},
-		},
+		FactsToAdd: factsToAdd,
 	}, nil
 }
 

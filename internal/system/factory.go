@@ -186,14 +186,23 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	executor := tactile.NewSafeExecutor()
-	virtualStore := core.NewVirtualStore(executor)
+	vsCfg := core.DefaultVirtualStoreConfig()
+	vsCfg.WorkingDir = workspace
+	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
+	virtualStore.SetKernel(kernel)
 	if localDB != nil {
 		virtualStore.SetLocalDB(localDB)
-		virtualStore.SetKernel(kernel)
 	}
 	if learningStore != nil {
 		virtualStore.SetLearningStore(learningStore)
 	}
+
+	// Wire Code DOM (CodeScope + FileEditor) for semantic editing workflows.
+	worldCfg := appCfg.GetWorldConfig()
+	virtualStore.SetCodeScope(NewHolographicCodeScope(workspace, kernel, localDB, worldCfg.DeepWorkers))
+	fileEditor := tactile.NewFileEditor()
+	fileEditor.SetWorkingDir(workspace)
+	virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
 	shardManager := core.NewShardManager()
 	shardManager.SetParentKernel(kernel)
@@ -410,7 +419,6 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	// 7. World Model Scanning
-	worldCfg := appCfg.GetWorldConfig()
 	scanner := world.NewScannerWithConfig(world.ScannerConfig{
 		MaxConcurrency:  worldCfg.FastWorkers,
 		IgnorePatterns:  worldCfg.IgnorePatterns,
