@@ -1,166 +1,87 @@
-# Prompt System - Unified Storage Architecture
+# Prompt System (JIT Compiler)
 
-## Overview
+`internal/prompt` implements codeNERD’s JIT Prompt Compiler: prompts are assembled at runtime from **prompt atoms** based on the current `CompilationContext` plus kernel/world state.
 
-The prompt system uses a **unified storage model** where prompt atoms are stored directly in each agent's knowledge database, NOT in a separate database.
+This directory is the boundary between the deterministic executive (Mangle kernel + world model) and the creative center (LLM). Every shard LLM call should flow through this pipeline.
 
-## Storage Architecture
+## Atom sources (where prompt text comes from)
 
-### Before (Incorrect)
-```
-.nerd/
-├── prompts/
-│   └── atoms.db          ❌ WRONG: Separate DB for prompts
-├── shards/
-│   └── coder_knowledge.db
-```
+The compiler can draw candidate atoms from three places:
 
-### After (Correct)
-```
-.nerd/
-├── agents/
-│   └── coder/
-│       └── prompts.yaml   ← Human-editable source
-├── shards/
-│   └── coder_knowledge.db ← Unified DB with knowledge_atoms + prompt_atoms tables
-```
+1. **Embedded corpus (built-ins)**
+   - Source: `internal/prompt/atoms/**/*.yaml`
+   - Loaded via: `prompt.LoadEmbeddedCorpus()` (see `internal/prompt/embedded.go`)
+   - Always available (no runtime filesystem dependency).
 
-## Key Principles
+2. **Project corpus DB (shared / project-scoped)**
+   - Convention: `.nerd/prompts/corpus.db`
+   - Registered via: `compiler.RegisterDB("corpus", ".../corpus.db")` or `prompt.WithProjectDB(db)`
+   - Used for: project-level atoms + semantic search over atoms with embeddings.
+   - Boot ingestion: hybrid `.mg` files can emit `PROMPT:` directives which get ingested into the corpus (see `internal/system/factory.go` and `internal/core/hybrid_loader.go`).
 
-1. **One Database Per Agent**: Each agent has ONE knowledge database at `.nerd/shards/{name}_knowledge.db`
-2. **Two Tables**: The knowledge DB contains:
-   - `knowledge_atoms` - Domain knowledge (facts, concepts, examples)
-   - `prompt_atoms` - JIT-compiled prompt fragments
-3. **YAML Source of Truth**: `.nerd/agents/{name}/prompts.yaml` is the human-editable source
-4. **Build-Time Loading**: Prompts are loaded from YAML into SQLite at build/init time
+3. **Agent / shard DBs (agent-scoped)**
+   - Convention: `.nerd/shards/{agent}_knowledge.db`
+   - YAML source: `.nerd/agents/{agent}/prompts.yaml`
+   - Synced via:
+     - `prompt.LoadAgentPrompts(...)` (see `internal/prompt/loader.go`), or
+     - `internal/prompt/sync.AgentSynchronizer` (boot sync).
+   - Registered via: `compiler.RegisterShardDB(agent, db)` or `prompt.RegisterAgentDBWithJIT(...)`.
 
-## File Locations
+## Atom format (YAML)
 
-| Type | Location | Purpose |
-|------|----------|---------|
-| YAML Source | `.nerd/agents/{name}/prompts.yaml` | Human-editable prompt definitions |
-| Unified DB | `.nerd/shards/{name}_knowledge.db` | SQLite with knowledge + prompts |
-| Loader Code | `internal/prompt/loader.go` | YAML → SQLite ingestion |
-| JIT Compiler | `internal/prompt/compiler.go` | Runtime prompt assembly |
+Atoms are defined as YAML objects (or a YAML list) with fields like:
 
-## Schema
+- `id` (string): globally-unique atom ID (e.g. `protocol/piggyback/envelope`)
+- `category` (string): one of `identity|protocol|safety|methodology|...` (see `internal/prompt/atoms.go`)
+- `content` (string, markdown): the prompt text (or `content_file` for file-backed content)
+- Optional composition: `priority`, `is_mandatory`, `is_exclusive`, `depends_on`, `conflicts_with`
+- Optional selectors: `operational_modes`, `campaign_phases`, `build_layers`, `init_phases`, `northstar_phases`, `ouroboros_stages`, `intent_verbs`, `shard_types`, `languages`, `frameworks`, `world_states`
+- Optional polymorphism: `description`, `content_concise`, `content_min`
 
-### prompt_atoms table
-```sql
-CREATE TABLE prompt_atoms (
-    id INTEGER PRIMARY KEY,
-    atom_id TEXT UNIQUE,           -- e.g. "identity/coder/mission"
-    version INTEGER,
-    content TEXT,
-    token_count INTEGER,
-    content_hash TEXT,
+See any file under `internal/prompt/atoms/` for examples.
 
-    -- Classification
-    category TEXT,                 -- identity, protocol, safety, etc.
-    subcategory TEXT,
+## Persistence schema (SQLite)
 
-    -- Contextual Selectors (JSON arrays)
-    operational_modes TEXT,        -- ["/active", "/debugging", etc.]
-    campaign_phases TEXT,
-    build_layers TEXT,
-    init_phases TEXT,
-    intent_verbs TEXT,
-    shard_types TEXT,
-    languages TEXT,
-    frameworks TEXT,
+When atoms are stored in SQLite (project corpus and/or agent DBs), `AtomLoader.EnsureSchema()` is the source of truth (see `internal/prompt/loader.go`). At a high level:
 
-    -- Composition
-    priority INTEGER DEFAULT 50,
-    is_mandatory BOOLEAN,
-    depends_on TEXT,               -- JSON array of atom IDs
-    conflicts_with TEXT,           -- JSON array of atom IDs
+- `prompt_atoms`: base atom data + optional embedding
+- `atom_context_tags`: normalized selector tags (`dimension`, `tag`), plus reserved dimensions for `depends_on` and `conflicts_with`
 
-    -- Embeddings (for semantic search)
-    embedding BLOB,
-    embedding_task TEXT,
+Vector search reads embeddings from `prompt_atoms.embedding` across all registered DBs (see `internal/prompt/vector_searcher.go`).
 
-    created_at DATETIME
-);
-```
+## Compilation pipeline (runtime)
 
-## Usage
+At a high level, `JITPromptCompiler.Compile()` (`internal/prompt/compiler.go`) does:
 
-### Loading Prompts (Build Time)
+1. **Collect candidates** from embedded corpus + project DB + shard DB (+ optional kernel-injected ephemeral atoms like `injectable_context`/`specialist_knowledge`).
+2. **Assert context to kernel** as `compile_context/2` facts (see `CompilationContext.ToContextFacts()` in `internal/prompt/context.go`).
+3. **Select atoms** via `AtomSelector` (`internal/prompt/selector.go`) using a System-2 split:
+   - **Skeleton (deterministic, required)**: `identity`, `protocol`, `safety`, `methodology` selected via kernel rules.
+   - **Flesh (probabilistic, degradable)**: other categories selected via vector search (if available) + kernel filter.
+4. **Resolve dependencies/conflicts** (`internal/prompt/resolver.go`).
+5. **Fit token budget** with polymorphic rendering (`internal/prompt/budget.go`).
+6. **Assemble final prompt** (`internal/prompt/assembler.go`).
 
-```go
-import "codenerd/internal/prompt"
+For debugging/observability, the compiler emits a `PromptManifest` “flight recorder” + `CompilationStats` (see `internal/prompt/manifest.go` and `internal/prompt/compiler.go`).
 
-// Load prompts for an agent from YAML into their knowledge DB
-count, err := prompt.LoadAgentPrompts(
-    ctx,
-    "coder",              // Agent name
-    ".nerd",              // Nerd directory
-    embeddingEngine,      // Optional: for semantic search
-)
-```
+## Enabling semantic retrieval (embeddings)
 
-This will:
-1. Read `.nerd/agents/coder/prompts.yaml`
-2. Open `.nerd/shards/coder_knowledge.db`
-3. Create `prompt_atoms` table if needed
-4. Insert/update atoms
+Vector search operates over SQLite embeddings, not the in-memory embedded corpus. To enable semantic search over built-in atoms, sync them into the project corpus DB with embeddings:
 
-### Compiling Prompts (Runtime)
+- `prompt.SyncEmbeddedToSQLite(ctx, ".nerd/prompts/corpus.db", embeddingEngine)`
 
-```go
-import "codenerd/internal/prompt"
+This is typically wired during boot in interactive flows (see `cmd/nerd/chat/session.go`).
 
-// Create compiler
-compiler, err := prompt.NewJITPromptCompiler(
-    prompt.WithProjectDB(projectDB),
-)
+## Where to add new prompt behavior
 
-// Register agent's knowledge DB (contains prompts)
-compiler.RegisterShardDB("coder", coderKnowledgeDB)
+- **Core/system behavior**: add new atoms under `internal/prompt/atoms/<category>/...` (they get embedded into the binary).
+- **Project/user behavior**: add atoms to `.nerd/agents/<agent>/prompts.yaml` and sync into `.nerd/shards/<agent>_knowledge.db`.
+- **Hybrid Mangle files**: add `PROMPT:` directives to `.mg` hybrid files when you want “one file” that contains both logic and prompt atoms; these are ingested into `.nerd/prompts/corpus.db` at boot.
 
-// Compile prompt for context
-context := &prompt.CompilationContext{
-    ShardID: "coder",
-    ShardType: "coder",
-    IntentVerb: "/refactor",
-    Language: "/go",
-    TokenBudget: 100000,
-}
+## Useful cross-refs
 
-result, err := compiler.Compile(ctx, context)
-// result.Prompt contains assembled system prompt
-```
-
-## Why Unified Storage?
-
-1. **Single Source of Truth**: One DB per agent, not scattered across multiple files
-2. **Simpler Lifecycle**: Knowledge and prompts have same lifecycle as the agent
-3. **Atomic Operations**: Transactions span both knowledge and prompts
-4. **Easier Backup**: Backup one file to backup everything for an agent
-5. **Clearer Ownership**: Prompt atoms belong to the agent, not the project
-
-## Migration Path
-
-If you have old `.nerd/prompts/atoms.db`:
-1. Delete `.nerd/prompts/atoms.db`
-2. Move YAML files to `.nerd/agents/{name}/prompts.yaml`
-3. Run `LoadAgentPrompts()` for each agent
-4. Prompts will be stored in unified knowledge DBs
-
-## LocalStore Integration
-
-The `internal/store.LocalStore` type already has `StorePromptAtom()` and `LoadPromptAtoms()` methods that work with the unified schema. Use these when working with agent knowledge databases.
-
-```go
-// Example: Store a prompt atom via LocalStore
-localStore, _ := store.NewLocalStore(".nerd/shards/coder_knowledge.db")
-atom := &store.PromptAtom{
-    AtomID: "identity/coder/mission",
-    Category: "identity",
-    Content: "You are a code generation specialist...",
-    TokenCount: 50,
-    IsMandatory: true,
-    Priority: 100,
-}
-localStore.StorePromptAtom(atom)
-```
+- `internal/prompt/compiler.go` (JIT compilation entrypoint)
+- `internal/prompt/atoms/` (canonical built-in atom library)
+- `internal/prompt/loader.go` + `internal/prompt/sync/` (YAML -> SQLite ingestion + sync)
+- `internal/prompt/context.go` (selection dimensions)
+- `internal/articulation/emitter.go` (Piggyback protocol integration)
