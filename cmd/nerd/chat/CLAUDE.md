@@ -94,6 +94,7 @@ type Message struct {
 | `/review [target]` | Multi-shard code review with adversarial analysis | `spawnMultiShardReview()` |
 | `/security [target]` | Security analysis | `formatShardTask()` |
 | `/campaign start <goal>` | Begin multi-phase campaign | `startCampaign()` |
+| `/campaign assault [scope] [include...] [flags]` | Begin adversarial assault (soak/stress) campaign | `startAssaultCampaign()` |
 | `/campaign status` | Show campaign progress | `renderCampaignStatus()` |
 | `/shadow <action>` | Run shadow mode simulation | `runShadowSimulation()` |
 | `/whatif <change>` | Counterfactual analysis | `runWhatIfQuery()` |
@@ -197,6 +198,8 @@ handleCommand() or processInput()
               v
          viewport.SetContent(renderHistory())
 ```
+
+**Note:** assault requests can also be started from natural language (no slash command required), e.g. `run an assault campaign on internal/core`.
 
 ## Dependencies
 

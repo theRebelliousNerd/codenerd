@@ -140,6 +140,9 @@ Multi-phase goal orchestration for complex tasks.
 | `decomposer.go` | Plan decomposition |
 | `context_pager.go` | Phase-aware context management |
 | `types.go` | Campaign, Phase, Task types |
+| `assault_campaign.go` | Deterministic adversarial assault campaign builder |
+| `assault_types.go` | Assault config, scopes, and stages |
+| `assault_tasks.go` | Target discovery, batch execution, triage + remediation task generation |
 
 ### browser/
 

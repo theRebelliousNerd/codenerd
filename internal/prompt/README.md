@@ -73,11 +73,22 @@ Vector search operates over SQLite embeddings, not the in-memory embedded corpus
 
 This is typically wired during boot in interactive flows (see `cmd/nerd/chat/session.go`).
 
+## Regenerating the baked default corpus DB
+
+The binary embeds a baked SQLite corpus database at `internal/core/defaults/prompt_corpus.db`. This DB is used to seed `.nerd/prompts/corpus.db` during init via `prompt.MaterializeDefaultPromptCorpus(...)`.
+
+When you change built-in atoms under `internal/prompt/atoms/`, regenerate the baked DB:
+
+- PowerShell: `powershell -ExecutionPolicy Bypass -File build/build_prompt_corpus.ps1 -SkipEmbeddings`
+- Go tool: `go run ./cmd/tools/prompt_builder -input internal/prompt/atoms -output internal/core/defaults/prompt_corpus.db`
+
+`.nerd/prompts/corpus.db` is a runtime artifact and should not be checked in.
+
 ## Where to add new prompt behavior
 
 - **Core/system behavior**: add new atoms under `internal/prompt/atoms/<category>/...` (they get embedded into the binary).
 - **Project/user behavior**: add atoms to `.nerd/agents/<agent>/prompts.yaml` and sync into `.nerd/shards/<agent>_knowledge.db`.
-- **Hybrid Mangle files**: add `PROMPT:` directives to `.mg` hybrid files when you want “one file” that contains both logic and prompt atoms; these are ingested into `.nerd/prompts/corpus.db` at boot.
+- **Hybrid Mangle files**: add `PROMPT:` directives to `.mg` hybrid files when you want "one file" that contains both logic and prompt atoms; these are ingested into `.nerd/prompts/corpus.db` at boot.
 
 ## Useful cross-refs
 

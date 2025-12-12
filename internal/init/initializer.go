@@ -630,16 +630,16 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	advancePhase()
 
 	// =========================================================================
-	// PHASE 5c: Initialize Prompt Database (atoms.db)
+	// PHASE 5c: Initialize Prompt Corpus Database (corpus.db)
 	// =========================================================================
-	i.startPhaseWithETA(phaseNum, "prompt_db", "Initializing prompt atoms database...", 0.48, remainingPhases)
-	fmt.Println("\n📦 Phase 5c: Initializing Prompt Atoms Database")
+	i.startPhaseWithETA(phaseNum, "prompt_db", "Initializing prompt corpus database...", 0.48, remainingPhases)
+	fmt.Println("\n📦 Phase 5c: Initializing Prompt Corpus Database")
 
 	if err := i.initializePromptDatabase(ctx, nerdDir); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize prompt database: %v", err))
 	} else {
-		atomsDBPath := filepath.Join(nerdDir, "prompts", "atoms.db")
-		result.FilesCreated = append(result.FilesCreated, atomsDBPath)
+		corpusDBPath := filepath.Join(nerdDir, "prompts", "corpus.db")
+		result.FilesCreated = append(result.FilesCreated, corpusDBPath)
 	}
 	i.completePhaseWithETA("prompt_db")
 	advancePhase()

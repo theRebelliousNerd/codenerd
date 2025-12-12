@@ -3,15 +3,21 @@ package chat
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
+	"codenerd/internal/perception"
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+var assaultPathTokenRE = regexp.MustCompile(`(?i)([a-z0-9_.-]+[\\/][a-z0-9_.\\/-]+)`)
+var assaultWindowsAbsPathRE = regexp.MustCompile(`(?i)([a-z]:\\[^\\s"']+)`)
 
 func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 	return func() tea.Msg {
@@ -204,3 +210,146 @@ func splitCSV(s string) []string {
 	return out
 }
 
+func isAssaultRequest(input string, intent perception.Intent) bool {
+	if intent.Verb == "/assault" {
+		return true
+	}
+	if intent.Verb == "/campaign" {
+		lower := strings.ToLower(input)
+		return strings.Contains(lower, "assault") ||
+			strings.Contains(lower, "soak test") ||
+			strings.Contains(lower, "stress test") ||
+			strings.Contains(lower, "torture test") ||
+			strings.Contains(lower, "gauntlet") ||
+			strings.Contains(lower, "adversarial")
+	}
+	return false
+}
+
+func assaultArgsFromNaturalLanguage(workspace, input string, intent perception.Intent) ([]string, bool) {
+	if !isAssaultRequest(input, intent) {
+		return nil, false
+	}
+
+	lower := strings.ToLower(input)
+	args := make([]string, 0, 8)
+
+	switch {
+	case strings.Contains(lower, "package"):
+		args = append(args, "package")
+	case strings.Contains(lower, "module"):
+		args = append(args, "module")
+	case strings.Contains(lower, "subsystem") || strings.Contains(lower, "folder") || strings.Contains(lower, "directory"):
+		args = append(args, "subsystem")
+	case strings.Contains(lower, "scope repo") || strings.Contains(lower, "repo scope") || strings.Contains(lower, "single target") || strings.Contains(lower, "one target"):
+		args = append(args, "repo")
+	}
+
+	includes := assaultIncludesFromText(workspace, input, intent)
+	args = append(args, includes...)
+
+	// Optional flags inferred from natural language.
+	if strings.Contains(lower, "-race") || strings.Contains(lower, "race detector") || strings.Contains(lower, "data race") {
+		args = append(args, "--race")
+	}
+	if strings.Contains(lower, "go vet") || strings.Contains(lower, " vet ") || strings.HasSuffix(lower, " vet") {
+		args = append(args, "--vet")
+	}
+	if strings.Contains(lower, "no nemesis") || strings.Contains(lower, "without nemesis") || strings.Contains(lower, "skip nemesis") {
+		args = append(args, "--no-nemesis")
+	}
+
+	return args, true
+}
+
+func assaultIncludesFromText(workspace, input string, intent perception.Intent) []string {
+	candidates := []string{
+		strings.TrimSpace(intent.Target),
+		strings.TrimSpace(intent.Constraint),
+		strings.TrimSpace(input),
+	}
+
+	raw := make([]string, 0, 8)
+	for _, c := range candidates {
+		if c == "" || strings.EqualFold(c, "none") {
+			continue
+		}
+		raw = append(raw, assaultWindowsAbsPathRE.FindAllString(c, -1)...)
+		raw = append(raw, assaultPathTokenRE.FindAllString(c, -1)...)
+	}
+
+	// If the LLM gave a clean single-token target (e.g., "internal"), accept it too.
+	// Avoid ingesting descriptive multi-word targets like "soak test internal/core".
+	if t := strings.TrimSpace(intent.Target); t != "" && !strings.EqualFold(t, "none") {
+		if !strings.ContainsAny(t, " \t\r\n") && (strings.ContainsAny(t, `/\`) || t == "internal" || t == "cmd" || t == "pkg") {
+			raw = append(raw, t)
+		}
+	}
+
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, r := range raw {
+		inc := normalizeAssaultInclude(workspace, r)
+		if inc == "" {
+			continue
+		}
+		if isGenericAssaultTarget(inc) {
+			continue
+		}
+		if _, ok := seen[inc]; ok {
+			continue
+		}
+		seen[inc] = struct{}{}
+		out = append(out, inc)
+	}
+	return out
+}
+
+func normalizeAssaultInclude(workspace, raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "\"'`")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+
+	// Strip common go list globs.
+	s = strings.TrimSuffix(s, "/...")
+	s = strings.TrimSuffix(s, "\\...")
+
+	// Normalize to OS path for Rel/Dir, then back to slash form.
+	s = strings.TrimPrefix(s, "./")
+	s = strings.TrimPrefix(s, ".\\")
+
+	osPath := filepath.Clean(strings.ReplaceAll(s, "/", string(filepath.Separator)))
+	if filepath.IsAbs(osPath) {
+		rel, err := filepath.Rel(workspace, osPath)
+		if err != nil {
+			return ""
+		}
+		osPath = rel
+	}
+
+	// Prefer directory prefixes for includes.
+	if ext := filepath.Ext(osPath); ext != "" {
+		osPath = filepath.Dir(osPath)
+	}
+	osPath = filepath.Clean(osPath)
+	if osPath == "." {
+		return ""
+	}
+
+	return filepath.ToSlash(osPath)
+}
+
+func isGenericAssaultTarget(target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	switch t {
+	case "", "none", ".", "./", "repo", "repository", "codebase", "project", "everything", "all":
+		return true
+	}
+	return strings.Contains(t, "whole repo") ||
+		strings.Contains(t, "entire repo") ||
+		strings.Contains(t, "entire codebase") ||
+		strings.Contains(t, "whole codebase")
+}

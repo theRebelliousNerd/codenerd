@@ -208,6 +208,10 @@ The `nerd.exe` binary is fully portable. You can:
 | `nerd campaign resume` | Resume a paused campaign |
 | `nerd campaign list` | List all campaigns |
 
+**Adversarial assault (soak/stress) campaigns** run from chat mode:
+- Slash command: `/campaign assault [repo|module|subsystem|package] [include...] [--batch N] [--cycles N] [--timeout N] [--race] [--vet] [--no-nemesis]`
+- Natural language: `run an assault campaign on internal/core`
+
 ### Browser Commands
 
 | Command | Description |
@@ -225,6 +229,7 @@ Type `/help` in chat mode for full command list:
 | `/query <pred>` | Query the Mangle kernel |
 | `/shadow` | Enter shadow mode (simulated execution) |
 | `/whatif <action>` | Project effects without executing |
+| `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Start/manage campaigns (including adversarial assault sweeps) |
 | `/approve` | Approve pending changes |
 | `/agents` | Show active ShardAgents |
 | `/config` | Configuration menu |
@@ -283,6 +288,10 @@ Patch Submitted → Nemesis Analyzes → Attack Tools Generated → Thunderdome 
 - **Thunderdome** arena runs attack vectors in isolated sandboxes
 - Integrated into `/review` command for adversarial code review
 
+### Adversarial Assault Campaign (Soak/Stress)
+
+The chat `/campaign assault ...` workflow runs staged `go test`/`go vet`/Nemesis sweeps over your repo (or selected modules/subsystems) and persists artifacts under `.nerd/campaigns/<campaign>/assault/` for long-horizon triage and remediation.
+
 ### Multi-Language Data Flow Analysis
 
 Data flow extraction now supports 5 languages via Tree-sitter:
@@ -299,10 +308,10 @@ Data flow extraction now supports 5 languages via Tree-sitter:
 
 Runtime prompt assembly with context-aware atom selection:
 
-- **Unified Storage** — Prompts stored in agent knowledge DBs, not separate files
-- **Token Budget** — Automatic prompt trimming to stay within context limits
-- **Contextual Selection** — Atoms selected by intent verb, language, campaign phase
-- **Semantic Search** — Embedding-based retrieval of relevant prompt fragments
+- **Storage** - Agent prompts in `.nerd/shards/{agent}_knowledge.db`; shared corpus in `.nerd/prompts/corpus.db` (seeded from baked `internal/core/defaults/prompt_corpus.db`)
+- **Token Budget** - Automatic prompt trimming to stay within context limits
+- **Contextual Selection** - Atoms selected by intent verb, language, campaign phase
+- **Semantic Search** - Embedding-based retrieval of relevant prompt fragments
 
 ### Impact-Aware Code Review
 

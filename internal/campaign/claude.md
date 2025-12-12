@@ -20,6 +20,10 @@ Runtime config is asserted into the kernel so Mangle can derive replanning/check
 | `checkpoint.go` | Verification checkpoints (tests/build/reviewer) |
 | `types.go` | Campaign/Phase/Task models and `ToFacts()` |
 | `campaign_prompts.go` | PromptProvider abstraction for JIT prompts |
+| `assault_campaign.go` | Deterministic adversarial assault campaign builder |
+| `assault_types.go` | Assault config, scopes, and stages |
+| `assault_tasks.go` | Target discovery, batch execution, triage + remediation task generation |
+| `assault_prompts.go` | Static fallback prompt for assault role |
 
 ## Key Concepts
 
@@ -43,7 +47,7 @@ Campaigns can be paused/resumed via:
 orch.Pause()
 orch.Resume()
 ```
-State persists to `.nerd/campaigns/<id>.json`.
+State persists to `.nerd/campaigns/<id>.json`. Adversarial assault campaigns also persist artifacts under `.nerd/campaigns/<id>/assault/`.
 
 ## Dependencies
 

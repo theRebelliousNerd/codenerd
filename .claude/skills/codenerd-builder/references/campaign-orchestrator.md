@@ -44,7 +44,7 @@ The Campaign Orchestrator solves this by treating long-running tasks as **first-
 
 ```
 Campaign
-├── Type: /greenfield | /feature | /audit | /migration | /remediation
+├── Type: /greenfield | /feature | /audit | /migration | /remediation | /adversarial_assault
 ├── Goal: High-level objective
 ├── SourceMaterial: [spec.md, requirements.txt, ...]
 ├── ContextBudget: 100000 tokens
@@ -83,6 +83,9 @@ Campaign
 | `/audit` | Stability/security review | Hours | Read-heavy, minimal writes |
 | `/migration` | Technology migration | Days | Pattern matching, batch changes |
 | `/remediation` | Fix issues across codebase | Hours to days | Issue-driven, incremental |
+| `/adversarial_assault` | Soak/stress + adversarial sweep | Days to weeks | Deterministic batching, resumable artifacts |
+
+Adversarial assault campaigns persist additional run artifacts under `.nerd/campaigns/<campaign>/assault/` (targets, batches, logs, results, triage) to support long-horizon triage and remediation.
 
 ## 3. The Orchestrator Loop
 
