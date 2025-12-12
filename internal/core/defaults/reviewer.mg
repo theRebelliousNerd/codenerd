@@ -52,7 +52,7 @@ is_warning_finding(File, Line) :-
 finding_count(Severity, N) :-
     review_finding(_, _, Severity, _, _) |>
     do fn:group_by(Severity),
-    let N = fn:Count().
+    let N = fn:count().
 
 # =============================================================================
 # SECTION 3: COMMIT BLOCKING
@@ -191,14 +191,14 @@ Decl review_approved(ReviewID, Pattern).
 pattern_count(Message, N) :-
     review_finding(_, _, _, _, Message) |>
     do fn:group_by(Message),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Aggregation: Count how many times each pattern was approved by users
 # Enables approved_pattern learning
 approval_count(Pattern, N) :-
     review_approved(_, Pattern) |>
     do fn:group_by(Pattern),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Track patterns that get flagged repeatedly (>= 3 times)
 # NOTE: Pattern is extracted from Message (5th arg) in 5-arg schema
@@ -343,7 +343,7 @@ has_rejections(ReviewID) :-
 review_rejection_count(ReviewID, N) :-
     user_rejected_finding(ReviewID, _, _, _, _) |>
     do fn:group_by(ReviewID),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Review is suspect if user rejected multiple findings
 review_suspect(ReviewID, "multiple_rejections") :-
@@ -428,7 +428,7 @@ unwired_function(ID, File) :-
 # Emit raw finding with Symbol ID as message to ensure unique findings per symbol
 raw_finding(File, 1, /warning, /architecture, "UNWIRED_SYMBOL", Message) :-
     unwired_function(ID, File),
-    :string:format("Unwired public function detected: %s (no callers found)", ID, Message).
+    Message = fn:string:concat("Unwired public function detected: ", ID, " (no callers found)").
 
 # =============================================================================
 # SECTION 14: ARCHITECTURAL INSIGHTS
@@ -458,7 +458,7 @@ Decl co_committed_files(FileA, FileB, Hash).
 co_committed_files(FileA, FileB, Hash) :-
     git_history(FileA, Hash, _, _, _),
     git_history(FileB, Hash, _, _, _),
-    FileA < FileB.
+    FileA != FileB.
 
 # Aggregation: Count how many times each file pair was co-committed
 Decl co_commit_count(FileA, FileB, Count).
@@ -466,7 +466,7 @@ Decl co_commit_count(FileA, FileB, Count).
 co_commit_count(FileA, FileB, N) :-
     co_committed_files(FileA, FileB, _) |>
     do fn:group_by(FileA, FileB),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Hidden coupling: Files that change together frequently (>= 3 times)
 # but have no static dependency between them
@@ -517,14 +517,22 @@ Decl configured_layer_pattern(Pattern, Layer).
 
 # Default Standard Conventions
 configured_layer_pattern("/internal/", /library).
+configured_layer_pattern("internal/", /library).
 configured_layer_pattern("/pkg/", /library).
+configured_layer_pattern("pkg/", /library).
 configured_layer_pattern("/lib/", /library).
+configured_layer_pattern("lib/", /library).
 configured_layer_pattern("/core/", /library).
+configured_layer_pattern("core/", /library).
 
 configured_layer_pattern("/cmd/", /entrypoint).
+configured_layer_pattern("cmd/", /entrypoint).
 configured_layer_pattern("/app/", /entrypoint).
+configured_layer_pattern("app/", /entrypoint).
 configured_layer_pattern("/cli/", /entrypoint).
+configured_layer_pattern("cli/", /entrypoint).
 configured_layer_pattern("/bin/", /entrypoint).
+configured_layer_pattern("bin/", /entrypoint).
 
 # Derive Layer from Configuration
 layer(File, Layer) :-
@@ -598,6 +606,3 @@ circular_dependency(A, B) :-
 # Note: This will flag both A->B and B->A.
 raw_finding(A, 1, /error, /architecture, "CIRCULAR_DEPENDENCY", B) :-
     circular_dependency(A, B).
-
-
-

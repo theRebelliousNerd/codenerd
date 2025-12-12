@@ -46,6 +46,14 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 				if string(current) != edit.OldContent {
 					return fmt.Errorf("old_content mismatch for %s; refusing to apply edit", edit.File)
 				}
+
+				// Minimal-edit guard: block large rewrites unless explicitly refactoring.
+				if edit.Type == "modify" || edit.Type == "fix" {
+					ratio, total := estimateLineChangeRatio(edit.OldContent, edit.NewContent)
+					if total > 30 && ratio > 0.6 {
+						return fmt.Errorf("edit to %s changes %.0f%% of lines; refusing large rewrite without refactor intent", edit.File, ratio*100)
+					}
+				}
 			}
 
 		}
@@ -176,6 +184,41 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 
 	logging.Coder("All %d edits applied successfully", len(edits))
 	return nil
+}
+
+// estimateLineChangeRatio returns (ratioChanged, totalLines) for old vs new content.
+// This is a conservative heuristic to detect accidental whole-file rewrites.
+func estimateLineChangeRatio(oldContent, newContent string) (float64, int) {
+	if oldContent == "" && newContent == "" {
+		return 0, 0
+	}
+	if oldContent == newContent {
+		lines := len(strings.Split(oldContent, "\n"))
+		return 0, lines
+	}
+	oldLines := strings.Split(oldContent, "\n")
+	newLines := strings.Split(newContent, "\n")
+	oldLen := len(oldLines)
+	newLen := len(newLines)
+	total := oldLen
+	if newLen > total {
+		total = newLen
+	}
+	if total == 0 {
+		return 0, 0
+	}
+	minLen := oldLen
+	if newLen < minLen {
+		minLen = newLen
+	}
+	changed := 0
+	for i := 0; i < minLen; i++ {
+		if oldLines[i] != newLines[i] {
+			changed++
+		}
+	}
+	changed += total - minLen
+	return float64(changed) / float64(total), total
 }
 
 // waitForRoutingResult blocks until a routing_result for actionID appears.

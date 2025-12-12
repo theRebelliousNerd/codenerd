@@ -43,6 +43,7 @@ type Cortex struct {
 	BrowserManager *browser.SessionManager
 	Scanner        *world.Scanner
 	UsageTracker   *usage.Tracker
+	LocalDB        *store.LocalStore
 	Workspace      string
 	JITCompiler    *prompt.JITPromptCompiler
 }
@@ -237,6 +238,13 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		prompt.WithEmbeddedCorpus(embeddedCorpus),
 	}
 
+	// Wire default vector searcher for semantic flesh selection when embeddings are available.
+	var defaultVectorSearcher *prompt.CompilerVectorSearcher
+	if embeddingEngine != nil {
+		defaultVectorSearcher = prompt.NewCompilerVectorSearcher(embeddingEngine)
+		compilerOpts = append(compilerOpts, prompt.WithVectorSearcher(defaultVectorSearcher))
+	}
+
 	// Load project corpus.db if it exists (user-defined atoms)
 	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
 	if _, statErr := os.Stat(corpusPath); statErr == nil {
@@ -252,6 +260,9 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
+	}
+	if defaultVectorSearcher != nil {
+		defaultVectorSearcher.SetCompiler(jitCompiler)
 	}
 
 	// 5b. Register discovered user agents with JIT compiler and ShardManager
@@ -334,6 +345,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		BrowserManager: browserMgr,
 		Scanner:        scanner,
 		UsageTracker:   tracker,
+		LocalDB:        localDB,
 		Workspace:      workspace,
 		JITCompiler:    jitCompiler,
 	}, nil

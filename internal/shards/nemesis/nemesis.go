@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/regression"
 )
 
 // nemesisIdentityAtomPath is the path to the Nemesis identity atom in the JIT prompt system.
@@ -317,6 +318,46 @@ func (n *NemesisShard) runGauntlet(ctx context.Context, patchID string) (string,
 				result.Verdict = "failed"
 				logging.Shards("Armory regression VICTORY: %s broke the system", attack.Name)
 				break
+			}
+		}
+	}
+
+	// Run optional regression battery tasks from workspace (.nerd/regression/battery.yaml)
+	workspaceRoot := ""
+	if rk, ok := n.kernel.(*core.RealKernel); ok {
+		workspaceRoot = rk.GetWorkspace()
+	}
+	if workspaceRoot == "" {
+		if wd, err := os.Getwd(); err == nil {
+			workspaceRoot = wd
+		}
+	}
+	batteryPath := regression.DefaultBatteryPath(workspaceRoot)
+	if workspaceRoot != "" {
+		if _, err := os.Stat(batteryPath); err == nil {
+			if battery, err := regression.LoadBattery(batteryPath); err == nil {
+				if results, err := regression.RunBattery(ctx, battery, workspaceRoot); err == nil {
+					for _, r := range results {
+						result.AttacksRun++
+						ar := AttackResult{
+							AttackTool: "regression:" + r.TaskID,
+							Success:    !r.Success, // failure == system broke
+							Failure:    r.Error,
+							Duration:   r.DurationMs,
+						}
+						result.Details = append(result.Details, ar)
+						if ar.Success {
+							result.AttacksFailed++
+							result.Verdict = "failed"
+							logging.Shards("Regression battery failed: %s", r.TaskID)
+							break
+						}
+					}
+				} else {
+					logging.Get(logging.CategoryShards).Warn("Regression battery execution failed: %v", err)
+				}
+			} else {
+				logging.Get(logging.CategoryShards).Warn("Failed to load regression battery: %v", err)
 			}
 		}
 	}
