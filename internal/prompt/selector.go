@@ -774,7 +774,14 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	addContextFact("northstar_phase", cc.NorthstarPhase)
 	addContextFact("ouroboros_stage", cc.OuroborosStage)
 	addContextFact("intent", cc.IntentVerb)
-	addContextFact("shard", cc.ShardID)
+	addContextFact("shard", cc.ShardType)
+	addContextFact("lang", cc.Language)
+	for _, fw := range cc.Frameworks {
+		addContextFact("framework", fw)
+	}
+	for _, ws := range cc.WorldStates() {
+		addContextFact("state", ws)
+	}
 
 	// Candidate Facts
 	for _, atom := range atoms {
@@ -813,6 +820,9 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		addTags("ouroboros_stage", atom.OuroborosStages)
 		addTags("intent", atom.IntentVerbs)
 		addTags("shard", atom.ShardTypes)
+		addTags("lang", atom.Languages)
+		addTags("framework", atom.Frameworks)
+		addTags("state", atom.WorldStates)
 
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {
