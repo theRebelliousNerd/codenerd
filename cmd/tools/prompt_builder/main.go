@@ -6,7 +6,7 @@
 //
 // Build with sqlite-vec support:
 //
-//	$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go run ./cmd/tools/prompt_builder
+//	$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go run -tags=sqlite_vec ./cmd/tools/prompt_builder
 package main
 
 import (
@@ -26,7 +26,6 @@ import (
 
 	"codenerd/internal/embedding"
 
-	_ "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/yaml.v3"
 )

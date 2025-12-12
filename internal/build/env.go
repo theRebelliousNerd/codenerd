@@ -128,6 +128,7 @@ func getBaseGoEnv() []string {
 		"GOROOT",
 		"GOCACHE",
 		"GOMODCACHE",
+		"GOFLAGS",     // Allow global build tags/flags to propagate
 		"HOME",        // Required on Unix
 		"USERPROFILE", // Required on Windows
 		"LOCALAPPDATA", // Required for GOCACHE default on Windows
@@ -194,8 +195,17 @@ func deriveGOCACHE() string {
 func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildConfig {
 	cfg := DefaultBuildConfig()
 
-	// TODO: Once BuildConfig is added to UserConfig, load from there
-	// For now, use heuristics based on project structure
+	// Load explicit build config from user config if present.
+	if userCfg != nil && userCfg.Build != nil {
+		if userCfg.Build.EnvVars != nil {
+			for k, v := range userCfg.Build.EnvVars {
+				cfg.EnvVars[k] = v
+			}
+		}
+		cfg.GoFlags = append(cfg.GoFlags, userCfg.Build.GoFlags...)
+		cfg.CGOPackages = append(cfg.CGOPackages, userCfg.Build.CGOPackages...)
+		logging.BuildDebug("Loaded BuildConfig from user config")
+	}
 
 	// Resolve workspaceRoot to absolute path for reliable detection
 	absRoot := workspaceRoot
@@ -208,9 +218,26 @@ func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildCon
 	// Check for sqlite_headers directory (codeNERD-specific)
 	sqliteHeaders := filepath.Join(absRoot, "sqlite_headers")
 	if _, err := os.Stat(sqliteHeaders); err == nil {
-		// Found sqlite_headers - add CGO_CFLAGS with absolute path
-		cfg.EnvVars["CGO_CFLAGS"] = "-I" + sqliteHeaders
-		cfg.CGOPackages = append(cfg.CGOPackages, "sqlite-vec")
+		// Found sqlite_headers - add CGO_CFLAGS with absolute path if not already set
+		if cfg.EnvVars["CGO_CFLAGS"] == "" {
+			cfg.EnvVars["CGO_CFLAGS"] = "-I" + sqliteHeaders
+		}
+		// Enable sqlite-vec build tag by default for internal builds when headers are present,
+		// unless the user already provided GOFLAGS via env or config.
+		if cfg.EnvVars["GOFLAGS"] == "" && os.Getenv("GOFLAGS") == "" {
+			cfg.EnvVars["GOFLAGS"] = "-tags=sqlite_vec"
+		}
+		// Add sqlite-vec to CGO packages if missing
+		already := false
+		for _, p := range cfg.CGOPackages {
+			if p == "sqlite-vec" {
+				already = true
+				break
+			}
+		}
+		if !already {
+			cfg.CGOPackages = append(cfg.CGOPackages, "sqlite-vec")
+		}
 		logging.BuildDebug("Detected sqlite_headers at: %s", sqliteHeaders)
 	}
 

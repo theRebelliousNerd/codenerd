@@ -476,6 +476,30 @@ type (
 	clarificationMsg   ClarificationState // Request for user clarification
 	clarificationReply string             // User's response to clarification
 
+	// ShardResultPayload carries a completed shard execution for cross-turn context.
+	ShardResultPayload struct {
+		ShardType string
+		Task      string
+		Result    string
+		Facts     []core.Fact
+	}
+
+	// ClarifyUpdate carries state updates for auto-clarification / launchcampaign flow.
+	ClarifyUpdate struct {
+		LastClarifyInput     string
+		LaunchClarifyPending bool
+		LaunchClarifyGoal    string
+		LaunchClarifyAnswers string
+	}
+
+	// assistantMsg is a richer response message that can also update model state.
+	assistantMsg struct {
+		Surface           string
+		ShardResult       *ShardResultPayload
+		ClarifyUpdate     *ClarifyUpdate
+		DreamHypothetical string
+	}
+
 	// Memory sampling message
 	memUsageMsg struct {
 		Alloc uint64
@@ -496,16 +520,27 @@ type (
 
 	// Continuation messages (multi-step task execution)
 	continueMsg struct {
-		subtaskID   string // Unique identifier for this subtask
-		description string // What needs to be done
-		shardType   string // Which shard to execute
-		isMutation  bool   // True for write/run operations (for Breakpoint mode)
+		subtaskID            string               // Unique identifier for this subtask
+		description          string               // What needs to be done
+		shardType            string               // Which shard to execute
+		isMutation           bool                 // True for write/run operations (for Breakpoint mode)
+		totalSteps           int                  // Updated total steps if discovered (optional)
+		completedShardResult *ShardResultPayload  // Result of the just-completed subtask (optional)
+	}
+	// continuationInitMsg starts a continuation chain with the first step's surface output.
+	continuationInitMsg struct {
+		completedSurface string
+		firstResult      *ShardResultPayload
+		next             continueMsg
+		totalSteps       int
 	}
 	interruptMsg        struct{} // User pressed Ctrl+X to stop
 	confirmContinueMsg  struct{} // User pressed Enter to continue (Confirm/Breakpoint mode)
 	continuationDoneMsg struct { // All steps completed
 		stepCount int
 		summary   string
+		// Result of the final completed subtask (optional)
+		completedShardResult *ShardResultPayload
 	}
 
 	// Northstar document analysis message
@@ -987,6 +1022,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case assistantMsg:
+		m.isLoading = false
+		m.turnCount++
+
+		// Apply any state updates carried by the message
+		if msg.ClarifyUpdate != nil {
+			m.lastClarifyInput = msg.ClarifyUpdate.LastClarifyInput
+			m.launchClarifyPending = msg.ClarifyUpdate.LaunchClarifyPending
+			m.launchClarifyGoal = msg.ClarifyUpdate.LaunchClarifyGoal
+			m.launchClarifyAnswers = msg.ClarifyUpdate.LaunchClarifyAnswers
+		}
+		if msg.DreamHypothetical != "" {
+			m.lastDreamHypothetical = msg.DreamHypothetical
+		}
+		if msg.ShardResult != nil {
+			m.storeShardResult(msg.ShardResult.ShardType, msg.ShardResult.Task, msg.ShardResult.Result, msg.ShardResult.Facts)
+		}
+
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: msg.Surface,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
+
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
@@ -1221,7 +1283,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// CONTINUATION PROTOCOL MESSAGE HANDLERS
 	// =========================================================================
 
+	case continuationInitMsg:
+		// First step already completed; render its surface and initialize counters.
+		if msg.firstResult != nil {
+			m.storeShardResult(msg.firstResult.ShardType, msg.firstResult.Task, msg.firstResult.Result, msg.firstResult.Facts)
+		}
+
+		if msg.totalSteps > 0 {
+			m.continuationTotal = msg.totalSteps
+		} else if m.continuationTotal == 0 {
+			m.continuationTotal = 2
+		}
+		m.continuationStep = 1
+
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: msg.completedSurface,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
+		// Decide whether to pause before next step.
+		shouldPause := false
+		switch m.continuationMode {
+		case ContinuationModeConfirm:
+			shouldPause = true
+		case ContinuationModeBreakpoint:
+			shouldPause = msg.next.isMutation
+		}
+
+		if shouldPause {
+			m.isLoading = false
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("?? Next: %s\n\nPress Enter to continue, or type new instructions.", msg.next.description),
+				Time:    time.Now(),
+			})
+			m.pendingSubtasks = append(m.pendingSubtasks, Subtask{
+				ID:          msg.next.subtaskID,
+				Description: msg.next.description,
+				ShardType:   msg.next.shardType,
+				IsMutation:  msg.next.isMutation,
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		// Auto-continue immediately.
+		m.isLoading = true
+		m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, msg.next.description)
+		return m, tea.Batch(
+			m.spinner.Tick,
+			m.executeSubtask(msg.next.subtaskID, msg.next.description, msg.next.shardType),
+		)
+
 	case continueMsg:
+		// Store the just-completed subtask result for follow-ups.
+		if msg.completedShardResult != nil {
+			m.storeShardResult(msg.completedShardResult.ShardType, msg.completedShardResult.Task, msg.completedShardResult.Result, msg.completedShardResult.Facts)
+		}
+		if msg.totalSteps > 0 && msg.totalSteps > m.continuationTotal {
+			m.continuationTotal = msg.totalSteps
+		}
+
 		m.continuationStep++
 
 		// Show progress for completed step
@@ -1282,6 +1408,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case continuationDoneMsg:
+		if msg.completedShardResult != nil {
+			m.storeShardResult(msg.completedShardResult.ShardType, msg.completedShardResult.Task, msg.completedShardResult.Result, msg.completedShardResult.Facts)
+		}
+
 		m.isLoading = false
 		m.continuationStep = 0
 		m.continuationTotal = 0
@@ -1353,6 +1483,35 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m.textarea.Focus()
 		}
+
+	case reembedCompleteMsg:
+		m.isLoading = false
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Re-embedding failed:** %v", msg.err),
+				Time:    time.Now(),
+			})
+		} else {
+			var sb strings.Builder
+			sb.WriteString("**Re-embedding complete**\n\n")
+			sb.WriteString(fmt.Sprintf("| Metric | Value |\n|--------|-------|\n| DBs processed | %d |\n| Vectors re-embedded | %d |\n| Prompt atoms re-embedded | %d |\n| Duration | %.2fs |\n",
+				msg.dbCount, msg.vectorsDone, msg.atomsDone, msg.duration.Seconds()))
+			if len(msg.skipped) > 0 {
+				sb.WriteString("\nSkipped/errored DBs:\n")
+				for _, s := range msg.skipped {
+					sb.WriteString(fmt.Sprintf("- %s\n", s))
+				}
+			}
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: sb.String(),
+				Time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
 
 	case statusMsg:
 		m.statusMessage = string(msg)
@@ -1428,7 +1587,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		}
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		return m, m.runScan()
+		return m, m.runScan(false)
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
@@ -1604,6 +1763,15 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	// Check for special commands
 	if strings.HasPrefix(input, "/") {
 		return m.handleCommand(input)
+	}
+
+	// If we are collecting clarification answers for a future campaign launch,
+	// accumulate the user's replies here (Update thread) so state persists.
+	if m.launchClarifyPending {
+		if m.launchClarifyAnswers != "" {
+			m.launchClarifyAnswers += "\n"
+		}
+		m.launchClarifyAnswers += input
 	}
 
 	// Add user message to history

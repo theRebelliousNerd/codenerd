@@ -175,28 +175,28 @@ func (pv *PreValidator) compilePatterns() {
 			Pattern:        `([A-Z][a-zA-Z0-9_]*)\s*=\s*(count|sum|min|max|avg)\s*\(`,
 			Message:        "SQL-style aggregation is invalid",
 			WrongExample:   `Total = sum(Amount)`,
-			CorrectFix:     `source() |> do fn:group_by(Key), let Total = fn:Sum(Amount)`,
+			CorrectFix:     `source() |> do fn:group_by(Key), let Total = fn:sum(Amount)`,
 			Suggestion:     "Use |> do fn:group_by(...), let Var = fn:Func() pipeline syntax",
 			AutoRepairable: true,
 		},
 		// Missing 'do' keyword in pipeline
 		{
 			Category:       CategoryAggregation,
-			Pattern:        `\|>\s*fn:(group_by|Count|Sum|Min|Max|Avg)`,
+			Pattern:        `\|>\s*fn:(group_by|count|sum|min|max|avg)`,
 			Message:        "Missing 'do' keyword before fn:",
 			WrongExample:   `|> fn:group_by(X)`,
 			CorrectFix:     `|> do fn:group_by(X)`,
 			Suggestion:     "Add 'do' keyword: |> do fn:group_by(...)",
 			AutoRepairable: true,
 		},
-		// Wrong function casing (lowercase aggregates)
+		// Wrong function casing (capitalized aggregates)
 		{
 			Category:       CategoryAggregation,
-			Pattern:        `fn:(count|sum|min|max|avg)\s*\(`,
-			Message:        "Wrong function casing - aggregates use capital first letter",
-			WrongExample:   `fn:count()`,
-			CorrectFix:     `fn:Count()`,
-			Suggestion:     "Use fn:Count(), fn:Sum(), fn:Min(), fn:Max(), fn:Avg()",
+			Pattern:        `fn:(Count|Sum|Min|Max|Avg)\s*\(`,
+			Message:        "Wrong function casing - aggregates use lowercase",
+			WrongExample:   `fn:Count()`,
+			CorrectFix:     `fn:count()`,
+			Suggestion:     "Use fn:count(), fn:sum(), fn:min(), fn:max(), fn:avg()",
 			AutoRepairable: true,
 		},
 		// Soufflé-style declaration
@@ -311,12 +311,12 @@ func (pv *PreValidator) QuickFix(code string) string {
 	// Fix Prolog negation \+ -> ! (regex \\\+ matches literal \+)
 	fixed = regexp.MustCompile(`\\\+\s*`).ReplaceAllString(fixed, "!")
 
-	// Fix lowercase aggregation functions
-	fixed = regexp.MustCompile(`fn:count\(`).ReplaceAllString(fixed, "fn:Count(")
-	fixed = regexp.MustCompile(`fn:sum\(`).ReplaceAllString(fixed, "fn:Sum(")
-	fixed = regexp.MustCompile(`fn:min\(`).ReplaceAllString(fixed, "fn:Min(")
-	fixed = regexp.MustCompile(`fn:max\(`).ReplaceAllString(fixed, "fn:Max(")
-	fixed = regexp.MustCompile(`fn:avg\(`).ReplaceAllString(fixed, "fn:Avg(")
+	// Fix capitalized aggregation functions to lowercase (engine expects lowercase)
+	fixed = regexp.MustCompile(`fn:Count\(`).ReplaceAllString(fixed, "fn:count(")
+	fixed = regexp.MustCompile(`fn:Sum\(`).ReplaceAllString(fixed, "fn:sum(")
+	fixed = regexp.MustCompile(`fn:Min\(`).ReplaceAllString(fixed, "fn:min(")
+	fixed = regexp.MustCompile(`fn:Max\(`).ReplaceAllString(fixed, "fn:max(")
+	fixed = regexp.MustCompile(`fn:Avg\(`).ReplaceAllString(fixed, "fn:avg(")
 
 	// Fix missing 'do' keyword: |> fn: -> |> do fn:
 	fixed = regexp.MustCompile(`\|>\s*fn:`).ReplaceAllString(fixed, "|> do fn:")

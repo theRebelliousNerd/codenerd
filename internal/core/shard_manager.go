@@ -160,6 +160,9 @@ type SessionContext = types.SessionContext
 type ShardConfig struct {
 	Name          string
 	Type          ShardType
+	// BaseType selects the underlying factory to use when Name doesn't match a registered factory.
+	// Intended for Type B (persistent) and Type U (user-defined) specialists.
+	BaseType      string
 	Permissions   []ShardPermission // Allowed capabilities
 	Timeout       time.Duration     // Default execution timeout
 	MemoryLimit   int               // Abstract memory unit limit
@@ -196,6 +199,7 @@ func DefaultSpecialistConfig(name, knowledgePath string) ShardConfig {
 	return ShardConfig{
 		Name:          name,
 		Type:          ShardTypePersistent,
+		BaseType:      "researcher",
 		KnowledgePath: knowledgePath,
 		Timeout:       30 * time.Minute,
 		Permissions: []ShardPermission{
@@ -636,6 +640,21 @@ func (sm *ShardManager) GetActiveShardCount() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return len(sm.shards)
+}
+
+// GetActiveNonSystemShardCount returns the number of active non-system shards.
+// This is used for concurrency limits so background system shards do not
+// reduce the available user/task shard budget.
+func (sm *ShardManager) GetActiveNonSystemShardCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	count := 0
+	for _, s := range sm.shards {
+		if s != nil && s.GetConfig().Type != ShardTypeSystem {
+			count++
+		}
+	}
+	return count
 }
 
 // VirtualStoreConsumer interface for agents that need file system access.
@@ -1142,21 +1161,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// ENFORCEMENT: Check concurrent shard limit before spawning
-	if sm.limitsEnforcer != nil {
-		activeCount := len(sm.shards)
-		if err := sm.limitsEnforcer.CheckShardLimit(activeCount); err != nil {
-			logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: shard limit enforcement blocked spawn: %v", err)
-			return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
-		}
-		// Also check memory limits before spawning
-		if err := sm.limitsEnforcer.CheckMemory(); err != nil {
-			logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: memory limit enforcement blocked spawn: %v", err)
-			return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
-		}
-	}
-
-	// 1. Resolve Config
+	// 1. Resolve Config (needed to know shard type for enforcement)
 	var config ShardConfig
 	profile, hasProfile := sm.profiles[typeName]
 	if hasProfile {
@@ -1174,6 +1179,29 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// Inject session context into config (Blackboard Pattern)
 	if sessionCtx != nil {
 		config.SessionContext = sessionCtx
+	}
+
+	// ENFORCEMENT: Check concurrent shard limit for non-system shards only.
+	// System shards are essential background services and do not consume the
+	// user-facing concurrency budget.
+	if sm.limitsEnforcer != nil {
+		if config.Type != ShardTypeSystem {
+			activeNonSystem := 0
+			for _, s := range sm.shards {
+				if s != nil && s.GetConfig().Type != ShardTypeSystem {
+					activeNonSystem++
+				}
+			}
+			if err := sm.limitsEnforcer.CheckShardLimit(activeNonSystem); err != nil {
+				logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: shard limit enforcement blocked spawn: %v", err)
+				return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
+			}
+		}
+		// Always check memory limits before spawning.
+		if err := sm.limitsEnforcer.CheckMemory(); err != nil {
+			logging.Get(logging.CategoryShards).Error("SpawnAsyncWithContext: memory limit enforcement blocked spawn: %v", err)
+			return "", fmt.Errorf("cannot spawn shard %s: %w", typeName, err)
+		}
 	}
 
 	// Populate available tools from Mangle kernel (Intelligent Tool Routing §40)
@@ -1214,13 +1242,21 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	if !hasFactory && hasProfile {
 		// If using a profile (e.g. "RustExpert"), it might map to a base type factory (e.g. "researcher")
-		// For Type B specialists, we usually default to "researcher" or "coder" based on profile config?
-		// Currently the system assumes profile name == factory name for built-ins.
-		// For dynamic agents like "RustExpert", we need to know the base class.
-		// TODO: Add 'BaseType' to ShardConfig. For now assume "researcher" if TypePersistent and unknown factory.
-		if config.Type == ShardTypePersistent {
+		baseType := strings.TrimPrefix(strings.ToLower(config.BaseType), "/")
+		if baseType != "" {
+			if baseFactory, ok := sm.factories[baseType]; ok {
+				factory = baseFactory
+				hasFactory = true
+				logging.ShardsDebug("SpawnAsyncWithContext: using base type factory %s for profile %s", baseType, typeName)
+			} else {
+				logging.ShardsDebug("SpawnAsyncWithContext: base type factory %s not found for profile %s", baseType, typeName)
+			}
+		}
+
+		// Default to researcher for persistent/user profiles without a matching factory.
+		if factory == nil && (config.Type == ShardTypePersistent || config.Type == ShardTypeUser) {
 			factory = sm.factories["researcher"]
-			logging.ShardsDebug("SpawnAsyncWithContext: using researcher factory as fallback for persistent shard %s", typeName)
+			logging.ShardsDebug("SpawnAsyncWithContext: using researcher factory as fallback for %s", typeName)
 		}
 	}
 
@@ -1350,7 +1386,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	}
 
 	// Wrap context with shard metadata for usage tracking
-	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), "current-session") // TODO: pass actual session ID
+	sessionID := sm.sessionID
+	if sessionID == "" {
+		sessionID = "current-session"
+	}
+	ctx = usage.WithShardContext(ctx, config.Name, string(config.Type), sessionID)
 
 	// 4. Execute Async
 	logging.Shards("SpawnAsyncWithContext: launching goroutine for shard %s execution", id)

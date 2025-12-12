@@ -344,3 +344,46 @@ func TestQueryRelevantTools(t *testing.T) {
 
 	t.Log("Intelligent tool routing test completed")
 }
+
+type stubShardAgent struct {
+	id  string
+	cfg ShardConfig
+}
+
+func (s *stubShardAgent) Execute(ctx context.Context, task string) (string, error) {
+	// Keep the shard active briefly to allow count checks.
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(200 * time.Millisecond):
+		return "ok", nil
+	}
+}
+func (s *stubShardAgent) GetID() string               { return s.id }
+func (s *stubShardAgent) GetState() ShardState       { return ShardStateRunning }
+func (s *stubShardAgent) GetConfig() ShardConfig     { return s.cfg }
+func (s *stubShardAgent) Stop() error                { return nil }
+func (s *stubShardAgent) SetParentKernel(k Kernel)   {}
+func (s *stubShardAgent) SetLLMClient(c LLMClient)   {}
+func (s *stubShardAgent) SetSessionContext(sc *SessionContext) {}
+
+func TestGetActiveNonSystemShardCount(t *testing.T) {
+	sm := NewShardManager()
+
+	// Manually seed active shards to avoid timing races.
+	sm.mu.Lock()
+	sm.shards["a"] = &stubShardAgent{id: "a", cfg: ShardConfig{Name: "a", Type: ShardTypeEphemeral}}
+	sm.shards["b"] = &stubShardAgent{id: "b", cfg: ShardConfig{Name: "b", Type: ShardTypeSystem}}
+	sm.shards["c"] = &stubShardAgent{id: "c", cfg: ShardConfig{Name: "c", Type: ShardTypeEphemeral}}
+	sm.mu.Unlock()
+
+	total := sm.GetActiveShardCount()
+	nonSystem := sm.GetActiveNonSystemShardCount()
+
+	if total < 3 {
+		t.Fatalf("expected at least 3 active shards, got %d", total)
+	}
+	if nonSystem != 2 {
+		t.Fatalf("expected 2 non-system active shards, got %d", nonSystem)
+	}
+}

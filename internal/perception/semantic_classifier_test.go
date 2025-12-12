@@ -222,7 +222,7 @@ func TestEmbeddedCorpusStore_Search_Empty(t *testing.T) {
 }
 
 func TestLearnedCorpusStore_Add(t *testing.T) {
-	store, err := NewLearnedCorpusStore(nil, 3072)
+	store, err := NewLearnedCorpusStore(nil, 3072, nil)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestLearnedCorpusStore_Add(t *testing.T) {
 }
 
 func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
-	store, err := NewLearnedCorpusStore(nil, 3072)
+	store, err := NewLearnedCorpusStore(nil, 3072, nil)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}

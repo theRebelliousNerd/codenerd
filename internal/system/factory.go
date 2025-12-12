@@ -137,11 +137,26 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		return nil, fmt.Errorf("failed to boot kernel: %w", err)
 	}
 
-	// Load persisted scan facts if available (world topology)
-	scanPath := filepath.Join(workspace, ".nerd", "mangle", "scan.mg")
-	if _, statErr := os.Stat(scanPath); statErr == nil {
-		if loadErr := kernel.LoadFactsFromFile(scanPath); loadErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load scan facts: %v\n", loadErr)
+	// Load persisted world facts if available.
+	// Prefer LocalStore world cache (fast depth) and fall back to scan.mg.
+	loadedWorld := false
+	if localDB != nil {
+		if cached, err := localDB.LoadAllWorldFacts("fast"); err == nil && len(cached) > 0 {
+			facts := make([]core.Fact, 0, len(cached))
+			for _, cf := range cached {
+				facts = append(facts, core.Fact{Predicate: cf.Predicate, Args: cf.Args})
+			}
+			if err := kernel.LoadFacts(facts); err == nil {
+				loadedWorld = true
+			}
+		}
+	}
+	if !loadedWorld {
+		scanPath := filepath.Join(workspace, ".nerd", "mangle", "scan.mg")
+		if _, statErr := os.Stat(scanPath); statErr == nil {
+			if loadErr := kernel.LoadFactsFromFile(scanPath); loadErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load scan facts: %v\n", loadErr)
+			}
 		}
 	}
 
@@ -197,13 +212,27 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// 5. JIT Prompt Compiler & Distributed Storage
 	// Initialize Embedding Engine (required for AtomLoader)
 	var embeddingEngine embedding.EmbeddingEngine
-	if apiKey != "" {
-		// Use user-mandated model
-		if engine, err := embedding.NewGenAIEngine(apiKey, "models/embedding-001", "RETRIEVAL_DOCUMENT"); err == nil {
-			embeddingEngine = engine
-		} else {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v\n", err)
-		}
+	embedCfg := appCfg.GetEmbeddingConfig()
+	engineCfg := embedding.Config{
+		Provider:       embedCfg.Provider,
+		OllamaEndpoint: embedCfg.OllamaEndpoint,
+		OllamaModel:    embedCfg.OllamaModel,
+		GenAIAPIKey:    embedCfg.GenAIAPIKey,
+		GenAIModel:     embedCfg.GenAIModel,
+		TaskType:       embedCfg.TaskType,
+	}
+	// Back-compat: if provider is genai and no key set in config, fall back to CLI key.
+	if engineCfg.Provider == "genai" && engineCfg.GenAIAPIKey == "" && apiKey != "" {
+		engineCfg.GenAIAPIKey = apiKey
+	}
+	// If provider omitted, use embedding defaults (ollama keyword/vec).
+	if engineCfg.Provider == "" {
+		engineCfg = embedding.DefaultConfig()
+	}
+	if engine, err := embedding.NewEngine(engineCfg); err == nil {
+		embeddingEngine = engine
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v (semantic features degrade)\n", err)
 	}
 
 	// Initialize Atom Loader
@@ -277,10 +306,9 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		}
 
 		// Register agent profile with ShardManager as Type U (user-defined)
-		shardManager.DefineProfile(agent.ID, core.ShardConfig{
-			Type:          core.ShardTypeUser,
-			KnowledgePath: agent.DBPath,
-		})
+		cfg := core.DefaultSpecialistConfig(agent.ID, agent.DBPath)
+		cfg.Type = core.ShardTypeUser
+		shardManager.DefineProfile(agent.ID, cfg)
 	}
 	if len(discoveredAgents) > 0 {
 		logging.Get(logging.CategoryContext).Info("Registered %d user-defined agents", len(discoveredAgents))
@@ -333,7 +361,12 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	// 7. World Model Scanning
-	scanner := world.NewScanner()
+	worldCfg := appCfg.GetWorldConfig()
+	scanner := world.NewScannerWithConfig(world.ScannerConfig{
+		MaxConcurrency:  worldCfg.FastWorkers,
+		IgnorePatterns:  worldCfg.IgnorePatterns,
+		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
+	})
 
 	return &Cortex{
 		Kernel:         kernel,

@@ -705,6 +705,7 @@ func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
 
 // ReembedAllVectors regenerates embeddings for all vectors that don't have them.
 // Useful for migrating from keyword-only to embedding-based search.
+// Returns nil if no vectors need re-embedding.
 func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllVectors")
 	defer timer.Stop()
@@ -720,7 +721,7 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	logging.Store("Starting re-embedding of all vectors without embeddings")
 
 	// Fetch all vectors without embeddings
-	rows, err := s.db.Query("SELECT id, content FROM vectors WHERE embedding IS NULL")
+	rows, err := s.db.Query("SELECT id, content, metadata FROM vectors WHERE embedding IS NULL")
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to query vectors for re-embedding: %v", err)
 		return err
@@ -730,12 +731,13 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	type vectorToEmbed struct {
 		id      int64
 		content string
+		metadata string
 	}
 
 	var vectors []vectorToEmbed
 	for rows.Next() {
 		var v vectorToEmbed
-		if err := rows.Scan(&v.id, &v.content); err != nil {
+		if err := rows.Scan(&v.id, &v.content, &v.metadata); err != nil {
 			continue
 		}
 		vectors = append(vectors, v)
@@ -781,12 +783,124 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 				logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
 				return fmt.Errorf("failed to update vector %d: %w", v.id, err)
 			}
+			// Keep sqlite-vec index in sync when available.
+			if s.vectorExt {
+				vecBlob := encodeFloat32Slice(embeddings[j])
+				_, _ = s.db.Exec(
+					"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
+					vecBlob, v.content, v.metadata,
+				)
+			}
 			totalEmbedded++
 		}
 	}
 
 	logging.Store("Re-embedding complete: %d vectors processed", totalEmbedded)
 	return nil
+}
+
+// ReembedAllVectorsForce regenerates embeddings for ALL vectors, overwriting existing ones.
+// This is required when switching embedding providers/models.
+// Returns the number of vectors re-embedded.
+func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ReembedAllVectorsForce")
+	defer timer.Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.embeddingEngine == nil {
+		logging.Get(logging.CategoryStore).Error("Cannot force re-embed: no embedding engine configured")
+		return 0, fmt.Errorf("no embedding engine configured")
+	}
+
+	logging.Store("Starting force re-embedding of all vectors in DB: %s", s.dbPath)
+
+	rows, err := s.db.Query("SELECT id, content, metadata FROM vectors")
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query vectors for force re-embedding: %v", err)
+		return 0, err
+	}
+	defer rows.Close()
+
+	type vectorToEmbed struct {
+		id       int64
+		content  string
+		metadata string
+	}
+
+	var vectors []vectorToEmbed
+	for rows.Next() {
+		var v vectorToEmbed
+		if err := rows.Scan(&v.id, &v.content, &v.metadata); err != nil {
+			continue
+		}
+		vectors = append(vectors, v)
+	}
+
+	if len(vectors) == 0 {
+		logging.StoreDebug("No vectors found for force re-embedding")
+		return 0, nil
+	}
+
+	logging.Store("Found %d vectors to force re-embed", len(vectors))
+
+	batchSize := 32
+	totalBatches := (len(vectors) + batchSize - 1) / batchSize
+	totalEmbedded := 0
+	for i := 0; i < len(vectors); i += batchSize {
+		end := int(math.Min(float64(i+batchSize), float64(len(vectors))))
+		batch := vectors[i:end]
+		batchNum := (i / batchSize) + 1
+		logging.Store("ReembedAllVectorsForce [%s]: batch %d/%d (%d vectors)",
+			s.dbPath, batchNum, totalBatches, len(batch))
+
+		texts := make([]string, len(batch))
+		for j, v := range batch {
+			texts[j] = v.content
+		}
+
+		embeddings, err := s.embeddingEngine.EmbedBatch(ctx, texts)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Force batch embeddings failed for %s (batch %d/%d): %v; falling back to per-item embedding",
+				s.dbPath, batchNum, totalBatches, err)
+			embeddings = make([][]float32, len(batch))
+			for j, v := range batch {
+				vec, embedErr := s.embeddingEngine.Embed(ctx, v.content)
+				if embedErr != nil {
+					logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s: %v", v.id, s.dbPath, embedErr)
+					continue
+				}
+				embeddings[j] = vec
+			}
+		}
+
+		for j, v := range batch {
+			if j >= len(embeddings) || embeddings[j] == nil || len(embeddings[j]) == 0 {
+				continue
+			}
+			embeddingJSON, _ := json.Marshal(embeddings[j])
+			_, err := s.db.Exec(
+				"UPDATE vectors SET embedding = ? WHERE id = ?",
+				string(embeddingJSON), v.id,
+			)
+			if err != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
+				return totalEmbedded, fmt.Errorf("failed to update vector %d: %w", v.id, err)
+			}
+			if s.vectorExt {
+				vecBlob := encodeFloat32Slice(embeddings[j])
+				_, _ = s.db.Exec(
+					"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
+					vecBlob, v.content, v.metadata,
+				)
+			}
+			totalEmbedded++
+		}
+	}
+
+	logging.Store("Force re-embedding complete: %d vectors processed", totalEmbedded)
+	return totalEmbedded, nil
 }
 
 // =============================================================================

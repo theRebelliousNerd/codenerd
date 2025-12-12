@@ -144,28 +144,12 @@ func parseMangleAtom(atomStr string) *core.Fact {
 		return nil
 	}
 
-	// Simple parsing: predicate(arg1, arg2, ...)
-	parenIdx := strings.Index(atomStr, "(")
-	if parenIdx == -1 {
-		// No args - just a predicate name
-		return &core.Fact{Predicate: atomStr, Args: nil}
+	fact, err := core.ParseFactString(atomStr)
+	if err != nil {
+		logging.Get(logging.CategoryReviewer).Warn("Failed to parse mangle atom %q: %v", atomStr, err)
+		return nil
 	}
-
-	predicate := strings.TrimSpace(atomStr[:parenIdx])
-	argsStr := strings.TrimSuffix(strings.TrimSpace(atomStr[parenIdx+1:]), ")")
-
-	// Split args by comma (simple split, doesn't handle nested parens)
-	args := make([]interface{}, 0)
-	if argsStr != "" {
-		for _, arg := range strings.Split(argsStr, ",") {
-			arg = strings.TrimSpace(arg)
-			// Remove quotes if present
-			arg = strings.Trim(arg, `"'`)
-			args = append(args, arg)
-		}
-	}
-
-	return &core.Fact{Predicate: predicate, Args: args}
+	return &fact
 }
 
 // =============================================================================

@@ -86,13 +86,17 @@ func NewLocalStore(path string) (*LocalStore, error) {
 
 	// Detect sqlite-vec extension availability
 	store.detectVecExtension()
-	store.requireVec = true
-	if !store.vectorExt {
+	store.requireVec = defaultRequireVec
+	if store.requireVec && !store.vectorExt {
 		logging.Get(logging.CategoryStore).Error("sqlite-vec extension not available")
 		db.Close()
 		return nil, fmt.Errorf("sqlite-vec extension not available; rebuild modernc SQLite with vec0 (set SQLITE3_EXT=vec0 or include vec sources) to enable ANN search")
 	}
-	logging.Store("sqlite-vec extension detected and enabled")
+	if store.vectorExt {
+		logging.Store("sqlite-vec extension detected and enabled")
+	} else {
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec extension not available; continuing without ANN search")
+	}
 
 	// Initialize trace store for self-learning
 	traceStore, err := NewTraceStore(db, path)
@@ -144,6 +148,38 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_kg_entity_a ON knowledge_graph(entity_a);
 	CREATE INDEX IF NOT EXISTS idx_kg_entity_b ON knowledge_graph(entity_b);
 	CREATE INDEX IF NOT EXISTS idx_kg_relation ON knowledge_graph(relation);
+	`
+
+	// World Model Cache (Fast + Deep AST projections)
+	// These tables store per-file world facts so boot and incremental scans
+	// can rehydrate without reparsing unchanged files.
+	worldFilesTable := `
+	CREATE TABLE IF NOT EXISTS world_files (
+		path TEXT PRIMARY KEY,
+		lang TEXT,
+		size INTEGER,
+		modtime INTEGER,
+		hash TEXT,
+		fingerprint TEXT,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_world_files_fingerprint ON world_files(fingerprint);
+	CREATE INDEX IF NOT EXISTS idx_world_files_lang ON world_files(lang);
+	`
+
+	worldFactsTable := `
+	CREATE TABLE IF NOT EXISTS world_facts (
+		path TEXT NOT NULL,
+		depth TEXT NOT NULL, -- fast | deep
+		fingerprint TEXT NOT NULL,
+		predicate TEXT NOT NULL,
+		args TEXT NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY(path, depth, predicate, args)
+	);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_predicate ON world_facts(predicate);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_depth ON world_facts(depth);
+	CREATE INDEX IF NOT EXISTS idx_world_facts_path ON world_facts(path);
 	`
 
 	// Shard D: Cold Storage and Archival tier are created below with migration-aware logic
@@ -335,7 +371,20 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Create base tables first (without columns that need migration)
-	for _, table := range []string{vectorTable, graphTable, coldTableOnly, archivedTableOnly, activationTable, sessionTable, verificationTable, reasoningTracesTable, reviewFindingsTable, promptAtomsTableOnly} {
+	for _, table := range []string{
+		vectorTable,
+		graphTable,
+		worldFilesTable,
+		worldFactsTable,
+		coldTableOnly,
+		archivedTableOnly,
+		activationTable,
+		sessionTable,
+		verificationTable,
+		reasoningTracesTable,
+		reviewFindingsTable,
+		promptAtomsTableOnly,
+	} {
 		if _, err := s.db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
@@ -386,6 +435,185 @@ func (s *LocalStore) Close() error {
 // GetDB returns the underlying SQL database connection.
 func (s *LocalStore) GetDB() *sql.DB {
 	return s.db
+}
+
+// =============================================================================
+// WORLD MODEL CACHE (Fast + Deep AST facts)
+// =============================================================================
+
+// WorldFileMeta stores per-file metadata for world cache invalidation.
+type WorldFileMeta struct {
+	Path        string
+	Lang        string
+	Size        int64
+	ModTime     int64
+	Hash        string
+	Fingerprint string
+}
+
+// WorldFactInput is a lightweight fact carrier for world cache I/O.
+// Predicate + Args mirror core/types.Fact without importing core.
+type WorldFactInput struct {
+	Predicate string
+	Args      []interface{}
+}
+
+// UpsertWorldFile stores or updates world_files metadata.
+func (s *LocalStore) UpsertWorldFile(meta WorldFileMeta) error {
+	timer := logging.StartTimer(logging.CategoryStore, "UpsertWorldFile")
+	defer timer.Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO world_files (path, lang, size, modtime, hash, fingerprint, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(path) DO UPDATE SET
+		   lang = excluded.lang,
+		   size = excluded.size,
+		   modtime = excluded.modtime,
+		   hash = excluded.hash,
+		   fingerprint = excluded.fingerprint,
+		   updated_at = CURRENT_TIMESTAMP`,
+		meta.Path, meta.Lang, meta.Size, meta.ModTime, meta.Hash, meta.Fingerprint,
+	)
+	return err
+}
+
+// DeleteWorldFile removes world_files and all cached facts for a file.
+func (s *LocalStore) DeleteWorldFile(path string) error {
+	timer := logging.StartTimer(logging.CategoryStore, "DeleteWorldFile")
+	defer timer.Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM world_facts WHERE path = ?", path); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM world_files WHERE path = ?", path); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ReplaceWorldFactsForFile replaces cached facts for a file at a given depth.
+func (s *LocalStore) ReplaceWorldFactsForFile(path, depth, fingerprint string, facts []WorldFactInput) error {
+	timer := logging.StartTimer(logging.CategoryStore, "ReplaceWorldFactsForFile")
+	defer timer.Stop()
+
+	if depth == "" {
+		depth = "fast"
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM world_facts WHERE path = ? AND depth = ?", path, depth); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(
+		`INSERT OR REPLACE INTO world_facts (path, depth, fingerprint, predicate, args, updated_at)
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+	)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, f := range facts {
+		argsJSON, _ := json.Marshal(f.Args)
+		if _, err := stmt.Exec(path, depth, fingerprint, f.Predicate, string(argsJSON)); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadWorldFactsForFile loads cached facts for a file at a given depth.
+// Returns the facts and the stored fingerprint (empty if none).
+func (s *LocalStore) LoadWorldFactsForFile(path, depth string) ([]WorldFactInput, string, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LoadWorldFactsForFile")
+	defer timer.Stop()
+
+	if depth == "" {
+		depth = "fast"
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		"SELECT predicate, args, fingerprint FROM world_facts WHERE path = ? AND depth = ?",
+		path, depth,
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var out []WorldFactInput
+	var fp string
+	for rows.Next() {
+		var pred, argsJSON, fingerprint string
+		if err := rows.Scan(&pred, &argsJSON, &fingerprint); err != nil {
+			continue
+		}
+		fp = fingerprint
+		var args []interface{}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		out = append(out, WorldFactInput{Predicate: pred, Args: args})
+	}
+	return out, fp, nil
+}
+
+// LoadAllWorldFacts loads all cached facts for a given depth.
+func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LoadAllWorldFacts")
+	defer timer.Stop()
+
+	if depth == "" {
+		depth = "fast"
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(
+		"SELECT predicate, args FROM world_facts WHERE depth = ? ORDER BY path",
+		depth,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]WorldFactInput, 0)
+	for rows.Next() {
+		var pred, argsJSON string
+		if err := rows.Scan(&pred, &argsJSON); err != nil {
+			continue
+		}
+		var args []interface{}
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+		out = append(out, WorldFactInput{Predicate: pred, Args: args})
+	}
+	return out, nil
 }
 
 // ========== Shard B: Vector/Associative Memory ==========
@@ -1582,7 +1810,7 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	logging.StoreDebug("Computing database statistics")
 
 	stats := make(map[string]int64)
-	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "knowledge_atoms"}
+	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "knowledge_atoms", "world_files", "world_facts"}
 
 	for _, table := range tables {
 		var count int64
@@ -1704,20 +1932,47 @@ func (s *LocalStore) ensureContentHashes() error {
 	}
 	defer atomRows.Close()
 
-	updated := 0
+	type pendingUpdate struct {
+		id   int64
+		hash string
+	}
+	var pending []pendingUpdate
 	for atomRows.Next() {
 		var id int64
 		var concept, content string
 		if err := atomRows.Scan(&id, &concept, &content); err != nil {
 			continue
 		}
+		pending = append(pending, pendingUpdate{
+			id:   id,
+			hash: ComputeContentHash(concept, content),
+		})
+	}
+	// Close the read cursor before writing to avoid SQLITE_BUSY/locked errors.
+	atomRows.Close()
 
-		hash := ComputeContentHash(concept, content)
-		if _, err := s.db.Exec("UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?", hash, id); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", id, err)
-			continue
+	updated := 0
+	if len(pending) > 0 {
+		tx, txErr := s.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("failed to begin backfill transaction: %w", txErr)
 		}
-		updated++
+		stmt, prepErr := tx.Prepare("UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?")
+		if prepErr != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to prepare backfill update: %w", prepErr)
+		}
+		for _, u := range pending {
+			if _, err := stmt.Exec(u.hash, u.id); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", u.id, err)
+				continue
+			}
+			updated++
+		}
+		stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit backfill: %w", err)
+		}
 	}
 
 	logging.Store("Backfilled content_hash for %d/%d atoms", updated, missingCount)

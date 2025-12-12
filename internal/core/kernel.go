@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"embed"
 	"fmt"
 	"os"
@@ -451,12 +452,16 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	defer k.mu.Unlock()
 
 	prevCount := len(k.facts)
-	k.facts = append(k.facts, facts...)
+	sanitizedFacts := make([]Fact, len(facts))
+	for i, f := range facts {
+		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
+	}
+	k.facts = append(k.facts, sanitizedFacts...)
 	logging.KernelDebug("LoadFacts: EDB grew from %d to %d facts", prevCount, len(k.facts))
 
 	// Count JIT-related facts for debugging
 	jitCounts := make(map[string]int)
-	for _, f := range facts {
+	for _, f := range sanitizedFacts {
 		switch f.Predicate {
 		case "is_mandatory", "atom_tag", "atom_priority", "current_context", "atom":
 			jitCounts[f.Predicate]++
@@ -469,16 +474,16 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	}
 
 	// Log sample of facts being loaded (first 5)
-	if len(facts) > 0 && logging.IsDebugMode() {
+	if len(sanitizedFacts) > 0 && logging.IsDebugMode() {
 		sampleSize := 5
-		if len(facts) < sampleSize {
-			sampleSize = len(facts)
+		if len(sanitizedFacts) < sampleSize {
+			sampleSize = len(sanitizedFacts)
 		}
 		for i := 0; i < sampleSize; i++ {
-			logging.KernelDebug("  [%d] %s", i, facts[i].String())
+			logging.KernelDebug("  [%d] %s", i, sanitizedFacts[i].String())
 		}
-		if len(facts) > sampleSize {
-			logging.KernelDebug("  ... and %d more facts", len(facts)-sampleSize)
+		if len(sanitizedFacts) > sampleSize {
+			logging.KernelDebug("  ... and %d more facts", len(sanitizedFacts)-sampleSize)
 		}
 	}
 
@@ -500,6 +505,7 @@ func (k *RealKernel) Assert(fact Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
+	fact = sanitizeFactForNumericPredicates(fact)
 	k.facts = append(k.facts, fact)
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("Assert: evaluation failed after asserting %s: %v", fact.Predicate, err)
@@ -531,7 +537,11 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	defer k.mu.Unlock()
 
 	prevCount := len(k.facts)
-	k.facts = append(k.facts, facts...)
+	sanitized := make([]Fact, len(facts))
+	for i, f := range facts {
+		sanitized[i] = sanitizeFactForNumericPredicates(f)
+	}
+	k.facts = append(k.facts, sanitized...)
 
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after adding %d facts: %v", len(facts), err)
@@ -549,6 +559,7 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) {
 	logging.KernelDebug("AssertWithoutEval: %s (deferred evaluation)", fact.Predicate)
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	fact = sanitizeFactForNumericPredicates(fact)
 	k.facts = append(k.facts, fact)
 }
 
@@ -578,16 +589,27 @@ func (k *RealKernel) Retract(predicate string) error {
 	defer k.mu.Unlock()
 
 	prevCount := len(k.facts)
-	filtered := make([]Fact, 0)
 	retractedCount := 0
+	newLen := 0
 	for _, f := range k.facts {
 		if f.Predicate != predicate {
-			filtered = append(filtered, f)
+			k.facts[newLen] = f
+			newLen++
 		} else {
 			retractedCount++
 		}
 	}
-	k.facts = filtered
+
+	if retractedCount == 0 {
+		logging.KernelDebug("Retract: no facts found for predicate=%s (EDB unchanged at %d facts)", predicate, prevCount)
+		return nil
+	}
+
+	// Zero tail to release references for GC.
+	for i := newLen; i < prevCount; i++ {
+		k.facts[i] = Fact{}
+	}
+	k.facts = k.facts[:newLen]
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
 		retractedCount, predicate, prevCount, len(k.facts))
@@ -614,27 +636,40 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 	}
 
 	prevCount := len(k.facts)
-	filtered := make([]Fact, 0)
 	retractedCount := 0
+	newLen := 0
 	for _, f := range k.facts {
 		// Keep facts that don't match predicate OR don't match first argument
 		if f.Predicate != fact.Predicate {
-			filtered = append(filtered, f)
+			k.facts[newLen] = f
+			newLen++
 			continue
 		}
 		// Same predicate - check first argument
 		if len(f.Args) > 0 && len(fact.Args) > 0 {
 			if !argsEqual(f.Args[0], fact.Args[0]) {
-				filtered = append(filtered, f)
+				k.facts[newLen] = f
+				newLen++
 			} else {
 				retractedCount++
 			}
 			// Matching predicate and first arg - don't add (retract it)
 		} else {
-			filtered = append(filtered, f)
+			k.facts[newLen] = f
+			newLen++
 		}
 	}
-	k.facts = filtered
+
+	if retractedCount == 0 {
+		logging.KernelDebug("RetractFact: no matching facts found (predicate=%s firstArg=%v)", fact.Predicate, fact.Args[0])
+		return nil
+	}
+
+	// Zero tail to release references for GC.
+	for i := newLen; i < prevCount; i++ {
+		k.facts[i] = Fact{}
+	}
+	k.facts = k.facts[:newLen]
 
 	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -686,6 +721,84 @@ func (k *RealKernel) RetractExactFact(fact Fact) error {
 	return nil
 }
 
+// RetractExactFactsBatch removes a batch of exact facts and rebuilds once.
+// Useful for incremental world model updates on large repos.
+func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
+	if len(facts) == 0 {
+		return nil
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	canon := func(f Fact) string {
+		argsJSON, _ := json.Marshal(f.Args)
+		return f.Predicate + "|" + string(argsJSON)
+	}
+
+	toRemove := make(map[string]struct{}, len(facts))
+	for _, f := range facts {
+		toRemove[canon(f)] = struct{}{}
+	}
+
+	prevCount := len(k.facts)
+	filtered := make([]Fact, 0, prevCount)
+	retractedCount := 0
+	for _, f := range k.facts {
+		if _, ok := toRemove[canon(f)]; ok {
+			retractedCount++
+			continue
+		}
+		filtered = append(filtered, f)
+	}
+	k.facts = filtered
+
+	logging.KernelDebug("RetractExactFactsBatch: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	if retractedCount > 0 {
+		if err := k.rebuild(); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RetractExactFactsBatch: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveFactsByPredicateSet removes all facts whose predicate is in the given set.
+// Rebuilds once if anything was removed.
+func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	if len(predicates) == 0 {
+		return nil
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	prevCount := len(k.facts)
+	filtered := make([]Fact, 0, prevCount)
+	retractedCount := 0
+	for _, f := range k.facts {
+		if _, ok := predicates[f.Predicate]; ok {
+			retractedCount++
+			continue
+		}
+		filtered = append(filtered, f)
+	}
+	k.facts = filtered
+
+	logging.KernelDebug("RemoveFactsByPredicateSet: removed %d facts, EDB: %d -> %d facts",
+		retractedCount, prevCount, len(k.facts))
+
+	if retractedCount > 0 {
+		if err := k.rebuild(); err != nil {
+			logging.Get(logging.CategoryKernel).Error("RemoveFactsByPredicateSet: rebuild failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
 // argsEqual compares two fact arguments for equality.
 func argsEqual(a, b interface{}) bool {
 	switch av := a.(type) {
@@ -720,6 +833,59 @@ func argsSliceEqual(a, b []interface{}) bool {
 		}
 	}
 	return true
+}
+
+// sanitizeFactForNumericPredicates coerces common priority atoms to numbers
+// for predicates that participate in numeric comparisons.
+// This prevents evaluation failures like "value /high is not a number" when
+// LLMs emit priority atoms in numeric slots.
+func sanitizeFactForNumericPredicates(f Fact) Fact {
+	switch f.Predicate {
+	case "agenda_item":
+		// agenda_item(ItemID, Description, Priority, Status, Timestamp)
+		if len(f.Args) > 2 {
+			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
+		}
+	case "prompt_atom":
+		// prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
+		if len(f.Args) > 2 {
+			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
+		}
+	case "atom_priority":
+		// atom_priority(AtomID, Priority)
+		if len(f.Args) > 1 {
+			f.Args[1] = coercePriorityAtomToNumber(f.Args[1])
+		}
+	}
+	return f
+}
+
+func coercePriorityAtomToNumber(v interface{}) interface{} {
+	switch t := v.(type) {
+	case string:
+		atom := strings.TrimSpace(t)
+		if atom == "" {
+			return v
+		}
+		// Accept both "/high" and "high"
+		trimmed := strings.TrimPrefix(atom, "/")
+		switch trimmed {
+		case "critical":
+			return int64(100)
+		case "high":
+			return int64(80)
+		case "medium", "normal":
+			return int64(50)
+		case "low":
+			return int64(25)
+		case "lowest":
+			return int64(10)
+		default:
+			return v
+		}
+	default:
+		return v
+	}
 }
 
 // rebuildProgram parses schemas+policy and caches programInfo.

@@ -22,6 +22,27 @@ import (
 func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 	logging.Coder("Applying %d edits", len(edits))
 
+	tx := NewFileTransaction()
+	applied := make([]CodeEdit, 0, len(edits))
+	committed := false
+	defer func() {
+		if !committed {
+			logging.Coder("ApplyEdits failed after %d/%d edits; rolling back filesystem state", len(applied), len(edits))
+			tx.Rollback()
+			// Best-effort retract of modified facts for rolled-back edits.
+			if c.kernel != nil {
+				for _, e := range applied {
+					_ = c.kernel.RetractFact(core.Fact{
+						Predicate: "modified",
+						Args:      []interface{}{e.File},
+					})
+				}
+			}
+		} else {
+			tx.Commit()
+		}
+	}()
+
 	var tsParser *world.TreeSitterParser
 	defer func() {
 		if tsParser != nil {
@@ -34,6 +55,10 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 			i, edit.Type, edit.File, len(edit.NewContent))
 
 		fullPath := c.resolvePath(edit.File)
+
+		if err := tx.Stage(fullPath); err != nil {
+			return fmt.Errorf("failed to stage transaction for %s: %w", edit.File, err)
+		}
 
 		// Pre-apply verification for modifications.
 		if edit.Type == "modify" || edit.Type == "refactor" || edit.Type == "fix" {
@@ -115,6 +140,7 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 				return fmt.Errorf("failed to write file: %w", err)
 			}
 			logging.CoderDebug("Direct write successful: %s", fullPath)
+			applied = append(applied, edit)
 			continue
 		}
 
@@ -180,9 +206,12 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 			})
 			logging.CoderDebug("Asserted modified fact for: %s", edit.File)
 		}
+
+		applied = append(applied, edit)
 	}
 
 	logging.Coder("All %d edits applied successfully", len(edits))
+	committed = true
 	return nil
 }
 

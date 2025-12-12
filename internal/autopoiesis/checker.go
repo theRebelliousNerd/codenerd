@@ -3,7 +3,6 @@ package autopoiesis
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -13,12 +12,21 @@ import (
 	"strings"
 	"time"
 
+	core "codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 )
 
-//go:embed go_safety.mg
 var goSafetyPolicy string
+
+func init() {
+	if policy, err := core.GetDefaultContent("go_safety.mg"); err == nil {
+		goSafetyPolicy = policy
+	} else {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to load embedded go_safety.mg: %v", err)
+		goSafetyPolicy = ""
+	}
+}
 
 // SafetyChecker validates generated tool code for safety using a Mangle policy.
 type SafetyChecker struct {

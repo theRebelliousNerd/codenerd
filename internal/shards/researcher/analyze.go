@@ -5,6 +5,7 @@ package researcher
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/world"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -57,10 +58,30 @@ func (r *ResearcherShard) analyzeCodebase(ctx context.Context, workspace string)
 		Atoms:    make([]KnowledgeAtom, 0),
 	}
 
-	// 1. Scan file topology
-	fileFacts, err := r.scanner.ScanWorkspace(workspace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan workspace: %w", err)
+	// 1. Scan file topology (incremental + cache-aware)
+	if r.scanner != nil {
+		_, _ = r.scanner.ScanWorkspaceIncremental(ctx, workspace, r.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
+	}
+
+	var fileFacts []core.Fact
+	if r.localDB != nil {
+		if cached, err := r.localDB.LoadAllWorldFacts("fast"); err == nil && len(cached) > 0 {
+			fileFacts = make([]core.Fact, 0, len(cached))
+			for _, cf := range cached {
+				fileFacts = append(fileFacts, core.Fact{Predicate: cf.Predicate, Args: cf.Args})
+			}
+		}
+	}
+	if len(fileFacts) == 0 && r.scanner != nil {
+		fresh, err := r.scanner.ScanWorkspace(workspace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan workspace: %w", err)
+		}
+		fileFacts = fresh
+		// Persist snapshot for future boots.
+		if r.localDB != nil {
+			_ = world.PersistFastSnapshotToDB(r.localDB, fileFacts)
+		}
 	}
 	result.PagesScraped = len(fileFacts)
 

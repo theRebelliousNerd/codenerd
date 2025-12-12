@@ -17,12 +17,22 @@ import (
 // Scanner handles file system indexing.
 type Scanner struct {
 	parserPool sync.Pool
+	config     ScannerConfig
 }
 
 // NewScanner creates a new filesystem Scanner.
 func NewScanner() *Scanner {
+	return NewScannerWithConfig(DefaultScannerConfig())
+}
+
+// NewScannerWithConfig creates a new filesystem Scanner with custom config.
+func NewScannerWithConfig(cfg ScannerConfig) *Scanner {
 	logging.WorldDebug("Creating new filesystem Scanner")
+	if cfg.MaxConcurrency <= 0 {
+		cfg = DefaultScannerConfig()
+	}
 	return &Scanner{
+		config: cfg,
 		parserPool: sync.Pool{
 			New: func() interface{} {
 				logging.WorldDebug("Creating new TreeSitterParser in pool")
@@ -34,10 +44,15 @@ func NewScanner() *Scanner {
 
 // ScanWorkspace scans the entire workspace and returns topology facts.
 func (s *Scanner) ScanWorkspace(root string) ([]core.Fact, error) {
+	return s.ScanWorkspaceCtx(context.Background(), root)
+}
+
+// ScanWorkspaceCtx scans the entire workspace with context support.
+func (s *Scanner) ScanWorkspaceCtx(ctx context.Context, root string) ([]core.Fact, error) {
 	logging.World("Starting workspace scan: %s", root)
 	timer := logging.StartTimer(logging.CategoryWorld, "ScanWorkspace")
 
-	result, err := s.ScanDirectory(context.Background(), root)
+	result, err := s.ScanDirectory(ctx, root)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("Workspace scan failed: %v", err)
 		return nil, err
@@ -101,7 +116,11 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 	}()
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 20) // Limit concurrency
+	maxConc := s.config.MaxConcurrency
+	if maxConc <= 0 {
+		maxConc = DefaultScannerConfig().MaxConcurrency
+	}
+	sem := make(chan struct{}, maxConc) // Limit concurrency
 	var skippedDirs int
 	var cacheHits, cacheMisses int
 
@@ -118,6 +137,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			logging.Get(logging.CategoryWorld).Warn("Walk error at %s: %v", path, err)
 			return err
 		}
+
+		rel, _ := filepath.Rel(root, path)
 
 		if info.IsDir() {
 			name := info.Name()
@@ -145,6 +166,12 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				skippedDirs++
 				return filepath.SkipDir
 			}
+			// Ignore configured directories/patterns
+			if path != root && isIgnoredRel(rel, name, s.config.IgnorePatterns) {
+				logging.WorldDebug("Skipping ignored directory: %s", path)
+				skippedDirs++
+				return filepath.SkipDir
+			}
 			mu.Lock()
 			result.DirectoryCount++
 			result.Facts = append(result.Facts, core.Fact{
@@ -153,6 +180,11 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			})
 			mu.Unlock()
 			logging.WorldDebug("Indexed directory: %s", path)
+			return nil
+		}
+
+		// Ignore configured files/patterns
+		if isIgnoredRel(rel, info.Name(), s.config.IgnorePatterns) {
 			return nil
 		}
 
@@ -212,7 +244,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 			var additionalFacts []core.Fact
 			// If not a test file and supported language, extract symbols
-			if !isTest {
+			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
 				// Borrow a parser from the pool
 				parser := s.parserPool.Get().(*TreeSitterParser)
 				defer s.parserPool.Put(parser) // Return it when done
@@ -262,6 +294,8 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				} else {
 					logging.Get(logging.CategoryWorld).Warn("Failed to read file for parsing: %s - %v", path, err)
 				}
+			} else if !isTest && s.config.MaxASTFileBytes > 0 && info.Size() > s.config.MaxASTFileBytes {
+				logging.WorldDebug("Skipping fast AST parse for large file: %s (%d bytes)", filepath.Base(path), info.Size())
 			}
 
 			mu.Lock()

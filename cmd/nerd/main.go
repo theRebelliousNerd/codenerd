@@ -435,6 +435,7 @@ func init() {
 	rootCmd.AddCommand(agentsCmd)
 	rootCmd.AddCommand(toolCmd)
 	rootCmd.AddCommand(jitCmd)
+	rootCmd.AddCommand(embeddingCmd)
 }
 
 // === START OF INTEGRATED check_mangle.go CONTENT ===
@@ -1456,19 +1457,23 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		zap.String("verb", intent.Verb),
 		zap.String("target", intent.Target))
 
-	// 3. World Model: Scan Workspace
-	logger.Debug("Scanning workspace", zap.String("path", cortex.Workspace))
-	fileFacts, err := cortex.Scanner.ScanWorkspace(cortex.Workspace)
+	// 3. World Model: Incremental Scan Workspace (fast)
+	logger.Debug("Scanning workspace incrementally", zap.String("path", cortex.Workspace))
+	scanRes, err := cortex.Scanner.ScanWorkspaceIncremental(ctx, cortex.Workspace, cortex.LocalDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 	if err != nil {
 		return fmt.Errorf("world model error: %w", err)
 	}
-	logger.Debug("Workspace scanned", zap.Int("facts", len(fileFacts)))
+	if scanRes != nil && !scanRes.Unchanged {
+		if err := world.ApplyIncrementalResult(cortex.Kernel, scanRes); err != nil {
+			return fmt.Errorf("world model apply error: %w", err)
+		}
+		logger.Debug("Workspace scan applied", zap.Int("facts", len(scanRes.NewFacts)))
+	} else {
+		logger.Debug("Workspace unchanged, using cached facts")
+	}
 
 	// 4. Load Facts into Hollow Kernel
 	if err := cortex.Kernel.LoadFacts([]core.Fact{intent.ToFact()}); err != nil {
-		return fmt.Errorf("kernel load error: %w", err)
-	}
-	if err := cortex.Kernel.LoadFacts(fileFacts); err != nil {
 		return fmt.Errorf("kernel load error: %w", err)
 	}
 
@@ -2058,6 +2063,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	facts, err := scanner.ScanWorkspace(cwd)
 	if err != nil {
 		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	// Persist fast world snapshot to knowledge.db for incremental boots.
+	dbPath := filepath.Join(cwd, ".nerd", "knowledge.db")
+	if db, dbErr := store.NewLocalStore(dbPath); dbErr == nil {
+		_ = world.PersistFastSnapshotToDB(db, facts)
+		_ = db.Close()
 	}
 
 	// Initialize kernel and load facts

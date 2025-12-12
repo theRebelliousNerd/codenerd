@@ -459,10 +459,12 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 				return errorMsg(fmt.Errorf("failed to load profile facts: %w", err))
 			}
 
-			// Also scan workspace to load fresh AST facts (supplemental)
-			facts, scanErr := m.scanner.ScanWorkspace(m.workspace)
-			if scanErr == nil {
-				_ = m.kernel.LoadFacts(facts)
+			// Also scan workspace to load fresh AST facts (supplemental, incremental)
+			if m.scanner != nil {
+				res, scanErr := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
+				if scanErr == nil && res != nil && !res.Unchanged {
+					_ = world.ApplyIncrementalResult(m.kernel, res)
+				}
 			}
 		}
 
@@ -490,63 +492,38 @@ type scanCompleteMsg struct {
 	err            error
 }
 
-// runScan performs a codebase rescan without full reinitialization
-func (m Model) runScan() tea.Cmd {
+// runScan performs a codebase rescan without full reinitialization.
+// If deep is true, it also ensures deep (Cartographer) facts are hydrated.
+func (m Model) runScan(deep bool) tea.Cmd {
 	return func() tea.Msg {
 		startTime := time.Now()
 		m.ReportStatus("Scanning workspace...")
 
-		// Scan the workspace
-		facts, err := m.scanner.ScanWorkspace(m.workspace)
+		// Incremental fast scan
+		res, err := m.scanner.ScanWorkspaceIncremental(context.Background(), m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 		if err != nil {
 			return scanCompleteMsg{err: err}
 		}
 
-		// Load facts into kernel
+		if res != nil && res.Unchanged {
+			m.ReportStatus("Workspace unchanged")
+			return scanCompleteMsg{
+				fileCount:      res.FileCount,
+				directoryCount: res.DirectoryCount,
+				factCount:      0,
+				duration:       res.Duration,
+			}
+		}
+
 		m.ReportStatus("Updating kernel...")
-		if loadErr := m.kernel.LoadFacts(facts); loadErr != nil {
-			return scanCompleteMsg{err: loadErr}
-		}
-		// Persist topology to knowledge DB and hydrate
-		if m.virtualStore != nil {
-			_ = m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5)
+		if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
+			return scanCompleteMsg{err: applyErr}
 		}
 
-		// Also reload profile.mg if it exists
-		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
-		if _, statErr := os.Stat(factsPath); statErr == nil {
-			_ = m.kernel.LoadFactsFromFile(factsPath)
-		}
-
-		// Deep parse: symbols and dependencies into kernel and knowledge.db
-		m.ReportStatus("Parsing AST symbols...")
-		parser := world.NewASTParser()
-		defer parser.Close()
-		var parsed []core.Fact
-		for _, f := range facts {
-			if f.Predicate != "file_topology" || len(f.Args) < 1 {
-				continue
-			}
-			path, ok := f.Args[0].(string)
-			if !ok {
-				continue
-			}
-			astFacts, parseErr := parser.Parse(path)
-			if parseErr != nil {
-				continue
-			}
-			if len(astFacts) == 0 {
-				continue
-			}
-			parsed = append(parsed, astFacts...)
-			_ = m.kernel.LoadFacts(astFacts)
-		}
-
-		if len(parsed) > 0 && m.virtualStore != nil {
-			m.ReportStatus("Persisting knowledge graph...")
-			_ = m.virtualStore.PersistFactsToKnowledge(parsed, "fact", 6)
-			// Promote edges into knowledge_graph for fast recall
-			for _, f := range parsed {
+		// Persist delta facts to knowledge DB and KG links
+		if m.virtualStore != nil && res != nil && len(res.NewFacts) > 0 {
+			_ = m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5)
+			for _, f := range res.NewFacts {
 				switch f.Predicate {
 				case "dependency_link":
 					if len(f.Args) >= 2 {
@@ -568,26 +545,108 @@ func (m Model) runScan() tea.Cmd {
 			}
 		}
 
-		m.ReportStatus("Scan complete")
-		// Count files and directories from facts
-		fileCount := 0
-		dirCount := 0
-		for _, f := range facts {
-			switch f.Predicate {
-			case "file_topology":
-				fileCount++
-			case "directory":
-				dirCount++
-			}
+		// Reload profile facts if present
+		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
+		if _, statErr := os.Stat(factsPath); statErr == nil {
+			_ = m.kernel.LoadFactsFromFile(factsPath)
 		}
 
+		// Optional deep scan (on-demand)
+		if deep {
+			_ = m.ensureDeepWorldFacts()
+		}
+
+		m.ReportStatus("Scan complete")
+		fileCount := 0
+		dirCount := 0
+		if res != nil {
+			fileCount = res.FileCount
+			dirCount = res.DirectoryCount
+		}
+		factCount := 0
+		if res != nil {
+			factCount = len(res.NewFacts)
+		}
 		return scanCompleteMsg{
 			fileCount:      fileCount,
 			directoryCount: dirCount,
-			factCount:      len(facts),
+			factCount:      factCount,
 			duration:       time.Since(startTime),
 		}
 	}
+}
+
+// ensureDeepWorldFacts hydrates deep Cartographer facts for Go files.
+// This is on-demand only (e.g., `/scan --deep`).
+func (m *Model) ensureDeepWorldFacts() error {
+	if m.kernel == nil || m.scanner == nil {
+		return nil
+	}
+
+	fileFacts, _ := m.kernel.Query("file_topology")
+	goFiles := make([]string, 0)
+	for _, f := range fileFacts {
+		if len(f.Args) < 3 {
+			continue
+		}
+		path, ok := f.Args[0].(string)
+		if !ok {
+			continue
+		}
+		langAtom, ok := f.Args[2].(core.MangleAtom)
+		if !ok {
+			continue
+		}
+		if string(langAtom) == "/go" {
+			goFiles = append(goFiles, path)
+		}
+	}
+	if len(goFiles) == 0 {
+		return nil
+	}
+
+	deepWorkers := 0
+	if m.Config != nil {
+		deepWorkers = m.Config.GetWorldConfig().DeepWorkers
+	}
+
+	res, err := world.EnsureDeepFacts(context.Background(), goFiles, m.localDB, deepWorkers)
+	if err != nil || res == nil || len(res.NewFacts) == 0 {
+		return err
+	}
+
+	if len(res.RetractFacts) > 0 {
+		_ = m.kernel.RetractExactFactsBatch(res.RetractFacts)
+	}
+	if loadErr := m.kernel.LoadFacts(res.NewFacts); loadErr != nil {
+		return loadErr
+	}
+
+	if m.virtualStore != nil {
+		_ = m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 6)
+		for _, f := range res.NewFacts {
+			switch f.Predicate {
+			case "dependency_link":
+				if len(f.Args) >= 2 {
+					a := fmt.Sprintf("%v", f.Args[0])
+					b := fmt.Sprintf("%v", f.Args[1])
+					rel := "depends_on"
+					if len(f.Args) >= 3 {
+						rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+					}
+					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"})
+				}
+			case "symbol_graph":
+				if len(f.Args) >= 4 {
+					sid := fmt.Sprintf("%v", f.Args[0])
+					file := fmt.Sprintf("%v", f.Args[3])
+					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-deep"})
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // runPartialScan scans specific file paths (non-recursive) and persists facts.

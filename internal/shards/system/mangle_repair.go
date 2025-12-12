@@ -588,7 +588,7 @@ Key Mangle syntax rules:
 - Strings use "double quotes"
 - Rules end with a period (.)
 - Negation requires variables to be bound first: positive(X), not negative(X)
-- Aggregation uses pipe syntax: source() |> do fn:group_by(K), let N = fn:Count()
+- Aggregation uses pipe syntax: source() |> do fn:group_by(K), let N = fn:count()
 
 When repairing rules:
 - Replace undefined predicates with similar declared ones

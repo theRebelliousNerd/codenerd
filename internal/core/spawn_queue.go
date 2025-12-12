@@ -467,16 +467,18 @@ func (sq *SpawnQueue) waitForSlot(ctx context.Context, deadline time.Time) error
 
 		// Log queue status on first wait
 		if !loggedWait {
-			activeCount := 0
+			activeNonSystem := 0
+			totalActive := 0
 			limit := 0
 			if sq.shardManager != nil {
-				activeCount = sq.shardManager.GetActiveShardCount()
+				totalActive = sq.shardManager.GetActiveShardCount()
+				activeNonSystem = sq.shardManager.GetActiveNonSystemShardCount()
 			}
 			if sq.limitsEnforcer != nil {
 				limit = sq.limitsEnforcer.GetShardLimit()
 			}
-			logging.Shards("SpawnQueue: waiting for slot (active=%d, limit=%d, queued=%d)",
-				activeCount, limit, atomic.LoadInt64(&sq.totalQueued)-atomic.LoadInt64(&sq.totalSpawned))
+			logging.Shards("SpawnQueue: waiting for slot (active_non_system=%d, total_active=%d, limit=%d, queued=%d)",
+				activeNonSystem, totalActive, limit, atomic.LoadInt64(&sq.totalQueued)-atomic.LoadInt64(&sq.totalSpawned))
 			loggedWait = true
 		}
 
@@ -631,7 +633,7 @@ func (sq *SpawnQueue) GetAvailableSlots() int {
 
 	activeCount := 0
 	if sq.shardManager != nil {
-		activeCount = sq.shardManager.GetActiveShardCount()
+		activeCount = sq.shardManager.GetActiveNonSystemShardCount()
 	}
 
 	return sq.limitsEnforcer.GetAvailableShardSlots(activeCount)
@@ -645,7 +647,7 @@ func (sq *SpawnQueue) CanSpawnNow() bool {
 
 	activeCount := 0
 	if sq.shardManager != nil {
-		activeCount = sq.shardManager.GetActiveShardCount()
+		activeCount = sq.shardManager.GetActiveNonSystemShardCount()
 	}
 
 	// Check both shard limit and memory

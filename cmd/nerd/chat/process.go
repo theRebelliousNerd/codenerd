@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/usage"
+	"codenerd/internal/world"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -159,14 +160,19 @@ func (m Model) processInput(input string) tea.Cmd {
 		if m.shouldAutoClarify(&intent, input) {
 			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
-				m.lastClarifyInput = input
-				m.launchClarifyPending = true
-				m.launchClarifyGoal = input
-				m.launchClarifyAnswers = ""
-				return responseMsg(m.appendSystemSummary(
+				surface := m.appendSystemSummary(
 					res+"\n\nReply with answers, then use `/launchcampaign <goal>` when you are ready to start.",
 					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
-				))
+				)
+				return assistantMsg{
+					Surface: surface,
+					ClarifyUpdate: &ClarifyUpdate{
+						LastClarifyInput:     input,
+						LaunchClarifyPending: true,
+						LaunchClarifyGoal:    input,
+						LaunchClarifyAnswers: "",
+					},
+				}
 			} else if err != nil {
 				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
 			}
@@ -179,7 +185,8 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)
 			if len(steps) > 1 {
-				return m.executeMultiStepTask(ctx, intent, steps)
+				cmd := m.executeMultiStepTask(ctx, intent, steps)
+				return cmd()
 			}
 		}
 
@@ -210,21 +217,31 @@ func (m Model) processInput(input string) tea.Cmd {
 					_ = m.kernel.LoadFacts(facts)
 				}
 
-				// CONVERSATION CONTEXT FIX: Store shard result for follow-up queries
-				m.storeShardResult(shardType, task, result, facts)
+				srPayload := &ShardResultPayload{
+					ShardType: shardType,
+					Task:      task,
+					Result:    result,
+					Facts:     facts,
+				}
 
 				if verifyErr != nil {
 					// Check if max retries exceeded - escalate to user
 					if verifyErr.Error() == "max retries exceeded - escalating to user" {
 						response := formatVerificationEscalation(task, shardType, verification)
-						return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+						return assistantMsg{
+							Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+							ShardResult: srPayload,
+						}
 					}
 					return errorMsg(fmt.Errorf("verified execution failed: %w", verifyErr))
 				}
 
 				// Format response with verification confidence
 				response := formatVerifiedResponse(intent, shardType, task, result, verification)
-				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+				return assistantMsg{
+					Surface:     m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+					ShardResult: srPayload,
+				}
 			}
 
 			// Shard spawn with queue backpressure management (user-initiated = high priority)
@@ -240,8 +257,12 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 			}
 
-			// CONVERSATION CONTEXT FIX: Store shard result for follow-up queries
-			m.storeShardResult(shardType, task, result, facts)
+			srPayload := &ShardResultPayload{
+				ShardType: shardType,
+				Task:      task,
+				Result:    result,
+				Facts:     facts,
+			}
 
 			if spawnErr != nil {
 				return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
@@ -286,28 +307,42 @@ OUTPUT:
 
 				// Combine the structured result (in a collapsible block) with the interpretation
 				response := fmt.Sprintf("%s%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, validationWarning, result)
+				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
 
 				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
 				if cont := m.checkContinuation(shardType, task, result); cont != nil {
-					// Store response for display, then signal continuation
-					m.statusMessage = response
-					return *cont
+					return continuationInitMsg{
+						completedSurface: surface,
+						firstResult:      srPayload,
+						next:             *cont,
+						totalSteps:       0,
+					}
 				}
 
-				return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+				return assistantMsg{
+					Surface:     surface,
+					ShardResult: srPayload,
+				}
 			}
 
 			// Format a rich response combining LLM surface response and shard result
 			response := formatDelegatedResponse(intent, shardType, task, result)
+			surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
 
 			// CONTINUATION PROTOCOL: Check for pending subtasks before returning
 			if cont := m.checkContinuation(shardType, task, result); cont != nil {
-				// Store response for display, then signal continuation
-				m.statusMessage = response
-				return *cont
+				return continuationInitMsg{
+					completedSurface: surface,
+					firstResult:      srPayload,
+					next:             *cont,
+					totalSteps:       0,
+				}
 			}
 
-			return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+			return assistantMsg{
+				Surface:     surface,
+				ShardResult: srPayload,
+			}
 		}
 
 		// 1.7 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
@@ -355,17 +390,38 @@ OUTPUT:
 		}
 
 		// 2. CONTEXT LOADING (Scanner)
-		// Load workspace facts only if intent requires it (optimization)
+		// Load workspace facts only if intent requires it (optimization).
+		// Use incremental scan to avoid reparsing unchanged repos.
 		if intent.Category == "/query" || intent.Category == "/mutation" {
-			fileFacts, err := m.scanner.ScanWorkspace(m.workspace)
+			res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
-			} else if len(fileFacts) > 0 {
-				_ = m.kernel.LoadFacts(fileFacts)
-				// Persist file topology into knowledge.db for hydration-driven queries
-				if m.virtualStore != nil {
-					if err := m.virtualStore.PersistFactsToKnowledge(fileFacts, "fact", 5); err != nil {
+			} else if res != nil && !res.Unchanged && len(res.NewFacts) > 0 {
+				if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
+					warnings = append(warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
+				} else if m.virtualStore != nil {
+					if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
 						warnings = append(warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
+					}
+					for _, f := range res.NewFacts {
+						switch f.Predicate {
+						case "dependency_link":
+							if len(f.Args) >= 2 {
+								a := fmt.Sprintf("%v", f.Args[0])
+								b := fmt.Sprintf("%v", f.Args[1])
+								rel := "depends_on"
+								if len(f.Args) >= 3 {
+									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+								}
+								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
+							}
+						case "symbol_graph":
+							if len(f.Args) >= 4 {
+								sid := fmt.Sprintf("%v", f.Args[0])
+								file := fmt.Sprintf("%v", f.Args[3])
+								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
+							}
+						}
 					}
 				}
 			}
@@ -730,9 +786,6 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 		hypothetical = input
 	}
 
-	// Store this dream state for learning follow-up
-	m.lastDreamHypothetical = hypothetical
-
 	// Get ALL available shards dynamically (Type A, B, U, and selected S)
 	availableShards := m.shardMgr.ListAvailableShards()
 
@@ -988,7 +1041,10 @@ Format your response as a structured analysis.`
 		}
 	}
 
-	return responseMsg(response)
+	return assistantMsg{
+		Surface:           response,
+		DreamHypothetical: hypothetical,
+	}
 }
 
 // formatDreamStateResponse aggregates shard consultations into a structured response.
@@ -1640,34 +1696,25 @@ func (m Model) checkWorkspaceSync() tea.Cmd {
 		}
 
 		start := time.Now()
-		facts, err := m.scanner.ScanWorkspace(m.workspace)
+		res, err := m.scanner.ScanWorkspaceIncremental(context.Background(), m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 		if err != nil {
 			return scanCompleteMsg{err: err}
 		}
+		if res == nil || res.Unchanged {
+			return nil
+		}
 
-		// Update kernel with fresh facts
-		// This overwrites any stale facts from the cached profile
 		if m.kernel != nil {
-			_ = m.kernel.LoadFacts(facts)
+			_ = world.ApplyIncrementalResult(m.kernel, res)
 		}
-
-		// Persist to knowledge.db (for future warm starts)
-		if m.virtualStore != nil {
-			_ = m.virtualStore.PersistFactsToKnowledge(facts, "fact", 5)
-		}
-
-		// Calculate stats
-		dirCount := 0
-		for _, f := range facts {
-			if f.Predicate == "directory" {
-				dirCount++
-			}
+		if m.virtualStore != nil && len(res.NewFacts) > 0 {
+			_ = m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5)
 		}
 
 		return scanCompleteMsg{
-			fileCount:      len(facts) - dirCount, // Approximation
-			directoryCount: dirCount,
-			factCount:      len(facts),
+			fileCount:      res.FileCount,
+			directoryCount: res.DirectoryCount,
+			factCount:      len(res.NewFacts),
 			duration:       time.Since(start),
 			err:            nil,
 		}
@@ -1679,9 +1726,9 @@ func (m Model) checkWorkspaceSync() tea.Cmd {
 // =============================================================================
 
 // checkContinuation checks if there are pending subtasks after shard execution.
-// Returns a continueMsg if more work is needed, nil otherwise.
+// Returns the next continueMsg if more work is needed, nil otherwise.
 // This is called from processInput after each shard completes.
-func (m *Model) checkContinuation(shardType, task, result string) *tea.Msg {
+func (m *Model) checkContinuation(shardType, task, result string) *continueMsg {
 	// Inject result facts to enable continuation derivation
 	m.injectShardResultFacts(shardType, task, result, nil)
 
@@ -1703,18 +1750,12 @@ func (m *Model) checkContinuation(shardType, task, result string) *tea.Msg {
 
 			// Check if this is a mutation operation
 			isMutation := isMutationOperation(nextShard)
-
-			// Initialize continuation tracking
-			m.continuationStep = 1
-			m.continuationTotal = 2 // At least 2 steps (current + next)
-
-			msg := tea.Msg(continueMsg{
+			return &continueMsg{
 				subtaskID:   nextID,
 				description: nextDesc,
 				shardType:   nextShard,
 				isMutation:  isMutation,
-			})
-			return &msg
+			}
 		}
 	}
 
@@ -1753,13 +1794,18 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		// Inject result facts into kernel
 		m.injectShardResultFacts(shardType, description, result, err)
 
-		// Store result for follow-up queries
-		m.storeShardResult(shardType, description, result, nil)
+		payload := &ShardResultPayload{
+			ShardType: shardType,
+			Task:      description,
+			Result:    result,
+			Facts:     nil,
+		}
 
 		if err != nil {
 			return continuationDoneMsg{
-				stepCount: m.continuationStep,
-				summary:   fmt.Sprintf("Step %d failed: %v", m.continuationStep, err),
+				stepCount:            m.continuationStep,
+				summary:              fmt.Sprintf("Step %d failed: %v", m.continuationStep, err),
+				completedShardResult: payload,
 			}
 		}
 
@@ -1780,16 +1826,19 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 					// Check if this is a mutation operation
 					isMutation := isMutationOperation(nextShard)
 
-					// Update total steps if we discover more
+					// Update total steps if we discover more (send to Update thread)
+					newTotal := m.continuationTotal
 					if m.continuationStep >= m.continuationTotal {
-						m.continuationTotal = m.continuationStep + 1
+						newTotal = m.continuationStep + 1
 					}
 
 					return continueMsg{
-						subtaskID:   nextID,
-						description: nextDesc,
-						shardType:   nextShard,
-						isMutation:  isMutation,
+						subtaskID:            nextID,
+						description:          nextDesc,
+						shardType:            nextShard,
+						isMutation:           isMutation,
+						totalSteps:           newTotal,
+						completedShardResult: payload,
 					}
 				}
 			}
@@ -1797,8 +1846,9 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 
 		// No more continuation - we're done
 		return continuationDoneMsg{
-			stepCount: m.continuationStep,
-			summary:   fmt.Sprintf("Completed %d steps successfully.", m.continuationStep),
+			stepCount:            m.continuationStep,
+			summary:              fmt.Sprintf("Completed %d steps successfully.", m.continuationStep),
+			completedShardResult: payload,
 		}
 	}
 }

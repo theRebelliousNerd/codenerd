@@ -49,6 +49,7 @@ nerd --timeout 5m       # Set operation timeout
 | `nerd browser <action>` | Browser automation |
 | `nerd campaign <action>` | Multi-phase goal orchestration |
 | `nerd check-mangle <files>` | Validate Mangle syntax |
+| `nerd embedding <action>` | Manage embeddings (set/stats/reembed) |
 
 ## Interactive TUI
 

@@ -1,8 +1,6 @@
 // MANDATE FOR AI CODING TOOLS:
 // This file contains critical product requirements and architectural mandates.
 // DO NOT REMOVE OR SIGNIFICANTLY ALTER THESE COMMENTS.
-// They serve as a source of truth for the Symbiogen Agentic Intelligence Platform.
-// This File is best written for Gemini 2.5 Pro.
 // YOU MUST READ THIS ENTIRE HEADER BEFORE AND AFTER EVERY INTERACTION WITH THIS FILE.
 
 // Symbiogen Product Requirements Document (PRD) for internal/autopoiesis/ouroboros.go
@@ -132,9 +130,9 @@ type OuroborosConfig struct {
 	WorkspaceRoot   string        // Absolute path to the main codeNERD workspace root
 
 	// Adversarial Co-Evolution configuration
-	EnableThunderdome bool          // Whether to run adversarial tests (default: true)
+	EnableThunderdome bool              // Whether to run adversarial tests (default: true)
 	ThunderdomeConfig ThunderdomeConfig // Configuration for the Thunderdome arena
-	MaxPanicRetries   int           // Max regeneration attempts after PanicMaker kill (default: 2)
+	MaxPanicRetries   int               // Max regeneration attempts after PanicMaker kill (default: 2)
 }
 
 // DefaultOuroborosConfig returns safe default configuration
@@ -273,7 +271,7 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	logging.Autopoiesis("Restored %d tools from registry", toolCount)
 
 	// Load State Machine Rules
-	statePath := filepath.Join(config.WorkspaceRoot, "internal", "autopoiesis", "state.mg")
+	statePath := filepath.Join(config.WorkspaceRoot, "internal", "core", "defaults", "state.mg")
 	logging.AutopoiesisDebug("Loading state machine rules from: %s", statePath)
 	if err := loop.engine.LoadSchema(statePath); err != nil {
 		// Warn but proceed? No, state.mg is critical for "Check ?valid_transition".

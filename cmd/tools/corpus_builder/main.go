@@ -6,7 +6,7 @@
 //
 // Build with sqlite-vec support:
 //
-//	$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go run ./cmd/tools/corpus_builder
+//	$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"; go run -tags=sqlite_vec ./cmd/tools/corpus_builder
 package main
 
 import (
@@ -23,7 +23,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 
-	_ "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 

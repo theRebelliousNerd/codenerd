@@ -1844,13 +1844,11 @@ func assertNorthstarFacts(kernel interface{ AssertString(fact string) error }, w
 // buildNorthstarPrompt constructs system and user prompts for northstar LLM operations.
 // It attempts to use the JIT compiler if available, otherwise falls back to static prompts.
 func (m Model) buildNorthstarPrompt(ctx context.Context, phase, content string) (systemPrompt, userPrompt string) {
-	// Try to use JIT compilation via kernel and prompt compiler
-	if m.kernel != nil {
-		// Create a PromptAssembler with JIT if available
-		// Check if we have a JIT compiler configured in the emitter
-		if m.emitter != nil {
-			// For now, fall back to static prompts
-			// TODO: Wire up JIT compiler once emitter exposes PromptAssembler
+	// Prefer JIT compilation if available (northstar atoms are phase-tagged)
+	if m.jitCompiler != nil {
+		cc := m.buildNorthstarCompilationContext(phase)
+		if res, err := m.jitCompiler.Compile(ctx, cc); err == nil && res != nil && strings.TrimSpace(res.Prompt) != "" {
+			return res.Prompt, content
 		}
 	}
 

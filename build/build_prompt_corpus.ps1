@@ -26,6 +26,7 @@ $env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
 # Build and run the prompt builder
 $buildArgs = @(
     "run"
+    "-tags=sqlite_vec"
     "./cmd/tools/prompt_builder"
     "-input", "build/prompt_atoms"
     "-output", "internal/core/defaults/prompt_corpus.db"

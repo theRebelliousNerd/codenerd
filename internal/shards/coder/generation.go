@@ -191,7 +191,7 @@ func getLanguageCognitiveModel(lang string) string {
 // DEPRECATED: This prompt constant is being replaced by the JIT prompt compiler.
 // Prompts should now be defined in build/prompt_atoms/ YAML files.
 // This constant is kept only as a legacy fallback when JIT compilation fails.
-// TODO: Remove this constant once JIT compiler is fully stable and tested.
+// NOTE: Legacy fallback; remove when JIT is fully stable.
 // =============================================================================
 
 const coderSystemPromptTemplate = `// =============================================================================
@@ -554,7 +554,7 @@ For modifications, include the COMPLETE new file content, not a diff.
 // DEPRECATED: These cognitive model constants are being replaced by the JIT prompt compiler.
 // Language-specific models should now be defined in build/prompt_atoms/ YAML files.
 // These constants are kept only as legacy fallbacks when JIT compilation fails.
-// TODO: Remove these constants once JIT compiler is fully stable and tested.
+// NOTE: Legacy fallbacks; remove when JIT is fully stable.
 // =============================================================================
 
 const goCognitiveModel = `## GO COGNITIVE MODEL

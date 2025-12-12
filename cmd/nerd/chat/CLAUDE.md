@@ -101,7 +101,7 @@ type Message struct {
 | `/config show` | Show current configuration | Display current config |
 | `/config set-theme` | Set UI theme (light/dark) | Direct config modification |
 | `/init` | Initialize codebase analysis | `runInit()` |
-| `/scan` | Re-scan workspace | `runScan()` |
+| `/scan [--deep]` | Re-scan workspace (fast; add --deep for Cartographer) | `runScan(deep)` |
 
 ## Multi-Shard Review System
 
