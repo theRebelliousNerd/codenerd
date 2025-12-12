@@ -49,8 +49,8 @@ func DefaultConfig() CompressorConfig {
 		// Keep last 5 turns fully
 		RecentTurnWindow: 5,
 
-		// Compress at 80% usage, target 100:1 ratio
-		CompressionThreshold:   0.80,
+		// Compress at 60% usage, target 100:1 ratio
+		CompressionThreshold:   0.60,
 		TargetCompressionRatio: 100.0,
 		ActivationThreshold:    30.0, // Matches policy.mg: Score > 30
 

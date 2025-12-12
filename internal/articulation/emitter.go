@@ -155,6 +155,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 				fmt.Sprintf("Self-correction triggered: %s", envelope.Control.SelfCorrection.Hypothesis))
 		}
 
+		rp.applyCaps(result)
 		return result, nil
 	}
 	logging.ArticulationDebug("Direct JSON parse failed: %v", err)
@@ -171,6 +172,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 			rp.stats.SuccessfulParses++
 			logging.Articulation("Markdown-wrapped JSON parse successful (confidence=0.95, surface_length=%d)",
 				len(result.Surface))
+			rp.applyCaps(result)
 			return result, nil
 		}
 		logging.ArticulationDebug("Markdown-wrapped JSON parse failed: %v", err)
@@ -189,6 +191,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		logging.Articulation("Embedded JSON extraction successful (confidence=0.85, surface_length=%d)",
 			len(result.Surface))
 		logging.Get(logging.CategoryArticulation).Warn("JSON extracted from mixed content - LLM response was not clean")
+		rp.applyCaps(result)
 		return result, nil
 	}
 	logging.ArticulationDebug("Embedded JSON extraction failed: %v", err)
@@ -203,6 +206,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
 		logging.Get(logging.CategoryArticulation).Warn("Fallback parse: no valid Piggyback JSON found, using raw response (confidence=0.5)")
 		logging.ArticulationDebug("Fallback surface length: %d bytes", len(result.Surface))
+		rp.applyCaps(result)
 		return result, nil
 	}
 
@@ -212,6 +216,35 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 	logging.ArticulationDebug("Validation failure stats: total=%d, failures=%d",
 		rp.stats.TotalProcessed, rp.stats.ValidationFailures)
 	return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", err)
+}
+
+// applyCaps enforces surface/control size limits to avoid runaway payloads.
+func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
+	if result == nil {
+		return
+	}
+
+	// Surface length cap
+	if rp.MaxSurfaceLength > 0 && len(result.Surface) > rp.MaxSurfaceLength {
+		result.Surface = result.Surface[:rp.MaxSurfaceLength] + "\n\n[TRUNCATED]"
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Surface response truncated to %d chars", rp.MaxSurfaceLength))
+	}
+
+	// Control packet caps (defensive)
+	const maxMangleUpdates = 2000
+	if len(result.Control.MangleUpdates) > maxMangleUpdates {
+		result.Control.MangleUpdates = result.Control.MangleUpdates[:maxMangleUpdates]
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Mangle updates truncated to %d atoms", maxMangleUpdates))
+	}
+
+	const maxMemoryOps = 500
+	if len(result.Control.MemoryOperations) > maxMemoryOps {
+		result.Control.MemoryOperations = result.Control.MemoryOperations[:maxMemoryOps]
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Memory operations truncated to %d items", maxMemoryOps))
+	}
 }
 
 // parseJSON attempts direct JSON parsing.
@@ -241,10 +274,21 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 		}
 	}
 
-	// Validate required fields
+	// Validate required fields (surface always required)
 	if envelope.Surface == "" {
 		logging.ArticulationDebug("parseJSON: validation failed - missing surface_response field")
 		return PiggybackEnvelope{}, fmt.Errorf("missing surface_response field")
+	}
+
+	// In strict mode, also require a minimally valid control packet.
+	if rp.RequireValidJSON {
+		ic := envelope.Control.IntentClassification
+		if ic.Category == "" || ic.Verb == "" {
+			return PiggybackEnvelope{}, fmt.Errorf("missing intent_classification fields")
+		}
+		if envelope.Control.MangleUpdates == nil {
+			return PiggybackEnvelope{}, fmt.Errorf("missing mangle_updates field")
+		}
 	}
 
 	logging.ArticulationDebug("parseJSON: successfully parsed envelope with surface_length=%d", len(envelope.Surface))
@@ -284,8 +328,8 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 
 	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
 
-	// Pattern to find JSON objects
-	jsonPattern := regexp.MustCompile(`\{[\s\S]*"surface_response"[\s\S]*"control_packet"[\s\S]*\}`)
+	// Pattern to find JSON objects containing both keys, regardless of order
+	jsonPattern := regexp.MustCompile(`\{[\s\S]*("surface_response"[\s\S]*"control_packet"|"control_packet"[\s\S]*"surface_response")[\s\S]*\}`)
 
 	match := jsonPattern.FindString(s)
 	if match == "" {

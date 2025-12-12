@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -90,11 +91,25 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 
 	// Set shard context
 	cc.ShardType = "/" + pc.ShardType
-	cc.ShardID = pc.ShardID
+	// ShardID must be the stable agent name to match registered shard DBs and atom tags.
+	// pc.ShardID may be an ephemeral instance ID (e.g., coder-123), so keep it separately.
+	cc.ShardID = pc.ShardType
+	cc.ShardInstanceID = pc.ShardID
 
 	// Set default token budget
 	cc.TokenBudget = 100000
 	cc.ReservedTokens = 8000
+
+	normalizeTag := func(v string) string {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return ""
+		}
+		if strings.HasPrefix(v, "/") {
+			return v
+		}
+		return "/" + v
+	}
 
 	// Extract from SessionContext if available
 	if pc.SessionCtx != nil {
@@ -128,6 +143,41 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 		if pc.SessionCtx.GitUnstagedCount > 20 {
 			cc.IsHighChurn = true
 		}
+
+		// Derive world model flags from session safety state.
+		if len(pc.SessionCtx.SafetyWarnings) > 0 || len(pc.SessionCtx.BlockedActions) > 0 {
+			cc.HasSecurityIssues = true
+		}
+
+		// Map optional contextual selectors from ExtraContext if present.
+		if pc.SessionCtx.ExtraContext != nil {
+			if v := pc.SessionCtx.ExtraContext["build_layer"]; v != "" {
+				cc.BuildLayer = normalizeTag(v)
+			}
+			if v := pc.SessionCtx.ExtraContext["init_phase"]; v != "" {
+				cc.InitPhase = normalizeTag(v)
+			}
+			if v := pc.SessionCtx.ExtraContext["northstar_phase"]; v != "" {
+				cc.NorthstarPhase = normalizeTag(v)
+			}
+			if v := pc.SessionCtx.ExtraContext["ouroboros_stage"]; v != "" {
+				cc.OuroborosStage = normalizeTag(v)
+			}
+			// Frameworks can be provided as comma-separated list or repeated keys.
+			if v := pc.SessionCtx.ExtraContext["frameworks"]; v != "" {
+				rawFws := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ';' || r == ' ' })
+				for _, fw := range rawFws {
+					if tag := normalizeTag(fw); tag != "" {
+						cc.Frameworks = append(cc.Frameworks, tag)
+					}
+				}
+			} else if v := pc.SessionCtx.ExtraContext["framework"]; v != "" {
+				cc.Frameworks = []string{normalizeTag(v)}
+			}
+			if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
+				cc.Language = normalizeTag(v)
+			}
+		}
 	}
 
 	// Extract from UserIntent if available
@@ -138,6 +188,11 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 		// Use target as semantic query for vector search
 		if pc.UserIntent.Target != "" {
 			cc.SemanticQuery = pc.UserIntent.Target
+		}
+
+		// Infer language from intent target if not already set.
+		if cc.Language == "" && pc.UserIntent.Target != "" {
+			cc.Language = inferLanguageFromTarget(pc.UserIntent.Target)
 		}
 	}
 
@@ -151,6 +206,30 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	cc.UserIntent = pc.UserIntent
 
 	return cc
+}
+
+// inferLanguageFromTarget tries to map a file extension to a JIT language tag.
+// Returns empty string if no confident mapping is found.
+func inferLanguageFromTarget(target string) string {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(target), "."))
+	switch ext {
+	case "go":
+		return "/go"
+	case "py":
+		return "/python"
+	case "ts", "tsx":
+		return "/typescript"
+	case "js", "jsx":
+		return "/javascript"
+	case "rs":
+		return "/rust"
+	case "java":
+		return "/java"
+	case "gl", "mg", "mangle":
+		return "/mangle"
+	default:
+		return ""
+	}
 }
 
 // AssembleSystemPrompt constructs a complete system prompt for a shard.
@@ -178,6 +257,14 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 				len(result.Prompt), result.AtomsIncluded, result.BudgetUsed*100)
 			return result.Prompt, nil
 		}
+		// Telemetry: record JIT fallback into the kernel if possible.
+		reason := err.Error()
+		if len(reason) > 400 {
+			reason = reason[:400]
+		}
+		_ = pa.jitCompiler.AssertFacts([]string{
+			fmt.Sprintf("jit_fallback(%s, %q).", cc.ShardType, reason),
+		})
 		logging.Get(logging.CategoryArticulation).Warn("JIT compilation failed, falling back to legacy assembler: %v", err)
 		// Fall through to legacy assembly
 	}
@@ -185,13 +272,28 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 	// Legacy prompt assembly (fallback)
 	var sb strings.Builder
 
-	// 1. Query and write shard-specific base template
-	baseTemplate, err := pa.queryShardTemplate(pc.ShardType)
-	if err != nil {
-		logging.Get(logging.CategoryArticulation).Warn("Failed to query shard template: %v, using fallback", err)
-		baseTemplate = pa.getFallbackTemplate(pc.ShardType)
+	usedLegacyTemplate := false
+
+	// 1. Prefer a kernel-provided base template if available.
+	baseline, tmplErr := pa.queryShardTemplate(pc.ShardType)
+	if tmplErr == nil && baseline != "" {
+		usedLegacyTemplate = true // ensure Piggyback suffix if kernel template omitted it
+	} else {
+		// Otherwise assemble baseline prompt from embedded mandatory atoms.
+		// This keeps Piggyback, safety, shard identity, and methodology in YAML atoms.
+		cc := pa.toCompilationContext(pc)
+		var err error
+		baseline, err = prompt.AssembleEmbeddedBaselinePrompt(cc)
+		if err != nil || baseline == "" {
+			// Emergency fallback to hard-coded legacy template.
+			if err != nil {
+				logging.Get(logging.CategoryArticulation).Warn("Baseline assembly failed: %v, falling back to legacy templates", err)
+			}
+			baseline = pa.getFallbackTemplate(pc.ShardType)
+			usedLegacyTemplate = true
+		}
 	}
-	sb.WriteString(baseTemplate)
+	sb.WriteString(baseline)
 	sb.WriteString("\n\n")
 
 	// 2. Query and inject context atoms from kernel
@@ -230,8 +332,10 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 		sb.WriteString("\n")
 	}
 
-	// 5. Append Piggyback Protocol suffix
-	sb.WriteString(PiggybackProtocolSuffix)
+	// 5. If we had to fall back to hard-coded legacy templates, ensure Piggyback suffix.
+	if usedLegacyTemplate {
+		sb.WriteString(PiggybackProtocolSuffix)
+	}
 
 	result := sb.String()
 	logging.ArticulationDebug("Assembled system prompt: %d bytes", len(result))

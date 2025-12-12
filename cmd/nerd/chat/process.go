@@ -653,6 +653,8 @@ OUTPUT:
 			}
 
 			turn := ctxcompress.Turn{
+				Number:          m.turnCount, // zero-based turn numbering
+				Role:            "assistant",
 				UserInput:       input,
 				SurfaceResponse: response,
 				ControlPacket:   controlPacket,
@@ -660,9 +662,16 @@ OUTPUT:
 			}
 
 			// Process turn asynchronously - don't block response
-			go func() {
+			go func(t ctxcompress.Turn, capturedIntent perception.Intent, capturedResponse string) {
+				// Use a shutdown-scoped context so compression can finish after the main turn ctx is canceled.
+				baseCtx := m.shutdownCtx
+				if baseCtx == nil {
+					baseCtx = context.Background()
+				}
+				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
+				defer cancel()
 				// COMPRESSION: Semantic compression for infinite context (§8.2)
-				if _, err := m.compressor.ProcessTurn(ctx, turn); err != nil {
+				if _, err := m.compressor.ProcessTurn(compressCtx, t); err != nil {
 					// Log compression errors but don't fail the turn
 					fmt.Printf("[Compressor] Warning: %v\n", err)
 				}
@@ -670,9 +679,9 @@ OUTPUT:
 				// KNOWLEDGE PERSISTENCE: Populate knowledge.db tables for learning
 				// This implements the missing learning loop identified in user feedback
 				if m.localDB != nil {
-					m.persistTurnToKnowledge(turn, intent, response)
+					m.persistTurnToKnowledge(t, capturedIntent, capturedResponse)
 				}
-			}()
+			}(turn, intent, response)
 		}
 
 		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
@@ -1916,12 +1925,12 @@ func (m *Model) injectShardResultFacts(shardType, task, result string, err error
 // Used by Breakpoint mode to pause before write/run operations.
 func isMutationOperation(shardType string) bool {
 	mutationShards := map[string]bool{
-		"coder":           true,  // Writes code
-		"tool_generator":  true,  // Creates tools
-		"tester":          false, // Just runs tests (read-only)
-		"reviewer":        false, // Just analyzes (read-only)
-		"researcher":      false, // Just gathers info (read-only)
-		"debugger":        true,  // May fix bugs
+		"coder":            true,  // Writes code
+		"tool_generator":   true,  // Creates tools
+		"tester":           false, // Just runs tests (read-only)
+		"reviewer":         false, // Just analyzes (read-only)
+		"researcher":       false, // Just gathers info (read-only)
+		"debugger":         true,  // May fix bugs
 		"security_auditor": false, // Just analyzes
 	}
 	if isMutation, exists := mutationShards[shardType]; exists {

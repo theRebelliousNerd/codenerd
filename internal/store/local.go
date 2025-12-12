@@ -212,6 +212,21 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_session ON session_history(session_id);
 	`
 
+	// Compressed context state for infinite-context rehydration
+	// Stores semantic compression state per session/turn.
+	compressedStateTable := `
+	CREATE TABLE IF NOT EXISTS compressed_states (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL,
+		turn_number INTEGER NOT NULL,
+		state_json TEXT NOT NULL,
+		compression_ratio REAL DEFAULT 1.0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(session_id, turn_number)
+	);
+	CREATE INDEX IF NOT EXISTS idx_compressed_states_session ON compressed_states(session_id);
+	`
+
 	// Task verification history for learning from retry loops
 	verificationTable := `
 	CREATE TABLE IF NOT EXISTS task_verifications (
@@ -380,6 +395,7 @@ func (s *LocalStore) initialize() error {
 		archivedTableOnly,
 		activationTable,
 		sessionTable,
+		compressedStateTable,
 		verificationTable,
 		reasoningTracesTable,
 		reviewFindingsTable,
@@ -1527,6 +1543,69 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 	return history, nil
 }
 
+// ========== Compressed Context State ==========
+
+// StoreCompressedState persists the semantic compression state for a session turn.
+// Uses INSERT OR REPLACE so the latest state for a turn is idempotent.
+func (s *LocalStore) StoreCompressedState(sessionID string, turnNumber int, stateJSON string, ratio float64) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreCompressedState")
+	defer timer.Stop()
+
+	if sessionID == "" || stateJSON == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO compressed_states (session_id, turn_number, state_json, compression_ratio)
+		 VALUES (?, ?, ?, ?)`,
+		sessionID, turnNumber, stateJSON, ratio,
+	)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to store compressed state: session=%s turn=%d: %v", sessionID, turnNumber, err)
+		return err
+	}
+
+	logging.StoreDebug("Stored compressed state: session=%s turn=%d ratio=%.1f", sessionID, turnNumber, ratio)
+	return nil
+}
+
+// LoadLatestCompressedState loads the most recent compressed state for a session.
+// Returns empty string if no state exists.
+func (s *LocalStore) LoadLatestCompressedState(sessionID string) (string, int, float64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "LoadLatestCompressedState")
+	defer timer.Stop()
+
+	if sessionID == "" {
+		return "", 0, 1.0, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var stateJSON string
+	var turnNumber int
+	var ratio float64
+	err := s.db.QueryRow(
+		`SELECT state_json, turn_number, compression_ratio
+		 FROM compressed_states
+		 WHERE session_id = ?
+		 ORDER BY turn_number DESC
+		 LIMIT 1`,
+		sessionID,
+	).Scan(&stateJSON, &turnNumber, &ratio)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, 1.0, nil
+		}
+		return "", 0, 1.0, err
+	}
+
+	return stateJSON, turnNumber, ratio, nil
+}
+
 // ========== Task Verification ==========
 
 // StoreVerification records a verification attempt for learning.
@@ -1810,7 +1889,7 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	logging.StoreDebug("Computing database statistics")
 
 	stats := make(map[string]int64)
-	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "knowledge_atoms", "world_files", "world_facts"}
+	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts"}
 
 	for _, table := range tables {
 		var count int64

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -402,6 +403,17 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		}
 	}
 
+	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
+	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
+	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
+	if dynErr != nil {
+		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
+	} else if len(dynamicAtoms) > 0 {
+		candidates = append(candidates, dynamicAtoms...)
+		stats.AtomsCandidates = len(candidates)
+		logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
+	}
+
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
 	selectStart := time.Now()
 	scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
@@ -471,6 +483,112 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	c.logCompilationStats(stats, result)
 
 	return result, nil
+}
+
+// collectKernelInjectedAtoms queries runtime context predicates and turns them into ephemeral PromptAtoms.
+// This lets JIT prompts include spreading-activation context and specialist knowledge without legacy injection.
+func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
+	if c.kernel == nil || cc == nil {
+		return nil, nil
+	}
+
+	matchesShard := func(raw string) bool {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return false
+		}
+		if raw == "*" || raw == "/_all" {
+			return true
+		}
+		rawTrim := strings.TrimPrefix(raw, "/")
+		if cc.ShardInstanceID != "" && rawTrim == cc.ShardInstanceID {
+			return true
+		}
+		return rawTrim == cc.ShardID
+	}
+
+	var dynamic []*PromptAtom
+
+	// Injectable context atoms
+	ctxFacts, err := c.kernel.Query("injectable_context")
+	if err != nil {
+		return nil, err
+	}
+	var ctxAtoms []string
+	for _, fact := range ctxFacts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		factShardID := extractStringArg(fact.Args[0])
+		if !matchesShard(factShardID) {
+			continue
+		}
+		if atom, ok := fact.Args[1].(string); ok && strings.TrimSpace(atom) != "" {
+			ctxAtoms = append(ctxAtoms, atom)
+		} else if atomStr := extractStringArg(fact.Args[1]); strings.TrimSpace(atomStr) != "" {
+			ctxAtoms = append(ctxAtoms, atomStr)
+		}
+	}
+	if len(ctxAtoms) > 0 {
+		var sb strings.Builder
+		sb.WriteString("// KERNEL-INJECTED CONTEXT (from spreading activation)\n")
+		for _, atom := range ctxAtoms {
+			sb.WriteString("- ")
+			sb.WriteString(atom)
+			sb.WriteString("\n")
+		}
+		content := sb.String()
+		id := fmt.Sprintf("kernel/context/%s", HashContent(content)[:8])
+		pa := NewPromptAtom(id, CategoryContext, content)
+		pa.IsMandatory = true
+		pa.Priority = 95
+		pa.ShardTypes = []string{cc.ShardID}
+		dynamic = append(dynamic, pa)
+	}
+
+	// Specialist knowledge blocks
+	knowledgeFacts, err := c.kernel.Query("specialist_knowledge")
+	if err == nil {
+		type block struct {
+			topic   string
+			content string
+		}
+		var blocks []block
+		for _, fact := range knowledgeFacts {
+			if len(fact.Args) < 3 {
+				continue
+			}
+			factShardID := extractStringArg(fact.Args[0])
+			if !matchesShard(factShardID) {
+				continue
+			}
+			topic := extractStringArg(fact.Args[1])
+			body := extractStringArg(fact.Args[2])
+			if strings.TrimSpace(topic) != "" && strings.TrimSpace(body) != "" {
+				blocks = append(blocks, block{topic: topic, content: body})
+			}
+		}
+		if len(blocks) > 0 {
+			var sb strings.Builder
+			sb.WriteString("// SPECIALIST KNOWLEDGE (Type B/U expertise)\n")
+			for _, b := range blocks {
+				sb.WriteString("## ")
+				sb.WriteString(b.topic)
+				sb.WriteString("\n")
+				sb.WriteString(b.content)
+				sb.WriteString("\n\n")
+			}
+			content := strings.TrimRight(sb.String(), "\n")
+			id := fmt.Sprintf("kernel/knowledge/%s", HashContent(content)[:8])
+			pa := NewPromptAtom(id, CategoryKnowledge, content)
+			pa.IsMandatory = true
+			pa.Priority = 90
+			pa.ShardTypes = []string{cc.ShardID}
+			dynamic = append(dynamic, pa)
+		}
+	}
+
+	return dynamic, nil
 }
 
 // sourceBreakdown tracks atom counts by source.
@@ -943,6 +1061,16 @@ func (c *JITPromptCompiler) GetStats() CompilerStats {
 	}
 
 	return stats
+}
+
+// AssertFacts asserts raw Mangle fact strings into the kernel if available.
+// This is used for telemetry/observability (e.g., jit_fallback/2).
+// Facts may omit trailing periods; they will be normalized by the kernel adapter.
+func (c *JITPromptCompiler) AssertFacts(facts []string) error {
+	if c == nil || c.kernel == nil || len(facts) == 0 {
+		return nil
+	}
+	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
 
 // Close releases all resources held by the compiler.

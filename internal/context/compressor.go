@@ -67,6 +67,24 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 	}
 }
 
+// SetSessionID sets the logical session ID for persistence/rehydration.
+// Call this after the chat layer resolves the real session ID.
+func (c *Compressor) SetSessionID(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessionID = sessionID
+}
+
+// GetSessionID returns the current session ID.
+func (c *Compressor) GetSessionID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sessionID
+}
+
 // NewCompressorWithConfig creates a compressor with custom configuration.
 func NewCompressorWithConfig(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient, cfg config.ContextWindowConfig) *Compressor {
 	// Convert config.ContextWindowConfig to context.CompressorConfig
@@ -270,6 +288,22 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 	logging.Context("Turn %d complete: %d atoms, %d recent turns, usage=%d/%d tokens (%.1f%%)",
 		turn.Number, len(atoms), len(c.recentTurns),
 		result.TokenUsage.Total, c.config.TotalBudget, utilization*100)
+
+	// 10. Persist compressed state + activation analytics (best-effort)
+	if c.store != nil {
+		state := c.buildStateLocked()
+		if data, err := MarshalCompressedState(state); err == nil {
+			_ = c.store.StoreCompressedState(c.sessionID, c.turnNumber, string(data), state.CompressionRatio)
+		}
+		// Log top hot facts for long-term activation analytics.
+		maxLogs := 50
+		for i, sf := range state.HotFacts {
+			if i >= maxLogs {
+				break
+			}
+			_ = c.store.LogActivation(sf.Fact.String(), sf.Score)
+		}
+	}
 
 	return result, nil
 }
@@ -716,13 +750,8 @@ func (c *Compressor) GetRecentTurnWindow() int {
 	return c.config.RecentTurnWindow
 }
 
-// GetState returns the full compressed state for persistence.
-func (c *Compressor) GetState() *CompressedState {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	logging.ContextDebug("Getting compressed state for persistence")
-
+// buildStateLocked constructs a CompressedState assuming c.mu is already held.
+func (c *Compressor) buildStateLocked() *CompressedState {
 	// Get hot facts
 	allFacts := c.kernel.GetAllFacts()
 	var currentIntent *core.Fact
@@ -732,8 +761,10 @@ func (c *Compressor) GetState() *CompressedState {
 	}
 	hotFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
 
-	logging.ContextDebug("State: turn=%d, recent=%d, segments=%d, hot_facts=%d",
-		c.turnNumber, len(c.recentTurns), len(c.rollingSummary.Segments), len(hotFacts))
+	ratio := 1.0
+	if c.totalCompressedTokens > 0 {
+		ratio = float64(c.totalOriginalTokens) / float64(c.totalCompressedTokens)
+	}
 
 	return &CompressedState{
 		SessionID:            c.sessionID,
@@ -744,8 +775,20 @@ func (c *Compressor) GetState() *CompressedState {
 		RecentTurns:          c.recentTurns,
 		HotFacts:             hotFacts,
 		TotalCompressedTurns: c.rollingSummary.TotalTurns,
-		CompressionRatio:     c.GetCompressionRatio(),
+		CompressionRatio:     ratio,
 	}
+}
+
+// GetState returns the full compressed state for persistence.
+func (c *Compressor) GetState() *CompressedState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	logging.ContextDebug("Getting compressed state for persistence")
+	state := c.buildStateLocked()
+	logging.ContextDebug("State: turn=%d, recent=%d, segments=%d, hot_facts=%d",
+		state.TurnNumber, len(state.RecentTurns), len(state.RollingSummary.Segments), len(state.HotFacts))
+	return state
 }
 
 // LoadState restores state from a persisted CompressedState.
@@ -763,10 +806,21 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 
 	// Restore hot facts to kernel
 	restoredCount := 0
-	for _, sf := range state.HotFacts {
-		c.kernel.Assert(sf.Fact)
-		c.activation.RecordFactTimestamp(sf.Fact)
-		restoredCount++
+	if c.kernel != nil {
+		existing := make(map[string]struct{})
+		for _, f := range c.kernel.GetAllFacts() {
+			existing[f.String()] = struct{}{}
+		}
+		for _, sf := range state.HotFacts {
+			key := sf.Fact.String()
+			if _, ok := existing[key]; ok {
+				continue
+			}
+			_ = c.kernel.Assert(sf.Fact)
+			c.activation.RecordFactTimestamp(sf.Fact)
+			existing[key] = struct{}{}
+			restoredCount++
+		}
 	}
 
 	logging.Context("State loaded: restored %d hot facts, %d recent turns", restoredCount, len(c.recentTurns))

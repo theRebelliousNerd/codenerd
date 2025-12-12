@@ -146,8 +146,8 @@ func InitChat(cfg Config) Model {
 		// Backend components start nil
 		kernel:              nil,
 		shardMgr:            nil,
-		client:              nil,  // Will be set in boot
-		isBooting:           true,            // Flag for UI
+		client:              nil,              // Will be set in boot
+		isBooting:           true,             // Flag for UI
 		bootStage:           BootStageBooting, // Startup phase
 		statusChan:          make(chan string, 10),
 		workspace:           workspace,
@@ -903,12 +903,59 @@ func (m *Model) saveSessionState() {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
 
+	// Persist semantic compression state (best-effort) so we can rehydrate infinite context.
+	if m.localDB != nil && m.compressor != nil {
+		state := m.compressor.GetState()
+		if state != nil {
+			if data, err := ctxcompress.MarshalCompressedState(state); err == nil {
+				_ = m.localDB.StoreCompressedState(m.sessionID, state.TurnNumber, string(data), state.CompressionRatio)
+			}
+		}
+	}
+
 	// ==========================================================================
 	// DUAL PERSISTENCE: Sync to SQLite (knowledge.db session_history table)
 	// ==========================================================================
 	// This enables Mangle queries against session history via virtual predicates
 	if m.localDB != nil {
 		m.syncSessionToSQLite()
+	}
+}
+
+// hydrateCompressorForSession resets and rehydrates the semantic compressor state for a session.
+// This enables infinite-context continuity across restarts and session switches.
+func (m *Model) hydrateCompressorForSession(sessionID string) {
+	if m.compressor == nil {
+		return
+	}
+
+	// Always reset to avoid leaking state across sessions.
+	m.compressor.Reset()
+	m.compressor.SetSessionID(sessionID)
+
+	if m.localDB == nil {
+		return
+	}
+
+	stateJSON, turnNumber, _, err := m.localDB.LoadLatestCompressedState(sessionID)
+	if err != nil || strings.TrimSpace(stateJSON) == "" {
+		return
+	}
+
+	state, err := ctxcompress.UnmarshalCompressedState([]byte(stateJSON))
+	if err != nil {
+		logging.Session("hydrateCompressorForSession: failed to parse compressed state: %v", err)
+		return
+	}
+
+	if err := m.compressor.LoadState(state); err != nil {
+		logging.Session("hydrateCompressorForSession: failed to load compressed state: %v", err)
+		return
+	}
+
+	// Keep turn counter monotonic if compressed state is ahead.
+	if turnNumber > m.turnCount {
+		m.turnCount = turnNumber
 	}
 }
 
@@ -981,6 +1028,9 @@ func (m Model) loadSelectedSession(sessionID string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.turnCount = len(m.history) / 2 // Approximate turn count from history
+
+	// Rehydrate compressor state for this session (if available).
+	m.hydrateCompressorForSession(sessionID)
 
 	// Update session.json to point to this session
 	state := &nerdinit.SessionState{

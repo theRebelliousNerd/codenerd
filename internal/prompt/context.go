@@ -87,6 +87,11 @@ type CompilationContext struct {
 	// ShardID is the unique identifier for the shard
 	ShardID string
 
+	// ShardInstanceID is the unique identifier for this shard instance (may be ephemeral).
+	// Example: "coder-123", "campaign_abc_planner".
+	// This is NOT used for shard DB lookup; ShardID should be the stable agent name.
+	ShardInstanceID string
+
 	// ShardName is the human-readable name of the shard
 	ShardName string
 

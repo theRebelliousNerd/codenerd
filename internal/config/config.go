@@ -175,7 +175,7 @@ type ContextWindowConfig struct {
 	RecentTurnWindow int `yaml:"recent_turn_window" json:"recent_turn_window"`
 
 	// Compression settings
-	CompressionThreshold   float64 `yaml:"compression_threshold" json:"compression_threshold"`       // Trigger at this % usage (default: 0.80)
+	CompressionThreshold   float64 `yaml:"compression_threshold" json:"compression_threshold"`       // Trigger at this % usage (default: 0.60)
 	TargetCompressionRatio float64 `yaml:"target_compression_ratio" json:"target_compression_ratio"` // Target ratio (default: 100.0)
 	ActivationThreshold    float64 `yaml:"activation_threshold" json:"activation_threshold"`         // Min score to include (default: 30.0)
 }
@@ -304,11 +304,11 @@ type ExecutionConfig struct {
 
 // LoggingConfig configures logging.
 type LoggingConfig struct {
-	Level      string            `yaml:"level" json:"level,omitempty"`             // debug, info, warn, error
-	Format     string            `yaml:"format" json:"format,omitempty"`           // json, text
-	File       string            `yaml:"file" json:"file,omitempty"`               // legacy single file
-	DebugMode  bool              `yaml:"debug_mode" json:"debug_mode,omitempty"`   // Master toggle - false = no logging (production)
-	Categories map[string]bool   `yaml:"categories" json:"categories,omitempty"`   // Per-category toggles
+	Level      string          `yaml:"level" json:"level,omitempty"`           // debug, info, warn, error
+	Format     string          `yaml:"format" json:"format,omitempty"`         // json, text
+	File       string          `yaml:"file" json:"file,omitempty"`             // legacy single file
+	DebugMode  bool            `yaml:"debug_mode" json:"debug_mode,omitempty"` // Master toggle - false = no logging (production)
+	Categories map[string]bool `yaml:"categories" json:"categories,omitempty"` // Per-category toggles
 }
 
 // IsCategoryEnabled returns whether logging is enabled for a category.
@@ -408,7 +408,7 @@ func DefaultConfig() *Config {
 				HistoryReservePercent:  15,
 				WorkingReservePercent:  50,
 				RecentTurnWindow:       5,
-				CompressionThreshold:   0.80,
+				CompressionThreshold:   0.60,
 				TargetCompressionRatio: 100.0,
 				ActivationThreshold:    30.0,
 			},
@@ -925,7 +925,7 @@ func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
 			cfg.RecentTurnWindow = 5
 		}
 		if cfg.CompressionThreshold == 0 {
-			cfg.CompressionThreshold = 0.80
+			cfg.CompressionThreshold = 0.60
 		}
 		if cfg.TargetCompressionRatio == 0 {
 			cfg.TargetCompressionRatio = 100.0
@@ -943,7 +943,7 @@ func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
 		HistoryReservePercent:  15,
 		WorkingReservePercent:  50,
 		RecentTurnWindow:       5,
-		CompressionThreshold:   0.80,
+		CompressionThreshold:   0.60,
 		TargetCompressionRatio: 100.0,
 		ActivationThreshold:    30.0,
 	}

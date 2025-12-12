@@ -3,6 +3,7 @@ package articulation
 import (
 	"context"
 	"testing"
+	"strings"
 
 	"codenerd/internal/core"
 )
@@ -83,7 +84,7 @@ func TestAssembleSystemPrompt(t *testing.T) {
 				ShardType: "coder",
 			},
 			wantContains: []string{
-				"CODER SHARD",
+				"Coder Shard of codeNERD",
 				"PIGGYBACK ENVELOPE",
 				"control_packet",
 			},
@@ -352,8 +353,8 @@ func TestAssembleQuickPrompt(t *testing.T) {
 		t.Fatalf("AssembleQuickPrompt() error = %v", err)
 	}
 
-	if !containsString(result, "CODER SHARD") {
-		t.Error("AssembleQuickPrompt() missing fallback template")
+	if !containsString(result, "Coder Shard of codeNERD") {
+		t.Error("AssembleQuickPrompt() missing baseline prompt")
 	}
 
 	if !containsString(result, "Quick context") {
@@ -584,6 +585,15 @@ func TestToCompilationContext(t *testing.T) {
 				t.Errorf("ShardType = %q, want %q", cc.ShardType, tt.wantShardType)
 			}
 
+			// ShardID should be stable agent name; instance ID preserved separately.
+			wantStable := strings.TrimPrefix(tt.wantShardType, "/")
+			if cc.ShardID != wantStable {
+				t.Errorf("ShardID = %q, want %q", cc.ShardID, wantStable)
+			}
+			if cc.ShardInstanceID != tt.promptCtx.ShardID {
+				t.Errorf("ShardInstanceID = %q, want %q", cc.ShardInstanceID, tt.promptCtx.ShardID)
+			}
+
 			if tt.wantIntentVerb != "" && cc.IntentVerb != tt.wantIntentVerb {
 				t.Errorf("IntentVerb = %q, want %q", cc.IntentVerb, tt.wantIntentVerb)
 			}
@@ -625,9 +635,9 @@ func TestAssembleSystemPromptFallsBackOnNoJIT(t *testing.T) {
 		t.Fatalf("AssembleSystemPrompt() error = %v", err)
 	}
 
-	// Should contain fallback template content
-	if !containsString(result, "CODER SHARD") {
-		t.Error("AssembleSystemPrompt() should use fallback template when JIT is not configured")
+	// Should contain baseline embedded prompt content
+	if !containsString(result, "Coder Shard of codeNERD") {
+		t.Error("AssembleSystemPrompt() should use embedded baseline when JIT is not configured")
 	}
 
 	// Should contain Piggyback Protocol
