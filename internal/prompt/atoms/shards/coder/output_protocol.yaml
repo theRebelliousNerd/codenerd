@@ -7,7 +7,7 @@
   priority: 90
   is_mandatory: true
   shard_types: ["/coder"]
-  depends_on: ["protocol/piggyback"]
+  depends_on: ["protocol/piggyback/envelope"]
   content: |
     ## OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
 

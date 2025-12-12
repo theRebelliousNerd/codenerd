@@ -189,7 +189,8 @@ func getLanguageCognitiveModel(lang string) string {
 // GOD TIER CODER SYSTEM PROMPT (~20,000+ chars)
 // =============================================================================
 // DEPRECATED: This prompt constant is being replaced by the JIT prompt compiler.
-// Prompts should now be defined in build/prompt_atoms/ YAML files.
+// Prompts should now be defined as prompt atoms under internal/prompt/atoms/ (built-in)
+// or .nerd/agents/{agent}/prompts.yaml (project/user).
 // This constant is kept only as a legacy fallback when JIT compilation fails.
 // NOTE: Legacy fallback; remove when JIT is fully stable.
 // =============================================================================
@@ -552,7 +553,7 @@ For modifications, include the COMPLETE new file content, not a diff.
 // LANGUAGE-SPECIFIC COGNITIVE MODELS
 // =============================================================================
 // DEPRECATED: These cognitive model constants are being replaced by the JIT prompt compiler.
-// Language-specific models should now be defined in build/prompt_atoms/ YAML files.
+// Language-specific models should now be defined as prompt atoms under internal/prompt/atoms/.
 // These constants are kept only as legacy fallbacks when JIT compilation fails.
 // NOTE: Legacy fallbacks; remove when JIT is fully stable.
 // =============================================================================

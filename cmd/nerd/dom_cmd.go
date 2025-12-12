@@ -448,8 +448,9 @@ func runDomEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	if domEditGoTest {
-		fmt.Printf("Running: go test ./... (workspace)\n")
-		testCmd := exec.CommandContext(ctx, "go", "test", "./...")
+		// Default to testing the main CLI + internal packages (excludes cmd/tools, which may be in-flight).
+		fmt.Printf("Running: go test -count=1 ./cmd/nerd/... ./internal/... (workspace)\n")
+		testCmd := exec.CommandContext(ctx, "go", "test", "-count=1", "./cmd/nerd/...", "./internal/...")
 		testCmd.Dir = ws
 		out, err := testCmd.CombinedOutput()
 		if err != nil {

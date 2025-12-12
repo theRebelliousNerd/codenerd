@@ -15,6 +15,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -300,6 +301,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	// 4. Emit pending_action facts for Constitution Gate
+	latestIntent := e.latestUserIntent()
 	for _, action := range actions {
 		if action.Blocked {
 			logging.SystemShardsDebug("[ExecutivePolicy] Action blocked: %s (reason: %s)", action.Action, action.BlockReason)
@@ -315,21 +317,26 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		}
 
 		logging.SystemShards("[ExecutivePolicy] Derived action: %s (from rule: %s)", action.Action, action.FromRule)
-		// Emit pending_action for constitution gate to check
-		payload := action.Payload
-		if payload == nil {
-			payload = map[string]interface{}{}
+		// Emit pending_action for constitution gate to check.
+		// If the action has no target/task binding, hydrate from the latest user_intent when applicable.
+		actionCopy := action
+		payload := copyStringAnyMap(action.Payload)
+		target := action.Target
+		if latestIntent != nil {
+			target, payload = hydrateActionFromIntent(action.Action, target, payload, latestIntent)
 		}
+		actionCopy.Target = target
+		actionCopy.Payload = payload
 		_ = e.Kernel.Assert(core.Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{action.ID, action.Action, action.Target, payload, time.Now().Unix()},
+			Args:      []interface{}{action.ID, action.Action, target, payload, time.Now().Unix()},
 		})
 		// Consume one-shot next_action facts asserted by shards.
 		// Derived next_action from policy are not in EDB, so this is a safe no-op for them.
 		_ = e.Kernel.RetractExactFact(action.RawFact)
 
 		e.mu.Lock()
-		e.pendingActions = append(e.pendingActions, action)
+		e.pendingActions = append(e.pendingActions, actionCopy)
 		e.decisionsCount++
 		e.lastDecision = time.Now()
 		e.mu.Unlock()
@@ -353,6 +360,124 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type userIntentSnapshot struct {
+	ID         string
+	Category   string
+	Verb       string
+	Target     string
+	Constraint string
+	Timestamp  int64
+}
+
+func (e *ExecutivePolicyShard) latestUserIntent() *userIntentSnapshot {
+	if e.Kernel == nil {
+		return nil
+	}
+	facts, err := e.Kernel.Query("user_intent")
+	if err != nil {
+		return nil
+	}
+
+	var best *userIntentSnapshot
+	for _, f := range facts {
+		if len(f.Args) < 5 {
+			continue
+		}
+		id := fmt.Sprintf("%v", f.Args[0])
+		ts, ok := parseIntentTimestamp(id)
+		if !ok {
+			continue
+		}
+		if best == nil || ts > best.Timestamp {
+			best = &userIntentSnapshot{
+				ID:         id,
+				Category:   fmt.Sprintf("%v", f.Args[1]),
+				Verb:       fmt.Sprintf("%v", f.Args[2]),
+				Target:     fmt.Sprintf("%v", f.Args[3]),
+				Constraint: fmt.Sprintf("%v", f.Args[4]),
+				Timestamp:  ts,
+			}
+		}
+	}
+	return best
+}
+
+func parseIntentTimestamp(intentID string) (int64, bool) {
+	const prefix = "/intent_"
+	if !strings.HasPrefix(intentID, prefix) {
+		return 0, false
+	}
+	ts, err := strconv.ParseInt(strings.TrimPrefix(intentID, prefix), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return ts, true
+}
+
+func copyStringAnyMap(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func hydrateActionFromIntent(actionType string, target string, payload map[string]interface{}, intent *userIntentSnapshot) (string, map[string]interface{}) {
+	if intent == nil {
+		return target, payload
+	}
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+
+	actionAtom := normalizeAtom(actionType)
+	intentVerb := normalizeAtom(intent.Verb)
+	intentTarget := strings.TrimSpace(intent.Target)
+	intentConstraint := strings.TrimSpace(intent.Constraint)
+
+	switch actionAtom {
+	case "/delegate_reviewer", "/delegate_coder", "/delegate_researcher", "/delegate_tool_generator":
+		// For delegation actions, ensure we always supply a usable task string.
+		task, _ := payload["task"].(string)
+		task = strings.TrimSpace(task)
+		if task == "" {
+			task = strings.TrimSpace(target)
+		}
+		if task == "" {
+			task = intentTarget
+		}
+		verb := strings.TrimPrefix(intentVerb, "/")
+		if verb == "" {
+			verb = "task"
+		}
+		if intentConstraint != "" && intentConstraint != "none" && intentConstraint != "_" {
+			task = fmt.Sprintf("%s %s\nConstraint: %s", verb, task, intentConstraint)
+		} else {
+			task = fmt.Sprintf("%s %s", verb, task)
+		}
+		payload["task"] = task
+		payload["intent_id"] = intent.ID
+		return task, payload
+	default:
+		// Only hydrate target for actions where intent target is a reliable binding.
+		// Avoid contaminating internal/TDD actions (e.g., read_error_log) with unrelated intent targets.
+		if strings.TrimSpace(target) == "" && intentTarget != "" && intentTarget != "none" && intentTarget != "_" {
+			switch actionAtom {
+			case "/fs_read", "/fs_write", "/search_files", "/search_code", "/analyze_code":
+				payload["intent_id"] = intent.ID
+				if intentConstraint != "" && intentConstraint != "none" && intentConstraint != "_" {
+					payload["intent_constraint"] = intentConstraint
+				}
+				return intentTarget, payload
+			}
+		}
+		return target, payload
+	}
 }
 
 // queryActiveStrategies queries for currently active strategies.

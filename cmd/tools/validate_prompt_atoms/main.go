@@ -78,9 +78,18 @@ type issue struct {
 func main() {
 	root := flag.String("root", "internal/prompt/atoms", "Root directory containing YAML atom files")
 	failOnWarn := flag.Bool("fail-on-warn", false, "Exit non-zero if warnings are present")
+	warnNoncanonicalSelectors := flag.Bool("warn-noncanonical-selectors", false, "Warn on non-canonical selector tags (e.g., missing leading '/')")
+	enforceCanonicalSelectors := flag.Bool("enforce-canonical-selectors", false, "Treat non-canonical selector tags as errors")
+	checkRecommendedSelectors := flag.Bool("check-recommended-selectors", true, "Warn when directory-scoped selector fields are missing (e.g., campaign_phases under /campaign)")
 	flag.Parse()
 
-	issues, stats, err := validateAtomTree(*root)
+	opts := validationOptions{
+		WarnNoncanonicalSelectors: *warnNoncanonicalSelectors,
+		EnforceCanonicalSelectors: *enforceCanonicalSelectors,
+		CheckRecommendedSelectors: *checkRecommendedSelectors,
+	}
+
+	issues, stats, err := validateAtomTree(*root, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "validate_prompt_atoms: %v\n", err)
 		os.Exit(2)
@@ -135,7 +144,13 @@ type atomRecord struct {
 	Atom atomDefinition
 }
 
-func validateAtomTree(root string) ([]issue, validationStats, error) {
+type validationOptions struct {
+	WarnNoncanonicalSelectors bool
+	EnforceCanonicalSelectors bool
+	CheckRecommendedSelectors bool
+}
+
+func validateAtomTree(root string, opts validationOptions) ([]issue, validationStats, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, validationStats{}, err
@@ -169,9 +184,10 @@ func validateAtomTree(root string) ([]issue, validationStats, error) {
 		stats.Files++
 		defs, parseIssues := parseAtomYAMLFile(path)
 		issues = append(issues, parseIssues...)
+		relPath, _ := filepath.Rel(root, path)
 		for _, def := range defs {
 			stats.Atoms++
-			issues = append(issues, validateAtomDef(path, def, validCategories)...)
+			issues = append(issues, validateAtomDef(path, relPath, def, validCategories, opts)...)
 			records = append(records, atomRecord{File: path, Atom: def})
 		}
 		return nil
@@ -278,7 +294,7 @@ func decodeKnownFields(data []byte, out interface{}) error {
 	return nil
 }
 
-func validateAtomDef(path string, def atomDefinition, validCategories map[string]struct{}) []issue {
+func validateAtomDef(path, relPath string, def atomDefinition, validCategories map[string]struct{}, opts validationOptions) []issue {
 	var issues []issue
 	atomID := strings.TrimSpace(def.ID)
 
@@ -330,25 +346,35 @@ func validateAtomDef(path string, def atomDefinition, validCategories map[string
 		}
 	}
 
-	issues = append(issues, validateSelectorList(path, atomID, "operational_modes", def.OperationalModes, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "campaign_phases", def.CampaignPhases, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "build_layers", def.BuildLayers, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "init_phases", def.InitPhases, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "northstar_phases", def.NorthstarPhases, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "ouroboros_stages", def.OuroborosStages, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "intent_verbs", def.IntentVerbs, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "shard_types", def.ShardTypes, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "languages", def.Languages, true)...)
-	issues = append(issues, validateSelectorList(path, atomID, "frameworks", def.Frameworks, true)...)
-
-	// World states are intentionally NOT slash-prefixed (CompilationContext.WorldStates returns plain strings).
-	issues = append(issues, validateSelectorList(path, atomID, "world_states", def.WorldStates, false)...)
+	issues = append(issues, validateSelectorList(path, atomID, "operational_modes", def.OperationalModes, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "campaign_phases", def.CampaignPhases, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "build_layers", def.BuildLayers, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "init_phases", def.InitPhases, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "northstar_phases", def.NorthstarPhases, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "ouroboros_stages", def.OuroborosStages, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "intent_verbs", def.IntentVerbs, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "shard_types", def.ShardTypes, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "languages", def.Languages, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "frameworks", def.Frameworks, selectorStyleSlashPref, opts)...)
+	issues = append(issues, validateSelectorList(path, atomID, "world_states", def.WorldStates, selectorStyleNoSlash, opts)...)
 	issues = append(issues, validateWorldStatesKnownSet(path, atomID, def.WorldStates)...)
+
+	if opts.CheckRecommendedSelectors {
+		issues = append(issues, validateRecommendedSelectors(path, relPath, atomID, def)...)
+	}
 
 	return issues
 }
 
-func validateSelectorList(path, atomID, field string, values []string, wantSlashPrefix bool) []issue {
+type selectorStyle int
+
+const (
+	selectorStyleAny selectorStyle = iota
+	selectorStyleSlashPref
+	selectorStyleNoSlash
+)
+
+func validateSelectorList(path, atomID, field string, values []string, canonical selectorStyle, opts validationOptions) []issue {
 	if len(values) == 0 {
 		return nil
 	}
@@ -368,11 +394,31 @@ func validateSelectorList(path, atomID, field string, values []string, wantSlash
 		seen[v] = struct{}{}
 
 		hasSlash := strings.HasPrefix(v, "/")
-		if wantSlashPrefix && !hasSlash {
-			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("%s value must start with '/': %q", field, v)})
+
+		noncanonical := false
+		switch canonical {
+		case selectorStyleSlashPref:
+			noncanonical = !hasSlash
+		case selectorStyleNoSlash:
+			noncanonical = hasSlash
+		default:
+			noncanonical = false
 		}
-		if !wantSlashPrefix && hasSlash {
-			issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("%s value must NOT start with '/': %q", field, v)})
+
+		if noncanonical {
+			want := "any"
+			switch canonical {
+			case selectorStyleSlashPref:
+				want = "leading '/'"
+			case selectorStyleNoSlash:
+				want = "no leading '/'"
+			}
+
+			if opts.EnforceCanonicalSelectors {
+				issues = append(issues, issue{Severity: severityError, File: path, AtomID: atomID, Message: fmt.Sprintf("%s value is non-canonical (%s): %q", field, want, v)})
+			} else if opts.WarnNoncanonicalSelectors {
+				issues = append(issues, issue{Severity: severityWarning, File: path, AtomID: atomID, Message: fmt.Sprintf("%s value is non-canonical (%s): %q", field, want, v)})
+			}
 		}
 	}
 	return issues
@@ -392,7 +438,7 @@ func validateWorldStatesKnownSet(path, atomID string, values []string) []issue {
 	}
 	var issues []issue
 	for _, raw := range values {
-		v := strings.TrimSpace(raw)
+		v := strings.TrimPrefix(strings.TrimSpace(raw), "/")
 		if v == "" {
 			continue
 		}
@@ -400,5 +446,51 @@ func validateWorldStatesKnownSet(path, atomID string, values []string) []issue {
 			issues = append(issues, issue{Severity: severityWarning, File: path, AtomID: atomID, Message: fmt.Sprintf("world_states contains unknown value %q", v)})
 		}
 	}
+	return issues
+}
+
+func validateRecommendedSelectors(path, relPath, atomID string, def atomDefinition) []issue {
+	if atomID == "" {
+		return nil
+	}
+
+	// Normalize to forward slashes for portable checks.
+	p := strings.ToLower(filepath.ToSlash(relPath))
+
+	var issues []issue
+	warnMissing := func(field, hint string) {
+		issues = append(issues, issue{
+			Severity: severityWarning,
+			File:     path,
+			AtomID:   atomID,
+			Message:  fmt.Sprintf("missing recommended field: %s (%s)", field, hint),
+		})
+	}
+
+	// Directory-scoped expectations. These are warnings by default because some
+	// atoms are intentionally global.
+	switch {
+	case strings.Contains(p, "/campaign/") && len(def.CampaignPhases) == 0:
+		warnMissing("campaign_phases", "atoms under /campaign should scope to phases")
+	case strings.Contains(p, "/init/") && len(def.InitPhases) == 0:
+		warnMissing("init_phases", "atoms under /init should scope to init phases")
+	case strings.Contains(p, "/northstar/") && len(def.NorthstarPhases) == 0:
+		warnMissing("northstar_phases", "atoms under /northstar should scope to phases")
+	case strings.Contains(p, "/ouroboros/") && len(def.OuroborosStages) == 0:
+		warnMissing("ouroboros_stages", "atoms under /ouroboros should scope to stages")
+	case strings.Contains(p, "/build_layer/") && len(def.BuildLayers) == 0:
+		warnMissing("build_layers", "atoms under /build_layer should scope to layers")
+	case strings.Contains(p, "/intent/") && len(def.IntentVerbs) == 0:
+		warnMissing("intent_verbs", "atoms under /intent should scope to verbs")
+	case strings.Contains(p, "/language/") && len(def.Languages) == 0:
+		warnMissing("languages", "atoms under /language should scope to languages")
+	case strings.Contains(p, "/framework/") && len(def.Frameworks) == 0:
+		warnMissing("frameworks", "atoms under /framework should scope to frameworks")
+	case strings.Contains(p, "/world_state/") && len(def.WorldStates) == 0:
+		warnMissing("world_states", "atoms under /world_state should scope to states")
+	case strings.Contains(p, "/shards/") && len(def.ShardTypes) == 0:
+		warnMissing("shard_types", "atoms under /shards should scope to shard types")
+	}
+
 	return issues
 }

@@ -164,15 +164,16 @@ func (c *CoderShard) applyEdits(ctx context.Context, edits []CodeEdit) error {
 			actionID := fmt.Sprintf("action-%d", time.Now().UnixNano())
 			payload["action_id"] = actionID
 
-			nextAction := core.Fact{
-				Predicate: "next_action",
-				Args:      []interface{}{actionType, edit.File, payload},
+			// Use the canonical executable envelope. next_action/1 is reserved for IDB decisions.
+			pending := core.Fact{
+				Predicate: "pending_action",
+				Args:      []interface{}{actionID, actionType, edit.File, payload, time.Now().Unix()},
 			}
 
 			editTimer := logging.StartTimer(logging.CategoryCoder, fmt.Sprintf("ApplyEdit:%s", edit.File))
-			if err := c.kernel.Assert(nextAction); err != nil {
+			if err := c.kernel.Assert(pending); err != nil {
 				editTimer.Stop()
-				return fmt.Errorf("failed to assert next_action for %s: %w", edit.File, err)
+				return fmt.Errorf("failed to assert pending_action for %s: %w", edit.File, err)
 			}
 
 			_, err := c.waitForRoutingResult(ctx, actionID)

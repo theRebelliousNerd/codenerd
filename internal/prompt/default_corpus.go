@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"codenerd/internal/core/defaults"
 )
@@ -15,7 +16,7 @@ import (
 //
 // Returns (true, nil) if the file was written, (false, nil) if no write occurred.
 func MaterializeDefaultPromptCorpus(dstPath string) (bool, error) {
-	if stringsTrim(dstPath) == "" {
+	if strings.TrimSpace(dstPath) == "" {
 		return false, fmt.Errorf("dstPath is required")
 	}
 
@@ -85,7 +86,7 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 
 	insertTags := func(atomID, dim string, values []string) error {
 		for _, v := range values {
-			if stringsTrim(v) == "" {
+			if strings.TrimSpace(v) == "" {
 				continue
 			}
 			if _, err := stmt.ExecContext(ctx, atomID, dim, v); err != nil {
@@ -150,19 +151,3 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 	}
 	return nil
 }
-
-func stringsTrim(s string) string {
-	// Local tiny helper to avoid importing strings in hot paths.
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r') {
-		s = s[1:]
-	}
-	for len(s) > 0 {
-		last := s[len(s)-1]
-		if last != ' ' && last != '\t' && last != '\n' && last != '\r' {
-			break
-		}
-		s = s[:len(s)-1]
-	}
-	return s
-}
-

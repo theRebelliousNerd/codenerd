@@ -27,6 +27,7 @@ const (
 	ActionEditFile      ActionType = "edit_file"
 	ActionDeleteFile    ActionType = "delete_file"
 	ActionSearchCode    ActionType = "search_code"
+	ActionSearchFiles   ActionType = "search_files" // Back-compat alias for ActionSearchCode
 	ActionRunTests      ActionType = "run_tests"
 	ActionBuildProject  ActionType = "build_project"
 	ActionGitOperation  ActionType = "git_operation"
@@ -36,6 +37,15 @@ const (
 	ActionAskUser       ActionType = "ask_user"
 	ActionEscalate      ActionType = "escalate"
 	ActionDelegate      ActionType = "delegate"
+
+	// Delegation aliases emitted by policy (map to ActionDelegate)
+	ActionDelegateReviewer      ActionType = "delegate_reviewer"
+	ActionDelegateCoder         ActionType = "delegate_coder"
+	ActionDelegateResearcher    ActionType = "delegate_researcher"
+	ActionDelegateToolGenerator ActionType = "delegate_tool_generator"
+
+	// Diff alias emitted by policy (maps to git_operation diff)
+	ActionShowDiff ActionType = "show_diff"
 
 	// Autopoiesis Actions (generated tool execution)
 	ActionExecTool ActionType = "exec_tool" // Execute a generated tool
@@ -1026,7 +1036,7 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleEditFile(ctx, req)
 	case ActionDeleteFile:
 		return v.handleDeleteFile(ctx, req)
-	case ActionSearchCode:
+	case ActionSearchCode, ActionSearchFiles:
 		return v.handleSearchCode(ctx, req)
 	case ActionRunTests:
 		return v.handleRunTests(ctx, req)
@@ -1034,6 +1044,8 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleBuildProject(ctx, req)
 	case ActionGitOperation:
 		return v.handleGitOperation(ctx, req)
+	case ActionShowDiff:
+		return v.handleShowDiff(ctx, req)
 	case ActionAnalyzeImpact:
 		return v.handleAnalyzeImpact(ctx, req)
 	case ActionBrowse:
@@ -1042,6 +1054,14 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleResearch(ctx, req)
 	case ActionDelegate:
 		return v.handleDelegate(ctx, req)
+	case ActionDelegateReviewer:
+		return v.handleDelegateAlias(ctx, req, "/reviewer")
+	case ActionDelegateCoder:
+		return v.handleDelegateAlias(ctx, req, "/coder")
+	case ActionDelegateResearcher:
+		return v.handleDelegateAlias(ctx, req, "/researcher")
+	case ActionDelegateToolGenerator:
+		return v.handleDelegateAlias(ctx, req, "/tool_generator")
 	case ActionAskUser:
 		return v.handleAskUser(ctx, req)
 	case ActionEscalate:
@@ -1931,6 +1951,25 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 	}, nil
 }
 
+func (v *VirtualStore) handleShowDiff(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	diffRef := strings.TrimSpace(req.Target)
+
+	payload := make(map[string]interface{})
+	for k, v := range req.Payload {
+		payload[k] = v
+	}
+	// If no explicit args were provided, treat target as the diff ref.
+	if _, ok := payload["args"]; !ok && diffRef != "" {
+		payload["args"] = []interface{}{diffRef}
+	}
+
+	return v.handleGitOperation(ctx, ActionRequest{
+		Type:    ActionGitOperation,
+		Target:  "diff",
+		Payload: payload,
+	})
+}
+
 // handleAnalyzeImpact analyzes the impact of changes using code graph.
 func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	v.mu.RLock()
@@ -2177,6 +2216,34 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 			{Predicate: "delegation_result", Args: []interface{}{shardType, result}},
 		},
 	}, nil
+}
+
+func (v *VirtualStore) handleDelegateAlias(ctx context.Context, req ActionRequest, shardType string) (ActionResult, error) {
+	// For alias actions (delegate_coder, delegate_reviewer, ...), interpret:
+	// - shardType from the action type
+	// - task from payload["task"] if present, else from req.Target
+	task := ""
+	if t, ok := req.Payload["task"].(string); ok {
+		task = strings.TrimSpace(t)
+	}
+	if task == "" {
+		task = strings.TrimSpace(req.Target)
+	}
+	if task == "" {
+		return ActionResult{Success: false, Error: "delegate task is empty"}, nil
+	}
+
+	payload := make(map[string]interface{})
+	for k, v := range req.Payload {
+		payload[k] = v
+	}
+	payload["task"] = task
+
+	return v.handleDelegate(ctx, ActionRequest{
+		Type:    ActionDelegate,
+		Target:  shardType,
+		Payload: payload,
+	})
 }
 
 // handleAskUser handles requests that require user input.

@@ -908,7 +908,11 @@ func (r *ReviewerShard) reviewDiff(ctx context.Context, task *ReviewerTask) (*Re
 
 	action := core.Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"/git_diff", diffRef},
+		Args: []interface{}{
+			"/git_operation",
+			"diff",
+			map[string]interface{}{"args": []interface{}{diffRef}},
+		},
 	}
 	diffOutput, err := r.virtualStore.RouteAction(ctx, action)
 	if err != nil {
@@ -1718,7 +1722,11 @@ func (r *ReviewerShard) extractDiffInfo(ctx context.Context, diffRef string) (st
 	// Get diff via VirtualStore
 	action := core.Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"/git_diff", diffRef},
+		Args: []interface{}{
+			"/git_operation",
+			"diff",
+			map[string]interface{}{"args": []interface{}{diffRef}},
+		},
 	}
 	diffOutput, err := r.virtualStore.RouteAction(ctx, action)
 	if err != nil {

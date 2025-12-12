@@ -484,6 +484,19 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	if !ok {
 		return nil, fmt.Errorf("remediation phase not found (order=3)")
 	}
+	if existing > 0 {
+		// Keep triage idempotent: if remediation tasks already exist, don't duplicate them.
+		return map[string]interface{}{
+			"campaign_id":     o.campaign.ID,
+			"campaign_slug":   slug,
+			"total_results":   total,
+			"success":         success,
+			"failures":        len(failures),
+			"triage_path":     normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
+			"status":          "already_triaged",
+			"remediation_tasks_added": 0,
+		}, nil
+	}
 
 	limit := cfg.MaxRemediationTasks
 	if limit <= 0 {
