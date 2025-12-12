@@ -1,0 +1,39 @@
+# Bubbles Framework Atoms
+# Bubbletea component library.
+
+- id: "framework/bubbles/core"
+  category: "framework"
+  subcategory: "bubbles"
+  priority: 61
+  is_mandatory: false
+  shard_types: ["/coder"]
+  frameworks: ["/bubbles", "/bubbletea"]
+  languages: ["/go"]
+  content: |
+    ## Bubbles Components (list, table, spinner, viewport, etc.)
+
+    Bubbles provides composable UI widgets for Bubbletea TUIs.
+
+    ### Composition rules
+    - Treat each Bubble as a sub‑model with its own Update/View.
+    - Delegate messages downward and bubble commands upward.
+
+    ### Pattern
+    ```go
+    type model struct {
+        list list.Model
+        table table.Model
+    }
+
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        var cmds []tea.Cmd
+        m.list, cmd := m.list.Update(msg); cmds = append(cmds, cmd)
+        m.table, cmd = m.table.Update(msg); cmds = append(cmds, cmd)
+        return m, tea.Batch(cmds...)
+    }
+    ```
+
+    ### Pitfalls
+    - Avoid goroutines inside bubbles; use tea.Cmds.
+    - Keep styles centralized to avoid drift.
+

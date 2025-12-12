@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -52,6 +53,8 @@ type Orchestrator struct {
 	// Task result storage for context injection between tasks
 	taskResults map[string]string
 	resultsMu   sync.RWMutex
+	// Insertion/LRU order for pruning task results
+	taskResultOrder []string
 
 	// Concurrency control
 	maxParallelTasks int
@@ -87,6 +90,12 @@ type OrchestratorConfig struct {
 	MaxParallelTasks int           // Max tasks to run in parallel (default 3)
 	CampaignTimeout  time.Duration // Max total campaign runtime (default: 4 hours)
 	TaskTimeout      time.Duration // Max time per task (default: 30 minutes)
+	DisableTimeouts  bool          // Disable all timeouts for long-horizon campaigns
+	HeartbeatEvery   time.Duration // Emit heartbeat/progress every N duration (default: 15s)
+	AutosaveEvery    time.Duration // Persist campaign every N duration (default: 1m)
+	TaskResultCacheLimit int       // Max task results kept for context injection (default: 100)
+	RetryBackoffBase time.Duration // Base backoff between retries (default: 5s)
+	RetryBackoffMax  time.Duration // Max backoff between retries (default: 5m)
 }
 
 // NewOrchestrator creates a new campaign orchestrator.
@@ -96,18 +105,38 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
 
-	// Apply default timeout values
-	if cfg.CampaignTimeout == 0 {
-		cfg.CampaignTimeout = 4 * time.Hour
-	}
-	if cfg.TaskTimeout == 0 {
-		cfg.TaskTimeout = 30 * time.Minute
+	// Apply timeout defaults unless explicitly disabled.
+	if cfg.DisableTimeouts {
+		cfg.CampaignTimeout = 0
+		cfg.TaskTimeout = 0
+	} else {
+		if cfg.CampaignTimeout == 0 {
+			cfg.CampaignTimeout = 4 * time.Hour
+		}
+		if cfg.TaskTimeout == 0 {
+			cfg.TaskTimeout = 30 * time.Minute
+		}
 	}
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = 3
 	}
 	if cfg.ReplanThreshold == 0 {
 		cfg.ReplanThreshold = 3
+	}
+	if cfg.HeartbeatEvery == 0 {
+		cfg.HeartbeatEvery = 15 * time.Second
+	}
+	if cfg.AutosaveEvery == 0 {
+		cfg.AutosaveEvery = time.Minute
+	}
+	if cfg.TaskResultCacheLimit == 0 {
+		cfg.TaskResultCacheLimit = 100
+	}
+	if cfg.RetryBackoffBase == 0 {
+		cfg.RetryBackoffBase = 5 * time.Second
+	}
+	if cfg.RetryBackoffMax == 0 {
+		cfg.RetryBackoffMax = 5 * time.Minute
 	}
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
@@ -126,6 +155,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		eventChan:        cfg.EventChan,
 		maxParallelTasks: defaultParallelTasks,
 		taskResults:      make(map[string]string),
+		taskResultOrder:  make([]string, 0),
 		config:           cfg,
 	}
 
@@ -330,6 +360,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		logging.Campaign("Campaign timeout set: %v", o.config.CampaignTimeout)
 	}
 
+	// Start heartbeat/autosave loop for long-running durability.
+	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
+	defer heartbeatCancel()
+	go o.runHeartbeatLoop(heartbeatCtx)
+
 	defer func() {
 		o.mu.Lock()
 		o.isRunning = false
@@ -431,6 +466,46 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return err
 			}
+		}
+	}
+}
+
+// runHeartbeatLoop periodically emits progress, updates kernel heartbeat facts,
+// and persists the campaign even when tasks are idle or blocked.
+func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
+	heartbeatTicker := time.NewTicker(o.config.HeartbeatEvery)
+	autosaveTicker := time.NewTicker(o.config.AutosaveEvery)
+	defer heartbeatTicker.Stop()
+	defer autosaveTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeatTicker.C:
+			o.emitProgress()
+			o.mu.RLock()
+			campaignID := ""
+			if o.campaign != nil {
+				campaignID = o.campaign.ID
+			}
+			o.mu.RUnlock()
+			if campaignID != "" && o.kernel != nil {
+				_ = o.kernel.RetractFact(core.Fact{
+					Predicate: "campaign_heartbeat",
+					Args:      []interface{}{campaignID},
+				})
+				_ = o.kernel.Assert(core.Fact{
+					Predicate: "campaign_heartbeat",
+					Args:      []interface{}{campaignID, time.Now().Unix()},
+				})
+			}
+		case <-autosaveTicker.C:
+			o.mu.Lock()
+			if o.campaign != nil {
+				_ = o.saveCampaign()
+			}
+			o.mu.Unlock()
 		}
 	}
 }
@@ -608,7 +683,22 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 		}
 	}
 	logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
-	return tasks
+
+	// Respect retry backoff windows.
+	now := time.Now()
+	filtered := make([]*Task, 0, len(tasks))
+	skipped := 0
+	for _, t := range tasks {
+		if !t.NextRetryAt.IsZero() && t.NextRetryAt.After(now) {
+			skipped++
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	if skipped > 0 {
+		logging.CampaignDebug("Filtered %d eligible tasks due to backoff", skipped)
+	}
+	return filtered
 }
 
 // getNextTask gets the next task to execute from Mangle.
@@ -860,9 +950,36 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		// If phase is done and no active tasks, run checkpoint and finish
 		if o.isPhaseComplete(phase) && len(active) == 0 {
 			logging.Campaign("Phase %s complete, running checkpoint", phase.Name)
-			if err := o.runPhaseCheckpoint(ctx, phase); err != nil {
-				logging.Get(logging.CategoryCampaign).Error("Checkpoint failed for phase %s: %v", phase.ID, err)
+			allPassed, failedSummary, err := o.runPhaseCheckpoint(ctx, phase)
+			if err != nil {
+				logging.Get(logging.CategoryCampaign).Error("Checkpoint errored for phase %s: %v", phase.ID, err)
 				o.emitEvent("checkpoint_failed", phase.ID, "", err.Error(), nil)
+			}
+
+			// If any verification failed, trigger a replan and keep the phase open.
+			if !allPassed {
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failures: %s", phase.ID, failedSummary)
+				o.emitEvent("checkpoint_failed", phase.ID, "", failedSummary, nil)
+
+				// Seed a replan trigger so Replanner has a hard signal.
+				_ = o.kernel.Assert(core.Fact{
+					Predicate: "replan_trigger",
+					Args:      []interface{}{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},
+				})
+
+				if o.replanner != nil {
+					if repErr := o.replanner.Replan(ctx, o.campaign, ""); repErr != nil {
+						logging.Get(logging.CategoryCampaign).Error("Replan after checkpoint failure failed: %v", repErr)
+						o.emitEvent("replan_failed", phase.ID, "", repErr.Error(), nil)
+					} else {
+						o.mu.Lock()
+						_ = o.saveCampaign()
+						o.mu.Unlock()
+					}
+				}
+
+				// Return to main loop; policy will keep current phase active.
+				return nil
 			}
 
 			logging.CampaignDebug("Compressing phase context: %s", phase.ID)
@@ -1500,14 +1617,75 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 
 // storeTaskResult stores a task's result for context injection into dependent tasks.
 func (o *Orchestrator) storeTaskResult(taskID, result string) {
+	// Compute which results are still needed by pending/active tasks.
+	needed := o.computeNeededResultIDs()
+
 	o.resultsMu.Lock()
 	defer o.resultsMu.Unlock()
 	// Truncate if too large (keep first 10KB for context injection)
 	if len(result) > 10240 {
 		result = result[:10240] + "\n... [truncated]"
 	}
+
+	// Maintain insertion/LRU order
+	if _, exists := o.taskResults[taskID]; exists {
+		for i, id := range o.taskResultOrder {
+			if id == taskID {
+				o.taskResultOrder = append(o.taskResultOrder[:i], o.taskResultOrder[i+1:]...)
+				break
+			}
+		}
+	}
+	o.taskResultOrder = append(o.taskResultOrder, taskID)
+
 	o.taskResults[taskID] = result
 	logging.CampaignDebug("Stored result for task %s (%d bytes)", taskID, len(result))
+
+	// Prune cache if needed.
+	limit := o.config.TaskResultCacheLimit
+	if limit <= 0 {
+		limit = 100
+	}
+	if len(o.taskResultOrder) > limit {
+		pruned := 0
+		rotations := 0
+		for len(o.taskResultOrder) > limit && rotations < len(o.taskResultOrder) {
+			oldest := o.taskResultOrder[0]
+			o.taskResultOrder = o.taskResultOrder[1:]
+			if needed[oldest] {
+				// Keep needed results by rotating to the back.
+				o.taskResultOrder = append(o.taskResultOrder, oldest)
+			} else {
+				delete(o.taskResults, oldest)
+				pruned++
+			}
+			rotations++
+		}
+		if pruned > 0 {
+			logging.CampaignDebug("Pruned %d task results (limit=%d)", pruned, limit)
+		}
+	}
+}
+
+// computeNeededResultIDs returns the set of task IDs whose results are referenced
+// by pending/in-progress/blocked tasks via ContextFrom.
+func (o *Orchestrator) computeNeededResultIDs() map[string]bool {
+	needed := make(map[string]bool)
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.campaign == nil {
+		return needed
+	}
+	for _, phase := range o.campaign.Phases {
+		for _, task := range phase.Tasks {
+			if task.Status == TaskPending || task.Status == TaskInProgress || task.Status == TaskBlocked {
+				for _, dep := range task.ContextFrom {
+					needed[dep] = true
+				}
+			}
+		}
+	}
+	return needed
 }
 
 // getTaskResult retrieves a stored task result for context injection.
@@ -1561,48 +1739,82 @@ func inferShardFromTaskType(taskType TaskType) string {
 func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task *Task, err error) {
 	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, err)
 
+	errorType := classifyTaskError(err)
+
 	o.mu.Lock()
 	markedFailed := false
+	newStatus := TaskPending
+	nextRetryAt := time.Time{}
 
-	// Record attempt
+	// Record attempt and update retry/backoff state
 	for i := range o.campaign.Phases {
 		for j := range o.campaign.Phases[i].Tasks {
-			if o.campaign.Phases[i].Tasks[j].ID == task.ID {
-				attemptNum := len(o.campaign.Phases[i].Tasks[j].Attempts) + 1
-				logging.CampaignDebug("Task %s attempt %d failed", task.ID, attemptNum)
-
-				o.campaign.Phases[i].Tasks[j].Attempts = append(
-					o.campaign.Phases[i].Tasks[j].Attempts,
-					TaskAttempt{
-						Number:    attemptNum,
-						Outcome:   "/failure",
-						Timestamp: time.Now(),
-						Error:     err.Error(),
-					},
-				)
-				o.campaign.Phases[i].Tasks[j].LastError = err.Error()
-
-				// Check if max retries exceeded
-				maxRetries := o.config.MaxRetries
-				if maxRetries <= 0 {
-					maxRetries = 3
-				}
-				if attemptNum >= maxRetries {
-					logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
-					o.campaign.Phases[i].Tasks[j].Status = TaskFailed
-					markedFailed = true
-
-					// Record in kernel
-					o.kernel.Assert(core.Fact{
-						Predicate: "task_error",
-						Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), err.Error()},
-					})
-				}
-				break
+			if o.campaign.Phases[i].Tasks[j].ID != task.ID {
+				continue
 			}
+
+			attemptNum := len(o.campaign.Phases[i].Tasks[j].Attempts) + 1
+			logging.CampaignDebug("Task %s attempt %d failed", task.ID, attemptNum)
+
+			o.campaign.Phases[i].Tasks[j].Attempts = append(
+				o.campaign.Phases[i].Tasks[j].Attempts,
+				TaskAttempt{
+					Number:    attemptNum,
+					Outcome:   "/failure",
+					Timestamp: time.Now(),
+					Error:     err.Error(),
+				},
+			)
+			o.campaign.Phases[i].Tasks[j].LastError = err.Error()
+
+			maxRetries := o.config.MaxRetries
+			if maxRetries <= 0 {
+				maxRetries = 3
+			}
+
+			if attemptNum >= maxRetries {
+				logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
+				o.campaign.Phases[i].Tasks[j].Status = TaskFailed
+				o.campaign.Phases[i].Tasks[j].NextRetryAt = time.Time{}
+				markedFailed = true
+				newStatus = TaskFailed
+
+				// Record in kernel
+				_ = o.kernel.Assert(core.Fact{
+					Predicate: "task_error",
+					Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), err.Error()},
+				})
+			} else {
+				// Backoff before retrying to avoid tight failure loops.
+				backoff := o.computeRetryBackoff(errorType, attemptNum)
+				nextRetryAt = time.Now().Add(backoff)
+				o.campaign.Phases[i].Tasks[j].Status = TaskPending
+				o.campaign.Phases[i].Tasks[j].NextRetryAt = nextRetryAt
+				newStatus = TaskPending
+			}
+			break
 		}
 	}
 	o.mu.Unlock()
+
+	// Update kernel-visible task status for retries.
+	o.updateTaskStatus(task, newStatus)
+
+	// Record error taxonomy + retry window for policy/debugging.
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "task_error",
+		Args:      []interface{}{task.ID, errorType, err.Error()},
+	})
+	if !nextRetryAt.IsZero() {
+		_ = o.kernel.RetractFact(core.Fact{
+			Predicate: "task_retry_at",
+			Args:      []interface{}{task.ID},
+		})
+		_ = o.kernel.Assert(core.Fact{
+			Predicate: "task_retry_at",
+			Args:      []interface{}{task.ID, nextRetryAt.Unix()},
+		})
+	}
 
 	o.emitEvent("task_failed", phase.ID, task.ID, err.Error(), nil)
 
@@ -1611,7 +1823,7 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 
 	// Optionally run checkpoint immediately after a task is fully failed.
 	if markedFailed && o.config.CheckpointOnFail {
-		if chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
+		if _, _, chkErr := o.runPhaseCheckpoint(ctx, phase); chkErr != nil {
 			logging.Get(logging.CategoryCampaign).Warn("Checkpoint-on-fail error: %v", chkErr)
 			o.emitEvent("checkpoint_failed", phase.ID, "", chkErr.Error(), nil)
 		}
@@ -1622,16 +1834,76 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	if len(facts) > 0 {
 		logging.Campaign("Replan triggered due to task failures")
 		o.emitEvent("replan_triggered", "", "", "Too many failures, triggering replan", nil)
-		if err := o.replanner.Replan(ctx, o.campaign, task.ID); err != nil {
-			logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", err)
-			o.emitEvent("replan_failed", "", "", err.Error(), nil)
+		if repErr := o.replanner.Replan(ctx, o.campaign, task.ID); repErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("Replan failed: %v", repErr)
+			o.emitEvent("replan_failed", "", "", repErr.Error(), nil)
 		} else {
 			o.mu.Lock()
 			logging.Campaign("Campaign replanned, new revision: %d", o.campaign.RevisionNumber)
-			o.saveCampaign()
+			_ = o.saveCampaign()
 			o.mu.Unlock()
 		}
 	}
+
+	// Persist failure updates for durability.
+	o.mu.Lock()
+	_ = o.saveCampaign()
+	o.mu.Unlock()
+}
+
+// classifyTaskError uses heuristics to bucket errors into retry taxonomies.
+func classifyTaskError(err error) string {
+	if err == nil {
+		return "/logic"
+	}
+	msg := strings.ToLower(err.Error())
+	transientHints := []string{
+		"timeout",
+		"context deadline",
+		"rate limit",
+		"too many requests",
+		"temporar",
+		"connection",
+		"unavailable",
+		"network",
+		"i/o",
+	}
+	for _, h := range transientHints {
+		if strings.Contains(msg, h) {
+			return "/transient"
+		}
+	}
+	return "/logic"
+}
+
+// computeRetryBackoff returns exponential backoff based on attempt number.
+func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) time.Duration {
+	base := o.config.RetryBackoffBase
+	if base <= 0 {
+		base = 5 * time.Second
+	}
+	maxBackoff := o.config.RetryBackoffMax
+	if maxBackoff <= 0 {
+		maxBackoff = 5 * time.Minute
+	}
+
+	shift := attemptNum - 1
+	if shift < 0 {
+		shift = 0
+	}
+	if shift > 10 {
+		shift = 10
+	}
+	backoff := base * time.Duration(1<<shift)
+
+	// Logic errors often benefit from faster replans; cap their backoff lower.
+	if errorType == "/logic" && backoff > 30*time.Second {
+		backoff = 30 * time.Second
+	}
+	if backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+	return backoff
 }
 
 // assertCampaignConfigFacts publishes runtime configuration to the kernel for policy rules.
@@ -1696,10 +1968,13 @@ func (o *Orchestrator) updateFailedTaskCount() {
 }
 
 // runPhaseCheckpoint runs the checkpoint for a phase.
-func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) error {
+func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	logging.Campaign("Running checkpoint for phase: %s", phase.Name)
 	timer := logging.StartTimer(logging.CategoryCampaign, fmt.Sprintf("checkpoint(%s)", phase.Name))
 	defer timer.Stop()
+
+	allPassed := true
+	var failedSummaries []string
 
 	for _, obj := range phase.Objectives {
 		if obj.VerificationMethod == VerifyNone {
@@ -1711,13 +1986,20 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) err
 		passed, details, err := o.checkpoint.Run(ctx, phase, obj.VerificationMethod)
 		if err != nil {
 			logging.Get(logging.CategoryCampaign).Error("Checkpoint error: %v", err)
-			return err
+			return false, "", err
 		}
 
 		if passed {
 			logging.Campaign("Checkpoint PASSED: %s", obj.VerificationMethod)
 		} else {
 			logging.Get(logging.CategoryCampaign).Warn("Checkpoint FAILED: %s - %s", obj.VerificationMethod, details)
+			allPassed = false
+			// Keep summaries concise for replanning context.
+			short := details
+			if len(short) > 500 {
+				short = short[:500] + "..."
+			}
+			failedSummaries = append(failedSummaries, fmt.Sprintf("%s: %s", obj.VerificationMethod, short))
 		}
 
 		checkpoint := Checkpoint{
@@ -1743,7 +2025,7 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) err
 		})
 	}
 
-	return nil
+	return allPassed, strings.Join(failedSummaries, " | "), nil
 }
 
 // applyLearnings applies autopoiesis learnings from task execution.

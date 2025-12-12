@@ -191,6 +191,51 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 		CanExceedMax: true,
 	}
 
+	// Knowledge and build-layer/intent/world-state are medium/conditional priorities.
+	// These categories carry encyclopedic but selector-gated atoms.
+	m.budgets[CategoryKnowledge] = CategoryBudget{
+		Category:     CategoryKnowledge,
+		BasePercent:  0.05,
+		MinTokens:    300,
+		MaxTokens:    8000,
+		Priority:     PriorityMedium,
+		CanExceedMax: true,
+	}
+
+	m.budgets[CategoryBuildLayer] = CategoryBudget{
+		Category:    CategoryBuildLayer,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryIntent] = CategoryBudget{
+		Category:    CategoryIntent,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryWorldState] = CategoryBudget{
+		Category:    CategoryWorldState,
+		BasePercent: 0.03,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	// Reviewer-specific atoms are low priority; include if budget remains.
+	m.budgets[CategoryReviewer] = CategoryBudget{
+		Category:     CategoryReviewer,
+		BasePercent:  0.02,
+		MinTokens:    0,
+		MaxTokens:    2000,
+		Priority:     PriorityLow,
+		CanExceedMax: true,
+	}
+
 	// Campaign and specialized phases are conditional
 	m.budgets[CategoryCampaign] = CategoryBudget{
 		Category:    CategoryCampaign,

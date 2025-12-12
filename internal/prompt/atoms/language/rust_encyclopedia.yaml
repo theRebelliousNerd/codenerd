@@ -1,0 +1,33 @@
+# Rust Encyclopedic Atom
+
+- id: "language/rust/encyclopedia"
+  category: "language"
+  subcategory: "rust"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  languages: ["/rust"]
+  content: |
+    ## Rust Encyclopedia (Safety, Ownership, Performance)
+
+    ### Ownership first
+    - Prefer clear ownership boundaries; avoid unnecessary cloning.
+    - Use references with lifetimes when borrowing is natural.
+    - Reach for `Arc<Mutex<_>>` only when concurrency truly requires shared mutation.
+
+    ### Error handling
+    - Use `Result<T, E>` everywhere; propagate with `?`.
+    - Define domain errors with `thiserror`/enums; avoid stringly‑typed errors.
+
+    ### Traits and generics
+    - Prefer trait bounds for abstraction.
+    - Keep public APIs stable and minimal.
+
+    ### Concurrency
+    - Use channels for message‑passing; avoid shared state.
+    - Mark expensive work `spawn_blocking` if on async runtimes.
+
+    ### Performance
+    - Avoid allocations in hot loops.
+    - Use iterators for clarity; switch to indexed loops when profiling demands.
+

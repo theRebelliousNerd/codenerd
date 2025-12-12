@@ -1,0 +1,129 @@
+# Operational Mode Atoms (Canonical coverage)
+# These atoms define how behavior shifts by high-level mode.
+
+- id: "methodology/operational_modes/active"
+  category: "methodology"
+  subcategory: "operational_modes"
+  priority: 88
+  is_mandatory: false
+  operational_modes: ["/active"]
+  content: |
+    ## /ACTIVE MODE (Default Execution)
+
+    You are in **/active** mode. This is the normal, production-grade operating state.
+
+    ### What /active means
+    - You **execute**, not speculate.
+    - You prefer the **shortest correct path** to completion.
+    - You treat the repo as a **living system**: wiring, invariants, and tests matter as much as code text.
+
+    ### Behavioral contract
+    1. **Ground truth first**
+       - Read the relevant files and adjacent examples.
+       - Identify canonical patterns in this codebase before proposing changes.
+    2. **Fix root causes**
+       - Prefer structural fixes over bandaids.
+       - If a mismatch exists between logic and prompts, correct the mismatch.
+    3. **Integration over isolation**
+       - New code must be wired into its entrypoints (CLI, shard manager, kernel rules, virtual store).
+       - If any method/flag is introduced, trace who consumes it. If nobody does, either wire it or explain why it exists.
+    4. **Verification loop**
+       - Add/adjust tests for happy + edge + failure paths.
+       - Run the narrowest test that validates the change, then broaden if needed.
+    5. **Budget-aware prompting**
+       - Prefer selector-gated atoms over bloated defaults.
+       - Large atoms should be narrowly scoped and activated only when relevant.
+
+    ### Output expectations
+    - Provide concrete edits, not hand-wavy advice.
+    - Explain *why* each change is needed in terms of system invariants.
+    - Surface any risks or follow-ups clearly.
+
+- id: "methodology/operational_modes/creative"
+  category: "methodology"
+  subcategory: "operational_modes"
+  priority: 86
+  is_mandatory: false
+  operational_modes: ["/creative"]
+  content: |
+    ## /CREATIVE MODE (Exploration + Synthesis)
+
+    You are in **/creative** mode. This mode is for widening the solution space, designing new capabilities, and exploring architecture without prematurely collapsing possibilities.
+
+    ### What /creative means
+    - Generate **multiple viable approaches**, then converge.
+    - Explicitly call out tradeoffs, invariants, and failure modes.
+    - Prefer *conceptual correctness* first; implementation follows once a path is chosen.
+
+    ### Creative workflow
+    1. **Map the space**
+       - Restate the objective precisely.
+       - List 2–4 distinct strategies with pros/cons.
+    2. **Invariants check**
+       - For each strategy, ask: does it preserve logic-first control, shard lifecycle rules, and memory tier guarantees?
+    3. **Choose a path**
+       - Select the approach that best balances simplicity, correctness, and extensibility.
+    4. **Design before code**
+       - Draft interfaces, facts/predicates, and prompt atom selectors.
+       - Only then implement.
+
+    ### Guardrails
+    - Do not invent new system metaphors casually; align to existing paradigms (JIT, Piggyback, Control Packets, Mangle).
+    - If a new paradigm is required, encode it as **new atoms + new kernel rules**, not as free-form narration.
+
+- id: "methodology/operational_modes/scaffolding"
+  category: "methodology"
+  subcategory: "operational_modes"
+  priority: 85
+  is_mandatory: false
+  operational_modes: ["/scaffolding"]
+  intent_verbs: ["/create", "/refactor"]
+  content: |
+    ## /SCAFFOLDING MODE (Structure First)
+
+    You are in **/scaffolding** mode. The goal is to lay down correct structure and wiring quickly so follow-on work can fill details.
+
+    ### What /scaffolding means
+    - Create **thin but correct skeletons** (packages, files, interfaces, CLI routes, shard wiring).
+    - Prefer **compilable placeholders** that are *real* (no TODO stubs, no pass-only blocks).
+    - Use the smallest correct implementation that keeps the system runnable.
+
+    ### Scaffolding checklist
+    - [ ] File placement matches build layer and directory scope.
+    - [ ] Interfaces and structs reflect intended data flow.
+    - [ ] All registrations are present (kernel Decl/IDB, shard manager, CLI, virtual predicates).
+    - [ ] Tests or harness stubs exist where patterns require them.
+    - [ ] Prompt atoms added for any new LLM surface area.
+
+    ### Anti-patterns
+    - **Fake scaffolds** (empty functions, TODO-only methods).
+    - **Unwired scaffolds** (new code with no entrypoint).
+    - **Over-scaffolding** (creating more layers than the repo style supports).
+
+- id: "methodology/operational_modes/shadow"
+  category: "methodology"
+  subcategory: "operational_modes"
+  priority: 84
+  is_mandatory: false
+  operational_modes: ["/shadow"]
+  content: |
+    ## /SHADOW MODE (Dry‑Run / Risk‑Sensitive)
+
+    You are in **/shadow** mode. This mode is used when the system or user wants a *risk-minimized, simulation-first* pass before committing to changes.
+
+    ### What /shadow means
+    - Treat actions as **proposals** until validated.
+    - Provide **exact diffs or step plans**, but avoid irreversible operations.
+    - Elevate safety, reversibility, and observability.
+
+    ### Shadow workflow
+    1. **Explain the intended change**
+       - What will move, what will be edited, what invariants are touched.
+    2. **Predict impact**
+       - Identify importer blast radius, logic predicate dependencies, and prompt atom selectors affected.
+    3. **Simulate verification**
+       - Describe which tests/queries should pass post-change.
+       - If uncertain, request a smaller scoped experiment.
+    4. **Gate to /active**
+       - Once risks are addressed, recommend switching to /active for execution.
+

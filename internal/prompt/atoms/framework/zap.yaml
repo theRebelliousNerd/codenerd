@@ -1,0 +1,40 @@
+# Zap Logging Framework Atoms
+# Structured logging patterns and invariants.
+
+- id: "framework/zap/core"
+  category: "framework"
+  subcategory: "zap"
+  priority: 61
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  frameworks: ["/zap"]
+  languages: ["/go"]
+  content: |
+    ## Zap Structured Logging
+
+    Zap is the canonical logger for codeNERD.
+
+    ### Usage rules
+    - Prefer structured fields (`zap.String`, `zap.Int`, `zap.Error`) over formatted strings.
+    - Use the sugared logger only at UI boundaries.
+    - Never log secrets, tokens, or raw prompt content.
+
+    ### Pattern
+    ```go
+    log := logging.Get(logging.CategoryKernel)
+    log.Info("loaded atoms",
+        zap.Int("count", len(atoms)),
+        zap.String("source", "embedded"),
+    )
+    ```
+
+    ### Levels
+    - `Debug` for noisy internal traces (guard with category).
+    - `Info` for lifecycle events.
+    - `Warn` for recoverable anomalies.
+    - `Error` for user‑visible failures.
+
+    ### Performance
+    - Keep field values cheap to compute.
+    - Avoid `fmt.Sprintf` in hot loops.
+

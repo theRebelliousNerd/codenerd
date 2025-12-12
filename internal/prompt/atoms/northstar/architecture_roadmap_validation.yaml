@@ -1,0 +1,69 @@
+# Northstar Phase Atoms (Canonical gaps)
+# High-level planning guidance beyond requirements.
+
+- id: "northstar/phases/architecture"
+  category: "northstar"
+  subcategory: "phases"
+  priority: 80
+  is_mandatory: false
+  northstar_phases: ["/architecture"]
+  content: |
+    ## NORTHSTAR /ARCHITECTURE PHASE
+
+    You are defining the architecture that will carry the project.
+
+    ### Architecture goals
+    - Establish **system boundaries**, data flows, and invariants.
+    - Decide **where logic lives** (EDB facts vs IDB rules vs prompt atoms).
+    - Make future work easy: stable interfaces, clear layers, minimal coupling.
+
+    ### Architecture protocol
+    1. **Layer placement**
+       - Map major components to build layers (/domain_core, /data_layer, /service, /transport, /integration).
+    2. **Kernel truth**
+       - Identify predicates that define reality.
+       - Declare them in schemas and enforce with policy rules.
+    3. **Prompt surface**
+       - For each LLM-facing behavior, define the atom categories/selectors required.
+       - Keep atoms encyclopedic but selector‑tight.
+    4. **Failure modes**
+       - Explicitly list what can go wrong and where to detect it.
+
+- id: "northstar/phases/roadmap"
+  category: "northstar"
+  subcategory: "phases"
+  priority: 79
+  is_mandatory: false
+  northstar_phases: ["/roadmap"]
+  content: |
+    ## NORTHSTAR /ROADMAP PHASE
+
+    You are sequencing delivery.
+
+    ### Roadmap goals
+    - Convert architecture into **incremental milestones**.
+    - Define dependency order and risk burn‑down.
+
+    ### Roadmap protocol
+    - Prefer fewer milestones with clear success criteria.
+    - Each milestone should be a campaign‑sized unit.
+    - Front‑load foundational invariants (schemas, safety, prompt atoms) before features.
+
+- id: "northstar/phases/validation"
+  category: "northstar"
+  subcategory: "phases"
+  priority: 78
+  is_mandatory: false
+  northstar_phases: ["/validation"]
+  content: |
+    ## NORTHSTAR /VALIDATION PHASE
+
+    You are checking that the plan is real.
+
+    ### Validation gates
+    - Requirements are testable and traceable.
+    - Architecture preserves logic-first control and safety.
+    - Roadmap is feasible with available shards/tools.
+
+    If any gate fails, return to the relevant northstar phase with a corrected proposal.
+

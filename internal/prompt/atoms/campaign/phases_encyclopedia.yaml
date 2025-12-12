@@ -1,0 +1,156 @@
+# Campaign Phase Atoms (Canonical phases)
+# Long-form guidance for multi-phase goal orchestration.
+
+- id: "campaign/phases/planning"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 82
+  is_mandatory: false
+  campaign_phases: ["/planning"]
+  content: |
+    ## CAMPAIGN /PLANNING PHASE
+
+    You are designing a multi-phase campaign. Planning is **where correctness is won**; execution is where it is cashed.
+
+    ### Objectives
+    - Convert user intent into a **finite, verifiable plan**.
+    - Define phases with clear goals, artifacts, and success criteria.
+    - Establish dependency ordering and risk surface.
+
+    ### Planning protocol
+    1. **Restate intent in campaign form**
+       - What is the northstar goal?
+       - What constraints are non‑negotiable?
+    2. **Phase sketch**
+       - Create 2–6 phases max; fewer is better.
+       - Each phase has a single theme and produces concrete artifacts.
+    3. **Task decomposition**
+       - Break each phase into tasks with explicit inputs/outputs.
+       - Mark hard vs soft dependencies.
+    4. **Context profiles**
+       - For each phase, define required schemas/tools and focus patterns.
+    5. **Verification gates**
+       - Every phase must end with a check (tests pass, rules hold, docs updated).
+
+    ### Outputs
+    - A campaign graph that the Executive can step through deterministically.
+    - Predictable “next_action” derivations for each task.
+
+- id: "campaign/phases/decomposing"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 81
+  is_mandatory: false
+  campaign_phases: ["/decomposing"]
+  content: |
+    ## CAMPAIGN /DECOMPOSING PHASE
+
+    You are expanding a phase into executable tasks.
+
+    ### Decomposition goals
+    - Ensure tasks are **independent and testable**.
+    - Avoid tasks that mix layers or intents.
+    - Capture implicit wiring early.
+
+    ### Decomposition rules
+    - Tasks should be small enough to finish in one shard execution.
+    - Each task must map to a **single build layer** and **single intent verb**.
+    - If a task introduces a new LLM surface, it must include:
+      - New prompt atoms (internal) or flags to generate `.nerd/agents` atoms.
+      - Selector plan for when those atoms activate.
+
+    ### Output format
+    - Task list with IDs, descriptions, artifacts, and depends_on.
+    - Explicit shard routing if a specialist is required.
+
+- id: "campaign/phases/validating"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 80
+  is_mandatory: false
+  campaign_phases: ["/validating"]
+  content: |
+    ## CAMPAIGN /VALIDATING PHASE
+
+    You are verifying that completed work satisfies campaign objectives.
+
+    ### Validation targets
+    - **Behavioral correctness**: tests, repros, invariants.
+    - **Integration correctness**: wiring, registrations, shard routing.
+    - **Prompt correctness**: selectors align with context; no drift from logic.
+
+    ### Validation loop
+    1. Run the narrowest tests or Mangle queries that prove the phase.
+    2. Review for unused wiring and dead flags.
+    3. Confirm documentation and PRD headers are updated.
+    4. If any gate fails, produce a minimal fix task and return to /active.
+
+- id: "campaign/phases/active"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 79
+  is_mandatory: false
+  campaign_phases: ["/active"]
+  content: |
+    ## CAMPAIGN /ACTIVE PHASE
+
+    You are executing tasks in order.
+
+    ### Execution rules
+    - Obey phase/task dependencies.
+    - Keep scope tight; if a surprise appears, spawn a replanning task.
+    - Prefer minimal coherent edits over broad refactors.
+
+    ### Execution hygiene
+    - Update logical state as you go (facts, next_action eligibility, jit_fallback).
+    - Keep prompts selector‑gated and aligned to context.
+
+- id: "campaign/phases/completed"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 78
+  is_mandatory: false
+  campaign_phases: ["/completed"]
+  content: |
+    ## CAMPAIGN /COMPLETED PHASE
+
+    The campaign is done. Close it cleanly.
+
+    ### Completion protocol
+    - Summarize artifacts delivered and where they live.
+    - Record learnings into persistent memory tiers.
+    - Ensure no dangling tasks or in‑progress shards remain.
+    - Compress context and clear phase-local state.
+
+- id: "campaign/phases/paused"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 77
+  is_mandatory: false
+  campaign_phases: ["/paused"]
+  content: |
+    ## CAMPAIGN /PAUSED PHASE
+
+    The campaign is intentionally halted.
+
+    ### Pause protocol
+    - Preserve current phase/task pointers.
+    - Snapshot active context and reasoning.
+    - Specify what condition resumes the campaign.
+
+- id: "campaign/phases/failed"
+  category: "campaign"
+  subcategory: "phases"
+  priority: 76
+  is_mandatory: false
+  campaign_phases: ["/failed"]
+  content: |
+    ## CAMPAIGN /FAILED PHASE
+
+    The campaign cannot proceed as designed.
+
+    ### Failure protocol
+    - Produce a short post‑mortem: what broke, why, and where.
+    - Preserve partial artifacts that may still be valuable.
+    - Recommend a restart plan or narrowed campaign.
+

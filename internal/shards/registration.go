@@ -380,6 +380,17 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		return shard
 	})
 
+	// Register Campaign Runner - AUTO-START supervisor for long-horizon campaigns
+	sm.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewCampaignRunnerShard()
+		shard.SetParentKernel(ctx.Kernel)
+		shard.SetVirtualStore(ctx.VirtualStore)
+		shard.SetLLMClient(ctx.LLMClient)
+		shard.SetWorkspaceRoot(ctx.Workspace)
+		// Shared ShardManager is injected in system factory to avoid cycles.
+		return shard
+	})
+
 	// Register Session Planner - ON-DEMAND, LLM-primary
 	sm.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
 		shard := system.NewSessionPlannerShard()
@@ -603,6 +614,22 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 		MemoryLimit: 16000,
 		Model: core.ModelConfig{
 			Capability: core.CapabilityHighReasoning,
+		},
+	})
+
+	// Campaign Runner - AUTO-START, supervisor (uses orchestrator + shards)
+	sm.DefineProfile("campaign_runner", core.ShardConfig{
+		Name: "campaign_runner",
+		Type: core.ShardTypeSystem,
+		Permissions: []core.ShardPermission{
+			core.PermissionReadFile,
+			core.PermissionWriteFile,
+			core.PermissionExecCmd,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 6000,
+		Model: core.ModelConfig{
+			Capability: core.CapabilityBalanced,
 		},
 	})
 

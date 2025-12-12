@@ -118,3 +118,34 @@
     - WRONG: "Implement OAuth2" marked as /low complexity
     - CORRECT: External integrations are /high or /critical
     - MITIGATION: Authentication, payments, external APIs = /high minimum
+
+- id: "campaign/planner/long_horizon_autonomy"
+  category: "methodology"
+  subcategory: "durability"
+  priority: 78
+  is_mandatory: true
+  campaign_phases: ["planning"]
+  shard_types: ["/planner"]
+  depends_on: ["campaign/planner/campaign_philosophy"]
+  content: |
+    ## Long-Horizon Autonomy Contract
+
+    Campaigns may run for days or weeks without human intervention. Your plan must be robust to partial failures and restarts.
+
+    **You MUST:**
+    1. Keep tasks atomic so they can be retried safely.
+    2. Insert explicit verification objectives for every phase that produces code.
+       - Use `/tests_pass` for test gates.
+       - Use `/builds` for build gates.
+    3. For high-risk phases (especially `/integration`, `/refactor`, or `/critical` complexity),
+       add an adversarial objective using verification method `/nemesis_gauntlet`.
+       This forces the Nemesis shard to try to break the patch before the phase can close.
+
+    **Allowed Task Types (extended):**
+    - `/file_create`, `/file_modify`
+    - `/refactor`, `/integrate`
+    - `/test_write`, `/test_run`
+    - `/tool_create` (Ouroboros/autopoiesis)
+    - `/document`, `/research`, `/verify`
+
+    Avoid `/manual_review` unless the user explicitly requests it. The system will auto-retry with backoff and replan on failures.

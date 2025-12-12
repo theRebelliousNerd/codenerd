@@ -1,0 +1,35 @@
+# Google GenAI Framework Atoms
+# Usage patterns for google.golang.org/genai.
+
+- id: "framework/genai/core"
+  category: "framework"
+  subcategory: "genai"
+  priority: 63
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  frameworks: ["/genai"]
+  languages: ["/go"]
+  content: |
+    ## Google GenAI Client Usage
+
+    `google.golang.org/genai` is used for model calls (Gemini family).
+
+    ### Call invariants
+    - Every LLM call must be wrapped with cost/perf tracking when the system supports it.
+    - Inputs must be deterministic and schema‑checked if they influence kernel facts.
+
+    ### Pattern
+    ```go
+    client, _ := genai.NewClient(ctx, genai.WithAPIKey(key))
+    resp, err := client.Models.GenerateContent(ctx, modelID, genai.Text(prompt))
+    ```
+
+    ### Safety & reliability
+    - Always set timeouts on `ctx`.
+    - Retry only idempotent operations, with exponential backoff.
+    - Capture model errors with enough context to debug without leaking prompt secrets.
+
+    ### Output handling
+    - Treat outputs as *suggestions* until validated by logic.
+    - If output is parsed into atoms/facts, enforce grammar constraints.
+

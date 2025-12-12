@@ -1,0 +1,33 @@
+# Yaegi Framework Atoms
+# Go interpreter used for dynamic tool execution.
+
+- id: "framework/yaegi/core"
+  category: "framework"
+  subcategory: "yaegi"
+  priority: 62
+  is_mandatory: false
+  shard_types: ["/coder", "/tool_generator", "/nemesis"]
+  frameworks: ["/yaegi"]
+  languages: ["/go"]
+  content: |
+    ## Yaegi (Go Interpreter) Usage
+
+    Yaegi enables runtime execution of generated Go tools without full recompilation.
+
+    ### Core invariants
+    - Treat interpreted code as **untrusted until battle‑hardened**.
+    - Always run PanicMaker/Nemesis adversarial passes before promotion.
+
+    ### Execution pattern
+    - Load source into a Yaegi interpreter once, then reuse.
+    - Restrict exposed symbols; do not leak filesystem or network without explicit permission.
+
+    ### Limitations
+    - Not all Go features are supported (especially some CGO, generics edge cases).
+    - Performance is slower than compiled code; use for development or rare paths.
+
+    ### Safety checklist
+    - Validate inputs strictly before handing to interpreted code.
+    - Timebox execution with context cancellation.
+    - Capture panics and return structured errors.
+

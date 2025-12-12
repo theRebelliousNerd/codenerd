@@ -18,16 +18,16 @@ import (
 // FactSerializer handles serialization of facts to various formats.
 type FactSerializer struct {
 	// Options
-	includeComments bool
-	maxLineLength   int
+	includeComments  bool
+	maxLineLength    int
 	groupByPredicate bool
 }
 
 // NewFactSerializer creates a new serializer with default options.
 func NewFactSerializer() *FactSerializer {
 	return &FactSerializer{
-		includeComments: true,
-		maxLineLength:   120,
+		includeComments:  true,
+		maxLineLength:    120,
 		groupByPredicate: true,
 	}
 }
@@ -412,22 +412,24 @@ func formatArg(arg interface{}) string {
 // Lower numbers appear first.
 func predicateSortOrder(pred string) int {
 	order := map[string]int{
-		"user_intent":       1,
-		"focus_resolution":  2,
-		"active_goal":       3,
-		"diagnostic":        10,
-		"test_state":        11,
-		"file_topology":     20,
-		"modified":          21,
-		"symbol_graph":      22,
-		"dependency_link":   23,
-		"campaign":          30,
-		"campaign_phase":    31,
-		"campaign_task":     32,
-		"delegate_task":     40,
-		"permitted":         50,
-		"activation":        60,
-		"context_atom":      61,
+		"user_intent":      1,
+		"focus_resolution": 2,
+		"active_goal":      3,
+		"diagnostic":       10,
+		"test_state":       11,
+		"file_topology":    20,
+		"modified":         21,
+		"symbol_graph":     22,
+		"dependency_link":  23,
+		"campaign":         30,
+		"campaign_phase":   31,
+		"campaign_task":    32,
+		"issue_text":       33,
+		"issue_keyword":    34,
+		"delegate_task":    40,
+		"permitted":        50,
+		"activation":       60,
+		"context_atom":     61,
 	}
 
 	if o, ok := order[pred]; ok {

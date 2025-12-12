@@ -40,6 +40,8 @@ func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method Verifi
 		return cr.runManualReviewCheckpoint(ctx, phase)
 	case VerifyShardValidate:
 		return cr.runShardValidationCheckpoint(ctx, phase)
+	case VerifyNemesisGauntlet:
+		return cr.runNemesisGauntletCheckpoint(ctx, phase)
 	case VerifyNone:
 		return true, "No verification required", nil
 	default:
@@ -188,6 +190,49 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	}
 
 	return true, fmt.Sprintf("Review passed: %s", resultStr), nil
+}
+
+// runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
+// This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
+func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
+	if cr.shardMgr == nil {
+		return true, "Nemesis shard manager unavailable, skipping adversarial checkpoint", nil
+	}
+
+	target := cr.workspace
+	// Prefer a phase-specific target if artifacts exist.
+	if phase != nil {
+		for _, task := range phase.Tasks {
+			for _, artifact := range task.Artifacts {
+				if artifact.Path != "" {
+					target = artifact.Path
+					break
+				}
+			}
+			if target != cr.workspace {
+				break
+			}
+		}
+	}
+
+	taskStr := fmt.Sprintf("review:%s", target)
+	result, err := cr.shardMgr.Spawn(ctx, "nemesis", taskStr)
+	if err != nil {
+		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err
+	}
+
+	resultStr := fmt.Sprintf("%v", result)
+	lower := strings.ToLower(resultStr)
+
+	// Heuristic verdict: Nemesis uses "failed/defeated" language when it breaks a patch.
+	if strings.Contains(lower, "verdict") && strings.Contains(lower, "fail") {
+		return false, fmt.Sprintf("Nemesis gauntlet failed: %s", resultStr), nil
+	}
+	if strings.Contains(lower, "defeated") || strings.Contains(lower, "attack succeeded") {
+		return false, fmt.Sprintf("Nemesis gauntlet found weaknesses: %s", resultStr), nil
+	}
+
+	return true, fmt.Sprintf("Nemesis gauntlet passed: %s", resultStr), nil
 }
 
 // detectTestCommand determines the appropriate test command for the project.

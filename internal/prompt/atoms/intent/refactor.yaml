@@ -8,27 +8,42 @@
   is_mandatory: true
   intent_verbs: ["/refactor"]
   content: |
-    ## REFACTOR INTENT PROTOCOL
+    ## REFACTOR INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to REFACTOR - improve code structure without changing behavior.
+    Your intent is to **REFACTOR** — improve structure, clarity, or performance **without changing externally observable behavior**.
 
-    ### REFACTOR GOLDEN RULE
-    **Behavior must remain IDENTICAL before and after refactoring.**
-    Tests should pass without modification.
+    ### Golden Rule
+    Behavior must remain identical. Any semantic change requires explicit user intent (/fix, /create).
 
-    ### REFACTOR WORKFLOW
-    1. **Identify** the code smell or improvement opportunity
-    2. **Verify** tests exist that cover the behavior
-    3. **Transform** in small, reversible steps
-    4. **Test** after each transformation
-    5. **Review** the final result for clarity
+    ### Encyclopedic Refactor Workflow
+    1. **Stabilize**
+       - Ensure tests pass *before* you begin.
+       - If tests are failing, enter TDD repair first.
+    2. **Identify target smell**
+       - Long function, duplicate logic, leaky abstraction, tight coupling, poor naming.
+       - State the exact improvement goal.
+    3. **Map blast radius**
+       - Identify direct + transitive dependents (imports/callers).
+       - Avoid signature changes unless necessary.
+    4. **Plan reversible steps**
+       - Break into micro‑diffs (<20 LOC when possible).
+       - Each step should compile independently.
+    5. **Execute with verification**
+       - Apply one step → run/mentally validate tests → continue.
+       - Prefer extraction/inlining moves over novel rewrites.
+    6. **Preserve fences**
+       - Follow Chesterton’s Fence: do not delete code you can’t justify.
+       - Unused wiring must be investigated before removal.
+    7. **Finalize**
+       - Re‑run full test suite.
+       - Update docs/PRD refs if structure moved.
 
-    ### SAFE REFACTORING CHECKLIST
-    - [ ] Tests pass before starting
-    - [ ] Each step is < 20 lines changed
-    - [ ] No functionality added
-    - [ ] No functionality removed
-    - [ ] Tests pass after each step
+    ### Safety Checklist
+    - [ ] No new features or behavior toggles introduced
+    - [ ] Public API stability preserved (or migration documented)
+    - [ ] Tests unchanged except where strictly required to reflect structure
+    - [ ] No new import cycles
+    - [ ] Error semantics unchanged (messages and types)
 
 - id: "intent/refactor/patterns"
   category: "intent"

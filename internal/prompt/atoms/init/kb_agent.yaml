@@ -7,7 +7,7 @@
   priority: 75
   is_mandatory: true
   shard_types: ["/researcher"]
-  init_phases: ["/kb_creation"]
+  init_phases: ["/kb_creation", "/kb_agent"]
   content: |
     You are researching and hydrating a knowledge base for a specific Type 3 agent.
 
@@ -69,7 +69,7 @@
   priority: 70
   is_mandatory: true
   shard_types: ["/researcher"]
-  init_phases: ["/kb_creation"]
+  init_phases: ["/kb_creation", "/kb_agent"]
   depends_on: ["init/kb_agent/research"]
   content: |
     ## Knowledge Base Quality Assurance
@@ -115,7 +115,7 @@
   priority: 65
   is_mandatory: false
   shard_types: ["/researcher"]
-  init_phases: ["/kb_creation"]
+  init_phases: ["/kb_creation", "/kb_agent"]
   content: |
     ## Knowledge Storage Strategy
 

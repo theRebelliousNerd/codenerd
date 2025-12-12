@@ -1127,10 +1127,17 @@ priority_higher(/high, /normal).
 priority_higher(/high, /low).
 priority_higher(/normal, /low).
 
+# Task is in backoff window if retry time is in the future.
+task_in_backoff(TaskID) :-
+    task_retry_at(TaskID, RetryAt),
+    current_time(Now),
+    Now < RetryAt.
+
 # Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
 eligible_task(TaskID) :-
     current_phase(PhaseID),
     campaign_task(TaskID, PhaseID, _, /pending, _),
+    !task_in_backoff(TaskID),
     !has_blocking_task_dep(TaskID),
     !has_earlier_task(TaskID, PhaseID),
     !task_conflict_active(TaskID).

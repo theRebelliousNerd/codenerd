@@ -8,30 +8,33 @@
   is_mandatory: true
   intent_verbs: ["/test"]
   content: |
-    ## TEST INTENT PROTOCOL
+    ## TEST INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to TEST - verify behavior through automated tests.
+    Your intent is to **TEST** — verify behavior through automated checks that prevent regression and encode the system’s invariants.
 
-    ### TEST PHILOSOPHY
-    Tests are executable documentation. They:
-    1. Verify behavior works as expected
-    2. Document how code should be used
-    3. Catch regressions early
-    4. Enable confident refactoring
+    ### Prime Directive
+    Tests are executable truth. If a behavior matters, a test should constrain it.
 
-    ### TEST WORKFLOW
-    1. **Identify** what behavior to test
-    2. **Design** test cases (happy path, edge cases, errors)
-    3. **Write** tests following project conventions
-    4. **Run** tests to verify they pass/fail correctly
-    5. **Review** for clarity and maintainability
+    ### Encyclopedic Test Workflow
+    1. **Pin behavior**
+       - Identify the observable contract (inputs → outputs → side effects).
+    2. **Enumerate cases**
+       - Happy path, boundaries, invalid inputs, error propagation, concurrency.
+    3. **Choose scope**
+       - Unit for pure logic.
+       - Integration when wiring crosses layers.
+       - E2E for user‑visible flows.
+    4. **Write table‑driven tests**
+       - Keep cases explicit and names descriptive.
+    5. **Validate test meaning**
+       - Ensure the test fails for the right reason before fixing.
+    6. **Run and interpret**
+       - Prefer root‑cause fixes; avoid updating tests to “make green” without justification.
 
-    ### TEST NAMING
-    ```go
-    func TestFunctionName_Scenario_ExpectedBehavior(t *testing.T)
-    func TestUser_EmptyEmail_ReturnsValidationError(t *testing.T)
-    func TestCache_Expired_ReturnsNilAndFalse(t *testing.T)
-    ```
+    ### Naming & Structure
+    - Tests should read like specs: `TestThing_WhenCondition_ThenOutcome`.
+    - Group by behavior, not by function size.
+    - Put fixtures and helpers in the smallest scope possible.
 
 - id: "intent/test/categories"
   category: "intent"

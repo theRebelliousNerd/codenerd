@@ -1,0 +1,59 @@
+# Knowledge Encyclopedia Atoms
+# Deep coverage of memory tiers and retrieval patterns.
+
+- id: "knowledge/memory_tiers/overview"
+  category: "knowledge"
+  subcategory: "memory"
+  priority: 90
+  is_mandatory: false
+  content: |
+    ## MEMORY TIERS OVERVIEW (Encyclopedic)
+
+    codeNERD maintains four coordinated memory tiers. Each tier serves a different epistemic role.
+
+    ### 1) RAM (Session FactStore)
+    - Lifespan: current run/session.
+    - Content: active intent, hot context, transient diagnostics, working set.
+    - Purpose: fast inference and local reasoning.
+
+    ### 2) Vector Store (SQLite + embeddings)
+    - Lifespan: persistent across sessions.
+    - Content: semantic chunks, prompt atoms, similar past fixes.
+    - Purpose: fuzzy recall and semantic augmentation.
+    - Guardrail: vector hits are **suggestions**, never authority.
+
+    ### 3) Knowledge Graph
+    - Lifespan: persistent.
+    - Content: entities and relations derived from world model + user facts.
+    - Purpose: structural reasoning, dependency traversal, CDSA.
+
+    ### 4) Cold Storage
+    - Lifespan: permanent.
+    - Content: learned preferences, accepted patterns, long‑term rules.
+    - Purpose: stabilize behavior over months‑long sessions.
+
+    ### Tier Interaction Rules
+    - RAM facts may be promoted to Cold only via explicit memory operations.
+    - Vector recall is filtered by constitutional/permitted gates before action.
+    - Graph facts drive spreading activation and context paging.
+
+- id: "knowledge/hybrid_retrieval/patterns"
+  category: "knowledge"
+  subcategory: "retrieval"
+  priority: 84
+  is_mandatory: false
+  content: |
+    ## HYBRID RETRIEVAL PATTERNS (Encyclopedic)
+
+    Prefer hybrid retrieval: **Graph → Vector → Logic Filter**.
+
+    ### Workflow
+    1. Use graph edges to find structurally adjacent facts/symbols.
+    2. Use semantic search to pull in similar historical content.
+    3. Assert candidate facts and let Mangle filter by current_context.
+
+    ### When to Use Which Tier
+    - **Graph‑first** when tasks are dependency‑heavy (refactor, security, integration).
+    - **Vector‑first** when tasks are conceptual (research, explanation).
+    - **RAM‑only** for tight loops (TDD repair) to avoid drift.
+
