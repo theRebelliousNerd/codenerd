@@ -39,6 +39,10 @@ func TestAdvancedReviewerCapabilities(t *testing.T) {
 		# --- Shotgun Surgery Scenario ---
 		git_history("shotgun_a.go", "commit99", "Bob", 1, "fix").
 		git_history("shotgun_b.go", "commit99", "Bob", 1, "fix").
+		git_history("shotgun_a.go", "commit100", "Bob", 1, "fix").
+		git_history("shotgun_b.go", "commit100", "Bob", 1, "fix").
+		git_history("shotgun_a.go", "commit101", "Bob", 1, "fix").
+		git_history("shotgun_b.go", "commit101", "Bob", 1, "fix").
         # No dependency link between them
 
         # --- Architecture Leakage ---

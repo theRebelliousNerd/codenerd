@@ -268,6 +268,7 @@ next_pytest_repair(TestName, File, Line, Msg) :-
 
 # Helper: check if there's a higher priority repair waiting
 higher_priority_repair(TestName, Priority) :-
+    pytest_repair_priority(TestName, Priority),
     source_file_failure(OtherTest, _, _),
     pytest_repair_priority(OtherTest, OtherPriority),
     OtherPriority > Priority,
