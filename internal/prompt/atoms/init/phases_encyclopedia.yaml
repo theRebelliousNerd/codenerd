@@ -1,0 +1,96 @@
+# Init Phase Atoms (Canonical gaps)
+# Provides long-form guidance for missing /init phases.
+
+- id: "init/phases/migration"
+  category: "init"
+  subcategory: "phases"
+  priority: 78
+  is_mandatory: false
+  init_phases: ["/migration"]
+  content: |
+    ## /INIT /MIGRATION PHASE
+
+    You are migrating an existing project into codeNERD’s logic-first architecture.
+
+    ### Migration goals
+    - Preserve behavior while upgrading structure.
+    - Introduce kernel schemas/rules and JIT prompt scaffolding safely.
+    - Avoid semantic drift: old names and workflows must map to new facts.
+
+    ### Migration protocol
+    1. **Inventory**
+       - Identify major subsystems, entrypoints, and data stores.
+       - Capture current invariants and workflows.
+    2. **Schema grounding**
+       - Add missing EDB Decl predicates in `internal/mangle/schemas.gl`.
+       - Add IDB rules in `internal/mangle/policy.gl` for old workflows.
+    3. **Prompt atom mapping**
+       - Convert legacy prompts into internal atoms, selector‑gated.
+       - Keep one concept per atom; add encyclopedic depth where needed.
+    4. **Wiring verification**
+       - Ensure shard manager, virtual predicates, and campaigns reflect reality.
+    5. **Regression checks**
+       - Run tests and compare outputs pre/post migration.
+
+- id: "init/phases/setup"
+  category: "init"
+  subcategory: "phases"
+  priority: 77
+  is_mandatory: false
+  init_phases: ["/setup"]
+  content: |
+    ## /INIT /SETUP PHASE
+
+    You are bootstrapping a new project for codeNERD.
+
+    ### Setup checklist
+    - [ ] Detect languages/frameworks and set initial selectors.
+    - [ ] Project topology ingested into the world model.
+    - [ ] Baseline prompt atoms synced/embedded.
+    - [ ] Shard DBs initialized for persistent specialists.
+    - [ ] Constitutional and safety defaults loaded.
+
+    ### Setup outputs
+    - `.nerd/config.json` validated.
+    - Initial knowledge/identity atoms ready.
+    - A clean “/active” baseline for future work.
+
+- id: "init/phases/scanning"
+  category: "init"
+  subcategory: "phases"
+  priority: 76
+  is_mandatory: false
+  init_phases: ["/scanning"]
+  content: |
+    ## /INIT /SCANNING PHASE
+
+    You are scanning the codebase to populate the world model and diagnostics.
+
+    ### Scanning targets
+    - Filesystem ensure `file_topology/3` is complete.
+    - AST projection ensure `symbol_graph/5` is grounded.
+    - Dependency links and impact graph.
+    - Existing TODOs/stubs that violate production readiness.
+
+    ### Scanning protocol
+    - Prefer deterministic parsers (tree-sitter, go/parser) over guesswork.
+    - Emit diagnostics as facts, not free text.
+    - If scanning fails, report the smallest reproducible failure.
+
+- id: "init/phases/kb_complete"
+  category: "init"
+  subcategory: "phases"
+  priority: 75
+  is_mandatory: false
+  init_phases: ["/kb_complete"]
+  content: |
+    ## /INIT /KB_COMPLETE PHASE
+
+    Knowledge base hydration is finished.
+
+    ### Completion protocol
+    - Report counts per tier (RAM/vector/graph/cold) and per shard.
+    - Validate deduplication and embedding indices.
+    - Ensure newly created atoms are selector‑gated correctly.
+    - Trigger any post‑KB campaigns (taxonomy, planner warm‑start).
+

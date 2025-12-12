@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -130,6 +131,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			if err := m.kernel.Assert(intentFact); err != nil {
 				warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 			}
+
+			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
+			m.seedIssueFacts(intent, input)
 		}
 
 		// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.
@@ -686,6 +690,63 @@ OUTPUT:
 
 		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 	}
+}
+
+// seedIssueFacts extracts issue text + keywords from user input and asserts issue_* facts.
+// This drives issue-aware spreading activation and prompt atom selection.
+func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
+	if m.kernel == nil {
+		return
+	}
+
+	// Only seed for verbs that are typically issue-driven.
+	switch intent.Verb {
+	case "/fix", "/debug", "/review", "/security":
+	default:
+		return
+	}
+
+	issueText := strings.TrimSpace(rawInput)
+	if issueText == "" {
+		return
+	}
+
+	// Keep the stored issue text bounded to avoid EDB bloat.
+	const maxIssueChars = 4000
+	if len(issueText) > maxIssueChars {
+		issueText = issueText[:maxIssueChars]
+	}
+
+	issueID := fmt.Sprintf("/issue_%d", time.Now().UnixNano())
+	keywords := retrieval.ExtractKeywords(issueText)
+
+	facts := make([]core.Fact, 0, 1+len(keywords.Weights)+len(keywords.MentionedFiles))
+	facts = append(facts, core.Fact{
+		Predicate: "issue_text",
+		Args:      []interface{}{issueID, issueText},
+	})
+
+	for kw, weight := range keywords.Weights {
+		if strings.TrimSpace(kw) == "" {
+			continue
+		}
+		facts = append(facts, core.Fact{
+			Predicate: "issue_keyword",
+			Args:      []interface{}{issueID, kw, weight},
+		})
+	}
+
+	for _, file := range keywords.MentionedFiles {
+		if strings.TrimSpace(file) == "" {
+			continue
+		}
+		facts = append(facts, core.Fact{
+			Predicate: "file_mentioned",
+			Args:      []interface{}{file, issueID},
+		})
+	}
+
+	_ = m.kernel.LoadFacts(facts)
 }
 
 // runClarifierShard invokes the requirements_interrogator shard synchronously to gather clarifying questions.

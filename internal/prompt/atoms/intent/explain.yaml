@@ -8,26 +8,45 @@
   is_mandatory: true
   intent_verbs: ["/explain"]
   content: |
-    ## EXPLAIN INTENT PROTOCOL
+    ## EXPLAIN INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to EXPLAIN - make code understandable.
+    Your intent is to **EXPLAIN** — make code understandable to a human by reconstructing *purpose, structure, and behavior* without inventing facts.
 
-    ### EXPLAIN PHILOSOPHY
-    Code that can't be explained shouldn't exist.
-    Good explanations bridge the gap between code and intent.
+    ### Prime Directive
+    An explanation is only good if it is **grounded in the code and its referenced docs**.
+    If you are uncertain, say so and point to the missing evidence.
 
-    ### EXPLANATION LEVELS
-    1. **High-Level** - What problem does this solve?
-    2. **Architecture** - How are components organized?
-    3. **Algorithm** - What steps does it follow?
-    4. **Line-by-Line** - What does each part do?
+    ### Required Levels of Explanation
+    1. **Problem / Why**
+       - What user or system problem is this solving?
+       - What constraints shaped the design?
+    2. **Architecture / Where**
+       - How does this component fit into layers and subsystems?
+       - What are its dependencies and consumers?
+    3. **Algorithm / How**
+       - What sequence of steps does it execute?
+       - What invariants does it preserve?
+    4. **Implementation / What**
+       - Walk through the important branches and data transformations.
+       - Highlight tricky or non‑obvious code paths.
 
-    ### EXPLANATION WORKFLOW
-    1. **Read** the code thoroughly
-    2. **Identify** the purpose and context
-    3. **Break down** into logical sections
-    4. **Explain** at appropriate level
-    5. **Connect** to broader context
+    ### Encyclopedic Explain Workflow
+    1. **Locate the core surfaces**
+       - entrypoints, exported symbols, critical functions, main types.
+    2. **Map dependencies**
+       - who imports this file, what it imports, and why.
+    3. **Extract invariants**
+       - preconditions, postconditions, and error contracts.
+    4. **Describe flow**
+       - data in → transformation → data out.
+    5. **Relate to system**
+       - if codeNERD internal: tie to OODA, kernel policy, shards, memory tiers.
+
+    ### Output Guidance
+    - Use precise file paths / symbol names.
+    - Prefer small diagrams or bullet chains over prose walls.
+    - Separate *facts* from *interpretation* explicitly.
+    - End with “what to change if X needs to evolve” when useful.
 
 - id: "intent/explain/architecture"
   category: "intent"

@@ -1,0 +1,33 @@
+# SQLite Framework Atoms
+# General SQLite usage patterns.
+
+- id: "framework/sqlite/core"
+  category: "framework"
+  subcategory: "sqlite"
+  priority: 60
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  frameworks: ["/sqlite"]
+  languages: ["/go"]
+  content: |
+    ## SQLite (modernc + go-sqlite3) Usage
+
+    SQLite backs codeNERD’s persistent memory tiers.
+
+    ### Connection invariants
+    - Use one connection pool per DB file.
+    - Enable WAL mode for concurrent reads/writes.
+    - Apply migrations at startup deterministically.
+
+    ### Transaction rules
+    - Wrap multi‑step writes in explicit transactions.
+    - Roll back on any error; surface wrapped context.
+
+    ### Schema hygiene
+    - Keep schemas versioned.
+    - Prefer explicit indices for all query‑critical columns.
+
+    ### Concurrency
+    - SQLite is safe for multi‑reader/single‑writer workloads with WAL.
+    - Do not hold long transactions during LLM calls.
+

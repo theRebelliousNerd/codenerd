@@ -1,0 +1,45 @@
+# Python Encyclopedic Atom
+
+- id: "language/python/encyclopedia"
+  category: "language"
+  subcategory: "python"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  languages: ["/python"]
+  content: |
+    ## Python Encyclopedia (Idioms, Safety, Performance)
+
+    Use this when generating or reviewing Python code.
+
+    ### Style + structure
+    - Follow PEP 8, but prioritize repo-local style if different.
+    - Prefer small modules, explicit exports (`__all__`), and clear boundaries.
+    - Use dataclasses or Pydantic models when data shape matters.
+
+    ### Typing discipline
+    - Type every public function and return path.
+    - Use `typing.Protocol` for structural interfaces.
+    - Prefer `|` unions (3.10+) and `typing.Annotated` for metadata.
+    - Avoid `Any` unless boundary is truly dynamic; localize it.
+
+    ### Error handling
+    - Catch narrow exceptions.
+    - Wrap with context and re‑raise to preserve stacks.
+    - Never swallow exceptions silently.
+
+    ### Concurrency
+    - Use `asyncio` for I/O concurrency, threads for blocking libraries, processes for CPU work.
+    - Avoid sharing mutable state across tasks without locks.
+    - Always cancel/close resources on shutdown.
+
+    ### Performance
+    - Prefer generators for streaming.
+    - Use `functools.lru_cache` for pure functions on hot paths.
+    - Measure before optimizing; be explicit about big‑O.
+
+    ### Testing
+    - Use pytest-style tests and fixtures.
+    - Cover edge cases and failure branches, not just happy path.
+    - When refactoring, keep behavior stable unless explicitly requested.
+

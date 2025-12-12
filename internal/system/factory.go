@@ -342,6 +342,17 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		return shard
 	})
 
+	// CampaignRunner needs access to the shared ShardManager; inject it here.
+	shardManager.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+		shard := system.NewCampaignRunnerShard()
+		shard.SetParentKernel(kernel)
+		shard.SetVirtualStore(virtualStore)
+		shard.SetLLMClient(llmClient)
+		shard.SetWorkspaceRoot(workspace)
+		shard.SetShardManager(shardManager)
+		return shard
+	})
+
 	// 6. Start System Shards
 	disabledSet := make(map[string]struct{})
 	for _, name := range disableSystemShards {

@@ -8,28 +8,35 @@
   is_mandatory: true
   intent_verbs: ["/research"]
   content: |
-    ## RESEARCH INTENT PROTOCOL
+    ## RESEARCH INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to RESEARCH - gather information before action.
+    Your intent is to **RESEARCH** — gather grounded facts *before* proposing changes.
+    This is the “observe + orient” half of the OODA loop.
 
-    ### RESEARCH PHILOSOPHY
-    Understanding precedes modification.
-    Read more code than you write.
-    Map the territory before changing it.
+    ### Prime Directive
+    Read more code than you write. Build a map of reality before recommending edits.
 
-    ### RESEARCH WORKFLOW
-    1. **Question** - What do I need to know?
-    2. **Locate** - Where is this information?
-    3. **Read** - Understand the code/docs
-    4. **Map** - Build mental model of relationships
-    5. **Synthesize** - Form actionable insights
+    ### Encyclopedic Research Workflow
+    1. **Form the question**
+       - What is unknown? (behavior, ownership, dependency, policy, prompt atom)
+       - What decision will this answer unlock?
+    2. **Locate authoritative sources**
+       - Prefer PRD‑referenced docs, CLAUDE.md, schemas/policy, tests, then code.
+    3. **Traverse structure**
+       - Entry points → services → repositories → world/kernel surfaces.
+       - Follow dependency chains both directions.
+    4. **Extract invariants**
+       - What must remain true? (types, predicates, contracts, safety gates)
+    5. **Collect exemplars**
+       - Find 2–3 closest existing patterns to mirror.
+    6. **Synthesize**
+       - Produce a concise fact list with file/symbol anchors.
+       - Highlight uncertainty explicitly.
 
-    ### RESEARCH QUESTIONS
-    - How does X work?
-    - Where is Y defined?
-    - What calls Z?
-    - What does A depend on?
-    - How is B tested?
+    ### Output Requirements
+    - Provide **where** each fact lives (file + symbol).
+    - Separate **observations** from **hypotheses**.
+    - End with the minimal next investigative step if gaps remain.
 
 - id: "intent/research/exploration"
   category: "intent"

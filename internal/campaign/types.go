@@ -117,6 +117,7 @@ const (
 	VerifyBuilds        VerificationMethod = "/builds"
 	VerifyManualReview  VerificationMethod = "/manual_review"
 	VerifyShardValidate VerificationMethod = "/shard_validation"
+	VerifyNemesisGauntlet VerificationMethod = "/nemesis_gauntlet"
 	VerifyNone          VerificationMethod = "/none"
 )
 
@@ -245,6 +246,8 @@ type Task struct {
 	// Execution tracking
 	Attempts  []TaskAttempt `json:"attempts,omitempty"`
 	LastError string        `json:"last_error,omitempty"`
+	// Backoff control (persisted for long-horizon durability)
+	NextRetryAt time.Time `json:"next_retry_at,omitempty"`
 }
 
 // TaskArtifact represents an artifact produced by a task.
@@ -568,6 +571,14 @@ func (t *Task) ToFacts() []core.Fact {
 		facts = append(facts, core.Fact{
 			Predicate: "task_attempt",
 			Args:      []interface{}{t.ID, attempt.Number, attempt.Outcome, attempt.Timestamp.Unix()},
+		})
+	}
+
+	// Retry backoff window
+	if !t.NextRetryAt.IsZero() {
+		facts = append(facts, core.Fact{
+			Predicate: "task_retry_at",
+			Args:      []interface{}{t.ID, t.NextRetryAt.Unix()},
 		})
 	}
 

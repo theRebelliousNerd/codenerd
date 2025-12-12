@@ -771,6 +771,15 @@ Decl context_window_state(CampaignID, UsedTokens, TotalBudget, Utilization).
 # campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks)
 Decl campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks).
 
+# campaign_heartbeat(CampaignID, Timestamp) - last heartbeat from orchestrator
+Decl campaign_heartbeat(CampaignID, Timestamp).
+
+# task_retry_at(TaskID, RetryAt) - next allowed retry time for a task
+Decl task_retry_at(TaskID, RetryAt).
+
+# task_in_backoff(TaskID) - derived: task not yet eligible to retry
+Decl task_in_backoff(TaskID).
+
 # phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp)
 # CheckpointType: /tests, /build, /lint, /coverage, /manual, /integration
 Decl phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp).
@@ -1308,6 +1317,12 @@ Decl system_shard_state(ShardName, State).
 
 # system_heartbeat(ShardName, Timestamp) - last heartbeat from shard
 Decl system_heartbeat(ShardName, Timestamp).
+
+# Campaign Runner supervision facts
+Decl campaign_runner_heartbeat(Timestamp).
+Decl campaign_runner_active(CampaignID, Timestamp).
+Decl campaign_runner_success(CampaignID, Timestamp).
+Decl campaign_runner_failure(CampaignID, Reason, Timestamp).
 
 # -----------------------------------------------------------------------------
 # 33.2 Intent Processing Flow
@@ -3533,6 +3548,10 @@ Decl pytest_root_cause(TestName, FilePath, Line, Function).
 # -----------------------------------------------------------------------------
 # 52.1 Keyword Extraction
 # -----------------------------------------------------------------------------
+
+# issue_text(IssueID, Text)
+# Raw issue/problem description for issue-driven workflows.
+Decl issue_text(IssueID, Text).
 
 # issue_keyword(IssueID, Keyword, Weight)
 # Keywords extracted from issue description with importance weights.

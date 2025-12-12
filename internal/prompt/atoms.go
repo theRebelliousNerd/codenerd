@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/core"
@@ -347,8 +348,15 @@ func matchSelector(selector []string, value string) bool {
 	if value == "" {
 		return false // Has constraint but no value = no match
 	}
+	// Normalize to allow legacy selector values without leading "/" to match
+	// canonical context values (and vice versa). This preserves backward
+	// compatibility while encouraging "/"-prefixed tags going forward.
+	normalizedValue := strings.TrimPrefix(value, "/")
 	for _, s := range selector {
 		if s == value {
+			return true
+		}
+		if strings.TrimPrefix(s, "/") == normalizedValue {
 			return true
 		}
 	}

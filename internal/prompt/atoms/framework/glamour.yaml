@@ -1,0 +1,43 @@
+# Glamour Framework Atoms
+# Markdown rendering and theming for TUI output.
+
+- id: "framework/glamour/core"
+  category: "framework"
+  subcategory: "glamour"
+  priority: 62
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  frameworks: ["/glamour"]
+  languages: ["/go"]
+  content: |
+    ## Glamour (Markdown → ANSI) Usage
+
+    Glamour is used to render Markdown safely into terminal ANSI output.
+
+    ### When to use
+    - Rendering docs, summaries, or long-form explanations to the TUI.
+    - Converting atom content or KB output into readable terminal formatting.
+
+    ### Core pattern
+    ```go
+    r, _ := glamour.NewTermRenderer(
+        glamour.WithAutoStyle(),
+        glamour.WithWordWrap(width),
+    )
+    out, err := r.Render(markdown)
+    if err != nil { /* handle */ }
+    ```
+
+    ### Theming
+    - Prefer `WithAutoStyle()` for user terminals.
+    - For deterministic themes, load a style JSON and pass `WithStyles(...)`.
+    - Keep themes in one place; avoid per-call style drift.
+
+    ### Performance
+    - Reuse renderers; creation is non-trivial.
+    - Word-wrap once at final width; avoid repeated renders on resize unless needed.
+
+    ### Pitfalls
+    - Do not render untrusted Markdown without sanitization if links/images are enabled.
+    - Ensure width is non-zero; default to terminal width.
+

@@ -1,0 +1,42 @@
+# sqlite-vec / SQLite Vector Store Atoms
+# Covers sqlite-vec-go-bindings + modernc.org/sqlite usage.
+
+- id: "framework/sqlite_vec/core"
+  category: "framework"
+  subcategory: "sqlite_vec"
+  priority: 64
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  frameworks: ["/sqlite-vec", "/sqlite"]
+  languages: ["/go"]
+  content: |
+    ## sqlite-vec + SQLite Integration
+
+    codeNERD uses SQLite as persistent memory with optional `sqlite-vec` for vector search.
+
+    ### Build invariants (Windows)
+    - Vector support requires CGO headers:
+      - `CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"`
+    - Build command (canonical):
+      ```
+      rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null;
+      cd c:/CodeProjects/codeNERD &&
+      CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -o nerd.exe ./cmd/nerd
+      ```
+
+    ### Load extension
+    - Ensure `sqlite-vec-go-bindings` is initialized before queries.
+    - Register vec functions once per DB connection.
+
+    ### Schema patterns
+    - Store embeddings as BLOB or vec column depending on extension support.
+    - Keep metadata columns explicit (source, shard_id, category, created_at).
+
+    ### Query patterns
+    - Always bind parameters; no string interpolation.
+    - Use vec distance functions for Top‑K similarity retrieval.
+
+    ### Failure modes
+    - Missing headers → build fails; surface actionable error.
+    - Extension not loaded → fallback to non‑vector retrieval and assert `jit_fallback/2`.
+

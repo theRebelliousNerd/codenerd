@@ -1,0 +1,38 @@
+# TypeScript Encyclopedic Atom
+
+- id: "language/typescript/encyclopedia"
+  category: "language"
+  subcategory: "typescript"
+  priority: 65
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  languages: ["/typescript"]
+  content: |
+    ## TypeScript Encyclopedia (Types, Runtime, Tooling)
+
+    ### Types as contracts
+    - Prefer explicit types at module boundaries (APIs, props, public helpers).
+    - Use `unknown` over `any`; narrow via type guards.
+    - Model domain shapes with discriminated unions, not boolean flags.
+
+    ### Null safety
+    - Enable/assume `strict` mode.
+    - Use optional chaining and nullish coalescing intentionally.
+    - Avoid `!` non‑null assertions except when invariant is proven nearby.
+
+    ### Functional patterns
+    - Prefer pure helpers and small composable functions.
+    - Keep side effects at the edges (I/O, UI, network).
+
+    ### Async correctness
+    - Always `await` promises unless consciously fire‑and‑forget.
+    - Handle rejection paths; never leave unhandled promises.
+
+    ### Runtime alignment
+    - Remember: types erase at runtime. Validate external data (zod/io‑ts/etc).
+    - If types encode invariants, mirror them with runtime checks in critical paths.
+
+    ### Performance
+    - Avoid needless object churn in hot loops.
+    - Prefer immutable updates but be pragmatic where perf demands.
+

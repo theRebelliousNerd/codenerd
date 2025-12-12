@@ -1,0 +1,53 @@
+# Ouroboros Stage Atoms (Canonical gaps)
+# Covers /simulation and /deployment stages in the self-improvement loop.
+
+- id: "ouroboros/stages/simulation"
+  category: "ouroboros"
+  subcategory: "stages"
+  priority: 78
+  is_mandatory: false
+  ouroboros_stages: ["/simulation"]
+  content: |
+    ## OUROBOROS /SIMULATION STAGE
+
+    You are validating a proposed tool/patch **in simulation** before codegen or deployment.
+
+    ### Simulation goals
+    - Predict failure modes early.
+    - Stress the design against adversarial inputs (PanicMaker mindset).
+    - Ensure the spec is safe, complete, and testable.
+
+    ### Simulation protocol
+    1. **Spec replay**
+       - Walk through inputs → outputs → side effects.
+       - Check every branch for defined behavior.
+    2. **Adversarial scenarios**
+       - Nil/empty inputs, max sizes, malformed JSON, timeouts, concurrency races.
+    3. **Policy check**
+       - Confirm the action is permitted by constitutional rules.
+    4. **Test sketch**
+       - Outline minimal unit/integration tests that would prove survival.
+
+    If simulation reveals gaps, return to /specification with corrections.
+
+- id: "ouroboros/stages/deployment"
+  category: "ouroboros"
+  subcategory: "stages"
+  priority: 77
+  is_mandatory: false
+  ouroboros_stages: ["/deployment"]
+  content: |
+    ## OUROBOROS /DEPLOYMENT STAGE
+
+    You are integrating a battle‑hardened tool/patch into the running system.
+
+    ### Deployment goals
+    - Wire the tool into its executors (virtual store, shard registry, CLI).
+    - Register any new predicates and atoms.
+    - Verify end‑to‑end behavior in /active mode.
+
+    ### Deployment protocol
+    - Confirm tests pass and Nemesis/Thunderdome gates are satisfied.
+    - Assert any required facts (e.g., tool_available/3, jit_fallback/2 if needed).
+    - Document usage and selectors so future context activation is correct.
+

@@ -8,27 +8,49 @@
   is_mandatory: true
   intent_verbs: ["/create"]
   content: |
-    ## CREATE INTENT PROTOCOL
+    ## CREATE INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to CREATE - bring new code into existence.
+    Your intent is to **CREATE** — bring new code into existence that is *already wired, testable, and coherent with the living codebase*.
 
-    ### CREATE PHILOSOPHY
-    New code should fit seamlessly into the existing codebase.
-    Follow established patterns, conventions, and structure.
+    ### Prime Directive
+    New code is not “done” when it compiles — it is done when it is **integrated end‑to‑end** and respects the kernel’s logic‑first reality.
 
-    ### CREATE WORKFLOW
-    1. **Analyze** existing patterns in the codebase
-    2. **Plan** the structure and interfaces
-    3. **Create** files following project conventions
-    4. **Integrate** with existing code
-    5. **Test** the new functionality
+    ### Create vs. Refactor
+    - CREATE when there is no close existing structure to extend safely.
+    - REFRACTOR/EXTEND when a nearby abstraction already exists and can be evolved without semantic drift.
+    - If unsure, start by mirroring the closest existing feature.
 
-    ### PRE-CREATE CHECKLIST
-    - [ ] Understand similar existing code
-    - [ ] Know the directory structure conventions
-    - [ ] Identify interfaces to implement
-    - [ ] Know the naming conventions
-    - [ ] Plan test coverage
+    ### Encyclopedic Create Workflow
+    1. **Intent crystallization**
+       - What exact artifact is needed? (file, module, tool, shard, predicate, CLI command)
+       - What is explicitly *not* requested?
+    2. **Context absorption**
+       - Read 3–5 adjacent examples.
+       - Identify layer placement (scaffold/domain_core/data_layer/service/transport/integration).
+    3. **Design the interface**
+       - Define public API and invariants.
+       - Prefer small interfaces, explicit error contracts, and stable names.
+    4. **Scaffold the structure**
+       - Create files in the correct directory scope.
+       - Add PRD headers and doc refs where required.
+    5. **Wire the integration**
+       - Register in DI, routers, shard manager, kernel predicates/rules, or CLI.
+       - If an LLM behavior is introduced, add/adjust prompt atoms + JIT selectors.
+    6. **Test-first verification**
+       - Add targeted unit tests for boundary/edge/error paths.
+       - Add integration tests when new wiring crosses layers.
+    7. **Self‑review**
+       - Check for unused wiring, dead ends, or missing registrations.
+       - Confirm no hidden TODOs or stubs remain.
+
+    ### Create Checklist (must satisfy)
+    - [ ] Correct layer placement and import boundaries
+    - [ ] Public APIs documented and stable
+    - [ ] Errors handled explicitly, wrapped with context
+    - [ ] Feature wired into system entrypoints
+    - [ ] Tests cover happy + edge + error paths
+    - [ ] Prompt atoms added for any new LLM surface
+    - [ ] No unused methods/flags left unconsumed without explanation
 
 - id: "intent/create/scaffolding"
   category: "intent"

@@ -1,0 +1,103 @@
+# Domain Encyclopedia Atoms
+# System-level truths about codeNERD and high-assurance development.
+
+- id: "domain/codenerd/architecture_overview"
+  category: "domain"
+  subcategory: "architecture"
+  priority: 92
+  is_mandatory: false
+  content: |
+    ## codeNERD ARCHITECTURE OVERVIEW (Encyclopedic)
+
+    codeNERD is a Logic‑First neuro‑symbolic CLI coding agent.
+    The LLM is the **Creative Center**; Google Mangle is the **Executive**.
+    Text generation is a side‑effect of deterministic reasoning, not the driver.
+
+    ### Core Loop (OODA)
+    1. **Observe**: Perception transducer converts NL → `user_intent/5` + focus atoms.
+    2. **Orient**: Spreading activation selects context atoms from the world model.
+    3. **Decide**: Policy rules derive `next_action/1` under constitutional guards.
+    4. **Act**: VirtualStore executes tools/FFI, asserts new facts, updates memory tiers.
+
+    ### Key Subsystems
+    - **Kernel / Mangle Engine** (`internal/core/kernel.go`, `internal/mangle/*`):
+      deterministic inference, fact store, IDB policies, virtual predicates.
+    - **World Model** (`internal/world/*`):
+      filesystem + AST projection into EDB facts (file_topology, symbol_graph, dependency_link).
+    - **Shards** (`internal/shards/*`):
+      ephemeral specialists spawned by intent routing (coder/tester/reviewer/researcher/nemesis).
+    - **Prompt JIT** (`internal/prompt/*`):
+      prompt atoms + selection rules + budget fitting + dependency ordering.
+    - **Memory Tiers** (`internal/store/*`):
+      RAM (session), Vector (semantic), Graph (relations), Cold (preferences/invariants).
+
+    ### Non‑Negotiable Invariants
+    - **Constitutional Safety**: any action must satisfy `permitted(Action)` or it is denied.
+    - **Thought‑First Piggyback**: control_packet before surface_response.
+    - **One Source of Truth**: new LLM behaviors ship as atoms first (internal or project).
+    - **Living Codebase Respect**: unused wiring is suspicious; investigate before removing.
+
+- id: "domain/codenerd/invariants_and_contracts"
+  category: "domain"
+  subcategory: "invariants"
+  priority: 88
+  is_mandatory: false
+  content: |
+    ## INVARIANTS & CONTRACTS (Encyclopedic)
+
+    When modifying codeNERD, preserve these contracts unless the user explicitly requests a paradigm shift.
+
+    ### Logic Contracts
+    - Every predicate used in rules must be declared in `schemas.mg` first.
+    - Head variables must be safe (bound in positive body atoms).
+    - Negation requires prior bindings (stratification safety).
+    - Rules are additive unions, never overrides.
+
+    ### Shard Contracts
+    - Shards are deterministic wrappers around LLM creativity:
+      they must route Piggyback control packets to kernel and show only surface text.
+    - ShardType is stable (`/coder`, `/tester`, etc); ShardInstanceID is ephemeral.
+    - Tool generation must pass safety checks and Thunderdome before promotion.
+
+    ### Prompt Contracts
+    - Embedded atoms are stable, versioned, and narrowly scoped.
+    - Large atoms must be selector‑gated to avoid co‑selection overload.
+    - Dependencies/conflicts must be encoded in atoms, not informal prose.
+
+- id: "domain/codenerd/integration_wiring_checklist"
+  category: "domain"
+  subcategory: "integration"
+  priority: 84
+  is_mandatory: false
+  intent_verbs: ["/create", "/fix", "/refactor"]
+  content: |
+    ## INTEGRATION & WIRING CHECKLIST (Encyclopedic)
+
+    Many failures in codeNERD come from **code existing without being wired**.
+    Treat this checklist as mandatory when shipping features.
+
+    ### Kernel Wiring
+    - [ ] New predicates declared in `schemas.mg`.
+    - [ ] Policy rules updated in `policy.mg` / relevant .mg file.
+    - [ ] Virtual predicates implemented in VirtualStore if IO required.
+
+    ### Shard Wiring
+    - [ ] Shard registered and lifecycle hooks updated in ShardManager.
+    - [ ] Intent routing maps verb/category to shard type.
+    - [ ] Piggyback parsing used for every LLM call.
+
+    ### Prompt Wiring
+    - [ ] New behavior expressed as atoms under `internal/prompt/atoms/*`.
+    - [ ] JIT selectors (`shard_types`, `intent_verbs`, etc.) set correctly.
+    - [ ] If project‑specific, atom is in `.nerd/agents/*`, not internal.
+
+    ### CLI / UX Wiring
+    - [ ] Cobra commands/flags hooked up.
+    - [ ] Help text and docs updated.
+    - [ ] Example usage added when behavior is non‑obvious.
+
+    ### Verification Wiring
+    - [ ] Targeted tests exist for new logic.
+    - [ ] Nemesis / PanicMaker surfaces considered.
+    - [ ] Telemetry facts emitted for fallbacks or degraded paths.
+

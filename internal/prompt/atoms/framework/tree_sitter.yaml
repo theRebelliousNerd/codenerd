@@ -1,0 +1,32 @@
+# Tree-sitter Framework Atoms
+# Multi-language parsing via go-tree-sitter.
+
+- id: "framework/tree_sitter/core"
+  category: "framework"
+  subcategory: "tree_sitter"
+  priority: 62
+  is_mandatory: false
+  shard_types: ["/coder", "/world_model"]
+  frameworks: ["/tree-sitter"]
+  languages: ["/go"]
+  content: |
+    ## Tree-sitter Multi‑Language Parsing
+
+    codeNERD uses `go-tree-sitter` to project ASTs for multiple languages into EDB facts.
+
+    ### Parsing invariants
+    - Parsers must be **deterministic** and version‑pinned.
+    - Do not infer structure from regex if a grammar exists.
+
+    ### Pattern
+    - Initialize language parser once per language.
+    - Parse file → walk nodes → emit `symbol_graph/5` and `dependency_link/3`.
+
+    ### Robustness
+    - Handle invalid syntax gracefully: emit diagnostics, not panics.
+    - Ensure node byte ranges are bounds‑checked.
+
+    ### Performance
+    - Reuse trees for incremental parsing when possible.
+    - Avoid allocating large intermediate node slices in hot loops.
+

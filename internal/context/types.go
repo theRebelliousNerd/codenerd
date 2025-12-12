@@ -83,6 +83,12 @@ func DefaultConfig() CompressorConfig {
 			"campaign_task":    85,
 			"campaign_phase":   80,
 
+			// Issue context
+			"issue_text":          90,
+			"issue_keyword":       85,
+			"file_mentioned":      85,
+			"tiered_context_file": 80,
+
 			// Shard delegation
 			"delegate_task": 90,
 			"shard_profile": 70,

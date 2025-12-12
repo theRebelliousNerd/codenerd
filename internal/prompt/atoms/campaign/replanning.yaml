@@ -68,6 +68,24 @@
     *   Type: /file_modify
     *   Priority: /critical
 
+- id: "campaign/replanning/adversarial_failures"
+  category: "methodology"
+  subcategory: "adversarial_repair"
+  priority: 68
+  is_mandatory: true
+  campaign_phases: ["replanning"]
+  shard_types: ["/planner"]
+  depends_on: ["campaign/replanning/rolling_wave"]
+  content: |
+    ## Handling Adversarial (Nemesis) Failures
+
+    If a phase checkpoint failed due to `/nemesis_gauntlet`, the system detected a real weakness.
+
+    You MUST:
+    1. Add one or more `/file_modify` repair tasks at the start of the next phase that directly address the Nemesis findings.
+    2. Keep repairs minimal and targeted. Do not expand scope.
+    3. Re-run tests and rebuild after repairs, and re-include `/nemesis_gauntlet` if the phase remains `/critical`.
+
 - id: "campaign/replanning/anti_patterns"
   category: "safety"
   subcategory: "hallucination_prevention"

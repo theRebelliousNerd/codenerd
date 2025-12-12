@@ -1,0 +1,60 @@
+# Context Encyclopedia Atoms
+# Deep guidance on context selection and budgeting.
+
+- id: "context/selection/spreading_activation"
+  category: "context"
+  subcategory: "selection"
+  priority: 88
+  is_mandatory: false
+  content: |
+    ## SPREADING ACTIVATION CONTEXT SELECTION (Encyclopedic)
+
+    codeNERD replaces naive RAG with **Context‑Directed Spreading Activation (CDSA)** on the logic graph.
+    The goal is to surface *structurally relevant* facts, not just semantically similar text.
+
+    ### Activation Sources
+    - `user_intent/5` seeds activation.
+    - World model edges (dependency_link, symbol_graph) propagate it.
+    - Recent diagnostics, failing tests, and campaign phase boost it.
+
+    ### Scoring Heuristics
+    ActivationScore(Fact) is a blend of:
+    - **Recency**: newer facts get a decay‑weighted boost.
+    - **Structural proximity**: fewer hops from the intent target.
+    - **Issue coupling**: diagnostics or taint sinks increase priority.
+    - **Campaign relevance**: phase‑specific predicates are boosted.
+
+    ### Output Contract
+    The kernel exports hot facts as `injectable_context(ShardID, AtomText).`
+    JIT turns these into mandatory ephemeral atoms for the active shard.
+
+    ### Failure Modes
+    - **Explosion**: too many facts activated ⇒ raise threshold or narrow edges.
+    - **Blindness**: no facts activated ⇒ check world model ingestion and intent grounding.
+    - **Stale bias**: old facts keep winning ⇒ adjust decay in policy.
+
+- id: "context/budget/token_pressure"
+  category: "context"
+  subcategory: "budgeting"
+  priority: 82
+  is_mandatory: false
+  content: |
+    ## TOKEN BUDGET & PRESSURE MANAGEMENT (Encyclopedic)
+
+    JIT prompts are fit to a budget with polymorphic atoms:
+    **standard → concise → min**.
+
+    ### Budget Strategy
+    1. Include mandatory skeleton atoms (identity/safety/protocol/methodology).
+    2. Allocate category budgets by priority (mandatory/high/medium/low/conditional).
+    3. Fill remaining budget by global score.
+
+    ### Practical Guidance
+    - Large atoms must provide concise/min variants if they risk crowding others out.
+    - Prefer multiple small atoms over one giant atom unless the concept is singular.
+    - When pressure is high, emphasize *procedures* over *examples*.
+
+    ### Signals
+    - `context_pressure_level/2` (kernel‑computed) can gate extra context atoms.
+    - High churn or large refactors should reduce exemplar density.
+

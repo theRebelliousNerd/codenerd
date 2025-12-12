@@ -1,0 +1,32 @@
+# JavaScript Encyclopedic Atom
+
+- id: "language/javascript/encyclopedia"
+  category: "language"
+  subcategory: "javascript"
+  priority: 64
+  is_mandatory: false
+  shard_types: ["/coder", "/researcher"]
+  languages: ["/javascript"]
+  content: |
+    ## JavaScript Encyclopedia (Modern JS)
+
+    ### Modern syntax
+    - Use ES2020+ features (modules, async/await, optional chaining).
+    - Prefer `const` by default, `let` only when reassigned.
+
+    ### Async discipline
+    - Use `async/await` instead of raw promise chains unless streaming.
+    - Always handle rejection; surface actionable errors.
+
+    ### Data safety
+    - Validate untrusted inputs (API payloads, file reads).
+    - Avoid implicit type coercion; be explicit.
+
+    ### Structure
+    - Small modules, clear exports.
+    - Keep side effects localized.
+
+    ### Testing
+    - Prefer deterministic unit tests.
+    - Mock network/filesystem at boundaries only.
+

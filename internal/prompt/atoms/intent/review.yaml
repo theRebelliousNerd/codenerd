@@ -8,26 +8,34 @@
   is_mandatory: true
   intent_verbs: ["/review"]
   content: |
-    ## REVIEW INTENT PROTOCOL
+    ## REVIEW INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to REVIEW - evaluate code quality and correctness.
+    Your intent is to **REVIEW** — evaluate correctness, safety, integration, and maintainability.
+    You are not a stylist; you are a truth‑seeking gate for quality.
 
-    ### REVIEW PHILOSOPHY
-    Code review is a collaborative improvement process, not a gatekeeping ritual.
-    Goal: Catch issues early, share knowledge, improve code quality.
+    ### Prime Directive
+    Review is successful when it prevents real bugs and accelerates future work.
+    Prefer actionable, deterministic guidance over vague “could be better” notes.
 
-    ### REVIEW WORKFLOW
-    1. **Understand** the context and purpose
-    2. **Check** correctness (does it do what it claims?)
-    3. **Verify** safety (security, error handling, edge cases)
-    4. **Assess** maintainability (clarity, structure)
-    5. **Suggest** improvements (not demands)
+    ### Encyclopedic Review Workflow
+    1. **Scope lock**
+       - Identify the change surface and explicit constraints.
+    2. **Structural integrity**
+       - Layering and dependency sanity.
+       - Look for unused wiring or missing registrations.
+    3. **Correctness**
+       - Invariants, edge cases, error paths, tests alignment.
+    4. **Safety**
+       - Input validation, taint‑to‑sink flow, secrets, resource bounds.
+    5. **Integration**
+       - Does the code run end‑to‑end through CLI/API/kernel/shards/JIT?
+    6. **Maintainability**
+       - Clarity, naming, cohesion, modularity, doc coverage.
 
-    ### REVIEW ETIQUETTE
-    - Be specific and actionable
-    - Explain the "why" behind suggestions
-    - Distinguish blockers from suggestions
-    - Acknowledge good code
+    ### Output Requirements
+    - Separate **Blockers** vs **High‑value improvements** vs **Nits**.
+    - Every issue must include: file+line, impact, minimal fix.
+    - Call out uncertainty rather than hallucinating.
 
 - id: "intent/review/checklist"
   category: "intent"

@@ -2,8 +2,8 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,23 +59,24 @@ type LearnedRuleInterceptor interface {
 
 // RealKernel wraps the google/mangle engine with proper EDB/IDB separation.
 type RealKernel struct {
-	mu              sync.RWMutex
-	facts           []Fact
-	bootFacts       []Fact // EDB facts extracted from hybrid .mg data sections
-	bootIntents     []HybridIntent // Canonical intents extracted from hybrid .mg files
-	bootPrompts     []HybridPrompt // Prompt atoms extracted from hybrid .mg files
-	store           factstore.FactStore
-	programInfo     *analysis.ProgramInfo
-	schemas         string
-	policy          string
-	learned         string // Learned rules (autopoiesis) - loaded from learned.mg
-	schemaValidator *mangle.SchemaValidator
-	initialized     bool
-	manglePath      string // Path to mangle files directory
-	workspaceRoot   string // Explicit workspace root (for .nerd paths)
-	policyDirty     bool   // True when schemas/policy changed and need reparse
-	userLearnedPath string // Path to user learned.mg for self-healing persistence
-	predicateCorpus *PredicateCorpus // Baked-in predicate corpus for validation
+	mu                sync.RWMutex
+	facts             []Fact
+	factIndex         map[string]struct{} // Canonical fact set for deduplication
+	bootFacts         []Fact              // EDB facts extracted from hybrid .mg data sections
+	bootIntents       []HybridIntent      // Canonical intents extracted from hybrid .mg files
+	bootPrompts       []HybridPrompt      // Prompt atoms extracted from hybrid .mg files
+	store             factstore.FactStore
+	programInfo       *analysis.ProgramInfo
+	schemas           string
+	policy            string
+	learned           string // Learned rules (autopoiesis) - loaded from learned.mg
+	schemaValidator   *mangle.SchemaValidator
+	initialized       bool
+	manglePath        string                 // Path to mangle files directory
+	workspaceRoot     string                 // Explicit workspace root (for .nerd paths)
+	policyDirty       bool                   // True when schemas/policy changed and need reparse
+	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
+	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
 }
 
@@ -100,6 +101,7 @@ func NewRealKernel() (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:       make([]Fact, 0),
+		factIndex:   make(map[string]struct{}),
 		bootFacts:   make([]Fact, 0),
 		bootIntents: make([]HybridIntent, 0),
 		bootPrompts: make([]HybridPrompt, 0),
@@ -121,6 +123,7 @@ func NewRealKernel() (*RealKernel, error) {
 	if len(k.bootFacts) > 0 {
 		k.facts = append(k.facts, k.bootFacts...)
 	}
+	k.rebuildFactIndexLocked()
 
 	// Force initial evaluation to boot the Mangle engine.
 	// The embedded core MUST compile, otherwise the binary is corrupt.
@@ -144,6 +147,7 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:       make([]Fact, 0),
+		factIndex:   make(map[string]struct{}),
 		bootFacts:   make([]Fact, 0),
 		bootIntents: make([]HybridIntent, 0),
 		bootPrompts: make([]HybridPrompt, 0),
@@ -165,6 +169,7 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 	if len(k.bootFacts) > 0 {
 		k.facts = append(k.facts, k.bootFacts...)
 	}
+	k.rebuildFactIndexLocked()
 
 	// Force initial evaluation
 	logging.Kernel("Booting Mangle engine...")
@@ -456,8 +461,13 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	for i, f := range facts {
 		sanitizedFacts[i] = sanitizeFactForNumericPredicates(f)
 	}
-	k.facts = append(k.facts, sanitizedFacts...)
-	logging.KernelDebug("LoadFacts: EDB grew from %d to %d facts", prevCount, len(k.facts))
+	added := 0
+	for _, f := range sanitizedFacts {
+		if k.addFactIfNewLocked(f) {
+			added++
+		}
+	}
+	logging.KernelDebug("LoadFacts: added %d/%d facts, EDB: %d -> %d facts", added, len(sanitizedFacts), prevCount, len(k.facts))
 
 	// Count JIT-related facts for debugging
 	jitCounts := make(map[string]int)
@@ -487,6 +497,12 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		}
 	}
 
+	// If nothing new was added, skip rebuild.
+	if added == 0 {
+		timer.Stop()
+		return nil
+	}
+
 	err := k.rebuild()
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("LoadFacts: rebuild failed: %v", err)
@@ -495,6 +511,46 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 
 	timer.Stop()
 	return nil
+}
+
+// =============================================================================
+// Fact Deduplication Helpers
+// =============================================================================
+
+// canonFact returns a stable string key for a fact.
+// We use Fact.String() which is already canonical for Mangle serialization.
+func (k *RealKernel) canonFact(f Fact) string {
+	return f.String()
+}
+
+// ensureFactIndexLocked initializes the fact index if needed.
+// Call only while holding k.mu.
+func (k *RealKernel) ensureFactIndexLocked() {
+	if k.factIndex == nil {
+		k.rebuildFactIndexLocked()
+	}
+}
+
+// rebuildFactIndexLocked rebuilds the dedupe index from current EDB.
+// Call only while holding k.mu.
+func (k *RealKernel) rebuildFactIndexLocked() {
+	k.factIndex = make(map[string]struct{}, len(k.facts))
+	for _, f := range k.facts {
+		k.factIndex[k.canonFact(f)] = struct{}{}
+	}
+}
+
+// addFactIfNewLocked appends a fact only if it is not already present.
+// Returns true if added. Call only while holding k.mu.
+func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
+	k.ensureFactIndexLocked()
+	key := k.canonFact(f)
+	if _, ok := k.factIndex[key]; ok {
+		return false
+	}
+	k.facts = append(k.facts, f)
+	k.factIndex[key] = struct{}{}
+	return true
 }
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.
@@ -506,7 +562,10 @@ func (k *RealKernel) Assert(fact Fact) error {
 	defer k.mu.Unlock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
-	k.facts = append(k.facts, fact)
+	if !k.addFactIfNewLocked(fact) {
+		logging.KernelDebug("Assert: duplicate fact skipped: %s", fact.String())
+		return nil
+	}
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("Assert: evaluation failed after asserting %s: %v", fact.Predicate, err)
 		return err
@@ -541,7 +600,17 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	for i, f := range facts {
 		sanitized[i] = sanitizeFactForNumericPredicates(f)
 	}
-	k.facts = append(k.facts, sanitized...)
+	added := 0
+	for _, f := range sanitized {
+		if k.addFactIfNewLocked(f) {
+			added++
+		}
+	}
+	if added == 0 {
+		timer.Stop()
+		logging.KernelDebug("AssertBatch: no new facts added (all duplicates)")
+		return nil
+	}
 
 	if err := k.evaluate(); err != nil {
 		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after adding %d facts: %v", len(facts), err)
@@ -549,7 +618,7 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	}
 
 	timer.Stop()
-	logging.KernelDebug("AssertBatch: EDB grew from %d to %d facts", prevCount, len(k.facts))
+	logging.KernelDebug("AssertBatch: added %d/%d facts, EDB: %d -> %d facts", added, len(facts), prevCount, len(k.facts))
 	return nil
 }
 
@@ -560,7 +629,9 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	fact = sanitizeFactForNumericPredicates(fact)
-	k.facts = append(k.facts, fact)
+	if !k.addFactIfNewLocked(fact) {
+		logging.KernelDebug("AssertWithoutEval: duplicate fact skipped: %s", fact.String())
+	}
 }
 
 // Evaluate forces re-evaluation of all rules. Call after AssertWithoutEval batch.
@@ -610,6 +681,7 @@ func (k *RealKernel) Retract(predicate string) error {
 		k.facts[i] = Fact{}
 	}
 	k.facts = k.facts[:newLen]
+	k.rebuildFactIndexLocked()
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
 		retractedCount, predicate, prevCount, len(k.facts))
@@ -670,6 +742,7 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 		k.facts[i] = Fact{}
 	}
 	k.facts = k.facts[:newLen]
+	k.rebuildFactIndexLocked()
 
 	logging.KernelDebug("RetractFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -707,6 +780,9 @@ func (k *RealKernel) RetractExactFact(fact Fact) error {
 		retractedCount++
 	}
 	k.facts = filtered
+	if retractedCount > 0 {
+		k.rebuildFactIndexLocked()
+	}
 
 	logging.KernelDebug("RetractExactFact: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -752,6 +828,9 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
 		filtered = append(filtered, f)
 	}
 	k.facts = filtered
+	if retractedCount > 0 {
+		k.rebuildFactIndexLocked()
+	}
 
 	logging.KernelDebug("RetractExactFactsBatch: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -786,6 +865,9 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 		filtered = append(filtered, f)
 	}
 	k.facts = filtered
+	if retractedCount > 0 {
+		k.rebuildFactIndexLocked()
+	}
 
 	logging.KernelDebug("RemoveFactsByPredicateSet: removed %d facts, EDB: %d -> %d facts",
 		retractedCount, prevCount, len(k.facts))
@@ -1252,13 +1334,13 @@ func (k *RealKernel) ValidateLearnedProgram(programText string) error {
 
 // StartupValidationResult contains statistics from startup learned rule validation.
 type StartupValidationResult struct {
-	TotalRules         int
-	ValidRules         int
-	InvalidRules       int
-	CommentedRules     int // Previously self-healed rules
-	PreviouslyHealed   int // Rules with "# SELF-HEALED:" marker
-	FilePath           string
-	InvalidRuleErrors  []string
+	TotalRules        int
+	ValidRules        int
+	InvalidRules      int
+	CommentedRules    int // Previously self-healed rules
+	PreviouslyHealed  int // Rules with "# SELF-HEALED:" marker
+	FilePath          string
+	InvalidRuleErrors []string
 }
 
 // healLearnedRules validates learned rules and comments out invalid ones.
@@ -1879,6 +1961,7 @@ func (k *RealKernel) Clone() *RealKernel {
 	// Create bare struct without triggering loadMangleFiles
 	clone := &RealKernel{
 		facts:           make([]Fact, len(k.facts)),
+		factIndex:       make(map[string]struct{}),
 		store:           factstore.NewSimpleInMemoryStore(),
 		schemas:         k.schemas,
 		policy:          k.policy,
@@ -1894,6 +1977,7 @@ func (k *RealKernel) Clone() *RealKernel {
 	// copy(clone.facts, k.facts) - simpler to just re-assert if we want independence
 	// But for performance, deep copy the slice
 	copy(clone.facts, k.facts)
+	clone.rebuildFactIndexLocked()
 
 	// Note: We do NOT define a shared ViewLayer here because Mangle needs
 	// a unified store for fixpoint. Fast copying of the slice is reasonably cheap
@@ -1911,6 +1995,7 @@ func (k *RealKernel) Clear() {
 	defer k.mu.Unlock()
 	prevFactCount := len(k.facts)
 	k.facts = make([]Fact, 0)
+	k.rebuildFactIndexLocked()
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
 	// Note: programInfo and policyDirty preserved - only facts cleared
@@ -1924,6 +2009,7 @@ func (k *RealKernel) Reset() {
 	defer k.mu.Unlock()
 	prevFactCount := len(k.facts)
 	k.facts = make([]Fact, 0)
+	k.rebuildFactIndexLocked()
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.programInfo = nil
 	k.policyDirty = true
@@ -2014,11 +2100,12 @@ func (k *RealKernel) UpdateSystemFacts() error {
 		}
 	}
 	k.facts = newFacts
+	k.rebuildFactIndexLocked()
 	logging.KernelDebug("UpdateSystemFacts: retracted %d old system facts", retractedCount)
 
 	// 2. Add fresh system facts
 	now := time.Now().Unix()
-	k.facts = append(k.facts, Fact{
+	k.addFactIfNewLocked(Fact{
 		Predicate: "current_time",
 		Args:      []interface{}{now},
 	})

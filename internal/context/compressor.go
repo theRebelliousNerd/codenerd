@@ -67,6 +67,288 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 	}
 }
 
+// refreshActivationContextsLocked derives campaign/issue activation contexts from kernel facts.
+// Call only when c.mu is held.
+func (c *Compressor) refreshActivationContextsLocked() {
+	if c.kernel == nil || c.activation == nil {
+		return
+	}
+
+	// -------------------------------------------------------------------------
+	// Campaign context (phase-aware activation)
+	// -------------------------------------------------------------------------
+	campaignFacts, _ := c.kernel.Query("current_campaign")
+	if len(campaignFacts) == 0 {
+		c.activation.ClearCampaignContext()
+	} else {
+		campaignID, _ := campaignFacts[len(campaignFacts)-1].Args[0].(string)
+
+		phaseID := ""
+		phaseName := ""
+		if phases, _ := c.kernel.Query("current_phase"); len(phases) > 0 {
+			phaseID, _ = phases[len(phases)-1].Args[0].(string)
+			// Find phase name from campaign_phase facts.
+			if allPhases, _ := c.kernel.Query("campaign_phase"); len(allPhases) > 0 {
+				for _, f := range allPhases {
+					if len(f.Args) >= 3 {
+						id, _ := f.Args[0].(string)
+						if id == phaseID {
+							phaseName, _ = f.Args[2].(string)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		taskID := ""
+		taskDesc := ""
+		if tasks, _ := c.kernel.Query("next_campaign_task"); len(tasks) > 0 {
+			taskID, _ = tasks[len(tasks)-1].Args[0].(string)
+			if allTasks, _ := c.kernel.Query("campaign_task"); len(allTasks) > 0 {
+				for _, f := range allTasks {
+					if len(f.Args) >= 3 {
+						id, _ := f.Args[0].(string)
+						if id == taskID {
+							taskDesc, _ = f.Args[2].(string)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// Phase objectives as goals.
+		var phaseGoals []string
+		if phaseID != "" {
+			if objectives, _ := c.kernel.Query("phase_objective"); len(objectives) > 0 {
+				for _, f := range objectives {
+					if len(f.Args) >= 3 {
+						pid, _ := f.Args[0].(string)
+						if pid == phaseID {
+							if desc, ok := f.Args[2].(string); ok && desc != "" {
+								phaseGoals = append(phaseGoals, desc)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Task artifacts as relevant files/symbols.
+		filesSet := make(map[string]struct{})
+		symbolsSet := make(map[string]struct{})
+		if taskID != "" {
+			if artifacts, _ := c.kernel.Query("task_artifact"); len(artifacts) > 0 {
+				for _, f := range artifacts {
+					if len(f.Args) >= 3 {
+						tid, _ := f.Args[0].(string)
+						if tid != taskID {
+							continue
+						}
+						atype, _ := f.Args[1].(string)
+						path, _ := f.Args[2].(string)
+						if path == "" {
+							continue
+						}
+						lowType := strings.ToLower(atype)
+						if strings.Contains(lowType, "symbol") {
+							symbolsSet[path] = struct{}{}
+						} else {
+							filesSet[path] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+
+		var relevantFiles []string
+		for p := range filesSet {
+			relevantFiles = append(relevantFiles, p)
+		}
+		var relevantSymbols []string
+		for s := range symbolsSet {
+			relevantSymbols = append(relevantSymbols, s)
+		}
+
+		currentPhase := phaseName
+		if currentPhase == "" {
+			currentPhase = phaseID
+		}
+		currentTask := taskDesc
+		if currentTask == "" {
+			currentTask = taskID
+		}
+
+		c.activation.SetCampaignContext(&CampaignActivationContext{
+			CampaignID:      campaignID,
+			CurrentPhase:    currentPhase,
+			CurrentTask:     currentTask,
+			PhaseGoals:      phaseGoals,
+			RelevantFiles:   relevantFiles,
+			RelevantSymbols: relevantSymbols,
+		})
+	}
+
+	// -------------------------------------------------------------------------
+	// Issue context (issue-driven activation)
+	// -------------------------------------------------------------------------
+	issueID := ""
+	source := ""
+	if swe, _ := c.kernel.Query("swebench_instance"); len(swe) > 0 {
+		issueID, _ = swe[len(swe)-1].Args[0].(string)
+		source = "swebench"
+	} else if issues, _ := c.kernel.Query("issue_context"); len(issues) > 0 {
+		issueID, _ = issues[len(issues)-1].Args[0].(string)
+		source = "issue_tracker"
+	} else if kws, _ := c.kernel.Query("issue_keyword"); len(kws) > 0 {
+		issueID, _ = kws[len(kws)-1].Args[0].(string)
+		source = "issue_tracker"
+	}
+
+	issueText := ""
+	if texts, _ := c.kernel.Query("issue_text"); len(texts) > 0 {
+		if issueID == "" {
+			last := texts[len(texts)-1]
+			if len(last.Args) >= 1 {
+				issueID, _ = last.Args[0].(string)
+			}
+			if len(last.Args) >= 2 {
+				issueText, _ = last.Args[1].(string)
+			}
+			if source == "" {
+				source = "issue_tracker"
+			}
+		} else {
+			for _, f := range texts {
+				if len(f.Args) >= 2 {
+					id, _ := f.Args[0].(string)
+					if id == issueID {
+						issueText, _ = f.Args[1].(string)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if issueID == "" {
+		c.activation.ClearIssueContext()
+		return
+	}
+
+	keywords := make(map[string]float64)
+	if kws, _ := c.kernel.Query("issue_keyword"); len(kws) > 0 {
+		for _, f := range kws {
+			if len(f.Args) >= 3 {
+				id, _ := f.Args[0].(string)
+				if id != issueID {
+					continue
+				}
+				kw, _ := f.Args[1].(string)
+				if kw == "" {
+					continue
+				}
+				var weight float64
+				switch v := f.Args[2].(type) {
+				case float64:
+					weight = v
+				case int64:
+					weight = float64(v)
+				case int:
+					weight = float64(v)
+				default:
+					weight = 0.5
+				}
+				keywords[kw] = weight
+			}
+		}
+	}
+
+	var mentionedFiles []string
+	if mentions, _ := c.kernel.Query("file_mentioned"); len(mentions) > 0 {
+		for _, f := range mentions {
+			if len(f.Args) >= 2 {
+				file, _ := f.Args[0].(string)
+				id, _ := f.Args[1].(string)
+				if id == issueID && file != "" {
+					mentionedFiles = append(mentionedFiles, file)
+				}
+			}
+		}
+	}
+
+	tieredFiles := make(map[string]int)
+	if tiers, _ := c.kernel.Query("tiered_context_file"); len(tiers) > 0 {
+		for _, f := range tiers {
+			if len(f.Args) >= 3 {
+				id, _ := f.Args[0].(string)
+				if id != issueID {
+					continue
+				}
+				file, _ := f.Args[1].(string)
+				tierStr, _ := f.Args[2].(string) // /tier1, /tier2...
+				if file == "" || tierStr == "" {
+					continue
+				}
+				tierNum := 0
+				trim := strings.TrimPrefix(strings.ToLower(tierStr), "/tier")
+				if n, err := fmt.Sscanf(trim, "%d", &tierNum); err == nil && n == 1 {
+					// ok
+				} else {
+					tierNum = 0
+				}
+				if tierNum > 0 {
+					tieredFiles[file] = tierNum
+				}
+			}
+		}
+	}
+
+	var expectedTests []string
+	if source == "swebench" {
+		if exp, _ := c.kernel.Query("swebench_expected_fail_to_pass"); len(exp) > 0 {
+			for _, f := range exp {
+				if len(f.Args) >= 2 {
+					id, _ := f.Args[0].(string)
+					if id != issueID {
+						continue
+					}
+					testName, _ := f.Args[1].(string)
+					if testName != "" {
+						expectedTests = append(expectedTests, testName)
+					}
+				}
+			}
+		}
+		if exp, _ := c.kernel.Query("swebench_expected_pass_to_pass"); len(exp) > 0 {
+			for _, f := range exp {
+				if len(f.Args) >= 2 {
+					id, _ := f.Args[0].(string)
+					if id != issueID {
+						continue
+					}
+					testName, _ := f.Args[1].(string)
+					if testName != "" {
+						expectedTests = append(expectedTests, testName)
+					}
+				}
+			}
+		}
+	}
+
+	c.activation.SetIssueContext(&IssueActivationContext{
+		IssueID:        issueID,
+		IssueText:      issueText,
+		Keywords:       keywords,
+		MentionedFiles: mentionedFiles,
+		TieredFiles:    tieredFiles,
+		ErrorTypes:     nil,
+		ExpectedTests:  expectedTests,
+		Source:         source,
+	})
+}
+
 // SetSessionID sets the logical session ID for persistence/rehydration.
 // Call this after the chat layer resolves the real session ID.
 func (c *Compressor) SetSessionID(sessionID string) {
@@ -80,8 +362,11 @@ func (c *Compressor) SetSessionID(sessionID string) {
 
 // GetSessionID returns the current session ID.
 func (c *Compressor) GetSessionID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Ensure activation engine has up-to-date campaign/issue context.
+	c.refreshActivationContextsLocked()
 	return c.sessionID
 }
 
@@ -208,6 +493,9 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 
 	// Mark atoms as new for recency scoring
 	c.activation.MarkNewFacts(atoms)
+
+	// Refresh campaign/issue activation contexts from latest kernel state.
+	c.refreshActivationContextsLocked()
 
 	// 3. Process memory operations
 	if turn.ControlPacket != nil && len(turn.ControlPacket.MemoryOperations) > 0 {
@@ -580,8 +868,11 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	timer := logging.StartTimer(logging.CategoryContext, "BuildContext")
 	defer timer.Stop()
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Ensure activation engine has up-to-date campaign/issue context.
+	c.refreshActivationContextsLocked()
 
 	// ENFORCEMENT: Check if we're already over budget before building
 	if err := c.budget.CheckTotalBudget(); err != nil {
@@ -969,9 +1260,6 @@ func (c *Compressor) GetActivationScores() map[string]float64 {
 // GetHighActivationFactKeys returns fact keys with activation above threshold.
 // Used by JIT compiler to find atoms related to "hot" facts.
 func (c *Compressor) GetHighActivationFactKeys(threshold float64) []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	var keys []string
 	scores := c.GetActivationScores()
 
