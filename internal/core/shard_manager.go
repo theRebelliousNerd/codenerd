@@ -1100,6 +1100,25 @@ func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 	return shards
 }
 
+// GetRunningShardByConfigName returns the first active shard whose ShardConfig.Name matches.
+// This is primarily used to interact with long-running system shards (Type S) that expose
+// additional methods beyond the core ShardAgent interface.
+func (sm *ShardManager) GetRunningShardByConfigName(name string) (ShardAgent, bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	for _, shard := range sm.shards {
+		if shard == nil {
+			continue
+		}
+		cfg := shard.GetConfig()
+		if cfg.Name == name {
+			return shard, true
+		}
+	}
+	return nil, false
+}
+
 // Spawn creates and executes a shard synchronously.
 // Routes through SpawnQueue for backpressure management if queue is attached.
 func (sm *ShardManager) Spawn(ctx context.Context, typeName, task string) (string, error) {

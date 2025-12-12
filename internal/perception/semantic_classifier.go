@@ -18,6 +18,7 @@ package perception
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -714,12 +715,16 @@ func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine e
 		return store, nil
 	}
 
-	backend, err := storepkg.NewLearnedCorpusStore(".nerd/learned_patterns.db", embedEngine)
+	dbPath := filepath.Join(".nerd", "learned_patterns.db")
+	if SharedTaxonomy != nil {
+		dbPath = SharedTaxonomy.nerdPath("learned_patterns.db")
+	}
+	backend, err := storepkg.NewLearnedCorpusStore(dbPath, embedEngine)
 	if err != nil {
 		return nil, err
 	}
 	store.backend = backend
-	logging.PerceptionDebug("Learned corpus store initialized with DB backend (path=.nerd/learned_patterns.db)")
+	logging.PerceptionDebug("Learned corpus store initialized with DB backend (path=%s)", dbPath)
 
 	return store, nil
 }

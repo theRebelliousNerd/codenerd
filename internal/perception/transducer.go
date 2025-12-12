@@ -359,7 +359,9 @@ type FocusResolution struct {
 	RawReference string
 	ResolvedPath string
 	SymbolName   string
-	Confidence   float64
+	// ConfidencePercent is 0-100 (integer) to keep Mangle numeric comparisons stable.
+	// The kernel policy uses integer thresholds (e.g. Score < 85).
+	ConfidencePercent int64
 }
 
 // ToFact converts focus resolution to a Mangle Fact.
@@ -370,7 +372,7 @@ func (f FocusResolution) ToFact() core.Fact {
 			f.RawReference,
 			f.ResolvedPath,
 			f.SymbolName,
-			f.Confidence,
+			f.ConfidencePercent,
 		},
 	}
 }
@@ -381,15 +383,14 @@ type Transducer interface {
 	ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error)
 }
 
-// RealTransducer implements the Perception layer with LLM backing.
+// RealTransducer implements the Perception layer (NL → Piggyback control_packet → intents).
 //
-// NOTE: JIT prompt compilation is NOT supported for the transducer due to import cycles.
-// The transducer uses a static system prompt defined in transducerSystemPrompt.
-// However, the prompt content can be migrated to YAML atoms in build/prompt_atoms/perception/
-// and compiled into the prompt corpus database for documentation and consistency.
+// It supports JIT prompt compilation when provided an articulation.PromptAssembler, and
+// falls back to the legacy static prompt when JIT is unavailable.
 type RealTransducer struct {
-	client     LLMClient
-	repairLoop *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	client         LLMClient
+	repairLoop     *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	promptAssembler *articulation.PromptAssembler
 }
 
 // NewRealTransducer creates a new transducer with the given LLM client.
@@ -403,10 +404,34 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 	return t
 }
 
+// SetPromptAssembler injects the PromptAssembler used for JIT prompt compilation.
+// When unset or JIT is unavailable, the transducer uses the legacy static prompt.
+func (t *RealTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {
+	t.promptAssembler = pa
+}
+
 // withSystemContext creates a SystemLLMContext for this transducer's LLM calls.
 // This ensures proper trace attribution for all transducer operations.
 func (t *RealTransducer) withSystemContext(taskContext string) *SystemLLMContext {
 	return NewSystemLLMContext(t.client, "transducer", taskContext)
+}
+
+func (t *RealTransducer) intentSystemPrompt(ctx context.Context) string {
+	if t.promptAssembler == nil {
+		return transducerSystemPrompt
+	}
+
+	// Prefer the JIT-compiled prompt when available. The assembler will fall back
+	// internally, but for Perception we also keep the legacy prompt as a known-safe
+	// fallback if assembly fails.
+	pc := &articulation.PromptContext{
+		ShardID:   "perception_transducer",
+		ShardType: "perception",
+	}
+	if promptText, err := t.promptAssembler.AssembleSystemPrompt(ctx, pc); err == nil && strings.TrimSpace(promptText) != "" {
+		return promptText
+	}
+	return transducerSystemPrompt
 }
 
 // Cortex 1.5.0 Piggyback Protocol System Prompt
@@ -689,7 +714,7 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 	defer sysCtx.Clear()
 
 	llmTimer := logging.StartTimer(logging.CategoryPerception, "LLM-CompleteWithSystem")
-	resp, err := sysCtx.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+	resp, err := sysCtx.CompleteWithSystem(ctx, t.intentSystemPrompt(ctx), userPrompt)
 	llmTimer.Stop()
 
 	if err != nil {
@@ -699,32 +724,33 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 
 	logging.PerceptionDebug("LLM response received: %d chars", len(resp))
 
-	// Parse the Piggyback Envelope
-	envelope, err := parsePiggybackJSON(resp)
+	processor := articulation.NewResponseProcessor()
+	processor.RequireValidJSON = true
+	result, err := processor.Process(resp)
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Failed to parse Piggyback JSON, falling back to simple parsing: %v", err)
 		return t.parseSimple(ctx, input)
 	}
 
 	logging.Perception("Intent parsed: category=%s, verb=%s, target=%s, confidence=%.2f",
-		envelope.Control.IntentClassification.Category,
-		envelope.Control.IntentClassification.Verb,
-		truncateForLog(envelope.Control.IntentClassification.Target, 50),
-		envelope.Control.IntentClassification.Confidence)
+		result.Control.IntentClassification.Category,
+		result.Control.IntentClassification.Verb,
+		truncateForLog(result.Control.IntentClassification.Target, 50),
+		result.Control.IntentClassification.Confidence)
 
-	if len(envelope.Control.MemoryOperations) > 0 {
-		logging.PerceptionDebug("Memory operations: %d", len(envelope.Control.MemoryOperations))
+	if len(result.Control.MemoryOperations) > 0 {
+		logging.PerceptionDebug("Memory operations: %d", len(result.Control.MemoryOperations))
 	}
 
 	// Map Envelope to Intent
 	return Intent{
-		Category:         envelope.Control.IntentClassification.Category,
-		Verb:             envelope.Control.IntentClassification.Verb,
-		Target:           envelope.Control.IntentClassification.Target,
-		Constraint:       envelope.Control.IntentClassification.Constraint,
-		Confidence:       envelope.Control.IntentClassification.Confidence,
-		Response:         envelope.Surface,
-		MemoryOperations: envelope.Control.MemoryOperations,
+		Category:         result.Control.IntentClassification.Category,
+		Verb:             result.Control.IntentClassification.Verb,
+		Target:           result.Control.IntentClassification.Target,
+		Constraint:       result.Control.IntentClassification.Constraint,
+		Confidence:       result.Control.IntentClassification.Confidence,
+		Response:         result.Surface,
+		MemoryOperations: result.Control.MemoryOperations,
 		// Ambiguity is not explicitly in the new schema's intent_classification,
 		// but could be inferred or added if needed. For now, leaving empty.
 		Ambiguity: []string{},
@@ -804,7 +830,7 @@ func (t *RealTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 	sysCtx := t.withSystemContext("intent-extraction-gcd")
 	defer sysCtx.Clear()
 
-	var lastEnvelope PiggybackEnvelope
+	var lastResult *articulation.ArticulationResult
 	var lastErr error
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -845,7 +871,7 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 		}
 
 		llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
-		resp, err := sysCtx.CompleteWithSystem(ctx, transducerSystemPrompt, userPrompt)
+		resp, err := sysCtx.CompleteWithSystem(ctx, t.intentSystemPrompt(ctx), userPrompt)
 		llmTimer.Stop()
 
 		if err != nil {
@@ -854,18 +880,20 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 			return intent, nil, fallbackErr
 		}
 
-		envelope, err := parsePiggybackJSON(resp)
+		processor := articulation.NewResponseProcessor()
+		processor.RequireValidJSON = true
+		result, err := processor.Process(resp)
 		if err != nil {
 			logging.PerceptionDebug("GCD attempt %d: JSON parse failed: %v", attempt+1, err)
 			lastErr = err
 			continue
 		}
-		lastEnvelope = envelope
+		lastResult = result
 
 		// Validate Mangle atoms using GCD
-		if len(envelope.Control.MangleUpdates) > 0 {
-			logging.PerceptionDebug("GCD validating %d Mangle updates", len(envelope.Control.MangleUpdates))
-			validAtoms, results := t.ValidateMangleAtoms(envelope.Control.MangleUpdates)
+		if len(result.Control.MangleUpdates) > 0 {
+			logging.PerceptionDebug("GCD validating %d Mangle updates", len(result.Control.MangleUpdates))
+			validAtoms, results := t.ValidateMangleAtoms(result.Control.MangleUpdates)
 
 			// Check for validation errors
 			hasErrors := false
@@ -887,43 +915,46 @@ Please correct the mangle_updates syntax and try again.`, userPrompt, lastErr.Er
 
 			// All atoms valid - return success
 			logging.Perception("GCD succeeded on attempt %d: verb=%s, %d valid atoms",
-				attempt+1, envelope.Control.IntentClassification.Verb, len(validAtoms))
+				attempt+1, result.Control.IntentClassification.Verb, len(validAtoms))
 			return Intent{
-				Category:   envelope.Control.IntentClassification.Category,
-				Verb:       envelope.Control.IntentClassification.Verb,
-				Target:     envelope.Control.IntentClassification.Target,
-				Constraint: envelope.Control.IntentClassification.Constraint,
-				Confidence: envelope.Control.IntentClassification.Confidence,
-				Response:   envelope.Surface,
-				Ambiguity:  []string{},
+				Category:         result.Control.IntentClassification.Category,
+				Verb:             result.Control.IntentClassification.Verb,
+				Target:           result.Control.IntentClassification.Target,
+				Constraint:       result.Control.IntentClassification.Constraint,
+				Confidence:       result.Control.IntentClassification.Confidence,
+				Response:         result.Surface,
+				Ambiguity:        []string{},
+				MemoryOperations: result.Control.MemoryOperations,
 			}, validAtoms, nil
 		}
 
 		// No mangle_updates to validate - return as-is
 		logging.Perception("GCD succeeded on attempt %d (no Mangle updates): verb=%s",
-			attempt+1, envelope.Control.IntentClassification.Verb)
+			attempt+1, result.Control.IntentClassification.Verb)
 		return Intent{
-			Category:   envelope.Control.IntentClassification.Category,
-			Verb:       envelope.Control.IntentClassification.Verb,
-			Target:     envelope.Control.IntentClassification.Target,
-			Constraint: envelope.Control.IntentClassification.Constraint,
-			Confidence: envelope.Control.IntentClassification.Confidence,
-			Response:   envelope.Surface,
-			Ambiguity:  []string{},
+			Category:         result.Control.IntentClassification.Category,
+			Verb:             result.Control.IntentClassification.Verb,
+			Target:           result.Control.IntentClassification.Target,
+			Constraint:       result.Control.IntentClassification.Constraint,
+			Confidence:       result.Control.IntentClassification.Confidence,
+			Response:         result.Surface,
+			Ambiguity:        []string{},
+			MemoryOperations: result.Control.MemoryOperations,
 		}, nil, nil
 	}
 
 	// Max retries exceeded - return best effort from last envelope
-	if lastEnvelope.Surface != "" {
+	if lastResult != nil && lastResult.Surface != "" {
 		logging.Get(logging.CategoryPerception).Warn("GCD max retries exceeded, returning degraded result (confidence halved)")
 		return Intent{
-			Category:   lastEnvelope.Control.IntentClassification.Category,
-			Verb:       lastEnvelope.Control.IntentClassification.Verb,
-			Target:     lastEnvelope.Control.IntentClassification.Target,
-			Constraint: lastEnvelope.Control.IntentClassification.Constraint,
-			Confidence: lastEnvelope.Control.IntentClassification.Confidence * 0.5, // Reduce confidence
-			Response:   lastEnvelope.Surface,
-			Ambiguity:  []string{"GCD validation failed after retries"},
+			Category:         lastResult.Control.IntentClassification.Category,
+			Verb:             lastResult.Control.IntentClassification.Verb,
+			Target:           lastResult.Control.IntentClassification.Target,
+			Constraint:       lastResult.Control.IntentClassification.Constraint,
+			Confidence:       lastResult.Control.IntentClassification.Confidence * 0.5, // Reduce confidence
+			Response:         lastResult.Surface,
+			Ambiguity:        []string{"GCD validation failed after retries"},
+			MemoryOperations: lastResult.Control.MemoryOperations,
 		}, nil, fmt.Errorf("GCD validation failed after %d retries: %w", maxRetries, lastErr)
 	}
 
@@ -1063,7 +1094,7 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 		logging.PerceptionDebug("No candidates provided, returning empty resolution")
 		return FocusResolution{
 			RawReference: reference,
-			Confidence:   0.0,
+			ConfidencePercent: 0,
 		}, nil
 	}
 
@@ -1072,7 +1103,7 @@ func (t *RealTransducer) ResolveFocus(ctx context.Context, reference string, can
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
-			Confidence:   0.9,
+			ConfidencePercent: 90,
 		}, nil
 	}
 
@@ -1089,7 +1120,7 @@ Return JSON:
 {
   "resolved_path": "best matching path",
   "symbol_name": "specific symbol if applicable or empty",
-  "confidence": 0.0-1.0
+  "confidence": 0-100
 }
 
 JSON only:`, reference, candidateList)
@@ -1117,7 +1148,7 @@ JSON only:`, reference, candidateList)
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
-			Confidence:   0.5,
+			ConfidencePercent: 50,
 		}, nil
 	}
 
@@ -1131,7 +1162,7 @@ JSON only:`, reference, candidateList)
 	var parsed struct {
 		ResolvedPath string  `json:"resolved_path"`
 		SymbolName   string  `json:"symbol_name"`
-		Confidence   float64 `json:"confidence"`
+		Confidence   int64   `json:"confidence"`
 	}
 
 	if err := json.Unmarshal([]byte(resp), &parsed); err != nil {
@@ -1139,18 +1170,25 @@ JSON only:`, reference, candidateList)
 		return FocusResolution{
 			RawReference: reference,
 			ResolvedPath: candidates[0],
-			Confidence:   0.5,
+			ConfidencePercent: 50,
 		}, nil
 	}
 
-	logging.Perception("Focus resolved: %s -> %s (symbol: %s, confidence: %.2f)",
-		truncateForLog(reference, 30), truncateForLog(parsed.ResolvedPath, 50), parsed.SymbolName, parsed.Confidence)
+	conf := parsed.Confidence
+	if conf < 0 {
+		conf = 0
+	} else if conf > 100 {
+		conf = 100
+	}
+
+	logging.Perception("Focus resolved: %s -> %s (symbol: %s, confidence: %d)",
+		truncateForLog(reference, 30), truncateForLog(parsed.ResolvedPath, 50), parsed.SymbolName, conf)
 
 	return FocusResolution{
 		RawReference: reference,
 		ResolvedPath: parsed.ResolvedPath,
 		SymbolName:   parsed.SymbolName,
-		Confidence:   parsed.Confidence,
+		ConfidencePercent: conf,
 	}, nil
 }
 
@@ -1206,7 +1244,7 @@ func (t *DualPayloadTransducer) Parse(ctx context.Context, input string, fileCan
 	if intent.Target != "" && intent.Target != "none" {
 		logging.PerceptionDebug("Attempting focus resolution for target: %s", truncateForLog(intent.Target, 50))
 		focus, err := t.ResolveFocus(ctx, intent.Target, fileCandidates)
-		if err == nil && focus.Confidence > 0 {
+		if err == nil && focus.ConfidencePercent > 0 {
 			output.Focus = append(output.Focus, focus)
 			output.MangleAtoms = append(output.MangleAtoms, focus.ToFact())
 			logging.PerceptionDebug("Focus resolved, added to output (total atoms: %d)", len(output.MangleAtoms))

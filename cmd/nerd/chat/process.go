@@ -99,7 +99,29 @@ func (m Model) processInput(input string) tea.Cmd {
 			})
 		}
 
-		intent, err := m.transducer.ParseIntentWithContext(ctx, input, historyForPerception)
+		intentHandledBySystem := false
+		var intent perception.Intent
+		var err error
+
+		// Prefer the always-on PerceptionFirewall system shard when available.
+		// This ensures Perception emits canonical facts (user_intent, processed_intent,
+		// focus_resolution, ambiguity_flag) into the shared kernel and uses JIT prompts.
+		if m.shardMgr != nil {
+			if shard, ok := m.shardMgr.GetRunningShardByConfigName("perception_firewall"); ok {
+				type perceiver interface {
+					Perceive(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error)
+				}
+				if pf, ok := shard.(perceiver); ok {
+					intent, err = pf.Perceive(ctx, input, historyForPerception)
+					intentHandledBySystem = err == nil
+				}
+			}
+		}
+
+		// Fallback: direct transducer parsing (legacy / when system shards are disabled).
+		if !intentHandledBySystem {
+			intent, err = m.transducer.ParseIntentWithContext(ctx, input, historyForPerception)
+		}
 		if err != nil {
 			return errorMsg(fmt.Errorf("perception error: %w", err))
 		}
@@ -117,19 +139,22 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("pending_review")
 			_ = m.kernel.Retract("interrupt_requested")
 
-			intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
-			intentFact := core.Fact{
-				Predicate: "user_intent",
-				Args: []interface{}{
-					intentID,
-					intent.Category,
-					intent.Verb,
-					intent.Target,
-					intent.Constraint,
-				},
-			}
-			if err := m.kernel.Assert(intentFact); err != nil {
-				warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
+			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
+			if !intentHandledBySystem {
+				intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
+				intentFact := core.Fact{
+					Predicate: "user_intent",
+					Args: []interface{}{
+						intentID,
+						intent.Category,
+						intent.Verb,
+						intent.Target,
+						intent.Constraint,
+					},
+				}
+				if err := m.kernel.Assert(intentFact); err != nil {
+					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
+				}
 			}
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.

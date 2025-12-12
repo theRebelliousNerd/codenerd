@@ -792,6 +792,7 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		if err != nil {
 			return fmt.Errorf("failed to boot cortex: %w", err)
 		}
+		defer cortex.Close()
 
 		// Add usage tracker
 		if cortex.UsageTracker != nil {
@@ -834,6 +835,7 @@ func runPerceptionTest(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Parse intent
 	intent, err := cortex.Transducer.ParseIntent(ctx, input)
@@ -997,6 +999,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Add usage tracker
 	if cortex.UsageTracker != nil {
@@ -1063,6 +1066,7 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Use coder shard in shadow mode
 	shadowCtx := &core.SessionContext{DreamMode: true}
@@ -1102,6 +1106,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Assert the hypothetical to kernel
 	hypFact := core.Fact{
@@ -1162,6 +1167,7 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Query facts
 	facts, err := cortex.Kernel.Query(predicate)
@@ -1200,6 +1206,7 @@ func runAgentsList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// List shards
 	shards := cortex.ShardManager.ListAvailableShards()
@@ -1253,6 +1260,7 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	subCmd := args[0]
 	switch subCmd {
@@ -1379,6 +1387,7 @@ func runJITStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Get compiler stats
 	if cortex.JITCompiler != nil {
@@ -1439,6 +1448,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Add usage tracker to context if available
 	if cortex.UsageTracker != nil {
@@ -1574,6 +1584,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	config := core.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
 
@@ -1623,6 +1634,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
+	defer cortex.Close()
 
 	// Generate shard ID for fact recording
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
@@ -1883,9 +1895,7 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
-	if cortex.LocalDB != nil {
-		defer cortex.LocalDB.Close()
-	}
+	defer cortex.Close()
 
 	facts, err := cortex.Kernel.Query(predicate)
 	if err != nil {

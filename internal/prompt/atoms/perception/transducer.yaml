@@ -274,6 +274,6 @@
     observation(/ambiguous_intent, "clarification_needed").
     observation(/safety_violation, "reason").
 
-    # Focus resolution
-    focus_resolution("raw_reference", "resolved_path", "symbol", 0.9).
-    ```
+     # Focus resolution
+     focus_resolution("raw_reference", "resolved_path", "symbol", 90).
+     ```

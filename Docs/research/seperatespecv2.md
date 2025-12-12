@@ -117,7 +117,7 @@ Decl focus_resolution(
 ```mangle
 clarification_needed(Ref) :-
     focus_resolution(Ref, _,_, Score),
-    Score < 0.85.
+    Score < 85.
 ```
 
 ## 4. The Domain Modules (Specialized Shards)

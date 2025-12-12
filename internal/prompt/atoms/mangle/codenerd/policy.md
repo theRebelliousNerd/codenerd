@@ -28,7 +28,7 @@ Blocks execution when user intent is ambiguous.
 # Trigger interrogative mode when focus resolution confidence is low
 clarification_needed(Ref) :-
     focus_resolution(Ref, _, _, Score),
-    Score < 0.85.
+    Score < 85.
 
 # Block action derivation if clarification needed
 next_action(/interrogative_mode) :-
