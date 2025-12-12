@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,6 +64,62 @@ func TestExecCmdDisallowedBinary(t *testing.T) {
 	}
 	if res.Success || res.Error == "" {
 		t.Fatalf("expected disallowed binary to fail, got success=%v error=%q", res.Success, res.Error)
+	}
+}
+
+func TestCommandFromActionRequest_PayloadOverridesTarget(t *testing.T) {
+	req := ActionRequest{
+		Target: "go test ./... -count=1",
+		Payload: map[string]interface{}{
+			"command": "go test ./internal/core/... -count=1",
+		},
+	}
+	got := commandFromActionRequest(req, "go test ./...")
+	if got != "go test ./internal/core/... -count=1" {
+		t.Fatalf("unexpected command: %q", got)
+	}
+}
+
+func TestCommandFromActionRequest_TargetFallback(t *testing.T) {
+	req := ActionRequest{
+		Target:  "go test ./internal/core/... -count=1",
+		Payload: map[string]interface{}{},
+	}
+	got := commandFromActionRequest(req, "go test ./...")
+	if got != "go test ./internal/core/... -count=1" {
+		t.Fatalf("unexpected command: %q", got)
+	}
+}
+
+func TestTimeoutSecondsFromActionRequest_DefaultAndOverrides(t *testing.T) {
+	req := ActionRequest{Payload: map[string]interface{}{}}
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 300 {
+		t.Fatalf("expected default timeout 300, got %d", got)
+	}
+
+	req.Payload["timeout_seconds"] = 600
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 600 {
+		t.Fatalf("expected payload timeout 600, got %d", got)
+	}
+
+	req.Payload["timeout_seconds"] = 900.0
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 900 {
+		t.Fatalf("expected payload float timeout 900, got %d", got)
+	}
+
+	req.Payload["timeout_seconds"] = json.Number("1200")
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 1200 {
+		t.Fatalf("expected payload json.Number timeout 1200, got %d", got)
+	}
+
+	req.Payload["timeout_seconds"] = "1500"
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 1500 {
+		t.Fatalf("expected payload string timeout 1500, got %d", got)
+	}
+
+	req.Timeout = 42
+	if got := timeoutSecondsFromActionRequest(req, 300); got != 42 {
+		t.Fatalf("expected request timeout 42, got %d", got)
 	}
 }
 

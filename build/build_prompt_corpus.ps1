@@ -1,5 +1,7 @@
 # Build Prompt Corpus Database
-# This script generates the embedded prompt_corpus.db for JIT prompt compilation
+# This script generates the embedded prompt_corpus.db for JIT prompt compilation.
+#
+# Source of truth for built-in prompt atoms is `internal/prompt/atoms/`.
 #
 # Usage:
 #   .\build\build_prompt_corpus.ps1
@@ -28,7 +30,7 @@ $buildArgs = @(
     "run"
     "-tags=sqlite_vec"
     "./cmd/tools/prompt_builder"
-    "-input", "build/prompt_atoms"
+    "-input", "internal/prompt/atoms"
     "-output", "internal/core/defaults/prompt_corpus.db"
 )
 

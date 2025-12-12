@@ -29,6 +29,7 @@ const (
 	CampaignTypeAudit       CampaignType = "/audit"       // Stability/security audit
 	CampaignTypeMigration   CampaignType = "/migration"   // Technology migration
 	CampaignTypeRemediation CampaignType = "/remediation" // Fix issues across codebase
+	CampaignTypeAdversarialAssault CampaignType = "/adversarial_assault" // Long-horizon stress + adversarial probing
 	CampaignTypeCustom      CampaignType = "/custom"      // User-defined campaign
 )
 
@@ -84,6 +85,11 @@ const (
 	TaskTypeRefactor    TaskType = "/refactor"     // Refactoring
 	TaskTypeIntegrate   TaskType = "/integrate"    // Integration step
 	TaskTypeCampaignRef TaskType = "/campaign_ref" // Reference to a sub-campaign
+
+	// Adversarial Assault campaign task types (durable, batched).
+	TaskTypeAssaultDiscover TaskType = "/assault_discover" // Enumerate targets + create batch tasks
+	TaskTypeAssaultBatch    TaskType = "/assault_batch"    // Execute a persisted batch
+	TaskTypeAssaultTriage   TaskType = "/assault_triage"   // Summarize results + generate remediation tasks
 )
 
 // TaskPriority represents task priority levels.
@@ -165,6 +171,9 @@ type Campaign struct {
 
 	// Learnings (autopoiesis)
 	Learnings []Learning `json:"learnings,omitempty"`
+
+	// Optional: adversarial assault configuration (for CampaignTypeAdversarialAssault).
+	Assault *AssaultConfig `json:"assault,omitempty"`
 }
 
 // Phase represents a distinct phase within a campaign.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1751,16 +1752,65 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	}, nil
 }
 
+func commandFromActionRequest(req ActionRequest, defaultCommand string) string {
+	if cmd, ok := req.Payload["command"].(string); ok && strings.TrimSpace(cmd) != "" {
+		return cmd
+	}
+	if strings.TrimSpace(req.Target) != "" {
+		return req.Target
+	}
+	return defaultCommand
+}
+
+func timeoutSecondsFromActionRequest(req ActionRequest, defaultSeconds int) int {
+	if req.Timeout > 0 {
+		return req.Timeout
+	}
+	if v, ok := payloadInt(req.Payload["timeout_seconds"]); ok && v > 0 {
+		return v
+	}
+	if v, ok := payloadInt(req.Payload["timeout"]); ok && v > 0 {
+		return v
+	}
+	if defaultSeconds <= 0 {
+		return 30
+	}
+	return defaultSeconds
+}
+
+func payloadInt(v any) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case int64:
+		return int(x), true
+	case float64:
+		return int(x), true
+	case json.Number:
+		i, err := x.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(i), true
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(x))
+		if err != nil {
+			return 0, false
+		}
+		return i, true
+	default:
+		return 0, false
+	}
+}
+
 // handleRunTests executes the test suite.
 func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleRunTests")
 	defer timer.Stop()
 
 	// Determine test command based on project type
-	testCmd := "go test ./..."
-	if cmd, ok := req.Payload["command"].(string); ok {
-		testCmd = cmd
-	}
+	testCmd := commandFromActionRequest(req, "go test ./...")
+	timeoutSeconds := timeoutSecondsFromActionRequest(req, 300)
 
 	logging.VirtualStore("Running tests: %s", testCmd)
 
@@ -1768,7 +1818,7 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 		Binary:           "bash",
 		Arguments:        []string{"-c", testCmd},
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   300, // 5 minute timeout for tests
+		TimeoutSeconds:   timeoutSeconds,
 		EnvironmentVars:  v.getAllowedEnv(),
 	}
 
@@ -1799,10 +1849,8 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBuildProject")
 	defer timer.Stop()
 
-	buildCmd := "go build ./..."
-	if cmd, ok := req.Payload["command"].(string); ok {
-		buildCmd = cmd
-	}
+	buildCmd := commandFromActionRequest(req, "go build ./...")
+	timeoutSeconds := timeoutSecondsFromActionRequest(req, 120)
 
 	logging.VirtualStore("Building project: %s", buildCmd)
 
@@ -1810,7 +1858,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 		Binary:           "bash",
 		Arguments:        []string{"-c", buildCmd},
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   120,
+		TimeoutSeconds:   timeoutSeconds,
 		EnvironmentVars:  v.getAllowedEnv(),
 	}
 

@@ -35,6 +35,7 @@ type Orchestrator struct {
 	checkpoint   *CheckpointRunner
 	replanner    *Replanner
 	decomposer   *Decomposer
+	promptProvider PromptProvider
 
 	// State
 	campaign     *Campaign
@@ -157,6 +158,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		taskResults:      make(map[string]string),
 		taskResultOrder:  make([]string, 0),
 		config:           cfg,
+		promptProvider:   NewStaticPromptProvider(),
 	}
 
 	// Initialize sub-components
@@ -183,6 +185,7 @@ func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
 	if provider == nil {
 		return
 	}
+	o.promptProvider = provider
 	if o.decomposer != nil {
 		o.decomposer.SetPromptProvider(provider)
 	}
@@ -1146,6 +1149,15 @@ func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error)
 
 	// Fallback to type-based routing for backward compatibility
 	switch task.Type {
+	case TaskTypeAssaultDiscover:
+		logging.CampaignDebug("Delegating to assault discover handler")
+		return o.executeAssaultDiscoverTask(ctx, task)
+	case TaskTypeAssaultBatch:
+		logging.CampaignDebug("Delegating to assault batch handler")
+		return o.executeAssaultBatchTask(ctx, task)
+	case TaskTypeAssaultTriage:
+		logging.CampaignDebug("Delegating to assault triage handler")
+		return o.executeAssaultTriageTask(ctx, task)
 	case TaskTypeResearch:
 		logging.CampaignDebug("Delegating to research task handler")
 		return o.executeResearchTask(ctx, task)
