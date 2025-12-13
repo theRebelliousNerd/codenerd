@@ -165,23 +165,30 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
 
 	// Build the YAML template
-	template := fmt.Sprintf(`# Prompt atoms for %s
+	template := fmt.Sprintf(`# Prompt atoms for %[1]s
 # These are loaded into the JIT prompt compiler when the agent is spawned.
 # Edit this file to customize the agent's identity, methodology, and domain knowledge.
 
-- id: "%s/identity"
+- id: "%[1]s/identity"
   category: "identity"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 100
   is_mandatory: true
+  description: "Identity and mission for %[1]s"
+  content_concise: |
+    You are %[1]s, a specialist agent in the codeNERD ecosystem.
+    Domain: %[2]s
+    Topics: %[3]s
+  content_min: |
+    You are %[1]s (%[2]s). Operate under the codeNERD kernel.
   content: |
-    You are %s, a specialist agent in the codeNERD ecosystem.
+    You are %[1]s, a specialist agent in the codeNERD ecosystem.
 
     ## Domain
-    %s
+    %[2]s
 
     ## Research Topics
-    %s
+    %[3]s
 
     ## Core Responsibilities
     - Provide expert guidance in your domain
@@ -193,12 +200,20 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
     You operate under the control of the codeNERD kernel. You receive structured tasks
     with clear objectives, focus patterns, and success criteria. Execute precisely.
 
-- id: "%s/methodology"
+- id: "%[1]s/methodology"
   category: "methodology"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 80
   is_mandatory: false
-  depends_on: ["%s/identity"]
+  depends_on: ["%[1]s/identity"]
+  description: "Methodology and quality bar for %[1]s"
+  content_concise: |
+    - Understand context before acting
+    - Consider edge cases and failure modes
+    - Write clear, maintainable code
+    - Verify with tests when feasible
+  content_min: |
+    Be precise, verify assumptions, and preserve correctness.
   content: |
     ## Methodology
 
@@ -219,12 +234,18 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
     - Consider performance implications
     - Ensure backward compatibility when applicable
 
-- id: "%s/domain"
+- id: "%[1]s/domain"
   category: "domain"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 70
   is_mandatory: false
-  depends_on: ["%s/identity", "%s/methodology"]
+  depends_on: ["%[1]s/identity", "%[1]s/methodology"]
+  description: "Domain knowledge, pitfalls, and references for %[1]s"
+  content_concise: |
+    Domain: %[2]s
+    Topics: %[3]s
+  content_min: |
+    Apply domain best practices for: %[3]s
   content: |
     ## Domain-Specific Knowledge
 
@@ -238,16 +259,13 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
     [Add domain-specific best practices and guidelines]
 
     ### Resources
-    Research Topics: %s
+    Research Topics: %[3]s
 
     [Add additional references, documentation links, or learning resources]
 `,
-		agentName,            // Comment: agent name
-		agentName, agentName, // identity atom header
-		agentName, role, topics, // identity content
-		agentName, agentName, agentName, // methodology atom
-		agentName, agentName, agentName, agentName, // domain atom
-		topics, // domain knowledge content
+		agentName, // 1: stable id prefix
+		role,      // 2: domain/role
+		topics,    // 3: topics
 	)
 
 	// Write the template

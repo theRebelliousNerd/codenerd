@@ -41,26 +41,33 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
 	agentNameLower := strings.ToLower(agent.Name)
 
 	// Build the YAML template
-	template := fmt.Sprintf(`# Prompt atoms for %s
+	template := fmt.Sprintf(`# Prompt atoms for %[2]s
 # These are loaded into the JIT prompt compiler when the agent is spawned.
 # Edit this file to customize the agent's identity, methodology, and domain knowledge.
 
-- id: "%s/identity"
+- id: "%[1]s/identity"
   category: "identity"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 100
   is_mandatory: true
+  description: "Identity and mission for %[2]s"
+  content_concise: |
+    You are %[2]s, a specialist agent in the codeNERD ecosystem.
+    Role: %[3]s
+    Topics: %[5]s
+  content_min: |
+    You are %[2]s (%[3]s). Operate under the codeNERD kernel.
   content: |
-    You are %s, a specialist agent in the codeNERD ecosystem.
+    You are %[2]s, a specialist agent in the codeNERD ecosystem.
 
     ## Role
-    %s
+    %[3]s
 
     ## Domain Expertise
-%s
+%[4]s
 
     ## Research Topics
-    %s
+    %[5]s
 
     ## Core Responsibilities
     - Provide expert guidance in your domain
@@ -72,12 +79,20 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
     You operate under the control of the codeNERD kernel. You receive structured tasks
     with clear objectives, focus patterns, and success criteria. Execute precisely.
 
-- id: "%s/methodology"
+- id: "%[1]s/methodology"
   category: "methodology"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 80
   is_mandatory: false
-  depends_on: ["%s/identity"]
+  depends_on: ["%[1]s/identity"]
+  description: "Methodology and quality bar for %[2]s"
+  content_concise: |
+    - Understand context before acting
+    - Consider edge cases and failure modes
+    - Write clear, maintainable code
+    - Verify with tests when feasible
+  content_min: |
+    Be precise, verify assumptions, and preserve correctness.
   content: |
     ## Methodology
 
@@ -98,12 +113,18 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
     - Consider performance implications
     - Ensure backward compatibility when applicable
 
-- id: "%s/domain"
+- id: "%[1]s/domain"
   category: "domain"
-  subcategory: "%s"
+  subcategory: "%[1]s"
   priority: 70
   is_mandatory: false
-  depends_on: ["%s/identity", "%s/methodology"]
+  depends_on: ["%[1]s/identity", "%[1]s/methodology"]
+  description: "Domain knowledge, pitfalls, and references for %[2]s"
+  content_concise: |
+    Domain focus: %[3]s
+    Topics: %[5]s
+  content_min: |
+    Apply domain best practices for: %[5]s
   content: |
     ## Domain-Specific Knowledge
 
@@ -117,16 +138,15 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
     [Add domain-specific best practices and guidelines]
 
     ### Resources
-    Research Topics: %s
+    Research Topics: %[5]s
 
     [Add additional references, documentation links, or learning resources]
 `,
-		agent.Name,                     // Comment: agent name
-		agentNameLower, agentNameLower, // identity atom header
-		agent.Name, agent.Description, domainExpertise, topicsStr, // identity content
-		agentNameLower, agentNameLower, agentNameLower, // methodology atom
-		agentNameLower, agentNameLower, agentNameLower, agentNameLower, // domain atom
-		topicsStr, // domain knowledge content
+		agentNameLower,    // 1: stable id prefix
+		agent.Name,        // 2: display name
+		agent.Description, // 3: role/description
+		domainExpertise,   // 4: domain expertise bullets
+		topicsStr,         // 5: topics
 	)
 
 	// Write the template
