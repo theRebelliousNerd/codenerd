@@ -62,13 +62,14 @@ const (
 	ActionDeleteLines  ActionType = "delete_lines"  // Delete line range
 
 	// TDD Loop Actions (derived from Mangle policy next_action rules)
-	ActionReadErrorLog     ActionType = "read_error_log"     // Read test/build error logs
-	ActionAnalyzeRootCause ActionType = "analyze_root_cause" // Analyze root cause of failure
-	ActionGeneratePatch    ActionType = "generate_patch"     // Generate code patch
-	ActionEscalateToUser   ActionType = "escalate_to_user"   // Escalate to user
-	ActionComplete         ActionType = "complete"           // Mark task complete
-	ActionInterrogative    ActionType = "interrogative_mode" // Ask clarifying questions
-	ActionResumeTask       ActionType = "resume_task"        // Resume a paused task
+	ActionReadErrorLog     ActionType = "read_error_log"        // Read test/build error logs
+	ActionAnalyzeRootCause ActionType = "analyze_root_cause"    // Analyze root cause of failure
+	ActionGeneratePatch    ActionType = "generate_patch"        // Generate code patch
+	ActionEscalateToUser   ActionType = "escalate_to_user"      // Escalate to user
+	ActionComplete         ActionType = "complete"              // Mark task complete
+	ActionInterrogative    ActionType = "interrogative_mode"    // Ask clarifying questions
+	ActionResumeTask       ActionType = "resume_task"           // Resume a paused task
+	ActionRefreshShardCtx  ActionType = "refresh_shard_context" // Refresh stale shard context
 
 	// File System Actions (semantic aliases)
 	ActionFSRead  ActionType = "fs_read"  // Semantic file read
@@ -1106,6 +1107,8 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleInterrogative(ctx, req)
 	case ActionResumeTask:
 		return v.handleResumeTask(ctx, req)
+	case ActionRefreshShardCtx:
+		return v.handleRefreshShardContext(ctx, req)
 
 	// File System semantic aliases
 	case ActionFSRead:
@@ -3872,6 +3875,65 @@ func (v *VirtualStore) handleResumeTask(ctx context.Context, req ActionRequest) 
 			{Predicate: "task_resumed", Args: []interface{}{taskID}},
 			{Predicate: "active_task", Args: []interface{}{taskID}},
 		},
+	}, nil
+}
+
+// handleRefreshShardContext marks stale shard context atoms as refreshed.
+// This prevents policy from repeatedly emitting /refresh_shard_context for the same stale atoms.
+func (v *VirtualStore) handleRefreshShardContext(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	v.mu.RLock()
+	k := v.kernel
+	v.mu.RUnlock()
+
+	if k == nil {
+		return ActionResult{Success: false, Error: "kernel not attached"}, nil
+	}
+
+	stale, err := k.Query("context_stale")
+	if err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	shardFilter := strings.TrimSpace(req.Target)
+	now := time.Now().Unix()
+
+	facts := make([]Fact, 0, len(stale))
+	refreshed := 0
+	for _, f := range stale {
+		if len(f.Args) < 2 {
+			continue
+		}
+		shardID := fmt.Sprintf("%v", f.Args[0])
+		atom := fmt.Sprintf("%v", f.Args[1])
+		if shardFilter != "" && shardID != shardFilter {
+			continue
+		}
+		facts = append(facts, Fact{
+			Predicate: "shard_context_refreshed",
+			Args:      []interface{}{shardID, atom, now},
+		})
+		refreshed++
+	}
+
+	out := fmt.Sprintf("Refreshed %d stale shard context atoms", refreshed)
+	if shardFilter != "" {
+		out = fmt.Sprintf("Refreshed %d stale shard context atoms for %s", refreshed, shardFilter)
+	}
+	if refreshed == 0 {
+		out = "No stale shard context atoms detected"
+		if shardFilter != "" {
+			out = fmt.Sprintf("No stale shard context atoms detected for %s", shardFilter)
+		}
+	}
+
+	return ActionResult{
+		Success:    true,
+		Output:     out,
+		FactsToAdd: facts,
 	}, nil
 }
 

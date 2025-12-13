@@ -88,42 +88,42 @@ func DefaultRouterConfig() RouterConfig {
 			{ActionPattern: "escalate", ToolName: "escalation_handler", Timeout: 0, RequiresSafe: false},
 
 			// Campaign operations (prefix matches all campaign_* actions)
-			{ActionPattern: "campaign_", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "archive_campaign", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "show_campaign", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "run_phase_checkpoint", ToolName: "kernel_internal", Timeout: 60 * time.Second, RequiresSafe: true},
-			{ActionPattern: "investigate_systemic", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "pause_and_replan", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "campaign_", ToolName: "campaign_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+			{ActionPattern: "archive_campaign", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: true},
+			{ActionPattern: "show_campaign", ToolName: "campaign_tool", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "run_phase_checkpoint", ToolName: "campaign_tool", Timeout: 60 * time.Second, RequiresSafe: true},
+			{ActionPattern: "investigate_systemic", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+			{ActionPattern: "pause_and_replan", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: false},
 			{ActionPattern: "ask_campaign_interrupt", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
 
 			// TDD repair loop
-			{ActionPattern: "read_error_log", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "analyze_root_cause", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "read_error_log", ToolName: "tdd_tool", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "analyze_root_cause", ToolName: "tdd_tool", Timeout: 30 * time.Second, RequiresSafe: false},
 			{ActionPattern: "generate_patch", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "complete", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "complete", ToolName: "tdd_tool", Timeout: 1 * time.Second, RequiresSafe: false},
 
 			// Autopoiesis/Ouroboros (prefix matches ouroboros_*)
-			{ActionPattern: "generate_tool", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "refine_tool", ToolName: "kernel_internal", Timeout: 60 * time.Second, RequiresSafe: true},
-			{ActionPattern: "ouroboros_", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: true},
+			{ActionPattern: "generate_tool", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+			{ActionPattern: "refine_tool", ToolName: "ouroboros_tool", Timeout: 60 * time.Second, RequiresSafe: true},
+			{ActionPattern: "ouroboros_", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
 
 			// Strategic/control
-			{ActionPattern: "resume_task", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "resume_task", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
 			{ActionPattern: "escalate_to_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
-			{ActionPattern: "interrogative_mode", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "refresh_shard_context", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "update_world_model", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "interrogative_mode", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
+			{ActionPattern: "refresh_shard_context", ToolName: "session_control", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "update_world_model", ToolName: "world_model", Timeout: 30 * time.Second, RequiresSafe: false},
 
 			// Context management
-			{ActionPattern: "compress_context", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "emergency_compress", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "create_checkpoint", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "compress_context", ToolName: "context_manager", Timeout: 30 * time.Second, RequiresSafe: false},
+			{ActionPattern: "emergency_compress", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "create_checkpoint", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
 
 			// Code DOM operations
 			{ActionPattern: "edit_element", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
 			{ActionPattern: "open_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
 			{ActionPattern: "query_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "refresh_scope", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
+			{ActionPattern: "refresh_scope", ToolName: "code_scope", Timeout: 10 * time.Second, RequiresSafe: false},
 
 			// Corrective operations (prefix matches corrective_*)
 			{ActionPattern: "corrective_", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
@@ -133,7 +133,7 @@ func DefaultRouterConfig() RouterConfig {
 			// =====================================================================
 
 			// Investigation operations
-			{ActionPattern: "investigate_anomaly", ToolName: "kernel_internal", Timeout: 120 * time.Second, RequiresSafe: false},
+			{ActionPattern: "investigate_anomaly", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: false},
 
 			// Review operations (delegate to specialized shards)
 			{ActionPattern: "review", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
