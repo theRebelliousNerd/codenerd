@@ -400,6 +400,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	_ = p.Kernel.Retract("focus_resolution")
 	_ = p.Kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+	_ = p.Kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
 
 	// Emit user_intent/5
 	_ = p.Kernel.Assert(core.Fact{

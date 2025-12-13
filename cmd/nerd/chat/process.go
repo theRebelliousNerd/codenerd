@@ -145,6 +145,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				intentID := "/current_intent"
 				_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 				_ = m.kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
 				intentFact := core.Fact{
 					Predicate: "user_intent",
 					Args: []interface{}{

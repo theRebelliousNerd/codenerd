@@ -1331,6 +1331,10 @@ Decl campaign_runner_failure(CampaignID, Reason, Timestamp).
 # processed_intent(IntentID) - intent has been processed by perception
 Decl processed_intent(IntentID).
 
+# executive_processed_intent(IntentID) - intent has been consumed by the executive
+# (i.e., executive_policy emitted the first action envelope for it).
+Decl executive_processed_intent(IntentID).
+
 # pending_intent(IntentID) - derived: intent waiting to be processed
 Decl pending_intent(IntentID).
 
