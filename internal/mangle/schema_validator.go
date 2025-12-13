@@ -131,6 +131,52 @@ func (sv *SchemaValidator) ValidateRule(ruleText string) error {
 	return nil
 }
 
+// ValidateLearnedRule validates a learned rule/fact.
+//
+// In addition to schema drift checks (undefined predicates in the body), learned rules are
+// prevented from defining protected control-plane predicates that must remain deterministic.
+func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
+	trimmed := strings.TrimSpace(ruleText)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return nil
+	}
+
+	head := sv.extractHeadPredicate(trimmed)
+	if head != "" {
+		if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
+			return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
+		}
+	}
+
+	return sv.ValidateRule(ruleText)
+}
+
+var forbiddenLearnedHeads = map[string]string{
+	// Constitutional gate is core-owned; learned rules must not grant permissions.
+	"permitted":       "constitutional permission is core-owned (do not learn permissions)",
+	"safe_action":     "constitutional allowlist is core-owned (do not extend via learned rules)",
+	"admin_override":  "approvals must be user/admin driven, not learned",
+	"signed_approval": "approvals must be user/admin driven, not learned",
+
+	// Runtime pipeline facts are produced by system shards; learned rules must not spoof them.
+	"pending_action":          "produced by executive_policy shard",
+	"permitted_action":        "produced by constitution_gate shard",
+	"permission_check_result": "produced by constitution_gate shard",
+	"routing_result":          "produced by tactile_router shard",
+	"execution_result":        "produced by virtual_store",
+	"system_shard_state":      "produced by system shard supervisor",
+}
+
+var learnedHeadPattern = regexp.MustCompile(`^([a-z_][a-z0-9_]*)\s*\(`)
+
+func (sv *SchemaValidator) extractHeadPredicate(line string) string {
+	match := learnedHeadPattern.FindStringSubmatch(line)
+	if len(match) < 2 {
+		return ""
+	}
+	return match[1]
+}
+
 // ValidateRules validates multiple rules at once.
 func (sv *SchemaValidator) ValidateRules(rules []string) []error {
 	var errors []error
@@ -189,15 +235,15 @@ func (sv *SchemaValidator) ValidateProgram(programText string) error {
 // isBuiltin checks if a predicate is a built-in Mangle operator.
 func (sv *SchemaValidator) isBuiltin(predicate string) bool {
 	builtins := map[string]bool{
-		"count":  true,
-		"sum":    true,
-		"min":    true,
-		"max":    true,
-		"avg":    true,
-		"bound":  true,
+		"count":   true,
+		"sum":     true,
+		"min":     true,
+		"max":     true,
+		"avg":     true,
+		"bound":   true,
 		"applyFn": true,
-		"fn":     true,
-		"match":  true,
+		"fn":      true,
+		"match":   true,
 		"collect": true,
 	}
 	return builtins[predicate]

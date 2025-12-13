@@ -1412,7 +1412,7 @@ func (k *RealKernel) ValidateLearnedRule(ruleText string) error {
 		return nil
 	}
 
-	return k.schemaValidator.ValidateRule(ruleText)
+	return k.schemaValidator.ValidateLearnedRule(ruleText)
 }
 
 // ValidateLearnedRules validates multiple learned rules.
@@ -1517,22 +1517,20 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 		if isRule || isFact {
 			result.stats.TotalRules++
 
-			// Schema validation for rules with bodies
-			if isRule {
-				if err := k.schemaValidator.ValidateRule(trimmed); err != nil {
-					result.stats.InvalidRules++
-					errMsg := fmt.Sprintf("line %d: %v", i+1, err)
-					result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
-					logging.Get(logging.CategoryKernel).Warn("Startup validation: invalid learned rule at %s", errMsg)
+			// Schema + safety validation for learned rules/facts.
+			if err := k.schemaValidator.ValidateLearnedRule(trimmed); err != nil {
+				result.stats.InvalidRules++
+				errMsg := fmt.Sprintf("line %d: %v", i+1, err)
+				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
+				logging.Get(logging.CategoryKernel).Warn("Startup validation: invalid learned rule at %s", errMsg)
 
-					if heal {
-						healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
-						healedLines = append(healedLines, "# "+line)
-					} else {
-						healedLines = append(healedLines, line)
-					}
-					continue
+				if heal {
+					healedLines = append(healedLines, "# SELF-HEALED: "+err.Error())
+					healedLines = append(healedLines, "# "+line)
+				} else {
+					healedLines = append(healedLines, line)
 				}
+				continue
 			}
 
 			// Infinite loop risk detection for next_action rules
