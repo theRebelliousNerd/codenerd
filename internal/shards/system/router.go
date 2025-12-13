@@ -72,6 +72,22 @@ func DefaultRouterConfig() RouterConfig {
 			{ActionPattern: "run_tests", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
 			{ActionPattern: "build_project", ToolName: "build_tool", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
 
+			// Python environment + SWE-bench orchestration
+			{ActionPattern: "python_env_setup", ToolName: "python_env", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 3},
+			{ActionPattern: "python_env_exec", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
+			{ActionPattern: "python_run_pytest", ToolName: "python_env", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "python_apply_patch", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+			{ActionPattern: "python_snapshot", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "python_restore", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "python_teardown", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "swebench_setup", ToolName: "swebench", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 3},
+			{ActionPattern: "swebench_apply_patch", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
+			{ActionPattern: "swebench_run_tests", ToolName: "swebench", Timeout: 900 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "swebench_snapshot", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "swebench_restore", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "swebench_evaluate", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+			{ActionPattern: "swebench_teardown", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+
 			// Git operations
 			{ActionPattern: "git_operation", ToolName: "git_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 20},
 			{ActionPattern: "show_diff", ToolName: "git_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
