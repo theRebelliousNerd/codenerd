@@ -116,6 +116,43 @@ func (c *CodexCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, us
 	return c.executeStreaming(ctx, userPrompt, opts, callback)
 }
 
+// CompleteWithStreaming adapts callback-based streaming into channel-based streaming.
+// This is used by system components that need cancellation-aware streaming (e.g. GCD).
+func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		err := c.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
+			if chunk.Error != "" {
+				return fmt.Errorf("stream error: %s", chunk.Error)
+			}
+			delta := chunk.Text
+			if delta == "" {
+				delta = chunk.Content
+			}
+			if delta == "" || chunk.Done {
+				return nil
+			}
+			select {
+			case contentChan <- delta:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		if err != nil {
+			errorChan <- err
+		}
+	}()
+
+	return contentChan, errorChan
+}
+
 // executeWithOptions runs the CLI with fallback model support.
 func (c *CodexCLIClient) executeWithOptions(ctx context.Context, prompt string, opts *CodexExecutionOptions) (string, error) {
 	// Build combined prompt with system instructions
