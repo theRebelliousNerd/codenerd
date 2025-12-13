@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strconv"
@@ -288,12 +289,12 @@ func NewTactileRouterShardWithConfig(cfg RouterConfig) *TactileRouterShard {
 	base := NewBaseSystemShard("tactile_router", StartupOnDemand)
 
 	// Configure permissions
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionExecCmd,
-		core.PermissionNetwork,
-		core.PermissionBrowser,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionExecCmd,
+		types.PermissionNetwork,
+		types.PermissionBrowser,
 	}
-	base.Config.Model = core.ModelConfig{} // No LLM by default
+	base.Config.Model = types.ModelConfig{} // No LLM by default
 
 	// Configure idle timeout
 	base.CostGuard.IdleTimeout = cfg.IdleTimeout
@@ -335,7 +336,7 @@ func (r *TactileRouterShard) SetBrowserManager(mgr *browser.SessionManager) {
 // Execute runs the Tactile Router's action routing loop.
 // This shard is ON-DEMAND and auto-stops after IdleTimeout.
 func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, error) {
-	r.SetState(core.ShardStateRunning)
+	r.SetState(types.ShardStateRunning)
 	r.mu.Lock()
 	r.running = true
 	r.StartTime = time.Now()
@@ -343,7 +344,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 	r.mu.Unlock()
 
 	defer func() {
-		r.SetState(core.ShardStateCompleted)
+		r.SetState(types.ShardStateCompleted)
 		r.mu.Lock()
 		r.running = false
 		r.mu.Unlock()
@@ -376,7 +377,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 			// Process permitted actions
 			if err := r.processPermittedActions(ctx); err != nil {
 				// Log error but continue
-				_ = r.Kernel.Assert(core.Fact{
+				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_error",
 					Args:      []interface{}{"internal_error", err.Error(), time.Now().Unix()},
 				})
@@ -443,7 +444,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				continue
 			}
 			// Emit routing error
-			_ = r.Kernel.Assert(core.Fact{
+			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "routing_error",
 				Args:      []interface{}{actionType, "no_handler", time.Now().Unix()},
 			})
@@ -455,7 +456,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		if limiter, exists := r.rateLimiters[route.ToolName]; exists {
 			if !limiter.allow() {
 				logging.Routing("Rate limit exceeded for tool: %s (action=%s)", route.ToolName, actionType)
-				_ = r.Kernel.Assert(core.Fact{
+				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_error",
 					Args:      []interface{}{actionType, "rate_limit_exceeded", time.Now().Unix()},
 				})
@@ -466,14 +467,14 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		// Handle kernel internal actions (system lifecycle events)
 		if route.ToolName == "kernel_internal" {
 			logging.Routing("Internal kernel action acknowledged: %s", actionType)
-			_ = r.Kernel.Assert(core.Fact{
+			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "system_event_handled",
 				Args:      []interface{}{actionType, target, time.Now().Unix()},
 			})
 			// Clear the permitted action to avoid repeated processing
 			if r.Kernel != nil {
 				_ = r.Kernel.RetractExactFact(fact)
-				_ = r.Kernel.RetractFact(core.Fact{
+				_ = r.Kernel.RetractFact(types.Fact{
 					Predicate: "action_permitted",
 					Args:      []interface{}{actionID},
 				})
@@ -504,7 +505,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			logging.Tools("Executing tool: %s (action=%s, target=%s, call_id=%s)", route.ToolName, actionType, target, call.ID)
 
 			// Create action fact for VirtualStore (preserve payload)
-			actionFact := core.Fact{
+			actionFact := types.Fact{
 				Predicate: "next_action",
 				Args:      []interface{}{call.ID, actionType, target, payload},
 			}
@@ -517,17 +518,17 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				call.Status = "failed"
 				call.Error = err.Error()
 				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
-				_ = r.Kernel.Assert(core.Fact{
+				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, core.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
+					Args:      []interface{}{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
 				})
 			} else {
 				call.Status = "completed"
 				call.Result = result
 				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
-				_ = r.Kernel.Assert(core.Fact{
+				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, core.MangleAtom("/success"), result, call.CompletedAt.Unix()},
+					Args:      []interface{}{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
 				})
 			}
 
@@ -542,7 +543,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			r.mu.Unlock()
 		} else {
 			// Emit exec_request fact for async processing by VirtualStore
-			_ = r.Kernel.Assert(core.Fact{
+			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "exec_request",
 				Args: []interface{}{
 					route.ToolName,
@@ -559,7 +560,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			_ = r.Kernel.RetractExactFact(fact)
 		}
 		// Also clear unary marker for this action type
-		_ = r.Kernel.RetractFact(core.Fact{
+		_ = r.Kernel.RetractFact(types.Fact{
 			Predicate: "action_permitted",
 			Args:      []interface{}{actionID},
 		})
@@ -594,7 +595,7 @@ func (r *TactileRouterShard) pruneRoutingResults() {
 		return
 	}
 
-	toRemove := make([]core.Fact, 0, len(results)/4)
+	toRemove := make([]types.Fact, 0, len(results)/4)
 	for _, f := range results {
 		ts, ok := unixSecondsArg(f, 3)
 		if !ok {
@@ -749,7 +750,7 @@ func (r *TactileRouterShard) handleAutopoiesis(ctx context.Context) {
 		r.mu.Unlock()
 
 		// Emit route_added fact
-		_ = r.Kernel.Assert(core.Fact{
+		_ = r.Kernel.Assert(types.Fact{
 			Predicate: "route_added",
 			Args:      []interface{}{newRoute.ActionPattern, newRoute.ToolName, time.Now().Unix()},
 		})

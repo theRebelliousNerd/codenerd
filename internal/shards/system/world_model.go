@@ -24,6 +24,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
 
@@ -144,13 +145,13 @@ func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelInges
 	base := NewBaseSystemShard("world_model_ingestor", StartupOnDemand)
 
 	// Configure permissions
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionExecCmd,
-		core.PermissionCodeGraph,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionExecCmd,
+		types.PermissionCodeGraph,
 	}
-	base.Config.Model = core.ModelConfig{
-		Capability: core.CapabilityHighSpeed, // Use fast model for interpretations
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityHighSpeed, // Use fast model for interpretations
 	}
 
 	// Configure idle timeout
@@ -170,7 +171,7 @@ func NewWorldModelIngestorShardWithConfig(cfg WorldModelConfig) *WorldModelInges
 
 // Execute runs the World Model Ingestor's continuous scanning loop.
 func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (string, error) {
-	w.SetState(core.ShardStateRunning)
+	w.SetState(types.ShardStateRunning)
 	w.mu.Lock()
 	w.running = true
 	w.StartTime = time.Now()
@@ -178,7 +179,7 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 	w.mu.Unlock()
 
 	defer func() {
-		w.SetState(core.ShardStateCompleted)
+		w.SetState(types.ShardStateCompleted)
 		w.mu.Lock()
 		w.running = false
 		if w.parser != nil {
@@ -221,7 +222,7 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			if len(updatingFacts) > 0 {
 				logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
 				if err := w.performIncrementalScan(ctx); err != nil {
-					_ = w.Kernel.Assert(core.Fact{
+					_ = w.Kernel.Assert(types.Fact{
 						Predicate: "world_model_error",
 						Args:      []interface{}{err.Error(), time.Now().Unix()},
 					})
@@ -242,14 +243,14 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 
 			// Incremental scan
 			if err := w.performIncrementalScan(ctx); err != nil {
-				_ = w.Kernel.Assert(core.Fact{
+				_ = w.Kernel.Assert(types.Fact{
 					Predicate: "world_model_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
 			}
 
 			// Emit heartbeat
-			_ = w.Kernel.Assert(core.Fact{
+			_ = w.Kernel.Assert(types.Fact{
 				Predicate: "world_model_heartbeat",
 				Args:      []interface{}{w.ID, len(w.files), time.Now().Unix()},
 			})
@@ -270,7 +271,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 	w.dependencies = make([]Dependency, 0)
 	w.mu.Unlock()
 
-	batchFacts := make([]core.Fact, 0)
+	batchFacts := make([]types.Fact, 0)
 
 	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -328,7 +329,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		w.mu.Unlock()
 
 		// Emit file_topology fact
-		ft := core.Fact{
+		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []interface{}{
 				fileInfo.Path,
@@ -361,7 +362,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 // performIncrementalScan checks for changes since last scan.
 func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) error {
 	changedFiles := 0
-	batchFacts := make([]core.Fact, 0)
+	batchFacts := make([]types.Fact, 0)
 
 	err := filepath.Walk(w.config.RootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -411,7 +412,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		changedFiles++
 
 		// Emit updated file_topology fact
-		ft := core.Fact{
+		ft := types.Fact{
 			Predicate: "file_topology",
 			Args: []interface{}{
 				fileInfo.Path,
@@ -422,7 +423,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 			},
 		}
 		// Mark file as modified for impact analysis
-		mod := core.Fact{
+		mod := types.Fact{
 			Predicate: "modified",
 			Args:      []interface{}{fileInfo.Path},
 		}
@@ -451,7 +452,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 }
 
 // processFile extracts information from a file.
-func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, info os.FileInfo) (FileInfo, []core.Fact, error) {
+func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, info os.FileInfo) (FileInfo, []types.Fact, error) {
 	fi := FileInfo{
 		Path:         path,
 		LastModified: info.ModTime(),
@@ -459,7 +460,7 @@ func (w *WorldModelIngestorShard) processFile(ctx context.Context, path string, 
 		Language:     detectLanguage(path),
 		IsTestFile:   isTestFile(path),
 	}
-	var facts []core.Fact
+	var facts []types.Fact
 
 	// Compute hash
 	if w.config.HashOnlyLargeFiles && info.Size() > w.config.LargeFileThreshold {
@@ -617,12 +618,12 @@ func (w *WorldModelIngestorShard) applyInterpretation(output string) {
 			// Parse and emit the fact (simplified parsing)
 			if idx := strings.Index(factStr, "("); idx > 0 {
 				predicate := factStr[:idx]
-				f := core.Fact{
+				f := types.Fact{
 					Predicate: predicate,
 					Args:      []interface{}{factStr}, // Store full fact string
 				}
 				_ = w.Kernel.Assert(f)
-				w.persistToKnowledge([]core.Fact{f})
+				w.persistToKnowledge([]types.Fact{f})
 			}
 		}
 	}
@@ -666,7 +667,7 @@ func (w *WorldModelIngestorShard) GetSymbols() map[string]Symbol {
 }
 
 // persistToKnowledge stores derived facts in knowledge.db via VirtualStore when available.
-func (w *WorldModelIngestorShard) persistToKnowledge(facts []core.Fact) {
+func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 	if len(facts) == 0 || w.VirtualStore == nil {
 		return
 	}

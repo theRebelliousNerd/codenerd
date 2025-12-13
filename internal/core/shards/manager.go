@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/core" // For Kernel, VirtualStore, LimitsEnforcer
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -22,7 +21,7 @@ import (
 
 // VirtualStoreConsumer interface for agents that need file system access.
 type VirtualStoreConsumer interface {
-	SetVirtualStore(vs *core.VirtualStore)
+	SetVirtualStore(vs any)
 }
 
 // ShardManager orchestrates all shard agents.
@@ -37,12 +36,12 @@ type ShardManager struct {
 	// Core dependencies to inject into shards
 	kernel       types.Kernel
 	llmClient    types.LLMClient
-	virtualStore *core.VirtualStore
+	virtualStore any
 	// tracingClient TracingClient // Optional: set when llmClient implements TracingClient
-	learningStore core.LearningStore
+	learningStore types.LearningStore
 
 	// Resource limits enforcement
-	limitsEnforcer *core.LimitsEnforcer
+	limitsEnforcer types.LimitsEnforcer
 
 	// SpawnQueue for backpressure management (optional)
 	spawnQueue *SpawnQueue
@@ -72,7 +71,7 @@ func NewShardManager() *ShardManager {
 }
 
 // SetLimitsEnforcer attaches a limits enforcer for resource constraint checking.
-func (sm *ShardManager) SetLimitsEnforcer(enforcer *core.LimitsEnforcer) {
+func (sm *ShardManager) SetLimitsEnforcer(enforcer types.LimitsEnforcer) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.limitsEnforcer = enforcer
@@ -154,7 +153,7 @@ func (sm *ShardManager) SetParentKernel(k types.Kernel) {
 	logging.ShardsDebug("Parent kernel attached to ShardManager")
 }
 
-func (sm *ShardManager) SetVirtualStore(vs *core.VirtualStore) {
+func (sm *ShardManager) SetVirtualStore(vs any) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.virtualStore = vs
@@ -233,7 +232,7 @@ func (sm *ShardManager) categorizeShardType(typeName string, shardType types.Sha
 	return "specialist"
 }
 
-func (sm *ShardManager) SetLearningStore(store core.LearningStore) {
+func (sm *ShardManager) SetLearningStore(store types.LearningStore) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.learningStore = store
@@ -731,14 +730,8 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		agent.SetParentKernel(sm.kernel)
 	}
 	if sm.llmClient != nil {
-		scheduler := core.GetAPIScheduler()
-		scheduler.RegisterShard(id, typeName)
-		scheduledClient := &core.ScheduledLLMCall{
-			Scheduler: scheduler,
-			ShardID:   id,
-			Client:    sm.llmClient,
-		}
-		agent.SetLLMClient(scheduledClient)
+		// Note: Scheduler logic moved to factory/main to avoid core dependency
+		agent.SetLLMClient(sm.llmClient)
 	}
 	if sm.virtualStore != nil {
 		if vsc, ok := agent.(VirtualStoreConsumer); ok {
@@ -807,8 +800,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 				Args:      []interface{}{id, "/running", task},
 			})
 		}
-
-		core.GetAPIScheduler().UnregisterShard(id)
 
 		sm.recordResult(id, res, err)
 	}()

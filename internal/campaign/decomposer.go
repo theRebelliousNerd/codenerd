@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -21,7 +22,7 @@ import (
 
 // ShardLister provides shard discovery for campaign planning.
 type ShardLister interface {
-	ListAvailableShards() []core.ShardInfo
+	ListAvailableShards() []coreshards.ShardInfo
 }
 
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
@@ -1209,9 +1210,9 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 	}
 
 	// Build phases
-	phaseIDMap := make(map[int]string)       // Map phase order -> phaseID
-	globalTaskIDMap := make(map[int]string)  // Map global task index -> taskID (for cross-phase context_from)
-	globalTaskIndex := 0                     // Running counter for global task indices
+	phaseIDMap := make(map[int]string)      // Map phase order -> phaseID
+	globalTaskIDMap := make(map[int]string) // Map global task index -> taskID (for cross-phase context_from)
+	globalTaskIndex := 0                    // Running counter for global task indices
 	for i, rawPhase := range plan.Phases {
 		phaseID := fmt.Sprintf("/phase_%s_%d", campaignID[10:], i)
 		phaseIDMap[i] = phaseID

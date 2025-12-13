@@ -11,11 +11,15 @@ import (
 	"sync"
 	"time"
 
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
+
+// One-time imports
+var _ = types.ShardConfig{}
 
 // ActionType defines the types of actions the VirtualStore can execute.
 type ActionType string
@@ -316,7 +320,7 @@ type VirtualStore struct {
 	scraper   IntegrationClient
 
 	// Shard delegation
-	shardManager *ShardManager
+	shardManager *coreshards.ShardManager
 
 	// Kernel feedback loop
 	kernel  Kernel
@@ -405,7 +409,7 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		workingDir:      config.WorkingDir,
 		allowedEnvVars:  config.AllowedEnvVars,
 		allowedBinaries: config.AllowedBinaries,
-		shardManager:    NewShardManager(),
+		shardManager:    coreshards.NewShardManager(),
 		toolRegistry:    NewToolRegistry(config.WorkingDir),
 	}
 
@@ -581,7 +585,7 @@ func (v *VirtualStore) rebuildPermissionCache() {
 }
 
 // SetShardManager sets the shard manager for delegation.
-func (v *VirtualStore) SetShardManager(sm *ShardManager) {
+func (v *VirtualStore) SetShardManager(sm *coreshards.ShardManager) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.shardManager = sm

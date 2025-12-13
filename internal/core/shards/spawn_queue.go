@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"codenerd/internal/core" // For LimitsEnforcer
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -99,7 +98,7 @@ type SpawnQueue struct {
 
 	// Dependencies
 	shardManager   *ShardManager
-	limitsEnforcer *core.LimitsEnforcer
+	limitsEnforcer types.LimitsEnforcer
 
 	// State
 	isRunning bool
@@ -117,7 +116,7 @@ type SpawnQueue struct {
 }
 
 // NewSpawnQueue creates a new spawn queue.
-func NewSpawnQueue(sm *ShardManager, le *core.LimitsEnforcer, cfg SpawnQueueConfig) *SpawnQueue {
+func NewSpawnQueue(sm *ShardManager, le types.LimitsEnforcer, cfg SpawnQueueConfig) *SpawnQueue {
 	// Apply defaults for zero values
 	if cfg.MaxQueueSize <= 0 {
 		cfg.MaxQueueSize = 100
@@ -395,7 +394,6 @@ func (sq *SpawnQueue) processRequest(workerID int, req *spawnRequestWrapper) {
 func (sq *SpawnQueue) waitForSlot(ctx context.Context, deadline time.Time) error {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
-	waitStart := time.Now()
 
 	for {
 		if sq.CanSpawnNow() {

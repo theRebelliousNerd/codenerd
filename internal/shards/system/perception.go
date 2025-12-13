@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"regexp"
@@ -95,12 +96,12 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 	base := NewBaseSystemShard("perception_firewall", StartupAuto)
 
 	// Configure permissions
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionAskUser,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionAskUser,
 	}
-	base.Config.Model = core.ModelConfig{
-		Capability: core.CapabilityBalanced, // Need good NL understanding
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityBalanced, // Need good NL understanding
 	}
 
 	shard := &PerceptionFirewallShard{
@@ -208,7 +209,7 @@ func (p *PerceptionFirewallShard) applyPerceptionMangleUpdates(updates []string)
 	}
 
 	const maxUpdates = 50
-	facts := make([]core.Fact, 0, min(len(updates), maxUpdates))
+	facts := make([]types.Fact, 0, min(len(updates), maxUpdates))
 	for i, s := range updates {
 		if i >= maxUpdates {
 			break
@@ -270,14 +271,14 @@ func buildVerbPatterns() map[string]*regexp.Regexp {
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")
-	p.SetState(core.ShardStateRunning)
+	p.SetState(types.ShardStateRunning)
 	p.mu.Lock()
 	p.running = true
 	p.StartTime = time.Now()
 	p.mu.Unlock()
 
 	defer func() {
-		p.SetState(core.ShardStateCompleted)
+		p.SetState(types.ShardStateCompleted)
 		p.mu.Lock()
 		p.running = false
 		p.mu.Unlock()
@@ -310,7 +311,7 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 			logging.SystemShardsDebug("[PerceptionFirewall] Processing input: %s", truncateForLog(input, 80))
 			if err := p.processInput(ctx, input); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] Error processing input: %v", err)
-				_ = p.Kernel.Assert(core.Fact{
+				_ = p.Kernel.Assert(types.Fact{
 					Predicate: "perception_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
@@ -401,17 +402,17 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	_ = p.Kernel.Retract("awaiting_user_input")
 	_ = p.Kernel.Retract("campaign_awaiting_clarification")
 	_ = p.Kernel.Retract("focus_resolution")
-	_ = p.Kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
-	_ = p.Kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
-	_ = p.Kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+	_ = p.Kernel.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+	_ = p.Kernel.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+	_ = p.Kernel.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
 
 	// Emit user_intent/5
-	_ = p.Kernel.Assert(core.Fact{
+	_ = p.Kernel.Assert(types.Fact{
 		Predicate: "user_intent",
 		Args: []interface{}{
 			intentID,
-			core.MangleAtom(intent.Category),
-			core.MangleAtom(intent.Verb),
+			types.MangleAtom(intent.Category),
+			types.MangleAtom(intent.Verb),
 			intent.Target,
 			intent.Constraint,
 		},
@@ -430,7 +431,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Ambiguity handling
 	if intent.Confidence < p.config.AmbiguityThreshold {
 		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: confidence=%.2f", intent.Confidence)
-		_ = p.Kernel.Assert(core.Fact{
+		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "ambiguity_flag",
 			Args: []interface{}{
 				intentID,
@@ -461,7 +462,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	p.applyPerceptionMangleUpdates(validatedUpdates)
 
 	// Mark as processed
-	_ = p.Kernel.Assert(core.Fact{
+	_ = p.Kernel.Assert(types.Fact{
 		Predicate: "processed_intent",
 		Args:      []interface{}{intentID},
 	})
