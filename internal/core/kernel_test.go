@@ -277,12 +277,36 @@ func TestFactToAtom(t *testing.T) {
 }
 
 // TestKernelPermissionDerivation verifies that the embedded policy.mg
-// correctly derives permitted/1 facts from safe_action/1 facts.
+// correctly derives permitted/3 facts from safe_action/1 facts.
 // This is critical for the VirtualStore constitutional permission checks.
 func TestKernelPermissionDerivation(t *testing.T) {
 	kernel, err := NewRealKernel()
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	// Fix 15.3: permitted now requires pending_action context.
+	// We must assert pending_action facts for the safe actions we want to check.
+	expectedPermitted := []string{
+		"/read_file",
+		"/fs_read",
+		"/write_file",
+		"/fs_write",
+		"/search_files",
+		"/review",
+		"/run_tests",
+		"/vector_search",
+	}
+
+	var pendingActions []Fact
+	for _, action := range expectedPermitted {
+		pendingActions = append(pendingActions, Fact{
+			Predicate: "pending_action",
+			Args:      []interface{}{"id_" + action, action, "target.txt", map[string]interface{}{}, int64(1234567890)},
+		})
+	}
+	if err := kernel.LoadFacts(pendingActions); err != nil {
+		t.Fatalf("LoadFacts(pending_action) error = %v", err)
 	}
 
 	// Query the derived permitted predicate
@@ -302,18 +326,6 @@ func TestKernelPermissionDerivation(t *testing.T) {
 	}
 
 	// Verify core safe actions are derived as permitted
-	// These match the safe_action facts in policy.mg
-	expectedPermitted := []string{
-		"/read_file",
-		"/fs_read",
-		"/write_file",
-		"/fs_write",
-		"/search_files",
-		"/review",
-		"/run_tests",
-		"/vector_search",
-	}
-
 	for _, action := range expectedPermitted {
 		if !permittedActions[action] {
 			t.Errorf("Expected %s to be permitted (derived from safe_action), but it was not found in permitted facts", action)
@@ -325,6 +337,27 @@ func TestKernelPermissionDerivation(t *testing.T) {
 	dangerousActions := []string{
 		"/delete_system_files",
 		"/format_disk",
+	}
+
+	// Assert pending actions for dangerous actions too, to verify they are still blocked
+	var dangerousPending []Fact
+	for _, action := range dangerousActions {
+		dangerousPending = append(dangerousPending, Fact{
+			Predicate: "pending_action",
+			Args:      []interface{}{"id_" + action, action, "critical.sys", map[string]interface{}{}, int64(1234567890)},
+		})
+	}
+	_ = kernel.LoadFacts(dangerousPending)
+
+	// Re-query permitted
+	permittedFacts, _ = kernel.Query("permitted")
+	permittedActions = make(map[string]bool)
+	for _, fact := range permittedFacts {
+		if len(fact.Args) > 0 {
+			if arg, ok := fact.Args[0].(string); ok {
+				permittedActions[arg] = true
+			}
+		}
 	}
 
 	for _, action := range dangerousActions {
