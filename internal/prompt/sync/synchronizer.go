@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -82,7 +83,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 		}
 
 		// Track discovered agent for JIT registration
-		dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", agentID))
+		dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
 		s.discoveredAgents = append(s.discoveredAgents, DiscoveredAgent{
 			ID:     agentID,
 			DBPath: dbPath,
@@ -114,7 +115,7 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 	}
 
 	// 2. Open Shard Database
-	dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", agentID))
+	dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("db open failed: %w", err)
