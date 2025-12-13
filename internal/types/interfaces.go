@@ -1,0 +1,59 @@
+package types
+
+import (
+	"context"
+)
+
+// Kernel defines the interface for the logic core.
+type Kernel interface {
+	LoadFacts(facts []Fact) error
+	Query(predicate string) ([]Fact, error)
+	QueryAll() (map[string][]Fact, error)
+	Assert(fact Fact) error
+	Retract(predicate string) error
+	RetractFact(fact Fact) error
+	// UpdateSystemFacts updates system facts (time, etc.)
+	UpdateSystemFacts() error
+}
+
+// LLMClient defines the interface for LLM interactions.
+type LLMClient interface {
+	Complete(ctx context.Context, prompt string) (string, error)
+	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+}
+
+// ShardAgent defines the interface for all agents.
+// Renamed from 'Shard' to match usage in registration.go.
+type ShardAgent interface {
+	Execute(ctx context.Context, task string) (string, error)
+	GetID() string
+	GetState() ShardState
+	GetConfig() ShardConfig
+	Stop() error
+
+	// Dependency Injection methods
+	SetParentKernel(k Kernel)
+	SetLLMClient(client LLMClient)
+	SetSessionContext(ctx *SessionContext) // For dream mode and session state
+}
+
+// ShardFactory is a function that creates a new shard instance.
+type ShardFactory func(id string, config ShardConfig) ShardAgent
+
+// PromptLoaderFunc is a callback for loading agent prompts from YAML files.
+type PromptLoaderFunc func(context.Context, string, string) (int, error)
+
+// JITDBRegistrar is a callback for registering agent knowledge DBs with the JIT prompt compiler.
+type JITDBRegistrar func(agentName string, dbPath string) error
+
+// JITDBUnregistrar is a callback for unregistering agent knowledge DBs from the JIT prompt compiler.
+type JITDBUnregistrar func(agentName string)
+
+// ReviewerFeedbackProvider defines the interface for reviewer validation.
+type ReviewerFeedbackProvider interface {
+	NeedsValidation(reviewID string) bool
+	GetSuspectReasons(reviewID string) []string
+	AcceptFinding(reviewID, file string, line int)
+	RejectFinding(reviewID, file string, line int, reason string)
+	GetAccuracyReport(reviewID string) string
+}

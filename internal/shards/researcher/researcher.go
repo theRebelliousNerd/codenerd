@@ -40,8 +40,10 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
 
@@ -103,8 +105,8 @@ type ResearcherShard struct {
 
 	// Identity
 	id     string
-	config core.ShardConfig
-	state  core.ShardState
+	config types.ShardConfig
+	state  types.ShardState
 
 	// Research-specific
 	researchConfig ResearchConfig
@@ -113,7 +115,7 @@ type ResearcherShard struct {
 	// Components
 	kernel       *core.RealKernel
 	scanner      *world.Scanner
-	llmClient    core.LLMClient
+	llmClient    types.LLMClient
 	localDB      *store.LocalStore
 	virtualStore *core.VirtualStore
 
@@ -172,8 +174,8 @@ func NewResearcherShard() *ResearcherShard {
 // NewResearcherShardWithConfig creates a researcher shard with custom config.
 func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShard {
 	return &ResearcherShard{
-		config:         core.DefaultSpecialistConfig("researcher", ""),
-		state:          core.ShardStateIdle,
+		config:         coreshards.DefaultSpecialistConfig("researcher", ""),
+		state:          types.ShardStateIdle,
 		researchConfig: researchConfig,
 		httpClient: &http.Client{
 			Timeout: researchConfig.Timeout,
@@ -198,7 +200,7 @@ func NewResearcherShardWithConfig(researchConfig ResearchConfig) *ResearcherShar
 }
 
 // SetLLMClient sets the LLM client for intelligent extraction.
-func (r *ResearcherShard) SetLLMClient(client core.LLMClient) {
+func (r *ResearcherShard) SetLLMClient(client types.LLMClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.llmClient = client
@@ -220,11 +222,12 @@ func (r *ResearcherShard) SetPromptAssembler(assembler interface{}) {
 // Returns interface{} to avoid import cycles - cast to *articulation.PromptAssembler if needed.
 //
 // Usage:
-//   if pa := researcher.GetPromptAssembler(); pa != nil {
-//       if assembler, ok := pa.(*articulation.PromptAssembler); ok {
-//           assembler.SetJITCompiler(jitCompiler)
-//       }
-//   }
+//
+//	if pa := researcher.GetPromptAssembler(); pa != nil {
+//	    if assembler, ok := pa.(*articulation.PromptAssembler); ok {
+//	        assembler.SetJITCompiler(jitCompiler)
+//	    }
+//	}
 func (r *ResearcherShard) GetPromptAssembler() interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -241,7 +244,7 @@ func (r *ResearcherShard) SetSessionContext(ctx *core.SessionContext) {
 // SetParentKernel sets the kernel for fact extraction.
 // Note: The PromptAssembler should be injected separately via SetPromptAssembler()
 // to avoid import cycles.
-func (r *ResearcherShard) SetParentKernel(k core.Kernel) {
+func (r *ResearcherShard) SetParentKernel(k types.Kernel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -564,13 +567,13 @@ func (r *ResearcherShard) calculateHistoricalPerformance() float64 {
 // This is the primary method for building agent knowledge bases efficiently.
 func (r *ResearcherShard) ResearchTopicsParallel(ctx context.Context, topics []string) (*ResearchResult, error) {
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.startTime = time.Now()
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 
@@ -717,13 +720,13 @@ func (r *ResearcherShard) ResearchTopicsWithExistingKnowledge(
 ) (*ResearchResult, error) {
 
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.startTime = time.Now()
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 
@@ -805,13 +808,13 @@ func (r *ResearcherShard) ResearchTopicsWithExistingKnowledge(
 // This includes: known sources, web search, and LLM synthesis.
 func (r *ResearcherShard) DeepResearch(ctx context.Context, topic string, keywords []string) (*ResearchResult, error) {
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.startTime = time.Now()
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 
@@ -828,14 +831,14 @@ func (r *ResearcherShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (r *ResearcherShard) GetState() core.ShardState {
+func (r *ResearcherShard) GetState() types.ShardState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.state
 }
 
 // GetConfig returns the shard configuration.
-func (r *ResearcherShard) GetConfig() core.ShardConfig {
+func (r *ResearcherShard) GetConfig() types.ShardConfig {
 	return r.config
 }
 
@@ -844,7 +847,7 @@ func (r *ResearcherShard) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	close(r.stopCh)
-	r.state = core.ShardStateCompleted
+	r.state = types.ShardStateCompleted
 	return nil
 }
 
@@ -996,14 +999,14 @@ Remember: This is a simulation. Describe the plan, don't execute it.`, systemPro
 // Task format: "topic:TOPIC keywords:KW1,KW2,KW3" or just "TOPIC"
 func (r *ResearcherShard) Execute(ctx context.Context, task string) (string, error) {
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.startTime = time.Now()
 	r.visitedURLs = make(map[string]bool)
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 
@@ -1468,12 +1471,12 @@ func (r *ResearcherShard) buildSessionContextPrompt() string {
 // It specifically looks for Docs/ folders, key markdown files, and heuristically scans other files for "Ground Truth".
 func (r *ResearcherShard) IngestDocumentation(ctx context.Context, workspace string) ([]KnowledgeAtom, error) {
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.mu.Unlock()
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 

@@ -271,6 +271,12 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 		cc := pa.toCompilationContext(pc)
 		result, err := pa.jitCompiler.Compile(ctx, cc)
 		if err == nil {
+			// Ensure Piggyback Protocol is present
+			if !strings.Contains(result.Prompt, "\"control_packet\"") {
+				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
+				result.Prompt += "\n\n" + PiggybackProtocolSuffix
+			}
+
 			logging.Articulation("JIT compiled prompt: %d bytes, %d atoms, %.1f%% budget",
 				len(result.Prompt), result.AtomsIncluded, result.BudgetUsed*100)
 			return result.Prompt, nil

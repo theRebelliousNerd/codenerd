@@ -14,8 +14,10 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/regression"
+	"codenerd/internal/types"
 )
 
 // nemesisIdentityAtomPath is the path to the Nemesis identity atom in the JIT prompt system.
@@ -26,11 +28,11 @@ const nemesisIdentityAtomPath = "identity/nemesis"
 // adversarial analysis. It opposes the Coder by actively trying to break
 // patches before they are merged.
 type NemesisShard struct {
-	*core.BaseShardAgent
+	*coreshards.BaseShardAgent
 
 	// Dependencies
-	llmClient     core.LLMClient
-	kernel        core.Kernel
+	llmClient     types.LLMClient
+	kernel        types.Kernel
 	virtualStore  *core.VirtualStore
 	learningStore core.LearningStore
 	assembler     *articulation.PromptAssembler
@@ -43,26 +45,26 @@ type NemesisShard struct {
 
 // VulnerabilityDB tracks successful past attacks and lazy patterns.
 type VulnerabilityDB struct {
-	SuccessfulAttacks []AttackRecord    `json:"successful_attacks"`
-	FailedAttacks     []AttackRecord    `json:"failed_attacks"`
-	LazyPatterns      map[string]int    `json:"lazy_patterns"`   // pattern -> count
-	HardenedAreas     map[string]int    `json:"hardened_areas"`  // path -> survival count
-	LastUpdated       time.Time         `json:"last_updated"`
+	SuccessfulAttacks []AttackRecord `json:"successful_attacks"`
+	FailedAttacks     []AttackRecord `json:"failed_attacks"`
+	LazyPatterns      map[string]int `json:"lazy_patterns"`  // pattern -> count
+	HardenedAreas     map[string]int `json:"hardened_areas"` // path -> survival count
+	LastUpdated       time.Time      `json:"last_updated"`
 }
 
 // AttackRecord stores information about a past attack.
 type AttackRecord struct {
-	PatchID     string    `json:"patch_id"`
-	AttackTool  string    `json:"attack_tool"`
-	Category    string    `json:"category"`
-	Hypothesis  string    `json:"hypothesis"`
-	Success     bool      `json:"success"`
-	Timestamp   time.Time `json:"timestamp"`
+	PatchID    string    `json:"patch_id"`
+	AttackTool string    `json:"attack_tool"`
+	Category   string    `json:"category"`
+	Hypothesis string    `json:"hypothesis"`
+	Success    bool      `json:"success"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // NemesisAnalysis is the output of analyzing a patch.
 type NemesisAnalysis struct {
-	TargetPatch string        `json:"target_patch"`
+	TargetPatch string         `json:"target_patch"`
 	Analysis    ChangeAnalysis `json:"analysis"`
 	AttackTools []AttackSpec   `json:"attack_tools"`
 }
@@ -78,8 +80,8 @@ type ChangeAnalysis struct {
 // AttackSpec describes an attack tool to generate via Ouroboros.
 type AttackSpec struct {
 	Name          string `json:"name"`
-	Category      string `json:"type"`       // concurrency, resource, logic, integration
-	Hypothesis    string `json:"hypothesis"` // what we expect to break
+	Category      string `json:"type"`          // concurrency, resource, logic, integration
+	Hypothesis    string `json:"hypothesis"`    // what we expect to break
 	Specification string `json:"specification"` // tool generation prompt
 }
 
@@ -104,18 +106,18 @@ type AttackResult struct {
 
 // NewNemesisShard creates a new Nemesis shard instance.
 func NewNemesisShard() *NemesisShard {
-	config := core.DefaultSpecialistConfig("nemesis", "")
-	config.Type = core.ShardTypePersistent
-	config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionExecCmd,
-		core.PermissionCodeGraph,
+	config := coreshards.DefaultSpecialistConfig("nemesis", "")
+	config.Type = types.ShardTypePersistent
+	config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionExecCmd,
+		types.PermissionCodeGraph,
 	}
 
 	logging.Shards("Creating NemesisShard (Type B: Persistent Adversarial Specialist)")
 
 	return &NemesisShard{
-		BaseShardAgent: core.NewBaseShardAgent("nemesis", config),
+		BaseShardAgent: coreshards.NewBaseShardAgent("nemesis", config),
 		vulnerabilityDB: &VulnerabilityDB{
 			LazyPatterns:  make(map[string]int),
 			HardenedAreas: make(map[string]int),
@@ -124,14 +126,14 @@ func NewNemesisShard() *NemesisShard {
 }
 
 // SetLLMClient injects the LLM client.
-func (n *NemesisShard) SetLLMClient(client core.LLMClient) {
+func (n *NemesisShard) SetLLMClient(client types.LLMClient) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.llmClient = client
 }
 
 // SetParentKernel injects the kernel reference.
-func (n *NemesisShard) SetParentKernel(k core.Kernel) {
+func (n *NemesisShard) SetParentKernel(k types.Kernel) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.kernel = k
@@ -177,8 +179,8 @@ func (n *NemesisShard) Execute(ctx context.Context, task string) (string, error)
 	defer timer.Stop()
 
 	logging.Shards("NemesisShard executing: %s", task)
-	n.SetState(core.ShardStateRunning)
-	defer n.SetState(core.ShardStateCompleted)
+	n.SetState(types.ShardStateRunning)
+	defer n.SetState(types.ShardStateCompleted)
 
 	// Parse task type
 	parts := strings.SplitN(task, ":", 2)
@@ -660,10 +662,10 @@ func (n *NemesisShard) analyzeStaticPatterns(file, source string) []ReviewFindin
 
 	// Pattern matchers
 	patterns := []struct {
-		Pattern   string
-		Category  string
-		Severity  string
-		Message   string
+		Pattern  string
+		Category string
+		Severity string
+		Message  string
 	}{
 		{" = err", "error_handling", "warning", "Error assigned but may not be checked"},
 		{"_ = err", "error_handling", "error", "Error explicitly ignored"},
@@ -723,7 +725,7 @@ func (n *NemesisShard) recordReviewFindings(result *ReviewResult) {
 	}
 
 	// Record summary fact
-	_ = n.kernel.Assert(core.Fact{
+	_ = n.kernel.Assert(types.Fact{
 		Predicate: "nemesis_review",
 		Args: []interface{}{
 			result.Target,
@@ -736,7 +738,7 @@ func (n *NemesisShard) recordReviewFindings(result *ReviewResult) {
 
 	// Record each finding
 	for _, f := range result.Findings {
-		_ = n.kernel.Assert(core.Fact{
+		_ = n.kernel.Assert(types.Fact{
 			Predicate: "nemesis_finding",
 			Args: []interface{}{
 				f.File,

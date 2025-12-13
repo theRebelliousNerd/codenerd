@@ -520,6 +520,15 @@ Decl session_state(SessionID, State, SerializedContext).
 # pending_clarification(Question, Options, DefaultValue)
 Decl pending_clarification(Question, Options, DefaultValue).
 
+# awaiting_clarification(Question)
+Decl awaiting_clarification(Question).
+
+# awaiting_user_input(RequestID)
+Decl awaiting_user_input(RequestID).
+
+# campaign_awaiting_clarification(CampaignID)
+Decl campaign_awaiting_clarification(CampaignID).
+
 # focus_clarification(Response) - user's clarification response
 Decl focus_clarification(Response).
 
@@ -1559,7 +1568,8 @@ Decl item_retry_count(ItemID, Count).
 
 # Shard activation derived predicates
 Decl activate_shard(ShardName).
-Decl system_startup(ShardName, Mode).
+Decl system_startup(State).
+Decl shard_startup(ShardName, Mode).
 
 # Autopoiesis derived predicates
 Decl unhandled_case_count(ShardName, Count).

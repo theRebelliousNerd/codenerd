@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
 
 // MangleRepairShard validates and repairs Mangle rules before persistence.
@@ -39,13 +40,13 @@ type MangleRepairShard struct {
 
 // RepairResult contains the outcome of a repair attempt.
 type RepairResult struct {
-	OriginalRule  string
-	RepairedRule  string
-	WasRepaired   bool
-	Attempts      int
-	Errors        []string
-	FixesApplied  []string
-	Rejected      bool
+	OriginalRule    string
+	RepairedRule    string
+	WasRepaired     bool
+	Attempts        int
+	Errors          []string
+	FixesApplied    []string
+	Rejected        bool
 	RejectionReason string
 }
 
@@ -53,11 +54,11 @@ type RepairResult struct {
 func NewMangleRepairShard() *MangleRepairShard {
 	logging.SystemShards("[MangleRepair] Initializing mangle repair shard")
 	base := NewBaseSystemShard("mangle_repair", StartupAuto)
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
 	}
-	base.Config.Model = core.ModelConfig{
-		Capability: core.CapabilityHighReasoning,
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityHighReasoning,
 	}
 
 	return &MangleRepairShard{
@@ -114,8 +115,8 @@ func (m *MangleRepairShard) Execute(ctx context.Context, task string) (string, e
 	timer := logging.StartTimer(logging.CategorySystemShards, "[MangleRepair] Execute")
 	defer timer.Stop()
 
-	m.SetState(core.ShardStateRunning)
-	defer m.SetState(core.ShardStateCompleted)
+	m.SetState(types.ShardStateRunning)
+	defer m.SetState(types.ShardStateCompleted)
 
 	rule := strings.TrimSpace(task)
 	if rule == "" {

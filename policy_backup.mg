@@ -185,13 +185,9 @@ block_commit("Gauntlet Not Passed") :-
 # =============================================================================
 
 # Default deny - permitted must be positively derived
-# [DEBUG] Allow all actions temporarily
 permitted(Action, Target, Payload) :-
+    safe_action(Action),
     pending_action(_, Action, Target, Payload, _).
-
-# permitted(Action, Target, Payload) :-
-#     safe_action(Action),
-#     pending_action(_, Action, Target, Payload, _).
 
 permitted(Action, Target, Payload) :-
     dangerous_action(Action),

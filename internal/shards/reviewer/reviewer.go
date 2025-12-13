@@ -13,8 +13,10 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -135,15 +137,15 @@ type ReviewerShard struct {
 
 	// Identity
 	id     string
-	config core.ShardConfig
-	state  core.ShardState
+	config types.ShardConfig
+	state  types.ShardState
 
 	// Reviewer-specific configuration
 	reviewerConfig ReviewerConfig
 
 	// Components (required)
 	kernel       *core.RealKernel   // Own kernel instance for logic-driven review
-	llmClient    core.LLMClient     // LLM for semantic analysis
+	llmClient    types.LLMClient    // LLM for semantic analysis
 	virtualStore *core.VirtualStore // Action routing
 
 	// State tracking
@@ -222,8 +224,8 @@ func NewReviewerShard() *ReviewerShard {
 // NewReviewerShardWithConfig creates a reviewer shard with custom configuration.
 func NewReviewerShardWithConfig(reviewerConfig ReviewerConfig) *ReviewerShard {
 	shard := &ReviewerShard{
-		config:              core.DefaultSpecialistConfig("reviewer", ""),
-		state:               core.ShardStateIdle,
+		config:              coreshards.DefaultSpecialistConfig("reviewer", ""),
+		state:               types.ShardStateIdle,
 		reviewerConfig:      reviewerConfig,
 		findings:            make([]ReviewFinding, 0),
 		severity:            ReviewSeverityClean,
@@ -246,7 +248,7 @@ func NewReviewerShardWithConfig(reviewerConfig ReviewerConfig) *ReviewerShard {
 // =============================================================================
 
 // SetLLMClient sets the LLM client for semantic analysis.
-func (r *ReviewerShard) SetLLMClient(client core.LLMClient) {
+func (r *ReviewerShard) SetLLMClient(client types.LLMClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.llmClient = client
@@ -260,7 +262,7 @@ func (r *ReviewerShard) SetSessionContext(ctx *core.SessionContext) {
 }
 
 // SetParentKernel sets the Mangle kernel for logic-driven review.
-func (r *ReviewerShard) SetParentKernel(k core.Kernel) {
+func (r *ReviewerShard) SetParentKernel(k types.Kernel) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -312,14 +314,14 @@ func (r *ReviewerShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (r *ReviewerShard) GetState() core.ShardState {
+func (r *ReviewerShard) GetState() types.ShardState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.state
 }
 
 // GetConfig returns the shard configuration.
-func (r *ReviewerShard) GetConfig() core.ShardConfig {
+func (r *ReviewerShard) GetConfig() types.ShardConfig {
 	return r.config
 }
 
@@ -334,7 +336,7 @@ func (r *ReviewerShard) GetKernel() *core.RealKernel {
 func (r *ReviewerShard) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.state = core.ShardStateCompleted
+	r.state = types.ShardStateCompleted
 	return nil
 }
 
@@ -386,7 +388,7 @@ Remember: This is a simulation. Describe the plan, don't execute it.`, task)
 //   - "complexity file:PATH"
 func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error) {
 	r.mu.Lock()
-	r.state = core.ShardStateRunning
+	r.state = types.ShardStateRunning
 	r.startTime = time.Now()
 	r.id = fmt.Sprintf("reviewer-%d", time.Now().UnixNano())
 	r.findings = make([]ReviewFinding, 0)
@@ -395,7 +397,7 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 
 	defer func() {
 		r.mu.Lock()
-		r.state = core.ShardStateCompleted
+		r.state = types.ShardStateCompleted
 		r.mu.Unlock()
 	}()
 

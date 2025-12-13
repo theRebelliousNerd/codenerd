@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 )
 
 // CampaignRunnerConfig controls polling and supervision cadence.
@@ -41,7 +42,7 @@ type CampaignRunnerShard struct {
 	config CampaignRunnerConfig
 
 	workspace string
-	shardMgr  *core.ShardManager
+	shardMgr  *coreshards.ShardManager
 
 	activeOrch        *campaign.Orchestrator
 	activeCampaignID  string
@@ -62,15 +63,15 @@ func NewCampaignRunnerShardWithConfig(cfg CampaignRunnerConfig) *CampaignRunnerS
 	logging.SystemShards("[CampaignRunner] Initializing campaign runner shard")
 	base := NewBaseSystemShard("campaign_runner", StartupAuto)
 
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionWriteFile,
-		core.PermissionExecCmd,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionWriteFile,
+		types.PermissionExecCmd,
 	}
 
 	return &CampaignRunnerShard{
-		BaseSystemShard: base,
-		config:          cfg,
+		BaseSystemShard:   base,
+		config:            cfg,
 		restartBackoffSec: 5,
 	}
 }
@@ -83,7 +84,7 @@ func (s *CampaignRunnerShard) SetWorkspaceRoot(workspace string) {
 }
 
 // SetShardManager injects the shared ShardManager.
-func (s *CampaignRunnerShard) SetShardManager(sm *core.ShardManager) {
+func (s *CampaignRunnerShard) SetShardManager(sm *coreshards.ShardManager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.shardMgr = sm
@@ -92,14 +93,14 @@ func (s *CampaignRunnerShard) SetShardManager(sm *core.ShardManager) {
 // Execute runs the Campaign Runner supervision loop.
 func (s *CampaignRunnerShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[CampaignRunner] Starting supervision loop")
-	s.SetState(core.ShardStateRunning)
+	s.SetState(types.ShardStateRunning)
 	s.mu.Lock()
 	s.running = true
 	s.StartTime = time.Now()
 	s.mu.Unlock()
 
 	defer func() {
-		s.SetState(core.ShardStateCompleted)
+		s.SetState(types.ShardStateCompleted)
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
@@ -124,7 +125,7 @@ func (s *CampaignRunnerShard) Execute(ctx context.Context, task string) (string,
 func (s *CampaignRunnerShard) tick(ctx context.Context) {
 	// Emit heartbeat fact for policy observability (best-effort).
 	if s.Kernel != nil {
-		_ = s.Kernel.Assert(core.Fact{
+		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "campaign_runner_heartbeat",
 			Args:      []interface{}{time.Now().Unix()},
 		})
@@ -144,13 +145,13 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 
 			if err != nil && err != context.Canceled {
 				logging.Get(logging.CategorySystemShards).Warn("[CampaignRunner] Campaign %s exited with error: %v", campaignID, err)
-				_ = s.Kernel.Assert(core.Fact{
+				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "campaign_runner_failure",
 					Args:      []interface{}{campaignID, err.Error(), time.Now().Unix()},
 				})
 			} else {
 				logging.SystemShards("[CampaignRunner] Campaign %s completed or paused", campaignID)
-				_ = s.Kernel.Assert(core.Fact{
+				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "campaign_runner_success",
 					Args:      []interface{}{campaignID, time.Now().Unix()},
 				})
@@ -194,7 +195,7 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 	s.startCampaign(ctx, camp.ID, workspace, shardMgr)
 }
 
-func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, workspace string, shardMgr *core.ShardManager) {
+func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, workspace string, shardMgr *coreshards.ShardManager) {
 	logging.SystemShards("[CampaignRunner] Resuming campaign: %s", campaignID)
 
 	executor := tactile.NewSafeExecutor()
@@ -232,7 +233,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 	s.activeCampaignID = campaignID
 	s.mu.Unlock()
 
-	_ = s.Kernel.Assert(core.Fact{
+	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "campaign_runner_active",
 		Args:      []interface{}{campaignID, time.Now().Unix()},
 	})

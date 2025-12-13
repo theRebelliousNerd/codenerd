@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -46,7 +47,8 @@ type ToolGeneratorResult struct {
 	Profile    *autopoiesis.ToolQualityProfile `json:"profile,omitempty"`
 	Tools      []*autopoiesis.RuntimeTool      `json:"tools,omitempty"`
 	Learnings  []*autopoiesis.ToolLearning     `json:"learnings,omitempty"`
-	Facts      []core.Fact                     `json:"facts,omitempty"`
+	Learnings  []*autopoiesis.ToolLearning     `json:"learnings,omitempty"`
+	Facts      []types.Fact                    `json:"facts,omitempty"`
 	Duration   time.Duration                   `json:"duration"`
 }
 
@@ -56,15 +58,15 @@ type ToolGeneratorShard struct {
 
 	// Identity
 	id     string
-	config core.ShardConfig
-	state  core.ShardState
+	config types.ShardConfig
+	state  types.ShardState
 
 	// ToolGenerator-specific
 	generatorConfig ToolGeneratorConfig
 
 	// Components
 	kernel       *core.RealKernel
-	llmClient    core.LLMClient
+	llmClient    types.LLMClient
 	orchestrator *autopoiesis.Orchestrator
 	virtualStore *core.VirtualStore
 
@@ -80,11 +82,11 @@ type ToolGeneratorShard struct {
 }
 
 // NewToolGeneratorShard creates a new tool generator shard.
-func NewToolGeneratorShard(id string, config core.ShardConfig) *ToolGeneratorShard {
+func NewToolGeneratorShard(id string, config types.ShardConfig) *ToolGeneratorShard {
 	return &ToolGeneratorShard{
 		id:              id,
 		config:          config,
-		state:           core.ShardStateIdle,
+		state:           types.ShardStateIdle,
 		generatorConfig: DefaultToolGeneratorConfig(),
 		kernel:          nil, // Lazily initialized in Execute() to handle errors
 		stopCh:          make(chan struct{}),
@@ -97,19 +99,19 @@ func (s *ToolGeneratorShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (s *ToolGeneratorShard) GetState() core.ShardState {
+func (s *ToolGeneratorShard) GetState() types.ShardState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state
 }
 
 // GetConfig returns the shard configuration.
-func (s *ToolGeneratorShard) GetConfig() core.ShardConfig {
+func (s *ToolGeneratorShard) GetConfig() types.ShardConfig {
 	return s.config
 }
 
 // SetParentKernel sets the shard's kernel for fact propagation.
-func (s *ToolGeneratorShard) SetParentKernel(k core.Kernel) {
+func (s *ToolGeneratorShard) SetParentKernel(k types.Kernel) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -149,7 +151,7 @@ func (s *ToolGeneratorShard) SetLearningStore(ls core.LearningStore) {
 }
 
 // SetLLMClient sets the LLM client for generation.
-func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
+func (s *ToolGeneratorShard) SetLLMClient(client types.LLMClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.llmClient = client
@@ -190,7 +192,7 @@ func (s *ToolGeneratorShard) SetLLMClient(client core.LLMClient) {
 func (s *ToolGeneratorShard) Stop() error {
 	close(s.stopCh)
 	s.mu.Lock()
-	s.state = core.ShardStateCompleted
+	s.state = types.ShardStateCompleted
 	s.mu.Unlock()
 	return nil
 }
@@ -205,13 +207,13 @@ func (s *ToolGeneratorShard) GetKernel() *core.RealKernel {
 // Execute executes a tool generation task.
 func (s *ToolGeneratorShard) Execute(ctx context.Context, task string) (string, error) {
 	s.mu.Lock()
-	s.state = core.ShardStateRunning
+	s.state = types.ShardStateRunning
 	s.startTime = time.Now()
 	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
-		s.state = core.ShardStateCompleted
+		s.state = types.ShardStateCompleted
 		s.mu.Unlock()
 	}()
 
@@ -317,14 +319,14 @@ func (s *ToolGeneratorShard) handleGenerate(ctx context.Context, task string) (*
 
 		// Assert success facts
 		result.Facts = append(result.Facts,
-			core.Fact{Predicate: "tool_generated", Args: []interface{}{need.Name, time.Now().Unix()}},
-			core.Fact{Predicate: "tool_ready", Args: []interface{}{need.Name}},
+			types.Fact{Predicate: "tool_generated", Args: []interface{}{need.Name, time.Now().Unix()}},
+			types.Fact{Predicate: "tool_ready", Args: []interface{}{need.Name}},
 		)
 
 		// Add trace info
 		if trace != nil {
 			result.Facts = append(result.Facts,
-				core.Fact{Predicate: "tool_trace", Args: []interface{}{need.Name, trace.TraceID}},
+				types.Fact{Predicate: "tool_trace", Args: []interface{}{need.Name, trace.TraceID}},
 			)
 		}
 	} else {
@@ -336,7 +338,7 @@ func (s *ToolGeneratorShard) handleGenerate(ctx context.Context, task string) (*
 
 		// Assert failure facts
 		result.Facts = append(result.Facts,
-			core.Fact{Predicate: "tool_generation_failed", Args: []interface{}{need.Name, errMsg}},
+			types.Fact{Predicate: "tool_generation_failed", Args: []interface{}{need.Name, errMsg}},
 		)
 	}
 
@@ -393,7 +395,7 @@ func (s *ToolGeneratorShard) handleRefine(ctx context.Context, task string) (*To
 		result.Message = fmt.Sprintf("Successfully refined tool '%s' with %d improvements: %s",
 			toolName, len(suggestions), strings.Join(refinementResult.Changes, "; "))
 		result.Facts = append(result.Facts,
-			core.Fact{Predicate: "tool_refined", Args: []interface{}{toolName, time.Now().Unix()}},
+			types.Fact{Predicate: "tool_refined", Args: []interface{}{toolName, time.Now().Unix()}},
 		)
 	} else {
 		result.Message = fmt.Sprintf("Refinement failed: %s", strings.Join(refinementResult.Changes, "; "))
@@ -467,7 +469,7 @@ func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*To
 		Success:   true,
 		Duration:  time.Since(s.startTime),
 		Learnings: []*autopoiesis.ToolLearning{},
-		Facts:     []core.Fact{},
+		Facts:     []types.Fact{},
 	}
 
 	if toolName != "" {
@@ -486,7 +488,7 @@ func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*To
 
 			// Add facts
 			result.Facts = append(result.Facts,
-				core.Fact{Predicate: "tool_learning", Args: []interface{}{
+				types.Fact{Predicate: "tool_learning", Args: []interface{}{
 					toolName, learning.TotalExecutions, learning.SuccessRate, learning.AverageQuality,
 				}},
 			)
@@ -494,14 +496,14 @@ func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*To
 			// Check if needs refinement
 			if needsRefinement, _ := orch.ShouldRefineTool(toolName); needsRefinement {
 				result.Facts = append(result.Facts,
-					core.Fact{Predicate: "tool_needs_refinement", Args: []interface{}{toolName}},
+					types.Fact{Predicate: "tool_needs_refinement", Args: []interface{}{toolName}},
 				)
 			}
 
 			// Add pattern facts
 			for _, p := range patterns {
 				result.Facts = append(result.Facts,
-					core.Fact{Predicate: "tool_issue_pattern", Args: []interface{}{
+					types.Fact{Predicate: "tool_issue_pattern", Args: []interface{}{
 						toolName, string(p.IssueType), p.Occurrences, p.Confidence,
 					}},
 				)
@@ -520,7 +522,7 @@ func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*To
 			result.Message = fmt.Sprintf("Status for %d tools", len(allLearnings))
 			for _, l := range allLearnings {
 				result.Facts = append(result.Facts,
-					core.Fact{Predicate: "tool_learning", Args: []interface{}{
+					types.Fact{Predicate: "tool_learning", Args: []interface{}{
 						l.ToolName, l.TotalExecutions, l.SuccessRate, l.AverageQuality,
 					}},
 				)

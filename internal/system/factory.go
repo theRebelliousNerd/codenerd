@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -16,6 +17,7 @@ import (
 	prsync "codenerd/internal/prompt/sync"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
+	"codenerd/internal/types"
 	"database/sql"
 	"strings"
 
@@ -37,7 +39,7 @@ import (
 type Cortex struct {
 	Kernel         core.Kernel
 	LLMClient      perception.LLMClient
-	ShardManager   *core.ShardManager
+	ShardManager   *coreshards.ShardManager
 	VirtualStore   *core.VirtualStore
 	Transducer     *perception.RealTransducer
 	Orchestrator   *autopoiesis.Orchestrator
@@ -204,7 +206,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	fileEditor.SetWorkingDir(workspace)
 	virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
-	shardManager := core.NewShardManager()
+	shardManager := coreshards.NewShardManager()
 	shardManager.SetParentKernel(kernel)
 	shardManager.SetLLMClient(rawLLMClient)
 
@@ -218,7 +220,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	})
 	shardManager.SetLimitsEnforcer(limitsEnforcer)
 
-	spawnQueue := core.NewSpawnQueue(shardManager, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	spawnQueue := coreshards.NewSpawnQueue(shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 	shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
@@ -374,8 +376,8 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		}
 
 		// Register agent profile with ShardManager as Type U (user-defined)
-		cfg := core.DefaultSpecialistConfig(agent.ID, agent.DBPath)
-		cfg.Type = core.ShardTypeUser
+		cfg := coreshards.DefaultSpecialistConfig(agent.ID, agent.DBPath)
+		cfg.Type = types.ShardTypeUser
 		shardManager.DefineProfile(agent.ID, cfg)
 	}
 	if len(discoveredAgents) > 0 {
@@ -399,7 +401,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// Overwrite System Shards (Manual Injection if needed, but RegistryContext handles most)
 	// However, TactileRouter needs BrowserManager which isn't in RegistryContext yet
 	// So we manually re-register TactileRouter to inject BrowserManager
-	shardManager.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+	shardManager.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
@@ -414,7 +416,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	})
 
 	// CampaignRunner needs access to the shared ShardManager; inject it here.
-	shardManager.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+	shardManager.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewCampaignRunnerShard()
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)

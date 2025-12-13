@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
 )
 
 // LegislatorShard translates corrective feedback into durable policy rules.
@@ -20,14 +21,14 @@ type LegislatorShard struct {
 	promptAssembler *articulation.PromptAssembler
 }
 
-// llmClientAdapter adapts core.LLMClient to feedback.LLMClient interface.
+// llmClientAdapter adapts types.LLMClient to feedback.LLMClient interface.
 type llmClientAdapter struct {
-	client    core.LLMClient
+	client    types.LLMClient
 	costGuard *CostGuard
 	shardID   string
 }
 
-// Complete implements feedback.LLMClient by delegating to core.LLMClient.CompleteWithSystem.
+// Complete implements feedback.LLMClient by delegating to types.LLMClient.CompleteWithSystem.
 // Responses are processed through the Piggyback Protocol to extract surface content.
 func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if a.client == nil {
@@ -59,12 +60,13 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 func NewLegislatorShard() *LegislatorShard {
 	logging.SystemShards("[Legislator] Initializing legislator shard")
 	base := NewBaseSystemShard("legislator", StartupOnDemand)
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionWriteFile,
+	base := NewBaseSystemShard("legislator", StartupOnDemand)
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionWriteFile,
 	}
-	base.Config.Model = core.ModelConfig{
-		Capability: core.CapabilityHighReasoning,
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityHighReasoning,
 	}
 
 	return &LegislatorShard{
@@ -95,8 +97,8 @@ func (l *LegislatorShard) Execute(ctx context.Context, task string) (string, err
 	timer := logging.StartTimer(logging.CategorySystemShards, "[Legislator] Execute")
 	defer timer.Stop()
 
-	l.SetState(core.ShardStateRunning)
-	defer l.SetState(core.ShardStateCompleted)
+	l.SetState(types.ShardStateRunning)
+	defer l.SetState(types.ShardStateCompleted)
 
 	if l.Kernel == nil {
 		logging.SystemShardsDebug("[Legislator] Creating new kernel (none attached)")

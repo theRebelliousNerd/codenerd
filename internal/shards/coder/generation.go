@@ -16,6 +16,7 @@ import (
 
 // generateCode uses LLM to generate code based on the task and context.
 func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileContext string) (*CoderResult, error) {
+	fmt.Println("DEBUG: Inside generateCode generation.go")
 	logging.CoderDebug("generateCode: action=%s, target=%s", task.Action, task.Target)
 
 	if c.llmClient == nil {
@@ -34,7 +35,9 @@ func (c *CoderShard) generateCode(ctx context.Context, task CoderTask, fileConte
 
 	// Call LLM with retry
 	llmTimer := logging.StartTimer(logging.CategoryCoder, "LLM.Complete")
+	fmt.Println("DEBUG: Calling llmCompleteWithRetry")
 	rawResponse, err := c.llmCompleteWithRetry(ctx, systemPrompt, userPrompt, 3)
+	fmt.Println("DEBUG: llmCompleteWithRetry returned")
 	llmTimer.StopWithInfo()
 	if err != nil {
 		logging.Get(logging.CategoryCoder).Error("LLM request failed after retries: %v", err)

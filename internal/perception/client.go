@@ -171,7 +171,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 	// Use enhanced method for Piggyback Protocol
 	if isPiggyback {
-		return c.CompleteWithStructuredOutput(ctx, systemPrompt, userPrompt, true) // Enable thinking
+		return c.CompleteWithStructuredOutput(ctx, systemPrompt, userPrompt, false) // Disable thinking to prevent blocking timeouts
 	}
 
 	// Fallback to basic completion for other requests
@@ -431,11 +431,12 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 	})
 
 	reqBody := ZAIRequest{
-		Model:          c.model,
-		Messages:       messages,
-		MaxTokens:      4096,
-		Temperature:    0.1,
-		TopP:           0.9,
+		Model:       c.model,
+		Messages:    messages,
+		MaxTokens:   4096,
+		Temperature: 0.1,
+		TopP:        0.9,
+		// Stream: false (default)
 		ResponseFormat: BuildPiggybackEnvelopeSchema(), // Structured output
 	}
 
@@ -469,18 +470,23 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+		fmt.Printf("DEBUG: Sending ZAI Request (Attempt %d)\n", i+1)
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			fmt.Printf("DEBUG: Request failed: %v\n", err)
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
 		defer resp.Body.Close()
 
+		fmt.Printf("DEBUG: Response received (Status %d), reading body...\n", resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
+			fmt.Printf("DEBUG: Body read failed: %v\n", err)
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
 		}
+		fmt.Printf("DEBUG: Body read complete (%d bytes)\n", len(body))
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lastErr = fmt.Errorf("rate limit exceeded (429)")
@@ -493,7 +499,8 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 
 		var zaiResp ZAIResponse
 		if err := json.Unmarshal(body, &zaiResp); err != nil {
-			return "", fmt.Errorf("failed to parse response: %w", err)
+			// Try to handle potentially malformed response or double-encoding
+			return "", fmt.Errorf("failed to parse response: %w (body excerpt: %s)", err, string(body[:min(len(body), 100)]))
 		}
 
 		if zaiResp.Error != nil {
