@@ -481,11 +481,18 @@ func (c *Compressor) ProcessTurn(ctx context.Context, turn Turn) (*TurnResult, e
 
 	// 2. Commit atoms to kernel
 	committedCount := 0
-	for _, atom := range atoms {
-		if err := c.kernel.Assert(atom); err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to assert atom %s: %v", atom.Predicate, err)
+	if len(atoms) > 0 && c.kernel != nil {
+		if err := c.kernel.AssertBatch(atoms); err != nil {
+			// Fallback: per-atom assert so one bad fact doesn't block the rest.
+			for _, atom := range atoms {
+				if err := c.kernel.Assert(atom); err != nil {
+					logging.Get(logging.CategoryContext).Warn("Failed to assert atom %s: %v", atom.Predicate, err)
+				} else {
+					committedCount++
+				}
+			}
 		} else {
-			committedCount++
+			committedCount = len(atoms)
 		}
 	}
 	result.CommittedAtoms = atoms
@@ -1102,15 +1109,26 @@ func (c *Compressor) LoadState(state *CompressedState) error {
 		for _, f := range c.kernel.GetAllFacts() {
 			existing[f.String()] = struct{}{}
 		}
+		missing := make([]core.Fact, 0, len(state.HotFacts))
 		for _, sf := range state.HotFacts {
 			key := sf.Fact.String()
 			if _, ok := existing[key]; ok {
 				continue
 			}
-			_ = c.kernel.Assert(sf.Fact)
-			c.activation.RecordFactTimestamp(sf.Fact)
 			existing[key] = struct{}{}
-			restoredCount++
+			missing = append(missing, sf.Fact)
+		}
+		if len(missing) > 0 {
+			// Best-effort batch restore; fallback to per-assert.
+			if err := c.kernel.AssertBatch(missing); err != nil {
+				for _, f := range missing {
+					_ = c.kernel.Assert(f)
+				}
+			}
+			for _, f := range missing {
+				c.activation.RecordFactTimestamp(f)
+			}
+			restoredCount = len(missing)
 		}
 	}
 
