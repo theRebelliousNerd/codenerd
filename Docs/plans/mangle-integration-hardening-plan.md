@@ -513,6 +513,48 @@ Each item includes: severity, symptom, root cause, fix, and test.
 - **Fix:** streaming gate + early GCD validation (Section 5)
 - **Test:** fuzz streaming chunks; ensure invalid streams never yield mangle_updates
 
+### 11.7 Execution Traceability Break (`ActionID` Loss)
+- **Severity:** Critical
+- **Symptom:** The kernel receives `execution_result` facts that cannot be correlated to the originating `pending_action`/`routing_result` envelope. This makes it impossible to reliably close the OODA loop for specific action instances, especially during parallel execution or retries.
+- **Root Cause:** `virtual_store.go` emits `execution_result(Type, Target, Success, Output, Timestamp)` but drops the `ActionID` that was passed in the `routing_result`.
+- **Fix:** Update `VirtualStore.RouteAction` to accept and propagate `ActionID`, and change the `execution_result` schema to `execution_result(ActionID, Type, Target, Success, Output, Timestamp)`.
+- **Test:** Assert that `execution_result` shares the same ID as its precursor `routing_result`.
+
+### 11.8 Routing Failure Dead-Ends
+- **Severity:** High
+- **Symptom:** When the router blocks an action (due to rate limits, timeouts, or missing routes), the system stalls. The `routing_result(..., /failure, ...)` fact is emitted but ignored by the policy.
+- **Root Cause:** `policy.mg` derives `routing_failed/2` but has no `next_action` rules handling it (e.g., `next_action(/pause_and_replan)` or `next_action(/escalate_to_user)`).
+- **Fix:** Add policy rules to handle `routing_failed`:
+  ```mangle
+  next_action(/pause_and_replan) :- routing_failed(_, "rate_limit_exceeded").
+  next_action(/escalate_to_user) :- routing_failed(_, "no_handler").
+  ```
+- **Test:** Trigger a rate limit in `router.go` and assert that a recovery action is derived.
+
+### 11.9 Escalation Signal Disconnect
+- **Severity:** High
+- **Symptom:** The Constitution Gate emits `escalation_needed` when it encounters ambiguous actions (e.g., "domain not in allowlist"), but the agent never actually asks the user.
+- **Root Cause:** There is no bridge rule in `policy.mg` that maps the generic `escalation_needed` fact to `next_action(/ask_user)` or `next_action(/escalate)`.
+- **Fix:** Add a catch-all escalation handler in policy:
+  ```mangle
+  next_action(/escalate) :- escalation_needed(_, _, _, _, _).
+  ```
+- **Test:** Trigger an ambiguous constitutional violation and assert `next_action(/escalate)` is produced.
+
+### 11.10 System Shard Autopoiesis Starvation
+- **Severity:** Medium
+- **Symptom:** The Constitution and Router cannot propose new rules or routes despite having logic to do so (`handleAutopoiesis`).
+- **Root Cause:** `NewConstitutionGateShard` and `NewTactileRouterShard` explicitly initialize with empty `ModelConfig{}`. Unless `ShardManager` forcibly overrides this during hydration, these shards have `nil` LLM clients, causing `handleAutopoiesis` to abort silently.
+- **Fix:** Update `ShardManager` to inject a low-cost model (e.g., 2.5-flash) into system shards specifically for autopoiesis tasks, or update their constructors to request one.
+- **Test:** Verify `LLMClient` is not nil inside `ConstitutionGateShard` during runtime.
+
+### 11.11 Audit Fact Type Mismatch
+- **Severity:** Low (Observability)
+- **Symptom:** Mangle rules matching against `/success` or `/failure` atoms fail when checking audit logs.
+- **Root Cause:** `tactile.AuditLogger` likely emits string values ("success") for status fields, whereas `policy.mg` often expects Mangle atoms (`/success`). `VirtualStore.injectTactileFact` performs a raw pass-through of arguments.
+- **Fix:** Ensure `VirtualStore.injectTactileFact` normalizes known status strings to Mangle atoms before assertion, or update `AuditLogger` to emit atoms.
+- **Test:** Emit a fake audit event and query it using atom matching in Mangle.
+
 ---
 
 ## 12) Appendix D — Observability + metrics plan
