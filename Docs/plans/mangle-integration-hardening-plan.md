@@ -562,3 +562,41 @@ Recommended conventional commit split for this work:
 - `fix(router): retract action_permitted by ActionID`
 - `feat(tracing): add scheduled streaming + context forwarding`
 - `docs(plans): add mangle integration hardening plan`
+## 15) Appendix G — Wiring Gap Fixes (Applied 2025-12-13)
+
+The following critical wiring gaps were identified and fixed to ensure logic-reality consistency:
+
+### 15.1 World Model Event-Loop Breakage (Fixed)
+- **Problem:** `update_world_model` was "dead wire". `WorldModelIngestorShard` ignored the `world_model_updating` fact and relied solely on a 5-second polling timer, causing read-after-write inconsistencies.
+- **Fix:** Modified `WorldModelIngestorShard.Execute` loop (`internal/shards/system/world_model.go`) to query for `world_model_updating` facts. If found, it triggers `performIncrementalScan` immediately and retracts the trigger fact.
+
+### 15.2 Ephemeral Shard "Busy State" Invisibility (Fixed)
+- **Problem:** The Mangle Kernel had no visibility into *active* ephemeral shards. `ShardManager` spawned goroutines without asserting `shard_status` back to the kernel, preventing the policy from reasoning about concurrency/resource usage.
+- **Fix:** Updated `ShardManager.SpawnAsyncWithContext` (`internal/core/shard_manager.go`) to assert `shard_status(ID, /running, Task)` before execution and retract it upon completion.
+
+### 15.3 Constitution Gate Payload Blindness (Fixed)
+- **Problem:** The Constitution Gate validated `permitted(ActionType)` but ignored the action's `Payload`. This meant safety rules could not inspect command arguments or flags (e.g., `exec_cmd` targets were checked, but flags like `-c "rm -rf"` in payload were invisible to policy).
+- **Fix:**
+  - **Schema:** Updated `permitted/1` to `permitted/3` (`ActionType, Target, Payload`) in `internal/core/defaults/schemas.mg`.
+  - **Policy:** Updated `internal/core/defaults/policy.mg` to bind `permitted` derivation to `pending_action`, ensuring the payload is propagated.
+  - **Go:** Updated `ConstitutionGateShard` (`internal/shards/system/constitution.go`) to pass `Payload` into `checkPermitted` and validate it against the kernel's derived permission facts.
+
+### 15.4 TDD Loop State Mismatch (Fixed)
+- **Problem:** The TDD loop stalled because `policy.mg` expected `test_state(/log_read)` to trigger the next step (`analyze_root_cause`), but the `read_error_log` action handler in `VirtualStore` only asserted `error_log_read`.
+- **Fix:** Updated `handleReadErrorLog` in `internal/core/virtual_store.go` to explicitly assert `test_state("/log_read")`.
+
+### 15.5 Reviewer Findings - Commit Barrier Gap (Fixed)
+- **Problem:** Reviewer findings (`review_finding` facts) did not trigger the `block_commit` barrier, which only listened for `diagnostic` facts. This meant code with critical review issues could potentially be committed.
+- **Fix:** Added bridging rules to `internal/core/defaults/policy.mg` (Section 6) to map `review_finding` (critical/error) to `diagnostic` facts, ensuring they correctly trigger the commit barrier.
+
+### 15.6 Holographic Integration Bridge (Fixed)
+- **Problem:** "X-Ray Vision" rules in `policy.mg` expected `code_defines` and `code_calls` facts, but `WorldModelIngestorShard` emits `symbol_graph` and `dependency_link`. This caused semantic context rules to fail silently.
+- **Fix:** Added bridging rules to `internal/core/defaults/policy.mg` (Section 25) to map the ingestion facts to the holographic schema required by the policy.
+
+### 15.7 Ouroboros Atomic Policy (Fixed)
+- **Problem:** The Ouroboros policy assumed a granular state machine (Safety->Compile->Register), but the Go runtime executes `generate_tool` atomically. This left the granular policy rules as "dead code" and potentially stalled the state machine if it waited for intermediate facts that never appeared.
+- **Fix:** Updated `internal/core/defaults/policy.mg` (Section 12B) to recognize `tool_ready` as a terminal state that supersedes the granular steps, aligning the policy with the atomic execution model.
+
+### 15.8 Campaign Task State Synchronization (Fixed)
+- **Problem:** The `SessionPlanner` tracked task completion in its internal agenda (`plan_task`) but failed to update the canonical `campaign_task` facts in the Mangle kernel. The Mangle policy relies on `campaign_task(..., /completed, ...)` to unblock dependencies, causing the campaign to stall even after tasks were finished.
+- **Fix:** Modified `SessionPlannerShard.updateAgendaFromKernel` (`internal/shards/system/planner.go`) to detect status changes (completed/blocked), query the original `campaign_task` fact (to preserve immutable fields like `PhaseID`), retract the old fact, and assert the new one with the updated status.
