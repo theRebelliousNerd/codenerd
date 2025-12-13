@@ -190,6 +190,13 @@ permitted(Action, Target, Payload) :-
     signed_approval(Action),
     pending_action(_, Action, Target, Payload, _).
 
+# Downstream executor bridge:
+# Once the ConstitutionGate clears an action into permitted_action/5 (and records /permit),
+# keep it visible as permitted/3 for routing/execution stages even after pending_action is retracted.
+permitted(Action, Target, Payload) :-
+    permitted_action(ActionID, Action, Target, Payload, _),
+    permission_check_result(ActionID, /permit, _, _).
+
 # Fix Bug #12: The "Silent Join" (Shadow Rules)
 # Explain WHY permission was denied to aid debugging/feedback
 permission_denied(Action, "Dangerous Action") :-
