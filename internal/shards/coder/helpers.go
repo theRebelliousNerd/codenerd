@@ -134,9 +134,9 @@ func isTestFile(path string) bool {
 	}
 
 	// Test directories
-	dir := filepath.Dir(path)
-	if strings.Contains(dir, "/tests/") || strings.Contains(dir, "/test/") ||
-		strings.Contains(dir, "/__tests__/") {
+	dir := filepath.ToSlash(filepath.Dir(path))
+	dir = "/" + strings.Trim(dir, "/") + "/"
+	if strings.Contains(dir, "/tests/") || strings.Contains(dir, "/test/") || strings.Contains(dir, "/__tests__/") {
 		return true
 	}
 
