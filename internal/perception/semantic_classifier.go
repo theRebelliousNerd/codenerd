@@ -431,11 +431,11 @@ func (sc *SemanticClassifier) injectFacts(input string, matches []SemanticMatch)
 		return
 	}
 
-	injectedCount := 0
+	facts := make([]core.Fact, 0, len(matches))
 	for _, match := range matches {
 		// semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
 		// Note: Similarity is scaled to 0-100 integer for Mangle compatibility
-		fact := core.Fact{
+		facts = append(facts, core.Fact{
 			Predicate: "semantic_match",
 			Args: []interface{}{
 				input,
@@ -445,16 +445,29 @@ func (sc *SemanticClassifier) injectFacts(input string, matches []SemanticMatch)
 				int64(match.Rank),
 				int64(match.Similarity * 100), // 0-100 scale
 			},
-		}
-
-		if err := kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategoryPerception).Warn("Failed to assert semantic_match: %v", err)
-		} else {
-			injectedCount++
-		}
+		})
 	}
 
-	logging.PerceptionDebug("Injected %d semantic_match facts", injectedCount)
+	if len(facts) == 0 {
+		logging.PerceptionDebug("Injected 0 semantic_match facts")
+		return
+	}
+
+	// Batch load to reduce kernel rebuild frequency. Fallback to per-assert on error.
+	if err := kernel.LoadFacts(facts); err != nil {
+		injectedCount := 0
+		for _, fact := range facts {
+			if err := kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategoryPerception).Warn("Failed to assert semantic_match: %v", err)
+			} else {
+				injectedCount++
+			}
+		}
+		logging.PerceptionDebug("Injected %d/%d semantic_match facts (fallback)", injectedCount, len(facts))
+		return
+	}
+
+	logging.PerceptionDebug("Injected %d semantic_match facts", len(facts))
 }
 
 // AddLearnedPattern adds a new learned pattern to the dynamic store.
