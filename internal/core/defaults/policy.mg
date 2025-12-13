@@ -359,16 +359,16 @@ allowed_domain("pkg.go.dev").
 # The Bridge Rule: Learned suggestions must pass constitutional checks
 final_action(Action) :-
     candidate_action(Action),
-    permitted(Action).
+    permitted(Action, _, _).
 
 # Safety check predicate for runtime validation
 safety_check(Action) :-
-    permitted(Action).
+    permitted(Action, _, _).
 
 # Deny actions that are candidates but not permitted
 action_denied(Action, "Not constitutionally permitted") :-
     candidate_action(Action),
-    !permitted(Action).
+    !permitted(Action, _, _).
 
 # Track learned rule proposals for auditing
 learned_proposal(Action) :-
