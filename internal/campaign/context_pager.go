@@ -114,24 +114,38 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 	// 2b. Boost docs scoped for this phase via topology planner
 	if scoped := cp.scopedDocsForPhase(phase.Name); len(scoped) > 0 {
 		logging.CampaignDebug("Boosting %d scoped documents for phase", len(scoped))
+		facts := make([]core.Fact, 0, len(scoped))
 		for _, doc := range scoped {
-			cp.kernel.Assert(core.Fact{
+			facts = append(facts, core.Fact{
 				Predicate: "phase_context_atom",
 				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
 			})
+		}
+		if err := cp.kernel.AssertBatch(facts); err != nil {
+			for _, f := range facts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 
 	// 3. Load phase context atoms
 	artifactCount := 0
+	artifactFacts := make([]core.Fact, 0)
 	for _, task := range phase.Tasks {
 		// Boost task artifacts
 		for _, artifact := range task.Artifacts {
-			cp.kernel.Assert(core.Fact{
+			artifactFacts = append(artifactFacts, core.Fact{
 				Predicate: "phase_context_atom",
 				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 100},
 			})
 			artifactCount++
+		}
+	}
+	if len(artifactFacts) > 0 {
+		if err := cp.kernel.AssertBatch(artifactFacts); err != nil {
+			for _, f := range artifactFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 	logging.CampaignDebug("Loaded %d artifact context atoms", artifactCount)
@@ -224,11 +238,6 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 
 	// 4. Store compression
 	now := time.Now()
-	cp.kernel.Assert(core.Fact{
-		Predicate: "context_compression",
-		Args:      []interface{}{phase.ID, summary, len(phaseFacts), now.Unix()},
-	})
-
 	// 4b. Retract phase-specific context atoms now that they've been compressed
 	logging.CampaignDebug("Retracting phase-specific context atoms")
 	_ = cp.kernel.RetractFact(core.Fact{
@@ -238,13 +247,23 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 
 	// 5. Reduce activation of phase-specific facts
 	logging.CampaignDebug("Reducing activation for %d phase-specific facts", len(phaseFacts))
+	postFacts := make([]core.Fact, 0, 1+len(phaseFacts))
+	postFacts = append(postFacts, core.Fact{
+		Predicate: "context_compression",
+		Args:      []interface{}{phase.ID, summary, len(phaseFacts), now.Unix()},
+	})
 	for _, fact := range phaseFacts {
 		if len(fact.Args) >= 2 {
 			factPredicate := fmt.Sprintf("%v", fact.Args[1])
-			cp.kernel.Assert(core.Fact{
+			postFacts = append(postFacts, core.Fact{
 				Predicate: "activation",
 				Args:      []interface{}{factPredicate, -100},
 			})
+		}
+	}
+	if err := cp.kernel.AssertBatch(postFacts); err != nil {
+		for _, f := range postFacts {
+			cp.kernel.Assert(f)
 		}
 	}
 
@@ -264,6 +283,7 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 	logging.CampaignDebug("Prefetching context for next %d tasks (available=%d)", min(limit, len(tasks)), len(tasks))
 
 	prefetchedCount := 0
+	facts := make([]core.Fact, 0)
 	for i, task := range tasks {
 		if i >= limit {
 			break
@@ -271,11 +291,18 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 
 		// Boost artifacts for upcoming tasks
 		for _, artifact := range task.Artifacts {
-			cp.kernel.Assert(core.Fact{
+			facts = append(facts, core.Fact{
 				Predicate: "activation",
 				Args:      []interface{}{fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 50},
 			})
 			prefetchedCount++
+		}
+	}
+	if len(facts) > 0 {
+		if err := cp.kernel.AssertBatch(facts); err != nil {
+			for _, f := range facts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 
@@ -308,14 +335,12 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 	// Suppress irrelevant facts
 	suppressedCount := 0
 	for _, pred := range irrelevantPredicates {
-		if facts, ok := allFacts[pred]; ok {
-			for range facts {
-				cp.kernel.Assert(core.Fact{
-					Predicate: "activation",
-					Args:      []interface{}{pred, -200}, // Heavy suppression
-				})
-				suppressedCount++
-			}
+		if _, ok := allFacts[pred]; ok {
+			cp.kernel.Assert(core.Fact{
+				Predicate: "activation",
+				Args:      []interface{}{pred, -200}, // Heavy suppression
+			})
+			suppressedCount++
 		}
 	}
 

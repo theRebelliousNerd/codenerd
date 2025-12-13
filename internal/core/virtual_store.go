@@ -935,7 +935,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	if v.kernel != nil {
 		// Refresh permission cache in case policy/facts changed since last action.
 		// Note: Cache is deprecated for fine-grained permissions, direct query used.
-		
+
 		permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
 		if !permitted {
 			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)
@@ -2515,6 +2515,25 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 		return true
 	}
 
+	// Fast allow: safe_action is an explicit allowlist in the constitution.
+	// This keeps legacy direct RouteAction() callsites working without requiring a pending_action envelope.
+	// (Dangerous actions are NOT marked safe_action; they must be explicitly permitted.)
+	safe, err := k.Query("safe_action")
+	if err == nil {
+		wantType := "/" + actionType
+		altType := actionType
+		for _, f := range safe {
+			if len(f.Args) < 1 {
+				continue
+			}
+			argType := fmt.Sprintf("%v", f.Args[0])
+			if argType == wantType || argType == altType {
+				logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (safe_action)", actionType)
+				return true
+			}
+		}
+	}
+
 	// Query all permitted facts
 	results, err := k.Query("permitted")
 	if err != nil {
@@ -2526,11 +2545,10 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 	altType := actionType
 
 	for _, f := range results {
-		fmt.Printf("DEBUG: Checking permitted fact: %v (want type=%s target=%s)\n", f, wantType, target)
 		if len(f.Args) < 1 {
 			continue
 		}
-		
+
 		// 1. Check ActionType
 		argType := fmt.Sprintf("%v", f.Args[0])
 		if argType != wantType && argType != altType {
@@ -2546,11 +2564,11 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 		}
 
 		// 3. Check Payload (if present in fact)
-		// Note: Exact payload matching might be tricky with maps. 
-		// For now, if the policy derived permitted(...), we assume it validated the payload 
+		// Note: Exact payload matching might be tricky with maps.
+		// For now, if the policy derived permitted(...), we assume it validated the payload
 		// via pending_action unification. We accept it if Type and Target match.
 		// Strict payload matching would require deep comparison.
-		
+
 		logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (found permitted fact)", actionType)
 		return true
 	}
@@ -2558,8 +2576,6 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 	logging.VirtualStoreDebug("checkKernelPermitted(%s): DENIED (no matching permitted fact)", actionType)
 	return false
 }
-
-
 
 // =============================================================================
 // CODE DOM HANDLERS
