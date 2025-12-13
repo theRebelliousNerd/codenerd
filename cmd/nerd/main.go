@@ -1482,6 +1482,8 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		ctx = usage.NewContext(ctx, cortex.UsageTracker)
 	}
 
+	baseRouting, baseExec := systemResultBaselines(cortex.Kernel)
+
 	emitter := articulation.NewEmitter()
 
 	// 2. Perception Layer: Transduce Input -> Intent
@@ -1493,6 +1495,28 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	logger.Info("Intent parsed",
 		zap.String("verb", intent.Verb),
 		zap.String("target", intent.Target))
+
+	// /stats is deterministic and should not require running shards or policy.
+	if intent.Verb == "/stats" {
+		stats, err := computeStats(ctx, cortex.Workspace, intent.Target)
+		if err != nil {
+			stats = fmt.Sprintf("Stats error: %v", err)
+		}
+		emitter.Emit(articulation.PiggybackEnvelope{
+			Surface: stats,
+			Control: articulation.ControlPacket{
+				IntentClassification: articulation.IntentClassification{
+					Category:   intent.Category,
+					Verb:       intent.Verb,
+					Target:     intent.Target,
+					Constraint: intent.Constraint,
+					Confidence: intent.Confidence,
+				},
+				MangleUpdates: []string{fmt.Sprintf("observation(/stats, %q)", stats)},
+			},
+		})
+		return nil
+	}
 
 	// 3. World Model: Incremental Scan Workspace (fast)
 	logger.Debug("Scanning workspace incrementally", zap.String("path", cortex.Workspace))
@@ -1556,16 +1580,16 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		actionFacts, _ := cortex.Kernel.Query("next_action")
 		if len(actionFacts) > 0 {
 			fact := actionFacts[0]
-			logger.Info("Executing action", zap.Any("action", fact))
-			result, err := cortex.VirtualStore.RouteAction(ctx, fact)
-			if err != nil {
-				output = fmt.Sprintf("Action failed: %v", err)
-			} else {
-				output = fmt.Sprintf("Action result: %v", result)
-			}
+			logger.Info("Derived next_action (unary; executed by system shards if enabled)", zap.Any("action", fact))
+			output = fmt.Sprintf("Next action: %v", fact.Args[0])
 		} else {
 			output = "No action derived from policy"
 		}
+	}
+
+	routingNew, execNew := waitForSystemResults(ctx, cortex.Kernel, baseRouting, baseExec, 3*time.Second)
+	if summary := formatSystemResults(routingNew, execNew); summary != "" {
+		output = output + "\n\n" + summary
 	}
 
 	// 6. Articulation Layer: Report

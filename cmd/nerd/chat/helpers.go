@@ -384,6 +384,108 @@ func countFileLines(workspace, path string) (int64, error) {
 	return lines, nil
 }
 
+func (m *Model) handleStatsIntent(ctx context.Context, intent perception.Intent) (string, error) {
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || strings.EqualFold(target, "none") {
+		return "", fmt.Errorf("stats requires a file or directory target")
+	}
+
+	full := resolvePath(m.workspace, target)
+	info, err := os.Stat(full)
+	if err != nil {
+		// If the target looks like a path, surface a clear error; otherwise the /stats key isn't wired yet.
+		if strings.ContainsAny(target, `/\`) || filepath.Ext(target) != "" {
+			return "", fmt.Errorf("file not found: %s", full)
+		}
+		return "", fmt.Errorf("unsupported stats target %q (try a file path)", target)
+	}
+
+	if info.IsDir() {
+		// Directory LOC: count lines across code-ish files under the directory.
+		allowedExt := map[string]bool{
+			".go":     true,
+			".mg":     true,
+			".mangle": true,
+			".dl":     true,
+			".py":     true,
+			".js":     true,
+			".jsx":    true,
+			".ts":     true,
+			".tsx":    true,
+			".rs":     true,
+			".java":   true,
+			".kt":     true,
+			".c":      true,
+			".cc":     true,
+			".cpp":    true,
+			".h":      true,
+			".hpp":    true,
+			".cs":     true,
+			".sh":     true,
+			".ps1":    true,
+		}
+
+		var totalLines int64
+		var countedFiles int64
+		var skippedFiles int64
+		const maxFileSize = 5 * 1024 * 1024 // 5MB
+
+		walkErr := filepath.WalkDir(full, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			name := d.Name()
+			if d.IsDir() {
+				// Skip hidden and dependency/cache directories.
+				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+					return filepath.SkipDir
+				}
+				if name == "bin" || name == "build" || name == "tmp" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			ext := strings.ToLower(filepath.Ext(name))
+			if !allowedExt[ext] {
+				return nil
+			}
+
+			if st, statErr := os.Stat(path); statErr == nil && st.Size() > maxFileSize {
+				skippedFiles++
+				return nil
+			}
+
+			lines, err := countFileLines(m.workspace, path)
+			if err != nil {
+				skippedFiles++
+				return nil
+			}
+			totalLines += lines
+			countedFiles++
+			return nil
+		})
+		if walkErr != nil {
+			return "", walkErr
+		}
+
+		resp := fmt.Sprintf("%s: %d total lines across %d files", target, totalLines, countedFiles)
+		if skippedFiles > 0 {
+			resp += fmt.Sprintf(" (%d skipped)", skippedFiles)
+		}
+		return resp, nil
+	}
+
+	lines, err := countFileLines(m.workspace, target)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s: %d lines", target, lines), nil
+}
+
 func writeFileContent(workspace, path, content string) error {
 	full := resolvePath(workspace, path)
 	dir := filepath.Dir(full)
@@ -1128,7 +1230,6 @@ func isConversationalIntent(intent perception.Intent) bool {
 	alwaysConversational := map[string]bool{
 		"/greet":     true, // Greetings: hello, hi, hey
 		"/help":      true, // Capability questions: what can you do?
-		"/stats":     true, // Codebase statistics: how many files? breakdown?
 		"/knowledge": true, // Memory queries: what do you remember?
 		"/shadow":    true, // What-if queries: what would happen if?
 		"/git":       true, // Git operations: commit, push, status
