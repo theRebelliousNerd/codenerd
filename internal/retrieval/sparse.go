@@ -30,10 +30,10 @@ type SparseRetriever struct {
 	mu      sync.RWMutex
 
 	// Configuration
-	maxResults     int           // Max files to return
-	searchTimeout  time.Duration // Per-search timeout
-	parallelism    int           // Number of parallel ripgrep processes
-	excludePatterns []string     // Patterns to exclude from search
+	maxResults      int           // Max files to return
+	searchTimeout   time.Duration // Per-search timeout
+	parallelism     int           // Number of parallel ripgrep processes
+	excludePatterns []string      // Patterns to exclude from search
 }
 
 // SparseRetrieverConfig holds configuration for the retriever.
@@ -71,11 +71,11 @@ func NewSparseRetriever(cfg *SparseRetrieverConfig) *SparseRetriever {
 	}
 
 	return &SparseRetriever{
-		workDir:        cfg.WorkDir,
-		cache:          NewKeywordHitCache(cfg.CacheSize, cfg.CacheTTL),
-		maxResults:     cfg.MaxResults,
-		searchTimeout:  cfg.SearchTimeout,
-		parallelism:    cfg.Parallelism,
+		workDir:         cfg.WorkDir,
+		cache:           NewKeywordHitCache(cfg.CacheSize, cfg.CacheTTL),
+		maxResults:      cfg.MaxResults,
+		searchTimeout:   cfg.SearchTimeout,
+		parallelism:     cfg.Parallelism,
 		excludePatterns: cfg.ExcludePatterns,
 	}
 }
@@ -115,7 +115,7 @@ func ExtractKeywords(issueText string) *IssueKeywords {
 	}
 
 	// Patterns for extraction
-	filePathPattern := regexp.MustCompile(`(?:^|\s)([a-zA-Z_][a-zA-Z0-9_/]*\.(?:py|go|js|ts|rs|java|rb|cpp|c|h))(?:\s|$|:)`)
+	filePathPattern := regexp.MustCompile(`(?:^|\s)([a-zA-Z_][a-zA-Z0-9_\\/]*\.(?:py|go|js|ts|rs|java|rb|cpp|c|h))(?:\s|$|:)`)
 	pythonSymbolPattern := regexp.MustCompile(`\b([A-Z][a-zA-Z0-9_]*(?:Error|Exception|Warning)?)\b`)
 	functionPattern := regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
 	methodPattern := regexp.MustCompile(`\.([a-z_][a-z0-9_]*)\s*\(`)
@@ -124,8 +124,9 @@ func ExtractKeywords(issueText string) *IssueKeywords {
 	// Extract file paths
 	for _, match := range filePathPattern.FindAllStringSubmatch(issueText, -1) {
 		if len(match) > 1 {
-			kw.MentionedFiles = append(kw.MentionedFiles, match[1])
-			kw.Weights[match[1]] = 1.0 // Highest weight for explicit files
+			filePath := normalizePathSeparators(match[1])
+			kw.MentionedFiles = append(kw.MentionedFiles, filePath)
+			kw.Weights[filePath] = 1.0 // Highest weight for explicit files
 		}
 	}
 
@@ -224,12 +225,12 @@ type KeywordHit struct {
 // CandidateFile represents a file ranked by keyword relevance.
 type CandidateFile struct {
 	FilePath       string
-	TotalHits      int           // Total keyword matches
-	UniqueKeywords int           // Number of distinct keywords matched
-	RelevanceScore float64       // Weighted relevance score
-	Tier           int           // Context tier (1-4)
-	Hits           []KeywordHit  // Individual matches
-	Keywords       []string      // Keywords that matched
+	TotalHits      int          // Total keyword matches
+	UniqueKeywords int          // Number of distinct keywords matched
+	RelevanceScore float64      // Weighted relevance score
+	Tier           int          // Context tier (1-4)
+	Hits           []KeywordHit // Individual matches
+	Keywords       []string     // Keywords that matched
 }
 
 // =============================================================================
@@ -442,9 +443,12 @@ func (r *SparseRetriever) RankFiles(hits []KeywordHit, keywords *IssueKeywords, 
 
 // determineTier assigns a context tier (1-4) to a file.
 func (r *SparseRetriever) determineTier(filePath string, score float64, keywords *IssueKeywords) int {
+	normalizedFilePath := normalizePathSeparators(filePath)
+
 	// Tier 1: Explicitly mentioned files
 	for _, mentioned := range keywords.MentionedFiles {
-		if strings.HasSuffix(filePath, mentioned) || strings.Contains(filePath, mentioned) {
+		normalizedMentioned := normalizePathSeparators(mentioned)
+		if strings.HasSuffix(normalizedFilePath, normalizedMentioned) || strings.Contains(normalizedFilePath, normalizedMentioned) {
 			return 1
 		}
 	}
@@ -636,4 +640,10 @@ func uniqueStrings(ss []string) []string {
 		}
 	}
 	return result
+}
+
+func normalizePathSeparators(path string) string {
+	// Normalize Windows-style paths so mentions and ripgrep results match regardless
+	// of OS-specific separators.
+	return strings.ReplaceAll(path, "\\", "/")
 }
