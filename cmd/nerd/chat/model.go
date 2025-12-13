@@ -166,6 +166,7 @@ type Model struct {
 	paneMode  ui.PaneMode
 	showError bool
 	focusError bool
+	showSystemActions bool
 
 	// Usage Page
 	usagePage ui.UsagePageModel
@@ -985,6 +986,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.viewport.SetContent("JIT Compiler not available.")
 					}
 				}
+				return m, nil
+
+			case 's':
+				// Toggle system action summaries in chat output (Alt+S)
+				m.showSystemActions = !m.showSystemActions
 				return m, nil
 			}
 		}

@@ -261,7 +261,7 @@ func (m Model) renderFooter() string {
 	if m.isLoading {
 		hotkeys = "Ctrl+X: STOP | "
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+M: select | /help"
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+S: sys | Alt+M: mouse | /help"
 
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s | %s | %s",
