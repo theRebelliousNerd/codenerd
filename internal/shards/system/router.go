@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/logging"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -223,6 +224,7 @@ type TactileRouterShard struct {
 	pendingCalls   []ToolCall
 	completedCalls []ToolCall
 	lastActivity   time.Time
+	lastLogPrune   time.Time
 
 	// State
 	running bool
@@ -387,10 +389,12 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		return fmt.Errorf("failed to query permitted_action: %w", err)
 	}
 
+	didWork := false
 	for _, fact := range permitted {
 		if len(fact.Args) < 3 {
 			continue
 		}
+		didWork = true
 
 		// permitted_action(ActionID, ActionType, Target, Payload, Timestamp)
 		actionID := fmt.Sprintf("%v", fact.Args[0])
@@ -499,7 +503,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, core.MangleAtom("/failure"), err.Error()},
+					Args:      []interface{}{call.ID, core.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
 				})
 			} else {
 				call.Status = "completed"
@@ -507,7 +511,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, core.MangleAtom("/success"), result},
+					Args:      []interface{}{call.ID, core.MangleAtom("/success"), result, call.CompletedAt.Unix()},
 				})
 			}
 
@@ -545,7 +549,72 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		})
 	}
 
+	if didWork {
+		r.pruneRoutingResults()
+	}
+
 	return nil
+}
+
+func (r *TactileRouterShard) pruneRoutingResults() {
+	if r.Kernel == nil {
+		return
+	}
+
+	now := time.Now()
+	r.mu.Lock()
+	if !r.lastLogPrune.IsZero() && now.Sub(r.lastLogPrune) < 10*time.Second {
+		r.mu.Unlock()
+		return
+	}
+	r.lastLogPrune = now
+	r.mu.Unlock()
+
+	const retention = 15 * time.Minute
+	cutoff := now.Add(-retention).Unix()
+
+	results, err := r.Kernel.Query("routing_result")
+	if err != nil || len(results) == 0 {
+		return
+	}
+
+	toRemove := make([]core.Fact, 0, len(results)/4)
+	for _, f := range results {
+		ts, ok := unixSecondsArg(f, 3)
+		if !ok {
+			continue
+		}
+		if ts < cutoff {
+			toRemove = append(toRemove, f)
+		}
+	}
+
+	if len(toRemove) == 0 {
+		return
+	}
+	_ = r.Kernel.RetractExactFactsBatch(toRemove)
+}
+
+func unixSecondsArg(f core.Fact, idx int) (int64, bool) {
+	if idx < 0 || len(f.Args) <= idx {
+		return 0, false
+	}
+	switch v := f.Args[idx].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
 }
 
 // findRoute finds a route for the given action type.

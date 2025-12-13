@@ -1443,15 +1443,15 @@ action_pending_permission(ActionID) :-
 
 # Helper for safe negation
 permission_checked(ActionID) :-
-    permission_check_result(ActionID, _, _).
+    permission_check_result(ActionID, _, _, _).
 
 # Action is permitted by constitution gate
 action_permitted(ActionID) :-
-    permission_check_result(ActionID, /permit, _).
+    permission_check_result(ActionID, /permit, _, _).
 
 # Action is blocked by constitution gate
 action_blocked(ActionID, Reason) :-
-    permission_check_result(ActionID, /deny, Reason).
+    permission_check_result(ActionID, /deny, Reason, _).
 
 # Action ready for routing (permitted and not yet routed)
 action_ready_for_routing(ActionID) :-
@@ -1462,20 +1462,20 @@ action_ready_for_routing(ActionID) :-
 # The tactile router consumes permitted_action/5 today, but policy uses this
 # predicate to determine whether an action has been routed (action_routed/1).
 ready_for_routing(ActionID) :-
-    permission_check_result(ActionID, /permit, _).
+    permission_check_result(ActionID, /permit, _, _).
 
 # Helper for safe negation
 action_routed(ActionID) :-
     ready_for_routing(ActionID),
-    routing_result(ActionID, _, _).
+    routing_result(ActionID, _, _, _).
 
 # Derive routing result success
 routing_succeeded(ActionID) :-
-    routing_result(ActionID, /success, _).
+    routing_result(ActionID, /success, _, _).
 
 # Derive routing result failure
 routing_failed(ActionID, Error) :-
-    routing_result(ActionID, /failure, Error).
+    routing_result(ActionID, /failure, Error, _).
 
 # -----------------------------------------------------------------------------
 # 21.3 System Shard Health Monitoring

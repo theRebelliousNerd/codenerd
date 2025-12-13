@@ -357,6 +357,9 @@ type VirtualStore struct {
 	// Permission cache - O(1) lookup for constitutional permission checks
 	// Populated from kernel's permitted/1 facts when kernel is attached
 	permittedCache map[string]bool
+
+	// Action log retention (avoid unbounded growth in kernel facts)
+	lastLogPrune time.Time
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -962,13 +965,15 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	}
 
 	// Inject result facts into kernel (batched when possible).
+	completedAt := time.Now()
 	factsToInject := make([]Fact, 0, len(result.FactsToAdd)+1)
 	factsToInject = append(factsToInject, result.FactsToAdd...)
 	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
-		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output},
+		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
 	})
 	v.injectFacts(factsToInject)
+	v.maybePruneActionLogs(completedAt)
 
 	if result.Success {
 		logging.VirtualStore("Action %s completed: success=%v, output_len=%d", req.Type, result.Success, len(result.Output))
@@ -2353,6 +2358,69 @@ func (v *VirtualStore) injectFacts(facts []Fact) {
 
 	for _, fact := range facts {
 		_ = kernel.Assert(fact)
+	}
+}
+
+func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
+	v.mu.Lock()
+	if !v.lastLogPrune.IsZero() && now.Sub(v.lastLogPrune) < 10*time.Second {
+		v.mu.Unlock()
+		return
+	}
+	v.lastLogPrune = now
+	kernel := v.kernel
+	v.mu.Unlock()
+
+	realKernel, ok := kernel.(*RealKernel)
+	if !ok || realKernel == nil {
+		return
+	}
+
+	prune := func(predicate string, tsIndex int, cutoffUnix int64) {
+		facts, err := realKernel.Query(predicate)
+		if err != nil || len(facts) == 0 {
+			return
+		}
+		toRemove := make([]Fact, 0, len(facts)/4)
+		for _, f := range facts {
+			ts, ok := unixSecondsArgAt(f.Args, tsIndex)
+			if !ok {
+				continue
+			}
+			if ts < cutoffUnix {
+				toRemove = append(toRemove, f)
+			}
+		}
+		if len(toRemove) == 0 {
+			return
+		}
+		_ = realKernel.RetractExactFactsBatch(toRemove)
+	}
+
+	// Keep action logs bounded to protect kernel evaluation performance.
+	prune("execution_result", 4, now.Add(-15*time.Minute).Unix())
+	prune("shard_context_refreshed", 2, now.Add(-60*time.Minute).Unix())
+}
+
+func unixSecondsArgAt(args []interface{}, idx int) (int64, bool) {
+	if idx < 0 || len(args) <= idx {
+		return 0, false
+	}
+	switch v := args[idx].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
 	}
 }
 

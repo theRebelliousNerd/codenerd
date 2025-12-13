@@ -122,7 +122,8 @@ type ConstitutionGateShard struct {
 	activeOverrides map[string]AppealDecision // actionType -> active override
 
 	// State
-	running bool
+	running      bool
+	lastLogPrune time.Time
 }
 
 // NewConstitutionGateShard creates a new Constitution Gate shard.
@@ -240,10 +241,12 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		return fmt.Errorf("failed to query pending_action: %w", err)
 	}
 
+	didWork := false
 	for _, fact := range pending {
 		if len(fact.Args) < 3 {
 			continue
 		}
+		didWork = true
 
 		// pending_action(ActionID, ActionType, Target, Payload, Timestamp)
 		actionID := fmt.Sprintf("%v", fact.Args[0])
@@ -272,7 +275,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			// Emit canonical permission result for policy observability.
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/permit"), reason},
+				Args:      []interface{}{actionID, core.MangleAtom("/permit"), reason, ts},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
@@ -283,15 +286,16 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			actionID = c.recordViolation(actionType, target, reason, nil, actionID)
 
 			// Emit canonical permission result for policy observability.
+			ts := time.Now().Unix()
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/deny"), reason},
+				Args:      []interface{}{actionID, core.MangleAtom("/deny"), reason, ts},
 			})
 
 			// Emit routing_result failure so waiting shards can observe denial
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "routing_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/failure"), reason},
+				Args:      []interface{}{actionID, core.MangleAtom("/failure"), reason, ts},
 			})
 
 			// Emit security_violation fact
@@ -319,7 +323,50 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		}
 	}
 
+	if didWork {
+		c.prunePermissionCheckResults()
+	}
+
 	return nil
+}
+
+func (c *ConstitutionGateShard) prunePermissionCheckResults() {
+	if c.Kernel == nil {
+		return
+	}
+
+	now := time.Now()
+	c.mu.Lock()
+	if !c.lastLogPrune.IsZero() && now.Sub(c.lastLogPrune) < 10*time.Second {
+		c.mu.Unlock()
+		return
+	}
+	c.lastLogPrune = now
+	c.mu.Unlock()
+
+	const retention = 15 * time.Minute
+	cutoff := now.Add(-retention).Unix()
+
+	results, err := c.Kernel.Query("permission_check_result")
+	if err != nil || len(results) == 0 {
+		return
+	}
+
+	toRemove := make([]core.Fact, 0, len(results)/4)
+	for _, f := range results {
+		ts, ok := unixSecondsArg(f, 3)
+		if !ok {
+			continue
+		}
+		if ts < cutoff {
+			toRemove = append(toRemove, f)
+		}
+	}
+
+	if len(toRemove) == 0 {
+		return
+	}
+	_ = c.Kernel.RetractExactFactsBatch(toRemove)
 }
 
 // checkPermitted determines if an action is permitted under constitutional rules.
