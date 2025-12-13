@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
 )
 
 // ConstitutionConfig holds configuration for the constitution gate.
@@ -137,10 +138,10 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 	base := NewBaseSystemShard("constitution_gate", StartupAuto)
 
 	// Override permissions for constitution gate - minimal footprint
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionAskUser, // Only for escalation
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionAskUser, // Only for escalation
 	}
-	base.Config.Model = core.ModelConfig{} // No LLM by default - pure logic
+	base.Config.Model = types.ModelConfig{} // No LLM by default - pure logic
 
 	shard := &ConstitutionGateShard{
 		BaseSystemShard: base,
@@ -170,14 +171,14 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 // This shard is AUTO-START and runs for the entire session.
 func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[ConstitutionGate] Starting safety enforcement loop")
-	c.SetState(core.ShardStateRunning)
+	c.SetState(types.ShardStateRunning)
 	c.mu.Lock()
 	c.running = true
 	c.StartTime = time.Now()
 	c.mu.Unlock()
 
 	defer func() {
-		c.SetState(core.ShardStateCompleted)
+		c.SetState(types.ShardStateCompleted)
 		c.mu.Lock()
 		c.running = false
 		c.mu.Unlock()
@@ -268,14 +269,14 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
 			ts := time.Now().Unix()
 			// Primary permitted stream for tactile router
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permitted_action",
 				Args:      []interface{}{actionID, actionType, target, payload, ts},
 			})
 			// Emit canonical permission result for policy observability.
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/permit"), reason, ts},
+				Args:      []interface{}{actionID, types.MangleAtom("/permit"), reason, ts},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
@@ -287,25 +288,25 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 
 			// Emit canonical permission result for policy observability.
 			ts := time.Now().Unix()
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/deny"), reason, ts},
+				Args:      []interface{}{actionID, types.MangleAtom("/deny"), reason, ts},
 			})
 
 			// Emit routing_result failure so waiting shards can observe denial
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "routing_result",
-				Args:      []interface{}{actionID, core.MangleAtom("/failure"), reason, ts},
+				Args:      []interface{}{actionID, types.MangleAtom("/failure"), reason, ts},
 			})
 
 			// Emit security_violation fact
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "security_violation",
 				Args:      []interface{}{actionType, reason, time.Now().Unix()},
 			})
 
 			// Emit appeal_available fact for Mangle policies
-			_ = c.Kernel.Assert(core.Fact{
+			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "appeal_available",
 				Args:      []interface{}{actionID, actionType, target, reason},
 			})
@@ -352,7 +353,7 @@ func (c *ConstitutionGateShard) prunePermissionCheckResults() {
 		return
 	}
 
-	toRemove := make([]core.Fact, 0, len(results)/4)
+	toRemove := make([]types.Fact, 0, len(results)/4)
 	for _, f := range results {
 		ts, ok := unixSecondsArg(f, 3)
 		if !ok {
@@ -501,7 +502,7 @@ func (c *ConstitutionGateShard) shouldEscalate(reason string) bool {
 // escalateToUser asks the user for permission on ambiguous cases.
 func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, target, reason string) {
 	// Emit an escalation fact for the UI layer to handle
-	_ = c.Kernel.Assert(core.Fact{
+	_ = c.Kernel.Assert(types.Fact{
 		Predicate: "escalation_needed",
 		Args: []interface{}{
 			"constitution_gate",
@@ -643,7 +644,7 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 		}
 	} else {
 		// Escalate for human approval
-		if assertErr := c.Kernel.Assert(core.Fact{
+		if assertErr := c.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",
 			Args: []interface{}{
 				"constitution_gate",
@@ -794,7 +795,7 @@ func (c *ConstitutionGateShard) SubmitAppeal(actionID, justification, requester 
 
 	// Emit Mangle fact for appeal
 	if c.Kernel != nil {
-		_ = c.Kernel.Assert(core.Fact{
+		_ = c.Kernel.Assert(types.Fact{
 			Predicate: "appeal_pending",
 			Args:      []interface{}{actionID, violation.ActionType, justification, time.Now().Unix()},
 		})

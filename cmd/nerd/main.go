@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -1637,7 +1638,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	}
 	defer cortex.Close()
 
-	config := core.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
+	config := coreshards.DefaultSpecialistConfig(name, fmt.Sprintf("memory/shards/%s_knowledge.db", name))
 
 	cortex.ShardManager.DefineProfile(name, config)
 

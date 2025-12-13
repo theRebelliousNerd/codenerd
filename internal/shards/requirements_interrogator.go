@@ -6,36 +6,37 @@ import (
 	"strings"
 
 	"codenerd/internal/articulation"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/types"
 )
 
 // RequirementsInterrogatorShard is a Socratic shard that elicits missing requirements.
 // It is intended for early-phase clarification before kicking off campaigns or large tasks.
 type RequirementsInterrogatorShard struct {
-	*core.BaseShardAgent
-	llmClient core.LLMClient
+	*coreshards.BaseShardAgent
+	llmClient types.LLMClient
 }
 
 // NewRequirementsInterrogatorShard creates a new interrogator shard.
 func NewRequirementsInterrogatorShard() *RequirementsInterrogatorShard {
-	cfg := core.ShardConfig{
+	cfg := types.ShardConfig{
 		Name: "requirements_interrogator",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionAskUser,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionAskUser,
 		},
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
 		},
 		Timeout: 5 * 60 * 1000000000, // 5 minutes
 	}
 	return &RequirementsInterrogatorShard{
-		BaseShardAgent: core.NewBaseShardAgent("requirements_interrogator", cfg),
+		BaseShardAgent: coreshards.NewBaseShardAgent("requirements_interrogator", cfg),
 	}
 }
 
 // SetLLMClient injects the LLM client (satisfies ShardAgent).
-func (s *RequirementsInterrogatorShard) SetLLMClient(client core.LLMClient) {
+func (s *RequirementsInterrogatorShard) SetLLMClient(client types.LLMClient) {
 	s.llmClient = client
 	if s.BaseShardAgent != nil {
 		s.BaseShardAgent.SetLLMClient(client)
@@ -44,8 +45,8 @@ func (s *RequirementsInterrogatorShard) SetLLMClient(client core.LLMClient) {
 
 // Execute generates a concise set of clarifying questions for the given task/goal.
 func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string) (string, error) {
-	s.SetState(core.ShardStateRunning)
-	defer s.SetState(core.ShardStateCompleted)
+	s.SetState(types.ShardStateRunning)
+	defer s.SetState(types.ShardStateCompleted)
 
 	task = strings.TrimSpace(task)
 	if task == "" {

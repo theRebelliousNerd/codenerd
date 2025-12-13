@@ -11,7 +11,9 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -109,15 +111,15 @@ type TesterShard struct {
 
 	// Identity
 	id     string
-	config core.ShardConfig
-	state  core.ShardState
+	config types.ShardConfig
+	state  types.ShardState
 
 	// Tester-specific configuration
 	testerConfig TesterConfig
 
 	// Components (required)
 	kernel       *core.RealKernel   // Own kernel instance for logic-driven testing
-	llmClient    core.LLMClient     // LLM for test generation
+	llmClient    types.LLMClient    // LLM for test generation
 	virtualStore *core.VirtualStore // Action routing
 
 	// TDD Loop integration
@@ -148,8 +150,8 @@ func NewTesterShard() *TesterShard {
 // NewTesterShardWithConfig creates a tester shard with custom configuration.
 func NewTesterShardWithConfig(testerConfig TesterConfig) *TesterShard {
 	return &TesterShard{
-		config:          core.DefaultSpecialistConfig("tester", ""),
-		state:           core.ShardStateIdle,
+		config:          coreshards.DefaultSpecialistConfig("tester", ""),
+		state:           types.ShardStateIdle,
 		testerConfig:    testerConfig,
 		testHistory:     make([]TestResult, 0),
 		diagnostics:     make([]core.Diagnostic, 0),
@@ -163,7 +165,7 @@ func NewTesterShardWithConfig(testerConfig TesterConfig) *TesterShard {
 // =============================================================================
 
 // SetLLMClient sets the LLM client for test generation.
-func (t *TesterShard) SetLLMClient(client core.LLMClient) {
+func (t *TesterShard) SetLLMClient(client types.LLMClient) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.llmClient = client
@@ -177,7 +179,7 @@ func (t *TesterShard) SetSessionContext(ctx *core.SessionContext) {
 }
 
 // SetParentKernel sets the Mangle kernel for logic-driven testing.
-func (t *TesterShard) SetParentKernel(k core.Kernel) {
+func (t *TesterShard) SetParentKernel(k types.Kernel) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -223,14 +225,14 @@ func (t *TesterShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (t *TesterShard) GetState() core.ShardState {
+func (t *TesterShard) GetState() types.ShardState {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.state
 }
 
 // GetConfig returns the shard configuration.
-func (t *TesterShard) GetConfig() core.ShardConfig {
+func (t *TesterShard) GetConfig() types.ShardConfig {
 	return t.config
 }
 
@@ -245,7 +247,7 @@ func (t *TesterShard) GetKernel() *core.RealKernel {
 func (t *TesterShard) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.state = core.ShardStateCompleted
+	t.state = types.ShardStateCompleted
 	return nil
 }
 
@@ -300,14 +302,14 @@ func (t *TesterShard) Execute(ctx context.Context, task string) (string, error) 
 	logging.Tester("Starting task execution: %s", task)
 
 	t.mu.Lock()
-	t.state = core.ShardStateRunning
+	t.state = types.ShardStateRunning
 	t.startTime = time.Now()
 	t.id = fmt.Sprintf("tester-%d", time.Now().UnixNano())
 	t.mu.Unlock()
 
 	defer func() {
 		t.mu.Lock()
-		t.state = core.ShardStateCompleted
+		t.state = types.ShardStateCompleted
 		t.mu.Unlock()
 		timer.StopWithInfo()
 	}()

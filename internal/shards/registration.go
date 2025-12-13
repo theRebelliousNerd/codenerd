@@ -5,6 +5,7 @@ package shards
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards/coder"
@@ -15,6 +16,7 @@ import (
 	"codenerd/internal/shards/tester"
 	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
 
@@ -22,7 +24,7 @@ import (
 // This solves the "hollow shard" problem by ensuring factories have access
 // to the kernel and LLM client at instantiation time.
 type RegistryContext struct {
-	Kernel       core.Kernel
+	Kernel       types.Kernel
 	LLMClient    perception.LLMClient
 	VirtualStore *core.VirtualStore
 	Workspace    string
@@ -160,7 +162,7 @@ func (r *reviewerFeedbackAdapter) GetAccuracyReport(reviewID string) string {
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
-func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
+func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext) {
 	// Ensure ShardManager has the VirtualStore for dynamic injection
 	if ctx.VirtualStore != nil {
 		sm.SetVirtualStore(ctx.VirtualStore)
@@ -210,7 +212,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	// might require specific casting. Let's see if compilation passes.
 
 	// Register Coder shard factory
-	sm.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("coder", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := coder.NewCoderShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -221,7 +223,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Reviewer shard factory
-	sm.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("reviewer", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := reviewer.NewReviewerShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -242,7 +244,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Tester shard factory
-	sm.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("tester", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := tester.NewTesterShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -253,7 +255,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Researcher shard factory
-	sm.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("researcher", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := researcher.NewResearcherShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -267,7 +269,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Requirements Interrogator (Socratic clarifier)
-	sm.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := NewRequirementsInterrogatorShard()
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetParentKernel(ctx.Kernel) // FIX: Enable kernel access
@@ -276,7 +278,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register ToolGenerator shard factory (autopoiesis)
-	sm.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("tool_generator", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := tool_generator.NewToolGeneratorShard(id, config)
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetWorkspaceRoot(ctx.Workspace) // MUST be called before SetLLMClient
@@ -287,7 +289,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Nemesis shard factory (adversarial co-evolution)
-	sm.RegisterShard("nemesis", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("nemesis", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := nemesis.NewNemesisShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -307,7 +309,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	// =========================================================================
 
 	// Register Perception Firewall - AUTO-START, LLM-primary
-	sm.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewPerceptionFirewallShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
@@ -318,7 +320,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register World Model Ingestor - ON-DEMAND, Hybrid
-	sm.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewWorldModelIngestorShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -328,7 +330,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Executive Policy - AUTO-START, Logic-primary
-	sm.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewExecutivePolicyShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -339,7 +341,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
-	sm.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("constitution_gate", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewConstitutionGateShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -349,7 +351,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Legislator - ON-DEMAND, Logic-primary (learned constraints)
-	sm.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("legislator", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewLegislatorShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -359,7 +361,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Mangle Repair - AUTO-START, Logic-primary (self-healing rules)
-	sm.RegisterShard("mangle_repair", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("mangle_repair", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewMangleRepairShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
@@ -377,7 +379,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Tactile Router - ON-DEMAND, Logic-primary
-	sm.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -388,7 +390,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Campaign Runner - AUTO-START supervisor for long-horizon campaigns
-	sm.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewCampaignRunnerShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetVirtualStore(ctx.VirtualStore)
@@ -400,7 +402,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	})
 
 	// Register Session Planner - ON-DEMAND, LLM-primary
-	sm.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
+	sm.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := system.NewSessionPlannerShard()
 		shard.SetParentKernel(ctx.Kernel)
 		shard.SetLLMClient(ctx.LLMClient)
@@ -414,116 +416,116 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 }
 
 // defineShardProfiles registers shard profiles with appropriate configurations.
-func defineShardProfiles(sm *core.ShardManager) {
+func defineShardProfiles(sm *coreshards.ShardManager) {
 	// Coder profile - code generation specialist
-	sm.DefineProfile("coder", core.ShardConfig{
+	sm.DefineProfile("coder", types.ShardConfig{
 		Name: "coder",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionWriteFile,
-			core.PermissionExecCmd,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionWriteFile,
+			types.PermissionExecCmd,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     10 * 60 * 1000000000, // 10 minutes
 		MemoryLimit: 12000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
 		},
 	})
 
 	// Reviewer profile - code review specialist
-	sm.DefineProfile("reviewer", core.ShardConfig{
+	sm.DefineProfile("reviewer", types.ShardConfig{
 		Name: "reviewer",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     5 * 60 * 1000000000, // 5 minutes
 		MemoryLimit: 8000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
 		},
 	})
 
 	// Tester profile - testing specialist
-	sm.DefineProfile("tester", core.ShardConfig{
+	sm.DefineProfile("tester", types.ShardConfig{
 		Name: "tester",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionWriteFile,
-			core.PermissionExecCmd,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionWriteFile,
+			types.PermissionExecCmd,
 		},
 		Timeout:     15 * 60 * 1000000000, // 15 minutes
 		MemoryLimit: 8000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityBalanced,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityBalanced,
 		},
 	})
 
 	// Researcher profile - research specialist
-	sm.DefineProfile("researcher", core.ShardConfig{
+	sm.DefineProfile("researcher", types.ShardConfig{
 		Name: "researcher",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionNetwork,
-			core.PermissionResearch,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionNetwork,
+			types.PermissionResearch,
 		},
 		Timeout:     10 * 60 * 1000000000, // 10 minutes
 		MemoryLimit: 12000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityBalanced,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityBalanced,
 		},
 	})
 
 	// ToolGenerator profile - autopoiesis specialist
-	sm.DefineProfile("tool_generator", core.ShardConfig{
+	sm.DefineProfile("tool_generator", types.ShardConfig{
 		Name: "tool_generator",
-		Type: core.ShardTypePersistent,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionWriteFile,
-			core.PermissionExecCmd,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypePersistent,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionWriteFile,
+			types.PermissionExecCmd,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     30 * 60 * 1000000000, // 30 minutes (tool generation can take time)
 		MemoryLimit: 20000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
 		},
 	})
 
 	// Nemesis profile - adversarial co-evolution specialist
-	sm.DefineProfile("nemesis", core.ShardConfig{
+	sm.DefineProfile("nemesis", types.ShardConfig{
 		Name: "nemesis",
-		Type: core.ShardTypePersistent,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionExecCmd,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypePersistent,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionExecCmd,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     20 * 60 * 1000000000, // 20 minutes (adversarial analysis can take time)
 		MemoryLimit: 16000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning, // Needs reasoning to find weaknesses
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning, // Needs reasoning to find weaknesses
 		},
 	})
 
 	// Requirements Interrogator profile - Socratic clarification specialist
-	sm.DefineProfile("requirements_interrogator", core.ShardConfig{
+	sm.DefineProfile("requirements_interrogator", types.ShardConfig{
 		Name: "requirements_interrogator",
-		Type: core.ShardTypeEphemeral,
-		Permissions: []core.ShardPermission{
-			core.PermissionAskUser,
-			core.PermissionReadFile,
+		Type: types.ShardTypeEphemeral,
+		Permissions: []types.ShardPermission{
+			types.PermissionAskUser,
+			types.PermissionReadFile,
 		},
 		Timeout:     5 * 60 * 1000000000, // 5 minutes
 		MemoryLimit: 6000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityBalanced,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityBalanced,
 		},
 	})
 
@@ -534,40 +536,40 @@ func defineShardProfiles(sm *core.ShardManager) {
 // RegisterSystemShardProfiles registers Type 1 system shard profiles.
 // This is exported for use by session initialization when factories are
 // registered manually with dependency injection.
-func RegisterSystemShardProfiles(sm *core.ShardManager) {
+func RegisterSystemShardProfiles(sm *coreshards.ShardManager) {
 	defineSystemShardProfiles(sm)
 }
 
 // defineSystemShardProfiles registers Type 1 system shard profiles.
-func defineSystemShardProfiles(sm *core.ShardManager) {
+func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
-	sm.DefineProfile("perception_firewall", core.ShardConfig{
+	sm.DefineProfile("perception_firewall", types.ShardConfig{
 		Name: "perception_firewall",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionAskUser,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionAskUser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours (permanent)
 		MemoryLimit: 9000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityBalanced,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityBalanced,
 		},
 	})
 
 	// World Model Ingestor - ON-DEMAND, Hybrid
-	sm.DefineProfile("world_model_ingestor", core.ShardConfig{
+	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
 		Name: "world_model_ingestor",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionExecCmd,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionExecCmd,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 20000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighSpeed,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighSpeed,
 		},
 	})
 
@@ -612,17 +614,17 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 	})
 
 	// Session Planner - ON-DEMAND, LLM for goal decomposition
-	sm.DefineProfile("session_planner", core.ShardConfig{
+	sm.DefineProfile("session_planner", types.ShardConfig{
 		Name: "session_planner",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionAskUser,
-			core.PermissionReadFile,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionAskUser,
+			types.PermissionReadFile,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 16000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityHighReasoning,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
 		},
 	})
 

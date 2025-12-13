@@ -7,7 +7,9 @@ package coder
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -62,7 +64,7 @@ type CoderResult struct {
 	BuildPassed bool              `json:"build_passed"`
 	TestsPassed bool              `json:"tests_passed"`
 	Diagnostics []core.Diagnostic `json:"diagnostics,omitempty"`
-	Facts       []core.Fact       `json:"facts,omitempty"`
+	Facts       []types.Fact      `json:"facts,omitempty"`
 	Duration    time.Duration     `json:"duration"`
 
 	// Artifact routing (for Ouroboros integration)
@@ -89,15 +91,15 @@ type CoderShard struct {
 
 	// Identity
 	id     string
-	config core.ShardConfig
-	state  core.ShardState
+	config types.ShardConfig
+	state  types.ShardState
 
 	// Coder-specific
 	coderConfig CoderConfig
 
 	// Components - each shard has its own kernel
 	kernel       *core.RealKernel
-	llmClient    core.LLMClient
+	llmClient    types.LLMClient
 	virtualStore *core.VirtualStore
 
 	// JIT prompt compilation (optional - falls back to legacy template if nil)
@@ -126,8 +128,8 @@ func NewCoderShard() *CoderShard {
 func NewCoderShardWithConfig(coderConfig CoderConfig) *CoderShard {
 	shard := &CoderShard{
 		id:              fmt.Sprintf("coder-%d", time.Now().UnixNano()),
-		config:          core.DefaultSpecialistConfig("coder", ""),
-		state:           core.ShardStateIdle,
+		config:          coreshards.DefaultSpecialistConfig("coder", ""),
+		state:           types.ShardStateIdle,
 		coderConfig:     coderConfig,
 		editHistory:     make([]CodeEdit, 0),
 		diagnostics:     make([]core.Diagnostic, 0),
@@ -142,7 +144,7 @@ func NewCoderShardWithConfig(coderConfig CoderConfig) *CoderShard {
 // =============================================================================
 
 // SetLLMClient sets the LLM client for code generation.
-func (c *CoderShard) SetLLMClient(client core.LLMClient) {
+func (c *CoderShard) SetLLMClient(client types.LLMClient) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.llmClient = client
@@ -156,7 +158,7 @@ func (c *CoderShard) SetSessionContext(ctx *core.SessionContext) {
 }
 
 // SetParentKernel sets the Mangle kernel for fact storage and policy evaluation.
-func (c *CoderShard) SetParentKernel(k core.Kernel) {
+func (c *CoderShard) SetParentKernel(k types.Kernel) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -202,14 +204,14 @@ func (c *CoderShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (c *CoderShard) GetState() core.ShardState {
+func (c *CoderShard) GetState() types.ShardState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.state
 }
 
 // GetConfig returns the shard configuration.
-func (c *CoderShard) GetConfig() core.ShardConfig {
+func (c *CoderShard) GetConfig() types.ShardConfig {
 	return c.config
 }
 
@@ -224,7 +226,7 @@ func (c *CoderShard) GetKernel() *core.RealKernel {
 func (c *CoderShard) Stop() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.state = core.ShardStateCompleted
+	c.state = types.ShardStateCompleted
 	return nil
 }
 
@@ -277,10 +279,12 @@ Remember: This is a simulation. Describe the plan, don't execute it.`, task)
 //   - implement file:path/to/file.go spec:description
 func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	timer := logging.StartTimer(logging.CategoryCoder, "Execute")
+
 	logging.Coder("Starting task execution: %s", task)
+	fmt.Println("DEBUG: CoderShard.Execute STARTED")
 
 	c.mu.Lock()
-	c.state = core.ShardStateRunning
+	c.state = types.ShardStateRunning
 	c.startTime = time.Now()
 	c.editHistory = make([]CodeEdit, 0)
 	c.diagnostics = make([]core.Diagnostic, 0)
@@ -288,7 +292,7 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 
 	defer func() {
 		c.mu.Lock()
-		c.state = core.ShardStateCompleted
+		c.state = types.ShardStateCompleted
 		c.mu.Unlock()
 		timer.StopWithInfo()
 	}()
@@ -313,16 +317,22 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	// Load coder-specific policy (only once to avoid duplicate Decl errors)
 	if !c.policyLoaded {
 		logging.CoderDebug("Loading coder.mg policy file")
+		fmt.Println("DEBUG: Loading coder.mg")
 		_ = c.kernel.LoadPolicyFile("coder.mg")
 		c.policyLoaded = true
+		fmt.Println("DEBUG: Loaded coder.mg")
+	} else {
+		fmt.Println("DEBUG: coder.mg already loaded")
 	}
 
 	// Parse the task
 	parseTimer := logging.StartTimer(logging.CategoryCoder, "ParseTask")
 	parsedTask := c.parseTask(task)
 	parseTimer.Stop()
+
 	logging.Coder("Parsed task: action=%s, target=%s, instruction=%s",
 		parsedTask.Action, parsedTask.Target, parsedTask.Instruction)
+	fmt.Println("DEBUG: Parsed task")
 
 	// Check for safety blocks
 	if c.coderConfig.SafetyMode && c.coderConfig.ImpactCheck {
@@ -336,15 +346,20 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 		}
 		logging.CoderDebug("Impact check passed for target: %s", parsedTask.Target)
 	}
+	fmt.Println("DEBUG: Impact check passed")
 
 	// Assert task facts to kernel
 	logging.CoderDebug("Asserting task facts to kernel")
+	fmt.Println("DEBUG: Asserting task facts")
 	c.assertTaskFacts(parsedTask)
+	fmt.Println("DEBUG: Task facts asserted")
 
 	// Read file context
 	contextTimer := logging.StartTimer(logging.CategoryCoder, "ReadFileContext")
+	fmt.Println("DEBUG: Reading file context")
 	fileContext, err := c.readFileContext(ctx, parsedTask.Target)
 	contextTimer.Stop()
+	fmt.Println("DEBUG: File context read (len=", len(fileContext), ")")
 	if err != nil && parsedTask.Action != "create" {
 		logging.Get(logging.CategoryCoder).Error("Failed to read file context: %v", err)
 		return "", fmt.Errorf("failed to read file context: %w", err)
@@ -355,7 +370,9 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 
 	// Generate code via LLM
 	genTimer := logging.StartTimer(logging.CategoryCoder, "GenerateCode")
+	fmt.Println("DEBUG: Calling generateCode")
 	result, err := c.generateCode(ctx, parsedTask, fileContext)
+	fmt.Println("DEBUG: generateCode returned")
 	genTimer.StopWithInfo()
 	if err != nil {
 		logging.Get(logging.CategoryCoder).Error("Code generation failed: %v", err)

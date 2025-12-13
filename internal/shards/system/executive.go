@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/types"
 )
 
 // Strategy represents an active execution strategy.
@@ -38,7 +39,7 @@ type ActionDecision struct {
 	Action      string
 	Target      string
 	Payload     map[string]interface{}
-	RawFact     core.Fact
+	RawFact     types.Fact
 	Rationale   string
 	DerivedAt   time.Time
 	FromRule    string
@@ -110,12 +111,12 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 	base := NewBaseSystemShard("executive_policy", StartupAuto)
 
 	// Configure permissions - minimal, read-only
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionReadFile,
-		core.PermissionCodeGraph,
-		core.PermissionAskUser,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionReadFile,
+		types.PermissionCodeGraph,
+		types.PermissionAskUser,
 	}
-	base.Config.Model = core.ModelConfig{} // No LLM by default - pure logic
+	base.Config.Model = types.ModelConfig{} // No LLM by default - pure logic
 
 	logging.SystemShardsDebug("[ExecutivePolicy] Config: tick_interval=%v, strict_barriers=%v, max_actions=%d",
 		cfg.TickInterval, cfg.StrictBarriers, cfg.MaxActionsPerTick)
@@ -184,14 +185,14 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 	e.mu.Unlock()
 	logging.SystemShardsDebug("[ExecutivePolicy] FeedbackLoop validation budget reset at session start")
 
-	e.SetState(core.ShardStateRunning)
+	e.SetState(types.ShardStateRunning)
 	e.mu.Lock()
 	e.running = true
 	e.StartTime = time.Now()
 	e.mu.Unlock()
 
 	defer func() {
-		e.SetState(core.ShardStateCompleted)
+		e.SetState(types.ShardStateCompleted)
 		e.mu.Lock()
 		e.running = false
 		e.mu.Unlock()
@@ -223,7 +224,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			// Core OODA loop: Observe -> Orient -> Decide -> (emit for Act)
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
-				_ = e.Kernel.Assert(core.Fact{
+				_ = e.Kernel.Assert(types.Fact{
 					Predicate: "executive_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
@@ -269,7 +270,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		// Emit strategy change fact
 		for _, s := range strategies {
 			logging.SystemShardsDebug("[ExecutivePolicy] Strategy activated: %s", s.Name)
-			_ = e.Kernel.Assert(core.Fact{
+			_ = e.Kernel.Assert(types.Fact{
 				Predicate: "strategy_activated",
 				Args:      []interface{}{s.Name, time.Now().Unix()},
 			})
@@ -280,7 +281,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	blocked, blockReason := e.checkBarriers()
 	if blocked && e.config.StrictBarriers {
 		logging.SystemShardsDebug("[ExecutivePolicy] Execution blocked: %s", blockReason)
-		_ = e.Kernel.Assert(core.Fact{
+		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "executive_blocked",
 			Args:      []interface{}{blockReason, time.Now().Unix()},
 		})
@@ -335,7 +336,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		}
 		actionCopy.Target = target
 		actionCopy.Payload = payload
-		_ = e.Kernel.Assert(core.Fact{
+		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "pending_action",
 			Args:      []interface{}{action.ID, action.Action, target, payload, time.Now().Unix()},
 		})
@@ -355,7 +356,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 
 		// Emit debug trace if enabled
 		if e.config.DebugMode {
-			_ = e.Kernel.Assert(core.Fact{
+			_ = e.Kernel.Assert(types.Fact{
 				Predicate: "executive_trace",
 				Args: []interface{}{
 					action.Action,
@@ -368,7 +369,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	if consumedCurrentIntent {
-		_ = e.Kernel.Assert(core.Fact{
+		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "executive_processed_intent",
 			Args:      []interface{}{"/current_intent"},
 		})
@@ -797,7 +798,7 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 			truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
 	} else {
 		// Low confidence rules are recorded but require approval
-		if assertErr := e.Kernel.Assert(core.Fact{
+		if assertErr := e.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",
 			Args: []interface{}{
 				"executive_policy",

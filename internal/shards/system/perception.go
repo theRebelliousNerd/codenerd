@@ -397,6 +397,9 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
 	_ = p.Kernel.Retract("ambiguity_flag")
 	_ = p.Kernel.Retract("clarification_needed")
+	_ = p.Kernel.Retract("awaiting_clarification")
+	_ = p.Kernel.Retract("awaiting_user_input")
+	_ = p.Kernel.Retract("campaign_awaiting_clarification")
 	_ = p.Kernel.Retract("focus_resolution")
 	_ = p.Kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})

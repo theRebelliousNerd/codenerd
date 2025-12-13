@@ -20,7 +20,9 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // StartupMode determines when a system shard starts.
@@ -174,11 +176,10 @@ func (g *CostGuard) IsIdle() bool {
 }
 
 // UnhandledCase represents a situation where Mangle rules couldn't derive a result.
-type UnhandledCase struct {
 	Timestamp   time.Time
 	Query       string            // The Mangle query that failed
 	Context     map[string]string // Relevant context
-	FactsAtTime []core.Fact       // Snapshot of facts when the case occurred
+	FactsAtTime []types.Fact      // Snapshot of facts when the case occurred
 }
 
 // ProposedRule represents an LLM-proposed Mangle rule for autopoiesis.
@@ -216,7 +217,7 @@ func NewAutopoiesisLoop() *AutopoiesisLoop {
 }
 
 // RecordUnhandled records an unhandled case.
-func (a *AutopoiesisLoop) RecordUnhandled(query string, ctx map[string]string, facts []core.Fact) {
+func (a *AutopoiesisLoop) RecordUnhandled(query string, ctx map[string]string, facts []types.Fact) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.UnhandledCases = append(a.UnhandledCases, UnhandledCase{
@@ -263,12 +264,12 @@ type BaseSystemShard struct {
 
 	// Identity
 	ID     string
-	Config core.ShardConfig
-	State  core.ShardState
+	Config types.ShardConfig
+	State  types.ShardState
 
 	// Components
 	Kernel       *core.RealKernel
-	LLMClient    core.LLMClient
+	LLMClient    types.LLMClient
 	VirtualStore *core.VirtualStore
 
 	// JIT prompt assembly (Phase 5)
@@ -303,8 +304,8 @@ func NewBaseSystemShard(id string, mode StartupMode) *BaseSystemShard {
 
 	return &BaseSystemShard{
 		ID:              id,
-		Config:          core.DefaultSystemConfig(id),
-		State:           core.ShardStateIdle,
+		Config:          coreshards.DefaultSystemConfig(id),
+		State:           types.ShardStateIdle,
 		StartupMode:     mode,
 		CostGuard:       NewCostGuard(),
 		Autopoiesis:     NewAutopoiesisLoop(),
@@ -324,14 +325,14 @@ func (b *BaseSystemShard) GetID() string {
 }
 
 // GetState returns the current state.
-func (b *BaseSystemShard) GetState() core.ShardState {
+func (b *BaseSystemShard) GetState() types.ShardState {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.State
 }
 
 // SetState sets the shard state.
-func (b *BaseSystemShard) SetState(state core.ShardState) {
+func (b *BaseSystemShard) SetState(state types.ShardState) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	oldState := b.State
@@ -342,7 +343,7 @@ func (b *BaseSystemShard) SetState(state core.ShardState) {
 }
 
 // GetConfig returns the shard configuration.
-func (b *BaseSystemShard) GetConfig() core.ShardConfig {
+func (b *BaseSystemShard) GetConfig() types.ShardConfig {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.Config
@@ -359,23 +360,23 @@ func (b *BaseSystemShard) GetKernel() *core.RealKernel {
 func (b *BaseSystemShard) Stop() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.State == core.ShardStateRunning {
+	if b.State == types.ShardStateRunning {
 		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.StartTime))
 		close(b.StopCh)
-		b.State = core.ShardStateCompleted
+		b.State = types.ShardStateCompleted
 	}
 	return nil
 }
 
 // SetLLMClient sets the LLM client.
-func (b *BaseSystemShard) SetLLMClient(client core.LLMClient) {
+func (b *BaseSystemShard) SetLLMClient(client types.LLMClient) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.LLMClient = client
 }
 
 // SetParentKernel sets the Mangle kernel.
-func (b *BaseSystemShard) SetParentKernel(k core.Kernel) {
+func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if rk, ok := k.(*core.RealKernel); ok {
@@ -615,7 +616,7 @@ func (b *BaseSystemShard) EmitHeartbeat() error {
 	if b.Kernel == nil {
 		return nil
 	}
-	return b.Kernel.Assert(core.Fact{
+	return b.Kernel.Assert(types.Fact{
 		Predicate: "system_heartbeat",
 		Args:      []interface{}{b.ID, time.Now().Unix()},
 	})
