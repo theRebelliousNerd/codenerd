@@ -1510,10 +1510,10 @@ Decl intent_ready_for_executive(IntentID).
 # Action flow derived predicates
 Decl action_pending_permission(ActionID).
 Decl permission_checked(ActionID).
-Decl permission_check_result(ActionID, Result, Reason).
+Decl permission_check_result(ActionID, Result, Reason, Timestamp).
 Decl action_blocked(ActionID, Reason).
 Decl action_routed(ActionID).
-Decl routing_result(ActionID, Result, Details).
+Decl routing_result(ActionID, Result, Details, Timestamp).
 Decl routing_succeeded(ActionID).
 Decl routing_failed(ActionID, Error).
 
@@ -2279,9 +2279,9 @@ Decl safety_warning(Warning).
 # 41.10 Execution & Context Predicates
 # -----------------------------------------------------------------------------
 
-# execution_result(Success, Output) - result of command execution
-# Success: /true, /false
-Decl execution_result(Success, Output).
+# execution_result(ActionType, Target, Success, Output, Timestamp) - result of action execution
+# Success: /true, /false (or boolean true/false when emitted from Go)
+Decl execution_result(ActionType, Target, Success, Output, Timestamp).
 
 # context_to_inject(Fact) - derived: facts selected for LLM context injection
 Decl context_to_inject(Fact).
