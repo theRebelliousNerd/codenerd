@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"bufio"
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
@@ -15,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -341,6 +343,45 @@ func readFileContent(workspace, path string, maxBytes int) (string, error) {
 		data = data[:maxBytes]
 	}
 	return string(data), nil
+}
+
+func countFileLines(workspace, path string) (int64, error) {
+	full := resolvePath(workspace, path)
+	f, err := os.Open(full)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	reader := bufio.NewReaderSize(f, 256*1024)
+	var lines int64
+	var sawAnyByte bool
+	lastByteWasNewline := false
+
+	for {
+		chunk, err := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			sawAnyByte = true
+			lastByteWasNewline = chunk[len(chunk)-1] == '\n'
+			if lastByteWasNewline {
+				lines++
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return 0, err
+		}
+	}
+
+	if !sawAnyByte {
+		return 0, nil
+	}
+	if !lastByteWasNewline {
+		lines++
+	}
+	return lines, nil
 }
 
 func writeFileContent(workspace, path, content string) error {
