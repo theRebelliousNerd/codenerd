@@ -158,8 +158,8 @@ type SessionContext = types.SessionContext
 
 // ShardConfig holds configuration for a shard.
 type ShardConfig struct {
-	Name          string
-	Type          ShardType
+	Name string
+	Type ShardType
 	// BaseType selects the underlying factory to use when Name doesn't match a registered factory.
 	// Intended for Type B (persistent) and Type U (user-defined) specialists.
 	BaseType      string
@@ -927,6 +927,7 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	// Retract old context (avoid stale facts)
 	_ = sm.kernel.Retract("current_shard_type")
 	_ = sm.kernel.Retract("current_intent")
+	_ = sm.kernel.Retract("current_time")
 
 	// Assert current shard type (with / prefix for Mangle atom)
 	shardAtom := "/" + query.ShardType
@@ -937,9 +938,11 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 
 	// Assert current intent if available
 	if query.IntentVerb != "" {
-		// Create a synthetic intent ID for routing purposes
-		intentID := "routing_context"
+		// Create a synthetic intent ID for routing purposes. Keep it distinct from
+		// "/current_intent" so routing context cannot pollute the main policy.
+		intentID := "/tool_routing_context"
 		verbAtom := "/" + query.IntentVerb
+		_ = sm.kernel.RetractFact(Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 		_ = sm.kernel.Assert(Fact{
 			Predicate: "current_intent",
 			Args:      []interface{}{intentID},
@@ -947,7 +950,9 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 		// Ensure user_intent fact exists for derivation rules
 		_ = sm.kernel.Assert(Fact{
 			Predicate: "user_intent",
-			Args:      []interface{}{intentID, "/mutation", verbAtom, query.TargetFile, "_"},
+			// Use a non-/mutation category so campaign rules do not treat tool-routing
+			// context as a user "mutation intent" during active campaigns.
+			Args: []interface{}{intentID, "/routing", verbAtom, query.TargetFile, "_"},
 		})
 	}
 

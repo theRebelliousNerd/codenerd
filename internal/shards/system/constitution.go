@@ -272,7 +272,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			// Unary permitted marker for OODA/debug rules
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "action_permitted",
-				Args:      []interface{}{actionType},
+				Args:      []interface{}{actionID},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)

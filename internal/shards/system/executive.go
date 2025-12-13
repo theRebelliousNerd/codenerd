@@ -380,6 +380,25 @@ func (e *ExecutivePolicyShard) latestUserIntent() *userIntentSnapshot {
 		return nil
 	}
 
+	// Prefer the canonical, stable intent ID when present.
+	for _, f := range facts {
+		if len(f.Args) < 5 {
+			continue
+		}
+		id := fmt.Sprintf("%v", f.Args[0])
+		if id != "/current_intent" {
+			continue
+		}
+		return &userIntentSnapshot{
+			ID:         id,
+			Category:   fmt.Sprintf("%v", f.Args[1]),
+			Verb:       fmt.Sprintf("%v", f.Args[2]),
+			Target:     fmt.Sprintf("%v", f.Args[3]),
+			Constraint: fmt.Sprintf("%v", f.Args[4]),
+			Timestamp:  time.Now().UnixNano(),
+		}
+	}
+
 	var best *userIntentSnapshot
 	for _, f := range facts {
 		if len(f.Args) < 5 {
