@@ -153,6 +153,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /define-agent | Define a new specialist agent |
 | /agents | List defined agents |
 | /spawn <type> <task> | Spawn a shard agent |
+| /ingest <agent> <path> | Ingest docs into an agent KB |
 | /legislate <constraint> | Synthesize & ratify a safety rule |
 | /review [path] [--andEnhance] | Code review (--andEnhance for creative suggestions) |
 | /security [path] | Security analysis |
@@ -453,7 +454,7 @@ Press **Enter** to begin...`,
 		} else if parts[1] == "set-key" {
 			// API keys are now provider-specific - guide user to use wizard or edit config directly
 			m.history = append(m.history, Message{
-				Role:    "assistant",
+				Role: "assistant",
 				Content: "API keys are now **provider-specific**. To update your API key:\n\n" +
 					"1. Run `/config wizard` to reconfigure all settings\n" +
 					"2. Or edit `.nerd/config.json` directly with the appropriate key:\n" +
@@ -1026,6 +1027,32 @@ You have an existing Northstar definition. What would you like to do?
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
 		return m, nil
+
+	case "/ingest":
+		if len(parts) < 3 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/ingest <agent> <path>`\n\nExample: `/ingest mangleexpert .claude/skills/mangle-programming/references`",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		agentName := parts[1]
+		docPath := strings.Join(parts[2:], " ")
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Ingesting documents into %s: %s", agentName, docPath),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.ingestAgentDocs(agentName, docPath))
 
 	case "/review":
 		target := "."

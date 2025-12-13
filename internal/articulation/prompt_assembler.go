@@ -46,8 +46,8 @@ type PromptAssembler struct {
 
 	// JIT compiler integration (Phase 5)
 	jitCompiler *prompt.JITPromptCompiler // Optional JIT compiler
-	useJIT      bool                       // Feature flag for JIT usage
-	mu          sync.RWMutex               // Protects JIT fields
+	useJIT      bool                      // Feature flag for JIT usage
+	mu          sync.RWMutex              // Protects JIT fields
 }
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
@@ -89,11 +89,29 @@ func NewPromptAssemblerWithJIT(kernel KernelQuerier, jitCompiler *prompt.JITProm
 func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.CompilationContext {
 	cc := prompt.NewCompilationContext()
 
+	stableShardID := func(instanceID, fallback string) string {
+		instanceID = strings.TrimSpace(instanceID)
+		if instanceID == "" {
+			return fallback
+		}
+		lastDash := strings.LastIndex(instanceID, "-")
+		if lastDash <= 0 || lastDash >= len(instanceID)-1 {
+			return fallback
+		}
+		suffix := instanceID[lastDash+1:]
+		for _, r := range suffix {
+			if r < '0' || r > '9' {
+				return fallback
+			}
+		}
+		return instanceID[:lastDash]
+	}
+
 	// Set shard context
 	cc.ShardType = "/" + pc.ShardType
 	// ShardID must be the stable agent name to match registered shard DBs and atom tags.
 	// pc.ShardID may be an ephemeral instance ID (e.g., coder-123), so keep it separately.
-	cc.ShardID = pc.ShardType
+	cc.ShardID = stableShardID(pc.ShardID, pc.ShardType)
 	cc.ShardInstanceID = pc.ShardID
 
 	// Set default token budget

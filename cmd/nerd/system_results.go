@@ -67,17 +67,80 @@ func formatSystemResults(routing, exec []core.Fact) string {
 	if len(routing) == 0 && len(exec) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	sb.WriteString("System actions:\n")
-	for _, f := range routing {
-		if len(f.Args) >= 3 {
-			sb.WriteString(fmt.Sprintf("- %v: %v (%v)\n", f.Args[0], f.Args[1], f.Args[2]))
+	const maxLines = 25
+	const maxField = 160
+
+	trunc := func(s string) string {
+		s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+		if len(s) > maxField {
+			return s[:maxField] + "..."
 		}
+		return s
 	}
-	for _, f := range exec {
-		if len(f.Args) >= 4 {
-			sb.WriteString(fmt.Sprintf("- %v %v -> success=%v; %v\n", f.Args[0], f.Args[1], f.Args[2], f.Args[3]))
+
+	lines := make([]string, 0, len(routing)+len(exec))
+
+	// routing_result(ActionID, Result, Details, Timestamp).
+	for _, f := range routing {
+		if len(f.Args) < 2 {
+			continue
 		}
+		actionID := fmt.Sprintf("%v", f.Args[0])
+		result := fmt.Sprintf("%v", f.Args[1])
+		details := ""
+		if len(f.Args) >= 3 {
+			details = trunc(fmt.Sprintf("%v", f.Args[2]))
+		}
+		if details == "" || details == "()" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", actionID, result))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s (%s)", actionID, result, details))
+	}
+
+	// execution_result(ActionID, Type, Target, Success, Output, Timestamp).
+	for _, f := range exec {
+		if len(f.Args) < 4 {
+			continue
+		}
+		actionID := fmt.Sprintf("%v", f.Args[0])
+		actionType := fmt.Sprintf("%v", f.Args[1])
+		target := ""
+		success := ""
+		output := ""
+		if len(f.Args) >= 3 {
+			target = trunc(fmt.Sprintf("%v", f.Args[2]))
+		}
+		if len(f.Args) >= 4 {
+			success = fmt.Sprintf("%v", f.Args[3])
+		}
+		if len(f.Args) >= 5 {
+			output = trunc(fmt.Sprintf("%v", f.Args[4]))
+		}
+
+		line := fmt.Sprintf("- %s: %s", actionID, actionType)
+		if strings.TrimSpace(target) != "" {
+			line += fmt.Sprintf(" target=%s", target)
+		}
+		if strings.TrimSpace(success) != "" {
+			line += fmt.Sprintf(" success=%s", success)
+		}
+		if strings.TrimSpace(output) != "" {
+			line += fmt.Sprintf(" output=%s", output)
+		}
+		lines = append(lines, line)
+	}
+
+	var sb strings.Builder
+	total := len(lines)
+	if total > maxLines {
+		sb.WriteString(fmt.Sprintf("System actions (showing last %d of %d):\n", maxLines, total))
+		lines = lines[total-maxLines:]
+	} else {
+		sb.WriteString("System actions:\n")
+	}
+	for _, line := range lines {
+		sb.WriteString(line + "\n")
 	}
 	return strings.TrimSpace(sb.String())
 }
