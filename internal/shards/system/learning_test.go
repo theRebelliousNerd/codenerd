@@ -2,8 +2,8 @@
 package system
 
 import (
-	"codenerd/internal/core"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,14 +20,14 @@ func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []
 	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
 }
 
-func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.Load(shardType)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]core.ShardLearning, len(learnings))
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,
@@ -36,14 +36,14 @@ func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, err
 	return result, nil
 }
 
-func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.LoadByPredicate(shardType, predicate)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]core.ShardLearning, len(learnings))
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,

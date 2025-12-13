@@ -176,6 +176,7 @@ func (g *CostGuard) IsIdle() bool {
 }
 
 // UnhandledCase represents a situation where Mangle rules couldn't derive a result.
+type UnhandledCase struct {
 	Timestamp   time.Time
 	Query       string            // The Mangle query that failed
 	Context     map[string]string // Relevant context
@@ -283,7 +284,7 @@ type BaseSystemShard struct {
 	Autopoiesis *AutopoiesisLoop
 
 	// Learning infrastructure for autopoiesis
-	learningStore   core.LearningStore
+	learningStore   types.LearningStore
 	patternSuccess  map[string]int // Track successful patterns
 	patternFailure  map[string]int // Track failed patterns
 	corrections     map[string]int // Track user corrections
@@ -389,17 +390,30 @@ func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).
-func (b *BaseSystemShard) SetSessionContext(ctx *core.SessionContext) {
+func (b *BaseSystemShard) SetSessionContext(ctx *types.SessionContext) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.Config.SessionContext = ctx
 }
 
 // SetVirtualStore sets the virtual store.
-func (b *BaseSystemShard) SetVirtualStore(vs *core.VirtualStore) {
+func (b *BaseSystemShard) SetVirtualStore(vs any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.VirtualStore = vs
+	if v, ok := vs.(*core.VirtualStore); ok {
+		b.VirtualStore = v
+		logging.SystemShardsDebug("[%s] VirtualStore attached", b.ID)
+	} else {
+		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid VirtualStore type", b.ID)
+	}
+}
+
+// truncateForLog limits string length for logging
+func truncateForLog(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "..."
 }
 
 // SetPromptAssembler sets the prompt assembler for JIT compilation.

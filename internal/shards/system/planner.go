@@ -21,6 +21,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // AgendaItem represents a task in the session agenda.
@@ -124,12 +125,12 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 	base := NewBaseSystemShard("session_planner", StartupOnDemand)
 
 	// Configure permissions
-	base.Config.Permissions = []core.ShardPermission{
-		core.PermissionAskUser,
-		core.PermissionReadFile,
+	base.Config.Permissions = []types.ShardPermission{
+		types.PermissionAskUser,
+		types.PermissionReadFile,
 	}
-	base.Config.Model = core.ModelConfig{
-		Capability: core.CapabilityHighReasoning, // Need good planning
+	base.Config.Model = types.ModelConfig{
+		Capability: types.CapabilityHighReasoning, // Need good planning
 	}
 
 	// Configure idle timeout
@@ -151,7 +152,7 @@ func NewSessionPlannerShardWithConfig(cfg PlannerConfig) *SessionPlannerShard {
 // Execute runs the Session Planner's orchestration loop.
 func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[SessionPlanner] Starting orchestration loop")
-	s.SetState(core.ShardStateRunning)
+	s.SetState(types.ShardStateRunning)
 	s.mu.Lock()
 	s.running = true
 	s.StartTime = time.Now()
@@ -159,7 +160,7 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 	s.mu.Unlock()
 
 	defer func() {
-		s.SetState(core.ShardStateCompleted)
+		s.SetState(types.ShardStateCompleted)
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
@@ -301,7 +302,7 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 
 	// Emit agenda facts
 	for _, item := range items {
-		_ = s.Kernel.Assert(core.Fact{
+		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "agenda_item",
 			Args: []interface{}{
 				item.ID,
@@ -543,7 +544,7 @@ func (s *SessionPlannerShard) syncTaskStatusToKernel(taskID, newStatus string) {
 
 		// Assert new fact with updated status
 		// campaign_task(TaskID, PhaseID, Description, Status, TaskType)
-		newFact := core.Fact{
+		newFact := types.Fact{
 			Predicate: "campaign_task",
 			Args: []interface{}{
 				f.Args[0], // TaskID
@@ -572,7 +573,7 @@ func (s *SessionPlannerShard) checkBlockedTasks() {
 			s.retryCount[item.ID]++
 			if s.retryCount[item.ID] >= s.config.MaxRetriesPerTask {
 				// Escalate to user
-				_ = s.Kernel.Assert(core.Fact{
+				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "escalation_needed",
 					Args: []interface{}{
 						"session_planner",
@@ -610,7 +611,7 @@ func (s *SessionPlannerShard) createCheckpoint(trigger string) {
 	s.lastCheckpoint = time.Now()
 
 	// Emit checkpoint fact
-	_ = s.Kernel.Assert(core.Fact{
+	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "session_checkpoint",
 		Args: []interface{}{
 			checkpoint.ID,
@@ -644,7 +645,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 	}
 
 	// Emit summary status fact
-	_ = s.Kernel.Assert(core.Fact{
+	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "session_planner_status",
 		Args: []interface{}{
 			len(s.agenda),
@@ -667,7 +668,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 		}
 
 		// Emit plan_task fact
-		_ = s.Kernel.Assert(core.Fact{
+		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "plan_task",
 			Args: []interface{}{
 				item.ID,
@@ -685,7 +686,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 	}
 
 	// Emit plan_progress fact
-	_ = s.Kernel.Assert(core.Fact{
+	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "plan_progress",
 		Args: []interface{}{
 			s.activeCampaign,
@@ -737,7 +738,7 @@ func (s *SessionPlannerShard) AddTask(description string, priority int) string {
 	s.agenda = append(s.agenda, item)
 	s.lastActivity = time.Now()
 
-	_ = s.Kernel.Assert(core.Fact{
+	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "agenda_item",
 		Args: []interface{}{
 			item.ID,

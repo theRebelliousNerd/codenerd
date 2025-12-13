@@ -60,7 +60,6 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 func NewLegislatorShard() *LegislatorShard {
 	logging.SystemShards("[Legislator] Initializing legislator shard")
 	base := NewBaseSystemShard("legislator", StartupOnDemand)
-	base := NewBaseSystemShard("legislator", StartupOnDemand)
 	base.Config.Permissions = []types.ShardPermission{
 		types.PermissionReadFile,
 		types.PermissionWriteFile,
@@ -137,14 +136,6 @@ func (l *LegislatorShard) Execute(ctx context.Context, task string) (string, err
 
 	logging.SystemShards("[Legislator] Rule ratified and hot-loaded successfully")
 	return fmt.Sprintf("Rule ratified and applied:\n%s", rule), nil
-}
-
-// truncateForLog truncates a string for logging purposes.
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }
 
 // compileRule turns a directive into a Mangle rule (LLM-backed when needed).

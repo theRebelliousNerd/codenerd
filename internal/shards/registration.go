@@ -574,43 +574,43 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 	})
 
 	// Executive Policy - AUTO-START, Pure logic (no LLM by default)
-	sm.DefineProfile("executive_policy", core.ShardConfig{
+	sm.DefineProfile("executive_policy", types.ShardConfig{
 		Name: "executive_policy",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionCodeGraph,
-			core.PermissionAskUser,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionCodeGraph,
+			types.PermissionAskUser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 7000,
-		Model:       core.ModelConfig{}, // No LLM needed for core logic
+		Model:       types.ModelConfig{}, // No LLM needed for core logic
 	})
 
 	// Constitution Gate - AUTO-START, Pure logic (SAFETY-CRITICAL)
-	sm.DefineProfile("constitution_gate", core.ShardConfig{
+	sm.DefineProfile("constitution_gate", types.ShardConfig{
 		Name: "constitution_gate",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionAskUser, // Only for escalation
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionAskUser, // Only for escalation
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 2500,
-		Model:       core.ModelConfig{}, // No LLM - safety MUST be deterministic
+		Model:       types.ModelConfig{}, // No LLM - safety MUST be deterministic
 	})
 
 	// Tactile Router - ON-DEMAND, Pure logic
-	sm.DefineProfile("tactile_router", core.ShardConfig{
+	sm.DefineProfile("tactile_router", types.ShardConfig{
 		Name: "tactile_router",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionExecCmd,
-			core.PermissionNetwork,
-			core.PermissionBrowser,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionExecCmd,
+			types.PermissionNetwork,
+			types.PermissionBrowser,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 6000,
-		Model:       core.ModelConfig{}, // No LLM needed
+		Model:       types.ModelConfig{}, // No LLM needed
 	})
 
 	// Session Planner - ON-DEMAND, LLM for goal decomposition
@@ -629,31 +629,31 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 	})
 
 	// Campaign Runner - AUTO-START, supervisor (uses orchestrator + shards)
-	sm.DefineProfile("campaign_runner", core.ShardConfig{
+	sm.DefineProfile("campaign_runner", types.ShardConfig{
 		Name: "campaign_runner",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionWriteFile,
-			core.PermissionExecCmd,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionWriteFile,
+			types.PermissionExecCmd,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 6000,
-		Model: core.ModelConfig{
-			Capability: core.CapabilityBalanced,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityBalanced,
 		},
 	})
 
 	// Legislator - ON-DEMAND, Logic-primary for learned constraints
-	sm.DefineProfile("legislator", core.ShardConfig{
+	sm.DefineProfile("legislator", types.ShardConfig{
 		Name: "legislator",
-		Type: core.ShardTypeSystem,
-		Permissions: []core.ShardPermission{
-			core.PermissionReadFile,
-			core.PermissionCodeGraph,
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+			types.PermissionCodeGraph,
 		},
 		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
 		MemoryLimit: 4000,
-		Model:       core.ModelConfig{}, // No LLM - constraint synthesis is logic-primary
+		Model:       types.ModelConfig{}, // No LLM - constraint synthesis is logic-primary
 	})
 }

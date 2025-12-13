@@ -85,13 +85,6 @@ type ShardResult struct {
 	Timestamp time.Time
 }
 
-// ToolInfo represents a tool available to a shard.
-type ToolInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	BinaryPath  string `json:"binary_path,omitempty"`
-}
-
 // SpawnPriority defines the scheduling priority for spawn requests.
 type SpawnPriority int
 

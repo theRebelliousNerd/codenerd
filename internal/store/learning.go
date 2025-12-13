@@ -6,6 +6,7 @@ package store
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -149,7 +150,7 @@ func (ls *LearningStore) Save(shardType string, factPredicate string, factArgs [
 }
 
 // Load retrieves all learnings for a shard type.
-func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
+func (ls *LearningStore) Load(shardType string) ([]types.ShardLearning, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.Load")
 	defer timer.Stop()
 
@@ -172,7 +173,7 @@ func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
 	}
 	defer rows.Close()
 
-	var learnings []Learning
+	var learnings []types.ShardLearning
 	for rows.Next() {
 		var l Learning
 		var argsJSON string
@@ -182,7 +183,12 @@ func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
 		if err := json.Unmarshal([]byte(argsJSON), &l.FactArgs); err != nil {
 			continue
 		}
-		learnings = append(learnings, l)
+		learnings = append(learnings, types.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+			Timestamp:     l.LearnedAt.Unix(),
+		})
 	}
 
 	logging.StoreDebug("Loaded %d learnings for shard=%s", len(learnings), shardType)
@@ -190,7 +196,7 @@ func (ls *LearningStore) Load(shardType string) ([]Learning, error) {
 }
 
 // LoadByPredicate retrieves learnings filtered by predicate.
-func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learning, error) {
+func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.LoadByPredicate")
 	defer timer.Stop()
 
@@ -213,7 +219,7 @@ func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learnin
 	}
 	defer rows.Close()
 
-	var learnings []Learning
+	var learnings []types.ShardLearning
 	for rows.Next() {
 		var l Learning
 		var argsJSON string
@@ -223,7 +229,12 @@ func (ls *LearningStore) LoadByPredicate(shardType, predicate string) ([]Learnin
 		if err := json.Unmarshal([]byte(argsJSON), &l.FactArgs); err != nil {
 			continue
 		}
-		learnings = append(learnings, l)
+		learnings = append(learnings, types.ShardLearning{
+			FactPredicate: l.FactPredicate,
+			FactArgs:      l.FactArgs,
+			Confidence:    l.Confidence,
+			Timestamp:     l.LearnedAt.Unix(),
+		})
 	}
 
 	logging.StoreDebug("Loaded %d learnings for predicate=%s", len(learnings), predicate)

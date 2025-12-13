@@ -57,3 +57,34 @@ type ReviewerFeedbackProvider interface {
 	RejectFinding(reviewID, file string, line int, reason string)
 	GetAccuracyReport(reviewID string) string
 }
+
+// LimitsEnforcer defines the interface for resource limits.
+type LimitsEnforcer interface {
+	CheckShardLimit(activeCount int) error
+	CheckMemory() error
+	GetAvailableShardSlots(activeCount int) int
+}
+
+// ShardLearning represents a learned pattern or preference.
+type ShardLearning struct {
+	FactPredicate string  `json:"fact_predicate"`
+	FactArgs      []any   `json:"fact_args"`
+	Confidence    float64 `json:"confidence"`
+	Timestamp     int64   `json:"timestamp"`
+}
+
+// LearningStore defines the interface for persisting learned patterns.
+// Used by autopoiesis.
+type LearningStore interface {
+	Save(shardID, predicate string, args []any, source string) error
+	LoadByPredicate(shardID, predicate string) ([]ShardLearning, error)
+}
+
+// VirtualStore defines the interface for the virtual filesystem and execution environment.
+// This is a marker interface to break import cycles; implementation is *core.VirtualStore.
+type VirtualStore interface {
+	// Methods required by shards (expand as needed)
+	ReadFile(path string) ([]string, error)
+	WriteFile(path string, content []string) error
+	Exec(ctx context.Context, cmd string, env []string) (string, string, error)
+}

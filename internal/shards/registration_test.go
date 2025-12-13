@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/shards/tool_generator"
+	"codenerd/internal/types"
 )
 
-// MockLLMClient implements core.LLMClient
+// MockLLMClient implements types.LLMClient
 type MockLLMClient struct{}
 
 func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -40,7 +42,7 @@ func TestRegisterAllShardFactories_HollowShardsFixed(t *testing.T) {
 		VirtualStore: virtualStore,
 	}
 
-	sm := core.NewShardManager()
+	sm := coreshards.NewShardManager()
 
 	// 2. Register Factories
 	shards.RegisterAllShardFactories(sm, ctx)
@@ -172,15 +174,15 @@ func TestRegisterAllShardFactories_HollowShardsFixed(t *testing.T) {
 	// 7. Verify Dynamic Shard Injection (ShardManager Fallback)
 	t.Run("DynamicShardInjection", func(t *testing.T) {
 		// Create a ShardManager and set VirtualStore
-		smDynamic := core.NewShardManager()
+		smDynamic := coreshards.NewShardManager()
 		smDynamic.SetParentKernel(kernel)
 		smDynamic.SetLLMClient(llmClient)
 		smDynamic.SetVirtualStore(virtualStore)
 
 		// Register a mock "user" profile that falls back to BaseShardAgent
-		smDynamic.DefineProfile("user_agent", core.ShardConfig{
+		smDynamic.DefineProfile("user_agent", types.ShardConfig{
 			Name: "user_agent",
-			Type: core.ShardTypePersistent,
+			Type: types.ShardTypePersistent,
 		})
 
 		// Spawn it. It should use BaseShardAgent factory fallback.

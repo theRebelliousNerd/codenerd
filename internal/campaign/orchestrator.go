@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
@@ -25,16 +26,16 @@ type Orchestrator struct {
 	// Core components
 	kernel       *core.RealKernel
 	llmClient    perception.LLMClient
-	shardMgr     *core.ShardManager
+	shardMgr     *coreshards.ShardManager
 	executor     *tactile.SafeExecutor
 	virtualStore *core.VirtualStore
 	transducer   *perception.RealTransducer
 
 	// Campaign-specific components
-	contextPager *ContextPager
-	checkpoint   *CheckpointRunner
-	replanner    *Replanner
-	decomposer   *Decomposer
+	contextPager   *ContextPager
+	checkpoint     *CheckpointRunner
+	replanner      *Replanner
+	decomposer     *Decomposer
 	promptProvider PromptProvider
 
 	// State
@@ -76,27 +77,27 @@ type OrchestratorEvent struct {
 
 // OrchestratorConfig holds configuration for the orchestrator.
 type OrchestratorConfig struct {
-	Workspace        string
-	Kernel           *core.RealKernel
-	LLMClient        perception.LLMClient
-	ShardManager     *core.ShardManager
-	Executor         *tactile.SafeExecutor
-	VirtualStore     *core.VirtualStore
-	ProgressChan     chan Progress
-	EventChan        chan OrchestratorEvent
-	MaxRetries       int           // Max retries per task (default 3)
-	CheckpointOnFail bool          // Run checkpoint after task failure
-	AutoReplan       bool          // Auto-replan on too many failures
-	ReplanThreshold  int           // Failures before replan (default 3)
-	MaxParallelTasks int           // Max tasks to run in parallel (default 3)
-	CampaignTimeout  time.Duration // Max total campaign runtime (default: 4 hours)
-	TaskTimeout      time.Duration // Max time per task (default: 30 minutes)
-	DisableTimeouts  bool          // Disable all timeouts for long-horizon campaigns
-	HeartbeatEvery   time.Duration // Emit heartbeat/progress every N duration (default: 15s)
-	AutosaveEvery    time.Duration // Persist campaign every N duration (default: 1m)
-	TaskResultCacheLimit int       // Max task results kept for context injection (default: 100)
-	RetryBackoffBase time.Duration // Base backoff between retries (default: 5s)
-	RetryBackoffMax  time.Duration // Max backoff between retries (default: 5m)
+	Workspace            string
+	Kernel               *core.RealKernel
+	LLMClient            perception.LLMClient
+	ShardManager         *coreshards.ShardManager
+	Executor             *tactile.SafeExecutor
+	VirtualStore         *core.VirtualStore
+	ProgressChan         chan Progress
+	EventChan            chan OrchestratorEvent
+	MaxRetries           int           // Max retries per task (default 3)
+	CheckpointOnFail     bool          // Run checkpoint after task failure
+	AutoReplan           bool          // Auto-replan on too many failures
+	ReplanThreshold      int           // Failures before replan (default 3)
+	MaxParallelTasks     int           // Max tasks to run in parallel (default 3)
+	CampaignTimeout      time.Duration // Max total campaign runtime (default: 4 hours)
+	TaskTimeout          time.Duration // Max time per task (default: 30 minutes)
+	DisableTimeouts      bool          // Disable all timeouts for long-horizon campaigns
+	HeartbeatEvery       time.Duration // Emit heartbeat/progress every N duration (default: 15s)
+	AutosaveEvery        time.Duration // Persist campaign every N duration (default: 1m)
+	TaskResultCacheLimit int           // Max task results kept for context injection (default: 100)
+	RetryBackoffBase     time.Duration // Base backoff between retries (default: 5s)
+	RetryBackoffMax      time.Duration // Max backoff between retries (default: 5m)
 }
 
 // NewOrchestrator creates a new campaign orchestrator.
