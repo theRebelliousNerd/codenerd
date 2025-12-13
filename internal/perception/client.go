@@ -734,6 +734,7 @@ type AnthropicRequest struct {
 	System      string             `json:"system,omitempty"`
 	Messages    []AnthropicMessage `json:"messages"`
 	Temperature float64            `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
 }
 
 // AnthropicMessage represents a message.
@@ -837,6 +838,131 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 	return strings.TrimSpace(result.String()), nil
 }
 
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		if c.apiKey == "" {
+			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		reqBody := AnthropicRequest{
+			Model:     c.model,
+			MaxTokens: 4096,
+			System:    systemPrompt,
+			Messages: []AnthropicMessage{
+				{Role: "user", Content: userPrompt},
+			},
+			Temperature: 0.1,
+			Stream:      true,
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to create request: %w", err)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			errorChan <- fmt.Errorf("request failed: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		scanDone := make(chan struct{})
+		scanErrChan := make(chan error, 1)
+
+		go func() {
+			defer close(scanDone)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if data == "" {
+					continue
+				}
+				if data == "[DONE]" {
+					return
+				}
+
+				var evt struct {
+					Type  string `json:"type"`
+					Delta *struct {
+						Type string `json:"type"`
+						Text string `json:"text,omitempty"`
+					} `json:"delta,omitempty"`
+					Error *struct {
+						Type    string `json:"type"`
+						Message string `json:"message"`
+					} `json:"error,omitempty"`
+				}
+				if err := json.Unmarshal([]byte(data), &evt); err != nil {
+					continue
+				}
+				if evt.Error != nil {
+					scanErrChan <- fmt.Errorf("API error: %s", evt.Error.Message)
+					return
+				}
+				if evt.Type == "content_block_delta" && evt.Delta != nil && evt.Delta.Text != "" {
+					select {
+					case contentChan <- evt.Delta.Text:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				scanErrChan <- err
+			}
+		}()
+
+		select {
+		case <-scanDone:
+			select {
+			case err := <-scanErrChan:
+				errorChan <- fmt.Errorf("stream error: %w", err)
+			default:
+			}
+		case <-ctx.Done():
+			resp.Body.Close()
+			<-scanDone
+			errorChan <- ctx.Err()
+		}
+	}()
+
+	return contentChan, errorChan
+}
+
 // SetModel changes the model used for completions.
 func (c *AnthropicClient) SetModel(model string) {
 	c.model = model
@@ -906,10 +1032,17 @@ func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 
 // OpenAIRequest represents the OpenAI API request.
 type OpenAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []OpenAIMessage `json:"messages"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Temperature float64         `json:"temperature,omitempty"`
+	Model          string               `json:"model"`
+	Messages       []OpenAIMessage      `json:"messages"`
+	MaxTokens      int                  `json:"max_tokens,omitempty"`
+	Temperature    float64              `json:"temperature,omitempty"`
+	Stream         bool                 `json:"stream,omitempty"`
+	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitempty"`
+	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitempty"`
+}
+
+type OpenAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 // OpenAIMessage represents a message.
@@ -930,6 +1063,10 @@ type OpenAIResponse struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"message"`
+		Delta *struct { // For streaming
+			Role    string `json:"role,omitempty"`
+			Content string `json:"content,omitempty"`
+		} `json:"delta,omitempty"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
@@ -959,6 +1096,11 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		systemPrompt = defaultSystemPrompt
 	}
 
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
 	// Rate limiting
 	c.mu.Lock()
 	elapsed := time.Since(c.lastRequest)
@@ -979,10 +1121,8 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		MaxTokens:   4096,
 		Temperature: 0.1,
 	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+	if isPiggyback {
+		reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
 	}
 
 	// Retry loop for rate limits
@@ -992,6 +1132,11 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
@@ -1021,6 +1166,15 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			// Some providers/models reject response_format; retry once without it.
+			if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+					reqBody.ResponseFormat = nil
+					lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+					continue
+				}
+			}
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -1041,6 +1195,182 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	}
 
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		if c.apiKey == "" {
+			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		if strings.TrimSpace(systemPrompt) == "" {
+			systemPrompt = defaultSystemPrompt
+		}
+
+		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet")
+
+		// Rate limiting
+		c.mu.Lock()
+		elapsed := time.Since(c.lastRequest)
+		if elapsed < 100*time.Millisecond {
+			time.Sleep(100*time.Millisecond - elapsed)
+		}
+		c.lastRequest = time.Now()
+		c.mu.Unlock()
+
+		messages := []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		}
+
+		reqBody := OpenAIRequest{
+			Model:       c.model,
+			Messages:    messages,
+			MaxTokens:   4096,
+			Temperature: 0.1,
+			Stream:      true,
+			StreamOptions: &OpenAIStreamOptions{
+				IncludeUsage: true,
+			},
+		}
+		if isPiggyback {
+			reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+		}
+
+		// Retry loop for initial request setup / rate limits (before streaming begins).
+		maxRetries := 3
+		var lastErr error
+
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				return
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = fmt.Errorf("request failed: %w", err)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				// Some providers/models reject response_format; retry once without it.
+				if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+					bodyStr := string(body)
+					if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+						reqBody.ResponseFormat = nil
+						lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+						continue
+					}
+				}
+
+				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+				return
+			}
+
+			defer resp.Body.Close()
+
+			scanner := bufio.NewScanner(resp.Body)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+			scanDone := make(chan struct{})
+			scanErrChan := make(chan error, 1)
+
+			go func() {
+				defer close(scanDone)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if !strings.HasPrefix(line, "data:") {
+						continue
+					}
+					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					if data == "" {
+						continue
+					}
+					if data == "[DONE]" {
+						return
+					}
+
+					var chunk OpenAIResponse
+					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+						continue
+					}
+					if chunk.Error != nil {
+						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
+						return
+					}
+					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
+						delta := chunk.Choices[0].Delta.Content
+						if delta != "" {
+							select {
+							case contentChan <- delta:
+							case <-ctx.Done():
+								return
+							}
+						}
+					}
+				}
+				if err := scanner.Err(); err != nil {
+					scanErrChan <- err
+				}
+			}()
+
+			select {
+			case <-scanDone:
+				select {
+				case err := <-scanErrChan:
+					errorChan <- fmt.Errorf("stream error: %w", err)
+				default:
+				}
+			case <-ctx.Done():
+				resp.Body.Close()
+				<-scanDone
+				errorChan <- ctx.Err()
+			}
+			return
+		}
+
+		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
+	}()
+
+	return contentChan, errorChan
 }
 
 // SetModel changes the model used for completions.
@@ -1123,8 +1453,10 @@ type GeminiPart struct {
 
 // GeminiGenerationConfig represents generation parameters.
 type GeminiGenerationConfig struct {
-	Temperature     float64 `json:"temperature,omitempty"`
-	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
+	Temperature        float64                `json:"temperature,omitempty"`
+	MaxOutputTokens    int                    `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType   string                 `json:"responseMimeType,omitempty"`
+	ResponseJsonSchema map[string]interface{} `json:"responseJsonSchema,omitempty"`
 }
 
 // GeminiResponse represents the API response.
@@ -1165,6 +1497,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		systemPrompt = defaultSystemPrompt
 	}
 
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
 	// Rate limiting
 	c.mu.Lock()
 	elapsed := time.Since(c.lastRequest)
@@ -1189,10 +1526,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			MaxOutputTokens: 4096,
 		},
 	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+	if isPiggyback {
+		if env := BuildPiggybackEnvelopeSchema(); env != nil && env.JSONSchema != nil {
+			reqBody.GenerationConfig.ResponseMimeType = "application/json"
+			reqBody.GenerationConfig.ResponseJsonSchema = env.JSONSchema.Schema
+		}
 	}
 
 	// Construct URL with API key
@@ -1205,6 +1543,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
@@ -1233,6 +1576,16 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			// Some models may reject responseJsonSchema; retry once without it.
+			if isPiggyback && reqBody.GenerationConfig.ResponseJsonSchema != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") {
+					reqBody.GenerationConfig.ResponseJsonSchema = nil
+					reqBody.GenerationConfig.ResponseMimeType = ""
+					lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
+					continue
+				}
+			}
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -1258,6 +1611,189 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	}
 
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		if c.apiKey == "" {
+			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		if strings.TrimSpace(systemPrompt) == "" {
+			systemPrompt = defaultSystemPrompt
+		}
+
+		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet")
+
+		// Rate limiting
+		c.mu.Lock()
+		elapsed := time.Since(c.lastRequest)
+		if elapsed < 100*time.Millisecond {
+			time.Sleep(100*time.Millisecond - elapsed)
+		}
+		c.lastRequest = time.Now()
+		c.mu.Unlock()
+
+		reqBody := GeminiRequest{
+			Contents: []GeminiContent{
+				{
+					Role:  "user",
+					Parts: []GeminiPart{{Text: userPrompt}},
+				},
+			},
+			SystemInstruction: &GeminiContent{
+				Parts: []GeminiPart{{Text: systemPrompt}},
+			},
+			GenerationConfig: GeminiGenerationConfig{
+				Temperature:     0.1,
+				MaxOutputTokens: 4096,
+			},
+		}
+		if isPiggyback {
+			if env := BuildPiggybackEnvelopeSchema(); env != nil && env.JSONSchema != nil {
+				reqBody.GenerationConfig.ResponseMimeType = "application/json"
+				reqBody.GenerationConfig.ResponseJsonSchema = env.JSONSchema.Schema
+			}
+		}
+
+		url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)
+
+		maxRetries := 3
+		var lastErr error
+
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				return
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = fmt.Errorf("request failed: %w", err)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				// Some models may reject responseJsonSchema; retry once without it.
+				if isPiggyback && reqBody.GenerationConfig.ResponseJsonSchema != nil && resp.StatusCode == http.StatusBadRequest {
+					bodyStr := string(body)
+					if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") {
+						reqBody.GenerationConfig.ResponseJsonSchema = nil
+						reqBody.GenerationConfig.ResponseMimeType = ""
+						lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
+						continue
+					}
+				}
+
+				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+				return
+			}
+
+			defer resp.Body.Close()
+
+			scanner := bufio.NewScanner(resp.Body)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+			scanDone := make(chan struct{})
+			scanErrChan := make(chan error, 1)
+
+			go func() {
+				defer close(scanDone)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if !strings.HasPrefix(line, "data:") {
+						continue
+					}
+					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					if data == "" {
+						continue
+					}
+					if data == "[DONE]" {
+						return
+					}
+
+					var chunk GeminiResponse
+					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+						continue
+					}
+					if chunk.Error != nil {
+						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
+						return
+					}
+					if len(chunk.Candidates) == 0 {
+						continue
+					}
+					for _, part := range chunk.Candidates[0].Content.Parts {
+						if part.Text == "" {
+							continue
+						}
+						select {
+						case contentChan <- part.Text:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+				if err := scanner.Err(); err != nil {
+					scanErrChan <- err
+				}
+			}()
+
+			select {
+			case <-scanDone:
+				select {
+				case err := <-scanErrChan:
+					errorChan <- fmt.Errorf("stream error: %w", err)
+				default:
+				}
+			case <-ctx.Done():
+				resp.Body.Close()
+				<-scanDone
+				errorChan <- ctx.Err()
+			}
+			return
+		}
+
+		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
+	}()
+
+	return contentChan, errorChan
 }
 
 // SetModel changes the model used for completions.
@@ -1541,6 +2077,11 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		systemPrompt = defaultSystemPrompt
 	}
 
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
 	// Rate limiting
 	c.mu.Lock()
 	elapsed := time.Since(c.lastRequest)
@@ -1561,10 +2102,8 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		MaxTokens:   4096,
 		Temperature: 0.1,
 	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+	if isPiggyback {
+		reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
 	}
 
 	// Retry loop for rate limits
@@ -1574,6 +2113,11 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	for i := 0; i <= maxRetries; i++ {
 		if i > 0 {
 			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
@@ -1606,6 +2150,15 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			// Some providers/models reject response_format; retry once without it.
+			if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+					reqBody.ResponseFormat = nil
+					lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+					continue
+				}
+			}
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -1626,6 +2179,183 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	}
 
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+// Returns channels of incremental content deltas.
+func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+
+		if c.apiKey == "" {
+			errorChan <- fmt.Errorf("API key not configured")
+			return
+		}
+
+		if strings.TrimSpace(systemPrompt) == "" {
+			systemPrompt = defaultSystemPrompt
+		}
+
+		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+			strings.Contains(systemPrompt, "surface_response") ||
+			strings.Contains(userPrompt, "PiggybackEnvelope") ||
+			strings.Contains(userPrompt, "control_packet")
+
+		// Rate limiting
+		c.mu.Lock()
+		elapsed := time.Since(c.lastRequest)
+		if elapsed < 100*time.Millisecond {
+			time.Sleep(100*time.Millisecond - elapsed)
+		}
+		c.lastRequest = time.Now()
+		c.mu.Unlock()
+
+		messages := []OpenRouterMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		}
+
+		reqBody := OpenRouterRequest{
+			Model:       c.model,
+			Messages:    messages,
+			MaxTokens:   4096,
+			Temperature: 0.1,
+			Stream:      true,
+			StreamOptions: &OpenAIStreamOptions{
+				IncludeUsage: true,
+			},
+		}
+		if isPiggyback {
+			reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+		}
+
+		maxRetries := 3
+		var lastErr error
+
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+				return
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+			if err != nil {
+				errorChan <- fmt.Errorf("failed to create request: %w", err)
+				return
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Accept", "text/event-stream")
+			req.Header.Set("HTTP-Referer", c.siteURL)
+			req.Header.Set("X-Title", c.siteName)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				lastErr = fmt.Errorf("request failed: %w", err)
+				continue
+			}
+
+			if resp.StatusCode == http.StatusTooManyRequests {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+
+				// Some providers/models reject response_format; retry once without it.
+				if isPiggyback && reqBody.ResponseFormat != nil && resp.StatusCode == http.StatusBadRequest {
+					bodyStr := string(body)
+					if strings.Contains(bodyStr, "response_format") || strings.Contains(bodyStr, "json_schema") {
+						reqBody.ResponseFormat = nil
+						lastErr = fmt.Errorf("request rejected structured output, retrying without response_format: %s", bodyStr)
+						continue
+					}
+				}
+
+				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+				return
+			}
+
+			defer resp.Body.Close()
+
+			scanner := bufio.NewScanner(resp.Body)
+			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+			scanDone := make(chan struct{})
+			scanErrChan := make(chan error, 1)
+
+			go func() {
+				defer close(scanDone)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if !strings.HasPrefix(line, "data:") {
+						continue
+					}
+					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					if data == "" {
+						continue
+					}
+					if data == "[DONE]" {
+						return
+					}
+
+					var chunk OpenRouterResponse
+					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+						continue
+					}
+					if chunk.Error != nil {
+						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
+						return
+					}
+					if len(chunk.Choices) > 0 && chunk.Choices[0].Delta != nil {
+						delta := chunk.Choices[0].Delta.Content
+						if delta != "" {
+							select {
+							case contentChan <- delta:
+							case <-ctx.Done():
+								return
+							}
+						}
+					}
+				}
+				if err := scanner.Err(); err != nil {
+					scanErrChan <- err
+				}
+			}()
+
+			select {
+			case <-scanDone:
+				select {
+				case err := <-scanErrChan:
+					errorChan <- fmt.Errorf("stream error: %w", err)
+				default:
+				}
+			case <-ctx.Done():
+				resp.Body.Close()
+				<-scanDone
+				errorChan <- ctx.Err()
+			}
+			return
+		}
+
+		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
+	}()
+
+	return contentChan, errorChan
 }
 
 // SetModel changes the model used for completions.
