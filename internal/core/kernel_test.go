@@ -405,3 +405,44 @@ func TestKernelPermissionDerivation(t *testing.T) {
 
 	t.Logf("Found %d permitted actions from derived facts", len(permittedActions))
 }
+
+// TestKernelLoadCoderPolicyDoesNotTypeConflict ensures that loading coder.mg
+// does not introduce a numeric comparison over non-numeric context_priority values.
+//
+// Regression: policy.mg historically derived context_priority(FactID, /high) which
+// collided with coder.mg's numeric threshold checks (P >= 50), causing
+// "value /high is not a number" during evaluation once coder.mg was loaded.
+func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	// Ensure file_in_project(File) can be derived so coder.mg's file-prioritization
+	// joins against a real project file.
+	projectFile := "internal/core/kernel.go"
+	if err := kernel.LoadFacts([]Fact{
+		{
+			Predicate: "file_topology",
+			Args: []interface{}{
+				projectFile,
+				"deadbeef",
+				MangleAtom("/go"),
+				int64(0),
+				MangleAtom("/false"),
+			},
+		},
+		// Trigger context_priority derivation via policy.mg activation rules.
+		{
+			Predicate: "activation",
+			Args:      []interface{}{projectFile, int64(80)},
+		},
+	}); err != nil {
+		t.Fatalf("LoadFacts(seed) error = %v", err)
+	}
+
+	// Loading coder.mg should not crash evaluation due to context_priority typing.
+	if err := kernel.LoadPolicyFile("coder.mg"); err != nil {
+		t.Fatalf("LoadPolicyFile(coder.mg) error = %v", err)
+	}
+}

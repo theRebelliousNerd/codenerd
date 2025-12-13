@@ -999,7 +999,7 @@ activation(EntityB, 70) :-
 
 # 5. High-activation facts boost related content
 # Recent activations from activation_log inform focus
-context_priority(FactID, /high) :-
+context_priority(FactID, 80) :-
     activation(FactID, Score),
     Score > 70.
 
