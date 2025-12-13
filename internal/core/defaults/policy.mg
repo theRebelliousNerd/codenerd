@@ -148,6 +148,10 @@ block_commit("Build Broken") :-
 block_commit("Tests Failing") :-
     test_state(/failing).
 
+# Bridge review findings to diagnostics (Fix 15.5)
+diagnostic(Severity, File, Line, "REVIEW", Message) :-
+    review_finding(File, Line, Severity, _, Message).
+
 # Fix Bug #10: The "Timeout = Permission" Trap
 # Require explicit positive confirmation that checks actually ran
 checks_passed() :-
@@ -176,13 +180,15 @@ block_commit("Gauntlet Not Passed") :-
 # =============================================================================
 
 # Default deny - permitted must be positively derived
-permitted(Action) :-
-    safe_action(Action).
+permitted(Action, Target, Payload) :-
+    safe_action(Action),
+    pending_action(_, Action, Target, Payload, _).
 
-permitted(Action) :-
+permitted(Action, Target, Payload) :-
     dangerous_action(Action),
     admin_override(User),
-    signed_approval(Action).
+    signed_approval(Action),
+    pending_action(_, Action, Target, Payload, _).
 
 # Fix Bug #12: The "Silent Join" (Shadow Rules)
 # Explain WHY permission was denied to aid debugging/feedback
@@ -413,8 +419,9 @@ has_active_override(ActionType) :-
     !has_temporary_override(ActionType).
 
 # Appeal granted should permit the action
-permitted(ActionType) :-
-    has_active_override(ActionType).
+permitted(ActionType, Target, Payload) :-
+    has_active_override(ActionType),
+    pending_action(_, ActionType, Target, Payload, _).
 
 # Alert if too many appeals are being denied
 excessive_appeal_denials() :-
@@ -727,11 +734,13 @@ next_action(/ouroboros_generate) :-
 next_action(/ouroboros_compile) :-
     tool_source_ready(ToolName),
     tool_safety_verified(ToolName),
-    !tool_compiled(ToolName).
+    !tool_compiled(ToolName),
+    !tool_ready(ToolName).
 
 next_action(/ouroboros_register) :-
     tool_compiled(ToolName),
-    !is_tool_registered(ToolName).
+    !is_tool_registered(ToolName),
+    !tool_ready(ToolName).
 
 # Track active tool generation (prevent parallel generations)
 active_generation(ToolName) :-
@@ -2428,6 +2437,13 @@ shard_can_handle(ShardType, TaskType) :-
 # =============================================================================
 
 # "X-Ray Vision": Find context relevant to the target file/symbol
+
+# Bridge world model facts to holographic schema (Fix 15.6)
+code_defines(File, SymbolID, Type, 0, "") :-
+    symbol_graph(SymbolID, Type, _, File, _).
+
+code_calls(CallerID, CalleeID) :-
+    dependency_link(CallerID, CalleeID, _).
 
 # 1. Callers of the target symbol
 relevant_context(File) :-

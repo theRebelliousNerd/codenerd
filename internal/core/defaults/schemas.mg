@@ -265,8 +265,8 @@ Decl action_mapping(IntentVerb, ActionType).
 # SECTION 11: CONSTITUTIONAL LOGIC / SAFETY (§5.0)
 # =============================================================================
 
-# permitted(ActionType) - derived predicate
-Decl permitted(ActionType).
+# permitted(ActionType, Target, Payload) - derived predicate
+Decl permitted(ActionType, Target, Payload).
 
 # dangerous_action(ActionType) - derived predicate
 Decl dangerous_action(ActionType).
