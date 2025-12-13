@@ -91,7 +91,7 @@ type APISchedulerConfig struct {
 // DefaultAPISchedulerConfig returns sensible defaults.
 func DefaultAPISchedulerConfig() APISchedulerConfig {
 	return APISchedulerConfig{
-		MaxConcurrentAPICalls: 5,              // Z.AI limit
+		MaxConcurrentAPICalls: 5,               // Z.AI limit
 		SlotAcquireTimeout:    5 * time.Minute, // Match typical API timeout
 		EnableMetrics:         true,
 	}
@@ -108,9 +108,9 @@ type APIScheduler struct {
 	waitQueue   []*waitingEntry // Shards waiting for slots (for logging/metrics)
 
 	// Metrics
-	totalAPICalls     int64
-	totalWaitTime     int64 // nanoseconds
-	currentlyWaiting  int32
+	totalAPICalls      int64
+	totalWaitTime      int64 // nanoseconds
+	currentlyWaiting   int32
 	currentlyExecuting int32
 
 	// Lifecycle
@@ -340,13 +340,13 @@ func (s *APIScheduler) GetMetrics() APISchedulerMetrics {
 	s.mu.RUnlock()
 
 	return APISchedulerMetrics{
-		MaxSlots:         s.config.MaxConcurrentAPICalls,
-		ActiveSlots:      int(atomic.LoadInt32(&s.currentlyExecuting)),
-		WaitingForSlot:   int(atomic.LoadInt32(&s.currentlyWaiting)),
-		TotalAPICalls:    atomic.LoadInt64(&s.totalAPICalls),
-		TotalWaitTimeNs:  atomic.LoadInt64(&s.totalWaitTime),
-		RegisteredShards: activeShards,
-		WaitingShards:    waitingShards,
+		MaxSlots:          s.config.MaxConcurrentAPICalls,
+		ActiveSlots:       int(atomic.LoadInt32(&s.currentlyExecuting)),
+		WaitingForSlot:    int(atomic.LoadInt32(&s.currentlyWaiting)),
+		TotalAPICalls:     atomic.LoadInt64(&s.totalAPICalls),
+		TotalWaitTimeNs:   atomic.LoadInt64(&s.totalWaitTime),
+		RegisteredShards:  activeShards,
+		WaitingShards:     waitingShards,
 		PhaseDistribution: phases,
 	}
 }
@@ -424,6 +424,102 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
+type tracingContextSetter interface {
+	SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
+	ClearShardContext()
+}
+
+// SetShardContext forwards tracing context into the wrapped client, if supported.
+// This enables accurate attribution even when clients are wrapped by the scheduler.
+func (c *ScheduledLLMCall) SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string) {
+	if tc, ok := c.Client.(tracingContextSetter); ok {
+		tc.SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext)
+	}
+}
+
+// ClearShardContext forwards tracing context clearing into the wrapped client, if supported.
+func (c *ScheduledLLMCall) ClearShardContext() {
+	if tc, ok := c.Client.(tracingContextSetter); ok {
+		tc.ClearShardContext()
+	}
+}
+
+type llmStreamingChannels interface {
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+}
+
+// CompleteWithStreaming makes a scheduled streaming LLM call.
+// The API slot is held for the duration of the stream and released when the stream ends.
+func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	// Acquire slot (blocks until available)
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		close(contentChan)
+		errorChan <- fmt.Errorf("failed to acquire API slot: %w", err)
+		close(errorChan)
+		return contentChan, errorChan
+	}
+
+	streamer, ok := c.Client.(llmStreamingChannels)
+	if !ok {
+		c.Scheduler.ReleaseAPISlot(c.ShardID)
+		close(contentChan)
+		errorChan <- ErrStreamingNotSupported
+		close(errorChan)
+		return contentChan, errorChan
+	}
+
+	underContent, underErr := streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+
+	go func() {
+		defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+		defer close(contentChan)
+		defer close(errorChan)
+
+		contentClosed := false
+		errClosed := false
+		var firstErr error
+
+		for !(contentClosed && errClosed) {
+			select {
+			case <-ctx.Done():
+				if firstErr == nil {
+					firstErr = ctx.Err()
+				}
+				// Keep draining until channels close so upstream goroutines can exit cleanly.
+			case chunk, ok := <-underContent:
+				if !ok {
+					contentClosed = true
+					continue
+				}
+				select {
+				case contentChan <- chunk:
+				case <-ctx.Done():
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+				}
+			case err, ok := <-underErr:
+				if !ok {
+					errClosed = true
+					continue
+				}
+				if err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		if firstErr != nil {
+			errorChan <- firstErr
+		}
+	}()
+
+	return contentChan, errorChan
+}
+
 // CompleteWithRetry makes an LLM call with retries and cooperative scheduling.
 func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, userPrompt string, maxRetries int) (string, error) {
 	var lastErr error
@@ -477,8 +573,8 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 // -----------------------------------------------------------------------------
 
 var (
-	globalScheduler     *APIScheduler
-	globalSchedulerOnce sync.Once
+	globalScheduler         *APIScheduler
+	globalSchedulerOnce     sync.Once
 	globalSchedulerConfigMu sync.Mutex
 	globalSchedulerConfig   = DefaultAPISchedulerConfig()
 )

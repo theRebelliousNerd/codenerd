@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // LLMClient defines the minimal interface shards use to call an LLM.
 // Mirrors perception.LLMClient to avoid import cycles.
@@ -8,6 +11,11 @@ type LLMClient interface {
 	Complete(ctx context.Context, prompt string) (string, error)
 	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
+
+// ErrStreamingNotSupported is returned when a client doesn't implement a streaming method.
+// Defined in core so wrappers (scheduler) can return a shared sentinel without importing
+// perception and creating cycles.
+var ErrStreamingNotSupported = errors.New("streaming not supported")
 
 // SchemaCapableLLMClient extends LLMClient with JSON Schema validation.
 // This is an optional capability - use AsSchemaCapable() to check and convert.
