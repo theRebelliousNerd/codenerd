@@ -53,7 +53,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 	defer cancel()
 
 	demoFile := filepath.Join(ws, "demo.go")
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", demoFile}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"test-open", "/open_file", demoFile}}); err != nil {
 		t.Fatalf("open_file: %v", err)
 	}
 
@@ -81,6 +81,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 	if _, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
 		Args: []interface{}{
+			"test-edit",
 			"/edit_element",
 			ref,
 			map[string]interface{}{"content": newAdd},
@@ -92,6 +93,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 	afterJSON, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
 		Args: []interface{}{
+			"test-get",
 			"/get_element",
 			ref,
 			map[string]interface{}{"include_body": true},
@@ -108,7 +110,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 		t.Fatalf("expected edited body to contain %q", "sum := a + b")
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/close_scope", ""}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"test-close", "/close_scope", ""}}); err != nil {
 		t.Fatalf("close_scope: %v", err)
 	}
 	if got := countFacts(t, kernel, "code_element"); got != 0 {
@@ -204,4 +206,3 @@ func UsesDomDemo() int {
 `
 	return os.WriteFile(filepath.Join(ws, "consumer", "consumer.go"), []byte(consumerGo), 0644)
 }
-
