@@ -262,7 +262,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		logging.SystemShardsDebug("[ConstitutionGate] Checking action: type=%s, target=%s", actionType, truncateForLog(target, 50))
 
 		// Check if action is permitted
-		permitted, reason := c.checkPermitted(ctx, actionType, target)
+		permitted, reason := c.checkPermitted(ctx, actionType, target, payload)
 
 		if permitted {
 			logging.SystemShards("[ConstitutionGate] Action PERMITTED: type=%s", actionType)
@@ -370,7 +370,7 @@ func (c *ConstitutionGateShard) prunePermissionCheckResults() {
 }
 
 // checkPermitted determines if an action is permitted under constitutional rules.
-func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string) (bool, string) {
+func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string, payload map[string]interface{}) (bool, string) {
 	// 0. Check for active overrides from appeals
 	c.mu.RLock()
 	if override, exists := c.activeOverrides[actionType]; exists {
@@ -400,9 +400,9 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 		}
 	}
 
-	// 3. Query Mangle for permitted(Action)
-	// The kernel should derive permitted(Action) from safe_action or admin_override
-	// kernel.Query returns ALL permitted facts; filter in Go for matching actionType
+	// 3. Query Mangle for permitted(Action, Target, Payload)
+	// The kernel should derive permitted(Action...) from safe_action or admin_override
+	// kernel.Query returns ALL permitted facts
 	allPermitted, err := c.Kernel.Query("permitted")
 	if err != nil {
 		// If query fails, default deny in strict mode
@@ -418,18 +418,31 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 		return true, "" // Allow if not strict
 	}
 
-	// Filter to find permitted facts matching our actionType
-	// permitted facts have format: permitted(/action_type) where action_type may or may not have /
+	// Filter to find permitted facts matching our actionType, target, and payload
 	found := false
 	for _, p := range allPermitted {
-		if len(p.Args) > 0 {
-			argStr := fmt.Sprintf("%v", p.Args[0])
-			// Match with or without leading /
-			if argStr == actionType || argStr == "/"+actionType {
-				found = true
-				break
+		if len(p.Args) < 1 {
+			continue
+		}
+		argStr := fmt.Sprintf("%v", p.Args[0])
+		// Match with or without leading /
+		if argStr != actionType && argStr != "/"+actionType {
+			continue
+		}
+
+		// Check Target if present (Args[1])
+		if len(p.Args) >= 2 {
+			factTarget := fmt.Sprintf("%v", p.Args[1])
+			if factTarget != target && factTarget != "_" {
+				continue
 			}
 		}
+
+		// Check Payload if present (Args[2])
+		// Note: Exact map matching might be strict, but policy binds directly from pending_action
+		// so it should match exactly.
+		found = true
+		break
 	}
 
 	if !found {

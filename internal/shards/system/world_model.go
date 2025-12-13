@@ -216,6 +216,25 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 		case <-w.StopCh:
 			return w.generateShutdownSummary("stopped"), nil
 		case <-ticker.C:
+			// Check for trigger fact (Fix 15.1: World Model Event-Loop Breakage)
+			updatingFacts, _ := w.Kernel.Query("world_model_updating")
+			if len(updatingFacts) > 0 {
+				logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
+				if err := w.performIncrementalScan(ctx); err != nil {
+					_ = w.Kernel.Assert(core.Fact{
+						Predicate: "world_model_error",
+						Args:      []interface{}{err.Error(), time.Now().Unix()},
+					})
+				}
+				// Retract trigger
+				_ = w.Kernel.Retract("world_model_updating")
+				// Reset idle timer
+				w.mu.Lock()
+				w.lastActivity = time.Now()
+				w.mu.Unlock()
+				continue
+			}
+
 			// Check idle timeout
 			if w.CostGuard.IsIdle() {
 				return w.generateShutdownSummary("idle timeout"), nil
