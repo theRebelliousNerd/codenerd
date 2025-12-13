@@ -716,12 +716,12 @@ next_action(/ask_campaign_interrupt) :-
 # Status query during campaign
 next_action(/show_campaign_status) :-
     current_campaign(_),
-    user_intent(_, /query, _, /status, _).
+    user_intent(/current_intent, /query, _, /status, _).
 
 # Progress query during campaign
 next_action(/show_campaign_progress) :-
     current_campaign(_),
-    user_intent(_, /query, _, /progress, _).
+    user_intent(/current_intent, /query, _, /progress, _).
 
 # =============================================================================
 # SECTION 10: CAMPAIGN COMPLETION & CLEANUP

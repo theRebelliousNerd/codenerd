@@ -390,12 +390,16 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		intent.Response = "Understood."
 	}
 
-	intentID := fmt.Sprintf("/intent_%d", time.Now().UnixNano())
+	// Use a stable intent ID so policy can scope rules to the active user intent.
+	// This prevents stale intent accumulation across turns.
+	intentID := "/current_intent"
 
 	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
 	_ = p.Kernel.Retract("ambiguity_flag")
 	_ = p.Kernel.Retract("clarification_needed")
 	_ = p.Kernel.Retract("focus_resolution")
+	_ = p.Kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+	_ = p.Kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
 
 	// Emit user_intent/5
 	_ = p.Kernel.Assert(core.Fact{

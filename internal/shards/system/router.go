@@ -455,7 +455,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				_ = r.Kernel.RetractExactFact(fact)
 				_ = r.Kernel.RetractFact(core.Fact{
 					Predicate: "action_permitted",
-					Args:      []interface{}{actionType},
+					Args:      []interface{}{actionID},
 				})
 			}
 			continue
@@ -541,7 +541,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		// Also clear unary marker for this action type
 		_ = r.Kernel.RetractFact(core.Fact{
 			Predicate: "action_permitted",
-			Args:      []interface{}{actionType},
+			Args:      []interface{}{actionID},
 		})
 	}
 
@@ -568,7 +568,7 @@ func (r *TactileRouterShard) findRoute(actionType string) (ToolRoute, bool) {
 	// - Prefer longer (more specific) patterns.
 	// - Tie-break lexicographically on normalized pattern.
 	const (
-		matchNone    = 0
+		matchNone     = 0
 		matchContains = 1
 		matchPrefix   = 2
 		matchExact    = 3
