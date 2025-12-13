@@ -82,7 +82,7 @@ type RealKernel struct {
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
 }
 
-//go:embed defaults/*.mg defaults/schema/*.mg
+//go:embed defaults/*.mg defaults/schema/*.mg defaults/policy/*.mg
 var coreLogic embed.FS
 
 // GetDefaultContent returns the content of an embedded default file.
@@ -312,12 +312,34 @@ func (k *RealKernel) loadMangleFiles() error {
 		logging.KernelDebug("JIT prompt schema not found (optional)")
 	}
 
-	// Load Core Policy
-	if data, err := coreLogic.ReadFile("defaults/policy.mg"); err == nil {
-		k.policy = string(data)
-		logging.KernelDebug("Loaded core policy (%d bytes)", len(data))
+	// Load Core Policy (Stratified)
+	// Iterate over the split policy files in defaults/policy/
+	policyDir := "defaults/policy"
+	policyEntries, err := coreLogic.ReadDir(policyDir)
+	if err == nil {
+		loadedPolicyBytes := 0
+		for _, entry := range policyEntries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
+				path := policyDir + "/" + entry.Name()
+				if data, err := coreLogic.ReadFile(path); err == nil {
+					k.policy += "\n\n# Policy Module: " + entry.Name() + "\n" + string(data)
+					loadedPolicyBytes += len(data)
+					logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
+				} else {
+					logging.Get(logging.CategoryKernel).Warn("Failed to read policy module %s: %v", path, err)
+				}
+			}
+		}
+		logging.KernelDebug("Loaded stratified policy (%d bytes from %d files)", loadedPolicyBytes, len(policyEntries))
 	} else {
-		logging.Get(logging.CategoryKernel).Error("Failed to load core policy: %v", err)
+		// Fallback for backward compatibility or if directory missing
+		logging.Get(logging.CategoryKernel).Warn("Failed to read policy directory: %v, falling back to legacy policy.mg", err)
+		if data, err := coreLogic.ReadFile("defaults/policy.mg"); err == nil {
+			k.policy = string(data)
+			logging.KernelDebug("Loaded legacy core policy (%d bytes)", len(data))
+		} else {
+			logging.Get(logging.CategoryKernel).Error("Failed to load core policy: %v", err)
+		}
 	}
 
 	// Load other core modules into policy
