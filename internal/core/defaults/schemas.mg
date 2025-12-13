@@ -2279,9 +2279,8 @@ Decl safety_warning(Warning).
 # 41.10 Execution & Context Predicates
 # -----------------------------------------------------------------------------
 
-# execution_result(ActionType, Target, Success, Output, Timestamp) - result of action execution
-# Success: /true, /false (or boolean true/false when emitted from Go)
-Decl execution_result(ActionType, Target, Success, Output, Timestamp).
+# execution_result(ActionID, Type, Target, Success, Output, Timestamp) - from virtual store
+Decl execution_result(ActionID, Type, Target, Success, Output, Timestamp).
 
 # context_to_inject(Fact) - derived: facts selected for LLM context injection
 Decl context_to_inject(Fact).

@@ -144,6 +144,7 @@ const (
 
 // ActionRequest represents a request to execute an action.
 type ActionRequest struct {
+	ActionID   string                 `json:"action_id"`
 	Type       ActionType             `json:"type"`
 	Target     string                 `json:"target"`
 	Payload    map[string]interface{} `json:"payload"`
@@ -462,16 +463,36 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
 		return
 	}
 
+	// Normalize args to Mangle atoms where appropriate (Fix 11.11)
+	normalizedArgs := make([]interface{}, len(tf.Args))
+	for i, arg := range tf.Args {
+		normalizedArgs[i] = v.normalizeAtom(arg)
+	}
+
 	// Convert tactile.Fact to core.Fact
 	coreFact := Fact{
 		Predicate: tf.Predicate,
-		Args:      tf.Args,
+		Args:      normalizedArgs,
 	}
 
 	logging.VirtualStoreDebug("Injecting tactile fact: %s (args=%d)", tf.Predicate, len(tf.Args))
 	if err := kernel.Assert(coreFact); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to inject tactile fact %s: %v", tf.Predicate, err)
 	}
+}
+
+// normalizeAtom converts known status strings to Mangle atoms.
+func (v *VirtualStore) normalizeAtom(val interface{}) interface{} {
+	s, ok := val.(string)
+	if !ok {
+		return val
+	}
+	// List of keywords that should be treated as atoms in Mangle policies
+	switch s {
+	case "success", "failure", "strict", "permissive", "none", "running", "completed", "failed", "pending", "blocked":
+		return MangleAtom("/" + s)
+	}
+	return val
 }
 
 // EnableModernExecutor switches to the modern tactile executor.
@@ -969,7 +990,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	factsToInject = append(factsToInject, result.FactsToAdd...)
 	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
-		Args:      []interface{}{string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
+		Args:      []interface{}{req.ActionID, string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
 	})
 	v.injectFacts(factsToInject)
 	v.maybePruneActionLogs(completedAt)
@@ -991,28 +1012,31 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 		Payload: make(map[string]interface{}),
 	}
 
-	if len(action.Args) < 2 {
-		return req, fmt.Errorf("invalid action fact: requires at least 2 arguments")
+	if len(action.Args) < 3 {
+		return req, fmt.Errorf("invalid action fact: requires at least 3 arguments (ActionID, Type, Target)")
 	}
 
-	// First arg is action type
-	actionType, ok := action.Args[0].(string)
+	// First arg is ActionID
+	req.ActionID = fmt.Sprintf("%v", action.Args[0])
+
+	// Second arg is action type
+	actionType, ok := action.Args[1].(string)
 	if !ok {
-		actionType = fmt.Sprintf("%v", action.Args[0])
+		actionType = fmt.Sprintf("%v", action.Args[1])
 	}
 	// Strip leading slash if present (Mangle name constants)
 	actionType = strings.TrimPrefix(actionType, "/")
 	req.Type = ActionType(actionType)
 
-	// Second arg is target
-	target, ok := action.Args[1].(string)
+	// Third arg is target
+	target, ok := action.Args[2].(string)
 	if !ok {
-		target = fmt.Sprintf("%v", action.Args[1])
+		target = fmt.Sprintf("%v", action.Args[2])
 	}
 	req.Target = target
 
 	// Remaining args go into payload
-	for i := 2; i < len(action.Args); i++ {
+	for i := 3; i < len(action.Args); i++ {
 		// If the argument is a map, merge it into the payload
 		if argMap, ok := action.Args[i].(map[string]interface{}); ok {
 			for k, v := range argMap {
@@ -1021,7 +1045,7 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 			continue
 		}
 
-		key := fmt.Sprintf("arg%d", i-2)
+		key := fmt.Sprintf("arg%d", i-3)
 		req.Payload[key] = action.Args[i]
 	}
 
