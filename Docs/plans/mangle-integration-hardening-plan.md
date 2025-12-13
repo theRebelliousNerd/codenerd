@@ -643,3 +643,23 @@ The following critical wiring gaps were identified and fixed to ensure logic-rea
 ### 15.8 Campaign Task State Synchronization (Fixed)
 - **Problem:** The `SessionPlanner` tracked task completion in its internal agenda (`plan_task`) but failed to update the canonical `campaign_task` facts in the Mangle kernel. The Mangle policy relies on `campaign_task(..., /completed, ...)` to unblock dependencies, causing the campaign to stall even after tasks were finished.
 - **Fix:** Modified `SessionPlannerShard.updateAgendaFromKernel` (`internal/shards/system/planner.go`) to detect status changes (completed/blocked), query the original `campaign_task` fact (to preserve immutable fields like `PhaseID`), retract the old fact, and assert the new one with the updated status.
+
+### 15.9 Execution Traceability Break (`ActionID` Loss) (Fixed)
+- **Problem:** `execution_result` facts emitted by `VirtualStore` lacked the `ActionID` from the original `pending_action`, breaking the OODA loop feedback for specific action instances.
+- **Fix:**
+  - Updated `schemas.mg` to include `ActionID` in `execution_result`.
+  - Updated `ActionRequest` struct and `parseActionFact` in `virtual_store.go` to extract and carry `ActionID`.
+  - Updated `RouteAction` in `virtual_store.go` to emit `execution_result` with the `ActionID`.
+  - Updated `router.go` to pass `call.ID` when calling `RouteAction`.
+
+### 15.10 Routing Failure Dead-Ends (Fixed)
+- **Problem:** Routing failures (e.g., rate limits, missing handlers) emitted `routing_result(..., /failure, ...)` but the policy had no rules to handle them, causing system stalls.
+- **Fix:** Added `next_action` rules to `policy.mg` (Section 21.6) to trigger `/pause_and_replan` for rate limits and `/escalate_to_user` for missing handlers.
+
+### 15.11 Escalation Signal Disconnect (Fixed)
+- **Problem:** `escalation_needed` facts were emitted by Constitution/Router but ignored by the Executive, leading to silent failures when human intervention was required.
+- **Fix:** Added a catch-all rule to `policy.mg`: `next_action(/escalate_to_user) :- escalation_needed(_, _, _).`
+
+### 15.12 Audit Fact Type Mismatch (Fixed)
+- **Problem:** `AuditLogger` emitted string status values ("success", "failure") which failed to match Mangle atoms (`/success`, `/failure`) in policy rules.
+- **Fix:** Updated `VirtualStore.injectTactileFact` to normalize known status strings (success, failure, strict, permissive, none, running, completed, failed, pending, blocked) into Mangle atoms before assertion.

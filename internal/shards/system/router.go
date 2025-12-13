@@ -167,7 +167,7 @@ func DefaultRouterConfig() RouterConfig {
 			{ActionPattern: "search_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
 
 			// Extended Code DOM operations
-			{ActionPattern: "close_scope", ToolName: "kernel_internal", Timeout: 5 * time.Second, RequiresSafe: false},
+			{ActionPattern: "close_scope", ToolName: "code_scope", Timeout: 5 * time.Second, RequiresSafe: false},
 			{ActionPattern: "edit_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
 			{ActionPattern: "insert_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
 			{ActionPattern: "delete_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
@@ -490,7 +490,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			// Create action fact for VirtualStore (preserve payload)
 			actionFact := core.Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{actionType, target, payload},
+				Args:      []interface{}{call.ID, actionType, target, payload},
 			}
 
 			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
