@@ -48,3 +48,10 @@ Docs/*
 debug_program*.mg
 *.exe~
 --help
+
+# Exceptions for .nerd
+!.nerd/prompts/corpus.db
+!.nerd/config.json
+!.nerd/knowledge.db
+!.nerd/learned_patterns.db
+
