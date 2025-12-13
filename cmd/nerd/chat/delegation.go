@@ -314,7 +314,15 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 %s`, shardType, task, result)
 
 		m.ReportStatus(fmt.Sprintf("%s complete", shardType))
-		return responseMsg(response)
+		return assistantMsg{
+			Surface: response,
+			ShardResult: &ShardResultPayload{
+				ShardType: shardType,
+				Task:      task,
+				Result:    result,
+				Facts:     facts,
+			},
+		}
 	}
 }
 

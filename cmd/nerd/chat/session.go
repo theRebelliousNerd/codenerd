@@ -424,11 +424,21 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Create JIT compiler with both embedded corpus AND kernel for skeleton selection
 		// The kernel is REQUIRED for skeleton atom selection via Mangle rules
-		if jit, err := prompt.NewJITPromptCompiler(
+		compilerOpts := []prompt.CompilerOption{
 			prompt.WithEmbeddedCorpus(embeddedCorpus),
 			prompt.WithKernel(nerdsystem.NewKernelAdapter(kernel)),
-		); err == nil {
+		}
+		var defaultVectorSearcher *prompt.CompilerVectorSearcher
+		if embeddingEngine != nil {
+			defaultVectorSearcher = prompt.NewCompilerVectorSearcher(embeddingEngine)
+			compilerOpts = append(compilerOpts, prompt.WithVectorSearcher(defaultVectorSearcher))
+		}
+
+		if jit, err := prompt.NewJITPromptCompiler(compilerOpts...); err == nil {
 			jitCompiler = jit
+			if defaultVectorSearcher != nil {
+				defaultVectorSearcher.SetCompiler(jitCompiler)
+			}
 
 			// Ensure a project corpus DB exists for semantic retrieval.
 			// Prefer the baked-in defaults corpus; fall back to SyncEmbeddedToSQLite when needed.

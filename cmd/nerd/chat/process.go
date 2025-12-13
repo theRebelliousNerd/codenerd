@@ -1402,17 +1402,80 @@ func formatSystemResults(routing, exec []core.Fact) string {
 	if len(routing) == 0 && len(exec) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	sb.WriteString("System actions:\n")
-	for _, f := range routing {
-		if len(f.Args) >= 3 {
-			sb.WriteString(fmt.Sprintf("- %v: %v (%v)\n", f.Args[0], f.Args[1], f.Args[2]))
+	const maxLines = 25
+	const maxField = 160
+
+	trunc := func(s string) string {
+		s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+		if len(s) > maxField {
+			return s[:maxField] + "..."
 		}
+		return s
 	}
-	for _, f := range exec {
-		if len(f.Args) >= 4 {
-			sb.WriteString(fmt.Sprintf("- %v %v -> success=%v; %v\n", f.Args[0], f.Args[1], f.Args[2], f.Args[3]))
+
+	lines := make([]string, 0, len(routing)+len(exec))
+
+	// routing_result(ActionID, Result, Details, Timestamp).
+	for _, f := range routing {
+		if len(f.Args) < 2 {
+			continue
 		}
+		actionID := fmt.Sprintf("%v", f.Args[0])
+		result := fmt.Sprintf("%v", f.Args[1])
+		details := ""
+		if len(f.Args) >= 3 {
+			details = trunc(fmt.Sprintf("%v", f.Args[2]))
+		}
+		if details == "" || details == "()" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", actionID, result))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s (%s)", actionID, result, details))
+	}
+
+	// execution_result(ActionID, Type, Target, Success, Output, Timestamp).
+	for _, f := range exec {
+		if len(f.Args) < 4 {
+			continue
+		}
+		actionID := fmt.Sprintf("%v", f.Args[0])
+		actionType := fmt.Sprintf("%v", f.Args[1])
+		target := ""
+		success := ""
+		output := ""
+		if len(f.Args) >= 3 {
+			target = trunc(fmt.Sprintf("%v", f.Args[2]))
+		}
+		if len(f.Args) >= 4 {
+			success = fmt.Sprintf("%v", f.Args[3])
+		}
+		if len(f.Args) >= 5 {
+			output = trunc(fmt.Sprintf("%v", f.Args[4]))
+		}
+
+		line := fmt.Sprintf("- %s: %s", actionID, actionType)
+		if strings.TrimSpace(target) != "" {
+			line += fmt.Sprintf(" target=%s", target)
+		}
+		if strings.TrimSpace(success) != "" {
+			line += fmt.Sprintf(" success=%s", success)
+		}
+		if strings.TrimSpace(output) != "" {
+			line += fmt.Sprintf(" output=%s", output)
+		}
+		lines = append(lines, line)
+	}
+
+	var sb strings.Builder
+	total := len(lines)
+	if total > maxLines {
+		sb.WriteString(fmt.Sprintf("System actions (showing last %d of %d):\n", maxLines, total))
+		lines = lines[total-maxLines:]
+	} else {
+		sb.WriteString("System actions:\n")
+	}
+	for _, line := range lines {
+		sb.WriteString(line + "\n")
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -1552,6 +1615,7 @@ func detectFollowUpQuestion(input string, lastResult *ShardResult) (bool, Follow
 	}
 
 	detailPatterns := []string{
+		"more detail",
 		"more about",
 		"details on",
 		"elaborate on",
@@ -1625,6 +1689,71 @@ func (m Model) handleFollowUpQuestion(ctx context.Context, input string, followU
 	// For "show more" type questions about reviewer findings, we can answer directly
 	if followUpType == FollowUpShowMore && sr.ShardType == "reviewer" && len(sr.Findings) > 0 {
 		return m.formatAllFindings(sr, input)
+	}
+
+	// For user-defined agents, continue the conversation by re-running the same agent with follow-up context.
+	// This avoids dumping internal system action logs while giving the specialist a chance to expand.
+	if followUpType != FollowUpNone && sr.ShardType != "" && m.shardMgr != nil {
+		if registry := m.loadAgentRegistry(); registry != nil {
+			isRegistered := false
+			for _, agent := range registry.Agents {
+				if strings.EqualFold(agent.Name, sr.ShardType) {
+					isRegistered = true
+					break
+				}
+			}
+			if isRegistered {
+				m.ReportStatus(fmt.Sprintf("Follow-up: spawning %s...", sr.ShardType))
+
+				const maxPrev = 1500
+				prev := sr.RawOutput
+				if len(prev) > maxPrev {
+					prev = prev[:maxPrev] + "\n... (truncated)"
+				}
+
+				spawnTask := fmt.Sprintf(`Follow-up request: %s
+
+Original task: %s
+
+Previous answer (excerpt):
+%s
+
+Please respond with substantially more detail than before. Expand key findings, include concrete syntax/code examples, and call out trade-offs and edge-cases.`, strings.TrimSpace(input), strings.TrimSpace(sr.Task), strings.TrimSpace(prev))
+
+				displayTask := fmt.Sprintf("follow-up: %s (original: %s)", strings.TrimSpace(input), strings.TrimSpace(sr.Task))
+
+				sessionCtx := m.buildSessionContext(ctx)
+				result, err := m.shardMgr.SpawnWithPriority(ctx, sr.ShardType, spawnTask, sessionCtx, core.PriorityHigh)
+
+				shardID := fmt.Sprintf("%s-followup-%d", sr.ShardType, time.Now().UnixNano())
+				facts := m.shardMgr.ResultToFacts(shardID, sr.ShardType, displayTask, result, err)
+				if m.kernel != nil && len(facts) > 0 {
+					_ = m.kernel.LoadFacts(facts)
+				}
+
+				if err != nil {
+					return errorMsg(fmt.Errorf("follow-up shard spawn failed: %w", err))
+				}
+
+				response := fmt.Sprintf(`## Shard Execution Complete
+
+**Agent**: %s
+**Task**: %s
+
+### Result
+%s`, sr.ShardType, displayTask, result)
+
+				return assistantMsg{
+					Surface: response,
+					ShardResult: &ShardResultPayload{
+						ShardType: sr.ShardType,
+						Task:      displayTask,
+						Result:    result,
+						Facts:     facts,
+					},
+				}
+			}
+		}
 	}
 
 	// For other follow-ups, use LLM with full context
