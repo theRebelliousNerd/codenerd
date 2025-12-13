@@ -235,7 +235,7 @@ func ExtractAtomsFromControlPacket(packet *perception.ControlPacket) ([]core.Fac
 		facts = append(facts, core.Fact{
 			Predicate: "user_intent",
 			Args: []interface{}{
-				"/current",
+				"/current_intent",
 				packet.IntentClassification.Category,
 				packet.IntentClassification.Verb,
 				packet.IntentClassification.Target,
