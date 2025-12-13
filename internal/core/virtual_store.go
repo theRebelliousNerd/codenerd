@@ -934,11 +934,9 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	// Kernel-level permission gate (default deny if kernel says not permitted)
 	if v.kernel != nil {
 		// Refresh permission cache in case policy/facts changed since last action.
-		v.mu.Lock()
-		v.rebuildPermissionCache()
-		v.mu.Unlock()
-
-		permitted := v.checkKernelPermitted(string(req.Type))
+		// Note: Cache is deprecated for fine-grained permissions, direct query used.
+		
+		permitted := v.checkKernelPermitted(string(req.Type), req.Target, req.Payload)
 		if !permitted {
 			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)
 			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
@@ -2504,68 +2502,63 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 	return v.checkConstitution(req) == nil
 }
 
-// checkKernelPermitted consults the permission cache (O(1) lookup).
-// The cache is populated from kernel-derived permitted/1 facts when SetKernel is called.
-func (v *VirtualStore) checkKernelPermitted(actionType string) bool {
+// checkKernelPermitted consults the kernel to verify if the specific action is permitted.
+// We query the kernel for permitted(Action, Target, Payload) facts.
+func (v *VirtualStore) checkKernelPermitted(actionType, target string, payload map[string]interface{}) bool {
 	v.mu.RLock()
-	cache := v.permittedCache
 	k := v.kernel
 	v.mu.RUnlock()
 
-	// No kernel attached - fail open
+	// No kernel attached - fail open (legacy behavior)
 	if k == nil {
 		logging.VirtualStoreDebug("checkKernelPermitted(%s): no kernel attached, allowing", actionType)
 		return true
 	}
 
-	// No cache available - fall back to kernel query (shouldn't happen normally)
-	if cache == nil {
-		logging.VirtualStoreDebug("checkKernelPermitted(%s): cache miss, using fallback", actionType)
-		return v.checkKernelPermittedFallback(actionType)
-	}
-
-	// O(1) cache lookup - check both with and without leading slash
-	if cache[actionType] || cache["/"+actionType] {
-		logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (cache hit)", actionType)
-		return true
-	}
-
-	logging.VirtualStoreDebug("checkKernelPermitted(%s): DENIED (not in permitted cache)", actionType)
-	return false
-}
-
-// checkKernelPermittedFallback is the original O(n) implementation used when cache is unavailable.
-func (v *VirtualStore) checkKernelPermittedFallback(actionType string) bool {
-	v.mu.RLock()
-	k := v.kernel
-	v.mu.RUnlock()
-
-	if k == nil {
-		return true
-	}
-
+	// Query all permitted facts
 	results, err := k.Query("permitted")
 	if err != nil {
-		logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): query error, failing open: %v", actionType, err)
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): query error, failing open: %v", actionType, err)
 		return true // fail open to avoid accidental full block
 	}
 
-	want := "/" + actionType
-	alt := actionType
+	wantType := "/" + actionType
+	altType := actionType
 
 	for _, f := range results {
-		if len(f.Args) == 0 {
+		if len(f.Args) < 1 {
 			continue
 		}
-		arg := fmt.Sprintf("%v", f.Args[0])
-		if arg == want || arg == alt {
-			logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): ALLOWED (found in %d facts)", actionType, len(results))
-			return true
+		
+		// 1. Check ActionType
+		argType := fmt.Sprintf("%v", f.Args[0])
+		if argType != wantType && argType != altType {
+			continue
 		}
+
+		// 2. Check Target (if present in fact)
+		if len(f.Args) >= 2 {
+			factTarget := fmt.Sprintf("%v", f.Args[1])
+			if factTarget != target && factTarget != "_" {
+				continue
+			}
+		}
+
+		// 3. Check Payload (if present in fact)
+		// Note: Exact payload matching might be tricky with maps. 
+		// For now, if the policy derived permitted(...), we assume it validated the payload 
+		// via pending_action unification. We accept it if Type and Target match.
+		// Strict payload matching would require deep comparison.
+		
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (found permitted fact)", actionType)
+		return true
 	}
-	logging.VirtualStoreDebug("checkKernelPermittedFallback(%s): DENIED (checked %d facts)", actionType, len(results))
+
+	logging.VirtualStoreDebug("checkKernelPermitted(%s): DENIED (no matching permitted fact)", actionType)
 	return false
 }
+
+
 
 // =============================================================================
 // CODE DOM HANDLERS
