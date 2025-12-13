@@ -1,0 +1,369 @@
+# JIT Prompt Compiler Policy
+# Section 45, 46 of Cortex Executive Policy
+
+# Category Ordering (Static Facts)
+# Determines section order in final prompt.
+# Lower numbers appear first in the assembled prompt.
+
+category_order(/identity, 1).
+category_order(/safety, 2).
+category_order(/hallucination, 3).
+category_order(/methodology, 4).
+category_order(/language, 5).
+category_order(/framework, 6).
+category_order(/domain, 7).
+category_order(/campaign, 8).
+category_order(/init, 8).
+category_order(/northstar, 8).
+category_order(/ouroboros, 8).
+category_order(/context, 9).
+category_order(/exemplar, 10).
+category_order(/protocol, 11).
+
+# Category Budget Allocation
+# Percentage of total token budget allocated to each category.
+
+category_budget(/identity, 5).
+category_budget(/protocol, 12).
+category_budget(/safety, 5).
+category_budget(/hallucination, 8).
+category_budget(/methodology, 15).
+category_budget(/language, 8).
+category_budget(/framework, 8).
+category_budget(/domain, 15).
+category_budget(/context, 12).
+category_budget(/exemplar, 7).
+category_budget(/campaign, 5).
+category_budget(/init, 5).
+category_budget(/northstar, 5).
+category_budget(/ouroboros, 5).
+
+# Contextual Matching Rules
+
+# Context match indicators
+atom_has_shard_match(AtomID) :-
+    atom_selector(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType).
+
+atom_has_mode_match(AtomID) :-
+    atom_selector(AtomID, /operational_mode, Mode),
+    compile_context(/operational_mode, Mode).
+
+atom_has_phase_match(AtomID) :-
+    atom_selector(AtomID, /campaign_phase, Phase),
+    compile_context(/campaign_phase, Phase).
+
+atom_has_verb_match(AtomID) :-
+    atom_selector(AtomID, /intent_verb, Verb),
+    compile_context(/intent_verb, Verb).
+
+atom_has_lang_match(AtomID) :-
+    atom_selector(AtomID, /language, Lang),
+    compile_context(/language, Lang).
+
+atom_has_framework_match(AtomID) :-
+    atom_selector(AtomID, /framework, Framework),
+    compile_context(/framework, Framework).
+
+atom_has_state_match(AtomID) :-
+    atom_selector(AtomID, /world_state, State),
+    compile_context(/world_state, State).
+
+atom_has_init_match(AtomID) :-
+    atom_selector(AtomID, /init_phase, Phase),
+    compile_context(/init_phase, Phase).
+
+atom_has_ouroboros_match(AtomID) :-
+    atom_selector(AtomID, /ouroboros_stage, Stage),
+    compile_context(/ouroboros_stage, Stage).
+
+atom_has_northstar_match(AtomID) :-
+    atom_selector(AtomID, /northstar_phase, Phase),
+    compile_context(/northstar_phase, Phase).
+
+atom_has_layer_match(AtomID) :-
+    atom_selector(AtomID, /build_layer, Layer),
+    compile_context(/build_layer, Layer).
+
+# Final atom score from Go-computed boost (virtual predicate)
+atom_matches_context(AtomID, FinalScore) :-
+    prompt_atom(AtomID, _, _, _, _),
+    atom_context_boost(AtomID, FinalScore).
+
+# Mandatory atoms always get max score (100)
+atom_matches_context(AtomID, 100) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Dependency Resolution (Stratified)
+
+# Helper: atom would meet score threshold (potential candidate)
+atom_meets_threshold(AtomID) :-
+    atom_matches_context(AtomID, Score),
+    Score > 40.
+
+# Helper: atom is mandatory (always meets threshold)
+atom_meets_threshold(AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Helper: atom has at least one unsatisfiable hard dependency
+has_unsatisfied_hard_dep(AtomID) :-
+    atom_dependency(AtomID, DepID, /hard),
+    prompt_atom(DepID, _, _, _, _),
+    !atom_meets_threshold(DepID).
+
+# Atom dependencies are satisfied if no unsatisfiable hard deps exist
+atom_dependency_satisfied(AtomID) :-
+    prompt_atom(AtomID, _, _, _, _),
+    !has_unsatisfied_hard_dep(AtomID).
+
+# Selection Algorithm (Stratified)
+
+# Phase 1: Candidate atoms pass score threshold and have satisfied dependencies
+atom_candidate(AtomID) :-
+    atom_matches_context(AtomID, Score),
+    Score > 40,
+    atom_dependency_satisfied(AtomID).
+
+# Mandatory atoms are always candidates
+atom_candidate(AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true).
+
+# Phase 2: Detect conflicts among candidates
+# An atom loses to a conflicting atom with higher score
+atom_loses_conflict(AtomID) :-
+    atom_candidate(AtomID),
+    atom_conflict(AtomID, OtherID),
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+atom_loses_conflict(AtomID) :-
+    atom_candidate(AtomID),
+    atom_conflict(OtherID, AtomID),
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+# An atom loses in exclusion group to higher-scoring atom
+atom_loses_exclusion(AtomID) :-
+    atom_candidate(AtomID),
+    atom_exclusion_group(AtomID, GroupID),
+    atom_exclusion_group(OtherID, GroupID),
+    AtomID != OtherID,
+    atom_candidate(OtherID),
+    atom_matches_context(AtomID, MyScore),
+    atom_matches_context(OtherID, OtherScore),
+    OtherScore > MyScore.
+
+# Helper: atom is excluded for any reason
+is_excluded(AtomID) :-
+    atom_loses_conflict(AtomID).
+
+is_excluded(AtomID) :-
+    atom_loses_exclusion(AtomID).
+
+# Exclude if dependency not satisfied (computed early, no cycle)
+is_excluded(AtomID) :-
+    prompt_atom(AtomID, _, _, _, _),
+    !atom_dependency_satisfied(AtomID).
+
+# Phase 3: Final selection - candidates that are not excluded
+atom_selected(AtomID) :-
+    atom_candidate(AtomID),
+    !is_excluded(AtomID).
+
+# Final Ordering
+
+# Order selected atoms by category first, then by match score within category.
+final_atom(AtomID, Order) :-
+    atom_selected(AtomID),
+    atom_final_order(AtomID, Order).
+
+# Compilation Validation
+
+# Helper: at least one identity atom is selected
+has_identity_atom() :-
+    atom_selected(AtomID),
+    prompt_atom(AtomID, /identity, _, _, _).
+
+# Helper: at least one protocol atom is selected
+has_protocol_atom() :-
+    atom_selected(AtomID),
+    prompt_atom(AtomID, /protocol, _, _, _).
+
+# Helper: at least one compilation error exists
+has_compilation_error() :-
+    compilation_error(_, _).
+
+# Compilation is valid if: has identity, has protocol, no errors
+compilation_valid() :-
+    has_identity_atom(),
+    has_protocol_atom(),
+    !has_compilation_error().
+
+# Error: missing mandatory atom (mandatory atom not selected)
+compilation_error(/missing_mandatory, AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true),
+    !atom_selected(AtomID).
+
+# Error: circular dependency
+compilation_error(/circular_dependency, AtomID) :-
+    atom_dependency(AtomID, DepID, /hard),
+    atom_dependency(DepID, AtomID, /hard).
+
+# Integration with Spreading Activation
+
+# High activation for selected atoms
+activation(AtomID, 95) :-
+    atom_selected(AtomID).
+
+# Medium activation for atoms matching context but not selected
+activation(AtomID, 60) :-
+    atom_matches_context(AtomID, Score),
+    Score > 30,
+    !atom_selected(AtomID).
+
+# Learning Signals from Prompt Compilation
+
+# Signal: atom was selected and shard execution succeeded
+effective_prompt_atom(AtomID) :-
+    atom_selected(AtomID),
+    compile_shard(ShardID, _),
+    shard_executed(ShardID, _, /success, _).
+
+# Learning signal: promote effective atoms to higher priority
+learning_signal(/effective_prompt_atom, AtomID) :-
+    effective_prompt_atom(AtomID).
+
+# SECTION 46: JIT PROMPT COMPILER SELECTION RULES
+
+# SKELETON (Mandatory - Fail if missing)
+
+# Define skeleton categories - these are non-negotiable prompt sections
+skeleton_category(/identity).
+skeleton_category(/protocol).
+skeleton_category(/safety).
+skeleton_category(/methodology).
+
+# An atom is mandatory if:
+# 1. It belongs to a skeleton category
+# 2. It matches the current shard type (if tagged)
+# 3. It is not explicitly prohibited
+mandatory_atom(AtomID) :-
+    prompt_atom(AtomID, Category, _, _, _),
+    skeleton_category(Category),
+    compile_shard(_, ShardType),
+    atom_tag(AtomID, /shard_type, ShardType),
+    !prohibited_atom(AtomID).
+
+# Atoms explicitly marked as mandatory are always mandatory
+mandatory_atom(AtomID) :-
+    prompt_atom(AtomID, _, _, _, /true),
+    !prohibited_atom(AtomID).
+
+# Atoms with is_mandatory flag
+mandatory_atom(AtomID) :-
+    is_mandatory(AtomID),
+    !prohibited_atom(AtomID).
+
+# FIREWALL (Prohibited in certain contexts)
+
+# Base prohibitions: context-based blocking
+base_prohibited(AtomID) :-
+    compile_context(/operational_mode, /production),
+    atom_tag(AtomID, /tag, /debug_only).
+
+base_prohibited(AtomID) :-
+    compile_context(/operational_mode, /dream),
+    atom_tag(AtomID, /category, /ouroboros).
+
+base_prohibited(AtomID) :-
+    compile_context(/operational_mode, /init),
+    atom_tag(AtomID, /category, /campaign).
+
+base_prohibited(AtomID) :-
+    compile_context(/operational_mode, /active),
+    atom_tag(AtomID, /tag, /dream_only).
+
+# Dependency-based prohibition
+base_prohibited(AtomID) :-
+    atom_requires(AtomID, DepID),
+    base_prohibited(DepID).
+
+# prohibited_atom = base_prohibited
+prohibited_atom(AtomID) :- base_prohibited(AtomID).
+
+# FLESH (Vector candidates filtered by Mangle)
+
+# Candidate atoms must:
+# 1. Have a vector hit with sufficient similarity (> 0.3)
+# 2. Not be prohibited by firewall rules
+candidate_atom(AtomID) :-
+    vector_hit(AtomID, Score),
+    Score > 0.3,
+    !prohibited_atom(AtomID).
+
+# Also consider atoms matching context dimensions even without vector hit
+candidate_atom(AtomID) :-
+    prompt_atom(AtomID, _, Priority, _, _),
+    Priority > 50,
+    atom_tag(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType),
+    !prohibited_atom(AtomID),
+    !mandatory_atom(AtomID).
+
+# Final Selection (with Conflict Resolution)
+
+# Helper: An atom loses a conflict to a mandatory atom
+conflict_loser(AtomID) :-
+    candidate_atom(AtomID),
+    atom_conflicts(AtomID, MandatoryID),
+    mandatory_atom(MandatoryID).
+
+conflict_loser(AtomID) :-
+    candidate_atom(AtomID),
+    atom_conflicts(MandatoryID, AtomID),
+    mandatory_atom(MandatoryID).
+
+# Helper: Two candidates conflict, lower priority loses
+conflict_loser(AtomID) :-
+    candidate_atom(AtomID),
+    candidate_atom(OtherID),
+    atom_conflicts(AtomID, OtherID),
+    prompt_atom(AtomID, _, PriorityA, _, _),
+    prompt_atom(OtherID, _, PriorityB, _, _),
+    PriorityA < PriorityB.
+
+conflict_loser(AtomID) :-
+    candidate_atom(AtomID),
+    candidate_atom(OtherID),
+    atom_conflicts(OtherID, AtomID),
+    prompt_atom(AtomID, _, PriorityA, _, _),
+    prompt_atom(OtherID, _, PriorityB, _, _),
+    PriorityA < PriorityB.
+
+# Final selection: mandatory atoms always selected
+selected_atom(AtomID) :- mandatory_atom(AtomID).
+
+# Candidates selected if not a conflict loser
+selected_atom(AtomID) :-
+    candidate_atom(AtomID),
+    !mandatory_atom(AtomID),
+    !conflict_loser(AtomID).
+
+# Section 46 Validation
+
+has_skeleton_category(Category) :-
+    selected_atom(AtomID),
+    prompt_atom(AtomID, Category, _, _, _),
+    skeleton_category(Category).
+
+missing_skeleton_category(Category) :-
+    skeleton_category(Category),
+    !has_skeleton_category(Category).
+
+# Report missing skeleton as compilation error
+compilation_error(/missing_skeleton, Category) :-
+    missing_skeleton_category(Category).
