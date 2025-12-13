@@ -936,7 +936,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		// Refresh permission cache in case policy/facts changed since last action.
 		// Note: Cache is deprecated for fine-grained permissions, direct query used.
 		
-		permitted := v.checkKernelPermitted(string(req.Type), req.Target, req.Payload)
+		permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
 		if !permitted {
 			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)
 			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
@@ -2502,9 +2502,9 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 	return v.checkConstitution(req) == nil
 }
 
-// checkKernelPermitted consults the kernel to verify if the specific action is permitted.
+// CheckKernelPermitted consults the kernel to verify if the specific action is permitted.
 // We query the kernel for permitted(Action, Target, Payload) facts.
-func (v *VirtualStore) checkKernelPermitted(actionType, target string, payload map[string]interface{}) bool {
+func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload map[string]interface{}) bool {
 	v.mu.RLock()
 	k := v.kernel
 	v.mu.RUnlock()
@@ -2526,6 +2526,7 @@ func (v *VirtualStore) checkKernelPermitted(actionType, target string, payload m
 	altType := actionType
 
 	for _, f := range results {
+		fmt.Printf("DEBUG: Checking permitted fact: %v (want type=%s target=%s)\n", f, wantType, target)
 		if len(f.Args) < 1 {
 			continue
 		}

@@ -223,9 +223,9 @@ func TestPermissionCacheOptimization(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result := vs.checkKernelPermitted(tc.action)
+		result := vs.CheckKernelPermitted(tc.action, "test_target", map[string]interface{}{})
 		if result != tc.expected {
-			t.Errorf("checkKernelPermitted(%q) = %v, expected %v", tc.action, result, tc.expected)
+			t.Errorf("CheckKernelPermitted(%q) = %v, expected %v", tc.action, result, tc.expected)
 		}
 	}
 
