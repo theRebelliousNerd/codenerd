@@ -97,7 +97,11 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 		found = true
 		status := fmt.Sprintf("%v", f.Args[1])
 		if status != "/success" {
-			t.Fatalf("routing_result status = %v, want /success", f.Args[1])
+			reason := "unknown"
+			if len(f.Args) >= 3 {
+				reason = fmt.Sprintf("%v", f.Args[2])
+			}
+			t.Fatalf("routing_result status = %v, want /success. Reason: %s", f.Args[1], reason)
 		}
 		if len(f.Args) < 3 {
 			t.Fatalf("routing_result missing output details for %s", actionID)
