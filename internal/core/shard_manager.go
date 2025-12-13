@@ -1361,6 +1361,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		} else {
 			logging.ShardsDebug("SpawnAsyncWithContext: asserted active_shard(%s, %s)", id, shardTypeAtom)
 		}
+
+		// Fix 15.2: Assert shard_status for observability
+		if err := sm.kernel.Assert(Fact{
+			Predicate: "shard_status",
+			Args:      []interface{}{id, "/running", task},
+		}); err != nil {
+			logging.ShardsDebug("SpawnAsyncWithContext: failed to assert shard_status: %v", err)
+		}
 	}
 
 	// Inject dependencies
@@ -1432,6 +1440,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 						Predicate: "active_shard",
 						Args:      []interface{}{id, shardTypeAtom},
 					})
+					// Fix 15.2: Retract shard_status
+					_ = sm.kernel.RetractFact(Fact{
+						Predicate: "shard_status",
+						Args:      []interface{}{id, "/running", task},
+					})
 				}
 				// Clear tracing context
 				if sm.tracingClient != nil {
@@ -1490,6 +1503,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			} else {
 				logging.ShardsDebug("Shard %s: retracted active_shard(%s, %s)", id, id, shardTypeAtom)
 			}
+
+			// Fix 15.2: Retract shard_status
+			_ = sm.kernel.RetractFact(Fact{
+				Predicate: "shard_status",
+				Args:      []interface{}{id, "/running", task},
+			})
 		}
 
 		// Clear tracing context after execution
