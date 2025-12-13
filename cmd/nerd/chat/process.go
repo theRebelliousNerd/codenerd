@@ -387,6 +387,19 @@ OUTPUT:
 			}
 		}
 
+		// 1.7 STATS: Deterministic codebase/file statistics (no LLM follow-up).
+		if shardType == "" && intent.Verb == "/stats" {
+			m.ReportStatus("Stats: computing...")
+			statsResp, err := m.handleStatsIntent(ctx, intent)
+			if err != nil {
+				return responseMsg(m.appendSystemSummary(
+					fmt.Sprintf("Stats error: %v", err),
+					m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount),
+				))
+			}
+			return responseMsg(m.appendSystemSummary(statsResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+		}
+
 		// 1.7 DIRECT RESPONSE: For non-actionable verbs (/explain, /read, etc.) with
 		// no shard and a valid perception response, return the perception response
 		// directly. This handles greetings, capability questions, and general queries

@@ -608,6 +608,8 @@ func (sm *ShardManager) GetBackpressureStatus() *BackpressureStatus {
 func (sm *ShardManager) SpawnWithPriority(ctx context.Context, typeName, task string,
 	sessionCtx *SessionContext, priority SpawnPriority) (string, error) {
 
+	typeName = normalizeShardTypeName(typeName)
+
 	sm.mu.RLock()
 	sq := sm.spawnQueue
 	sm.mu.RUnlock()
@@ -865,7 +867,7 @@ func (sm *ShardManager) queryRelevantTools(query ToolRelevanceQuery) []ToolInfo 
 
 	// Query derived relevant_tool predicate
 	// Format: relevant_tool(/shardType, ToolName)
-	shardAtom := "/" + query.ShardType
+	shardAtom := normalizeMangleAtom(query.ShardType)
 	relevantFacts, err := sm.kernel.Query("relevant_tool")
 	if err != nil || len(relevantFacts) == 0 {
 		// Fallback to all tools if derivation fails (with budget trimming)
@@ -930,7 +932,7 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	_ = sm.kernel.Retract("current_time")
 
 	// Assert current shard type (with / prefix for Mangle atom)
-	shardAtom := "/" + query.ShardType
+	shardAtom := normalizeMangleAtom(query.ShardType)
 	_ = sm.kernel.Assert(Fact{
 		Predicate: "current_shard_type",
 		Args:      []interface{}{shardAtom},
@@ -941,7 +943,7 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 		// Create a synthetic intent ID for routing purposes. Keep it distinct from
 		// "/current_intent" so routing context cannot pollute the main policy.
 		intentID := "/tool_routing_context"
-		verbAtom := "/" + query.IntentVerb
+		verbAtom := normalizeMangleAtom(query.IntentVerb)
 		_ = sm.kernel.RetractFact(Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 		_ = sm.kernel.Assert(Fact{
 			Predicate: "current_intent",
@@ -971,7 +973,7 @@ func (sm *ShardManager) sortToolsByPriority(tools []ToolInfo, shardType string) 
 	}
 
 	// Query priority scores
-	shardAtom := "/" + shardType
+	shardAtom := normalizeMangleAtom(shardType)
 	baseRelevanceFacts, _ := sm.kernel.Query("tool_base_relevance")
 
 	// Build score map
@@ -993,6 +995,24 @@ func (sm *ShardManager) sortToolsByPriority(tools []ToolInfo, shardType string) 
 		scoreJ := scores[tools[j].Name]
 		return scoreI > scoreJ
 	})
+}
+
+func normalizeMangleAtom(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimLeft(value, "/")
+	for strings.Contains(value, "//") {
+		value = strings.ReplaceAll(value, "//", "/")
+	}
+	if value == "" {
+		return ""
+	}
+	return "/" + value
+}
+
+func normalizeShardTypeName(typeName string) string {
+	typeName = strings.TrimSpace(typeName)
+	typeName = strings.TrimLeft(typeName, "/")
+	return typeName
 }
 
 // trimToTokenBudget limits tools to fit within context window budget.
@@ -1179,6 +1199,7 @@ func (sm *ShardManager) SpawnAsync(ctx context.Context, typeName, task string) (
 
 // SpawnAsyncWithContext creates and executes a shard asynchronously with session context.
 func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, task string, sessionCtx *SessionContext) (string, error) {
+	typeName = normalizeShardTypeName(typeName)
 	logging.Shards("SpawnAsyncWithContext: initiating %s shard", typeName)
 	logging.ShardsDebug("SpawnAsyncWithContext: task=%s, hasSessionContext=%v", task, sessionCtx != nil)
 
