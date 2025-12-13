@@ -2542,6 +2542,10 @@ Decl shard_prompt_base(ShardType, BaseTemplate).
 # NOTE: Named shard_context_atom to distinguish from existing context_atom(Fact) in Section 12
 Decl shard_context_atom(ShardID, Atom, Relevance).
 
+# shard_context_refreshed(ShardID, Atom, Timestamp)
+# Marks a stale context atom as refreshed for a shard, suppressing repeated refresh loops.
+Decl shard_context_refreshed(ShardID, Atom, Timestamp).
+
 # -----------------------------------------------------------------------------
 # 42.3 Specialist Knowledge (Type B Persistent Shards)
 # -----------------------------------------------------------------------------

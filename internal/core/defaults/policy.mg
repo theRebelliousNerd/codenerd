@@ -2800,13 +2800,19 @@ activation(Exemplar, 70) :-
 # Context atom is stale if it references a modified file
 context_stale(ShardID, Atom) :-
     shard_context_atom(ShardID, Atom, _),
-    modified(Atom).
+    modified(Atom),
+    !context_refreshed(ShardID, Atom).
+
+# Helper for safe negation
+context_refreshed(ShardID, Atom) :-
+    shard_context_refreshed(ShardID, Atom, _).
 
 # Context atom is stale if specialist knowledge was updated
 context_stale(ShardID, Knowledge) :-
     shard_context_atom(ShardID, Knowledge, _),
     specialist_knowledge(ShardID, _, Knowledge),
-    specialist_knowledge_updated(ShardID).
+    specialist_knowledge_updated(ShardID),
+    !context_refreshed(ShardID, Knowledge).
 
 # Helper: shard has stale context
 has_stale_context(ShardID) :-
