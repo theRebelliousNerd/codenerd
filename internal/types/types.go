@@ -25,6 +25,14 @@ type Fact struct {
 	Args      []interface{}
 }
 
+func isValidMangleNameConstant(v string) bool {
+	if !strings.HasPrefix(v, "/") {
+		return false
+	}
+	_, err := ast.Name(v)
+	return err == nil
+}
+
 // String returns the Datalog string representation of the fact.
 func (f Fact) String() string {
 	var args []string
@@ -33,8 +41,10 @@ func (f Fact) String() string {
 		case MangleAtom:
 			args = append(args, string(v))
 		case string:
-			// Handle Mangle name constants (start with /)
-			if strings.HasPrefix(v, "/") {
+			// Handle valid Mangle name constants (start with /).
+			// NOTE: Many normal strings can start with "/" (e.g., Go comments "//", Unix paths),
+			// so we only treat it as a name constant if it parses as one.
+			if isValidMangleNameConstant(v) {
 				args = append(args, v)
 			} else {
 				args = append(args, fmt.Sprintf("%q", v))
@@ -78,12 +88,9 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 			}
 			terms = append(terms, c)
 		case string:
-			if strings.HasPrefix(v, "/") {
+			if isValidMangleNameConstant(v) {
 				// Name constant
-				c, err := ast.Name(v)
-				if err != nil {
-					return ast.Atom{}, err
-				}
+				c, _ := ast.Name(v)
 				terms = append(terms, c)
 			} else {
 				// String constant

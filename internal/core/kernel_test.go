@@ -255,6 +255,16 @@ func TestFactToAtom(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "string starting with // is not a name constant",
+			fact:    Fact{Predicate: "file_content", Args: []interface{}{"// Package main\npackage main\n"}},
+			wantErr: false,
+		},
+		{
+			name:    "unix path starting with / is not a name constant",
+			fact:    Fact{Predicate: "path", Args: []interface{}{"/usr/local/bin"}},
+			wantErr: false,
+		},
+		{
 			name:    "int arg",
 			fact:    Fact{Predicate: "num", Args: []interface{}{int64(42)}},
 			wantErr: false,
