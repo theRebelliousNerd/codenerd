@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/perception"
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1679,6 +1680,9 @@ func (m Model) buildStatusReport() string {
 	sb.WriteString(fmt.Sprintf("- Session ID: `%s`\n", m.sessionID))
 	sb.WriteString(fmt.Sprintf("- Turn Count: %d\n", m.turnCount))
 	sb.WriteString(fmt.Sprintf("- Workspace: %s\n", m.workspace))
+	sb.WriteString(fmt.Sprintf("- Initialized: %v\n", nerdinit.IsInitialized(m.workspace)))
+	sb.WriteString(fmt.Sprintf("- Session State: %s\n", filepath.Join(m.workspace, ".nerd", "session.json")))
+	sb.WriteString(fmt.Sprintf("- Sessions Dir: %s\n", filepath.Join(m.workspace, ".nerd", "sessions")))
 	sb.WriteString("\n")
 
 	sb.WriteString("### Components\n")

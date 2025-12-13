@@ -102,6 +102,20 @@ Run without arguments to start the interactive chat interface.`,
 		logging.CloseAll()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Interactive mode should honor --workspace.
+		// The Bubbletea chat UI uses os.Getwd() as its workspace root for `.nerd/` persistence.
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		} else if abs, err := filepath.Abs(ws); err == nil {
+			ws = abs
+		}
+		if ws != "" {
+			if err := os.Chdir(ws); err != nil {
+				return fmt.Errorf("chdir workspace: %w", err)
+			}
+		}
+
 		// Default behavior: launch interactive chat
 		cfg := chat.Config{
 			DisableSystemShards: disableSystemShards,

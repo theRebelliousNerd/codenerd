@@ -98,15 +98,12 @@ func (m Model) View() string {
 	// Header
 	header := m.renderHeader()
 
-	// Chat viewport
-	chatView := m.styles.Content.Render(m.viewport.View())
-
-	// Loading indicator handled in Header/Footer to prevent scrolling glitches
-
-	// Error display
-	if m.err != nil {
-		chatView += "\n" + m.styles.Error.Render("Error: "+m.err.Error())
+	// Content area (chat viewport + optional error panel)
+	content := m.viewport.View()
+	if m.err != nil && m.showError {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, m.renderErrorPanel())
 	}
+	chatView := m.styles.Content.Render(content)
 
 	// Apply split-pane view if enabled (Glass Box Interface)
 	if m.showLogic && m.splitPane != nil {
@@ -138,6 +135,32 @@ func (m Model) View() string {
 		inputArea,
 		footer,
 	)
+}
+
+func (m Model) renderErrorPanel() string {
+	if m.err == nil {
+		return ""
+	}
+
+	border := lipgloss.RoundedBorder()
+	if m.focusError {
+		border = lipgloss.ThickBorder()
+	}
+
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ui.Destructive).
+		Render("Error") +
+		m.styles.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
+
+	panelStyle := lipgloss.NewStyle().
+		Border(border).
+		BorderForeground(ui.Destructive).
+		Padding(0, 1).
+		Width(m.viewport.Width).
+		MaxWidth(m.viewport.Width)
+
+	return panelStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, m.errorVP.View()))
 }
 
 func (m Model) renderHeader() string {
@@ -238,7 +261,7 @@ func (m Model) renderFooter() string {
 	if m.isLoading {
 		hotkeys = "Ctrl+X: STOP | "
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+M: select | /help"
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+M: select | /help"
 
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s | %s | %s",
