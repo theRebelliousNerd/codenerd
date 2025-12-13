@@ -1358,6 +1358,10 @@ func (m Model) collectSystemSummary(ctx context.Context, baseRouting, baseExec i
 	if m.kernel == nil {
 		return ""
 	}
+	// Avoid extra polling overhead unless we're displaying the summary or logging in debug mode.
+	if !m.showSystemActions && !logging.IsDebugMode() {
+		return ""
+	}
 	routingNew, execNew := m.waitForSystemResults(ctx, baseRouting, baseExec, 1500*time.Millisecond)
 	return formatSystemResults(routingNew, execNew)
 }
@@ -1482,7 +1486,15 @@ func formatSystemResults(routing, exec []core.Fact) string {
 
 // appendSystemSummary appends system action summaries to a response, if present.
 func (m Model) appendSystemSummary(response, summary string) string {
-	if strings.TrimSpace(summary) == "" {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return response
+	}
+	// Always log when debug mode is enabled; keep chat surface clean by default.
+	if logging.IsDebugMode() {
+		logging.SessionDebug("System actions summary:\n%s", summary)
+	}
+	if !m.showSystemActions {
 		return response
 	}
 	if strings.HasSuffix(response, "\n") {

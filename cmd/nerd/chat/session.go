@@ -151,6 +151,8 @@ func InitChat(cfg Config) Model {
 		paneMode:     ui.ModeSinglePane,
 		showError:    true,
 		focusError:   false,
+		// System action summaries are noisy; default to showing them only in debug mode.
+		showSystemActions: appCfg != nil && appCfg.Logging != nil && appCfg.Logging.DebugMode,
 		history:      []Message{},
 		Config:       appCfg,
 		// Backend components start nil
