@@ -180,6 +180,22 @@ func TestReviewerGLParsesWithoutError(t *testing.T) {
 	t.Log("reviewer.mg parsed successfully")
 }
 
+// TestChaosGLParsesWithoutError validates chaos.mg syntax.
+func TestChaosGLParsesWithoutError(t *testing.T) {
+	chaosPath := findMangleFile(t, "chaos.mg")
+	data, err := os.ReadFile(chaosPath)
+	if err != nil {
+		t.Skipf("chaos.mg not found (optional): %v", err)
+	}
+
+	_, err = parse.Unit(strings.NewReader(string(data)))
+	if err != nil {
+		t.Fatalf("Failed to parse chaos.mg: %v", err)
+	}
+
+	t.Log("chaos.mg parsed successfully")
+}
+
 // TestAllGLFilesCombinedAnalysis tests that all .mg files work together.
 func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 	glFiles := []string{

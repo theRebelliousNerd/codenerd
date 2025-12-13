@@ -281,7 +281,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	if blocked && e.config.StrictBarriers {
 		logging.SystemShardsDebug("[ExecutivePolicy] Execution blocked: %s", blockReason)
 		_ = e.Kernel.Assert(core.Fact{
-			Predicate: "execution_blocked",
+			Predicate: "executive_blocked",
 			Args:      []interface{}{blockReason, time.Now().Unix()},
 		})
 		return nil // Don't derive actions when blocked
@@ -636,7 +636,7 @@ func (e *ExecutivePolicyShard) checkBarriers() (bool, string) {
 	barrierPredicates := []string{
 		"block_commit",
 		"block_action",
-		"execution_blocked",
+		"executive_blocked",
 		"test_state_blocking",
 	}
 
