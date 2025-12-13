@@ -499,7 +499,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, "failure", err.Error()},
+					Args:      []interface{}{call.ID, core.MangleAtom("/failure"), err.Error()},
 				})
 			} else {
 				call.Status = "completed"
@@ -507,7 +507,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
 				_ = r.Kernel.Assert(core.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, "success", result},
+					Args:      []interface{}{call.ID, core.MangleAtom("/success"), result},
 				})
 			}
 

@@ -269,10 +269,10 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 				Predicate: "permitted_action",
 				Args:      []interface{}{actionID, actionType, target, payload, ts},
 			})
-			// Unary permitted marker for OODA/debug rules
+			// Emit canonical permission result for policy observability.
 			_ = c.Kernel.Assert(core.Fact{
-				Predicate: "action_permitted",
-				Args:      []interface{}{actionID},
+				Predicate: "permission_check_result",
+				Args:      []interface{}{actionID, core.MangleAtom("/permit"), reason},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
@@ -282,10 +282,16 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			// Record violation and get action ID for appeals
 			actionID = c.recordViolation(actionType, target, reason, nil, actionID)
 
+			// Emit canonical permission result for policy observability.
+			_ = c.Kernel.Assert(core.Fact{
+				Predicate: "permission_check_result",
+				Args:      []interface{}{actionID, core.MangleAtom("/deny"), reason},
+			})
+
 			// Emit routing_result failure so waiting shards can observe denial
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "routing_result",
-				Args:      []interface{}{actionID, "failure", reason},
+				Args:      []interface{}{actionID, core.MangleAtom("/failure"), reason},
 			})
 
 			// Emit security_violation fact
