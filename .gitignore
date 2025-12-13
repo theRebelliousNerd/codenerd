@@ -30,6 +30,7 @@ tmp/
 # Documentation (Ignore Docs root, keep research)
 Docs/*
 !Docs/research/
+!Docs/guides/
 
 # Markdown Docs (Global ignore with exceptions)
 *.md
@@ -38,6 +39,7 @@ Docs/*
 !CLAUDE.md
 !**/CLAUDE.md
 !Docs/research/**
+!Docs/guides/**
 !.claude/skills/**/*.md
 !internal/prompt/atoms/**/*.md
 

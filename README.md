@@ -125,49 +125,71 @@ Every interaction flows through:
    ```bash
    ./nerd init    # Creates .nerd/ directory, scans codebase
    ./nerd         # Launch interactive chat TUI
-   ```
+## Quickstart
 
-### Option 2: Build from Source
+### 1. Install & Build
+**Prerequisites:**
+- Go 1.22+
+- Docker (must be running for sandboxed execution)
 
+**Build:**
 ```bash
-# Clone the repository
-git clone https://github.com/theRebelliousNerd/codenerd.git
+# Clone the repo
+git clone https://github.com/google/codenerd
 cd codenerd
 
-# Build
-go build -o nerd.exe ./cmd/nerd
-
-# Copy to your project
-cp nerd.exe /path/to/your/project/
+# Build the CLI
+go build -o nerd ./cmd/nerd
 ```
 
-### Initialize a Workspace
+### 2. Configure
+The CLI needs API keys for the intelligence layer.
+1. Run `nerd` once to generate the config file at `~/.codenerd/config.json`, OR manually create it.
+2. Set your keys via environment variables or the config file:
 
 ```bash
-# Run once per project directory
-nerd init
+export ZAI_API_KEY="your_key_here"
+# Optional: Context retrieval key if applicable
+export CONTEXT7_API_KEY="your_ctx_key"
 ```
 
-This creates `.nerd/`, scans your codebase, detects languages/frameworks, and preloads facts into the kernel.
-
-### Launch
+### 3. Initialize Your Project
+Navigate to your project directory (e.g., your Python app) and initialize CodeNERD. This creates a local `.nerd` directory and indexes your codebase.
 
 ```bash
-# Interactive chat TUI (Bubble Tea)
+cd /path/to/your/project
+/path/to/codenerd/nerd init
+```
+*Tip: Add `nerd` to your PATH for easier access.*
+
+## How to Use
+
+### Interactive Chat (TUI)
+The primary way to use CodeNERD is the interactive terminal UI.
+```bash
 nerd
-
-# Or single-shot command
-nerd run "explain the authentication flow"
 ```
+Inside the TUI:
+- **Chat**: Type natural language requests (e.g., "Add a new endpoint to the API").
+- **Commands**: Use `/` commands like `/help`, `/status`, or `/apply`.
+- **Review**: The TUI shows you the "Glass Box" view of the agent's reasoning.
 
-### Portable Usage
+### CLI Commands
+For headless or single-shot tasks:
+- **Run a task**: `nerd run "Analyze the security of this repo"`
+- **Query facts**: `nerd query "func:main"` (Inspect the knowledge graph)
 
-The `nerd.exe` binary is fully portable. You can:
+### Supported Languages
+CodeNERD has deep support for **Python** and **Go**, including:
+- **Symbol Indexing**: Tree-sitter integrated parsing.
+- **Sandboxed Execution**: Auto-provisioned Docker containers for running tests.
+- **Test Integration**: Automated `pytest` and `go test` execution.
 
-- Drop it in any project root and run `nerd init`
-- Add it to your PATH for global access
-- Keep multiple projects each with their own `.nerd/` directory
-- The `.nerd/` directory stores project-specific knowledge and preferences
+See [Docs/guides/getting_started_python.md](Docs/guides/getting_started_python.md) for a detailed Python workflow.
+
+## Known Limitations
+- **Browser Snapshots**: Persistence is currently experimental.
+- **Specialist Agents**: Deep research agents are in active development.
 
 ---
 
