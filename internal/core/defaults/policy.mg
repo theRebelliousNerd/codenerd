@@ -1780,7 +1780,6 @@ current_ooda_phase(/observe) :-
 # NOTE: Time-based stall detection should use ooda_timeout fact from Go.
 ooda_stalled("no_action_derived") :-
     pending_intent(_),
-    !has_next_action(),
     ooda_timeout().
 
 # Escalate stalled OODA loop
@@ -1871,6 +1870,12 @@ requires_campaign(/current_intent) :-
 next_action(/open_file) :-
     user_intent(/current_intent, _, _, Target, _),
     file_topology(Target, _, /go, _, _),
+    !active_file(Target),
+    !in_scope(Target).
+
+next_action(/open_file) :-
+    user_intent(/current_intent, _, _, Target, _),
+    file_topology(Target, _, /mangle, _, _),
     !active_file(Target),
     !in_scope(Target).
 
@@ -3950,4 +3955,3 @@ next_action(/swebench_snapshot) :- user_intent(/current_intent, _, /swebench, "s
 next_action(/swebench_restore) :- user_intent(/current_intent, _, /swebench, "restore", _).
 next_action(/swebench_evaluate) :- user_intent(/current_intent, _, /swebench, "evaluate", _).
 next_action(/swebench_teardown) :- user_intent(/current_intent, _, /swebench, "teardown", _).
-
