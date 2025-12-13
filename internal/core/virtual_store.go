@@ -28,6 +28,7 @@ const (
 	ActionDeleteFile    ActionType = "delete_file"
 	ActionSearchCode    ActionType = "search_code"
 	ActionSearchFiles   ActionType = "search_files" // Back-compat alias for ActionSearchCode
+	ActionAnalyzeCode   ActionType = "analyze_code" // Alias for ActionSearchCode (policy emits /analyze_code)
 	ActionRunTests      ActionType = "run_tests"
 	ActionBuildProject  ActionType = "build_project"
 	ActionGitOperation  ActionType = "git_operation"
@@ -1042,7 +1043,7 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleEditFile(ctx, req)
 	case ActionDeleteFile:
 		return v.handleDeleteFile(ctx, req)
-	case ActionSearchCode, ActionSearchFiles:
+	case ActionSearchCode, ActionSearchFiles, ActionAnalyzeCode:
 		return v.handleSearchCode(ctx, req)
 	case ActionRunTests:
 		return v.handleRunTests(ctx, req)

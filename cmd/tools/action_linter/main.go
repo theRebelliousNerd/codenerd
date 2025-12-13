@@ -41,6 +41,7 @@ func main() {
 	virtualStoreFile := flag.String("virtual-store", "internal/core/virtual_store.go", "Path to internal/core/virtual_store.go")
 	failOnWarn := flag.Bool("fail-on-warn", false, "Exit non-zero if warnings are present")
 	warnUnusedExecutors := flag.Bool("warn-unused-executors", true, "Warn when VirtualStore action types are never emitted by policy")
+	exemptFile := flag.String("exempt-file", "", "Optional path to file containing action exemptions (one glob per line, comments with #)")
 	flag.Parse()
 
 	routerRoutes := system.DefaultRouterConfig().DefaultRoutes
@@ -57,7 +58,13 @@ func main() {
 		os.Exit(2)
 	}
 
-	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors)
+	exemptions, err := loadExemptions(*exemptFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "action_linter: failed to load exemptions: %v\n", err)
+		os.Exit(2)
+	}
+
+	issues := lint(policyActions, routerRoutes, virtualActions, *warnUnusedExecutors, exemptions)
 
 	sort.Slice(issues, func(i, j int) bool {
 		if issues[i].Severity != issues[j].Severity {
@@ -105,6 +112,51 @@ type actionSources struct {
 	Predicates map[string]struct{}
 }
 
+type exemptions struct {
+	Patterns []string
+}
+
+func loadExemptions(path string) (exemptions, error) {
+	if strings.TrimSpace(path) == "" {
+		return exemptions{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return exemptions{}, err
+	}
+	lines := strings.Split(string(data), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		trimmed = strings.TrimPrefix(trimmed, "/")
+		out = append(out, trimmed)
+	}
+	return exemptions{Patterns: uniqueSorted(out)}, nil
+}
+
+func (e exemptions) isExempt(action string) bool {
+	if len(e.Patterns) == 0 {
+		return false
+	}
+	action = strings.TrimPrefix(strings.TrimSpace(action), "/")
+	if action == "" {
+		return false
+	}
+	for _, patt := range e.Patterns {
+		patt = strings.TrimPrefix(strings.TrimSpace(patt), "/")
+		if patt == "" {
+			continue
+		}
+		if ok, _ := filepath.Match(patt, action); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func extractPolicyActions(root string) (map[string]actionSources, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -124,6 +176,8 @@ func extractPolicyActions(root string) (map[string]actionSources, error) {
 
 	// Capture predicate + leading name constant.
 	re := regexp.MustCompile(`(?m)\b(next_action|tdd_next_action|campaign_next_action|repair_next_action)\(\s*(/[^,\s\)]+)`)
+	// Capture action_mapping(/verb, /action) -> /action is a policy-emitted action via next_action(Action) rules.
+	reMapping := regexp.MustCompile(`(?m)\baction_mapping\(\s*/[^,\s\)]+\s*,\s*(/[^,\s\)]+)`)
 
 	out := make(map[string]actionSources)
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -143,7 +197,8 @@ func extractPolicyActions(root string) (map[string]actionSources, error) {
 		}
 
 		matches := re.FindAllStringSubmatch(string(data), -1)
-		if len(matches) == 0 {
+		mappingMatches := reMapping.FindAllStringSubmatch(string(data), -1)
+		if len(matches) == 0 && len(mappingMatches) == 0 {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -171,6 +226,28 @@ func extractPolicyActions(root string) (map[string]actionSources, error) {
 			}
 			rec.Predicates[pred] = struct{}{}
 			rec.Sources = append(rec.Sources, fmt.Sprintf("%s:%s", filepath.ToSlash(rel), pred))
+			out[normalized] = rec
+		}
+
+		for _, m := range mappingMatches {
+			if len(m) < 2 {
+				continue
+			}
+			raw := strings.TrimSpace(m[1])
+			normalized := strings.TrimPrefix(raw, "/")
+			if normalized == "" {
+				continue
+			}
+			rec, ok := out[normalized]
+			if !ok {
+				rec = actionSources{
+					Action:     "/" + normalized,
+					Sources:    nil,
+					Predicates: make(map[string]struct{}),
+				}
+			}
+			rec.Predicates["action_mapping"] = struct{}{}
+			rec.Sources = append(rec.Sources, fmt.Sprintf("%s:%s", filepath.ToSlash(rel), "action_mapping"))
 			out[normalized] = rec
 		}
 		return nil
@@ -212,7 +289,7 @@ func extractVirtualStoreActionTypes(path string) (map[string]struct{}, error) {
 	return out, nil
 }
 
-func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool) []issue {
+func lint(policyActions map[string]actionSources, routes []system.ToolRoute, virtualActions map[string]struct{}, warnUnusedExecutors bool, exemptions exemptions) []issue {
 	issues := make([]issue, 0, 64)
 
 	// Policy -> router -> virtual store
@@ -253,6 +330,9 @@ func lint(policyActions map[string]actionSources, routes []system.ToolRoute, vir
 		// VirtualStore action types that policy never emits (potential dead code / drift).
 		for action := range virtualActions {
 			if _, ok := policyActions[action]; ok {
+				continue
+			}
+			if exemptions.isExempt(action) {
 				continue
 			}
 			issues = append(issues, issue{
