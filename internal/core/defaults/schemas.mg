@@ -819,9 +819,9 @@ Decl campaign_shard(CampaignID, ShardID, ShardType, Task, Status).
 # Captures the raw goal and clarifier responses used to launch a campaign
 Decl campaign_intent_capture(CampaignID, Goal, ClarifierAnswers, AutonomyLevel, Constraints).
 
-# shard_result(ShardID, ResultType, ResultData, Timestamp)
+# shard_result_event(ShardID, ResultType, ResultData, Timestamp)
 # ResultType: /success, /failure, /partial, /knowledge
-Decl shard_result(ShardID, ResultType, ResultData, Timestamp).
+Decl shard_result_event(ShardID, ResultType, ResultData, Timestamp).
 
 # -----------------------------------------------------------------------------
 # 27.8 Source Material Ingestion
@@ -1450,9 +1450,8 @@ Decl executive_trace(Action, FromRule, Rationale, Timestamp).
 # strategy_activated(StrategyName, Timestamp) - strategy change
 Decl strategy_activated(StrategyName, Timestamp).
 
-# execution_blocked(Reason, Timestamp) - executive blocked
-Decl execution_blocked(Reason, Timestamp).
-Decl execution_blocked(Reason).  # 1-arg variant for simple blocks
+# executive_blocked(Reason, Timestamp) - executive policy blocked
+Decl executive_blocked(Reason, Timestamp).
 
 # -----------------------------------------------------------------------------
 # 33.8b Tactile Execution Audit Facts
@@ -1497,6 +1496,9 @@ Decl execution_killed(RequestID, Reason, DurationMs).
 
 # execution_error(RequestID, ErrorMessage) - execution error
 Decl execution_error(RequestID, ErrorMessage).
+
+# execution_blocked(RequestID, Reason, Timestamp) - command was blocked by policy/sandbox
+Decl execution_blocked(RequestID, Reason, Timestamp).
 
 # -----------------------------------------------------------------------------
 # 33.9 Policy Derived Predicates (Section 21 Support)
@@ -1735,9 +1737,9 @@ Decl large_file_warning(Path, LineCount, ByteSize).
 # OpType: /open, /refresh, /close
 Decl scope_operation(OpType, Path, Success, Timestamp).
 
-# edit_operation(OpType, Path, StartLine, EndLine, Success, Timestamp)
+# edit_operation_event(OpType, Path, StartLine, EndLine, Success, Timestamp)
 # OpType: /edit_lines, /insert_lines, /delete_lines, /replace_element
-Decl edit_operation(OpType, Path, StartLine, EndLine, Success, Timestamp).
+Decl edit_operation_event(OpType, Path, StartLine, EndLine, Success, Timestamp).
 
 # undo_available(Path, OperationID) - undo is available for an operation
 Decl undo_available(Path, OperationID).

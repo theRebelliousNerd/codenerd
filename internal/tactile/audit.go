@@ -200,12 +200,13 @@ func (e AuditEvent) ToFacts() []Fact {
 		})
 
 	case AuditEventBlocked:
-		// execution_blocked(RequestID, Reason)
+		// execution_blocked(RequestID, Reason, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "execution_blocked",
 			Args: []interface{}{
 				e.Command.RequestID,
 				e.BlockReason,
+				timestamp,
 			},
 		})
 
@@ -437,15 +438,15 @@ func (l *AuditFileLogger) Rotate() error {
 type ExecutionMetrics struct {
 	mu sync.RWMutex
 
-	totalExecutions     int64
+	totalExecutions      int64
 	successfulExecutions int64
-	failedExecutions    int64
-	killedExecutions    int64
-	blockedExecutions   int64
+	failedExecutions     int64
+	killedExecutions     int64
+	blockedExecutions    int64
 
-	totalDurationMs     int64
-	totalCPUTimeMs      int64
-	totalMemoryBytes    int64
+	totalDurationMs  int64
+	totalCPUTimeMs   int64
+	totalMemoryBytes int64
 
 	executionsByBinary  map[string]int64
 	executionsBySession map[string]int64

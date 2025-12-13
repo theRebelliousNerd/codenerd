@@ -2245,9 +2245,10 @@ active_strategy(/verification_loop) :-
     verification_attempt(TaskID, _, _).
 
 # Block normal task execution when in verification failure state
-execution_blocked("verification_in_progress") :-
+executive_blocked("verification_in_progress", Now) :-
     current_task(TaskID),
-    needs_corrective_action(TaskID).
+    needs_corrective_action(TaskID),
+    current_time(Now).
 
 # -----------------------------------------------------------------------------
 # 23.7 Quality Gate Integration with Commit Barrier
