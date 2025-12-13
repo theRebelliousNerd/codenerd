@@ -562,6 +562,7 @@ Recommended conventional commit split for this work:
 - `fix(router): retract action_permitted by ActionID`
 - `feat(tracing): add scheduled streaming + context forwarding`
 - `docs(plans): add mangle integration hardening plan`
+
 ## 15) Appendix G — Wiring Gap Fixes (Applied 2025-12-13)
 
 The following critical wiring gaps were identified and fixed to ensure logic-reality consistency:
