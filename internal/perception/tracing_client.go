@@ -3,20 +3,22 @@ package perception
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 )
 
 // ReasoningTrace captures a complete LLM interaction for learning and analysis.
 type ReasoningTrace struct {
-	ID           string    `json:"id"`
-	ShardID      string    `json:"shard_id"`
-	ShardType    string    `json:"shard_type"`
-	ShardCategory string   `json:"shard_category"` // system, ephemeral, specialist
-	SessionID    string    `json:"session_id"`
-	TaskContext  string    `json:"task_context"`
+	ID            string `json:"id"`
+	ShardID       string `json:"shard_id"`
+	ShardType     string `json:"shard_type"`
+	ShardCategory string `json:"shard_category"` // system, ephemeral, specialist
+	SessionID     string `json:"session_id"`
+	TaskContext   string `json:"task_context"`
 
 	// LLM Interaction
 	SystemPrompt string `json:"system_prompt"`
@@ -157,6 +159,163 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 	}
 
 	return response, err
+}
+
+type streamingChannelsClient interface {
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
+}
+
+type streamingCallbackClient interface {
+	CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error
+}
+
+type modelGetter interface {
+	GetModel() string
+}
+
+// CompleteWithStreaming implements streaming with trace capture.
+// The response is streamed to the caller while also being buffered for persistence.
+func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	// Capture current context
+	tc.mu.RLock()
+	shardID := tc.shardID
+	shardType := tc.shardType
+	shardCategory := tc.shardCategory
+	sessionID := tc.sessionID
+	taskContext := tc.taskContext
+	tc.mu.RUnlock()
+
+	start := time.Now()
+	logging.API("LLM streaming call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
+
+	var underContent <-chan string
+	var underErr <-chan error
+
+	if streamer, ok := tc.underlying.(streamingChannelsClient); ok {
+		underContent, underErr = streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+	} else if streamer, ok := tc.underlying.(streamingCallbackClient); ok {
+		contentChan := make(chan string, 100)
+		errorChan := make(chan error, 1)
+		go func() {
+			defer close(contentChan)
+			defer close(errorChan)
+			err := streamer.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
+				if chunk.Error != "" {
+					return fmt.Errorf("stream error: %s", chunk.Error)
+				}
+				delta := chunk.Text
+				if delta == "" {
+					delta = chunk.Content
+				}
+				if delta == "" || chunk.Done {
+					return nil
+				}
+				select {
+				case contentChan <- delta:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			if err != nil {
+				errorChan <- err
+			}
+		}()
+		underContent, underErr = contentChan, errorChan
+	} else {
+		contentChan := make(chan string)
+		errorChan := make(chan error, 1)
+		close(contentChan)
+		errorChan <- core.ErrStreamingNotSupported
+		close(errorChan)
+		return contentChan, errorChan
+	}
+
+	outContent := make(chan string, 100)
+	outErr := make(chan error, 1)
+
+	go func() {
+		defer close(outContent)
+		defer close(outErr)
+
+		var full strings.Builder
+		contentClosed := false
+		errClosed := false
+		var firstErr error
+
+		for !(contentClosed && errClosed) {
+			select {
+			case <-ctx.Done():
+				if firstErr == nil {
+					firstErr = ctx.Err()
+				}
+			case chunk, ok := <-underContent:
+				if !ok {
+					contentClosed = true
+					continue
+				}
+				full.WriteString(chunk)
+				select {
+				case outContent <- chunk:
+				case <-ctx.Done():
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+				}
+			case err, ok := <-underErr:
+				if !ok {
+					errClosed = true
+					continue
+				}
+				if err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		duration := time.Since(start)
+		if firstErr != nil {
+			logging.API("LLM streaming call failed: shard=%s duration=%v error=%s", shardID, duration, firstErr.Error())
+		} else {
+			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", shardID, duration, full.Len())
+		}
+
+		if firstErr != nil {
+			outErr <- firstErr
+		}
+
+		trace := &ReasoningTrace{
+			ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+			ShardID:       shardID,
+			ShardType:     shardType,
+			ShardCategory: shardCategory,
+			SessionID:     sessionID,
+			TaskContext:   taskContext,
+			SystemPrompt:  systemPrompt,
+			UserPrompt:    userPrompt,
+			Response:      full.String(),
+			DurationMs:    duration.Milliseconds(),
+			Success:       firstErr == nil,
+			Timestamp:     time.Now(),
+		}
+		if mg, ok := tc.underlying.(modelGetter); ok {
+			trace.Model = mg.GetModel()
+		}
+		if firstErr != nil {
+			trace.ErrorMessage = firstErr.Error()
+		}
+
+		// Store trace asynchronously to not block the caller
+		if tc.store != nil {
+			go func() {
+				if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
+					logging.APIDebug("Failed to store streaming reasoning trace: %v", storeErr)
+				}
+			}()
+		}
+	}()
+
+	return outContent, outErr
 }
 
 // GetUnderlying returns the wrapped LLM client.
@@ -335,8 +494,11 @@ func NewSystemLLMContext(client LLMClient, componentID, taskContext string) *Sys
 		sessionID:   fmt.Sprintf("system-%d", time.Now().UnixNano()),
 	}
 
-	// Set tracing context if client supports it
-	if tc, ok := client.(*TracingLLMClient); ok {
+	// Set tracing context if the client supports it (including scheduler wrappers).
+	type tracingContextSetter interface {
+		SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
+	}
+	if tc, ok := client.(tracingContextSetter); ok {
 		tc.SetShardContext(
 			fmt.Sprintf("system-%s-%d", componentID, time.Now().UnixNano()),
 			componentID,
@@ -361,7 +523,10 @@ func (s *SystemLLMContext) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 // Clear clears the system context after operations complete.
 func (s *SystemLLMContext) Clear() {
-	if tc, ok := s.client.(*TracingLLMClient); ok {
+	type tracingContextClearer interface {
+		ClearShardContext()
+	}
+	if tc, ok := s.client.(tracingContextClearer); ok {
 		tc.ClearShardContext()
 	}
 }

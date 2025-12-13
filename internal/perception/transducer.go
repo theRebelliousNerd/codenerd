@@ -501,6 +501,7 @@ When greeting or asked about capabilities, describe these abilities naturally. M
 
 CRITICAL PROTOCOL:
 You must NEVER output raw text. You must ALWAYS output a JSON object containing "surface_response" and "control_packet".
+The JSON object MUST place "control_packet" BEFORE "surface_response" (think first, speak second).
 
 ## INTENT LIBRARY (Match User to Canonical Examples)
 Instead of guessing verbs, match the user's request to the closest CANONICAL EXAMPLE.
@@ -878,14 +879,16 @@ Fix the issues and try again. Output valid Piggyback JSON with corrected mangle_
 		var resp string
 		var streamedAtoms []string
 		usedStreaming := false
+		streamValidated := false
 
 		llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
-		streamResp, streamAtoms, streamErr := t.completeWithGCDStreaming(ctx, sysCtx, systemPrompt, userPrompt, 4096)
+		streamResp, streamAtoms, validated, streamErr := t.completeWithGCDStreaming(ctx, sysCtx, systemPrompt, userPrompt, 4096)
 		llmTimer.Stop()
 
 		if streamErr == nil {
 			resp = streamResp
 			streamedAtoms = streamAtoms
+			streamValidated = validated
 			usedStreaming = true
 		} else {
 			var abortErr *gcdStreamAbortError
@@ -896,7 +899,7 @@ Fix the issues and try again. Output valid Piggyback JSON with corrected mangle_
 			}
 		}
 
-		if streamErr != nil && errors.Is(streamErr, ErrStreamingNotSupported) {
+		if streamErr != nil && errors.Is(streamErr, core.ErrStreamingNotSupported) {
 			// Fallback to non-streaming if the active provider doesn't support streaming.
 			llmTimer := logging.StartTimer(logging.CategoryPerception, "GCD-LLM-Call")
 			raw, err := sysCtx.CompleteWithSystem(ctx, systemPrompt, userPrompt)
@@ -926,7 +929,7 @@ Fix the issues and try again. Output valid Piggyback JSON with corrected mangle_
 		// Validate Mangle atoms using GCD
 		if len(result.Control.MangleUpdates) > 0 {
 			logging.PerceptionDebug("GCD validating %d Mangle updates", len(result.Control.MangleUpdates))
-			if usedStreaming && streamedAtoms != nil {
+			if usedStreaming && streamValidated && streamedAtoms != nil {
 				logging.Perception("GCD succeeded on attempt %d (stream-gated): verb=%s, %d valid atoms",
 					attempt+1, result.Control.IntentClassification.Verb, len(streamedAtoms))
 				return Intent{
@@ -1012,8 +1015,6 @@ Fix the issues and try again. Output valid Piggyback JSON with corrected mangle_
 	return intent, nil, err
 }
 
-var ErrStreamingNotSupported = errors.New("streaming not supported")
-
 type gcdStreamAbortError struct {
 	Reason string
 }
@@ -1033,61 +1034,301 @@ type llmStreamingChannels interface {
 	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
 }
 
-func (t *RealTransducer) completeWithGCDStreaming(ctx context.Context, sysCtx *SystemLLMContext, systemPrompt, userPrompt string, _ int) (string, []string, error) {
-	if sysCtx == nil || sysCtx.client == nil {
-		return "", nil, fmt.Errorf("nil sysCtx client")
+type gcdStreamGate struct {
+	t                *RealTransducer
+	maxPreambleBytes int
+
+	buf             strings.Builder
+	streamValidated bool
+	validatedAtoms  []string
+}
+
+func newGCDStreamGate(t *RealTransducer, maxPreambleBytes int) *gcdStreamGate {
+	if maxPreambleBytes <= 0 {
+		maxPreambleBytes = 4096
 	}
+	return &gcdStreamGate{
+		t:                t,
+		maxPreambleBytes: maxPreambleBytes,
+	}
+}
+
+func (g *gcdStreamGate) raw() string {
+	return g.buf.String()
+}
+
+func (g *gcdStreamGate) validated() (atoms []string, ok bool) {
+	if !g.streamValidated {
+		return nil, false
+	}
+	return g.validatedAtoms, true
+}
+
+func (g *gcdStreamGate) feed(delta string) error {
+	if delta == "" {
+		return nil
+	}
+	g.buf.WriteString(delta)
+	s := g.buf.String()
+
+	// Abort if we haven't even started a JSON object within a reasonable prefix.
+	if strings.IndexByte(s, '{') == -1 {
+		if len(s) > g.maxPreambleBytes {
+			return &gcdStreamAbortError{Reason: fmt.Sprintf("no JSON object started within %d bytes", g.maxPreambleBytes)}
+		}
+		return nil
+	}
+
+	controlIdx := indexOfJSONKeyOutsideStrings(s, "control_packet")
+	surfaceIdx := indexOfJSONKeyOutsideStrings(s, "surface_response")
+	if surfaceIdx != -1 && (controlIdx == -1 || surfaceIdx < controlIdx) {
+		return &gcdStreamAbortError{Reason: "surface_response appeared before control_packet"}
+	}
+	if controlIdx == -1 && len(s) > g.maxPreambleBytes {
+		return &gcdStreamAbortError{Reason: fmt.Sprintf("control_packet not found within %d bytes", g.maxPreambleBytes)}
+	}
+
+	// Once we have a complete control_packet object, validate mangle_updates early.
+	if !g.streamValidated && controlIdx != -1 {
+		controlJSON, complete, err := extractJSONObjectValueAfterKey(s, "control_packet")
+		if err != nil {
+			return &gcdStreamAbortError{Reason: err.Error()}
+		}
+		if !complete {
+			return nil
+		}
+
+		var control struct {
+			MangleUpdates []string `json:"mangle_updates"`
+		}
+		if err := json.Unmarshal([]byte(controlJSON), &control); err != nil {
+			return &gcdStreamAbortError{Reason: fmt.Sprintf("invalid control_packet JSON: %v", err)}
+		}
+
+		if len(control.MangleUpdates) == 0 {
+			// Nothing to validate yet; allow the stream to proceed.
+			g.streamValidated = true
+			g.validatedAtoms = nil
+			return nil
+		}
+
+		validAtoms, results := g.t.ValidateMangleAtoms(control.MangleUpdates)
+		var errorMsgs []string
+		for _, r := range results {
+			if r.Valid {
+				continue
+			}
+			for _, e := range r.Errors {
+				// Warnings aren't fatal; only errors/fatals should fail validation.
+				if e.Severity >= mangle.SeverityError {
+					errorMsgs = append(errorMsgs, e.Message)
+				}
+			}
+		}
+		if len(errorMsgs) > 0 {
+			return &gcdStreamAbortError{Reason: "invalid mangle_updates: " + strings.Join(errorMsgs, "; ")}
+		}
+
+		g.streamValidated = true
+		g.validatedAtoms = validAtoms
+	}
+
+	return nil
+}
+
+func indexOfJSONKeyOutsideStrings(s, key string) int {
+	if s == "" || key == "" {
+		return -1
+	}
+	pat := `"` + key + `"`
+	patLen := len(pat)
+	inString := false
+	escaped := false
+
+	for i := 0; i+patLen <= len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		// Not in a string: watch for string starts and key patterns.
+		if ch == '"' {
+			// Potential key match.
+			if s[i:i+patLen] == pat {
+				j := i + patLen
+				j = skipWhitespace(s, j)
+				if j < len(s) && s[j] == ':' {
+					return i
+				}
+			}
+			inString = true
+			continue
+		}
+	}
+	return -1
+}
+
+func skipWhitespace(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func extractJSONObjectValueAfterKey(s, key string) (jsonObject string, complete bool, err error) {
+	keyIdx := indexOfJSONKeyOutsideStrings(s, key)
+	if keyIdx == -1 {
+		return "", false, nil
+	}
+
+	patLen := len(key) + 2 // quotes around key
+	j := keyIdx + patLen
+	j = skipWhitespace(s, j)
+	if j >= len(s) || s[j] != ':' {
+		return "", false, fmt.Errorf("malformed JSON near %q key (missing colon)", key)
+	}
+	j++
+	j = skipWhitespace(s, j)
+	if j >= len(s) {
+		return "", false, nil
+	}
+	if s[j] != '{' {
+		return "", false, fmt.Errorf("expected object value for %q", key)
+	}
+
+	end := findMatchingJSONObjectEnd(s, j)
+	if end == -1 {
+		return "", false, nil
+	}
+	return s[j:end], true, nil
+}
+
+func findMatchingJSONObjectEnd(s string, start int) int {
+	if start < 0 || start >= len(s) || s[start] != '{' {
+		return -1
+	}
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
+func (t *RealTransducer) completeWithGCDStreaming(ctx context.Context, sysCtx *SystemLLMContext, systemPrompt, userPrompt string, maxPreambleBytes int) (string, []string, bool, error) {
+	if sysCtx == nil || sysCtx.client == nil {
+		return "", nil, false, fmt.Errorf("nil sysCtx client")
+	}
+
+	gate := newGCDStreamGate(t, maxPreambleBytes)
 
 	// Prefer callback-based streaming (Codex/Claude CLI clients).
 	if streamer, ok := sysCtx.client.(llmStreamingCallback); ok {
-		var sb strings.Builder
 		if err := streamer.CompleteStreaming(ctx, systemPrompt, userPrompt, func(chunk StreamChunk) error {
 			if chunk.Error != "" {
 				return fmt.Errorf("stream error: %s", chunk.Error)
 			}
-			if chunk.Text != "" {
-				sb.WriteString(chunk.Text)
-			} else if chunk.Content != "" {
-				sb.WriteString(chunk.Content)
+			delta := chunk.Text
+			if delta == "" {
+				delta = chunk.Content
+			}
+			if err := gate.feed(delta); err != nil {
+				return err
 			}
 			return nil
 		}); err != nil {
-			return "", nil, err
+			atoms, ok := gate.validated()
+			return gate.raw(), atoms, ok, err
 		}
-		return sb.String(), []string{}, nil
+		atoms, ok := gate.validated()
+		return gate.raw(), atoms, ok, nil
 	}
 
 	// Fallback to channel-based streaming (ZAI).
 	if streamer, ok := sysCtx.client.(llmStreamingChannels); ok {
-		contentCh, errCh := streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, false)
-		var sb strings.Builder
+		streamCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		contentCh, errCh := streamer.CompleteWithStreaming(streamCtx, systemPrompt, userPrompt, false)
 
 		for {
 			select {
-			case <-ctx.Done():
-				return "", nil, ctx.Err()
+			case <-streamCtx.Done():
+				atoms, ok := gate.validated()
+				return gate.raw(), atoms, ok, streamCtx.Err()
 			case chunk, ok := <-contentCh:
 				if !ok {
 					// Drain any terminal error, if present.
 					select {
 					case err, ok := <-errCh:
 						if ok && err != nil {
-							return "", nil, err
+							atoms, ok := gate.validated()
+							return gate.raw(), atoms, ok, err
 						}
 					default:
 					}
-					return sb.String(), []string{}, nil
+					atoms, ok := gate.validated()
+					return gate.raw(), atoms, ok, nil
 				}
-				sb.WriteString(chunk)
+				if err := gate.feed(chunk); err != nil {
+					cancel()
+					atoms, ok := gate.validated()
+					return gate.raw(), atoms, ok, err
+				}
 			case err, ok := <-errCh:
 				if ok && err != nil {
-					return "", nil, err
+					atoms, ok := gate.validated()
+					return gate.raw(), atoms, ok, err
 				}
 			}
 		}
 	}
 
-	return "", nil, ErrStreamingNotSupported
+	return "", nil, false, core.ErrStreamingNotSupported
 }
 
 // parseSimple is a fallback parser using pipe-delimited format.
