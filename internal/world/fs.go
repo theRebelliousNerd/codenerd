@@ -334,6 +334,9 @@ func detectLanguage(ext, path string) string {
 
 	langMap := map[string]string{
 		".go":    "go",
+		".mg":    "mangle",
+		".mangle": "mangle",
+		".dl":    "mangle",
 		".py":    "python",
 		".js":    "javascript",
 		".ts":    "typescript",
