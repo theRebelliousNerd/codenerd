@@ -271,6 +271,8 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 						if facts, parseErr := parser.ParseGo(path, content); parseErr == nil {
 							additional = append(additional, facts...)
 						}
+					case "mangle":
+						additional = append(additional, extractMangleSymbolFacts(path, string(content))...)
 					case "python":
 						if facts, parseErr := parser.ParsePython(path, content); parseErr == nil {
 							additional = append(additional, facts...)

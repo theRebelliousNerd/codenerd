@@ -25,6 +25,12 @@ const (
 	ElementConst     ElementType = "const"
 	ElementVar       ElementType = "var"
 	ElementPackage   ElementType = "package"
+
+	// Mangle (.mg/.dl) elements
+	ElementMangleDecl  ElementType = "decl"
+	ElementMangleRule  ElementType = "rule"
+	ElementMangleFact  ElementType = "fact"
+	ElementMangleQuery ElementType = "query"
 )
 
 // Visibility defines the visibility of a code element.
@@ -143,6 +149,19 @@ func NewCodeElementParser() *CodeElementParser {
 func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 	start := time.Now()
 	logging.WorldDebug("CodeElementParser: parsing file: %s", filepath.Base(path))
+
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".mg", ".dl", ".mangle":
+		elems, err := p.parseMangleFile(path)
+		if err != nil {
+			logging.Get(logging.CategoryWorld).Error("CodeElementParser: mangle parse failed: %s - %v", path, err)
+			return nil, err
+		}
+		logging.WorldDebug("CodeElementParser: parsed %s - %d mangle elements in %v",
+			filepath.Base(path), len(elems), time.Since(start))
+		return elems, nil
+	}
 
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)

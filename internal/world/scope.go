@@ -127,6 +127,27 @@ func (s *FileScope) Open(path string) error {
 	}
 	logging.WorldDebug("Resolved absolute path: %s", absPath)
 
+	ext := filepath.Ext(absPath)
+	lang := detectLanguage(ext, absPath)
+	if lang != "go" {
+		s.ActiveFile = absPath
+		s.InScope = []string{absPath}
+		s.Elements = nil
+		s.OutboundDeps = make(map[string][]string)
+		s.InboundDeps = make(map[string][]string)
+		s.FileHashes = make(map[string]string)
+
+		var loadErrors int
+		if err := s.loadFile(absPath); err != nil {
+			logging.Get(logging.CategoryWorld).Warn("Failed to load file in scope: %s - %v", absPath, err)
+			loadErrors++
+		}
+		logging.World("Loaded %d files (%d errors), extracted %d elements", 1-loadErrors, loadErrors, len(s.Elements))
+		s.emitScopeFacts()
+		timer.StopWithInfo()
+		return nil
+	}
+
 	// Detect module path from go.mod
 	if err := s.detectModulePath(); err != nil {
 		logging.WorldDebug("Module path detection failed (non-fatal): %v", err)
@@ -145,28 +166,26 @@ func (s *FileScope) Open(path string) error {
 	// Go packages compile as a unit; sibling files are effectively 0-hop dependencies.
 	seen := make(map[string]bool)
 	seen[absPath] = true
-	if filepath.Ext(absPath) == ".go" {
-		pkgDir := filepath.Dir(absPath)
-		entries, err := os.ReadDir(pkgDir)
-		if err != nil {
-			logging.WorldDebug("Failed to read package dir (non-fatal): %v", err)
-		} else {
-			for _, entry := range entries {
-				if entry.IsDir() {
-					continue
-				}
-				name := entry.Name()
-				if !strings.HasSuffix(name, ".go") {
-					continue
-				}
-				if strings.HasSuffix(name, "_test.go") {
-					continue
-				}
-				p := filepath.Join(pkgDir, name)
-				if !seen[p] {
-					s.InScope = append(s.InScope, p)
-					seen[p] = true
-				}
+	pkgDir := filepath.Dir(absPath)
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		logging.WorldDebug("Failed to read package dir (non-fatal): %v", err)
+	} else {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if !strings.HasSuffix(name, ".go") {
+				continue
+			}
+			if strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			p := filepath.Join(pkgDir, name)
+			if !seen[p] {
+				s.InScope = append(s.InScope, p)
+				seen[p] = true
 			}
 		}
 	}
@@ -330,9 +349,10 @@ func (s *FileScope) loadFile(path string) error {
 	start := time.Now()
 	logging.WorldDebug("Loading file: %s", filepath.Base(path))
 
-	if !strings.HasSuffix(path, ".go") {
-		logging.WorldDebug("Skipping non-Go file: %s", filepath.Base(path))
-		return nil // Only Go files for now
+	lang := detectLanguage(filepath.Ext(path), path)
+	if lang != "go" && lang != "mangle" {
+		logging.WorldDebug("Skipping unsupported language for Code DOM: %s (lang=%s)", filepath.Base(path), lang)
+		return nil
 	}
 
 	// Read file content first for validation
@@ -397,20 +417,22 @@ func (s *FileScope) loadFile(path string) error {
 	s.Elements = append(s.Elements, elements...)
 	logging.WorldDebug("Extracted %d code elements from: %s", len(elements), filepath.Base(path))
 
-	// Detect code patterns (generated code, API clients, CGo, etc.)
-	patterns := DetectCodePatterns(string(content), elements)
-	patternFacts := patterns.ToPatternFacts(path, elements)
-	for _, fact := range patternFacts {
-		s.emitFact(fact)
-	}
+	if lang == "go" {
+		// Detect code patterns (generated code, API clients, CGo, etc.)
+		patterns := DetectCodePatterns(string(content), elements)
+		patternFacts := patterns.ToPatternFacts(path, elements)
+		for _, fact := range patternFacts {
+			s.emitFact(fact)
+		}
 
-	// Warn if editing generated code
-	if patterns.IsGenerated {
-		logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
-		s.emitFact(core.Fact{
-			Predicate: "edit_unsafe",
-			Args:      []interface{}{path, "generated_code_will_be_overwritten"},
-		})
+		// Warn if editing generated code
+		if patterns.IsGenerated {
+			logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
+			s.emitFact(core.Fact{
+				Predicate: "edit_unsafe",
+				Args:      []interface{}{path, "generated_code_will_be_overwritten"},
+			})
+		}
 	}
 
 	hashPreview := hash
@@ -710,9 +732,10 @@ func (s *FileScope) emitScopeFacts() {
 		if lines, err := readFileLines(file); err == nil {
 			lineCount = len(lines)
 		}
+		lang := detectLanguage(filepath.Ext(file), file)
 		callback(core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []interface{}{file, hash, "/go", int64(lineCount)},
+			Args:      []interface{}{file, hash, "/" + lang, int64(lineCount)},
 		})
 	}
 
@@ -830,9 +853,10 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 		if lines, err := readFileLines(file); err == nil {
 			lineCount = len(lines)
 		}
+		lang := detectLanguage(filepath.Ext(file), file)
 		facts = append(facts, core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []interface{}{file, hash, "/go", int64(lineCount)},
+			Args:      []interface{}{file, hash, "/" + lang, int64(lineCount)},
 		})
 	}
 
