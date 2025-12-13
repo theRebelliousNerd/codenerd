@@ -615,6 +615,7 @@ context_priority(File, 70) :-
 # Include file in context if priority is high enough
 include_in_context(File) :-
     context_priority(File, P),
+    file_in_project(File),
     P >= 50.
 
 # Include related test files
