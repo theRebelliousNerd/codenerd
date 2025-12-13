@@ -1434,6 +1434,12 @@ intent_ready_for_executive(/current_intent) :-
 # 21.2 Action Flow (Executive → Constitution → Router)
 # -----------------------------------------------------------------------------
 
+# pending_permission_check/1 is derived from the executable action envelope.
+# The executive emits pending_action/5; this predicate exists to make policy
+# observability independent of Go implementation details.
+pending_permission_check(ActionID) :-
+    pending_action(ActionID, _, _, _, _).
+
 # Action is pending permission check from constitution gate
 action_pending_permission(ActionID) :-
     pending_permission_check(ActionID),
@@ -1455,6 +1461,12 @@ action_blocked(ActionID, Reason) :-
 action_ready_for_routing(ActionID) :-
     action_permitted(ActionID),
     !action_routed(ActionID).
+
+# ready_for_routing/1 is derived from a successful permission check.
+# The tactile router consumes permitted_action/5 today, but policy uses this
+# predicate to determine whether an action has been routed (action_routed/1).
+ready_for_routing(ActionID) :-
+    permission_check_result(ActionID, /permit, _).
 
 # Helper for safe negation
 action_routed(ActionID) :-
