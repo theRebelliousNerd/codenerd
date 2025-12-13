@@ -44,7 +44,7 @@ Today’s runtime OODA loop is implemented as system shards that exchange facts:
 - **Observe**: `perception_firewall` emits `user_intent/5` + grounding facts.
 - **Decide**: `executive_policy` queries Mangle-derived `next_action/1` and emits `pending_action/5`.
 - **Act (safety)**: `constitution_gate` checks `pending_action/5` and emits `permitted_action/5` (or denial facts).
-- **Act (routing/execution)**: `tactile_router` maps actions to tools/VirtualStore calls and emits `routing_result/3`.
+- **Act (routing/execution)**: `tactile_router` maps actions to tools/VirtualStore calls and emits `routing_result/4`.
 
 Key wiring files:
 
@@ -142,7 +142,7 @@ This is the core of “do all fixes”.
 
 Symptoms:
 
-- Policy describes a rich action pipeline using predicates like `pending_permission_check/1` and `permission_check_result/3`.
+- Policy describes a rich action pipeline using predicates like `pending_permission_check/1` and `permission_check_result/4`.
 - Go pipeline uses `pending_action/5` and `permitted_action/5` directly.
 
 Risk:
@@ -153,16 +153,16 @@ Risk:
 Fix options (choose one; do not mix):
 
 1) **Make Go match policy** (preferred long-term)
-   - ConstitutionGate asserts `permission_check_result(ActionID, /permit|/deny, Reason)`
+   - ConstitutionGate asserts `permission_check_result(ActionID, /permit|/deny, Reason, Timestamp)`
    - Router asserts `ready_for_routing(ActionID)` before executing and retracts it after.
-   - Policy derives `action_permitted/1`, `action_blocked/2`, etc. from `permission_check_result/3`.
+   - Policy derives `action_permitted/1`, `action_blocked/2`, etc. from `permission_check_result/4`.
 
-2) **Make policy match Go** (faster, but reduces “logic owns orchestration”)
-   - Add IDB rules that derive the policy predicates from `pending_action/5`, `permitted_action/5`, and `routing_result/3`.
+2) **Make policy match Go** (faster, but reduces "logic owns orchestration")
+   - Add IDB rules that derive the policy predicates from `pending_action/5`, `permitted_action/5`, and `routing_result/4`.
    - Example bridging rules:
      - `pending_permission_check(ActionID) :- pending_action(ActionID, _, _, _, _).`
-     - `permission_check_result(ActionID, /permit, "") :- permitted_action(ActionID, _, _, _, _).`
-     - `permission_check_result(ActionID, /deny, Reason) :- routing_result(ActionID, /failure, Reason).` *(only if denials always emit routing_result)*
+     - `permission_check_result(ActionID, /permit, "", _) :- permitted_action(ActionID, _, _, _, _).`
+     - `permission_check_result(ActionID, /deny, Reason, _) :- routing_result(ActionID, /failure, Reason, _).` *(only if denials always emit routing_result)*
 
 Acceptance criteria:
 
@@ -293,31 +293,31 @@ This is the step-by-step “do all fixes” path. Keep phases small; land with t
 - [x] Campaign queries scoped to `/current_intent`
 - [x] Tool-routing uses `/tool_routing_context` + `/routing`
 
-### Phase 1 — Make action envelopes traceable and policy-observable (NEXT)
+### Phase 1 - Make action envelopes traceable and policy-observable (DONE)
 
-- [ ] Decide coordination strategy: “Go matches policy” vs “policy bridges Go”
-- [ ] Ensure every action has:
+- [x] Decide coordination strategy: "Go matches policy" vs "policy bridges Go"
+- [x] Ensure every action has:
   - `pending_action(ActionID, ...)`
-  - `permission_check_result(ActionID, /permit|/deny, Reason)`
-  - `routing_result(ActionID, /success|/failure, Details)`
-- [ ] Add end-to-end test asserting these facts exist for a simple read action.
+  - `permission_check_result(ActionID, /permit|/deny, Reason, Timestamp)`
+  - `routing_result(ActionID, /success|/failure, Details, Timestamp)`
+- [x] Add end-to-end test asserting these facts exist for a simple read action.
 
-### Phase 2 — Drift linter (tooling)
+### Phase 2 - Drift linter (tooling)
 
-- [ ] Implement `cmd/tools/action_linter`
+- [x] Implement `cmd/tools/action_linter`
 - [ ] Run it in CI (or pre-commit) and fail on:
   - policy action has no router route
   - router route has no virtual store executor
   - executor exists but policy never emits it (dead action)
 
-### Phase 3 — Kernel performance + fact lifecycle
+### Phase 3 - Kernel performance + fact lifecycle
 
 - [ ] Reduce rebuild frequency in high-volume ingestion paths
-- [ ] Define retention policy for:
-  - `routing_result`
-  - `permission_check_result`
-  - `execution_result`
-- [ ] Add “compaction” action that prunes old action logs into cold storage.
+- [x] Define retention policy for:
+  - `routing_result` (timestamped + pruned)
+  - `permission_check_result` (timestamped + pruned)
+  - `execution_result` (timestamped + pruned)
+- [ ] Add "compaction" action that prunes old action logs into cold storage.
 
 ### Phase 4 — Autopoiesis safety (learned rules)
 
@@ -346,7 +346,7 @@ This is the step-by-step “do all fixes” path. Keep phases small; land with t
 - Start `nerd chat`, enter a simple `/read` intent, confirm:
   - `user_intent(/current_intent, ...)` exists
   - `next_action/1` derives (executive sees it)
-  - `pending_action/5` → `permitted_action/5` → `routing_result/3` chain completes
+  - `pending_action/5` → `permitted_action/5` → `routing_result/4` chain completes
 
 ---
 
@@ -445,9 +445,9 @@ This is the “wiring diagram” in factual form.
 | `pending_action/5` | executive | constitution | ActionID correlates everything |
 | `permitted_action/5` | constitution | router | primary routing stream today |
 | `action_permitted/1` | constitution (today) | policy (ooda) | should be derived from permission_check_result |
-| `routing_result/3` | router | UI + policy | ActionID should match pending_action ActionID |
+| `routing_result/4` | router | UI + policy | ActionID should match pending_action ActionID |
 | `routing_error/3` | router | UI + autopoiesis | should trigger autopoiesis route fixes |
-| `execution_result/4` | virtual store | UI + policy | keep payload sizes bounded |
+| `execution_result/5` | virtual store | UI + policy | keep payload sizes bounded |
 
 ### 10.3 Tool relevance facts (ShardManager context)
 
@@ -562,4 +562,3 @@ Recommended conventional commit split for this work:
 - `fix(router): retract action_permitted by ActionID`
 - `feat(tracing): add scheduled streaming + context forwarding`
 - `docs(plans): add mangle integration hardening plan`
-
