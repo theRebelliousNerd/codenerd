@@ -37,7 +37,7 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
 	// Build domain expertise from topics
 	domainExpertise := formatDomainExpertise(agent.Topics)
 
-	// Lowercase agent name for shard type reference
+	// Lowercase agent name for stable IDs and directory naming
 	agentNameLower := strings.ToLower(agent.Name)
 
 	// Build the YAML template
@@ -50,7 +50,6 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
   subcategory: "%s"
   priority: 100
   is_mandatory: true
-  shard_types: ["/%s"]
   content: |
     You are %s, a specialist agent in the codeNERD ecosystem.
 
@@ -78,7 +77,6 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
   subcategory: "%s"
   priority: 80
   is_mandatory: false
-  shard_types: ["/%s"]
   depends_on: ["%s/identity"]
   content: |
     ## Methodology
@@ -100,12 +98,11 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
     - Consider performance implications
     - Ensure backward compatibility when applicable
 
-- id: "%s/domain_knowledge"
-  category: "domain_knowledge"
+- id: "%s/domain"
+  category: "domain"
   subcategory: "%s"
   priority: 70
   is_mandatory: false
-  shard_types: ["/%s"]
   depends_on: ["%s/identity", "%s/methodology"]
   content: |
     ## Domain-Specific Knowledge
@@ -124,11 +121,11 @@ func (i *Initializer) generateAgentPromptsYAML(agent RecommendedAgent) error {
 
     [Add additional references, documentation links, or learning resources]
 `,
-		agent.Name,                                     // Comment: agent name
-		agentNameLower, agentNameLower, agentNameLower, // identity atom header
+		agent.Name,                     // Comment: agent name
+		agentNameLower, agentNameLower, // identity atom header
 		agent.Name, agent.Description, domainExpertise, topicsStr, // identity content
-		agentNameLower, agentNameLower, agentNameLower, agentNameLower, // methodology atom
-		agentNameLower, agentNameLower, agentNameLower, agentNameLower, agentNameLower, // domain_knowledge atom
+		agentNameLower, agentNameLower, agentNameLower, // methodology atom
+		agentNameLower, agentNameLower, agentNameLower, agentNameLower, // domain atom
 		topicsStr, // domain knowledge content
 	)
 

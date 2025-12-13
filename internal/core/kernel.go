@@ -70,7 +70,8 @@ type RealKernel struct {
 	programInfo       *analysis.ProgramInfo
 	schemas           string
 	policy            string
-	learned           string // Learned rules (autopoiesis) - loaded from learned.mg
+	learned           string              // Learned rules (autopoiesis) - loaded from learned.mg
+	loadedPolicyFiles map[string]struct{} // Idempotency: policy modules loaded via LoadPolicyFile (keyed by case-insensitive basename)
 	schemaValidator   *mangle.SchemaValidator
 	initialized       bool
 	manglePath        string                 // Path to mangle files directory
@@ -101,13 +102,14 @@ func NewRealKernel() (*RealKernel, error) {
 	logging.Kernel("Initializing new RealKernel instance")
 
 	k := &RealKernel{
-		facts:       make([]Fact, 0),
-		factIndex:   make(map[string]struct{}),
-		bootFacts:   make([]Fact, 0),
-		bootIntents: make([]HybridIntent, 0),
-		bootPrompts: make([]HybridPrompt, 0),
-		store:       factstore.NewSimpleInMemoryStore(),
-		policyDirty: true, // Need to parse on first use
+		facts:             make([]Fact, 0),
+		factIndex:         make(map[string]struct{}),
+		bootFacts:         make([]Fact, 0),
+		bootIntents:       make([]HybridIntent, 0),
+		bootPrompts:       make([]HybridPrompt, 0),
+		store:             factstore.NewSimpleInMemoryStore(),
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true, // Need to parse on first use
 	}
 	logging.KernelDebug("Kernel struct created, store initialized, policyDirty=true")
 
@@ -153,14 +155,15 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 	logging.Kernel("Initializing RealKernel with workspace root: %s", workspaceRoot)
 
 	k := &RealKernel{
-		facts:         make([]Fact, 0),
-		factIndex:     make(map[string]struct{}),
-		bootFacts:     make([]Fact, 0),
-		bootIntents:   make([]HybridIntent, 0),
-		bootPrompts:   make([]HybridPrompt, 0),
-		store:         factstore.NewSimpleInMemoryStore(),
-		workspaceRoot: workspaceRoot,
-		policyDirty:   true, // Need to parse on first use
+		facts:             make([]Fact, 0),
+		factIndex:         make(map[string]struct{}),
+		bootFacts:         make([]Fact, 0),
+		bootIntents:       make([]HybridIntent, 0),
+		bootPrompts:       make([]HybridPrompt, 0),
+		store:             factstore.NewSimpleInMemoryStore(),
+		workspaceRoot:     workspaceRoot,
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true, // Need to parse on first use
 	}
 	logging.KernelDebug("Kernel struct created with workspaceRoot=%s, policyDirty=true", workspaceRoot)
 
@@ -200,14 +203,15 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 	logging.Kernel("Initializing RealKernel with explicit path: %s", manglePath)
 
 	k := &RealKernel{
-		facts:       make([]Fact, 0),
-		factIndex:   make(map[string]struct{}),
-		bootFacts:   make([]Fact, 0),
-		bootIntents: make([]HybridIntent, 0),
-		bootPrompts: make([]HybridPrompt, 0),
-		store:       factstore.NewSimpleInMemoryStore(),
-		manglePath:  manglePath,
-		policyDirty: true,
+		facts:             make([]Fact, 0),
+		factIndex:         make(map[string]struct{}),
+		bootFacts:         make([]Fact, 0),
+		bootIntents:       make([]HybridIntent, 0),
+		bootPrompts:       make([]HybridPrompt, 0),
+		store:             factstore.NewSimpleInMemoryStore(),
+		manglePath:        manglePath,
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true,
 	}
 	logging.KernelDebug("Kernel struct created with manglePath=%s", manglePath)
 
@@ -1698,6 +1702,7 @@ func (k *RealKernel) SetPolicy(policy string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.policy = policy
+	k.loadedPolicyFiles = make(map[string]struct{})
 	k.policyDirty = true
 	logging.KernelDebug("SetPolicy: policyDirty set to true")
 }
@@ -1717,47 +1722,84 @@ func (k *RealKernel) AppendPolicy(additionalPolicy string) {
 func (k *RealKernel) LoadPolicyFile(path string) error {
 	logging.KernelDebug("LoadPolicyFile: attempting to load %s", path)
 	baseName := filepath.Base(path)
+	key := strings.ToLower(baseName)
+
+	k.mu.RLock()
+	if _, ok := k.loadedPolicyFiles[key]; ok {
+		k.mu.RUnlock()
+		logging.KernelDebug("LoadPolicyFile: already loaded (skipping append): %s", baseName)
+		return nil
+	}
+	k.mu.RUnlock()
+
+	var (
+		data       []byte
+		sourceDesc string
+	)
 
 	// 1. Try Embedded Core first
-	if data, err := coreLogic.ReadFile("defaults/" + baseName); err == nil {
-		logging.Kernel("LoadPolicyFile: loaded from embedded core: %s (%d bytes)", baseName, len(data))
-		k.AppendPolicy(string(data))
-		return nil
+	if bytes, err := coreLogic.ReadFile("defaults/" + baseName); err == nil {
+		data = bytes
+		sourceDesc = "embedded core: " + baseName
 	}
 
 	// 2. Try User Workspace (.nerd/mangle)
-	userPath := filepath.Join(k.nerdPath("mangle"), baseName)
-	if data, err := os.ReadFile(userPath); err == nil {
-		logging.Kernel("LoadPolicyFile: loaded from user workspace: %s (%d bytes)", userPath, len(data))
-		k.AppendPolicy(string(data))
-		return nil
-	}
-
-	// 3. Try explicitly provided path
-	if data, err := os.ReadFile(path); err == nil {
-		logging.Kernel("LoadPolicyFile: loaded from explicit path: %s (%d bytes)", path, len(data))
-		k.AppendPolicy(string(data))
-		return nil
-	}
-
-	// 4. Try legacy search paths (fallback for existing behavior)
-	searchPaths := []string{
-		filepath.Join("internal/mangle", baseName),
-		filepath.Join("../internal/mangle", baseName),
-		filepath.Join("../../internal/mangle", baseName),
-	}
-
-	for _, p := range searchPaths {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			logging.Kernel("LoadPolicyFile: loaded from legacy path: %s (%d bytes)", p, len(data))
-			k.AppendPolicy(string(data))
-			return nil
+	if data == nil {
+		userPath := filepath.Join(k.nerdPath("mangle"), baseName)
+		if bytes, err := os.ReadFile(userPath); err == nil {
+			data = bytes
+			sourceDesc = "user workspace: " + userPath
 		}
 	}
 
-	logging.Get(logging.CategoryKernel).Error("LoadPolicyFile: policy file not found: %s", path)
-	return fmt.Errorf("policy file not found: %s", path)
+	// 3. Try explicitly provided path
+	if data == nil {
+		if bytes, err := os.ReadFile(path); err == nil {
+			data = bytes
+			sourceDesc = "explicit path: " + path
+		}
+	}
+
+	// 4. Try legacy search paths (fallback for existing behavior)
+	if data == nil {
+		searchPaths := []string{
+			filepath.Join("internal/mangle", baseName),
+			filepath.Join("../internal/mangle", baseName),
+			filepath.Join("../../internal/mangle", baseName),
+		}
+
+		for _, p := range searchPaths {
+			bytes, err := os.ReadFile(p)
+			if err == nil {
+				data = bytes
+				sourceDesc = "legacy path: " + p
+				break
+			}
+		}
+	}
+
+	if data == nil {
+		logging.Get(logging.CategoryKernel).Error("LoadPolicyFile: policy file not found: %s", path)
+		return fmt.Errorf("policy file not found: %s", path)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.loadedPolicyFiles == nil {
+		k.loadedPolicyFiles = make(map[string]struct{})
+	}
+	if _, ok := k.loadedPolicyFiles[key]; ok {
+		logging.KernelDebug("LoadPolicyFile: already loaded after read (skipping append): %s", baseName)
+		return nil
+	}
+
+	logging.Kernel("LoadPolicyFile: loaded from %s (%d bytes)", sourceDesc, len(data))
+	prevLen := len(k.policy)
+	k.policy = k.policy + "\n\n# Appended Policy (" + baseName + ")\n" + string(data)
+	k.loadedPolicyFiles[key] = struct{}{}
+	k.policyDirty = true
+	logging.KernelDebug("LoadPolicyFile: policy grew from %d to %d bytes, policyDirty=true", prevLen, len(k.policy))
+	return nil
 }
 
 // HotLoadRule dynamically loads a single Mangle rule at runtime.
@@ -1787,8 +1829,9 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	// 1. Create a Sandbox Kernel (Memory only)
 	logging.KernelDebug("HotLoadRule: creating sandbox kernel for validation")
 	sandbox := &RealKernel{
-		store:       factstore.NewSimpleInMemoryStore(),
-		policyDirty: true,
+		store:             factstore.NewSimpleInMemoryStore(),
+		loadedPolicyFiles: make(map[string]struct{}),
+		policyDirty:       true,
 	}
 
 	// 2. Load CURRENT schemas and policy into sandbox
@@ -2066,24 +2109,28 @@ func (k *RealKernel) Clone() *RealKernel {
 
 	// Create bare struct without triggering loadMangleFiles
 	clone := &RealKernel{
-		facts:           make([]Fact, len(k.facts)),
-		factIndex:       make(map[string]struct{}),
-		store:           factstore.NewSimpleInMemoryStore(),
-		schemas:         k.schemas,
-		policy:          k.policy,
-		learned:         k.learned,
-		manglePath:      k.manglePath,
-		workspaceRoot:   k.workspaceRoot,   // Preserve workspace for .nerd paths
-		programInfo:     k.programInfo,     // Share immutable analysis
-		schemaValidator: k.schemaValidator, // Share immutable validator
-		policyDirty:     k.policyDirty,     // Inherit dirty state (likely false)
-		initialized:     false,             // Will initialize on Evaluate
+		facts:             make([]Fact, len(k.facts)),
+		factIndex:         make(map[string]struct{}),
+		store:             factstore.NewSimpleInMemoryStore(),
+		schemas:           k.schemas,
+		policy:            k.policy,
+		learned:           k.learned,
+		loadedPolicyFiles: make(map[string]struct{}, len(k.loadedPolicyFiles)),
+		manglePath:        k.manglePath,
+		workspaceRoot:     k.workspaceRoot,   // Preserve workspace for .nerd paths
+		programInfo:       k.programInfo,     // Share immutable analysis
+		schemaValidator:   k.schemaValidator, // Share immutable validator
+		policyDirty:       k.policyDirty,     // Inherit dirty state (likely false)
+		initialized:       false,             // Will initialize on Evaluate
 	}
 
 	// copy(clone.facts, k.facts) - simpler to just re-assert if we want independence
 	// But for performance, deep copy the slice
 	copy(clone.facts, k.facts)
 	clone.rebuildFactIndexLocked()
+	for name := range k.loadedPolicyFiles {
+		clone.loadedPolicyFiles[name] = struct{}{}
+	}
 
 	// Note: We do NOT define a shared ViewLayer here because Mangle needs
 	// a unified store for fixpoint. Fast copying of the slice is reasonably cheap

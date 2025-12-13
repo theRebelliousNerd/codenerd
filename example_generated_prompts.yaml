@@ -14,7 +14,6 @@
   subcategory: "RustExpert"
   priority: 100
   is_mandatory: true
-  shard_types: ["/RustExpert"]
   content: |
     You are RustExpert, a specialist agent in the codeNERD ecosystem.
 
@@ -39,7 +38,6 @@
   subcategory: "RustExpert"
   priority: 80
   is_mandatory: false
-  shard_types: ["/RustExpert"]
   depends_on: ["RustExpert/identity"]
   content: |
     ## Methodology
@@ -61,12 +59,11 @@
     - Consider performance implications
     - Ensure backward compatibility when applicable
 
-- id: "RustExpert/domain_knowledge"
-  category: "domain_knowledge"
+- id: "RustExpert/domain"
+  category: "domain"
   subcategory: "RustExpert"
   priority: 70
   is_mandatory: false
-  shard_types: ["/RustExpert"]
   depends_on: ["RustExpert/identity", "RustExpert/methodology"]
   content: |
     ## Domain-Specific Knowledge
