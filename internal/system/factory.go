@@ -356,6 +356,15 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// 5b. Register discovered user agents with JIT compiler and ShardManager
 	// This wires up agents from .nerd/agents/{name}/prompts.yaml
 	discoveredAgents := synchronizer.GetDiscoveredAgents()
+	if len(discoveredAgents) > 0 {
+		agentsOnDisk := make([]AgentOnDisk, 0, len(discoveredAgents))
+		for _, a := range discoveredAgents {
+			agentsOnDisk = append(agentsOnDisk, AgentOnDisk{ID: a.ID, DBPath: a.DBPath})
+		}
+		if _, err := SyncAgentRegistryFromDiscovered(workspace, agentsOnDisk); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Failed to sync .nerd/agents.json from .nerd/agents: %v", err)
+		}
+	}
 	for _, agent := range discoveredAgents {
 		// Register agent DB with JIT compiler for dynamic prompt compilation
 		if err := prompt.RegisterAgentDBWithJIT(jitCompiler, agent.ID, agent.DBPath); err != nil {

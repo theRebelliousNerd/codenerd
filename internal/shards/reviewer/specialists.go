@@ -14,8 +14,8 @@ import (
 
 // AgentRegistry holds the registered specialists from .nerd/agents.json
 type AgentRegistry struct {
-	Version   string          `json:"version"`
-	CreatedAt string          `json:"created_at"`
+	Version   string            `json:"version"`
+	CreatedAt string            `json:"created_at"`
 	Agents    []RegisteredAgent `json:"agents"`
 }
 
@@ -226,16 +226,16 @@ func (r *ReviewerShard) detectSpecialists(files []string, contents map[string]st
 
 // agentPatternMapping maps technology pattern ShardName to actual agent names
 var agentPatternMapping = map[string]string{
-	"rod":     "RodExpert",
-	"golang":  "GoExpert",
-	"react":   "ReactExpert",
-	"mangle":  "MangleExpert",
-	"sql":     "DatabaseExpert",
-	"api":     "APIExpert",
-	"testing": "TestArchitect",
+	"rod":       "RodExpert",
+	"golang":    "GoExpert",
+	"react":     "ReactExpert",
+	"mangle":    "MangleExpert",
+	"sql":       "DatabaseExpert",
+	"api":       "APIExpert",
+	"testing":   "TestArchitect",
 	"bubbletea": "BubbleTeaExpert",
-	"cobra":   "CobraExpert",
-	"security": "SecurityAuditor",
+	"cobra":     "CobraExpert",
+	"security":  "SecurityAuditor",
 }
 
 // additionalPatterns extends knownTechnologies with more specific patterns
@@ -274,7 +274,10 @@ func MatchSpecialistsForReview(ctx context.Context, files []string, registry *Ag
 	// Build set of available agents for quick lookup
 	availableAgents := make(map[string]RegisteredAgent)
 	for _, agent := range registry.Agents {
-		if agent.Type == "persistent" && agent.Status == "ready" {
+		typ := strings.ToLower(strings.TrimSpace(agent.Type))
+		status := strings.ToLower(strings.TrimSpace(agent.Status))
+		// ShardTypeUser is an alias for persistent specialists in codeNERD.
+		if (typ == "persistent" || typ == "user" || typ == "") && status == "ready" {
 			availableAgents[strings.ToLower(agent.Name)] = agent
 		}
 	}

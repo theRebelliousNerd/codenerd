@@ -40,12 +40,12 @@ import (
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // =============================================================================
@@ -856,6 +856,16 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 				Time:    time.Now(),
 			})
 		}
+	}
+
+	// Ensure .nerd/agents.json reflects any agents present under .nerd/agents/*.
+	// This keeps the registry in sync even when agents are created/edited outside of /init.
+	if err := nerdsystem.SyncAgentRegistryFromDisk(workspace); err != nil {
+		*initialMessages = append(*initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Warning: failed to sync agent registry from .nerd/agents: %v", err),
+			Time:    time.Now(),
+		})
 	}
 
 	// Load agents registry and hydrate shard profiles
