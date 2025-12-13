@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codenerd/internal/store"
@@ -40,7 +41,7 @@ func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	// exec_cmd should be blocked because kernel has no permitted(/exec_cmd)
 	_, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"/exec_cmd", "echo hi"},
+		Args:      []interface{}{"act_1", "/exec_cmd", "echo hi"},
 	})
 	if err == nil {
 		t.Fatalf("expected exec_cmd to be blocked by kernel permission gate")
@@ -230,4 +231,91 @@ func TestPermissionCacheOptimization(t *testing.T) {
 	}
 
 	t.Logf("Permission cache size: %d entries", len(cache))
+}
+
+func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
+	workspace := t.TempDir()
+	filename := "sample.go"
+	absPath := filepath.Join(workspace, filename)
+	content := "// Package main\npackage main\n\nfunc main() {}\n"
+	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+
+	cfg := DefaultVirtualStoreConfig()
+	cfg.WorkingDir = workspace
+	vs := NewVirtualStoreWithConfig(nil, cfg)
+	vs.SetKernel(kernel)
+
+	out, err := vs.RouteAction(context.Background(), Fact{
+		Predicate: "next_action",
+		Args:      []interface{}{"act_test", "/read_file", filename},
+	})
+	if err != nil {
+		t.Fatalf("RouteAction(read_file) error: %v", err)
+	}
+	if out != content {
+		t.Fatalf("unexpected output content; got len=%d want len=%d", len(out), len(content))
+	}
+
+	fileFacts, err := kernel.Query("file_content")
+	if err != nil {
+		t.Fatalf("Query(file_content) error: %v", err)
+	}
+	foundContent := false
+	for _, f := range fileFacts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		p, _ := f.Args[0].(string)
+		c, _ := f.Args[1].(string)
+		if p == absPath {
+			if !strings.HasPrefix(c, "// Package") {
+				t.Fatalf("file_content content not preserved; got prefix=%q", c[:min(len(c), 16)])
+			}
+			foundContent = true
+			break
+		}
+	}
+	if !foundContent {
+		t.Fatalf("expected file_content fact for %s", absPath)
+	}
+
+	execFacts, err := kernel.Query("execution_result")
+	if err != nil {
+		t.Fatalf("Query(execution_result) error: %v", err)
+	}
+	foundExec := false
+	for _, f := range execFacts {
+		if len(f.Args) < 6 {
+			continue
+		}
+		actionID := f.Args[0]
+		actionType := f.Args[1]
+		target := f.Args[2]
+		success := f.Args[3]
+
+		if actionID == "act_test" && actionType == "read_file" && target == filename {
+			if success != "/true" {
+				t.Fatalf("execution_result success=%v, want /true", success)
+			}
+			foundExec = true
+			break
+		}
+	}
+	if !foundExec {
+		t.Fatalf("expected execution_result for act_test read_file %s", filename)
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

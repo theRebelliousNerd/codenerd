@@ -48,9 +48,10 @@ func (c *CoderShard) readFileContext(ctx context.Context, path string) (string, 
 
 	// If we have VirtualStore, use it and inject facts
 	if c.virtualStore != nil {
+		actionID := fmt.Sprintf("coder_read_%s", hashContent(fullPath))
 		action := core.Fact{
 			Predicate: "next_action",
-			Args:      []interface{}{"/read_file", fullPath},
+			Args:      []interface{}{actionID, "/read_file", fullPath},
 		}
 		_, _ = c.virtualStore.RouteAction(ctx, action)
 	}
