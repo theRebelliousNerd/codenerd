@@ -319,12 +319,12 @@ This is the step-by-step “do all fixes” path. Keep phases small; land with t
   - `execution_result` (timestamped + pruned)
 - [ ] Add "compaction" action that prunes old action logs into cold storage.
 
-### Phase 4 — Autopoiesis safety (learned rules)
+### Phase 4 - Autopoiesis safety (learned rules)
 
-- [ ] Learned rules must be stratified and bounded:
+- [x] Learned rules must be stratified and bounded:
   - created-fact limits (already supported via `engine.WithCreatedFactLimit`)
-  - deny-list predicates that learned rules cannot define (e.g., `permitted/1`)
-- [ ] Add a “learned rule quarantine” mode for first N runs.
+  - deny-list predicates that learned rules cannot define (implemented; blocks `permitted/1`, `safe_action/1`, and other protected heads)
+- [ ] Add a "learned rule quarantine" mode for first N runs.
 
 ---
 
