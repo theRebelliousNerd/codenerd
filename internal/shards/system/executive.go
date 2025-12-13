@@ -302,6 +302,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 
 	// 4. Emit pending_action facts for Constitution Gate
 	latestIntent := e.latestUserIntent()
+	consumedCurrentIntent := false
 	for _, action := range actions {
 		if action.Blocked {
 			logging.SystemShardsDebug("[ExecutivePolicy] Action blocked: %s (reason: %s)", action.Action, action.BlockReason)
@@ -324,6 +325,13 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		target := action.Target
 		if latestIntent != nil {
 			target, payload = hydrateActionFromIntent(action.Action, target, payload, latestIntent)
+		}
+		if latestIntent != nil && latestIntent.ID == "/current_intent" {
+			if v, ok := payload["intent_id"]; ok {
+				if id, ok := v.(string); ok && id == latestIntent.ID {
+					consumedCurrentIntent = true
+				}
+			}
 		}
 		actionCopy.Target = target
 		actionCopy.Payload = payload
@@ -357,6 +365,13 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 				},
 			})
 		}
+	}
+
+	if consumedCurrentIntent {
+		_ = e.Kernel.Assert(core.Fact{
+			Predicate: "executive_processed_intent",
+			Args:      []interface{}{"/current_intent"},
+		})
 	}
 
 	return nil
@@ -485,17 +500,19 @@ func hydrateActionFromIntent(actionType string, target string, payload map[strin
 	default:
 		// Only hydrate target for actions where intent target is a reliable binding.
 		// Avoid contaminating internal/TDD actions (e.g., read_error_log) with unrelated intent targets.
-		if strings.TrimSpace(target) == "" && intentTarget != "" && intentTarget != "none" && intentTarget != "_" {
-			switch actionAtom {
-			case "/fs_read", "/fs_write", "/search_files", "/search_code", "/analyze_code":
-				payload["intent_id"] = intent.ID
-				if intentConstraint != "" && intentConstraint != "none" && intentConstraint != "_" {
-					payload["intent_constraint"] = intentConstraint
-				}
+		switch actionAtom {
+		case "/read_file", "/write_file", "/edit_file", "/delete_file", "/fs_read", "/fs_write", "/search_files", "/search_code", "/analyze_code":
+			payload["intent_id"] = intent.ID
+			if intentConstraint != "" && intentConstraint != "none" && intentConstraint != "_" {
+				payload["intent_constraint"] = intentConstraint
+			}
+			if strings.TrimSpace(target) == "" && intentTarget != "" && intentTarget != "none" && intentTarget != "_" {
 				return intentTarget, payload
 			}
+			return target, payload
+		default:
+			return target, payload
 		}
-		return target, payload
 	}
 }
 

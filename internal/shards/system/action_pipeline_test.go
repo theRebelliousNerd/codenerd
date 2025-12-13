@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,6 +53,30 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 	if err := constitution.processPendingActions(ctx); err != nil {
 		t.Fatalf("processPendingActions: %v", err)
 	}
+
+	perm, err := kernel.Query("permission_check_result")
+	if err != nil {
+		t.Fatalf("Query(permission_check_result) error = %v", err)
+	}
+	foundPermit := false
+	for _, f := range perm {
+		if len(f.Args) < 2 {
+			continue
+		}
+		if id := f.Args[0]; id != actionID {
+			continue
+		}
+		foundPermit = true
+		status := fmt.Sprintf("%v", f.Args[1])
+		if status != "/permit" {
+			t.Fatalf("permission_check_result status = %v, want /permit", f.Args[1])
+		}
+		break
+	}
+	if !foundPermit {
+		t.Fatalf("permission_check_result not found for %s (got %d total)", actionID, len(perm))
+	}
+
 	if err := router.processPermittedActions(ctx); err != nil {
 		t.Fatalf("processPermittedActions: %v", err)
 	}
@@ -70,9 +95,9 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 			continue
 		}
 		found = true
-		status, _ := f.Args[1].(string)
-		if status != "success" && status != "/success" {
-			t.Fatalf("routing_result status = %v, want success", f.Args[1])
+		status := fmt.Sprintf("%v", f.Args[1])
+		if status != "/success" {
+			t.Fatalf("routing_result status = %v, want /success", f.Args[1])
 		}
 		if len(f.Args) < 3 {
 			t.Fatalf("routing_result missing output details for %s", actionID)

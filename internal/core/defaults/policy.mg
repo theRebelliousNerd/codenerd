@@ -1414,11 +1414,7 @@ active_strategy(/campaign_planning) :-
 # A user_intent is pending if not yet processed by executive
 pending_intent(/current_intent) :-
     user_intent(/current_intent, _, _, _, _),
-    !intent_processed(/current_intent).
-
-# Helper for safe negation
-intent_processed(IntentID) :-
-    processed_intent(IntentID).
+    !executive_processed_intent(/current_intent).
 
 # Focus needs resolution if confidence is low (score on 0-100 scale)
 focus_needs_resolution(Ref) :-
@@ -1719,9 +1715,12 @@ ooda_phase(/orient) :-
     !has_next_action().
 
 ooda_phase(/decide) :-
-    has_next_action(),
-    next_action(ActionID),
-    !action_permitted(ActionID).
+    pending_intent(IntentID),
+    intent_ready_for_executive(IntentID),
+    has_next_action().
+
+ooda_phase(/act) :-
+    action_pending_permission(_).
 
 ooda_phase(/act) :-
     action_ready_for_routing(_).
@@ -1730,9 +1729,25 @@ ooda_phase(/act) :-
 has_next_action() :-
     next_action(_).
 
-# Current OODA state for debugging/monitoring
-current_ooda_phase(Phase) :-
-    ooda_phase(Phase).
+# Current OODA state for debugging/monitoring.
+# Prefer the most advanced phase when multiple are simultaneously true.
+current_ooda_phase(/act) :-
+    ooda_phase(/act).
+
+current_ooda_phase(/decide) :-
+    ooda_phase(/decide),
+    !ooda_phase(/act).
+
+current_ooda_phase(/orient) :-
+    ooda_phase(/orient),
+    !ooda_phase(/act),
+    !ooda_phase(/decide).
+
+current_ooda_phase(/observe) :-
+    ooda_phase(/observe),
+    !ooda_phase(/act),
+    !ooda_phase(/decide),
+    !ooda_phase(/orient).
 
 # OODA loop stalled detection (30 second threshold)
 # NOTE: Time-based stall detection should use ooda_timeout fact from Go.
