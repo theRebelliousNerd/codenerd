@@ -498,15 +498,68 @@ func (s *SessionPlannerShard) updateAgendaFromKernel() {
 				s.agenda[i].CompletedAt = time.Now()
 				s.tasksCompleted++
 				s.lastActivity = time.Now()
+				// Fix 15.8: Sync status to campaign_task fact
+				s.syncTaskStatusToKernel(s.agenda[i].ID, "/completed")
 			}
 		} else if blockedIDs[s.agenda[i].ID] {
 			if s.agenda[i].Status != "blocked" {
 				s.agenda[i].Status = "blocked"
 				s.tasksBlocked++
+				// Fix 15.8: Sync status to campaign_task fact
+				s.syncTaskStatusToKernel(s.agenda[i].ID, "/blocked")
 			}
 		}
 	}
 	s.mu.Unlock()
+}
+
+// syncTaskStatusToKernel updates the campaign_task fact status in the kernel.
+func (s *SessionPlannerShard) syncTaskStatusToKernel(taskID, newStatus string) {
+	if s.Kernel == nil {
+		return
+	}
+
+	// Find original fact to preserve immutable fields
+	facts, err := s.Kernel.Query("campaign_task")
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to query campaign_task: %v", err)
+		return
+	}
+
+	for _, f := range facts {
+		if len(f.Args) < 5 {
+			continue
+		}
+		id, ok := f.Args[0].(string)
+		if !ok || id != taskID {
+			continue
+		}
+
+		// Found the task fact. Retract it.
+		if err := s.Kernel.RetractExactFact(f); err != nil {
+			logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to retract stale campaign_task: %v", err)
+			continue
+		}
+
+		// Assert new fact with updated status
+		// campaign_task(TaskID, PhaseID, Description, Status, TaskType)
+		newFact := core.Fact{
+			Predicate: "campaign_task",
+			Args: []interface{}{
+				f.Args[0], // TaskID
+				f.Args[1], // PhaseID
+				f.Args[2], // Description
+				newStatus, // Updated Status
+				f.Args[4], // TaskType
+			},
+		}
+		if err := s.Kernel.Assert(newFact); err != nil {
+			logging.Get(logging.CategorySystemShards).Error("[SessionPlanner] Failed to assert updated campaign_task: %v", err)
+		} else {
+			logging.SystemShardsDebug("[SessionPlanner] Synced task %s status to %s", taskID, newStatus)
+		}
+		return // Done
+	}
 }
 
 // checkBlockedTasks handles blocked tasks and escalation.
