@@ -261,6 +261,10 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 						} else {
 							logging.Get(logging.CategoryWorld).Warn("Go parse failed: %s - %v", path, parseErr)
 						}
+					case "mangle":
+						facts := extractMangleSymbolFacts(path, string(content))
+						additionalFacts = append(additionalFacts, facts...)
+						logging.WorldDebug("Parsed Mangle file: %s (%d symbols, %v)", filepath.Base(path), len(facts), time.Since(parseStart))
 					case "python":
 						if facts, parseErr := parser.ParsePython(path, content); parseErr == nil {
 							additionalFacts = append(additionalFacts, facts...)
