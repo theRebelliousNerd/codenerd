@@ -886,6 +886,14 @@ func (r *ResearcherShard) buildSystemPrompt(ctx context.Context, task string) (s
 		ShardType:  "researcher",
 		SessionCtx: sessionCtx,
 	}
+	// Ensure we always provide an intent so JIT selectors (intent_verbs) can block
+	// non-matching atoms deterministically. When no SessionContext is present (common
+	// for user-defined specialists spawned from the TUI), infer the intent from the task.
+	if sessionCtx != nil && sessionCtx.UserIntent != nil {
+		promptCtx.UserIntent = sessionCtx.UserIntent
+	} else {
+		promptCtx.UserIntent = core.InferIntentFromTask(task)
+	}
 
 	systemPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
 	if err != nil {
