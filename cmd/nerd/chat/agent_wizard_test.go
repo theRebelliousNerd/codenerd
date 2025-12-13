@@ -41,11 +41,10 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 		"# Prompt atoms for " + agentName,
 		agentName + "/identity",
 		agentName + "/methodology",
-		agentName + "/domain_knowledge",
+		agentName + "/domain",
 		"category: \"identity\"",
 		"category: \"methodology\"",
-		"category: \"domain_knowledge\"",
-		"shard_types: [\"/" + agentName + "\"]",
+		"category: \"domain\"",
 		role,
 		topics,
 		"You are " + agentName,
@@ -74,7 +73,7 @@ func TestGenerateAgentPromptsTemplate(t *testing.T) {
 	}
 
 	if !strings.Contains(contentStr, "depends_on: [\""+agentName+"/identity\", \""+agentName+"/methodology\"]") {
-		t.Error("domain_knowledge atom missing dependencies")
+		t.Error("domain atom missing dependencies")
 	}
 }
 

@@ -289,6 +289,12 @@ func (l *AtomLoader) convertYAMLAtom(raw yamlAtomDefinition, sourcePath string) 
 	if raw.Category == "" {
 		return nil, fmt.Errorf("atom %s missing category", raw.ID)
 	}
+	// Normalize categories for backwards compatibility with older templates.
+	raw.Category = strings.ToLower(strings.TrimSpace(raw.Category))
+	switch raw.Category {
+	case "domain_knowledge":
+		raw.Category = string(CategoryDomain)
+	}
 
 	// Resolve content
 	content := raw.Content

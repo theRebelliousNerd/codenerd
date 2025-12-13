@@ -19,6 +19,33 @@ func TestNewRealKernel(t *testing.T) {
 	}
 }
 
+func TestKernelLoadPolicyFileIsIdempotent(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	modules := []string{
+		"coder.mg",
+		"tester.mg",
+		"reviewer.mg",
+	}
+
+	for _, module := range modules {
+		t.Run(module, func(t *testing.T) {
+			if err := kernel.LoadPolicyFile(module); err != nil {
+				t.Fatalf("LoadPolicyFile(%q) error = %v", module, err)
+			}
+			if err := kernel.LoadPolicyFile(module); err != nil {
+				t.Fatalf("LoadPolicyFile(%q) second call error = %v", module, err)
+			}
+			if err := kernel.Evaluate(); err != nil {
+				t.Fatalf("Evaluate() after LoadPolicyFile(%q) error = %v", module, err)
+			}
+		})
+	}
+}
+
 func TestKernelLoadFacts(t *testing.T) {
 	kernel, err := NewRealKernel()
 	if err != nil {

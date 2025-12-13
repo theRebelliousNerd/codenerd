@@ -174,7 +174,6 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
   subcategory: "%s"
   priority: 100
   is_mandatory: true
-  shard_types: ["/%s"]
   content: |
     You are %s, a specialist agent in the codeNERD ecosystem.
 
@@ -199,7 +198,6 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
   subcategory: "%s"
   priority: 80
   is_mandatory: false
-  shard_types: ["/%s"]
   depends_on: ["%s/identity"]
   content: |
     ## Methodology
@@ -221,12 +219,11 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
     - Consider performance implications
     - Ensure backward compatibility when applicable
 
-- id: "%s/domain_knowledge"
-  category: "domain_knowledge"
+- id: "%s/domain"
+  category: "domain"
   subcategory: "%s"
   priority: 70
   is_mandatory: false
-  shard_types: ["/%s"]
   depends_on: ["%s/identity", "%s/methodology"]
   content: |
     ## Domain-Specific Knowledge
@@ -245,11 +242,11 @@ func generateAgentPromptsTemplate(workspace, agentName, role, topics string) err
 
     [Add additional references, documentation links, or learning resources]
 `,
-		agentName,                       // Comment: agent name
-		agentName, agentName, agentName, // identity atom header
+		agentName,            // Comment: agent name
+		agentName, agentName, // identity atom header
 		agentName, role, topics, // identity content
-		agentName, agentName, agentName, agentName, // methodology atom
-		agentName, agentName, agentName, agentName, agentName, // domain_knowledge atom
+		agentName, agentName, agentName, // methodology atom
+		agentName, agentName, agentName, agentName, // domain atom
 		topics, // domain knowledge content
 	)
 
