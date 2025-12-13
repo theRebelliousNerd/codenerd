@@ -3809,6 +3809,8 @@ func (v *VirtualStore) handleReadErrorLog(ctx context.Context, req ActionRequest
 		},
 		FactsToAdd: []Fact{
 			{Predicate: "error_log_read", Args: []interface{}{logType, len(logContent)}},
+			// Fix 15.4: Assert test_state transition
+			{Predicate: "test_state", Args: []interface{}{"/log_read"}},
 		},
 	}, nil
 }
