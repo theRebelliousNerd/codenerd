@@ -120,7 +120,9 @@ func (t *TaxonomyEngine) nerdPath(subpath string) string {
 }
 
 func (t *TaxonomyEngine) tryLoadLearned() {
-	learnedPath := filepath.Join(t.nerdPath("mangle"), "learned.mg")
+	// Taxonomy learns in its own schema file; do not load the kernel's learned.mg
+	// (which contains unrelated system rules and can break schema analysis here).
+	learnedPath := filepath.Join(t.nerdPath("mangle"), "learned_taxonomy.mg")
 	if abs, err := filepath.Abs(learnedPath); err == nil {
 		learnedPath = abs
 	}
