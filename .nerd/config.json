@@ -1,0 +1,187 @@
+{
+  "provider": "zai",
+  "zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
+  "model": "glm-4.6",
+  "engine": "zai",
+  "codex_cli": {
+    "model": "gpt-5.1-codex-mini",
+    "sandbox": "read-only",
+    "timeout": 600,
+    "fallback_model": "gpt-5.1-codex-mini"
+  },
+  "theme": "light",
+  "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461",
+  "context_window": {
+    "max_tokens": 160000,
+    "core_reserve_percent": 5,
+    "atom_reserve_percent": 25,
+    "history_reserve_percent": 20,
+    "working_reserve_percent": 50,
+    "recent_turn_window": 8,
+    "compression_threshold": 0.8,
+    "target_compression_ratio": 0,
+    "activation_threshold": 0
+  },
+  "embedding": {
+    "provider": "ollama",
+    "ollama_endpoint": "http://localhost:11434",
+    "ollama_model": "nomic-embed-text",
+    "genai_api_key": "",
+    "genai_model": "gemini-embedding-001",
+    "task_type": "SEMANTIC_SIMILARITY"
+  },
+  "shard_profiles": {
+    "coder": {
+      "model": "glm-4.6",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_context_tokens": 160000,
+      "max_output_tokens": 6000,
+      "max_execution_time_sec": 600,
+      "max_retries": 3,
+      "max_facts_in_shard_kernel": 30000,
+      "enable_learning": true
+    },
+    "researcher": {
+      "model": "glm-4.6",
+      "temperature": 0.6,
+      "top_p": 0.95,
+      "max_context_tokens": 160000,
+      "max_output_tokens": 5000,
+      "max_execution_time_sec": 600,
+      "max_retries": 3,
+      "max_facts_in_shard_kernel": 25000,
+      "enable_learning": true
+    },
+    "reviewer": {
+      "model": "glm-4.6",
+      "temperature": 0.3,
+      "top_p": 0.9,
+      "max_context_tokens": 160000,
+      "max_output_tokens": 8000,
+      "max_execution_time_sec": 900,
+      "max_retries": 2,
+      "max_facts_in_shard_kernel": 30000,
+      "enable_learning": false
+    },
+    "tester": {
+      "model": "glm-4.6",
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_context_tokens": 160000,
+      "max_output_tokens": 4000,
+      "max_execution_time_sec": 300,
+      "max_retries": 3,
+      "max_facts_in_shard_kernel": 20000,
+      "enable_learning": true
+    }
+  },
+  "default_shard": {
+    "model": "glm-4.6",
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_context_tokens": 160000,
+    "max_output_tokens": 4000,
+    "max_execution_time_sec": 300,
+    "max_retries": 3,
+    "max_facts_in_shard_kernel": 20000,
+    "enable_learning": true
+  },
+  "core_limits": {
+    "max_total_memory_mb": 12288,
+    "max_concurrent_shards": 4,
+    "max_concurrent_api_calls": 0,
+    "max_session_duration_min": 120,
+    "max_facts_in_kernel": 250000,
+    "max_derived_facts_limit": 100000
+  },
+  "integrations": {
+    "code_graph": {
+      "enabled": true,
+      "base_url": "http://localhost:8080",
+      "timeout": "30s"
+    },
+    "browser": {
+      "enabled": true,
+      "base_url": "http://localhost:8081",
+      "timeout": "60s"
+    },
+    "scraper": {
+      "enabled": true,
+      "base_url": "http://localhost:8082",
+      "timeout": "120s"
+    }
+  },
+  "tool_generation": {
+    "target_os": "windows",
+    "target_arch": "amd64"
+  },
+  "build": {
+    "env_vars": {
+      "CGO_CFLAGS": "-IC:/CodeProjects/codeNERD/sqlite_headers"
+    },
+    "cgo_packages": [
+      "sqlite-vec"
+    ]
+  },
+  "execution": {
+    "allowed_binaries": [
+      "go",
+      "git",
+      "grep",
+      "ls",
+      "mkdir",
+      "cp",
+      "mv",
+      "npm",
+      "npx",
+      "node",
+      "python",
+      "python3",
+      "pip",
+      "cargo",
+      "rustc",
+      "make",
+      "cmake"
+    ],
+    "default_timeout": "30s",
+    "working_directory": ".",
+    "allowed_env_vars": [
+      "PATH",
+      "HOME",
+      "GOPATH",
+      "GOROOT"
+    ]
+  },
+  "logging": {
+    "level": "info",
+    "format": "text",
+    "file": "codenerd.log",
+    "debug_mode": true,
+    "categories": {
+      "api": true,
+      "articulation": true,
+      "autopoiesis": true,
+      "boot": true,
+      "build": true,
+      "campaign": true,
+      "coder": true,
+      "context": true,
+      "dream": true,
+      "embedding": true,
+      "kernel": true,
+      "perception": true,
+      "researcher": true,
+      "reviewer": true,
+      "routing": true,
+      "session": true,
+      "shards": true,
+      "store": true,
+      "system_shards": true,
+      "tester": true,
+      "tools": true,
+      "virtual_store": true,
+      "world": true
+    }
+  }
+}
