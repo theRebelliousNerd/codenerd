@@ -86,6 +86,10 @@ func InitChat(cfg Config) Model {
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
 
+	// Initialize viewport for error panel (small + scrollable)
+	errVP := viewport.New(76, errorPanelViewportHeight)
+	errVP.SetContent("")
+
 	// Initialize list (empty by default)
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Past Sessions"
@@ -133,6 +137,7 @@ func InitChat(cfg Config) Model {
 	return Model{
 		textarea:     ta,
 		viewport:     vp,
+		errorVP:      errVP,
 		spinner:      sp,
 		list:         l,
 		filepicker:   fp,
@@ -144,6 +149,8 @@ func InitChat(cfg Config) Model {
 		logicPane:    splitPaneView.RightPane,
 		showLogic:    false,
 		paneMode:     ui.ModeSinglePane,
+		showError:    true,
+		focusError:   false,
 		history:      []Message{},
 		Config:       appCfg,
 		// Backend components start nil
@@ -921,9 +928,11 @@ func (m *Model) saveSessionState() {
 		return
 	}
 
-	// Only save if initialized
-	if !nerdinit.IsInitialized(m.workspace) {
-		logging.Session("saveSessionState: workspace not initialized")
+	// Always persist session state/history for observability and continuity.
+	// Session management should not require `/init` (which is about world-model wiring).
+	nerdDir := filepath.Join(m.workspace, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0755); err != nil {
+		logging.Session("saveSessionState: failed to create .nerd directory: %v", err)
 		return
 	}
 

@@ -1,9 +1,11 @@
 
 # Autopoiesis-learned rule (added 2025-12-09 15:38:31)
-permitted(Action) :- Action = "system_start".
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(Action) :- Action = "system_start".
 
 # Autopoiesis-learned rule (added 2025-12-10 10:35:56)
-system_shard_state(/boot,/initializing).
+# SELF-HEALED: learned rule defines protected predicate "system_shard_state": produced by system shard supervisor
+# system_shard_state(/boot,/initializing).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 11:45:05)
@@ -67,7 +69,8 @@ next_action(/initialize) :- system_shard(_,/boot).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 18:13:55)
-permitted(/system_start).
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(/system_start).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 18:18:12)
@@ -90,7 +93,8 @@ final_action(/system_start) :- session_state(_,/initializing,_).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 19:57:39)
-permitted(/system_start).
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(/system_start).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 19:59:27)
@@ -98,7 +102,8 @@ next_action(/system_start) :- entry_point(/init).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 20:15:45)
-permitted(/system_start).
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(/system_start).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 20:25:42)
@@ -126,7 +131,8 @@ next_action(/initialize) :- system_event_handled(/start,_,_).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 22:50:04)
-permitted(/system_start) :- current_task(/initialization).
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(/system_start) :- current_task(/initialization).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 22:50:10)
@@ -142,7 +148,8 @@ system_startup(/initializing,/cold_start).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 22:57:13)
-permitted(/system_start).
+# SELF-HEALED: learned rule defines protected predicate "permitted": constitutional permission is core-owned (do not learn permissions)
+# permitted(/system_start).
 
 
 # Autopoiesis-learned rule (added 2025-12-10 22:57:39)

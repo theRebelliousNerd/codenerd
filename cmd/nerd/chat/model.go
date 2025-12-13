@@ -25,6 +25,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -44,6 +45,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+)
+
+const (
+	errorPanelViewportHeight = 4
 )
 
 // =============================================================================
@@ -145,6 +150,7 @@ type Model struct {
 	// UI Components
 	textarea   textarea.Model
 	viewport   viewport.Model
+	errorVP    viewport.Model
 	spinner    spinner.Model
 	list       list.Model
 	filepicker filepicker.Model
@@ -158,6 +164,8 @@ type Model struct {
 	logicPane *ui.LogicPane
 	showLogic bool
 	paneMode  ui.PaneMode
+	showError bool
+	focusError bool
 
 	// Usage Page
 	usagePage ui.UsagePageModel
@@ -609,11 +617,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
+		errCmd tea.Cmd
 		spCmd tea.Cmd
 	)
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If the error panel is focused, capture scroll keys first.
+		// Keep global keys (Ctrl+C, etc.) handled normally.
+		if m.focusError && m.err != nil && m.showError && !msg.Alt {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.focusError = false
+				return m, nil
+			case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+				m.errorVP, errCmd = m.errorVP.Update(msg)
+				return m, errCmd
+			default:
+				// Swallow other keys while focused to avoid editing input accidentally.
+				return m, nil
+			}
+		}
+
 		// Global Keybindings (Ctrl+C, Ctrl+X, Shift+Tab, Esc)
 		switch msg.Type {
 		case tea.KeyCtrlC:
@@ -700,6 +725,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check for disabled selection (optional warning)
 			if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
 				m.err = fmt.Errorf("file %s is disabled", path)
+				m.showError = true
+				m.focusError = false
+				m.refreshErrorViewport()
+				m.errorVP.GotoTop()
 				return m, cmd
 			}
 
@@ -847,6 +876,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle Alt key bindings
 		if msg.Alt && len(msg.Runes) > 0 {
 			switch msg.Runes[0] {
+			case 'e', 'E':
+				// Error panel controls
+				// - Alt+E: toggle focus (enables scrolling)
+				// - Alt+Shift+E: toggle visibility
+				if m.err != nil {
+					if msg.Runes[0] == 'E' {
+						m.showError = !m.showError
+						if !m.showError {
+							m.focusError = false
+						}
+						return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
+					}
+
+					if m.showError {
+						m.focusError = !m.focusError
+					} else {
+						m.showError = true
+						m.focusError = true
+						return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
+					}
+				}
+				return m, nil
+
 			case 'l':
 				// Toggle logic pane (Alt+L)
 				m.showLogic = !m.showLogic
@@ -961,7 +1013,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			chatWidth = 1
 		}
 
-		calcHeight := msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight
+		errorPanelHeight := 0
+		if m.err != nil && m.showError {
+			// 1 header line + viewport height + 2 border lines
+			errorPanelHeight = 1 + errorPanelViewportHeight + 2
+		}
+
+		calcHeight := msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight - errorPanelHeight
 		if calcHeight < 1 {
 			calcHeight = 1
 		}
@@ -972,6 +1030,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.viewport.Width = chatWidth
 			m.viewport.Height = calcHeight
+		}
+
+		// Error viewport lives inside a bordered box within the content area.
+		// Box uses 1-col padding left/right plus 1-col border left/right => total 4 cols.
+		m.errorVP.Width = chatWidth - 4
+		if m.errorVP.Width < 1 {
+			m.errorVP.Width = 1
+		}
+		m.errorVP.Height = errorPanelViewportHeight
+		if m.err != nil {
+			m.refreshErrorViewport()
 		}
 
 		// Reduce input width to accommodate border (2) + padding (2) + safety margin
@@ -1127,6 +1196,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.err = msg
+		m.showError = true
+		m.focusError = false
+		m.refreshErrorViewport()
+		m.errorVP.GotoTop()
+		logging.Get(logging.CategorySession).Error("TUI error: %v", msg)
+		// Trigger resize so the error panel reserves space immediately.
+		return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
 
 	case campaignErrorMsg:
 		m.isLoading = false
@@ -1528,6 +1604,10 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.isBooting = false
 			m.bootStage = BootStageBooting
 			m.err = msg.err
+			m.showError = true
+			m.focusError = false
+			m.refreshErrorViewport()
+			m.errorVP.GotoTop()
 			m.history = append(m.history, Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**System Boot Failed:** %v", msg.err),
@@ -1596,6 +1676,36 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd)
+}
+
+func (m *Model) refreshErrorViewport() {
+	if m.err == nil {
+		m.errorVP.SetContent("")
+		return
+	}
+	width := m.errorVP.Width
+	if width < 1 {
+		width = 1
+	}
+	m.errorVP.SetContent(hardWrap(m.err.Error(), width))
+}
+
+func hardWrap(s string, width int) string {
+	if width < 1 || s == "" {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		remaining := []rune(line)
+		for len(remaining) > width {
+			out = append(out, string(remaining[:width]))
+			remaining = remaining[width:]
+		}
+		out = append(out, string(remaining))
+	}
+	return strings.Join(out, "\n")
 }
 
 // handleClarificationResponse processes the user's response to a clarification request
