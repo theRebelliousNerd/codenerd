@@ -27,9 +27,11 @@ Thumbs.db
 .gemini/
 tmp/
 
-# Documentation (Ignore Docs root, keep research)
+# Documentation (Ignore Docs root, keep research + plans)
 Docs/*
 !Docs/research/
+!Docs/plans/
+!Docs/plans/**
 
 # Markdown Docs (Global ignore with exceptions)
 *.md
@@ -38,6 +40,7 @@ Docs/*
 !CLAUDE.md
 !**/CLAUDE.md
 !Docs/research/**
+!Docs/plans/**/*.md
 !.claude/skills/**/*.md
 !internal/prompt/atoms/**/*.md
 
