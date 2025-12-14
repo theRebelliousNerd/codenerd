@@ -1,46 +1,28 @@
-# JIT Prompt Compiler Policy
-# Section 45, 46 of Cortex Executive Policy
+# JIT Prompt Compiler Logic
+# Extracted from jit_compiler.mg
+# Implements selection logic, context matching, and conflict resolution.
 
-# Category Ordering (Static Facts)
-# Determines section order in final prompt.
-# Lower numbers appear first in the assembled prompt.
-
-category_order(/identity, 1).
-category_order(/safety, 2).
-category_order(/hallucination, 3).
-category_order(/methodology, 4).
-category_order(/language, 5).
-category_order(/framework, 6).
-category_order(/domain, 7).
-category_order(/campaign, 8).
-category_order(/init, 8).
-category_order(/northstar, 8).
-category_order(/ouroboros, 8).
-category_order(/context, 9).
-category_order(/exemplar, 10).
-category_order(/protocol, 11).
-
-# Category Budget Allocation
-# Percentage of total token budget allocated to each category.
-
-category_budget(/identity, 5).
-category_budget(/protocol, 12).
-category_budget(/safety, 5).
-category_budget(/hallucination, 8).
-category_budget(/methodology, 15).
-category_budget(/language, 8).
-category_budget(/framework, 8).
-category_budget(/domain, 15).
-category_budget(/context, 12).
-category_budget(/exemplar, 7).
-category_budget(/campaign, 5).
-category_budget(/init, 5).
-category_budget(/northstar, 5).
-category_budget(/ouroboros, 5).
-
-# Contextual Matching Rules
+# -----------------------------------------------------------------------------
+# Internal Helper Declarations (IDB)
+# -----------------------------------------------------------------------------
 
 # Context match indicators
+Decl atom_has_shard_match(AtomID).
+Decl atom_has_mode_match(AtomID).
+Decl atom_has_phase_match(AtomID).
+Decl atom_has_verb_match(AtomID).
+Decl atom_has_lang_match(AtomID).
+Decl atom_has_framework_match(AtomID).
+Decl atom_has_state_match(AtomID).
+Decl atom_has_init_match(AtomID).
+Decl atom_has_ouroboros_match(AtomID).
+Decl atom_has_northstar_match(AtomID).
+Decl atom_has_layer_match(AtomID).
+
+# -----------------------------------------------------------------------------
+# Contextual Matching Rules
+# -----------------------------------------------------------------------------
+
 atom_has_shard_match(AtomID) :-
     atom_selector(AtomID, /shard_type, ShardType),
     compile_shard(_, ShardType).
@@ -94,7 +76,9 @@ atom_matches_context(AtomID, FinalScore) :-
 atom_matches_context(AtomID, 100) :-
     prompt_atom(AtomID, _, _, _, /true).
 
+# -----------------------------------------------------------------------------
 # Dependency Resolution (Stratified)
+# -----------------------------------------------------------------------------
 
 # Helper: atom would meet score threshold (potential candidate)
 atom_meets_threshold(AtomID) :-
@@ -116,7 +100,9 @@ atom_dependency_satisfied(AtomID) :-
     prompt_atom(AtomID, _, _, _, _),
     !has_unsatisfied_hard_dep(AtomID).
 
+# -----------------------------------------------------------------------------
 # Selection Algorithm (Stratified)
+# -----------------------------------------------------------------------------
 
 # Phase 1: Candidate atoms pass score threshold and have satisfied dependencies
 atom_candidate(AtomID) :-
@@ -174,14 +160,18 @@ atom_selected(AtomID) :-
     atom_candidate(AtomID),
     !is_excluded(AtomID).
 
+# -----------------------------------------------------------------------------
 # Final Ordering
+# -----------------------------------------------------------------------------
 
 # Order selected atoms by category first, then by match score within category.
 final_atom(AtomID, Order) :-
     atom_selected(AtomID),
     atom_final_order(AtomID, Order).
 
+# -----------------------------------------------------------------------------
 # Compilation Validation
+# -----------------------------------------------------------------------------
 
 # Helper: at least one identity atom is selected
 has_identity_atom() :-
@@ -213,7 +203,9 @@ compilation_error(/circular_dependency, AtomID) :-
     atom_dependency(AtomID, DepID, /hard),
     atom_dependency(DepID, AtomID, /hard).
 
+# -----------------------------------------------------------------------------
 # Integration with Spreading Activation
+# -----------------------------------------------------------------------------
 
 # High activation for selected atoms
 activation(AtomID, 95) :-
@@ -225,7 +217,9 @@ activation(AtomID, 60) :-
     Score > 30,
     !atom_selected(AtomID).
 
+# -----------------------------------------------------------------------------
 # Learning Signals from Prompt Compilation
+# -----------------------------------------------------------------------------
 
 # Signal: atom was selected and shard execution succeeded
 effective_prompt_atom(AtomID) :-
@@ -237,7 +231,9 @@ effective_prompt_atom(AtomID) :-
 learning_signal(/effective_prompt_atom, AtomID) :-
     effective_prompt_atom(AtomID).
 
-# SECTION 46: JIT PROMPT COMPILER SELECTION RULES
+# -----------------------------------------------------------------------------
+# SELECTION RULES (From former Section 46)
+# -----------------------------------------------------------------------------
 
 # SKELETON (Mandatory - Fail if missing)
 

@@ -351,7 +351,8 @@ func (k *RealKernel) loadMangleFiles() error {
 		"selection_policy.mg",
 		"taxonomy.mg",
 		"inference.mg",
-		"jit_compiler.mg", // System 2 JIT Gatekeeper
+		"jit_config.mg", // System 2 JIT Configuration
+		"jit_logic.mg",  // System 2 JIT Logic
 	}
 
 	loadedModules := 0
