@@ -1503,7 +1503,7 @@ func cleanJSONResponse(resp string) string {
 }
 
 // formatShardList formats available shards for injection into the planner prompt.
-func formatShardList(shards []core.ShardInfo) string {
+func formatShardList(shards []coreshards.ShardInfo) string {
 	if len(shards) == 0 {
 		return ""
 	}
