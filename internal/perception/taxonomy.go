@@ -43,15 +43,26 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	}
 	t := &TaxonomyEngine{engine: eng}
 
-	// Load Intent Definition Schema (Canonical Examples)
-	intentContent, err := core.GetDefaultContent("schema/intent.mg")
-	if err == nil {
-		if err := eng.LoadSchemaString(intentContent); err != nil {
-			return nil, fmt.Errorf("failed to load intent schema: %w", err)
+	// Load Intent Definition Schemas (Modular) - must be loaded in order
+	intentFiles := []string{
+		"schema/intent_core.mg",         // Core Decl statements
+		"schema/intent_queries.mg",      // /query category intents
+		"schema/intent_mutations.mg",    // /mutation category intents
+		"schema/intent_instructions.mg", // /instruction category intents
+		"schema/intent_campaign.mg",     // Campaign and multi-step intents
+		"schema/intent_system.mg",       // System-level inference rules
+	}
+
+	for _, file := range intentFiles {
+		content, err := core.GetDefaultContent(file)
+		if err == nil {
+			if err := eng.LoadSchemaString(content); err != nil {
+				return nil, fmt.Errorf("failed to load %s: %w", file, err)
+			}
+		} else {
+			// Fallback to disk (dev mode) or warn
+			fmt.Printf("WARNING: %s not found in embedded defaults: %v\n", file, err)
 		}
-	} else {
-		// Fallback to disk (dev mode) or warn
-		fmt.Printf("WARNING: intent.mg not found in embedded defaults: %v\n", err)
 	}
 
 	// Load Learning Schema (Ouroboros)
