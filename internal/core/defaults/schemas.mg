@@ -119,28 +119,28 @@
 # These are the most commonly used predicates across the system:
 
 # Intent & Focus
-Decl user_intent(ID, Category, Verb, Target, Constraint).
-Decl focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence).
+#   user_intent(ID, Category, Verb, Target, Constraint) → schemas_intent.mg
+#   focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence) → schemas_intent.mg
 
 # File Topology & AST
-Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
-Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature).
-Decl dependency_link(CallerID, CalleeID, ImportPath).
+#   file_topology(Path, Hash, Language, LastModified, IsTestFile) → schemas_world.mg
+#   symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature) → schemas_world.mg
+#   dependency_link(CallerID, CalleeID, ImportPath) → schemas_world.mg
 
 # Execution
-Decl next_action(Action).
-Decl permitted(Action).
+#   next_action(Action) → schemas_execution.mg
+#   permitted(Action) → schemas_safety.mg
 
 # Shard Coordination
-Decl delegate_task(ShardType, TaskDescription, Status).
-Decl shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary).
+#   delegate_task(ShardType, TaskDescription, Status) → schemas_shards.mg
+#   shard_result(TaskID, Status, ShardType, TaskDescription, ResultSummary) → schemas_shards.mg
 
 # Memory & Learning
-Decl learned_preference(Predicate, Args).
-Decl activation(FactID, Score).
+#   learned_preference(Predicate, Args) → schemas_memory.mg
+#   activation(FactID, Score) → schemas_memory.mg
 
 # Campaign Management
-Decl campaign(CampaignID, Goal, Status, StartedAt).
-Decl campaign_task(CampaignID, TaskID, Description, Status, Priority).
+#   campaign(CampaignID, Goal, Status, StartedAt) → schemas_campaign.mg
+#   campaign_task(CampaignID, TaskID, Description, Status, Priority) → schemas_campaign.mg
 
 # For detailed predicate documentation, see the individual modular files.

@@ -60,11 +60,11 @@ intent_category("Abort campaign.", /mutation).
 # These patterns trigger task decomposition into multiple sequential steps.
 # =============================================================================
 
-# --- Multi-Step Pattern Declarations ---
-Decl multistep_pattern(Pattern, Category, Relation, Priority).
-Decl multistep_keyword(Pattern, Keyword).
-Decl multistep_verb_pair(Pattern, Verb1, Verb2).
-Decl multistep_example(Pattern, Example).
+# --- Multi-Step Pattern Declarations (defined in intent_core.mg) ---
+# Decl multistep_pattern(Pattern, Category, Relation, Priority).
+# Decl multistep_keyword(Pattern, Keyword).
+# Decl multistep_verb_pair(Pattern, Verb1, Verb2).
+# Decl multistep_example(Pattern, Example).
 
 # =============================================================================
 # SEQUENTIAL EXPLICIT PATTERNS
@@ -615,25 +615,25 @@ intent_category("Update the API while keeping backwards compatibility.", /mutati
 # Check if input contains a multi-step keyword
 # NOTE: fn:string_contains is not a Mangle built-in. These rules need to be
 # implemented as virtual predicates in Go that perform string matching.
-Decl is_multistep_input(Input).
+# Decl is_multistep_input(Input).  # Defined in intent_core.mg
 # is_multistep_input(Input) :-
 #     multistep_keyword(Pattern, Keyword),
 #     fn:string_contains(Input, Keyword).
 
 # Get the best matching pattern for input
-Decl best_multistep_pattern(Input, Pattern, Priority).
+# Decl best_multistep_pattern(Input, Pattern, Priority).  # Defined in intent_core.mg
 # best_multistep_pattern(Input, Pattern, Priority) :-
 #     multistep_keyword(Pattern, Keyword),
 #     fn:string_contains(Input, Keyword),
 #     multistep_pattern(Pattern, _, _, Priority).
 
 # Get verb pairs for a pattern
-Decl pattern_verb_pair(Pattern, Verb1, Verb2).
+# Decl pattern_verb_pair(Pattern, Verb1, Verb2).  # Defined in intent_core.mg
 pattern_verb_pair(Pattern, Verb1, Verb2) :-
     multistep_verb_pair(Pattern, Verb1, Verb2).
 
 # Get relation type for a pattern
-Decl pattern_relation(Pattern, Relation).
+# Decl pattern_relation(Pattern, Relation).  # Defined in intent_core.mg
 pattern_relation(Pattern, Relation) :-
     multistep_pattern(Pattern, _, Relation, _).
 
