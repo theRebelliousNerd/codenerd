@@ -5,7 +5,6 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards"
@@ -18,7 +17,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -158,7 +156,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
 	}
 
-	shardMgr := coreshards.NewShardManager()
+	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
 	// Initialize limits enforcer and spawn queue
@@ -182,7 +180,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
 	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
+	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
@@ -491,7 +489,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
-	shardMgr := coreshards.NewShardManager()
+	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
 	// Initialize limits enforcer and spawn queue
@@ -515,7 +513,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
 	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
+	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 

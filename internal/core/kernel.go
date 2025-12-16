@@ -39,16 +39,8 @@ type Fact = types.Fact
 // Aliased from types package to break import cycles.
 type MangleAtom = types.MangleAtom
 
-// Kernel defines the interface for the logic core.
-type Kernel interface {
-	LoadFacts(facts []Fact) error
-	Query(predicate string) ([]Fact, error)
-	QueryAll() (map[string][]Fact, error)
-	Assert(fact Fact) error
-	Retract(predicate string) error
-	RetractFact(fact Fact) error // Retract a specific fact by predicate and first argument
-	UpdateSystemFacts() error    // Updates system-level facts (time, OS, etc.)
-}
+// Kernel is an alias to types.Kernel for backward compatibility.
+type Kernel = types.Kernel
 
 // LearnedRuleInterceptor intercepts learned rules before persistence.
 // This allows the MangleRepairShard to validate and repair rules without import cycles.

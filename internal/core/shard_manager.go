@@ -20,53 +20,42 @@ import (
 // TYPES AND CONSTANTS
 // =============================================================================
 
-// ShardType defines the lifecycle model of a shard.
-type ShardType string
+// Type aliases to internal/types to avoid import cycles
+type ShardType = types.ShardType
+type ShardState = types.ShardState
+type ShardPermission = types.ShardPermission
+type ModelCapability = types.ModelCapability
+type ModelConfig = types.ModelConfig
+type ShardConfig = types.ShardConfig
+type ShardResult = types.ShardResult
+type ShardInfo = types.ShardInfo
+type ShardLearning = types.ShardLearning
 
+// Re-export constants from internal/types
 const (
-	ShardTypeEphemeral  ShardType = "ephemeral"  // Type A: Created for a task, dies after
-	ShardTypePersistent ShardType = "persistent" // Type B: Persistent, user-defined specialist
-	ShardTypeUser       ShardType = "user"       // Alias for Persistent
-	ShardTypeSystem     ShardType = "system"     // Type S: Long-running system service
+	ShardTypeEphemeral  = types.ShardTypeEphemeral
+	ShardTypePersistent = types.ShardTypePersistent
+	ShardTypeUser       = types.ShardTypeUser
+	ShardTypeSystem     = types.ShardTypeSystem
+
+	ShardStateIdle      = types.ShardStateIdle
+	ShardStateRunning   = types.ShardStateRunning
+	ShardStateCompleted = types.ShardStateCompleted
+	ShardStateFailed    = types.ShardStateFailed
+
+	PermissionReadFile  = types.PermissionReadFile
+	PermissionWriteFile = types.PermissionWriteFile
+	PermissionExecCmd   = types.PermissionExecCmd
+	PermissionNetwork   = types.PermissionNetwork
+	PermissionBrowser   = types.PermissionBrowser
+	PermissionCodeGraph = types.PermissionCodeGraph
+	PermissionAskUser   = types.PermissionAskUser
+	PermissionResearch  = types.PermissionResearch
+
+	CapabilityHighReasoning = types.CapabilityHighReasoning
+	CapabilityBalanced      = types.CapabilityBalanced
+	CapabilityHighSpeed     = types.CapabilityHighSpeed
 )
-
-// ShardState defines the execution state of a shard.
-type ShardState string
-
-const (
-	ShardStateIdle      ShardState = "idle"
-	ShardStateRunning   ShardState = "running"
-	ShardStateCompleted ShardState = "completed"
-	ShardStateFailed    ShardState = "failed"
-)
-
-// ShardPermission defines what a shard is allowed to do.
-type ShardPermission string
-
-const (
-	PermissionReadFile  ShardPermission = "read_file"
-	PermissionWriteFile ShardPermission = "write_file"
-	PermissionExecCmd   ShardPermission = "exec_cmd"
-	PermissionNetwork   ShardPermission = "network"
-	PermissionBrowser   ShardPermission = "browser"
-	PermissionCodeGraph ShardPermission = "code_graph"
-	PermissionAskUser   ShardPermission = "ask_user"
-	PermissionResearch  ShardPermission = "research"
-)
-
-// ModelCapability defines the class of LLM reasoning required.
-type ModelCapability string
-
-const (
-	CapabilityHighReasoning ModelCapability = "high_reasoning" // e.g. Claude 3.5 Sonnet, GPT-4o
-	CapabilityBalanced      ModelCapability = "balanced"       // e.g. Gemini 2.5 Pro
-	CapabilityHighSpeed     ModelCapability = "high_speed"     // e.g. Gemini 2.5 Flash, Haiku
-)
-
-// ModelConfig defines the LLM requirements for a shard.
-type ModelConfig struct {
-	Capability ModelCapability
-}
 
 // StructuredIntent represents the parsed user intent from the perception transducer.
 // NOTE: This type has been moved to internal/types to avoid import cycles.
@@ -156,27 +145,6 @@ type ShardSummary = types.ShardSummary
 //	}
 type SessionContext = types.SessionContext
 
-// ShardConfig holds configuration for a shard.
-type ShardConfig struct {
-	Name string
-	Type ShardType
-	// BaseType selects the underlying factory to use when Name doesn't match a registered factory.
-	// Intended for Type B (persistent) and Type U (user-defined) specialists.
-	BaseType      string
-	Permissions   []ShardPermission // Allowed capabilities
-	Timeout       time.Duration     // Default execution timeout
-	MemoryLimit   int               // Abstract memory unit limit
-	Model         ModelConfig       // LLM requirements
-	KnowledgePath string            // Path to local knowledge DB (Type B only)
-
-	// Tool associations (for specialist shards)
-	Tools           []string          // List of tool names this shard can use
-	ToolPreferences map[string]string // Action -> preferred tool mapping
-
-	// Session context (Blackboard Pattern)
-	SessionContext *SessionContext // Compressed session context for LLM injection
-}
-
 // DefaultGeneralistConfig returns config for a Type A generalist.
 func DefaultGeneralistConfig(name string) ShardConfig {
 	return ShardConfig{
@@ -233,28 +201,8 @@ func DefaultSystemConfig(name string) ShardConfig {
 	}
 }
 
-// ShardResult represents the outcome of a shard execution.
-type ShardResult struct {
-	ShardID   string
-	Result    string
-	Error     error
-	Timestamp time.Time
-}
-
-// ShardAgent defines the interface for all agents.
-// Renamed from 'Shard' to match usage in registration.go.
-type ShardAgent interface {
-	Execute(ctx context.Context, task string) (string, error)
-	GetID() string
-	GetState() ShardState
-	GetConfig() ShardConfig
-	Stop() error
-
-	// Dependency Injection methods
-	SetParentKernel(k Kernel)
-	SetLLMClient(client LLMClient)
-	SetSessionContext(ctx *SessionContext) // For dream mode and session state
-}
+// ShardAgent is an alias to types.ShardAgent for backward compatibility.
+type ShardAgent = types.ShardAgent
 
 // ShardFactory is a function that creates a new shard instance.
 type ShardFactory func(id string, config ShardConfig) ShardAgent
@@ -1068,14 +1016,6 @@ func (sm *ShardManager) GetProfile(name string) (ShardConfig, bool) {
 	defer sm.mu.RUnlock()
 	cfg, ok := sm.profiles[name]
 	return cfg, ok
-}
-
-// ShardInfo contains information about an available shard for selection.
-type ShardInfo struct {
-	Name         string    `json:"name"`
-	Type         ShardType `json:"type"`
-	Description  string    `json:"description,omitempty"`
-	HasKnowledge bool      `json:"has_knowledge"`
 }
 
 // ListAvailableShards returns information about all available shards.

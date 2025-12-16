@@ -499,13 +499,8 @@ func (sm *ShardManager) GetProfile(name string) (types.ShardConfig, bool) {
 	return cfg, ok
 }
 
-// ShardInfo contains information about an available shard for selection.
-type ShardInfo struct {
-	Name         string          `json:"name"`
-	Type         types.ShardType `json:"type"`
-	Description  string          `json:"description,omitempty"`
-	HasKnowledge bool            `json:"has_knowledge"`
-}
+// ShardInfo is an alias to types.ShardInfo for shard discovery.
+type ShardInfo = types.ShardInfo
 
 func (sm *ShardManager) ListAvailableShards() []ShardInfo {
 	sm.mu.RLock()
