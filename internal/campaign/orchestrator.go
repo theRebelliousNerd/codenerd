@@ -2,7 +2,6 @@ package campaign
 
 import (
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/tactile"
@@ -11,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,7 +25,7 @@ type Orchestrator struct {
 	// Core components
 	kernel       *core.RealKernel
 	llmClient    perception.LLMClient
-	shardMgr     *coreshards.ShardManager
+	shardMgr     *core.ShardManager
 	executor     *tactile.SafeExecutor
 	virtualStore *core.VirtualStore
 	transducer   *perception.RealTransducer
@@ -79,7 +79,7 @@ type OrchestratorConfig struct {
 	Workspace            string
 	Kernel               *core.RealKernel
 	LLMClient            perception.LLMClient
-	ShardManager         *coreshards.ShardManager
+	ShardManager         *core.ShardManager
 	Executor             *tactile.SafeExecutor
 	VirtualStore         *core.VirtualStore
 	ProgressChan         chan Progress

@@ -3,14 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+
+	"codenerd/internal/types"
 )
 
-// LLMClient defines the minimal interface shards use to call an LLM.
-// Mirrors perception.LLMClient to avoid import cycles.
-type LLMClient interface {
-	Complete(ctx context.Context, prompt string) (string, error)
-	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
-}
+// LLMClient is an alias to types.LLMClient to avoid type mismatches.
+type LLMClient = types.LLMClient
 
 // ErrStreamingNotSupported is returned when a client doesn't implement a streaming method.
 // Defined in core so wrappers (scheduler) can return a shared sentinel without importing

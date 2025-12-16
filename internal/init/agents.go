@@ -3,6 +3,7 @@ package init
 
 import (
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/tool_generator"
@@ -1189,7 +1190,7 @@ func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, 
 	}
 
 	// Initialize ToolGenerator
-	toolGenConfig := core.DefaultGeneralistConfig("init_tool_generator")
+	toolGenConfig := coreshards.DefaultGeneralistConfig("init_tool_generator")
 	toolGenShard := tool_generator.NewToolGeneratorShard("init_tool_generator", toolGenConfig)
 	toolGenShard.SetLLMClient(i.config.LLMClient)
 	toolGenShard.SetParentKernel(i.kernel)

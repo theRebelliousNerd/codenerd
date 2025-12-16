@@ -85,6 +85,14 @@ type ShardResult struct {
 	Timestamp time.Time
 }
 
+// ShardInfo contains information about an available shard for selection.
+type ShardInfo struct {
+	Name         string    `json:"name"`
+	Type         ShardType `json:"type"`
+	Description  string    `json:"description,omitempty"`
+	HasKnowledge bool      `json:"has_knowledge"`
+}
+
 // SpawnPriority defines the scheduling priority for spawn requests.
 type SpawnPriority int
 
