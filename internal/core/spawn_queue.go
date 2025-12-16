@@ -23,38 +23,6 @@ import (
 // Priority Levels
 // -----------------------------------------------------------------------------
 
-// SpawnPriority defines the scheduling priority for spawn requests.
-type SpawnPriority int
-
-const (
-	// PriorityLow is for background tasks, speculation, and learning.
-	PriorityLow SpawnPriority = 0
-
-	// PriorityNormal is for campaign tasks and regular operations.
-	PriorityNormal SpawnPriority = 1
-
-	// PriorityHigh is for user-requested commands (/review, /test, /fix).
-	PriorityHigh SpawnPriority = 2
-
-	// PriorityCritical is for system shards and safety-critical operations.
-	PriorityCritical SpawnPriority = 3
-)
-
-// String returns the priority name.
-func (p SpawnPriority) String() string {
-	switch p {
-	case PriorityLow:
-		return "low"
-	case PriorityNormal:
-		return "normal"
-	case PriorityHigh:
-		return "high"
-	case PriorityCritical:
-		return "critical"
-	default:
-		return fmt.Sprintf("unknown(%d)", p)
-	}
-}
 
 // -----------------------------------------------------------------------------
 // Request and Result Types

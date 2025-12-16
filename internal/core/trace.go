@@ -29,10 +29,6 @@ func (k *RealKernel) TraceQuery(ctx context.Context, query string) (*mangle.Deri
 
 	// 3. For each result fact, build its derivation tree
 	for _, fact := range facts {
-		// Convert core.Fact to mangle.Fact (if they differ, but they are likely similar structurally)
-		// Wait, mangle.Fact in proof_tree.go uses []interface{} Args, same as core.Fact.
-		// However, types are distinct. We need to convert.
-
 		mangleFact := mangle.Fact{
 			Predicate: fact.Predicate,
 			Args:      fact.Args,
@@ -51,7 +47,7 @@ func (k *RealKernel) TraceQuery(ctx context.Context, query string) (*mangle.Deri
 
 // buildDerivationNode recursively builds the proof tree for a fact.
 func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, parentID string, depth int) *mangle.DerivationNode {
-	// Generate a simple unique ID (in a real system, use UUID or counter)
+	// Generate a simple unique ID
 	nodeID := fmt.Sprintf("node_%d_%d", time.Now().UnixNano(), depth)
 
 	node := &mangle.DerivationNode{
@@ -81,49 +77,26 @@ func (k *RealKernel) buildDerivationNode(ctx context.Context, fact mangle.Fact, 
 }
 
 // classifyFact determines if a fact is EDB (base) or IDB (derived) and which rule produced it.
-// This duplicates logic from mangle/proof_tree.go but is necessary because RealKernel
-// doesn't have the same metadata introspection as the wrapper Engine yet.
+// Replaces hardcoded maps with Mangle lookups (LOGOS Refactor).
 func (k *RealKernel) classifyFact(fact mangle.Fact) (mangle.DerivationSource, string) {
-	// Common EDB predicates (stored in file/memory, not rules)
-	edbPredicates := map[string]bool{
-		"file_topology":    true,
-		"file_content":     true,
-		"symbol_graph":     true,
-		"dependency_link":  true,
-		"diagnostic":       true,
-		"observation":      true,
-		"user_intent":      true,
-		"focus_resolution": true,
-		"preference":       true,
-		"shard_profile":    true,
-		"knowledge_atom":   true,
-		"workspace_fact":   true,
-		"current_time":     true,
-	}
-
-	if edbPredicates[fact.Predicate] {
+	// 1. Check if it's explicitly marked as EDB
+	// Query is_edb_predicate(fact.Predicate)
+	// Since this is called frequently, in a real system we would cache this.
+	// For now, we rely on the Kernel's query speed.
+	edbResults, _ := k.Query(fmt.Sprintf("is_edb_predicate(\"%s\")", fact.Predicate))
+	if len(edbResults) > 0 {
 		return mangle.SourceEDB, ""
 	}
 
-	// IDB Rules (Defined in policy.mg)
-	// Mapping Predicate -> Rule Name
-	idbRules := map[string]string{
-		"next_action":          "strategy_selector",
-		"permitted":            "permission_gate",
-		"block_commit":         "commit_barrier",
-		"impacted":             "transitive_impact",
-		"clarification_needed": "focus_threshold",
-		"unsafe_to_refactor":   "refactoring_guard",
-		"test_state":           "tdd_loop",
-		"context_atom":         "spreading_activation",
-		"missing_hypothesis":   "abductive_repair",
-		"delegate_task":        "shard_delegation",
-		"activation":           "activation_rules",
-		"derived_context":      "context_inference",
-	}
-
-	if ruleName, ok := idbRules[fact.Predicate]; ok {
-		return mangle.SourceIDB, ruleName
+	// 2. Check if it has a known rule source (IDB)
+	// Query rule_metadata(fact.Predicate, RuleName)
+	ruleResults, _ := k.Query(fmt.Sprintf("rule_metadata(\"%s\", RuleName)", fact.Predicate))
+	if len(ruleResults) > 0 {
+		if len(ruleResults[0].Args) > 1 {
+			if ruleName, ok := ruleResults[0].Args[1].(string); ok {
+				return mangle.SourceIDB, ruleName
+			}
+		}
 	}
 
 	// Default to EDB if unknown (safe fallback)

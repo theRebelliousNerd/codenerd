@@ -1,37 +1,36 @@
 package core
 
 import (
-	"context"
-	"time"
-
 	"codenerd/internal/types"
 )
 
 // =============================================================================
-// TYPES AND CONSTANTS
+// TYPE ALIASES
 // =============================================================================
+// These aliases maintain backward compatibility for packages that import
+// core but expect types that have been moved to internal/types.
 
-// Type aliases to internal/types to avoid import cycles
 type ShardType = types.ShardType
-type ShardState = types.ShardState
-type ShardPermission = types.ShardPermission
-type ModelCapability = types.ModelCapability
-type StructuredIntent = types.StructuredIntent
-type ShardSummary = types.ShardSummary
-type SessionContext = types.SessionContext
 
-// Re-export constants from internal/types
 const (
 	ShardTypeEphemeral  = types.ShardTypeEphemeral
 	ShardTypePersistent = types.ShardTypePersistent
 	ShardTypeUser       = types.ShardTypeUser
 	ShardTypeSystem     = types.ShardTypeSystem
+)
 
+type ShardState = types.ShardState
+
+const (
 	ShardStateIdle      = types.ShardStateIdle
 	ShardStateRunning   = types.ShardStateRunning
 	ShardStateCompleted = types.ShardStateCompleted
 	ShardStateFailed    = types.ShardStateFailed
+)
 
+type ShardPermission = types.ShardPermission
+
+const (
 	PermissionReadFile  = types.PermissionReadFile
 	PermissionWriteFile = types.PermissionWriteFile
 	PermissionExecCmd   = types.PermissionExecCmd
@@ -40,136 +39,24 @@ const (
 	PermissionCodeGraph = types.PermissionCodeGraph
 	PermissionAskUser   = types.PermissionAskUser
 	PermissionResearch  = types.PermissionResearch
+)
 
+type ModelCapability = types.ModelCapability
+
+const (
 	CapabilityHighReasoning = types.CapabilityHighReasoning
 	CapabilityBalanced      = types.CapabilityBalanced
 	CapabilityHighSpeed     = types.CapabilityHighSpeed
 )
 
-// ModelConfig defines the LLM requirements for a shard.
-type ModelConfig struct {
-	Capability ModelCapability
-}
+type ModelConfig = types.ModelConfig
+type ShardConfig = types.ShardConfig
+type ShardResult = types.ShardResult
+type SpawnPriority = types.SpawnPriority
 
-// ShardConfig holds configuration for a shard.
-type ShardConfig struct {
-	Name    string
-	Type    ShardType
-	BaseType      string
-	Permissions   []ShardPermission
-	Timeout       time.Duration
-	MemoryLimit   int
-	Model         ModelConfig
-	KnowledgePath string
-
-	Tools           []string
-	ToolPreferences map[string]string
-
-	SessionContext *SessionContext
-}
-
-// DefaultGeneralistConfig returns config for a Type A generalist.
-func DefaultGeneralistConfig(name string) ShardConfig {
-	return ShardConfig{
-		Name:    name,
-		Type:    ShardTypeEphemeral,
-		Timeout: 15 * time.Minute,
-		Permissions: []ShardPermission{
-			PermissionReadFile,
-			PermissionWriteFile,
-			PermissionNetwork,
-		},
-		Model: ModelConfig{
-			Capability: CapabilityBalanced,
-		},
-	}
-}
-
-// DefaultSpecialistConfig returns config for a Type B specialist.
-func DefaultSpecialistConfig(name, knowledgePath string) ShardConfig {
-	return ShardConfig{
-		Name:          name,
-		Type:          ShardTypePersistent,
-		BaseType:      "researcher",
-		KnowledgePath: knowledgePath,
-		Timeout:       30 * time.Minute,
-		Permissions: []ShardPermission{
-			PermissionReadFile,
-			PermissionWriteFile,
-			PermissionNetwork,
-			PermissionBrowser,
-			PermissionResearch,
-		},
-		Model: ModelConfig{
-			Capability: CapabilityHighReasoning,
-		},
-	}
-}
-
-// DefaultSystemConfig returns config for a Type S system shard.
-func DefaultSystemConfig(name string) ShardConfig {
-	return ShardConfig{
-		Name:    name,
-		Type:    ShardTypeSystem,
-		Timeout: 24 * time.Hour,
-		Permissions: []ShardPermission{
-			PermissionReadFile,
-			PermissionWriteFile,
-			PermissionExecCmd,
-			PermissionNetwork,
-		},
-		Model: ModelConfig{
-			Capability: CapabilityBalanced,
-		},
-	}
-}
-
-// ShardResult represents the outcome of a shard execution.
-type ShardResult struct {
-	ShardID   string
-	Result    string
-	Error     error
-	Timestamp time.Time
-}
-
-// ShardAgent defines the interface for all agents.
-type ShardAgent interface {
-	Execute(ctx context.Context, task string) (string, error)
-	GetID() string
-	GetState() ShardState
-	GetConfig() ShardConfig
-	Stop() error
-
-	SetParentKernel(k Kernel)
-	SetLLMClient(client LLMClient)
-	SetSessionContext(ctx *SessionContext)
-}
-
-// ShardFactory is a function that creates a new shard instance.
-type ShardFactory func(id string, config ShardConfig) ShardAgent
-
-// PromptLoaderFunc is a callback for loading agent prompts from YAML files.
-type PromptLoaderFunc func(context.Context, string, string) (int, error)
-
-// JITDBRegistrar is a callback for registering agent knowledge DBs with the JIT prompt compiler.
-type JITDBRegistrar func(agentName string, dbPath string) error
-
-// JITDBUnregistrar is a callback for unregistering agent knowledge DBs from the JIT prompt compiler.
-type JITDBUnregistrar func(agentName string)
-
-// ShardInfo contains information about an available shard for selection.
-type ShardInfo struct {
-	Name         string    `json:"name"`
-	Type         ShardType `json:"type"`
-	Description  string    `json:"description,omitempty"`
-	HasKnowledge bool      `json:"has_knowledge"`
-}
-
-// ReviewerFeedbackProvider defines the interface for reviewer validation.
-type ReviewerFeedbackProvider interface {
-	NeedsValidation(reviewID string) bool
-	GetSuspectReasons(reviewID string) []string
-	AcceptFinding(reviewID, file string, line int)
-	RejectFinding(reviewID, file string, line int, reason string)
-	GetAccuracyReport(reviewID string) string
-}
+const (
+	PriorityLow      = types.PriorityLow
+	PriorityNormal   = types.PriorityNormal
+	PriorityHigh     = types.PriorityHigh
+	PriorityCritical = types.PriorityCritical
+)
