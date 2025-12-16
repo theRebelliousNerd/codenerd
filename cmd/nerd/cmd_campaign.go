@@ -5,7 +5,6 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
-	"codenerd/internal/core/kernel"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -136,7 +135,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	nerdDir := filepath.Join(cwd, ".nerd")
 
 	// Initialize components
-	kern, err := kernel.NewRealKernel()
+	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
@@ -486,7 +485,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		llmClient = perception.NewZAIClient(key)
 		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
 	}
-	kern, err := kernel.NewRealKernel()
+	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}

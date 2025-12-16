@@ -47,7 +47,6 @@ type ToolGeneratorResult struct {
 	Profile    *autopoiesis.ToolQualityProfile `json:"profile,omitempty"`
 	Tools      []*autopoiesis.RuntimeTool      `json:"tools,omitempty"`
 	Learnings  []*autopoiesis.ToolLearning     `json:"learnings,omitempty"`
-	Learnings  []*autopoiesis.ToolLearning     `json:"learnings,omitempty"`
 	Facts      []types.Fact                    `json:"facts,omitempty"`
 	Duration   time.Duration                   `json:"duration"`
 }
