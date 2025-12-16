@@ -281,7 +281,6 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	timer := logging.StartTimer(logging.CategoryCoder, "Execute")
 
 	logging.Coder("Starting task execution: %s", task)
-	fmt.Println("DEBUG: CoderShard.Execute STARTED")
 
 	c.mu.Lock()
 	c.state = types.ShardStateRunning
@@ -317,12 +316,8 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 	// Load coder-specific policy (only once to avoid duplicate Decl errors)
 	if !c.policyLoaded {
 		logging.CoderDebug("Loading coder.mg policy file")
-		fmt.Println("DEBUG: Loading coder.mg")
 		_ = c.kernel.LoadPolicyFile("coder.mg")
 		c.policyLoaded = true
-		fmt.Println("DEBUG: Loaded coder.mg")
-	} else {
-		fmt.Println("DEBUG: coder.mg already loaded")
 	}
 
 	// Parse the task
@@ -332,7 +327,6 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 
 	logging.Coder("Parsed task: action=%s, target=%s, instruction=%s",
 		parsedTask.Action, parsedTask.Target, parsedTask.Instruction)
-	fmt.Println("DEBUG: Parsed task")
 
 	// Check for safety blocks
 	if c.coderConfig.SafetyMode && c.coderConfig.ImpactCheck {
@@ -346,20 +340,15 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 		}
 		logging.CoderDebug("Impact check passed for target: %s", parsedTask.Target)
 	}
-	fmt.Println("DEBUG: Impact check passed")
 
 	// Assert task facts to kernel
 	logging.CoderDebug("Asserting task facts to kernel")
-	fmt.Println("DEBUG: Asserting task facts")
 	c.assertTaskFacts(parsedTask)
-	fmt.Println("DEBUG: Task facts asserted")
 
 	// Read file context
 	contextTimer := logging.StartTimer(logging.CategoryCoder, "ReadFileContext")
-	fmt.Println("DEBUG: Reading file context")
 	fileContext, err := c.readFileContext(ctx, parsedTask.Target)
 	contextTimer.Stop()
-	fmt.Println("DEBUG: File context read (len=", len(fileContext), ")")
 	if err != nil && parsedTask.Action != "create" {
 		logging.Get(logging.CategoryCoder).Error("Failed to read file context: %v", err)
 		return "", fmt.Errorf("failed to read file context: %w", err)
@@ -370,9 +359,7 @@ func (c *CoderShard) Execute(ctx context.Context, task string) (string, error) {
 
 	// Generate code via LLM
 	genTimer := logging.StartTimer(logging.CategoryCoder, "GenerateCode")
-	fmt.Println("DEBUG: Calling generateCode")
 	result, err := c.generateCode(ctx, parsedTask, fileContext)
-	fmt.Println("DEBUG: generateCode returned")
 	genTimer.StopWithInfo()
 	if err != nil {
 		logging.Get(logging.CategoryCoder).Error("Code generation failed: %v", err)

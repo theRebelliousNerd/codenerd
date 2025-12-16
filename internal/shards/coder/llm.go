@@ -34,7 +34,6 @@ func (c *CoderShard) llmCompleteWithRetry(ctx context.Context, systemPrompt, use
 			}
 		}
 
-		fmt.Println("DEBUG: llm.go Calling client.CompleteWithSystem")
 		response, err := c.llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err == nil {
 			return response, nil

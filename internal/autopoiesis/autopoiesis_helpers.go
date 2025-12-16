@@ -133,7 +133,7 @@ func extractJSON(text string) string {
 		start = strings.Index(text, "[")
 	}
 	if start == -1 {
-		return ""
+		return "{}" // Return empty object when no JSON found
 	}
 
 	// Find matching closing brace/bracket
@@ -186,4 +186,8 @@ var missingCapabilityPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)need a tool (for|to)`),
 	regexp.MustCompile(`(?i)create a tool (for|to)`),
 	regexp.MustCompile(`(?i)generate a tool (for|to)`),
+	// Question patterns suggesting capability gaps
+	regexp.MustCompile(`(?i)can'?t (you|we|i)\s+\w+`),   // "Can't you validate..."
+	regexp.MustCompile(`(?i)is there a way (to|for)`),   // "Is there a way to..."
+	regexp.MustCompile(`(?i)how do (i|we|you)\s+\w+`),   // "How do I validate..."
 }

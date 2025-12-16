@@ -109,7 +109,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	typeName = normalizeShardTypeName(typeName)
 	logging.Shards("SpawnAsyncWithContext: initiating %s shard", typeName)
 	logging.ShardsDebug("SpawnAsyncWithContext: task=%s, hasSessionContext=%v", task, sessionCtx != nil)
-	fmt.Println("DEBUG: SpawnAsyncWithContext STARTED")
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -161,7 +160,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// Uses Mangle predicates: tool_registered, tool_description, tool_binary_path,
 	// tool_capability, shard_capability_affinity, relevant_tool
 	if sm.kernel != nil {
-		fmt.Println("DEBUG: Querying relevant tools")
 		// Build tool relevance query with shard context
 		query := ToolRelevanceQuery{
 			ShardType:   typeName,
@@ -283,7 +281,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// The assertion happens BEFORE execution so context can be gathered during shard initialization
 	shardTypeAtom := "/" + typeName
 	if sm.kernel != nil {
-		fmt.Println("DEBUG: Asserting active_shard")
 		if err := sm.kernel.Assert(Fact{
 			Predicate: "active_shard",
 			Args:      []interface{}{id, shardTypeAtom},
@@ -312,7 +309,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// Wrap LLM client with APIScheduler for cooperative slot management
 		// This ensures shards release their API slot between LLM calls
 		scheduler := GetAPIScheduler()
-		fmt.Println("DEBUG: Registering with APIScheduler")
 		scheduler.RegisterShard(id, typeName)
 		scheduledClient := &ScheduledLLMCall{
 			Scheduler: scheduler,
@@ -358,7 +354,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	// 4. Execute Async
 	logging.Shards("SpawnAsyncWithContext: launching goroutine for shard %s execution", id)
-	fmt.Println("DEBUG: Launching Shard Goroutine")
 	go func() {
 		// Panic recovery - shard panics should not crash the system
 		defer func() {
