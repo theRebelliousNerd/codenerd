@@ -1,0 +1,182 @@
+package autopoiesis
+
+import (
+	"path/filepath"
+	"sync"
+	"time"
+
+	"codenerd/internal/articulation"
+	internalconfig "codenerd/internal/config"
+	"codenerd/internal/logging"
+)
+
+// =============================================================================
+// AUTOPOIESIS ORCHESTRATOR
+// =============================================================================
+// The main coordinator for all self-modification capabilities.
+
+// Orchestrator coordinates all autopoiesis capabilities
+type Orchestrator struct {
+	mu          sync.RWMutex
+	config      Config
+	complexity  *ComplexityAnalyzer
+	toolGen     *ToolGenerator
+	persistence *PersistenceAnalyzer
+	agentCreate *AgentCreator
+	ouroboros   *OuroborosLoop // The Ouroboros Loop for tool self-generation
+	client      LLMClient
+
+	// Kernel Integration - Bridge to Mangle Logic Core
+	kernel KernelInterface // The Mangle kernel for fact assertion/query
+
+	// Feedback and Learning System
+	evaluator *QualityEvaluator // Assess tool output quality
+	patterns  *PatternDetector  // Detect recurring issues
+	refiner   *ToolRefiner      // Improve suboptimal tools
+	learnings *LearningStore    // Persist learnings
+	profiles  *ProfileStore     // Tool-specific quality profiles
+
+	// Reasoning Trace and Logging System
+	traces      *TraceCollector // Capture reasoning during generation
+	logInjector *LogInjector    // Inject mandatory logging into tools
+
+	// JIT Prompt Compilation (Phase 5) - using concrete types now that cycle is broken
+	promptAssembler *articulation.PromptAssembler // JIT-aware prompt assembler
+
+	// Tool generation throttling (session-local)
+	toolsGenerated int
+	lastToolGen    time.Time
+}
+
+// DefaultConfig returns default configuration
+func DefaultConfig(workspaceRoot string) Config {
+	toolDefaults := internalconfig.DefaultToolGenerationConfig()
+
+	cfg := Config{
+		ToolsDir:      filepath.Join(workspaceRoot, ".nerd", "tools"),
+		AgentsDir:     filepath.Join(workspaceRoot, ".nerd", "agents"),
+		MinConfidence: 0.6,
+		MinToolConfidence: 0.75,
+		EnableToolGeneration: true,
+		MaxToolsPerSession:   3,
+		ToolGenerationCooldown: 0,
+		EnableLLM:     true,
+		TargetOS:      toolDefaults.TargetOS,
+		TargetArch:    toolDefaults.TargetArch,
+		WorkspaceRoot: workspaceRoot,
+		// Safety: Explicit gas limit for Ouroboros self-generated logic.
+		// Prevents infinite recursion in self-modifying autopoiesis loops.
+		// This bounds the number of learning_event facts the kernel will retain.
+		MaxLearningFacts: 1000,
+	}
+
+	if userCfg, err := internalconfig.LoadUserConfig(internalconfig.DefaultUserConfigPath()); err == nil && userCfg != nil {
+		tg := userCfg.GetToolGenerationConfig()
+		if tg.TargetOS != "" {
+			cfg.TargetOS = tg.TargetOS
+		}
+		if tg.TargetArch != "" {
+			cfg.TargetArch = tg.TargetArch
+		}
+	}
+
+	return cfg
+}
+
+// NewOrchestrator creates a new autopoiesis orchestrator
+func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
+	timer := logging.StartTimer(logging.CategoryAutopoiesis, "NewOrchestrator")
+	defer timer.Stop()
+
+	logging.Autopoiesis("Initializing Autopoiesis Orchestrator")
+	logging.AutopoiesisDebug("Config: ToolsDir=%s, AgentsDir=%s, MinConfidence=%.2f",
+		config.ToolsDir, config.AgentsDir, config.MinConfidence)
+	logging.AutopoiesisDebug("Target: OS=%s, Arch=%s", config.TargetOS, config.TargetArch)
+
+	// Create Ouroboros config from autopoiesis config
+	ouroborosConfig := OuroborosConfig{
+		ToolsDir:        config.ToolsDir,
+		CompiledDir:     filepath.Join(config.ToolsDir, ".compiled"),
+		MaxToolSize:     100 * 1024, // 100KB
+		CompileTimeout:  300 * time.Second,
+		ExecuteTimeout:  300 * time.Second,
+		AllowNetworking: false,
+		AllowFileSystem: true,
+		AllowExec:       true,
+		TargetOS:        config.TargetOS,
+		TargetArch:      config.TargetArch,
+		WorkspaceRoot:   config.WorkspaceRoot,
+		// Adversarial Co-Evolution (Thunderdome)
+		EnableThunderdome: true,
+		ThunderdomeConfig: DefaultThunderdomeConfig(),
+		MaxPanicRetries:   2,
+	}
+
+	logging.AutopoiesisDebug("Creating ToolGenerator")
+	toolGen := NewToolGenerator(client, config.ToolsDir)
+
+	// Note: JIT components will be attached later via SetJITComponents if available
+
+	learningsDir := filepath.Join(config.ToolsDir, ".learnings")
+	tracesDir := filepath.Join(config.ToolsDir, ".traces")
+	profilesDir := filepath.Join(config.ToolsDir, ".profiles")
+
+	logging.AutopoiesisDebug("Creating ProfileStore: %s", profilesDir)
+	profileStore := NewProfileStore(profilesDir)
+
+	logging.AutopoiesisDebug("Creating subsystems: ComplexityAnalyzer, PersistenceAnalyzer, AgentCreator")
+
+	orch := &Orchestrator{
+		config:      config,
+		complexity:  NewComplexityAnalyzer(client),
+		toolGen:     toolGen,
+		persistence: NewPersistenceAnalyzer(client),
+		agentCreate: NewAgentCreator(client, config.AgentsDir),
+		ouroboros:   NewOuroborosLoop(client, ouroborosConfig),
+		client:      client,
+
+		// Initialize feedback and learning system
+		evaluator: NewQualityEvaluator(client, profileStore),
+		patterns:  NewPatternDetector(),
+		refiner:   NewToolRefiner(client, toolGen),
+		learnings: NewLearningStore(learningsDir),
+		profiles:  profileStore,
+
+		// Initialize reasoning trace and logging system
+		traces:      NewTraceCollector(tracesDir, client),
+		logInjector: NewLogInjector(DefaultLoggingRequirements()),
+	}
+
+	// Wire Ouroboros callback to propagate tool registration facts to parent kernel
+	orch.ouroboros.SetOnToolRegistered(func(tool *RuntimeTool) {
+		logging.AutopoiesisDebug("Ouroboros callback: tool %s registered, asserting to kernel", tool.Name)
+		orch.assertToolRegistered(tool)
+	})
+
+	logging.Autopoiesis("Autopoiesis Orchestrator initialized successfully")
+	return orch
+}
+
+// SetPromptAssembler attaches the JIT-aware prompt assembler.
+// This enables context-aware prompt generation for tool generation stages.
+// Uses concrete type now that the import cycle is broken via internal/types.
+func (o *Orchestrator) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.promptAssembler = assembler
+
+	// Wire the assembler to ToolGenerator and ToolRefiner
+	if assembler != nil {
+		o.toolGen.SetPromptAssembler(assembler)
+		o.refiner.SetPromptAssembler(assembler)
+		logging.Autopoiesis("JIT prompt assembler attached to autopoiesis orchestrator and sub-components")
+	}
+}
+
+// GetOuroborosLoop returns the Ouroboros Loop for tool self-generation.
+// This implements core.ToolGenerator interface for routing coder shard self-tools.
+func (o *Orchestrator) GetOuroborosLoop() *OuroborosLoop {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.ouroboros
+}

@@ -300,8 +300,9 @@ var (
 // HELPER FUNCTIONS
 // =============================================================================
 
-// extractJSON extracts a JSON object from text
-func extractJSON(text string) string {
+// extractJSONFromTemplate extracts a JSON object from text
+// Note: Renamed to avoid duplicate with autopoiesis_helpers.go
+func extractJSONFromTemplate(text string) string {
 	// Find first { and last }
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
