@@ -2,11 +2,11 @@ package campaign
 
 import (
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,7 +22,7 @@ import (
 
 // ShardLister provides shard discovery for campaign planning.
 type ShardLister interface {
-	ListAvailableShards() []coreshards.ShardInfo
+	ListAvailableShards() []core.ShardInfo
 }
 
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
@@ -1503,7 +1503,7 @@ func cleanJSONResponse(resp string) string {
 }
 
 // formatShardList formats available shards for injection into the planner prompt.
-func formatShardList(shards []coreshards.ShardInfo) string {
+func formatShardList(shards []core.ShardInfo) string {
 	if len(shards) == 0 {
 		return ""
 	}
@@ -1512,19 +1512,19 @@ func formatShardList(shards []coreshards.ShardInfo) string {
 	sb.WriteString("AVAILABLE SHARDS (you can specify any of these for tasks):\n")
 
 	// Group by type for clarity
-	groups := make(map[core.ShardType][]core.ShardInfo)
+	groups := make(map[types.ShardType][]core.ShardInfo)
 	for _, s := range shards {
 		groups[s.Type] = append(groups[s.Type], s)
 	}
 
-	typeOrder := []core.ShardType{core.ShardTypeEphemeral, core.ShardTypePersistent, core.ShardTypeUser}
+	typeOrder := []types.ShardType{types.ShardTypeEphemeral, types.ShardTypePersistent, types.ShardTypeUser}
 	for _, shardType := range typeOrder {
 		if list, ok := groups[shardType]; ok && len(list) > 0 {
 			typeLabel := "Ephemeral"
 			switch shardType {
-			case core.ShardTypePersistent:
+			case types.ShardTypePersistent:
 				typeLabel = "Specialist"
-			case core.ShardTypeUser:
+			case types.ShardTypeUser:
 				typeLabel = "User-defined"
 			}
 			sb.WriteString(fmt.Sprintf("\n[%s shards]\n", typeLabel))

@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,10 +22,25 @@ func TestAdvancedReviewerCapabilities(t *testing.T) {
 		t.Fatalf("Failed to read reviewer.mg: %v", err)
 	}
 
-	// We also need schemas.mg to define the predicates used (git_history, etc.)
-	schemaBytes, err := os.ReadFile("../../core/defaults/schemas.mg")
+	// Load all modular schema files dynamically
+	// Note: schemas.mg is now an index file. We load all schemas_*.mg files.
+	schemaPattern := "../../core/defaults/schemas_*.mg"
+	schemaFiles, err := filepath.Glob(schemaPattern)
 	if err != nil {
-		t.Fatalf("Failed to read schemas.mg: %v", err)
+		t.Fatalf("Failed to glob schema files: %v", err)
+	}
+	if len(schemaFiles) == 0 {
+		t.Fatalf("No schema files found matching pattern: %s", schemaPattern)
+	}
+
+	var schemaBytes []byte
+	for _, sf := range schemaFiles {
+		data, err := os.ReadFile(sf)
+		if err != nil {
+			t.Fatalf("Failed to read %s: %v", sf, err)
+		}
+		schemaBytes = append(schemaBytes, data...)
+		schemaBytes = append(schemaBytes, '\n')
 	}
 
 	// 2. Define Mock Data
