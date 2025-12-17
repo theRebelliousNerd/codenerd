@@ -23,17 +23,8 @@ type ToolNeed struct {
 }
 
 // Tool need detection patterns
+// Note: missingCapabilityPatterns is defined in autopoiesis_helpers.go
 var (
-	// Patterns suggesting a missing capability
-	missingCapabilityPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)can('t| not|'t)\s+(you\s+)?(do|handle|process|parse|convert|validate|check|analyze)`),
-		regexp.MustCompile(`(?i)is\s+there\s+(a\s+)?(way|tool|method)\s+to\s+`),
-		regexp.MustCompile(`(?i)i\s+(need|want)\s+(a\s+)?(tool|way|method)\s+(to|for|that)`),
-		regexp.MustCompile(`(?i)how\s+(do|can)\s+(i|you)\s+(do|make|create|convert|validate|parse)`),
-		regexp.MustCompile(`(?i)(wish|wished)\s+(there\s+was|you\s+could|i\s+could)`),
-		regexp.MustCompile(`(?i)would\s+be\s+(nice|great|helpful)\s+(if|to\s+have)`),
-	}
-
 	// Patterns suggesting specific tool types
 	toolTypePatterns = map[string][]*regexp.Regexp{
 		"validator": {

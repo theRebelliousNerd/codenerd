@@ -1,0 +1,76 @@
+SCHEMAS.MG MODULARIZATION SUMMARY
+================================================================================
+Date: 2024-12-16
+Task: Modularize schemas.mg (3622 lines) into focused files under 1000 lines
+
+RESULTS:
+================================================================================
+
+Original File:
+  - schemas.mg.bak: 3622 lines, 156KB
+  - 823 predicate declarations (Decl statements)
+
+New Structure:
+  - schemas.mg: 146 lines (index/documentation)
+  - 18 modular files: 3744 total lines
+  - 823 predicate declarations (100% preserved)
+
+File Breakdown:
+--------------------------------------------------------------------------------
+File                      Lines  Sections   Domain
+--------------------------------------------------------------------------------
+schemas_intent.mg           26   1-2        Intent & Focus Resolution
+schemas_world.mg            45   3-5        File Topology, Symbol Graph
+schemas_execution.mg        42   9-10       TDD Loop & Action Execution
+schemas_browser.mg          49   8, 17      Browser Physics & Spatial
+schemas_project.mg          74   18-20      Project Profile & Preferences
+schemas_dreamer.mg         108   38, 48     Speculative Dreamer
+schemas_memory.mg          139   7          Memory Tiers & Knowledge
+schemas_knowledge.mg       142   24-26,44,52 Knowledge Atoms & LSP
+schemas_safety.mg          160   11,21-23   Constitution & Git Safety
+schemas_analysis.mg        205   12-16,37,39 Spreading Activation & Impact
+schemas_misc.mg            217   43,49-50   Northstar & Continuation
+schemas_codedom.mg         238   34         Code DOM & Interactive
+schemas_testing.mg         240   35-36,51   Verification & Pytest
+schemas_campaign.mg        295   27         Campaign Orchestration
+schemas_tools.mg           394   28-29,40   Ouroboros & Tool Learning
+schemas_prompts.mg         421   42,45      Dynamic Prompt & JIT
+schemas_reviewer.mg        426   41,47      Static Analysis & Data Flow
+schemas_shards.mg          523   6,30-33    Shard Delegation
+--------------------------------------------------------------------------------
+
+VALIDATION:
+================================================================================
+✓ All 823 predicate declarations preserved
+✓ No semantic changes (only file organization)
+✓ Largest file: 523 lines (well under 1000 line target)
+✓ Original file backed up as schemas.mg.bak
+✓ Build integration updated (kernel.go, kernel_init.go)
+
+CODE CHANGES:
+================================================================================
+Modified Files:
+  - internal/core/kernel.go: Updated schema loading to load all 18 modules
+  - internal/core/kernel_init.go: Updated initialization schema loading
+  - internal/core/defaults/schemas.mg: Now serves as index/documentation
+
+Created Files:
+  - 18 modular schema files (schemas_*.mg)
+  - SCHEMAS_MODULARIZATION.md: Full documentation
+  - MODULARIZATION_SUMMARY.txt: This summary
+
+BENEFITS:
+================================================================================
+✓ Improved maintainability (files under 600 lines)
+✓ Faster navigation (focused domains)
+✓ Selective loading support (subsystem-specific)
+✓ Better documentation (each module self-contained)
+✓ Reduced merge conflicts (smaller files)
+✓ Clear domain boundaries
+
+NEXT STEPS:
+================================================================================
+1. Test build: go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd
+2. Verify runtime: Check kernel debug logs for schema loading
+3. Monitor: No files should exceed 1000 lines going forward
+

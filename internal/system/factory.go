@@ -8,7 +8,6 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -39,7 +38,7 @@ import (
 type Cortex struct {
 	Kernel         core.Kernel
 	LLMClient      perception.LLMClient
-	ShardManager   *coreshards.ShardManager
+	ShardManager   *core.ShardManager
 	VirtualStore   *core.VirtualStore
 	Transducer     *perception.RealTransducer
 	Orchestrator   *autopoiesis.Orchestrator
@@ -206,7 +205,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	fileEditor.SetWorkingDir(workspace)
 	virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
-	shardManager := coreshards.NewShardManager()
+	shardManager := core.NewShardManager()
 	shardManager.SetParentKernel(kernel)
 	shardManager.SetLLMClient(rawLLMClient)
 
@@ -220,7 +219,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	})
 	shardManager.SetLimitsEnforcer(limitsEnforcer)
 
-	spawnQueue := coreshards.NewSpawnQueue(shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
+	spawnQueue := core.NewSpawnQueue(shardManager, limitsEnforcer, core.DefaultSpawnQueueConfig())
 	shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
@@ -376,7 +375,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		}
 
 		// Register agent profile with ShardManager as Type U (user-defined)
-		cfg := coreshards.DefaultSpecialistConfig(agent.ID, agent.DBPath)
+		cfg := core.DefaultSpecialistConfig(agent.ID, agent.DBPath)
 		cfg.Type = types.ShardTypeUser
 		shardManager.DefineProfile(agent.ID, cfg)
 	}

@@ -1,7 +1,7 @@
 package campaign
 
 import (
-	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/core"
 	"codenerd/internal/tactile"
 	"context"
 	"encoding/json"
@@ -16,12 +16,12 @@ import (
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
 	executor  *tactile.SafeExecutor
-	shardMgr  *coreshards.ShardManager
+	shardMgr  *core.ShardManager
 	workspace string
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
-func NewCheckpointRunner(executor *tactile.SafeExecutor, shardMgr *coreshards.ShardManager, workspace string) *CheckpointRunner {
+func NewCheckpointRunner(executor *tactile.SafeExecutor, shardMgr *core.ShardManager, workspace string) *CheckpointRunner {
 	return &CheckpointRunner{
 		executor:  executor,
 		shardMgr:  shardMgr,

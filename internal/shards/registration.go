@@ -5,7 +5,6 @@ package shards
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards/coder"
@@ -40,15 +39,15 @@ func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []
 	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
 }
 
-func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.Load(shardType)
 	if err != nil {
 		return nil, err
 	}
-	// Map store.Learning to core.ShardLearning
-	result := make([]core.ShardLearning, len(learnings))
+	// Map store.Learning to types.ShardLearning
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,
@@ -61,15 +60,15 @@ func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor flo
 	return a.store.DecayConfidence(shardType, decayFactor)
 }
 
-func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.LoadByPredicate(shardType, predicate)
 	if err != nil {
 		return nil, err
 	}
-	// Map store.Learning to core.ShardLearning
-	result := make([]core.ShardLearning, len(learnings))
+	// Map store.Learning to types.ShardLearning
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,
@@ -162,7 +161,7 @@ func (r *reviewerFeedbackAdapter) GetAccuracyReport(reviewID string) string {
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
-func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext) {
+func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 	// Ensure ShardManager has the VirtualStore for dynamic injection
 	if ctx.VirtualStore != nil {
 		sm.SetVirtualStore(ctx.VirtualStore)
@@ -416,7 +415,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 }
 
 // defineShardProfiles registers shard profiles with appropriate configurations.
-func defineShardProfiles(sm *coreshards.ShardManager) {
+func defineShardProfiles(sm *core.ShardManager) {
 	// Coder profile - code generation specialist
 	sm.DefineProfile("coder", types.ShardConfig{
 		Name: "coder",
@@ -536,12 +535,12 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 // RegisterSystemShardProfiles registers Type 1 system shard profiles.
 // This is exported for use by session initialization when factories are
 // registered manually with dependency injection.
-func RegisterSystemShardProfiles(sm *coreshards.ShardManager) {
+func RegisterSystemShardProfiles(sm *core.ShardManager) {
 	defineSystemShardProfiles(sm)
 }
 
 // defineSystemShardProfiles registers Type 1 system shard profiles.
-func defineSystemShardProfiles(sm *coreshards.ShardManager) {
+func defineSystemShardProfiles(sm *core.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
 	sm.DefineProfile("perception_firewall", types.ShardConfig{
 		Name: "perception_firewall",
