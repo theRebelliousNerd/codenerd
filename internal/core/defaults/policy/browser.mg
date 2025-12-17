@@ -41,7 +41,7 @@ safe_interactable(ID) :-
 
 # Target checkbox to the left of label text
 target_checkbox(CheckID, LabelText) :-
-    dom_node(CheckID, /input, _),
+    dom_node(CheckID, /input, _, _),
     attribute(CheckID, /type, /checkbox),
     dom_text(TextID, LabelText),
     left_of(CheckID, TextID).
