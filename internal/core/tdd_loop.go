@@ -726,12 +726,23 @@ func (t *TDDLoop) ToFacts() []Fact {
 }
 
 // BlockCommit returns true if there are blocking errors.
-// Implements Cortex 1.5.0 §2.2 "The Barrier":
-// block_commit :- diagnostic(_, _, _, _, Severity), Severity == 'Error'.
+// Implements Cortex 1.5.0 §2.2 "The Barrier".
+// Delegates decision to Mangle rule: block_commit().
 func (t *TDDLoop) BlockCommit() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	if t.kernel != nil {
+		// Ask the Oracle
+		// block_commit logic is now in tdd_logic.mg
+		// Note: diagnostics must be asserted by runTests/readErrorLog before calling this.
+		results, err := t.kernel.Query("block_commit")
+		if err == nil && len(results) > 0 {
+			return true
+		}
+	}
+
+	// Fallback if kernel not available or query fails
 	for _, diag := range t.diagnostics {
 		if diag.Severity == "error" {
 			return true
