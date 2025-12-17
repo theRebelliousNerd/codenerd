@@ -276,6 +276,7 @@ type StructuredIntent = types.StructuredIntent
 type ShardSummary = types.ShardSummary
 type SessionContext = types.SessionContext
 type ShardAgent = types.ShardAgent
+type SpawnPriority = types.SpawnPriority
 
 // Re-export constants from internal/types
 const (
@@ -301,4 +302,9 @@ const (
 	CapabilityHighReasoning = types.CapabilityHighReasoning
 	CapabilityBalanced      = types.CapabilityBalanced
 	CapabilityHighSpeed     = types.CapabilityHighSpeed
+
+	PriorityLow      = types.PriorityLow
+	PriorityNormal   = types.PriorityNormal
+	PriorityHigh     = types.PriorityHigh
+	PriorityCritical = types.PriorityCritical
 )
