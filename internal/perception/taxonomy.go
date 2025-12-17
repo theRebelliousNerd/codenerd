@@ -121,6 +121,11 @@ func (t *TaxonomyEngine) SetWorkspace(root string) {
 	t.tryLoadLearned()
 }
 
+// HasWorkspace returns true if an explicit workspace root has been set.
+func (t *TaxonomyEngine) HasWorkspace() bool {
+	return t.workspaceRoot != ""
+}
+
 // nerdPath returns the correct path for a .nerd subdirectory.
 // Uses workspaceRoot if set, otherwise returns relative path (legacy behavior).
 func (t *TaxonomyEngine) nerdPath(subpath string) string {
