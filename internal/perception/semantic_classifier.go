@@ -18,7 +18,6 @@ package perception
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"sync"
 
@@ -728,10 +727,13 @@ func NewLearnedCorpusStore(cfg *config.UserConfig, dimensions int, embedEngine e
 		return store, nil
 	}
 
-	dbPath := filepath.Join(".nerd", "learned_patterns.db")
-	if SharedTaxonomy != nil {
-		dbPath = SharedTaxonomy.nerdPath("learned_patterns.db")
+	// Only create DB if we have a proper workspace root to avoid creating .nerd in wrong directories
+	if SharedTaxonomy == nil || !SharedTaxonomy.HasWorkspace() {
+		logging.PerceptionDebug("Learned corpus store initialized in-memory (no workspace root)")
+		return store, nil
 	}
+
+	dbPath := SharedTaxonomy.nerdPath("learned_patterns.db")
 	backend, err := storepkg.NewLearnedCorpusStore(dbPath, embedEngine)
 	if err != nil {
 		return nil, err
