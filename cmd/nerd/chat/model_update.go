@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -494,10 +495,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case traceUpdateMsg:
+		m.isLoading = false
+
 		if m.logicPane != nil {
 			m.logicPane.SetTraceMangle(msg.Trace)
-			// Auto-open logic pane relative to user preference?
-			// For now, keep it manual via Alt+L, but update content.
+		}
+
+		// If ShowInChat is true (from /why command), show explanation in chat
+		if msg.ShowInChat {
+			explainer := transparency.NewExplainer()
+			explanation := explainer.ExplainTrace(msg.Trace)
+
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: explanation,
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
 		}
 		return m, nil
 

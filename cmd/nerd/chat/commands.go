@@ -1273,18 +1273,18 @@ You have an existing Northstar definition. What would you like to do?
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: "Usage: `/why <fact>` - Explains why a fact was derived",
+				Content: "Usage: `/why <fact>` - Explains why a fact was derived\n\nExamples:\n- `/why next_action` - Explain why an action was chosen\n- `/why permitted` - Explain what's permitted\n- `/why user_intent` - Show how input was interpreted",
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			return m, nil
-		} else {
-			fact := strings.Join(parts[1:], " ")
-			// Use fetchTrace to populate the logic pane
-			return m, m.fetchTrace(fact)
 		}
+		fact := strings.Join(parts[1:], " ")
+		m.isLoading = true
+		m.statusMessage = "Tracing derivation..."
+		return m, tea.Batch(m.spinner.Tick, m.fetchTraceForWhy(fact))
 
 	case "/logic":
 		// Show current logic pane content

@@ -135,6 +135,17 @@ func (m Model) Init() tea.Cmd {
 // fetchTrace queries the kernel for a Mangle derivation trace and returns a command
 // that sends it to the logic pane.
 func (m Model) fetchTrace(query string) tea.Cmd {
+	return m.fetchTraceWithOptions(query, false)
+}
+
+// fetchTraceForWhy queries the kernel and returns results for display in chat.
+// Used by the /why command to show explanations directly to the user.
+func (m Model) fetchTraceForWhy(query string) tea.Cmd {
+	return m.fetchTraceWithOptions(query, true)
+}
+
+// fetchTraceWithOptions is the internal implementation for trace fetching.
+func (m Model) fetchTraceWithOptions(query string, showInChat bool) tea.Cmd {
 	return func() tea.Msg {
 		if m.kernel == nil {
 			return nil
@@ -162,7 +173,7 @@ func (m Model) fetchTrace(query string) tea.Cmd {
 			cancel()
 
 			if err == nil && trace != nil && len(trace.RootNodes) > 0 {
-				return traceUpdateMsg{Trace: trace}
+				return traceUpdateMsg{Trace: trace, ShowInChat: showInChat, QuerySource: query}
 			}
 		}
 
@@ -174,7 +185,7 @@ func (m Model) fetchTrace(query string) tea.Cmd {
 			return nil
 		}
 
-		return traceUpdateMsg{Trace: trace}
+		return traceUpdateMsg{Trace: trace, ShowInChat: showInChat, QuerySource: query}
 	}
 }
 
