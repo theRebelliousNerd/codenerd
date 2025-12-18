@@ -1,0 +1,34 @@
+# System Autopoiesis Logic
+# Section 21 of Cortex Executive Policy
+
+# Autopoiesis Integration for System Shards
+
+# Unhandled case tracking (for rule learning)
+unhandled_case_count(ShardName, Count) :-
+    system_shard(ShardName, _),
+    unhandled_case_count_computed(ShardName, Count).
+
+# Trigger LLM for rule proposal when threshold reached
+propose_new_rule(ShardName) :-
+    unhandled_case_count(ShardName, Count),
+    Count >= 3.
+
+# Proposed rule needs human approval if low confidence (confidence on 0-100 scale)
+rule_needs_approval(RuleID) :-
+    proposed_rule(RuleID, _, _, Confidence),
+    Confidence < 80.
+
+# Auto-apply rule if high confidence (confidence on 0-100 scale)
+auto_apply_rule(RuleID) :-
+    proposed_rule(RuleID, _, _, Confidence),
+    Confidence >= 80,
+    !rule_applied(RuleID).
+
+# Helper for safe negation
+rule_applied(RuleID) :-
+    applied_rule(RuleID, _).
+
+# Learn from successful rule applications
+learning_signal(/rule_success, RuleID) :-
+    applied_rule(RuleID, Timestamp),
+    rule_outcome(RuleID, /success, _).
