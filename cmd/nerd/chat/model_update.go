@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/ux"
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -967,6 +968,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.isBooting = false
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m.textarea.Focus()
+
+			// Check for first-run onboarding after boot completes
+			return m, checkFirstRun(m.workspace)
 		}
 
 	case reembedCompleteMsg:
@@ -1080,6 +1084,35 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
 		return m, m.runScan(false)
+
+	case onboardingCheckMsg:
+		// Handle first-run detection result
+		if msg.IsFirstRun {
+			// Start onboarding wizard for new users
+			return m.startOnboarding()
+		}
+		// Existing user - run migration silently
+		_, _ = ux.MigratePreferences(msg.Workspace)
+		return m, nil
+
+	case onboardingCompleteMsg:
+		// Onboarding finished - record in preferences
+		if !msg.Skipped && msg.ExperienceLevel != "" {
+			// Update guidance level based on experience
+			if m.Config != nil && m.Config.Guidance != nil {
+				switch msg.ExperienceLevel {
+				case "beginner":
+					m.Config.Guidance.Level = config.GuidanceVerbose
+				case "intermediate":
+					m.Config.Guidance.Level = config.GuidanceNormal
+				case "advanced", "expert":
+					m.Config.Guidance.Level = config.GuidanceMinimal
+				}
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)

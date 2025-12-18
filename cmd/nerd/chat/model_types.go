@@ -70,6 +70,7 @@ const (
 	InputModeAgentWizard                     // Agent definition wizard active
 	InputModeConfigWizard                    // Config wizard active
 	InputModeCampaignLaunch                  // Campaign launch clarification
+	InputModeOnboarding                      // Onboarding wizard active (first-run experience)
 )
 
 // BootStage represents the startup phase for the interactive UI.
@@ -258,6 +259,10 @@ type Model struct {
 	awaitingNorthstar bool
 	northstarWizard   *NorthstarWizardState
 
+	// Onboarding Wizard State (first-run experience)
+	awaitingOnboarding bool
+	onboardingWizard   *OnboardingWizardState
+
 	// CLI Config
 	CLIConfig Config
 
@@ -380,6 +385,26 @@ type SystemComponents struct {
 	MangleWatcher         *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
 }
 
+// OnboardingWizardStep represents the current phase of the onboarding wizard.
+type OnboardingWizardStep int
+
+const (
+	OnboardingStepWelcome OnboardingWizardStep = iota // Show welcome message
+	OnboardingStepExperience                          // Ask about experience level
+	OnboardingStepAPICheck                            // Check/configure API
+	OnboardingStepWow                                 // Demonstrate unique capabilities
+	OnboardingStepComplete                            // Finish onboarding
+)
+
+// OnboardingWizardState tracks the state of the onboarding wizard.
+type OnboardingWizardState struct {
+	Step            OnboardingWizardStep
+	ExperienceLevel string // beginner, intermediate, advanced, expert
+	APIConfigured   bool
+	ShowedWow       bool
+	SkipRequested   bool
+}
+
 // Messages for tea updates
 type (
 	responseMsg        string
@@ -479,5 +504,17 @@ type (
 	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
 	traceUpdateMsg struct {
 		Trace *mangle.DerivationTrace
+	}
+
+	// onboardingCompleteMsg signals the onboarding wizard has finished
+	onboardingCompleteMsg struct {
+		ExperienceLevel string
+		Skipped         bool
+	}
+
+	// onboardingCheckMsg triggers first-run detection after boot
+	onboardingCheckMsg struct {
+		IsFirstRun bool
+		Workspace  string
 	}
 )

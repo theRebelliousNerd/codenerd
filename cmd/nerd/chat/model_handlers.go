@@ -99,6 +99,11 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.handleNorthstarWizardInput(input)
 	}
 
+	// Onboarding wizard mode (first-run experience)
+	if m.awaitingOnboarding {
+		return m.handleOnboardingInput(input)
+	}
+
 	m.isLoading = true
 
 	// Check for negative feedback auto-trigger
