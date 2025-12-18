@@ -1176,6 +1176,97 @@ func (m Model) renderInitComplete(result *nerdinit.InitResult) string {
 	return sb.String()
 }
 
+// renderWorkspaceSummary generates a friendly, experience-level-appropriate summary.
+// This is shown after scan completes to give users immediate context about their project.
+func (m Model) renderWorkspaceSummary(fileCount, dirCount, factCount int, experienceLevel string) string {
+	var sb strings.Builder
+
+	// Get project context from kernel facts
+	var projectName, mainLang, framework string
+	if m.kernel != nil {
+		// Try to get project profile facts
+		if facts, _ := m.kernel.Query("project_profile"); len(facts) > 0 {
+			if len(facts[0].Args) > 0 {
+				projectName, _ = facts[0].Args[0].(string)
+			}
+			if len(facts[0].Args) > 1 {
+				if atom, ok := facts[0].Args[1].(core.MangleAtom); ok {
+					mainLang = strings.TrimPrefix(string(atom), "/")
+				}
+			}
+			if len(facts[0].Args) > 2 {
+				if atom, ok := facts[0].Args[2].(core.MangleAtom); ok {
+					framework = strings.TrimPrefix(string(atom), "/")
+				}
+			}
+		}
+	}
+
+	// Friendly header based on experience level
+	switch experienceLevel {
+	case "beginner":
+		sb.WriteString("## Your Workspace is Ready!\n\n")
+		sb.WriteString("I've analyzed your codebase and I'm ready to help.\n\n")
+	case "expert":
+		sb.WriteString("## Scan Complete\n\n")
+	default:
+		sb.WriteString("## Workspace Indexed\n\n")
+	}
+
+	// Show project info if detected
+	if projectName != "" || mainLang != "" {
+		sb.WriteString("**Project**: ")
+		if projectName != "" {
+			sb.WriteString(projectName)
+		} else {
+			sb.WriteString("(unnamed)")
+		}
+		if mainLang != "" {
+			sb.WriteString(fmt.Sprintf(" • %s", mainLang))
+		}
+		if framework != "" {
+			sb.WriteString(fmt.Sprintf(" • %s", framework))
+		}
+		sb.WriteString("\n\n")
+	}
+
+	// Show stats
+	sb.WriteString(fmt.Sprintf("| Metric | Count |\n|--------|-------|\n"))
+	sb.WriteString(fmt.Sprintf("| Files | %d |\n", fileCount))
+	sb.WriteString(fmt.Sprintf("| Directories | %d |\n", dirCount))
+	sb.WriteString(fmt.Sprintf("| Facts | %d |\n\n", factCount))
+
+	// Experience-level specific tips
+	switch experienceLevel {
+	case "beginner":
+		sb.WriteString("### Quick Start\n\n")
+		sb.WriteString("Here are some things you can try:\n\n")
+		sb.WriteString("- **Ask questions**: Just type naturally, like \"What does the main function do?\"\n")
+		sb.WriteString("- **Get a code review**: Type `/review`\n")
+		sb.WriteString("- **Run tests**: Type `/test`\n")
+		sb.WriteString("- **Get help**: Type `/help` anytime\n")
+	case "intermediate":
+		sb.WriteString("### Suggested Commands\n\n")
+		sb.WriteString("| Command | Description |\n|---------|-------------|\n")
+		sb.WriteString("| `/review` | Code review + security scan |\n")
+		sb.WriteString("| `/test` | Run and analyze tests |\n")
+		sb.WriteString("| `/research <topic>` | Deep-dive into a topic |\n")
+		sb.WriteString("| `/query <predicate>` | Query Mangle facts |\n")
+	case "advanced", "expert":
+		sb.WriteString("### Available Queries\n\n")
+		sb.WriteString("```\n")
+		sb.WriteString("/query file_topology      # All files\n")
+		sb.WriteString("/query symbol_graph       # Functions/classes\n")
+		sb.WriteString("/query dependency_link    # Dependencies\n")
+		sb.WriteString("/why next_action          # Derivation trace\n")
+		sb.WriteString("```\n")
+	default:
+		sb.WriteString("Type `/help` for available commands.\n")
+	}
+
+	return sb.String()
+}
+
 // getDefinedProfiles returns user-defined agent profiles
 func (m Model) getDefinedProfiles() map[string]core.ShardConfig {
 	profiles := make(map[string]core.ShardConfig)
