@@ -222,11 +222,14 @@ The `nerd.exe` binary is fully portable. You can:
 
 ### Chat Mode Commands
 
-Type `/help` in chat mode for full command list:
+Type `/help` in chat mode for full command list. Help is **progressive** — it shows commands appropriate for your experience level.
 
 | Command | Description |
 |---------|-------------|
+| `/help [all\|basic\|advanced\|expert]` | Progressive help by experience level |
 | `/query <pred>` | Query the Mangle kernel |
+| `/why <fact>` | **Enhanced** — Explain derivation with proof trees |
+| `/transparency [on\|off]` | Toggle visibility into codeNERD operations |
 | `/shadow` | Enter shadow mode (simulated execution) |
 | `/whatif <action>` | Project effects without executing |
 | `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Start/manage campaigns (including adversarial assault sweeps) |
@@ -272,6 +275,44 @@ ShardAgents are ephemeral sub-kernels for parallel task execution:
 ---
 
 ## Advanced Features
+
+### User Experience & Transparency
+
+codeNERD includes a comprehensive UX system that adapts to your experience level:
+
+#### Progressive Disclosure
+
+- **Beginner**: Core commands only with explanations
+- **Intermediate**: Basic + advanced shortcuts
+- **Advanced**: Full command set + keyboard shortcuts
+- **Expert**: All commands + internals access
+
+#### Transparency Mode (`/transparency on`)
+
+- See shard execution phases (Initializing → Analyzing → Generating → Complete)
+- View safety gate explanations when actions are blocked
+- Get verbose error context with remediation suggestions
+
+#### Enhanced `/why` Command
+
+```
+/why next_action
+
+## Explanation
+
+**Query**: `next_action`
+
+- `next_action(/spawn_coder)`
+  *derived via action selection strategy*
+  **Because:**
+  - `user_intent("id_123", /mutation, /fix, "auth.go", /none)` **(base fact)**
+```
+
+#### First-Run Onboarding
+
+- Automatic detection of new users
+- Interactive wizard for API setup and experience level
+- "Wow moment" demo of unique capabilities
 
 ### Adversarial Co-Evolution (Nemesis)
 
@@ -399,7 +440,9 @@ codenerd/
 │   ├── campaign/          # Multi-phase goal orchestration
 │   ├── browser/           # Rod-based browser automation
 │   ├── world/             # Filesystem and AST projection
-│   └── tactile/           # Tool execution layer
+│   ├── tactile/           # Tool execution layer
+│   ├── ux/                # User experience & journey tracking
+│   └── transparency/      # Operation visibility & explanations
 └── .nerd/                 # Workspace state (created by init)
 ```
 
