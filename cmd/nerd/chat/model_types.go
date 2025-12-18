@@ -507,7 +507,9 @@ type (
 
 	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
 	traceUpdateMsg struct {
-		Trace *mangle.DerivationTrace
+		Trace       *mangle.DerivationTrace
+		ShowInChat  bool   // If true, also show explanation in chat history
+		QuerySource string // Original query for context
 	}
 
 	// onboardingCompleteMsg signals the onboarding wizard has finished
