@@ -143,6 +143,19 @@ type UserConfig struct {
 
 	// JIT Prompt Compiler configuration
 	JIT *JITConfig `json:"jit,omitempty"`
+
+	// =========================================================================
+	// USER EXPERIENCE
+	// =========================================================================
+
+	// Onboarding state tracking for progressive disclosure
+	Onboarding *OnboardingState `json:"onboarding,omitempty"`
+
+	// Transparency configuration for operation visibility
+	Transparency *TransparencyConfig `json:"transparency,omitempty"`
+
+	// Guidance configuration for contextual help
+	Guidance *GuidanceConfig `json:"guidance,omitempty"`
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
@@ -689,4 +702,52 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		return cfg
 	}
 	return DefaultJITConfig()
+}
+
+// GetOnboardingState returns the onboarding state with defaults applied.
+func (c *UserConfig) GetOnboardingState() *OnboardingState {
+	if c.Onboarding != nil {
+		return c.Onboarding
+	}
+	return DefaultOnboardingState()
+}
+
+// GetTransparencyConfig returns the transparency config with defaults applied.
+func (c *UserConfig) GetTransparencyConfig() *TransparencyConfig {
+	if c.Transparency != nil {
+		return c.Transparency
+	}
+	return DefaultTransparencyConfig()
+}
+
+// GetGuidanceConfig returns the guidance config with defaults applied.
+func (c *UserConfig) GetGuidanceConfig() *GuidanceConfig {
+	if c.Guidance != nil {
+		return c.Guidance
+	}
+	return DefaultGuidanceConfig()
+}
+
+// IsOnboardingComplete returns true if the user has completed onboarding.
+func (c *UserConfig) IsOnboardingComplete() bool {
+	if c.Onboarding == nil {
+		return false
+	}
+	return c.Onboarding.SetupComplete
+}
+
+// GetExperienceLevel returns the user's experience level.
+func (c *UserConfig) GetExperienceLevel() ExperienceLevel {
+	if c.Onboarding != nil && c.Onboarding.ExperienceLevel != "" {
+		return c.Onboarding.ExperienceLevel
+	}
+	return ExperienceBeginner
+}
+
+// ShouldShowTransparency returns true if any transparency feature is enabled.
+func (c *UserConfig) ShouldShowTransparency() bool {
+	if c.Transparency == nil {
+		return false
+	}
+	return c.Transparency.Enabled
 }
