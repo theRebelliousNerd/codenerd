@@ -338,6 +338,13 @@ var CommandRegistry = []CommandInfo{
 		Category:    CategorySystem,
 		ShowInHelp:  true,
 	},
+	{
+		Name:        "/transparency",
+		Description: "Toggle transparency mode",
+		Usage:       "/transparency [on|off]",
+		Category:    CategoryAdvanced,
+		ShowInHelp:  true,
+	},
 }
 
 // GetCommandsByCategory returns commands filtered by category.
