@@ -19,7 +19,9 @@ internal/
 ├── config/         # Configuration management
 ├── init/           # Workspace initialization
 ├── tactile/        # Tool execution layer
-└── autopoiesis/    # Self-learning subsystem
+├── autopoiesis/    # Self-learning subsystem
+├── ux/             # User experience & journey tracking
+└── transparency/   # Operation visibility & explanations
 ```
 
 ## Data Flow
@@ -198,6 +200,31 @@ type Transducer interface {
 }
 ```
 
+### ux/
+
+User experience and journey tracking for adaptive interfaces.
+
+| File | Purpose |
+|------|---------|
+| `manager.go` | Central UX coordinator |
+| `user_state.go` | Journey state definitions (New → Learning → Productive → Power) |
+| `journey_tracker.go` | State machine for user progression |
+| `preferences.go` | Extended preferences with journey tracking |
+| `help_triggers.go` | Contextual help detection |
+| `onboarding.go` | First-run onboarding flow |
+
+### transparency/
+
+Operation visibility and explanation system.
+
+| File | Purpose |
+|------|---------|
+| `transparency.go` | Main TransparencyManager coordinator |
+| `shard_observer.go` | Tracks shard execution phases |
+| `safety_reporter.go` | Reports and explains safety gate blocks |
+| `explainer.go` | Builds human-readable explanations from proof trees |
+| `error_classifier.go` | Categorizes errors with remediation suggestions |
+
 ## Design Principles
 
 1. **Logic First** - All decisions derive from Mangle rules
@@ -205,3 +232,5 @@ type Transducer interface {
 3. **Shard Isolation** - Each shard has its own kernel instance
 4. **Constitutional Safety** - Every action requires `permitted(Action)`
 5. **Glass Box** - All derivations are traceable via `nerd why`
+6. **Progressive Disclosure** - UX adapts to user experience level
+7. **Transparency on Demand** - Operations can be made visible via `/transparency`
