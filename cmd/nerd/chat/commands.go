@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/config"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
+	"codenerd/internal/transparency"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -1306,6 +1307,53 @@ You have an existing Northstar definition. What would you like to do?
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: sb.String(),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/transparency":
+		// Toggle or set transparency mode
+		var status string
+		if m.transparencyMgr == nil {
+			// Initialize on first use if not set up
+			m.transparencyMgr = transparency.NewTransparencyManager(m.Config.Transparency)
+		}
+
+		if len(parts) > 1 {
+			switch parts[1] {
+			case "on":
+				m.transparencyMgr.Enable()
+				status = "Transparency mode **enabled**. You'll now see:\n" +
+					"- Shard execution phases\n" +
+					"- Safety gate explanations\n" +
+					"- Verbose error context"
+			case "off":
+				m.transparencyMgr.Disable()
+				status = "Transparency mode **disabled**."
+			default:
+				status = "Usage: `/transparency [on|off]`\n\nToggles visibility into codeNERD's internal operations."
+			}
+		} else {
+			// Toggle
+			newState := m.transparencyMgr.Toggle()
+			if newState {
+				status = "Transparency mode **enabled**."
+			} else {
+				status = "Transparency mode **disabled**."
+			}
+		}
+
+		// Also show current status if enabled
+		if m.transparencyMgr.IsEnabled() {
+			status += "\n\n" + m.transparencyMgr.GetStatus()
+		}
+
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: status,
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())

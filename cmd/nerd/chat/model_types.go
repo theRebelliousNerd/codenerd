@@ -19,6 +19,7 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
@@ -244,6 +245,9 @@ type Model struct {
 
 	// Mangle File Watcher - monitors .nerd/mangle/*.mg for changes and triggers validation/repair
 	mangleWatcher *core.MangleWatcher
+
+	// Transparency Layer (Phase 4 UX) - Makes operations visible to users
+	transparencyMgr *transparency.TransparencyManager
 
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
