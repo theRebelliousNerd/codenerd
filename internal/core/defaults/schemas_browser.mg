@@ -1,5 +1,6 @@
 # Browser DOM Schemas
 # codeNERD Browser Semantic Layer
+# Fixed Syntax by Logos 🏛️
 
 # DOM Elements
 Decl element(ID, Tag, Parent).
@@ -39,7 +40,7 @@ Decl dom_layout(ID, X, Y, Width, Height, Visible).
 # React Fiber
 Decl react_component(FiberID, Name, Parent).
 Decl react_prop(FiberID, Key, Value).
-Decl react_state(FiberID, Index, Value).
+Decl react_state(FiberID, HookIndex, Value).
 Decl dom_mapping(FiberID, DomID).
 
 # Network
@@ -57,5 +58,5 @@ Decl input_event(ElemID, Value, Timestamp).
 Decl state_change(Name, Value, Timestamp).
 
 # Interactive elements
-Decl interactable(ID, Type).
+Decl interactable(ID, ElemType).
 Decl geometry(ID, X, Y, Width, Height).
