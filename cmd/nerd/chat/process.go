@@ -464,6 +464,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			if _, err := m.virtualStore.HydrateLearnings(ctx); err != nil {
 				warnings = append(warnings, fmt.Sprintf("Hydrate learnings warning: %v", err))
 			}
+			if _, err := m.virtualStore.HydrateSessionContext(ctx, m.sessionID, input, m.collectTraceShardTypes()); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Hydrate session context warning: %v", err))
+			}
 		}
 
 		// 4. DECISION & ACTION (Kernel -> Executor)
@@ -476,10 +479,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		var mangleUpdates []string
 
 		for _, action := range actions {
-			mangleUpdates = append(mangleUpdates, action.Predicate)
+			actionName := nextActionName(action)
+			if actionName != "" {
+				mangleUpdates = append(mangleUpdates, actionName)
+			}
+			actionKey := normalizeActionType(actionName)
 
 			// Handle File System Reads
-			if action.Predicate == "/fs_read" {
+			if actionKey == "fs_read" {
 				target := intent.Target // Simple mapping for now
 				if target != "" && target != "none" {
 					content, err := readFileContent(m.workspace, target, 8000)
@@ -499,7 +506,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// Handle Search
-			if action.Predicate == "/search_files" {
+			if actionKey == "search_files" {
 				matches, err := searchInFiles(m.workspace, intent.Target, 10)
 				if err == nil {
 					resFact := core.Fact{
@@ -512,7 +519,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// Autopoiesis: Tool Generation (§8.3)
-			if action.Predicate == "/generate_tool" && m.autopoiesis != nil {
+			if actionKey == "generate_tool" && m.autopoiesis != nil {
 				// Detect tool need from the input
 				toolNeed, detectErr := m.autopoiesis.DetectToolNeed(ctx, input)
 				if detectErr == nil && toolNeed != nil {
@@ -1608,6 +1615,14 @@ func (m Model) buildShardInterpretationPrompt(ctx context.Context, input, shardT
 	userPrompt := fmt.Sprintf(`USER REQUEST (ANSWER THIS):
 %s
 
+You are translating shard output into a clear, user-facing answer.
+Requirements:
+- Start with a direct answer in 1-3 sentences.
+- If the request asks for the biggest/main issue, identify the single highest-impact issue (or say none found).
+- Summarize key evidence from the output without dumping raw logs.
+- Provide 3-7 concrete next steps or checks.
+- Call out uncertainty if the output is incomplete.
+
 SHARD TYPE: %s
 TASK: %s
 OUTPUT:
@@ -1634,18 +1649,33 @@ OUTPUT:
 	return stevenMoorePersona, fallbackPrompt
 }
 
-func (m Model) formatInterpretedResult(ctx context.Context, input, shardType, task, result, warning string) string {
+func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task, result string) (string, error) {
+	if m.client == nil {
+		return "", fmt.Errorf("LLM client not initialized")
+	}
+
 	systemPrompt, userPrompt := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
 	interpResp, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
 
-	interpretation := interpResp
+	processor := articulation.NewResponseProcessor()
+	if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
+		return processed.Surface, nil
+	}
+
+	trimmed := strings.TrimSpace(interpResp)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty interpretation response")
+	}
+	return trimmed, nil
+}
+
+func (m Model) formatInterpretedResult(ctx context.Context, input, shardType, task, result, warning string) string {
+	interpretation, err := m.interpretShardOutput(ctx, input, shardType, task, result)
 	if err != nil {
 		interpretation = fmt.Sprintf("Unable to interpret shard output automatically (%v). Raw output below.", err)
-	} else {
-		processor := articulation.NewResponseProcessor()
-		if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
-			interpretation = processed.Surface
-		}
 	}
 
 	warning = strings.TrimSpace(warning)
@@ -1698,6 +1728,19 @@ func parseBool(value interface{}) bool {
 	}
 }
 
+func nextActionName(action core.Fact) string {
+	if len(action.Args) > 0 {
+		value := strings.TrimSpace(fmt.Sprintf("%v", action.Args[0]))
+		if value != "" {
+			if !strings.HasPrefix(value, "/") {
+				value = "/" + value
+			}
+			return value
+		}
+	}
+	return strings.TrimSpace(action.Predicate)
+}
+
 func normalizeActionType(actionType string) string {
 	actionType = strings.TrimSpace(strings.TrimPrefix(actionType, "/"))
 	if actionType == "" {
@@ -1740,6 +1783,34 @@ func normalizeShardType(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "/")
 	return strings.ToLower(raw)
+}
+
+func (m Model) collectTraceShardTypes() []string {
+	candidates := []string{"coder", "tester", "reviewer", "researcher", "planner", "security"}
+	if m.lastShardResult != nil && m.lastShardResult.ShardType != "" {
+		candidates = append(candidates, m.lastShardResult.ShardType)
+	}
+	for _, sr := range m.shardResultHistory {
+		if sr != nil && sr.ShardType != "" {
+			candidates = append(candidates, sr.ShardType)
+		}
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, shard := range candidates {
+		normalized := normalizeShardType(shard)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+
+	return unique
 }
 
 func resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent perception.Intent, workspace string, priorResult *ShardResult) string {

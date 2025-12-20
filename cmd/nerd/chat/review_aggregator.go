@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type AggregatedReview struct {
 	IsComplete       bool
 	IncompleteReason []string
 	Summary          string
+	Narrative        string
 	FindingsByShard  map[string][]reviewer.ParsedFinding
 	DeduplicatedList []reviewer.ParsedFinding
 	HolisticInsights []string
@@ -225,6 +227,13 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 			}
 		}
 
+		// 7.5 Generate a natural-language narrative summary for the user
+		if m.client != nil {
+			narrativeCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+			agg.Narrative = m.generateReviewNarrative(narrativeCtx, &agg)
+			cancel()
+		}
+
 		// 8. Persist to knowledge DB
 		if m.localDB == nil {
 			logging.Shards("Skipping persistence: localDB is nil")
@@ -300,6 +309,120 @@ func (m Model) aggregateReviewResults(results []ShardReviewResult, target string
 	agg.HolisticInsights = extractCrossShardInsights(agg.FindingsByShard)
 
 	return agg
+}
+
+func (m Model) generateReviewNarrative(ctx context.Context, agg *AggregatedReview) string {
+	if agg == nil || m.client == nil {
+		return ""
+	}
+
+	promptInput := fmt.Sprintf(
+		"Summarize the multi-shard code review of %s. Identify the biggest flaw if any. Provide next steps.",
+		agg.Target,
+	)
+	reviewContext := formatReviewNarrativeContext(agg)
+
+	narrative, err := m.interpretShardOutput(ctx, promptInput, "reviewer", "multi-shard review", reviewContext)
+	if err != nil {
+		logging.Shards("Narrative summary failed: %v", err)
+		return ""
+	}
+	return narrative
+}
+
+func formatReviewNarrativeContext(agg *AggregatedReview) string {
+	if agg == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Target: %s\n", agg.Target))
+	if len(agg.Participants) > 0 {
+		sb.WriteString(fmt.Sprintf("Participants: %s\n", strings.Join(agg.Participants, ", ")))
+	}
+	sb.WriteString(fmt.Sprintf("Files Reviewed: %d\n", len(agg.Files)))
+	sb.WriteString(fmt.Sprintf("Total Findings: %d\n", agg.TotalFindings))
+	sb.WriteString(fmt.Sprintf("Duration: %s\n", agg.Duration.Round(time.Second)))
+
+	if len(agg.IncompleteReason) > 0 {
+		sb.WriteString("Incomplete Reasons:\n")
+		for _, reason := range agg.IncompleteReason {
+			sb.WriteString(fmt.Sprintf("- %s\n", reason))
+		}
+	}
+
+	if summary := strings.TrimSpace(agg.Summary); summary != "" {
+		sb.WriteString("\nSummary:\n")
+		sb.WriteString(summary)
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("\nTop Findings (deduplicated):\n")
+	sb.WriteString(formatNarrativeFindings(agg.DeduplicatedList, 12))
+
+	if enhancement := strings.TrimSpace(agg.EnhancementSection); enhancement != "" {
+		sb.WriteString("\nEnhancement Suggestions (excerpt):\n")
+		sb.WriteString(trimPromptSection(enhancement, 800))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+func formatNarrativeFindings(findings []reviewer.ParsedFinding, limit int) string {
+	if len(findings) == 0 {
+		return "None\n"
+	}
+
+	ordered := make([]reviewer.ParsedFinding, 0, len(findings))
+	ordered = append(ordered, findings...)
+
+	severityRank := map[string]int{
+		"critical": 4,
+		"error":    3,
+		"warning":  2,
+		"info":     1,
+	}
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left := strings.ToLower(ordered[i].Severity)
+		right := strings.ToLower(ordered[j].Severity)
+		if severityRank[left] != severityRank[right] {
+			return severityRank[left] > severityRank[right]
+		}
+		if ordered[i].File != ordered[j].File {
+			return ordered[i].File < ordered[j].File
+		}
+		return ordered[i].Line < ordered[j].Line
+	})
+
+	if limit <= 0 || limit > len(ordered) {
+		limit = len(ordered)
+	}
+
+	var sb strings.Builder
+	for i := 0; i < limit; i++ {
+		f := ordered[i]
+		line := ""
+		if f.Line > 0 {
+			line = fmt.Sprintf(":%d", f.Line)
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] %s%s - %s\n",
+			strings.ToUpper(strings.TrimSpace(f.Severity)),
+			strings.TrimSpace(f.File),
+			line,
+			strings.TrimSpace(f.Message),
+		))
+	}
+	return sb.String()
+}
+
+func trimPromptSection(value string, maxLen int) string {
+	trimmed := strings.TrimSpace(value)
+	if maxLen <= 0 || len(trimmed) <= maxLen {
+		return trimmed
+	}
+	return strings.TrimSpace(trimmed[:maxLen]) + "..."
 }
 
 // deduplicateFindings removes duplicate findings, keeping highest severity
@@ -615,6 +738,13 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 
 	// Header
 	sb.WriteString(reviewer.FormatMultiShardReviewHeader(review.Target, review.Participants, review.IsComplete))
+
+	// Narrative summary (LLM-interpreted)
+	if strings.TrimSpace(review.Narrative) != "" {
+		sb.WriteString("## Interpretation\n\n")
+		sb.WriteString(strings.TrimSpace(review.Narrative))
+		sb.WriteString("\n\n")
+	}
 
 	// Summary
 	sb.WriteString("## Summary\n\n")

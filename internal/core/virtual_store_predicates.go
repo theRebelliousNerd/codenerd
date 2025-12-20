@@ -282,11 +282,22 @@ func (v *VirtualStore) QueryTraces(shardType string, limit int) ([]Fact, error) 
 
 	facts := make([]Fact, 0, len(traces))
 	for _, trace := range traces {
+		shardAtom := strings.TrimSpace(trace.ShardType)
+		if shardAtom != "" && !strings.HasPrefix(shardAtom, "/") {
+			shardAtom = "/" + shardAtom
+		}
+		categoryAtom := strings.TrimSpace(trace.ShardCategory)
+		if categoryAtom != "" && !strings.HasPrefix(categoryAtom, "/") {
+			categoryAtom = "/" + categoryAtom
+		}
+
 		facts = append(facts, Fact{
 			Predicate: "reasoning_trace",
 			Args: []interface{}{
-				shardType,
 				trace.ID,
+				shardAtom,
+				categoryAtom,
+				trace.SessionID,
 				trace.Success,
 				trace.DurationMs,
 			},
@@ -517,6 +528,68 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// HydrateSessionContext loads short-term context (session turns, similar content, traces)
+// into the kernel for the current turn. This bridges dynamic query_* data into the EDB.
+func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, query string, shardTypes []string) (int, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateSessionContext")
+	defer timer.Stop()
+
+	v.mu.RLock()
+	db := v.localDB
+	kernel := v.kernel
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.VirtualStoreDebug("HydrateSessionContext: no database, skipping")
+		return 0, nil
+	}
+	if kernel == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("HydrateSessionContext: no kernel configured")
+		return 0, fmt.Errorf("no kernel configured")
+	}
+
+	count := 0
+
+	// Reset short-term context so each turn reflects the latest retrievals.
+	_ = kernel.Retract("session_turn")
+	_ = kernel.Retract("similar_content")
+	_ = kernel.Retract("reasoning_trace")
+
+	if strings.TrimSpace(sessionID) != "" {
+		if turns, err := v.QuerySession(sessionID, defaultSessionLimit); err == nil && len(turns) > 0 {
+			_ = kernel.LoadFacts(turns)
+			count += len(turns)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: session turns failed: %v", err)
+		}
+	}
+
+	if strings.TrimSpace(query) != "" {
+		if matches, err := v.RecallSimilar(query, defaultRecallTopK); err == nil && len(matches) > 0 {
+			_ = kernel.LoadFacts(matches)
+			count += len(matches)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: recall failed: %v", err)
+		}
+	}
+
+	for _, shardType := range shardTypes {
+		normalized := strings.TrimSpace(shardType)
+		if normalized == "" {
+			continue
+		}
+		if traces, err := v.QueryTraces(normalized, defaultTraceLimit); err == nil && len(traces) > 0 {
+			_ = kernel.LoadFacts(traces)
+			count += len(traces)
+		} else if err != nil {
+			logging.VirtualStoreDebug("HydrateSessionContext: traces failed for %s: %v", normalized, err)
+		}
+	}
+
+	logging.VirtualStore("HydrateSessionContext completed: %d facts hydrated", count)
+	return count, nil
+}
+
 // =============================================================================
 // VIRTUAL PREDICATE ATOM HELPERS
 // =============================================================================
@@ -696,14 +769,20 @@ func (v *VirtualStore) getQueryTracesAtoms(query ast.Atom) ([]ast.Atom, error) {
 
 	atoms := make([]ast.Atom, 0, len(facts))
 	for _, f := range facts {
-		if len(f.Args) < 4 {
+		if len(f.Args) < 6 {
 			continue
 		}
-		shardOut := f.Args[0]
-		if shardRaw != "" && toString(shardOut) == shardType {
-			shardOut = shardRaw
+		traceID := f.Args[0]
+		shardOut := f.Args[1]
+		success := f.Args[4]
+		duration := f.Args[5]
+		if shardRaw != "" {
+			shardOutStr := strings.TrimPrefix(toString(shardOut), "/")
+			if shardOutStr == shardType {
+				shardOut = shardRaw
+			}
 		}
-		atoms = appendAtom(atoms, "query_traces", shardOut, limit, f.Args[1], f.Args[2], f.Args[3])
+		atoms = appendAtom(atoms, "query_traces", shardOut, limit, traceID, success, duration)
 	}
 	return atoms, nil
 }

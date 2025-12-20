@@ -574,6 +574,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Content: content,
 				Time:    time.Now(),
 			})
+			m.storeAggregatedReviewResult(msg.review, content)
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
