@@ -2,7 +2,9 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"codenerd/internal/core"
@@ -217,6 +219,57 @@ func (m *Model) storeShardResult(shardType, task, result string, facts []core.Fa
 	m.lastShardResult = sr
 
 	// Add to history (sliding window of last 10 results)
+	m.shardResultHistory = append(m.shardResultHistory, sr)
+	const maxHistorySize = 10
+	if len(m.shardResultHistory) > maxHistorySize {
+		m.shardResultHistory = m.shardResultHistory[len(m.shardResultHistory)-maxHistorySize:]
+	}
+}
+
+// storeAggregatedReviewResult persists a multi-shard review as a reviewer shard result.
+// This keeps follow-up questions ("show more") wired to the aggregated findings.
+func (m *Model) storeAggregatedReviewResult(review *AggregatedReview, rendered string) {
+	if review == nil {
+		return
+	}
+
+	findings := make([]map[string]any, 0, len(review.DeduplicatedList))
+	for _, f := range review.DeduplicatedList {
+		findings = append(findings, map[string]any{
+			"file":           f.File,
+			"line":           float64(f.Line),
+			"severity":       f.Severity,
+			"category":       f.Category,
+			"message":        f.Message,
+			"recommendation": f.Recommendation,
+			"shard":          f.ShardSource,
+		})
+	}
+
+	metrics := map[string]any{
+		"total_findings": review.TotalFindings,
+		"files_reviewed": len(review.Files),
+		"participants":   strings.Join(review.Participants, ", "),
+		"duration":       review.Duration.String(),
+	}
+
+	sr := &ShardResult{
+		ShardType:  "reviewer",
+		Task:       fmt.Sprintf("multi-shard review: %s", review.Target),
+		RawOutput:  rendered,
+		Timestamp:  time.Now(),
+		TurnNumber: m.turnCount,
+		Findings:   findings,
+		Metrics:    metrics,
+		ExtraData: map[string]any{
+			"review_id":         review.ID,
+			"holistic_insights": review.HolisticInsights,
+			"incomplete_reason": review.IncompleteReason,
+			"files":             review.Files,
+		},
+	}
+
+	m.lastShardResult = sr
 	m.shardResultHistory = append(m.shardResultHistory, sr)
 	const maxHistorySize = 10
 	if len(m.shardResultHistory) > maxHistorySize {
