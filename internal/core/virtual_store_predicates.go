@@ -3,9 +3,12 @@ package core
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/logging"
+
+	"github.com/google/mangle/ast"
 )
 
 // =============================================================================
@@ -512,4 +515,280 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 
 	logging.VirtualStore("HydrateLearnings completed: %d facts hydrated", count)
 	return count, nil
+}
+
+// =============================================================================
+// VIRTUAL PREDICATE ATOM HELPERS
+// =============================================================================
+
+const (
+	defaultRecallTopK      = 5
+	defaultSessionLimit    = 50
+	defaultActivationLimit = 100
+	defaultActivationMin   = 0.0
+	defaultTraceLimit      = 50
+)
+
+func (v *VirtualStore) getQueryLearnedAtoms(query ast.Atom) ([]ast.Atom, error) {
+	predRaw, predName, ok := boundNameArg(query.Args, 0)
+	if ok {
+		facts, err := v.QueryLearned(predName)
+		if err != nil {
+			return nil, err
+		}
+		atoms := make([]ast.Atom, 0, len(facts))
+		for _, f := range facts {
+			atoms = appendAtom(atoms, "query_learned", predRaw, f.Args)
+		}
+		return atoms, nil
+	}
+
+	facts, err := v.QueryAllLearned("")
+	if err != nil {
+		return nil, err
+	}
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		atoms = appendAtom(atoms, "query_learned", f.Predicate, f.Args)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getHasLearnedAtoms(query ast.Atom) ([]ast.Atom, error) {
+	predRaw, predName, ok := boundNameArg(query.Args, 0)
+	if ok {
+		learned, err := v.HasLearned(predName)
+		if err != nil {
+			return nil, err
+		}
+		if !learned {
+			return nil, nil
+		}
+		atoms := make([]ast.Atom, 0, 1)
+		atoms = appendAtom(atoms, "has_learned", predRaw)
+		return atoms, nil
+	}
+
+	facts, err := v.QueryAllLearned("")
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(facts))
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if _, exists := seen[f.Predicate]; exists {
+			continue
+		}
+		seen[f.Predicate] = struct{}{}
+		atoms = appendAtom(atoms, "has_learned", f.Predicate)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQuerySessionAtoms(query ast.Atom) ([]ast.Atom, error) {
+	sessionRaw, sessionID, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	limit := defaultSessionLimit
+	if turn, ok := queryArgInt(query.Args, 1); ok && turn > limit {
+		limit = turn
+	}
+
+	facts, err := v.QuerySession(sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 3 {
+			continue
+		}
+		atoms = appendAtom(atoms, "query_session", sessionRaw, f.Args[1], f.Args[2])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getRecallSimilarAtoms(query ast.Atom) ([]ast.Atom, error) {
+	queryRaw, queryText, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	topK := defaultRecallTopK
+	if requested, ok := queryArgInt(query.Args, 1); ok && requested > 0 {
+		topK = requested
+	}
+
+	facts, err := v.RecallSimilar(queryText, topK)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		atoms = appendAtom(atoms, "recall_similar", queryRaw, topK, f.Args[1])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryKnowledgeGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
+	entityRaw, entity, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	facts, err := v.QueryKnowledgeGraph(entity, "both")
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 3 {
+			continue
+		}
+		entityOut := f.Args[0]
+		if entityRaw != "" && toString(entityOut) == entity {
+			entityOut = entityRaw
+		}
+		atoms = appendAtom(atoms, "query_knowledge_graph", entityOut, f.Args[1], f.Args[2])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryActivationsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	facts, err := v.QueryActivations(defaultActivationLimit, defaultActivationMin)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 2 {
+			continue
+		}
+		atoms = appendAtom(atoms, "query_activations", f.Args...)
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryTracesAtoms(query ast.Atom) ([]ast.Atom, error) {
+	shardRaw, shardType, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	limit := defaultTraceLimit
+	if requested, ok := queryArgInt(query.Args, 1); ok && requested > 0 {
+		limit = requested
+	}
+
+	facts, err := v.QueryTraces(shardType, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 4 {
+			continue
+		}
+		shardOut := f.Args[0]
+		if shardRaw != "" && toString(shardOut) == shardType {
+			shardOut = shardRaw
+		}
+		atoms = appendAtom(atoms, "query_traces", shardOut, limit, f.Args[1], f.Args[2], f.Args[3])
+	}
+	return atoms, nil
+}
+
+func (v *VirtualStore) getQueryTraceStatsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	shardRaw, shardType, ok := boundNameArg(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+
+	facts, err := v.QueryTraceStats(shardType)
+	if err != nil {
+		return nil, err
+	}
+
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) < 4 {
+			continue
+		}
+		shardOut := f.Args[0]
+		if shardRaw != "" && toString(shardOut) == shardType {
+			shardOut = shardRaw
+		}
+		atoms = appendAtom(atoms, "query_trace_stats", shardOut, f.Args[1], f.Args[2], f.Args[3])
+	}
+	return atoms, nil
+}
+
+func boundNameArg(args []ast.BaseTerm, idx int) (string, string, bool) {
+	raw, ok := queryArgStringRaw(args, idx)
+	if !ok {
+		return "", "", false
+	}
+	return raw, strings.TrimPrefix(raw, "/"), true
+}
+
+func queryArgStringRaw(args []ast.BaseTerm, idx int) (string, bool) {
+	if idx < 0 || idx >= len(args) {
+		return "", false
+	}
+	value := baseTermToValue(args[idx])
+	s, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "?") {
+		return "", false
+	}
+	return s, true
+}
+
+func queryArgInt(args []ast.BaseTerm, idx int) (int, bool) {
+	if idx < 0 || idx >= len(args) {
+		return 0, false
+	}
+	value := baseTermToValue(args[idx])
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" || strings.HasPrefix(s, "?") {
+			return 0, false
+		}
+		parsed, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func appendAtom(atoms []ast.Atom, predicate string, args ...interface{}) []ast.Atom {
+	atom, err := Fact{Predicate: predicate, Args: args}.ToAtom()
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Virtual predicate %s atom conversion failed: %v", predicate, err)
+		return atoms
+	}
+	return append(atoms, atom)
 }

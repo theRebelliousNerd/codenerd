@@ -59,6 +59,7 @@ type RealKernel struct {
 	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
 	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
+	virtualStore      *VirtualStore          // Virtual predicate source for query_* handlers
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

@@ -15,6 +15,8 @@ import (
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
+
+	"github.com/google/mangle/ast"
 )
 
 // One-time imports
@@ -252,6 +254,7 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 
 	// Wire dreamer to the real kernel when available
 	if realKernel, ok := k.(*RealKernel); ok {
+		realKernel.SetVirtualStore(v)
 		if v.dreamer == nil {
 			v.dreamer = NewDreamer(realKernel)
 			logging.VirtualStoreDebug("Dreamer created for speculative execution")
@@ -265,6 +268,30 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	if v.toolRegistry != nil {
 		v.toolRegistry.SetKernel(k)
 		logging.VirtualStoreDebug("Tool registry kernel reference updated")
+	}
+}
+
+// Get resolves virtual predicates for the Mangle kernel on demand.
+func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
+	switch query.Predicate.Symbol {
+	case "query_learned":
+		return vs.getQueryLearnedAtoms(query)
+	case "query_session":
+		return vs.getQuerySessionAtoms(query)
+	case "recall_similar":
+		return vs.getRecallSimilarAtoms(query)
+	case "query_knowledge_graph":
+		return vs.getQueryKnowledgeGraphAtoms(query)
+	case "query_activations":
+		return vs.getQueryActivationsAtoms(query)
+	case "has_learned":
+		return vs.getHasLearnedAtoms(query)
+	case "query_traces":
+		return vs.getQueryTracesAtoms(query)
+	case "query_trace_stats":
+		return vs.getQueryTraceStatsAtoms(query)
+	default:
+		return nil, nil
 	}
 }
 

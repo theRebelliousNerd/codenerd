@@ -104,7 +104,7 @@ func (k *RealKernel) evaluate() error {
 
 	// Create fresh store and populate with EDB facts
 	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
-	k.store = factstore.NewSimpleInMemoryStore()
+	baseStore := factstore.NewSimpleInMemoryStore()
 	factConversionErrors := 0
 	for _, f := range k.facts {
 		atom, err := f.ToAtom()
@@ -113,8 +113,10 @@ func (k *RealKernel) evaluate() error {
 			logging.Get(logging.CategoryKernel).Error("evaluate: failed to convert fact %s: %v", f.Predicate, err)
 			return fmt.Errorf("failed to convert fact %v: %w", f, err)
 		}
-		k.store.Add(atom)
+		baseStore.Add(atom)
 	}
+	k.store = baseStore
+	k.wrapStoreLocked()
 
 	// Evaluate to fixpoint using cached programInfo
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
@@ -178,6 +180,7 @@ func (k *RealKernel) Clear() {
 	k.facts = make([]Fact, 0)
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
+	k.wrapStoreLocked()
 	k.initialized = false
 	logging.KernelDebug("Kernel cleared (facts removed, schemas/policy retained)")
 }
@@ -189,6 +192,7 @@ func (k *RealKernel) Reset() {
 	k.facts = make([]Fact, 0)
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
+	k.wrapStoreLocked()
 	k.initialized = false
 	// Keep schemas, policy, learned - only reset facts
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
@@ -219,6 +223,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		userLearnedPath:   k.userLearnedPath,
 		predicateCorpus:   k.predicateCorpus,   // Share corpus (read-only)
 		repairInterceptor: k.repairInterceptor, // Share interceptor
+		virtualStore:      k.virtualStore,
 	}
 
 	// Deep copy facts
@@ -243,6 +248,7 @@ func (k *RealKernel) Clone() *RealKernel {
 			clone.store.Add(atom)
 		}
 	}
+	clone.wrapStoreLocked()
 
 	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", len(clone.facts), len(clone.policy))
 	return clone
