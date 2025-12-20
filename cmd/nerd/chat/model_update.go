@@ -486,7 +486,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clarificationReply:
 		// Handle clarification reply
-		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent)
+		return m, m.processClarificationResponse(string(msg), m.clarificationState.PendingIntent, m.clarificationState.Context)
 
 	case spinner.TickMsg:
 		if m.isLoading || m.isBooting {
@@ -591,6 +591,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			PendingIntent: msg.PendingIntent,
 		}
 		m.selectedOption = 0
+		if msg.Context != "" {
+			m.lastClarifyInput = msg.Context
+		}
 
 		// Update UI to show clarification request
 		m.textarea.Placeholder = "Select option or type your answer..."
