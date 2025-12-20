@@ -427,7 +427,7 @@ func (t *RealTransducer) intentSystemPrompt(ctx context.Context) string {
 	// fallback if assembly fails.
 	pc := &articulation.PromptContext{
 		ShardID:   "perception_transducer",
-		ShardType: "perception",
+		ShardType: "perception_firewall",
 	}
 	if promptText, err := t.promptAssembler.AssembleSystemPrompt(ctx, pc); err == nil && strings.TrimSpace(promptText) != "" {
 		return promptText

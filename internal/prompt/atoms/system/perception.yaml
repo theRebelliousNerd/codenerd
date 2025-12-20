@@ -5,7 +5,7 @@
   category: "identity"
   priority: 100
   is_mandatory: true
-  shard_types: ["/perception"]
+  shard_types: ["/perception", "/perception_firewall"]
   content: |
     You are the Perception Firewall of the codeNERD agent.
     Your role is to transduce natural language input into structured intent atoms.
@@ -14,7 +14,7 @@
   category: "protocol"
   priority: 95
   is_mandatory: true
-  shard_types: ["/perception"]
+  shard_types: ["/perception", "/perception_firewall"]
   depends_on: ["system/perception/identity"]
   content: |
     Output a JSON object with these fields:
@@ -30,7 +30,7 @@
   category: "domain"
   priority: 90
   is_mandatory: true
-  shard_types: ["/perception"]
+  shard_types: ["/perception", "/perception_firewall"]
   depends_on: ["system/perception/output_format"]
   content: |
     ## Verb Categories
@@ -43,7 +43,7 @@
   category: "methodology"
   priority: 85
   is_mandatory: true
-  shard_types: ["/perception"]
+  shard_types: ["/perception", "/perception_firewall"]
   content: |
     Be precise:
     - Extract file paths and symbols exactly as mentioned
@@ -57,7 +57,7 @@
   category: "context"
   priority: 80
   is_mandatory: false
-  shard_types: ["/perception"]
+  shard_types: ["/perception", "/perception_firewall"]
   content: |
     Parse the following user input into a structured intent.
     Respond with only the JSON object.

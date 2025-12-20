@@ -129,7 +129,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("perception error: %w", err))
 		}
 		if strings.TrimSpace(intent.Response) == "" {
-			return errorMsg(fmt.Errorf("LLM returned empty response for input: %q", input))
+			warnings = append(warnings, "Perception response was empty; falling back to articulation")
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 
@@ -1352,7 +1352,7 @@ func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool
 	}
 
 	shardType := perception.GetShardTypeForVerb(intent.Verb)
-	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff"
+	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff" || intent.Verb == "/git" || intent.Verb == "/build"
 
 	if !actionable {
 		return false
@@ -1476,7 +1476,7 @@ func shouldWaitForSystemResults(intent perception.Intent, hasDelegations bool) b
 		return true
 	}
 	switch intent.Verb {
-	case "/read", "/search", "/run", "/test", "/diff":
+	case "/read", "/search", "/run", "/test", "/diff", "/git", "/build":
 		return true
 	default:
 		return false
@@ -1507,7 +1507,14 @@ func (m Model) buildResponseFromExecutions(ctx context.Context, input string, in
 
 		shardType := actionTypeToShardType(actionType, exec.Target)
 		if shardType == "" {
-			continue
+			task := strings.TrimSpace(strings.Join([]string{actionType, exec.Target}, " "))
+			if task == "" {
+				task = "system_action"
+			}
+			surface := m.formatInterpretedResult(ctx, input, "system", task, exec.Output, "")
+			return assistantMsg{
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			}
 		}
 
 		task := resolveDelegateTask(shardType, delegateFacts, intent, m.workspace, m.lastShardResult)

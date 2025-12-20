@@ -1323,7 +1323,6 @@ func isConversationalIntent(intent perception.Intent) bool {
 		"/help":      true, // Capability questions: what can you do?
 		"/knowledge": true, // Memory queries: what do you remember?
 		"/shadow":    true, // What-if queries: what would happen if?
-		"/git":       true, // Git operations: commit, push, status
 	}
 
 	// If it's an always-conversational verb, return true immediately

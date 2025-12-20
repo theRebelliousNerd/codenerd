@@ -12,6 +12,9 @@
 # permitted(ActionType, Target, Payload) - derived predicate
 Decl permitted(ActionType, Target, Payload).
 
+# forbidden(ActionType) - derived: constitutionally blocked action
+Decl forbidden(ActionType).
+
 # dangerous_action(ActionType) - derived predicate
 Decl dangerous_action(ActionType).
 
@@ -107,6 +110,9 @@ Decl blocked_learned_action_count(Count).
 # git_history(FilePath, CommitHash, Author, AgeDays, Message)
 Decl git_history(FilePath, CommitHash, Author, AgeDays, Message).
 
+# git_state(Attribute, Value) - summarized git context for session injection
+Decl git_state(Attribute, Value).
+
 # churn_rate(FilePath, ChangeFrequency)
 Decl churn_rate(FilePath, ChangeFrequency).
 
@@ -127,6 +133,12 @@ Decl chesterton_fence_warning(FilePath, Reason).
 # =============================================================================
 # SECTION 22: SHADOW MODE / COUNTERFACTUAL REASONING
 # =============================================================================
+
+# hypothetical(Change) - counterfactual input
+Decl hypothetical(Change).
+
+# derives_from_hypothetical(Implication) - derived implications for a hypothetical
+Decl derives_from_hypothetical(Implication).
 
 # shadow_state(StateID, ActionID, IsValid)
 Decl shadow_state(StateID, ActionID, IsValid).

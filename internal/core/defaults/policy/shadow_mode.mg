@@ -1,6 +1,10 @@
 # Shadow Mode / Counterfactual Reasoning
 # Section 14 of Cortex Executive Policy
 
+# Default implication: echo hypothetical input into derived implications
+derives_from_hypothetical(Change) :-
+    hypothetical(Change).
+
 
 # Helper for safe negation
 has_projection_violation(ActionID) :-

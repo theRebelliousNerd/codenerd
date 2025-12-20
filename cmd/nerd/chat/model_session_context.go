@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/campaign"
@@ -375,17 +376,41 @@ func (m *Model) populateGitContext(sessionCtx *core.SessionContext) {
 		// git_state(Attribute, Value)
 		if len(fact.Args) >= 2 {
 			attr, _ := fact.Args[0].(string)
-			val, _ := fact.Args[1].(string)
+			val := fmt.Sprintf("%v", fact.Args[1])
 			switch attr {
 			case "branch":
+				sessionCtx.GitBranch = val
 				sessionCtx.ExtraContext["git_branch"] = val
 			case "modified_files":
+				sessionCtx.GitModifiedFiles = splitContextList(val)
 				sessionCtx.ExtraContext["git_modified"] = val
 			case "recent_commits":
+				sessionCtx.GitRecentCommits = splitContextList(val)
 				sessionCtx.ExtraContext["git_commits"] = val
+			case "unstaged_count":
+				if count, convErr := strconv.Atoi(strings.TrimSpace(val)); convErr == nil {
+					sessionCtx.GitUnstagedCount = count
+				}
 			}
 		}
 	}
+}
+
+func splitContextList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []string
+	for _, part := range strings.Split(raw, "\n") {
+		for _, entry := range strings.Split(part, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry != "" {
+				items = append(items, entry)
+			}
+		}
+	}
+	return items
 }
 
 // populateTestState fills in test execution state for TDD loop awareness.

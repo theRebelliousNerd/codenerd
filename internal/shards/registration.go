@@ -598,6 +598,20 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 		Model:       types.ModelConfig{}, // No LLM - safety MUST be deterministic
 	})
 
+	// Mangle Repair - AUTO-START, learned rule validation/repair
+	sm.DefineProfile("mangle_repair", types.ShardConfig{
+		Name: "mangle_repair",
+		Type: types.ShardTypeSystem,
+		Permissions: []types.ShardPermission{
+			types.PermissionReadFile,
+		},
+		Timeout:     24 * 60 * 60 * 1000000000, // 24 hours
+		MemoryLimit: 6000,
+		Model: types.ModelConfig{
+			Capability: types.CapabilityHighReasoning,
+		},
+	})
+
 	// Tactile Router - ON-DEMAND, Pure logic
 	sm.DefineProfile("tactile_router", types.ShardConfig{
 		Name: "tactile_router",
