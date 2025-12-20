@@ -326,6 +326,9 @@ Decl system_shard_unhealthy(ShardName).
 # world_model_heartbeat(ShardID, FileCount, Timestamp) - world model status
 Decl world_model_heartbeat(ShardID, FileCount, Timestamp).
 
+# world_model_updating(UpdateType, Scope) - trigger for incremental world model updates
+Decl world_model_updating(UpdateType, Scope).
+
 # session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp)
 Decl session_planner_status(Total, Pending, InProgress, Completed, Blocked, Timestamp).
 

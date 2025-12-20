@@ -3,8 +3,12 @@ package core
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 
@@ -318,7 +322,150 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 // UpdateSystemFacts updates system-level facts (e.g., time, git state).
 // This is a placeholder for dynamic system fact injection.
 func (k *RealKernel) UpdateSystemFacts() error {
-	// TODO: Inject system facts like current_time, git_branch, etc.
-	logging.KernelDebug("UpdateSystemFacts: placeholder (no-op for now)")
+	now := time.Now().Unix()
+
+	if err := k.Retract("current_time"); err != nil {
+		return err
+	}
+	if assertErr := k.Assert(Fact{Predicate: "current_time", Args: []interface{}{now}}); assertErr != nil {
+		return assertErr
+	}
+
+	workspaceRoot := strings.TrimSpace(k.workspaceRoot)
+	if workspaceRoot == "" {
+		logging.KernelDebug("UpdateSystemFacts: workspace root not set, skipping git facts")
+		return nil
+	}
+	if abs, err := filepath.Abs(workspaceRoot); err == nil {
+		workspaceRoot = abs
+	}
+	if info, err := os.Stat(workspaceRoot); err != nil || !info.IsDir() {
+		logging.KernelDebug("UpdateSystemFacts: invalid workspace root: %s", workspaceRoot)
+		return nil
+	}
+
+	gitRoot, err := gitRepoRoot(workspaceRoot)
+	if err != nil {
+		logging.KernelDebug("UpdateSystemFacts: git root not found: %v", err)
+		return nil
+	}
+
+	branch, _ := gitCmd(gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	statusOutput, _ := gitCmd(gitRoot, "status", "--porcelain")
+	commitOutput, _ := gitCmd(gitRoot, "log", "-n", "5", "--pretty=format:%s")
+
+	modifiedFiles, unstagedCount := parseGitStatus(statusOutput)
+	recentCommits := splitLinesTrimmed(commitOutput)
+
+	_ = k.Retract("git_state")
+	_ = k.Retract("git_branch")
+
+	var facts []Fact
+	if branch != "" {
+		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"branch", branch}})
+		facts = append(facts, Fact{Predicate: "git_branch", Args: []interface{}{branch}})
+	}
+	if len(modifiedFiles) > 0 {
+		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"modified_files", strings.Join(modifiedFiles, "\n")}})
+	}
+	if len(recentCommits) > 0 {
+		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"recent_commits", strings.Join(recentCommits, "\n")}})
+	}
+	facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"unstaged_count", strconv.Itoa(unstagedCount)}})
+
+	for _, fact := range facts {
+		if assertErr := k.Assert(fact); assertErr != nil {
+			return assertErr
+		}
+	}
+
 	return nil
+}
+
+func gitRepoRoot(workspaceRoot string) (string, error) {
+	out, err := gitCmd(workspaceRoot, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func gitCmd(workspaceRoot string, args ...string) (string, error) {
+	if workspaceRoot == "" {
+		return "", fmt.Errorf("workspace root is empty")
+	}
+	cmd := exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func parseGitStatus(statusOutput string) ([]string, int) {
+	lines := splitLinesTrimmed(statusOutput)
+	files := make([]string, 0, len(lines))
+	unstaged := 0
+
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+		status := line[:2]
+		path := strings.TrimSpace(line[2:])
+		if path == "" {
+			continue
+		}
+		if strings.Contains(path, " -> ") {
+			parts := strings.Split(path, " -> ")
+			path = strings.TrimSpace(parts[len(parts)-1])
+		}
+		files = append(files, path)
+
+		if status == "??" {
+			unstaged++
+			continue
+		}
+		if len(status) == 2 && status[1] != ' ' {
+			unstaged++
+		}
+	}
+
+	return dedupeStrings(files), unstaged
+}
+
+func splitLinesTrimmed(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "\n")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }

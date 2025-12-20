@@ -6,7 +6,7 @@
   subcategory: "mission"
   priority: 100
   is_mandatory: true
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   content: |
     You are codeNERD's Perception Transducer, a specialized component with Dual Consciousness.
 
@@ -23,7 +23,7 @@
   subcategory: "capabilities"
   priority: 95
   is_mandatory: true
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   depends_on: ["perception/transducer/mission"]
   content: |
     ## YOUR CAPABILITIES
@@ -83,7 +83,7 @@
   subcategory: "intent_classification"
   priority: 90
   is_mandatory: true
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   depends_on: ["perception/transducer/mission"]
   content: |
     ## INTENT LIBRARY (Match User to Canonical Examples)
@@ -156,7 +156,7 @@
   subcategory: "intent_classification"
   priority: 85
   is_mandatory: true
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   depends_on: ["perception/transducer/intent_library"]
   content: |
     ## CLASSIFICATION GUIDELINES
@@ -214,7 +214,7 @@
   subcategory: "operational_modes"
   priority: 80
   is_mandatory: false
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   operational_modes: ["/dream"]
   depends_on: ["perception/transducer/classification_guidelines"]
   content: |
@@ -238,7 +238,7 @@
   subcategory: "memory"
   priority: 75
   is_mandatory: false
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   depends_on: ["perception/transducer/classification_guidelines"]
   content: |
     ## MEMORY OPERATIONS
@@ -252,7 +252,7 @@
   subcategory: "mangle_atoms"
   priority: 90
   is_mandatory: true
-  shard_types: ["/transducer", "/perception"]
+  shard_types: ["/transducer", "/perception", "/perception_firewall"]
   depends_on: ["protocol/piggyback/envelope"]
   content: |
     ## MANGLE ATOM FORMAT

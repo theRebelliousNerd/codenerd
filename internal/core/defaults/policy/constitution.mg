@@ -174,6 +174,13 @@ action_denied(Action, "Not constitutionally permitted") :-
     candidate_action(Action),
     !permitted(Action, _, _).
 
+# Expose denied actions for session context
+forbidden(Action) :-
+    action_denied(Action, _).
+
+forbidden(Action) :-
+    security_violation(Action, _, _).
+
 # Track learned rule proposals for auditing
 learned_proposal(Action) :-
     candidate_action(Action).
