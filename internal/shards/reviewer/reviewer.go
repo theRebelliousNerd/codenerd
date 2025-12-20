@@ -429,6 +429,7 @@ func (r *ReviewerShard) Execute(ctx context.Context, task string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("failed to parse task: %w", err)
 	}
+	r.expandTaskFiles(parsedTask)
 
 	// Assert initial facts to kernel
 	r.assertInitialFacts(parsedTask)
@@ -638,6 +639,104 @@ func (r *ReviewerShard) parseTask(task string) (*ReviewerTask, error) {
 	}
 
 	return parsed, nil
+}
+
+func (r *ReviewerShard) expandTaskFiles(task *ReviewerTask) {
+	if task == nil || task.Action == "diff" {
+		return
+	}
+
+	explicit := make([]string, 0, len(task.Files))
+	broadRequested := false
+	for _, file := range task.Files {
+		trimmed := strings.TrimSpace(file)
+		if trimmed == "" {
+			continue
+		}
+		if isBroadTargetToken(trimmed) {
+			broadRequested = true
+			continue
+		}
+		explicit = append(explicit, trimmed)
+	}
+
+	if len(explicit) > 0 && !broadRequested {
+		task.Files = explicit
+		return
+	}
+	task.Files = explicit
+
+	if r.kernel == nil {
+		if len(task.Files) == 0 {
+			logging.ReviewerDebug("Skipping file expansion: kernel unavailable")
+		}
+		return
+	}
+
+	facts, err := r.kernel.Query("file_topology")
+	if err != nil {
+		logging.ReviewerDebug("file_topology query failed: %v", err)
+		return
+	}
+
+	expanded := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) < 5 {
+			continue
+		}
+		path := fmt.Sprintf("%v", fact.Args[0])
+		isTest := fmt.Sprintf("%v", fact.Args[4])
+		if isTest == "/true" {
+			continue
+		}
+		if !isCodeFile(path) {
+			continue
+		}
+		expanded = append(expanded, path)
+	}
+
+	if len(expanded) == 0 {
+		return
+	}
+
+	task.Files = dedupeFiles(append(task.Files, expanded...))
+	if len(task.Files) > 50 {
+		task.Files = task.Files[:50]
+	}
+}
+
+func isBroadTargetToken(token string) bool {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "all", "codebase", "*", ".", "repo", "project", "workspace":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCodeFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".java", ".c", ".cpp", ".h", ".cs", ".rb", ".php":
+		return true
+	default:
+		return false
+	}
+}
+
+func dedupeFiles(files []string) []string {
+	seen := make(map[string]struct{}, len(files))
+	result := make([]string, 0, len(files))
+	for _, file := range files {
+		if file == "" {
+			continue
+		}
+		if _, ok := seen[file]; ok {
+			continue
+		}
+		seen[file] = struct{}{}
+		result = append(result, file)
+	}
+	return result
 }
 
 // =============================================================================

@@ -166,10 +166,17 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	m.historyIndex = len(m.inputHistory)
 
 	// Clear clarification state (Resume)
+	clarifyContext := ""
+	if m.clarificationState != nil {
+		clarifyContext = m.clarificationState.Context
+	}
 	pendingIntent := m.clarificationState.PendingIntent
 	m.awaitingClarification = false
 	m.clarificationState = nil
 	m.selectedOption = 0
+	if clarifyContext != "" {
+		m.lastClarifyInput = clarifyContext
+	}
 
 	// Reset input
 	m.textarea.Reset()
@@ -185,12 +192,12 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	// Resume processing with clarification response
 	return m, tea.Batch(
 		m.spinner.Tick,
-		m.processClarificationResponse(response, pendingIntent),
+		m.processClarificationResponse(response, pendingIntent, clarifyContext),
 	)
 }
 
 // processClarificationResponse continues processing after user provides clarification
-func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent) tea.Cmd {
+func (m Model) processClarificationResponse(response string, pendingIntent *perception.Intent, context string) tea.Cmd {
 	return func() tea.Msg {
 		// Guard: kernel must be initialized
 		if m.kernel == nil {
@@ -206,25 +213,17 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 			return errorMsg(fmt.Errorf("failed to inject clarification: %w", err))
 		}
 
-		// If we have a pending intent, re-process with the clarification
-		if pendingIntent != nil {
-			// Update intent with clarification
-			pendingIntent.Target = response
-
-			// Continue processing
-			actions, _ := m.kernel.Query("next_action")
-
-			var surfaceResponse string
-			if len(actions) > 0 {
-				surfaceResponse = fmt.Sprintf("Clarified: %s\n\nProceeding with: %s", response, pendingIntent.Target)
-			} else {
-				surfaceResponse = fmt.Sprintf("Thank you for clarifying: %s\n\nI'll proceed with your request.", response)
-			}
-
-			return responseMsg(surfaceResponse)
+		clarifiedInput := strings.TrimSpace(response)
+		if strings.TrimSpace(context) != "" {
+			clarifiedInput = fmt.Sprintf("%s\nClarification: %s", context, response)
 		}
 
-		return responseMsg(fmt.Sprintf("Got it: %s", response))
+		// If we have a pending intent, keep it in sync with the clarification.
+		if pendingIntent != nil {
+			pendingIntent.Target = response
+		}
+
+		return m.processInput(clarifiedInput)()
 	}
 }
 

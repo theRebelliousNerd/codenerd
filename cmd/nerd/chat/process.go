@@ -56,6 +56,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		var warnings []string
+		workspaceScanned := false
 
 		// Baseline counts for system action facts so we can surface new ones.
 		baseRoutingCount, baseExecCount := 0, 0
@@ -220,6 +221,21 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
+		// 1.4.1 GENERAL CLARIFICATION: Guard ambiguous intents before delegation.
+		if m.shouldClarifyIntent(&intent, input) {
+			m.ReportStatus("Clarifier: resolving ambiguity...")
+			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
+				return clarificationMsg{
+					Question:      res,
+					Options:       []string{},
+					Context:       input,
+					PendingIntent: &intent,
+				}
+			} else if err != nil {
+				warnings = append(warnings, fmt.Sprintf("Clarifier shard unavailable: %v", err))
+			}
+		}
+
 		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
 		// This implements autonomous multi-step execution without campaigns
 		isMultiStep := detectMultiStepTask(input, intent)
@@ -237,6 +253,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
 		if shardType != "" && intent.Confidence >= 0.5 {
+			if m.needsWorkspaceScanForDelegation(intent) && !workspaceScanned {
+				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
+			}
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
 			// Format task based on verb and target, with prior shard context (blackboard pattern)
 			// This enables cross-shard context: reviewer findings -> coder, test errors -> debugger
@@ -315,11 +334,14 @@ func (m Model) processInput(input string) tea.Cmd {
 				// Create a specialized prompt for interpreting the results
 				analysisPrompt := fmt.Sprintf(`%s
 
+USER REQUEST (ANSWER THIS):
+%s
+
 SHARD TYPE: %s
 TASK: %s
 OUTPUT:
 %s
-`, campaign.AnalysisLogic, shardType, task, result)
+`, campaign.AnalysisLogic, input, shardType, task, result)
 
 				// Call LLM for interpretation
 				interpResp, err := m.client.CompleteWithSystem(ctx, stevenMoorePersona, analysisPrompt)
@@ -447,39 +469,8 @@ OUTPUT:
 		// 2. CONTEXT LOADING (Scanner)
 		// Load workspace facts only if intent requires it (optimization).
 		// Use incremental scan to avoid reparsing unchanged repos.
-		if intent.Category == "/query" || intent.Category == "/mutation" {
-			res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
-			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
-			} else if res != nil && !res.Unchanged && len(res.NewFacts) > 0 {
-				if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
-					warnings = append(warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
-				} else if m.virtualStore != nil {
-					if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
-						warnings = append(warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
-					}
-					for _, f := range res.NewFacts {
-						switch f.Predicate {
-						case "dependency_link":
-							if len(f.Args) >= 2 {
-								a := fmt.Sprintf("%v", f.Args[0])
-								b := fmt.Sprintf("%v", f.Args[1])
-								rel := "depends_on"
-								if len(f.Args) >= 3 {
-									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
-								}
-								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
-							}
-						case "symbol_graph":
-							if len(f.Args) >= 4 {
-								sid := fmt.Sprintf("%v", f.Args[0])
-								file := fmt.Sprintf("%v", f.Args[3])
-								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
-							}
-						}
-					}
-				}
-			}
+		if !workspaceScanned {
+			workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
 		}
 
 		// 3. STATE UPDATE (Kernel)
@@ -1351,6 +1342,114 @@ func (m Model) shouldAutoClarify(intent *perception.Intent, input string) bool {
 	isBuildish := intent != nil && (intent.Category == "/mutation" || intent.Category == "/instruction")
 
 	return isBuildish && (looksLikeCampaign || needsDetails)
+}
+
+func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool {
+	if intent == nil {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "clarification:") {
+		return false
+	}
+
+	if strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
+		return false
+	}
+
+	if isConversationalIntent(*intent) {
+		return false
+	}
+
+	shardType := perception.GetShardTypeForVerb(intent.Verb)
+	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff"
+
+	if !actionable {
+		return false
+	}
+
+	if len(intent.Ambiguity) > 0 {
+		return true
+	}
+
+	if intent.Confidence < 0.45 {
+		return true
+	}
+
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || target == "none" {
+		return true
+	}
+
+	return false
+}
+
+func (m Model) needsWorkspaceScanForDelegation(intent perception.Intent) bool {
+	if intent.Category != "/query" && intent.Category != "/mutation" {
+		return false
+	}
+	return perception.GetShardTypeForVerb(intent.Verb) != ""
+}
+
+func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent, warnings *[]string) bool {
+	if m.scanner == nil || m.kernel == nil {
+		return false
+	}
+	if intent.Category != "/query" && intent.Category != "/mutation" {
+		return false
+	}
+
+	res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+	if err != nil {
+		if warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Workspace scan skipped: %v", err))
+		}
+		return false
+	}
+	if res == nil || res.Unchanged || len(res.NewFacts) == 0 {
+		return true
+	}
+
+	if applyErr := world.ApplyIncrementalResult(m.kernel, res); applyErr != nil {
+		if warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Workspace apply skipped: %v", applyErr))
+		}
+		return true
+	}
+
+	if m.virtualStore != nil {
+		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil && warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("Knowledge persistence warning: %v", err))
+		}
+		for _, f := range res.NewFacts {
+			switch f.Predicate {
+			case "dependency_link":
+				if len(f.Args) >= 2 {
+					a := fmt.Sprintf("%v", f.Args[0])
+					b := fmt.Sprintf("%v", f.Args[1])
+					rel := "depends_on"
+					if len(f.Args) >= 3 {
+						rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+					}
+					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
+				}
+			case "symbol_graph":
+				if len(f.Args) >= 4 {
+					sid := fmt.Sprintf("%v", f.Args[0])
+					file := fmt.Sprintf("%v", f.Args[3])
+					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
+				}
+			}
+		}
+	}
+
+	return true
 }
 
 // collectSystemSummary waits briefly for newly derived routing/execution facts and formats them.
