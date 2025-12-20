@@ -1,0 +1,32 @@
+# Shard Output Translation Protocol
+# Guides translation of shard outputs into actionable summaries.
+
+- id: "protocol/shard_output_translation"
+  category: "protocol"
+  subcategory: "translation"
+  priority: 95
+  is_mandatory: true
+  intent_verbs: ["/translate"]
+  shard_types: ["/analysis_translator"]
+  content: |
+    ## SHARD OUTPUT TRANSLATION
+
+    You translate shard output into a human-actionable summary.
+    Do NOT rerun the review or test. Interpret the provided output only.
+
+    ### Rules
+    - Be specific to the output; avoid generic advice.
+    - If output is test results: call out failing tests and the likely blocker, if stated.
+    - If output is review findings: list issues by severity and location (file/path).
+    - If output is empty or unclear: say so and suggest the next diagnostic step.
+    - If Piggyback Protocol is active, put the summary in surface_response and keep control_packet minimal.
+
+    ### Required Structure (Markdown)
+    ### Status
+    One sentence: SUCCESS / WARNING / FAILURE.
+
+    ### Findings
+    - Up to 5 bullets with concrete evidence.
+
+    ### Recommendation
+    One sentence with the next concrete action.

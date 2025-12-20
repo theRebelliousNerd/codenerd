@@ -3,12 +3,14 @@
 package chat
 
 import (
+	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/campaign"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
@@ -243,7 +245,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)
 			if len(steps) > 1 {
-				cmd := m.executeMultiStepTask(ctx, intent, steps)
+				cmd := m.executeMultiStepTask(ctx, intent, input, steps)
 				return cmd()
 			}
 		}
@@ -331,28 +333,6 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// 1.6.1 AUTO-INTERPRETATION: For Reviewer/Tester shards, explain the findings
 			if shardType == "reviewer" || shardType == "tester" {
-				// Create a specialized prompt for interpreting the results
-				analysisPrompt := fmt.Sprintf(`%s
-
-USER REQUEST (ANSWER THIS):
-%s
-
-SHARD TYPE: %s
-TASK: %s
-OUTPUT:
-%s
-`, campaign.AnalysisLogic, input, shardType, task, result)
-
-				// Call LLM for interpretation
-				interpResp, err := m.client.CompleteWithSystem(ctx, stevenMoorePersona, analysisPrompt)
-
-				var interpretation string
-				if err == nil {
-					interpretation = interpResp
-				} else {
-					interpretation = fmt.Sprintf("Analyze this yourself, I'm tired: %v", err)
-				}
-
 				// 1.6.2 REVIEWER VALIDATION CHECK: Self-correction feedback loop
 				// Check if the review shows signs of inaccuracy and flag for user attention
 				var validationWarning string
@@ -360,7 +340,7 @@ OUTPUT:
 					if m.shardMgr.CheckReviewNeedsValidation(shardID) {
 						reasons := m.shardMgr.GetReviewSuspectReasons(shardID)
 						if len(reasons) > 0 {
-							validationWarning = "\n\n⚠️ **Review Validation Alert**: This review may contain inaccuracies.\n"
+							validationWarning = "**Review Validation Alert**: This review may contain inaccuracies.\n"
 							validationWarning += "Reasons: " + strings.Join(reasons, ", ") + "\n"
 							validationWarning += "Please verify findings before acting on them. "
 							validationWarning += "Use `/reject-finding <file>:<line> <reason>` to help the system learn from mistakes."
@@ -369,8 +349,7 @@ OUTPUT:
 					}
 				}
 
-				// Combine the structured result (in a collapsible block) with the interpretation
-				response := fmt.Sprintf("%s%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, validationWarning, result)
+				response := m.formatInterpretedResult(ctx, input, shardType, task, result, validationWarning)
 				surface := m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount))
 
 				// CONTINUATION PROTOCOL: Check for pending subtasks before returning
@@ -565,6 +544,11 @@ OUTPUT:
 		if len(executionResults) > 0 {
 			_ = m.kernel.LoadFacts(executionResults)
 			// Re-query context to inject (now that we have new facts)
+		}
+
+		// 4.5 SYSTEM ACTION HANDLING: Surface kernel-driven delegations and execution results.
+		if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
+			return msg
 		}
 
 		// 5. CONTEXT SELECTION (Spreading Activation)
@@ -1452,6 +1436,352 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 	return true
 }
 
+type systemExecutionResult struct {
+	ActionID   string
+	ActionType string
+	Target     string
+	Success    bool
+	Output     string
+	Timestamp  int64
+}
+
+func (m Model) handleSystemDelegations(ctx context.Context, input string, intent perception.Intent, baseRouting, baseExec int) tea.Msg {
+	if m.kernel == nil || m.shardMgr == nil {
+		return nil
+	}
+
+	delegateFacts, _ := m.kernel.Query("delegate_task")
+	execFacts := m.diffFacts("execution_result", baseExec)
+	if len(execFacts) == 0 && shouldWaitForSystemResults(intent, len(delegateFacts) > 0) {
+		_, execFacts = m.waitForSystemResults(ctx, baseRouting, baseExec, 1200*time.Millisecond)
+	}
+
+	executions := parseExecutionResults(execFacts)
+	if msg := m.buildResponseFromExecutions(ctx, input, intent, delegateFacts, executions, baseRouting, baseExec); msg != nil {
+		return msg
+	}
+
+	if len(delegateFacts) == 0 {
+		return nil
+	}
+
+	return m.executeDelegateTaskFallback(ctx, input, intent, delegateFacts, baseRouting, baseExec)
+}
+
+func shouldWaitForSystemResults(intent perception.Intent, hasDelegations bool) bool {
+	if hasDelegations {
+		return true
+	}
+	if perception.GetShardTypeForVerb(intent.Verb) != "" {
+		return true
+	}
+	switch intent.Verb {
+	case "/read", "/search", "/run", "/test", "/diff":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m Model) buildResponseFromExecutions(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, executions []systemExecutionResult, baseRouting, baseExec int) tea.Msg {
+	if len(executions) == 0 {
+		return nil
+	}
+
+	sort.Slice(executions, func(i, j int) bool {
+		return executions[i].Timestamp > executions[j].Timestamp
+	})
+
+	for _, exec := range executions {
+		actionType := normalizeActionType(exec.ActionType)
+		if actionType == "" {
+			continue
+		}
+
+		if actionType == "run_tests" {
+			surface := m.formatInterpretedResult(ctx, input, "tester", "run_tests", exec.Output, "")
+			return assistantMsg{
+				Surface: m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			}
+		}
+
+		shardType := actionTypeToShardType(actionType, exec.Target)
+		if shardType == "" {
+			continue
+		}
+
+		task := resolveDelegateTask(shardType, delegateFacts, intent, m.workspace, m.lastShardResult)
+		if task == "" {
+			task = exec.Target
+		}
+
+		surface := m.formatDelegationOutput(ctx, input, shardType, task, exec.Output)
+		payload := m.buildShardResultPayload(shardType, task, exec.Output, nil)
+		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
+			_ = m.kernel.LoadFacts(payload.Facts)
+		}
+		return assistantMsg{
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			ShardResult: payload,
+		}
+	}
+
+	return nil
+}
+
+func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, intent perception.Intent, delegateFacts []core.Fact, baseRouting, baseExec int) tea.Msg {
+	for _, fact := range delegateFacts {
+		shardType, taskDesc, pending := parseDelegateFact(fact)
+		if !pending || shardType == "" {
+			continue
+		}
+
+		task := resolveDelegateTask(shardType, delegateFacts, intent, m.workspace, m.lastShardResult)
+		if task == "" {
+			task = taskDesc
+		}
+		if task == "" {
+			task = "codebase"
+		}
+
+		sessionCtx := m.buildSessionContext(ctx)
+		result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
+		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
+			_ = m.kernel.LoadFacts(payload.Facts)
+		}
+
+		if spawnErr != nil {
+			return errorMsg(fmt.Errorf("shard delegation failed: %w", spawnErr))
+		}
+
+		surface := m.formatDelegationOutput(ctx, input, shardType, task, result)
+		return assistantMsg{
+			Surface:     m.appendSystemSummary(surface, m.collectSystemSummary(ctx, baseRouting, baseExec)),
+			ShardResult: payload,
+		}
+	}
+
+	return nil
+}
+
+func (m Model) buildShardResultPayload(shardType, task, result string, err error) *ShardResultPayload {
+	if m.shardMgr == nil {
+		return nil
+	}
+
+	shardID := fmt.Sprintf("%s-system-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+	return &ShardResultPayload{
+		ShardType: shardType,
+		Task:      task,
+		Result:    result,
+		Facts:     facts,
+	}
+}
+
+func (m Model) formatDelegationOutput(ctx context.Context, input, shardType, task, result string) string {
+	if shardType == "reviewer" || shardType == "tester" {
+		return m.formatInterpretedResult(ctx, input, shardType, task, result, "")
+	}
+
+	header := fmt.Sprintf("## %s Result", strings.Title(shardType))
+	if shardType == "" {
+		header = "## Delegated Result"
+	}
+	return fmt.Sprintf(`%s
+**Agent**: %s
+**Task**: %s
+
+### Output
+%s`, header, shardType, task, result)
+}
+
+func (m Model) buildShardInterpretationPrompt(ctx context.Context, input, shardType, task, result string) (string, string) {
+	userPrompt := fmt.Sprintf(`USER REQUEST (ANSWER THIS):
+%s
+
+SHARD TYPE: %s
+TASK: %s
+OUTPUT:
+%s
+`, input, shardType, task, result)
+
+	if m.jitCompiler != nil {
+		semanticQuery := fmt.Sprintf("Translate %s shard output into actionable summary", normalizeShardType(shardType))
+		cc := prompt.NewCompilationContext().
+			WithOperationalMode("/active").
+			WithIntent("/translate", "").
+			WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
+			WithTokenBudget(12000, 2000).
+			WithSemanticQuery(semanticQuery, 8)
+
+		if res, err := m.jitCompiler.Compile(ctx, cc); err == nil && res != nil && strings.TrimSpace(res.Prompt) != "" {
+			return res.Prompt, userPrompt
+		}
+	}
+
+	fallbackPrompt := fmt.Sprintf(`%s
+
+%s`, campaign.AnalysisLogic, userPrompt)
+	return stevenMoorePersona, fallbackPrompt
+}
+
+func (m Model) formatInterpretedResult(ctx context.Context, input, shardType, task, result, warning string) string {
+	systemPrompt, userPrompt := m.buildShardInterpretationPrompt(ctx, input, shardType, task, result)
+	interpResp, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+
+	interpretation := interpResp
+	if err != nil {
+		interpretation = fmt.Sprintf("Unable to interpret shard output automatically (%v). Raw output below.", err)
+	} else {
+		processor := articulation.NewResponseProcessor()
+		if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
+			interpretation = processed.Surface
+		}
+	}
+
+	warning = strings.TrimSpace(warning)
+	if warning != "" {
+		interpretation = fmt.Sprintf("%s\n\n%s", interpretation, warning)
+	}
+
+	return fmt.Sprintf("%s\n\n<details><summary>Raw Output</summary>\n\n%s\n\n</details>", interpretation, result)
+}
+
+func parseExecutionResults(facts []core.Fact) []systemExecutionResult {
+	results := make([]systemExecutionResult, 0, len(facts))
+	for _, fact := range facts {
+		if len(fact.Args) < 5 {
+			continue
+		}
+		result := systemExecutionResult{
+			ActionID:   fmt.Sprintf("%v", fact.Args[0]),
+			ActionType: fmt.Sprintf("%v", fact.Args[1]),
+			Target:     fmt.Sprintf("%v", fact.Args[2]),
+			Success:    parseBool(fact.Args[3]),
+			Output:     fmt.Sprintf("%v", fact.Args[4]),
+		}
+		if len(fact.Args) >= 6 {
+			if ts, ok := fact.Args[5].(int64); ok {
+				result.Timestamp = ts
+			} else if tsVal, ok := fact.Args[5].(float64); ok {
+				result.Timestamp = int64(tsVal)
+			}
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func parseBool(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true") || v == "1"
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
+func normalizeActionType(actionType string) string {
+	actionType = strings.TrimSpace(strings.TrimPrefix(actionType, "/"))
+	if actionType == "" {
+		return ""
+	}
+	return strings.ToLower(actionType)
+}
+
+func actionTypeToShardType(actionType, target string) string {
+	switch normalizeActionType(actionType) {
+	case "delegate_reviewer":
+		return "reviewer"
+	case "delegate_tester":
+		return "tester"
+	case "delegate_coder":
+		return "coder"
+	case "delegate_researcher":
+		return "researcher"
+	case "delegate_tool_generator":
+		return "tool_generator"
+	case "delegate":
+		return normalizeShardType(target)
+	default:
+		return ""
+	}
+}
+
+func parseDelegateFact(fact core.Fact) (string, string, bool) {
+	if len(fact.Args) < 3 {
+		return "", "", false
+	}
+	shardType := normalizeShardType(fmt.Sprintf("%v", fact.Args[0]))
+	task := fmt.Sprintf("%v", fact.Args[1])
+	status := strings.ToLower(fmt.Sprintf("%v", fact.Args[2]))
+	pending := status == "/pending" || status == "pending"
+	return shardType, strings.TrimSpace(task), pending
+}
+
+func normalizeShardType(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "/")
+	return strings.ToLower(raw)
+}
+
+func resolveDelegateTask(shardType string, delegateFacts []core.Fact, intent perception.Intent, workspace string, priorResult *ShardResult) string {
+	task := ""
+	for _, fact := range delegateFacts {
+		parsedShard, taskDesc, pending := parseDelegateFact(fact)
+		if !pending || parsedShard != shardType {
+			continue
+		}
+		task = taskDesc
+		break
+	}
+
+	task = strings.TrimSpace(task)
+	if task == "" {
+		task = strings.TrimSpace(intent.Target)
+	}
+
+	if task == "" {
+		return ""
+	}
+
+	if strings.Contains(task, ":") || strings.Contains(task, " ") {
+		return task
+	}
+
+	verb := defaultVerbForShard(shardType)
+	if verb == "" {
+		return task
+	}
+
+	return formatShardTaskWithContext(verb, task, intent.Constraint, workspace, priorResult)
+}
+
+func defaultVerbForShard(shardType string) string {
+	switch shardType {
+	case "reviewer":
+		return "/review"
+	case "tester":
+		return "/test"
+	case "researcher":
+		return "/research"
+	case "coder":
+		return "/fix"
+	default:
+		return ""
+	}
+}
+
 // collectSystemSummary waits briefly for newly derived routing/execution facts and formats them.
 func (m Model) collectSystemSummary(ctx context.Context, baseRouting, baseExec int) string {
 	if m.kernel == nil {
@@ -1603,7 +1933,7 @@ func (m Model) appendSystemSummary(response, summary string) string {
 }
 
 // executeMultiStepTask runs multiple task steps in sequence
-func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Intent, steps []TaskStep) tea.Cmd {
+func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Intent, rawInput string, steps []TaskStep) tea.Cmd {
 	return func() tea.Msg {
 		var results []string
 		var stepResults = make(map[int]string) // Store results for dependency checking
@@ -1649,7 +1979,12 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				// Store result for dependencies
 				stepResults[i] = result
 
-				results = append(results, fmt.Sprintf("**Status**: ✅ Complete\n```\n%s\n```\n", result))
+				formattedResult := result
+				if normalizeShardType(step.ShardType) == "reviewer" || normalizeShardType(step.ShardType) == "tester" {
+					formattedResult = m.formatInterpretedResult(ctx, rawInput, step.ShardType, step.Task, result, "")
+				}
+
+				results = append(results, fmt.Sprintf("**Status**: ✅ Complete\n```\n%s\n```\n", formattedResult))
 			} else {
 				results = append(results, "**Status**: ⚠️ No shard handler\n")
 			}
