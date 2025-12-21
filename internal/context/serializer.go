@@ -21,6 +21,10 @@ type FactSerializer struct {
 	includeComments  bool
 	maxLineLength    int
 	groupByPredicate bool
+
+	// Corpus-based serialization order (loaded from predicate_corpus.db)
+	// Takes precedence over the hardcoded predicateSortOrder() function
+	corpusOrder map[string]int
 }
 
 // NewFactSerializer creates a new serializer with default options.
@@ -42,6 +46,39 @@ func (fs *FactSerializer) WithComments(include bool) *FactSerializer {
 func (fs *FactSerializer) WithGrouping(group bool) *FactSerializer {
 	fs.groupByPredicate = group
 	return fs
+}
+
+// SetCorpusOrder sets the serialization order from corpus priorities.
+// This takes precedence over the hardcoded predicateSortOrder() function.
+func (fs *FactSerializer) SetCorpusOrder(order map[string]int) *FactSerializer {
+	fs.corpusOrder = order
+	return fs
+}
+
+// LoadSerializationOrderFromCorpus loads serialization order from a PredicateCorpus.
+// Returns the serializer for chaining.
+func (fs *FactSerializer) LoadSerializationOrderFromCorpus(corpus *core.PredicateCorpus) *FactSerializer {
+	if corpus == nil {
+		return fs
+	}
+	order, err := corpus.GetSerializationOrder()
+	if err != nil {
+		// Silently fall back to hardcoded order
+		return fs
+	}
+	fs.corpusOrder = order
+	return fs
+}
+
+// getSortOrder returns the sort order for a predicate.
+// Checks corpus order first, then falls back to hardcoded predicateSortOrder().
+func (fs *FactSerializer) getSortOrder(pred string) int {
+	if fs.corpusOrder != nil {
+		if order, ok := fs.corpusOrder[pred]; ok {
+			return order
+		}
+	}
+	return predicateSortOrder(pred)
 }
 
 // SerializeFacts converts a slice of facts to Mangle notation.
@@ -80,8 +117,9 @@ func (fs *FactSerializer) serializeGrouped(facts []core.Fact) string {
 	}
 
 	// Sort predicates by importance (based on predicate priority order)
+	// Uses corpus-based order if available, otherwise hardcoded fallback
 	sort.SliceStable(predicateOrder, func(i, j int) bool {
-		return predicateSortOrder(predicateOrder[i]) < predicateSortOrder(predicateOrder[j])
+		return fs.getSortOrder(predicateOrder[i]) < fs.getSortOrder(predicateOrder[j])
 	})
 
 	var sb strings.Builder
@@ -408,8 +446,12 @@ func formatArg(arg interface{}) string {
 	}
 }
 
-// predicateSortOrder returns a sort order for predicates.
+// predicateSortOrder returns a hardcoded sort order for predicates.
 // Lower numbers appear first.
+//
+// DEPRECATED: This is the fallback when corpus order is not available.
+// Prefer using FactSerializer.LoadSerializationOrderFromCorpus() which
+// loads order from predicate_corpus.db for a single source of truth.
 func predicateSortOrder(pred string) int {
 	order := map[string]int{
 		"user_intent":      1,

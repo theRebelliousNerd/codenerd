@@ -25,6 +25,7 @@ import (
 // SchemaValidator validates that rules only use declared predicates.
 type SchemaValidator struct {
 	declaredPredicates map[string]bool
+	predicateArities   map[string]int // Tracks expected arity for each predicate
 	schemasText        string
 	learnedText        string
 }
@@ -33,6 +34,7 @@ type SchemaValidator struct {
 func NewSchemaValidator(schemasText, learnedText string) *SchemaValidator {
 	return &SchemaValidator{
 		declaredPredicates: make(map[string]bool),
+		predicateArities:   make(map[string]int),
 		schemasText:        schemasText,
 		learnedText:        learnedText,
 	}
@@ -59,15 +61,26 @@ func (sv *SchemaValidator) LoadDeclaredPredicates() error {
 
 // extractDeclsFromText parses text and extracts all predicates from Decl statements.
 func (sv *SchemaValidator) extractDeclsFromText(text string) error {
-	// Use regex to extract Decl statements (simpler than full parse)
-	// Pattern: Decl predicate_name(args...)
-	declPattern := regexp.MustCompile(`(?m)^Decl\s+([a-z_][a-z0-9_]*)\s*\(`)
+	// Use regex to extract Decl statements with full argument list
+	// Pattern: Decl predicate_name(args...).
+	declPattern := regexp.MustCompile(`(?m)^Decl\s+([a-z_][a-z0-9_]*)\s*\(([^)]*)\)`)
 	matches := declPattern.FindAllStringSubmatch(text, -1)
 
 	for _, match := range matches {
 		if len(match) > 1 {
 			predicate := match[1]
 			sv.declaredPredicates[predicate] = true
+
+			// Count arguments for arity validation
+			if len(match) > 2 {
+				argsStr := strings.TrimSpace(match[2])
+				if argsStr == "" {
+					sv.predicateArities[predicate] = 0
+				} else {
+					// Count commas + 1 = number of args
+					sv.predicateArities[predicate] = strings.Count(argsStr, ",") + 1
+				}
+			}
 		}
 	}
 
@@ -266,4 +279,33 @@ func (sv *SchemaValidator) IsDeclared(predicate string) bool {
 // GetDeclaredPredicates returns all declared predicate names.
 func (sv *SchemaValidator) GetDeclaredPredicates() []string {
 	return sv.getAvailablePredicates()
+}
+
+// GetArity returns the expected arity for a predicate, or -1 if unknown.
+func (sv *SchemaValidator) GetArity(predicate string) int {
+	if arity, ok := sv.predicateArities[predicate]; ok {
+		return arity
+	}
+	return -1
+}
+
+// CheckArity validates that a predicate is called with the correct number of arguments.
+// Returns nil if arity matches or is unknown, error otherwise.
+func (sv *SchemaValidator) CheckArity(predicate string, actualArity int) error {
+	expectedArity := sv.GetArity(predicate)
+	if expectedArity < 0 {
+		// Unknown arity - skip check
+		return nil
+	}
+	if expectedArity != actualArity {
+		return fmt.Errorf("arity mismatch for %s: expected %d arguments, got %d",
+			predicate, expectedArity, actualArity)
+	}
+	return nil
+}
+
+// SetPredicateArity sets the expected arity for a predicate.
+// This can be used to load arities from corpus or other sources.
+func (sv *SchemaValidator) SetPredicateArity(predicate string, arity int) {
+	sv.predicateArities[predicate] = arity
 }

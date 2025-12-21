@@ -473,6 +473,10 @@ Decl safety_violation(ViolationID, Pattern, ActionType, Timestamp).
 Decl world_model_stale(File).
 Decl file_in_project(File).
 Decl symbol_reachable(From, To).
+# Priority: 70
+Decl symbol_reachable_bounded(From, To, MaxDepth).
+# Priority: 70
+Decl symbol_reachable_safe(From, To).
 
 # Routing derived predicates
 Decl routing_table(ActionType, Tool, RiskLevel).

@@ -132,12 +132,31 @@ file_in_project(File) :-
     file_topology(File, _, _, _, _).
 
 # Symbol graph connectivity (uses dependency_link for edges)
+# WARNING: This unbounded version can loop forever if dependency_link has cycles.
+# Use symbol_reachable_bounded/3 with explicit depth limit for safety.
 symbol_reachable(From, To) :-
     dependency_link(From, To, _).
 
 symbol_reachable(From, To) :-
     dependency_link(From, Mid, _),
     symbol_reachable(Mid, To).
+
+# Depth-bounded variant to prevent infinite recursion in cyclic graphs.
+# MaxDepth should typically be 10-20 for most codebases.
+symbol_reachable_bounded(From, To, MaxDepth) :-
+    MaxDepth > 0,
+    dependency_link(From, To, _).
+
+symbol_reachable_bounded(From, To, MaxDepth) :-
+    MaxDepth > 0,
+    dependency_link(From, Mid, _),
+    NextDepth = fn:minus(MaxDepth, 1),
+    symbol_reachable_bounded(Mid, To, NextDepth).
+
+# Convenience predicate with default depth limit of 15.
+# Safe to use in place of symbol_reachable.
+symbol_reachable_safe(From, To) :-
+    symbol_reachable_bounded(From, To, 15).
 
 # Routing Table (Tactile Router)
 

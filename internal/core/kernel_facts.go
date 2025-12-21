@@ -297,7 +297,11 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 	}
 
 	if retractedCount == 0 {
-		logging.KernelDebug("RetractFact: no matching facts found (predicate=%s firstArg=%v)", fact.Predicate, fact.Args[0])
+		firstArg := interface{}(nil)
+		if len(fact.Args) > 0 {
+			firstArg = fact.Args[0]
+		}
+		logging.KernelDebug("RetractFact: no matching facts found (predicate=%s firstArg=%v)", fact.Predicate, firstArg)
 		return nil
 	}
 

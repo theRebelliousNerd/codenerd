@@ -500,3 +500,77 @@ func (pc *PredicateCorpus) FormatPredicateSignature(name string, detailed bool) 
 	}
 	return fmt.Sprintf("%s(%s)", name, strings.Join(argStrs, ", ")), nil
 }
+
+// GetPriorities returns a map of predicate name to activation priority.
+// This is used by ActivationEngine for spreading activation scoring.
+// Higher priority = more important for context selection (0-100 scale).
+func (pc *PredicateCorpus) GetPriorities() (map[string]int, error) {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	rows, err := pc.db.Query(`
+		SELECT name, activation_priority
+		FROM predicates
+		WHERE activation_priority IS NOT NULL
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	priorities := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var priority int
+		if err := rows.Scan(&name, &priority); err != nil {
+			return nil, err
+		}
+		priorities[name] = priority
+	}
+	return priorities, nil
+}
+
+// GetSerializationOrder returns a map of predicate name to serialization order.
+// This is used by FactSerializer to order predicates in output.
+// Lower order = earlier in output (1=first).
+func (pc *PredicateCorpus) GetSerializationOrder() (map[string]int, error) {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	rows, err := pc.db.Query(`
+		SELECT name, serialization_order
+		FROM predicates
+		WHERE serialization_order IS NOT NULL
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	order := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var ord int
+		if err := rows.Scan(&name, &ord); err != nil {
+			return nil, err
+		}
+		order[name] = ord
+	}
+	return order, nil
+}
+
+// GetPriority returns the activation priority for a single predicate.
+// Returns default (50) if predicate not found.
+func (pc *PredicateCorpus) GetPriority(name string) int {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	var priority int
+	err := pc.db.QueryRow(`
+		SELECT activation_priority FROM predicates WHERE name = ?
+	`, name).Scan(&priority)
+	if err != nil {
+		return 50 // Default priority
+	}
+	return priority
+}
