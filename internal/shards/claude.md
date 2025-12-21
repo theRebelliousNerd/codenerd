@@ -15,15 +15,24 @@ ShardAgents are specialized LLM-based agents that can be spawned to handle speci
 | Type 3 | Persistent | LLM-created, survives sessions |
 | Type 4 | User-Defined | Custom specialists |
 
-## File Structure
+## File Index
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `researcher.go` | ~2000 | ResearcherShard - Documentation research, codebase exploration |
-| `reviewer.go` | ~1500 | ReviewerShard - Code review, security scanning |
-| `research_tools.go` | ~1400 | Research tooling, web fetching, knowledge extraction |
-| `tester.go` | ~1300 | TesterShard - Test generation and execution |
-| `coder.go` | ~1000 | CoderShard - Code generation, refactoring |
+| File | Description |
+|------|-------------|
+| `registration.go` | Provides `RegisterAllShards()` and `RegistryContext` for shard dependency injection. Solves the "hollow shard" problem by ensuring factories have kernel and LLM at instantiation. |
+| `requirements_interrogator.go` | Socratic shard for early-phase clarification before campaigns. Exports `RequirementsInterrogatorShard` that generates clarifying questions for ambiguous tasks. |
+
+### Subdirectory Shards
+
+| Subdirectory | Purpose |
+|--------------|---------|
+| `coder/` | CoderShard - Code generation, refactoring, bug fixing with transaction rollback |
+| `nemesis/` | NemesisShard - Adversarial patch analysis, attack generation, armory persistence |
+| `researcher/` | ResearcherShard - Documentation research, web fetching, knowledge atom extraction |
+| `reviewer/` | ReviewerShard - Code review, security scanning, hypothesis verification |
+| `system/` | System shards - Constitution gate, executive policy, router, legislator, world model |
+| `tester/` | TesterShard - Test generation, execution, coverage analysis, TDD loop support |
+| `tool_generator/` | ToolGenerator - Ouroboros-driven tool generation from capability gaps |
 
 ## Key Types
 
