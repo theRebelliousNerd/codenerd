@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"codenerd/internal/articulation"
@@ -121,6 +122,12 @@ func (l *LegislatorShard) Execute(ctx context.Context, task string) (string, err
 		return "", err
 	}
 	logging.SystemShardsDebug("[Legislator] Compiled rule: %s", truncateForLog(rule, 200))
+
+	// Fast stratification pre-check before expensive sandbox validation (audit item 5.2)
+	if err := checkStratificationFast(rule); err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[Legislator] Fast stratification check failed: %v", err)
+		return fmt.Sprintf("Rule rejected (stratification): %v", err), nil
+	}
 
 	court := core.NewRuleCourt(l.Kernel)
 	if err := court.RatifyRule(rule); err != nil {
@@ -418,3 +425,49 @@ Before emitting the rule, verify:
 2. Only declared predicates are used
 3. Rule ends with period
 4. No prose or explanation included`
+
+// =============================================================================
+// STRATIFICATION PRE-CHECK
+// =============================================================================
+
+// Patterns for fast stratification pre-check
+var (
+	ruleHeadPattern   = regexp.MustCompile(`^([a-z_][a-z0-9_]*)\s*\(`)
+	negatedBodyPattern = regexp.MustCompile(`!\s*([a-z_][a-z0-9_]*)\s*\(`)
+)
+
+// checkStratificationFast performs a lightweight check for obvious stratification violations
+// before the expensive sandbox validation. This catches direct self-negation patterns like:
+//   bad(X) :- !bad(X).
+//
+// More complex cycles (A -> B -> !A) are caught by the full sandbox evaluation.
+func checkStratificationFast(rule string) error {
+	rule = strings.TrimSpace(rule)
+	if rule == "" {
+		return nil
+	}
+
+	// Extract head predicate name
+	headMatch := ruleHeadPattern.FindStringSubmatch(rule)
+	if headMatch == nil {
+		return nil // Not a standard rule format, let sandbox handle it
+	}
+	headPred := headMatch[1]
+
+	// Find the rule body (after :-)
+	parts := strings.SplitN(rule, ":-", 2)
+	if len(parts) != 2 {
+		return nil // Fact, not a rule
+	}
+	body := parts[1]
+
+	// Check if head predicate appears negated in body (direct self-negation)
+	negatedMatches := negatedBodyPattern.FindAllStringSubmatch(body, -1)
+	for _, match := range negatedMatches {
+		if len(match) > 1 && match[1] == headPred {
+			return fmt.Errorf("direct self-negation: %s appears negated in its own body", headPred)
+		}
+	}
+
+	return nil
+}

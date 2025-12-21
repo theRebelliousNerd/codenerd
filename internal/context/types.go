@@ -32,7 +32,10 @@ type CompressorConfig struct {
 	TargetCompressionRatio float64 // Target ratio after compression
 	ActivationThreshold    float64 // Minimum activation score to include
 
-	// Predicate Priorities (higher = more important)
+	// PredicatePriorities contains hardcoded predicate priorities.
+	// DEPRECATED: Use predicate_corpus.db as the Single Source of Truth (SSOT).
+	// The corpus is loaded via ActivationEngine.LoadPrioritiesFromCorpus().
+	// This map is retained only as a fallback when corpus is unavailable.
 	PredicatePriorities map[string]int
 }
 
@@ -54,7 +57,9 @@ func DefaultConfig() CompressorConfig {
 		TargetCompressionRatio: 100.0,
 		ActivationThreshold:    30.0, // Matches policy.mg: Score > 30
 
-		// Predicate priorities (matches policy.mg spreading activation)
+		// DEPRECATED: These hardcoded priorities are fallback only.
+		// Use predicate_corpus.db via ActivationEngine.LoadPrioritiesFromCorpus().
+		// Values here match policy.mg spreading activation for backwards compatibility.
 		PredicatePriorities: map[string]int{
 			// Core intent & focus
 			"user_intent":           100,

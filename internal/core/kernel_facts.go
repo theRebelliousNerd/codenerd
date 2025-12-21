@@ -535,6 +535,8 @@ func coercePriorityAtomToNumber(v interface{}) interface{} {
 		case "lowest":
 			return int64(10)
 		default:
+			// Log unknown priority atoms for debugging (audit item 5.1)
+			logging.Kernel("WARN: unknown priority atom '%s', passing through unchanged", atom)
 			return v
 		}
 	default:

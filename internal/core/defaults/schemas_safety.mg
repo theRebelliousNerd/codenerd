@@ -10,12 +10,16 @@
 # =============================================================================
 
 # permitted(ActionType, Target, Payload) - derived predicate
+# Priority: 100
+# SerializationOrder: 6
 Decl permitted(ActionType, Target, Payload).
 
 # forbidden(ActionType) - derived: constitutionally blocked action
 Decl forbidden(ActionType).
 
 # dangerous_action(ActionType) - derived predicate
+# Priority: 100
+# SerializationOrder: 7
 Decl dangerous_action(ActionType).
 
 # admin_override(User)
