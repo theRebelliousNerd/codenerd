@@ -2,14 +2,13 @@
 
 A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic architecture.
 
-## PUSH TO GITHUB ALL THE TIME 
+## PUSH TO GITHUB ALL THE TIME
 
 ## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM. IT IS THE CENTRAL PARADIGM OF THE SYSTEM. JIT, PIGGYBACKING, CONTROL PACKETS, MANGLE, THAT IS THE NAME OF THE GAME!
 
-all prompt atoms from internal go into centralized category folders in C:\CodeProjects\codeNERD\internal\prompt\atoms
+All prompt atoms from internal go into: `C:\CodeProjects\codeNERD\internal\prompt\atoms`
 
-all prompt atoms from project specific shards go C:\CodeProjects\codeNERD\.nerd\agents in the agents subdirectory. 
-
+All prompt atoms from project-specific shards go to: `C:\CodeProjects\codeNERD\.nerd\agents`
 
 **Kernel:** Google Mangle (Datalog) | **Runtime:** Go | **Philosophy:** Logic determines Reality; the Model merely describes it.
 
@@ -17,7 +16,9 @@ all prompt atoms from project specific shards go C:\CodeProjects\codeNERD\.nerd\
 > **Build Instruction for Vector DB Support**
 > To enable `sqlite-vec` mappings, you MUST use the following build command:
 >
->rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null; cd c:/ CodeProjects/codeNERD && CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd 2>&1 | grep -v "warning:" | grep -v note:
+> ```bash
+> rm c:/CodeProjects/codeNERD/nerd.exe 2>/dev/null; cd c:/CodeProjects/codeNERD && CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd 2>&1 | grep -v "warning:" | grep -v note:
+> ```
 
 ## Vision
 
@@ -34,335 +35,445 @@ codeNERD inverts the traditional agent hierarchy:
 ## Project Structure
 
 ```text
-cmd/nerd/           # CLI entrypoint
-internal/
-├── core/           # Kernel, VirtualStore, ShardManager
-├── perception/     # NL → Mangle atom transduction
-├── articulation/   # Mangle atom → NL transduction
-├── autopoiesis/    # Self-modification: Ouroboros, Thunderdome, tool learning
-├── prompt/         # JIT Prompt Compiler, atoms, context-aware assembly
-├── shards/         # CoderShard, TesterShard, ReviewerShard, ResearcherShard, NemesisShard
-├── mangle/         # .gl schema and policy files
-├── store/          # Memory tiers (RAM, Vector, Graph, Cold)
-├── campaign/       # Multi-phase goal orchestration
-└── world/          # Filesystem, AST projection, multi-lang data flow, holographic context
-
-codeNERD Architecture and Philosophy Report
-
-  1. Architecture
-
-  codeNERD utilizes a Neuro-Symbolic architecture designed to bridge the gap between probabilistic Large Language Models (LLMs) and deterministic execution environments. It functions as a
-  high-assurance coding agent framework.
-
-   * Neuro-Symbolic & Creative-Executive Partnership:
-      The system fundamentally separates concerns into two distinct domains:
-       * Creative Center (LLM): Responsible for problem-solving, solution synthesis, and insight generation. It handles ambiguity and creativity.
-       * Executive (Logic/Mangle): Responsible for planning, memory, orchestration, and safety. It uses deterministic rules to harness the LLM's output.
-
-   * Perception Transducer:
-       * Implementation: internal/perception/transducer.go
-       * Function: Converts unstructured natural language user input into formal logic "atoms" (e.g., user_intent). It grounds fuzzy references to concrete file paths and symbols, calculating       
-         confidence scores to trigger clarification loops if necessary.
-
-   * Articulation Transducer:
-       * Implementation: internal/articulation/emitter.go
-       * Function: Converts internal logic states and atomic facts back into natural language for the user. It ensures that the user sees a helpful response while the system maintains precise       
-         logical state.
-
-   * World Model (Extensional Database - EDB):
-       * Implementation: internal/world/fs.go, internal/world/ast.go
-       * Function: Maintains the "Ground Truth" of the project. It projects the filesystem and abstract syntax trees (AST) into logic facts (e.g., file_topology, symbol_graph, dependency_link),     
-         allowing the logic engine to reason about the codebase structure and state.
-
-   * Executive Policy (Intensional Database - IDB):
-       * Implementation: internal/mangle/policy.gl, internal/core/kernel.go
-       * Function: A collection of deductive rules that derive the system's next_action. It encodes workflows like TDD repair loops (test_state -> next_action) and enforces safety constraints.      
-
-   * Virtual Predicates:
-       * Implementation: internal/core/virtual_store.go
-       * Function: Serves as a Foreign Function Interface (FFI) that abstracts external APIs (filesystem, shell, MCP tools) into logic predicates. When the logic engine queries a virtual predicate  
-         (e.g., file_content), it triggers the actual underlying system call.
-
-   * Shard Agents:
-       * Implementation: internal/shards/ (coder.go, tester.go, reviewer.go, researcher.go)
-       * Function: Ephemeral, specialized sub-kernels spawned for parallel task execution.
-           * Coder: Code generation and refactoring.
-           * Tester: Test execution and coverage analysis.
-           * Reviewer: Security scans and code review.
-           * Researcher: Knowledge gathering and documentation.
-
-   * Memory Tiers:
-       * RAM: Short-term working memory (FactStore) for the current session.
-       * Vector: Persistent semantic memory (SQLite + embeddings) for similar content retrieval.
-       * Cold: Permanent storage (cold_storage table) for learned preferences and patterns.
-
-   * Piggyback Protocol:
-       * Implementation: internal/articulation/emitter.go
-       * Function: A dual-channel communication protocol. The agent outputs a JSON object containing a visible surface_response for the user and a hidden control_packet for the kernel. This allows  
-         the agent to update its internal logical state (e.g., task_status) independently of the conversational text.
-
-  2. Core Philosophy
-
-   * Logic-First CLI:
-      Unlike chat-first agents, codeNERD is driven by a logic kernel. Text generation is a side effect of logical processes, not the primary driver. The state of the system is defined by facts, not 
-  conversation history.
-
-   * Separation of Concerns:
-      By decoupling creativity (LLM) from execution (Mangle Engine), codeNERD prevents the LLM from hallucinating actions or violating safety protocols. The LLM suggests; the Kernel executes.       
-
-   * Deterministic Safety:
-      Safety is not a prompt instruction but a logic rule. The "Constitutional Gate" (permitted(Action) :- safe_action(Action)) ensures that dangerous actions (like rm -rf) are blocked
-  deterministically unless specific override conditions are met.
-
-   * LLM as Creative Center:
-      The architecture acknowledges that LLMs excel at synthesis and pattern matching. codeNERD leverages this by feeding the LLM highly specific, logic-derived context ("Context Atoms") and asking 
-  it to solve specific problems, rather than asking it to manage the entire workflow.
-
-  3. Implementation Patterns
-
-   * Hallucination Firewall:
-       * Pattern: permitted(Action) check.
-       * Details: Every action proposed by the Transducer or a Shard is validated against the Mangle logic policy. If the logic cannot derive a permission rule for the action, it is strictly        
-         blocked, preventing the execution of hallucinated or malicious commands.
-
-   * Grammar-Constrained Decoding:
-       * Pattern: Schema validation and recovery.
-       * Details: Output from the LLM is forced to conform to strict Mangle syntax and JSON schemas. This ensures that the "thoughts" of the agent can be parsed and executed reliably by the
-         deterministic kernel.
-
-   * OODA Loop:
-       * Pattern: Observe -> Orient -> Decide -> Act.
-       * Details: The system cycles through:
-           1. Observe: Transducer converts input to atoms.
-           2. Orient: Spreading Activation selects relevant context facts based on logical dependencies.
-           3. Decide: Mangle Engine derives the single best next_action.
-           4. Act: Virtual Store executes the tool or command.
-
-   * Autopoiesis (Self-Learning):
-       * Pattern: Runtime feedback loops (internal/autopoiesis/).
-       * Details: The system tracks rejection and acceptance of its actions. Repeated rejections of a specific pattern trigger a preference_signal, which promotes a new rule to long-term memory. The
-         Ouroboros Loop detects missing capabilities and can trigger a generate_tool action to self-implement missing functionality.
-
-   * Campaign Orchestration:
-       * Pattern: Context Paging and Multi-Phase Goals (internal/campaign/).
-       * Details: For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current     
-         phase while keeping core facts and working memory available.
-
-
-
-  Adversarial Engineering Report: Nemesis & Panic Maker
-
-  codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely on passive testing, it actively attempts to break its own code using two distinct but related components: the Panic
-  Maker (tactical tool breaker) and the Nemesis Shard (strategic system breaker).
-
-  1. Panic Maker (The Tactical Breaker)
-   * Implementation: internal/autopoiesis/panic_maker.go
-   * Scope: Micro-level. Focused on breaking individual tools and functions during the generation phase (Ouroboros loop).
-   * Workflow:
-       1. Static Analysis: Analyzes the generated tool's source code to identify specific vulnerability patterns (e.g., pointer dereferences, channel operations).
-       2. Attack Vector Generation: Uses the LLM to craft targeted JSON inputs designed to trigger crashes.
-       3. Thunderdome: Executes the attacks against the tool. If the tool crashes (panics, OOMs, deadlocks), it is rejected and sent back for hardening.
-   * Attack Categories:
-       * nil_pointer: Exploits unchecked pointer dereferences.
-       * boundary: Max int, negative indices, empty slices.
-       * resource: Massive allocations to trigger OOM (Out of Memory).
-       * concurrency: Race conditions and channel deadlocks.
-       * format: Malformed JSON/XML inputs.
-  2. Nemesis Shard (The Strategic Adversary)
-   * Implementation: internal/shards/nemesis/nemesis.go
-   * Scope: System-level. A persistent "Type B" Specialist Shard that acts as a gatekeeper for code changes.
-   * Philosophy: "The Nemesis does not seek destruction - it seeks truth." It acts as a hostile sparring partner for the Coder Shard.
-   * Core Capabilities:
-       * The Gauntlet: A required pipeline phase. A patch is only "battle-hardened" if it survives the Nemesis.
-       * Attack Tool Generation: Unlike Panic Maker (which sends inputs), Nemesis writes and compiles full Go attack binaries (nemesis_attack_tool) to exploit logic flaws or race conditions in the
-         target system.
-       * Lazy Pattern Detection: actively scans for "lazy" coding patterns (e.g., return nil, generic error messages) that signal weakness.
-       * The Armory: (internal/shards/nemesis/armory.go) A persistent store where Nemesis remembers effective attack strategies, allowing it to get smarter over time.
-
-  Summary of Differences
-
-
-  ┌─────────────┬──────────────────────┬────────────────────────────┬────────────────────────────────────┐
-  │ Feature     │ Scope                │ Method                     │ Goal                               │
-  ├─────────────┼──────────────────────┼────────────────────────────┼────────────────────────────────────┤
-  │ Panic Maker │ Single Function/Tool │ Malformed Inputs (Fuzzing) │ Ensure tool robustness before use. │
-  │ Nemesis     │ Full System/Patch    │ Compilable Attack Programs │ Reject weak architecture & logic.  │
-  └─────────────┴──────────────────────┴────────────────────────────┴────────────────────────────────────┘
-
-
-✦ Thunderdome: The Adversarial Battleground
-
-  Thunderdome is the conceptual and operational environment within codeNERD where adversarial attacks are executed against generated code and submitted patches. It serves as the ultimate proving    
-  ground for code resilience, feeding back results that drive the autopoietic self-improvement loops.
-
-  Role and Functionality
-
-   * Adversarial Testing Environment: Thunderdome is where the offensive capabilities of the PanicMaker and the Nemesis Shard are unleashed.
-   * Code Hardening: Its primary purpose is to expose weaknesses (panics, deadlocks, OOMs, logic flaws) in code and patches, thereby driving their regeneration and improvement. Code that survives   
-     Thunderdome is considered "battle-hardened."
-   * Feedback Loop: The outcomes from Thunderdome (whether code "survived" or was "defeated") are crucial feedback for the ToolGenerator (when PanicMaker is involved) and for the overall patch      
-     review process (when Nemesis is involved), dictating whether code needs further refinement or can proceed.
-
-  Integration
-
-   * Panic Maker: Attacks generated by the PanicMaker (adversarial inputs designed to break individual tools) are run within the Thunderdome context. The results (THUNDERDOME RESULT: SURVIVED or
-     THUNDERDOME RESULT: DEFEATED) directly inform the tool generation and regeneration process.
-   * Nemesis Shard: The Nemesis Shard orchestrates its comprehensive adversarial analysis, often referred to as "The Gauntlet," within the conceptual framework of Thunderdome. This involves
-     deploying and executing Go attack binaries against a target patch to find systemic vulnerabilities.
-
-  Key Aspects
-
-   * Outcome-Oriented: Thunderdome is not just about running tests; it's about definitively determining if the code can withstand targeted attacks.
-   * Deterministic Feedback: It provides clear, actionable results that the logical kernel can process, ensuring that the system learns from its vulnerabilities.
-   * Foundational to Autopoiesis: The continuous cycle of attack and defense within Thunderdome is fundamental to codeNERD's self-learning and self-improving capabilities.
-
-> are there any other features like:
-  - Contextual awareness
-  - Dynamic adaptation
-  - Multi-modal input
-  - Real-time feedback
-  - Advanced analytics
-  - Cross-platform sync
-  - Customizable workflows
-  - Predictive suggestions
-  - Security enhancements
-  - Performance optimization
-
-  
-✦ Contextual Awareness
-
-  codeNERD exhibits a highly advanced and multi-layered approach to contextual awareness, a cornerstone of its neuro-symbolic architecture. It moves beyond simple chat history to a dynamic,
-  logic-driven context management system.
-
-   * `CompilationContext` (internal/prompt/context.go): This central structure encapsulates up to 10 distinct contextual dimensions, including:
-       * Operational Mode: (e.g., /debugging, /dream)
-       * Campaign Phase: For multi-phase goal management.
-       * Shard Type: (e.g., /coder, /reviewer)
-       * Language & Framework: (e.g., /go, /bubbletea)
-       * Intent: User's current verb and target.
-       * World States: Real-time conditions like failing tests, active diagnostics, security issues, new files, and code churn.
-       * Token Budget: Managed dynamically to optimize LLM interactions.
-      This CompilationContext is critical for JIT Prompt Compilation, ensuring that only the most relevant "prompt atoms" are selected for LLM injection.
-
-   * `SessionContext` (internal/types/types.go, internal/core/shard_manager.go): Implementing a "Blackboard Pattern," the SessionContext acts as a shared working memory across different shards and
-     turns. It provides a comprehensive snapshot of the current operational state, including:
-       * Compressed History: Semantically condensed past interactions.
-       * Current Diagnostics & Test State: Immediate feedback on code health.
-       * Active Files, Symbols, and Dependencies: A view into the code being worked on.
-       * Git Context: Branch, modified files, recent commits for historical awareness ("Chesterton's Fence").
-       * Campaign Context: Details of active campaigns, phases, and goals.
-       * Prior Shard Outputs: Results from other shards to enable cross-shard collaboration.
-       * Knowledge Atoms & Specialist Hints: Retrieved relevant knowledge.
-       * Allowed/Blocked Actions & Safety Warnings: Enforced constitutional guards.
-
-   * Memory Tiers: codeNERD utilizes a tiered memory system:
-       * RAM (FactStore): The kernel's immediate working memory for the current session.
-       * Vector Store: Used for semantic retrieval, particularly in prompt atom selection and research.
-       * Knowledge Graph: A persistent, relational store of facts, symbols, and relationships within the codebase, crucial for logical reasoning and long-term memory.
-       * Cold Storage: For permanent learned patterns and preferences.
-
-   * Spreading Activation (internal/context/activation.go, internal/core/defaults/policy.mg): This is a core mechanism for Logical Context Selection, replacing traditional vector-based RAG. It
-     operates on the Mangle knowledge graph, dynamically identifying and retrieving facts structurally relevant to the current user intent and system state. Key aspects include:
-       * Context-Directed Spreading Activation (CDSA): Dynamically adjusts activation flow based on logical rules (e.g., prioritizing dependency links in a "security" context).
-       * Activation Scores: Facts are assigned scores based on recency, relevance, dependency, and campaign/issue context, ensuring that only high-priority information enters the LLM context window.
-
-   * Context Paging & Compression (internal/campaign/context_pager.go, internal/context/compressor.go):
-       * Context Paging: Manages the context window during long-running campaigns by activating context for the current phase, compressing completed phase contexts, and prefetching for upcoming
-         tasks.
-       * Semantic Compression: The Compressor achieves "Infinite Context" by transforming verbose conversational history into concise, logical Mangle facts. This dramatically reduces token usage,
-         allowing for extended, multi-turn interactions without LLM context window exhaustion.
-
-   * `context.Context` (Go Standard Library): Go's native context.Context is ubiquitous throughout the codebase, providing robust support for:
-       * Cancellation: Propagating cancellation signals across goroutines and operations.
-       * Timeouts: Enforcing execution limits on various tasks.
-       * Request-Scoped Values: Passing metadata throughout a request's lifecycle.
-
-   * Context7 (internal/shards/researcher/tools.go): An integrated research tool specifically designed to fetch curated, LLM-optimized documentation for libraries and frameworks, enriching the
-     contextual knowledge available to the agent.
-
-  In summary, codeNERD's contextual awareness is deeply integrated into its architecture, ensuring that the agent always operates with a precise, relevant, and budget-conscious understanding of its
-  environment, tasks, and history.
-
-✦ Dynamic Adaptation is a foundational and deeply integrated feature within codeNERD, primarily implemented through its Autopoiesis (self-creation) system.
-  This goes beyond simple learning to enable the agent to self-modify and evolve its capabilities based on experience.
-
-  Dynamic Adaptation
-
-  codeNERD’s dynamic adaptation is primarily driven by its Autopoiesis system, which allows the agent to learn from its interactions, failures, and successes, and to adapt its behavior and even its
-  own tools over time.
-
-   * Autopoiesis Orchestrator (internal/autopoiesis/autopoiesis.go): This central component coordinates all self-modification capabilities. It monitors the agent's performance, detects needs for new
-     tools or rule adjustments, and manages the entire learning lifecycle.
-
-   * Self-Learning from Experience:
-       * LearningStore (internal/store/learning.go): This dedicated persistence layer records successful and failed patterns across sessions for each shard. Learnings are stored in SQLite databases
-         per shard type.
-       * Feedback & Learning System (internal/autopoiesis/feedback.go): This closes the autopoiesis loop by evaluating tool quality, recording patterns of success and failure, and using this
-         feedback to refine existing tools or generate new ones.
-       * Rejection/Acceptance Tracking (internal/shards/coder/autopoiesis.go, internal/shards/tester/autopoiesis.go): Individual shards track the outcomes of their actions. For instance, the Coder
-         shard tracks rejected code edits, and the Tester shard tracks test failures and successes. Recurring patterns (e.g., 3 rejections of a specific code change) trigger learning.
-       * Decay Confidence: The LearningStore implements a "forgetting" mechanism (DecayConfidence) where the confidence of old learnings reduces over time if they are not reinforced.
-
-   * Ouroboros Loop (internal/autopoiesis/ouroboros.go): This is codeNERD's self-correction and tool-generation engine. It's a transactional state machine that attempts to fulfill a ToolNeed (a
-     detected capability gap). The loop involves:
-       1. Specification: Defining the new tool's purpose and interface.
-       2. Generation: Producing the tool's code and tests.
-       3. Safety Check: Ensuring the generated code meets constitutional safety standards.
-       4. Thunderdome: Adversarial testing against the PanicMaker and Nemesis Shard to identify vulnerabilities.
-       5. Simulation: Testing the tool in a simulated environment (Dream Mode).
-       6. Compilation & Registration: Making the new tool available to the system.
-      This iterative process ensures that new capabilities are robust and validated before integration.
-
-   * Dream State Learning (internal/core/dream_learning.go): This is a multi-agent simulation mode (DreamMode) where the agent can explore hypothetical scenarios, consult with specialist shards, and
-     extract learnable insights without affecting the live operational state. User confirmation of these learnings then routes them to appropriate persistence stores.
-
-   * Dynamic Policy Adjustment:
-       * FeedbackLoop (internal/mangle/feedback/loop.go): This system uses Mangle logic and LLM interaction to propose and validate new policy rules based on observed behavior and system
-         performance. This allows the core policy to adapt dynamically.
-       * Legislator Shard (internal/shards/system/legislator.go): Can compile and incorporate new Mangle rules into the system's policy, enabling runtime adaptation of its executive functions.
-
-   * Adaptive Workflows:
-       * Campaign Replanning (internal/campaign/replan.go): Campaigns are long-running, multi-phase goals that can dynamically adapt their plans in response to failures, new requirements, or        
-         changing conditions. The "Replanning Engine" is an "Adaptive Controller" that takes corrective actions based on current status.
-       * Adaptive Batch Sizing (internal/shards/researcher/researcher.go): The Researcher shard can dynamically adjust the size of its research batches based on topic complexity and historical      
-         performance, optimizing its approach to knowledge gathering.
-
-  In essence, codeNERD is designed to be a continuously improving system, actively seeking out its own limitations, learning from every interaction, and dynamically adapting its capabilities and    
-  internal policies to become more effective over time.
-
-✦ The JIT (Just-In-Time) Prompt Compiler is a core component of codeNERD, replacing static system prompts with dynamically assembled ones. It represents a paradigm shift from fixed instructions to
-  fluid, context-aware prompt engineering.
-
-  JIT System Architecture
-
-   1. Atom-Based Architecture:
-       * System prompts are not stored as monolithic strings. Instead, they are broken down into thousands of atomic units called Prompt Atoms (stored in internal/prompt/atoms/ as YAML files).
-       * Each atom has metadata: id, category (e.g., identity, capability, context), content, and Contextual Selectors (rules for when to include it).
-
-   2. Compilation Process (internal/prompt/compiler.go):
-      When a shard (like CoderShard or ReviewerShard) needs to interact with an LLM, the JIT compiler executes the following pipeline:
-       * Context Gathering: Collects the current CompilationContext (Operational Mode, Campaign Phase, Shard Type, Language, Intent, World State, Token Budget).
-       * Skeleton Selection: Uses Mangle logic (e.g., jit_compiler.mg) to select mandatory atoms that define the shard's core identity and mission.
-       * Flesh Selection: Uses vector search and context matching to select optional, relevant atoms (e.g., specific framework documentation, project-specific domain knowledge, or recent error
-         patterns).
-       * Budgeting: Fits the selected atoms into the available token budget, prioritizing high-value information.
-       * Assembly: Concatenates the selected atoms into a coherent system prompt string.
-
-   3. Key Benefits:
-       * Infinite Effective Prompt Length: The system can draw from a corpus of millions of tokens but only sends the relevant ~20k tokens to the LLM for any given task.
-       * Contextual Specialization: A "Coder" shard working on a Python/Django project in a "Debugging" phase receives a drastically different prompt than one working on a Go/Mangle project in a
-         "Planning" phase.
-       * Dynamic Evolution: New atoms (learnings, new tool definitions) can be added to the corpus at runtime and immediately become available for future compilations.
-
-   4. Integration:
-       * Shard Integration: Shards use the PromptAssembler (backed by the JIT compiler) to generate their system prompts (AssembleSystemPrompt).
-       * Autopoiesis: The Autopoiesis system leverages JIT to inject learned patterns and tool usage instructions dynamically.
-       * Observability: The /jit command in the CLI allows users to inspect the last compiled prompt and view compilation statistics (atoms selected, tokens used, etc.).
-
-  In summary, the JIT Prompt Compiler acts as a dynamic "knowledge hypervisor," ensuring that the LLM is always primed with the exact instructions and context needed for the specific millisecond of 
-  execution, maximizing performance and minimizing hallucination.
-
+cmd/
+├── nerd/               # CLI entrypoint (67 Go files)
+│   ├── chat/           # TUI chat interface (Elm architecture)
+│   └── ui/             # UI components
+├── query-kb/           # Knowledge base query tool
+├── test-research/      # Research testing tool
+└── tools/              # Build tools (corpus_builder, mangle_check, etc.)
+
+internal/               # 30 packages, ~128K LOC
+├── core/               # Kernel, VirtualStore, ShardManager (modularized)
+├── perception/         # NL → Mangle atom transduction
+├── articulation/       # Mangle atom → NL transduction
+├── autopoiesis/        # Self-modification: Ouroboros, Thunderdome, tool learning
+├── prompt/             # JIT Prompt Compiler, atoms, context-aware assembly
+├── shards/             # Shard implementations (coder/, tester/, reviewer/, researcher/, nemesis/, system/, tool_generator/)
+├── mangle/             # .mg schema/policy files + feedback/, transpiler/
+├── store/              # Memory tiers (modularized into 10 files)
+├── campaign/           # Multi-phase goal orchestration (25+ files)
+├── world/              # Filesystem, AST projection, multi-lang data flow
+├── context/            # Spreading activation, semantic compression
+├── embedding/          # Vector database operations
+├── browser/            # Browser automation via Rod
+├── tactile/            # Motor cortex: shell execution, sandboxing, SWE-bench
+├── testing/            # Test infrastructure (context_harness/)
+├── transparency/       # Operation visibility layer
+├── ux/                 # User experience management
+├── config/             # Configuration management
+├── init/               # Workspace initialization
+├── logging/            # Structured logging (22 categories)
+├── types/              # Shared type definitions
+├── system/             # System shards and utilities
+├── usage/              # Usage tracking
+├── retrieval/          # Semantic retrieval
+├── regression/         # Regression testing
+├── build/              # Build environment management
+└── verification/       # Code verification
 ```
+
+## Architecture and Philosophy
+
+### 1. Architecture
+
+codeNERD utilizes a Neuro-Symbolic architecture designed to bridge the gap between probabilistic Large Language Models (LLMs) and deterministic execution environments. It functions as a high-assurance coding agent framework.
+
+**Neuro-Symbolic & Creative-Executive Partnership:**
+The system fundamentally separates concerns into two distinct domains:
+- **Creative Center (LLM):** Responsible for problem-solving, solution synthesis, and insight generation. It handles ambiguity and creativity.
+- **Executive (Logic/Mangle):** Responsible for planning, memory, orchestration, and safety. It uses deterministic rules to harness the LLM's output.
+
+**Perception Transducer:**
+- *Implementation:* `internal/perception/transducer.go`
+- *Function:* Converts unstructured natural language user input into formal logic "atoms" (e.g., user_intent). It grounds fuzzy references to concrete file paths and symbols, calculating confidence scores to trigger clarification loops if necessary.
+
+**Articulation Transducer:**
+- *Implementation:* `internal/articulation/emitter.go`
+- *Function:* Converts internal logic states and atomic facts back into natural language for the user. It ensures that the user sees a helpful response while the system maintains precise logical state.
+
+**World Model (Extensional Database - EDB):**
+- *Implementation:* `internal/world/fs.go`, `internal/world/ast.go`
+- *Function:* Maintains the "Ground Truth" of the project. It projects the filesystem and abstract syntax trees (AST) into logic facts (e.g., file_topology, symbol_graph, dependency_link), allowing the logic engine to reason about the codebase structure and state.
+
+**Executive Policy (Intensional Database - IDB):**
+- *Implementation:* `internal/mangle/policy.mg`, `internal/core/kernel.go`
+- *Function:* A collection of deductive rules that derive the system's next_action. It encodes workflows like TDD repair loops (test_state → next_action) and enforces safety constraints.
+
+**Virtual Predicates:**
+- *Implementation:* `internal/core/virtual_store.go`
+- *Function:* Serves as a Foreign Function Interface (FFI) that abstracts external APIs (filesystem, shell, MCP tools) into logic predicates. When the logic engine queries a virtual predicate (e.g., file_content), it triggers the actual underlying system call.
+
+**Shard Agents:**
+- *Implementation:* `internal/shards/` (coder.go, tester.go, reviewer.go, researcher.go)
+- *Function:* Ephemeral, specialized sub-kernels spawned for parallel task execution.
+  - **Coder:** Code generation and refactoring
+  - **Tester:** Test execution and coverage analysis
+  - **Reviewer:** Security scans and code review
+  - **Researcher:** Knowledge gathering and documentation
+
+**Memory Tiers:** See "Memory Tiers" table in Nomenclature section below.
+
+**Piggyback Protocol:**
+- *Implementation:* `internal/articulation/emitter.go`
+- *Function:* A dual-channel communication protocol. The agent outputs a JSON object containing a visible surface_response for the user and a hidden control_packet for the kernel. This allows the agent to update its internal logical state (e.g., task_status) independently of the conversational text.
+
+### 2. Core Philosophy
+
+**Logic-First CLI:**
+Unlike chat-first agents, codeNERD is driven by a logic kernel. Text generation is a side effect of logical processes, not the primary driver. The state of the system is defined by facts, not conversation history.
+
+**Separation of Concerns:**
+By decoupling creativity (LLM) from execution (Mangle Engine), codeNERD prevents the LLM from hallucinating actions or violating safety protocols. The LLM suggests; the Kernel executes.
+
+**Deterministic Safety:**
+Safety is not a prompt instruction but a logic rule. The "Constitutional Gate" (`permitted(Action) :- safe_action(Action)`) ensures that dangerous actions (like `rm -rf`) are blocked deterministically unless specific override conditions are met.
+
+**LLM as Creative Center:**
+The architecture acknowledges that LLMs excel at synthesis and pattern matching. codeNERD leverages this by feeding the LLM highly specific, logic-derived context ("Context Atoms") and asking it to solve specific problems, rather than asking it to manage the entire workflow.
+
+### 3. Implementation Patterns
+
+**Hallucination Firewall:**
+- *Pattern:* `permitted(Action)` check
+- *Details:* Every action proposed by the Transducer or a Shard is validated against the Mangle logic policy. If the logic cannot derive a permission rule for the action, it is strictly blocked, preventing the execution of hallucinated or malicious commands.
+
+**Grammar-Constrained Decoding:**
+- *Pattern:* Schema validation and recovery
+- *Details:* Output from the LLM is forced to conform to strict Mangle syntax and JSON schemas. This ensures that the "thoughts" of the agent can be parsed and executed reliably by the deterministic kernel.
+
+**OODA Loop:**
+- *Pattern:* Observe → Orient → Decide → Act
+- *Details:* The system cycles through:
+  1. **Observe:** Transducer converts input to atoms
+  2. **Orient:** Spreading Activation selects relevant context facts based on logical dependencies
+  3. **Decide:** Mangle Engine derives the single best next_action
+  4. **Act:** Virtual Store executes the tool or command
+
+**Autopoiesis (Self-Learning):**
+- *Pattern:* Runtime feedback loops (`internal/autopoiesis/`)
+- *Details:* The system tracks rejection and acceptance of its actions. Repeated rejections of a specific pattern trigger a preference_signal, which promotes a new rule to long-term memory. The Ouroboros Loop detects missing capabilities and can trigger a generate_tool action to self-implement missing functionality.
+
+**Campaign Orchestration:**
+- *Pattern:* Context Paging and Multi-Phase Goals (`internal/campaign/`)
+- *Details:* For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current phase while keeping core facts and working memory available.
+
+## Adversarial Engineering: Nemesis & Panic Maker
+
+codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely on passive testing, it actively attempts to break its own code using two distinct but related components: the Panic Maker (tactical tool breaker) and the Nemesis Shard (strategic system breaker).
+
+### Panic Maker (The Tactical Breaker)
+
+- *Implementation:* `internal/autopoiesis/panic_maker.go`
+- *Scope:* Micro-level. Focused on breaking individual tools and functions during the generation phase (Ouroboros loop).
+- *Workflow:*
+  1. **Static Analysis:** Analyzes the generated tool's source code to identify specific vulnerability patterns (e.g., pointer dereferences, channel operations)
+  2. **Attack Vector Generation:** Uses the LLM to craft targeted JSON inputs designed to trigger crashes
+  3. **Thunderdome:** Executes the attacks against the tool. If the tool crashes (panics, OOMs, deadlocks), it is rejected and sent back for hardening
+- *Attack Categories:*
+  - `nil_pointer`: Exploits unchecked pointer dereferences
+  - `boundary`: Max int, negative indices, empty slices
+  - `resource`: Massive allocations to trigger OOM
+  - `concurrency`: Race conditions and channel deadlocks
+  - `format`: Malformed JSON/XML inputs
+
+### Nemesis Shard (The Strategic Adversary)
+
+- *Implementation:* `internal/shards/nemesis/nemesis.go`
+- *Scope:* System-level. A persistent "Type B" Specialist Shard that acts as a gatekeeper for code changes.
+- *Philosophy:* "The Nemesis does not seek destruction - it seeks truth." It acts as a hostile sparring partner for the Coder Shard.
+- *Core Capabilities:*
+  - **The Gauntlet:** A required pipeline phase. A patch is only "battle-hardened" if it survives the Nemesis.
+  - **Attack Tool Generation:** Unlike Panic Maker (which sends inputs), Nemesis writes and compiles full Go attack binaries to exploit logic flaws or race conditions.
+  - **Lazy Pattern Detection:** Actively scans for "lazy" coding patterns (e.g., `return nil`, generic error messages) that signal weakness.
+  - **The Armory:** (`internal/shards/nemesis/armory.go`) A persistent store where Nemesis remembers effective attack strategies.
+
+### Comparison
+
+| Feature | Scope | Method | Goal |
+|---------|-------|--------|------|
+| Panic Maker | Single Function/Tool | Malformed Inputs (Fuzzing) | Ensure tool robustness before use |
+| Nemesis | Full System/Patch | Compilable Attack Programs | Reject weak architecture & logic |
+
+## Thunderdome: The Adversarial Battleground
+
+Thunderdome is the conceptual and operational environment within codeNERD where adversarial attacks are executed against generated code and submitted patches. It serves as the ultimate proving ground for code resilience, feeding back results that drive the autopoietic self-improvement loops.
+
+**Role and Functionality:**
+- **Adversarial Testing Environment:** Thunderdome is where the offensive capabilities of the PanicMaker and the Nemesis Shard are unleashed.
+- **Code Hardening:** Its primary purpose is to expose weaknesses (panics, deadlocks, OOMs, logic flaws) in code and patches, thereby driving their regeneration and improvement. Code that survives Thunderdome is considered "battle-hardened."
+- **Feedback Loop:** The outcomes from Thunderdome (whether code "survived" or was "defeated") are crucial feedback for the ToolGenerator and the overall patch review process.
+
+**Integration:**
+- **Panic Maker:** Attacks are run within the Thunderdome context. Results (`THUNDERDOME RESULT: SURVIVED` or `THUNDERDOME RESULT: DEFEATED`) directly inform the tool generation and regeneration process.
+- **Nemesis Shard:** Orchestrates its comprehensive adversarial analysis ("The Gauntlet") within Thunderdome, deploying and executing Go attack binaries against target patches.
+
+**Key Aspects:**
+- **Outcome-Oriented:** Definitively determining if code can withstand targeted attacks
+- **Deterministic Feedback:** Clear, actionable results that the logical kernel can process
+- **Foundational to Autopoiesis:** The continuous cycle of attack and defense is fundamental to codeNERD's self-learning capabilities
+
+## Contextual Awareness
+
+codeNERD exhibits a highly advanced and multi-layered approach to contextual awareness, a cornerstone of its neuro-symbolic architecture. It moves beyond simple chat history to a dynamic, logic-driven context management system.
+
+**CompilationContext** (`internal/prompt/context.go`): Encapsulates up to 10 distinct contextual dimensions:
+- Operational Mode (e.g., `/debugging`, `/dream`)
+- Campaign Phase (for multi-phase goal management)
+- Shard Type (e.g., `/coder`, `/reviewer`)
+- Language & Framework (e.g., `/go`, `/bubbletea`)
+- Intent (user's current verb and target)
+- World States (failing tests, active diagnostics, security issues, new files, code churn)
+- Token Budget (managed dynamically)
+
+This CompilationContext is critical for JIT Prompt Compilation, ensuring that only the most relevant "prompt atoms" are selected for LLM injection.
+
+**SessionContext** (`internal/types/types.go`, `internal/core/shard_manager.go`): Implements a "Blackboard Pattern" as shared working memory across shards and turns:
+- Compressed History (semantically condensed past interactions)
+- Current Diagnostics & Test State
+- Active Files, Symbols, and Dependencies
+- Git Context (branch, modified files, recent commits for "Chesterton's Fence")
+- Campaign Context
+- Prior Shard Outputs (cross-shard collaboration)
+- Knowledge Atoms & Specialist Hints
+- Allowed/Blocked Actions & Safety Warnings
+
+**Memory Tiers:** See "Memory Tiers" table in Nomenclature section (4-tier system: RAM, Vector, Graph, Cold).
+
+**Spreading Activation** (`internal/context/activation.go`, `internal/core/defaults/policy.mg`): Core mechanism for Logical Context Selection, replacing traditional vector-based RAG. Operates on the Mangle knowledge graph:
+- **Context-Directed Spreading Activation (CDSA):** Dynamically adjusts activation flow based on logical rules
+- **Activation Scores:** Facts are assigned scores based on recency, relevance, dependency, and campaign/issue context
+
+**Context Paging & Compression** (`internal/campaign/context_pager.go`, `internal/context/compressor.go`):
+- **Context Paging:** Manages the context window during long-running campaigns
+- **Semantic Compression:** Achieves "Infinite Context" by transforming verbose history into concise Mangle facts
+
+**context.Context** (Go Standard Library): Ubiquitous throughout the codebase for cancellation, timeouts, and request-scoped values.
+
+**Context7** (`internal/shards/researcher/tools.go`): Integrated research tool for fetching curated, LLM-optimized documentation for libraries and frameworks.
+
+## Context Test Harness
+
+A comprehensive testing framework for validating codeNERD's infinite context system.
+
+**Location:** `internal/testing/context_harness/`
+
+**Architecture:**
+- `harness.go` - Main orchestrator
+- `simulator.go` - Session simulator with checkpoint validation
+- `scenarios.go` - Pre-built test scenarios (4 scenarios, 50-100 turns each)
+- `metrics.go` - Metrics collection (compression, retrieval, performance)
+- `reporter.go` - Results reporting (console, JSON)
+
+**Observability Components:**
+- `activation_tracer.go` - Traces spreading activation through fact graph
+- `jit_tracer.go` - JIT prompt compilation tracing
+- `compression_viz.go` - Semantic compression visualization
+- `inspector.go` - Deep inspection tools
+- `integration.go` - Real codeNERD integration
+
+**Pre-Built Scenarios:**
+| Scenario | Turns | Tests |
+|----------|-------|-------|
+| Debugging Marathon | 50 | Long-term context retention, solution tracking |
+| Feature Implementation | 75 | Multi-phase context paging (plan → implement → test) |
+| Refactoring Campaign | 100 | Cross-file tracking, long-term stability |
+| Research + Build | 80 | Cross-phase knowledge retrieval |
+
+**Metrics:**
+- **Compression Ratio**: Target >5:1 (short), >8:1 (long sessions)
+- **Retrieval Precision/Recall/F1**: Spreading activation accuracy
+- **Performance**: Latency, peak memory
+- **Degradation**: Quality stability over 100+ turn sessions
+
+**Usage:**
+```bash
+nerd test-context --scenario debugging-marathon
+nerd test-context --all --format json > results.json
+```
+
+## Tactile: Motor Cortex
+
+The tactile package is the motor cortex of the neuro-symbolic architecture, providing the lowest-level execution layer for physical world interaction.
+
+**Location:** `internal/tactile/`
+
+**Architecture:**
+- **DirectExecutor**: Host execution via os/exec (no sandboxing)
+- **DockerExecutor**: Ephemeral container isolation
+- **PersistentDockerExecutor**: Stateful containers for SWE-bench workflows
+- **NamespaceExecutor**: Linux namespace isolation (PID/Net/Mount)
+- **CompositeExecutor**: Routes by sandbox mode
+
+**Sandbox Modes:**
+| Mode | Implementation | Use Case |
+|------|---------------|----------|
+| `none` | DirectExecutor | Trusted operations |
+| `docker` | DockerExecutor | Isolated execution |
+| `namespace` | NamespaceExecutor | Linux-only isolation |
+| `firejail` | FirejailExecutor | Lightweight sandboxing |
+
+**Audit Trail:** All executors emit Mangle facts:
+```datalog
+execution_started("session-123", "req-456", "go", 1703001234).
+execution_completed("req-456", /success, 0, 2345).
+file_written("/path/to/file.go", "abc123", "session-123", 1703001235).
+```
+
+**SWE-bench Integration:**
+- `python/` - Python environment management
+- `swebench/` - SWE-bench task orchestration with persistent containers
+
+## Transparency & UX Layers
+
+### Transparency (`internal/transparency/`)
+
+Operation visibility layer making internal operations visible to users on demand.
+
+**Components:**
+- **ShardObserver**: Real-time shard execution phase tracking
+- **SafetyReporter**: Explains constitutional gate blocks with remediation
+- **Explainer**: Human-readable explanations from Mangle derivation traces
+- **ErrorClassifier**: Categorizes errors (9 types) with remediation suggestions
+
+**Design Principles:** Opt-in, non-intrusive, lazy (expensive ops only when requested), informative.
+
+### UX (`internal/ux/`)
+
+User experience management with progressive disclosure.
+
+**User Journey States:**
+| State | Trigger | Guidance Level |
+|-------|---------|----------------|
+| New | First run | Full onboarding |
+| Onboarding | In wizard | Step-by-step |
+| Learning | First 10-20 sessions | Contextual hints |
+| Productive | 15+ sessions, <15% clarification | Minimal |
+| Power | 50+ sessions, <5% clarification | None |
+
+**Features:**
+- Existing users skip onboarding (migrate to "productive")
+- Commands revealed progressively as experience grows
+- Metrics tracking (sessions, commands, clarifications)
+
+## Modularization Patterns
+
+Large files have been modularized for maintainability. The parent file serves as a package marker pointing to component files.
+
+### Kernel Modularization (`internal/core/kernel.go` → 8 files)
+| File | Purpose |
+|------|---------|
+| `kernel_types.go` | Core type definitions (RealKernel, Fact) |
+| `kernel_init.go` | Constructor, Mangle engine boot |
+| `kernel_facts.go` | LoadFacts, Assert, Retract |
+| `kernel_query.go` | Query execution, pattern matching |
+| `kernel_eval.go` | Policy evaluation, rule execution |
+| `kernel_validation.go` | Schema validation, safety checks |
+| `kernel_policy.go` | Policy/schema loading |
+| `kernel_virtual.go` | Virtual predicate handling |
+
+### ShardManager Modularization (`internal/core/shard_manager.go` → 5 files)
+| File | Purpose |
+|------|---------|
+| `shard_manager_core.go` | ShardManager struct, core operations |
+| `shard_manager_spawn.go` | Shard spawning and execution |
+| `shard_manager_tools.go` | Intelligent tool routing |
+| `shard_manager_facts.go` | Fact conversion utilities |
+| `shard_manager_feedback.go` | Reviewer feedback interface |
+
+### LocalStore Modularization (`internal/store/local.go` → 10 files)
+| File | Purpose |
+|------|---------|
+| `local_core.go` | Core struct, SQLite initialization |
+| `local_vector.go` | Vector store (Shard B) |
+| `local_graph.go` | Knowledge graph (Shard C) |
+| `local_cold.go` | Cold storage/archival (Shard D) |
+| `local_session.go` | Session management |
+| `local_world.go` | World model cache |
+| `local_knowledge.go` | Knowledge atoms |
+| `local_prompt.go` | Prompt atoms for JIT |
+| `local_review.go` | Review findings |
+| `local_verification.go` | Verification records |
+
+## Documentation
+
+The codebase includes **46 CLAUDE.md files** providing AI-readable documentation with standardized File Index tables.
+
+**Coverage:**
+- Root `CLAUDE.md` - Architecture overview
+- `cmd/nerd/`, `cmd/nerd/chat/`, `cmd/nerd/ui/` - CLI documentation
+- All 30 `internal/` packages
+- Build tools in `cmd/tools/`
+- `.nerd/` workspace directory
+
+**File Index Format:**
+```markdown
+| File | Description |
+|------|-------------|
+| `kernel.go` | Package marker documenting kernel modularization... |
+| `kernel_init.go` | Constructor `NewRealKernel()` that boots... |
+```
+
+Each description includes: purpose, exported types/functions, key behaviors.
+
+## Dynamic Adaptation
+
+Dynamic Adaptation is a foundational feature implemented through codeNERD's Autopoiesis (self-creation) system. This goes beyond simple learning to enable the agent to self-modify and evolve its capabilities based on experience.
+
+**Autopoiesis Orchestrator** (`internal/autopoiesis/autopoiesis.go`): Coordinates all self-modification capabilities—monitoring performance, detecting needs for new tools or rule adjustments, and managing the learning lifecycle.
+
+**Self-Learning from Experience:**
+- **LearningStore** (`internal/store/learning.go`): Records successful and failed patterns across sessions per shard type
+- **Feedback & Learning System** (`internal/autopoiesis/feedback.go`): Closes the autopoiesis loop by evaluating tool quality and recording patterns
+- **Rejection/Acceptance Tracking** (`internal/shards/coder/autopoiesis.go`, `internal/shards/tester/autopoiesis.go`): Recurring patterns (e.g., 3 rejections) trigger learning
+- **Decay Confidence:** Old learnings reduce in confidence if not reinforced
+
+**Ouroboros Loop** (`internal/autopoiesis/ouroboros.go`): Self-correction and tool-generation engine:
+1. **Specification:** Defining the new tool's purpose and interface
+2. **Generation:** Producing the tool's code and tests
+3. **Safety Check:** Ensuring constitutional safety standards
+4. **Thunderdome:** Adversarial testing
+5. **Simulation:** Testing in Dream Mode
+6. **Compilation & Registration:** Making the new tool available
+
+**Dream State Learning** (`internal/core/dream_learning.go`): Multi-agent simulation mode where the agent explores hypothetical scenarios without affecting live state.
+
+**Dynamic Policy Adjustment:**
+- **FeedbackLoop** (`internal/mangle/feedback/loop.go`): Proposes and validates new policy rules
+- **Legislator Shard** (`internal/shards/system/legislator.go`): Compiles and incorporates new Mangle rules at runtime
+
+**Adaptive Workflows:**
+- **Campaign Replanning** (`internal/campaign/replan.go`): Dynamically adapts plans in response to failures or new requirements
+- **Adaptive Batch Sizing** (`internal/shards/researcher/researcher.go`): Adjusts research batch sizes based on complexity
+
+## JIT (Just-In-Time) Prompt Compiler
+
+The JIT Prompt Compiler is a core component replacing static system prompts with dynamically assembled ones. It represents a paradigm shift from fixed instructions to fluid, context-aware prompt engineering.
+
+### Atom-Based Architecture
+
+System prompts are broken down into thousands of atomic units called **Prompt Atoms** (stored in `internal/prompt/atoms/` as YAML files). Each atom has metadata: id, category (e.g., identity, capability, context), content, and Contextual Selectors (rules for when to include it).
+
+### Compilation Process (`internal/prompt/compiler.go`)
+
+When a shard needs to interact with an LLM, the JIT compiler executes:
+1. **Context Gathering:** Collects the current CompilationContext
+2. **Skeleton Selection:** Uses Mangle logic to select mandatory atoms defining core identity
+3. **Flesh Selection:** Uses vector search to select optional, relevant atoms
+4. **Budgeting:** Fits selected atoms into available token budget
+5. **Assembly:** Concatenates atoms into a coherent system prompt
+
+### Key Benefits
+
+- **Infinite Effective Prompt Length:** Draw from millions of tokens, send only relevant ~20k
+- **Contextual Specialization:** Python/Django debugging gets different prompt than Go/Mangle planning
+- **Dynamic Evolution:** New atoms available immediately at runtime
+
+### Integration
+
+- **Shard Integration:** Shards use PromptAssembler (`AssembleSystemPrompt`)
+- **Autopoiesis:** Injects learned patterns and tool usage instructions dynamically
+- **Observability:** `/jit` command inspects last compiled prompt and statistics
 
 ## Full Specifications
 
@@ -414,31 +525,40 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 **When:** Live stress testing codeNERD - pre-release stability verification, finding panics and edge cases, validating resource limits, testing system recovery. Includes 27 workflows across 8 categories with 4 severity levels (conservative, aggressive, chaos, hybrid). Integrates with log-analyzer for post-test Mangle queries.
 
-## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM
+### log-analyzer
+
+**When:** Analyzing codeNERD system logs using Mangle logic programming - debugging execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, correlating events across 22 logging categories.
 
 ## Key Implementation Files
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management |
-| Policy | [internal/mangle/policy.gl](internal/mangle/policy.gl) | IDB rules (20 sections) |
-| Schemas | [internal/mangle/schemas.gl](internal/mangle/schemas.gl) | EDB declarations |
+| Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management (modularized) |
+| Policy | [internal/mangle/policy.mg](internal/mangle/policy.mg) | IDB rules (20 sections) |
+| Schemas | [internal/mangle/schemas.mg](internal/mangle/schemas.mg) | EDB declarations |
 | VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
-| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle |
+| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle (modularized) |
 | Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
 | Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
 | JIT Compiler | [internal/prompt/compiler.go](internal/prompt/compiler.go) | Runtime prompt assembly |
+| LocalStore | [internal/store/local.go](internal/store/local.go) | 4-tier persistence (modularized into 10 files) |
 | Nemesis | [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go) | Adversarial patch analysis |
 | Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Attack vector arena |
 | DataFlow | [internal/world/dataflow_multilang.go](internal/world/dataflow_multilang.go) | Multi-language taint analysis |
 | Holographic | [internal/world/holographic.go](internal/world/holographic.go) | Impact-aware context builder |
 | Hypotheses | [internal/shards/reviewer/hypotheses.go](internal/shards/reviewer/hypotheses.go) | Mangle→LLM verification |
+| Context Harness | [internal/testing/context_harness/](internal/testing/context_harness/) | Infinite context validation |
+| Tactile | [internal/tactile/](internal/tactile/) | Motor cortex, sandboxed execution |
+| Transparency | [internal/transparency/transparency.go](internal/transparency/transparency.go) | Operation visibility layer |
+| UX | [internal/ux/](internal/ux/) | User journey, progressive disclosure |
+| Activation | [internal/context/activation.go](internal/context/activation.go) | Spreading activation engine |
+| Compressor | [internal/context/compressor.go](internal/context/compressor.go) | Semantic compression |
 
 ## Development Guidelines
 
 ### Mangle Rules
 
-- All predicates require `Decl` in schemas.gl before use
+- All predicates require `Decl` in schema.mg before use
 - Variables are UPPERCASE, constants are `/lowercase`
 - Negation requires all variables bound elsewhere (safety)
 - End every statement with `.`
@@ -453,10 +573,11 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 - Run `go test ./...` before committing
 - Build with `go build -o nerd.exe ./cmd/nerd`
+- Context system validation: `nerd test-context --all`
+- 30+ `*_test.go` files distributed across internal packages
 
 ### Git
 
-- Push to GitHub regularly
 - Use conventional commits
 
 ### Model Configuration
@@ -542,256 +663,149 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 **Fact Flow:** User Input → Transducer → `user_intent` fact → Kernel derives `next_action` → VirtualStore executes → Result facts → Articulation → Response
 
-## Full Specifications
+## Top 30 Mangle Errors
 
-For detailed architecture and implementation specs, see:
+Common errors AI coding agents make when writing Mangle code, categorized by stack layer.
 
-- [.claude/skills/codenerd-builder/references/](.claude/skills/codenerd-builder/references/) - Full architecture docs
-- [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
+### I. Syntactic Hallucinations (The "Soufflé/SQL" Bias)
 
-here is the definitive list of the Top 30 Common Errors AI coding agents make when writing Mangle code.
-
-
-These are categorized by the layer of the stack where the "Stochastic Gap" occurs: Syntax, Logic/Safety, Data Structures, and Integration.
-
-I. Syntactic Hallucinations (The "Soufflé/SQL" Bias)
 AI models trained on SQL, Prolog, and Soufflé often force those syntaxes into Mangle.
 
+**Atom vs. String Confusion**
+- *Error:* Using `"active"` when the schema requires `/active`
+- *Correction:* Use `/atom` for enums/IDs. Mangle treats these as disjoint types; they will never unify.
 
-Atom vs. String Confusion 
+**Soufflé Declarations**
+- *Error:* `.decl edge(x:number, y:number).`
+- *Correction:* `Decl edge(X.Type<int>, Y.Type<int>).` (Note uppercase Decl and type syntax)
 
+**Lowercase Variables**
+- *Error:* `ancestor(x, y) :- parent(x, y).` (Prolog style)
+- *Correction:* `ancestor(X, Y) :- parent(X, Y).` Variables must be UPPERCASE.
 
-Error: Using "active" when the schema requires /active.
+**Inline Aggregation (SQL Style)**
+- *Error:* `total(Sum) :- item(X), Sum = sum(X).`
+- *Correction:* Use the pipe operator: `... |> do fn:group_by(), let Sum = fn:Sum(X).`
 
-Correction: Use /atom for enums/IDs. Mangle treats these as disjoint types; they will never unify.
+**Implicit Grouping**
+- *Error:* Assuming variables in the head automatically trigger GROUP BY (like SQL)
+- *Correction:* Grouping is explicit in the `do fn:group_by(...)` transform step.
 
+**Missing Periods**
+- *Error:* Ending a rule with a newline instead of `.`
+- *Correction:* Every clause must end with a period `.`
 
-Soufflé Declarations 
+**Comment Syntax**
+- *Error:* `// This is a comment` or `/* ... */`
+- *Correction:* Use `# This is a comment`
 
+**Assignment vs. Unification**
+- *Error:* `X := 5` or `let X = 5` inside a rule body (without pipe)
+- *Correction:* Use unification `X = 5` inside the body, or `let` only within a transform block.
 
-Error: .decl edge(x:number, y:number).
+### II. Semantic Safety & Logic (The "Datalog" Gap)
 
-Correction: Decl edge(X.Type<int>, Y.Type<int>). (Note uppercase Decl and type syntax).
-
-
-Lowercase Variables 
-
-Error: ancestor(x, y) :- parent(x, y). (Prolog style).
-
-Correction: ancestor(X, Y) :- parent(X, Y). Variables must be UPPERCASE.
-
-
-Inline Aggregation (SQL Style) 
-
-
-Error: total(Sum) :- item(X), Sum = sum(X).
-
-Correction: Use the pipe operator: ... |> do fn:group_by(), let Sum = fn:Sum(X).
-
-
-Implicit Grouping 
-
-
-Error: Assuming variables in the head automatically trigger GROUP BY (like SQL).
-
-Correction: Grouping is explicit in the do fn:group_by(...) transform step.
-
-
-Missing Periods 
-
-Error: Ending a rule with a newline instead of ..
-
-Correction: Every clause must end with a period ..
-
-
-Comment Syntax 
-
-Error: // This is a comment or /* ... */.
-
-Correction: Use # This is a comment.
-
-
-Assignment vs. Unification 
-
-Error: X := 5 or let X = 5 inside a rule body (without pipe).
-
-Correction: Use unification X = 5 inside the body, or let only within a transform block.
-
-II. Semantic Safety & Logic (The "Datalog" Gap)
 Mangle requires strict logical validity that probabilistic models often miss.
 
+**Unsafe Head Variables**
+- *Error:* `result(X) :- other(Y).` (X is unbounded)
+- *Correction:* Every variable in the head must appear in a positive atom in the body.
 
-Unsafe Head Variables 
+**Unsafe Negation**
+- *Error:* `safe(X) :- not distinct(X).`
+- *Correction:* Variables in a negated atom must be bound first: `safe(X) :- candidate(X), not distinct(X).`
 
+**Stratification Cycles**
+- *Error:* `p(X) :- not q(X). q(X) :- not p(X).`
+- *Correction:* Ensure no recursion passes through a negation. Restructure logic into strict layers (strata).
 
-Error: result(X) :- other(Y). (X is unbounded).
+**Infinite Recursion (Counter Fallacy)**
+- *Error:* `count(N) :- count(M), N = fn:plus(M, 1).` (Unbounded generation)
+- *Correction:* Always bound recursion with a limit or a finite domain (e.g., `N < 100`).
 
-Correction: Every variable in the head must appear in a positive atom in the body.
+**Cartesian Product Explosion**
+- *Error:* Placing large tables before filters: `res(X) :- huge_table(X), X = /specific_id.`
+- *Correction:* Selectivity first: `res(X) :- X = /specific_id, huge_table(X).`
 
+**Null Checking (Open World Bias)**
+- *Error:* `check(X) :- data(X), X != null.`
+- *Correction:* Mangle follows the Closed World Assumption. If a fact exists, it is not null. "Missing" facts are simply not there.
 
-Unsafe Negation 
+**Duplicate Rule Definitions**
+- *Error:* Thinking multiple rules overwrite each other
+- *Correction:* Multiple rules create a UNION. `p(x) :- a(x).` and `p(x) :- b(x).` means p is true if a OR b is true.
 
+**Anonymous Variable Misuse**
+- *Error:* Using `_` when the value is actually needed later in the rule
+- *Correction:* Use `_` only for values you truly don't care about. It never binds.
 
-Error: safe(X) :- not distinct(X).
+### III. Data Types & Functions (The "JSON" Bias)
 
-Correction: Variables in a negated atom must be bound first: safe(X) :- candidate(X), not distinct(X).
-
-
-Stratification Cycles 
-
-
-Error: p(X) :- not q(X). q(X) :- not p(X).
-
-Correction: Ensure no recursion passes through a negation. Restructure logic into strict layers (strata).
-
-
-Infinite Recursion (Counter Fallacy) 
-
-Error: count(N) :- count(M), N = fn:plus(M, 1). (Unbounded generation).
-
-Correction: Always bound recursion with a limit or a finite domain (e.g., N < 100).
-
-
-Cartesian Product Explosion 
-
-Error: Placing large tables before filters: res(X) :- huge_table(X), X = /specific_id.
-
-Correction: Selectivity first: res(X) :- X = /specific_id, huge_table(X).
-
-
-Null Checking (Open World Bias) 
-
-
-Error: check(X) :- data(X), X != null.
-
-Correction: Mangle follows the Closed World Assumption. If a fact exists, it is not null. "Missing" facts are simply not there.
-
-
-Duplicate Rule Definitions 
-
-Error: Thinking multiple rules overwrite each other.
-
-Correction: Multiple rules create a UNION. p(x) :- a(x). and p(x) :- b(x). means p is true if a OR b is true.
-
-
-Anonymous Variable Misuse 
-
-Error: Using _ when the value is actually needed later in the rule.
-
-Correction: Use _ only for values you truly don't care about. It never binds.
-
-III. Data Types & Functions (The "JSON" Bias)
 AI agents often hallucinate object-oriented accessors for Mangle's structured data.
 
+**Map Dot Notation**
+- *Error:* `Val = Map.key` or `Map['key']`
+- *Correction:* Use `:match_entry(Map, /key, Val)` or `:match_field(Struct, /key, Val)`.
 
-Map Dot Notation 
+**List Indexing**
+- *Error:* `Head = List[0]`
+- *Correction:* Use `:match_cons(List, Head, Tail)` or `fn:list:get(List, 0)`.
 
-Error: Val = Map.key or Map['key'].
+**Type Mismatch (Int vs Float)**
+- *Error:* `X = 5` when X is declared `Type<float>`
+- *Correction:* Mangle is strict. Use `5.0` for floats, `5` for ints.
 
-Correction: Use :match_entry(Map, /key, Val) or :match_field(Struct, /key, Val).
+**String Interpolation**
+- *Error:* `msg("Error: $Code")`
+- *Correction:* Use `fn:string_concat` or build list structures. Mangle has no string interpolation.
 
+**Hallucinated Functions**
+- *Error:* `fn:split`, `fn:date`, `fn:substring` (assuming StdLib parity with Python)
+- *Correction:* Verify function existence in builtin package. Mangle's standard library is minimal.
 
-List Indexing 
+**Aggregation Safety**
+- *Error:* `... |> do fn:group_by(UnboundVar) ...`
+- *Correction:* Grouping variables must be bound in the rule body before the pipe `|>`.
 
-Error: Head = List[0].
+**Struct Syntax**
+- *Error:* `{"key": "value"}` (JSON style)
+- *Correction:* `{ /key: "value" }` (Note the atom key and spacing)
 
-Correction: Use :match_cons(List, Head, Tail) or fn:list:get(List, 0).
+### IV. Go Integration & Architecture (The "API" Gap)
 
-
-Type Mismatch (Int vs Float) 
-
-Error: X = 5 when X is declared Type<float>.
-
-Correction: Mangle is strict. Use 5.0 for floats, 5 for ints.
-
-
-String Interpolation 
-
-Error: msg("Error: $Code").
-
-Correction: Use fn:string_concat or build list structures. Mangle has no string interpolation.
-
-
-Hallucinated Functions 
-
-Error: fn:split, fn:date, fn:substring (assuming StdLib parity with Python).
-
-Correction: Verify function existence in builtin package. Mangle's standard library is minimal.
-
-
-Aggregation Safety 
-
-Error: ... |> do fn:group_by(UnboundVar) ...
-
-Correction: Grouping variables must be bound in the rule body before the pipe |>.
-
-
-Struct Syntax 
-
-Error: {"key": "value"} (JSON style).
-
-Correction: { /key: "value" } (Note the atom key and spacing).
-
-IV. Go Integration & Architecture (The "API" Gap)
 When embedding Mangle, AI agents fail to navigate the boundary between Go and Logic.
 
+**Fact Store Type Errors**
+- *Error:* `store.Add("pred", "arg")`
+- *Correction:* Must use `engine.Atom`, `engine.Number` types wrapped in `engine.Value`.
 
-Fact Store Type Errors 
+**Incorrect Engine Entry Point**
+- *Error:* `engine.Run()` (Hallucination)
+- *Correction:* Use `engine.EvalProgram` or `engine.EvalProgramNaive`.
 
+**Ignoring Imports**
+- *Error:* Generating Mangle code without necessary package references or failing to import the Go engine package correctly
+- *Correction:* Explicitly manage `github.com/google/mangle/engine`.
 
-Error: store.Add("pred", "arg").
+**External Predicate Signature**
+- *Error:* Writing a Go function for a predicate that returns `(interface{}, error)`
+- *Correction:* External predicates require `func(query engine.Query, cb func(engine.Fact)) error`.
 
-Correction: Must use engine.Atom, engine.Number types wrapped in engine.Value.
+**Parsing vs. Execution**
+- *Error:* Passing raw strings to EvalProgram
+- *Correction:* Code must be parsed (`parse.Unit`) and analyzed (`analysis.AnalyzeOneUnit`) before evaluation.
 
+**Assuming IO Access**
+- *Error:* `read_file(Path, Content).`
+- *Correction:* Mangle is pure. IO must happen in Go before execution (loading facts) or via external predicates.
 
-Incorrect Engine Entry Point 
+**Package Hallucination (Slopsquatting)**
+- *Error:* Importing non-existent Mangle libraries (e.g., `use /std/date`)
+- *Correction:* Verify imports. Mangle has a very small, specific ecosystem.
 
-Error: engine.Run() (Hallucination).
+### How to Avoid These Mistakes
 
-Correction: Use engine.EvalProgram or engine.EvalProgramNaive.
-
-
-Ignoring Imports 
-
-Error: Generating Mangle code without necessary package references or failing to import the Go engine package correctly.
-
-Correction: Explicitly manage github.com/google/mangle/engine.
-
-
-External Predicate Signature 
-
-Error: Writing a Go function for a predicate that returns (interface{}, error).
-
-Correction: External predicates require func(query engine.Query, cb func(engine.Fact)) error.
-
-
-Parsing vs. Execution 
-
-Error: Passing raw strings to EvalProgram.
-
-Correction: Code must be parsed (parse.Unit) and analyzed (analysis.AnalyzeOneUnit) before evaluation.
-
-
-Assuming IO access 
-
-Error: read_file(Path, Content).
-
-Correction: Mangle is pure. IO must happen in Go before execution (loading facts) or via external predicates.
-
-
-Package Hallucination (Slopsquatting) 
-
-
-Error: Importing non-existent Mangle libraries (use /std/date).
-
-Correction: Verify imports. Mangle has a very small, specific ecosystem.
-
-How to Avoid These Mistakes (For the Mangle Architect)
-Feed the Grammar: Provide the "Complete Syntax Reference" (File 200) in the prompt context.
-
-Solver-in-the-Loop: Do not trust "Zero-Shot" code. Run a loop: Generate -> Parse (with mangle/parse) -> Feed Errors back to LLM -> Regenerate.
-
-Explicit Typing: Force the AI to declare types (Decl) first. This forces it to decide between /atoms and "strings" early.
-
-
-Review for Liveness: Manually audit recursive rules for termination conditions.
+1. **Feed the Grammar:** Provide the "Complete Syntax Reference" in the prompt context
+2. **Solver-in-the-Loop:** Don't trust "Zero-Shot" code. Run a loop: Generate → Parse (with `mangle/parse`) → Feed Errors back to LLM → Regenerate
+3. **Explicit Typing:** Force the AI to declare types (`Decl`) first. This forces it to decide between `/atoms` and `"strings"` early
+4. **Review for Liveness:** Manually audit recursive rules for termination conditions
