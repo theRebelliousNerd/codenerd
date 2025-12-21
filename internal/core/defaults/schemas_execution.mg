@@ -11,6 +11,8 @@
 
 # test_state(State)
 # State: /failing, /log_read, /cause_found, /patch_applied, /passing, /unknown
+# Priority: 95
+# SerializationOrder: 4
 Decl test_state(State).
 
 # test_type(Type)
@@ -27,6 +29,8 @@ Decl retry_count(Count).
 # next_action(ActionType)
 # ActionType: /read_error_log, /analyze_root_cause, /generate_patch, /run_tests,
 #             /escalate_to_user, /complete, /interrogative_mode
+# Priority: 70
+# SerializationOrder: 5
 Decl next_action(ActionType).
 
 # action_details(ActionType, Payload)

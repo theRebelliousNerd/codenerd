@@ -17,7 +17,7 @@ func (t *TesterShard) assertInitialFacts(task *TesterTask) {
 
 	_ = t.kernel.Assert(core.Fact{
 		Predicate: "tester_task",
-		Args:      []interface{}{t.id, "/" + task.Action, task.Target, time.Now().Unix()},
+		Args:      []interface{}{t.id, core.MangleAtom("/" + task.Action), task.Target, time.Now().Unix()},
 	})
 
 	_ = t.kernel.Assert(core.Fact{
@@ -44,7 +44,7 @@ func (t *TesterShard) generateFacts(result *TestResult) []core.Fact {
 	if result.TestType != "" && result.TestType != "unknown" {
 		facts = append(facts, core.Fact{
 			Predicate: "test_type",
-			Args:      []interface{}{"/" + result.TestType},
+			Args:      []interface{}{core.MangleAtom("/" + result.TestType)},
 		})
 	}
 

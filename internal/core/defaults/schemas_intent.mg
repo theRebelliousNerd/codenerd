@@ -12,6 +12,8 @@
 # user_intent(ID, Category, Verb, Target, Constraint)
 # Category: /query, /mutation, /instruction
 # Verb: /explain, /refactor, /debug, /generate, /scaffold, /init, /test, /review, /fix, /run, /research, /explore, /implement
+# Priority: 100
+# SerializationOrder: 1
 Decl user_intent(ID, Category, Verb, Target, Constraint).
 
 # =============================================================================
@@ -19,6 +21,8 @@ Decl user_intent(ID, Category, Verb, Target, Constraint).
 # =============================================================================
 
 # focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence)
+# Priority: 100
+# SerializationOrder: 2
 Decl focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence).
 
 # ambiguity_flag(MissingParam, ContextClue, Hypothesis)

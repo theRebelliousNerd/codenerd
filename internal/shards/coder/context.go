@@ -63,7 +63,7 @@ func (c *CoderShard) readFileContext(ctx context.Context, path string) (string, 
 		isTest := isTestFile(path)
 		_ = c.kernel.Assert(core.Fact{
 			Predicate: "file_topology",
-			Args:      []interface{}{path, hash, "/" + lang, info.ModTime().Unix(), isTest},
+			Args:      []interface{}{path, hash, core.MangleAtom("/" + lang), info.ModTime().Unix(), isTest},
 		})
 	}
 

@@ -1178,19 +1178,19 @@ func (r *ResearcherShard) generateFacts(result *ResearchResult) []core.Fact {
 				if lang, ok := meta["language"].(string); ok {
 					facts = append(facts, core.Fact{
 						Predicate: "project_language",
-						Args:      []interface{}{"/" + lang},
+						Args:      []interface{}{core.MangleAtom("/" + lang)},
 					})
 				}
 				if fw, ok := meta["framework"].(string); ok && fw != "" {
 					facts = append(facts, core.Fact{
 						Predicate: "project_framework",
-						Args:      []interface{}{"/" + fw},
+						Args:      []interface{}{core.MangleAtom("/" + fw)},
 					})
 				}
 				if arch, ok := meta["architecture"].(string); ok {
 					facts = append(facts, core.Fact{
 						Predicate: "project_architecture",
-						Args:      []interface{}{"/" + arch},
+						Args:      []interface{}{core.MangleAtom("/" + arch)},
 					})
 				}
 			}

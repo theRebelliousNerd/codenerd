@@ -18,7 +18,7 @@ func (r *ReviewerShard) assertInitialFacts(task *ReviewerTask) {
 
 	_ = r.kernel.Assert(core.Fact{
 		Predicate: "reviewer_task",
-		Args:      []interface{}{r.id, "/" + task.Action, strings.Join(task.Files, ","), time.Now().Unix()},
+		Args:      []interface{}{r.id, core.MangleAtom("/" + task.Action), strings.Join(task.Files, ","), time.Now().Unix()},
 	})
 }
 
@@ -29,7 +29,7 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 	// Review status
 	facts = append(facts, core.Fact{
 		Predicate: "review_complete",
-		Args:      []interface{}{strings.Join(result.Files, ","), "/" + string(result.Severity)},
+		Args:      []interface{}{strings.Join(result.Files, ","), core.MangleAtom("/" + string(result.Severity))},
 	})
 
 	// Block commit fact
@@ -47,8 +47,8 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 			Args: []interface{}{
 				finding.File,
 				int64(finding.Line),
-				"/" + finding.Severity,
-				"/" + finding.Category, // Emit as atom for Mangle type consistency
+				core.MangleAtom("/" + finding.Severity),
+				core.MangleAtom("/" + finding.Category), // Emit as atom for Mangle type consistency
 				finding.Message,
 			},
 		})
@@ -101,14 +101,14 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 		// suggest_use_specialist(TaskType, SpecialistName)
 		facts = append(facts, core.Fact{
 			Predicate: "suggest_use_specialist",
-			Args:      []interface{}{"/" + rec.ShardName, rec.Reason},
+			Args:      []interface{}{core.MangleAtom("/" + rec.ShardName), rec.Reason},
 		})
 
 		// shard_can_handle(ShardType, TaskType) for each task hint
 		for _, hint := range rec.TaskHints {
 			facts = append(facts, core.Fact{
 				Predicate: "shard_can_handle",
-				Args:      []interface{}{"/" + rec.ShardName, hint},
+				Args:      []interface{}{core.MangleAtom("/" + rec.ShardName), hint},
 			})
 		}
 
@@ -116,7 +116,7 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 		for _, file := range rec.ForFiles {
 			facts = append(facts, core.Fact{
 				Predicate: "specialist_recommended",
-				Args:      []interface{}{"/" + rec.ShardName, file, rec.Confidence},
+				Args:      []interface{}{core.MangleAtom("/" + rec.ShardName), file, rec.Confidence},
 			})
 		}
 	}
