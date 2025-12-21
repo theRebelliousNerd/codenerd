@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 )
 
@@ -482,4 +483,124 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// =============================================================================
+// RealKernelRouter - Adapts core.RealKernel to RoutingKernel interface
+// =============================================================================
+
+// RealKernelRouter adapts a core.RealKernel to implement the RoutingKernel interface.
+// This enables the UnderstandingTransducer to use the existing kernel for routing queries.
+type RealKernelRouter struct {
+	kernel *core.RealKernel
+}
+
+// NewRealKernelRouter creates a RoutingKernel backed by a RealKernel.
+func NewRealKernelRouter(kernel *core.RealKernel) *RealKernelRouter {
+	return &RealKernelRouter{kernel: kernel}
+}
+
+// QueryRouting queries the routing schema using the RealKernel's Query method.
+func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, arg string) ([]RoutingMatch, error) {
+	if k.kernel == nil {
+		return nil, nil
+	}
+
+	// Build the query predicate
+	fullPredicate := fmt.Sprintf("%s(/%s", predicate, arg)
+
+	// Query the kernel for facts matching this predicate
+	facts, err := k.kernel.Query(predicate)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []RoutingMatch
+	for _, fact := range facts {
+		// Filter facts that match the argument
+		if len(fact.Args) < 2 {
+			continue
+		}
+
+		// First arg should be the query arg (semantic type, action, domain)
+		firstArg := fmt.Sprintf("%v", fact.Args[0])
+		if firstArg != "/"+arg && firstArg != arg {
+			continue
+		}
+
+		// Second arg is the target (mode, context, shard, tool)
+		match := RoutingMatch{
+			Target: strings.TrimPrefix(fmt.Sprintf("%v", fact.Args[1]), "/"),
+		}
+
+		// Third arg (if present) is the weight
+		if len(fact.Args) >= 3 {
+			switch v := fact.Args[2].(type) {
+			case int:
+				match.Weight = v
+			case int64:
+				match.Weight = int(v)
+			case float64:
+				match.Weight = int(v)
+			}
+		}
+
+		if match.Target != "" {
+			matches = append(matches, match)
+		}
+	}
+
+	// Sort by weight descending
+	for i := 0; i < len(matches)-1; i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[j].Weight > matches[i].Weight {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	_ = fullPredicate // Avoid unused variable warning
+	return matches, nil
+}
+
+// ValidateField checks if a value is valid for a field.
+func (k *RealKernelRouter) ValidateField(ctx context.Context, field, value string) bool {
+	if k.kernel == nil {
+		return true // No kernel = assume valid
+	}
+
+	// Build the validation predicate
+	var predicate string
+	switch field {
+	case "semantic_type":
+		predicate = "valid_semantic_type"
+	case "action_type":
+		predicate = "valid_action_type"
+	case "domain":
+		predicate = "valid_domain"
+	case "scope_level":
+		predicate = "valid_scope_level"
+	case "mode":
+		predicate = "valid_mode"
+	default:
+		return true // Unknown field, assume valid
+	}
+
+	// Query for validation facts
+	facts, err := k.kernel.Query(predicate)
+	if err != nil {
+		return false
+	}
+
+	// Check if any fact matches the value
+	for _, fact := range facts {
+		if len(fact.Args) >= 1 {
+			factValue := strings.TrimPrefix(fmt.Sprintf("%v", fact.Args[0]), "/")
+			if factValue == value {
+				return true
+			}
+		}
+	}
+
+	return false
 }

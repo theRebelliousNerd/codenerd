@@ -6,12 +6,11 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/types"
 )
 
 // SessionSimulator simulates a coding session and measures context system performance.
 type SessionSimulator struct {
-	kernel  *core.Kernel
+	kernel  *core.RealKernel
 	config  SimulatorConfig
 	metrics *MetricsCollector
 
@@ -26,7 +25,7 @@ type SessionSimulator struct {
 }
 
 // NewSessionSimulator creates a new session simulator.
-func NewSessionSimulator(kernel *core.Kernel, config SimulatorConfig) *SessionSimulator {
+func NewSessionSimulator(kernel *core.RealKernel, config SimulatorConfig) *SessionSimulator {
 	return &SessionSimulator{
 		kernel:  kernel,
 		config:  config,
@@ -365,7 +364,7 @@ func (s *SessionSimulator) validateCheckpoint(ctx context.Context, checkpoint *C
 	// Calculate precision and recall
 	mustRetrieveSet := toSet(checkpoint.MustRetrieve)
 	shouldAvoidSet := toSet(checkpoint.ShouldAvoid)
-	retrievedSet := toSet(retrieved)
+	retrievedSet := toSet(retrievedFactIDs)
 
 	// Missing required facts
 	result.MissingRequired = setDifference(mustRetrieveSet, retrievedSet)
@@ -381,7 +380,7 @@ func (s *SessionSimulator) validateCheckpoint(ctx context.Context, checkpoint *C
 	}
 
 	relevantRetrieved := len(checkpoint.MustRetrieve) - len(result.MissingRequired)
-	totalRetrieved := len(retrieved)
+	totalRetrieved := len(retrievedFactIDs)
 
 	if totalRetrieved > 0 {
 		result.Precision = float64(relevantRetrieved) / float64(totalRetrieved)

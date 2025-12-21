@@ -399,8 +399,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		// Initialize backend components that depend on the scheduled client.
-		logStep("Creating transducer...")
-		transducer := perception.NewRealTransducer(llmClient)
+		// Use LLM-first UnderstandingTransducer for intent classification.
+		// The LLM describes intent, the harness validates and routes.
+		logStep("Creating LLM-first transducer...")
+		transducer := perception.NewUnderstandingTransducer(llmClient)
 		// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
 		// Previously, InitPerceptionLayer existed but was never wired, leaving semantic intent
 		// classification dormant even when embeddings are configured.
@@ -535,6 +537,11 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if promptAssembler != nil {
 			transducer.SetPromptAssembler(promptAssembler)
 		}
+
+		// Wire kernel to transducer for Mangle-based routing derivation.
+		// This enables the harness to validate LLM classifications and derive routing.
+		transducer.SetKernel(kernel)
+		logging.Boot("Wired kernel to LLM-first transducer for routing")
 
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
