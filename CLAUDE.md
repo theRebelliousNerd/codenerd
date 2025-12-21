@@ -104,13 +104,7 @@ The system fundamentally separates concerns into two distinct domains:
 - *Implementation:* `internal/core/virtual_store.go`
 - *Function:* Serves as a Foreign Function Interface (FFI) that abstracts external APIs (filesystem, shell, MCP tools) into logic predicates. When the logic engine queries a virtual predicate (e.g., file_content), it triggers the actual underlying system call.
 
-**Shard Agents:**
-- *Implementation:* `internal/shards/` (coder.go, tester.go, reviewer.go, researcher.go)
-- *Function:* Ephemeral, specialized sub-kernels spawned for parallel task execution.
-  - **Coder:** Code generation and refactoring
-  - **Tester:** Test execution and coverage analysis
-  - **Reviewer:** Security scans and code review
-  - **Researcher:** Knowledge gathering and documentation
+**Shard Agents:** See dedicated "Shard Architecture" section below for comprehensive coverage of shard types, lifecycle, and implementations.
 
 **Memory Tiers:** See "Memory Tiers" table in Nomenclature section below.
 
@@ -157,6 +151,65 @@ The architecture acknowledges that LLMs excel at synthesis and pattern matching.
 **Campaign Orchestration:**
 - *Pattern:* Context Paging and Multi-Phase Goals (`internal/campaign/`)
 - *Details:* For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current phase while keeping core facts and working memory available.
+
+## Shard Architecture
+
+Shards are specialized sub-agents that handle domain-specific tasks in parallel. The ShardManager (`internal/core/shard_manager.go`, modularized into 5 files) orchestrates their lifecycle.
+
+### Lifecycle Types
+
+| Type | Constant | Description | Memory | Creation |
+|------|----------|-------------|--------|----------|
+| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
+| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
+| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
+| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
+
+### Shard Implementations
+
+| Shard | Location | Purpose |
+|-------|----------|---------|
+| **CoderShard** | `internal/shards/coder/` | Code generation, file edits, refactoring |
+| **TesterShard** | `internal/shards/tester/` | Test execution, coverage analysis |
+| **ReviewerShard** | `internal/shards/reviewer/` | Code review, pre-flight checks, hypothesis verification |
+| **ResearcherShard** | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
+| **NemesisShard** | `internal/shards/nemesis/` | Adversarial testing, patch breaking (see Adversarial Engineering) |
+| **ToolGenerator** | `internal/shards/tool_generator/` | Ouroboros: self-generating tools |
+| **Legislator** | `internal/shards/system/legislator.go` | Compiles new Mangle rules at runtime |
+
+### System Shards (Type S)
+
+Long-running background services that maintain system state:
+
+| Shard | Purpose |
+|-------|---------|
+| `perception_firewall` | NL → atoms transduction |
+| `world_model_ingestor` | file_topology, symbol_graph maintenance |
+| `executive_policy` | next_action derivation |
+| `constitution_gate` | Safety enforcement |
+| `tactile_router` | Action → tool routing |
+| `session_planner` | Agenda/campaign orchestration |
+| `nemesis` | Adversarial co-evolution, patch breaking |
+
+### Go Interface
+
+All shards implement the `Shard` interface:
+
+```go
+type Shard interface {
+    Execute(ctx context.Context, task ShardTask) (string, error)
+}
+```
+
+### ShardManager Modularization
+
+| File | Purpose |
+|------|---------|
+| `shard_manager_core.go` | ShardManager struct, core operations |
+| `shard_manager_spawn.go` | Shard spawning and execution |
+| `shard_manager_tools.go` | Intelligent tool routing |
+| `shard_manager_facts.go` | Fact conversion utilities |
+| `shard_manager_feedback.go` | Reviewer feedback interface |
 
 ## Adversarial Engineering: Nemesis & Panic Maker
 
@@ -372,15 +425,6 @@ Large files have been modularized for maintainability. The parent file serves as
 | `kernel_policy.go` | Policy/schema loading |
 | `kernel_virtual.go` | Virtual predicate handling |
 
-### ShardManager Modularization (`internal/core/shard_manager.go` → 5 files)
-| File | Purpose |
-|------|---------|
-| `shard_manager_core.go` | ShardManager struct, core operations |
-| `shard_manager_spawn.go` | Shard spawning and execution |
-| `shard_manager_tools.go` | Intelligent tool routing |
-| `shard_manager_facts.go` | Fact conversion utilities |
-| `shard_manager_feedback.go` | Reviewer feedback interface |
-
 ### LocalStore Modularization (`internal/store/local.go` → 10 files)
 | File | Purpose |
 |------|---------|
@@ -440,7 +484,7 @@ Dynamic Adaptation is a foundational feature implemented through codeNERD's Auto
 
 **Dynamic Policy Adjustment:**
 - **FeedbackLoop** (`internal/mangle/feedback/loop.go`): Proposes and validates new policy rules
-- **Legislator Shard** (`internal/shards/system/legislator.go`): Compiles and incorporates new Mangle rules at runtime
+- **Legislator Shard**: Compiles and incorporates new Mangle rules at runtime (see Shard Architecture)
 
 **Adaptive Workflows:**
 - **Campaign Replanning** (`internal/campaign/replan.go`): Dynamically adapts plans in response to failures or new requirements
@@ -485,49 +529,7 @@ For detailed architecture and implementation specs, see:
 
 ## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time... 
 
-## Skills
 
-Use skills to get specialized knowledge for different tasks. Invoke with `/skill:<name>`.
-
-### codenerd-builder
-
-**When:** Implementing codeNERD components - kernel, transducers, shards, virtual predicates, TDD loops, Piggyback Protocol, or any neuro-symbolic architecture work.
-
-### mangle-programming
-
-**When:** Writing or debugging Mangle logic - schemas, rules, queries, aggregations, recursive closures, or understanding Datalog semantics. Complete language reference from basics to production optimization.
-
-### research-builder
-
-**When:** Building knowledge ingestion systems - ResearcherShard, llms.txt parsing, Context7-style processing, knowledge atom extraction, 4-tier memory persistence, or specialist hydration.
-
-### rod-builder
-
-**When:** Implementing browser automation - web scraping, CDP event handling, session management, DOM projection, or the semantic browser peripheral.
-
-### skill-creator
-
-**When:** Creating or updating skills - designing SKILL.md structure, bundled resources, reference organization, or skill metadata.
-
-### charm-tui
-
-**When:** Building terminal user interfaces with Bubbletea and Lipgloss - interactive CLI apps, forms, tables, lists, spinners, progress bars, styled output, or any TUI component using the Charm ecosystem. Includes stability patterns, goroutine safety, and the complete Bubbles component library.
-
-### prompt-architect
-
-**When:** Writing or auditing shard prompts - static vs dynamic prompt layers, Piggyback Protocol compliance, context injection patterns, tool steering, specialist knowledge hydration, or debugging LLM behavior. Essential for creating "God Tier" maximalist prompts that leverage codeNERD's 100:1 semantic compression.
-
-### integration-auditor
-
-**When:** Verifying system integration - debugging "code exists but doesn't run" issues, pre-commit wiring checks, new feature integration, or shard lifecycle verification. Covers all 39+ codeNERD integration systems.
-
-### stress-tester
-
-**When:** Live stress testing codeNERD - pre-release stability verification, finding panics and edge cases, validating resource limits, testing system recovery. Includes 27 workflows across 8 categories with 4 severity levels (conservative, aggressive, chaos, hybrid). Integrates with log-analyzer for post-test Mangle queries.
-
-### log-analyzer
-
-**When:** Analyzing codeNERD system logs using Mangle logic programming - debugging execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, correlating events across 22 logging categories.
 
 ## Key Implementation Files
 
@@ -537,7 +539,7 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 | Policy | [internal/mangle/policy.mg](internal/mangle/policy.mg) | IDB rules (20 sections) |
 | Schemas | [internal/mangle/schemas.mg](internal/mangle/schemas.mg) | EDB declarations |
 | VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
-| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle (modularized) |
+| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle (see Shard Architecture) |
 | Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
 | Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
 | JIT Compiler | [internal/prompt/compiler.go](internal/prompt/compiler.go) | Runtime prompt assembly |
@@ -565,7 +567,7 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 
 ### Go Patterns
 
-- Shards implement the `Shard` interface with `Execute(ctx, task) (string, error)`
+- Shards implement the `Shard` interface (see Shard Architecture section)
 - Facts use `ToAtom()` to convert Go structs to Mangle AST
 - Virtual predicates abstract external APIs into logic queries
 
@@ -586,38 +588,6 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 - Gemini 3 Pro model ID: `gemini-3-pro-preview` (yes, Gemini 3 exists as of Dec 2024)
 
 ## Nomenclature
-
-### Shard Lifecycle Types
-
-| Type | Constant | Description | Memory | Creation |
-|------|----------|-------------|--------|----------|
-| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
-| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
-| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
-| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
-
-### Shard Implementations
-
-| Shard | File | Purpose |
-|-------|------|---------|
-| CoderShard | `internal/shards/coder/` | Code generation, file edits, refactoring |
-| TesterShard | `internal/shards/tester/` | Test execution, coverage analysis |
-| ReviewerShard | `internal/shards/reviewer/` | Code review, pre-flight checks, hypothesis verification |
-| ResearcherShard | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
-| NemesisShard | `internal/shards/nemesis/` | Adversarial testing, patch breaking, chaos tools |
-| ToolGenerator | `internal/shards/tool_generator/` | Ouroboros: self-generating tools |
-
-### System Shards (Type S)
-
-| Shard | Purpose |
-|-------|---------|
-| `perception_firewall` | NL → atoms transduction |
-| `world_model_ingestor` | file_topology, symbol_graph maintenance |
-| `executive_policy` | next_action derivation |
-| `constitution_gate` | Safety enforcement |
-| `tactile_router` | Action → tool routing |
-| `session_planner` | Agenda/campaign orchestration |
-| `nemesis` | Adversarial co-evolution, patch breaking |
 
 ### Memory Tiers
 
@@ -668,8 +638,6 @@ Use skills to get specialized knowledge for different tasks. Invoke with `/skill
 Common errors AI coding agents make when writing Mangle code, categorized by stack layer.
 
 ### I. Syntactic Hallucinations (The "Soufflé/SQL" Bias)
-
-AI models trained on SQL, Prolog, and Soufflé often force those syntaxes into Mangle.
 
 **Atom vs. String Confusion**
 - *Error:* Using `"active"` when the schema requires `/active`
