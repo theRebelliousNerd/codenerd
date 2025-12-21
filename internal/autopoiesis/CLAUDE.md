@@ -15,27 +15,44 @@ Autopoiesis provides nine core capabilities:
 8. **Thunderdome** - Adversarial testing arena for attack vector validation
 9. **Chaos Engineering** - Generate attack vectors to test tool robustness
 
-## File Structure
+## File Index
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `autopoiesis.go` | ~1100 | Main orchestrator with profile integration |
-| `complexity.go` | ~300 | Task complexity analysis |
-| `toolgen.go` | ~600 | LLM-based tool generation |
-| `persistence.go` | ~400 | Persistent agent detection |
-| `ouroboros.go` | ~550 | Full Ouroboros Loop with safety/compile/execute |
-| `feedback.go` | ~430 | Core feedback tracking, tool refiner, learning store |
-| `quality.go` | ~600 | Quality assessment, evaluator, heuristic rules |
-| `patterns.go` | ~130 | Pattern detection, issue classification |
-| `profiles.go` | ~370 | Tool quality profiles, performance expectations |
-| `traces.go` | ~970 | Reasoning traces, audit logs, mandatory logging |
-| `thunderdome.go` | ~300 | Adversarial testing arena, attack vector execution |
-| `checker.go` | ~400 | Go safety checker, forbidden imports/calls validation |
-| `panic_maker.go` | ~300 | Chaos engineering attack vector generation |
-| `yaegi_executor.go` | ~200 | Yaegi Go interpreter for sandboxed tool execution |
-| `internal/core/defaults/chaos.mg` | ~250 | Mangle rules for chaos attack derivation |
-| `internal/core/defaults/state.mg` | ~200 | Mangle rules for autopoiesis state tracking |
-| `internal/core/defaults/go_safety.mg` | ~100 | Mangle rules for Go safety analysis |
+| File | Description |
+|------|-------------|
+| `autopoiesis.go` | Package marker documenting orchestrator modularization across 10 files. Points to autopoiesis_types, orchestrator, kernel, delegation, agents, analysis, tools, feedback, profiles, helpers. |
+| `autopoiesis_agents.go` | Agent creation and management for persistent Type 3 agents. Exports writeAgentSpec() and ListAgents() for agent storage in .nerd/agents. |
+| `autopoiesis_analysis.go` | Main analysis pipeline combining complexity, persistence, and tool need detection. Implements Analyze() orchestrating complexity→persistence→tool detection flow. |
+| `autopoiesis_delegation.go` | Kernel-mediated tool generation via Mangle delegate_task facts. Implements ProcessKernelDelegations() for campaign-triggered tool creation without direct coupling. |
+| `autopoiesis_feedback.go` | Feedback and learning wrappers for tool execution evaluation. Exports RecordExecution(), EvaluateToolQuality(), GetToolPatterns(), ShouldRefineTool(), RefineTool(). |
+| `autopoiesis_helpers.go` | Utility functions for tool generation gating and priority sorting. Implements shouldGenerateToolNeed() with confidence, cooldown, and evidence gates. |
+| `autopoiesis_kernel.go` | Bridge to Mangle kernel for fact assertion and query. Implements SetKernel(), syncExistingToolsToKernel(), and assertToolRegistered() for neuro-symbolic integration. |
+| `autopoiesis_orchestrator.go` | Main Orchestrator struct coordinating all autopoiesis capabilities. Exports NewOrchestrator() and DefaultConfig() with complexity, tool generation, learning, and trace subsystems. |
+| `autopoiesis_profiles.go` | Quality profile wrappers for tool-specific performance expectations. Exports GetToolProfile(), SetToolProfile(), EvaluateWithProfile(), GenerateToolProfile(). |
+| `autopoiesis_tools.go` | Tool generation wrappers exposing ToolGenerator and OuroborosLoop. Implements DetectToolNeed(), GenerateTool(), ExecuteOuroborosLoop() with kernel integration. |
+| `autopoiesis_types.go` | Core type definitions including Config, AnalysisResult, AutopoiesisAction, CampaignPayload. Exports ActionType constants and AgentSpec, AgentMemory structures. |
+| `checker.go` | SafetyChecker validating generated code against go_safety.mg policy. Exports Check() detecting forbidden imports, dangerous calls, and safety violations. |
+| `checker_test.go` | Unit tests for SafetyChecker validation of forbidden imports and dangerous patterns. Verifies safety policy enforcement on generated Go code. |
+| `complexity.go` | ComplexityAnalyzer determining when campaigns are needed for complex tasks. Exports Analyze() and AnalyzeWithLLM() with EstimatedFiles, SuggestedPhases output. |
+| `complexity_test.go` | Unit tests for ComplexityAnalyzer heuristic and LLM-based analysis. Tests campaign threshold detection and phase suggestion accuracy. |
+| `feedback.go` | Core feedback tracking with QualityEvaluator, ToolRefiner, and LearningStore. Implements tool execution evaluation, pattern-based refinement, and cross-session persistence. |
+| `feedback_test.go` | Unit tests for feedback loop including quality evaluation and learning store. Verifies refinement trigger detection and learning persistence. |
+| `ouroboros.go` | Transactional state machine for tool self-generation with six stages. Exports OuroborosLoop with Proposal→Audit→Simulation→Compile→Register→Execute cycle. |
+| `ouroboros_test.go` | Unit tests for OuroborosLoop stage transitions and error handling. Tests compilation, registration, and execution workflows. |
+| `panic_maker.go` | PanicMaker generating adversarial attack vectors for chaos testing. Exports Generate() creating nil_pointer, boundary, resource, concurrency, and format attacks. |
+| `patterns.go` | PatternDetector for recurring issue identification across tool executions. Exports RecordExecution(), GetToolPatterns(), and DetectedPattern with confidence scoring. |
+| `persistence.go` | PersistenceAnalyzer detecting when Type 3 persistent agents are needed. Implements Analyze() and AnalyzeWithLLM() for domain expertise and knowledge persistence needs. |
+| `profiles.go` | Tool quality profile types with LLM-defined performance expectations. Exports ToolQualityProfile, ToolType constants, PerformanceExpectations, and ProfileStore. |
+| `quality.go` | QualityAssessment with Completeness, Accuracy, Efficiency, and Relevance dimensions. Exports QualityEvaluator with Evaluate() and EvaluateWithLLM() methods. |
+| `quality_test.go` | Unit tests for QualityEvaluator scoring and profile-aware evaluation. Verifies quality dimension calculations and issue detection. |
+| `thunderdome.go` | Adversarial testing arena where tools fight attack vectors in sandboxes. Exports Thunderdome with Battle() executing parallel attacks and BattleResult survival status. |
+| `tool_detection.go` | ToolNeed detection from user input patterns and LLM refinement. Implements DetectToolNeed() with missingCapabilityPatterns and toolTypePatterns matching. |
+| `tool_generation.go` | GeneratedTool struct and tool code generation workflow. Implements GenerateTool() with code generation, test generation, schema creation, and validation. |
+| `tool_templates.go` | Template-based tool generation for common patterns (validator, converter, parser). Exports ToolTemplate and toolTemplates map for boilerplate generation. |
+| `tool_validation.go` | AST-based validation of generated tool code for syntax and safety. Exports validateCode() and validateCodeAST() checking imports and dangerous patterns. |
+| `toolgen.go` | ToolGenerator for LLM-based tool code creation and management. Exports GenerateTool(), HasTool(), WriteTool(), and RegisterTool() for tool lifecycle. |
+| `toolgen_test.go` | Unit tests for ToolGenerator including code generation and registration. Tests validation, template selection, and tool persistence. |
+| `traces.go` | ReasoningTrace capturing LLM thought process during tool generation. Exports TraceCollector with chain-of-thought, key decisions, and generation audit analysis. |
+| `yaegi_executor.go` | Yaegi interpreter for sandboxed Go code execution without compilation. Exports YaegiExecutor with ExecuteToolCode() avoiding dependency hell and build hangs. |
 
 ## The Ouroboros Loop
 
