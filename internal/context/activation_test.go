@@ -503,3 +503,119 @@ func TestExtractPredicate(t *testing.T) {
 		}
 	}
 }
+
+// TestSetCorpusPriorities tests setting priorities from corpus.
+func TestSetCorpusPriorities(t *testing.T) {
+	config := DefaultConfig()
+	engine := NewActivationEngine(config)
+
+	// Set corpus priorities
+	corpusPriorities := map[string]int{
+		"corpus_predicate": 95,
+		"user_intent":      100, // Override config
+	}
+	engine.SetCorpusPriorities(corpusPriorities)
+
+	// Test that corpus priority is used
+	fact := core.Fact{Predicate: "corpus_predicate", Args: []interface{}{"arg"}}
+	score := engine.computeBaseScore(fact)
+
+	if score != 95.0 {
+		t.Errorf("Expected base score 95 from corpus, got %f", score)
+	}
+
+	// Test that corpus overrides config
+	intentFact := core.Fact{Predicate: "user_intent", Args: []interface{}{"id", "/query", "/explain", "file", ""}}
+	intentScore := engine.computeBaseScore(intentFact)
+
+	if intentScore != 100.0 {
+		t.Errorf("Expected base score 100 from corpus override, got %f", intentScore)
+	}
+}
+
+// TestCorpusPriorityFallback tests fallback to config when corpus not set.
+func TestCorpusPriorityFallback(t *testing.T) {
+	config := DefaultConfig()
+	config.PredicatePriorities = map[string]int{
+		"config_predicate": 85,
+	}
+	engine := NewActivationEngine(config)
+
+	// Without setting corpus priorities, should use config
+	fact := core.Fact{Predicate: "config_predicate", Args: []interface{}{"arg"}}
+	score := engine.computeBaseScore(fact)
+
+	if score != 85.0 {
+		t.Errorf("Expected base score 85 from config fallback, got %f", score)
+	}
+
+	// Unknown predicate should get default
+	unknownFact := core.Fact{Predicate: "unknown_predicate", Args: []interface{}{"arg"}}
+	unknownScore := engine.computeBaseScore(unknownFact)
+
+	if unknownScore != 50.0 {
+		t.Errorf("Expected default base score 50, got %f", unknownScore)
+	}
+}
+
+// TestLoadPrioritiesFromCorpus tests loading priorities from actual corpus.
+func TestLoadPrioritiesFromCorpus(t *testing.T) {
+	corpus, err := core.NewPredicateCorpus()
+	if err != nil {
+		t.Skipf("Corpus not available: %v", err)
+	}
+	defer corpus.Close()
+
+	config := DefaultConfig()
+	engine := NewActivationEngine(config)
+
+	// Load from corpus
+	err = engine.LoadPrioritiesFromCorpus(corpus)
+	if err != nil {
+		t.Fatalf("LoadPrioritiesFromCorpus failed: %v", err)
+	}
+
+	// Verify a known high-priority predicate
+	fact := core.Fact{Predicate: "user_intent", Args: []interface{}{"id", "/query", "/explain", "file", ""}}
+	score := engine.computeBaseScore(fact)
+
+	if score < 90.0 {
+		t.Errorf("Expected user_intent to have high score from corpus, got %f", score)
+	}
+}
+
+// TestLookupPriority tests the priority lookup with corpus and config.
+func TestLookupPriority(t *testing.T) {
+	config := DefaultConfig()
+	config.PredicatePriorities = map[string]int{
+		"config_only":    80,
+		"both_predicate": 60,
+	}
+	engine := NewActivationEngine(config)
+
+	// Set corpus with different value for "both_predicate"
+	engine.SetCorpusPriorities(map[string]int{
+		"corpus_only":    90,
+		"both_predicate": 70, // Should win over config
+	})
+
+	tests := []struct {
+		name     string
+		pred     string
+		expected int
+	}{
+		{"corpus only", "corpus_only", 90},
+		{"config only", "config_only", 80},
+		{"corpus wins over config", "both_predicate", 70},
+		{"unknown predicate", "unknown", 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			priority := engine.lookupPriority(tt.pred)
+			if priority != tt.expected {
+				t.Errorf("lookupPriority(%s) = %d, want %d", tt.pred, priority, tt.expected)
+			}
+		})
+	}
+}
