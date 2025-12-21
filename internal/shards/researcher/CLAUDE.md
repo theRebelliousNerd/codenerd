@@ -11,19 +11,24 @@ The ResearcherShard follows the Cortex 1.5.0 §9.0 Dynamic Shard Configuration:
 - Codebase analysis for project initialization
 - Knowledge atom generation and persistence
 
-## File Structure
+## File Index
 
-The package is modularized into logical components:
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `researcher.go` | ~470 | Core ResearcherShard struct, lifecycle, Execute method, batch research |
-| `scraper.go` | ~360 | Web scraping, HTTP fetching, HTML parsing, domain filtering |
-| `extract.go` | ~720 | Knowledge extraction, GitHub docs parsing, LLM synthesis, atom enrichment |
-| `analyze.go` | ~380 | Codebase analysis, dependency scanning, project type detection |
-| `tools.go` | ~1446 | Research toolkit (GitHub, Search, Context7, Browser, Cache) |
-
-**Total:** ~3376 lines (previously ~2090 lines in single file)
+| File | Description |
+|------|-------------|
+| `researcher.go` | Core ResearcherShard struct with Execute() orchestrating multi-strategy research, batch processing, and lifecycle management. Exports ResearcherShard, ResearchConfig, ResearchResult, KnowledgeAtom types and dependency injection methods (SetLLMClient, SetKernel, SetLocalDB). |
+| `scraper.go` | Web scraping with HTTP fetching, HTML parsing, and domain filtering for quality control. Exports KnowledgeSource type and knownSources map containing pre-defined documentation locations for 20+ common libraries (Rod, Mangle, Gin, etc.). |
+| `extract.go` | Knowledge extraction via GitHub docs parsing, LLM synthesis, and Context7 integration. Exports conductWebResearch() for multi-strategy orchestration, parseReadmeContent(), enrichAtomWithLLM(), persistKnowledge(), and generateFacts() for kernel propagation. |
+| `analyze.go` | Codebase analysis with dependency scanning and project type detection for initialization. Exports analyzeCodebase(), detectProjectType(), analyzeDependencies(), and language-specific parsers (parseGoMod, parsePackageJSON, parseRequirements, parseCargoToml). |
+| `tools.go` | Research toolkit bundling all research tool implementations into a unified interface. Exports ResearchToolkit struct with BrowserResearchTool, WebSearchTool, GitHubResearchTool, Context7Tool, and ResearchCache for result caching. |
+| `quality.go` | Quality metrics calculation for research results using weighted scoring. Exports QualityMetrics struct, CalculateQualityMetrics() with 4-factor scoring (atom count 30%, source diversity 25%, code snippets 25%, topic coverage 20%), and qualityRating() for grade assignment. |
+| `retry.go` | Exponential backoff retry logic with graceful degradation for unreliable APIs. Exports RetryConfig, WithRetry() helper, FallbackStrategy enum, and GracefulResearchResult supporting 4-tier fallback (full → fewer topics → simpler names → minimal). |
+| `local_ingest.go` | Local documentation ingestion for project-specific knowledge bases. Exports IngestLocalDocs() which walks directories, chunks markdown documents, and persists to LocalStore with embeddings. |
+| `concept_coverage.go` | Concept coverage analysis to avoid redundant Context7 API queries. Exports ConceptCoverage struct, ExistingKnowledge wrapper, and AnalyzeTopicCoverage() returning skip decisions based on existing atom quality. |
+| `prompt_atoms.go` | Prompt atom generation from research results for JIT prompt compilation. Exports PromptAtomData struct for converting KnowledgeAtoms to prompt corpus format with category and selector metadata. |
+| `analyze_test.go` | Unit tests for workspace path extraction and codebase analysis functions. Tests extractWorkspacePath() with various path formats and analyzeCodebase() edge cases. |
+| `concept_coverage_test.go` | Unit tests for topic coverage analysis and API skip decisions. Tests AnalyzeTopicCoverage() with empty, sufficient, and insufficient coverage scenarios. |
+| `researcher_ingest_test.go` | Integration tests for documentation ingestion with complex folder structures. Tests IngestLocalDocs() handling of messy directory layouts with heuristic matching. |
+| `researcher_parse_test.go` | Unit tests for task parsing with topics, keywords, and URLs. Tests parseTask() multi-word topic extraction, URL stripping, and keyword fallback behavior. |
 
 ## Key Types
 
