@@ -14,6 +14,13 @@ type Harness struct {
 	config    SimulatorConfig
 	reporter  *Reporter
 	scenarios map[string]*Scenario
+
+	// Observability components (optional)
+	promptInspector  *PromptInspector
+	jitTracer        *JITTracer
+	activationTracer *ActivationTracer
+	compressionViz   *CompressionVisualizer
+	contextEngine    *RealContextEngine
 }
 
 // NewHarness creates a new test harness.
@@ -32,6 +39,30 @@ func NewHarness(kernel *core.Kernel, config SimulatorConfig, output io.Writer, o
 	}
 }
 
+// NewHarnessWithObservability creates a harness with full observability wired in.
+func NewHarnessWithObservability(
+	kernel *core.Kernel,
+	config SimulatorConfig,
+	output io.Writer,
+	outputFormat string,
+	promptInspector *PromptInspector,
+	jitTracer *JITTracer,
+	activationTracer *ActivationTracer,
+	compressionViz *CompressionVisualizer,
+	contextEngine *RealContextEngine,
+) *Harness {
+	h := NewHarness(kernel, config, output, outputFormat)
+
+	// Store observability components
+	h.promptInspector = promptInspector
+	h.jitTracer = jitTracer
+	h.activationTracer = activationTracer
+	h.compressionViz = compressionViz
+	h.contextEngine = contextEngine
+
+	return h
+}
+
 // RunScenario runs a single named scenario.
 func (h *Harness) RunScenario(ctx context.Context, scenarioName string) (*TestResult, error) {
 	scenario, ok := h.scenarios[scenarioName]
@@ -40,6 +71,22 @@ func (h *Harness) RunScenario(ctx context.Context, scenarioName string) (*TestRe
 	}
 
 	simulator := NewSessionSimulator(h.kernel, h.config)
+
+	// Wire in observability if available
+	if h.promptInspector != nil || h.jitTracer != nil || h.activationTracer != nil || h.compressionViz != nil {
+		simulator.SetObservability(
+			h.promptInspector,
+			h.jitTracer,
+			h.activationTracer,
+			h.compressionViz,
+		)
+	}
+
+	// Wire in context engine if available
+	if h.contextEngine != nil {
+		simulator.SetContextEngine(h.contextEngine)
+	}
+
 	result, err := simulator.RunScenario(ctx, scenario)
 	if err != nil {
 		return nil, fmt.Errorf("scenario execution failed: %w", err)
