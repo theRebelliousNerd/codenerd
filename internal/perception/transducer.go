@@ -379,9 +379,29 @@ func (f FocusResolution) ToFact() core.Fact {
 }
 
 // Transducer defines the interface for the perception layer.
+// Both RealTransducer (legacy regex+Mangle) and UnderstandingTransducer (LLM-first)
+// implement this interface, enabling gradual migration to LLM-first classification.
 type Transducer interface {
+	// ParseIntent parses user input into an Intent without conversation history.
 	ParseIntent(ctx context.Context, input string) (Intent, error)
+
+	// ParseIntentWithContext parses user input with conversation history.
+	// This is the primary method used by the chat loop.
+	ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error)
+
+	// ResolveFocus resolves ambiguous references to specific candidates.
 	ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error)
+
+	// SetPromptAssembler sets the prompt assembler for JIT compilation.
+	SetPromptAssembler(pa *articulation.PromptAssembler)
+}
+
+// TransducerWithKernel extends Transducer with kernel integration for routing.
+type TransducerWithKernel interface {
+	Transducer
+
+	// SetKernel sets the Mangle kernel for routing queries.
+	SetKernel(kernel *core.RealKernel)
 }
 
 // RealTransducer implements the Perception layer (NL → Piggyback control_packet → intents).

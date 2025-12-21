@@ -196,7 +196,7 @@ type Model struct {
 	kernel              *core.RealKernel
 	shardMgr            *core.ShardManager
 	shadowMode          *core.ShadowMode
-	transducer          *perception.RealTransducer
+	transducer          perception.Transducer
 	executor            *tactile.SafeExecutor
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
@@ -368,7 +368,7 @@ type SystemComponents struct {
 	VirtualStore          *core.VirtualStore
 	LLMClient             perception.LLMClient
 	LocalDB               *store.LocalStore
-	Transducer            *perception.RealTransducer
+	Transducer            perception.Transducer
 	Executor              *tactile.SafeExecutor
 	Scanner               *world.Scanner
 	Autopoiesis           *autopoiesis.Orchestrator

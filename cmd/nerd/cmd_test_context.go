@@ -172,10 +172,13 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create context engine integration
+	// Type assert to get *core.RealKernel from the interface
+	realKernel, _ := cortex.Kernel.(*core.RealKernel)
+
 	var contextEngine *context_harness.RealContextEngine
-	if cortex.LocalDB != nil && cortex.LLMClient != nil {
+	if cortex.LocalDB != nil && cortex.LLMClient != nil && realKernel != nil {
 		contextEngine = context_harness.NewRealContextEngine(
-			cortex.Kernel,
+			realKernel,
 			cortex.LocalDB,
 			cortex.LLMClient,
 		)
@@ -183,7 +186,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 
 	// Create harness with observability
 	harness := context_harness.NewHarnessWithObservability(
-		cortex.Kernel,
+		realKernel,
 		simConfig,
 		os.Stdout,
 		testContextFormat,

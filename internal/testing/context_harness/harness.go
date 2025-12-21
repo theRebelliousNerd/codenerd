@@ -10,7 +10,7 @@ import (
 
 // Harness is the main orchestrator for context system testing.
 type Harness struct {
-	kernel    *core.Kernel
+	kernel    *core.RealKernel
 	config    SimulatorConfig
 	reporter  *Reporter
 	scenarios map[string]*Scenario
@@ -24,7 +24,7 @@ type Harness struct {
 }
 
 // NewHarness creates a new test harness.
-func NewHarness(kernel *core.Kernel, config SimulatorConfig, output io.Writer, outputFormat string) *Harness {
+func NewHarness(kernel *core.RealKernel, config SimulatorConfig, output io.Writer, outputFormat string) *Harness {
 	// Load all scenarios
 	scenarios := make(map[string]*Scenario)
 	for _, scenario := range AllScenarios() {
@@ -41,7 +41,7 @@ func NewHarness(kernel *core.Kernel, config SimulatorConfig, output io.Writer, o
 
 // NewHarnessWithObservability creates a harness with full observability wired in.
 func NewHarnessWithObservability(
-	kernel *core.Kernel,
+	kernel *core.RealKernel,
 	config SimulatorConfig,
 	output io.Writer,
 	outputFormat string,
