@@ -171,12 +171,27 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		VectorStoreEnabled: true,
 	}
 
-	// Create harness
-	harness := context_harness.NewHarness(
+	// Create context engine integration
+	var contextEngine *context_harness.RealContextEngine
+	if cortex.LocalDB != nil && cortex.LLMClient != nil {
+		contextEngine = context_harness.NewRealContextEngine(
+			cortex.Kernel,
+			cortex.LocalDB,
+			cortex.LLMClient,
+		)
+	}
+
+	// Create harness with observability
+	harness := context_harness.NewHarnessWithObservability(
 		cortex.Kernel,
 		simConfig,
 		os.Stdout,
 		testContextFormat,
+		promptInspector,
+		jitTracer,
+		activationTracer,
+		compressionViz,
+		contextEngine,
 	)
 
 	// List scenarios if requested
