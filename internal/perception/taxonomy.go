@@ -46,6 +46,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	// Load Intent Definition Schemas (Modular) - must be loaded in order
 	intentFiles := []string{
 		"schema/intent_core.mg",         // Core Decl statements
+		"schema/intent_qualifiers.mg",   // Interrogatives, modals, copular, negation
 		"schema/intent_queries.mg",      // /query category intents
 		"schema/intent_mutations.mg",    // /mutation category intents
 		"schema/intent_instructions.mg", // /instruction category intents
@@ -781,4 +782,277 @@ potential_score(Verb, NewScore) :-
     learned_exemplar(Sentence, Verb, _, _, _),
     candidate_intent(Verb, Base),
     NewScore = fn:plus(Base, 40.0).
+
+# =============================================================================
+# INTENT QUALIFIER INFERENCE
+# =============================================================================
+# These rules use the intent qualifiers (interrogatives, modals, copular states,
+# negation) to enhance verb selection beyond simple pattern matching.
+
+# --- Derived predicates for qualifier detection ---
+Decl detected_interrogative(Word, SemanticType, DefaultVerb, Priority).
+Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
+Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
+Decl detected_negation(Word, NegationType, Priority).
+Decl detected_existence(Pattern, DefaultVerb, Priority).
+Decl has_negation().
+Decl has_polite_modal().
+Decl has_hypothetical_modal().
+
+# --- Detect interrogatives from context tokens ---
+detected_interrogative(Word, SemanticType, DefaultVerb, Priority) :-
+    context_token(Word),
+    interrogative_type(Word, SemanticType, DefaultVerb, Priority).
+
+# Two-word interrogatives (check for both tokens present)
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("what"),
+    context_token("is"),
+    interrogative_type("what is", SemanticType, DefaultVerb, Priority),
+    Phrase = "what is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("what"),
+    context_token("if"),
+    interrogative_type("what if", SemanticType, DefaultVerb, Priority),
+    Phrase = "what if".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("why"),
+    context_token("is"),
+    interrogative_type("why is", SemanticType, DefaultVerb, Priority),
+    Phrase = "why is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("why"),
+    context_token("does"),
+    interrogative_type("why does", SemanticType, DefaultVerb, Priority),
+    Phrase = "why does".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("how"),
+    context_token("do"),
+    context_token("i"),
+    interrogative_type("how do i", SemanticType, DefaultVerb, Priority),
+    Phrase = "how do i".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("how"),
+    context_token("can"),
+    context_token("i"),
+    interrogative_type("how can i", SemanticType, DefaultVerb, Priority),
+    Phrase = "how can i".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("where"),
+    context_token("is"),
+    interrogative_type("where is", SemanticType, DefaultVerb, Priority),
+    Phrase = "where is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("who"),
+    context_token("wrote"),
+    interrogative_type("who wrote", SemanticType, DefaultVerb, Priority),
+    Phrase = "who wrote".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("which"),
+    context_token("file"),
+    interrogative_type("which file", SemanticType, DefaultVerb, Priority),
+    Phrase = "which file".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token("which"),
+    context_token("files"),
+    interrogative_type("which files", SemanticType, DefaultVerb, Priority),
+    Phrase = "which files".
+
+# --- Detect modals from context tokens ---
+detected_modal(Word, ModalMeaning, Transformation, Priority) :-
+    context_token(Word),
+    modal_type(Word, ModalMeaning, Transformation, Priority).
+
+# Two-word modals
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token("can"),
+    context_token("you"),
+    modal_type("can you", ModalMeaning, Transformation, Priority),
+    Phrase = "can you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token("could"),
+    context_token("you"),
+    modal_type("could you", ModalMeaning, Transformation, Priority),
+    Phrase = "could you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token("would"),
+    context_token("you"),
+    modal_type("would you", ModalMeaning, Transformation, Priority),
+    Phrase = "would you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token("help"),
+    context_token("me"),
+    modal_type("help me", ModalMeaning, Transformation, Priority),
+    Phrase = "help me".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token("what"),
+    context_token("if"),
+    modal_type("what if", ModalMeaning, Transformation, Priority),
+    Phrase = "what if".
+
+# --- Detect state adjectives from context tokens ---
+detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority) :-
+    context_token(Adjective),
+    state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
+
+# --- Detect negation from context tokens ---
+detected_negation(Word, NegationType, Priority) :-
+    context_token(Word),
+    negation_marker(Word, NegationType, Priority).
+
+# Flag if any negation is present
+has_negation() :-
+    detected_negation(_, _, _).
+
+# Flag if polite modal is present
+has_polite_modal() :-
+    detected_modal(_, /polite_request, _, _).
+
+# Flag if hypothetical modal is present
+has_hypothetical_modal() :-
+    detected_modal(_, /hypothetical, _, _).
+
+# --- Detect existence patterns ---
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token("is"),
+    context_token("there"),
+    existence_pattern("is there", _, DefaultVerb, Priority),
+    Pattern = "is there".
+
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token("are"),
+    context_token("there"),
+    existence_pattern("are there", _, DefaultVerb, Priority),
+    Pattern = "are there".
+
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token("do"),
+    context_token("we"),
+    context_token("have"),
+    existence_pattern("do we have", _, DefaultVerb, Priority),
+    Pattern = "do we have".
+
+# =============================================================================
+# QUALIFIER-ENHANCED VERB SCORING
+# =============================================================================
+
+# --- NEGATION BLOCKING (Highest Priority) ---
+# If negation + verb detected, DO NOT select that verb
+# Instead, convert to an instruction intent
+Decl negated_verb(Verb).
+negated_verb(Verb) :-
+    has_negation(),
+    context_token(VerbWord),
+    verb_synonym(Verb, VerbWord).
+
+# Negated verbs get negative score (effectively blocked)
+potential_score(Verb, -100.0) :-
+    negated_verb(Verb).
+
+# When negation present, boost /instruction or /explain instead
+potential_score(/explain, 85.0) :-
+    has_negation(),
+    negated_verb(_).
+
+# --- MODAL STRIPPING (High Priority) ---
+# "Can you review this?" -> strip modal, boost /review
+# This fires when polite modal + verb synonym detected
+potential_score(Verb, 95.0) :-
+    has_polite_modal(),
+    context_token(VerbWord),
+    verb_synonym(Verb, VerbWord),
+    not negated_verb(Verb).
+
+# --- HYPOTHETICAL MODE (High Priority) ---
+# "What if I deleted this?" -> boost /dream
+potential_score(/dream, 92.0) :-
+    has_hypothetical_modal().
+
+# --- COPULAR + STATE ADJECTIVE (High Priority) ---
+# "Is this code secure?" -> /security
+# Requires copular verb + state adjective in context
+Decl copular_state_intent(ImpliedVerb, Priority).
+copular_state_intent(ImpliedVerb, Priority) :-
+    context_token(Copular),
+    copular_verb(Copular, _, _),
+    detected_state_adj(_, ImpliedVerb, _, Priority).
+
+potential_score(Verb, Score) :-
+    copular_state_intent(Verb, BasePriority),
+    not has_negation(),
+    Score = fn:plus(BasePriority, 5.0).
+
+# --- INTERROGATIVE + STATE COMBINATION (Very High Priority) ---
+# "Why is this failing?" -> causation + error_state -> /debug
+Decl interrogative_state_combo(CombinedVerb, Priority).
+interrogative_state_combo(CombinedVerb, Priority) :-
+    detected_interrogative(_, InterrogType, _, _),
+    detected_state_adj(_, _, StateCategory, _),
+    interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
+
+potential_score(Verb, Score) :-
+    interrogative_state_combo(Verb, Priority),
+    not has_negation(),
+    Score = fn:plus(Priority, 2.0).
+
+# --- PURE INTERROGATIVE FALLBACK (Medium Priority) ---
+# If interrogative detected but no verb match, use interrogative's default verb
+Decl pure_interrogative_intent(DefaultVerb, Priority).
+pure_interrogative_intent(DefaultVerb, Priority) :-
+    detected_interrogative(_, _, DefaultVerb, Priority),
+    not has_polite_modal(),
+    not copular_state_intent(_, _),
+    not interrogative_state_combo(_, _).
+
+potential_score(Verb, Score) :-
+    pure_interrogative_intent(Verb, Priority),
+    not candidate_intent(_, _),
+    not has_negation(),
+    Score = fn:plus(Priority, 0.0).
+
+# --- EXISTENCE QUERIES (Medium Priority) ---
+# "Is there a config file?" -> /search
+potential_score(DefaultVerb, Score) :-
+    detected_existence(_, DefaultVerb, Priority),
+    not has_negation(),
+    Score = fn:plus(Priority, 0.0).
+
+# =============================================================================
+# INTENT METADATA DERIVATION
+# =============================================================================
+# Derive additional metadata about the intent for routing decisions.
+
+Decl intent_is_question().
+Decl intent_is_hypothetical().
+Decl intent_is_negated().
+Decl intent_semantic_type(Type).
+Decl intent_state_category(Category).
+
+intent_is_question() :-
+    detected_interrogative(_, _, _, _).
+
+intent_is_hypothetical() :-
+    has_hypothetical_modal().
+
+intent_is_negated() :-
+    has_negation().
+
+intent_semantic_type(Type) :-
+    detected_interrogative(_, Type, _, _).
+
+intent_state_category(Category) :-
+    detected_state_adj(_, _, Category, _).
 `
