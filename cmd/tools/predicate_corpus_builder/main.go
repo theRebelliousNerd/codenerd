@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -23,11 +24,11 @@ const (
 	// outputPath for the generated database
 	outputPath = "internal/core/defaults/predicate_corpus.db"
 
-	// schemasPath for the main schema file
-	schemasPath = "internal/core/defaults/schemas.mg"
+	// schemasDir for the schema files directory
+	schemasDir = "internal/core/defaults"
 
-	// policyPath for the policy file (IDB rules)
-	policyPath = "internal/core/defaults/policy.mg"
+	// policyDir for the policy directory (IDB rules - multiple files)
+	policyDir = "internal/core/defaults/policy"
 
 	// skillPath for mangle-programming skill resources
 	skillPath = ".claude/skills/mangle-programming/references"
@@ -35,16 +36,18 @@ const (
 
 // PredicateEntry represents a single predicate definition.
 type PredicateEntry struct {
-	Name         string
-	Arity        int
-	Type         string // "EDB" or "IDB"
-	Category     string // e.g., "core", "shard", "campaign", "safety"
-	Description  string
-	SafetyLevel  string // "safe", "requires_binding", "negation_sensitive", "stratification_critical"
-	Domain       string // For JIT selection: "core", "shard_coder", "campaign", etc.
-	Section      string // Source section header
-	SourceFile   string
-	ArgumentDefs []ArgumentDef
+	Name               string
+	Arity              int
+	Type               string // "EDB" or "IDB"
+	Category           string // e.g., "core", "shard", "campaign", "safety"
+	Description        string
+	SafetyLevel        string // "safe", "requires_binding", "negation_sensitive", "stratification_critical"
+	Domain             string // For JIT selection: "core", "shard_coder", "campaign", etc.
+	Section            string // Source section header
+	SourceFile         string
+	ArgumentDefs       []ArgumentDef
+	ActivationPriority int // Priority for ActivationEngine spreading activation (0-100, default 50)
+	SerializationOrder int // Order for FactSerializer output (1=first, default 100)
 }
 
 // ArgumentDef represents a single argument of a predicate.
@@ -81,18 +84,18 @@ func main() {
 	fmt.Println("=================================================")
 	fmt.Println()
 
-	// Step 1: Parse schemas.mg for EDB declarations
-	fmt.Println("[1/5] Parsing schemas.mg for EDB declarations...")
-	edbPredicates, err := parseSchemas(schemasPath)
+	// Step 1: Parse schemas*.mg files for EDB declarations
+	fmt.Println("[1/5] Parsing schema files for EDB declarations...")
+	edbPredicates, err := parseSchemasDir(schemasDir)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to parse schemas: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Printf("      Found %d EDB predicates\n", len(edbPredicates))
 
-	// Step 2: Parse policy.mg for IDB rules (derived predicates)
-	fmt.Println("[2/5] Parsing policy.mg for IDB rules...")
-	idbPredicates, err := parsePolicy(policyPath)
+	// Step 2: Parse policy directory for IDB rules (derived predicates)
+	fmt.Println("[2/5] Parsing policy directory for IDB rules...")
+	idbPredicates, err := parsePolicyDir(policyDir)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to parse policy: %v\n", err)
 		os.Exit(1)
@@ -138,8 +141,47 @@ func main() {
 	fmt.Println("=================================================")
 }
 
-// parseSchemas parses schemas.mg and extracts all Decl statements with metadata.
-func parseSchemas(path string) ([]PredicateEntry, error) {
+// parseSchemasDir parses all schemas*.mg files in a directory and extracts all Decl statements.
+func parseSchemasDir(dirPath string) ([]PredicateEntry, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var allPredicates []PredicateEntry
+	seen := make(map[string]bool) // Deduplicate across files
+
+	for _, entry := range entries {
+		// Only process schema files (schemas.mg, schemas_*.mg)
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".mg") {
+			continue
+		}
+		if !strings.HasPrefix(name, "schemas") {
+			continue
+		}
+
+		filePath := filepath.Join(dirPath, name)
+		predicates, err := parseSchemaFile(filePath)
+		if err != nil {
+			fmt.Printf("      Warning: Failed to parse %s: %v\n", name, err)
+			continue
+		}
+
+		for _, p := range predicates {
+			key := fmt.Sprintf("%s/%d", p.Name, p.Arity)
+			if !seen[key] {
+				seen[key] = true
+				allPredicates = append(allPredicates, p)
+			}
+		}
+	}
+
+	return allPredicates, nil
+}
+
+// parseSchemaFile parses a single schema .mg file and extracts all Decl statements with metadata.
+func parseSchemaFile(path string) ([]PredicateEntry, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -154,6 +196,8 @@ func parseSchemas(path string) ([]PredicateEntry, error) {
 	declPattern := regexp.MustCompile(`^Decl\s+([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\.?`)
 	sectionPattern := regexp.MustCompile(`^#\s*SECTION\s*(\d+[A-Z]?):\s*(.+)`)
 	domainPattern := regexp.MustCompile(`^#\s*Domain:\s*(\S+)`)
+	priorityPattern := regexp.MustCompile(`#\s*Priority:\s*(\d+)`)
+	serializationPattern := regexp.MustCompile(`#\s*SerializationOrder:\s*(\d+)`)
 
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -177,17 +221,36 @@ func parseSchemas(path string) ([]PredicateEntry, error) {
 			argsStr := matches[2]
 			args := parseArgumentDefs(argsStr)
 
+			// Extract priority annotations from nearby comments (look up to 5 lines back)
+			activationPriority := inferActivationPriority(name, currentSection) // Start with inferred default
+			serializationOrder := 100                                           // Default order
+			for j := i - 1; j >= 0 && j > i-5; j-- {
+				commentLine := lines[j]
+				if matches := priorityPattern.FindStringSubmatch(commentLine); matches != nil {
+					if p, err := strconv.Atoi(matches[1]); err == nil {
+						activationPriority = p
+					}
+				}
+				if matches := serializationPattern.FindStringSubmatch(commentLine); matches != nil {
+					if s, err := strconv.Atoi(matches[1]); err == nil {
+						serializationOrder = s
+					}
+				}
+			}
+
 			entry := PredicateEntry{
-				Name:         name,
-				Arity:        len(args),
-				Type:         "EDB",
-				Category:     categoryFromSection(currentSection),
-				Description:  extractDescription(lines, i),
-				SafetyLevel:  inferSafetyLevel(name, currentSection),
-				Domain:       currentDomain,
-				Section:      currentSection,
-				SourceFile:   filepath.Base(path),
-				ArgumentDefs: args,
+				Name:               name,
+				Arity:              len(args),
+				Type:               "EDB",
+				Category:           categoryFromSection(currentSection),
+				Description:        extractDescription(lines, i),
+				SafetyLevel:        inferSafetyLevel(name, currentSection),
+				Domain:             currentDomain,
+				Section:            currentSection,
+				SourceFile:         filepath.Base(path),
+				ArgumentDefs:       args,
+				ActivationPriority: activationPriority,
+				SerializationOrder: serializationOrder,
 			}
 			predicates = append(predicates, entry)
 		}
@@ -434,6 +497,68 @@ func inferSafetyLevel(name, section string) string {
 	return "safe"
 }
 
+// inferActivationPriority infers activation priority from predicate name and section.
+// Higher priority = more likely to be included in context window.
+// These defaults match the hardcoded priorities in internal/context/types.go.
+func inferActivationPriority(name, section string) int {
+	section = strings.ToLower(section)
+
+	// Core intent predicates (highest priority)
+	if name == "user_intent" {
+		return 100
+	}
+
+	// Critical diagnostic and test state
+	if name == "diagnostic" || name == "test_state" {
+		return 95
+	}
+
+	// Focus and goal predicates
+	if strings.Contains(name, "focus") || strings.Contains(name, "active_goal") {
+		return 90
+	}
+
+	// Campaign state
+	if strings.Contains(name, "campaign") || strings.Contains(name, "phase") {
+		return 85
+	}
+
+	// Safety and permission predicates
+	if strings.Contains(name, "permitted") || strings.Contains(name, "blocked") ||
+		strings.Contains(name, "safety") || strings.Contains(name, "violation") {
+		return 85
+	}
+
+	// Shard lifecycle
+	if strings.Contains(name, "shard") {
+		return 80
+	}
+
+	// World model predicates
+	if strings.Contains(name, "file_topology") || strings.Contains(name, "symbol_graph") ||
+		strings.Contains(name, "dependency") {
+		return 75
+	}
+
+	// Action routing
+	if strings.Contains(name, "next_action") || strings.Contains(name, "action") {
+		return 70
+	}
+
+	// Memory and knowledge
+	if strings.Contains(section, "memory") || strings.Contains(section, "knowledge") {
+		return 60
+	}
+
+	// Tool predicates
+	if strings.Contains(section, "tool") {
+		return 55
+	}
+
+	// Default priority
+	return 50
+}
+
 // extractDescription extracts description from comments above the Decl.
 func extractDescription(lines []string, declLine int) string {
 	var descLines []string
@@ -460,8 +585,43 @@ func extractDescription(lines []string, declLine int) string {
 	return strings.Join(descLines, " ")
 }
 
-// parsePolicy parses policy.mg and extracts IDB rule heads.
-func parsePolicy(path string) ([]PredicateEntry, error) {
+// parsePolicyDir parses all .mg files in a directory and extracts IDB rule heads.
+func parsePolicyDir(dirPath string) ([]PredicateEntry, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var allPredicates []PredicateEntry
+	seen := make(map[string]bool) // Deduplicate across files
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".mg") {
+			continue
+		}
+
+		filePath := filepath.Join(dirPath, entry.Name())
+		predicates, err := parsePolicyFile(filePath)
+		if err != nil {
+			// Log warning but continue with other files
+			fmt.Printf("      Warning: Failed to parse %s: %v\n", entry.Name(), err)
+			continue
+		}
+
+		for _, p := range predicates {
+			key := fmt.Sprintf("%s/%d", p.Name, p.Arity)
+			if !seen[key] {
+				seen[key] = true
+				allPredicates = append(allPredicates, p)
+			}
+		}
+	}
+
+	return allPredicates, nil
+}
+
+// parsePolicyFile parses a single policy .mg file and extracts IDB rule heads.
+func parsePolicyFile(path string) ([]PredicateEntry, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -478,6 +638,8 @@ func parsePolicy(path string) ([]PredicateEntry, error) {
 	// Regex for rule heads: predicate_name(args) :-
 	rulePattern := regexp.MustCompile(`^([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s*:-`)
 	sectionPattern := regexp.MustCompile(`^#\s*SECTION\s*(\d+[A-Z]?):\s*(.+)`)
+	priorityPattern := regexp.MustCompile(`#\s*Priority:\s*(\d+)`)
+	serializationPattern := regexp.MustCompile(`#\s*SerializationOrder:\s*(\d+)`)
 
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -500,16 +662,35 @@ func parsePolicy(path string) ([]PredicateEntry, error) {
 			}
 			seen[key] = true
 
+			// Extract priority annotations from nearby comments (look up to 5 lines back)
+			activationPriority := inferActivationPriority(name, currentSection)
+			serializationOrder := 100
+			for j := i - 1; j >= 0 && j > i-5; j-- {
+				commentLine := lines[j]
+				if matches := priorityPattern.FindStringSubmatch(commentLine); matches != nil {
+					if p, err := strconv.Atoi(matches[1]); err == nil {
+						activationPriority = p
+					}
+				}
+				if matches := serializationPattern.FindStringSubmatch(commentLine); matches != nil {
+					if s, err := strconv.Atoi(matches[1]); err == nil {
+						serializationOrder = s
+					}
+				}
+			}
+
 			entry := PredicateEntry{
-				Name:        name,
-				Arity:       args,
-				Type:        "IDB",
-				Category:    categoryFromSection(currentSection),
-				Description: extractDescription(lines, i),
-				SafetyLevel: inferSafetyLevel(name, currentSection),
-				Domain:      sectionToDomain(currentSection),
-				Section:     currentSection,
-				SourceFile:  filepath.Base(path),
+				Name:               name,
+				Arity:              args,
+				Type:               "IDB",
+				Category:           categoryFromSection(currentSection),
+				Description:        extractDescription(lines, i),
+				SafetyLevel:        inferSafetyLevel(name, currentSection),
+				Domain:             sectionToDomain(currentSection),
+				Section:            currentSection,
+				SourceFile:         filepath.Base(path),
+				ActivationPriority: activationPriority,
+				SerializationOrder: serializationOrder,
 			}
 			predicates = append(predicates, entry)
 		}
@@ -830,6 +1011,8 @@ func createDatabase() (*sql.DB, error) {
 			domain TEXT,                     -- For JIT selection
 			section TEXT,
 			source_file TEXT,
+			activation_priority INTEGER DEFAULT 50,   -- Priority for ActivationEngine (0-100, higher = more important)
+			serialization_order INTEGER DEFAULT 100,  -- Order for FactSerializer (1=first)
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(name, arity)
 		);
@@ -837,6 +1020,8 @@ func createDatabase() (*sql.DB, error) {
 		CREATE INDEX idx_predicates_domain ON predicates(domain);
 		CREATE INDEX idx_predicates_category ON predicates(category);
 		CREATE INDEX idx_predicates_type ON predicates(type);
+		CREATE INDEX idx_predicates_priority ON predicates(activation_priority DESC);
+		CREATE INDEX idx_predicates_serialization ON predicates(serialization_order);
 
 		-- Argument type specifications
 		CREATE TABLE predicate_args (
@@ -916,8 +1101,8 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 
 	// Insert predicates
 	predStmt, err := tx.Prepare(`
-		INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file, activation_priority, serialization_order)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare predicate statement: %w", err)
@@ -943,7 +1128,7 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	defer domainStmt.Close()
 
 	for _, p := range predicates {
-		result, err := predStmt.Exec(p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile)
+		result, err := predStmt.Exec(p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
 		if err != nil {
 			return fmt.Errorf("failed to insert predicate %s: %w", p.Name, err)
 		}
@@ -1079,6 +1264,30 @@ func printSummary(db *sql.DB) {
 	}
 	if err := db.QueryRow("SELECT COUNT(*) FROM predicate_examples WHERE is_correct = 0").Scan(&antiPatternCount); err == nil {
 		fmt.Printf("    Anti-patterns: %d\n", antiPatternCount)
+	}
+
+	// Priority distribution
+	fmt.Println("  By activation priority:")
+	rows, err = db.Query(`SELECT
+		CASE
+			WHEN activation_priority >= 90 THEN 'High (90-100)'
+			WHEN activation_priority >= 70 THEN 'Medium (70-89)'
+			WHEN activation_priority >= 50 THEN 'Default (50-69)'
+			ELSE 'Low (0-49)'
+		END as priority_band,
+		COUNT(*) as cnt
+		FROM predicates
+		GROUP BY priority_band
+		ORDER BY MIN(activation_priority) DESC`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var band string
+			var cnt int
+			if err := rows.Scan(&band, &cnt); err == nil {
+				fmt.Printf("    %-20s %d\n", band, cnt)
+			}
+		}
 	}
 
 	// File size

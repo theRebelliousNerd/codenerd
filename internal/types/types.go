@@ -101,9 +101,18 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 		case int64:
 			terms = append(terms, ast.Number(v))
 		case float64:
-			// Convert floats to integers for Mangle compatibility
-			// (Mangle comparison operators don't support float types)
-			// 0.0-1.0 range -> 0-100 scale, otherwise truncate to int
+			// IMPLICIT FLOAT COERCION:
+			// Mangle's comparison operators (>, <, >=, <=) don't support float types,
+			// so we convert floats to integers for Mangle compatibility.
+			//
+			// Conversion rules:
+			//   - Values in 0.0-1.0 range are scaled to 0-100 (probability/confidence)
+			//     Example: 0.85 → 85 (for use in Score > 70 comparisons)
+			//   - Values outside 0.0-1.0 are truncated to int
+			//     Example: 1234.56 → 1234
+			//
+			// IMPORTANT: Callers must be aware of this scaling when comparing
+			// against thresholds in Mangle rules (e.g., Score > 70 not Score > 0.70).
 			if v >= 0.0 && v <= 1.0 {
 				terms = append(terms, ast.Number(int64(v*100)))
 			} else {

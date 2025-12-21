@@ -61,7 +61,13 @@ func (vfs *virtualFactStore) GetFacts(query ast.Atom, fn func(ast.Atom) error) e
 		if _, ok := virtualPredicateHandlers[query.Predicate.Symbol]; ok {
 			atoms, err := vfs.virtual.Get(query)
 			if err != nil {
-				logging.Get(logging.CategoryVirtualStore).Warn("Virtual predicate %s failed: %v", query.Predicate.Symbol, err)
+				// Log at Error level for visibility (was Warn).
+				// Virtual predicate failures can cause silent logic bugs.
+				logging.Get(logging.CategoryVirtualStore).Error(
+					"Virtual predicate %s query failed (returning empty): %v",
+					query.Predicate.Symbol, err)
+				// Continue to base store - this is intentional fallback.
+				// Consider returning error if virtual predicates are critical.
 			} else {
 				for _, atom := range atoms {
 					if !factstore.Matches(query.Args, atom.Args) {

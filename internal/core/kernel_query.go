@@ -87,7 +87,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	}
 
 	if !predicateFound {
-		logging.KernelDebug("Query: predicate '%s' not found in declarations", predicateName)
+		// Upgraded from Debug to Warn: missing predicates may indicate
+		// schema drift or missing declarations, which can cause silent bugs.
+		logging.Get(logging.CategoryKernel).Warn("Query: predicate '%s' not found in declarations", predicateName)
 	}
 
 	// JIT-related predicate debugging - log at INFO level for visibility

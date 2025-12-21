@@ -48,9 +48,13 @@ type ActivationEngine struct {
 	issueContext *IssueActivationContext
 
 	// Session tracking
-	sessionID       string
-	sessionStarted  time.Time
-	sessionFacts    map[string]bool // Facts added this session
+	sessionID      string
+	sessionStarted time.Time
+	sessionFacts   map[string]bool // Facts added this session
+
+	// Corpus-based priorities (loaded from predicate_corpus.db)
+	// These take precedence over config.PredicatePriorities
+	corpusPriorities map[string]int
 }
 
 // CampaignActivationContext holds campaign-specific activation state.
@@ -145,6 +149,27 @@ func (ae *ActivationEngine) SetIssueContext(ctx *IssueActivationContext) {
 // ClearIssueContext clears the issue context.
 func (ae *ActivationEngine) ClearIssueContext() {
 	ae.issueContext = nil
+}
+
+// SetCorpusPriorities sets priorities from the predicate corpus.
+// These take precedence over hardcoded config.PredicatePriorities.
+// Call this after kernel initialization to use corpus as single source of truth.
+func (ae *ActivationEngine) SetCorpusPriorities(priorities map[string]int) {
+	ae.corpusPriorities = priorities
+}
+
+// LoadPrioritiesFromCorpus loads priorities from a PredicateCorpus.
+// This is a convenience method that calls GetPriorities() on the corpus.
+func (ae *ActivationEngine) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpus) error {
+	if corpus == nil {
+		return nil // No-op if no corpus
+	}
+	priorities, err := corpus.GetPriorities()
+	if err != nil {
+		return err
+	}
+	ae.corpusPriorities = priorities
+	return nil
 }
 
 // =============================================================================
@@ -332,7 +357,18 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 
 // computeBaseScore returns the base priority score for a predicate.
 // This implements the predicate priority system from policy.mg §1.
+// Priority sources (checked in order):
+// 1. Corpus-based priorities (from predicate_corpus.db if loaded)
+// 2. Config-based priorities (hardcoded fallback in types.go)
+// 3. Default (50)
 func (ae *ActivationEngine) computeBaseScore(fact core.Fact) float64 {
+	// Check corpus-based priorities first (single source of truth)
+	if ae.corpusPriorities != nil {
+		if priority, ok := ae.corpusPriorities[fact.Predicate]; ok {
+			return float64(priority)
+		}
+	}
+	// Fall back to config-based priorities (hardcoded)
 	if priority, ok := ae.config.PredicatePriorities[fact.Predicate]; ok {
 		return float64(priority)
 	}
@@ -493,9 +529,8 @@ func (ae *ActivationEngine) computeDependencyScore(fact core.Fact) float64 {
 	if deps, ok := ae.dependencies[key]; ok {
 		for _, depKey := range deps {
 			pred := extractPredicate(depKey)
-			if priority, found := ae.config.PredicatePriorities[pred]; found {
-				score += float64(priority) * 0.3 // 30% inheritance
-			}
+			priority := ae.lookupPriority(pred)
+			score += float64(priority) * 0.3 // 30% inheritance
 		}
 	}
 
@@ -718,6 +753,22 @@ func extractPredicate(key string) string {
 		return key
 	}
 	return key[:idx]
+}
+
+// lookupPriority returns the priority for a predicate name.
+// Checks corpus first, then config, then returns default.
+func (ae *ActivationEngine) lookupPriority(pred string) int {
+	// Check corpus-based priorities first
+	if ae.corpusPriorities != nil {
+		if priority, ok := ae.corpusPriorities[pred]; ok {
+			return priority
+		}
+	}
+	// Fall back to config-based priorities
+	if priority, ok := ae.config.PredicatePriorities[pred]; ok {
+		return priority
+	}
+	return 50 // Default
 }
 
 // =============================================================================
