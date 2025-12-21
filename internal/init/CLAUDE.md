@@ -11,18 +11,21 @@ The initializer performs comprehensive workspace setup:
 4. Create system agents (Type 1)
 5. Initialize knowledge stores
 
-## File Structure
+## File Index
 
-The package is now modularized into logical components:
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `initializer.go` | ~596 | Main initialization orchestration, core Initializer struct, and phase management |
-| `scanner.go` | ~166 | File system traversal, dependency detection, and directory structure creation |
-| `profile.go` | ~541 | Profile generation, facts generation, preferences, session management, and helpers |
-| `agents.go` | ~533 | Agent recommendation, creation, knowledge base hydration, and registration |
-
-**Total:** ~1836 lines (previously ~1756 lines in single file)
+| File | Description |
+|------|-------------|
+| `initializer.go` | Main initialization orchestration with 10-phase Initialize() method and progress reporting. Exports Initializer struct, InitConfig, InitProgress, InitResult, RecommendedAgent types and SetProgressChannel() for real-time updates. |
+| `scanner.go` | File system traversal with dependency detection and directory structure creation. Exports createDirectoryStructure(), detectLanguageFromFiles() checking 12+ config files, detectDependencies() parsing go.mod/package.json with version extraction. |
+| `profile.go` | Profile generation with facts file creation and session state management. Exports buildProjectProfile(), saveProfile(), generateFactsFile(), initPreferences(), initSessionState(), and createCodebaseKnowledgeBase() for project-specific atoms. |
+| `agents.go` | Agent recommendation and creation with knowledge base hydration and registration. Exports determineRequiredAgents() analyzing dependencies, createType3Agents() with research, generateAgentPromptsYAML() for JIT atoms, and registerAgentsWithShardManager(). |
+| `interactive.go` | Interactive mode for agent curation during initialization with user prompts. Exports DetectedAgent, AgentSelectionPreferences, InteractiveConfig, and runInteractiveAgentSelection() for CLI-based agent approval workflow. |
+| `jit_integration.go` | JIT prompt compilation for init phases with fallback to simple prompts. Exports assembleJITPrompt() creating phase-specific CompilationContext, createJITCompiler() with hardcoded init atoms, and BuildInitCompilationContext(). |
+| `shared_kb.go` | Shared knowledge pool for common concepts inherited by all specialist agents. Exports SharedKnowledgeTopics (error handling, logging, testing), BaseSharedAtoms with hardcoded best practices, and createSharedKnowledgeBase(). |
+| `tools.go` | Tool definitions for language-specific build/test/lint commands with shard affinity. Exports ToolDefinition struct with command/category/conditions, GetLanguageTools() for Go/Python/TS/Rust, and saveToolRegistry() for persistence. |
+| `typeu_agents.go` | Type U user-defined agent support for --define-agent CLI flag. Exports TypeUAgentDefinition parsed from "Name:role:topic1,topic2" format, ParseTypeUAgentFlag() with validation, and integration with agent creation pipeline. |
+| `validation.go` | Post-initialization validation of agent knowledge databases for schema and content. Exports ValidationResult, ValidationSummary, ValidateAgentDB() checking tables/atoms/hashes, and ValidateAllAgentDBs() for comprehensive verification. |
+| `scanner_test.go` | Unit tests for entry point detection across Go, Python, and Node.js project layouts. Tests detectEntryPoints() with main.go patterns, Python __main__ detection, and package.json parsing. |
 
 ## Key Types
 
