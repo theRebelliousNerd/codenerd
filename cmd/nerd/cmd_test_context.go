@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -15,12 +16,20 @@ import (
 )
 
 var (
-	testContextScenario  string
-	testContextAll       bool
-	testContextFormat    string
-	testContextMaxTurns  int
-	testContextBudget    int
-	testContextWithPaging bool
+	testContextScenario    string
+	testContextAll         bool
+	testContextFormat      string
+	testContextMaxTurns    int
+	testContextBudget      int
+	testContextWithPaging  bool
+	testContextVerbose     bool
+	testContextInspectPrompts bool
+	testContextTraceJIT      bool
+	testContextTraceActivation bool
+	testContextVisCompression bool
+	testContextTracePiggyback bool
+	testContextLogDir      string
+	testContextConsoleOutput bool
 )
 
 // testContextCmd runs context system stress tests
@@ -51,6 +60,16 @@ func init() {
 	testContextCmd.Flags().IntVar(&testContextBudget, "token-budget", 8000, "Token budget for context retrieval")
 	testContextCmd.Flags().BoolVar(&testContextWithPaging, "paging", true, "Enable context paging")
 
+	// Observability flags
+	testContextCmd.Flags().BoolVarP(&testContextVerbose, "verbose", "v", false, "Verbose output (show all details)")
+	testContextCmd.Flags().BoolVar(&testContextInspectPrompts, "inspect-prompts", true, "Log full prompts sent to LLM")
+	testContextCmd.Flags().BoolVar(&testContextTraceJIT, "trace-jit", true, "Trace JIT prompt compilation")
+	testContextCmd.Flags().BoolVar(&testContextTraceActivation, "trace-activation", true, "Trace spreading activation")
+	testContextCmd.Flags().BoolVar(&testContextVisCompression, "vis-compression", true, "Visualize compression (before/after)")
+	testContextCmd.Flags().BoolVar(&testContextTracePiggyback, "trace-piggyback", true, "Trace Piggyback protocol")
+	testContextCmd.Flags().StringVar(&testContextLogDir, "log-dir", ".nerd/context-tests", "Directory for log files")
+	testContextCmd.Flags().BoolVar(&testContextConsoleOutput, "console", true, "Also print to console (in addition to files)")
+
 	// Add to root command
 	rootCmd.AddCommand(testContextCmd)
 }
@@ -65,8 +84,78 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		key = os.Getenv("ZAI_API_KEY")
 	}
 
+	// Set up file logging
+	var consoleWriter io.Writer = os.Stdout
+	if !testContextConsoleOutput {
+		consoleWriter = nil
+	}
+
+	fileLogger, err := context_harness.NewFileLogger(testContextLogDir, consoleWriter)
+	if err != nil {
+		return fmt.Errorf("failed to create file logger: %w", err)
+	}
+	defer func() {
+		if err := fileLogger.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file logger: %v\n", err)
+		} else {
+			fmt.Printf("\n📁 Logs saved to: %s\n", fileLogger.GetSessionDir())
+		}
+	}()
+
+	// Create tracers/visualizers
+	var promptInspector *context_harness.PromptInspector
+	var jitTracer *context_harness.JITTracer
+	var activationTracer *context_harness.ActivationTracer
+	var compressionViz *context_harness.CompressionVisualizer
+
+	if testContextInspectPrompts {
+		promptInspector = context_harness.NewPromptInspector(
+			fileLogger.GetPromptWriter(),
+			testContextVerbose,
+		)
+	}
+
+	if testContextTraceJIT {
+		jitTracer = context_harness.NewJITTracer(
+			fileLogger.GetJITWriter(),
+			testContextVerbose,
+		)
+	}
+
+	if testContextTraceActivation {
+		activationTracer = context_harness.NewActivationTracer(
+			fileLogger.GetActivationWriter(),
+			testContextVerbose,
+		)
+	}
+
+	if testContextVisCompression {
+		compressionViz = context_harness.NewCompressionVisualizer(
+			fileLogger.GetCompressionWriter(),
+			testContextVerbose,
+		)
+	}
+
 	// Boot Cortex (need kernel + compression system)
 	fmt.Println("🚀 Booting codeNERD Cortex...")
+	fmt.Printf("📊 Observability Enabled:\n")
+	if testContextInspectPrompts {
+		fmt.Println("  ✓ Prompt Inspection")
+	}
+	if testContextTraceJIT {
+		fmt.Println("  ✓ JIT Compilation Tracing")
+	}
+	if testContextTraceActivation {
+		fmt.Println("  ✓ Spreading Activation Tracing")
+	}
+	if testContextVisCompression {
+		fmt.Println("  ✓ Compression Visualization")
+	}
+	if testContextTracePiggyback {
+		fmt.Println("  ✓ Piggyback Protocol Tracing")
+	}
+	fmt.Println()
+
 	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
@@ -100,6 +189,13 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nUsage:")
 		fmt.Println("  nerd test-context --scenario <name>")
 		fmt.Println("  nerd test-context --all")
+		fmt.Println("\nObservability Options:")
+		fmt.Println("  --inspect-prompts      Log full prompts sent to LLM")
+		fmt.Println("  --trace-jit            Trace JIT prompt compilation")
+		fmt.Println("  --trace-activation     Trace spreading activation")
+		fmt.Println("  --vis-compression      Visualize compression (before/after)")
+		fmt.Println("  --trace-piggyback      Trace Piggyback protocol")
+		fmt.Println("  --verbose, -v          Show all internal details")
 		return nil
 	}
 
@@ -122,6 +218,11 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Print summary
+		if promptInspector != nil {
+			promptInspector.Summary()
+		}
+
 		if failures > 0 {
 			return fmt.Errorf("%d scenarios failed", failures)
 		}
@@ -136,6 +237,11 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		result, err := harness.RunScenario(ctx, testContextScenario)
 		if err != nil {
 			return fmt.Errorf("scenario failed: %w", err)
+		}
+
+		// Print summary
+		if promptInspector != nil {
+			promptInspector.Summary()
 		}
 
 		if !result.Passed {
