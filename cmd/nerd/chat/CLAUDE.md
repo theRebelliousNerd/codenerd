@@ -17,20 +17,41 @@ The chat package follows the Elm Architecture (Model-Update-View) pattern enforc
 
 The package acts as the "Articulation Transducer" in the codeNERD architecture, bridging the gap between human-readable conversation and the logic-first Mangle kernel.
 
-## File Structure
+## File Index
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `model.go` | ~691 | Core Model type, Config, Init, Update loop, message types |
-| `commands.go` | ~936 | `/command` routing and handlers (/review, /agent, /campaign, etc.) |
-| `session.go` | ~444 | Session initialization, kernel hydration, persistence |
-| `process.go` | ~267 | Input processing, intent parsing, LLM delegation |
-| `view.go` | ~177 | TUI rendering (header, history, footer, progress bars) |
-| `campaign.go` | ~355 | Campaign orchestration UI and progress visualization |
-| `helpers.go` | ~490 | Utility functions, file operations, articulation helpers |
-| `delegation.go` | ~228 | Shard spawning, task formatting, response formatting |
-| `shadow.go` | ~298 | Shadow Mode simulation, What-If analysis, derivation traces |
-| `review_aggregator.go` | ~400 | Multi-shard review orchestration with adversarial integration |
+| File | Description |
+|------|-------------|
+| `agent_wizard.go` | Interactive dialogue for defining new Type 4 Specialist Agents. Exports `AgentWizardState` with step-by-step name/role/topics collection. |
+| `campaign.go` | Campaign orchestration UI with start/pause/resume handlers and progress visualization. Implements `startCampaign()` and `renderCampaignStatus()` with JIT prompt integration. |
+| `campaign_assault.go` | Adversarial assault campaign launcher parsing scope/include/cycles flags. Implements `startAssaultCampaign()` for batched stress testing from `/campaign assault`. |
+| `campaign_jit_provider.go` | Adapts `articulation.PromptAssembler` to `campaign.PromptProvider` interface. Enables JIT prompts for campaign roles without circular imports. |
+| `command_categories.go` | Defines command categories (Core/Basic/Advanced/Expert/System) with metadata registry. Exports `CommandRegistry` with aliases, descriptions, and experience filtering. |
+| `commands.go` | Main `/command` router dispatching to handlers for all slash commands. Implements `handleCommand()` with cases for quit, usage, review, agent, campaign, shadow, etc. |
+| `config_wizard.go` | Full interactive configuration wizard for LLM provider, API keys, shard models, embeddings. Exports `ConfigWizardState` with multi-step flow through engine/provider/model selection. |
+| `delegation.go` | Shard spawning and task delegation helpers with cross-shard context injection. Implements `formatShardTaskWithContext()` for blackboard pattern flow between reviewer→coder→tester. |
+| `help_renderer.go` | Experience-aware help text generator filtering commands by user journey state. Exports `HelpRenderer` with `RenderHelp()` returning Core/Basic/Advanced/Expert sections. |
+| `helpers.go` | Utility functions for articulation, file operations, and response formatting. Implements `formatResponse()`, `payloadForArticulation()`, and init/scan helpers. |
+| `ingest.go` | Document ingestion for Type 4 agent knowledge bases with vector storage. Implements `ingestAgentDocs()` for `/ingest <agent> <path>` command. |
+| `model.go` | Package marker documenting chat modularization across model_*.go files. Points to model_types, lifecycle, update, handlers, session_context, helpers. |
+| `model_handlers.go` | Input submission handlers for normal chat, patches, clarifications, and dream learning. Implements `handleSubmit()` dispatching to mode-specific processing. |
+| `model_helpers.go` | Shard output parsing utilities for extracting findings, metrics, and suggestions. Exports `extractFindings()`, `extractMetrics()`, and `hardWrap()`. |
+| `model_lifecycle.go` | Graceful shutdown handling stopping all background goroutines and releasing resources. Implements `Shutdown()` with browser, autopoiesis, and kernel cleanup. |
+| `model_session_context.go` | SessionContext builder implementing the Blackboard Pattern for shard injection. Implements `buildSessionContext()` with history, diagnostics, git state, and knowledge atoms. |
+| `model_types.go` | Core type definitions including `Model` struct, `ViewMode`, `InputMode`, and message types. Defines UI components, backend references, campaign state, and autopoiesis hooks. |
+| `model_update.go` | Main Bubbletea Update loop routing messages to handlers by type. Implements global keybindings, view mode switching, and component updates. |
+| `multistep_corpus.go` | Encyclopedic multi-step task corpus with pattern detection and decomposition. Exports `MultiStepPattern`, `StepRelation` types, and kernel-loaded pattern cache. |
+| `multistep_decomposer.go` | Decomposition strategies for breaking multi-step patterns into TaskSteps. Exports `DecomposerRegistry` with explicit_sequence, numbered_steps, verb_pair_chain, etc. |
+| `northstar_wizard.go` | Interactive `/northstar` wizard for defining project vision, users, capabilities, and requirements. Exports `NorthstarPhase` and stores results in `.nerd/northstar.mg`. |
+| `onboarding_wizard.go` | First-run onboarding experience with 5-phase flow (Welcome→Experience→API→Wow→Complete). Implements `startOnboarding()` with skip-able, non-blocking UX. |
+| `persistence.go` | Knowledge persistence populating knowledge.db with session history, vectors, and atoms. Implements `persistTurnToKnowledge()` for Execute→Store→Learn loop. |
+| `process.go` | Natural language input processing with intent parsing and kernel derivation. Implements `processInput()` orchestrating transducer→kernel→shard→articulation flow. |
+| `reembed.go` | Force re-embedding across all .db files in .nerd/ and internal/ directories. Implements `runReembedAllDBs()` for `/embedding reembed` command. |
+| `review_aggregator.go` | Multi-shard review orchestration running reviewer + specialists + nemesis in parallel. Exports `AggregatedReview` with deduplication, holistic insights, and enhancement sections. |
+| `session.go` | Session initialization wiring kernel, shard manager, transducer, and UI components. Exports `InitChat()` with configuration loading and deferred heavy boot. |
+| `shadow.go` | Shadow Mode simulation and counterfactual reasoning for what-if analysis. Implements `runShadowSimulation()` and `runWhatIfQuery()` with derivation traces. |
+| `tips.go` | Contextual tip generation based on user actions and experience level. Exports `TipGenerator` and `ContextualTip` for progressive disclosure UX. |
+| `tool_adapter.go` | Adapts autopoiesis.Orchestrator to core.ToolExecutor interface for generated tools. Exports `ToolExecutorAdapter` with `ExecuteTool()` and quality assessment logging. |
+| `view.go` | TUI rendering functions for history, header, footer, and markdown output. Implements `renderHistory()` with `safeRenderMarkdown()` panic recovery. |
 
 ## Key Types
 

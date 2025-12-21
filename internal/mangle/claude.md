@@ -10,14 +10,23 @@ Mangle provides deductive database programming with:
 - Negation-as-failure
 - Aggregation functions
 
-## File Structure
+## File Index
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `engine.go` | ~880 | Main Mangle engine |
-| `lsp.go` | ~920 | LSP integration for Mangle files |
-| `grammar.go` | ~700 | Parser/lexer for .gl files |
-| `policy.gl` | ~800 | Core policy rules |
+| File | Description |
+|------|-------------|
+| `differential.go` | `DifferentialEngine` for incremental evaluation with stratum-aware caching. Supports snapshot isolation (COW) for concurrent simulation branches. |
+| `engine.go` | Production-grade Google Mangle engine wrapper implementing the Hollow Kernel pattern. Exports `Engine` with `LoadFacts()`, `Query()`, and gas-limited inference. |
+| `grammar.go` | Grammar-constrained decoding (GCD) for Mangle atom validation. Exports `AtomValidator` with predicate specs and repair suggestions. |
+| `lsp.go` | LSP server for .mg files providing syntax highlighting, diagnostics, completion, and hover docs. Exports `LSPServer` with document and definition tracking. |
+| `proof_tree.go` | Proof tree visualization materializing `derivation_trace` facts during query. Exports `ProofTreeTracer` and `DerivationNode` for explainability. |
+| `schema_validator.go` | Validates that learned rules only use declared predicates (Bug #18 fix). Prevents agent from hallucinating predicates with no data source. |
+
+### Subdirectories
+
+| Subdirectory | Purpose |
+|--------------|---------|
+| `feedback/` | Feedback loop for Mangle error classification and repair with LLM assistance |
+| `transpiler/` | Sanitizer for transpilation safety checks |
 
 ## Key Types
 

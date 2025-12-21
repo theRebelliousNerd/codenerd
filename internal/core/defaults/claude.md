@@ -1,3 +1,17 @@
+# internal/core/defaults - Embedded Default Resources
+
+Provides go:embed resources compiled into the binary for zero-dependency startup.
+
+## File Index
+
+| File | Description |
+|------|-------------|
+| `intent_corpus.go` | Embeds the pre-built intent classification corpus (SQLite DB) with canonical patterns and embeddings. Exports `IntentCorpusDB` and `IntentCorpusAvailable()`. |
+| `predicate_corpus.go` | Embeds the predicate corpus database containing all declared predicates, types, and repair patterns. Exports `PredicateCorpusDB` and `PredicateCorpusAvailable()`. |
+| `prompt_corpus.go` | Embeds the prompt atom corpus for JIT prompt compilation with embeddings. Exports `PromptCorpusDB` and `PromptCorpusAvailable()`. |
+
+---
+
 ## Top 30 Common Errors AI Coding Agents Make When Writing Mangle Code
 
 These are categorized by the layer of the stack where the "Stochastic Gap" occurs: Syntax, Logic/Safety, Data Structures, and Integration.
