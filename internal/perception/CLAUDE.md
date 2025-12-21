@@ -24,17 +24,36 @@ Every LLM response contains dual payloads:
 }
 ```
 
-## File Structure
+## File Index
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `client.go` | ~1700 | Multi-provider LLM client system (ZAI, Anthropic, OpenAI, Gemini, xAI, OpenRouter) |
-| `transducer.go` | ~1200 | Main Transducer, VerbCorpus, intent parsing |
-| `taxonomy.go` | ~400 | Intent taxonomy and classification |
-| `taxonomy_persistence.go` | ~200 | Taxonomy persistence to disk |
-| `learning.go` | ~300 | Autopoiesis learning from rejections |
-| `tracing_client.go` | ~150 | Debug wrapper for LLM calls |
-| `debug.go` | ~100 | Debug utilities |
+| File | Description |
+|------|-------------|
+| `assault_verb_test.go` | Unit tests for assault verb parsing in the taxonomy system. Tests `/assault` intent detection and campaign trigger patterns. |
+| `claude_cli_client.go` | LLMClient implementation using Claude Code CLI as subprocess. Exports ClaudeCodeCLIClient with streaming output and JSON schema validation for Piggyback Protocol. |
+| `claude_cli_client_test.go` | Unit tests for ClaudeCodeCLIClient subprocess execution. Tests streaming output parsing and rate limit handling. |
+| `client.go` | Package marker documenting client modularization across 10 files. Points to client_types, client_schema, and six provider implementations. |
+| `client_anthropic.go` | LLMClient implementation for Anthropic API with streaming support. Exports AnthropicClient with Complete() and CompleteWithSystem() methods. |
+| `client_factory.go` | Provider detection and client factory functions for multi-provider support. Exports DetectProvider(), LoadConfigJSON(), and NewClientFromEnv() with config priority. |
+| `client_gemini.go` | LLMClient implementation for Google Gemini API with streaming support. Exports GeminiClient with Complete() and CompleteWithSystem() methods. |
+| `client_openai.go` | LLMClient implementation for OpenAI API including Codex models. Exports OpenAIClient with gpt-5.1-codex-max as default model. |
+| `client_openrouter.go` | LLMClient implementation for OpenRouter multi-provider API. Exports OpenRouterClient with site attribution and model routing. |
+| `client_schema.go` | JSON schema builder for structured output validation. Exports BuildPiggybackEnvelopeSchema() enforcing Piggyback Protocol at API level. |
+| `client_types.go` | Core type definitions including LLMClient interface and config structs. Exports Provider constants and ZAIConfig, AnthropicConfig, OpenAIConfig, etc. |
+| `client_xai.go` | LLMClient implementation for xAI (Grok) API. Exports XAIClient with Complete() and CompleteWithSystem() methods. |
+| `client_zai.go` | LLMClient implementation for Z.AI API with concurrency semaphore. Exports ZAIClient with 5-concurrent-request limit and streaming support. |
+| `codex_cli_client.go` | LLMClient implementation using Codex CLI as subprocess. Exports CodexCLIClient with NDJSON stream parsing and read-only sandbox mode. |
+| `codex_cli_client_test.go` | Unit tests for CodexCLIClient subprocess execution. Tests NDJSON event parsing and sandbox mode enforcement. |
+| `debug.go` | Debug utilities exposing internal classification logic for verification. Exports DebugTaxonomy() and DebugTaxonomyWithContext() for testing. |
+| `learning.go` | Autopoiesis learning from user rejections via Meta-Cognitive Supervisor. Exports CriticSystemPrompt and ExtractFactFromResponse() for learned_exemplar generation. |
+| `semantic_classifier.go` | Vector-based intent classification bridging embedding search and Mangle. Exports SemanticMatch and SemanticClassifier for neuro-symbolic pipeline. |
+| `semantic_classifier_test.go` | Unit tests for SemanticClassifier vector search and Mangle integration. Tests similarity scoring and semantic_match fact assertion. |
+| `taxonomy.go` | TaxonomyEngine managing verb taxonomy using Mangle for intent parsing. Exports SharedTaxonomy singleton with GetVerbs() and intent schema loading. |
+| `taxonomy_persistence.go` | Persistence layer for taxonomy facts to SQLite database. Exports TaxonomyStore with StoreVerbDef(), StoreLearnedExemplar(), and HydrateEngine(). |
+| `tracing_client.go` | Debug wrapper capturing all LLM interactions for learning analysis. Exports TracingLLMClient and ReasoningTrace for shard trace storage. |
+| `transducer.go` | Main Transducer converting NL to structured intents via Piggyback Protocol. Exports VerbCorpus, VerbEntry, ParseIntent(), and PiggybackEnvelope aliases. |
+| `transducer_gcd_stream_gate_test.go` | Unit tests for transducer GCD streaming gate logic. Tests rate limiting and concurrent request handling. |
+| `transducer_json_test.go` | Unit tests for transducer JSON parsing and envelope extraction. Tests Piggyback Protocol compliance and fallback parsing. |
+| `transducer_live_test.go` | Integration tests for live transducer execution. Tests end-to-end intent parsing with actual LLM calls. |
 
 ## Key Types
 
