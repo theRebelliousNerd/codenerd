@@ -4,15 +4,19 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/shards"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -324,6 +328,172 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 			},
 		}
 	}
+}
+
+// spawnShardWithSpecialists spawns a shard with matching specialists in parallel.
+// This extends specialist matching beyond /review to support /fix, /refactor, /create, /test.
+// Specialists are matched based on technology patterns in the target files.
+func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+
+		startTime := time.Now()
+
+		// 1. Resolve target files for specialist matching
+		files := m.resolveReviewTarget(target)
+		if len(files) == 0 {
+			// Fall back to single file if target is a path
+			fullPath := target
+			if !filepath.IsAbs(target) {
+				fullPath = filepath.Join(m.workspace, target)
+			}
+			if _, err := os.Stat(fullPath); err == nil {
+				files = []string{fullPath}
+			}
+		}
+
+		// 2. Load agent registry
+		registry := m.loadAgentRegistryForMatching()
+
+		// 3. Match specialists based on verb and files
+		specialists := shards.MatchSpecialistsForTask(ctx, verb, files, registry)
+
+		// 4. If no specialists matched or registry empty, fall back to simple spawn
+		if len(specialists) == 0 {
+			m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
+			result, err := m.shardMgr.Spawn(ctx, shardType, task)
+			shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+			facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+			if m.kernel != nil && len(facts) > 0 {
+				_ = m.kernel.LoadFacts(facts)
+			}
+			if err != nil {
+				return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
+			}
+			response := fmt.Sprintf("## Shard Execution Complete\n\n**Agent**: %s\n**Task**: %s\n\n### Result\n%s",
+				shardType, task, result)
+			return assistantMsg{
+				Surface: response,
+				ShardResult: &ShardResultPayload{
+					ShardType: shardType,
+					Task:      task,
+					Result:    result,
+					Facts:     facts,
+				},
+			}
+		}
+
+		// 5. Spawn generic shard + specialists in parallel
+		m.ReportStatus(fmt.Sprintf("Spawning %s + %d specialists...", shardType, len(specialists)))
+
+		type spawnResult struct {
+			Name   string
+			Result string
+			Err    error
+		}
+
+		resultsChan := make(chan spawnResult, len(specialists)+1)
+		var wg sync.WaitGroup
+
+		// Spawn generic shard if configured
+		if shards.ShouldIncludeGenericShard(verb) {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				result, err := m.shardMgr.Spawn(ctx, shardType, task)
+				resultsChan <- spawnResult{Name: shardType, Result: result, Err: err}
+			}()
+		}
+
+		// Spawn matching specialists
+		for _, spec := range specialists {
+			wg.Add(1)
+			go func(s shards.SpecialistMatch) {
+				defer wg.Done()
+				// Build specialist task with context
+				specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
+					strings.TrimPrefix(verb, "/"),
+					strings.Join(s.Files, ","),
+					s.Reason)
+				result, err := m.shardMgr.Spawn(ctx, s.AgentName, specTask)
+				resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err}
+			}(spec)
+		}
+
+		// Wait and collect
+		go func() {
+			wg.Wait()
+			close(resultsChan)
+		}()
+
+		var results []spawnResult
+		for r := range resultsChan {
+			results = append(results, r)
+		}
+
+		// 6. Aggregate results
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("## Multi-Specialist %s Complete\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+		sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
+		sb.WriteString(fmt.Sprintf("**Duration**: %s\n\n", time.Since(startTime).Round(time.Second)))
+
+		participants := make([]string, 0, len(results))
+		var combinedResult strings.Builder
+		allFacts := make([]core.Fact, 0)
+
+		for _, r := range results {
+			participants = append(participants, r.Name)
+			if r.Err != nil {
+				sb.WriteString(fmt.Sprintf("### %s (failed)\n\nError: %v\n\n", r.Name, r.Err))
+			} else {
+				sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", r.Name, r.Result))
+				combinedResult.WriteString(r.Result)
+				combinedResult.WriteString("\n\n")
+
+				// Generate facts for this result
+				shardID := fmt.Sprintf("%s-%d", r.Name, time.Now().UnixNano())
+				facts := m.shardMgr.ResultToFacts(shardID, r.Name, task, r.Result, r.Err)
+				allFacts = append(allFacts, facts...)
+			}
+		}
+
+		sb.WriteString(fmt.Sprintf("**Participants**: %s\n", strings.Join(participants, ", ")))
+
+		// Inject all facts
+		if m.kernel != nil && len(allFacts) > 0 {
+			_ = m.kernel.LoadFacts(allFacts)
+		}
+
+		m.ReportStatus(fmt.Sprintf("%s + specialists complete", shardType))
+		return assistantMsg{
+			Surface: sb.String(),
+			ShardResult: &ShardResultPayload{
+				ShardType: shardType,
+				Task:      task,
+				Result:    combinedResult.String(),
+				Facts:     allFacts,
+			},
+		}
+	}
+}
+
+// loadAgentRegistryForMatching loads the agent registry for specialist matching.
+// This is a lightweight version that returns the shards.AgentRegistry type.
+func (m Model) loadAgentRegistryForMatching() *shards.AgentRegistry {
+	registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
+
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		return nil
+	}
+
+	var registry shards.AgentRegistry
+	if err := json.Unmarshal(data, &registry); err != nil {
+		return nil
+	}
+
+	return &registry
 }
 
 // createDirIfNotExists creates a directory if it doesn't exist

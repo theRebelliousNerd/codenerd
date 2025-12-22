@@ -1190,14 +1190,15 @@ You have an existing Northstar definition. What would you like to do?
 		task := formatShardTask("/test", target, "", m.workspace)
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: fmt.Sprintf("Running test task: %s", task),
+			Content: fmt.Sprintf("Running test task: %s (with specialist matching)", task),
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
 		m.isLoading = true
-		return m, tea.Batch(m.spinner.Tick, m.spawnShard("tester", task))
+		// Use specialist-aware spawning for /test
+		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/test", "tester", task, target))
 
 	case "/fix":
 		if len(parts) < 2 {
@@ -1211,14 +1212,15 @@ You have an existing Northstar definition. What would you like to do?
 			task := formatShardTask("/fix", target, "", m.workspace)
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Attempting to fix: %s", target),
+				Content: fmt.Sprintf("Attempting to fix: %s (with specialist matching)", target),
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
+			// Use specialist-aware spawning for /fix
+			return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/fix", "coder", task, target))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -1237,14 +1239,15 @@ You have an existing Northstar definition. What would you like to do?
 			task := formatShardTask("/refactor", target, "", m.workspace)
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Refactoring: %s", target),
+				Content: fmt.Sprintf("Refactoring: %s (with specialist matching)", target),
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
+			// Use specialist-aware spawning for /refactor
+			return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/refactor", "coder", task, target))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
