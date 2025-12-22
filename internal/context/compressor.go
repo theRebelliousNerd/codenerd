@@ -54,6 +54,16 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 	cfg := DefaultConfig()
 	logging.Context("Compressor initialized with default config: budget=%d tokens, threshold=%.0f%%, window=%d turns",
 		cfg.TotalBudget, cfg.CompressionThreshold*100, cfg.RecentTurnWindow)
+
+	// GAP-016 FIX: Load corpus-based serialization order for deterministic fact ordering
+	serializer := NewFactSerializer()
+	if kernel != nil {
+		if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+			serializer.LoadSerializationOrderFromCorpus(corpus)
+			logging.Context("Loaded corpus-based serialization order for context facts")
+		}
+	}
+
 	return &Compressor{
 		kernel:     kernel,
 		store:      localStorage,
@@ -61,7 +71,7 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 		config:     cfg,
 		activation: NewActivationEngine(cfg),
 		budget:     NewTokenBudget(cfg),
-		serializer: NewFactSerializer(),
+		serializer: serializer,
 		counter:    NewTokenCounter(),
 		sessionID:  fmt.Sprintf("session_%d", time.Now().Unix()),
 	}

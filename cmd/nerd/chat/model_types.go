@@ -56,7 +56,9 @@ const (
 	FilePickerView
 	UsageView
 	CampaignPage
-	PromptInspector // NEW: JIT Prompt Inspector
+	PromptInspector // JIT Prompt Inspector
+	AutopoiesisPage // Autopoiesis Dashboard
+	ShardPage       // Shard Console
 )
 
 // InputMode represents the current input handling state.
@@ -160,6 +162,15 @@ type Model struct {
 
 	// Campaign Page
 	campaignPage ui.CampaignPageModel
+
+	// JIT Inspector Page
+	jitPage ui.JITPageModel
+
+	// Autopoiesis Dashboard Page
+	autoPage ui.AutopoiesisPageModel
+
+	// Shard Console Page
+	shardPage ui.ShardPageModel
 
 	// Usage Tracking
 	usageTracker *usage.Tracker

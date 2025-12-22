@@ -15,10 +15,11 @@ import (
 // This adapter converts Understanding → Intent for backward compatibility
 // while the rest of the system is migrated to use Understanding directly.
 type UnderstandingTransducer struct {
-	llmTransducer   *LLMTransducer
-	client          LLMClient
-	promptAssembler *articulation.PromptAssembler
-	kernel          RoutingKernel
+	llmTransducer     *LLMTransducer
+	client            LLMClient
+	promptAssembler   *articulation.PromptAssembler
+	kernel            RoutingKernel
+	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
 }
 
 // NewUnderstandingTransducer creates a transducer using LLM-first classification.
@@ -118,6 +119,9 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	if err != nil {
 		return Intent{}, fmt.Errorf("LLM classification failed: %w", err)
 	}
+
+	// GAP-018 FIX: Cache understanding for debugging
+	t.lastUnderstanding = understanding
 
 	// Convert Understanding to Intent for backward compatibility
 	intent := t.understandingToIntent(understanding)
@@ -276,9 +280,9 @@ func (t *UnderstandingTransducer) ResolveFocus(ctx context.Context, reference st
 
 // GetLastUnderstanding returns the last Understanding for debugging.
 // This allows inspection of the full LLM classification.
+// GAP-018 FIX: Returns cached understanding from last ParseIntentWithContext call
 func (t *UnderstandingTransducer) GetLastUnderstanding() *Understanding {
-	// TODO: Cache last understanding for debugging
-	return nil
+	return t.lastUnderstanding
 }
 
 // understandingSystemPrompt is the comprehensive prompt for LLM classification.
