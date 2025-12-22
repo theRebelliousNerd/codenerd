@@ -176,14 +176,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Prompt Inspector Handling
 		if m.viewMode == PromptInspector {
-			// Exit on Esc/Q
-			if msg.String() == "esc" || msg.String() == "q" {
+			switch msg.String() {
+			case "esc", "q":
 				m.viewMode = ChatView
 				return m, nil
 			}
-			// Scroll handling (if we use viewport)
 			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
+			m.jitPage, cmd = m.jitPage.Update(msg)
+			return m, cmd
+		}
+
+		// Autopoiesis Dashboard Handling
+		if m.viewMode == AutopoiesisPage {
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ChatView
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.autoPage, cmd = m.autoPage.Update(msg)
+			return m, cmd
+		}
+
+		// Shard Console Handling
+		if m.viewMode == ShardPage {
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ChatView
+				return m, nil
+			}
+			// Refresh content on every update tick or keypress to keep it live
+			if m.shardMgr != nil {
+				m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
+			}
+			var cmd tea.Cmd
+			m.shardPage, cmd = m.shardPage.Update(msg)
 			return m, cmd
 		}
 
@@ -364,37 +391,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewMode = ChatView
 				} else {
 					m.viewMode = PromptInspector
-					// Trigger content refresh for inspector
 					if m.jitCompiler != nil {
-						res := m.jitCompiler.GetLastResult()
-						if res != nil {
-							// Render manifest to viewport
-							// We'll need a helper function renderManifest(res)
-							// For now, simple textual dump
-							content := fmt.Sprintf("# JIT Prompt Inspector\n\nGenerated: %s\nTokens: %d (%.1f%% budget)\n\n## Included Atoms (%d)\n",
-								time.Now().Format(time.RFC3339), res.TotalTokens, res.BudgetUsed*100, res.AtomsIncluded)
+						m.jitPage.UpdateContent(m.jitCompiler.GetLastResult())
+					}
+				}
+				return m, nil
 
-							for _, atom := range res.IncludedAtoms {
-								content += fmt.Sprintf("- [%s] %s (%d tokens)\n", atom.Category, atom.ID, atom.TokenCount)
-							}
-
-							content += "\n## Prompt Preview\n\n```markdown\n" + res.Prompt + "\n```"
-
-							// Use existing renderer
-							rendered, _ := m.renderer.Render(content)
-							m.viewport.SetContent(rendered)
-							m.viewport.GotoTop()
-						} else {
-							m.viewport.SetContent("No compilation result available yet.")
-						}
-					} else {
-						m.viewport.SetContent("JIT Compiler not available.")
+			case 'a':
+				// Toggle Autopoiesis Dashboard (Alt+A)
+				if m.viewMode == AutopoiesisPage {
+					m.viewMode = ChatView
+				} else {
+					m.viewMode = AutopoiesisPage
+					if m.autopoiesis != nil {
+						m.autoPage.UpdateContent(m.autopoiesis.GetAllPatterns(0.0), m.autopoiesis.GetAllLearnings())
 					}
 				}
 				return m, nil
 
 			case 's':
-				// Toggle system action summaries in chat output (Alt+S)
+				// Toggle Shard Console (Alt+S)
+				if m.viewMode == ShardPage {
+					m.viewMode = ChatView
+				} else {
+					m.viewMode = ShardPage
+					if m.shardMgr != nil {
+						m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
+					}
+				}
+				return m, nil
+
+			case 'y':
+				// Toggle system action summaries in chat output (Alt+Y)
 				m.showSystemActions = !m.showSystemActions
 				return m, nil
 			}

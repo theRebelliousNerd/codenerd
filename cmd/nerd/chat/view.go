@@ -95,6 +95,21 @@ func (m Model) View() string {
 		return m.styles.Content.Render(m.campaignPage.View())
 	}
 
+	// Handle JIT Inspector Mode
+	if m.viewMode == PromptInspector {
+		return m.styles.Content.Render(m.jitPage.View())
+	}
+
+	// Handle Autopoiesis Page Mode
+	if m.viewMode == AutopoiesisPage {
+		return m.styles.Content.Render(m.autoPage.View())
+	}
+
+	// Handle Shard Console Mode
+	if m.viewMode == ShardPage {
+		return m.styles.Content.Render(m.shardPage.View())
+	}
+
 	// Header
 	header := m.renderHeader()
 
@@ -261,7 +276,7 @@ func (m Model) renderFooter() string {
 	if m.isLoading {
 		hotkeys = "Ctrl+X: STOP | "
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+S: sys | Alt+M: mouse | /help"
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
 
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s | %s | %s",

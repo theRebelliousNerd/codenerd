@@ -783,6 +783,25 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		})
 	}
 
+	// GAP-017 FIX: Assert tiered_context_file facts for issue-driven file relevance
+	// Tier 1: Directly mentioned files (highest relevance)
+	// This enables the activation engine to boost these files in context selection
+	for i, file := range keywords.MentionedFiles {
+		if strings.TrimSpace(file) == "" {
+			continue
+		}
+		// tiered_context_file(IssueID, File, Tier, Relevance, TokenCount)
+		// Tier 1 for directly mentioned, relevance decreases by position
+		relevance := 1.0 - (float64(i) * 0.1)
+		if relevance < 0.5 {
+			relevance = 0.5
+		}
+		facts = append(facts, core.Fact{
+			Predicate: "tiered_context_file",
+			Args:      []interface{}{issueID, file, "/tier1", relevance, 0},
+		})
+	}
+
 	_ = m.kernel.LoadFacts(facts)
 }
 

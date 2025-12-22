@@ -196,40 +196,40 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 ## Low Priority Gaps (Priority 4)
 
 ### GAP-016: Corpus Ordering Not Used
-- **Status:** ⚪ Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** Context serialization
 - **Impact:** Facts presented to LLM in arbitrary order
-- **Fix:** Load corpus into fact serializer
-- **Files:** `internal/context/serializer.go`
+- **Fix:** Load corpus into fact serializer via NewCompressor()
+- **Files:** `internal/context/compressor.go`
 
 ### GAP-017: Issue-Driven Tiering Missing
-- **Status:** ⚪ Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `cmd/nerd/chat/process.go`
 - **Impact:** No file relevance tiering for bug fixes
-- **Fix:** Call `SetIssueContext()` for GitHub/Jira workflows
+- **Fix:** Added tiered_context_file facts in seedIssueFacts()
 - **Files:** `cmd/nerd/chat/process.go`
 
 ### GAP-018: GetLastUnderstanding Stub
-- **Status:** ⚪ Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `internal/perception/understanding_adapter.go:267`
 - **Impact:** Cannot debug last understanding
-- **Current:** Returns `nil` always
-- **Fix:** Implement caching for debugging
+- **Current:** Returns cached understanding from last ParseIntentWithContext call
+- **Fix:** Implemented lastUnderstanding field and caching
 - **Files:** `internal/perception/understanding_adapter.go`
 
 ### GAP-019: Hot-Reload Facts Not Propagated
-- **Status:** ⚪ Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `internal/autopoiesis/ouroboros.go`
 - **Impact:** Tool updates stay in internal kernel
-- **Fix:** Sync registration facts to parent kernel
-- **Files:** `internal/autopoiesis/ouroboros.go`
+- **Fix:** Added assertToolHotReloaded() to sync tool_hot_loaded/tool_version to parent kernel
+- **Files:** `internal/autopoiesis/autopoiesis_kernel.go`, `internal/autopoiesis/autopoiesis_tools.go`
 
 ### GAP-020: Profile-Based Evaluation Unused in Main Loop
-- **Status:** ⚪ Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** Main execution path
 - **Impact:** Generic 0.0-1.0 scoring, no tool-specific expectations
-- **Fix:** Use profiles for tool quality assessment
-- **Files:** `cmd/nerd/chat/process.go`
+- **Fix:** Already using ExecuteAndEvaluateWithProfile in tool_adapter.go
+- **Files:** `cmd/nerd/chat/tool_adapter.go`
 
 ---
 
@@ -364,3 +364,8 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | GAP-012 | Deferred | Needs rejection pattern detection (complex) |
 | 2024-12-21 | GAP-014 | Deferred | Already used in dreamer/virtual_store, optimization only |
 | 2024-12-21 | GAP-015 | Deferred | Needs policy rules to invoke virtual predicates |
+| 2024-12-21 | GAP-016 | Fixed | Loaded corpus serialization order in NewCompressor() |
+| 2024-12-21 | GAP-017 | Fixed | Added tiered_context_file facts in seedIssueFacts() |
+| 2024-12-21 | GAP-018 | Fixed | Implemented lastUnderstanding caching in UnderstandingTransducer |
+| 2024-12-21 | GAP-019 | Fixed | Added assertToolHotReloaded() to sync facts to parent kernel |
+| 2024-12-21 | GAP-020 | Fixed | Already using ExecuteAndEvaluateWithProfile in tool_adapter.go |

@@ -107,6 +107,21 @@ func (o *Orchestrator) assertMissingTool(intentID, capability string) {
 	_ = o.assertToKernel("missing_tool_for", intentID, capability)
 }
 
+// assertToolHotReloaded asserts tool_hot_loaded and tool_version facts to kernel.
+// GAP-019 FIX: Propagates hot-reload events from OuroborosLoop's internal engine
+// to the parent kernel for spreading activation and JIT awareness.
+func (o *Orchestrator) assertToolHotReloaded(toolName string) {
+	timestamp := time.Now().Unix()
+
+	// tool_hot_loaded(ToolName, Timestamp)
+	_ = o.assertToKernel("tool_hot_loaded", toolName, timestamp)
+
+	// tool_version(ToolName, Version) - start at 1 for newly hot-loaded tools
+	// Note: Versioning is tracked in OuroborosLoop's internal engine, but we
+	// assert version 1 to the parent kernel as a marker that the tool is current
+	_ = o.assertToKernel("tool_version", toolName, 1)
+}
+
 // assertToolLearning asserts tool_learning fact to kernel.
 // Called when execution feedback is recorded.
 func (o *Orchestrator) assertToolLearning(toolName string, executions int, successRate, avgQuality float64) {

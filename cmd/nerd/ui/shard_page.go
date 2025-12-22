@@ -1,0 +1,103 @@
+package ui
+
+import (
+	"codenerd/internal/core"
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// ShardPageModel defines the state of the Shard Console.
+type ShardPageModel struct {
+	width    int
+	height   int
+	table    table.Model
+
+	// Data
+	activeShards []core.ShardAgent
+	backpressure *core.BackpressureStatus
+
+	// Styles
+	styles Styles
+}
+
+// NewShardPageModel creates a new shard console.
+func NewShardPageModel() ShardPageModel {
+	t := table.New(
+		table.WithColumns([]table.Column{
+			{Title: "ID", Width: 30},
+			{Title: "Type", Width: 15},
+			{Title: "Status", Width: 15},
+		}),
+		table.WithFocused(true),
+		table.WithHeight(15),
+	)
+
+	return ShardPageModel{
+		table:  t,
+		styles: DefaultStyles(),
+	}
+}
+
+// Init initializes the model.
+func (m ShardPageModel) Init() tea.Cmd {
+	return nil
+}
+
+// Update handles messages.
+func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+// View renders the page.
+func (m ShardPageModel) View() string {
+	var sb strings.Builder
+
+	// Header / Queue Status
+	title := m.styles.Header.Render(" Active Shards ")
+	sb.WriteString(title + "\n\n")
+
+	if m.backpressure != nil {
+		stats := fmt.Sprintf("Queue: %d pending | Slots Available: %d",
+			m.backpressure.QueueDepth,
+			m.backpressure.AvailableSlots,
+		)
+		sb.WriteString(m.styles.Info.Render(stats) + "\n\n")
+	}
+
+	sb.WriteString(m.styles.Content.Render(m.table.View()))
+	return sb.String()
+}
+
+// SetSize updates the size.
+func (m *ShardPageModel) SetSize(w, h int) {
+	m.width = w
+	m.height = h
+	m.table.SetWidth(w - 4)
+	m.table.SetHeight(h - 6)
+}
+
+// UpdateContent updates the data.
+func (m *ShardPageModel) UpdateContent(shards []core.ShardAgent, bp *core.BackpressureStatus) {
+	m.activeShards = shards
+	m.backpressure = bp
+
+	var rows []table.Row
+	for _, s := range shards {
+		cfg := s.GetConfig()
+		state := s.GetState()
+		id := s.GetID()
+		
+		rows = append(rows, table.Row{
+			id,
+			string(cfg.Type),
+			string(state),
+		})
+	}
+
+	m.table.SetRows(rows)
+}
