@@ -102,12 +102,12 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `internal/perception/understanding_adapter.go`, `internal/perception/transducer.go`
 
 ### GAP-007: GCD Validation Not in Chat Path
-- **Status:** 🟡 Open
+- **Status:** 🟠 Deferred (not dead code)
 - **Location:** `cmd/nerd/chat/process.go`
 - **Impact:** No grammar-constrained Mangle atom validation in main loop
-- **Current:** Chat uses `ParseIntentWithContext()` (basic)
-- **Unused:** `ParseIntentWithGCD()` with streaming validation (only in PerceptionFirewallShard)
-- **Fix:** Use GCD parsing in chat or remove unused code
+- **Current:** Chat uses `ParseIntentWithContext()` (basic), UnderstandingTransducer uses LLM-first
+- **Note:** `ParseIntentWithGCD()` IS used by PerceptionFirewallShard (system/perception.go:375)
+- **Decision:** Not dead code - used in system shard. Main chat uses LLM-first approach which has its own validation.
 - **Files:** `cmd/nerd/chat/process.go`, `internal/perception/transducer.go`
 
 ### GAP-008: Confidence Decay Never Called
@@ -149,7 +149,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/session.go`, `internal/articulation/emitter.go`
 
 ### GAP-012: Learning.go Completely Dormant
-- **Status:** 🟢 Open
+- **Status:** 🟠 Deferred (needs rejection detection)
 - **Location:** `internal/perception/learning.go`
 - **Impact:** Complete learning infrastructure (300 lines) never executes
 - **Unused:**
@@ -170,27 +170,26 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/session.go`
 
 ### GAP-014: Kernel Batch Operations Unused
-- **Status:** 🟢 Open
+- **Status:** 🟠 Deferred (used in dreamer.go, virtual_store.go)
 - **Location:** Chat execution
 - **Impact:** Each Assert triggers full evaluation (expensive)
-- **Unused:**
-  - `AssertBatch()` - batch fact assertion
-  - `AssertWithoutEval()` - deferred evaluation
-- **Fix:** Use batch operations for multi-fact commands
+- **Note:** `AssertBatch` IS used in virtual_store.go:1073, `AssertWithoutEval` in dreamer.go:134
+- **Optimization:** Could batch user_intent + context facts per turn
 - **Files:** `cmd/nerd/chat/process.go`
 
 ### GAP-015: Virtual Predicates Orphaned
-- **Status:** 🟢 Open
+- **Status:** 🟠 Deferred (needs policy rules)
 - **Location:** `internal/core/virtual_store_predicates.go`
-- **Impact:** Handlers implemented, never invoked
+- **Impact:** Handlers implemented, never invoked via policy rules
+- **Note:** Predicates declared in schemas_memory.mg but no rules use them
 - **Unused:**
   - `query_learned(Predicate, Args)`
   - `query_session(SessionID, TurnNumber, UserInput)`
   - `query_knowledge_graph(EntityA, Relation, EntityB)`
   - `recall_similar(Query, TopK)`
   - `query_activations(FactID, Score)`
-- **Fix:** Wire into Mangle policy rules for derivation
-- **Files:** `internal/core/defaults/policy/*.mg`
+- **Fix:** Write Mangle rules that derive facts from these virtual predicates
+- **Files:** `internal/mangle/policy.mg`
 
 ---
 
@@ -361,3 +360,7 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | GAP-010 | Fixed | Legislator registered via GAP-001 |
 | 2024-12-21 | GAP-011 | Fixed | Removed unused Emitter, using JIT PromptAssembler |
 | 2024-12-21 | GAP-013 | Fixed | ConsumeBootIntents/Prompts called after kernel boot |
+| 2024-12-21 | GAP-007 | Deferred | Not dead code - used by PerceptionFirewallShard |
+| 2024-12-21 | GAP-012 | Deferred | Needs rejection pattern detection (complex) |
+| 2024-12-21 | GAP-014 | Deferred | Already used in dreamer/virtual_store, optimization only |
+| 2024-12-21 | GAP-015 | Deferred | Needs policy rules to invoke virtual predicates |
