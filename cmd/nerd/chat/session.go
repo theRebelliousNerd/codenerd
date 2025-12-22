@@ -17,12 +17,15 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
+	"codenerd/internal/shards/nemesis"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
 	shardsystem "codenerd/internal/shards/system"
 	"codenerd/internal/shards/tester"
+	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
+	"codenerd/internal/types"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
 	"codenerd/internal/verification"
@@ -336,6 +339,15 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// even if SQLite is unavailable (file-based persistence still uses .nerd/mangle).
 		if perception.SharedTaxonomy != nil {
 			perception.SharedTaxonomy.SetWorkspace(workspace)
+		}
+
+		// Initialize learning store for shard autopoiesis
+		logStep("Initializing learning store...")
+		var learningStore *store.LearningStore
+		learningsPath := filepath.Join(workspace, ".nerd", "shards")
+		if ls, err := store.NewLearningStore(learningsPath); err == nil {
+			learningStore = ls
+			virtualStore.SetLearningStore(learningStore)
 		}
 
 		if localDB != nil {
@@ -662,6 +674,83 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard := shardsystem.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// =========================================================================
+		// GAP-001 FIX: Register 5 missing shards (legislator, campaign_runner,
+		// nemesis, tool_generator, requirements_interrogator)
+		// =========================================================================
+
+		// Helper: wrap store.LearningStore to implement core.LearningStore interface
+		getLearningStore := func() core.LearningStore {
+			if learningStore == nil {
+				return nil
+			}
+			return &coreLearningStoreAdapter{store: learningStore}
+		}
+
+		// Register RequirementsInterrogator - Socratic clarification shard
+		shardMgr.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shards.NewRequirementsInterrogatorShard()
+			shard.SetLLMClient(llmClient)
+			shard.SetParentKernel(kernel)
+			return shard
+		})
+
+		// Register ToolGenerator - Ouroboros tool creation shard
+		shardMgr.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := tool_generator.NewToolGeneratorShard(id, config)
+			shard.SetParentKernel(kernel)
+			shard.SetWorkspaceRoot(workspace) // MUST be called before SetLLMClient
+			shard.SetLLMClient(llmClient)
+			if ls := getLearningStore(); ls != nil {
+				shard.SetLearningStore(ls)
+			}
+			shard.SetVirtualStore(virtualStore)
+			return shard
+		})
+
+		// Register Nemesis - Adversarial co-evolution shard
+		shardMgr.RegisterShard("nemesis", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := nemesis.NewNemesisShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			if ls := getLearningStore(); ls != nil {
+				shard.SetLearningStore(ls)
+			}
+			// Initialize Armory for regression test persistence
+			armory := nemesis.NewArmory(filepath.Join(workspace, ".nerd"))
+			shard.SetArmory(armory)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// Register Legislator - Runtime rule compilation shard
+		shardMgr.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shardsystem.NewLegislatorShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// Register CampaignRunner - Campaign orchestration shard
+		shardMgr.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shardsystem.NewCampaignRunnerShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			shard.SetWorkspaceRoot(workspace)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -1291,4 +1380,52 @@ func (a *LocalStoreTraceAdapter) StoreReasoningTrace(trace *perception.Reasoning
 	}
 	// Pass the trace directly - LocalStore accepts interface{} and handles conversion
 	return a.store.StoreReasoningTrace(trace)
+}
+
+// =============================================================================
+// LEARNING STORE ADAPTER (GAP-001 FIX)
+// =============================================================================
+// Adapts store.LearningStore to implement core.LearningStore interface for
+// shard autopoiesis.
+
+// coreLearningStoreAdapter wraps store.LearningStore to implement core.LearningStore.
+type coreLearningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *coreLearningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *coreLearningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	// store.LearningStore.Load already returns []types.ShardLearning
+	return a.store.Load(shardType)
+}
+
+func (a *coreLearningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	// store.LearningStore.LoadByPredicate already returns []types.ShardLearning
+	return a.store.LoadByPredicate(shardType, predicate)
+}
+
+func (a *coreLearningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *coreLearningStoreAdapter) Close() error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.Close()
 }
