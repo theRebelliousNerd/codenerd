@@ -801,6 +801,13 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 		)
 
+		// GAP-003 FIX: Seed activation engine with corpus priorities
+		if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+			if err := compressor.LoadPrioritiesFromCorpus(corpus); err != nil {
+				logging.Get(logging.CategoryContext).Warn("Failed to load corpus priorities: %v", err)
+			}
+		}
+
 		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)

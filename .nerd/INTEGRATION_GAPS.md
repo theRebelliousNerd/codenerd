@@ -56,7 +56,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/process.go`
 
 ### GAP-003: Activation Engine Never Seeded with Priorities
-- **Status:** 🔴 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `cmd/nerd/chat/session.go:706`
 - **Impact:** Facts serialized in arbitrary order, no campaign/issue boosting
 - **Missing Calls:**
@@ -352,3 +352,4 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | Initial | Created | 6-agent audit completed |
 | 2024-12-21 | GAP-001 | Fixed | Registered 5 missing shards + LearningStore wiring |
 | 2024-12-21 | GAP-002 | Fixed | Added seedCampaignFacts() for campaign context |
+| 2024-12-21 | GAP-003 | Fixed | Wired corpus priorities into activation engine |

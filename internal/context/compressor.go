@@ -1235,6 +1235,15 @@ func min(a, b int) int {
 	return b
 }
 
+// LoadPrioritiesFromCorpus loads predicate priorities from the kernel's corpus.
+// GAP-003 FIX: This enables activation engine to use corpus-defined priorities.
+func (c *Compressor) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpus) error {
+	if c.activation == nil {
+		return nil
+	}
+	return c.activation.LoadPrioritiesFromCorpus(corpus)
+}
+
 // GetActivationScores returns current activation scores for all facts.
 // Used by JIT Prompt Compiler to boost atoms related to highly-activated facts.
 // Returns a map of fact string representation → activation score (0.0-1.0).
