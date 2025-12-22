@@ -42,22 +42,43 @@ func (t *UnderstandingTransducer) SetKernel(kernel *core.RealKernel) {
 }
 
 // initialize lazily creates the LLMTransducer with the classification prompt.
-func (t *UnderstandingTransducer) initialize() {
+func (t *UnderstandingTransducer) initialize(ctx context.Context) {
 	if t.llmTransducer != nil {
 		return
 	}
 
-	// Load the classification prompt
-	prompt := getUnderstandingPrompt(t.promptAssembler)
+	// Load the classification prompt (JIT if available, otherwise embedded)
+	prompt := getUnderstandingPrompt(ctx, t.promptAssembler)
 	t.llmTransducer = NewLLMTransducer(t.client, t.kernel, prompt)
 }
 
 // getUnderstandingPrompt returns the system prompt for LLM classification.
 // Uses JIT compilation if available, otherwise falls back to embedded prompt.
-func getUnderstandingPrompt(pa *articulation.PromptAssembler) string {
-	// For now, use a comprehensive inline prompt
-	// TODO: Load from prompt atom when JIT is wired
-	return understandingSystemPrompt
+func getUnderstandingPrompt(ctx context.Context, pa *articulation.PromptAssembler) string {
+	// Check if JIT is available
+	if pa == nil || !pa.JITReady() {
+		return understandingSystemPrompt
+	}
+
+	// Build prompt context for perception layer
+	pc := &articulation.PromptContext{
+		ShardID:   "perception-transducer",
+		ShardType: "perception",
+	}
+
+	// Attempt JIT compilation
+	prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		// Log the error and fall back to embedded prompt
+		return understandingSystemPrompt
+	}
+
+	// Validate the compiled prompt has reasonable content
+	if len(strings.TrimSpace(prompt)) < 100 {
+		return understandingSystemPrompt
+	}
+
+	return prompt
 }
 
 // ParseIntent parses user input into an Intent using LLM-first classification.
@@ -69,7 +90,7 @@ func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string)
 // ParseIntentWithContext parses user input with conversation history.
 // This is the primary method called by the chat loop.
 func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
-	t.initialize()
+	t.initialize(ctx)
 
 	// Convert history to Turn format
 	var turns []Turn

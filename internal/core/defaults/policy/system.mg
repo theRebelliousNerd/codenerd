@@ -143,14 +143,24 @@ symbol_reachable(From, To) :-
 
 # Depth-bounded variant to prevent infinite recursion in cyclic graphs.
 # MaxDepth should typically be 10-20 for most codebases.
+#
+# NOTE: In Mangle, variables must be bound before use in comparisons.
+# We use depth_option/1 to generate valid depth values (1-20).
+# This is the idiomatic Datalog pattern for bounded recursion.
+
+# Generate valid traversal depth values (1 to 20)
+depth_option(1).
+depth_option(N) :- depth_option(M), M < 20, N = fn:plus(M, 1).
+
 symbol_reachable_bounded(From, To, MaxDepth) :-
-    MaxDepth > 0,
+    depth_option(MaxDepth),
     dependency_link(From, To, _).
 
 symbol_reachable_bounded(From, To, MaxDepth) :-
-    MaxDepth > 0,
+    depth_option(MaxDepth),
     dependency_link(From, Mid, _),
     NextDepth = fn:minus(MaxDepth, 1),
+    depth_option(NextDepth),
     symbol_reachable_bounded(Mid, To, NextDepth).
 
 # Convenience predicate with default depth limit of 15.

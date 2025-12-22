@@ -1,2 +1,1 @@
-This is a placeholder for the prompt corpus database.
-Run `go run ./cmd/tools/prompt_builder` to generate prompt_corpus.db
+placeholder

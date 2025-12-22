@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -475,17 +476,109 @@ func extractShardSummary(sr *ShardResult) string {
 }
 
 // queryKnowledgeAtoms retrieves relevant knowledge from learning store.
+// Returns high-confidence learnings formatted as readable knowledge atoms.
 func (m *Model) queryKnowledgeAtoms() []string {
-	// TODO: Implement query to learning store for domain knowledge
-	// For now, return empty
-	return nil
+	if m.learningStore == nil {
+		return nil
+	}
+
+	var atoms []string
+	shardTypes := []string{"coder", "reviewer", "tester", "researcher"}
+
+	for _, shardType := range shardTypes {
+		learnings, err := m.learningStore.Load(shardType)
+		if err != nil {
+			continue
+		}
+		for _, l := range learnings {
+			if l.Confidence < 0.5 {
+				continue // Only include high-confidence learnings
+			}
+			atom := formatLearningAsAtom(shardType, l)
+			if atom != "" {
+				atoms = append(atoms, atom)
+			}
+		}
+	}
+	return atoms
 }
 
 // querySpecialistHints retrieves specialist-specific hints.
+// Returns patterns that suggest specific tools or approaches.
 func (m *Model) querySpecialistHints() []string {
-	// TODO: Implement query to learning store for specialist hints
-	// For now, return empty
-	return nil
+	if m.learningStore == nil {
+		return nil
+	}
+
+	var hints []string
+	// Query for specialist-type learnings that suggest specific approaches
+	specialistPredicates := []string{"domain_expertise", "tool_preference", "style_preference", "preferred_pattern"}
+
+	for _, pred := range specialistPredicates {
+		for _, shardType := range []string{"coder", "reviewer", "tester"} {
+			learnings, err := m.learningStore.LoadByPredicate(shardType, pred)
+			if err != nil {
+				continue
+			}
+			for _, l := range learnings {
+				if l.Confidence >= 0.6 {
+					hint := formatLearningAsHint(shardType, l)
+					if hint != "" {
+						hints = append(hints, hint)
+					}
+				}
+			}
+		}
+	}
+	return hints
+}
+
+// formatLearningAsAtom converts a ShardLearning to a readable knowledge atom.
+func formatLearningAsAtom(shardType string, l types.ShardLearning) string {
+	switch l.FactPredicate {
+	case "avoid_pattern":
+		if len(l.FactArgs) >= 2 {
+			return fmt.Sprintf("[%s] Avoid: %v - %v", shardType, l.FactArgs[0], l.FactArgs[1])
+		} else if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Avoid: %v", shardType, l.FactArgs[0])
+		}
+	case "preferred_pattern":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Prefer: %v", shardType, l.FactArgs[0])
+		}
+	case "style_preference":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Style: %v", shardType, l.FactArgs[0])
+		}
+	case "domain_expertise":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Expertise: %v", shardType, l.FactArgs[0])
+		}
+	}
+	return ""
+}
+
+// formatLearningAsHint converts a ShardLearning to a specialist hint.
+func formatLearningAsHint(shardType string, l types.ShardLearning) string {
+	switch l.FactPredicate {
+	case "tool_preference":
+		if len(l.FactArgs) >= 2 {
+			return fmt.Sprintf("For %v, use %v", l.FactArgs[0], l.FactArgs[1])
+		}
+	case "style_preference":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Style preference: %v", l.FactArgs[0])
+		}
+	case "domain_expertise":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Domain focus: %v", l.FactArgs[0])
+		}
+	case "preferred_pattern":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Preferred approach: %v", l.FactArgs[0])
+		}
+	}
+	return ""
 }
 
 // queryAllowedActions returns constitutionally permitted actions.
