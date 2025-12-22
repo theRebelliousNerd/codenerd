@@ -76,6 +76,28 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.saveSessionState()
 		return m, nil
 
+	case "/reset":
+		// POWER-USER-FEATURE: Reset kernel facts while keeping policy
+		// This clears the working memory but preserves learned rules and schemas
+		if m.kernel != nil {
+			m.kernel.Reset()
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Kernel reset. Facts cleared, policy and schemas retained.",
+				Time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "No kernel attached - nothing to reset.",
+				Time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/new-session":
 		// Start a completely new session with fresh ID
 		m.history = []Message{}

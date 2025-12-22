@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
 	"codenerd/internal/shards/nemesis"
@@ -25,9 +26,11 @@ import (
 	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
-	"codenerd/internal/types"
 	"codenerd/internal/tactile"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
+	"codenerd/internal/ux"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
@@ -136,6 +139,16 @@ func InitChat(cfg Config) Model {
 	// Create shutdown context for coordinating background goroutine lifecycle
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
+	// Initialize Preferences Manager
+	prefsMgr := ux.NewPreferencesManager(workspace)
+	if err := prefsMgr.Load(); err != nil {
+		fmt.Printf("⚠ Failed to load preferences: %v\n", err)
+	}
+
+	// Initialize Transparency Manager
+	transparencyCfg := appCfg.GetTransparencyConfig()
+	transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
+
 	// Return the model in "Booting" state
 	return Model{
 		textarea:     ta,
@@ -176,6 +189,9 @@ func InitChat(cfg Config) Model {
 		shutdownOnce:   &sync.Once{},
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
+		// UX components
+		preferencesMgr:  prefsMgr,
+		transparencyMgr: transparencyMgr,
 	}
 }
 
@@ -209,6 +225,24 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Resolve core limits once for boot wiring
 		coreLimits := appCfg.GetCoreLimits()
+
+		// Initialize Preferences Manager (Backend)
+		prefsMgr := ux.NewPreferencesManager(workspace)
+		if err := prefsMgr.Load(); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("Failed to load preferences: %v", err)
+		}
+
+		// Initialize Transparency Manager
+		transparencyCfg := appCfg.GetTransparencyConfig()
+		transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
+		if transparencyCfg.Enabled {
+			logStep("Transparency enabled")
+		}
+
+		// Initialize Sparse Retriever
+		logStep("Initializing sparse retriever...")
+		retrieverCfg := retrieval.DefaultSparseRetrieverConfig(workspace)
+		retriever := retrieval.NewSparseRetriever(retrieverCfg)
 
 		// Configure global LLM API concurrency before any scheduled calls
 		schedulerCfg := core.DefaultAPISchedulerConfig()
@@ -273,6 +307,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		executor := tactile.NewSafeExecutor()
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
+		shardMgr.SetTransparencyManager(transparencyMgr)
 
 		// Initialize limits enforcer and spawn queue for backpressure management
 		limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
@@ -915,6 +950,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				BrowserCtxCancel:      browserCtxCancel,
 				JITCompiler:           jitCompiler,
 				MangleWatcher:         mangleWatcher,
+				TransparencyMgr:       transparencyMgr,
+				PreferencesMgr:        prefsMgr,
+				Retriever:             retriever,
 			},
 		}
 	}

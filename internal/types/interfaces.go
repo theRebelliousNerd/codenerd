@@ -14,6 +14,12 @@ type Kernel interface {
 	RetractFact(fact Fact) error
 	// UpdateSystemFacts updates system facts (time, etc.)
 	UpdateSystemFacts() error
+
+	// Power-user features for advanced kernel control
+	// Reset clears all facts while keeping schemas and policies
+	Reset()
+	// AppendPolicy adds shard-specific policy rules to the kernel
+	AppendPolicy(policy string)
 }
 
 // LLMClient defines the interface for LLM interactions.

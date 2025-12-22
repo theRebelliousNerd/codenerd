@@ -73,6 +73,11 @@ type ShardConfig struct {
 	Tools           []string          // List of tool names this shard can use
 	ToolPreferences map[string]string // Action -> preferred tool mapping
 
+	// Shard-specific Mangle policy (POWER-USER-FEATURE)
+	// When set, these rules are appended to the kernel before shard execution.
+	// Use for specialist shards that need domain-specific permissions or constraints.
+	Policy string
+
 	// Session context (Blackboard Pattern)
 	SessionContext *SessionContext // Compressed session context for LLM injection
 }
