@@ -41,7 +41,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/session.go`, `internal/shards/registration.go`
 
 ### GAP-002: Campaign Facts Not Asserted to Kernel
-- **Status:** 🔴 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `cmd/nerd/chat/process.go:169`
 - **Impact:** Compressor activation engine has zero campaign awareness
 - **Missing Facts:**
@@ -351,3 +351,4 @@ Legislator ✗ NEVER TRIGGERED
 |------|-----|--------|-------|
 | 2024-12-21 | Initial | Created | 6-agent audit completed |
 | 2024-12-21 | GAP-001 | Fixed | Registered 5 missing shards + LearningStore wiring |
+| 2024-12-21 | GAP-002 | Fixed | Added seedCampaignFacts() for campaign context |

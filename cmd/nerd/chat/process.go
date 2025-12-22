@@ -167,6 +167,10 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
 			m.seedIssueFacts(intent, input)
+
+			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
+			// This enables the activation engine and JIT compiler to be campaign-aware.
+			m.seedCampaignFacts()
 		}
 
 		// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.
@@ -777,6 +781,71 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 			Predicate: "file_mentioned",
 			Args:      []interface{}{file, issueID},
 		})
+	}
+
+	_ = m.kernel.LoadFacts(facts)
+}
+
+// seedCampaignFacts asserts campaign context facts for spreading activation and JIT selection.
+// GAP-002 FIX: This enables the activation engine and JIT compiler to be campaign-aware.
+func (m *Model) seedCampaignFacts() {
+	if m.kernel == nil || m.activeCampaign == nil {
+		return
+	}
+
+	c := m.activeCampaign
+	facts := make([]core.Fact, 0, 10)
+
+	// current_campaign(CampaignID)
+	facts = append(facts, core.Fact{
+		Predicate: "current_campaign",
+		Args:      []interface{}{c.ID},
+	})
+
+	// Find current phase (first non-completed phase)
+	var currentPhase *campaign.Phase
+	for i := range c.Phases {
+		if c.Phases[i].Status != campaign.PhaseCompleted {
+			currentPhase = &c.Phases[i]
+			break
+		}
+	}
+
+	if currentPhase != nil {
+		// current_phase(PhaseID)
+		facts = append(facts, core.Fact{
+			Predicate: "current_phase",
+			Args:      []interface{}{currentPhase.ID},
+		})
+
+		// phase_objective(PhaseID, ObjectiveIndex, Description)
+		for i, obj := range currentPhase.Objectives {
+			objID := fmt.Sprintf("/obj_%s_%d", currentPhase.ID, i)
+			facts = append(facts, core.Fact{
+				Predicate: "phase_objective",
+				Args:      []interface{}{currentPhase.ID, objID, obj.Description},
+			})
+		}
+
+		// Find next pending task
+		for _, task := range currentPhase.Tasks {
+			if task.Status == campaign.TaskPending || task.Status == campaign.TaskInProgress {
+				// next_campaign_task(TaskID)
+				facts = append(facts, core.Fact{
+					Predicate: "next_campaign_task",
+					Args:      []interface{}{task.ID},
+				})
+
+				// task_artifact(TaskID, ArtifactType, Path)
+				for _, artifact := range task.Artifacts {
+					facts = append(facts, core.Fact{
+						Predicate: "task_artifact",
+						Args:      []interface{}{task.ID, artifact.Type, artifact.Path},
+					})
+				}
+				break // Only the next task
+			}
+		}
 	}
 
 	_ = m.kernel.LoadFacts(facts)
