@@ -142,6 +142,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("pending_review")
 			_ = m.kernel.Retract("interrupt_requested")
 
+			// STALE ACTION CLEANUP: Clear action pipeline facts from previous turns/sessions
+			// These facts accumulate and cause misleading "System actions" displays for greetings
+			// and other conversational intents that don't actually trigger shard work.
+			_ = m.kernel.Retract("execution_result")
+			_ = m.kernel.Retract("routing_result")
+			_ = m.kernel.Retract("pending_action")
+			_ = m.kernel.Retract("delegate_task")
+
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
 				// Use a stable ID so the kernel doesn't accumulate historical intents.
