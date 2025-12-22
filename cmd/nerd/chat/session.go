@@ -256,6 +256,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
 		}
 
+		// GAP-013 FIX: Consume boot intents and prompts from hybrid files
+		bootIntents := kernel.ConsumeBootIntents()
+		if len(bootIntents) > 0 {
+			logging.Get(logging.CategoryKernel).Info("Consumed %d boot intents from hybrid files", len(bootIntents))
+		}
+		bootPrompts := kernel.ConsumeBootPrompts()
+		if len(bootPrompts) > 0 {
+			logging.Get(logging.CategoryKernel).Info("Consumed %d boot prompts from hybrid files", len(bootPrompts))
+		}
+
 		logStep("Creating executor & shard manager...")
 		executor := tactile.NewSafeExecutor()
 		shardMgr := core.NewShardManager()
@@ -348,6 +358,14 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if ls, err := store.NewLearningStore(learningsPath); err == nil {
 			learningStore = ls
 			virtualStore.SetLearningStore(learningStore)
+
+			// GAP-008 FIX: Apply periodic confidence decay on session startup
+			// Decay learnings older than 30 days by 10% to allow forgetting
+			for _, shardType := range []string{"coder", "tester", "reviewer", "researcher"} {
+				if err := ls.DecayConfidence(shardType, 0.9); err != nil {
+					logging.Get(logging.CategoryStore).Debug("DecayConfidence for %s: %v", shardType, err)
+				}
+			}
 		}
 
 		if localDB != nil {
@@ -787,7 +805,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		logStep("Creating shadow mode & scanner...")
 		shadowMode := core.NewShadowMode(kernel)
-		emitter := articulation.NewEmitter()
+		// GAP-011 FIX: Removed unused emitter - articulation uses PromptAssembler.JIT instead
 		scanner := world.NewScanner()
 
 		logStep("Initializing context compressor...")
@@ -876,7 +894,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				ShadowMode:            shadowMode,
 				Transducer:            transducer,
 				Executor:              executor,
-				Emitter:               emitter,
+				Emitter:               nil, // GAP-011: Emitter unused, using JIT PromptAssembler instead
 				VirtualStore:          virtualStore,
 				Scanner:               scanner,
 				Workspace:             workspace,

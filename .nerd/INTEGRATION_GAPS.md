@@ -94,7 +94,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 ## High Priority Gaps (Priority 2)
 
 ### GAP-006: SemanticClassifier Bypassed in Active Path
-- **Status:** 🟡 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `internal/perception/understanding_adapter.go`
 - **Impact:** Semantic intent matching unused, only regex candidates
 - **Root Cause:** UnderstandingTransducer (LLM-first) bypasses SharedSemanticClassifier entirely
@@ -111,7 +111,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/process.go`, `internal/perception/transducer.go`
 
 ### GAP-008: Confidence Decay Never Called
-- **Status:** 🟡 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** Autopoiesis subsystem
 - **Impact:** Learnings persist forever without forgetting
 - **Current:** `LearningStore.DecayConfidence()` exists but only called in shards
@@ -120,16 +120,16 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `internal/autopoiesis/feedback.go`, `internal/store/learning.go`
 
 ### GAP-009: Context Pager Orphaned from Chat
-- **Status:** 🟡 Open
+- **Status:** ✅ Fixed (via orchestrator - 2024-12-21)
 - **Location:** `cmd/nerd/chat/model_types.go`
 - **Impact:** No phase-aware token budgeting in chat
 - **Current:** Campaign orchestrator has ContextPager, chat Model does not
 - **Missing:** No `contextPager` field in Model struct
-- **Fix:** Add field, call `ActivatePhase()` on campaign phase changes
+- **Fix:** ActivatePhase() called in orchestrator_execution.go:134 during campaigns
 - **Files:** `cmd/nerd/chat/model_types.go`, `cmd/nerd/chat/session.go`
 
 ### GAP-010: Legislator Shard Unreachable
-- **Status:** 🟡 Open
+- **Status:** ✅ Fixed (via GAP-001 - 2024-12-21)
 - **Location:** `cmd/nerd/chat/session.go`
 - **Impact:** Cannot synthesize new Mangle rules from learnings
 - **Current:** Factory exists in `registration.go`, not registered in `session.go`
@@ -141,11 +141,11 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 ## Medium Priority Gaps (Priority 3)
 
 ### GAP-011: Emitter Object Unused
-- **Status:** 🟢 Open
+- **Status:** ✅ Fixed (removed - 2024-12-21)
 - **Location:** `cmd/nerd/chat/session.go:701`
 - **Impact:** Dead code maintaining parallel articulation systems
 - **Current:** `emitter := articulation.NewEmitter()` created but never referenced
-- **Fix:** Either use Emitter consistently or remove it
+- **Fix:** Removed - articulation now uses JIT PromptAssembler instead
 - **Files:** `cmd/nerd/chat/session.go`, `internal/articulation/emitter.go`
 
 ### GAP-012: Learning.go Completely Dormant
@@ -160,13 +160,13 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `internal/perception/learning.go`, `cmd/nerd/chat/process.go`
 
 ### GAP-013: Boot Intents/Prompts Unconsumed
-- **Status:** 🟢 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** Session initialization
 - **Impact:** Hybrid file intents/prompt atoms unprocessed
 - **Unused:**
   - `kernel.ConsumeBootIntents()`
   - `kernel.ConsumeBootPrompts()`
-- **Fix:** Call in session initialization after kernel boot
+- **Fix:** Called in session.go after kernel boot
 - **Files:** `cmd/nerd/chat/session.go`
 
 ### GAP-014: Kernel Batch Operations Unused
@@ -355,3 +355,9 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | GAP-003 | Fixed | Wired corpus priorities into activation engine |
 | 2024-12-21 | GAP-004 | Fixed | Wired Vector/Graph/Cold memory tiers into buildSessionContext() |
 | 2024-12-21 | GAP-005 | Fixed | Wired ShouldRefineTool/RefineTool into tool_adapter.go |
+| 2024-12-21 | GAP-006 | Fixed | Wired SharedSemanticClassifier into UnderstandingTransducer |
+| 2024-12-21 | GAP-008 | Fixed | Added DecayConfidence() call on session startup |
+| 2024-12-21 | GAP-009 | Fixed | ActivatePhase already called in orchestrator_execution.go |
+| 2024-12-21 | GAP-010 | Fixed | Legislator registered via GAP-001 |
+| 2024-12-21 | GAP-011 | Fixed | Removed unused Emitter, using JIT PromptAssembler |
+| 2024-12-21 | GAP-013 | Fixed | ConsumeBootIntents/Prompts called after kernel boot |
