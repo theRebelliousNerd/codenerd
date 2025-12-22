@@ -67,7 +67,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/session.go`, `cmd/nerd/chat/process.go`
 
 ### GAP-004: 3 of 4 Memory Tiers Unused
-- **Status:** 🔴 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `cmd/nerd/chat/model_session_context.go`
 - **Impact:** 75% of memory infrastructure dormant
 - **Unused Tiers:**
@@ -353,3 +353,4 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | GAP-001 | Fixed | Registered 5 missing shards + LearningStore wiring |
 | 2024-12-21 | GAP-002 | Fixed | Added seedCampaignFacts() for campaign context |
 | 2024-12-21 | GAP-003 | Fixed | Wired corpus priorities into activation engine |
+| 2024-12-21 | GAP-004 | Fixed | Wired Vector/Graph/Cold memory tiers into buildSessionContext() |
