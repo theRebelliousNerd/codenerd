@@ -795,9 +795,9 @@ Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
 Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
 Decl detected_negation(Word, NegationType, Priority).
 Decl detected_existence(Pattern, DefaultVerb, Priority).
-Decl has_negation().
-Decl has_polite_modal().
-Decl has_hypothetical_modal().
+Decl has_negation(Flag).
+Decl has_polite_modal(Flag).
+Decl has_hypothetical_modal(Flag).
 
 # --- Detect interrogatives from context tokens ---
 detected_interrogative(Word, SemanticType, DefaultVerb, Priority) :-
@@ -913,16 +913,16 @@ detected_negation(Word, NegationType, Priority) :-
     context_token(Word),
     negation_marker(Word, NegationType, Priority).
 
-# Flag if any negation is present
-has_negation() :-
+# Flag if any negation is present (use /true sentinel for boolean)
+has_negation(/true) :-
     detected_negation(_, _, _).
 
-# Flag if polite modal is present
-has_polite_modal() :-
+# Flag if polite modal is present (use /true sentinel for boolean)
+has_polite_modal(/true) :-
     detected_modal(_, /polite_request, _, _).
 
-# Flag if hypothetical modal is present
-has_hypothetical_modal() :-
+# Flag if hypothetical modal is present (use /true sentinel for boolean)
+has_hypothetical_modal(/true) :-
     detected_modal(_, /hypothetical, _, _).
 
 # --- Detect existence patterns ---
@@ -954,7 +954,7 @@ detected_existence(Pattern, DefaultVerb, Priority) :-
 # Instead, convert to an instruction intent
 Decl negated_verb(Verb).
 negated_verb(Verb) :-
-    has_negation(),
+    has_negation(/true),
     context_token(VerbWord),
     verb_synonym(Verb, VerbWord).
 
@@ -964,22 +964,22 @@ potential_score(Verb, -100.0) :-
 
 # When negation present, boost /instruction or /explain instead
 potential_score(/explain, 85.0) :-
-    has_negation(),
+    has_negation(/true),
     negated_verb(_).
 
 # --- MODAL STRIPPING (High Priority) ---
 # "Can you review this?" -> strip modal, boost /review
 # This fires when polite modal + verb synonym detected
 potential_score(Verb, 95.0) :-
-    has_polite_modal(),
+    has_polite_modal(/true),
     context_token(VerbWord),
     verb_synonym(Verb, VerbWord),
-    not negated_verb(Verb).
+    !negated_verb(Verb).
 
 # --- HYPOTHETICAL MODE (High Priority) ---
 # "What if I deleted this?" -> boost /dream
 potential_score(/dream, 92.0) :-
-    has_hypothetical_modal().
+    has_hypothetical_modal(/true).
 
 # --- COPULAR + STATE ADJECTIVE (High Priority) ---
 # "Is this code secure?" -> /security
@@ -990,9 +990,16 @@ copular_state_intent(ImpliedVerb, Priority) :-
     copular_verb(Copular, _, _),
     detected_state_adj(_, ImpliedVerb, _, Priority).
 
+# Helper predicates for safe negation (wildcards in negated atoms cause safety violations)
+Decl has_copular_state_intent(Flag).
+has_copular_state_intent(/true) :- copular_state_intent(_, _).
+
+Decl has_candidate_intent(Flag).
+has_candidate_intent(/true) :- candidate_intent(_, _).
+
 potential_score(Verb, Score) :-
     copular_state_intent(Verb, BasePriority),
-    not has_negation(),
+    !has_negation(/true),
     Score = fn:plus(BasePriority, 5.0).
 
 # --- INTERROGATIVE + STATE COMBINATION (Very High Priority) ---
@@ -1003,9 +1010,12 @@ interrogative_state_combo(CombinedVerb, Priority) :-
     detected_state_adj(_, _, StateCategory, _),
     interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
 
+Decl has_interrogative_state_combo(Flag).
+has_interrogative_state_combo(/true) :- interrogative_state_combo(_, _).
+
 potential_score(Verb, Score) :-
     interrogative_state_combo(Verb, Priority),
-    not has_negation(),
+    !has_negation(/true),
     Score = fn:plus(Priority, 2.0).
 
 # --- PURE INTERROGATIVE FALLBACK (Medium Priority) ---
@@ -1013,42 +1023,43 @@ potential_score(Verb, Score) :-
 Decl pure_interrogative_intent(DefaultVerb, Priority).
 pure_interrogative_intent(DefaultVerb, Priority) :-
     detected_interrogative(_, _, DefaultVerb, Priority),
-    not has_polite_modal(),
-    not copular_state_intent(_, _),
-    not interrogative_state_combo(_, _).
+    !has_polite_modal(/true),
+    !has_copular_state_intent(/true),
+    !has_interrogative_state_combo(/true).
 
 potential_score(Verb, Score) :-
     pure_interrogative_intent(Verb, Priority),
-    not candidate_intent(_, _),
-    not has_negation(),
+    !has_candidate_intent(/true),
+    !has_negation(/true),
     Score = fn:plus(Priority, 0.0).
 
 # --- EXISTENCE QUERIES (Medium Priority) ---
 # "Is there a config file?" -> /search
 potential_score(DefaultVerb, Score) :-
     detected_existence(_, DefaultVerb, Priority),
-    not has_negation(),
+    !has_negation(/true),
     Score = fn:plus(Priority, 0.0).
 
 # =============================================================================
 # INTENT METADATA DERIVATION
 # =============================================================================
 # Derive additional metadata about the intent for routing decisions.
+# Note: Mangle requires at least one argument per predicate; use /true sentinel for booleans.
 
-Decl intent_is_question().
-Decl intent_is_hypothetical().
-Decl intent_is_negated().
+Decl intent_is_question(Flag).
+Decl intent_is_hypothetical(Flag).
+Decl intent_is_negated(Flag).
 Decl intent_semantic_type(Type).
 Decl intent_state_category(Category).
 
-intent_is_question() :-
+intent_is_question(/true) :-
     detected_interrogative(_, _, _, _).
 
-intent_is_hypothetical() :-
-    has_hypothetical_modal().
+intent_is_hypothetical(/true) :-
+    has_hypothetical_modal(/true).
 
-intent_is_negated() :-
-    has_negation().
+intent_is_negated(/true) :-
+    has_negation(/true).
 
 intent_semantic_type(Type) :-
     detected_interrogative(_, Type, _, _).

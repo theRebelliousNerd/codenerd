@@ -154,13 +154,15 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	if SharedSemanticClassifier != nil {
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
-			// Non-fatal: continue with regex-only classification
-			logging.PerceptionDebug("Semantic classification error (non-fatal): %v", err)
+			// Non-fatal: seed fallback semantic_match facts from regex candidates
+			logging.PerceptionDebug("Semantic classification error (non-fatal): %v - seeding fallback facts", err)
+			seedFallbackSemanticFacts(input, candidates)
 		} else if len(matches) > 0 {
 			logging.PerceptionDebug("Semantic matches found: %d (top: %s %.2f)",
 				len(matches), matches[0].Verb, matches[0].Similarity)
 		} else {
-			logging.PerceptionDebug("Semantic classification returned no matches")
+			logging.PerceptionDebug("Semantic classification returned no matches - seeding fallback facts")
+			seedFallbackSemanticFacts(input, candidates)
 		}
 		// Facts are now in kernel - Mangle inference will see them via semantic_match predicate
 	}
@@ -1695,4 +1697,36 @@ func ClosePerceptionLayer() error {
 
 	logging.Perception("Perception layer closed")
 	return nil
+}
+
+// seedFallbackSemanticFacts injects low-confidence semantic_match facts from regex candidates
+// when the SemanticClassifier fails or returns no matches. This ensures the Mangle inference
+// rules always have some semantic signal to work with, even in degraded mode.
+func seedFallbackSemanticFacts(input string, candidates []VerbEntry) {
+	if SharedTaxonomy == nil || SharedTaxonomy.engine == nil {
+		return
+	}
+
+	// Seed low-confidence semantic_match facts for top regex candidates
+	for rank, cand := range candidates {
+		if rank >= 5 {
+			break // Only top 5 candidates
+		}
+		// Assert semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
+		err := SharedTaxonomy.engine.AddFact("semantic_match",
+			input,     // UserInput
+			"",        // CanonicalSentence (empty for fallback)
+			cand.Verb, // Verb
+			"",        // Target (empty for fallback)
+			rank+1,    // Rank (1-indexed)
+			50.0,      // Similarity (fixed low confidence for fallback)
+		)
+		if err != nil {
+			logging.PerceptionDebug("Failed to seed fallback semantic_match for %s: %v", cand.Verb, err)
+		}
+	}
+
+	if len(candidates) > 0 {
+		logging.PerceptionDebug("Seeded %d fallback semantic_match facts", min(len(candidates), 5))
+	}
 }
