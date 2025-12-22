@@ -128,6 +128,20 @@ func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
 	}
 
 	// ==========================================================================
+	// GAP-004 FIX: MULTI-TIER MEMORY RETRIEVAL (Vector, Graph, Cold)
+	// ==========================================================================
+	if m.localDB != nil {
+		// Vector Tier: Semantic search for relevant past knowledge
+		m.queryVectorMemory(ctx, sessionCtx)
+
+		// Graph Tier: Entity relationships for active files
+		m.queryGraphMemory(sessionCtx)
+
+		// Cold Tier: Persistent learned facts
+		m.queryColdMemory(sessionCtx)
+	}
+
+	// ==========================================================================
 	// CONSTITUTIONAL CONSTRAINTS
 	// ==========================================================================
 	if m.kernel != nil {
@@ -641,3 +655,104 @@ func (m *Model) querySafetyWarnings() []string {
 	return warnings
 }
 
+// =============================================================================
+// GAP-004 FIX: MEMORY TIER QUERY HELPERS
+// =============================================================================
+
+// queryVectorMemory performs semantic search in the vector tier.
+// Appends relevant past knowledge to KnowledgeAtoms.
+func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *core.SessionContext) {
+	// Use last user message as query for semantic search
+	query := ""
+	for i := len(m.history) - 1; i >= 0; i-- {
+		if m.history[i].Role == "user" {
+			query = m.history[i].Content
+			break
+		}
+	}
+	if query == "" || len(query) < 10 {
+		return
+	}
+
+	// Limit query length for embedding
+	if len(query) > 500 {
+		query = query[:500]
+	}
+
+	// Semantic recall from vector store
+	entries, err := m.localDB.VectorRecallSemantic(ctx, query, 5)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.Content != "" {
+			// Format as knowledge atom: "[vector] content"
+			atom := fmt.Sprintf("[memory] %s", truncateForContext(entry.Content, 200))
+			sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
+		}
+	}
+}
+
+// queryGraphMemory retrieves entity relationships for active files.
+// Appends relationships to DependencyContext.
+func (m *Model) queryGraphMemory(sessionCtx *core.SessionContext) {
+	// Query graph for entities related to active files
+	for _, file := range sessionCtx.ActiveFiles {
+		if file == "" {
+			continue
+		}
+		// Query outgoing relationships
+		links, err := m.localDB.QueryLinks(file, "outgoing")
+		if err != nil {
+			continue
+		}
+		for _, link := range links {
+			// Format as dependency: "file -> target (relation)"
+			dep := fmt.Sprintf("%s -> %s (%s)", link.EntityA, link.EntityB, link.Relation)
+			sessionCtx.DependencyContext = append(sessionCtx.DependencyContext, dep)
+		}
+		// Limit to 10 relationships per file
+		if len(links) >= 10 {
+			break
+		}
+	}
+
+	// Limit total dependencies
+	if len(sessionCtx.DependencyContext) > 30 {
+		sessionCtx.DependencyContext = sessionCtx.DependencyContext[:30]
+	}
+}
+
+// queryColdMemory retrieves persistent learned facts from cold storage.
+// Appends high-priority facts to KnowledgeAtoms.
+func (m *Model) queryColdMemory(sessionCtx *core.SessionContext) {
+	// Query for high-priority persistent facts
+	predicates := []string{"learned_preference", "project_pattern", "avoid_pattern"}
+
+	for _, pred := range predicates {
+		facts, err := m.localDB.LoadFacts(pred)
+		if err != nil {
+			continue
+		}
+		for _, fact := range facts {
+			if fact.Priority >= 5 { // Only high-priority facts
+				// Format as knowledge atom
+				argsStr := ""
+				for i, arg := range fact.Args {
+					if i > 0 {
+						argsStr += ", "
+					}
+					argsStr += fmt.Sprintf("%v", arg)
+				}
+				atom := fmt.Sprintf("[cold:%s] %s", fact.Predicate, argsStr)
+				sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
+			}
+		}
+	}
+
+	// Limit total knowledge atoms
+	if len(sessionCtx.KnowledgeAtoms) > 50 {
+		sessionCtx.KnowledgeAtoms = sessionCtx.KnowledgeAtoms[:50]
+	}
+}
