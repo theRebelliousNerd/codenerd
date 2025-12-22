@@ -136,6 +136,13 @@ func (l *LegislatorShard) Execute(ctx context.Context, task string) (string, err
 	}
 	logging.SystemShardsDebug("[Legislator] Rule passed court ratification")
 
+	// POWER-USER-FEATURE: Validate rule against schema before hot-loading
+	if errs := l.Kernel.ValidateLearnedRules([]string{rule}); len(errs) > 0 {
+		logging.Get(logging.CategorySystemShards).Warn("[Legislator] Schema validation failed: %v", errs[0])
+		return fmt.Sprintf("Rule rejected (schema): %v", errs[0]), nil
+	}
+	logging.SystemShardsDebug("[Legislator] Rule passed schema validation")
+
 	if err := l.Kernel.HotLoadLearnedRule(rule); err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[Legislator] Failed to hot-load rule: %v", err)
 		return "", fmt.Errorf("failed to apply rule: %w", err)

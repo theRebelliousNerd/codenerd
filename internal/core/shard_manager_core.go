@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
 )
 
 // =============================================================================
@@ -47,6 +48,7 @@ type ShardManager struct {
 	virtualStore  *VirtualStore
 	tracingClient TracingClient // Optional: set when llmClient implements TracingClient
 	learningStore LearningStore
+	transparencyMgr *transparency.TransparencyManager
 
 	// Resource limits enforcement
 	limitsEnforcer *LimitsEnforcer
@@ -153,6 +155,13 @@ func (sm *ShardManager) SetLearningStore(store LearningStore) {
 	defer sm.mu.Unlock()
 	sm.learningStore = store
 	logging.ShardsDebug("LearningStore attached to ShardManager")
+}
+
+func (sm *ShardManager) SetTransparencyManager(tm *transparency.TransparencyManager) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.transparencyMgr = tm
+	logging.ShardsDebug("TransparencyManager attached to ShardManager")
 }
 
 // SetLimitsEnforcer attaches a limits enforcer for resource constraint checking.

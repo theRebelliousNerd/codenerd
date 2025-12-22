@@ -36,6 +36,9 @@ type Config struct {
 	// Tool Generation settings
 	ToolGeneration ToolGenerationConfig `yaml:"tool_generation" json:"tool_generation"`
 
+	// Transparency settings
+	Transparency TransparencyConfig `yaml:"transparency" json:"transparency"`
+
 	// Logging
 	Logging LoggingConfig `yaml:"logging"`
 
@@ -125,6 +128,8 @@ func DefaultConfig() *Config {
 		},
 
 		ToolGeneration: DefaultToolGenerationConfig(),
+
+		Transparency: *DefaultTransparencyConfig(),
 
 		Logging: LoggingConfig{
 			Level:  "info",

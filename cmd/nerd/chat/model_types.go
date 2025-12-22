@@ -17,10 +17,12 @@ import (
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
+	"codenerd/internal/ux"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 
@@ -260,6 +262,9 @@ type Model struct {
 	// Transparency Layer (Phase 4 UX) - Makes operations visible to users
 	transparencyMgr *transparency.TransparencyManager
 
+	// User Preferences Manager
+	preferencesMgr *ux.PreferencesManager
+
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
 
@@ -398,6 +403,9 @@ type SystemComponents struct {
 	Workspace             string
 	JITCompiler           *prompt.JITPromptCompiler
 	MangleWatcher         *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
+	TransparencyMgr       *transparency.TransparencyManager
+	PreferencesMgr        *ux.PreferencesManager
+	Retriever             *retrieval.SparseRetriever
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.
