@@ -80,7 +80,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 - **Files:** `cmd/nerd/chat/model_session_context.go`
 
 ### GAP-005: Tool Refinement Never Triggers
-- **Status:** 🔴 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** Main execution loop
 - **Impact:** Tools never improve from feedback, learning loop broken
 - **Missing Calls:**
@@ -354,3 +354,4 @@ Legislator ✗ NEVER TRIGGERED
 | 2024-12-21 | GAP-002 | Fixed | Added seedCampaignFacts() for campaign context |
 | 2024-12-21 | GAP-003 | Fixed | Wired corpus priorities into activation engine |
 | 2024-12-21 | GAP-004 | Fixed | Wired Vector/Graph/Cold memory tiers into buildSessionContext() |
+| 2024-12-21 | GAP-005 | Fixed | Wired ShouldRefineTool/RefineTool into tool_adapter.go |
