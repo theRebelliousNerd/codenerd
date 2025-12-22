@@ -28,7 +28,7 @@ codeNERD has sophisticated, well-designed systems that operate in **isolation** 
 ## Critical Gaps (Priority 1)
 
 ### GAP-001: 5 Shards Not Registered in session.go
-- **Status:** 🔴 Open
+- **Status:** ✅ Fixed (2024-12-21)
 - **Location:** `cmd/nerd/chat/session.go`
 - **Impact:** Shards fall back to BaseShardAgent, may not work correctly
 - **Missing Shards:**
@@ -350,3 +350,4 @@ Legislator ✗ NEVER TRIGGERED
 | Date | Gap | Status | Notes |
 |------|-----|--------|-------|
 | 2024-12-21 | Initial | Created | 6-agent audit completed |
+| 2024-12-21 | GAP-001 | Fixed | Registered 5 missing shards + LearningStore wiring |
