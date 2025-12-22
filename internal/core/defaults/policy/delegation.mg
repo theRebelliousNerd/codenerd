@@ -68,6 +68,7 @@ action_mapping(/test, /run_tests).
 
 # Code review & analysis actions (delegate to reviewer shard)
 action_mapping(/review, /delegate_reviewer).
+action_mapping(/review_enhance, /delegate_reviewer).
 action_mapping(/security, /delegate_reviewer).
 action_mapping(/analyze, /delegate_reviewer).
 
@@ -82,6 +83,9 @@ action_mapping(/commit, /delegate_coder).
 
 # Debug actions
 action_mapping(/debug, /delegate_coder).
+
+# Git actions (delegate to coder shard for safe git operations)
+action_mapping(/git, /delegate_coder).
 
 # Research actions (delegate to researcher shard)
 action_mapping(/research, /delegate_researcher).
