@@ -4,11 +4,14 @@ package init
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -72,11 +75,14 @@ func (i *Initializer) generateStrategicKnowledge(ctx context.Context, profile Pr
 	// Gather context about the project
 	codebaseContext := i.buildCodebaseContext(profile, scanResult)
 
-	// Check for CLAUDE.md files which often contain architectural documentation
-	claudeMDContent := i.findClaudeMDContent()
-	if claudeMDContent != "" {
-		codebaseContext += "\n\n## Existing Documentation (CLAUDE.md):\n" + claudeMDContent
+	// Gather ALL documentation, then use LLM to filter for relevance
+	allDocs := i.gatherProjectDocumentation()
+	relevantDocs := i.filterDocumentsByRelevance(ctx, allDocs)
+	docContent := i.buildRelevantDocContent(relevantDocs)
+	if docContent != "" {
+		codebaseContext += "\n\n## Project Documentation (LLM-filtered for strategic relevance):\n" + docContent
 	}
+	logging.Get(logging.CategoryBoot).Debug("Strategic knowledge: %d total docs → %d relevant", len(allDocs), len(relevantDocs))
 
 	prompt := fmt.Sprintf(`You are analyzing a software project to generate deep strategic knowledge.
 This knowledge will be used by an AI coding agent to understand the project at a philosophical and architectural level.
@@ -186,132 +192,781 @@ func (i *Initializer) buildCodebaseContext(profile ProjectProfile, scanResult *w
 	return sb.String()
 }
 
-// findAllMarkdownContent scans for all markdown files in the workspace.
-// Prioritizes CLAUDE.md and README.md, then includes other docs.
-func (i *Initializer) findClaudeMDContent() string {
-	var sb strings.Builder
-	totalChars := 0
-	const maxTotalChars = 50000 // Cap total markdown content
+// DocumentInfo represents a discovered documentation file with metadata.
+type DocumentInfo struct {
+	Path        string // Relative path from workspace
+	AbsPath     string // Absolute path
+	Content     string // Full file content
+	Title       string // Extracted title (from first # heading or filename)
+	Size        int    // Content size in bytes
+	Priority    int    // 0=highest priority (CLAUDE.md), 1=high (README), 2=docs folder, 3=other
+	IsRelevant  bool   // Set by LLM analysis
+	Reasoning   string // Why LLM marked it relevant/noise
+	ContentHash string // SHA256 hash for deduplication and change detection
+}
 
-	// Priority files to read first (in order)
-	priorityFiles := []string{
-		filepath.Join(i.config.Workspace, "CLAUDE.md"),
-		filepath.Join(i.config.Workspace, ".claude", "CLAUDE.md"),
-		filepath.Join(i.config.Workspace, "README.md"),
-		filepath.Join(i.config.Workspace, "ARCHITECTURE.md"),
-		filepath.Join(i.config.Workspace, "CONTRIBUTING.md"),
-		filepath.Join(i.config.Workspace, "DESIGN.md"),
+// DocProcessingStatus tracks the state of each document through the pipeline.
+// Uses Mangle atoms for deterministic tracking (campaign pattern).
+type DocProcessingStatus string
+
+const (
+	DocStatusDiscovered DocProcessingStatus = "/discovered" // Found during scan
+	DocStatusAnalyzing  DocProcessingStatus = "/analyzing"  // LLM analyzing relevance
+	DocStatusExtracting DocProcessingStatus = "/extracting" // Extracting knowledge atoms
+	DocStatusStored     DocProcessingStatus = "/stored"     // Atoms persisted to DB
+	DocStatusSynthesized DocProcessingStatus = "/synthesized" // Included in synthesis
+	DocStatusSkipped    DocProcessingStatus = "/skipped"    // Not relevant
+	DocStatusFailed     DocProcessingStatus = "/failed"     // Processing failed
+)
+
+// DocIngestionState tracks the entire ingestion campaign state.
+// Persisted to .nerd/doc_ingestion_state.json for resumption.
+type DocIngestionState struct {
+	CampaignID      string                         `json:"campaign_id"`
+	StartedAt       time.Time                      `json:"started_at"`
+	LastUpdated     time.Time                      `json:"last_updated"`
+	Phase           string                         `json:"phase"` // "discovery", "analysis", "extraction", "synthesis"
+	Documents       map[string]*DocProcessingEntry `json:"documents"`
+	TotalDiscovered int                            `json:"total_discovered"`
+	TotalProcessed  int                            `json:"total_processed"`
+	TotalStored     int                            `json:"total_stored"`
+	SynthesisReady  bool                           `json:"synthesis_ready"`
+}
+
+// DocProcessingEntry tracks individual document processing state.
+type DocProcessingEntry struct {
+	Path         string              `json:"path"`
+	Title        string              `json:"title"`
+	ContentHash  string              `json:"content_hash"`
+	Status       DocProcessingStatus `json:"status"`
+	Priority     int                 `json:"priority"`
+	IsRelevant   bool                `json:"is_relevant"`
+	Reasoning    string              `json:"reasoning"`
+	AtomsStored  int                 `json:"atoms_stored"`
+	ProcessedAt  *time.Time          `json:"processed_at,omitempty"`
+	ErrorMessage string              `json:"error_message,omitempty"`
+}
+
+// assertDocFact asserts a document tracking fact to the kernel.
+// Pattern: doc_<status>(path, hash, timestamp)
+func (i *Initializer) assertDocFact(kernel *core.RealKernel, status DocProcessingStatus, path, hash string) {
+	if kernel == nil {
+		return
+	}
+	fact := core.Fact{
+		Predicate: "doc_ingestion",
+		Args:      []interface{}{path, string(status), hash, time.Now().Unix()},
+	}
+	if err := kernel.Assert(fact); err != nil {
+		logging.Get(logging.CategoryBoot).Debug("Failed to assert doc fact: %v", err)
+	}
+}
+
+// computeDocHash generates a SHA256 hash for document content deduplication.
+func computeDocHash(content string) string {
+	h := sha256.New()
+	h.Write([]byte(content))
+	return hex.EncodeToString(h.Sum(nil))[:16] // First 16 chars sufficient
+}
+
+// loadIngestionState loads previous ingestion state for resumption.
+func (i *Initializer) loadIngestionState() *DocIngestionState {
+	statePath := filepath.Join(i.config.Workspace, ".nerd", "doc_ingestion_state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return nil
+	}
+	var state DocIngestionState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil
+	}
+	return &state
+}
+
+// saveIngestionState persists ingestion state for resumption.
+func (i *Initializer) saveIngestionState(state *DocIngestionState) error {
+	state.LastUpdated = time.Now()
+	statePath := filepath.Join(i.config.Workspace, ".nerd", "doc_ingestion_state.json")
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(statePath, data, 0644)
+}
+
+// processDocumentsWithTracking processes documents with Mangle fact tracking
+// and incremental knowledge persistence. Uses campaign patterns:
+// 1. Assert doc_discovered for each found doc
+// 2. Assert doc_analyzing when LLM analyzes
+// 3. Store atoms incrementally and assert doc_stored
+// 4. Track progress for resumption
+func (i *Initializer) processDocumentsWithTracking(
+	ctx context.Context,
+	docs []DocumentInfo,
+	db *store.LocalStore,
+	kernel *core.RealKernel,
+) (*DocIngestionState, error) {
+	// Load or create ingestion state
+	state := i.loadIngestionState()
+	if state == nil {
+		state = &DocIngestionState{
+			CampaignID: fmt.Sprintf("doc_init_%d", time.Now().Unix()),
+			StartedAt:  time.Now(),
+			Phase:      "discovery",
+			Documents:  make(map[string]*DocProcessingEntry),
+		}
 	}
 
+	// Phase 1: Discovery - assert all discovered docs
+	for _, doc := range docs {
+		hash := computeDocHash(doc.Content)
+		doc.ContentHash = hash
+
+		// Check if already processed (for resumption)
+		if existing, ok := state.Documents[doc.Path]; ok {
+			if existing.ContentHash == hash && existing.Status == DocStatusStored {
+				logging.Get(logging.CategoryBoot).Debug("Skipping already processed: %s", doc.Path)
+				continue
+			}
+		}
+
+		// Assert discovery fact
+		i.assertDocFact(kernel, DocStatusDiscovered, doc.Path, hash)
+
+		state.Documents[doc.Path] = &DocProcessingEntry{
+			Path:        doc.Path,
+			Title:       doc.Title,
+			ContentHash: hash,
+			Status:      DocStatusDiscovered,
+			Priority:    doc.Priority,
+		}
+		state.TotalDiscovered++
+	}
+	state.Phase = "analysis"
+	i.saveIngestionState(state)
+
+	// Phase 2: LLM Analysis - filter for relevance
+	relevantDocs := i.filterDocumentsByRelevance(ctx, docs)
+	for _, doc := range relevantDocs {
+		if entry, ok := state.Documents[doc.Path]; ok {
+			entry.IsRelevant = true
+			entry.Reasoning = doc.Reasoning
+			entry.Status = DocStatusAnalyzing
+			i.assertDocFact(kernel, DocStatusAnalyzing, doc.Path, entry.ContentHash)
+		}
+	}
+	// Mark non-relevant as skipped
+	relevantPaths := make(map[string]bool)
+	for _, doc := range relevantDocs {
+		relevantPaths[doc.Path] = true
+	}
+	for path, entry := range state.Documents {
+		if !relevantPaths[path] && entry.Status == DocStatusDiscovered {
+			entry.Status = DocStatusSkipped
+			entry.Reasoning = "Not relevant based on LLM analysis"
+			i.assertDocFact(kernel, DocStatusSkipped, path, entry.ContentHash)
+		}
+	}
+	state.Phase = "extraction"
+	i.saveIngestionState(state)
+
+	// Phase 3: Extraction - process each relevant doc and store atoms incrementally
+	for _, doc := range relevantDocs {
+		select {
+		case <-ctx.Done():
+			return state, ctx.Err()
+		default:
+		}
+
+		entry := state.Documents[doc.Path]
+		if entry.Status == DocStatusStored {
+			continue // Already processed
+		}
+
+		entry.Status = DocStatusExtracting
+		i.assertDocFact(kernel, DocStatusExtracting, doc.Path, entry.ContentHash)
+
+		// Extract and store knowledge atoms incrementally
+		atomCount, err := i.extractAndStoreDocKnowledge(ctx, doc, db)
+		if err != nil {
+			entry.Status = DocStatusFailed
+			entry.ErrorMessage = err.Error()
+			i.assertDocFact(kernel, DocStatusFailed, doc.Path, entry.ContentHash)
+			logging.Get(logging.CategoryBoot).Warn("Failed to extract from %s: %v", doc.Path, err)
+			continue
+		}
+
+		now := time.Now()
+		entry.Status = DocStatusStored
+		entry.AtomsStored = atomCount
+		entry.ProcessedAt = &now
+		state.TotalStored++
+		i.assertDocFact(kernel, DocStatusStored, doc.Path, entry.ContentHash)
+
+		// Save state after each doc for resumption
+		i.saveIngestionState(state)
+		logging.Get(logging.CategoryBoot).Debug("Stored %d atoms from %s", atomCount, doc.Path)
+	}
+
+	state.TotalProcessed = len(relevantDocs)
+	state.SynthesisReady = true
+	state.Phase = "synthesis"
+	i.saveIngestionState(state)
+
+	return state, nil
+}
+
+// extractAndStoreDocKnowledge uses LLM to extract knowledge atoms from a document
+// and stores them incrementally to the database.
+func (i *Initializer) extractAndStoreDocKnowledge(
+	ctx context.Context,
+	doc DocumentInfo,
+	db *store.LocalStore,
+) (int, error) {
+	if i.config.LLMClient == nil || db == nil {
+		return 0, fmt.Errorf("LLM client and database required")
+	}
+
+	// For large docs, chunk and process
+	content := doc.Content
+	chunks := chunkDocument(content, 8000) // ~2k tokens per chunk
+
+	atomCount := 0
+	for chunkIdx, chunk := range chunks {
+		prompt := fmt.Sprintf(`Extract key knowledge atoms from this documentation chunk.
+
+Document: %s (chunk %d/%d)
+Title: %s
+
+Content:
+%s
+
+Extract the following as JSON array:
+[
+  {"concept": "category/specific_topic", "content": "key insight or fact", "confidence": 0.0-1.0}
+]
+
+Categories to use:
+- "architecture/..." for structural patterns
+- "philosophy/..." for design principles
+- "pattern/..." for recurring patterns
+- "capability/..." for system capabilities
+- "constraint/..." for limitations or invariants
+- "integration/..." for how components connect
+
+Be specific and extract only genuinely useful insights. Skip boilerplate.
+`, doc.Path, chunkIdx+1, len(chunks), doc.Title, chunk)
+
+		response, err := i.config.LLMClient.Complete(ctx, prompt)
+		if err != nil {
+			logging.Get(logging.CategoryBoot).Debug("LLM extraction failed for chunk %d: %v", chunkIdx, err)
+			continue
+		}
+
+		// Parse atoms from response
+		type ExtractedAtom struct {
+			Concept    string  `json:"concept"`
+			Content    string  `json:"content"`
+			Confidence float64 `json:"confidence"`
+		}
+		var atoms []ExtractedAtom
+
+		jsonStr := extractJSON(response)
+		if err := json.Unmarshal([]byte(jsonStr), &atoms); err != nil {
+			// Fallback: store the whole chunk as a single atom
+			if err := db.StoreKnowledgeAtom(
+				fmt.Sprintf("doc/%s", doc.Path),
+				chunk,
+				0.7,
+			); err == nil {
+				atomCount++
+			}
+			continue
+		}
+
+		// Store each extracted atom
+		for _, atom := range atoms {
+			concept := fmt.Sprintf("doc/%s/%s", doc.Path, atom.Concept)
+			if err := db.StoreKnowledgeAtom(concept, atom.Content, atom.Confidence); err == nil {
+				atomCount++
+			}
+		}
+	}
+
+	return atomCount, nil
+}
+
+// chunkDocument splits a document into chunks for processing.
+func chunkDocument(content string, maxChars int) []string {
+	if len(content) <= maxChars {
+		return []string{content}
+	}
+
+	var chunks []string
+	lines := strings.Split(content, "\n")
+	var currentChunk strings.Builder
+
+	for _, line := range lines {
+		if currentChunk.Len()+len(line)+1 > maxChars {
+			if currentChunk.Len() > 0 {
+				chunks = append(chunks, currentChunk.String())
+				currentChunk.Reset()
+			}
+		}
+		currentChunk.WriteString(line)
+		currentChunk.WriteString("\n")
+	}
+
+	if currentChunk.Len() > 0 {
+		chunks = append(chunks, currentChunk.String())
+	}
+
+	return chunks
+}
+
+// synthesizeFromStoredAtoms performs a second pass over stored knowledge atoms
+// to create the final strategic knowledge synthesis.
+func (i *Initializer) synthesizeFromStoredAtoms(
+	ctx context.Context,
+	db *store.LocalStore,
+	state *DocIngestionState,
+) (*StrategicKnowledge, error) {
+	if i.config.LLMClient == nil || db == nil {
+		return nil, fmt.Errorf("LLM client and database required for synthesis")
+	}
+
+	// Query all stored doc atoms from DB
+	atoms, err := db.GetKnowledgeAtomsByPrefix("doc/")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stored atoms: %w", err)
+	}
+
+	if len(atoms) == 0 {
+		return nil, fmt.Errorf("no atoms found for synthesis")
+	}
+
+	// Build synthesis context from stored atoms
+	var atomsSummary strings.Builder
+	atomsSummary.WriteString("## Extracted Knowledge Atoms\n\n")
+
+	// Group atoms by concept category
+	categories := make(map[string][]string)
+	for _, atom := range atoms {
+		parts := strings.SplitN(atom.Concept, "/", 3)
+		category := "other"
+		if len(parts) >= 2 {
+			category = parts[1] // e.g., "architecture", "philosophy"
+		}
+		categories[category] = append(categories[category], atom.Content)
+	}
+
+	for category, contents := range categories {
+		atomsSummary.WriteString(fmt.Sprintf("### %s\n", category))
+		for _, content := range contents {
+			if len(content) > 200 {
+				content = content[:200] + "..."
+			}
+			atomsSummary.WriteString(fmt.Sprintf("- %s\n", content))
+		}
+		atomsSummary.WriteString("\n")
+	}
+
+	// Synthesis prompt
+	prompt := fmt.Sprintf(`You are synthesizing extracted knowledge into strategic understanding.
+
+## Processing Stats
+- Documents processed: %d
+- Knowledge atoms extracted: %d
+- Categories: %v
+
+%s
+
+## Task
+Synthesize these atoms into a coherent strategic knowledge structure.
+Focus on:
+1. The overarching PROJECT VISION and PHILOSOPHY
+2. Key ARCHITECTURE patterns and decisions
+3. Core CAPABILITIES and how they interconnect
+4. Important CONSTRAINTS and safety invariants
+5. How components COMMUNICATE and integrate
+
+Respond with JSON matching this structure:
+{
+  "project_vision": "synthesized vision statement",
+  "core_philosophy": "guiding principles",
+  "design_principles": ["principle 1", ...],
+  "architecture_style": "style name",
+  "key_components": [{"name": "...", "purpose": "...", "location": "...", "interfaces": "...", "depends_on": [...]}],
+  "data_flow_pattern": "how data moves",
+  "core_patterns": [{"name": "...", "description": "...", "used_in": "...", "why": "..."}],
+  "communication_flow": "how components communicate",
+  "core_capabilities": ["capability 1", ...],
+  "extension_points": ["extension 1", ...],
+  "safety_constraints": ["constraint 1", ...],
+  "limitations": ["limitation 1", ...],
+  "learning_mechanisms": ["mechanism 1", ...],
+  "future_directions": ["direction 1", ...]
+}
+`, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary.String())
+
+	response, err := i.config.LLMClient.Complete(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("synthesis LLM call failed: %w", err)
+	}
+
+	// Parse synthesis result
+	knowledge := &StrategicKnowledge{}
+	jsonStr := extractJSON(response)
+	if err := json.Unmarshal([]byte(jsonStr), knowledge); err != nil {
+		return nil, fmt.Errorf("failed to parse synthesis: %w", err)
+	}
+
+	// Mark documents as synthesized
+	for path, entry := range state.Documents {
+		if entry.Status == DocStatusStored {
+			entry.Status = DocStatusSynthesized
+			i.assertDocFact(nil, DocStatusSynthesized, path, entry.ContentHash)
+		}
+	}
+	state.Phase = "completed"
+	i.saveIngestionState(state)
+
+	return knowledge, nil
+}
+
+// keysFromMap extracts keys from a map for display.
+func keysFromMap(m map[string][]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// gatherProjectDocumentation discovers ALL documentation files in the workspace.
+// It does NOT apply arbitrary limits - the LLM will analyze and filter for relevance.
+// Uses ResearcherShard patterns: signal keywords, heuristic sniffing, priority ordering.
+func (i *Initializer) gatherProjectDocumentation() []DocumentInfo {
+	var docs []DocumentInfo
 	seen := make(map[string]bool)
 
-	// Read priority files first
-	for _, path := range priorityFiles {
-		if totalChars >= maxTotalChars {
-			break
-		}
-		absPath, err := filepath.Abs(path)
+	// Priority files (highest importance)
+	priorityFiles := map[string]int{
+		"CLAUDE.md":             0,
+		"README.md":             1,
+		"ARCHITECTURE.md":       1,
+		"DESIGN.md":             1,
+		"VISION.md":             1,
+		"PHILOSOPHY.md":         1,
+		"CONTRIBUTING.md":       2,
+		"CHANGELOG.md":          2,
+		"ROADMAP.md":            2,
+		"GOALS.md":              2,
+		"STRATEGY.md":           2,
+		"API.md":                2,
+	}
+
+	// Target directories (ResearcherShard pattern)
+	targetDirs := map[string]bool{
+		"docs":          true,
+		"doc":           true,
+		"documentation": true,
+		"spec":          true,
+		"specs":         true,
+		"planning":      true,
+		"design":        true,
+		"research":      true,
+		"analysis":      true,
+		"architecture":  true,
+		".github":       true,
+		".claude":       true,
+	}
+
+	// Signal keywords for heuristic content sniffing (ResearcherShard pattern)
+	signalKeywords := []string{
+		"Vision", "Philosophy", "Architecture", "Design", "Strategy", "Roadmap",
+		"Goals", "Objectives", "Specification", "Overview", "Introduction",
+		"Core Concept", "Principle", "Pattern", "Guideline", "Convention",
+		"Integration", "Workflow", "How it works", "Getting started",
+	}
+
+	// Skip directories (noise)
+	skipDirs := map[string]bool{
+		"node_modules": true, "vendor": true, ".git": true,
+		"dist": true, "build": true, "__pycache__": true,
+		"target": true, ".next": true, "coverage": true,
+		".vscode": true, ".idea": true,
+	}
+
+	// Walk entire workspace - no depth limit
+	err := filepath.Walk(i.config.Workspace, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			continue
+			return nil // Skip errors
 		}
-		if seen[absPath] {
-			continue
-		}
-		if content, err := os.ReadFile(path); err == nil {
-			seen[absPath] = true
-			filename := filepath.Base(path)
-			sb.WriteString(fmt.Sprintf("\n### %s\n\n", filename))
-			s := string(content)
-			if totalChars+len(s) > maxTotalChars {
-				s = s[:maxTotalChars-totalChars] + "\n...[truncated]"
+
+		if info.IsDir() {
+			name := info.Name()
+			// Skip noise directories
+			if skipDirs[name] {
+				return filepath.SkipDir
 			}
-			sb.WriteString(s)
-			sb.WriteString("\n")
-			totalChars += len(s)
+			// Skip hidden dirs except .github and .claude
+			if strings.HasPrefix(name, ".") && name != "." && name != ".github" && name != ".claude" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Only process documentation files
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".mdx" && ext != ".txt" && ext != ".rst" {
+			return nil
+		}
+
+		absPath, _ := filepath.Abs(path)
+		if seen[absPath] {
+			return nil
+		}
+		seen[absPath] = true
+
+		relPath, _ := filepath.Rel(i.config.Workspace, path)
+		if relPath == "" {
+			relPath = info.Name()
+		}
+
+		// Read content
+		content, err := os.ReadFile(path)
+		if err != nil || len(content) == 0 {
+			return nil
+		}
+
+		// Determine priority
+		priority := 3 // Default: other
+
+		// Check if it's a priority file
+		for pFile, pVal := range priorityFiles {
+			if strings.EqualFold(filepath.Base(path), pFile) {
+				priority = pVal
+				break
+			}
+		}
+
+		// Check if in target directory
+		if priority == 3 {
+			parts := strings.Split(relPath, string(os.PathSeparator))
+			for _, part := range parts {
+				if targetDirs[strings.ToLower(part)] {
+					priority = 2
+					break
+				}
+			}
+		}
+
+		// Heuristic content sniffing for non-priority files
+		if priority == 3 && ext == ".md" {
+			header := string(content)
+			if len(header) > 2000 {
+				header = header[:2000]
+			}
+			for _, signal := range signalKeywords {
+				if strings.Contains(header, "# "+signal) ||
+				   strings.Contains(header, "## "+signal) ||
+				   strings.Contains(header, signal+":") {
+					priority = 2
+					break
+				}
+			}
+		}
+
+		// Extract title from first heading
+		title := filepath.Base(path)
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "# ") {
+				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+				break
+			}
+		}
+
+		docs = append(docs, DocumentInfo{
+			Path:     relPath,
+			AbsPath:  absPath,
+			Content:  string(content),
+			Title:    title,
+			Size:     len(content),
+			Priority: priority,
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Error walking workspace for docs: %v", err)
+	}
+
+	// Sort by priority (lower = more important)
+	for i := 0; i < len(docs)-1; i++ {
+		for j := i + 1; j < len(docs); j++ {
+			if docs[j].Priority < docs[i].Priority {
+				docs[i], docs[j] = docs[j], docs[i]
+			}
 		}
 	}
 
-	// Scan for additional markdown files (up to 3 levels deep)
-	additionalDirs := []string{
-		i.config.Workspace,
-		filepath.Join(i.config.Workspace, "docs"),
-		filepath.Join(i.config.Workspace, "doc"),
-		filepath.Join(i.config.Workspace, ".github"),
-	}
+	logging.Get(logging.CategoryBoot).Debug("Discovered %d documentation files", len(docs))
+	return docs
+}
 
-	for _, dir := range additionalDirs {
-		if totalChars >= maxTotalChars {
-			break
+// filterDocumentsByRelevance uses LLM to analyze which documents are relevant
+// to understanding the codebase's strategic nature vs noise.
+func (i *Initializer) filterDocumentsByRelevance(ctx context.Context, docs []DocumentInfo) []DocumentInfo {
+	if i.config.LLMClient == nil || len(docs) == 0 {
+		// No LLM available - return high priority docs only
+		var filtered []DocumentInfo
+		for _, doc := range docs {
+			if doc.Priority <= 2 {
+				doc.IsRelevant = true
+				doc.Reasoning = "High priority file (no LLM filtering available)"
+				filtered = append(filtered, doc)
+			}
 		}
-		i.scanMarkdownDir(dir, seen, &sb, &totalChars, maxTotalChars, 0, 2)
+		return filtered
 	}
 
-	result := sb.String()
-	if result == "" {
+	// Process in batches to handle large doc counts
+	const batchSize = 10
+	var relevant []DocumentInfo
+
+	for batchStart := 0; batchStart < len(docs); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(docs) {
+			batchEnd = len(docs)
+		}
+		batch := docs[batchStart:batchEnd]
+
+		// Build analysis prompt
+		var docList strings.Builder
+		for idx, doc := range batch {
+			// Include path, title, and first 500 chars as preview
+			preview := doc.Content
+			if len(preview) > 500 {
+				preview = preview[:500] + "..."
+			}
+			docList.WriteString(fmt.Sprintf("\n[%d] %s\nTitle: %s\nSize: %d bytes\nPreview:\n%s\n---\n",
+				idx, doc.Path, doc.Title, doc.Size, preview))
+		}
+
+		prompt := fmt.Sprintf(`You are analyzing documentation files to determine which are strategically relevant for understanding a codebase.
+
+STRATEGIC DOCUMENTATION includes:
+- Project vision, philosophy, core principles
+- Architecture decisions and patterns
+- Design rationale and trade-offs
+- Key component descriptions
+- Integration patterns and workflows
+- Safety constraints and invariants
+
+NOISE includes:
+- Auto-generated docs (API references, package listings)
+- Changelog entries without architectural context
+- Meeting notes without conclusions
+- Duplicate or superseded documentation
+- License files, boilerplate
+
+## Documents to Analyze:
+%s
+
+## Task:
+For each document [N], respond with a JSON array:
+[
+  {"index": 0, "relevant": true/false, "reason": "brief explanation"},
+  ...
+]
+
+Be selective - only mark as relevant documents that provide genuine strategic insight.
+Prefer fewer, high-quality documents over including everything.
+`, docList.String())
+
+		response, err := i.config.LLMClient.Complete(ctx, prompt)
+		if err != nil {
+			logging.Get(logging.CategoryBoot).Warn("LLM relevance filtering failed for batch: %v", err)
+			// On error, include priority docs
+			for _, doc := range batch {
+				if doc.Priority <= 2 {
+					doc.IsRelevant = true
+					doc.Reasoning = "Fallback: high priority (LLM error)"
+					relevant = append(relevant, doc)
+				}
+			}
+			continue
+		}
+
+		// Parse response
+		type RelevanceResult struct {
+			Index    int    `json:"index"`
+			Relevant bool   `json:"relevant"`
+			Reason   string `json:"reason"`
+		}
+		var results []RelevanceResult
+
+		// Extract JSON from response
+		jsonStr := extractJSON(response)
+		if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
+			logging.Get(logging.CategoryBoot).Debug("Failed to parse relevance JSON: %v", err)
+			// Fallback to priority filtering
+			for _, doc := range batch {
+				if doc.Priority <= 2 {
+					doc.IsRelevant = true
+					doc.Reasoning = "Fallback: high priority (parse error)"
+					relevant = append(relevant, doc)
+				}
+			}
+			continue
+		}
+
+		// Apply results
+		for _, result := range results {
+			if result.Index >= 0 && result.Index < len(batch) {
+				batch[result.Index].IsRelevant = result.Relevant
+				batch[result.Index].Reasoning = result.Reason
+				if result.Relevant {
+					relevant = append(relevant, batch[result.Index])
+				}
+			}
+		}
+	}
+
+	logging.Get(logging.CategoryBoot).Debug("LLM filtered %d docs → %d relevant", len(docs), len(relevant))
+	return relevant
+}
+
+// buildRelevantDocContent formats the relevant documents for strategic analysis.
+func (i *Initializer) buildRelevantDocContent(docs []DocumentInfo) string {
+	if len(docs) == 0 {
 		return ""
 	}
 
-	logging.Get(logging.CategoryBoot).Debug("Found %d chars of markdown documentation", totalChars)
-	return result
-}
+	var sb strings.Builder
+	totalChars := 0
+	const softLimit = 100000 // Soft limit for LLM context - but include all relevant
 
-// scanMarkdownDir recursively scans a directory for markdown files.
-func (i *Initializer) scanMarkdownDir(dir string, seen map[string]bool, sb *strings.Builder, totalChars *int, maxChars int, depth int, maxDepth int) {
-	if depth > maxDepth || *totalChars >= maxChars {
-		return
+	for _, doc := range docs {
+		sb.WriteString(fmt.Sprintf("\n### %s\n", doc.Path))
+		if doc.Reasoning != "" {
+			sb.WriteString(fmt.Sprintf("*Relevance: %s*\n\n", doc.Reasoning))
+		}
+		sb.WriteString(doc.Content)
+		sb.WriteString("\n")
+		totalChars += len(doc.Content)
 	}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
+	if totalChars > softLimit {
+		logging.Get(logging.CategoryBoot).Debug(
+			"Relevant docs exceed soft limit (%d chars > %d) but including all %d docs",
+			totalChars, softLimit, len(docs))
 	}
 
-	for _, entry := range entries {
-		if *totalChars >= maxChars {
-			break
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			continue
-		}
-
-		if entry.IsDir() {
-			// Skip common non-doc directories
-			name := entry.Name()
-			if name == "node_modules" || name == "vendor" || name == ".git" ||
-				name == "dist" || name == "build" || name == "__pycache__" ||
-				name == ".nerd" || name == "target" {
-				continue
-			}
-			i.scanMarkdownDir(path, seen, sb, totalChars, maxChars, depth+1, maxDepth)
-		} else if strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			if seen[absPath] {
-				continue
-			}
-			content, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			seen[absPath] = true
-
-			// Get relative path for display
-			relPath, _ := filepath.Rel(i.config.Workspace, path)
-			if relPath == "" {
-				relPath = entry.Name()
-			}
-
-			sb.WriteString(fmt.Sprintf("\n### %s\n\n", relPath))
-			s := string(content)
-			if *totalChars+len(s) > maxChars {
-				s = s[:maxChars-*totalChars] + "\n...[truncated]"
-			}
-			sb.WriteString(s)
-			sb.WriteString("\n")
-			*totalChars += len(s)
-		}
-	}
+	return sb.String()
 }
 
 // createFallbackStrategicKnowledge creates minimal knowledge when LLM fails.
