@@ -280,7 +280,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	// 5a. MCP Integration (JIT Tool Compiler)
-	// Wire MCP clients for code graph, browser, and scraper integrations.
+	// Wire MCP clients dynamically - supports arbitrary servers from config.
 	integrationsCfg := appCfg.GetIntegrations()
 	serverConfigs := integrationsCfg.ToMCPServerConfigs()
 	if len(serverConfigs) > 0 {
@@ -294,18 +294,10 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		if err != nil {
 			logging.Get(logging.CategoryTools).Warn("Failed to init MCP bridge: %v", err)
 		} else {
-			// Wire integration adapters to VirtualStore
-			if _, ok := serverConfigs["code_graph"]; ok {
-				virtualStore.SetCodeGraphClient(mcpBridge.GetAdapter("code_graph"))
-				logging.Get(logging.CategoryTools).Info("Wired code_graph MCP integration")
-			}
-			if _, ok := serverConfigs["browser"]; ok {
-				virtualStore.SetBrowserClient(mcpBridge.GetAdapter("browser"))
-				logging.Get(logging.CategoryTools).Info("Wired browser MCP integration")
-			}
-			if _, ok := serverConfigs["scraper"]; ok {
-				virtualStore.SetScraperClient(mcpBridge.GetAdapter("scraper"))
-				logging.Get(logging.CategoryTools).Info("Wired scraper MCP integration")
+			// Wire ALL configured MCP servers dynamically
+			for serverID := range serverConfigs {
+				virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
+				logging.Get(logging.CategoryTools).Info("Wired MCP integration: %s", serverID)
 			}
 
 			// Connect to auto-connect servers in background

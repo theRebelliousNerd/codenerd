@@ -215,3 +215,55 @@ func (m *Model) emitGlassBoxEvent(category transparency.GlassBoxCategory, summar
 		TurnID:    m.turnCount,
 	})
 }
+
+// =============================================================================
+// TOOL EVENT VISIBILITY (Always Active)
+// =============================================================================
+
+// toolEventMsg wraps a ToolEvent for the Bubble Tea update loop.
+type toolEventMsg transparency.ToolEvent
+
+// listenToolEvents returns a tea.Cmd that waits for tool events.
+// Unlike Glass Box, this is ALWAYS active - tool events always show in chat.
+func (m Model) listenToolEvents() tea.Cmd {
+	if m.toolEventChan == nil {
+		return nil
+	}
+
+	eventChan := m.toolEventChan
+	return func() tea.Msg {
+		event, ok := <-eventChan
+		if !ok {
+			return nil // Channel closed
+		}
+		return toolEventMsg(event)
+	}
+}
+
+// handleToolEvent processes a tool event and adds it to chat history.
+// Tool events ALWAYS appear in the chat, regardless of Glass Box mode.
+func (m *Model) handleToolEvent(event transparency.ToolEvent) {
+	// Format the tool execution message
+	var content string
+	if event.Success {
+		content = fmt.Sprintf("**🔧 %s** (%.0fms)\n%s", event.ToolName, float64(event.Duration.Milliseconds()), event.Result)
+	} else {
+		content = fmt.Sprintf("**🔧 %s** ❌ FAILED (%.0fms)\n%s", event.ToolName, float64(event.Duration.Milliseconds()), event.Result)
+	}
+
+	// Add to history with "tool" role
+	m.history = append(m.history, Message{
+		Role:    "tool",
+		Content: content,
+		Time:    event.Timestamp,
+	})
+}
+
+// initToolEventBus sets up the tool event bus subscription.
+// Called during boot after components are available.
+func (m *Model) initToolEventBus(bus *transparency.ToolEventBus) {
+	m.toolEventBus = bus
+	if bus != nil {
+		m.toolEventChan = bus.Subscribe()
+	}
+}

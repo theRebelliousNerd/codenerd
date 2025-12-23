@@ -93,3 +93,48 @@ func ValidCategory(s string) bool {
 	}
 	return false
 }
+
+// ToolEvent represents a tool execution notification for the main chat.
+// Unlike GlassBoxEvent, ToolEvent is ALWAYS displayed regardless of debug mode.
+type ToolEvent struct {
+	ToolName  string        // Name of the tool executed
+	Result    string        // Result or error message (truncated for display)
+	Success   bool          // True if tool succeeded
+	Duration  time.Duration // Execution duration
+	Timestamp time.Time     // When the tool executed
+}
+
+// ToolEventBus provides a simple channel for tool execution notifications.
+// Unlike GlassBoxEventBus, this is always active - tool events always show in chat.
+type ToolEventBus struct {
+	ch chan ToolEvent
+}
+
+// NewToolEventBus creates a new tool event bus.
+func NewToolEventBus() *ToolEventBus {
+	return &ToolEventBus{
+		ch: make(chan ToolEvent, 50), // Buffered to prevent blocking
+	}
+}
+
+// Emit sends a tool event. This is always active, never gated.
+func (b *ToolEventBus) Emit(event ToolEvent) {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	select {
+	case b.ch <- event:
+	default:
+		// Drop if channel full (shouldn't happen with buffer)
+	}
+}
+
+// Subscribe returns the channel to receive tool events.
+func (b *ToolEventBus) Subscribe() <-chan ToolEvent {
+	return b.ch
+}
+
+// Close shuts down the tool event bus.
+func (b *ToolEventBus) Close() {
+	close(b.ch)
+}

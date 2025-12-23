@@ -1421,20 +1421,22 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			MaxDerivedFactsLimit:  100000,
 		},
 		Integrations: &config.IntegrationsConfig{
-			CodeGraph: config.CodeGraphIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8080",
-				Timeout: "30s",
-			},
-			Browser: config.BrowserIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8081",
-				Timeout: "60s",
-			},
-			Scraper: config.ScraperIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8082",
-				Timeout: "120s",
+			Servers: map[string]config.MCPServerIntegration{
+				"code_graph": {
+					Enabled: true,
+					BaseURL: "http://localhost:8080",
+					Timeout: "30s",
+				},
+				"browser": {
+					Enabled: true,
+					BaseURL: "http://localhost:8081",
+					Timeout: "60s",
+				},
+				"scraper": {
+					Enabled: true,
+					BaseURL: "http://localhost:8082",
+					Timeout: "120s",
+				},
 			},
 		},
 		Execution: &config.ExecutionConfig{

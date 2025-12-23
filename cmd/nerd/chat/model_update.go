@@ -1104,6 +1104,13 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		m.viewport.GotoBottom()
 		return m, m.listenGlassBoxEvents() // Listen for next event
 
+	case toolEventMsg:
+		// Handle tool event - ALWAYS add to history (not gated by Glass Box)
+		m.handleToolEvent(transparency.ToolEvent(msg))
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenToolEvents() // Listen for next event
+
 	case memUsageMsg:
 		m.memAllocBytes = msg.Alloc
 		m.memSysBytes = msg.Sys
@@ -1157,6 +1164,9 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			// Initialize Glass Box debug mode event bus
 			m.initGlassBox(c.GlassBoxEventBus)
 
+			// Initialize Tool Event bus for always-visible tool execution
+			m.initToolEventBus(c.ToolEventBus)
+
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
@@ -1187,7 +1197,8 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		return m, m.runScan(false)
+		// Also start listening for tool events (always active, not gated by Glass Box).
+		return m, tea.Batch(m.runScan(false), m.listenToolEvents())
 
 	case onboardingCheckMsg:
 		// Handle first-run detection result

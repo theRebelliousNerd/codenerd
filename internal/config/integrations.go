@@ -2,111 +2,86 @@ package config
 
 import "codenerd/internal/mcp"
 
-// IntegrationsConfig configures external service integrations.
+// IntegrationsConfig configures external MCP service integrations.
+// Uses a dynamic map to support arbitrary MCP servers without code changes.
 type IntegrationsConfig struct {
-	// code-graph-mcp-server
-	CodeGraph CodeGraphIntegration `yaml:"code_graph" json:"code_graph,omitempty"`
-
-	// BrowserNERD
-	Browser BrowserIntegration `yaml:"browser" json:"browser,omitempty"`
-
-	// scraper_service
-	Scraper ScraperIntegration `yaml:"scraper" json:"scraper,omitempty"`
+	// Servers is a map of server ID to server configuration.
+	// Server IDs are arbitrary strings (e.g., "code_graph", "browser", "my_custom_server").
+	Servers map[string]MCPServerIntegration `yaml:"servers" json:"servers,omitempty"`
 }
 
-// CodeGraphIntegration configures the code graph MCP server.
-type CodeGraphIntegration struct {
+// MCPServerIntegration configures a single MCP server integration.
+type MCPServerIntegration struct {
 	Enabled           bool   `yaml:"enabled" json:"enabled,omitempty"`
 	Protocol          string `yaml:"protocol" json:"protocol,omitempty"`           // http, stdio, sse
 	BaseURL           string `yaml:"base_url" json:"base_url,omitempty"`
-	Timeout           string `yaml:"timeout" json:"timeout,omitempty"`
+	Timeout           string `yaml:"timeout" json:"timeout,omitempty"`             // e.g., "30s", "2m"
 	AutoConnect       bool   `yaml:"auto_connect" json:"auto_connect,omitempty"`
 	AutoDiscoverTools bool   `yaml:"auto_discover_tools" json:"auto_discover_tools,omitempty"`
 }
 
-// BrowserIntegration configures BrowserNERD.
-type BrowserIntegration struct {
-	Enabled           bool   `yaml:"enabled" json:"enabled,omitempty"`
-	Protocol          string `yaml:"protocol" json:"protocol,omitempty"`
-	BaseURL           string `yaml:"base_url" json:"base_url,omitempty"`
-	Timeout           string `yaml:"timeout" json:"timeout,omitempty"`
-	AutoConnect       bool   `yaml:"auto_connect" json:"auto_connect,omitempty"`
-	AutoDiscoverTools bool   `yaml:"auto_discover_tools" json:"auto_discover_tools,omitempty"`
-}
-
-// ScraperIntegration configures the scraper service.
-type ScraperIntegration struct {
-	Enabled           bool   `yaml:"enabled" json:"enabled,omitempty"`
-	Protocol          string `yaml:"protocol" json:"protocol,omitempty"`
-	BaseURL           string `yaml:"base_url" json:"base_url,omitempty"`
-	Timeout           string `yaml:"timeout" json:"timeout,omitempty"`
-	AutoConnect       bool   `yaml:"auto_connect" json:"auto_connect,omitempty"`
-	AutoDiscoverTools bool   `yaml:"auto_discover_tools" json:"auto_discover_tools,omitempty"`
+// DefaultTimeout returns a sensible default timeout based on server ID.
+func DefaultTimeout(serverID string) string {
+	switch serverID {
+	case "scraper":
+		return "120s"
+	case "browser":
+		return "60s"
+	default:
+		return "30s"
+	}
 }
 
 // ToMCPServerConfigs converts integrations config to MCP server configs.
 func (c *IntegrationsConfig) ToMCPServerConfigs() map[string]mcp.MCPServerConfig {
 	configs := make(map[string]mcp.MCPServerConfig)
 
-	if c.CodeGraph.Enabled {
-		protocol := c.CodeGraph.Protocol
-		if protocol == "" {
-			protocol = "http"
-		}
-		timeout := c.CodeGraph.Timeout
-		if timeout == "" {
-			timeout = "30s"
-		}
-		configs["code_graph"] = mcp.MCPServerConfig{
-			ID:                "code_graph",
-			Enabled:           true,
-			Protocol:          protocol,
-			BaseURL:           c.CodeGraph.BaseURL,
-			Timeout:           timeout,
-			AutoConnect:       c.CodeGraph.AutoConnect,
-			AutoDiscoverTools: c.CodeGraph.AutoDiscoverTools,
-		}
+	if c.Servers == nil {
+		return configs
 	}
 
-	if c.Browser.Enabled {
-		protocol := c.Browser.Protocol
-		if protocol == "" {
-			protocol = "http"
+	for serverID, server := range c.Servers {
+		if !server.Enabled {
+			continue
 		}
-		timeout := c.Browser.Timeout
-		if timeout == "" {
-			timeout = "60s"
-		}
-		configs["browser"] = mcp.MCPServerConfig{
-			ID:                "browser",
-			Enabled:           true,
-			Protocol:          protocol,
-			BaseURL:           c.Browser.BaseURL,
-			Timeout:           timeout,
-			AutoConnect:       c.Browser.AutoConnect,
-			AutoDiscoverTools: c.Browser.AutoDiscoverTools,
-		}
-	}
 
-	if c.Scraper.Enabled {
-		protocol := c.Scraper.Protocol
+		protocol := server.Protocol
 		if protocol == "" {
 			protocol = "http"
 		}
-		timeout := c.Scraper.Timeout
+
+		timeout := server.Timeout
 		if timeout == "" {
-			timeout = "120s"
+			timeout = DefaultTimeout(serverID)
 		}
-		configs["scraper"] = mcp.MCPServerConfig{
-			ID:                "scraper",
+
+		configs[serverID] = mcp.MCPServerConfig{
+			ID:                serverID,
 			Enabled:           true,
 			Protocol:          protocol,
-			BaseURL:           c.Scraper.BaseURL,
+			BaseURL:           server.BaseURL,
 			Timeout:           timeout,
-			AutoConnect:       c.Scraper.AutoConnect,
-			AutoDiscoverTools: c.Scraper.AutoDiscoverTools,
+			AutoConnect:       server.AutoConnect,
+			AutoDiscoverTools: server.AutoDiscoverTools,
 		}
 	}
 
 	return configs
+}
+
+// GetServer returns the configuration for a specific server, or nil if not found.
+func (c *IntegrationsConfig) GetServer(serverID string) *MCPServerIntegration {
+	if c.Servers == nil {
+		return nil
+	}
+	if server, ok := c.Servers[serverID]; ok {
+		return &server
+	}
+	return nil
+}
+
+// IsServerEnabled returns true if the specified server is configured and enabled.
+func (c *IntegrationsConfig) IsServerEnabled(serverID string) bool {
+	server := c.GetServer(serverID)
+	return server != nil && server.Enabled
 }

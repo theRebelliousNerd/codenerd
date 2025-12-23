@@ -477,10 +477,7 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleSearchCode")
 	defer timer.Stop()
 
-	v.mu.RLock()
-	codeGraph := v.codeGraph
-	v.mu.RUnlock()
-
+	codeGraph := v.GetMCPClient("code_graph")
 	pattern := req.Target
 
 	if codeGraph == nil {
@@ -786,9 +783,7 @@ func (v *VirtualStore) handleShowDiff(ctx context.Context, req ActionRequest) (A
 
 // handleAnalyzeImpact analyzes the impact of changes using code graph.
 func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionRequest) (ActionResult, error) {
-	v.mu.RLock()
-	codeGraph := v.codeGraph
-	v.mu.RUnlock()
+	codeGraph := v.GetMCPClient("code_graph")
 
 	if codeGraph == nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Code graph MCP client not configured, skipping deep impact analysis")
@@ -842,9 +837,7 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBrowse")
 	defer timer.Stop()
 
-	v.mu.RLock()
-	browser := v.browser
-	v.mu.RUnlock()
+	browser := v.GetMCPClient("browser")
 
 	if browser == nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Browser MCP client not configured")
@@ -937,9 +930,7 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
 	defer timer.Stop()
 
-	v.mu.RLock()
-	scraper := v.scraper
-	v.mu.RUnlock()
+	scraper := v.GetMCPClient("scraper")
 
 	if scraper == nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Scraper MCP client not configured")

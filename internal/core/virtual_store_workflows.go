@@ -984,9 +984,7 @@ func (v *VirtualStore) handleCorrectiveResearch(ctx context.Context, req ActionR
 	logging.VirtualStoreDebug("Corrective research: %s (issue=%s)", topic, issueType)
 
 	// If scraper is available, delegate to research handler
-	v.mu.RLock()
-	scraper := v.scraper
-	v.mu.RUnlock()
+	scraper := v.GetMCPClient("scraper")
 
 	if scraper != nil {
 		return v.handleResearch(ctx, req)
