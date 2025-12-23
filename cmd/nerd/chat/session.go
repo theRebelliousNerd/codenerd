@@ -623,6 +623,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Boot("Injected strategic knowledge (%d chars) into transducer", len(strategicSummary))
 		}
 
+		// Create Glass Box event bus early so shards can capture it
+		glassBoxEventBus := transparency.NewGlassBoxEventBus()
+
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
@@ -730,6 +733,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for tool visibility
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
@@ -936,8 +940,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Get(logging.CategoryKernel).Warn("Failed to create Mangle watcher: %v", err)
 		}
 
-		// Create Glass Box event bus for debug visibility
-		glassBoxEventBus := transparency.NewGlassBoxEventBus()
+		// glassBoxEventBus was created earlier to allow shard factories to capture it
 
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
