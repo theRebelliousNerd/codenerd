@@ -56,6 +56,16 @@ type ModelConfig struct {
 	Capability ModelCapability
 }
 
+// StartupMode determines when a system shard starts (only applicable to Type S shards).
+type StartupMode string
+
+const (
+	// StartupAuto starts the shard when the application initializes.
+	StartupAuto StartupMode = "auto"
+	// StartupOnDemand starts the shard only when explicitly requested.
+	StartupOnDemand StartupMode = "on_demand"
+)
+
 // ShardConfig holds configuration for a shard.
 type ShardConfig struct {
 	Name string
@@ -68,6 +78,8 @@ type ShardConfig struct {
 	MemoryLimit   int               // Abstract memory unit limit
 	Model         ModelConfig       // LLM requirements
 	KnowledgePath string            // Path to local knowledge DB (Type B only)
+	// StartupMode controls when system shards (Type S) start (auto=on boot, on_demand=only when requested)
+	StartupMode   StartupMode
 
 	// Tool associations (for specialist shards)
 	Tools           []string          // List of tool names this shard can use
