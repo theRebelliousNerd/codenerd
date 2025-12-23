@@ -86,6 +86,17 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1. PERCEPTION (Transducer) - with conversation history for context
 		m.ReportStatus("Perception: parsing intent...")
+
+		// Disable boot guards on first user interaction.
+		// This signals that the system is ready for normal operation and allows
+		// action execution (prevents startup action spam from session rehydration).
+		if m.shardMgr != nil {
+			m.shardMgr.DisableExecutiveBootGuard()
+		}
+		if m.virtualStore != nil {
+			m.virtualStore.DisableBootGuard()
+		}
+
 		// Convert history to perception.ConversationTurn format
 		// Use ALL history until compression kicks in, then use recent window only
 		var historyForPerception []perception.ConversationTurn

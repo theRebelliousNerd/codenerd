@@ -572,6 +572,12 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	// Build prompt for rule proposal
 	userPrompt := c.buildRuleProposalPrompt(cases)
 
+	canRetry, reason := c.feedbackLoop.CanRetryPrompt(userPrompt)
+	if !canRetry {
+		logging.SystemShardsDebug("[ConstitutionGate] Autopoiesis skipped: FeedbackLoop budget exhausted (%s)", reason)
+		return
+	}
+
 	// Try JIT prompt compilation first, fall back to legacy constant
 	systemPrompt, jitUsed := c.TryJITPrompt(ctx, "constitution_autopoiesis")
 	if !jitUsed {

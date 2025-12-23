@@ -227,6 +227,40 @@ var builtinQueries = map[string]struct {
 		Description: "Summary view showing counts per category",
 		Query:       "_summary", // Special marker for Go-side processing
 	},
+
+	// Loop detection (computed in Go)
+	"loops": {
+		Description: "Detect action loops (same action repeated >5 times)",
+		Query:       "_loops",
+	},
+	"stagnation": {
+		Description: "Detect routing stagnation (same predicate queried >10 times)",
+		Query:       "_stagnation",
+	},
+	"identical-results": {
+		Description: "Detect suspicious identical result patterns",
+		Query:       "_identical_results",
+	},
+	"slot-starvation": {
+		Description: "Detect API slot starvation events",
+		Query:       "_slot_starvation",
+	},
+	"false-success": {
+		Description: "Detect success masking failure (success=true but looping)",
+		Query:       "_false_success",
+	},
+	"anomalies": {
+		Description: "Combined anomaly report with severity levels",
+		Query:       "_anomalies",
+	},
+	"diagnose": {
+		Description: "Full loop diagnosis with root cause analysis",
+		Query:       "_diagnose",
+	},
+	"root-cause": {
+		Description: "Root cause analysis for detected loops",
+		Query:       "_root_cause",
+	},
 }
 
 type result struct {
@@ -509,6 +543,22 @@ func runBuiltinQuery(eng *logEngine, name string) ([]result, error) {
 		return computeTimingEvents(eng)
 	case "_summary":
 		return computeSummary(eng)
+	case "_loops":
+		return computeLoops(eng)
+	case "_stagnation":
+		return computeStagnation(eng)
+	case "_identical_results":
+		return computeIdenticalResults(eng)
+	case "_slot_starvation":
+		return computeSlotStarvation(eng)
+	case "_false_success":
+		return computeFalseSuccess(eng)
+	case "_anomalies":
+		return computeAnomalies(eng)
+	case "_diagnose":
+		return computeDiagnosis(eng)
+	case "_root_cause":
+		return computeRootCause(eng)
 	default:
 		return queryPredicate(eng, builtin.Query)
 	}
@@ -620,6 +670,481 @@ func computeSummary(eng *logEngine) ([]result, error) {
 	}
 
 	return results, nil
+}
+
+// =============================================================================
+// LOOP DETECTION FUNCTIONS
+// =============================================================================
+
+// computeLoops detects action loops (same action repeated multiple times).
+func computeLoops(eng *logEngine) ([]result, error) {
+	actionCounts := make(map[string]int)
+	actionFirstTime := make(map[string]int64)
+	actionLastTime := make(map[string]int64)
+
+	// Query action_completed facts
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "action_completed" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 2 {
+					timeVal := termToInt64(a.Args[0])
+					action := termToString(a.Args[1])
+
+					actionCounts[action]++
+					if _, exists := actionFirstTime[action]; !exists {
+						actionFirstTime[action] = timeVal
+					}
+					actionLastTime[action] = timeVal
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query action_completed: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for action, count := range actionCounts {
+		if count > 5 { // Threshold for loop detection
+			duration := actionLastTime[action] - actionFirstTime[action]
+			results = append(results, result{
+				Predicate: "action_loop",
+				Args: []interface{}{
+					action,
+					int64(count),
+					duration,
+					actionFirstTime[action],
+					actionLastTime[action],
+				},
+			})
+		}
+	}
+
+	// Sort by count descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Args[1].(int64) > results[j].Args[1].(int64)
+	})
+
+	return results, nil
+}
+
+// computeStagnation detects routing stagnation (same predicate queried repeatedly).
+func computeStagnation(eng *logEngine) ([]result, error) {
+	predicateCounts := make(map[string]int)
+	predicateFirstTime := make(map[string]int64)
+	predicateLastTime := make(map[string]int64)
+
+	// Query action_routing facts
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "action_routing" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 2 {
+					timeVal := termToInt64(a.Args[0])
+					predicate := termToString(a.Args[1])
+
+					predicateCounts[predicate]++
+					if _, exists := predicateFirstTime[predicate]; !exists {
+						predicateFirstTime[predicate] = timeVal
+					}
+					predicateLastTime[predicate] = timeVal
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query action_routing: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for predicate, count := range predicateCounts {
+		if count > 10 { // Threshold for stagnation
+			duration := predicateLastTime[predicate] - predicateFirstTime[predicate]
+			results = append(results, result{
+				Predicate: "routing_stagnation",
+				Args: []interface{}{
+					predicate,
+					int64(count),
+					duration,
+				},
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// computeIdenticalResults detects suspicious patterns where same result is returned repeatedly.
+func computeIdenticalResults(eng *logEngine) ([]result, error) {
+	type actionResult struct {
+		action    string
+		resultLen int64
+	}
+	resultCounts := make(map[actionResult]int)
+
+	// Query action_completed facts with success=true
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "action_completed" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					action := termToString(a.Args[1])
+					success := termToString(a.Args[2])
+					resultLen := termToInt64(a.Args[3])
+
+					if success == "/true" {
+						key := actionResult{action: action, resultLen: resultLen}
+						resultCounts[key]++
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query action_completed: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for key, count := range resultCounts {
+		if count > 5 { // Threshold for suspicious pattern
+			results = append(results, result{
+				Predicate: "identical_results",
+				Args: []interface{}{
+					key.action,
+					key.resultLen,
+					int64(count),
+				},
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// computeSlotStarvation detects API scheduler slot starvation events.
+func computeSlotStarvation(eng *logEngine) ([]result, error) {
+	shardMaxWait := make(map[string]int64)
+	shardWaitCount := make(map[string]int)
+
+	// Query slot_status facts for waiting > 0
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "slot_status" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 5 {
+					shardId := termToString(a.Args[1])
+					waiting := termToInt64(a.Args[4])
+
+					if waiting > 0 {
+						shardWaitCount[shardId]++
+						if waiting > shardMaxWait[shardId] {
+							shardMaxWait[shardId] = waiting
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query slot_status: %w", err)
+			}
+			break
+		}
+	}
+
+	// Also check slot_acquired for long waits
+	longWaits := make(map[string]int64)
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "slot_acquired" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 3 {
+					shardId := termToString(a.Args[1])
+					waitDuration := termToInt64(a.Args[2])
+
+					if waitDuration > 10000 { // > 10 seconds
+						if waitDuration > longWaits[shardId] {
+							longWaits[shardId] = waitDuration
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query slot_acquired: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for shardId, maxWait := range shardMaxWait {
+		if maxWait > 3 { // More than 3 waiting = starvation
+			results = append(results, result{
+				Predicate: "slot_starvation",
+				Args: []interface{}{
+					shardId,
+					maxWait,
+					int64(shardWaitCount[shardId]),
+				},
+			})
+		}
+	}
+
+	for shardId, waitDuration := range longWaits {
+		results = append(results, result{
+			Predicate: "long_slot_wait",
+			Args: []interface{}{
+				shardId,
+				waitDuration,
+			},
+		})
+	}
+
+	return results, nil
+}
+
+// computeFalseSuccess detects cases where success=true but system is stuck in a loop.
+func computeFalseSuccess(eng *logEngine) ([]result, error) {
+	// Get loops first
+	loops, err := computeLoops(eng)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get identical results
+	identical, err := computeIdenticalResults(eng)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find actions that appear in both
+	loopActions := make(map[string]int64)
+	for _, loop := range loops {
+		if loop.Predicate == "action_loop" && len(loop.Args) >= 2 {
+			action := loop.Args[0].(string)
+			count := loop.Args[1].(int64)
+			loopActions[action] = count
+		}
+	}
+
+	var results []result
+	for _, ident := range identical {
+		if ident.Predicate == "identical_results" && len(ident.Args) >= 1 {
+			action := ident.Args[0].(string)
+			if count, exists := loopActions[action]; exists {
+				results = append(results, result{
+					Predicate: "false_success_loop",
+					Args: []interface{}{
+						action,
+						count,
+						"success=true but identical results in loop",
+					},
+				})
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// computeAnomalies returns a combined anomaly report with severity levels.
+func computeAnomalies(eng *logEngine) ([]result, error) {
+	var results []result
+
+	// Get all anomaly types
+	loops, _ := computeLoops(eng)
+	stagnation, _ := computeStagnation(eng)
+	identical, _ := computeIdenticalResults(eng)
+	slotStarvation, _ := computeSlotStarvation(eng)
+	falseSuccess, _ := computeFalseSuccess(eng)
+
+	// Add loops with severity
+	for _, loop := range loops {
+		if loop.Predicate == "action_loop" && len(loop.Args) >= 2 {
+			count := loop.Args[1].(int64)
+			severity := "/high"
+			if count > 20 {
+				severity = "/critical"
+			}
+			results = append(results, result{
+				Predicate: "anomaly",
+				Args: []interface{}{
+					loop.Args[0],
+					severity,
+					"action_loop",
+					count,
+				},
+			})
+		}
+	}
+
+	// Add stagnation
+	for _, s := range stagnation {
+		results = append(results, result{
+			Predicate: "anomaly",
+			Args: []interface{}{
+				s.Args[0],
+				"/high",
+				"routing_stagnation",
+				s.Args[1],
+			},
+		})
+	}
+
+	// Add identical results
+	for _, i := range identical {
+		results = append(results, result{
+			Predicate: "anomaly",
+			Args: []interface{}{
+				i.Args[0],
+				"/high",
+				"identical_results",
+				i.Args[2],
+			},
+		})
+	}
+
+	// Add slot starvation
+	for _, s := range slotStarvation {
+		results = append(results, result{
+			Predicate: "anomaly",
+			Args: []interface{}{
+				s.Args[0],
+				"/high",
+				"slot_starvation",
+				s.Args[1],
+			},
+		})
+	}
+
+	// Add false success
+	for _, f := range falseSuccess {
+		results = append(results, result{
+			Predicate: "anomaly",
+			Args: []interface{}{
+				f.Args[0],
+				"/critical",
+				"false_success",
+				f.Args[1],
+			},
+		})
+	}
+
+	return results, nil
+}
+
+// computeDiagnosis provides full loop diagnosis with root cause analysis.
+func computeDiagnosis(eng *logEngine) ([]result, error) {
+	var results []result
+
+	loops, _ := computeLoops(eng)
+	stagnation, _ := computeStagnation(eng)
+	identical, _ := computeIdenticalResults(eng)
+	slotStarvation, _ := computeSlotStarvation(eng)
+
+	for _, loop := range loops {
+		if loop.Predicate != "action_loop" || len(loop.Args) < 3 {
+			continue
+		}
+		action := loop.Args[0].(string)
+		count := loop.Args[1].(int64)
+		duration := loop.Args[2].(int64)
+
+		// Determine root cause
+		cause := "/unknown"
+		evidence := "loop detected but cause unclear"
+
+		// Check for identical results (tool caching)
+		for _, ident := range identical {
+			if ident.Predicate == "identical_results" && ident.Args[0].(string) == action {
+				cause = "/tool_caching"
+				evidence = fmt.Sprintf("tool returns identical result (len=%d) every time", ident.Args[1].(int64))
+				break
+			}
+		}
+
+		// Check for routing stagnation (kernel rule stuck)
+		for _, stag := range stagnation {
+			if stag.Predicate == "routing_stagnation" {
+				cause = "/kernel_rule_stuck"
+				evidence = fmt.Sprintf("predicate %s queried %d times", stag.Args[0], stag.Args[1])
+				break
+			}
+		}
+
+		// Check for slot starvation
+		for _, slot := range slotStarvation {
+			if slot.Predicate == "slot_starvation" || slot.Predicate == "long_slot_wait" {
+				if cause == "/unknown" {
+					cause = "/slot_starvation"
+					evidence = fmt.Sprintf("shard %s experienced slot starvation", slot.Args[0])
+				}
+				break
+			}
+		}
+
+		// If still unknown, likely missing fact update
+		if cause == "/unknown" {
+			cause = "/missing_fact_update"
+			evidence = "action completes but no kernel fact asserted to advance state"
+		}
+
+		severity := "/high"
+		if count > 20 {
+			severity = "/critical"
+		}
+
+		results = append(results, result{
+			Predicate: "loop_diagnosis",
+			Args: []interface{}{
+				action,
+				count,
+				duration,
+				cause,
+				severity,
+				evidence,
+			},
+		})
+	}
+
+	return results, nil
+}
+
+// computeRootCause returns just the root cause analysis.
+func computeRootCause(eng *logEngine) ([]result, error) {
+	diagnosis, err := computeDiagnosis(eng)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []result
+	for _, d := range diagnosis {
+		if d.Predicate == "loop_diagnosis" && len(d.Args) >= 6 {
+			results = append(results, result{
+				Predicate: "root_cause",
+				Args: []interface{}{
+					d.Args[0], // action
+					d.Args[3], // cause
+					d.Args[5], // evidence
+				},
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// termToInt64 extracts an int64 from a Mangle term.
+func termToInt64(term ast.BaseTerm) int64 {
+	switch t := term.(type) {
+	case ast.Constant:
+		if t.Type == ast.NumberType {
+			return t.NumValue
+		}
+	}
+	return 0
 }
 
 func termToString(term ast.BaseTerm) string {

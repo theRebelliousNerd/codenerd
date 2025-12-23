@@ -321,5 +321,178 @@ session_health(Total, Errors, Warnings, CatCount, Duration) :-
     session_range(_, _, Duration).
 
 # =============================================================================
+# SECTION 11: STRUCTURED EVENT FACTS (for loop/anomaly detection)
+# =============================================================================
+
+# Tool execution start event (from tools.log)
+Decl tool_execution_start(Time.Type<int>, ToolName.Type<string>, Action.Type<name>, Target.Type<string>, CallId.Type<string>).
+
+# Tool execution complete event (from tools.log)
+Decl tool_execution_complete(Time.Type<int>, ToolName.Type<string>, CallId.Type<string>, DurationMs.Type<int>, ResultLen.Type<int>).
+
+# Action routing event (from virtual_store.log)
+Decl action_routing(Time.Type<int>, Predicate.Type<name>, ArgCount.Type<int>).
+
+# Action completion event (from virtual_store.log)
+Decl action_completed(Time.Type<int>, Action.Type<name>, Success.Type<name>, OutputLen.Type<int>).
+
+# API scheduler slot status (from shards.log)
+Decl slot_status(Time.Type<int>, ShardId.Type<string>, Active.Type<int>, MaxSlots.Type<int>, Waiting.Type<int>).
+
+# Slot acquisition event (from shards.log)
+Decl slot_acquired(Time.Type<int>, ShardId.Type<string>, WaitDurationMs.Type<int>).
+
+# =============================================================================
+# SECTION 12: LOOP DETECTION PREDICATES
+# =============================================================================
+
+# Repeated call_id (same ID used multiple times = potential loop)
+Decl repeated_call_id(CallId.Type<string>, Count.Type<int>, FirstTime.Type<int>, LastTime.Type<int>).
+repeated_call_id(CID, N, FirstT, LastT) :-
+    tool_execution_start(T, _, _, _, CID) |>
+    do fn:group_by(CID),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    N > 2.
+
+# Action loop detection (same action executed repeatedly)
+Decl action_loop(Action.Type<name>, Count.Type<int>, WindowMs.Type<int>, FirstTime.Type<int>, LastTime.Type<int>).
+action_loop(Act, N, Window, FirstT, LastT) :-
+    action_completed(T, Act, _, _) |>
+    do fn:group_by(Act),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Window = fn:minus(LastT, FirstT),
+    N > 5.
+
+# =============================================================================
+# SECTION 13: STATE STAGNATION DETECTION
+# =============================================================================
+
+# Routing stagnation (same predicate queried repeatedly)
+Decl routing_stagnation(Predicate.Type<name>, Count.Type<int>, DurationMs.Type<int>).
+routing_stagnation(Pred, N, Dur) :-
+    action_routing(T, Pred, _) |>
+    do fn:group_by(Pred),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Dur = fn:minus(LastT, FirstT),
+    N > 10.
+
+# =============================================================================
+# SECTION 14: IDENTICAL RESULT DETECTION
+# =============================================================================
+
+# Suspicious result pattern (same result_len repeatedly)
+Decl identical_results(Action.Type<name>, ResultLen.Type<int>, Count.Type<int>).
+identical_results(Act, Len, N) :-
+    action_completed(_, Act, /true, Len) |>
+    do fn:group_by(Act, Len),
+    let N = fn:Count(),
+    N > 5.
+
+# =============================================================================
+# SECTION 15: SLOT STARVATION DETECTION
+# =============================================================================
+
+# Slot starvation (waiting count > 3)
+Decl slot_starvation_event(ShardId.Type<string>, MaxWaiting.Type<int>, DurationMs.Type<int>).
+slot_starvation_event(SID, MaxW, Dur) :-
+    slot_status(T, SID, _, _, W) |>
+    do fn:group_by(SID),
+    let MaxW = fn:Max(W),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Dur = fn:minus(LastT, FirstT),
+    MaxW > 3.
+
+# Long slot wait (>10 seconds)
+Decl long_slot_wait(ShardId.Type<string>, WaitDurationMs.Type<int>).
+long_slot_wait(SID, Wait) :-
+    slot_acquired(_, SID, Wait),
+    Wait > 10000.
+
+# =============================================================================
+# SECTION 16: SUCCESS MASKING FAILURE DETECTION
+# =============================================================================
+
+# False success (success=true but same action loops)
+Decl false_success_loop(Action.Type<name>, SuccessCount.Type<int>, LoopDurationMs.Type<int>).
+false_success_loop(Act, N, Dur) :-
+    action_loop(Act, N, Dur, _, _),
+    action_completed(_, Act, /true, _).
+
+# Combined anomaly severity
+Decl loop_anomaly(Action.Type<name>, Severity.Type<name>, Evidence.Type<string>).
+loop_anomaly(Act, /critical, "repeated_call_id") :-
+    repeated_call_id(CID, N, _, _), N > 10,
+    tool_execution_start(_, _, Act, _, CID).
+loop_anomaly(Act, /critical, "action_loop") :-
+    action_loop(Act, N, _, _, _), N > 20.
+loop_anomaly(Act, /high, "identical_results") :-
+    identical_results(Act, _, N), N > 10.
+loop_anomaly(Act, /high, "false_success") :-
+    false_success_loop(Act, _, _).
+
+# =============================================================================
+# SECTION 17: ROOT CAUSE DIAGNOSIS
+# =============================================================================
+
+# Kernel fact assertion tracking
+Decl kernel_fact_asserted(Time.Type<int>, FactType.Type<string>).
+kernel_fact_asserted(T, M) :-
+    log_entry(T, /kernel, _, M, _, _),
+    :string_contains(M, "Asserting").
+
+# Check if fact was asserted within window after time T
+Decl kernel_fact_asserted_after(ActionTime.Type<int>, WindowMs.Type<int>).
+kernel_fact_asserted_after(AT, Window) :-
+    kernel_fact_asserted(FT, _),
+    FT > AT,
+    fn:minus(FT, AT) < Window.
+
+# Missing state update (no fact assertion after action)
+Decl missing_state_update(ActionTime.Type<int>, Action.Type<name>).
+missing_state_update(AT, Act) :-
+    action_completed(AT, Act, /true, _),
+    !kernel_fact_asserted_after(AT, 500).
+
+# Root cause diagnosis
+Decl loop_root_cause(Action.Type<name>, Cause.Type<name>, Evidence.Type<string>).
+
+# Cause 1: No fact assertion after action
+loop_root_cause(Act, /missing_fact_update, "action completes but no kernel fact asserted") :-
+    action_loop(Act, _, _, _, _),
+    missing_state_update(_, Act).
+
+# Cause 2: Same next_action derived repeatedly (kernel rule issue)
+loop_root_cause(Act, /kernel_rule_stuck, "next_action derives same result") :-
+    action_loop(Act, N, _, _, _),
+    routing_stagnation(/next_action, N2, _),
+    N2 > 5.
+
+# Cause 3: Tool returning cached/dummy response
+loop_root_cause(Act, /tool_caching, "tool returns identical result every time") :-
+    action_loop(Act, _, _, _, _),
+    identical_results(Act, _, N),
+    N > 5.
+
+# Cause 4: Slot starvation blocking state updates
+loop_root_cause(Act, /slot_starvation, "API slots exhausted during loop") :-
+    action_loop(Act, _, _, _, _),
+    slot_starvation_event(_, _, Dur),
+    Dur > 10000.
+
+# Full diagnosis report
+Decl loop_diagnosis(Action.Type<name>, LoopCount.Type<int>, DurationMs.Type<int>, RootCause.Type<name>, Severity.Type<name>).
+loop_diagnosis(Act, N, Dur, Cause, Sev) :-
+    action_loop(Act, N, Dur, _, _),
+    loop_root_cause(Act, Cause, _),
+    loop_anomaly(Act, Sev, _).
+
+# =============================================================================
 # END OF SCHEMA
 # =============================================================================

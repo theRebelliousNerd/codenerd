@@ -192,6 +192,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	vsCfg.WorkingDir = workspace
 	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	virtualStore.SetKernel(kernel)
+	virtualStore.DisableBootGuard() // BootCortex is always user-initiated (CLI commands)
 	if localDB != nil {
 		virtualStore.SetLocalDB(localDB)
 	}

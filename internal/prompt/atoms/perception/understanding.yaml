@@ -1,5 +1,5 @@
 id: perception_understanding
-category: perception
+category: intent
 name: Intent Understanding
 description: Prompt for LLM-first intent classification
 version: 1.0.0

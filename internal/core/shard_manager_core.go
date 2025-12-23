@@ -520,6 +520,30 @@ func (sm *ShardManager) GetBackpressureStatus() *BackpressureStatus {
 }
 
 // =============================================================================
+// BOOT GUARD MANAGEMENT
+// =============================================================================
+
+// BootGuardDisabler is an interface for shards that support boot guard functionality.
+// Shards implementing this interface can prevent action execution until user interaction.
+type BootGuardDisabler interface {
+	DisableBootGuard()
+}
+
+// DisableExecutiveBootGuard disables the boot guard on any system shards that support it.
+// This should be called when the first user message is received to signal that
+// the system is ready for normal operation.
+func (sm *ShardManager) DisableExecutiveBootGuard() {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	for _, shard := range sm.shards {
+		if disabler, ok := shard.(BootGuardDisabler); ok {
+			disabler.DisableBootGuard()
+		}
+	}
+}
+
+// =============================================================================
 // UTILITIES
 // =============================================================================
 
