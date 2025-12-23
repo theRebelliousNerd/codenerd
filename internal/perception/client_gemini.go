@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,7 +59,11 @@ func (c *GeminiClient) Complete(ctx context.Context, prompt string) (string, err
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+	logging.PerceptionDebug("[Gemini] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
 	if c.apiKey == "" {
+		logging.PerceptionError("[Gemini] CompleteWithSystem: API key not configured")
 		return "", fmt.Errorf("API key not configured")
 	}
 
@@ -176,9 +181,12 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			result.WriteString(part.Text)
 		}
 
-		return strings.TrimSpace(result.String()), nil
+		response := strings.TrimSpace(result.String())
+		logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
 	}
 
+	logging.PerceptionError("[Gemini] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -188,11 +196,15 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
+	logging.PerceptionDebug("[Gemini] CompleteWithStreaming: starting streaming model=%s", c.model)
+
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		startTime := time.Now()
 
 		if c.apiKey == "" {
+			logging.PerceptionError("[Gemini] CompleteWithStreaming: API key not configured")
 			errorChan <- fmt.Errorf("API key not configured")
 			return
 		}
@@ -348,17 +360,21 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			case <-scanDone:
 				select {
 				case err := <-scanErrChan:
+					logging.PerceptionError("[Gemini] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
 					errorChan <- fmt.Errorf("stream error: %w", err)
 				default:
+					logging.Perception("[Gemini] CompleteWithStreaming: completed in %v", time.Since(startTime))
 				}
 			case <-ctx.Done():
 				resp.Body.Close()
 				<-scanDone
+				logging.PerceptionWarn("[Gemini] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
 				errorChan <- ctx.Err()
 			}
 			return
 		}
 
+		logging.PerceptionError("[Gemini] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
 	}()
 

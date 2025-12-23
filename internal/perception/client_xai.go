@@ -2,6 +2,7 @@ package perception
 
 import (
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -57,7 +58,11 @@ func (c *XAIClient) Complete(ctx context.Context, prompt string) (string, error)
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+	logging.PerceptionDebug("[XAI] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
 	if c.apiKey == "" {
+		logging.PerceptionError("[XAI] CompleteWithSystem: API key not configured")
 		return "", fmt.Errorf("API key not configured")
 	}
 
@@ -140,12 +145,16 @@ func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		}
 
 		if len(xaiResp.Choices) == 0 {
+			logging.PerceptionError("[XAI] CompleteWithSystem: no completion returned")
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		return strings.TrimSpace(xaiResp.Choices[0].Message.Content), nil
+		response := strings.TrimSpace(xaiResp.Choices[0].Message.Content)
+		logging.Perception("[XAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
 	}
 
+	logging.PerceptionError("[XAI] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 

@@ -2,6 +2,7 @@ package perception
 
 import (
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"fmt"
 	"os"
 )
@@ -75,15 +76,19 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 // Priority: config.json > env vars (ANTHROPIC > OPENAI > GEMINI > XAI > ZAI)
 // CLI engines (claude-cli, codex-cli) are detected from config.json and don't require API keys.
 func DetectProvider() (*ProviderConfig, error) {
+	logging.PerceptionDebug("DetectProvider: checking config and environment")
+
 	// First, try to load from .nerd/config.json
 	configPath := DefaultConfigPath()
 	if cfg, err := LoadConfigJSON(configPath); err == nil {
 		// CLI engines don't need API keys (subscription-based)
 		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
+			logging.Perception("DetectProvider: using CLI engine=%s", cfg.Engine)
 			return cfg, nil
 		}
 		// API mode requires an API key
 		if cfg.APIKey != "" {
+			logging.Perception("DetectProvider: using provider=%s from config", cfg.Provider)
 			return cfg, nil
 		}
 	}
@@ -103,6 +108,7 @@ func DetectProvider() (*ProviderConfig, error) {
 
 	for _, p := range providers {
 		if key := os.Getenv(p.envVar); key != "" {
+			logging.Perception("DetectProvider: using provider=%s from env var %s", p.provider, p.envVar)
 			return &ProviderConfig{
 				Provider: p.provider,
 				APIKey:   key,
@@ -110,6 +116,7 @@ func DetectProvider() (*ProviderConfig, error) {
 		}
 	}
 
+	logging.PerceptionError("DetectProvider: no API key found in config or environment")
 	return nil, fmt.Errorf("no API key found; configure .nerd/config.json or set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, ZAI_API_KEY")
 }
 
