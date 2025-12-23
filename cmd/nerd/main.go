@@ -988,7 +988,9 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 		Predicate: "hypothetical",
 		Args:      []interface{}{change},
 	}
-	_ = cortex.Kernel.Assert(hypFact)
+	if err := cortex.Kernel.Assert(hypFact); err != nil {
+		logging.KernelWarn("failed to assert hypothetical fact: %v", err)
+	}
 
 	// Query implications
 	implications, _ := cortex.Kernel.Query("derives_from_hypothetical")
@@ -1585,10 +1587,15 @@ func browserLaunch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write control URL to file for other commands to use
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		logging.BootWarn("failed to get working directory: %v", err)
+	}
 	controlFile := filepath.Join(cwd, ".nerd", "browser", "control.txt")
 	if err := os.MkdirAll(filepath.Dir(controlFile), 0o755); err == nil {
-		_ = os.WriteFile(controlFile, []byte(mgr.ControlURL()), 0o644)
+		if err := os.WriteFile(controlFile, []byte(mgr.ControlURL()), 0o644); err != nil {
+			logging.BootWarn("failed to write browser control file: %v", err)
+		}
 	}
 
 	fmt.Printf("Browser launched. Control URL: %s\n", mgr.ControlURL())
@@ -1601,8 +1608,12 @@ func browserLaunch(cmd *cobra.Command, args []string) error {
 	<-sigCh
 
 	// Clean up control file
-	_ = os.Remove(controlFile)
-	_ = mgr.Shutdown(context.Background())
+	if err := os.Remove(controlFile); err != nil && !os.IsNotExist(err) {
+		logging.BootWarn("failed to remove browser control file: %v", err)
+	}
+	if err := mgr.Shutdown(context.Background()); err != nil {
+		logging.BootWarn("failed to shutdown browser manager: %v", err)
+	}
 	return nil
 }
 
@@ -1821,13 +1832,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	config := nerdinit.DefaultInitConfig(cwd)
 	config.Timeout = timeout
 
-	// Set up LLM client if available
+	// Set up LLM client if available (wrapped with scheduler for concurrency control)
 	key := apiKey
 	if key == "" {
 		key = os.Getenv("ZAI_API_KEY")
 	}
 	if key != "" {
-		config.LLMClient = perception.NewZAIClient(key)
+		rawClient := perception.NewZAIClient(key)
+		config.LLMClient = core.NewScheduledLLMCall("init", rawClient)
 	}
 
 	// Set Context7 API key from environment or config
@@ -1887,8 +1899,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	// Persist fast world snapshot to knowledge.db for incremental boots.
 	dbPath := filepath.Join(cwd, ".nerd", "knowledge.db")
 	if db, dbErr := store.NewLocalStore(dbPath); dbErr == nil {
-		_ = world.PersistFastSnapshotToDB(db, facts)
-		_ = db.Close()
+		if err := world.PersistFastSnapshotToDB(db, facts); err != nil {
+			logging.WorldWarn("failed to persist world snapshot to DB: %v", err)
+		}
+		if err := db.Close(); err != nil {
+			logging.StoreWarn("failed to close knowledge DB: %v", err)
+		}
 	}
 
 	// Initialize kernel and load facts

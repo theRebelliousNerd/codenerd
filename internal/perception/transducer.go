@@ -154,13 +154,15 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	if SharedSemanticClassifier != nil {
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
-			// Non-fatal: continue with regex-only classification
-			logging.PerceptionDebug("Semantic classification error (non-fatal): %v", err)
+			// Non-fatal: seed fallback semantic_match facts from regex candidates
+			logging.PerceptionDebug("Semantic classification error (non-fatal): %v - seeding fallback facts", err)
+			seedFallbackSemanticFacts(input, candidates)
 		} else if len(matches) > 0 {
 			logging.PerceptionDebug("Semantic matches found: %d (top: %s %.2f)",
 				len(matches), matches[0].Verb, matches[0].Similarity)
 		} else {
-			logging.PerceptionDebug("Semantic classification returned no matches")
+			logging.PerceptionDebug("Semantic classification returned no matches - seeding fallback facts")
+			seedFallbackSemanticFacts(input, candidates)
 		}
 		// Facts are now in kernel - Mangle inference will see them via semantic_match predicate
 	}
@@ -168,7 +170,8 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	// 3. Refine via Mangle Inference (Smart)
 	// This applies the "sentence level" logic and context rules.
 	// Now includes semantic_match facts from the classifier above.
-	if SharedTaxonomy != nil && len(candidates) > 0 {
+	// Always run inference, even if no candidates, to support pure interrogative logic.
+	if SharedTaxonomy != nil {
 		bestVerb, conf, err := SharedTaxonomy.ClassifyInput(input, candidates)
 		if err == nil && bestVerb != "" {
 			logging.PerceptionDebug("Mangle inference selected verb: %s (confidence: %.2f)", bestVerb, conf)
@@ -379,9 +382,32 @@ func (f FocusResolution) ToFact() core.Fact {
 }
 
 // Transducer defines the interface for the perception layer.
+// Both RealTransducer (legacy regex+Mangle) and UnderstandingTransducer (LLM-first)
+// implement this interface, enabling gradual migration to LLM-first classification.
 type Transducer interface {
+	// ParseIntent parses user input into an Intent without conversation history.
 	ParseIntent(ctx context.Context, input string) (Intent, error)
+
+	// ParseIntentWithContext parses user input with conversation history.
+	// This is the primary method used by the chat loop.
+	ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error)
+
+	// ResolveFocus resolves ambiguous references to specific candidates.
 	ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error)
+
+	// SetPromptAssembler sets the prompt assembler for JIT compilation.
+	SetPromptAssembler(pa *articulation.PromptAssembler)
+
+	// SetStrategicContext injects strategic knowledge about the codebase.
+	SetStrategicContext(context string)
+}
+
+// TransducerWithKernel extends Transducer with kernel integration for routing.
+type TransducerWithKernel interface {
+	Transducer
+
+	// SetKernel sets the Mangle kernel for routing queries.
+	SetKernel(kernel *core.RealKernel)
 }
 
 // RealTransducer implements the Perception layer (NL → Piggyback control_packet → intents).
@@ -389,9 +415,10 @@ type Transducer interface {
 // It supports JIT prompt compilation when provided an articulation.PromptAssembler, and
 // falls back to the legacy static prompt when JIT is unavailable.
 type RealTransducer struct {
-	client          LLMClient
-	repairLoop      *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
-	promptAssembler *articulation.PromptAssembler
+	client            LLMClient
+	repairLoop        *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	promptAssembler   *articulation.PromptAssembler
+	strategicContext  string // Strategic knowledge about the codebase from /init
 }
 
 // NewRealTransducer creates a new transducer with the given LLM client.
@@ -409,6 +436,16 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 // When unset or JIT is unavailable, the transducer uses the legacy static prompt.
 func (t *RealTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {
 	t.promptAssembler = pa
+}
+
+// SetStrategicContext injects strategic knowledge about the codebase.
+// This context is included in the user prompt to help the transducer
+// answer conceptual questions about the project's architecture, philosophy, etc.
+func (t *RealTransducer) SetStrategicContext(context string) {
+	t.strategicContext = context
+	if context != "" {
+		logging.PerceptionDebug("Strategic context set: %d chars", len(context))
+	}
 }
 
 // withSystemContext creates a SystemLLMContext for this transducer's LLM calls.
@@ -706,6 +743,12 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 				sb.WriteString(fmt.Sprintf("Assistant: %s\n", content))
 			}
 		}
+		sb.WriteString("\n---\n\n")
+	}
+
+	// Inject strategic knowledge if available (helps answer conceptual questions)
+	if t.strategicContext != "" {
+		sb.WriteString(t.strategicContext)
 		sb.WriteString("\n---\n\n")
 	}
 
@@ -1675,4 +1718,36 @@ func ClosePerceptionLayer() error {
 
 	logging.Perception("Perception layer closed")
 	return nil
+}
+
+// seedFallbackSemanticFacts injects low-confidence semantic_match facts from regex candidates
+// when the SemanticClassifier fails or returns no matches. This ensures the Mangle inference
+// rules always have some semantic signal to work with, even in degraded mode.
+func seedFallbackSemanticFacts(input string, candidates []VerbEntry) {
+	if SharedTaxonomy == nil || SharedTaxonomy.engine == nil {
+		return
+	}
+
+	// Seed low-confidence semantic_match facts for top regex candidates
+	for rank, cand := range candidates {
+		if rank >= 5 {
+			break // Only top 5 candidates
+		}
+		// Assert semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
+		err := SharedTaxonomy.engine.AddFact("semantic_match",
+			input,     // UserInput
+			"",        // CanonicalSentence (empty for fallback)
+			cand.Verb, // Verb
+			"",        // Target (empty for fallback)
+			rank+1,    // Rank (1-indexed)
+			50.0,      // Similarity (fixed low confidence for fallback)
+		)
+		if err != nil {
+			logging.PerceptionDebug("Failed to seed fallback semantic_match for %s: %v", cand.Verb, err)
+		}
+	}
+
+	if len(candidates) > 0 {
+		logging.PerceptionDebug("Seeded %d fallback semantic_match facts", min(len(candidates), 5))
+	}
 }

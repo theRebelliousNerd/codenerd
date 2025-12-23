@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,7 +27,7 @@ func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.anthropic.com/v1",
 		Model:   "claude-sonnet-4-5-20250514",
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
 
@@ -55,7 +56,11 @@ func (c *AnthropicClient) Complete(ctx context.Context, prompt string) (string, 
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+	logging.PerceptionDebug("[Anthropic] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
 	if c.apiKey == "" {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: API key not configured")
 		return "", fmt.Errorf("API key not configured")
 	}
 
@@ -71,11 +76,13 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to marshal request: %v", err)
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
 	if err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to create request: %v", err)
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -85,29 +92,35 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: request failed after %v: %v", time.Since(startTime), err)
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to read response: %v", err)
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: API returned status %d", resp.StatusCode)
 		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var anthropicResp AnthropicResponse
 	if err := json.Unmarshal(body, &anthropicResp); err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to parse response: %v", err)
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	if anthropicResp.Error != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: API error: %s", anthropicResp.Error.Message)
 		return "", fmt.Errorf("API error: %s", anthropicResp.Error.Message)
 	}
 
 	if len(anthropicResp.Content) == 0 {
+		logging.PerceptionError("[Anthropic] CompleteWithSystem: no completion returned")
 		return "", fmt.Errorf("no completion returned")
 	}
 
@@ -118,7 +131,9 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		}
 	}
 
-	return strings.TrimSpace(result.String()), nil
+	response := strings.TrimSpace(result.String())
+	logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+	return response, nil
 }
 
 // CompleteWithStreaming sends a prompt with streaming enabled.
@@ -127,11 +142,15 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
+	logging.PerceptionDebug("[Anthropic] CompleteWithStreaming: starting streaming model=%s", c.model)
+
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		startTime := time.Now()
 
 		if c.apiKey == "" {
+			logging.PerceptionError("[Anthropic] CompleteWithStreaming: API key not configured")
 			errorChan <- fmt.Errorf("API key not configured")
 			return
 		}
@@ -233,12 +252,15 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 		case <-scanDone:
 			select {
 			case err := <-scanErrChan:
+				logging.PerceptionError("[Anthropic] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
 				errorChan <- fmt.Errorf("stream error: %w", err)
 			default:
+				logging.Perception("[Anthropic] CompleteWithStreaming: completed in %v", time.Since(startTime))
 			}
 		case <-ctx.Done():
 			resp.Body.Close()
 			<-scanDone
+			logging.PerceptionWarn("[Anthropic] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
 			errorChan <- ctx.Err()
 		}
 	}()

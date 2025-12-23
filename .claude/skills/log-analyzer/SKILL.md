@@ -2,8 +2,8 @@
 name: log-analyzer
 description: Analyze codeNERD system logs using Mangle logic programming. This skill should be used when debugging codeNERD execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, or correlating events across the 22 logging categories. Converts log files to Mangle facts for declarative querying.
 license: Apache-2.0
-version: 2.0.0
-last_updated: 2025-12-09
+version: 2.1.0
+last_updated: 2025-12-23
 ---
 
 # Log Analyzer: Mangle-Powered codeNERD Debugging
@@ -218,6 +218,141 @@ logquery.exe facts.mg --query warning_entry
 | `/store` | Memory tiers | CRUD operations |
 | `/api` | LLM API calls | Requests, responses |
 
+## Enhanced Logging Coverage (v2.1.0)
+
+As of December 2025, codeNERD includes comprehensive logging across all subsystems. This section documents the logging enhancements that provide better observability for debugging.
+
+### Logging API Convenience Functions
+
+All 22 log categories now have Warn/Error convenience functions in `internal/logging/logger.go`:
+
+```go
+// Example usage patterns
+logging.BootDebug("Loading config from: %s", path)
+logging.BootError("Failed to read config file %s: %v", path, err)
+logging.PerceptionDebug("[Anthropic] CompleteWithSystem: model=%s", model)
+logging.CampaignWarn("failed to save campaign after replan: %v", err)
+logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s: %v", path, err)
+logging.ToolsDebug("RegisterTool: registering tool name=%s", name)
+logging.StoreWarn("DocumentIngestor: failed to store vector for %s: %v", path, err)
+logging.KernelWarn("failed to assert hypothetical fact: %v", err)
+```
+
+### Key Subsystem Logging
+
+#### LLM Client Logging (`/perception`)
+
+All 7 LLM client implementations now log:
+
+- Entry: model, prompt lengths
+- Completion: duration, response length
+- Errors: API failures, timeouts, retries
+
+```text
+[Perception DEBUG] [Anthropic] CompleteWithSystem: model=claude-sonnet-4-5 system_len=2048 user_len=512
+[Perception INFO]  [Anthropic] CompleteWithSystem: completed in 2.3s response_len=1024
+[Perception ERROR] [OpenRouter] CompleteWithStreaming: max retries exceeded after 30s: connection timeout
+```
+
+#### Tool Registry Logging (`/tools`)
+
+Tool execution now has full audit trail:
+
+- Registration: tool name, command, shard affinity
+- Execution: start/end, args, duration
+- Errors: binary not found, execution failures
+
+```text
+[Tools DEBUG] RegisterTool: registering tool name=mytool command=./mytool affinity=coder
+[Tools INFO]  ExecuteRegisteredTool: executing tool=mytool exec_count=5 args=[--verbose]
+[Tools ERROR] ExecuteRegisteredTool: tool=mytool failed after 5.2s: exit code 1
+```
+
+#### Campaign Orchestration (`/campaign`)
+
+Campaign execution events:
+
+- Phase transitions, task execution
+- Checkpoint results, replan triggers
+- Save/load operations, context compression
+
+```text
+[Campaign INFO]  Executing phase: implementation (tasks=12)
+[Campaign WARN]  failed to save campaign after compression: disk full
+[Campaign DEBUG] DocumentIngestor.Ingest: starting campaign=abc123 files=5
+```
+
+#### World Model Scanning (`/world`)
+
+Filesystem projection operations:
+
+- Incremental scan progress
+- File upsert/delete operations
+- Parse errors, cache updates
+
+```text
+[World INFO]  Starting incremental workspace scan: /project
+[World WARN]  ScanWorkspaceIncremental: failed to delete world file /old/file.go: not found
+```
+
+#### Configuration Loading (`/boot`)
+
+Startup and config operations:
+
+- Config file detection
+- Provider selection
+- Default fallbacks
+
+```text
+[Boot DEBUG] Loading config from: .nerd/config.json
+[Boot INFO]  Config file not found, using defaults: .nerd/config.json
+[Boot INFO]  Config loaded: provider=anthropic model=claude-sonnet-4-5
+```
+
+#### Safety System (`/coder`)
+
+Safety check visibility:
+
+- Impact analysis results
+- Block reasons with targets
+- Kernel query failures
+
+```text
+[Coder DEBUG] checkImpact: checking safety for target=/critical/file.go
+[Coder INFO]  checkImpact: BLOCKED target=/etc/passwd reason=system_file
+[Coder WARN]  checkImpact: failed to query coder_block_write: kernel timeout
+```
+
+### Swallowed Error Logging
+
+Previously silent error ignores now log before continuing:
+
+| Location | What's Logged |
+|----------|---------------|
+| `main.go` | Kernel assertions, world persistence |
+| `verifier.go` | Verification storage, JSON marshal |
+| `world/persist.go` | World file upserts, fact replacement |
+| `world/incremental_scan.go` | Walk errors, DB operations |
+| `campaign/orchestrator_*.go` | Save operations, kernel fact updates |
+| `campaign/document_ingestor.go` | Store link/vector/atom operations |
+
+### Debugging New Log Categories
+
+```bash
+# Find all LLM client operations
+logquery.exe facts.mg --query perception_event --limit 100
+
+# Track tool executions
+grep "ExecuteRegisteredTool" .nerd/logs/tools.log
+
+# Campaign save failures
+logquery.exe facts.mg -i
+logquery> ?warning_entry(T, /campaign, M)
+
+# Config loading issues
+grep "Config" .nerd/logs/boot.log
+```
+
 ## Scripts Reference
 
 ### logquery (Go)
@@ -317,9 +452,173 @@ grep "/kernel" .nerd/logs/* | python3 parse_log.py /dev/stdin --no-schema > kern
 ./logquery.exe facts.mg --builtin errors --limit 100
 ```
 
+## Loop & Anomaly Detection (v2.2.0)
+
+As of December 2025, codeNERD log-analyzer includes sophisticated loop detection and root cause diagnosis. This addresses a critical debugging need: detecting patterns that appear as successful operations but indicate bugs.
+
+### Quick Loop Detection
+
+For fast analysis without Mangle compilation, use the `detect_loops.py` script:
+
+```bash
+# Analyze logs and output JSON
+python3 scripts/detect_loops.py .nerd/logs/*.log --pretty
+
+# With custom threshold (default: 5)
+python3 scripts/detect_loops.py .nerd/logs/*.log --threshold 3
+
+# Save to file
+python3 scripts/detect_loops.py .nerd/logs/*.log -o anomalies.json
+```
+
+**Example Output:**
+```json
+{
+  "analysis_timestamp": "2025-12-23T16:00:00",
+  "anomalies": [{
+    "type": "action_loop",
+    "severity": "critical",
+    "action": "/analyze_code",
+    "count": 40,
+    "root_cause": {
+      "diagnosis": "missing_fact_update",
+      "explanation": "Action completes with success=true but no kernel fact asserted",
+      "suggested_fix": "Check VirtualStore.RouteAction() for missing fact assertion"
+    }
+  }],
+  "summary": {
+    "total_anomalies": 2,
+    "critical": 1,
+    "high": 1,
+    "loops_detected": 1
+  }
+}
+```
+
+### logquery Loop Detection Builtins
+
+The logquery tool includes 8 new builtins for loop analysis:
+
+| Builtin | Description |
+|---------|-------------|
+| `:loops` | Find action loops (same action repeated >5 times) |
+| `:stagnation` | Find routing stagnation (next_action not advancing) |
+| `:identical-results` | Find suspicious patterns (same result_len repeatedly) |
+| `:slot-starvation` | Find API scheduler slot starvation events |
+| `:false-success` | Find success masking failure (success=true but looping) |
+| `:anomalies` | Combined anomaly report with severity levels |
+| `:diagnose` | Full diagnosis with loop count, duration, and root cause |
+| `:root-cause` | Root cause analysis only |
+
+```bash
+# Interactive analysis
+./logquery.exe facts.mg -i
+logquery> :loops
+logquery> :diagnose
+logquery> :root-cause
+
+# JSON output for programmatic use
+./logquery.exe facts.mg --builtin diagnose --format json
+```
+
+### Detected Patterns
+
+| Pattern | Severity | Evidence | Meaning |
+|---------|----------|----------|---------|
+| **Action Loop** | Critical | Same action executed >5 times | State not advancing |
+| **Repeated Call ID** | Critical | Same call_id used >2 times | Execution not regenerating IDs |
+| **Identical Results** | High | Same result_len returned repeatedly | Tool returning cached/dummy response |
+| **Routing Stagnation** | High | Same predicate queried >10 times | Kernel rule stuck |
+| **Slot Starvation** | High | Waiting count >3 | API slots exhausted |
+| **Long Slot Wait** | High | Wait duration >10s | Severe slot contention |
+| **False Success** | High | success=true but looping | Success masking failure |
+
+### Root Cause Diagnosis
+
+The system diagnoses 4 root causes:
+
+| Cause | Diagnosis | Explanation |
+|-------|-----------|-------------|
+| `missing_fact_update` | Action completes but no kernel fact asserted | VirtualStore.RouteAction() not calling Assert() |
+| `kernel_rule_stuck` | next_action predicate returns same result | Missing state transition conditions in Mangle policy |
+| `tool_caching` | Tool returns identical result every time | Tool returning cached/dummy response |
+| `slot_starvation_correlated` | Loop correlates with slot exhaustion | Loop is consuming all API slots |
+
+### Structured Event Extraction
+
+The enhanced `parse_log.py` now extracts structured events from log messages:
+
+```mangle
+# Tool execution with call_id tracking
+tool_execution(Time, ToolName, Action, Target, CallId, Duration, ResultLen).
+
+# Action routing events
+action_routing(Time, Predicate, ArgCount).
+
+# Action completion with success/output
+action_completed(Time, Action, Success, OutputLen).
+
+# API scheduler slot status
+slot_status(Time, ShardId, Active, MaxSlots, Waiting).
+
+# Slot acquisition timing
+slot_acquired(Time, ShardId, WaitDuration).
+```
+
+### Example Debugging Workflow
+
+```bash
+# 1. Quick detection with detect_loops.py
+python3 scripts/detect_loops.py .nerd/logs/2025-12-23*.log --pretty
+
+# 2. If anomalies found, deeper analysis with logquery
+python3 scripts/parse_log.py .nerd/logs/2025-12-23*.log --no-schema | \
+  grep "^log_entry\|^tool_execution\|^action_completed" > /tmp/facts.mg
+./scripts/logquery/logquery.exe /tmp/facts.mg -i
+
+# 3. Interactive diagnosis
+logquery> :diagnose
+logquery> :root-cause
+
+# 4. Export for reporting
+./scripts/logquery/logquery.exe /tmp/facts.mg --builtin diagnose --format json > diagnosis.json
+```
+
+### Common Loop Scenarios
+
+**Scenario 1: Action Not Advancing State**
+
+Symptoms:
+- Same action (e.g., `/analyze_code`) executed 40+ times
+- Same `call_id` never regenerated
+- `success=true` but kernel state unchanged
+
+Root Cause: `missing_fact_update`
+Fix: Check VirtualStore.RouteAction() for missing fact assertion after tool execution
+
+**Scenario 2: Kernel Rule Stuck**
+
+Symptoms:
+- `next_action` predicate queried 10+ times
+- Returns same action repeatedly
+- Routing stagnation detected
+
+Root Cause: `kernel_rule_stuck`
+Fix: Check Mangle policy rules for missing state transition conditions
+
+**Scenario 3: Tool Returning Dummy Response**
+
+Symptoms:
+- Identical `result_len` on every execution
+- Tool appears successful but returns same data
+
+Root Cause: `tool_caching`
+Fix: Check if tool is returning cached/dummy response instead of executing
+
 ## See Also
 
 - [mangle-programming skill](../mangle-programming/SKILL.md) - Full Mangle reference
 - [LOG_ANALYSIS_PATTERNS](references/LOG_ANALYSIS_PATTERNS.md) - Extended pattern catalog
 - [log-schema.mg](assets/log-schema.mg) - Full schema (for reference)
 - [logquery/schema.mg](scripts/logquery/schema.mg) - Embedded schema (simplified)
+- [detect_loops.py](scripts/detect_loops.py) - Quick loop detection script

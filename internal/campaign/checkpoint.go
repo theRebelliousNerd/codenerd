@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
 	"context"
 	"encoding/json"
@@ -31,28 +32,46 @@ func NewCheckpointRunner(executor *tactile.SafeExecutor, shardMgr *core.ShardMan
 
 // Run executes a checkpoint based on the verification method.
 func (cr *CheckpointRunner) Run(ctx context.Context, phase *Phase, method VerificationMethod) (passed bool, details string, err error) {
+	phaseName := ""
+	if phase != nil {
+		phaseName = phase.Name
+	}
+	logging.Campaign("CheckpointRunner.Run: executing method=%s phase=%s", method, phaseName)
+
 	switch method {
 	case VerifyTestsPass:
-		return cr.runTestsCheckpoint(ctx)
+		passed, details, err = cr.runTestsCheckpoint(ctx)
 	case VerifyBuilds:
-		return cr.runBuildCheckpoint(ctx)
+		passed, details, err = cr.runBuildCheckpoint(ctx)
 	case VerifyManualReview:
-		return cr.runManualReviewCheckpoint(ctx, phase)
+		passed, details, err = cr.runManualReviewCheckpoint(ctx, phase)
 	case VerifyShardValidate:
-		return cr.runShardValidationCheckpoint(ctx, phase)
+		passed, details, err = cr.runShardValidationCheckpoint(ctx, phase)
 	case VerifyNemesisGauntlet:
-		return cr.runNemesisGauntletCheckpoint(ctx, phase)
+		passed, details, err = cr.runNemesisGauntletCheckpoint(ctx, phase)
 	case VerifyNone:
+		logging.CampaignDebug("CheckpointRunner.Run: no verification required for phase=%s", phaseName)
 		return true, "No verification required", nil
 	default:
+		logging.CampaignWarn("CheckpointRunner.Run: unknown verification method=%s, skipping", method)
 		return true, "Unknown verification method, skipping", nil
 	}
+
+	if err != nil {
+		logging.CampaignError("CheckpointRunner.Run: method=%s phase=%s error: %v", method, phaseName, err)
+	} else if passed {
+		logging.Campaign("CheckpointRunner.Run: method=%s phase=%s PASSED", method, phaseName)
+	} else {
+		logging.CampaignWarn("CheckpointRunner.Run: method=%s phase=%s FAILED", method, phaseName)
+	}
+	return passed, details, err
 }
 
 // runTestsCheckpoint runs tests and checks if they pass.
 func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, string, error) {
 	// Detect project type and run appropriate test command
 	testCmdStr := cr.detectTestCommand()
+	logging.CampaignDebug("runTestsCheckpoint: detected command=%s workspace=%s", testCmdStr, cr.workspace)
 	isGoTest := strings.HasPrefix(testCmdStr, "go test")
 	isNpmTest := strings.HasPrefix(testCmdStr, "npm test")
 	if isGoTest && !strings.Contains(testCmdStr, "-json") {
@@ -116,6 +135,7 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 // runBuildCheckpoint runs the build and checks if it succeeds.
 func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, string, error) {
 	buildCmdStr := cr.detectBuildCommand()
+	logging.CampaignDebug("runBuildCheckpoint: detected command=%s workspace=%s", buildCmdStr, cr.workspace)
 	parts := strings.Fields(buildCmdStr)
 
 	cmd := tactile.ShellCommand{
@@ -127,9 +147,11 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 
 	output, err := cr.executor.Execute(ctx, cmd)
 	if err != nil {
+		logging.CampaignWarn("runBuildCheckpoint: build failed: %v (output_len=%d)", err, len(output))
 		return false, fmt.Sprintf("Build failed:\n%s", output), nil
 	}
 
+	logging.CampaignDebug("runBuildCheckpoint: build succeeded")
 	return true, "Build succeeded", nil
 }
 
@@ -150,8 +172,11 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.
 func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.shardMgr == nil {
+		logging.CampaignDebug("runShardValidationCheckpoint: no shard manager, skipping")
 		return true, "Shard validation skipped (no shard manager)", nil
 	}
+
+	logging.Campaign("runShardValidationCheckpoint: spawning reviewer shard for phase=%s", phase.Name)
 
 	// Build a review prompt based on phase objectives and completed tasks
 	var reviewPrompt strings.Builder
@@ -178,6 +203,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	// Spawn reviewer shard
 	result, err := cr.shardMgr.Spawn(ctx, "reviewer", reviewPrompt.String())
 	if err != nil {
+		logging.CampaignError("runShardValidationCheckpoint: reviewer shard failed for phase=%s: %v", phase.Name, err)
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
 	}
 
@@ -186,9 +212,11 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	resultLower := strings.ToLower(resultStr)
 
 	if strings.Contains(resultLower, "fail") {
+		logging.CampaignWarn("runShardValidationCheckpoint: reviewer found issues in phase=%s", phase.Name)
 		return false, fmt.Sprintf("Review failed: %s", resultStr), nil
 	}
 
+	logging.Campaign("runShardValidationCheckpoint: reviewer approved phase=%s", phase.Name)
 	return true, fmt.Sprintf("Review passed: %s", resultStr), nil
 }
 
@@ -196,8 +224,15 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 // This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
 func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
 	if cr.shardMgr == nil {
+		logging.CampaignDebug("runNemesisGauntletCheckpoint: no shard manager, skipping")
 		return true, "Nemesis shard manager unavailable, skipping adversarial checkpoint", nil
 	}
+
+	phaseName := ""
+	if phase != nil {
+		phaseName = phase.Name
+	}
+	logging.Campaign("runNemesisGauntletCheckpoint: spawning nemesis shard for phase=%s", phaseName)
 
 	target := cr.workspace
 	// Prefer a phase-specific target if artifacts exist.
@@ -216,8 +251,10 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 	}
 
 	taskStr := fmt.Sprintf("review:%s", target)
+	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s task=%s", target, taskStr)
 	result, err := cr.shardMgr.Spawn(ctx, "nemesis", taskStr)
 	if err != nil {
+		logging.CampaignError("runNemesisGauntletCheckpoint: nemesis shard failed for phase=%s: %v", phaseName, err)
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err
 	}
 
@@ -226,12 +263,15 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 
 	// Heuristic verdict: Nemesis uses "failed/defeated" language when it breaks a patch.
 	if strings.Contains(lower, "verdict") && strings.Contains(lower, "fail") {
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis found vulnerabilities in phase=%s", phaseName)
 		return false, fmt.Sprintf("Nemesis gauntlet failed: %s", resultStr), nil
 	}
 	if strings.Contains(lower, "defeated") || strings.Contains(lower, "attack succeeded") {
+		logging.CampaignWarn("runNemesisGauntletCheckpoint: nemesis defeated phase=%s defenses", phaseName)
 		return false, fmt.Sprintf("Nemesis gauntlet found weaknesses: %s", resultStr), nil
 	}
 
+	logging.Campaign("runNemesisGauntletCheckpoint: phase=%s survived nemesis gauntlet", phaseName)
 	return true, fmt.Sprintf("Nemesis gauntlet passed: %s", resultStr), nil
 }
 

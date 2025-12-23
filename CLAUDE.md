@@ -201,16 +201,6 @@ type Shard interface {
 }
 ```
 
-### ShardManager Modularization
-
-| File | Purpose |
-|------|---------|
-| `shard_manager_core.go` | ShardManager struct, core operations |
-| `shard_manager_spawn.go` | Shard spawning and execution |
-| `shard_manager_tools.go` | Intelligent tool routing |
-| `shard_manager_facts.go` | Fact conversion utilities |
-| `shard_manager_feedback.go` | Reviewer feedback interface |
-
 ## Adversarial Engineering: Nemesis & Panic Maker
 
 codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely on passive testing, it actively attempts to break its own code using two distinct but related components: the Panic Maker (tactical tool breaker) and the Nemesis Shard (strategic system breaker).
@@ -219,27 +209,12 @@ codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely
 
 - *Implementation:* `internal/autopoiesis/panic_maker.go`
 - *Scope:* Micro-level. Focused on breaking individual tools and functions during the generation phase (Ouroboros loop).
-- *Workflow:*
-  1. **Static Analysis:** Analyzes the generated tool's source code to identify specific vulnerability patterns (e.g., pointer dereferences, channel operations)
-  2. **Attack Vector Generation:** Uses the LLM to craft targeted JSON inputs designed to trigger crashes
-  3. **Thunderdome:** Executes the attacks against the tool. If the tool crashes (panics, OOMs, deadlocks), it is rejected and sent back for hardening
-- *Attack Categories:*
-  - `nil_pointer`: Exploits unchecked pointer dereferences
-  - `boundary`: Max int, negative indices, empty slices
-  - `resource`: Massive allocations to trigger OOM
-  - `concurrency`: Race conditions and channel deadlocks
-  - `format`: Malformed JSON/XML inputs
 
 ### Nemesis Shard (The Strategic Adversary)
 
 - *Implementation:* `internal/shards/nemesis/nemesis.go`
 - *Scope:* System-level. A persistent "Type B" Specialist Shard that acts as a gatekeeper for code changes.
 - *Philosophy:* "The Nemesis does not seek destruction - it seeks truth." It acts as a hostile sparring partner for the Coder Shard.
-- *Core Capabilities:*
-  - **The Gauntlet:** A required pipeline phase. A patch is only "battle-hardened" if it survives the Nemesis.
-  - **Attack Tool Generation:** Unlike Panic Maker (which sends inputs), Nemesis writes and compiles full Go attack binaries to exploit logic flaws or race conditions.
-  - **Lazy Pattern Detection:** Actively scans for "lazy" coding patterns (e.g., `return nil`, generic error messages) that signal weakness.
-  - **The Armory:** (`internal/shards/nemesis/armory.go`) A persistent store where Nemesis remembers effective attack strategies.
 
 ### Comparison
 
@@ -333,11 +308,7 @@ A comprehensive testing framework for validating codeNERD's infinite context sys
 | Refactoring Campaign | 100 | Cross-file tracking, long-term stability |
 | Research + Build | 80 | Cross-phase knowledge retrieval |
 
-**Metrics:**
-- **Compression Ratio**: Target >5:1 (short), >8:1 (long sessions)
-- **Retrieval Precision/Recall/F1**: Spreading activation accuracy
-- **Performance**: Latency, peak memory
-- **Degradation**: Quality stability over 100+ turn sessions
+
 
 **Usage:**
 ```bash
@@ -425,40 +396,10 @@ Large files have been modularized for maintainability. The parent file serves as
 | `kernel_policy.go` | Policy/schema loading |
 | `kernel_virtual.go` | Virtual predicate handling |
 
-### LocalStore Modularization (`internal/store/local.go` → 10 files)
-| File | Purpose |
-|------|---------|
-| `local_core.go` | Core struct, SQLite initialization |
-| `local_vector.go` | Vector store (Shard B) |
-| `local_graph.go` | Knowledge graph (Shard C) |
-| `local_cold.go` | Cold storage/archival (Shard D) |
-| `local_session.go` | Session management |
-| `local_world.go` | World model cache |
-| `local_knowledge.go` | Knowledge atoms |
-| `local_prompt.go` | Prompt atoms for JIT |
-| `local_review.go` | Review findings |
-| `local_verification.go` | Verification records |
 
 ## Documentation
 
 The codebase includes **46 CLAUDE.md files** providing AI-readable documentation with standardized File Index tables.
-
-**Coverage:**
-- Root `CLAUDE.md` - Architecture overview
-- `cmd/nerd/`, `cmd/nerd/chat/`, `cmd/nerd/ui/` - CLI documentation
-- All 30 `internal/` packages
-- Build tools in `cmd/tools/`
-- `.nerd/` workspace directory
-
-**File Index Format:**
-```markdown
-| File | Description |
-|------|-------------|
-| `kernel.go` | Package marker documenting kernel modularization... |
-| `kernel_init.go` | Constructor `NewRealKernel()` that boots... |
-```
-
-Each description includes: purpose, exported types/functions, key behaviors.
 
 ## Dynamic Adaptation
 
@@ -635,7 +576,7 @@ For detailed architecture and implementation specs, see:
 
 ## Top 30 Mangle Errors
 
-Common errors AI coding agents make when writing Mangle code, categorized by stack layer.
+Common errors when writing Mangle code, categorized by stack layer.
 
 ### I. Syntactic Hallucinations (The "Soufflé/SQL" Bias)
 

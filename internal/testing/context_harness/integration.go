@@ -10,6 +10,12 @@ import (
 	"codenerd/internal/store"
 )
 
+// scoredFact represents a fact with an activation score for sorting.
+type scoredFact struct {
+	fact  core.Fact
+	score float64
+}
+
 // RealContextEngine wraps codeNERD's actual compression and retrieval systems.
 type RealContextEngine struct {
 	compressor *internalcontext.Compressor
@@ -133,11 +139,6 @@ func (e *RealContextEngine) RetrieveContext(ctx context.Context, query string, t
 	}
 
 	// Apply spreading activation scoring
-	type scoredFact struct {
-		fact  core.Fact
-		score float64
-	}
-
 	scoredFacts := make([]scoredFact, 0, len(allFacts))
 	maxTurnID := 0
 

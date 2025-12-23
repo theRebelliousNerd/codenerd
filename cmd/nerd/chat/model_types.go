@@ -17,10 +17,12 @@ import (
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
+	"codenerd/internal/ux"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 
@@ -56,7 +58,9 @@ const (
 	FilePickerView
 	UsageView
 	CampaignPage
-	PromptInspector // NEW: JIT Prompt Inspector
+	PromptInspector // JIT Prompt Inspector
+	AutopoiesisPage // Autopoiesis Dashboard
+	ShardPage       // Shard Console
 )
 
 // InputMode represents the current input handling state.
@@ -161,6 +165,15 @@ type Model struct {
 	// Campaign Page
 	campaignPage ui.CampaignPageModel
 
+	// JIT Inspector Page
+	jitPage ui.JITPageModel
+
+	// Autopoiesis Dashboard Page
+	autoPage ui.AutopoiesisPageModel
+
+	// Shard Console Page
+	shardPage ui.ShardPageModel
+
 	// Usage Tracking
 	usageTracker *usage.Tracker
 
@@ -196,7 +209,7 @@ type Model struct {
 	kernel              *core.RealKernel
 	shardMgr            *core.ShardManager
 	shadowMode          *core.ShadowMode
-	transducer          *perception.RealTransducer
+	transducer          perception.Transducer
 	executor            *tactile.SafeExecutor
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
@@ -232,6 +245,9 @@ type Model struct {
 	dreamCollector *core.DreamLearningCollector
 	dreamRouter    *core.DreamRouter
 
+	// Dream Plan Execution (§8.3.2) - Execute plans from Dream State consultations
+	dreamPlanManager *core.DreamPlanManager
+
 	// Local knowledge database for research persistence
 	localDB *store.LocalStore
 
@@ -248,6 +264,9 @@ type Model struct {
 
 	// Transparency Layer (Phase 4 UX) - Makes operations visible to users
 	transparencyMgr *transparency.TransparencyManager
+
+	// User Preferences Manager
+	preferencesMgr *ux.PreferencesManager
 
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
@@ -274,6 +293,19 @@ type Model struct {
 	statusMessage string      // Current operation description
 	statusChan    chan string // Channel for streaming status updates
 
+	// Glass Box Debug Mode - shows system internals inline in chat
+	glassBoxEnabled   bool                              // Runtime toggle
+	glassBoxEventBus  *transparency.GlassBoxEventBus   // Event collection and dispatch
+	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
+	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
+
+	// Tool Event Visibility - ALWAYS shows tool execution in chat (not gated by Glass Box)
+	toolEventBus  *transparency.ToolEventBus   // Tool event collection
+	toolEventChan <-chan transparency.ToolEvent // Tool event subscription channel
+
+	// Tool Execution Persistence - Stores full tool results in SQLite
+	toolStore *store.ToolStore // For querying past executions and cleanup
+
 	// Boot State
 	isBooting bool
 	bootStage BootStage
@@ -294,6 +326,12 @@ type Model struct {
 	// Context State
 	lastShardResult    *ShardResult
 	shardResultHistory []*ShardResult
+
+	// Knowledge Discovery State (LLM-first knowledge gathering)
+	// Populated when the LLM emits knowledge_requests in control_packet
+	pendingKnowledge  []KnowledgeResult // Results from specialist consultations
+	knowledgeHistory  []KnowledgeResult // Historical knowledge for session
+	awaitingKnowledge bool              // True while gathering knowledge
 
 	// Unified Input Mode (replaces scattered awaiting* flags)
 	// Use this for new code; legacy flags preserved for compatibility during migration
@@ -321,11 +359,26 @@ type ShardResult struct {
 	ExtraData  map[string]any   // Any additional structured data
 }
 
+// KnowledgeResult holds the output from a specialist consultation or research request.
+// This is populated when the LLM emits knowledge_requests in the control_packet.
+type KnowledgeResult struct {
+	Specialist string    // Which specialist/shard was consulted
+	Query      string    // The original query/question
+	Purpose    string    // Why this knowledge was needed
+	Response   string    // The specialist's response
+	Timestamp  time.Time // When the knowledge was gathered
+	Error      error     // Any error that occurred (nil if successful)
+}
+
 // Message represents a single message in the chat history
 type Message struct {
-	Role    string // "user" or "assistant"
+	Role    string // "user", "assistant", or "system" (Glass Box events)
 	Content string
 	Time    time.Time
+
+	// Glass Box fields (only set when Role == "system")
+	GlassBoxCategory transparency.GlassBoxCategory // Event category for styling
+	IsCollapsed      bool                          // Whether details are collapsed
 }
 
 // Agent represents a defined agent in the registry
@@ -368,7 +421,7 @@ type SystemComponents struct {
 	VirtualStore          *core.VirtualStore
 	LLMClient             perception.LLMClient
 	LocalDB               *store.LocalStore
-	Transducer            *perception.RealTransducer
+	Transducer            perception.Transducer
 	Executor              *tactile.SafeExecutor
 	Scanner               *world.Scanner
 	Autopoiesis           *autopoiesis.Orchestrator
@@ -387,6 +440,12 @@ type SystemComponents struct {
 	Workspace             string
 	JITCompiler           *prompt.JITPromptCompiler
 	MangleWatcher         *core.MangleWatcher // Monitors .nerd/mangle/*.mg for changes
+	TransparencyMgr       *transparency.TransparencyManager
+	PreferencesMgr        *ux.PreferencesManager
+	Retriever             *retrieval.SparseRetriever
+	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
+	ToolEventBus          *transparency.ToolEventBus     // Always-visible tool execution event bus
+	ToolStore             *store.ToolStore               // Tool execution persistence store
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.
@@ -505,6 +564,9 @@ type (
 	// statusMsg represents a status update from a background process
 	statusMsg string
 
+	// glassBoxEventMsg carries a Glass Box event for inline display
+	glassBoxEventMsg transparency.GlassBoxEvent
+
 	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
 	traceUpdateMsg struct {
 		Trace       *mangle.DerivationTrace
@@ -522,5 +584,13 @@ type (
 	onboardingCheckMsg struct {
 		IsFirstRun bool
 		Workspace  string
+	}
+
+	// knowledgeGatheredMsg signals that specialist consultations are complete.
+	// This triggers re-processing of the original input with enriched context.
+	knowledgeGatheredMsg struct {
+		Results         []KnowledgeResult // Results from all consulted specialists
+		OriginalInput   string            // The user input that triggered knowledge gathering
+		InterimResponse string            // The initial LLM response (may include "let me look that up")
 	}
 )

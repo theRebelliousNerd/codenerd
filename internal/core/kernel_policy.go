@@ -141,7 +141,6 @@ func (k *RealKernel) GetPolicy() string {
 // before accepting it, preventing invalid rules from bricking the kernel.
 func (k *RealKernel) HotLoadRule(rule string) error {
 	timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
-	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -151,6 +150,14 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
 		return err
 	}
+
+	normalizedRule := feedback.NormalizeRuleInput(rule)
+	if normalizedRule != rule {
+		logging.KernelDebug("HotLoadRule: normalized rule input for parser compatibility")
+	}
+	rule = normalizedRule
+
+	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 
 	// Log the rule being loaded (truncated for readability)
 	rulePreview := rule
@@ -342,6 +349,14 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 		return fmt.Errorf("rule uses undeclared predicates: %w", err)
 	}
 	logging.KernelDebug("HotLoadLearnedRule: schema validation passed")
+
+	// 1c. Pathological pattern check - prevent infinite loop rules
+	// This catches rules like "next_action(X) :- current_time(_)" that always fire
+	if loopErr := k.checkInfiniteLoopRisk(rule); loopErr != "" {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: pathological pattern detected: %s", loopErr)
+		return fmt.Errorf("pathological rule rejected: %s", loopErr)
+	}
+	logging.KernelDebug("HotLoadLearnedRule: pathological pattern check passed")
 
 	// 2. Persist to learned.mg file
 	if err := k.appendToLearnedFile(rule); err != nil {

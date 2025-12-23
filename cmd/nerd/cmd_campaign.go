@@ -118,16 +118,18 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	campaignType, _ := cmd.Flags().GetString("type")
 
 	// FIX: Respect authenticated engine configuration instead of hardcoding ZAI
-	llmClient, clientErr := perception.NewClientFromEnv()
+	rawLLMClient, clientErr := perception.NewClientFromEnv()
 	if clientErr != nil {
 		// Fallback to ZAI if config detection fails
 		key := apiKey
 		if key == "" {
 			key = os.Getenv("ZAI_API_KEY")
 		}
-		llmClient = perception.NewZAIClient(key)
+		rawLLMClient = perception.NewZAIClient(key)
 		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
 	}
+	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
+	llmClient := core.NewScheduledLLMCall("campaign-cli", rawLLMClient)
 
 	// Resolve .nerd directory for JIT prompt system
 	nerdDir := filepath.Join(cwd, ".nerd")
@@ -139,6 +141,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
+	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX: Wire persistence layers
 	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
@@ -478,17 +481,20 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize components
-	llmClient, clientErr := perception.NewClientFromEnv()
+	rawLLMClient, clientErr := perception.NewClientFromEnv()
 	if clientErr != nil {
-		llmClient = perception.NewZAIClient(key)
+		rawLLMClient = perception.NewZAIClient(key)
 		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
 	}
+	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
+	llmClient := core.NewScheduledLLMCall("campaign-resume", rawLLMClient)
 	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
+	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 

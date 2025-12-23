@@ -54,6 +54,16 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 	cfg := DefaultConfig()
 	logging.Context("Compressor initialized with default config: budget=%d tokens, threshold=%.0f%%, window=%d turns",
 		cfg.TotalBudget, cfg.CompressionThreshold*100, cfg.RecentTurnWindow)
+
+	// GAP-016 FIX: Load corpus-based serialization order for deterministic fact ordering
+	serializer := NewFactSerializer()
+	if kernel != nil {
+		if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+			serializer.LoadSerializationOrderFromCorpus(corpus)
+			logging.Context("Loaded corpus-based serialization order for context facts")
+		}
+	}
+
 	return &Compressor{
 		kernel:     kernel,
 		store:      localStorage,
@@ -61,7 +71,7 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 		config:     cfg,
 		activation: NewActivationEngine(cfg),
 		budget:     NewTokenBudget(cfg),
-		serializer: NewFactSerializer(),
+		serializer: serializer,
 		counter:    NewTokenCounter(),
 		sessionID:  fmt.Sprintf("session_%d", time.Now().Unix()),
 	}
@@ -1020,6 +1030,18 @@ func (c *Compressor) GetBudgetUsage() (int, int) {
 	return c.budget.TotalUsed(), c.config.TotalBudget
 }
 
+// RefreshBudget recalculates the token budget based on current state.
+// Call this after LoadState to ensure the budget reflects restored context.
+func (c *Compressor) RefreshBudget() {
+	c.mu.Lock()
+	turnNumber := c.turnNumber
+	c.mu.Unlock()
+
+	// recalcBudget accesses kernel/activation which have their own locks,
+	// so we call it outside our lock to avoid deadlock.
+	c.recalcBudget(turnNumber, 0)
+}
+
 // IsCompressionActive returns true if callers should use compressed context
 // instead of raw conversation history. This is token-budget driven:
 // - Returns false when we have room for raw history (use full context)
@@ -1233,6 +1255,15 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// LoadPrioritiesFromCorpus loads predicate priorities from the kernel's corpus.
+// GAP-003 FIX: This enables activation engine to use corpus-defined priorities.
+func (c *Compressor) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpus) error {
+	if c.activation == nil {
+		return nil
+	}
+	return c.activation.LoadPrioritiesFromCorpus(corpus)
 }
 
 // GetActivationScores returns current activation scores for all facts.

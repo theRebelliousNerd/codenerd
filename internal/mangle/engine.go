@@ -840,6 +840,21 @@ func (e *Engine) Clear() {
 	e.fileFacts = make(map[string][]ast.Atom)
 }
 
+// Reset clears all facts AND schema definitions, restoring the engine to a blank slate.
+func (e *Engine) Reset() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.baseStore = factstore.NewSimpleInMemoryStore()
+	e.store = factstore.NewConcurrentFactStore(e.baseStore)
+	e.factCount = 0
+	e.fileFacts = make(map[string][]ast.Atom)
+	e.programInfo = nil
+	e.queryContext = nil
+	e.predicateIndex = make(map[string]ast.PredicateSym)
+	e.schemaFragments = nil
+	e.derivedCount = 0
+}
+
 // Close cleans up engine resources.
 func (e *Engine) Close() error {
 	return nil

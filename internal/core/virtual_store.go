@@ -34,10 +34,9 @@ type VirtualStore struct {
 	modernExecutor tactile.Executor
 	auditLogger    *tactile.AuditLogger
 
-	// Integration clients (via interface to break import cycle)
-	codeGraph IntegrationClient
-	browser   IntegrationClient
-	scraper   IntegrationClient
+	// MCP integration clients - dynamic map supports arbitrary servers
+	// Key is server ID (e.g., "code_graph", "browser", "my_custom_server")
+	mcpClients map[string]IntegrationClient
 
 	// Shard delegation
 	shardManager *coreshards.ShardManager
@@ -86,6 +85,11 @@ type VirtualStore struct {
 
 	// Action log retention (avoid unbounded growth in kernel facts)
 	lastLogPrune time.Time
+
+	// Boot guard: prevents action execution until first user interaction.
+	// This ensures session rehydration doesn't trigger old actions.
+	// Set to true on initialization, disabled when user sends first message.
+	bootGuardActive bool
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -131,6 +135,8 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		allowedBinaries: config.AllowedBinaries,
 		shardManager:    coreshards.NewShardManager(),
 		toolRegistry:    NewToolRegistry(config.WorkingDir),
+		mcpClients:      make(map[string]IntegrationClient),
+		bootGuardActive: true, // Prevent action execution until first user interaction
 	}
 
 	// Wire up self-reference for ShardManager dependency injection
@@ -233,6 +239,26 @@ func (v *VirtualStore) DisableModernExecutor() {
 	v.useModernExecutor = false
 }
 
+// DisableBootGuard disables the boot guard, allowing action routing.
+// This should be called when the first user message is received.
+// Until this is called, ALL action routing through RouteAction is blocked,
+// preventing session rehydration from replaying old actions.
+func (v *VirtualStore) DisableBootGuard() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.bootGuardActive {
+		v.bootGuardActive = false
+		logging.VirtualStore("Boot guard disabled: action routing now enabled")
+	}
+}
+
+// IsBootGuardActive returns whether the boot guard is currently active.
+func (v *VirtualStore) IsBootGuardActive() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.bootGuardActive
+}
+
 // GetAuditMetrics returns execution metrics from the audit logger.
 func (v *VirtualStore) GetAuditMetrics() tactile.ExecutionMetricsSnapshot {
 	if v.auditLogger == nil {
@@ -252,16 +278,10 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	// Build permission cache from kernel's permitted/1 facts (O(1) lookup optimization)
 	v.rebuildPermissionCache()
 
-	// Wire dreamer to the real kernel when available
+	// Wire VirtualStore back to RealKernel for bidirectional communication.
+	// NOTE: Dreamer is created LAZILY in getDreamer() to avoid startup overhead.
 	if realKernel, ok := k.(*RealKernel); ok {
 		realKernel.SetVirtualStore(v)
-		if v.dreamer == nil {
-			v.dreamer = NewDreamer(realKernel)
-			logging.VirtualStoreDebug("Dreamer created for speculative execution")
-		} else {
-			v.dreamer.SetKernel(realKernel)
-			logging.VirtualStoreDebug("Dreamer kernel updated")
-		}
 	}
 
 	// Also set kernel on tool registry
@@ -269,6 +289,42 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 		v.toolRegistry.SetKernel(k)
 		logging.VirtualStoreDebug("Tool registry kernel reference updated")
 	}
+}
+
+// getDreamer returns the Dreamer instance, creating it lazily if needed.
+// This avoids creating the Dreamer at boot time when it's not needed.
+func (v *VirtualStore) getDreamer() *Dreamer {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.dreamer != nil {
+		return v.dreamer
+	}
+
+	// Only create if we have a RealKernel
+	if realKernel, ok := v.kernel.(*RealKernel); ok {
+		v.dreamer = NewDreamer(realKernel)
+		logging.VirtualStore("Dreamer created lazily for speculative execution")
+	}
+
+	return v.dreamer
+}
+
+// SimulateActionWithDreamer runs speculative dream analysis on an action.
+// This is OPT-IN - call this explicitly when you want precognition safety checks.
+// Returns (safe, reason) - if safe is false, the action would be blocked.
+func (v *VirtualStore) SimulateActionWithDreamer(ctx context.Context, req ActionRequest) (bool, string) {
+	dreamer := v.getDreamer()
+	if dreamer == nil {
+		return true, "" // No dreamer available, allow action
+	}
+
+	dream := dreamer.SimulateAction(ctx, req)
+	if dream.Unsafe {
+		logging.VirtualStore("Dreamer flagged action as unsafe: %s - %s", req.Type, dream.Reason)
+		return false, dream.Reason
+	}
+	return true, ""
 }
 
 // Get resolves virtual predicates for the Mangle kernel on demand.
@@ -290,6 +346,8 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 		return vs.getQueryTracesAtoms(query)
 	case "query_trace_stats":
 		return vs.getQueryTraceStatsAtoms(query)
+	case "query_strategic":
+		return vs.getQueryStrategicAtoms(query)
 	default:
 		return nil, nil
 	}
@@ -337,28 +395,38 @@ func (v *VirtualStore) SetShardManager(sm *coreshards.ShardManager) {
 	logging.VirtualStoreDebug("ShardManager attached to VirtualStore")
 }
 
-// SetCodeGraphClient sets the code graph integration client.
-func (v *VirtualStore) SetCodeGraphClient(client IntegrationClient) {
+// SetMCPClient registers an MCP integration client for the given server ID.
+// Server IDs are arbitrary strings (e.g., "code_graph", "browser", "my_custom_server").
+func (v *VirtualStore) SetMCPClient(serverID string, client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.codeGraph = client
-	logging.VirtualStoreDebug("CodeGraph MCP client attached")
+	if v.mcpClients == nil {
+		v.mcpClients = make(map[string]IntegrationClient)
+	}
+	v.mcpClients[serverID] = client
+	logging.VirtualStoreDebug("MCP client attached: %s", serverID)
 }
 
-// SetBrowserClient sets the browser integration client.
-func (v *VirtualStore) SetBrowserClient(client IntegrationClient) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.browser = client
-	logging.VirtualStoreDebug("Browser MCP client attached")
+// GetMCPClient returns the MCP integration client for the given server ID.
+// Returns nil if no client is registered for that server.
+func (v *VirtualStore) GetMCPClient(serverID string) IntegrationClient {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.mcpClients == nil {
+		return nil
+	}
+	return v.mcpClients[serverID]
 }
 
-// SetScraperClient sets the scraper integration client.
-func (v *VirtualStore) SetScraperClient(client IntegrationClient) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.scraper = client
-	logging.VirtualStoreDebug("Scraper MCP client attached")
+// GetMCPClientNames returns all registered MCP client server IDs.
+func (v *VirtualStore) GetMCPClientNames() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	names := make([]string, 0, len(v.mcpClients))
+	for name := range v.mcpClients {
+		names = append(names, name)
+	}
+	return names
 }
 
 // SetCodeScope sets the Code DOM scope manager.
@@ -660,6 +728,16 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
 	defer timer.Stop()
 
+	// Boot guard: block ALL action routing until first user interaction.
+	// This prevents session rehydration from replaying old actions.
+	v.mu.RLock()
+	bootGuardActive := v.bootGuardActive
+	v.mu.RUnlock()
+	if bootGuardActive {
+		logging.VirtualStore("Boot guard active: blocking action routing (predicate=%s) until user interaction", action.Predicate)
+		return "", fmt.Errorf("boot guard active: action routing blocked until user interaction")
+	}
+
 	logging.VirtualStore("Routing action: predicate=%s, args=%d", action.Predicate, len(action.Args))
 
 	// Parse the action fact
@@ -671,25 +749,9 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	logging.VirtualStoreDebug("Parsed action: type=%s, target=%s", req.Type, req.Target)
 
-	// Speculative dreaming: block obviously unsafe actions before constitutional checks.
-	// Skip for read-only actions to prevent false positives on file content (Bug #9)
-	if v.dreamer != nil && req.Type != ActionReadFile && req.Type != ActionFSRead {
-		logging.VirtualStoreDebug("Running speculative dream simulation for action %s", req.Type)
-		dream := v.dreamer.SimulateAction(ctx, req)
-		if dream.Unsafe {
-			logging.Get(logging.CategoryVirtualStore).Warn("Action blocked by precognition: %s - %s", req.Type, dream.Reason)
-			v.injectFact(Fact{
-				Predicate: "dream_block",
-				Args: []interface{}{
-					dream.ActionID,
-					string(req.Type),
-					req.Target,
-					dream.Reason,
-				},
-			})
-			return "", fmt.Errorf("precognition block: %s", dream.Reason)
-		}
-	}
+	// NOTE: Speculative dreaming (precognition) is OPT-IN only.
+	// It was previously auto-invoked here but caused unwanted startup activity.
+	// Use SimulateActionWithDreamer() explicitly when dream state analysis is needed.
 
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {

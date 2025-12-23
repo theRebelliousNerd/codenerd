@@ -57,13 +57,14 @@ func payloadForArticulation(intent perception.Intent, mangleUpdates []string) ar
 // ArticulationOutput contains the full output from the articulation layer.
 // This is used to pass control data back to the compressor.
 type ArticulationOutput struct {
-	Surface          string
-	Envelope         articulation.PiggybackEnvelope
-	MemoryOperations []articulation.MemoryOperation
-	MangleUpdates    []string
-	SelfCorrection   *articulation.SelfCorrection
-	ParseMethod      string
-	Warnings         []string
+	Surface           string
+	Envelope          articulation.PiggybackEnvelope
+	MemoryOperations  []articulation.MemoryOperation
+	MangleUpdates     []string
+	SelfCorrection    *articulation.SelfCorrection
+	KnowledgeRequests []articulation.KnowledgeRequest // LLM-initiated knowledge gathering
+	ParseMethod       string
+	Warnings          []string
 }
 
 // articulateWithContext performs the articulation phase and returns the surface response.
@@ -247,11 +248,12 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 
 	// Build output
 	output := &ArticulationOutput{
-		Surface:          result.Surface,
-		MemoryOperations: result.Control.MemoryOperations,
-		MangleUpdates:    result.Control.MangleUpdates,
-		ParseMethod:      result.ParseMethod,
-		Warnings:         result.Warnings,
+		Surface:           result.Surface,
+		MemoryOperations:  result.Control.MemoryOperations,
+		MangleUpdates:     result.Control.MangleUpdates,
+		KnowledgeRequests: result.Control.KnowledgeRequests,
+		ParseMethod:       result.ParseMethod,
+		Warnings:          result.Warnings,
 	}
 
 	// Check for self-correction
@@ -714,6 +716,81 @@ func (m Model) runScan(deep bool) tea.Cmd {
 			fileCount:      fileCount,
 			directoryCount: dirCount,
 			factCount:      factCount,
+			duration:       time.Since(startTime),
+		}
+	}
+}
+
+// docRefreshCompleteMsg signals completion of document refresh.
+type docRefreshCompleteMsg struct {
+	docsDiscovered int
+	docsProcessed  int
+	atomsStored    int
+	duration       time.Duration
+	err            error
+}
+
+// runDocRefresh scans for new/changed documentation and updates the knowledge base.
+// Uses Mangle tracking to only process documents that have changed since last run.
+func (m Model) runDocRefresh(force bool) tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+		m.ReportStatus("Discovering documentation files...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+
+		// Create initializer for doc processing (reuses init infrastructure)
+		initConfig := nerdinit.InitConfig{
+			Workspace:    m.workspace,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			Timeout:      15 * time.Minute,
+			Interactive:  false,
+		}
+
+		initializer, err := nerdinit.NewInitializer(initConfig)
+		if err != nil {
+			return docRefreshCompleteMsg{err: fmt.Errorf("failed to create initializer: %w", err)}
+		}
+
+		// Gather all documentation
+		allDocs := initializer.GatherProjectDocumentation()
+		if len(allDocs) == 0 {
+			return docRefreshCompleteMsg{
+				docsDiscovered: 0,
+				duration:       time.Since(startTime),
+			}
+		}
+
+		m.ReportStatus(fmt.Sprintf("Found %d docs, processing with Mangle tracking...", len(allDocs)))
+
+		// Process with tracking (handles resumption, change detection, incremental storage)
+		state, err := initializer.ProcessDocumentsWithTracking(ctx, allDocs, m.localDB, m.kernel)
+		if err != nil {
+			return docRefreshCompleteMsg{err: fmt.Errorf("document processing failed: %w", err)}
+		}
+
+		// If synthesis is ready and we have stored docs, run synthesis
+		if state.SynthesisReady && state.TotalStored > 0 {
+			m.ReportStatus("Synthesizing strategic knowledge from stored atoms...")
+			knowledge, synthErr := initializer.SynthesizeFromStoredAtoms(ctx, m.localDB, state)
+			if synthErr != nil {
+				// Log but don't fail - we still stored the individual atoms
+				m.ReportStatus(fmt.Sprintf("Synthesis warning: %v", synthErr))
+			} else if knowledge != nil {
+				// Persist the synthesized knowledge
+				if _, persistErr := initializer.PersistStrategicKnowledge(ctx, knowledge, m.localDB); persistErr != nil {
+					m.ReportStatus(fmt.Sprintf("Persist warning: %v", persistErr))
+				}
+			}
+		}
+
+		m.ReportStatus("Document refresh complete")
+		return docRefreshCompleteMsg{
+			docsDiscovered: state.TotalDiscovered,
+			docsProcessed:  state.TotalProcessed,
+			atomsStored:    state.TotalStored,
 			duration:       time.Since(startTime),
 		}
 	}
@@ -1323,6 +1400,8 @@ func isConversationalIntent(intent perception.Intent) bool {
 		"/help":      true, // Capability questions: what can you do?
 		"/knowledge": true, // Memory queries: what do you remember?
 		"/shadow":    true, // What-if queries: what would happen if?
+		"/dream":     true, // Dream mode queries: hypothetical scenarios
+		"/configure": true, // Configuration instructions: preferences, settings
 	}
 
 	// If it's an always-conversational verb, return true immediately
@@ -1331,28 +1410,17 @@ func isConversationalIntent(intent perception.Intent) bool {
 	}
 
 	// Verbs that are conditionally conversational based on target
+	// NOTE: /explain is intentionally NOT in this list - it must go through
+	// articulation so the LLM can emit knowledge_requests for unknown topics.
+	// Previously /explain was bypassing articulation for "conceptual" topics,
+	// which prevented the knowledge discovery system from working.
 	conditionalVerbs := map[string]bool{
-		"/explain": true, // General explanations (but not code-specific)
-		"/read":    true, // Simple file reads (when target is "none" or empty)
+		"/read": true, // Simple file reads (when target is "none" or empty)
 	}
 
 	// Check if it's a conditional verb
 	if !conditionalVerbs[intent.Verb] {
 		return false
-	}
-
-	// For /explain, it's conversational if target is generic/none
-	// (actual code explanation with a specific target should go through articulation)
-	if intent.Verb == "/explain" {
-		target := strings.ToLower(intent.Target)
-		// Generic targets indicate conversational intent
-		if target == "" || target == "none" || target == "codebase" ||
-			target == "hi" || target == "hello" || target == "help" ||
-			strings.Contains(target, "what can you") ||
-			strings.Contains(target, "what do you") ||
-			strings.Contains(target, "capabilities") {
-			return true
-		}
 	}
 
 	// For /read with no specific target, it's conversational
@@ -1450,7 +1518,7 @@ func (m Model) renderToolInfo(toolName string) string {
 // runTool executes a generated tool asynchronously
 func (m Model) runTool(toolName, input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute) // Extended for LLM-based tools
 		defer cancel()
 
 		if m.autopoiesis == nil {
@@ -1502,7 +1570,7 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 // generateTool generates a new tool using the Ouroboros Loop
 func (m Model) generateTool(description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Ouroboros has multiple LLM stages
 		defer cancel()
 
 		if m.autopoiesis == nil {

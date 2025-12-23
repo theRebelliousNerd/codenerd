@@ -76,6 +76,28 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.saveSessionState()
 		return m, nil
 
+	case "/reset":
+		// POWER-USER-FEATURE: Reset kernel facts while keeping policy
+		// This clears the working memory but preserves learned rules and schemas
+		if m.kernel != nil {
+			m.kernel.Reset()
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Kernel reset. Facts cleared, policy and schemas retained.",
+				Time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "No kernel attached - nothing to reset.",
+				Time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/new-session":
 		// Start a completely new session with fresh ID
 		m.history = []Message{}
@@ -171,6 +193,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /logic | Show logic pane content |
 | /shadow | Run shadow mode simulation |
 | /whatif <change> | Counterfactual query |
+| /glassbox | Toggle Glass Box debug mode (inline system visibility) |
+| /glassbox status | Show Glass Box status |
+| /glassbox verbose | Toggle verbose details |
 | /approve | Approve pending changes |
 | /reject-finding <file>:<line> <reason> | Mark finding as false positive |
 | /accept-finding <file>:<line> | Confirm finding is valid |
@@ -201,6 +226,7 @@ or you can create them on-demand with /tool generate.
 | Ctrl+X | Stop current activity (visible during loading) |
 | Shift+Tab | Cycle continuation mode (Auto → Confirm → Breakpoint) |
 | Alt+L | Toggle logic pane |
+| Alt+D | Toggle Glass Box debug mode |
 | Alt+M | Toggle mouse capture (for text selection) |
 | Ctrl+L | Toggle logic pane |
 | Ctrl+G | Cycle pane modes |
@@ -359,6 +385,27 @@ or you can create them on-demand with /tool generate.
 		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runScan(deep))
+
+	case "/refresh-docs", "/scan-docs":
+		// Refresh strategic knowledge by re-scanning and processing documentation
+		// Uses Mangle tracking to only process new/changed docs
+		force := false
+		for _, part := range parts[1:] {
+			if part == "--force" || part == "-f" {
+				force = true
+				break
+			}
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Scanning documentation for updates...\n\nThis will:\n- Discover new/changed docs\n- Use LLM to filter for relevance\n- Extract knowledge atoms incrementally\n- Update the strategic knowledge base",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.runDocRefresh(force))
 
 	case "/scan-path":
 		if len(parts) < 2 {
@@ -1168,14 +1215,15 @@ You have an existing Northstar definition. What would you like to do?
 		task := formatShardTask("/test", target, "", m.workspace)
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: fmt.Sprintf("Running test task: %s", task),
+			Content: fmt.Sprintf("Running test task: %s (with specialist matching)", task),
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
 		m.isLoading = true
-		return m, tea.Batch(m.spinner.Tick, m.spawnShard("tester", task))
+		// Use specialist-aware spawning for /test
+		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/test", "tester", task, target))
 
 	case "/fix":
 		if len(parts) < 2 {
@@ -1189,14 +1237,15 @@ You have an existing Northstar definition. What would you like to do?
 			task := formatShardTask("/fix", target, "", m.workspace)
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Attempting to fix: %s", target),
+				Content: fmt.Sprintf("Attempting to fix: %s (with specialist matching)", target),
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
+			// Use specialist-aware spawning for /fix
+			return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/fix", "coder", task, target))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -1215,14 +1264,15 @@ You have an existing Northstar definition. What would you like to do?
 			task := formatShardTask("/refactor", target, "", m.workspace)
 			m.history = append(m.history, Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Refactoring: %s", target),
+				Content: fmt.Sprintf("Refactoring: %s (with specialist matching)", target),
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
 			m.textarea.Reset()
 			m.isLoading = true
-			return m, tea.Batch(m.spinner.Tick, m.spawnShard("coder", task))
+			// Use specialist-aware spawning for /refactor
+			return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/refactor", "coder", task, target))
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -1312,6 +1362,37 @@ You have an existing Northstar definition. What would you like to do?
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
+		return m, nil
+
+	case "/glassbox":
+		// Glass Box debug mode - inline system visibility
+		var response string
+		if len(parts) > 1 {
+			switch parts[1] {
+			case "status":
+				response = m.glassBoxStatus()
+			case "verbose":
+				response = m.toggleGlassBoxVerbose()
+			default:
+				// Try as category toggle
+				response = m.toggleGlassBoxCategory(parts[1])
+			}
+		} else {
+			// Toggle Glass Box mode
+			response = m.toggleGlassBox()
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: response,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		// Start listening for events if enabled
+		if m.glassBoxEnabled {
+			return m, m.listenGlassBoxEvents()
+		}
 		return m, nil
 
 	case "/transparency":
@@ -1733,6 +1814,19 @@ You have an existing Northstar definition. What would you like to do?
 		m.textarea.Reset()
 		return m, nil
 
+	case "/cleanup-tools":
+		// Tool execution cleanup command
+		content := m.handleCleanupToolsCommand(parts[1:])
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	default:
 		m.history = append(m.history, Message{
 			Role:    "assistant",
@@ -1813,4 +1907,145 @@ func (m Model) buildStatusReport() string {
 	}
 
 	return sb.String()
+}
+
+// handleCleanupToolsCommand handles the /cleanup-tools command for managing tool execution storage.
+// Flags:
+//   - (no args): Show current storage stats
+//   - --runtime: Cleanup by runtime hours budget (default: 336 hours)
+//   - --size: Cleanup by size limit (default: 100MB)
+//   - --smart: LLM-based intelligent cleanup (requires confirmation)
+//   - --force: Skip confirmation prompts
+func (m Model) handleCleanupToolsCommand(args []string) string {
+	var sb strings.Builder
+
+	// Check if ToolStore is available
+	if m.toolStore == nil {
+		return "Tool execution persistence is not enabled. Initialize with `/init` first."
+	}
+
+	// Parse flags
+	var mode string
+	var force bool
+	for _, arg := range args {
+		switch arg {
+		case "--runtime":
+			mode = "runtime"
+		case "--size":
+			mode = "size"
+		case "--smart":
+			mode = "smart"
+		case "--force":
+			force = true
+		case "--help", "-h":
+			return m.renderCleanupToolsHelp()
+		}
+	}
+
+	// Get current stats
+	stats, err := m.toolStore.GetStats()
+	if err != nil {
+		return fmt.Sprintf("Error getting storage stats: %v", err)
+	}
+
+	sb.WriteString("## Tool Execution Storage\n\n")
+	sb.WriteString("### Current Status\n")
+	sb.WriteString(fmt.Sprintf("- **Total Executions:** %d\n", stats.TotalExecutions))
+	sb.WriteString(fmt.Sprintf("- **Storage Size:** %.2f MB\n", float64(stats.TotalSizeBytes)/1024/1024))
+	sb.WriteString(fmt.Sprintf("- **Runtime Hours:** %.1f hours\n", stats.TotalRuntimeHours))
+	sb.WriteString(fmt.Sprintf("- **Success/Failure:** %d/%d\n", stats.SuccessCount, stats.FailureCount))
+	if len(stats.ToolBreakdown) > 0 {
+		sb.WriteString("- **Tools Used:** ")
+		first := true
+		for tool, count := range stats.ToolBreakdown {
+			if !first {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%s(%d)", tool, count))
+			first = false
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+
+	// If no mode specified, just show stats
+	if mode == "" {
+		sb.WriteString("### Cleanup Options\n")
+		sb.WriteString("- `/cleanup-tools --runtime` - Delete executions exceeding 336 runtime hours\n")
+		sb.WriteString("- `/cleanup-tools --size` - Delete oldest executions to stay under 100MB\n")
+		sb.WriteString("- `/cleanup-tools --smart` - LLM-based intelligent cleanup\n")
+		sb.WriteString("- Add `--force` to skip confirmation\n")
+		return sb.String()
+	}
+
+	// Execute cleanup based on mode
+	sb.WriteString("### Cleanup Results\n")
+
+	switch mode {
+	case "runtime":
+		budgetHours := 336.0 // 14 days equivalent
+		if !force {
+			sb.WriteString(fmt.Sprintf("Would clean up executions exceeding %.0f runtime hours.\n", budgetHours))
+			sb.WriteString("Add `--force` to execute.\n")
+			return sb.String()
+		}
+		result, err := m.toolStore.CleanupByRuntimeBudget(budgetHours)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("Error during cleanup: %v\n", err))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **Executions Deleted:** %d\n", result.ExecutionsDeleted))
+			sb.WriteString(fmt.Sprintf("- **Space Freed:** %.2f MB\n", float64(result.BytesFreed)/1024/1024))
+			sb.WriteString(fmt.Sprintf("- **Runtime Hours Freed:** %.1f hours\n", result.RuntimeHoursFreed))
+		}
+
+	case "size":
+		maxBytes := int64(100 * 1024 * 1024) // 100MB
+		if !force {
+			sb.WriteString(fmt.Sprintf("Would clean up to stay under %.0f MB.\n", float64(maxBytes)/1024/1024))
+			sb.WriteString("Add `--force` to execute.\n")
+			return sb.String()
+		}
+		result, err := m.toolStore.CleanupBySizeLimit(maxBytes)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("Error during cleanup: %v\n", err))
+		} else {
+			sb.WriteString(fmt.Sprintf("- **Executions Deleted:** %d\n", result.ExecutionsDeleted))
+			sb.WriteString(fmt.Sprintf("- **Space Freed:** %.2f MB\n", float64(result.BytesFreed)/1024/1024))
+		}
+
+	case "smart":
+		sb.WriteString("LLM-based intelligent cleanup is not yet implemented.\n")
+		sb.WriteString("Use `--runtime` or `--size` for now.\n")
+	}
+
+	return sb.String()
+}
+
+// renderCleanupToolsHelp renders the help text for /cleanup-tools command.
+func (m Model) renderCleanupToolsHelp() string {
+	return `## /cleanup-tools - Manage Tool Execution Storage
+
+### Usage
+` + "`/cleanup-tools [--runtime|--size|--smart] [--force]`" + `
+
+### Options
+- ` + "`(no args)`" + ` - Show current storage statistics
+- ` + "`--runtime`" + ` - Delete executions exceeding 336 runtime hours (14 days equivalent)
+- ` + "`--size`" + ` - Delete oldest executions to stay under 100MB storage limit
+- ` + "`--smart`" + ` - LLM-based intelligent cleanup (coming soon)
+- ` + "`--force`" + ` - Skip confirmation and execute cleanup immediately
+
+### Examples
+` + "```" + `
+/cleanup-tools              # Show stats
+/cleanup-tools --runtime    # Preview runtime cleanup
+/cleanup-tools --size --force  # Execute size-based cleanup
+` + "```" + `
+
+### Storage Strategy
+Tool executions are stored in ` + "`.nerd/tools.db`" + ` with:
+- Full result content for debugging
+- Reference tracking for usefulness scoring
+- Session runtime for accurate retention policies
+`
 }

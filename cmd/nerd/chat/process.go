@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -21,6 +22,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,6 +86,17 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1. PERCEPTION (Transducer) - with conversation history for context
 		m.ReportStatus("Perception: parsing intent...")
+
+		// Disable boot guards on first user interaction.
+		// This signals that the system is ready for normal operation and allows
+		// action execution (prevents startup action spam from session rehydration).
+		if m.shardMgr != nil {
+			m.shardMgr.DisableExecutiveBootGuard()
+		}
+		if m.virtualStore != nil {
+			m.virtualStore.DisableBootGuard()
+		}
+
 		// Convert history to perception.ConversationTurn format
 		// Use ALL history until compression kicks in, then use recent window only
 		var historyForPerception []perception.ConversationTurn
@@ -133,6 +146,21 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 
+		// Glass Box: Emit perception event
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			summary := fmt.Sprintf("Intent: %s%s → %s (%.0f%%)",
+				intent.Category, intent.Verb, truncateSummary(intent.Target, 40), intent.Confidence*100)
+			details := fmt.Sprintf("Category: %s\nVerb: %s\nTarget: %s\nConstraint: %s",
+				intent.Category, intent.Verb, intent.Target, intent.Constraint)
+			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryPerception,
+				Summary:   summary,
+				Details:   details,
+				TurnID:    m.turnCount,
+			})
+		}
+
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
 			// CONTINUATION PROTOCOL: Clean up stale continuation facts from previous turns
@@ -141,6 +169,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("pending_test")
 			_ = m.kernel.Retract("pending_review")
 			_ = m.kernel.Retract("interrupt_requested")
+
+			// STALE ACTION CLEANUP: Clear action pipeline facts from previous turns/sessions
+			// These facts accumulate and cause misleading "System actions" displays for greetings
+			// and other conversational intents that don't actually trigger shard work.
+			_ = m.kernel.Retract("execution_result")
+			_ = m.kernel.Retract("routing_result")
+			_ = m.kernel.Retract("pending_action")
+			_ = m.kernel.Retract("delegate_task")
 
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
@@ -163,10 +199,34 @@ func (m Model) processInput(input string) tea.Cmd {
 					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 				}
 				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+
+				// Glass Box: Emit kernel event
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, truncateSummary(intent.Target, 30)),
+						TurnID:    m.turnCount,
+					})
+				}
+			} else {
+				// Glass Box: Emit kernel event (handled by system shard)
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Intent handled by PerceptionFirewall: %s%s", intent.Category, intent.Verb),
+						TurnID:    m.turnCount,
+					})
+				}
 			}
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
 			m.seedIssueFacts(intent, input)
+
+			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
+			// This enables the activation engine and JIT compiler to be campaign-aware.
+			m.seedCampaignFacts()
 		}
 
 		// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.
@@ -254,6 +314,26 @@ func (m Model) processInput(input string) tea.Cmd {
 		// This implements automatic shard spawning from natural language
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
+
+		// Glass Box: Emit routing decision
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			if shardType != "" {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → %s shard (confidence: %.0f%%)", intent.Verb, shardType, intent.Confidence*100),
+					TurnID:    m.turnCount,
+				})
+			} else {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → no shard delegation", intent.Verb),
+					TurnID:    m.turnCount,
+				})
+			}
+		}
+
 		if shardType != "" && intent.Confidence >= 0.5 {
 			if m.needsWorkspaceScanForDelegation(intent) && !workspaceScanned {
 				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
@@ -308,7 +388,47 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// Shard spawn with queue backpressure management (user-initiated = high priority)
+			// Glass Box: Emit shard spawn event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, truncateSummary(task, 40)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+			}
+
 			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+
+			// Glass Box: Emit shard completion event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				status := "completed"
+				if spawnErr != nil {
+					status = "failed"
+				}
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Shard %s: %s (result: %d chars)", shardType, status, len(result)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+
+				// Glass Box: Emit JIT compilation stats if available
+				if m.jitCompiler != nil {
+					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Stats != nil {
+						stats := jitResult.Stats
+						m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+							Timestamp: time.Now(),
+							Category:  transparency.CategoryJIT,
+							Summary:   fmt.Sprintf("JIT: %d atoms (%d skel + %d flesh), %d/%d tokens (%.0f%%)", stats.AtomsSelected, stats.SkeletonAtoms, stats.FleshAtoms, stats.TokensUsed, stats.TokenBudget, stats.BudgetUtilization*100),
+							Duration:  stats.Duration,
+							TurnID:    m.turnCount,
+						})
+					}
+				}
+			}
 
 			// CRITICAL FIX: Inject shard results as facts for cross-turn context
 			// This enables the main agent to reference shard outputs in future turns
@@ -406,6 +526,16 @@ func (m Model) processInput(input string) tea.Cmd {
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
 		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
+			// Glass Box: Emit direct response path
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   fmt.Sprintf("Direct response: %s (bypassing articulation)", intent.Verb),
+					Details:   "Conversational intent handled directly from perception without full articulation pass",
+					TurnID:    m.turnCount,
+				})
+			}
 			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
@@ -609,6 +739,20 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
+		// =====================================================================
+		// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
+		// =====================================================================
+		// If the LLM requested knowledge from specialists, gather it and re-process.
+		// This enables the LLM to proactively research topics it doesn't know.
+		// Guard: Don't re-request knowledge if we already have pending results (prevents infinite loop).
+		if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge && len(m.pendingKnowledge) == 0 {
+			logging.Get(logging.CategoryContext).Info(
+				"LLM requested knowledge: %d specialists to consult",
+				len(artOutput.KnowledgeRequests),
+			)
+			return m.handleKnowledgeRequests(ctx, artOutput.KnowledgeRequests, input, response)
+		}
+
 		// 7. SEMANTIC COMPRESSION (Process turn for infinite context)
 		// This implements §8.2: Compress surface text, retain only logical atoms
 		// Now properly wired with MemoryOperations from articulation!
@@ -689,6 +833,36 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 			}
 
+			// Glass Box: Emit control packet event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				summary := fmt.Sprintf("Control: %d mangle updates, %d memory ops",
+					len(controlPacket.MangleUpdates), len(controlPacket.MemoryOperations))
+				var details strings.Builder
+				if len(controlPacket.MangleUpdates) > 0 {
+					details.WriteString("Mangle Updates:\n")
+					for _, u := range controlPacket.MangleUpdates {
+						details.WriteString("  " + truncateSummary(u, 60) + "\n")
+					}
+				}
+				if len(controlPacket.MemoryOperations) > 0 {
+					details.WriteString("Memory Operations:\n")
+					for _, op := range controlPacket.MemoryOperations {
+						details.WriteString(fmt.Sprintf("  %s: %s\n", op.Op, op.Key))
+					}
+				}
+				if controlPacket.SelfCorrection != nil && controlPacket.SelfCorrection.Triggered {
+					summary += " [SELF-CORRECTION]"
+					details.WriteString("Self-Correction: " + truncateSummary(controlPacket.SelfCorrection.Hypothesis, 100) + "\n")
+				}
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   summary,
+					Details:   details.String(),
+					TurnID:    m.turnCount,
+				})
+			}
+
 			turn := ctxcompress.Turn{
 				Number:          m.turnCount, // zero-based turn numbering
 				Role:            "assistant",
@@ -722,6 +896,43 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+	}
+}
+
+// processInputWithKnowledge re-processes input after knowledge gathering.
+// The gathered knowledge is already stored in m.pendingKnowledge and will be
+// injected into SessionContext by buildSessionContext(), making it available
+// to the articulation layer for synthesizing an informed response.
+func (m Model) processInputWithKnowledge(input string) tea.Cmd {
+	return func() tea.Msg {
+		// Add context about gathered knowledge to the input
+		var knowledgeSummary strings.Builder
+		if len(m.pendingKnowledge) > 0 {
+			knowledgeSummary.WriteString("\n\n---\n**Gathered Knowledge from Specialists:**\n\n")
+			for _, kr := range m.pendingKnowledge {
+				if kr.Error == nil && kr.Response != "" {
+					knowledgeSummary.WriteString(fmt.Sprintf("### From %s\n", kr.Specialist))
+					knowledgeSummary.WriteString(fmt.Sprintf("**Query:** %s\n\n", kr.Query))
+					// Truncate very long responses for context budget
+					response := kr.Response
+					if len(response) > 2000 {
+						response = response[:2000] + "\n\n[...truncated for brevity]"
+					}
+					knowledgeSummary.WriteString(response)
+					knowledgeSummary.WriteString("\n\n")
+				}
+			}
+			knowledgeSummary.WriteString("---\n\n")
+			knowledgeSummary.WriteString("Please synthesize this knowledge to answer the user's question.\n")
+		}
+
+		// Augment the input with gathered knowledge context
+		enrichedInput := input + knowledgeSummary.String()
+
+		// Re-run the full processing pipeline with enriched context
+		// processInput will detect that pendingKnowledge is non-empty and
+		// skip further knowledge gathering (preventing infinite loops)
+		return m.processInput(enrichedInput)()
 	}
 }
 
@@ -779,6 +990,90 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		})
 	}
 
+	// GAP-017 FIX: Assert tiered_context_file facts for issue-driven file relevance
+	// Tier 1: Directly mentioned files (highest relevance)
+	// This enables the activation engine to boost these files in context selection
+	for i, file := range keywords.MentionedFiles {
+		if strings.TrimSpace(file) == "" {
+			continue
+		}
+		// tiered_context_file(IssueID, File, Tier, Relevance, TokenCount)
+		// Tier 1 for directly mentioned, relevance decreases by position
+		relevance := 1.0 - (float64(i) * 0.1)
+		if relevance < 0.5 {
+			relevance = 0.5
+		}
+		facts = append(facts, core.Fact{
+			Predicate: "tiered_context_file",
+			Args:      []interface{}{issueID, file, "/tier1", relevance, 0},
+		})
+	}
+
+	_ = m.kernel.LoadFacts(facts)
+}
+
+// seedCampaignFacts asserts campaign context facts for spreading activation and JIT selection.
+// GAP-002 FIX: This enables the activation engine and JIT compiler to be campaign-aware.
+func (m *Model) seedCampaignFacts() {
+	if m.kernel == nil || m.activeCampaign == nil {
+		return
+	}
+
+	c := m.activeCampaign
+	facts := make([]core.Fact, 0, 10)
+
+	// current_campaign(CampaignID)
+	facts = append(facts, core.Fact{
+		Predicate: "current_campaign",
+		Args:      []interface{}{c.ID},
+	})
+
+	// Find current phase (first non-completed phase)
+	var currentPhase *campaign.Phase
+	for i := range c.Phases {
+		if c.Phases[i].Status != campaign.PhaseCompleted {
+			currentPhase = &c.Phases[i]
+			break
+		}
+	}
+
+	if currentPhase != nil {
+		// current_phase(PhaseID)
+		facts = append(facts, core.Fact{
+			Predicate: "current_phase",
+			Args:      []interface{}{currentPhase.ID},
+		})
+
+		// phase_objective(PhaseID, ObjectiveIndex, Description)
+		for i, obj := range currentPhase.Objectives {
+			objID := fmt.Sprintf("/obj_%s_%d", currentPhase.ID, i)
+			facts = append(facts, core.Fact{
+				Predicate: "phase_objective",
+				Args:      []interface{}{currentPhase.ID, objID, obj.Description},
+			})
+		}
+
+		// Find next pending task
+		for _, task := range currentPhase.Tasks {
+			if task.Status == campaign.TaskPending || task.Status == campaign.TaskInProgress {
+				// next_campaign_task(TaskID)
+				facts = append(facts, core.Fact{
+					Predicate: "next_campaign_task",
+					Args:      []interface{}{task.ID},
+				})
+
+				// task_artifact(TaskID, ArtifactType, Path)
+				for _, artifact := range task.Artifacts {
+					facts = append(facts, core.Fact{
+						Predicate: "task_artifact",
+						Args:      []interface{}{task.ID, artifact.Type, artifact.Path},
+					})
+				}
+				break // Only the next task
+			}
+		}
+	}
+
 	_ = m.kernel.LoadFacts(facts)
 }
 
@@ -788,7 +1083,7 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 		return "", fmt.Errorf("shard manager not initialized")
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Extended for large context LLMs
 	defer cancel()
 
 	result, err := m.shardMgr.Spawn(cctx, "requirements_interrogator", goal)
@@ -1014,8 +1309,8 @@ Format your response as a structured analysis.`
 	// 1 second between shards, each shard's LLM call has 600ms minimum spacing
 	logging.Dream("Rate limiting: processing shards sequentially (1s delay between)")
 
-	// Longer timeout for sequential processing (30s per shard max)
-	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*30)*time.Second)
+	// Longer timeout for sequential processing (90s per shard for large context LLMs)
+	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*90)*time.Second)
 	defer cancel()
 
 	consultations := make([]DreamConsultation, 0, len(shardTypes))
@@ -1124,23 +1419,33 @@ Format your response as a structured analysis.`
 		_ = m.kernel.Assert(dreamFact)
 	}
 
+	// Convert to core.DreamConsultation type for both learnings and plan extraction
+	coreConsultations := make([]core.DreamConsultation, len(consultations))
+	for i, c := range consultations {
+		coreConsultations[i] = core.DreamConsultation{
+			ShardName:   c.ShardName,
+			ShardType:   c.ShardType,
+			Perspective: c.Perspective,
+			Tools:       c.Tools,
+			Concerns:    c.Concerns,
+			Error:       c.Error,
+		}
+	}
+
 	// Extract learnings from consultations (§8.3.1 Dream Learning)
 	if m.dreamCollector != nil {
-		// Convert to core.DreamConsultation type
-		coreConsultations := make([]core.DreamConsultation, len(consultations))
-		for i, c := range consultations {
-			coreConsultations[i] = core.DreamConsultation{
-				ShardName:   c.ShardName,
-				ShardType:   c.ShardType,
-				Perspective: c.Perspective,
-				Tools:       c.Tools,
-				Concerns:    c.Concerns,
-				Error:       c.Error,
-			}
-		}
 		learnings := m.dreamCollector.ExtractLearnings(hypothetical, coreConsultations)
 		if len(learnings) > 0 {
 			logging.Dream("Extracted %d learnable insights, staged for user confirmation", len(learnings))
+		}
+	}
+
+	// Extract actionable plan from consultations (§8.3.2 Dream Plan Execution)
+	if m.dreamPlanManager != nil {
+		plan, err := core.ExtractDreamPlan(hypothetical, coreConsultations)
+		if err == nil && plan != nil && len(plan.Subtasks) > 0 {
+			m.dreamPlanManager.StorePlan(plan)
+			logging.Dream("Extracted %d actionable subtasks from dream state", len(plan.Subtasks))
 		}
 	}
 
@@ -1254,11 +1559,14 @@ func formatDreamStateResponse(hypothetical string, consultations []DreamConsulta
 
 	sb.WriteString("---\n\n")
 	sb.WriteString("**This is a dry run.** I haven't executed anything.\n\n")
-	sb.WriteString("👉 **Correct me if my approach is wrong** - I'll learn from your feedback.\n\n")
-	sb.WriteString("To teach me, say things like:\n")
-	sb.WriteString("- \"Remember that we always use Docker for deployments\"\n")
-	sb.WriteString("- \"Actually, the coder should handle X differently\"\n")
-	sb.WriteString("- \"Learn this: our auth system uses JWT, not sessions\"\n")
+
+	sb.WriteString("### What would you like to do?\n\n")
+	sb.WriteString("- Say **\"do it\"** or **\"execute that\"** → Run this plan\n")
+	sb.WriteString("- Say **\"correct!\"** or **\"perfect\"** → Learn from this analysis\n")
+	sb.WriteString("- Say **\"no, actually...\"** → Teach me a correction\n")
+	sb.WriteString("- Or just ask something else to dismiss\n\n")
+
+	sb.WriteString("💡 **Tip:** Use `Shift+Tab` to change execution mode (Auto/Confirm/Breakpoint)\n")
 
 	return sb.String()
 }
@@ -2713,6 +3021,168 @@ func truncateSummary(s string, maxLen int) string {
 		return s[:maxLen] + "..."
 	}
 	return s
+}
+
+// =============================================================================
+// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
+// =============================================================================
+
+// handleKnowledgeRequests spawns specialists in parallel to gather knowledge
+// requested by the LLM. Returns a knowledgeGatheredMsg when all specialists
+// have responded, which will trigger re-processing with enriched context.
+func (m *Model) handleKnowledgeRequests(
+	ctx context.Context,
+	requests []articulation.KnowledgeRequest,
+	originalInput string,
+	interimResponse string,
+) tea.Msg {
+	m.awaitingKnowledge = true
+
+	// Show status to user
+	m.ReportStatus(fmt.Sprintf("Gathering knowledge from %d specialist(s)...", len(requests)))
+
+	// Create a channel to collect results
+	resultsChan := make(chan KnowledgeResult, len(requests))
+	var wg sync.WaitGroup
+
+	for _, req := range requests {
+		wg.Add(1)
+		go func(r articulation.KnowledgeRequest) {
+			defer wg.Done()
+
+			// Resolve specialist type
+			shardType := r.Specialist
+			if shardType == "_any_specialist" {
+				shardType = m.matchSpecialistForQuery(r.Query)
+			}
+
+			// Build task prompt for the specialist
+			task := fmt.Sprintf(`Knowledge Query: %s
+
+Purpose: %s
+
+Please provide a comprehensive answer to this query. Focus on practical, actionable information.
+If you need to search documentation or the web, do so to provide accurate information.`, r.Query, r.Purpose)
+
+			// Build session context for the specialist
+			sessionCtx := m.buildSessionContext(ctx)
+
+			// Log the consultation
+			logging.Get(logging.CategoryContext).Info(
+				"Consulting specialist '%s' for: %s",
+				shardType, truncateSummary(r.Query, 100),
+			)
+
+			// Spawn the specialist with high priority (knowledge is blocking)
+			result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+
+			resultsChan <- KnowledgeResult{
+				Specialist: shardType,
+				Query:      r.Query,
+				Purpose:    r.Purpose,
+				Response:   result,
+				Timestamp:  time.Now(),
+				Error:      err,
+			}
+		}(req)
+	}
+
+	// Wait for all specialists to complete
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect all results
+	var results []KnowledgeResult
+	for kr := range resultsChan {
+		results = append(results, kr)
+		if kr.Error != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"Knowledge request to '%s' failed: %v",
+				kr.Specialist, kr.Error,
+			)
+		} else {
+			logging.Get(logging.CategoryContext).Info(
+				"Knowledge received from '%s': %d chars",
+				kr.Specialist, len(kr.Response),
+			)
+		}
+	}
+
+	return knowledgeGatheredMsg{
+		Results:         results,
+		OriginalInput:   originalInput,
+		InterimResponse: interimResponse,
+	}
+}
+
+// matchSpecialistForQuery attempts to find the best specialist for a given query
+// by checking the agents registry and matching keywords.
+func (m *Model) matchSpecialistForQuery(query string) string {
+	// Try to load agents from registry
+	if m.workspace != "" {
+		registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
+		_ = registryPath // Registry loading is handled in matchSpecialistForQuery
+		// TODO: Load and parse agents.json to match by keywords
+		// For now, use simple keyword matching
+	}
+
+	queryLower := strings.ToLower(query)
+
+	// Keyword-based specialist matching
+	specialists := map[string][]string{
+		"goexpert":     {"go ", "golang", "goroutine", "channel", "interface{}", "struct"},
+		"mangleexpert": {"mangle", "datalog", "predicate", "fact", "rule", "logic"},
+		"uiexpert":     {"bubbletea", "tui", "terminal", "ui", "charm", "lipgloss"},
+		"securityexpert": {"security", "vulnerability", "cve", "injection", "xss", "csrf"},
+		"testexpert":   {"test", "testing", "coverage", "mock", "stub", "assert"},
+	}
+
+	for specialist, keywords := range specialists {
+		for _, kw := range keywords {
+			if strings.Contains(queryLower, kw) {
+				return specialist
+			}
+		}
+	}
+
+	// Default to researcher for general knowledge gathering
+	return "researcher"
+}
+
+// persistKnowledgeResults stores gathered knowledge in the local knowledge database.
+// This enables future retrieval via semantic search and JIT prompt compilation.
+func (m *Model) persistKnowledgeResults(results []KnowledgeResult) {
+	if m.localDB == nil {
+		return
+	}
+
+	for _, kr := range results {
+		if kr.Error != nil {
+			continue
+		}
+
+		// Create a concept identifier based on session and specialist
+		concept := fmt.Sprintf("session/%s/%s/%d",
+			truncateSummary(kr.Query, 50),
+			kr.Specialist,
+			kr.Timestamp.Unix(),
+		)
+
+		// Store with high confidence (specialist knowledge is authoritative)
+		if err := m.localDB.StoreKnowledgeAtom(concept, kr.Response, 0.85); err != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"Failed to persist knowledge from %s: %v",
+				kr.Specialist, err,
+			)
+		} else {
+			logging.Get(logging.CategoryContext).Debug(
+				"Persisted knowledge from %s: %d chars",
+				kr.Specialist, len(kr.Response),
+			)
+		}
+	}
 }
 
 // Personality and Tone (The "Steven Moore" Flare)

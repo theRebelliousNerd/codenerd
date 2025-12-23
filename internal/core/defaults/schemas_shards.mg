@@ -477,6 +477,8 @@ Decl symbol_reachable(From, To).
 Decl symbol_reachable_bounded(From, To, MaxDepth).
 # Priority: 70
 Decl symbol_reachable_safe(From, To).
+# Depth generator for bounded recursion (1-20)
+Decl depth_option(Depth).
 
 # Routing derived predicates
 Decl routing_table(ActionType, Tool, RiskLevel).

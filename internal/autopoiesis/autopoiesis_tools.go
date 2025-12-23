@@ -59,6 +59,11 @@ func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed)
 	// Wire to kernel: Assert tool registration facts on success
 	if result.Success && result.ToolHandle != nil {
 		o.assertToolRegistered(result.ToolHandle)
+
+		// GAP-019 FIX: Propagate hot-reload facts to parent kernel
+		// The OuroborosLoop's internal engine has these facts, but they need
+		// to be synced to the main kernel for spreading activation and JIT
+		o.assertToolHotReloaded(result.ToolHandle.Name)
 	}
 
 	// Record generation learning for persistence

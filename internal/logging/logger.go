@@ -744,6 +744,230 @@ func BuildError(format string, args ...interface{}) {
 }
 
 // =============================================================================
+// WARN/ERROR CONVENIENCE FUNCTIONS - For remaining categories
+// =============================================================================
+
+// BootWarn logs warning to the boot category
+func BootWarn(format string, args ...interface{}) {
+	Get(CategoryBoot).Warn(format, args...)
+}
+
+// BootError logs error to the boot category
+func BootError(format string, args ...interface{}) {
+	Get(CategoryBoot).Error(format, args...)
+}
+
+// SessionWarn logs warning to the session category
+func SessionWarn(format string, args ...interface{}) {
+	Get(CategorySession).Warn(format, args...)
+}
+
+// SessionError logs error to the session category
+func SessionError(format string, args ...interface{}) {
+	Get(CategorySession).Error(format, args...)
+}
+
+// KernelWarn logs warning to the kernel category
+func KernelWarn(format string, args ...interface{}) {
+	Get(CategoryKernel).Warn(format, args...)
+}
+
+// KernelError logs error to the kernel category
+func KernelError(format string, args ...interface{}) {
+	Get(CategoryKernel).Error(format, args...)
+}
+
+// APIWarn logs warning to the api category
+func APIWarn(format string, args ...interface{}) {
+	Get(CategoryAPI).Warn(format, args...)
+}
+
+// APIError logs error to the api category
+func APIError(format string, args ...interface{}) {
+	Get(CategoryAPI).Error(format, args...)
+}
+
+// PerceptionWarn logs warning to the perception category
+func PerceptionWarn(format string, args ...interface{}) {
+	Get(CategoryPerception).Warn(format, args...)
+}
+
+// PerceptionError logs error to the perception category
+func PerceptionError(format string, args ...interface{}) {
+	Get(CategoryPerception).Error(format, args...)
+}
+
+// ArticulationWarn logs warning to the articulation category
+func ArticulationWarn(format string, args ...interface{}) {
+	Get(CategoryArticulation).Warn(format, args...)
+}
+
+// ArticulationError logs error to the articulation category
+func ArticulationError(format string, args ...interface{}) {
+	Get(CategoryArticulation).Error(format, args...)
+}
+
+// RoutingWarn logs warning to the routing category
+func RoutingWarn(format string, args ...interface{}) {
+	Get(CategoryRouting).Warn(format, args...)
+}
+
+// RoutingError logs error to the routing category
+func RoutingError(format string, args ...interface{}) {
+	Get(CategoryRouting).Error(format, args...)
+}
+
+// ToolsWarn logs warning to the tools category
+func ToolsWarn(format string, args ...interface{}) {
+	Get(CategoryTools).Warn(format, args...)
+}
+
+// ToolsError logs error to the tools category
+func ToolsError(format string, args ...interface{}) {
+	Get(CategoryTools).Error(format, args...)
+}
+
+// VirtualStoreWarn logs warning to the virtual_store category
+func VirtualStoreWarn(format string, args ...interface{}) {
+	Get(CategoryVirtualStore).Warn(format, args...)
+}
+
+// VirtualStoreError logs error to the virtual_store category
+func VirtualStoreError(format string, args ...interface{}) {
+	Get(CategoryVirtualStore).Error(format, args...)
+}
+
+// ShardsWarn logs warning to the shards category
+func ShardsWarn(format string, args ...interface{}) {
+	Get(CategoryShards).Warn(format, args...)
+}
+
+// ShardsError logs error to the shards category
+func ShardsError(format string, args ...interface{}) {
+	Get(CategoryShards).Error(format, args...)
+}
+
+// CoderWarn logs warning to the coder category
+func CoderWarn(format string, args ...interface{}) {
+	Get(CategoryCoder).Warn(format, args...)
+}
+
+// CoderError logs error to the coder category
+func CoderError(format string, args ...interface{}) {
+	Get(CategoryCoder).Error(format, args...)
+}
+
+// TesterWarn logs warning to the tester category
+func TesterWarn(format string, args ...interface{}) {
+	Get(CategoryTester).Warn(format, args...)
+}
+
+// TesterError logs error to the tester category
+func TesterError(format string, args ...interface{}) {
+	Get(CategoryTester).Error(format, args...)
+}
+
+// ReviewerWarn logs warning to the reviewer category
+func ReviewerWarn(format string, args ...interface{}) {
+	Get(CategoryReviewer).Warn(format, args...)
+}
+
+// ReviewerError logs error to the reviewer category
+func ReviewerError(format string, args ...interface{}) {
+	Get(CategoryReviewer).Error(format, args...)
+}
+
+// ResearcherWarn logs warning to the researcher category
+func ResearcherWarn(format string, args ...interface{}) {
+	Get(CategoryResearcher).Warn(format, args...)
+}
+
+// ResearcherError logs error to the researcher category
+func ResearcherError(format string, args ...interface{}) {
+	Get(CategoryResearcher).Error(format, args...)
+}
+
+// SystemShardsWarn logs warning to the system_shards category
+func SystemShardsWarn(format string, args ...interface{}) {
+	Get(CategorySystemShards).Warn(format, args...)
+}
+
+// SystemShardsError logs error to the system_shards category
+func SystemShardsError(format string, args ...interface{}) {
+	Get(CategorySystemShards).Error(format, args...)
+}
+
+// DreamWarn logs warning to the dream category
+func DreamWarn(format string, args ...interface{}) {
+	Get(CategoryDream).Warn(format, args...)
+}
+
+// DreamError logs error to the dream category
+func DreamError(format string, args ...interface{}) {
+	Get(CategoryDream).Error(format, args...)
+}
+
+// AutopoiesisWarn logs warning to the autopoiesis category
+func AutopoiesisWarn(format string, args ...interface{}) {
+	Get(CategoryAutopoiesis).Warn(format, args...)
+}
+
+// AutopoiesisError logs error to the autopoiesis category
+func AutopoiesisError(format string, args ...interface{}) {
+	Get(CategoryAutopoiesis).Error(format, args...)
+}
+
+// CampaignWarn logs warning to the campaign category
+func CampaignWarn(format string, args ...interface{}) {
+	Get(CategoryCampaign).Warn(format, args...)
+}
+
+// CampaignError logs error to the campaign category
+func CampaignError(format string, args ...interface{}) {
+	Get(CategoryCampaign).Error(format, args...)
+}
+
+// ContextWarn logs warning to the context category
+func ContextWarn(format string, args ...interface{}) {
+	Get(CategoryContext).Warn(format, args...)
+}
+
+// ContextError logs error to the context category
+func ContextError(format string, args ...interface{}) {
+	Get(CategoryContext).Error(format, args...)
+}
+
+// WorldWarn logs warning to the world category
+func WorldWarn(format string, args ...interface{}) {
+	Get(CategoryWorld).Warn(format, args...)
+}
+
+// WorldError logs error to the world category
+func WorldError(format string, args ...interface{}) {
+	Get(CategoryWorld).Error(format, args...)
+}
+
+// EmbeddingWarn logs warning to the embedding category
+func EmbeddingWarn(format string, args ...interface{}) {
+	Get(CategoryEmbedding).Warn(format, args...)
+}
+
+// EmbeddingError logs error to the embedding category
+func EmbeddingError(format string, args ...interface{}) {
+	Get(CategoryEmbedding).Error(format, args...)
+}
+
+// StoreWarn logs warning to the store category
+func StoreWarn(format string, args ...interface{}) {
+	Get(CategoryStore).Warn(format, args...)
+}
+
+// StoreError logs error to the store category
+func StoreError(format string, args ...interface{}) {
+	Get(CategoryStore).Error(format, args...)
+}
+
+// =============================================================================
 // REQUEST ID TRACING - For distributed request tracing
 // =============================================================================
 

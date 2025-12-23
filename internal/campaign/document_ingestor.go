@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/embedding"
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"context"
 	"fmt"
@@ -45,6 +46,7 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 		return 0, fmt.Errorf("ingestor store not initialized")
 	}
 
+	logging.CampaignDebug("DocumentIngestor.Ingest: starting campaign=%s files=%d", campaignID, len(fileContents))
 	totalChunks := 0
 
 	for path, text := range fileContents {
@@ -53,9 +55,11 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 			continue
 		}
 
-		_ = di.store.StoreLink(campaignID, "/has_source_doc", path, 1.0, map[string]interface{}{
+		if err := di.store.StoreLink(campaignID, "/has_source_doc", path, 1.0, map[string]interface{}{
 			"path": path,
-		})
+		}); err != nil {
+			logging.StoreWarn("DocumentIngestor: failed to store source doc link for %s: %v", path, err)
+		}
 
 		for idx, chunk := range chunks {
 			meta := map[string]interface{}{
@@ -65,15 +69,22 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 				"total":       len(chunks),
 			}
 			// Vector + metadata
-			_ = di.store.StoreVectorWithEmbedding(ctx, chunk, meta)
+			if err := di.store.StoreVectorWithEmbedding(ctx, chunk, meta); err != nil {
+				logging.StoreWarn("DocumentIngestor: failed to store vector for %s chunk %d: %v", path, idx, err)
+			}
 			// Knowledge atom for lightweight recall
-			_ = di.store.StoreKnowledgeAtom(path, chunk, 0.9)
+			if err := di.store.StoreKnowledgeAtom(path, chunk, 0.9); err != nil {
+				logging.StoreWarn("DocumentIngestor: failed to store knowledge atom for %s: %v", path, err)
+			}
 			// Graph link for chunk navigation
 			chunkID := fmt.Sprintf("%s#%d", path, idx)
-			_ = di.store.StoreLink(path, "/has_chunk", chunkID, 0.5, meta)
+			if err := di.store.StoreLink(path, "/has_chunk", chunkID, 0.5, meta); err != nil {
+				logging.StoreWarn("DocumentIngestor: failed to store chunk link for %s: %v", chunkID, err)
+			}
 			totalChunks++
 		}
 	}
 
+	logging.Campaign("DocumentIngestor.Ingest: completed campaign=%s total_chunks=%d", campaignID, totalChunks)
 	return totalChunks, nil
 }

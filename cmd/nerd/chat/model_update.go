@@ -176,14 +176,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Prompt Inspector Handling
 		if m.viewMode == PromptInspector {
-			// Exit on Esc/Q
-			if msg.String() == "esc" || msg.String() == "q" {
+			switch msg.String() {
+			case "esc", "q":
 				m.viewMode = ChatView
 				return m, nil
 			}
-			// Scroll handling (if we use viewport)
 			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
+			m.jitPage, cmd = m.jitPage.Update(msg)
+			return m, cmd
+		}
+
+		// Autopoiesis Dashboard Handling
+		if m.viewMode == AutopoiesisPage {
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ChatView
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.autoPage, cmd = m.autoPage.Update(msg)
+			return m, cmd
+		}
+
+		// Shard Console Handling
+		if m.viewMode == ShardPage {
+			switch msg.String() {
+			case "esc", "q":
+				m.viewMode = ChatView
+				return m, nil
+			}
+			// Refresh content on every update tick or keypress to keep it live
+			if m.shardMgr != nil {
+				m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
+			}
+			var cmd tea.Cmd
+			m.shardPage, cmd = m.shardPage.Update(msg)
 			return m, cmd
 		}
 
@@ -364,37 +391,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewMode = ChatView
 				} else {
 					m.viewMode = PromptInspector
-					// Trigger content refresh for inspector
 					if m.jitCompiler != nil {
-						res := m.jitCompiler.GetLastResult()
-						if res != nil {
-							// Render manifest to viewport
-							// We'll need a helper function renderManifest(res)
-							// For now, simple textual dump
-							content := fmt.Sprintf("# JIT Prompt Inspector\n\nGenerated: %s\nTokens: %d (%.1f%% budget)\n\n## Included Atoms (%d)\n",
-								time.Now().Format(time.RFC3339), res.TotalTokens, res.BudgetUsed*100, res.AtomsIncluded)
+						m.jitPage.UpdateContent(m.jitCompiler.GetLastResult())
+					}
+				}
+				return m, nil
 
-							for _, atom := range res.IncludedAtoms {
-								content += fmt.Sprintf("- [%s] %s (%d tokens)\n", atom.Category, atom.ID, atom.TokenCount)
-							}
-
-							content += "\n## Prompt Preview\n\n```markdown\n" + res.Prompt + "\n```"
-
-							// Use existing renderer
-							rendered, _ := m.renderer.Render(content)
-							m.viewport.SetContent(rendered)
-							m.viewport.GotoTop()
-						} else {
-							m.viewport.SetContent("No compilation result available yet.")
-						}
-					} else {
-						m.viewport.SetContent("JIT Compiler not available.")
+			case 'a':
+				// Toggle Autopoiesis Dashboard (Alt+A)
+				if m.viewMode == AutopoiesisPage {
+					m.viewMode = ChatView
+				} else {
+					m.viewMode = AutopoiesisPage
+					if m.autopoiesis != nil {
+						m.autoPage.UpdateContent(m.autopoiesis.GetAllPatterns(0.0), m.autopoiesis.GetAllLearnings())
 					}
 				}
 				return m, nil
 
 			case 's':
-				// Toggle system action summaries in chat output (Alt+S)
+				// Toggle Shard Console (Alt+S)
+				if m.viewMode == ShardPage {
+					m.viewMode = ChatView
+				} else {
+					m.viewMode = ShardPage
+					if m.shardMgr != nil {
+						m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
+					}
+				}
+				return m, nil
+
+			case 'd':
+				// Toggle Glass Box Debug Mode (Alt+D)
+				msg := m.toggleGlassBox()
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: msg,
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				// Start listening for events if enabled
+				if m.glassBoxEnabled {
+					return m, m.listenGlassBoxEvents()
+				}
+				return m, nil
+
+			case 'y':
+				// Toggle system action summaries in chat output (Alt+Y)
 				m.showSystemActions = !m.showSystemActions
 				return m, nil
 			}
@@ -992,6 +1036,34 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			return m, checkFirstRun(m.workspace)
 		}
 
+	case docRefreshCompleteMsg:
+		m.isLoading = false
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Document refresh failed:** %v", msg.err),
+				Time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: fmt.Sprintf(`**Document refresh complete**
+
+| Metric | Value |
+|--------|-------|
+| Docs discovered | %d |
+| Docs processed | %d |
+| Atoms stored | %d |
+| Duration | %.2fs |
+
+The strategic knowledge base has been updated with new documentation.`, msg.docsDiscovered, msg.docsProcessed, msg.atomsStored, msg.duration.Seconds()),
+				Time: time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
+
 	case reembedCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
@@ -1024,6 +1096,20 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 	case statusMsg:
 		m.statusMessage = string(msg)
 		return m, m.waitForStatus() // Listen for next update
+
+	case glassBoxEventMsg:
+		// Handle Glass Box event - add to history and re-render
+		m.handleGlassBoxEvent(transparency.GlassBoxEvent(msg))
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenGlassBoxEvents() // Listen for next event
+
+	case toolEventMsg:
+		// Handle tool event - ALWAYS add to history (not gated by Glass Box)
+		m.handleToolEvent(transparency.ToolEvent(msg))
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenToolEvents() // Listen for next event
 
 	case memUsageMsg:
 		m.memAllocBytes = msg.Alloc
@@ -1075,9 +1161,21 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			// Wire Mangle file watcher for real-time .mg validation
 			m.mangleWatcher = c.MangleWatcher
 
+			// Initialize Glass Box debug mode event bus
+			m.initGlassBox(c.GlassBoxEventBus)
+
+			// Initialize Tool Event bus for always-visible tool execution
+			m.initToolEventBus(c.ToolEventBus)
+
+			// Wire Tool Store for tool execution persistence
+			m.toolStore = c.ToolStore
+
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
+
+			// Initialize Dream Plan Manager for dream-to-execute pipeline (§8.3.2)
+			m.dreamPlanManager = core.NewDreamPlanManager(m.kernel)
 
 			// Load previous session state if available (now that kernel is ready)
 			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
@@ -1102,7 +1200,8 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		}
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		return m, m.runScan(false)
+		// Also start listening for tool events (always active, not gated by Glass Box).
+		return m, tea.Batch(m.runScan(false), m.listenToolEvents())
 
 	case onboardingCheckMsg:
 		// Handle first-run detection result
@@ -1132,6 +1231,48 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		return m, nil
+
+	case knowledgeGatheredMsg:
+		// Knowledge gathering from specialists is complete.
+		// Store results and re-process with enriched context.
+		m.awaitingKnowledge = false
+
+		// Store gathered knowledge for this turn and for history
+		m.pendingKnowledge = msg.Results
+		m.knowledgeHistory = append(m.knowledgeHistory, msg.Results...)
+
+		// Persist knowledge to SQLite for future retrieval
+		m.persistKnowledgeResults(msg.Results)
+
+		// Log knowledge gathering summary
+		var successCount, failCount int
+		for _, kr := range msg.Results {
+			if kr.Error != nil {
+				failCount++
+			} else {
+				successCount++
+			}
+		}
+		logging.Get(logging.CategoryContext).Info(
+			"Knowledge gathering complete: %d succeeded, %d failed",
+			successCount, failCount,
+		)
+
+		// Show interim response to user if provided
+		if msg.InterimResponse != "" {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: msg.InterimResponse,
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+		}
+
+		// Re-process the original input with knowledge context
+		// The knowledge is now available via m.pendingKnowledge which
+		// will be injected into SessionContext by buildSessionContext()
+		return m, m.processInputWithKnowledge(msg.OriginalInput)
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)

@@ -122,6 +122,7 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, domDemoDeepWorker)
 	vs.SetCodeScope(scope)
@@ -261,6 +262,7 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, domDemoDeepWorker)
 	vs.SetCodeScope(scope)
@@ -474,6 +476,7 @@ func newDOMHarness(ws string, deepWorkers int) (*core.RealKernel, *core.VirtualS
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	scope := coresys.NewHolographicCodeScope(ws, kernel, nil, deepWorkers)
 	vs.SetCodeScope(scope)

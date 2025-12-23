@@ -11,16 +11,19 @@
 package system
 
 import (
-	"codenerd/internal/browser"
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/browser"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 )
 
 // ToolRoute defines how an action maps to a tool.
@@ -517,7 +520,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			if err != nil {
 				call.Status = "failed"
 				call.Error = err.Error()
-				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
+				logging.Get(logging.CategoryTools).Error("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
@@ -530,6 +533,49 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
 				})
+			}
+
+			// Emit tool event for always-visible tool execution in chat
+			if r.ToolEventBus != nil {
+				result := call.Result
+				if len(result) > 500 {
+					result = result[:500] + "..."
+				}
+				success := true
+				if call.Error != "" {
+					result = call.Error
+					success = false
+				}
+				r.ToolEventBus.Emit(transparency.ToolEvent{
+					ToolName:  route.ToolName,
+					Result:    result,
+					Success:   success,
+					Duration:  duration,
+					Timestamp: time.Now(),
+				})
+			}
+
+			// Persist full tool execution to SQLite for debugging and context
+			if r.ToolStore != nil {
+				sessionID := r.getSessionID()
+				exec := store.ToolExecution{
+					CallID:           call.ID,
+					SessionID:        sessionID,
+					ToolName:         route.ToolName,
+					Action:           actionType,
+					Input:            target, // Target is the primary input
+					Result:           call.Result,
+					Error:            call.Error,
+					Success:          call.Error == "",
+					DurationMs:       duration.Milliseconds(),
+					ResultSize:       len(call.Result),
+					SessionRuntimeMs: time.Since(r.StartTime).Milliseconds(),
+				}
+				if err := r.ToolStore.Store(exec); err != nil {
+					logging.Get(logging.CategoryTools).Warn("Failed to persist tool execution: %v", err)
+				} else {
+					logging.ToolsDebug("Persisted tool execution: %s (tool=%s, size=%d bytes)", call.ID, route.ToolName, len(call.Result))
+				}
 			}
 
 			// Update call in pendingCalls
@@ -841,6 +887,12 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 		result[k] = v
 	}
 	return result
+}
+
+// getSessionID returns the session ID for tool persistence.
+// Generates a stable ID from the router's start time.
+func (r *TactileRouterShard) getSessionID() string {
+	return fmt.Sprintf("session-%d", r.StartTime.Unix())
 }
 
 // DEPRECATED: routerAutopoiesisPrompt is the legacy system prompt for proposing new routes.

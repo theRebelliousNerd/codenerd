@@ -407,6 +407,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 }
 
 // getVectorScores retrieves semantic similarity scores for atoms.
+// Uses a 10-second sub-timeout to prevent blocking JIT compilation.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,
@@ -416,8 +417,16 @@ func (s *AtomSelector) getVectorScores(
 		return nil, nil
 	}
 
-	results, err := s.vectorSearcher.Search(ctx, query, topK)
+	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
+	// If embedding/search takes too long, we skip vector scoring rather than failing.
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	results, err := s.vectorSearcher.Search(searchCtx, query, topK)
 	if err != nil {
+		if searchCtx.Err() != nil {
+			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (10s limit)")
+		}
 		return nil, err
 	}
 
@@ -779,22 +788,57 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	for _, fw := range cc.Frameworks {
 		addContextFact("framework", fw)
 	}
-	for _, ws := range cc.WorldStates() {
-		addContextFact("state", ws)
-	}
-
-	// Candidate Facts
-	for _, atom := range atoms {
-		id := atom.ID
-		facts = append(facts, fmt.Sprintf("atom('%s')", id))
-		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
-		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
-		if atom.IsMandatory {
-			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+	  for _, ws := range cc.WorldStates() {
+			addContextFact("state", ws)
 		}
-
-		// Tags helper
-		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
+	
+		// Candidate Facts
+		for _, atom := range atoms {
+			id := atom.ID
+			facts = append(facts, fmt.Sprintf("atom('%s')", id))
+			facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
+			facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
+			if atom.IsMandatory {
+				facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+			}
+	
+					// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
+	
+					// prompt_atom(ID, Category, Priority, Hash, IsMandatory)
+	
+					isMandatoryAtom := "/false"
+	
+					if atom.IsMandatory {
+	
+						isMandatoryAtom = "/true"
+	
+					}
+	
+					hash := atom.ContentHash
+	
+					if hash == "" {
+	
+						hash = "nohash"
+	
+					}
+	
+					// Category must be an atom (e.g. /identity) not a string ('identity')
+	
+					category := string(atom.Category)
+	
+					if !strings.HasPrefix(category, "/") {
+	
+						category = "/" + category
+	
+					}
+	
+					facts = append(facts, fmt.Sprintf("prompt_atom('%s', %s, %d, '%s', %s)",
+	
+						id, category, atom.Priority, hash, isMandatoryAtom))
+	
+			
+	
+					// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
 		// String 'shard' != atom /shard in Mangle (disjoint types)
 		addTags := func(dim string, values []string) {

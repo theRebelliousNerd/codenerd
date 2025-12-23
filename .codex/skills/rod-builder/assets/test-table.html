@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Table - Rod Practice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 300px;
+        }
+        button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        table {
+            width: 100%;
+            background: white;
+            border-collapse: collapse;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        th {
+            background: #007bff;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            cursor: pointer;
+            user-select: none;
+        }
+        th:hover {
+            background: #0056b3;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .actions button {
+            padding: 4px 8px;
+            font-size: 12px;
+            margin-right: 5px;
+        }
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .badge-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .pagination {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .pagination button {
+            margin: 0 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>User Management Table</h1>
+
+    <div class="controls">
+        <input type="text" id="search" placeholder="Search by name or email..."
+               data-testid="search-input">
+        <button onclick="filterTable()" data-testid="search-button">Search</button>
+        <button onclick="clearFilter()" data-testid="clear-button">Clear</button>
+    </div>
+
+    <table id="data-table" data-testid="data-table">
+        <thead>
+            <tr>
+                <th onclick="sortTable(0)" data-testid="header-id">ID ↕</th>
+                <th onclick="sortTable(1)" data-testid="header-name">Name ↕</th>
+                <th onclick="sortTable(2)" data-testid="header-email">Email ↕</th>
+                <th onclick="sortTable(3)" data-testid="header-role">Role ↕</th>
+                <th onclick="sortTable(4)" data-testid="header-status">Status ↕</th>
+                <th data-testid="header-actions">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="table-body">
+            <!-- Populated by JavaScript -->
+        </tbody>
+    </table>
+
+    <div class="pagination" id="pagination">
+        <button onclick="prevPage()" data-testid="prev-page">Previous</button>
+        <span id="page-info" data-testid="page-info"></span>
+        <button onclick="nextPage()" data-testid="next-page">Next</button>
+    </div>
+
+    <script>
+        // Sample data
+        const users = [
+            {id: 1, name: 'John Doe', email: 'john@example.com', role: 'Admin', status: 'active'},
+            {id: 2, name: 'Jane Smith', email: 'jane@example.com', role: 'User', status: 'active'},
+            {id: 3, name: 'Bob Johnson', email: 'bob@example.com', role: 'User', status: 'inactive'},
+            {id: 4, name: 'Alice Williams', email: 'alice@example.com', role: 'Manager', status: 'active'},
+            {id: 5, name: 'Charlie Brown', email: 'charlie@example.com', role: 'User', status: 'active'},
+            {id: 6, name: 'Diana Prince', email: 'diana@example.com', role: 'Admin', status: 'active'},
+            {id: 7, name: 'Eve Davis', email: 'eve@example.com', role: 'User', status: 'inactive'},
+            {id: 8, name: 'Frank Miller', email: 'frank@example.com', role: 'Manager', status: 'active'},
+            {id: 9, name: 'Grace Lee', email: 'grace@example.com', role: 'User', status: 'active'},
+            {id: 10, name: 'Henry Wilson', email: 'henry@example.com', role: 'User', status: 'inactive'},
+        ];
+
+        let filteredUsers = [...users];
+        let currentPage = 1;
+        const pageSize = 5;
+
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageUsers = filteredUsers.slice(start, end);
+
+            pageUsers.forEach(user => {
+                const row = tbody.insertRow();
+                row.setAttribute('data-testid', `row-${user.id}`);
+
+                row.insertCell(0).textContent = user.id;
+                row.insertCell(1).textContent = user.name;
+                row.insertCell(2).textContent = user.email;
+                row.insertCell(3).textContent = user.role;
+
+                const statusCell = row.insertCell(4);
+                const badge = document.createElement('span');
+                badge.className = `badge badge-${user.status}`;
+                badge.textContent = user.status;
+                badge.setAttribute('data-testid', `status-${user.id}`);
+                statusCell.appendChild(badge);
+
+                const actionsCell = row.insertCell(5);
+                actionsCell.className = 'actions';
+                actionsCell.innerHTML = `
+                    <button data-testid="edit-${user.id}" onclick="editUser(${user.id})">Edit</button>
+                    <button data-testid="delete-${user.id}" onclick="deleteUser(${user.id})">Delete</button>
+                `;
+            });
+
+            updatePagination();
+        }
+
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredUsers.length / pageSize);
+            document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(filteredUsers.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        }
+
+        function filterTable() {
+            const search = document.getElementById('search').value.toLowerCase();
+            filteredUsers = users.filter(user =>
+                user.name.toLowerCase().includes(search) ||
+                user.email.toLowerCase().includes(search)
+            );
+            currentPage = 1;
+            renderTable();
+        }
+
+        function clearFilter() {
+            document.getElementById('search').value = '';
+            filteredUsers = [...users];
+            currentPage = 1;
+            renderTable();
+        }
+
+        function sortTable(column) {
+            const keys = ['id', 'name', 'email', 'role', 'status'];
+            const key = keys[column];
+
+            filteredUsers.sort((a, b) => {
+                if (a[key] < b[key]) return -1;
+                if (a[key] > b[key]) return 1;
+                return 0;
+            });
+
+            renderTable();
+        }
+
+        function editUser(id) {
+            console.log('Edit user:', id);
+            alert(`Edit user ${id}`);
+        }
+
+        function deleteUser(id) {
+            console.log('Delete user:', id);
+            if (confirm(`Delete user ${id}?`)) {
+                const index = users.findIndex(u => u.id === id);
+                if (index > -1) {
+                    users.splice(index, 1);
+                    filterTable();
+                }
+            }
+        }
+
+        // Initialize
+        renderTable();
+    </script>
+</body>
+</html>

@@ -3,12 +3,16 @@ package prompt
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 )
 
 // Fact represents a logic fact (predicate + args).
@@ -241,6 +245,9 @@ type JITPromptCompiler struct {
 
 	// Configuration
 	config CompilerConfig
+
+	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
+	localDB *store.LocalStore
 }
 
 // CompilerConfig holds configuration for the JIT compiler.
@@ -412,6 +419,15 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		candidates = append(candidates, dynamicAtoms...)
 		stats.AtomsCandidates = len(candidates)
 		logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
+	}
+
+	// Step 1.7: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
+	// These are knowledge atoms from documentation ingestion that match the current context.
+	knowledgeAtoms := c.collectKnowledgeAtoms(ctx, cc)
+	if len(knowledgeAtoms) > 0 {
+		candidates = append(candidates, knowledgeAtoms...)
+		stats.AtomsCandidates = len(candidates)
+		logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
 	}
 
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
@@ -1038,6 +1054,115 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	c.config = config
 }
 
+// SetLocalDB sets the LocalStore for semantic knowledge atom queries.
+// This enables the Semantic Knowledge Bridge, allowing JIT to query
+// knowledge atoms with embeddings for context-aware prompt assembly.
+func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.localDB = db
+}
+
+// collectKnowledgeAtoms queries the LocalStore for semantically relevant knowledge atoms
+// and converts them to ephemeral PromptAtoms for JIT compilation.
+// This is the core of the Semantic Knowledge Bridge - connecting stored documentation
+// knowledge to runtime prompt assembly.
+func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	c.mu.RLock()
+	db := c.localDB
+	c.mu.RUnlock()
+
+	if db == nil || cc == nil {
+		return nil
+	}
+
+	// Build semantic query from compilation context
+	// Combine intent, shard type, and language for best semantic match
+	var queryParts []string
+	if cc.IntentVerb != "" {
+		queryParts = append(queryParts, cc.IntentVerb)
+	}
+	if cc.IntentTarget != "" {
+		queryParts = append(queryParts, cc.IntentTarget)
+	}
+	if cc.ShardID != "" {
+		queryParts = append(queryParts, cc.ShardID)
+	}
+	if cc.Language != "" {
+		queryParts = append(queryParts, cc.Language)
+	}
+	if len(cc.Frameworks) > 0 {
+		queryParts = append(queryParts, cc.Frameworks...)
+	}
+
+	if len(queryParts) == 0 {
+		return nil
+	}
+
+	query := strings.Join(queryParts, " ")
+
+	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
+	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Search for semantically relevant knowledge atoms
+	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
+	if err != nil {
+		if searchCtx.Err() != nil {
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (10s limit), skipping")
+		} else {
+			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
+		}
+		return nil
+	}
+
+	if len(atoms) == 0 {
+		return nil
+	}
+
+	// Convert to ephemeral PromptAtoms
+	var result []*PromptAtom
+	for _, atom := range atoms {
+		// Format content with concept context
+		content := atom.Content
+		if atom.Concept != "" {
+			// Extract meaningful category from concept (e.g., "doc/path/architecture/patterns" -> "architecture/patterns")
+			parts := strings.Split(atom.Concept, "/")
+			if len(parts) >= 3 {
+				category := strings.Join(parts[2:], "/")
+				content = fmt.Sprintf("[%s] %s", category, atom.Content)
+			}
+		}
+
+		// Create prompt atom with appropriate priority
+		// Priority 85 = below specialist_knowledge (90) but above regular context
+		atomID := fmt.Sprintf("knowledge/%s", HashContent(content)[:8])
+		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
+		pa.Priority = 85
+		pa.IsMandatory = false // Knowledge is contextual, not mandatory
+		if cc.ShardID != "" {
+			pa.ShardTypes = []string{cc.ShardID}
+		}
+
+		result = append(result, pa)
+	}
+
+	logging.Get(logging.CategoryJIT).Debug(
+		"Collected %d knowledge atoms for query: %s",
+		len(result), truncateQuery(query, 50))
+
+	return result
+}
+
+// truncateQuery truncates a query string for logging.
+func truncateQuery(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 // Stats returns compilation statistics.
 type CompilerStats struct {
 	EmbeddedAtomCount int
@@ -1097,11 +1222,76 @@ func (c *JITPromptCompiler) Close() error {
 	return nil
 }
 
+// InjectAvailableSpecialists populates the context with discovered specialists.
+// This enables the LLM to know what domain experts are available for consultation.
+// Reads from .nerd/agents.json and formats as a markdown list for template injection.
+func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
+	if ctx == nil || workspace == "" {
+		return nil
+	}
+
+	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		// Graceful degradation - no specialists available
+		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		return nil
+	}
+
+	// Parse the agent registry
+	var registry struct {
+		Agents []struct {
+			Name        string `json:"name"`
+			Type        string `json:"type"`
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			Topics      string `json:"topics"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &registry); err != nil {
+		logging.Get(logging.CategoryJIT).Warn("Failed to parse agents.json: %v", err)
+		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		return nil
+	}
+
+	// Build specialist descriptions
+	var specialists []string
+	for _, agent := range registry.Agents {
+		if agent.Status != "ready" {
+			continue
+		}
+		desc := agent.Description
+		if desc == "" && agent.Topics != "" {
+			desc = fmt.Sprintf("%s specialist (%s)", agent.Type, agent.Topics)
+		} else if desc == "" {
+			desc = fmt.Sprintf("%s domain specialist", agent.Type)
+		}
+		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", agent.Name, desc))
+	}
+
+	// Add core shards as implicit specialists
+	coreShards := []string{
+		"- **researcher**: Deep web research and documentation gathering (Context7, GitHub, web search)",
+		"- **reviewer**: Code review, hypothesis verification, and security analysis",
+		"- **codebase**: Search within project files for patterns and implementations",
+	}
+	specialists = append(specialists, coreShards...)
+
+	if len(specialists) == 0 {
+		ctx.AvailableSpecialists = "No specialists available. Use **researcher** for general knowledge gathering."
+	} else {
+		ctx.AvailableSpecialists = strings.Join(specialists, "\n")
+	}
+
+	logging.Get(logging.CategoryJIT).Debug("Injected %d available specialists into context", len(specialists))
+	return nil
+}
+
 // toInterfaceSlice converts a string slice to an interface slice.
 // Used to pass context facts to the kernel's AssertBatch method.
-func toInterfaceSlice(strings []string) []interface{} {
-	result := make([]interface{}, len(strings))
-	for i, s := range strings {
+func toInterfaceSlice(strs []string) []interface{} {
+	result := make([]interface{}, len(strs))
+	for i, s := range strs {
 		result[i] = s
 	}
 	return result

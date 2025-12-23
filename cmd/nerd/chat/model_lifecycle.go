@@ -65,6 +65,11 @@ func (m *Model) Shutdown() {
 			m.localDB.Close()
 		}
 
+		// Close tool store database connection
+		if m.toolStore != nil {
+			m.toolStore.Close()
+		}
+
 		// Stop Mangle file watcher
 		if m.mangleWatcher != nil {
 			m.mangleWatcher.Stop()

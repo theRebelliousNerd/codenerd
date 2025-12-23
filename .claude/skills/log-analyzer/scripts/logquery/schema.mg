@@ -354,5 +354,55 @@ Decl tactile_error(Time, Message).
 tactile_error(T, M) :- log_entry(T, /tactile, /error, M, _, _).
 
 # =============================================================================
+# SECTION 10: STRUCTURED EVENT FACTS (for loop/anomaly detection)
+# =============================================================================
+
+# Tool execution start event (from tools.log)
+Decl tool_execution_start(Time, ToolName, Action, Target, CallId).
+
+# Tool execution complete event (from tools.log)
+Decl tool_execution_complete(Time, ToolName, CallId, DurationMs, ResultLen).
+
+# Action routing event (from virtual_store.log)
+Decl action_routing(Time, Predicate, ArgCount).
+
+# Action completion event (from virtual_store.log)
+Decl action_completed(Time, Action, Success, OutputLen).
+
+# API scheduler slot status (from shards.log)
+Decl slot_status(Time, ShardId, Active, MaxSlots, Waiting).
+
+# Slot acquisition event (from shards.log)
+Decl slot_acquired(Time, ShardId, WaitDurationMs).
+
+# =============================================================================
+# SECTION 11: LOOP DETECTION PREDICATES (simplified for embedded use)
+# =============================================================================
+#
+# NOTE: Full aggregation-based loop detection is in log-schema.mg.
+# These simplified predicates work with the builtin analysis functions
+# that compute loop statistics in Go code.
+
+# Tool execution with call_id (used for counting duplicates)
+Decl tool_with_call_id(Time, CallId, Action).
+tool_with_call_id(T, CID, Act) :- tool_execution_start(T, _, Act, _, CID).
+
+# Action completions (used for counting loops)
+Decl completed_action(Time, Action, Success, OutputLen).
+completed_action(T, Act, Success, Len) :- action_completed(T, Act, Success, Len).
+
+# Successful action (for false-positive detection)
+Decl successful_action(Time, Action, OutputLen).
+successful_action(T, Act, Len) :- action_completed(T, Act, /true, Len).
+
+# Slot waiting events (for starvation detection)
+Decl slot_waiting(Time, ShardId, WaitingCount).
+slot_waiting(T, SID, W) :- slot_status(T, SID, _, _, W).
+
+# Long slot waits (>10 seconds)
+Decl long_wait(Time, ShardId, WaitMs).
+long_wait(T, SID, W) :- slot_acquired(T, SID, W), W > 10000.
+
+# =============================================================================
 # END OF SCHEMA
 # =============================================================================

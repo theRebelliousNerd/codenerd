@@ -82,14 +82,14 @@ func (mw *MangleWatcher) Start(ctx context.Context) error {
 
 	// Ensure the mangle directory exists
 	if err := os.MkdirAll(mw.mangleDir, 0755); err != nil {
-		logging.Kernel("MangleWatcher: failed to create mangle dir %s: %v", mw.mangleDir, err)
+		logging.Get(logging.CategoryKernel).Warn("MangleWatcher: failed to create mangle dir %s: %v (continuing anyway)", mw.mangleDir, err)
 		// Continue anyway - directory might be created later
 	}
 
 	// Add the mangle directory to the watcher
 	if err := mw.watcher.Add(mw.mangleDir); err != nil {
 		// Directory may not exist yet - that's OK, we'll try again
-		logging.Kernel("MangleWatcher: initial watch failed (dir may not exist): %v", err)
+		logging.Get(logging.CategoryKernel).Warn("MangleWatcher: initial watch failed (dir may not exist): %v", err)
 	} else {
 		logging.Kernel("MangleWatcher: watching directory: %s", mw.mangleDir)
 	}
@@ -121,7 +121,7 @@ func (mw *MangleWatcher) Stop() {
 	<-mw.doneCh
 
 	if err := mw.watcher.Close(); err != nil {
-		logging.Kernel("MangleWatcher: error closing watcher: %v", err)
+		logging.Get(logging.CategoryKernel).Error("MangleWatcher: error closing watcher: %v", err)
 	}
 	logging.Kernel("MangleWatcher: stopped")
 }
