@@ -94,8 +94,8 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 
 	// JIT-related predicate debugging - log at INFO level for visibility
 	jitPredicates := map[string]bool{
-		"selected_result": true, "is_mandatory": true, "mandatory_selection": true,
-		"blocked_by_context": true, "final_valid": true, "tentative": true,
+		"selected_atom": true, "is_mandatory": true, "mandatory_atom": true,
+		"prohibited_atom": true, "compilation_valid": true, "candidate_atom": true,
 	}
 	if jitPredicates[predicateName] {
 		logging.Kernel("JIT-Query: %s found=%v results=%d", predicateName, predicateFound, len(results))

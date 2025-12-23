@@ -50,7 +50,7 @@ func (m *DreamPlanManager) StorePlan(plan *DreamPlan) {
 			Args:      []interface{}{plan.ID, plan.Hypothetical, string(plan.Status), plan.CreatedAt.Unix()},
 		}
 		if err := m.kernel.Assert(fact); err != nil {
-			logging.Dream("Failed to assert dream_plan fact: %v", err)
+			logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan fact: %v", err)
 		}
 	}
 }
@@ -95,7 +95,7 @@ func (m *DreamPlanManager) ApprovePlan() error {
 			Args:      []interface{}{m.currentPlan.ID, now.Unix()},
 		}
 		if err := m.kernel.Assert(fact); err != nil {
-			logging.Dream("Failed to assert dream_plan_approved fact: %v", err)
+			logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan_approved fact: %v", err)
 		}
 	}
 
@@ -191,7 +191,7 @@ func (m *DreamPlanManager) MarkSubtaskComplete(id, result string) bool {
 					Args:      []interface{}{m.currentPlan.ID, s.Order, truncateResult(result), time.Now().Unix()},
 				}
 				if err := m.kernel.Assert(fact); err != nil {
-					logging.Dream("Failed to assert step completion fact: %v", err)
+					logging.Get(logging.CategoryDream).Error("Failed to assert step completion fact: %v", err)
 				}
 				break
 			}
