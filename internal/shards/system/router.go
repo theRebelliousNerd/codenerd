@@ -11,16 +11,18 @@
 package system
 
 import (
-	"codenerd/internal/browser"
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/browser"
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 )
 
 // ToolRoute defines how an action maps to a tool.
@@ -529,6 +531,27 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
+				})
+			}
+
+			// Emit Glass Box event for tool visibility
+			if r.GlassBox != nil {
+				summary := fmt.Sprintf("Tool: %s", route.ToolName)
+				details := call.Result
+				if len(details) > 500 {
+					details = details[:500] + "..."
+				}
+				if call.Error != "" {
+					summary = fmt.Sprintf("Tool: %s (FAILED)", route.ToolName)
+					details = call.Error
+				}
+				r.GlassBox.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryRouting,
+					Summary:   summary,
+					Details:   details,
+					Duration:  duration,
+					Source:    "tactile_router",
 				})
 			}
 

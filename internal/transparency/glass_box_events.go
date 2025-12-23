@@ -80,6 +80,7 @@ func AllCategories() []GlassBoxCategory {
 		CategoryJIT,
 		CategoryShard,
 		CategoryControl,
+		CategoryRouting,
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
 
@@ -273,6 +274,7 @@ type BaseSystemShard struct {
 	Kernel       *core.RealKernel
 	LLMClient    types.LLMClient
 	VirtualStore *core.VirtualStore
+	GlassBox     *transparency.GlassBoxEventBus // For Glass Box visibility events
 
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
@@ -406,6 +408,16 @@ func (b *BaseSystemShard) SetVirtualStore(vs any) {
 		logging.SystemShardsDebug("[%s] VirtualStore attached", b.ID)
 	} else {
 		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid VirtualStore type", b.ID)
+	}
+}
+
+// SetGlassBox sets the Glass Box event bus for visibility events.
+func (b *BaseSystemShard) SetGlassBox(bus *transparency.GlassBoxEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.GlassBox = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] GlassBox event bus attached", b.ID)
 	}
 }
 
