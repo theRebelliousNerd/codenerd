@@ -652,7 +652,8 @@ func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, user
 	}
 
 	// Apply per-call timeout if none exists
-	const defaultLLMTimeout = 90 * time.Second
+	// Note: GLM-4.7 with large contexts (160K+) can take 2-4+ minutes
+	const defaultLLMTimeout = 5 * time.Minute
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultLLMTimeout)
