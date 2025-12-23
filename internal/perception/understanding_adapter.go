@@ -20,6 +20,7 @@ type UnderstandingTransducer struct {
 	promptAssembler   *articulation.PromptAssembler
 	kernel            RoutingKernel
 	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
+	strategicContext  string         // Strategic knowledge about the codebase from /init
 }
 
 // NewUnderstandingTransducer creates a transducer using LLM-first classification.
@@ -32,6 +33,12 @@ func NewUnderstandingTransducer(client LLMClient) *UnderstandingTransducer {
 // SetPromptAssembler sets the prompt assembler for JIT compilation.
 func (t *UnderstandingTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {
 	t.promptAssembler = pa
+}
+
+// SetStrategicContext injects strategic knowledge about the codebase.
+// This context is included in prompts to help answer conceptual questions.
+func (t *UnderstandingTransducer) SetStrategicContext(context string) {
+	t.strategicContext = context
 }
 
 // SetKernel sets the Mangle kernel for routing queries.

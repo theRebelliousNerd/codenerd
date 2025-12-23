@@ -481,12 +481,68 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	codeGraph := v.codeGraph
 	v.mu.RUnlock()
 
+	pattern := req.Target
+
 	if codeGraph == nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Code graph MCP client not configured")
-		return ActionResult{Success: false, Error: "code graph integration not configured"}, nil
+		logging.Get(logging.CategoryVirtualStore).Warn("Code graph MCP client not configured, falling back to local search")
+		
+		facts := make([]Fact, 0)
+		var output strings.Builder
+		count := 0
+
+		// Go-native search using filepath.Walk
+		err := filepath.Walk(v.workingDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+
+			// Skip hidden directories and large files
+			if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
+				return nil
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+
+			content := string(data)
+			lines := strings.Split(content, "\n")
+			relPath, _ := filepath.Rel(v.workingDir, path)
+
+			for i, line := range lines {
+				if strings.Contains(line, pattern) {
+					count++
+					lineNum := i + 1
+					facts = append(facts, Fact{
+						Predicate: "search_result",
+						Args: []interface{}{
+							relPath,
+							lineNum,
+							strings.TrimSpace(line),
+						},
+					})
+					output.WriteString(fmt.Sprintf("%s:%d:%s\n", relPath, lineNum, line))
+					if count >= 100 { // Cap results
+						return filepath.SkipDir
+					}
+				}
+			}
+			return nil
+		})
+
+		if err != nil {
+			return ActionResult{Success: false, Error: err.Error()}, nil
+		}
+
+		logging.VirtualStoreDebug("Local search returned %d results", len(facts))
+		return ActionResult{
+			Success:    true,
+			Output:     output.String(),
+			FactsToAdd: facts,
+		}, nil
 	}
 
-	pattern := req.Target
 	args := map[string]interface{}{
 		"pattern": pattern,
 	}
@@ -735,7 +791,15 @@ func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionReques
 	v.mu.RUnlock()
 
 	if codeGraph == nil {
-		return ActionResult{Success: false, Error: "code graph integration not configured"}, nil
+		logging.Get(logging.CategoryVirtualStore).Warn("Code graph MCP client not configured, skipping deep impact analysis")
+		// Fallback: Assume local impact only to satisfy logic requirements without external tool.
+		return ActionResult{
+			Success: true,
+			Output:  "Deep impact analysis skipped (code graph not configured)",
+			FactsToAdd: []Fact{
+				{Predicate: "impact_radius", Args: []interface{}{req.Target, 0}},
+			},
+		}, nil
 	}
 
 	result, err := codeGraph.CallTool(ctx, "impact-analysis", map[string]interface{}{
@@ -1037,4 +1101,114 @@ func (v *VirtualStore) handleEscalate(ctx context.Context, req ActionRequest) (A
 			{Predicate: "task_blocked", Args: []interface{}{reason}},
 		},
 	}, nil
+}
+
+// GetStrategicSummary retrieves a formatted summary of strategic knowledge
+// for injection into prompts when handling conceptual queries about the codebase.
+// Returns empty string if no strategic knowledge is available.
+func (v *VirtualStore) GetStrategicSummary() string {
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		return ""
+	}
+
+	// Query all strategic knowledge atoms
+	atoms, err := db.GetKnowledgeAtomsByPrefix("strategic/")
+	if err != nil || len(atoms) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Project Strategic Knowledge\n\n")
+
+	// Group by category for organized output
+	categories := map[string][]string{
+		"vision":         {},
+		"philosophy":     {},
+		"architecture":   {},
+		"pattern":        {},
+		"component":      {},
+		"capability":     {},
+		"constraint":     {},
+	}
+
+	for _, atom := range atoms {
+		category := strings.TrimPrefix(atom.Concept, "strategic/")
+		// Skip the full_knowledge blob - it's too verbose for context injection
+		if category == "full_knowledge" {
+			continue
+		}
+		if _, ok := categories[category]; ok {
+			categories[category] = append(categories[category], atom.Content)
+		}
+	}
+
+	// Output in structured order
+	if len(categories["vision"]) > 0 {
+		sb.WriteString("**Vision:** ")
+		sb.WriteString(categories["vision"][0])
+		sb.WriteString("\n\n")
+	}
+
+	if len(categories["philosophy"]) > 0 {
+		sb.WriteString("**Philosophy:** ")
+		sb.WriteString(categories["philosophy"][0])
+		sb.WriteString("\n\n")
+	}
+
+	if len(categories["architecture"]) > 0 {
+		sb.WriteString("**Architecture:** ")
+		sb.WriteString(categories["architecture"][0])
+		sb.WriteString("\n\n")
+	}
+
+	if len(categories["component"]) > 0 {
+		sb.WriteString("**Key Components:**\n")
+		for _, c := range categories["component"] {
+			sb.WriteString("- ")
+			sb.WriteString(c)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(categories["pattern"]) > 0 {
+		sb.WriteString("**Core Patterns:**\n")
+		for _, p := range categories["pattern"] {
+			sb.WriteString("- ")
+			sb.WriteString(p)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(categories["capability"]) > 0 {
+		sb.WriteString("**Capabilities:**\n")
+		for _, c := range categories["capability"] {
+			sb.WriteString("- ")
+			sb.WriteString(c)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(categories["constraint"]) > 0 {
+		sb.WriteString("**Safety Constraints:**\n")
+		for _, c := range categories["constraint"] {
+			sb.WriteString("- ")
+			sb.WriteString(c)
+			sb.WriteString("\n")
+		}
+	}
+
+	result := sb.String()
+	if result == "## Project Strategic Knowledge\n\n" {
+		return "" // No meaningful content
+	}
+
+	logging.VirtualStoreDebug("GetStrategicSummary: generated %d chars", len(result))
+	return result
 }

@@ -871,3 +871,88 @@ func appendAtom(atoms []ast.Atom, predicate string, args ...interface{}) []ast.A
 	}
 	return append(atoms, atom)
 }
+
+// =============================================================================
+// STRATEGIC KNOWLEDGE VIRTUAL PREDICATES
+// =============================================================================
+// These methods enable the main agent to query deep philosophical and
+// architectural knowledge about the codebase generated during /init.
+
+// QueryStrategicKnowledge queries knowledge atoms with a strategic/* concept.
+// Returns atoms like vision, philosophy, patterns, components, etc.
+func (v *VirtualStore) QueryStrategicKnowledge(category string) ([]Fact, error) {
+	logging.VirtualStoreDebug("QueryStrategicKnowledge: category=%s", category)
+
+	v.mu.RLock()
+	db := v.localDB
+	v.mu.RUnlock()
+
+	if db == nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("QueryStrategicKnowledge: no knowledge database configured")
+		return nil, fmt.Errorf("no knowledge database configured")
+	}
+
+	// Build the concept prefix based on category
+	var prefix string
+	if category == "" || category == "all" {
+		prefix = "strategic/"
+	} else {
+		prefix = "strategic/" + category
+	}
+
+	atoms, err := db.GetKnowledgeAtomsByPrefix(prefix)
+	if err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("QueryStrategicKnowledge failed: %v", err)
+		return nil, fmt.Errorf("failed to query strategic knowledge: %w", err)
+	}
+
+	facts := make([]Fact, 0, len(atoms))
+	for _, atom := range atoms {
+		// Extract the subcategory from the concept (e.g., "strategic/vision" -> "vision")
+		subcategory := strings.TrimPrefix(atom.Concept, "strategic/")
+		facts = append(facts, Fact{
+			Predicate: "strategic_knowledge",
+			Args:      []interface{}{subcategory, atom.Content, atom.Confidence},
+		})
+	}
+
+	logging.VirtualStoreDebug("QueryStrategicKnowledge: found %d facts for category=%s", len(facts), category)
+	return facts, nil
+}
+
+// getQueryStrategicAtoms implements the query_strategic virtual predicate.
+// Usage: query_strategic(Category, Content, Confidence)
+// - Category bound: returns strategic knowledge for that category
+// - Category unbound: returns all strategic knowledge
+func (v *VirtualStore) getQueryStrategicAtoms(query ast.Atom) ([]ast.Atom, error) {
+	// Check if first arg (category) is bound
+	_, category, ok := boundNameArg(query.Args, 0)
+
+	if ok {
+		// Category specified - query that specific category
+		facts, err := v.QueryStrategicKnowledge(category)
+		if err != nil {
+			return nil, err
+		}
+		atoms := make([]ast.Atom, 0, len(facts))
+		for _, f := range facts {
+			if len(f.Args) >= 3 {
+				atoms = appendAtom(atoms, "query_strategic", f.Args[0], f.Args[1], f.Args[2])
+			}
+		}
+		return atoms, nil
+	}
+
+	// No category - return all strategic knowledge
+	facts, err := v.QueryStrategicKnowledge("")
+	if err != nil {
+		return nil, err
+	}
+	atoms := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		if len(f.Args) >= 3 {
+			atoms = appendAtom(atoms, "query_strategic", f.Args[0], f.Args[1], f.Args[2])
+		}
+	}
+	return atoms, nil
+}

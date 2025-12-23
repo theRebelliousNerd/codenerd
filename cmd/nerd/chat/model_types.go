@@ -290,6 +290,12 @@ type Model struct {
 	statusMessage string      // Current operation description
 	statusChan    chan string // Channel for streaming status updates
 
+	// Glass Box Debug Mode - shows system internals inline in chat
+	glassBoxEnabled   bool                              // Runtime toggle
+	glassBoxEventBus  *transparency.GlassBoxEventBus   // Event collection and dispatch
+	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
+	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
+
 	// Boot State
 	isBooting bool
 	bootStage BootStage
@@ -339,9 +345,13 @@ type ShardResult struct {
 
 // Message represents a single message in the chat history
 type Message struct {
-	Role    string // "user" or "assistant"
+	Role    string // "user", "assistant", or "system" (Glass Box events)
 	Content string
 	Time    time.Time
+
+	// Glass Box fields (only set when Role == "system")
+	GlassBoxCategory transparency.GlassBoxCategory // Event category for styling
+	IsCollapsed      bool                          // Whether details are collapsed
 }
 
 // Agent represents a defined agent in the registry
@@ -406,6 +416,7 @@ type SystemComponents struct {
 	TransparencyMgr       *transparency.TransparencyManager
 	PreferencesMgr        *ux.PreferencesManager
 	Retriever             *retrieval.SparseRetriever
+	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.
@@ -523,6 +534,9 @@ type (
 
 	// statusMsg represents a status update from a background process
 	statusMsg string
+
+	// glassBoxEventMsg carries a Glass Box event for inline display
+	glassBoxEventMsg transparency.GlassBoxEvent
 
 	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
 	traceUpdateMsg struct {

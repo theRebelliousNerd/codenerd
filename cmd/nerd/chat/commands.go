@@ -193,6 +193,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 | /logic | Show logic pane content |
 | /shadow | Run shadow mode simulation |
 | /whatif <change> | Counterfactual query |
+| /glassbox | Toggle Glass Box debug mode (inline system visibility) |
+| /glassbox status | Show Glass Box status |
+| /glassbox verbose | Toggle verbose details |
 | /approve | Approve pending changes |
 | /reject-finding <file>:<line> <reason> | Mark finding as false positive |
 | /accept-finding <file>:<line> | Confirm finding is valid |
@@ -223,6 +226,7 @@ or you can create them on-demand with /tool generate.
 | Ctrl+X | Stop current activity (visible during loading) |
 | Shift+Tab | Cycle continuation mode (Auto → Confirm → Breakpoint) |
 | Alt+L | Toggle logic pane |
+| Alt+D | Toggle Glass Box debug mode |
 | Alt+M | Toggle mouse capture (for text selection) |
 | Ctrl+L | Toggle logic pane |
 | Ctrl+G | Cycle pane modes |
@@ -1337,6 +1341,37 @@ You have an existing Northstar definition. What would you like to do?
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()
+		return m, nil
+
+	case "/glassbox":
+		// Glass Box debug mode - inline system visibility
+		var response string
+		if len(parts) > 1 {
+			switch parts[1] {
+			case "status":
+				response = m.glassBoxStatus()
+			case "verbose":
+				response = m.toggleGlassBoxVerbose()
+			default:
+				// Try as category toggle
+				response = m.toggleGlassBoxCategory(parts[1])
+			}
+		} else {
+			// Toggle Glass Box mode
+			response = m.toggleGlassBox()
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: response,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		// Start listening for events if enabled
+		if m.glassBoxEnabled {
+			return m, m.listenGlassBoxEvents()
+		}
 		return m, nil
 
 	case "/transparency":

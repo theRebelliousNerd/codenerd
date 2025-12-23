@@ -20,7 +20,8 @@ func (m Model) renderHistory() string {
 	var sb strings.Builder
 
 	for _, msg := range m.history {
-		if msg.Role == "user" {
+		switch msg.Role {
+		case "user":
 			// Render user message
 			userStyle := m.styles.Bold.
 				Foreground(m.styles.Theme.Primary).
@@ -28,7 +29,15 @@ func (m Model) renderHistory() string {
 			sb.WriteString(userStyle.Render("You") + "\n")
 			sb.WriteString(m.styles.UserInput.Render(msg.Content))
 			sb.WriteString("\n\n")
-		} else {
+
+		case "system":
+			// Render Glass Box system event (only when enabled)
+			if !m.glassBoxEnabled {
+				continue
+			}
+			sb.WriteString(m.renderGlassBoxMessage(msg))
+
+		default: // "assistant"
 			// Render assistant message with markdown
 			assistantStyle := m.styles.Bold.
 				Foreground(m.styles.Theme.Accent).
@@ -43,6 +52,27 @@ func (m Model) renderHistory() string {
 	}
 
 	return sb.String()
+}
+
+// renderGlassBoxMessage formats a Glass Box system event for display.
+func (m Model) renderGlassBoxMessage(msg Message) string {
+	// Category prefix with color
+	prefix := m.styles.Muted.Render(msg.GlassBoxCategory.DisplayPrefix())
+
+	// Content with dimmed styling
+	content := m.styles.Muted.Render(msg.Content)
+
+	// Collapsible indicator if message has details (check for newline)
+	indicator := ""
+	if strings.Contains(msg.Content, "\n") {
+		if msg.IsCollapsed {
+			indicator = m.styles.Muted.Render(" [+]")
+		} else {
+			indicator = m.styles.Muted.Render(" [-]")
+		}
+	}
+
+	return fmt.Sprintf("  %s%s %s\n", prefix, indicator, content)
 }
 
 // safeRenderMarkdown renders markdown with panic recovery
@@ -271,16 +301,22 @@ func (m Model) renderFooter() string {
 		mouseIndicator = " | [SELECT]"
 	}
 
+	// Glass Box indicator
+	glassIndicator := ""
+	if m.glassBoxEnabled {
+		glassIndicator = " | [GLASS]"
+	}
+
 	// Build hotkeys section - show Ctrl+X prominently when loading
 	hotkeys := ""
 	if m.isLoading {
 		hotkeys = "Ctrl+X: STOP | "
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+E: error | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+D: debug | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
 
 	timestamp := time.Now().Format("15:04")
-	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s | %s | %s",
-		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, timestamp, hotkeys))
+	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
+		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator, timestamp, hotkeys))
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		Render(help)

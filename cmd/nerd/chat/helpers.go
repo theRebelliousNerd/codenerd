@@ -1343,8 +1343,8 @@ func isConversationalIntent(intent perception.Intent) bool {
 		return false
 	}
 
-	// For /explain, it's conversational if target is generic/none
-	// (actual code explanation with a specific target should go through articulation)
+	// For /explain, it's conversational if target is generic/conceptual (not a specific file/function)
+	// Concept explanations can use perception response directly; code explanations need articulation
 	if intent.Verb == "/explain" {
 		target := strings.ToLower(intent.Target)
 		// Generic targets indicate conversational intent
@@ -1353,6 +1353,13 @@ func isConversationalIntent(intent perception.Intent) bool {
 			strings.Contains(target, "what can you") ||
 			strings.Contains(target, "what do you") ||
 			strings.Contains(target, "capabilities") {
+			return true
+		}
+		// Conceptual/system explanations (not file paths or code symbols)
+		// These don't need workspace context, just general knowledge
+		if !strings.Contains(target, ".") && !strings.Contains(target, "/") &&
+			!strings.Contains(target, "::") && !strings.Contains(target, "(") {
+			// No file extension, path separator, scope operator, or parens = likely conceptual
 			return true
 		}
 	}

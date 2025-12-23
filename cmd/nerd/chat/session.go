@@ -611,6 +611,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		transducer.SetKernel(kernel)
 		logging.Boot("Wired kernel to LLM-first transducer for routing")
 
+		// Inject strategic knowledge for conceptual queries
+		if strategicSummary := virtualStore.GetStrategicSummary(); strategicSummary != "" {
+			transducer.SetStrategicContext(strategicSummary)
+			logging.Boot("Injected strategic knowledge (%d chars) into transducer", len(strategicSummary))
+		}
+
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
@@ -924,6 +930,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Get(logging.CategoryKernel).Warn("Failed to create Mangle watcher: %v", err)
 		}
 
+		// Create Glass Box event bus for debug visibility
+		glassBoxEventBus := transparency.NewGlassBoxEventBus()
+
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
 			components: &SystemComponents{
@@ -953,6 +962,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				TransparencyMgr:       transparencyMgr,
 				PreferencesMgr:        prefsMgr,
 				Retriever:             retriever,
+				GlassBoxEventBus:      glassBoxEventBus,
 			},
 		}
 	}
