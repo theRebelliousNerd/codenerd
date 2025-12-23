@@ -186,24 +186,132 @@ func (i *Initializer) buildCodebaseContext(profile ProjectProfile, scanResult *w
 	return sb.String()
 }
 
-// findClaudeMDContent looks for CLAUDE.md files in the workspace.
+// findAllMarkdownContent scans for all markdown files in the workspace.
+// Prioritizes CLAUDE.md and README.md, then includes other docs.
 func (i *Initializer) findClaudeMDContent() string {
-	paths := []string{
+	var sb strings.Builder
+	totalChars := 0
+	const maxTotalChars = 50000 // Cap total markdown content
+
+	// Priority files to read first (in order)
+	priorityFiles := []string{
 		filepath.Join(i.config.Workspace, "CLAUDE.md"),
 		filepath.Join(i.config.Workspace, ".claude", "CLAUDE.md"),
+		filepath.Join(i.config.Workspace, "README.md"),
+		filepath.Join(i.config.Workspace, "ARCHITECTURE.md"),
+		filepath.Join(i.config.Workspace, "CONTRIBUTING.md"),
+		filepath.Join(i.config.Workspace, "DESIGN.md"),
 	}
 
-	for _, path := range paths {
+	seen := make(map[string]bool)
+
+	// Read priority files first
+	for _, path := range priorityFiles {
+		if totalChars >= maxTotalChars {
+			break
+		}
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		if seen[absPath] {
+			continue
+		}
 		if content, err := os.ReadFile(path); err == nil {
-			// Truncate if too long
+			seen[absPath] = true
+			filename := filepath.Base(path)
+			sb.WriteString(fmt.Sprintf("\n### %s\n\n", filename))
 			s := string(content)
-			if len(s) > 10000 {
-				s = s[:10000] + "\n...[truncated]"
+			if totalChars+len(s) > maxTotalChars {
+				s = s[:maxTotalChars-totalChars] + "\n...[truncated]"
 			}
-			return s
+			sb.WriteString(s)
+			sb.WriteString("\n")
+			totalChars += len(s)
 		}
 	}
-	return ""
+
+	// Scan for additional markdown files (up to 3 levels deep)
+	additionalDirs := []string{
+		i.config.Workspace,
+		filepath.Join(i.config.Workspace, "docs"),
+		filepath.Join(i.config.Workspace, "doc"),
+		filepath.Join(i.config.Workspace, ".github"),
+	}
+
+	for _, dir := range additionalDirs {
+		if totalChars >= maxTotalChars {
+			break
+		}
+		i.scanMarkdownDir(dir, seen, &sb, &totalChars, maxTotalChars, 0, 2)
+	}
+
+	result := sb.String()
+	if result == "" {
+		return ""
+	}
+
+	logging.Get(logging.CategoryBoot).Debug("Found %d chars of markdown documentation", totalChars)
+	return result
+}
+
+// scanMarkdownDir recursively scans a directory for markdown files.
+func (i *Initializer) scanMarkdownDir(dir string, seen map[string]bool, sb *strings.Builder, totalChars *int, maxChars int, depth int, maxDepth int) {
+	if depth > maxDepth || *totalChars >= maxChars {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if *totalChars >= maxChars {
+			break
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+
+		if entry.IsDir() {
+			// Skip common non-doc directories
+			name := entry.Name()
+			if name == "node_modules" || name == "vendor" || name == ".git" ||
+				name == "dist" || name == "build" || name == "__pycache__" ||
+				name == ".nerd" || name == "target" {
+				continue
+			}
+			i.scanMarkdownDir(path, seen, sb, totalChars, maxChars, depth+1, maxDepth)
+		} else if strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+			if seen[absPath] {
+				continue
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			seen[absPath] = true
+
+			// Get relative path for display
+			relPath, _ := filepath.Rel(i.config.Workspace, path)
+			if relPath == "" {
+				relPath = entry.Name()
+			}
+
+			sb.WriteString(fmt.Sprintf("\n### %s\n\n", relPath))
+			s := string(content)
+			if *totalChars+len(s) > maxChars {
+				s = s[:maxChars-*totalChars] + "\n...[truncated]"
+			}
+			sb.WriteString(s)
+			sb.WriteString("\n")
+			*totalChars += len(s)
+		}
+	}
 }
 
 // createFallbackStrategicKnowledge creates minimal knowledge when LLM fails.
