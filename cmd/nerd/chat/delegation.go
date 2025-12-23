@@ -330,12 +330,14 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	}
 }
 
-// spawnShardWithSpecialists spawns a shard with matching specialists in parallel.
-// This extends specialist matching beyond /review to support /fix, /refactor, /create, /test.
-// Specialists are matched based on technology patterns in the target files.
+// spawnShardWithSpecialists spawns a shard with specialist support based on execution mode.
+// Execution modes:
+//   - ModeParallel: All shards execute in parallel (for /review, /security)
+//   - ModeAdvisory: Specialists advise, then generic shard executes (for /create, /debug)
+//   - ModeAdvisoryWithCritique: Advise → Execute → Critique (for /fix, /refactor)
 func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 		defer cancel()
 
 		startTime := time.Now()
@@ -343,7 +345,6 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 		// 1. Resolve target files for specialist matching
 		files := m.resolveReviewTarget(target)
 		if len(files) == 0 {
-			// Fall back to single file if target is a path
 			fullPath := target
 			if !filepath.IsAbs(target) {
 				fullPath = filepath.Join(m.workspace, target)
@@ -353,129 +354,396 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			}
 		}
 
-		// 2. Load agent registry
+		// 2. Load agent registry and match specialists
 		registry := m.loadAgentRegistryForMatching()
-
-		// 3. Match specialists based on verb and files
 		specialists := shards.MatchSpecialistsForTask(ctx, verb, files, registry)
 
-		// 4. If no specialists matched or registry empty, fall back to simple spawn
+		// 3. No specialists? Fall back to simple spawn
 		if len(specialists) == 0 {
-			m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
-			result, err := m.shardMgr.Spawn(ctx, shardType, task)
-			shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
-			facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
-			if m.kernel != nil && len(facts) > 0 {
-				_ = m.kernel.LoadFacts(facts)
-			}
-			if err != nil {
-				return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
-			}
-			response := fmt.Sprintf("## Shard Execution Complete\n\n**Agent**: %s\n**Task**: %s\n\n### Result\n%s",
-				shardType, task, result)
-			return assistantMsg{
-				Surface: response,
-				ShardResult: &ShardResultPayload{
-					ShardType: shardType,
-					Task:      task,
-					Result:    result,
-					Facts:     facts,
-				},
-			}
+			return m.spawnSimpleShard(ctx, shardType, task, startTime)
 		}
 
-		// 5. Spawn generic shard + specialists in parallel
-		m.ReportStatus(fmt.Sprintf("Spawning %s + %d specialists...", shardType, len(specialists)))
-
-		type spawnResult struct {
-			Name   string
-			Result string
-			Err    error
-		}
-
-		resultsChan := make(chan spawnResult, len(specialists)+1)
-		var wg sync.WaitGroup
-
-		// Spawn generic shard if configured
-		if shards.ShouldIncludeGenericShard(verb) {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				result, err := m.shardMgr.Spawn(ctx, shardType, task)
-				resultsChan <- spawnResult{Name: shardType, Result: result, Err: err}
-			}()
-		}
-
-		// Spawn matching specialists
-		for _, spec := range specialists {
-			wg.Add(1)
-			go func(s shards.SpecialistMatch) {
-				defer wg.Done()
-				// Build specialist task with context
-				specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
-					strings.TrimPrefix(verb, "/"),
-					strings.Join(s.Files, ","),
-					s.Reason)
-				result, err := m.shardMgr.Spawn(ctx, s.AgentName, specTask)
-				resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err}
-			}(spec)
-		}
-
-		// Wait and collect
-		go func() {
-			wg.Wait()
-			close(resultsChan)
-		}()
-
-		var results []spawnResult
-		for r := range resultsChan {
-			results = append(results, r)
-		}
-
-		// 6. Aggregate results
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("## Multi-Specialist %s Complete\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
-		sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
-		sb.WriteString(fmt.Sprintf("**Duration**: %s\n\n", time.Since(startTime).Round(time.Second)))
-
-		participants := make([]string, 0, len(results))
-		var combinedResult strings.Builder
-		allFacts := make([]core.Fact, 0)
-
-		for _, r := range results {
-			participants = append(participants, r.Name)
-			if r.Err != nil {
-				sb.WriteString(fmt.Sprintf("### %s (failed)\n\nError: %v\n\n", r.Name, r.Err))
-			} else {
-				sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", r.Name, r.Result))
-				combinedResult.WriteString(r.Result)
-				combinedResult.WriteString("\n\n")
-
-				// Generate facts for this result
-				shardID := fmt.Sprintf("%s-%d", r.Name, time.Now().UnixNano())
-				facts := m.shardMgr.ResultToFacts(shardID, r.Name, task, r.Result, r.Err)
-				allFacts = append(allFacts, facts...)
-			}
-		}
-
-		sb.WriteString(fmt.Sprintf("**Participants**: %s\n", strings.Join(participants, ", ")))
-
-		// Inject all facts
-		if m.kernel != nil && len(allFacts) > 0 {
-			_ = m.kernel.LoadFacts(allFacts)
-		}
-
-		m.ReportStatus(fmt.Sprintf("%s + specialists complete", shardType))
-		return assistantMsg{
-			Surface: sb.String(),
-			ShardResult: &ShardResultPayload{
-				ShardType: shardType,
-				Task:      task,
-				Result:    combinedResult.String(),
-				Facts:     allFacts,
-			},
+		// 4. Route based on execution mode
+		mode := shards.GetExecutionMode(verb)
+		switch mode {
+		case shards.ModeAdvisory:
+			return m.executeAdvisoryMode(ctx, verb, shardType, task, target, files, specialists, startTime)
+		case shards.ModeAdvisoryWithCritique:
+			return m.executeAdvisoryWithCritiqueMode(ctx, verb, shardType, task, target, files, specialists, startTime)
+		default: // ModeParallel
+			return m.executeParallelMode(ctx, verb, shardType, task, target, specialists, startTime)
 		}
 	}
+}
+
+// spawnSimpleShard handles the case where no specialists are matched
+func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, startTime time.Time) tea.Msg {
+	m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
+	result, err := m.shardMgr.Spawn(ctx, shardType, task)
+	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+	if m.kernel != nil && len(facts) > 0 {
+		_ = m.kernel.LoadFacts(facts)
+	}
+	if err != nil {
+		return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
+	}
+	response := fmt.Sprintf("## Shard Execution Complete\n\n**Agent**: %s\n**Task**: %s\n**Duration**: %s\n\n### Result\n%s",
+		shardType, task, time.Since(startTime).Round(time.Second), result)
+	return assistantMsg{
+		Surface: response,
+		ShardResult: &ShardResultPayload{
+			ShardType: shardType,
+			Task:      task,
+			Result:    result,
+			Facts:     facts,
+		},
+	}
+}
+
+// executeParallelMode runs all shards in parallel (for /review, /security, /test)
+func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, target string, specialists []shards.SpecialistMatch, startTime time.Time) tea.Msg {
+	m.ReportStatus(fmt.Sprintf("Spawning %s + %d specialists in parallel...", shardType, len(specialists)))
+
+	resultsChan := make(chan spawnResult, len(specialists)+1)
+	var wg sync.WaitGroup
+
+	// Spawn generic shard
+	if shards.ShouldIncludeGenericShard(verb) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := m.shardMgr.Spawn(ctx, shardType, task)
+			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err}
+		}()
+	}
+
+	// Spawn specialists in parallel
+	for _, spec := range specialists {
+		wg.Add(1)
+		go func(s shards.SpecialistMatch) {
+			defer wg.Done()
+			specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
+				strings.TrimPrefix(verb, "/"), strings.Join(s.Files, ","), s.Reason)
+			result, err := m.shardMgr.Spawn(ctx, s.AgentName, specTask)
+			resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err}
+		}(spec)
+	}
+
+	go func() { wg.Wait(); close(resultsChan) }()
+
+	var results []spawnResult
+	for r := range resultsChan {
+		results = append(results, r)
+	}
+
+	return m.formatParallelResults(verb, shardType, task, target, results, startTime)
+}
+
+// executeAdvisoryMode: Phase 1 (advice) → Phase 2 (execute with advice)
+func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, target string, files []string, specialists []shards.SpecialistMatch, startTime time.Time) tea.Msg {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("**Target**: %s\n\n", target))
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 1: Gather specialist advice in parallel
+	// ═══════════════════════════════════════════════════════════════════════════
+	m.ReportStatus(fmt.Sprintf("Phase 1: Gathering advice from %d specialists...", len(specialists)))
+	sb.WriteString("### Phase 1: Specialist Advisory\n\n")
+
+	adviceResults := m.gatherSpecialistAdvice(ctx, verb, files, specialists)
+	var combinedAdvice strings.Builder
+	for _, adv := range adviceResults {
+		if adv.Err != nil {
+			sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to provide advice\n\n", adv.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("**%s** (%s):\n%s\n\n", adv.Name, adv.Reason, adv.Result))
+			combinedAdvice.WriteString(fmt.Sprintf("[%s advice]: %s\n", adv.Name, adv.Result))
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 2: Execute with specialist advice as context
+	// ═══════════════════════════════════════════════════════════════════════════
+	m.ReportStatus(fmt.Sprintf("Phase 2: Executing %s with specialist context...", shardType))
+	sb.WriteString("---\n\n### Phase 2: Execution\n\n")
+
+	// Inject advice into the task
+	enhancedTask := task
+	if combinedAdvice.Len() > 0 {
+		enhancedTask = fmt.Sprintf("%s\n\n[SPECIALIST ADVICE - Consider these domain-specific recommendations]:\n%s",
+			task, combinedAdvice.String())
+	}
+
+	result, err := m.shardMgr.Spawn(ctx, shardType, enhancedTask)
+	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+
+	if err != nil {
+		sb.WriteString(fmt.Sprintf("**%s**: ❌ Failed: %v\n\n", shardType, err))
+	} else {
+		sb.WriteString(fmt.Sprintf("**%s** output:\n\n%s\n\n", shardType, result))
+	}
+
+	// Inject facts
+	if m.kernel != nil && len(facts) > 0 {
+		_ = m.kernel.LoadFacts(facts)
+	}
+
+	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
+	sb.WriteString(fmt.Sprintf("**Advisors**: %s\n", formatAdvisorNames(adviceResults)))
+
+	m.ReportStatus(fmt.Sprintf("%s complete", shardType))
+	return assistantMsg{
+		Surface: sb.String(),
+		ShardResult: &ShardResultPayload{
+			ShardType: shardType,
+			Task:      task,
+			Result:    result,
+			Facts:     facts,
+		},
+	}
+}
+
+// executeAdvisoryWithCritiqueMode: Phase 1 (advice) → Phase 2 (execute) → Phase 3 (critique)
+func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardType, task, target string, files []string, specialists []shards.SpecialistMatch, startTime time.Time) tea.Msg {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## %s with Specialist Advisory & Critique\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("**Target**: %s\n\n", target))
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 1: Gather specialist advice in parallel
+	// ═══════════════════════════════════════════════════════════════════════════
+	m.ReportStatus(fmt.Sprintf("Phase 1: Gathering advice from %d specialists...", len(specialists)))
+	sb.WriteString("### Phase 1: Specialist Advisory\n\n")
+
+	adviceResults := m.gatherSpecialistAdvice(ctx, verb, files, specialists)
+	var combinedAdvice strings.Builder
+	for _, adv := range adviceResults {
+		if adv.Err != nil {
+			sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to provide advice\n\n", adv.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("**%s** (%s):\n%s\n\n", adv.Name, adv.Reason, adv.Result))
+			combinedAdvice.WriteString(fmt.Sprintf("[%s advice]: %s\n", adv.Name, adv.Result))
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 2: Execute with specialist advice as context
+	// ═══════════════════════════════════════════════════════════════════════════
+	m.ReportStatus(fmt.Sprintf("Phase 2: Executing %s with specialist context...", shardType))
+	sb.WriteString("---\n\n### Phase 2: Execution\n\n")
+
+	enhancedTask := task
+	if combinedAdvice.Len() > 0 {
+		enhancedTask = fmt.Sprintf("%s\n\n[SPECIALIST ADVICE - Consider these domain-specific recommendations]:\n%s",
+			task, combinedAdvice.String())
+	}
+
+	result, err := m.shardMgr.Spawn(ctx, shardType, enhancedTask)
+	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
+
+	if err != nil {
+		sb.WriteString(fmt.Sprintf("**%s**: ❌ Failed: %v\n\n", shardType, err))
+		// Skip critique if execution failed
+		sb.WriteString("---\n\n### Phase 3: Critique\n\n⚠️ Skipped due to execution failure.\n\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("**%s** output:\n\n%s\n\n", shardType, result))
+
+		// ═══════════════════════════════════════════════════════════════════════════
+		// PHASE 3: Specialist critique of the result
+		// ═══════════════════════════════════════════════════════════════════════════
+		m.ReportStatus(fmt.Sprintf("Phase 3: Gathering specialist critiques..."))
+		sb.WriteString("---\n\n### Phase 3: Specialist Critique\n\n")
+
+		critiqueResults := m.gatherSpecialistCritique(ctx, verb, files, specialists, result)
+		for _, crit := range critiqueResults {
+			if crit.Err != nil {
+				sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to critique\n\n", crit.Name))
+			} else {
+				sb.WriteString(fmt.Sprintf("**%s**:\n%s\n\n", crit.Name, crit.Result))
+			}
+		}
+	}
+
+	// Inject facts
+	if m.kernel != nil && len(facts) > 0 {
+		_ = m.kernel.LoadFacts(facts)
+	}
+
+	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
+	sb.WriteString(fmt.Sprintf("**Advisors**: %s\n", formatAdvisorNames(adviceResults)))
+
+	m.ReportStatus(fmt.Sprintf("%s complete", shardType))
+	return assistantMsg{
+		Surface: sb.String(),
+		ShardResult: &ShardResultPayload{
+			ShardType: shardType,
+			Task:      task,
+			Result:    result,
+			Facts:     facts,
+		},
+	}
+}
+
+// adviceResult holds the result from a specialist advice/critique query
+type adviceResult struct {
+	Name   string
+	Reason string
+	Result string
+	Err    error
+}
+
+// gatherSpecialistAdvice queries specialists for advice in parallel
+func (m Model) gatherSpecialistAdvice(ctx context.Context, verb string, files []string, specialists []shards.SpecialistMatch) []adviceResult {
+	resultsChan := make(chan adviceResult, len(specialists))
+	var wg sync.WaitGroup
+
+	for _, spec := range specialists {
+		wg.Add(1)
+		go func(s shards.SpecialistMatch) {
+			defer wg.Done()
+			// Advisory task prompt
+			adviceTask := fmt.Sprintf(`ADVISORY REQUEST: Provide domain-specific advice for a %s operation.
+
+Target files: %s
+Your expertise: %s
+
+Please provide:
+1. Key considerations specific to your domain
+2. Common pitfalls to avoid
+3. Best practices to follow
+4. Any specific patterns or approaches to use
+
+Keep your advice concise and actionable. Do NOT make changes yourself - just advise.`,
+				strings.TrimPrefix(verb, "/"),
+				strings.Join(s.Files, ", "),
+				s.Reason)
+
+			result, err := m.shardMgr.Spawn(ctx, s.AgentName, adviceTask)
+			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
+		}(spec)
+	}
+
+	go func() { wg.Wait(); close(resultsChan) }()
+
+	var results []adviceResult
+	for r := range resultsChan {
+		results = append(results, r)
+	}
+	return results
+}
+
+// gatherSpecialistCritique queries specialists to critique the execution result
+func (m Model) gatherSpecialistCritique(ctx context.Context, verb string, files []string, specialists []shards.SpecialistMatch, executionResult string) []adviceResult {
+	resultsChan := make(chan adviceResult, len(specialists))
+	var wg sync.WaitGroup
+
+	// Truncate execution result if too long
+	truncatedResult := executionResult
+	if len(truncatedResult) > 3000 {
+		truncatedResult = truncatedResult[:3000] + "\n... [truncated]"
+	}
+
+	for _, spec := range specialists {
+		wg.Add(1)
+		go func(s shards.SpecialistMatch) {
+			defer wg.Done()
+			// Critique task prompt
+			critiqueTask := fmt.Sprintf(`CRITIQUE REQUEST: Review the following %s result from your domain expertise perspective.
+
+Target files: %s
+Your expertise: %s
+
+=== EXECUTION RESULT ===
+%s
+=== END RESULT ===
+
+Please provide:
+1. ✅ What was done well
+2. ⚠️ Potential issues or concerns from your domain perspective
+3. 💡 Suggestions for improvement (if any)
+
+Be concise. Focus on domain-specific insights others might miss.`,
+				strings.TrimPrefix(verb, "/"),
+				strings.Join(s.Files, ", "),
+				s.Reason,
+				truncatedResult)
+
+			result, err := m.shardMgr.Spawn(ctx, s.AgentName, critiqueTask)
+			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
+		}(spec)
+	}
+
+	go func() { wg.Wait(); close(resultsChan) }()
+
+	var results []adviceResult
+	for r := range resultsChan {
+		results = append(results, r)
+	}
+	return results
+}
+
+// spawnResult holds the result from a parallel shard spawn
+type spawnResult struct {
+	Name   string
+	Result string
+	Err    error
+}
+
+// formatParallelResults formats the output for parallel execution mode
+func (m Model) formatParallelResults(verb, shardType, task, target string, results []spawnResult, startTime time.Time) tea.Msg {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## Multi-Specialist %s Complete\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
+	sb.WriteString(fmt.Sprintf("**Duration**: %s\n\n", time.Since(startTime).Round(time.Second)))
+
+	participants := make([]string, 0, len(results))
+	var combinedResult strings.Builder
+	allFacts := make([]core.Fact, 0)
+
+	for _, r := range results {
+		participants = append(participants, r.Name)
+		if r.Err != nil {
+			sb.WriteString(fmt.Sprintf("### %s (failed)\n\nError: %v\n\n", r.Name, r.Err))
+		} else {
+			sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", r.Name, r.Result))
+			combinedResult.WriteString(r.Result)
+			combinedResult.WriteString("\n\n")
+
+			shardID := fmt.Sprintf("%s-%d", r.Name, time.Now().UnixNano())
+			facts := m.shardMgr.ResultToFacts(shardID, r.Name, task, r.Result, r.Err)
+			allFacts = append(allFacts, facts...)
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("**Participants**: %s\n", strings.Join(participants, ", ")))
+
+	if m.kernel != nil && len(allFacts) > 0 {
+		_ = m.kernel.LoadFacts(allFacts)
+	}
+
+	m.ReportStatus(fmt.Sprintf("%s + specialists complete", shardType))
+	return assistantMsg{
+		Surface: sb.String(),
+		ShardResult: &ShardResultPayload{
+			ShardType: shardType,
+			Task:      task,
+			Result:    combinedResult.String(),
+			Facts:     allFacts,
+		},
+	}
+}
+
+// formatAdvisorNames extracts advisor names for display
+func formatAdvisorNames(results []adviceResult) string {
+	names := make([]string, 0, len(results))
+	for _, r := range results {
+		names = append(names, r.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // loadAgentRegistryForMatching loads the agent registry for specialist matching.
