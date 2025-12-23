@@ -290,6 +290,8 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 		return vs.getQueryTracesAtoms(query)
 	case "query_trace_stats":
 		return vs.getQueryTraceStatsAtoms(query)
+	case "query_strategic":
+		return vs.getQueryStrategicAtoms(query)
 	default:
 		return nil, nil
 	}

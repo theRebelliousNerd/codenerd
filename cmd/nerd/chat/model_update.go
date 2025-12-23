@@ -421,6 +421,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 
+			case 'd':
+				// Toggle Glass Box Debug Mode (Alt+D)
+				msg := m.toggleGlassBox()
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: msg,
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				// Start listening for events if enabled
+				if m.glassBoxEnabled {
+					return m, m.listenGlassBoxEvents()
+				}
+				return m, nil
+
 			case 'y':
 				// Toggle system action summaries in chat output (Alt+Y)
 				m.showSystemActions = !m.showSystemActions
@@ -1053,6 +1069,13 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		m.statusMessage = string(msg)
 		return m, m.waitForStatus() // Listen for next update
 
+	case glassBoxEventMsg:
+		// Handle Glass Box event - add to history and re-render
+		m.handleGlassBoxEvent(transparency.GlassBoxEvent(msg))
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenGlassBoxEvents() // Listen for next event
+
 	case memUsageMsg:
 		m.memAllocBytes = msg.Alloc
 		m.memSysBytes = msg.Sys
@@ -1102,6 +1125,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 
 			// Wire Mangle file watcher for real-time .mg validation
 			m.mangleWatcher = c.MangleWatcher
+
+			// Initialize Glass Box debug mode event bus
+			m.initGlassBox(c.GlassBoxEventBus)
 
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()

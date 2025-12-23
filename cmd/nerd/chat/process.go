@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/transparency"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
@@ -133,6 +134,21 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
 
+		// Glass Box: Emit perception event
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			summary := fmt.Sprintf("Intent: %s%s → %s (%.0f%%)",
+				intent.Category, intent.Verb, truncateSummary(intent.Target, 40), intent.Confidence*100)
+			details := fmt.Sprintf("Category: %s\nVerb: %s\nTarget: %s\nConstraint: %s",
+				intent.Category, intent.Verb, intent.Target, intent.Constraint)
+			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryPerception,
+				Summary:   summary,
+				Details:   details,
+				TurnID:    m.turnCount,
+			})
+		}
+
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
 			// CONTINUATION PROTOCOL: Clean up stale continuation facts from previous turns
@@ -171,6 +187,26 @@ func (m Model) processInput(input string) tea.Cmd {
 					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 				}
 				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+
+				// Glass Box: Emit kernel event
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, truncateSummary(intent.Target, 30)),
+						TurnID:    m.turnCount,
+					})
+				}
+			} else {
+				// Glass Box: Emit kernel event (handled by system shard)
+				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+						Timestamp: time.Now(),
+						Category:  transparency.CategoryKernel,
+						Summary:   fmt.Sprintf("Intent handled by PerceptionFirewall: %s%s", intent.Category, intent.Verb),
+						TurnID:    m.turnCount,
+					})
+				}
 			}
 
 			// If this is an issue-driven request, seed issue facts for activation and JIT selection.
@@ -266,6 +302,26 @@ func (m Model) processInput(input string) tea.Cmd {
 		// This implements automatic shard spawning from natural language
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
 		shardType := perception.GetShardTypeForVerb(intent.Verb)
+
+		// Glass Box: Emit routing decision
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			if shardType != "" {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → %s shard (confidence: %.0f%%)", intent.Verb, shardType, intent.Confidence*100),
+					TurnID:    m.turnCount,
+				})
+			} else {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("Routing: %s → no shard delegation", intent.Verb),
+					TurnID:    m.turnCount,
+				})
+			}
+		}
+
 		if shardType != "" && intent.Confidence >= 0.5 {
 			if m.needsWorkspaceScanForDelegation(intent) && !workspaceScanned {
 				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
@@ -320,7 +376,47 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// Shard spawn with queue backpressure management (user-initiated = high priority)
+			// Glass Box: Emit shard spawn event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, truncateSummary(task, 40)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+			}
+
 			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+
+			// Glass Box: Emit shard completion event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				status := "completed"
+				if spawnErr != nil {
+					status = "failed"
+				}
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryShard,
+					Summary:   fmt.Sprintf("Shard %s: %s (result: %d chars)", shardType, status, len(result)),
+					Source:    shardType,
+					TurnID:    m.turnCount,
+				})
+
+				// Glass Box: Emit JIT compilation stats if available
+				if m.jitCompiler != nil {
+					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Stats != nil {
+						stats := jitResult.Stats
+						m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+							Timestamp: time.Now(),
+							Category:  transparency.CategoryJIT,
+							Summary:   fmt.Sprintf("JIT: %d atoms (%d skel + %d flesh), %d/%d tokens (%.0f%%)", stats.AtomsSelected, stats.SkeletonAtoms, stats.FleshAtoms, stats.TokensUsed, stats.TokenBudget, stats.BudgetUtilization*100),
+							Duration:  stats.Duration,
+							TurnID:    m.turnCount,
+						})
+					}
+				}
+			}
 
 			// CRITICAL FIX: Inject shard results as facts for cross-turn context
 			// This enables the main agent to reference shard outputs in future turns
@@ -418,6 +514,16 @@ func (m Model) processInput(input string) tea.Cmd {
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
 		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
+			// Glass Box: Emit direct response path
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   fmt.Sprintf("Direct response: %s (bypassing articulation)", intent.Verb),
+					Details:   "Conversational intent handled directly from perception without full articulation pass",
+					TurnID:    m.turnCount,
+				})
+			}
 			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
 
@@ -699,6 +805,36 @@ func (m Model) processInput(input string) tea.Cmd {
 					Triggered:  true,
 					Hypothesis: artOutput.SelfCorrection.Hypothesis,
 				}
+			}
+
+			// Glass Box: Emit control packet event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				summary := fmt.Sprintf("Control: %d mangle updates, %d memory ops",
+					len(controlPacket.MangleUpdates), len(controlPacket.MemoryOperations))
+				var details strings.Builder
+				if len(controlPacket.MangleUpdates) > 0 {
+					details.WriteString("Mangle Updates:\n")
+					for _, u := range controlPacket.MangleUpdates {
+						details.WriteString("  " + truncateSummary(u, 60) + "\n")
+					}
+				}
+				if len(controlPacket.MemoryOperations) > 0 {
+					details.WriteString("Memory Operations:\n")
+					for _, op := range controlPacket.MemoryOperations {
+						details.WriteString(fmt.Sprintf("  %s: %s\n", op.Op, op.Key))
+					}
+				}
+				if controlPacket.SelfCorrection != nil && controlPacket.SelfCorrection.Triggered {
+					summary += " [SELF-CORRECTION]"
+					details.WriteString("Self-Correction: " + truncateSummary(controlPacket.SelfCorrection.Hypothesis, 100) + "\n")
+				}
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   summary,
+					Details:   details.String(),
+					TurnID:    m.turnCount,
+				})
 			}
 
 			turn := ctxcompress.Turn{

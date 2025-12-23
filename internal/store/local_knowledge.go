@@ -1,10 +1,12 @@
 package store
 
 import (
-	"codenerd/internal/logging"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -54,6 +56,7 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 			concept TEXT NOT NULL,
 			content TEXT NOT NULL,
 			confidence REAL DEFAULT 1.0,
+			content_hash TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
@@ -249,6 +252,47 @@ func (s *LocalStore) GetAllKnowledgeAtoms() ([]KnowledgeAtom, error) {
 	}
 
 	logging.StoreDebug("Retrieved %d total knowledge atoms", len(atoms))
+	return atoms, nil
+}
+
+// GetKnowledgeAtomsByPrefix retrieves knowledge atoms matching a concept prefix.
+// Used for querying strategic knowledge (e.g., "strategic/%").
+func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]KnowledgeAtom, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "GetKnowledgeAtomsByPrefix")
+	defer timer.Stop()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	logging.StoreDebug("Retrieving knowledge atoms with prefix: %s", conceptPrefix)
+
+	// Use LIKE with % wildcard for prefix matching
+	pattern := conceptPrefix + "%"
+	rows, err := s.db.Query(
+		`SELECT id, concept, content, confidence, created_at FROM knowledge_atoms WHERE concept LIKE ? ORDER BY confidence DESC`,
+		pattern,
+	)
+	if err != nil {
+		// Table may not exist yet if no atoms have been stored
+		if strings.Contains(err.Error(), "no such table") {
+			logging.StoreDebug("knowledge_atoms table does not exist yet, returning empty")
+			return nil, nil
+		}
+		logging.Get(logging.CategoryStore).Error("Failed to query knowledge atoms by prefix %s: %v", conceptPrefix, err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var atoms []KnowledgeAtom
+	for rows.Next() {
+		var atom KnowledgeAtom
+		if err := rows.Scan(&atom.ID, &atom.Concept, &atom.Content, &atom.Confidence, &atom.CreatedAt); err != nil {
+			continue
+		}
+		atoms = append(atoms, atom)
+	}
+
+	logging.StoreDebug("Retrieved %d knowledge atoms for prefix=%s", len(atoms), conceptPrefix)
 	return atoms, nil
 }
 

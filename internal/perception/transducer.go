@@ -396,6 +396,9 @@ type Transducer interface {
 
 	// SetPromptAssembler sets the prompt assembler for JIT compilation.
 	SetPromptAssembler(pa *articulation.PromptAssembler)
+
+	// SetStrategicContext injects strategic knowledge about the codebase.
+	SetStrategicContext(context string)
 }
 
 // TransducerWithKernel extends Transducer with kernel integration for routing.
@@ -411,9 +414,10 @@ type TransducerWithKernel interface {
 // It supports JIT prompt compilation when provided an articulation.PromptAssembler, and
 // falls back to the legacy static prompt when JIT is unavailable.
 type RealTransducer struct {
-	client          LLMClient
-	repairLoop      *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
-	promptAssembler *articulation.PromptAssembler
+	client            LLMClient
+	repairLoop        *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	promptAssembler   *articulation.PromptAssembler
+	strategicContext  string // Strategic knowledge about the codebase from /init
 }
 
 // NewRealTransducer creates a new transducer with the given LLM client.
@@ -431,6 +435,16 @@ func NewRealTransducer(client LLMClient) *RealTransducer {
 // When unset or JIT is unavailable, the transducer uses the legacy static prompt.
 func (t *RealTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {
 	t.promptAssembler = pa
+}
+
+// SetStrategicContext injects strategic knowledge about the codebase.
+// This context is included in the user prompt to help the transducer
+// answer conceptual questions about the project's architecture, philosophy, etc.
+func (t *RealTransducer) SetStrategicContext(context string) {
+	t.strategicContext = context
+	if context != "" {
+		logging.PerceptionDebug("Strategic context set: %d chars", len(context))
+	}
 }
 
 // withSystemContext creates a SystemLLMContext for this transducer's LLM calls.
@@ -728,6 +742,12 @@ func (t *RealTransducer) ParseIntentWithContext(ctx context.Context, input strin
 				sb.WriteString(fmt.Sprintf("Assistant: %s\n", content))
 			}
 		}
+		sb.WriteString("\n---\n\n")
+	}
+
+	// Inject strategic knowledge if available (helps answer conceptual questions)
+	if t.strategicContext != "" {
+		sb.WriteString(t.strategicContext)
 		sb.WriteString("\n---\n\n")
 	}
 
