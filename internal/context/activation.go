@@ -452,18 +452,20 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 	// Enhanced verb-predicate relevance boosting
 	verbPredicateBoosts := map[string]map[string]float64{
 		"/fix": {
-			"diagnostic":    35.0,
-			"test_state":    30.0,
-			"impacted":      25.0,
-			"file_content":  20.0,
-			"error_context": 40.0,
+			"diagnostic":      35.0,
+			"test_state":      30.0,
+			"impacted":        25.0,
+			"file_content":    20.0,
+			"error_context":   40.0,
+			"knowledge_atom":  30.0, // Architecture knowledge helps fix decisions
 		},
 		"/debug": {
-			"diagnostic":    40.0,
-			"test_state":    35.0,
-			"impacted":      30.0,
-			"symbol_graph":  25.0,
-			"stack_trace":   45.0,
+			"diagnostic":     40.0,
+			"test_state":     35.0,
+			"impacted":       30.0,
+			"symbol_graph":   25.0,
+			"stack_trace":    45.0,
+			"knowledge_atom": 25.0, // Pattern knowledge helps debugging
 		},
 		"/refactor": {
 			"dependency_link":    40.0,
@@ -471,18 +473,21 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 			"unsafe_to_refactor": 50.0,
 			"block_refactor":     50.0,
 			"symbol_graph":       30.0,
+			"knowledge_atom":     40.0, // Architecture knowledge is critical for refactoring
 		},
 		"/test": {
-			"test_state":    45.0,
-			"test_coverage": 40.0,
-			"diagnostic":    30.0,
-			"test_result":   40.0,
+			"test_state":     45.0,
+			"test_coverage":  40.0,
+			"diagnostic":     30.0,
+			"test_result":    40.0,
+			"knowledge_atom": 25.0, // Testing patterns from docs
 		},
 		"/explain": {
 			"symbol_graph":    35.0,
 			"dependency_link": 30.0,
 			"file_topology":   25.0,
 			"documentation":   30.0,
+			"knowledge_atom":  40.0, // Strategic knowledge helps explanations
 		},
 		"/research": {
 			"knowledge_atom": 45.0,
@@ -495,18 +500,21 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 			"security_issue":  45.0,
 			"code_smell":      30.0,
 			"complexity":      25.0,
+			"knowledge_atom":  35.0, // Pattern knowledge for code review
 		},
 		"/security": {
 			"security_issue":    50.0,
 			"vulnerability":     50.0,
 			"diagnostic":        30.0,
 			"security_pattern":  40.0,
+			"knowledge_atom":    30.0, // Security constraints from docs
 		},
 		"/create": {
 			"file_topology":   30.0,
 			"symbol_graph":    25.0,
 			"template":        35.0,
 			"dependency_link": 20.0,
+			"knowledge_atom":  45.0, // Architecture knowledge is critical for new code
 		},
 	}
 

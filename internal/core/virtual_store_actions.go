@@ -1105,6 +1105,7 @@ func (v *VirtualStore) handleEscalate(ctx context.Context, req ActionRequest) (A
 
 // GetStrategicSummary retrieves a formatted summary of strategic knowledge
 // for injection into prompts when handling conceptual queries about the codebase.
+// Extended by Semantic Knowledge Bridge to include high-value doc/ atoms.
 // Returns empty string if no strategic knowledge is available.
 func (v *VirtualStore) GetStrategicSummary() string {
 	v.mu.RLock()
@@ -1117,8 +1118,8 @@ func (v *VirtualStore) GetStrategicSummary() string {
 
 	// Query all strategic knowledge atoms
 	atoms, err := db.GetKnowledgeAtomsByPrefix("strategic/")
-	if err != nil || len(atoms) == 0 {
-		return ""
+	if err != nil {
+		atoms = nil // Continue with empty if error
 	}
 
 	var sb strings.Builder
@@ -1143,6 +1144,30 @@ func (v *VirtualStore) GetStrategicSummary() string {
 		}
 		if _, ok := categories[category]; ok {
 			categories[category] = append(categories[category], atom.Content)
+		}
+	}
+
+	// Semantic Knowledge Bridge: Also query high-confidence doc atoms
+	// These provide architecture/pattern/philosophy insights from documentation
+	docAtoms, err := db.GetKnowledgeAtomsByPrefix("doc/")
+	if err == nil {
+		for _, atom := range docAtoms {
+			// Only include high-confidence atoms
+			if atom.Confidence < 0.85 {
+				continue
+			}
+			// Categorize based on concept path
+			if strings.Contains(atom.Concept, "/architecture/") {
+				categories["architecture"] = append(categories["architecture"], atom.Content)
+			} else if strings.Contains(atom.Concept, "/pattern/") {
+				categories["pattern"] = append(categories["pattern"], atom.Content)
+			} else if strings.Contains(atom.Concept, "/philosophy/") {
+				categories["philosophy"] = append(categories["philosophy"], atom.Content)
+			} else if strings.Contains(atom.Concept, "/capability/") {
+				categories["capability"] = append(categories["capability"], atom.Content)
+			} else if strings.Contains(atom.Concept, "/constraint/") {
+				categories["constraint"] = append(categories["constraint"], atom.Content)
+			}
 		}
 	}
 
