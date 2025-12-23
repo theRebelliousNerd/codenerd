@@ -580,6 +580,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
 			}
 
+			// Wire LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
+			if localDB != nil {
+				jitCompiler.SetLocalDB(localDB)
+				logging.Boot("JIT compiler wired with LocalDB for semantic knowledge queries")
+			}
+
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
 				Content: "✓ JIT prompt compiler initialized",

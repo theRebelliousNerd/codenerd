@@ -421,6 +421,15 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
 	}
 
+	// Step 1.7: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
+	// These are knowledge atoms from documentation ingestion that match the current context.
+	knowledgeAtoms := c.collectKnowledgeAtoms(ctx, cc)
+	if len(knowledgeAtoms) > 0 {
+		candidates = append(candidates, knowledgeAtoms...)
+		stats.AtomsCandidates = len(candidates)
+		logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
+	}
+
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
 	selectStart := time.Now()
 	scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
@@ -1052,6 +1061,97 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.localDB = db
+}
+
+// collectKnowledgeAtoms queries the LocalStore for semantically relevant knowledge atoms
+// and converts them to ephemeral PromptAtoms for JIT compilation.
+// This is the core of the Semantic Knowledge Bridge - connecting stored documentation
+// knowledge to runtime prompt assembly.
+func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	c.mu.RLock()
+	db := c.localDB
+	c.mu.RUnlock()
+
+	if db == nil || cc == nil {
+		return nil
+	}
+
+	// Build semantic query from compilation context
+	// Combine intent, shard type, and language for best semantic match
+	var queryParts []string
+	if cc.IntentVerb != "" {
+		queryParts = append(queryParts, cc.IntentVerb)
+	}
+	if cc.IntentTarget != "" {
+		queryParts = append(queryParts, cc.IntentTarget)
+	}
+	if cc.ShardID != "" {
+		queryParts = append(queryParts, cc.ShardID)
+	}
+	if cc.Language != "" {
+		queryParts = append(queryParts, cc.Language)
+	}
+	if len(cc.Frameworks) > 0 {
+		queryParts = append(queryParts, cc.Frameworks...)
+	}
+
+	if len(queryParts) == 0 {
+		return nil
+	}
+
+	query := strings.Join(queryParts, " ")
+
+	// Search for semantically relevant knowledge atoms
+	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+	if err != nil {
+		logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
+		return nil
+	}
+
+	if len(atoms) == 0 {
+		return nil
+	}
+
+	// Convert to ephemeral PromptAtoms
+	var result []*PromptAtom
+	for _, atom := range atoms {
+		// Format content with concept context
+		content := atom.Content
+		if atom.Concept != "" {
+			// Extract meaningful category from concept (e.g., "doc/path/architecture/patterns" -> "architecture/patterns")
+			parts := strings.Split(atom.Concept, "/")
+			if len(parts) >= 3 {
+				category := strings.Join(parts[2:], "/")
+				content = fmt.Sprintf("[%s] %s", category, atom.Content)
+			}
+		}
+
+		// Create prompt atom with appropriate priority
+		// Priority 85 = below specialist_knowledge (90) but above regular context
+		atomID := fmt.Sprintf("knowledge/%s", HashContent(content)[:8])
+		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
+		pa.Priority = 85
+		pa.IsMandatory = false // Knowledge is contextual, not mandatory
+		if cc.ShardID != "" {
+			pa.ShardTypes = []string{cc.ShardID}
+		}
+
+		result = append(result, pa)
+	}
+
+	logging.Get(logging.CategoryJIT).Debug(
+		"Collected %d knowledge atoms for query: %s",
+		len(result), truncateQuery(query, 50))
+
+	return result
+}
+
+// truncateQuery truncates a query string for logging.
+func truncateQuery(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // Stats returns compilation statistics.

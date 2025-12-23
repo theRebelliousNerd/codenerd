@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -139,6 +140,16 @@ func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
 
 		// Cold Tier: Persistent learned facts
 		m.queryColdMemory(sessionCtx)
+	}
+
+	// ==========================================================================
+	// SEMANTIC KNOWLEDGE BRIDGE: Assert knowledge atoms to kernel
+	// ==========================================================================
+	// Assert strategic knowledge atoms to kernel for spreading activation.
+	// This enables knowledge_atom facts to receive activation scores and
+	// be injected into shards via injectable_context predicates.
+	if m.kernel != nil && m.localDB != nil {
+		m.assertKnowledgeAtomsToKernel()
 	}
 
 	// ==========================================================================
@@ -512,6 +523,67 @@ func extractShardSummary(sr *ShardResult) string {
 	return truncateForContext(sr.RawOutput, 100)
 }
 
+// assertKnowledgeAtomsToKernel asserts strategic knowledge atoms to the kernel
+// for spreading activation scoring. This enables knowledge_atom facts to
+// participate in context selection and be injected via injectable_context.
+func (m *Model) assertKnowledgeAtomsToKernel() {
+	if m.kernel == nil || m.localDB == nil {
+		return
+	}
+
+	// Query strategic knowledge atoms (highest value for architectural decisions)
+	strategicAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/")
+	if err != nil {
+		logging.Get(logging.CategoryContext).Debug("Failed to query strategic atoms: %v", err)
+		return
+	}
+
+	asserted := 0
+	for _, atom := range strategicAtoms {
+		// Only assert high-confidence atoms to avoid noise
+		if atom.Confidence < 0.7 {
+			continue
+		}
+
+		fact := core.Fact{
+			Predicate: "knowledge_atom",
+			Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+		}
+		if err := m.kernel.Assert(fact); err == nil {
+			asserted++
+		}
+	}
+
+	// Also assert doc-level atoms with architecture/pattern tags
+	docAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("doc/")
+	if err == nil {
+		for _, atom := range docAtoms {
+			// Only high-confidence architecture/pattern docs
+			if atom.Confidence < 0.85 {
+				continue
+			}
+			// Filter for architecture and pattern categories
+			if !strings.Contains(atom.Concept, "/architecture/") &&
+				!strings.Contains(atom.Concept, "/pattern/") &&
+				!strings.Contains(atom.Concept, "/philosophy/") {
+				continue
+			}
+
+			fact := core.Fact{
+				Predicate: "knowledge_atom",
+				Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+			}
+			if err := m.kernel.Assert(fact); err == nil {
+				asserted++
+			}
+		}
+	}
+
+	if asserted > 0 {
+		logging.Get(logging.CategoryContext).Debug("Asserted %d knowledge atoms to kernel", asserted)
+	}
+}
+
 // queryKnowledgeAtoms retrieves relevant knowledge from learning store.
 // Returns high-confidence learnings formatted as readable knowledge atoms.
 func (m *Model) queryKnowledgeAtoms() []string {
@@ -542,31 +614,70 @@ func (m *Model) queryKnowledgeAtoms() []string {
 
 // querySpecialistHints retrieves specialist-specific hints.
 // Returns patterns that suggest specific tools or approaches.
+// Extended with Semantic Knowledge Bridge to include strategic knowledge atoms.
 func (m *Model) querySpecialistHints() []string {
-	if m.learningStore == nil {
-		return nil
-	}
-
 	var hints []string
-	// Query for specialist-type learnings that suggest specific approaches
-	specialistPredicates := []string{"domain_expertise", "tool_preference", "style_preference", "preferred_pattern"}
 
-	for _, pred := range specialistPredicates {
-		for _, shardType := range []string{"coder", "reviewer", "tester"} {
-			learnings, err := m.learningStore.LoadByPredicate(shardType, pred)
-			if err != nil {
-				continue
-			}
-			for _, l := range learnings {
-				if l.Confidence >= 0.6 {
-					hint := formatLearningAsHint(shardType, l)
-					if hint != "" {
-						hints = append(hints, hint)
+	// Query LearningStore for behavioral learnings (existing)
+	if m.learningStore != nil {
+		specialistPredicates := []string{"domain_expertise", "tool_preference", "style_preference", "preferred_pattern"}
+
+		for _, pred := range specialistPredicates {
+			for _, shardType := range []string{"coder", "reviewer", "tester"} {
+				learnings, err := m.learningStore.LoadByPredicate(shardType, pred)
+				if err != nil {
+					continue
+				}
+				for _, l := range learnings {
+					if l.Confidence >= 0.6 {
+						hint := formatLearningAsHint(shardType, l)
+						if hint != "" {
+							hints = append(hints, hint)
+						}
 					}
 				}
 			}
 		}
 	}
+
+	// Semantic Knowledge Bridge: Also query knowledge atoms for domain expertise
+	if m.localDB != nil {
+		// Get strategic capability knowledge
+		capabilityAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/capability")
+		if err == nil {
+			for _, atom := range capabilityAtoms {
+				if atom.Confidence >= 0.8 {
+					hints = append(hints, fmt.Sprintf("[STRATEGIC] %s", atom.Content))
+				}
+			}
+		}
+
+		// Get strategic pattern knowledge
+		patternAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/pattern")
+		if err == nil {
+			for _, atom := range patternAtoms {
+				if atom.Confidence >= 0.85 {
+					hints = append(hints, fmt.Sprintf("[PATTERN] %s", atom.Content))
+				}
+			}
+		}
+
+		// Get high-confidence doc architecture atoms
+		archAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("doc/")
+		if err == nil {
+			archCount := 0
+			for _, atom := range archAtoms {
+				if archCount >= 5 { // Limit to avoid context bloat
+					break
+				}
+				if atom.Confidence >= 0.9 && strings.Contains(atom.Concept, "/architecture/") {
+					hints = append(hints, fmt.Sprintf("[ARCHITECTURE] %s", atom.Content))
+					archCount++
+				}
+			}
+		}
+	}
+
 	return hints
 }
 
