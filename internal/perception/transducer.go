@@ -170,7 +170,8 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	// 3. Refine via Mangle Inference (Smart)
 	// This applies the "sentence level" logic and context rules.
 	// Now includes semantic_match facts from the classifier above.
-	if SharedTaxonomy != nil && len(candidates) > 0 {
+	// Always run inference, even if no candidates, to support pure interrogative logic.
+	if SharedTaxonomy != nil {
 		bestVerb, conf, err := SharedTaxonomy.ClassifyInput(input, candidates)
 		if err == nil && bestVerb != "" {
 			logging.PerceptionDebug("Mangle inference selected verb: %s (confidence: %.2f)", bestVerb, conf)

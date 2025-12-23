@@ -314,12 +314,8 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 	// Actually, if we don't Clear(), we accumulate context_token.
 	// This is bad.
-	// We MUST Clear() but then we lose the static facts.
-	// So we MUST re-add static facts.
-	// Since we have them in DefaultTaxonomyData, we can re-add them fast.
-	// Or relying on the previous fix where we loaded them.
-
-	t.engine.Clear()
+	// We MUST Reset() to clear schema fragments too, otherwise reloading schemas creates duplicate Decls.
+	t.engine.Reset()
 
 	// Re-hydrate
 	if t.store != nil {

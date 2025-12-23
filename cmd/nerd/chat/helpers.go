@@ -1410,35 +1410,17 @@ func isConversationalIntent(intent perception.Intent) bool {
 	}
 
 	// Verbs that are conditionally conversational based on target
+	// NOTE: /explain is intentionally NOT in this list - it must go through
+	// articulation so the LLM can emit knowledge_requests for unknown topics.
+	// Previously /explain was bypassing articulation for "conceptual" topics,
+	// which prevented the knowledge discovery system from working.
 	conditionalVerbs := map[string]bool{
-		"/explain": true, // General explanations (but not code-specific)
-		"/read":    true, // Simple file reads (when target is "none" or empty)
+		"/read": true, // Simple file reads (when target is "none" or empty)
 	}
 
 	// Check if it's a conditional verb
 	if !conditionalVerbs[intent.Verb] {
 		return false
-	}
-
-	// For /explain, it's conversational if target is generic/conceptual (not a specific file/function)
-	// Concept explanations can use perception response directly; code explanations need articulation
-	if intent.Verb == "/explain" {
-		target := strings.ToLower(intent.Target)
-		// Generic targets indicate conversational intent
-		if target == "" || target == "none" || target == "codebase" ||
-			target == "hi" || target == "hello" || target == "help" ||
-			strings.Contains(target, "what can you") ||
-			strings.Contains(target, "what do you") ||
-			strings.Contains(target, "capabilities") {
-			return true
-		}
-		// Conceptual/system explanations (not file paths or code symbols)
-		// These don't need workspace context, just general knowledge
-		if !strings.Contains(target, ".") && !strings.Contains(target, "/") &&
-			!strings.Contains(target, "::") && !strings.Contains(target, "(") {
-			// No file extension, path separator, scope operator, or parens = likely conceptual
-			return true
-		}
 	}
 
 	// For /read with no specific target, it's conversational
