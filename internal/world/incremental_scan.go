@@ -67,7 +67,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	var fileCount, dirCount int
 
 	// Lightweight walk: build current file set and directory facts.
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -114,7 +114,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		currentFiles[path] = info
 		fileCount++
 		return nil
-	})
+	}); err != nil {
+		logging.WorldWarn("ScanWorkspaceIncremental: walkdir failed for root %s: %v", root, err)
+	}
 
 	// If no prior cache, fall back to full scan (first run).
 	if len(prevEntries) == 0 {
@@ -142,19 +144,23 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					}
 				}
 				fp := fileFingerprint(info)
-				_ = db.UpsertWorldFile(store.WorldFileMeta{
+				if err := db.UpsertWorldFile(store.WorldFileMeta{
 					Path:        path,
 					Lang:        lang,
 					Size:        info.Size(),
 					ModTime:     info.ModTime().Unix(),
 					Hash:        extractHashFromFacts(facts),
 					Fingerprint: fp,
-				})
+				}); err != nil {
+					logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s (full scan): %v", path, err)
+				}
 				inputs := make([]store.WorldFactInput, 0, len(facts))
 				for _, f := range facts {
 					inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 				}
-				_ = db.ReplaceWorldFactsForFile(path, "fast", fp, inputs)
+				if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
+					logging.WorldWarn("ScanWorkspaceIncremental: failed to replace world facts for file %s (full scan): %v", path, err)
+				}
 			}
 		}
 
@@ -299,20 +305,24 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			// Persist to DB (fast depth).
 			if db != nil {
 				fp := fileFingerprint(info)
-				_ = db.UpsertWorldFile(store.WorldFileMeta{
+				if err := db.UpsertWorldFile(store.WorldFileMeta{
 					Path:        path,
 					Lang:        lang,
 					Size:        info.Size(),
 					ModTime:     info.ModTime().Unix(),
 					Hash:        hash,
 					Fingerprint: fp,
-				})
+				}); err != nil {
+					logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s: %v", path, err)
+				}
 				inputs := make([]store.WorldFactInput, 0, 1+len(additional))
 				inputs = append(inputs, store.WorldFactInput{Predicate: ft.Predicate, Args: ft.Args})
 				for _, f := range additional {
 					inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 				}
-				_ = db.ReplaceWorldFactsForFile(path, "fast", fp, inputs)
+				if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
+					logging.WorldWarn("ScanWorkspaceIncremental: failed to replace world facts for file %s: %v", path, err)
+				}
 			}
 
 			mu.Lock()
@@ -327,7 +337,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	// Handle deletions: drop from DB and cache.
 	for _, p := range deleted {
 		if db != nil {
-			_ = db.DeleteWorldFile(p)
+			if err := db.DeleteWorldFile(p); err != nil {
+				logging.WorldWarn("ScanWorkspaceIncremental: failed to delete world file %s: %v", p, err)
+			}
 		}
 		cache.mu.Lock()
 		delete(cache.Entries, p)

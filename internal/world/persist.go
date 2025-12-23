@@ -2,6 +2,7 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"os"
 	"strings"
@@ -29,19 +30,23 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 			}
 		}
 		fp := fileFingerprint(info)
-		_ = db.UpsertWorldFile(store.WorldFileMeta{
+		if err := db.UpsertWorldFile(store.WorldFileMeta{
 			Path:        path,
 			Lang:        lang,
 			Size:        info.Size(),
 			ModTime:     info.ModTime().Unix(),
 			Hash:        extractHashFromFacts(fs),
 			Fingerprint: fp,
-		})
+		}); err != nil {
+			logging.WorldWarn("PersistFastSnapshotToDB: failed to upsert world file %s: %v", path, err)
+		}
 		inputs := make([]store.WorldFactInput, 0, len(fs))
 		for _, f := range fs {
 			inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 		}
-		_ = db.ReplaceWorldFactsForFile(path, "fast", fp, inputs)
+		if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
+			logging.WorldWarn("PersistFastSnapshotToDB: failed to replace world facts for file %s: %v", path, err)
+		}
 	}
 	return nil
 }
