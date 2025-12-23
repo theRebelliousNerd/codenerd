@@ -2,8 +2,8 @@
 name: log-analyzer
 description: Analyze codeNERD system logs using Mangle logic programming. This skill should be used when debugging codeNERD execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, or correlating events across the 22 logging categories. Converts log files to Mangle facts for declarative querying.
 license: Apache-2.0
-version: 2.0.0
-last_updated: 2025-12-09
+version: 2.1.0
+last_updated: 2025-12-23
 ---
 
 # Log Analyzer: Mangle-Powered codeNERD Debugging
@@ -217,6 +217,141 @@ logquery.exe facts.mg --query warning_entry
 | `/embedding` | Vector operations | Embedding generation |
 | `/store` | Memory tiers | CRUD operations |
 | `/api` | LLM API calls | Requests, responses |
+
+## Enhanced Logging Coverage (v2.1.0)
+
+As of December 2025, codeNERD includes comprehensive logging across all subsystems. This section documents the logging enhancements that provide better observability for debugging.
+
+### Logging API Convenience Functions
+
+All 22 log categories now have Warn/Error convenience functions in `internal/logging/logger.go`:
+
+```go
+// Example usage patterns
+logging.BootDebug("Loading config from: %s", path)
+logging.BootError("Failed to read config file %s: %v", path, err)
+logging.PerceptionDebug("[Anthropic] CompleteWithSystem: model=%s", model)
+logging.CampaignWarn("failed to save campaign after replan: %v", err)
+logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s: %v", path, err)
+logging.ToolsDebug("RegisterTool: registering tool name=%s", name)
+logging.StoreWarn("DocumentIngestor: failed to store vector for %s: %v", path, err)
+logging.KernelWarn("failed to assert hypothetical fact: %v", err)
+```
+
+### Key Subsystem Logging
+
+#### LLM Client Logging (`/perception`)
+
+All 7 LLM client implementations now log:
+
+- Entry: model, prompt lengths
+- Completion: duration, response length
+- Errors: API failures, timeouts, retries
+
+```text
+[Perception DEBUG] [Anthropic] CompleteWithSystem: model=claude-sonnet-4-5 system_len=2048 user_len=512
+[Perception INFO]  [Anthropic] CompleteWithSystem: completed in 2.3s response_len=1024
+[Perception ERROR] [OpenRouter] CompleteWithStreaming: max retries exceeded after 30s: connection timeout
+```
+
+#### Tool Registry Logging (`/tools`)
+
+Tool execution now has full audit trail:
+
+- Registration: tool name, command, shard affinity
+- Execution: start/end, args, duration
+- Errors: binary not found, execution failures
+
+```text
+[Tools DEBUG] RegisterTool: registering tool name=mytool command=./mytool affinity=coder
+[Tools INFO]  ExecuteRegisteredTool: executing tool=mytool exec_count=5 args=[--verbose]
+[Tools ERROR] ExecuteRegisteredTool: tool=mytool failed after 5.2s: exit code 1
+```
+
+#### Campaign Orchestration (`/campaign`)
+
+Campaign execution events:
+
+- Phase transitions, task execution
+- Checkpoint results, replan triggers
+- Save/load operations, context compression
+
+```text
+[Campaign INFO]  Executing phase: implementation (tasks=12)
+[Campaign WARN]  failed to save campaign after compression: disk full
+[Campaign DEBUG] DocumentIngestor.Ingest: starting campaign=abc123 files=5
+```
+
+#### World Model Scanning (`/world`)
+
+Filesystem projection operations:
+
+- Incremental scan progress
+- File upsert/delete operations
+- Parse errors, cache updates
+
+```text
+[World INFO]  Starting incremental workspace scan: /project
+[World WARN]  ScanWorkspaceIncremental: failed to delete world file /old/file.go: not found
+```
+
+#### Configuration Loading (`/boot`)
+
+Startup and config operations:
+
+- Config file detection
+- Provider selection
+- Default fallbacks
+
+```text
+[Boot DEBUG] Loading config from: .nerd/config.json
+[Boot INFO]  Config file not found, using defaults: .nerd/config.json
+[Boot INFO]  Config loaded: provider=anthropic model=claude-sonnet-4-5
+```
+
+#### Safety System (`/coder`)
+
+Safety check visibility:
+
+- Impact analysis results
+- Block reasons with targets
+- Kernel query failures
+
+```text
+[Coder DEBUG] checkImpact: checking safety for target=/critical/file.go
+[Coder INFO]  checkImpact: BLOCKED target=/etc/passwd reason=system_file
+[Coder WARN]  checkImpact: failed to query coder_block_write: kernel timeout
+```
+
+### Swallowed Error Logging
+
+Previously silent error ignores now log before continuing:
+
+| Location | What's Logged |
+|----------|---------------|
+| `main.go` | Kernel assertions, world persistence |
+| `verifier.go` | Verification storage, JSON marshal |
+| `world/persist.go` | World file upserts, fact replacement |
+| `world/incremental_scan.go` | Walk errors, DB operations |
+| `campaign/orchestrator_*.go` | Save operations, kernel fact updates |
+| `campaign/document_ingestor.go` | Store link/vector/atom operations |
+
+### Debugging New Log Categories
+
+```bash
+# Find all LLM client operations
+logquery.exe facts.mg --query perception_event --limit 100
+
+# Track tool executions
+grep "ExecuteRegisteredTool" .nerd/logs/tools.log
+
+# Campaign save failures
+logquery.exe facts.mg -i
+logquery> ?warning_entry(T, /campaign, M)
+
+# Config loading issues
+grep "Config" .nerd/logs/boot.log
+```
 
 ## Scripts Reference
 
