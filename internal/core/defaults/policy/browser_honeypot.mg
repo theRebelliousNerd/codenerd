@@ -4,13 +4,13 @@
 
 # CSS-based hiding
 Decl honeypot_css_hidden(Elem).
-honeypot_css_hidden(Elem) :- css_property(Elem, "display", "none").
+honeypot_css_hidden(Elem) :- css_property(Elem, /display, /none).
 
 Decl honeypot_css_invisible(Elem).
-honeypot_css_invisible(Elem) :- css_property(Elem, "visibility", "hidden").
+honeypot_css_invisible(Elem) :- css_property(Elem, /visibility, /hidden).
 
 Decl honeypot_opacity_hidden(Elem).
-honeypot_opacity_hidden(Elem) :- css_property(Elem, "opacity", "0").
+honeypot_opacity_hidden(Elem) :- css_property(Elem, /opacity, "0").
 
 # Position-based hiding (off-screen)
 Decl honeypot_offscreen(Elem).
@@ -34,23 +34,25 @@ honeypot_aria_hidden(Elem) :- attribute(Elem, "aria-hidden", "true").
 
 # Negative tabindex (not keyboard accessible)
 Decl honeypot_no_keyboard(Elem).
-honeypot_no_keyboard(Elem) :- attribute(Elem, "tabindex", "-1").
+honeypot_no_keyboard(Elem) :- attribute(Elem, /tabindex, "-1").
 
 # Pointer events disabled
 Decl honeypot_pointer_events_none(Elem).
-honeypot_pointer_events_none(Elem) :- css_property(Elem, "pointerEvents", "none").
+honeypot_pointer_events_none(Elem) :- css_property(Elem, "pointerEvents", /none).
 
 # Suspicious URL patterns
+# FIXME: fn:contains does not exist in Mangle (AI Hallucination).
+# Logic disabled until string matching is available or externalized.
 Decl honeypot_suspicious_url(Elem).
-honeypot_suspicious_url(Elem) :-
-    link(Elem, Href),
-    fn:contains(Href, "honeypot").
-honeypot_suspicious_url(Elem) :-
-    link(Elem, Href),
-    fn:contains(Href, "trap").
-honeypot_suspicious_url(Elem) :-
-    link(Elem, Href),
-    fn:contains(Href, "captcha").
+# honeypot_suspicious_url(Elem) :-
+#     link(Elem, Href),
+#     fn:contains(Href, "honeypot").
+# honeypot_suspicious_url(Elem) :-
+#     link(Elem, Href),
+#     fn:contains(Href, "trap").
+# honeypot_suspicious_url(Elem) :-
+#     link(Elem, Href),
+#     fn:contains(Href, "captcha").
 
 # Main honeypot derivation
 Decl is_honeypot(Elem).
