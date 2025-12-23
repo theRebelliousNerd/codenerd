@@ -716,7 +716,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("Strategic knowledge generation failed: %v", err))
 		} else if strategicKnowledge != nil {
-			strategicAtoms, err := i.persistStrategicKnowledge(ctx, strategicKnowledge, i.localDB)
+			strategicAtoms, err := i.PersistStrategicKnowledge(ctx, strategicKnowledge, i.localDB)
 			if err != nil {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to persist strategic knowledge: %v", err))
 			} else {

@@ -245,6 +245,9 @@ type Model struct {
 	dreamCollector *core.DreamLearningCollector
 	dreamRouter    *core.DreamRouter
 
+	// Dream Plan Execution (§8.3.2) - Execute plans from Dream State consultations
+	dreamPlanManager *core.DreamPlanManager
+
 	// Local knowledge database for research persistence
 	localDB *store.LocalStore
 

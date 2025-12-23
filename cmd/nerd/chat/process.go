@@ -1356,23 +1356,33 @@ Format your response as a structured analysis.`
 		_ = m.kernel.Assert(dreamFact)
 	}
 
+	// Convert to core.DreamConsultation type for both learnings and plan extraction
+	coreConsultations := make([]core.DreamConsultation, len(consultations))
+	for i, c := range consultations {
+		coreConsultations[i] = core.DreamConsultation{
+			ShardName:   c.ShardName,
+			ShardType:   c.ShardType,
+			Perspective: c.Perspective,
+			Tools:       c.Tools,
+			Concerns:    c.Concerns,
+			Error:       c.Error,
+		}
+	}
+
 	// Extract learnings from consultations (§8.3.1 Dream Learning)
 	if m.dreamCollector != nil {
-		// Convert to core.DreamConsultation type
-		coreConsultations := make([]core.DreamConsultation, len(consultations))
-		for i, c := range consultations {
-			coreConsultations[i] = core.DreamConsultation{
-				ShardName:   c.ShardName,
-				ShardType:   c.ShardType,
-				Perspective: c.Perspective,
-				Tools:       c.Tools,
-				Concerns:    c.Concerns,
-				Error:       c.Error,
-			}
-		}
 		learnings := m.dreamCollector.ExtractLearnings(hypothetical, coreConsultations)
 		if len(learnings) > 0 {
 			logging.Dream("Extracted %d learnable insights, staged for user confirmation", len(learnings))
+		}
+	}
+
+	// Extract actionable plan from consultations (§8.3.2 Dream Plan Execution)
+	if m.dreamPlanManager != nil {
+		plan, err := core.ExtractDreamPlan(hypothetical, coreConsultations)
+		if err == nil && plan != nil && len(plan.Subtasks) > 0 {
+			m.dreamPlanManager.StorePlan(plan)
+			logging.Dream("Extracted %d actionable subtasks from dream state", len(plan.Subtasks))
 		}
 	}
 
@@ -1486,11 +1496,14 @@ func formatDreamStateResponse(hypothetical string, consultations []DreamConsulta
 
 	sb.WriteString("---\n\n")
 	sb.WriteString("**This is a dry run.** I haven't executed anything.\n\n")
-	sb.WriteString("👉 **Correct me if my approach is wrong** - I'll learn from your feedback.\n\n")
-	sb.WriteString("To teach me, say things like:\n")
-	sb.WriteString("- \"Remember that we always use Docker for deployments\"\n")
-	sb.WriteString("- \"Actually, the coder should handle X differently\"\n")
-	sb.WriteString("- \"Learn this: our auth system uses JWT, not sessions\"\n")
+
+	sb.WriteString("### What would you like to do?\n\n")
+	sb.WriteString("- Say **\"do it\"** or **\"execute that\"** → Run this plan\n")
+	sb.WriteString("- Say **\"correct!\"** or **\"perfect\"** → Learn from this analysis\n")
+	sb.WriteString("- Say **\"no, actually...\"** → Teach me a correction\n")
+	sb.WriteString("- Or just ask something else to dismiss\n\n")
+
+	sb.WriteString("💡 **Tip:** Use `Shift+Tab` to change execution mode (Auto/Confirm/Breakpoint)\n")
 
 	return sb.String()
 }
