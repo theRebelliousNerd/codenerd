@@ -534,24 +534,23 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				})
 			}
 
-			// Emit Glass Box event for tool visibility
-			if r.GlassBox != nil {
-				summary := fmt.Sprintf("Tool: %s", route.ToolName)
-				details := call.Result
-				if len(details) > 500 {
-					details = details[:500] + "..."
+			// Emit tool event for always-visible tool execution in chat
+			if r.ToolEventBus != nil {
+				result := call.Result
+				if len(result) > 500 {
+					result = result[:500] + "..."
 				}
+				success := true
 				if call.Error != "" {
-					summary = fmt.Sprintf("Tool: %s (FAILED)", route.ToolName)
-					details = call.Error
+					result = call.Error
+					success = false
 				}
-				r.GlassBox.Emit(transparency.GlassBoxEvent{
-					Timestamp: time.Now(),
-					Category:  transparency.CategoryRouting,
-					Summary:   summary,
-					Details:   details,
+				r.ToolEventBus.Emit(transparency.ToolEvent{
+					ToolName:  route.ToolName,
+					Result:    result,
+					Success:   success,
 					Duration:  duration,
-					Source:    "tactile_router",
+					Timestamp: time.Now(),
 				})
 			}
 

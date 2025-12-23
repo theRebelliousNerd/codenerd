@@ -299,6 +299,10 @@ type Model struct {
 	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
 	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
 
+	// Tool Event Visibility - ALWAYS shows tool execution in chat (not gated by Glass Box)
+	toolEventBus  *transparency.ToolEventBus   // Tool event collection
+	toolEventChan <-chan transparency.ToolEvent // Tool event subscription channel
+
 	// Boot State
 	isBooting bool
 	bootStage BootStage
@@ -437,6 +441,7 @@ type SystemComponents struct {
 	PreferencesMgr        *ux.PreferencesManager
 	Retriever             *retrieval.SparseRetriever
 	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
+	ToolEventBus          *transparency.ToolEventBus     // Always-visible tool execution event bus
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.

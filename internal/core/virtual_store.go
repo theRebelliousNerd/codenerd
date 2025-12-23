@@ -34,10 +34,9 @@ type VirtualStore struct {
 	modernExecutor tactile.Executor
 	auditLogger    *tactile.AuditLogger
 
-	// Integration clients (via interface to break import cycle)
-	codeGraph IntegrationClient
-	browser   IntegrationClient
-	scraper   IntegrationClient
+	// MCP integration clients - dynamic map supports arbitrary servers
+	// Key is server ID (e.g., "code_graph", "browser", "my_custom_server")
+	mcpClients map[string]IntegrationClient
 
 	// Shard delegation
 	shardManager *coreshards.ShardManager
@@ -131,6 +130,7 @@ func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualSto
 		allowedBinaries: config.AllowedBinaries,
 		shardManager:    coreshards.NewShardManager(),
 		toolRegistry:    NewToolRegistry(config.WorkingDir),
+		mcpClients:      make(map[string]IntegrationClient),
 	}
 
 	// Wire up self-reference for ShardManager dependency injection
@@ -339,28 +339,38 @@ func (v *VirtualStore) SetShardManager(sm *coreshards.ShardManager) {
 	logging.VirtualStoreDebug("ShardManager attached to VirtualStore")
 }
 
-// SetCodeGraphClient sets the code graph integration client.
-func (v *VirtualStore) SetCodeGraphClient(client IntegrationClient) {
+// SetMCPClient registers an MCP integration client for the given server ID.
+// Server IDs are arbitrary strings (e.g., "code_graph", "browser", "my_custom_server").
+func (v *VirtualStore) SetMCPClient(serverID string, client IntegrationClient) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	v.codeGraph = client
-	logging.VirtualStoreDebug("CodeGraph MCP client attached")
+	if v.mcpClients == nil {
+		v.mcpClients = make(map[string]IntegrationClient)
+	}
+	v.mcpClients[serverID] = client
+	logging.VirtualStoreDebug("MCP client attached: %s", serverID)
 }
 
-// SetBrowserClient sets the browser integration client.
-func (v *VirtualStore) SetBrowserClient(client IntegrationClient) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.browser = client
-	logging.VirtualStoreDebug("Browser MCP client attached")
+// GetMCPClient returns the MCP integration client for the given server ID.
+// Returns nil if no client is registered for that server.
+func (v *VirtualStore) GetMCPClient(serverID string) IntegrationClient {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.mcpClients == nil {
+		return nil
+	}
+	return v.mcpClients[serverID]
 }
 
-// SetScraperClient sets the scraper integration client.
-func (v *VirtualStore) SetScraperClient(client IntegrationClient) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.scraper = client
-	logging.VirtualStoreDebug("Scraper MCP client attached")
+// GetMCPClientNames returns all registered MCP client server IDs.
+func (v *VirtualStore) GetMCPClientNames() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	names := make([]string, 0, len(v.mcpClients))
+	for name := range v.mcpClients {
+		names = append(names, name)
+	}
+	return names
 }
 
 // SetCodeScope sets the Code DOM scope manager.

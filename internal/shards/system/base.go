@@ -271,10 +271,11 @@ type BaseSystemShard struct {
 	State  types.ShardState
 
 	// Components
-	Kernel       *core.RealKernel
-	LLMClient    types.LLMClient
-	VirtualStore *core.VirtualStore
-	GlassBox     *transparency.GlassBoxEventBus // For Glass Box visibility events
+	Kernel        *core.RealKernel
+	LLMClient     types.LLMClient
+	VirtualStore  *core.VirtualStore
+	GlassBox      *transparency.GlassBoxEventBus // For Glass Box visibility events
+	ToolEventBus  *transparency.ToolEventBus     // For always-visible tool execution events
 
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
@@ -418,6 +419,16 @@ func (b *BaseSystemShard) SetGlassBox(bus *transparency.GlassBoxEventBus) {
 	b.GlassBox = bus
 	if bus != nil {
 		logging.SystemShardsDebug("[%s] GlassBox event bus attached", b.ID)
+	}
+}
+
+// SetToolEventBus sets the tool event bus for always-visible tool execution events.
+func (b *BaseSystemShard) SetToolEventBus(bus *transparency.ToolEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolEventBus = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] ToolEventBus attached", b.ID)
 	}
 }
 

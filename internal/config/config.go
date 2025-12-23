@@ -100,20 +100,22 @@ func DefaultConfig() *Config {
 		},
 
 		Integrations: IntegrationsConfig{
-			CodeGraph: CodeGraphIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8080",
-				Timeout: "30s",
-			},
-			Browser: BrowserIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8081",
-				Timeout: "60s",
-			},
-			Scraper: ScraperIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8082",
-				Timeout: "120s",
+			Servers: map[string]MCPServerIntegration{
+				"code_graph": {
+					Enabled: true,
+					BaseURL: "http://localhost:8080",
+					Timeout: "30s",
+				},
+				"browser": {
+					Enabled: true,
+					BaseURL: "http://localhost:8081",
+					Timeout: "60s",
+				},
+				"scraper": {
+					Enabled: true,
+					BaseURL: "http://localhost:8082",
+					Timeout: "120s",
+				},
 			},
 		},
 
@@ -291,13 +293,13 @@ func (c *Config) applyEnvOverrides() {
 
 	// Integration URLs from environment
 	if url := os.Getenv("CODEGRAPH_URL"); url != "" {
-		c.Integrations.CodeGraph.BaseURL = url
+		c.setMCPServerURL("code_graph", url)
 	}
 	if url := os.Getenv("BROWSERNERD_URL"); url != "" {
-		c.Integrations.Browser.BaseURL = url
+		c.setMCPServerURL("browser", url)
 	}
 	if url := os.Getenv("SCRAPER_URL"); url != "" {
-		c.Integrations.Scraper.BaseURL = url
+		c.setMCPServerURL("scraper", url)
 	}
 
 	// Database path from environment
@@ -400,17 +402,32 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// setMCPServerURL is a helper to update a server's URL in the integrations map.
+func (c *Config) setMCPServerURL(serverID, url string) {
+	if c.Integrations.Servers == nil {
+		c.Integrations.Servers = make(map[string]MCPServerIntegration)
+	}
+	server := c.Integrations.Servers[serverID]
+	server.BaseURL = url
+	c.Integrations.Servers[serverID] = server
+}
+
+// IsMCPServerEnabled returns whether a specific MCP server is enabled.
+func (c *Config) IsMCPServerEnabled(serverID string) bool {
+	return c.Integrations.IsServerEnabled(serverID)
+}
+
 // IsCodeGraphEnabled returns whether code graph integration is enabled.
 func (c *Config) IsCodeGraphEnabled() bool {
-	return c.Integrations.CodeGraph.Enabled
+	return c.IsMCPServerEnabled("code_graph")
 }
 
 // IsBrowserEnabled returns whether browser integration is enabled.
 func (c *Config) IsBrowserEnabled() bool {
-	return c.Integrations.Browser.Enabled
+	return c.IsMCPServerEnabled("browser")
 }
 
 // IsScraperEnabled returns whether scraper integration is enabled.
 func (c *Config) IsScraperEnabled() bool {
-	return c.Integrations.Scraper.Enabled
+	return c.IsMCPServerEnabled("scraper")
 }

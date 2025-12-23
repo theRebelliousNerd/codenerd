@@ -209,6 +209,18 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		e.Kernel = kernel
 	}
 
+	// Clear stale intent facts from previous sessions to prevent startup loops (Bug #X: Infinite Loop Prevention)
+	// This ensures the OODA loop doesn't process old user_intent facts that may have been
+	// left over from persisted kernel state or previous sessions.
+	if e.Kernel != nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Clearing stale intent facts from previous sessions")
+		_ = e.Kernel.Retract("user_intent")
+		_ = e.Kernel.Retract("processed_intent")
+		_ = e.Kernel.Retract("executive_processed_intent")
+		_ = e.Kernel.Retract("pending_action")
+		_ = e.Kernel.Retract("delegate_task")
+	}
+
 	ticker := time.NewTicker(e.config.TickInterval)
 	defer ticker.Stop()
 

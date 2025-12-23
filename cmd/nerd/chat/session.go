@@ -626,6 +626,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Create Glass Box event bus early so shards can capture it
 		glassBoxEventBus := transparency.NewGlassBoxEventBus()
 
+		// Create Tool Event bus for always-visible tool execution notifications
+		toolEventBus := transparency.NewToolEventBus()
+
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
@@ -733,7 +736,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
-			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for tool visibility
+			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for debug visibility
+			shard.SetToolEventBus(toolEventBus) // Wire Tool Event Bus for always-visible tool execution
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
@@ -972,6 +976,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				PreferencesMgr:        prefsMgr,
 				Retriever:             retriever,
 				GlassBoxEventBus:      glassBoxEventBus,
+				ToolEventBus:          toolEventBus,
 			},
 		}
 	}

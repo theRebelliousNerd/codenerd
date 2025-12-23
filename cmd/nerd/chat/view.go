@@ -37,6 +37,17 @@ func (m Model) renderHistory() string {
 			}
 			sb.WriteString(m.renderGlassBoxMessage(msg))
 
+		case "tool":
+			// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
+			toolStyle := m.styles.Bold.
+				Foreground(lipgloss.Color("214")). // Orange for tool execution
+				MarginTop(1)
+			sb.WriteString(toolStyle.Render("Tool Execution") + "\n")
+			// Render tool output with markdown (result/error)
+			rendered := m.safeRenderMarkdown(msg.Content)
+			sb.WriteString(rendered)
+			sb.WriteString("\n")
+
 		default: // "assistant"
 			// Render assistant message with markdown
 			assistantStyle := m.styles.Bold.

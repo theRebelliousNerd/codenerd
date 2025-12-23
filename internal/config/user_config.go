@@ -559,20 +559,22 @@ func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 	}
 	// Return defaults (all enabled on localhost)
 	return IntegrationsConfig{
-		CodeGraph: CodeGraphIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8080",
-			Timeout: "30s",
-		},
-		Browser: BrowserIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8081",
-			Timeout: "60s",
-		},
-		Scraper: ScraperIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8082",
-			Timeout: "120s",
+		Servers: map[string]MCPServerIntegration{
+			"code_graph": {
+				Enabled: true,
+				BaseURL: "http://localhost:8080",
+				Timeout: "30s",
+			},
+			"browser": {
+				Enabled: true,
+				BaseURL: "http://localhost:8081",
+				Timeout: "60s",
+			},
+			"scraper": {
+				Enabled: true,
+				BaseURL: "http://localhost:8082",
+				Timeout: "120s",
+			},
 		},
 	}
 }
