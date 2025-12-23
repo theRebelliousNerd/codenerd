@@ -150,6 +150,24 @@ func isDreamCorrection(input string) bool {
 	return false
 }
 
+// isDreamExecutionTrigger checks if user wants to execute the dream plan.
+// DISTINCT from isDreamConfirmation (which persists learnings, not executes).
+func isDreamExecutionTrigger(input string) bool {
+	lower := strings.ToLower(input)
+	triggers := []string{
+		"do it", "execute that", "run the plan", "go ahead",
+		"make it so", "proceed", "execute the plan", "run that",
+		"let's do it", "implement that", "start execution",
+		"yes, do it", "yes, execute", "carry it out", "perform that",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
 // extractCorrectionContent extracts the corrective content from user input
 func extractCorrectionContent(input string) string {
 	lower := strings.ToLower(input)

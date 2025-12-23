@@ -76,7 +76,7 @@ func (i *Initializer) generateStrategicKnowledge(ctx context.Context, profile Pr
 	codebaseContext := i.buildCodebaseContext(profile, scanResult)
 
 	// Gather ALL documentation, then use LLM to filter for relevance
-	allDocs := i.gatherProjectDocumentation()
+	allDocs := i.GatherProjectDocumentation()
 	relevantDocs := i.filterDocumentsByRelevance(ctx, allDocs)
 	docContent := i.buildRelevantDocContent(relevantDocs)
 	if docContent != "" {
@@ -294,13 +294,13 @@ func (i *Initializer) saveIngestionState(state *DocIngestionState) error {
 	return os.WriteFile(statePath, data, 0644)
 }
 
-// processDocumentsWithTracking processes documents with Mangle fact tracking
+// ProcessDocumentsWithTracking processes documents with Mangle fact tracking
 // and incremental knowledge persistence. Uses campaign patterns:
 // 1. Assert doc_discovered for each found doc
 // 2. Assert doc_analyzing when LLM analyzes
 // 3. Store atoms incrementally and assert doc_stored
 // 4. Track progress for resumption
-func (i *Initializer) processDocumentsWithTracking(
+func (i *Initializer) ProcessDocumentsWithTracking(
 	ctx context.Context,
 	docs []DocumentInfo,
 	db *store.LocalStore,
@@ -524,9 +524,9 @@ func chunkDocument(content string, maxChars int) []string {
 	return chunks
 }
 
-// synthesizeFromStoredAtoms performs a second pass over stored knowledge atoms
+// SynthesizeFromStoredAtoms performs a second pass over stored knowledge atoms
 // to create the final strategic knowledge synthesis.
-func (i *Initializer) synthesizeFromStoredAtoms(
+func (i *Initializer) SynthesizeFromStoredAtoms(
 	ctx context.Context,
 	db *store.LocalStore,
 	state *DocIngestionState,
@@ -643,10 +643,10 @@ func keysFromMap(m map[string][]string) []string {
 	return keys
 }
 
-// gatherProjectDocumentation discovers ALL documentation files in the workspace.
+// GatherProjectDocumentation discovers ALL documentation files in the workspace.
 // It does NOT apply arbitrary limits - the LLM will analyze and filter for relevance.
 // Uses ResearcherShard patterns: signal keywords, heuristic sniffing, priority ordering.
-func (i *Initializer) gatherProjectDocumentation() []DocumentInfo {
+func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 	var docs []DocumentInfo
 	seen := make(map[string]bool)
 
@@ -985,8 +985,8 @@ func (i *Initializer) createFallbackStrategicKnowledge(profile ProjectProfile) *
 	}
 }
 
-// persistStrategicKnowledge saves the knowledge to the main knowledge.db.
-func (i *Initializer) persistStrategicKnowledge(ctx context.Context, knowledge *StrategicKnowledge, db *store.LocalStore) (int, error) {
+// PersistStrategicKnowledge saves the knowledge to the main knowledge.db.
+func (i *Initializer) PersistStrategicKnowledge(ctx context.Context, knowledge *StrategicKnowledge, db *store.LocalStore) (int, error) {
 	atomCount := 0
 
 	// Helper to store with error handling

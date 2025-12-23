@@ -58,6 +58,30 @@ Decl dream_preference(Content, Confidence).
 Decl dream_learning_confirmed(LearningID, Type, Content, Timestamp).
 
 # =============================================================================
+# SECTION 38C: DREAM PLAN EXECUTION (§8.3.2)
+# =============================================================================
+# Actionable execution plans extracted from Dream State consultations.
+# These predicates track the lifecycle of dream-to-execute transitions.
+
+# dream_plan(PlanID, Hypothetical, Status, CreatedAt)
+# Records a dream plan extracted from multi-agent consultation
+# Status: /pending, /approved, /executing, /completed, /failed, /cancelled
+Decl dream_plan(PlanID, Hypothetical, Status, CreatedAt).
+
+# dream_plan_subtask(PlanID, StepOrder, ShardType, Description, Status)
+# Individual steps within a dream plan
+# Status: /pending, /running, /completed, /failed, /skipped
+Decl dream_plan_subtask(PlanID, StepOrder, ShardType, Description, Status).
+
+# dream_plan_approved(PlanID, ApprovedAt)
+# Records when user approved a dream plan for execution ("do it")
+Decl dream_plan_approved(PlanID, ApprovedAt).
+
+# dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt)
+# Audit trail for completed steps
+Decl dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt).
+
+# =============================================================================
 # SECTION 48: CROSS-MODULE SUPPORT PREDICATES
 # =============================================================================
 # Predicates used by policy.mg rules or Go code across multiple modules.

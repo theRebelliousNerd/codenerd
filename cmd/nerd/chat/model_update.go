@@ -1036,6 +1036,34 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			return m, checkFirstRun(m.workspace)
 		}
 
+	case docRefreshCompleteMsg:
+		m.isLoading = false
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Document refresh failed:** %v", msg.err),
+				Time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, Message{
+				Role: "assistant",
+				Content: fmt.Sprintf(`**Document refresh complete**
+
+| Metric | Value |
+|--------|-------|
+| Docs discovered | %d |
+| Docs processed | %d |
+| Atoms stored | %d |
+| Duration | %.2fs |
+
+The strategic knowledge base has been updated with new documentation.`, msg.docsDiscovered, msg.docsProcessed, msg.atomsStored, msg.duration.Seconds()),
+				Time: time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.saveSessionState()
+
 	case reembedCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
@@ -1132,6 +1160,9 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
+
+			// Initialize Dream Plan Manager for dream-to-execute pipeline (§8.3.2)
+			m.dreamPlanManager = core.NewDreamPlanManager(m.kernel)
 
 			// Load previous session state if available (now that kernel is ready)
 			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)

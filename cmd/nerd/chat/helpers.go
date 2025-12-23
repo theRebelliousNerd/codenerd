@@ -719,6 +719,81 @@ func (m Model) runScan(deep bool) tea.Cmd {
 	}
 }
 
+// docRefreshCompleteMsg signals completion of document refresh.
+type docRefreshCompleteMsg struct {
+	docsDiscovered int
+	docsProcessed  int
+	atomsStored    int
+	duration       time.Duration
+	err            error
+}
+
+// runDocRefresh scans for new/changed documentation and updates the knowledge base.
+// Uses Mangle tracking to only process documents that have changed since last run.
+func (m Model) runDocRefresh(force bool) tea.Cmd {
+	return func() tea.Msg {
+		startTime := time.Now()
+		m.ReportStatus("Discovering documentation files...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+
+		// Create initializer for doc processing (reuses init infrastructure)
+		initConfig := nerdinit.InitConfig{
+			Workspace:    m.workspace,
+			LLMClient:    m.client,
+			ShardManager: m.shardMgr,
+			Timeout:      15 * time.Minute,
+			Interactive:  false,
+		}
+
+		initializer, err := nerdinit.NewInitializer(initConfig)
+		if err != nil {
+			return docRefreshCompleteMsg{err: fmt.Errorf("failed to create initializer: %w", err)}
+		}
+
+		// Gather all documentation
+		allDocs := initializer.GatherProjectDocumentation()
+		if len(allDocs) == 0 {
+			return docRefreshCompleteMsg{
+				docsDiscovered: 0,
+				duration:       time.Since(startTime),
+			}
+		}
+
+		m.ReportStatus(fmt.Sprintf("Found %d docs, processing with Mangle tracking...", len(allDocs)))
+
+		// Process with tracking (handles resumption, change detection, incremental storage)
+		state, err := initializer.ProcessDocumentsWithTracking(ctx, allDocs, m.localDB, m.kernel)
+		if err != nil {
+			return docRefreshCompleteMsg{err: fmt.Errorf("document processing failed: %w", err)}
+		}
+
+		// If synthesis is ready and we have stored docs, run synthesis
+		if state.SynthesisReady && state.TotalStored > 0 {
+			m.ReportStatus("Synthesizing strategic knowledge from stored atoms...")
+			knowledge, synthErr := initializer.SynthesizeFromStoredAtoms(ctx, m.localDB, state)
+			if synthErr != nil {
+				// Log but don't fail - we still stored the individual atoms
+				m.ReportStatus(fmt.Sprintf("Synthesis warning: %v", synthErr))
+			} else if knowledge != nil {
+				// Persist the synthesized knowledge
+				if _, persistErr := initializer.PersistStrategicKnowledge(ctx, knowledge, m.localDB); persistErr != nil {
+					m.ReportStatus(fmt.Sprintf("Persist warning: %v", persistErr))
+				}
+			}
+		}
+
+		m.ReportStatus("Document refresh complete")
+		return docRefreshCompleteMsg{
+			docsDiscovered: state.TotalDiscovered,
+			docsProcessed:  state.TotalProcessed,
+			atomsStored:    state.TotalStored,
+			duration:       time.Since(startTime),
+		}
+	}
+}
+
 // ensureDeepWorldFacts hydrates deep Cartographer facts for Go files.
 // This is on-demand only (e.g., `/scan --deep`).
 func (m *Model) ensureDeepWorldFacts() error {

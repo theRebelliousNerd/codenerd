@@ -386,6 +386,27 @@ or you can create them on-demand with /tool generate.
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runScan(deep))
 
+	case "/refresh-docs", "/scan-docs":
+		// Refresh strategic knowledge by re-scanning and processing documentation
+		// Uses Mangle tracking to only process new/changed docs
+		force := false
+		for _, part := range parts[1:] {
+			if part == "--force" || part == "-f" {
+				force = true
+				break
+			}
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Scanning documentation for updates...\n\nThis will:\n- Discover new/changed docs\n- Use LLM to filter for relevance\n- Extract knowledge atoms incrementally\n- Update the strategic knowledge base",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.runDocRefresh(force))
+
 	case "/scan-path":
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{
