@@ -32,6 +32,26 @@ type ControlPacket struct {
 	MemoryOperations     []MemoryOperation    `json:"memory_operations"`
 	SelfCorrection       *SelfCorrection      `json:"self_correction,omitempty"`
 	ReasoningTrace       string               `json:"reasoning_trace,omitempty"`
+	// KnowledgeRequests allows the LLM to request specialist consultation or research.
+	// When populated, the TUI orchestrator will spawn specialists and re-invoke the LLM
+	// with gathered knowledge before generating the final response.
+	KnowledgeRequests []KnowledgeRequest `json:"knowledge_requests,omitempty"`
+}
+
+// KnowledgeRequest represents a request for specialist consultation or research.
+// This enables LLM-first knowledge discovery where the agent can proactively
+// gather information from domain specialists or web research.
+type KnowledgeRequest struct {
+	// Specialist is the target agent for consultation.
+	// Values: agent name (e.g., "goexpert"), "researcher" for web research,
+	// or "_any_specialist" for auto-selection based on query content.
+	Specialist string `json:"specialist"`
+	// Query is the specific question or topic to research.
+	Query string `json:"query"`
+	// Purpose explains why this knowledge is needed (helps with context handoff).
+	Purpose string `json:"purpose,omitempty"`
+	// Priority: "required" (block until complete) or "optional" (best-effort).
+	Priority string `json:"priority,omitempty"`
 }
 
 // IntentClassification helps the kernel decide which ShardAgent to spawn.

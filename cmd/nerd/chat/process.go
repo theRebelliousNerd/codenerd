@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -727,6 +728,20 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
+		// =====================================================================
+		// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
+		// =====================================================================
+		// If the LLM requested knowledge from specialists, gather it and re-process.
+		// This enables the LLM to proactively research topics it doesn't know.
+		// Guard: Don't re-request knowledge if we already have pending results (prevents infinite loop).
+		if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge && len(m.pendingKnowledge) == 0 {
+			logging.Get(logging.CategoryContext).Info(
+				"LLM requested knowledge: %d specialists to consult",
+				len(artOutput.KnowledgeRequests),
+			)
+			return m.handleKnowledgeRequests(ctx, artOutput.KnowledgeRequests, input, response)
+		}
+
 		// 7. SEMANTIC COMPRESSION (Process turn for infinite context)
 		// This implements §8.2: Compress surface text, retain only logical atoms
 		// Now properly wired with MemoryOperations from articulation!
@@ -870,6 +885,43 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+	}
+}
+
+// processInputWithKnowledge re-processes input after knowledge gathering.
+// The gathered knowledge is already stored in m.pendingKnowledge and will be
+// injected into SessionContext by buildSessionContext(), making it available
+// to the articulation layer for synthesizing an informed response.
+func (m Model) processInputWithKnowledge(input string) tea.Cmd {
+	return func() tea.Msg {
+		// Add context about gathered knowledge to the input
+		var knowledgeSummary strings.Builder
+		if len(m.pendingKnowledge) > 0 {
+			knowledgeSummary.WriteString("\n\n---\n**Gathered Knowledge from Specialists:**\n\n")
+			for _, kr := range m.pendingKnowledge {
+				if kr.Error == nil && kr.Response != "" {
+					knowledgeSummary.WriteString(fmt.Sprintf("### From %s\n", kr.Specialist))
+					knowledgeSummary.WriteString(fmt.Sprintf("**Query:** %s\n\n", kr.Query))
+					// Truncate very long responses for context budget
+					response := kr.Response
+					if len(response) > 2000 {
+						response = response[:2000] + "\n\n[...truncated for brevity]"
+					}
+					knowledgeSummary.WriteString(response)
+					knowledgeSummary.WriteString("\n\n")
+				}
+			}
+			knowledgeSummary.WriteString("---\n\n")
+			knowledgeSummary.WriteString("Please synthesize this knowledge to answer the user's question.\n")
+		}
+
+		// Augment the input with gathered knowledge context
+		enrichedInput := input + knowledgeSummary.String()
+
+		// Re-run the full processing pipeline with enriched context
+		// processInput will detect that pendingKnowledge is non-empty and
+		// skip further knowledge gathering (preventing infinite loops)
+		return m.processInput(enrichedInput)()
 	}
 }
 
@@ -2958,6 +3010,168 @@ func truncateSummary(s string, maxLen int) string {
 		return s[:maxLen] + "..."
 	}
 	return s
+}
+
+// =============================================================================
+// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
+// =============================================================================
+
+// handleKnowledgeRequests spawns specialists in parallel to gather knowledge
+// requested by the LLM. Returns a knowledgeGatheredMsg when all specialists
+// have responded, which will trigger re-processing with enriched context.
+func (m *Model) handleKnowledgeRequests(
+	ctx context.Context,
+	requests []articulation.KnowledgeRequest,
+	originalInput string,
+	interimResponse string,
+) tea.Msg {
+	m.awaitingKnowledge = true
+
+	// Show status to user
+	m.ReportStatus(fmt.Sprintf("Gathering knowledge from %d specialist(s)...", len(requests)))
+
+	// Create a channel to collect results
+	resultsChan := make(chan KnowledgeResult, len(requests))
+	var wg sync.WaitGroup
+
+	for _, req := range requests {
+		wg.Add(1)
+		go func(r articulation.KnowledgeRequest) {
+			defer wg.Done()
+
+			// Resolve specialist type
+			shardType := r.Specialist
+			if shardType == "_any_specialist" {
+				shardType = m.matchSpecialistForQuery(r.Query)
+			}
+
+			// Build task prompt for the specialist
+			task := fmt.Sprintf(`Knowledge Query: %s
+
+Purpose: %s
+
+Please provide a comprehensive answer to this query. Focus on practical, actionable information.
+If you need to search documentation or the web, do so to provide accurate information.`, r.Query, r.Purpose)
+
+			// Build session context for the specialist
+			sessionCtx := m.buildSessionContext(ctx)
+
+			// Log the consultation
+			logging.Get(logging.CategoryContext).Info(
+				"Consulting specialist '%s' for: %s",
+				shardType, truncateSummary(r.Query, 100),
+			)
+
+			// Spawn the specialist with high priority (knowledge is blocking)
+			result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+
+			resultsChan <- KnowledgeResult{
+				Specialist: shardType,
+				Query:      r.Query,
+				Purpose:    r.Purpose,
+				Response:   result,
+				Timestamp:  time.Now(),
+				Error:      err,
+			}
+		}(req)
+	}
+
+	// Wait for all specialists to complete
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect all results
+	var results []KnowledgeResult
+	for kr := range resultsChan {
+		results = append(results, kr)
+		if kr.Error != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"Knowledge request to '%s' failed: %v",
+				kr.Specialist, kr.Error,
+			)
+		} else {
+			logging.Get(logging.CategoryContext).Info(
+				"Knowledge received from '%s': %d chars",
+				kr.Specialist, len(kr.Response),
+			)
+		}
+	}
+
+	return knowledgeGatheredMsg{
+		Results:         results,
+		OriginalInput:   originalInput,
+		InterimResponse: interimResponse,
+	}
+}
+
+// matchSpecialistForQuery attempts to find the best specialist for a given query
+// by checking the agents registry and matching keywords.
+func (m *Model) matchSpecialistForQuery(query string) string {
+	// Try to load agents from registry
+	if m.workspace != "" {
+		registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
+		_ = registryPath // Registry loading is handled in matchSpecialistForQuery
+		// TODO: Load and parse agents.json to match by keywords
+		// For now, use simple keyword matching
+	}
+
+	queryLower := strings.ToLower(query)
+
+	// Keyword-based specialist matching
+	specialists := map[string][]string{
+		"goexpert":     {"go ", "golang", "goroutine", "channel", "interface{}", "struct"},
+		"mangleexpert": {"mangle", "datalog", "predicate", "fact", "rule", "logic"},
+		"uiexpert":     {"bubbletea", "tui", "terminal", "ui", "charm", "lipgloss"},
+		"securityexpert": {"security", "vulnerability", "cve", "injection", "xss", "csrf"},
+		"testexpert":   {"test", "testing", "coverage", "mock", "stub", "assert"},
+	}
+
+	for specialist, keywords := range specialists {
+		for _, kw := range keywords {
+			if strings.Contains(queryLower, kw) {
+				return specialist
+			}
+		}
+	}
+
+	// Default to researcher for general knowledge gathering
+	return "researcher"
+}
+
+// persistKnowledgeResults stores gathered knowledge in the local knowledge database.
+// This enables future retrieval via semantic search and JIT prompt compilation.
+func (m *Model) persistKnowledgeResults(results []KnowledgeResult) {
+	if m.localDB == nil {
+		return
+	}
+
+	for _, kr := range results {
+		if kr.Error != nil {
+			continue
+		}
+
+		// Create a concept identifier based on session and specialist
+		concept := fmt.Sprintf("session/%s/%s/%d",
+			truncateSummary(kr.Query, 50),
+			kr.Specialist,
+			kr.Timestamp.Unix(),
+		)
+
+		// Store with high confidence (specialist knowledge is authoritative)
+		if err := m.localDB.StoreKnowledgeAtom(concept, kr.Response, 0.85); err != nil {
+			logging.Get(logging.CategoryContext).Warn(
+				"Failed to persist knowledge from %s: %v",
+				kr.Specialist, err,
+			)
+		} else {
+			logging.Get(logging.CategoryContext).Debug(
+				"Persisted knowledge from %s: %d chars",
+				kr.Specialist, len(kr.Response),
+			)
+		}
+	}
 }
 
 // Personality and Tone (The "Steven Moore" Flare)

@@ -142,6 +142,29 @@ func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
 	}
 
 	// ==========================================================================
+	// GATHERED KNOWLEDGE (LLM-First Knowledge Discovery)
+	// ==========================================================================
+	// Inject knowledge gathered from specialist consultations during this session.
+	// This enables action shards (coder, tester) to benefit from prior research.
+	if len(m.pendingKnowledge) > 0 {
+		for _, kr := range m.pendingKnowledge {
+			if kr.Error == nil && kr.Response != "" {
+				// Truncate for context budget (full output available separately)
+				summary := kr.Response
+				if len(summary) > 500 {
+					summary = summary[:500] + "..."
+				}
+				sessionCtx.GatheredKnowledge = append(sessionCtx.GatheredKnowledge, types.KnowledgeSummary{
+					Specialist: kr.Specialist,
+					Topic:      kr.Query,
+					Summary:    summary,
+					FullOutput: kr.Response,
+				})
+			}
+		}
+	}
+
+	// ==========================================================================
 	// CONSTITUTIONAL CONSTRAINTS
 	// ==========================================================================
 	if m.kernel != nil {

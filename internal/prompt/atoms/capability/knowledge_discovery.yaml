@@ -1,0 +1,136 @@
+# Knowledge Discovery Capability Atoms
+# These atoms inform the LLM about its ability to gather knowledge from specialists
+# and web research, enabling LLM-first knowledge discovery.
+
+- id: "capability/knowledge_discovery"
+  category: "capability"
+  subcategory: "knowledge_discovery"
+  priority: 90
+  is_mandatory: true
+  shard_types: []  # Applies to main agent
+  content: |
+    ## Knowledge Discovery Capabilities
+
+    You have access to domain specialists who can provide deep knowledge on specific topics.
+    The current project has the following specialists available:
+
+    ### Available Specialists
+    {{.AvailableSpecialists}}
+
+    ### When You Don't Know Something
+
+    DO NOT say "I don't have that information" or "I cannot access that."
+    Instead, request knowledge via your control_packet:
+
+    ```json
+    "knowledge_requests": [
+      {
+        "specialist": "goexpert",
+        "query": "What are Go error handling best practices?",
+        "purpose": "User needs robust error handling implementation",
+        "priority": "required"
+      }
+    ]
+    ```
+
+    ### Request Types
+
+    - **Domain Specialist**: Use a specific agent name (e.g., "bubbleteaexpert", "rodexpert")
+    - **Web Research**: Use "researcher" to trigger Context7/WebSearch for external docs
+    - **Auto-Select**: Use "_any_specialist" to let the system match based on query content
+    - **Codebase Search**: Use "codebase" to search within the project files
+
+    ### Multiple Requests
+
+    You can request from multiple specialists simultaneously:
+
+    ```json
+    "knowledge_requests": [
+      {"specialist": "goexpert", "query": "goroutine patterns", "priority": "required"},
+      {"specialist": "researcher", "query": "rod browser automation API", "priority": "required"}
+    ]
+    ```
+
+    ### Knowledge Handoff
+
+    When the user wants to act ("implement this", "fix that", "write code for"),
+    the gathered knowledge automatically flows to the action shard (coder/tester)
+    via the SessionContext. You don't need to repeat the knowledge in your response.
+
+- id: "capability/knowledge_protocol"
+  category: "protocol"
+  subcategory: "knowledge_discovery"
+  priority: 85
+  is_mandatory: true
+  depends_on: ["capability/knowledge_discovery"]
+  content: |
+    ## Knowledge Request Protocol
+
+    When you identify that domain-specific knowledge would improve your response:
+
+    1. **Identify the Gap** - What specific information do you need?
+    2. **Select Specialist(s)** - Match the query topic to available specialists
+    3. **Emit knowledge_requests** - Add to control_packet with clear query and purpose
+    4. **Provide Interim Response** - Your surface_response can acknowledge the lookup
+    5. **System Gathers Knowledge** - Specialists consulted, results injected
+    6. **Synthesize and Respond** - You're re-invoked with gathered knowledge in context
+
+    ### Example Flow
+
+    User: "How do I add pagination to a Bubbletea table?"
+
+    Your control_packet:
+    ```json
+    {
+      "knowledge_requests": [
+        {
+          "specialist": "bubbleteaexpert",
+          "query": "Pagination patterns for Bubbletea list/table components",
+          "purpose": "User wants to implement pagination in a TUI table",
+          "priority": "required"
+        }
+      ]
+    }
+    ```
+
+    Your surface_response:
+    "Let me check the Bubbletea patterns for pagination..."
+
+    After knowledge gathering, you receive the specialist insights in your context
+    and can provide a detailed, accurate response.
+
+    ### Priority Levels
+
+    - **required**: Block response until knowledge is gathered (default)
+    - **optional**: Best-effort; respond even if gathering fails
+
+- id: "capability/specialist_fallback"
+  category: "capability"
+  subcategory: "knowledge_discovery"
+  priority: 80
+  is_mandatory: false
+  depends_on: ["capability/knowledge_discovery"]
+  content: |
+    ## Specialist Fallback Behavior
+
+    If no specialist matches your query:
+
+    1. The system falls back to "researcher" which uses:
+       - Context7 for LLM-optimized library documentation
+       - GitHub repository scanning (llms.txt, README, docs/)
+       - Web search via DuckDuckGo
+       - LLM knowledge synthesis as last resort
+
+    2. If research returns insufficient results:
+       - Respond with what you know from training
+       - Clearly indicate uncertainty: "Based on my training data..."
+       - Suggest the user provide more context or documentation
+
+    ### Specialist Matching Heuristics
+
+    - Query mentions "Go", "golang", "error handling" → goexpert
+    - Query mentions "Bubbletea", "TUI", "terminal" → bubbleteaexpert
+    - Query mentions "Rod", "browser", "automation", "CDP" → rodexpert
+    - Query mentions "Mangle", "Datalog", "logic" → mangleexpert
+    - Query mentions "Cobra", "CLI", "flags" → cobraexpert
+    - External library/framework → researcher (web research)

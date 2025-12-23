@@ -207,6 +207,20 @@ type ShardSummary struct {
 }
 
 // =============================================================================
+// KNOWLEDGE SUMMARY - LLM-First Knowledge Discovery
+// =============================================================================
+
+// KnowledgeSummary represents knowledge gathered from a specialist consultation.
+// Used for handoff to action shards (coder, tester) when user wants to act on
+// information gathered during knowledge discovery.
+type KnowledgeSummary struct {
+	Specialist string // The specialist/agent that provided this knowledge
+	Topic      string // The query/topic that was researched
+	Summary    string // Truncated summary for context budget management
+	FullOutput string // Complete response (may be stored separately for retrieval)
+}
+
+// =============================================================================
 // SESSION CONTEXT - Blackboard Pattern
 // =============================================================================
 
@@ -276,6 +290,13 @@ type SessionContext struct {
 	// ==========================================================================
 	KnowledgeAtoms  []string // Relevant domain expertise facts
 	SpecialistHints []string // Hints from specialist knowledge base
+
+	// ==========================================================================
+	// GATHERED KNOWLEDGE (LLM-First Knowledge Discovery)
+	// ==========================================================================
+	// Knowledge gathered from specialists during the current session.
+	// Populated by the TUI when LLM requests specialist consultation.
+	GatheredKnowledge []KnowledgeSummary
 
 	// ==========================================================================
 	// AVAILABLE TOOLS (Autopoiesis/Ouroboros)
