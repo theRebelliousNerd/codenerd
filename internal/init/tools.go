@@ -8,24 +8,40 @@ import (
 	"path/filepath"
 )
 
-// ToolDefinition represents a tool template available for specialist shards
+// ToolDefinition represents a tool template available for specialist shards.
+// It supports both static command-line tools and MCP (Model Context Protocol) tools.
 type ToolDefinition struct {
 	Name          string   `json:"name"`
 	DisplayName   string   `json:"display_name,omitempty"`   // Human-readable name (optional)
-	Category      string   `json:"category"`                 // build, test, lint, format, deps, git, docker, security, etc
+	Category      string   `json:"category"`                 // build, test, lint, format, deps, git, docker, security, code_analysis, etc
 	Description   string   `json:"description"`
-	Command       string   `json:"command"`                  // Actual command to execute
-	WorkingDir    string   `json:"working_dir,omitempty"`    // Where to run it (default ".")
-	InputType     string   `json:"input_type,omitempty"`     // stdin, args, file, none
-	OutputType    string   `json:"output_type,omitempty"`    // stdout, file, json
-	ShardAffinity string   `json:"shard_affinity,omitempty"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard)
+	ShardAffinity string   `json:"shard_affinity,omitempty"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard, ResearcherShard)
 	Conditions    []string `json:"conditions,omitempty"`     // Required conditions (e.g., "go.mod exists", "docker available")
+
+	// Tool type: "mcp" for MCP tools, empty/omitted for static command tools
+	Type string `json:"type,omitempty"`
+
+	// Static tool fields (used when Type is empty)
+	Command    string `json:"command,omitempty"`     // Actual command to execute
+	WorkingDir string `json:"working_dir,omitempty"` // Where to run it (default ".")
+	InputType  string `json:"input_type,omitempty"`  // stdin, args, file, none
+	OutputType string `json:"output_type,omitempty"` // stdout, file, json
+
+	// MCP tool fields (used when Type is "mcp")
+	MCPServer   string `json:"mcp_server,omitempty"`   // MCP server ID (e.g., "code_graph", "browser")
+	MCPTool     string `json:"mcp_tool,omitempty"`     // Tool name on the MCP server
+	AutoAnalyze bool   `json:"auto_analyze,omitempty"` // Auto-analyze tool with LLM on discovery
 
 	// Legacy fields for compatibility with existing code in agents.go
 	Purpose    string  `json:"purpose,omitempty"`
 	Priority   float64 `json:"priority,omitempty"`
 	Technology string  `json:"technology,omitempty"`
 	Reason     string  `json:"reason,omitempty"`
+}
+
+// IsMCPTool returns true if this is an MCP tool definition.
+func (t *ToolDefinition) IsMCPTool() bool {
+	return t.Type == "mcp"
 }
 
 // GetLanguageTools returns tool definitions for a language
