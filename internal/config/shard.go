@@ -26,7 +26,7 @@ type ShardProfile struct {
 // applyShardDefaults fills in zero values with defaults.
 func applyShardDefaults(p ShardProfile) ShardProfile {
 	if p.Model == "" {
-		p.Model = "glm-4.6"
+		p.Model = "glm-4.7"
 	}
 	if p.Temperature == 0 {
 		p.Temperature = 0.7

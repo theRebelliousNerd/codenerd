@@ -482,7 +482,7 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 
 	// Ultimate fallback - sensible defaults
 	return ShardProfile{
-		Model:                 "glm-4.6",
+		Model:                 "glm-4.7",
 		Temperature:           0.7,
 		TopP:                  0.9,
 		MaxContextTokens:      20000,
@@ -636,7 +636,7 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 func DefaultUserConfig() *UserConfig {
 	return &UserConfig{
 		Provider: "zai",
-		Model:    "glm-4.6",
+		Model:    "glm-4.7",
 		Theme:    "light",
 	}
 }

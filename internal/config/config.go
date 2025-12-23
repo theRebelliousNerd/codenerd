@@ -60,7 +60,7 @@ func DefaultConfig() *Config {
 
 		LLM: LLMConfig{
 			Provider: "zai",
-			Model:    "glm-4.6", // Z.AI GLM-4.6 - Default for codeNERD
+			Model:    "glm-4.7", // Z.AI GLM-4.7 - Default for codeNERD
 			BaseURL:  "https://api.z.ai/api/coding/paas/v4",
 			Timeout:  "120s",
 		},
@@ -148,7 +148,7 @@ func DefaultConfig() *Config {
 
 		// Default shard settings (fallback for undefined shard types)
 		DefaultShard: ShardProfile{
-			Model:                 "glm-4.6", // Inherit from main LLM config
+			Model:                 "glm-4.7", // Inherit from main LLM config
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      20000,
@@ -162,7 +162,7 @@ func DefaultConfig() *Config {
 		// Per-shard profiles (custom settings per shard type)
 		ShardProfiles: map[string]ShardProfile{
 			"coder": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for code generation
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code generation
 				Temperature:           0.7,
 				TopP:                  0.9,
 				MaxContextTokens:      30000, // More context for code
@@ -173,7 +173,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        true,
 			},
 			"tester": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for test generation
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for test generation
 				Temperature:           0.5,       // Lower temp for precise tests
 				TopP:                  0.9,
 				MaxContextTokens:      20000,
@@ -184,7 +184,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        true,
 			},
 			"reviewer": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for code review
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code review
 				Temperature:           0.3,       // Very low temp for rigorous analysis
 				TopP:                  0.9,
 				MaxContextTokens:      40000, // Max context for full codebase
@@ -195,7 +195,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        false, // No learning for safety-critical
 			},
 			"researcher": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for research
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for research
 				Temperature:           0.6,
 				TopP:                  0.95,
 				MaxContextTokens:      25000,
