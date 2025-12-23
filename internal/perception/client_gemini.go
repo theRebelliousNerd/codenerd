@@ -29,7 +29,7 @@ func DefaultGeminiConfig(apiKey string) GeminiConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
 		Model:   "gemini-3-pro-preview",
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
 

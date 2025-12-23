@@ -32,7 +32,7 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 		APIKey:   apiKey,
 		BaseURL:  "https://openrouter.ai/api/v1",
 		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
-		Timeout:  300 * time.Second,
+		Timeout:  10 * time.Minute,            // Large context models need extended timeout
 		SiteName: "codeNERD",
 	}
 }
