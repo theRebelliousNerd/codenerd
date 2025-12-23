@@ -39,13 +39,18 @@ func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
 		logging.EmbeddingDebug("Ollama model defaulted to: %s", model)
 	}
 
-	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=30s", endpoint, model)
+	logging.Embedding("Creating Ollama engine: endpoint=%s, model=%s, timeout=60s", endpoint, model)
 
 	engine := &OllamaEngine{
 		endpoint: endpoint,
 		model:    model,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			// 60 seconds allows for:
+			// - Ollama cold starts (model loading)
+			// - High load scenarios (multiple concurrent requests)
+			// - Larger text embeddings
+			// Individual operations like JIT compilation use their own sub-deadlines.
+			Timeout: 60 * time.Second,
 		},
 	}
 

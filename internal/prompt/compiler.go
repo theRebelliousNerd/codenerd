@@ -1101,10 +1101,19 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	query := strings.Join(queryParts, " ")
 
+	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
+	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Search for semantically relevant knowledge atoms
-	atoms, err := db.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
 	if err != nil {
-		logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
+		if searchCtx.Err() != nil {
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (10s limit), skipping")
+		} else {
+			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
+		}
 		return nil
 	}
 
