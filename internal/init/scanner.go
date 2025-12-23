@@ -1336,7 +1336,7 @@ tools/.traces/
 func (i *Initializer) createDefaultConfig(path string) error {
 	cfg := &config.UserConfig{
 		Provider: "zai",
-		Model:    "glm-4.6",
+		Model:    "glm-4.7",
 		Theme:    "light",
 		ContextWindow: &config.ContextWindowConfig{
 			MaxTokens:              128000,
@@ -1358,7 +1358,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 		},
 		ShardProfiles: map[string]config.ShardProfile{
 			"coder": {
-				Model:                 "glm-4.6",
+				Model:                 "glm-4.7",
 				Temperature:           0.7,
 				TopP:                  0.9,
 				MaxContextTokens:      30000,
@@ -1369,7 +1369,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 				EnableLearning:        true,
 			},
 			"tester": {
-				Model:                 "glm-4.6",
+				Model:                 "glm-4.7",
 				Temperature:           0.5,
 				TopP:                  0.9,
 				MaxContextTokens:      20000,
@@ -1380,7 +1380,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 				EnableLearning:        true,
 			},
 			"reviewer": {
-				Model:                 "glm-4.6",
+				Model:                 "glm-4.7",
 				Temperature:           0.3,
 				TopP:                  0.9,
 				MaxContextTokens:      40000,
@@ -1391,7 +1391,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 				EnableLearning:        false,
 			},
 			"researcher": {
-				Model:                 "glm-4.6",
+				Model:                 "glm-4.7",
 				Temperature:           0.6,
 				TopP:                  0.95,
 				MaxContextTokens:      25000,
@@ -1403,7 +1403,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			},
 		},
 		DefaultShard: &config.ShardProfile{
-			Model:                 "glm-4.6",
+			Model:                 "glm-4.7",
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      20000,

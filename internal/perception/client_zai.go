@@ -31,7 +31,7 @@ func DefaultZAIConfig(apiKey string) ZAIConfig {
 	return ZAIConfig{
 		APIKey:       apiKey,
 		BaseURL:      "https://api.z.ai/api/coding/paas/v4", // Coding-optimized endpoint
-		Model:        "glm-4.6",
+		Model:        "glm-4.7",
 		Timeout:      300 * time.Second,
 		SystemPrompt: defaultSystemPrompt,
 	}
