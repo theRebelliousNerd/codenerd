@@ -472,116 +472,66 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 	}, nil
 }
 
-// handleSearchCode searches for code patterns using code-graph integration.
+// handleSearchCode searches for code patterns using local filesystem search.
+// For semantic/AST-based search, use the internal/world package via shards.
 func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleSearchCode")
 	defer timer.Stop()
 
-	codeGraph := v.GetMCPClient("code_graph")
 	pattern := req.Target
+	facts := make([]Fact, 0)
+	var output strings.Builder
+	count := 0
 
-	if codeGraph == nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Code graph MCP client not configured, falling back to local search")
-		
-		facts := make([]Fact, 0)
-		var output strings.Builder
-		count := 0
-
-		// Go-native search using filepath.Walk
-		err := filepath.Walk(v.workingDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil
-			}
-
-			// Skip hidden directories and large files
-			if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
-				return nil
-			}
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-
-			content := string(data)
-			lines := strings.Split(content, "\n")
-			relPath, _ := filepath.Rel(v.workingDir, path)
-
-			for i, line := range lines {
-				if strings.Contains(line, pattern) {
-					count++
-					lineNum := i + 1
-					facts = append(facts, Fact{
-						Predicate: "search_result",
-						Args: []interface{}{
-							relPath,
-							lineNum,
-							strings.TrimSpace(line),
-						},
-					})
-					output.WriteString(fmt.Sprintf("%s:%d:%s\n", relPath, lineNum, line))
-					if count >= 100 { // Cap results
-						return filepath.SkipDir
-					}
-				}
-			}
+	// Local search using filepath.Walk
+	err := filepath.Walk(v.workingDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
 			return nil
-		})
-
-		if err != nil {
-			return ActionResult{Success: false, Error: err.Error()}, nil
 		}
 
-		logging.VirtualStoreDebug("Local search returned %d results", len(facts))
-		return ActionResult{
-			Success:    true,
-			Output:     output.String(),
-			FactsToAdd: facts,
-		}, nil
-	}
+		// Skip hidden directories and large files
+		if strings.Contains(path, ".git") || strings.Contains(path, ".nerd") {
+			return nil
+		}
 
-	args := map[string]interface{}{
-		"pattern": pattern,
-	}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
 
-	if lang, ok := req.Payload["language"].(string); ok {
-		args["language"] = lang
-	}
-	if scope, ok := req.Payload["scope"].(string); ok {
-		args["scope"] = scope
-	}
+		content := string(data)
+		lines := strings.Split(content, "\n")
+		relPath, _ := filepath.Rel(v.workingDir, path)
 
-	logging.VirtualStore("MCP call: code-graph search, pattern=%s", pattern)
-	result, err := codeGraph.CallTool(ctx, "search", args)
-	if err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("MCP code-graph search failed: %v", err)
-		return ActionResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	facts := make([]Fact, 0)
-	if results, ok := result.([]interface{}); ok {
-		for _, r := range results {
-			if item, ok := r.(map[string]interface{}); ok {
+		for i, line := range lines {
+			if strings.Contains(line, pattern) {
+				count++
+				lineNum := i + 1
 				facts = append(facts, Fact{
 					Predicate: "search_result",
 					Args: []interface{}{
-						item["file_path"],
-						item["line_number"],
-						item["content"],
+						relPath,
+						lineNum,
+						strings.TrimSpace(line),
 					},
 				})
+				output.WriteString(fmt.Sprintf("%s:%d:%s\n", relPath, lineNum, line))
+				if count >= 100 { // Cap results
+					return filepath.SkipDir
+				}
 			}
 		}
+		return nil
+	})
+
+	if err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
 
-	logging.VirtualStoreDebug("MCP search returned %d results", len(facts))
-	output, _ := json.Marshal(result)
+	logging.VirtualStoreDebug("Local search returned %d results", len(facts))
 	return ActionResult{
 		Success:    true,
-		Output:     string(output),
+		Output:     output.String(),
 		FactsToAdd: facts,
 	}, nil
 }
@@ -832,159 +782,51 @@ func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionReques
 	}, nil
 }
 
-// handleBrowse performs browser automation via BrowserNERD.
+// handleBrowse handles browser automation requests.
+// Browser automation is provided by internal/browser package via TactileRouterShard.
+// VirtualStore provides a routing layer that directs to the appropriate shard.
 func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBrowse")
 	defer timer.Stop()
 
-	browser := v.GetMCPClient("browser")
-
-	if browser == nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Browser MCP client not configured")
-		return ActionResult{Success: false, Error: "browser integration not configured"}, nil
-	}
-
 	operation := req.Target
-	sessionID, _ := req.Payload["session_id"].(string)
-	if sessionID == "" {
-		sessionID = "default"
-	}
+	logging.VirtualStore("Browse request: %s (routing to TactileRouterShard)", operation)
 
-	logging.VirtualStore("MCP call: browser %s, session=%s", operation, sessionID)
-
-	var output string
-	var err error
-	facts := make([]Fact, 0)
-
-	args := map[string]interface{}{
-		"session_id": sessionID,
-	}
-
-	switch operation {
-	case "navigate":
-		url, _ := req.Payload["url"].(string)
-		args["url"] = url
-		_, err = browser.CallTool(ctx, "navigate-url", args)
-		output = fmt.Sprintf("Navigated to %s", url)
-
-	case "snapshot_dom":
-		result, callErr := browser.CallTool(ctx, "snapshot-dom", args)
-		err = callErr
-		if err == nil {
-			if nodes, ok := result.([]interface{}); ok {
-				for _, n := range nodes {
-					if node, ok := n.(map[string]interface{}); ok {
-						facts = append(facts, Fact{
-							Predicate: "dom_node",
-							Args: []interface{}{
-								node["id"],
-								node["tag"],
-								node["parent"],
-							},
-						})
-					}
-				}
-				output = fmt.Sprintf("Captured %d DOM nodes", len(nodes))
-			}
-		}
-
-	case "click":
-		selector, _ := req.Payload["selector"].(string)
-		args["selector"] = selector
-		args["action"] = "click"
-		_, err = browser.CallTool(ctx, "interact", args)
-		output = fmt.Sprintf("Clicked %s", selector)
-
-	case "type":
-		selector, _ := req.Payload["selector"].(string)
-		text, _ := req.Payload["text"].(string)
-		args["selector"] = selector
-		args["action"] = "type"
-		args["value"] = text
-		_, err = browser.CallTool(ctx, "interact", args)
-		output = fmt.Sprintf("Typed into %s", selector)
-
-	default:
-		logging.Get(logging.CategoryVirtualStore).Warn("Unknown browse operation: %s", operation)
-		return ActionResult{Success: false, Error: fmt.Sprintf("unknown browse operation: %s", operation)}, nil
-	}
-
-	if err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Browser %s failed: %v", operation, err)
-		return ActionResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	logging.VirtualStoreDebug("Browser %s completed: %s", operation, output)
+	// Browser automation is handled by TactileRouterShard which has the SessionManager wired.
+	// VirtualStore cannot directly execute browser operations - it must go through the shard system.
+	// This ensures proper session management, sandboxing, and audit trails.
 	return ActionResult{
-		Success:    true,
-		Output:     output,
-		FactsToAdd: facts,
+		Success: false,
+		Output:  "",
+		Error:   "browser operations must be executed via TactileRouterShard - use shard-based browser automation",
+		FactsToAdd: []Fact{
+			{Predicate: "browser_routing", Args: []interface{}{operation, "/requires_shard"}},
+		},
 	}, nil
 }
 
-// handleResearch performs deep research via scraper service.
+// handleResearch handles research requests.
+// Research functionality is provided by ResearcherShard which has proper web research,
+// document ingestion, and knowledge atom extraction capabilities.
+// VirtualStore provides a routing layer that directs to the appropriate shard.
 func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
 	defer timer.Stop()
 
-	scraper := v.GetMCPClient("scraper")
+	query := req.Target
+	logging.VirtualStore("Research request: %s (routing to ResearcherShard)", query)
 
-	if scraper == nil {
-		logging.Get(logging.CategoryVirtualStore).Error("Scraper MCP client not configured")
-		return ActionResult{Success: false, Error: "scraper integration not configured"}, nil
-	}
-
-	args := map[string]interface{}{
-		"query": req.Target,
-	}
-
-	if keywords, ok := req.Payload["keywords"].([]interface{}); ok {
-		args["keywords"] = keywords
-	}
-	if depth, ok := req.Payload["depth"].(int); ok {
-		args["max_depth"] = depth
-	}
-	if maxPages, ok := req.Payload["max_pages"].(int); ok {
-		args["max_pages"] = maxPages
-	}
-
-	logging.VirtualStore("MCP call: scraper deep-research, query=%s", req.Target)
-	result, err := scraper.CallTool(ctx, "deep-research", args)
-	if err != nil {
-		logging.Get(logging.CategoryVirtualStore).Error("MCP scraper deep-research failed: %v", err)
-		return ActionResult{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
-	}
-
-	facts := make([]Fact, 0)
-	if data, ok := result.(map[string]interface{}); ok {
-		if atoms, ok := data["knowledge_atoms"].([]interface{}); ok {
-			for _, atom := range atoms {
-				if a, ok := atom.(map[string]interface{}); ok {
-					facts = append(facts, Fact{
-						Predicate: "knowledge_atom",
-						Args: []interface{}{
-							a["source_url"],
-							a["title"],
-							a["content"],
-						},
-					})
-				}
-			}
-		}
-	}
-
-	logging.VirtualStoreDebug("Research returned %d knowledge atoms", len(facts))
-	output, _ := json.Marshal(result)
+	// Research is handled by ResearcherShard which has proper web research tools,
+	// Context7 integration, and knowledge atom extraction.
+	// VirtualStore cannot directly execute research - it must go through the shard system.
+	// This ensures proper research orchestration, caching, and knowledge persistence.
 	return ActionResult{
-		Success:    true,
-		Output:     string(output),
-		FactsToAdd: facts,
+		Success: false,
+		Output:  "",
+		Error:   "research operations must be executed via ResearcherShard - use shard-based research",
+		FactsToAdd: []Fact{
+			{Predicate: "research_routing", Args: []interface{}{query, "/requires_shard"}},
+		},
 	}, nil
 }
 

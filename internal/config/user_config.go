@@ -553,29 +553,15 @@ func (c *UserConfig) GetWorldConfig() WorldConfig {
 }
 
 // GetIntegrations returns integration settings with defaults.
+// By default, no external MCP servers are configured.
+// Internal capabilities (code analysis, browser automation) use internal packages directly.
 func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 	if c.Integrations != nil {
 		return *c.Integrations
 	}
-	// Return defaults (all enabled on localhost)
+	// Return empty - no default MCP servers. User configures external servers as needed.
 	return IntegrationsConfig{
-		Servers: map[string]MCPServerIntegration{
-			"code_graph": {
-				Enabled: true,
-				BaseURL: "http://localhost:8080",
-				Timeout: "30s",
-			},
-			"browser": {
-				Enabled: true,
-				BaseURL: "http://localhost:8081",
-				Timeout: "60s",
-			},
-			"scraper": {
-				Enabled: true,
-				BaseURL: "http://localhost:8082",
-				Timeout: "120s",
-			},
-		},
+		Servers: make(map[string]MCPServerIntegration),
 	}
 }
 
