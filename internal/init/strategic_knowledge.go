@@ -473,8 +473,9 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 
 		jsonStr := extractJSON(response)
 		if err := json.Unmarshal([]byte(jsonStr), &atoms); err != nil {
-			// Fallback: store the whole chunk as a single atom
-			if err := db.StoreKnowledgeAtom(
+			// Fallback: store the whole chunk as a single atom (with embedding for semantic search)
+			if err := db.StoreKnowledgeAtomWithEmbedding(
+				ctx,
 				fmt.Sprintf("doc/%s", doc.Path),
 				chunk,
 				0.7,
@@ -484,10 +485,10 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 			continue
 		}
 
-		// Store each extracted atom
+		// Store each extracted atom (with embedding for semantic search)
 		for _, atom := range atoms {
 			concept := fmt.Sprintf("doc/%s/%s", doc.Path, atom.Concept)
-			if err := db.StoreKnowledgeAtom(concept, atom.Content, atom.Confidence); err == nil {
+			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, atom.Content, atom.Confidence); err == nil {
 				atomCount++
 			}
 		}
@@ -986,15 +987,16 @@ func (i *Initializer) createFallbackStrategicKnowledge(profile ProjectProfile) *
 }
 
 // PersistStrategicKnowledge saves the knowledge to the main knowledge.db.
+// Uses embedding-enabled storage for semantic search capability.
 func (i *Initializer) PersistStrategicKnowledge(ctx context.Context, knowledge *StrategicKnowledge, db *store.LocalStore) (int, error) {
 	atomCount := 0
 
-	// Helper to store with error handling
+	// Helper to store with embedding for semantic search
 	storeAtom := func(concept, content string, confidence float64) {
 		if content == "" {
 			return
 		}
-		if err := db.StoreKnowledgeAtom(concept, content, confidence); err == nil {
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, content, confidence); err == nil {
 			atomCount++
 		} else {
 			logging.Get(logging.CategoryBoot).Debug("Failed to store atom %s: %v", concept, err)

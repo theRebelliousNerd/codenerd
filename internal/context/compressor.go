@@ -1030,6 +1030,18 @@ func (c *Compressor) GetBudgetUsage() (int, int) {
 	return c.budget.TotalUsed(), c.config.TotalBudget
 }
 
+// RefreshBudget recalculates the token budget based on current state.
+// Call this after LoadState to ensure the budget reflects restored context.
+func (c *Compressor) RefreshBudget() {
+	c.mu.Lock()
+	turnNumber := c.turnNumber
+	c.mu.Unlock()
+
+	// recalcBudget accesses kernel/activation which have their own locks,
+	// so we call it outside our lock to avoid deadlock.
+	c.recalcBudget(turnNumber, 0)
+}
+
 // IsCompressionActive returns true if callers should use compressed context
 // instead of raw conversation history. This is token-budget driven:
 // - Returns false when we have room for raw history (use full context)

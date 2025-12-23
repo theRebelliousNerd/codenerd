@@ -1196,6 +1196,9 @@ func (m *Model) hydrateCompressorForSession(sessionID string) {
 	m.compressor.Reset()
 	m.compressor.SetSessionID(sessionID)
 
+	// Always refresh budget at the end so status bar shows accurate context usage.
+	defer m.compressor.RefreshBudget()
+
 	if m.localDB == nil {
 		return
 	}

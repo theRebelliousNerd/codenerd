@@ -48,6 +48,13 @@ func (m *mockKernel) UpdateSystemFacts() error {
 	return nil
 }
 
+func (m *mockKernel) AppendPolicy(policy string) {
+}
+
+func (m *mockKernel) Reset() {
+	m.assertedFacts = nil
+}
+
 func TestDefaultSemanticConfig(t *testing.T) {
 	cfg := DefaultSemanticConfig()
 

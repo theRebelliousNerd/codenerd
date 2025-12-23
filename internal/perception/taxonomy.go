@@ -327,7 +327,33 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	} else {
 		// Re-add defaults
 		// Note: We must re-load the schema (declarations) AND the facts.
+		
+		// 1. Reload Intent Schemas (Modular)
+		// These contain critical facts like interrogative_type, modal_type, etc.
+		intentFiles := []string{
+			"schema/intent_core.mg",
+			"schema/intent_qualifiers.mg",
+			"schema/intent_queries.mg",
+			"schema/intent_mutations.mg",
+			"schema/intent_instructions.mg",
+			"schema/intent_campaign.mg",
+			"schema/intent_system.mg",
+		}
+		for _, file := range intentFiles {
+			content, err := core.GetDefaultContent(file)
+			if err == nil {
+				if err := t.engine.LoadSchemaString(content); err != nil {
+					fmt.Printf("DEBUG: Failed to reload schema %s: %v\n", file, err)
+				}
+			} else {
+				fmt.Printf("DEBUG: Failed to get content for %s: %v\n", file, err)
+			}
+		}
+
+		// 2. Reload Inference Logic
 		t.engine.LoadSchemaString(InferenceLogicMG)
+		
+		// 3. Reload Default Taxonomy Data
 		for _, entry := range DefaultTaxonomyData {
 			t.engine.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority)
 			for _, syn := range entry.Synonyms {

@@ -320,6 +320,12 @@ type Model struct {
 	lastShardResult    *ShardResult
 	shardResultHistory []*ShardResult
 
+	// Knowledge Discovery State (LLM-first knowledge gathering)
+	// Populated when the LLM emits knowledge_requests in control_packet
+	pendingKnowledge  []KnowledgeResult // Results from specialist consultations
+	knowledgeHistory  []KnowledgeResult // Historical knowledge for session
+	awaitingKnowledge bool              // True while gathering knowledge
+
 	// Unified Input Mode (replaces scattered awaiting* flags)
 	// Use this for new code; legacy flags preserved for compatibility during migration
 	inputMode InputMode
@@ -344,6 +350,17 @@ type ShardResult struct {
 	Findings   []map[string]any // Structured findings (for reviewer)
 	Metrics    map[string]any   // Metrics (for reviewer)
 	ExtraData  map[string]any   // Any additional structured data
+}
+
+// KnowledgeResult holds the output from a specialist consultation or research request.
+// This is populated when the LLM emits knowledge_requests in the control_packet.
+type KnowledgeResult struct {
+	Specialist string    // Which specialist/shard was consulted
+	Query      string    // The original query/question
+	Purpose    string    // Why this knowledge was needed
+	Response   string    // The specialist's response
+	Timestamp  time.Time // When the knowledge was gathered
+	Error      error     // Any error that occurred (nil if successful)
 }
 
 // Message represents a single message in the chat history
@@ -558,5 +575,13 @@ type (
 	onboardingCheckMsg struct {
 		IsFirstRun bool
 		Workspace  string
+	}
+
+	// knowledgeGatheredMsg signals that specialist consultations are complete.
+	// This triggers re-processing of the original input with enriched context.
+	knowledgeGatheredMsg struct {
+		Results         []KnowledgeResult // Results from all consulted specialists
+		OriginalInput   string            // The user input that triggered knowledge gathering
+		InterimResponse string            // The initial LLM response (may include "let me look that up")
 	}
 )

@@ -177,6 +177,15 @@ type CompilationContext struct {
 	// ActivationThreshold is the minimum score for a fact to be considered "hot".
 	// Default: 0.5
 	ActivationThreshold float64
+
+	// =========================================================================
+	// Dynamic Capability Injection
+	// =========================================================================
+
+	// AvailableSpecialists is a formatted list of domain specialists available
+	// for knowledge consultation. Populated at runtime from .nerd/agents.json.
+	// Used by the capability/knowledge_discovery atom template.
+	AvailableSpecialists string
 }
 
 // NewCompilationContext creates a new CompilationContext with defaults.

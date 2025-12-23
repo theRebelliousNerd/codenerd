@@ -654,6 +654,14 @@ You MUST output a JSON object with this exact structure. No exceptions.
       "triggered": false,
       "hypothesis": "..."
     },
+    "knowledge_requests": [
+      {
+        "specialist": "agent_name|researcher|_any_specialist",
+        "query": "specific question for the specialist",
+        "purpose": "why this knowledge is needed",
+        "priority": "required|optional"
+      }
+    ],
     "reasoning_trace": "Step-by-step reasoning..."
   },
   "surface_response": "Human-readable response to the user"
@@ -676,6 +684,17 @@ Examples:
 - task_status(/current_task, /complete).
 - file_modified("internal/foo.go", /write).
 - shard_executed(/coder, "fix bug", /success).
+
+## KNOWLEDGE REQUESTS (Optional)
+
+Use knowledge_requests when you need information you don't have:
+- specialist: Name of an agent to consult, "researcher" for web search, or "_any_specialist"
+- query: The specific question to answer
+- purpose: Why this knowledge is needed (helps with context handoff)
+- priority: "required" (blocking) or "optional" (best-effort)
+
+NEVER say "I don't have that information" - request knowledge instead!
+The system will gather knowledge and re-invoke you with the results.
 `
 
 // =============================================================================

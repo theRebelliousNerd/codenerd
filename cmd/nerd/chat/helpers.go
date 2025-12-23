@@ -57,13 +57,14 @@ func payloadForArticulation(intent perception.Intent, mangleUpdates []string) ar
 // ArticulationOutput contains the full output from the articulation layer.
 // This is used to pass control data back to the compressor.
 type ArticulationOutput struct {
-	Surface          string
-	Envelope         articulation.PiggybackEnvelope
-	MemoryOperations []articulation.MemoryOperation
-	MangleUpdates    []string
-	SelfCorrection   *articulation.SelfCorrection
-	ParseMethod      string
-	Warnings         []string
+	Surface           string
+	Envelope          articulation.PiggybackEnvelope
+	MemoryOperations  []articulation.MemoryOperation
+	MangleUpdates     []string
+	SelfCorrection    *articulation.SelfCorrection
+	KnowledgeRequests []articulation.KnowledgeRequest // LLM-initiated knowledge gathering
+	ParseMethod       string
+	Warnings          []string
 }
 
 // articulateWithContext performs the articulation phase and returns the surface response.
@@ -247,11 +248,12 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 
 	// Build output
 	output := &ArticulationOutput{
-		Surface:          result.Surface,
-		MemoryOperations: result.Control.MemoryOperations,
-		MangleUpdates:    result.Control.MangleUpdates,
-		ParseMethod:      result.ParseMethod,
-		Warnings:         result.Warnings,
+		Surface:           result.Surface,
+		MemoryOperations:  result.Control.MemoryOperations,
+		MangleUpdates:     result.Control.MangleUpdates,
+		KnowledgeRequests: result.Control.KnowledgeRequests,
+		ParseMethod:       result.ParseMethod,
+		Warnings:          result.Warnings,
 	}
 
 	// Check for self-correction

@@ -1,7 +1,7 @@
 {
   "provider": "zai",
   "zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
-  "model": "glm-4.6",
+  "model": "glm-4.7",
   "engine": "zai",
   "codex_cli": {
     "model": "gpt-5.1-codex-mini",
@@ -32,7 +32,7 @@
   },
   "shard_profiles": {
     "coder": {
-      "model": "glm-4.6",
+      "model": "glm-4.7",
       "temperature": 0.7,
       "top_p": 0.9,
       "max_context_tokens": 160000,
@@ -43,7 +43,7 @@
       "enable_learning": true
     },
     "researcher": {
-      "model": "glm-4.6",
+      "model": "glm-4.7",
       "temperature": 0.6,
       "top_p": 0.95,
       "max_context_tokens": 160000,
@@ -54,7 +54,7 @@
       "enable_learning": true
     },
     "reviewer": {
-      "model": "glm-4.6",
+      "model": "glm-4.7",
       "temperature": 0.3,
       "top_p": 0.9,
       "max_context_tokens": 160000,
@@ -65,7 +65,7 @@
       "enable_learning": false
     },
     "tester": {
-      "model": "glm-4.6",
+      "model": "glm-4.7",
       "temperature": 0.5,
       "top_p": 0.9,
       "max_context_tokens": 160000,
@@ -77,7 +77,7 @@
     }
   },
   "default_shard": {
-    "model": "glm-4.6",
+    "model": "glm-4.7",
     "temperature": 0.7,
     "top_p": 0.9,
     "max_context_tokens": 160000,

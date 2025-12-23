@@ -3,12 +3,16 @@ package prompt
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 )
 
 // Fact represents a logic fact (predicate + args).
@@ -241,6 +245,9 @@ type JITPromptCompiler struct {
 
 	// Configuration
 	config CompilerConfig
+
+	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
+	localDB *store.LocalStore
 }
 
 // CompilerConfig holds configuration for the JIT compiler.
@@ -1038,6 +1045,15 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	c.config = config
 }
 
+// SetLocalDB sets the LocalStore for semantic knowledge atom queries.
+// This enables the Semantic Knowledge Bridge, allowing JIT to query
+// knowledge atoms with embeddings for context-aware prompt assembly.
+func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.localDB = db
+}
+
 // Stats returns compilation statistics.
 type CompilerStats struct {
 	EmbeddedAtomCount int
@@ -1097,11 +1113,76 @@ func (c *JITPromptCompiler) Close() error {
 	return nil
 }
 
+// InjectAvailableSpecialists populates the context with discovered specialists.
+// This enables the LLM to know what domain experts are available for consultation.
+// Reads from .nerd/agents.json and formats as a markdown list for template injection.
+func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
+	if ctx == nil || workspace == "" {
+		return nil
+	}
+
+	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
+	data, err := os.ReadFile(registryPath)
+	if err != nil {
+		// Graceful degradation - no specialists available
+		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		return nil
+	}
+
+	// Parse the agent registry
+	var registry struct {
+		Agents []struct {
+			Name        string `json:"name"`
+			Type        string `json:"type"`
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			Topics      string `json:"topics"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &registry); err != nil {
+		logging.Get(logging.CategoryJIT).Warn("Failed to parse agents.json: %v", err)
+		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		return nil
+	}
+
+	// Build specialist descriptions
+	var specialists []string
+	for _, agent := range registry.Agents {
+		if agent.Status != "ready" {
+			continue
+		}
+		desc := agent.Description
+		if desc == "" && agent.Topics != "" {
+			desc = fmt.Sprintf("%s specialist (%s)", agent.Type, agent.Topics)
+		} else if desc == "" {
+			desc = fmt.Sprintf("%s domain specialist", agent.Type)
+		}
+		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", agent.Name, desc))
+	}
+
+	// Add core shards as implicit specialists
+	coreShards := []string{
+		"- **researcher**: Deep web research and documentation gathering (Context7, GitHub, web search)",
+		"- **reviewer**: Code review, hypothesis verification, and security analysis",
+		"- **codebase**: Search within project files for patterns and implementations",
+	}
+	specialists = append(specialists, coreShards...)
+
+	if len(specialists) == 0 {
+		ctx.AvailableSpecialists = "No specialists available. Use **researcher** for general knowledge gathering."
+	} else {
+		ctx.AvailableSpecialists = strings.Join(specialists, "\n")
+	}
+
+	logging.Get(logging.CategoryJIT).Debug("Injected %d available specialists into context", len(specialists))
+	return nil
+}
+
 // toInterfaceSlice converts a string slice to an interface slice.
 // Used to pass context facts to the kernel's AssertBatch method.
-func toInterfaceSlice(strings []string) []interface{} {
-	result := make([]interface{}, len(strings))
-	for i, s := range strings {
+func toInterfaceSlice(strs []string) []interface{} {
+	result := make([]interface{}, len(strs))
+	for i, s := range strs {
 		result[i] = s
 	}
 	return result

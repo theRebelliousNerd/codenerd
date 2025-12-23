@@ -1217,6 +1217,48 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		return m, nil
+
+	case knowledgeGatheredMsg:
+		// Knowledge gathering from specialists is complete.
+		// Store results and re-process with enriched context.
+		m.awaitingKnowledge = false
+
+		// Store gathered knowledge for this turn and for history
+		m.pendingKnowledge = msg.Results
+		m.knowledgeHistory = append(m.knowledgeHistory, msg.Results...)
+
+		// Persist knowledge to SQLite for future retrieval
+		m.persistKnowledgeResults(msg.Results)
+
+		// Log knowledge gathering summary
+		var successCount, failCount int
+		for _, kr := range msg.Results {
+			if kr.Error != nil {
+				failCount++
+			} else {
+				successCount++
+			}
+		}
+		logging.Get(logging.CategoryContext).Info(
+			"Knowledge gathering complete: %d succeeded, %d failed",
+			successCount, failCount,
+		)
+
+		// Show interim response to user if provided
+		if msg.InterimResponse != "" {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: msg.InterimResponse,
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+		}
+
+		// Re-process the original input with knowledge context
+		// The knowledge is now available via m.pendingKnowledge which
+		// will be injected into SessionContext by buildSessionContext()
+		return m, m.processInputWithKnowledge(msg.OriginalInput)
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)

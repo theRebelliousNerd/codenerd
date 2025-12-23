@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -294,6 +295,115 @@ func (s *LocalStore) GetKnowledgeAtomsByPrefix(conceptPrefix string) ([]Knowledg
 
 	logging.StoreDebug("Retrieved %d knowledge atoms for prefix=%s", len(atoms), conceptPrefix)
 	return atoms, nil
+}
+
+// =============================================================================
+// SEMANTIC KNOWLEDGE BRIDGE
+// =============================================================================
+// These methods enable semantic search over knowledge atoms by dual-storing
+// them in both the knowledge_atoms table (for prefix queries) and the vectors
+// table (for embedding-based semantic search).
+
+// StoreKnowledgeAtomWithEmbedding stores a knowledge atom to BOTH the knowledge_atoms
+// table AND the vectors table with embeddings for semantic search.
+// This enables knowledge atoms to be:
+// 1. Queried by exact concept prefix (via GetKnowledgeAtomsByPrefix)
+// 2. Semantically searched (via SearchKnowledgeAtomsSemantic)
+func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concept, content string, confidence float64) error {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreKnowledgeAtomWithEmbedding")
+	defer timer.Stop()
+
+	// 1. Store to knowledge_atoms table (existing behavior)
+	if err := s.StoreKnowledgeAtom(concept, content, confidence); err != nil {
+		return err
+	}
+
+	// 2. Also store to vectors table with embedding for semantic search
+	// This makes knowledge atoms discoverable via VectorRecallSemanticFiltered
+	if s.embeddingEngine != nil {
+		metadata := map[string]interface{}{
+			"content_type": "knowledge_atom",
+			"concept":      concept,
+			"confidence":   confidence,
+		}
+		if err := s.StoreVectorWithEmbedding(ctx, content, metadata); err != nil {
+			// Log but don't fail - the knowledge atom is still stored
+			logging.Get(logging.CategoryStore).Warn(
+				"Failed to store embedding for knowledge atom %s: %v (atom still stored)",
+				concept, err)
+		} else {
+			logging.StoreDebug("Knowledge atom stored with embedding: concept=%s", concept)
+		}
+	} else {
+		logging.StoreDebug("Knowledge atom stored without embedding (no engine): concept=%s", concept)
+	}
+
+	return nil
+}
+
+// SearchKnowledgeAtomsSemantic performs semantic search over knowledge atoms.
+// It uses the embedding engine to find atoms whose content is semantically
+// similar to the query, regardless of exact keyword matches.
+// Returns atoms sorted by semantic similarity (highest first).
+func (s *LocalStore) SearchKnowledgeAtomsSemantic(ctx context.Context, query string, limit int) ([]KnowledgeAtom, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "SearchKnowledgeAtomsSemantic")
+	defer timer.Stop()
+
+	if s.embeddingEngine == nil {
+		logging.StoreDebug("Semantic search unavailable: no embedding engine")
+		return nil, nil
+	}
+
+	// Use VectorRecallSemanticFiltered to find knowledge atoms by content_type
+	entries, err := s.VectorRecallSemanticFiltered(ctx, query, limit, "content_type", "knowledge_atom")
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Semantic search failed: %v", err)
+		return nil, err
+	}
+
+	if len(entries) == 0 {
+		logging.StoreDebug("Semantic search returned 0 results for query: %s", truncateForLog(query, 50))
+		return nil, nil
+	}
+
+	// Convert VectorEntry → KnowledgeAtom using concept from metadata
+	var atoms []KnowledgeAtom
+	for _, entry := range entries {
+		atom := KnowledgeAtom{
+			Content: entry.Content,
+		}
+
+		// Extract concept from metadata if available
+		if concept, ok := entry.Metadata["concept"].(string); ok {
+			atom.Concept = concept
+		}
+
+		// Extract confidence from metadata if available
+		if conf, ok := entry.Metadata["confidence"].(float64); ok {
+			atom.Confidence = conf
+		} else {
+			atom.Confidence = 0.8 // Default confidence for semantic results
+		}
+
+		// Include similarity score in confidence (blend 70% original, 30% similarity)
+		if similarity, ok := entry.Metadata["similarity"].(float64); ok {
+			atom.Confidence = atom.Confidence*0.7 + similarity*0.3
+		}
+
+		atoms = append(atoms, atom)
+	}
+
+	logging.StoreDebug("Semantic search returned %d knowledge atoms for query: %s",
+		len(atoms), truncateForLog(query, 50))
+	return atoms, nil
+}
+
+// truncateForLog truncates a string for logging purposes.
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // StoreAtom stores a knowledge atom in the database.
