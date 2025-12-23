@@ -163,13 +163,34 @@ var AgentPatternMapping = map[string]string{
 // VERB-AWARE SPECIALIST MATCHING
 // =============================================================================
 
+// ExecutionMode defines how specialists participate in task execution
+type ExecutionMode int
+
+const (
+	// ModeParallel - All shards execute the same task in parallel (e.g., /review)
+	// Good for: reviews, analysis, security scans where multiple perspectives help
+	ModeParallel ExecutionMode = iota
+
+	// ModeAdvisory - Specialists advise, then generic shard executes (e.g., /fix)
+	// Phase 1: Specialists provide domain-specific advice
+	// Phase 2: Generic shard executes with advice as context
+	ModeAdvisory
+
+	// ModeAdvisoryWithCritique - Full three-phase pattern for mutations
+	// Phase 1: Specialists provide advice BEFORE execution
+	// Phase 2: Generic shard executes the task
+	// Phase 3: Specialists critique the result AFTER execution
+	ModeAdvisoryWithCritique
+)
+
 // VerbSpecialistConfig defines which specialists are relevant for each verb
 type VerbSpecialistConfig struct {
-	MinConfidence     float64  // Minimum score to include a specialist
-	PreferPatterns    []string // Prefer these technology patterns for this verb
-	ExcludePatterns   []string // Exclude these patterns for this verb
-	MaxSpecialists    int      // Maximum number of specialists to match
-	IncludeGeneric    bool     // Whether to include the generic shard too
+	MinConfidence     float64       // Minimum score to include a specialist
+	PreferPatterns    []string      // Prefer these technology patterns for this verb
+	ExcludePatterns   []string      // Exclude these patterns for this verb
+	MaxSpecialists    int           // Maximum number of specialists to match
+	IncludeGeneric    bool          // Whether to include the generic shard too
+	Mode              ExecutionMode // How specialists participate (parallel, advisory, etc.)
 }
 
 // DefaultVerbConfigs defines specialist matching behavior per verb
@@ -178,43 +199,59 @@ var DefaultVerbConfigs = map[string]VerbSpecialistConfig{
 		MinConfidence:  0.3,
 		MaxSpecialists: 3,
 		IncludeGeneric: true,
+		Mode:           ModeParallel, // Multiple reviewers in parallel
 	},
 	"/fix": {
-		MinConfidence:     0.4, // Higher threshold - we want confident matches
-		MaxSpecialists:    2,
-		IncludeGeneric:    true,
-		PreferPatterns:    []string{"golang", "react", "sql", "security"},
-		ExcludePatterns:   []string{"testing"}, // Tester handles test fixes
+		MinConfidence:   0.4,
+		MaxSpecialists:  2,
+		IncludeGeneric:  true,
+		PreferPatterns:  []string{"golang", "react", "sql", "security"},
+		ExcludePatterns: []string{"testing"},
+		Mode:            ModeAdvisoryWithCritique, // Advise → Fix → Critique
 	},
 	"/refactor": {
 		MinConfidence:  0.35,
 		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"golang", "react", "concurrency", "api"},
+		Mode:           ModeAdvisoryWithCritique, // Advise → Refactor → Critique
 	},
 	"/create": {
 		MinConfidence:  0.35,
 		MaxSpecialists: 2,
 		IncludeGeneric: true,
+		Mode:           ModeAdvisory, // Advise → Create (no critique needed for new code)
 	},
 	"/test": {
 		MinConfidence:  0.4,
 		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"testing", "golang", "react"},
+		Mode:           ModeParallel, // Multiple test perspectives help
 	},
 	"/debug": {
 		MinConfidence:  0.4,
 		MaxSpecialists: 2,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"concurrency", "security", "api"},
+		Mode:           ModeAdvisory, // Get advice, then debug
 	},
 	"/security": {
 		MinConfidence:  0.3,
 		MaxSpecialists: 3,
 		IncludeGeneric: true,
 		PreferPatterns: []string{"security", "api", "sql"},
+		Mode:           ModeParallel, // Multiple security reviewers
 	},
+}
+
+// GetExecutionMode returns the execution mode for a verb
+func GetExecutionMode(verb string) ExecutionMode {
+	config, ok := DefaultVerbConfigs[verb]
+	if !ok {
+		return ModeParallel // Default to parallel
+	}
+	return config.Mode
 }
 
 // MatchSpecialistsForTask matches registered specialists to files for any verb.
