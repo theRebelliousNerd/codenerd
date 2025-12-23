@@ -176,6 +176,35 @@ func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
 	}
 
 	// ==========================================================================
+	// RECENT TOOL EXECUTIONS (for LLM context awareness)
+	// ==========================================================================
+	if m.toolStore != nil {
+		if recent, err := m.toolStore.GetRecent(5); err == nil {
+			for _, exec := range recent {
+				// Truncate result for context budget
+				summary := exec.Result
+				if len(summary) > 500 {
+					summary = summary[:500] + "..."
+				}
+				if exec.Error != "" {
+					summary = exec.Error
+				}
+				sessionCtx.RecentToolExecutions = append(sessionCtx.RecentToolExecutions, types.ToolExecutionSummary{
+					CallID:     exec.CallID,
+					ToolName:   exec.ToolName,
+					Action:     exec.Action,
+					Success:    exec.Success,
+					ResultSize: exec.ResultSize,
+					DurationMs: exec.DurationMs,
+					Summary:    summary,
+				})
+				// Increment reference count since we're including in LLM context
+				_ = m.toolStore.IncrementReference(exec.CallID)
+			}
+		}
+	}
+
+	// ==========================================================================
 	// CONSTITUTIONAL CONSTRAINTS
 	// ==========================================================================
 	if m.kernel != nil {

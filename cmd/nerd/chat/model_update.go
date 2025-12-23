@@ -1167,6 +1167,9 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			// Initialize Tool Event bus for always-visible tool execution
 			m.initToolEventBus(c.ToolEventBus)
 
+			// Wire Tool Store for tool execution persistence
+			m.toolStore = c.ToolStore
+
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)

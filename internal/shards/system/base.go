@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
@@ -276,6 +277,7 @@ type BaseSystemShard struct {
 	VirtualStore  *core.VirtualStore
 	GlassBox      *transparency.GlassBoxEventBus // For Glass Box visibility events
 	ToolEventBus  *transparency.ToolEventBus     // For always-visible tool execution events
+	ToolStore     *store.ToolStore               // For persisting full tool execution results
 
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
@@ -429,6 +431,16 @@ func (b *BaseSystemShard) SetToolEventBus(bus *transparency.ToolEventBus) {
 	b.ToolEventBus = bus
 	if bus != nil {
 		logging.SystemShardsDebug("[%s] ToolEventBus attached", b.ID)
+	}
+}
+
+// SetToolStore sets the tool store for persisting full tool execution results.
+func (b *BaseSystemShard) SetToolStore(ts *store.ToolStore) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolStore = ts
+	if ts != nil {
+		logging.SystemShardsDebug("[%s] ToolStore attached", b.ID)
 	}
 }
 

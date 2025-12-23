@@ -303,6 +303,9 @@ type Model struct {
 	toolEventBus  *transparency.ToolEventBus   // Tool event collection
 	toolEventChan <-chan transparency.ToolEvent // Tool event subscription channel
 
+	// Tool Execution Persistence - Stores full tool results in SQLite
+	toolStore *store.ToolStore // For querying past executions and cleanup
+
 	// Boot State
 	isBooting bool
 	bootStage BootStage
@@ -442,6 +445,7 @@ type SystemComponents struct {
 	Retriever             *retrieval.SparseRetriever
 	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
 	ToolEventBus          *transparency.ToolEventBus     // Always-visible tool execution event bus
+	ToolStore             *store.ToolStore               // Tool execution persistence store
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.
