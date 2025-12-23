@@ -8,6 +8,13 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
+)
+
+// Type aliases for startup modes
+const (
+	StartupAuto     = types.StartupAuto
+	StartupOnDemand = types.StartupOnDemand
 )
 
 // =============================================================================
@@ -407,14 +414,14 @@ func (sm *ShardManager) ToFacts() []Fact {
 // SYSTEM SHARD MANAGEMENT
 // =============================================================================
 
-// StartSystemShards starts all registered system shards (Type S).
+// StartSystemShards starts all registered system shards (Type S) with StartupMode == Auto.
 // Uses the spawn queue with PriorityCritical to queue shards when limits are reached
 // instead of failing immediately.
 func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	timer := logging.StartTimer(logging.CategoryShards, "StartSystemShards")
 	defer timer.Stop()
 
-	// Collect system shards to start
+	// Collect system shards to start (only those with StartupMode == Auto)
 	toStart := make([]string, 0)
 
 	sm.mu.RLock()
@@ -425,13 +432,18 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 				logging.ShardsDebug("StartSystemShards: skipping disabled shard %s", name)
 				continue
 			}
+			// Only start shards with StartupMode == Auto (skip on-demand shards)
+			if config.StartupMode != StartupAuto {
+				logging.ShardsDebug("StartSystemShards: skipping on-demand shard %s", name)
+				continue
+			}
 			toStart = append(toStart, name)
 		}
 	}
 	sq := sm.spawnQueue
 	sm.mu.RUnlock()
 
-	logging.Shards("StartSystemShards: starting %d system shards", len(toStart))
+	logging.Shards("StartSystemShards: starting %d auto-start system shards", len(toStart))
 
 	// If spawn queue is available, use it for queuing instead of failing
 	if sq != nil && sq.IsRunning() {

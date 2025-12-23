@@ -543,8 +543,9 @@ func RegisterSystemShardProfiles(sm *core.ShardManager) {
 func defineSystemShardProfiles(sm *core.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
 	sm.DefineProfile("perception_firewall", types.ShardConfig{
-		Name: "perception_firewall",
-		Type: types.ShardTypeSystem,
+		Name:        "perception_firewall",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupAuto,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 			types.PermissionAskUser,
@@ -558,8 +559,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// World Model Ingestor - ON-DEMAND, Hybrid
 	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
-		Name: "world_model_ingestor",
-		Type: types.ShardTypeSystem,
+		Name:        "world_model_ingestor",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupOnDemand,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 			types.PermissionExecCmd,
@@ -574,8 +576,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Executive Policy - AUTO-START, Pure logic (no LLM by default)
 	sm.DefineProfile("executive_policy", types.ShardConfig{
-		Name: "executive_policy",
-		Type: types.ShardTypeSystem,
+		Name:        "executive_policy",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupAuto,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 			types.PermissionCodeGraph,
@@ -588,8 +591,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Constitution Gate - AUTO-START, Pure logic (SAFETY-CRITICAL)
 	sm.DefineProfile("constitution_gate", types.ShardConfig{
-		Name: "constitution_gate",
-		Type: types.ShardTypeSystem,
+		Name:        "constitution_gate",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupAuto,
 		Permissions: []types.ShardPermission{
 			types.PermissionAskUser, // Only for escalation
 		},
@@ -600,8 +604,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Mangle Repair - AUTO-START, learned rule validation/repair
 	sm.DefineProfile("mangle_repair", types.ShardConfig{
-		Name: "mangle_repair",
-		Type: types.ShardTypeSystem,
+		Name:        "mangle_repair",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupAuto,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 		},
@@ -614,8 +619,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Tactile Router - ON-DEMAND, Pure logic
 	sm.DefineProfile("tactile_router", types.ShardConfig{
-		Name: "tactile_router",
-		Type: types.ShardTypeSystem,
+		Name:        "tactile_router",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupOnDemand,
 		Permissions: []types.ShardPermission{
 			types.PermissionExecCmd,
 			types.PermissionNetwork,
@@ -628,8 +634,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Session Planner - ON-DEMAND, LLM for goal decomposition
 	sm.DefineProfile("session_planner", types.ShardConfig{
-		Name: "session_planner",
-		Type: types.ShardTypeSystem,
+		Name:        "session_planner",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupOnDemand,
 		Permissions: []types.ShardPermission{
 			types.PermissionAskUser,
 			types.PermissionReadFile,
@@ -641,10 +648,12 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 		},
 	})
 
-	// Campaign Runner - AUTO-START, supervisor (uses orchestrator + shards)
+	// Campaign Runner - ON-DEMAND, supervisor (uses orchestrator + shards)
+	// NOTE: Changed to ON-DEMAND to prevent automatic campaign execution on boot
 	sm.DefineProfile("campaign_runner", types.ShardConfig{
-		Name: "campaign_runner",
-		Type: types.ShardTypeSystem,
+		Name:        "campaign_runner",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupOnDemand,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 			types.PermissionWriteFile,
@@ -659,8 +668,9 @@ func defineSystemShardProfiles(sm *core.ShardManager) {
 
 	// Legislator - ON-DEMAND, Logic-primary for learned constraints
 	sm.DefineProfile("legislator", types.ShardConfig{
-		Name: "legislator",
-		Type: types.ShardTypeSystem,
+		Name:        "legislator",
+		Type:        types.ShardTypeSystem,
+		StartupMode: types.StartupOnDemand,
 		Permissions: []types.ShardPermission{
 			types.PermissionReadFile,
 			types.PermissionCodeGraph,
