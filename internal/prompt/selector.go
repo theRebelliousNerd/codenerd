@@ -407,6 +407,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 }
 
 // getVectorScores retrieves semantic similarity scores for atoms.
+// Uses a 10-second sub-timeout to prevent blocking JIT compilation.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,
@@ -416,8 +417,16 @@ func (s *AtomSelector) getVectorScores(
 		return nil, nil
 	}
 
-	results, err := s.vectorSearcher.Search(ctx, query, topK)
+	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
+	// If embedding/search takes too long, we skip vector scoring rather than failing.
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	results, err := s.vectorSearcher.Search(searchCtx, query, topK)
 	if err != nil {
+		if searchCtx.Err() != nil {
+			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (10s limit)")
+		}
 		return nil, err
 	}
 
