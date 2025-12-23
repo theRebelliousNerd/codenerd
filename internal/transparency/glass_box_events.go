@@ -17,6 +17,7 @@ const (
 	CategoryJIT        GlassBoxCategory = "jit"        // Prompt atom selection, compilation
 	CategoryShard      GlassBoxCategory = "shard"      // Shard spawn, phase transitions
 	CategoryControl    GlassBoxCategory = "control"    // Control packets from LLM responses
+	CategoryRouting    GlassBoxCategory = "routing"    // Tool routing and execution
 )
 
 // String returns the display name for the category.

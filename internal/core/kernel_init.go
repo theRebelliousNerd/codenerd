@@ -303,8 +303,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		"selection_policy.mg",
 		"taxonomy.mg",
 		"inference.mg",
-		"jit_config.mg", // System 2 JIT Configuration
-		"jit_logic.mg",  // System 2 JIT Logic
+		"jit_compiler.mg", // JIT Prompt Compiler logic (context matching, selection)
 	}
 
 	loadedModules := 0

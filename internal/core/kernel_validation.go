@@ -188,7 +188,7 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 		return ""
 	}
 
-	// Only check next_action rules
+	// Only check next_action rules (the main source of runaway loops)
 	if !strings.Contains(rule, "next_action(") {
 		return ""
 	}
@@ -204,26 +204,89 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 		}
 	}
 
-	// Check 2: next_action depending on always-true system predicates
+	// Check 2: next_action depending on always-true or ubiquitous predicates
 	if len(parts) == 2 {
 		body := strings.TrimSpace(parts[1])
+		bodyLower := strings.ToLower(body)
 
-		// Predicates that are always true at system startup
-		alwaysTruePredicates := []string{
-			"system_startup(", "system_shard_state(", "entry_point(",
-			"current_phase(", "build_system(",
+		// === UBIQUITOUS PREDICATES ===
+		// These predicates are always present or nearly always true
+		ubiquitousPredicates := []string{
+			"current_time(",     // Always has a value - DANGEROUS!
+			"current_time(_)",   // Wildcard match on time - always fires
+			"entry_point(",      // Set at startup
+			"current_phase(",    // Always has a phase
+			"build_system(",     // System state always present
+			"system_startup(",   // Present after startup
+			"northstar_defined", // If northstar is set, always true
 		}
 
-		for _, pred := range alwaysTruePredicates {
+		for _, pred := range ubiquitousPredicates {
 			if strings.Contains(body, pred) {
-				// Check for wildcards which make it always-true
-				if strings.Contains(body, "_,_)") || strings.Contains(body, "(_,") || strings.Contains(body, ",_)") {
-					// Count predicates - if only 1-2, it's likely always-true
+				// Single-predicate body with ubiquitous fact = infinite loop
+				predCount := strings.Count(body, "(")
+				if predCount <= 1 {
+					return fmt.Sprintf("infinite loop risk: next_action depends solely on ubiquitous predicate '%s'", strings.TrimSuffix(pred, "("))
+				}
+			}
+		}
+
+		// === IDLE STATE PREDICATES ===
+		// Rules that fire when system is idle cause continuous loops
+		idleStatePatterns := []string{
+			"coder_state(/idle)",
+			"current_task(/idle)",
+			"_state(/idle)",
+			"_status(/idle)",
+			"/idle)",
+		}
+
+		for _, pattern := range idleStatePatterns {
+			if strings.Contains(bodyLower, strings.ToLower(pattern)) {
+				predCount := strings.Count(body, "(")
+				if predCount <= 2 {
+					return fmt.Sprintf("infinite loop risk: next_action fires on idle state '%s' - will loop when system is idle", pattern)
+				}
+			}
+		}
+
+		// === WILDCARD SESSION/SYSTEM STATE ===
+		// Rules with wildcards on session_state, session_planner_status etc.
+		wildcardStatePatterns := []struct {
+			pred    string
+			minArgs int // minimum args to be considered dangerous with wildcards
+		}{
+			{"session_state(", 2},
+			{"session_planner_status(", 3},
+			{"system_shard_state(", 2},
+			{"dream_state(", 1},
+		}
+
+		for _, wp := range wildcardStatePatterns {
+			if strings.Contains(body, wp.pred) {
+				// Count wildcards in this predicate
+				wildcardCount := strings.Count(body, "_,") + strings.Count(body, ",_)") + strings.Count(body, "(_")
+				if wildcardCount >= wp.minArgs {
 					predCount := strings.Count(body, "(")
 					if predCount <= 2 {
-						return fmt.Sprintf("infinite loop risk: next_action depends on always-true predicate %s with wildcards", strings.TrimSuffix(pred, "("))
+						return fmt.Sprintf("infinite loop risk: next_action depends on '%s' with %d+ wildcards - too broad, will match too often", strings.TrimSuffix(wp.pred, "("), wildcardCount)
 					}
 				}
+			}
+		}
+
+		// === NEGATION-ONLY CONDITIONS ===
+		// Rules that fire when something is NOT true (negation as sole/main condition)
+		if strings.HasPrefix(body, "!") || strings.Contains(body, ", !") {
+			positivePredicates := 0
+			for _, part := range strings.Split(body, ",") {
+				part = strings.TrimSpace(part)
+				if part != "" && !strings.HasPrefix(part, "!") && strings.Contains(part, "(") {
+					positivePredicates++
+				}
+			}
+			if positivePredicates == 0 {
+				return "infinite loop risk: next_action depends solely on negation - fires when condition is absent"
 			}
 		}
 	}

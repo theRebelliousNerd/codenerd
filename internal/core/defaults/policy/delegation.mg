@@ -101,16 +101,20 @@ action_mapping(/tool_status, /delegate_tool_generator).
 action_mapping(/diff, /show_diff).
 
 # Derive next_action from intent and mapping
+# Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
 next_action(Action) :-
     user_intent(/current_intent, _, Verb, _, _),
-    action_mapping(Verb, Action).
+    action_mapping(Verb, Action),
+    !executive_processed_intent(/current_intent).
 
-# Specific file system actions
+# Specific file system actions (with same guard)
 next_action(/fs_read) :-
-    user_intent(/current_intent, _, /read, _, _).
+    user_intent(/current_intent, _, /read, _, _),
+    !executive_processed_intent(/current_intent).
 
 next_action(/fs_write) :-
-    user_intent(/current_intent, _, /write, _, _).
+    user_intent(/current_intent, _, /write, _, _),
+    !executive_processed_intent(/current_intent).
 
 # Review delegation - high confidence triggers immediate delegation
 delegate_task(/reviewer, Target, /pending) :-

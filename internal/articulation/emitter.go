@@ -149,6 +149,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		Warnings:    []string{},
 	}
 
+	// Track parse errors for diagnostic logging on fallback
+	var parseErrors []string
+
 	// 1. Try direct JSON parsing
 	logging.ArticulationDebug("Attempting direct JSON parsing")
 	envelope, err := rp.parseJSON(rawResponse)
@@ -178,6 +181,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		rp.applyCaps(result)
 		return result, nil
 	}
+	parseErrors = append(parseErrors, fmt.Sprintf("direct: %v", err))
 	logging.ArticulationDebug("Direct JSON parse failed: %v", err)
 
 	// 2. Try markdown-wrapped JSON
@@ -195,6 +199,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 			rp.applyCaps(result)
 			return result, nil
 		}
+		parseErrors = append(parseErrors, fmt.Sprintf("markdown: %v", err))
 		logging.ArticulationDebug("Markdown-wrapped JSON parse failed: %v", err)
 	}
 
@@ -214,6 +219,7 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		rp.applyCaps(result)
 		return result, nil
 	}
+	parseErrors = append(parseErrors, fmt.Sprintf("embedded: %v", err))
 	logging.ArticulationDebug("Embedded JSON extraction failed: %v", err)
 
 	// 4. Fallback: treat entire response as surface text
@@ -224,7 +230,18 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		result.Confidence = 0.5
 		rp.stats.FallbackParses++
 		result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
-		logging.Get(logging.CategoryArticulation).Warn("Fallback parse: no valid Piggyback JSON found, using raw response (confidence=0.5)")
+
+		// Log comprehensive diagnostic info for debugging Piggyback failures
+		responsePreview := rawResponse
+		if len(responsePreview) > 300 {
+			responsePreview = responsePreview[:300] + "..."
+		}
+		logging.Get(logging.CategoryArticulation).Error(
+			"Fallback parse: no valid Piggyback JSON found (len=%d, errors=[%s], preview=%q)",
+			len(rawResponse),
+			strings.Join(parseErrors, "; "),
+			responsePreview,
+		)
 		logging.ArticulationDebug("Fallback surface length: %d bytes", len(result.Surface))
 		rp.applyCaps(result)
 		return result, nil

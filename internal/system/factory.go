@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/mcp"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
@@ -276,6 +277,44 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// Enable semantic vector operations on the LocalStore if possible.
 	if localDB != nil && embeddingEngine != nil {
 		localDB.SetEmbeddingEngine(embeddingEngine)
+	}
+
+	// 5a. MCP Integration (JIT Tool Compiler)
+	// Wire MCP clients for code graph, browser, and scraper integrations.
+	integrationsCfg := appCfg.GetIntegrations()
+	serverConfigs := integrationsCfg.ToMCPServerConfigs()
+	if len(serverConfigs) > 0 {
+		// Create LLM client adapter for tool analysis
+		var mcpLLMClient mcp.LLMClient
+		if llmClient != nil {
+			mcpLLMClient = &perceptionLLMAdapter{client: llmClient}
+		}
+
+		mcpBridge, err := mcp.NewMCPIntegrationBridge(workspace, newMCPKernelAdapter(kernel), embeddingEngine, mcpLLMClient, serverConfigs)
+		if err != nil {
+			logging.Get(logging.CategoryTools).Warn("Failed to init MCP bridge: %v", err)
+		} else {
+			// Wire integration adapters to VirtualStore
+			if _, ok := serverConfigs["code_graph"]; ok {
+				virtualStore.SetCodeGraphClient(mcpBridge.GetAdapter("code_graph"))
+				logging.Get(logging.CategoryTools).Info("Wired code_graph MCP integration")
+			}
+			if _, ok := serverConfigs["browser"]; ok {
+				virtualStore.SetBrowserClient(mcpBridge.GetAdapter("browser"))
+				logging.Get(logging.CategoryTools).Info("Wired browser MCP integration")
+			}
+			if _, ok := serverConfigs["scraper"]; ok {
+				virtualStore.SetScraperClient(mcpBridge.GetAdapter("scraper"))
+				logging.Get(logging.CategoryTools).Info("Wired scraper MCP integration")
+			}
+
+			// Connect to auto-connect servers in background
+			go func() {
+				if err := mcpBridge.ConnectAll(context.Background()); err != nil {
+					logging.Get(logging.CategoryTools).Warn("MCP auto-connect failed: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Ingest any PROMPT directives extracted from hybrid .mg files into the
@@ -678,4 +717,99 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 		}
 	}
 	return ka.kernel.LoadFacts(coreFacts)
+}
+
+// perceptionLLMAdapter adapts perception.LLMClient to mcp.LLMClient.
+type perceptionLLMAdapter struct {
+	client perception.LLMClient
+}
+
+func (a *perceptionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
+	return a.client.Complete(ctx, prompt)
+}
+
+// mcpKernelAdapter adapts core.RealKernel to mcp.KernelInterface.
+// It converts string facts to core.Fact and handles query results.
+type mcpKernelAdapter struct {
+	kernel *core.RealKernel
+}
+
+// newMCPKernelAdapter creates a new MCP kernel adapter.
+func newMCPKernelAdapter(kernel *core.RealKernel) *mcpKernelAdapter {
+	return &mcpKernelAdapter{kernel: kernel}
+}
+
+func (a *mcpKernelAdapter) Assert(fact string) error {
+	// Parse string fact into core.Fact
+	input := fact
+	if !strings.HasSuffix(input, ".") {
+		input += "."
+	}
+
+	parsed, err := parse.Unit(strings.NewReader(input))
+	if err != nil {
+		return fmt.Errorf("failed to parse fact '%s': %w", fact, err)
+	}
+
+	if len(parsed.Clauses) != 1 {
+		return fmt.Errorf("expected 1 clause, got %d", len(parsed.Clauses))
+	}
+
+	atom := parsed.Clauses[0].Head
+	args := make([]interface{}, len(atom.Args))
+	for i, arg := range atom.Args {
+		switch t := arg.(type) {
+		case ast.Constant:
+			switch t.Type {
+			case ast.NameType:
+				args[i] = core.MangleAtom(t.Symbol)
+			case ast.StringType, ast.BytesType:
+				args[i] = t.Symbol
+			case ast.NumberType:
+				args[i] = t.NumValue
+			case ast.Float64Type:
+				args[i] = t.Float64Value
+			default:
+				args[i] = t.Symbol
+			}
+		default:
+			args[i] = fmt.Sprintf("%v", arg)
+		}
+	}
+
+	return a.kernel.LoadFacts([]core.Fact{{
+		Predicate: atom.Predicate.Symbol,
+		Args:      args,
+	}})
+}
+
+func (a *mcpKernelAdapter) Retract(fact string) error {
+	// Note: core.RealKernel doesn't have Retract - this is a no-op for now.
+	// In a real implementation, you'd need to extend the kernel to support retraction.
+	logging.Get(logging.CategoryTools).Debug("mcpKernelAdapter.Retract: not implemented (fact: %s)", fact)
+	return nil
+}
+
+func (a *mcpKernelAdapter) Query(query string) ([]map[string]interface{}, error) {
+	facts, err := a.kernel.Query(query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert []core.Fact to []map[string]interface{}
+	// The query pattern should match the variables in order
+	results := make([]map[string]interface{}, 0, len(facts))
+	for _, f := range facts {
+		// Create a map with positional keys if we can't determine variable names
+		row := make(map[string]interface{})
+		for i, arg := range f.Args {
+			// Use generic names like "Arg0", "Arg1", etc.
+			// In a more sophisticated implementation, we'd parse the query to extract variable names
+			key := fmt.Sprintf("Arg%d", i)
+			row[key] = arg
+		}
+		results = append(results, row)
+	}
+
+	return results, nil
 }
