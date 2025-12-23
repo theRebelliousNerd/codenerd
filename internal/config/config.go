@@ -1,6 +1,7 @@
 package config
 
 import (
+	"codenerd/internal/logging"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -212,22 +213,29 @@ func DefaultConfig() *Config {
 // Load loads configuration from a YAML file.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
+	logging.BootDebug("Loading config from: %s", path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return defaults if config file doesn't exist
+			logging.Boot("Config file not found, using defaults: %s", path)
+			cfg.applyEnvOverrides()
+			logging.BootDebug("Config loaded: provider=%s", cfg.LLM.Provider)
 			return cfg, nil
 		}
+		logging.BootError("Failed to read config file %s: %v", path, err)
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
+		logging.BootError("Failed to parse config file %s: %v", path, err)
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	// Override with environment variables
 	cfg.applyEnvOverrides()
+	logging.Boot("Config loaded: provider=%s model=%s", cfg.LLM.Provider, cfg.LLM.Model)
 
 	return cfg, nil
 }
