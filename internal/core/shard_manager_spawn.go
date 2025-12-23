@@ -304,6 +304,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	if sm.kernel != nil {
 		agent.SetParentKernel(sm.kernel)
 		depsInjected = append(depsInjected, "kernel")
+
+		// POWER-USER-FEATURE: Inject shard-specific policy if defined
+		// This allows specialist shards to have custom permissions or constraints
+		if config.Policy != "" {
+			sm.kernel.AppendPolicy(config.Policy)
+			logging.Shards("SpawnAsyncWithContext: appended shard-specific policy for %s (%d bytes)", typeName, len(config.Policy))
+			depsInjected = append(depsInjected, "policy")
+		}
 	}
 	if sm.llmClient != nil {
 		// Wrap LLM client with APIScheduler for cooperative slot management
@@ -355,12 +363,22 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// 4. Execute Async
 	logging.Shards("SpawnAsyncWithContext: launching goroutine for shard %s execution", id)
 	go func() {
+		// Transparency: Start tracking
+		if sm.transparencyMgr != nil {
+			sm.transparencyMgr.StartShard(id, typeName, task)
+		}
+
 		// Panic recovery - shard panics should not crash the system
 		defer func() {
 			if r := recover(); r != nil {
 				panicErr := fmt.Errorf("shard %s panicked: %v", id, r)
 				logging.Get(logging.CategoryShards).Error("PANIC RECOVERED in shard %s: %v", id, r)
 				logging.Audit().ShardComplete(id, task, 0, false, panicErr.Error())
+
+				// Transparency: End tracking (failed)
+				if sm.transparencyMgr != nil {
+					sm.transparencyMgr.EndShard(id, true)
+				}
 
 				// Cleanup: retract active_shard fact
 				if sm.kernel != nil {
@@ -419,6 +437,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			errMsg = err.Error()
 		}
 		logging.Audit().ShardComplete(id, task, duration.Milliseconds(), err == nil, errMsg)
+
+		// Transparency: End tracking
+		if sm.transparencyMgr != nil {
+			sm.transparencyMgr.EndShard(id, err != nil)
+		}
 
 		// Retract active_shard fact to prevent stale facts from accumulating
 		// This cleanup ensures the kernel state accurately reflects which shards are running

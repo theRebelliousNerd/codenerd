@@ -2,6 +2,7 @@ package coder
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"os"
@@ -17,14 +18,18 @@ import (
 // runBuildCheck executes a build command to verify the changes.
 func (c *CoderShard) runBuildCheck(ctx context.Context) bool {
 	if c.virtualStore == nil {
+		logging.CoderDebug("runBuildCheck: no virtual store, skipping build check")
 		return true // Assume success if no virtual store
 	}
 
 	// Detect build command from project type
 	buildCmd := c.detectBuildCommand()
 	if buildCmd == "" {
+		logging.CoderDebug("runBuildCheck: no build command detected, skipping")
 		return true // No build command, assume success
 	}
+
+	logging.Coder("runBuildCheck: executing build command=%s", buildCmd)
 
 	action := core.Fact{
 		Predicate: "next_action",
@@ -39,10 +44,13 @@ func (c *CoderShard) runBuildCheck(ctx context.Context) bool {
 		// Parse diagnostics from output
 		c.mu.Lock()
 		c.diagnostics = c.parseBuildOutput(output)
+		diagCount := len(c.diagnostics)
 		c.mu.Unlock()
+		logging.CoderWarn("runBuildCheck: build failed with %d diagnostics: %v", diagCount, err)
 		return false
 	}
 
+	logging.Coder("runBuildCheck: build succeeded")
 	return true
 }
 
@@ -52,24 +60,29 @@ func (c *CoderShard) detectBuildCommand() string {
 
 	// Check for Go
 	if _, err := os.Stat(filepath.Join(workDir, "go.mod")); err == nil {
+		logging.CoderDebug("detectBuildCommand: detected Go project")
 		return "go build ./..."
 	}
 
 	// Check for Node.js
 	if _, err := os.Stat(filepath.Join(workDir, "package.json")); err == nil {
+		logging.CoderDebug("detectBuildCommand: detected Node.js project")
 		return "npm run build"
 	}
 
 	// Check for Rust
 	if _, err := os.Stat(filepath.Join(workDir, "Cargo.toml")); err == nil {
+		logging.CoderDebug("detectBuildCommand: detected Rust project")
 		return "cargo build"
 	}
 
 	// Check for Python
 	if _, err := os.Stat(filepath.Join(workDir, "pyproject.toml")); err == nil {
+		logging.CoderDebug("detectBuildCommand: detected Python project")
 		return "python -m py_compile"
 	}
 
+	logging.CoderDebug("detectBuildCommand: no known project type detected in %s", workDir)
 	return ""
 }
 
@@ -97,5 +110,6 @@ func (c *CoderShard) parseBuildOutput(output string) []core.Diagnostic {
 		}
 	}
 
+	logging.CoderDebug("parseBuildOutput: extracted %d diagnostics from output (%d lines)", len(diagnostics), len(lines))
 	return diagnostics
 }

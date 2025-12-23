@@ -28,3 +28,7 @@ Decl focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence).
 # ambiguity_flag(MissingParam, ContextClue, Hypothesis)
 Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis).
 
+# intent_definition(Sentence, Verb, Target)
+# Canonical intent examples for heuristic matching
+Decl intent_definition(Sentence, Verb, Target).
+

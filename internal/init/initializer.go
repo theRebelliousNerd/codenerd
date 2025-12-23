@@ -707,6 +707,27 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, codebaseKBPath)
 		fmt.Printf("   ✓ Codebase KB ready (%d atoms)\n", codebaseAtoms)
 	}
+
+	// Generate strategic knowledge (deep philosophical understanding)
+	// This uses LLM to analyze the codebase and extract high-level insights
+	fmt.Println("   🧠 Generating strategic knowledge...")
+	if i.config.LLMClient != nil && i.localDB != nil {
+		strategicKnowledge, err := i.generateStrategicKnowledge(ctx, profile, scanResult)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Strategic knowledge generation failed: %v", err))
+		} else if strategicKnowledge != nil {
+			strategicAtoms, err := i.PersistStrategicKnowledge(ctx, strategicKnowledge, i.localDB)
+			if err != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to persist strategic knowledge: %v", err))
+			} else {
+				fmt.Printf("   ✓ Strategic knowledge generated (%d atoms)\n", strategicAtoms)
+				fmt.Printf("      Vision: %s\n", truncateString(strategicKnowledge.ProjectVision, 80))
+			}
+		}
+	} else {
+		result.Warnings = append(result.Warnings, "Strategic knowledge skipped (no LLM client or DB)")
+	}
+
 	i.completePhaseWithETA("codebase_kb")
 	advancePhase()
 

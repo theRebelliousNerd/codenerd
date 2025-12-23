@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,7 +37,7 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
 		Model:   "gpt-5.1-codex-max", // Best Codex model for coding agents
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute,   // Large context models need extended timeout
 	}
 }
 
@@ -65,7 +66,11 @@ func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, err
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+	logging.PerceptionDebug("[OpenAI] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
 	if c.apiKey == "" {
+		logging.PerceptionError("[OpenAI] CompleteWithSystem: API key not configured")
 		return "", fmt.Errorf("API key not configured")
 	}
 
@@ -165,12 +170,16 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if len(openaiResp.Choices) == 0 {
+			logging.PerceptionError("[OpenAI] CompleteWithSystem: no completion returned")
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		return strings.TrimSpace(openaiResp.Choices[0].Message.Content), nil
+		response := strings.TrimSpace(openaiResp.Choices[0].Message.Content)
+		logging.Perception("[OpenAI] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
 	}
 
+	logging.PerceptionError("[OpenAI] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -180,11 +189,15 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
+	logging.PerceptionDebug("[OpenAI] CompleteWithStreaming: starting streaming model=%s", c.model)
+
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		startTime := time.Now()
 
 		if c.apiKey == "" {
+			logging.PerceptionError("[OpenAI] CompleteWithStreaming: API key not configured")
 			errorChan <- fmt.Errorf("API key not configured")
 			return
 		}
@@ -333,17 +346,21 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			case <-scanDone:
 				select {
 				case err := <-scanErrChan:
+					logging.PerceptionError("[OpenAI] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
 					errorChan <- fmt.Errorf("stream error: %w", err)
 				default:
+					logging.Perception("[OpenAI] CompleteWithStreaming: completed in %v", time.Since(startTime))
 				}
 			case <-ctx.Done():
 				resp.Body.Close()
 				<-scanDone
+				logging.PerceptionWarn("[OpenAI] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
 				errorChan <- ctx.Err()
 			}
 			return
 		}
 
+		logging.PerceptionError("[OpenAI] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
 	}()
 

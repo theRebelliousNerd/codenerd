@@ -59,6 +59,17 @@ type TransparencyConfig struct {
 
 	// VerboseErrors shows categorized errors with remediation
 	VerboseErrors bool `json:"verbose_errors"`
+
+	// Glass Box Debug Mode - shows system internals inline in chat
+	GlassBoxEnabled bool `json:"glass_box_enabled"`
+
+	// GlassBoxCategories filters which event categories are shown
+	// Valid values: "perception", "kernel", "jit", "shard", "control"
+	// Empty means all categories are shown
+	GlassBoxCategories []string `json:"glass_box_categories,omitempty"`
+
+	// GlassBoxVerbose shows expanded details instead of summaries
+	GlassBoxVerbose bool `json:"glass_box_verbose"`
 }
 
 // GuidanceLevel controls how much help/guidance is shown.

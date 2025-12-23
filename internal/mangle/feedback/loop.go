@@ -206,6 +206,7 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			logging.KernelDebug("FeedbackLoop: empty rule extracted from response")
 			continue
 		}
+		rule = NormalizeRuleInput(rule)
 		lastRule = rule
 
 		// Phase 1: Pre-validation (fast regex checks)
@@ -276,6 +277,8 @@ func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *Vali
 		Original: rule,
 	}
 
+	rule = NormalizeRuleInput(rule)
+
 	// Pre-validation
 	preErrors := fl.preValidator.Validate(rule)
 	result.Errors = preErrors
@@ -310,7 +313,7 @@ func (fl *FeedbackLoop) ValidateOnly(rule string, validator RuleValidator) *Vali
 
 // PreValidateOnly runs only pre-validation (for quick checks without compilation).
 func (fl *FeedbackLoop) PreValidateOnly(rule string) []ValidationError {
-	return fl.preValidator.Validate(rule)
+	return fl.preValidator.Validate(NormalizeRuleInput(rule))
 }
 
 // GetBudget returns the current validation budget for inspection.
@@ -321,6 +324,12 @@ func (fl *FeedbackLoop) GetBudget() *ValidationBudget {
 // ResetBudget resets the validation budget (typically at session start).
 func (fl *FeedbackLoop) ResetBudget() {
 	fl.budget.Reset()
+}
+
+// CanRetryPrompt checks if another validation attempt is allowed for a prompt.
+// This lets callers avoid invoking the loop when the per-prompt budget is exhausted.
+func (fl *FeedbackLoop) CanRetryPrompt(prompt string) (bool, string) {
+	return fl.budget.CanRetry(hashPrompt(prompt))
 }
 
 // IsBudgetExhausted checks if the session validation budget has been exhausted.

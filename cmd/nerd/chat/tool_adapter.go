@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
 
 // ToolExecutorAdapter adapts autopoiesis.Orchestrator to implement core.ToolExecutor interface
@@ -30,6 +31,7 @@ func (a *ToolExecutorAdapter) ExecuteTool(ctx context.Context, toolName string, 
 
 	// Log quality assessment for learning (async to not block)
 	go func() {
+		log := logging.Get(logging.CategoryAutopoiesis)
 		feedback := &autopoiesis.ExecutionFeedback{
 			ToolName:  toolName,
 			Input:     input,
@@ -40,6 +42,22 @@ func (a *ToolExecutorAdapter) ExecuteTool(ctx context.Context, toolName string, 
 			Quality:   assessment, // Already a *QualityAssessment
 		}
 		a.orchestrator.RecordExecution(context.Background(), feedback)
+
+		// GAP-005 FIX: Check if tool needs refinement after recording execution
+		needsRefinement, suggestions := a.orchestrator.ShouldRefineTool(toolName)
+		if needsRefinement {
+			log.Info("Tool '%s' needs refinement based on %d patterns", toolName, len(suggestions))
+			// Trigger async refinement (doesn't block user flow)
+			refinementCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			result, err := a.orchestrator.RefineTool(refinementCtx, toolName, "")
+			if err != nil {
+				log.Warn("Tool refinement for '%s' failed: %v", toolName, err)
+			} else if result.Success {
+				log.Info("Tool '%s' refined successfully: %v", toolName, result.Changes)
+			}
+		}
 	}()
 
 	return output, nil

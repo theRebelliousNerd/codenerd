@@ -11,7 +11,9 @@ func (o *Orchestrator) Pause() {
 	logging.Campaign("Pausing campaign: %s", o.campaign.ID)
 	o.isPaused = true
 	o.updateCampaignStatus(StatusPaused)
-	_ = o.saveCampaign()
+	if err := o.saveCampaign(); err != nil {
+		logging.CampaignWarn("failed to save campaign on pause: %v", err)
+	}
 }
 
 // Resume resumes paused campaign execution.
@@ -32,7 +34,9 @@ func (o *Orchestrator) Stop() {
 		o.cancelFunc()
 	}
 	o.updateCampaignStatus(StatusPaused)
-	_ = o.saveCampaign()
+	if err := o.saveCampaign(); err != nil {
+		logging.CampaignWarn("failed to save campaign on stop: %v", err)
+	}
 
 	// Close channels to signal consumers
 	if o.progressChan != nil {

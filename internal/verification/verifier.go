@@ -7,6 +7,7 @@ package verification
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/store"
@@ -503,15 +504,24 @@ func (v *TaskVerifier) storeVerification(
 	v.mu.RUnlock()
 
 	// Convert to JSON for storage
-	violationsJSON, _ := json.Marshal(verification.QualityViolations)
-	evidenceJSON, _ := json.Marshal(verification.Evidence)
-	correctiveJSON, _ := json.Marshal(verification.CorrectiveAction)
+	violationsJSON, err := json.Marshal(verification.QualityViolations)
+	if err != nil {
+		logging.SystemShardsWarn("failed to marshal quality violations: %v", err)
+	}
+	evidenceJSON, err := json.Marshal(verification.Evidence)
+	if err != nil {
+		logging.SystemShardsWarn("failed to marshal evidence: %v", err)
+	}
+	correctiveJSON, err := json.Marshal(verification.CorrectiveAction)
+	if err != nil {
+		logging.SystemShardsWarn("failed to marshal corrective action: %v", err)
+	}
 
 	// Hash the task for dedup
 	taskHash := sha256.Sum256([]byte(task))
 	taskHashHex := hex.EncodeToString(taskHash[:])
 
-	_ = v.localDB.StoreVerification(
+	if err := v.localDB.StoreVerification(
 		sessionID,
 		turnCount,
 		task,
@@ -524,7 +534,9 @@ func (v *TaskVerifier) storeVerification(
 		string(correctiveJSON),
 		string(evidenceJSON),
 		taskHashHex,
-	)
+	); err != nil {
+		logging.StoreError("failed to store verification result: %v", err)
+	}
 }
 
 // fetchContext7Docs fetches documentation from Context7 API.
@@ -534,7 +546,9 @@ func (v *TaskVerifier) fetchContext7Docs(ctx context.Context, query string) stri
 	}
 
 	cacheDir := filepath.Join(os.TempDir(), "codenerd_context7_cache")
-	_ = os.MkdirAll(cacheDir, 0755)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		logging.ResearcherWarn("failed to create context7 cache dir: %v", err)
+	}
 
 	cache := researcher.NewResearchCache(cacheDir)
 	client := &http.Client{Timeout: 60 * time.Second}

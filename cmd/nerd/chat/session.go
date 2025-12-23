@@ -15,16 +15,22 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/retrieval"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/coder"
+	"codenerd/internal/shards/nemesis"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/reviewer"
 	shardsystem "codenerd/internal/shards/system"
 	"codenerd/internal/shards/tester"
+	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
+	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
+	"codenerd/internal/ux"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
@@ -133,6 +139,16 @@ func InitChat(cfg Config) Model {
 	// Create shutdown context for coordinating background goroutine lifecycle
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
+	// Initialize Preferences Manager
+	prefsMgr := ux.NewPreferencesManager(workspace)
+	if err := prefsMgr.Load(); err != nil {
+		fmt.Printf("⚠ Failed to load preferences: %v\n", err)
+	}
+
+	// Initialize Transparency Manager
+	transparencyCfg := appCfg.GetTransparencyConfig()
+	transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
+
 	// Return the model in "Booting" state
 	return Model{
 		textarea:     ta,
@@ -145,6 +161,9 @@ func InitChat(cfg Config) Model {
 		renderer:     renderer,
 		usageTracker: tracker,
 		usagePage:    ui.NewUsagePageModel(tracker, styles),
+		jitPage:      ui.NewJITPageModel(),
+		autoPage:     ui.NewAutopoiesisPageModel(),
+		shardPage:    ui.NewShardPageModel(),
 		splitPane:    &splitPaneView,
 		logicPane:    splitPaneView.RightPane,
 		showLogic:    false,
@@ -170,6 +189,9 @@ func InitChat(cfg Config) Model {
 		shutdownOnce:   &sync.Once{},
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
+		// UX components
+		preferencesMgr:  prefsMgr,
+		transparencyMgr: transparencyMgr,
 	}
 }
 
@@ -203,6 +225,24 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Resolve core limits once for boot wiring
 		coreLimits := appCfg.GetCoreLimits()
+
+		// Initialize Preferences Manager (Backend)
+		prefsMgr := ux.NewPreferencesManager(workspace)
+		if err := prefsMgr.Load(); err != nil {
+			logging.Get(logging.CategoryBoot).Warn("Failed to load preferences: %v", err)
+		}
+
+		// Initialize Transparency Manager
+		transparencyCfg := appCfg.GetTransparencyConfig()
+		transparencyMgr := transparency.NewTransparencyManager(transparencyCfg)
+		if transparencyCfg.Enabled {
+			logStep("Transparency enabled")
+		}
+
+		// Initialize Sparse Retriever
+		logStep("Initializing sparse retriever...")
+		retrieverCfg := retrieval.DefaultSparseRetrieverConfig(workspace)
+		retriever := retrieval.NewSparseRetriever(retrieverCfg)
 
 		// Configure global LLM API concurrency before any scheduled calls
 		schedulerCfg := core.DefaultAPISchedulerConfig()
@@ -253,10 +293,21 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
 		}
 
+		// GAP-013 FIX: Consume boot intents and prompts from hybrid files
+		bootIntents := kernel.ConsumeBootIntents()
+		if len(bootIntents) > 0 {
+			logging.Get(logging.CategoryKernel).Info("Consumed %d boot intents from hybrid files", len(bootIntents))
+		}
+		bootPrompts := kernel.ConsumeBootPrompts()
+		if len(bootPrompts) > 0 {
+			logging.Get(logging.CategoryKernel).Info("Consumed %d boot prompts from hybrid files", len(bootPrompts))
+		}
+
 		logStep("Creating executor & shard manager...")
 		executor := tactile.NewSafeExecutor()
 		shardMgr := core.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
+		shardMgr.SetTransparencyManager(transparencyMgr)
 
 		// Initialize limits enforcer and spawn queue for backpressure management
 		limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
@@ -338,6 +389,23 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			perception.SharedTaxonomy.SetWorkspace(workspace)
 		}
 
+		// Initialize learning store for shard autopoiesis
+		logStep("Initializing learning store...")
+		var learningStore *store.LearningStore
+		learningsPath := filepath.Join(workspace, ".nerd", "shards")
+		if ls, err := store.NewLearningStore(learningsPath); err == nil {
+			learningStore = ls
+			virtualStore.SetLearningStore(learningStore)
+
+			// GAP-008 FIX: Apply periodic confidence decay on session startup
+			// Decay learnings older than 30 days by 10% to allow forgetting
+			for _, shardType := range []string{"coder", "tester", "reviewer", "researcher"} {
+				if err := ls.DecayConfidence(shardType, 0.9); err != nil {
+					logging.Get(logging.CategoryStore).Debug("DecayConfidence for %s: %v", shardType, err)
+				}
+			}
+		}
+
 		if localDB != nil {
 			logStep("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
@@ -399,8 +467,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		// Initialize backend components that depend on the scheduled client.
-		logStep("Creating transducer...")
-		transducer := perception.NewRealTransducer(llmClient)
+		// Use LLM-first UnderstandingTransducer for intent classification.
+		// The LLM describes intent, the harness validates and routes.
+		logStep("Creating LLM-first transducer...")
+		transducer := perception.NewUnderstandingTransducer(llmClient)
 		// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
 		// Previously, InitPerceptionLayer existed but was never wired, leaving semantic intent
 		// classification dormant even when embeddings are configured.
@@ -510,6 +580,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
 			}
 
+			// Wire LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
+			if localDB != nil {
+				jitCompiler.SetLocalDB(localDB)
+				logging.Boot("JIT compiler wired with LocalDB for semantic knowledge queries")
+			}
+
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
 				Content: "✓ JIT prompt compiler initialized",
@@ -534,6 +610,33 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 		if promptAssembler != nil {
 			transducer.SetPromptAssembler(promptAssembler)
+		}
+
+		// Wire kernel to transducer for Mangle-based routing derivation.
+		// This enables the harness to validate LLM classifications and derive routing.
+		transducer.SetKernel(kernel)
+		logging.Boot("Wired kernel to LLM-first transducer for routing")
+
+		// Inject strategic knowledge for conceptual queries
+		if strategicSummary := virtualStore.GetStrategicSummary(); strategicSummary != "" {
+			transducer.SetStrategicContext(strategicSummary)
+			logging.Boot("Injected strategic knowledge (%d chars) into transducer", len(strategicSummary))
+		}
+
+		// Create Glass Box event bus early so shards can capture it
+		glassBoxEventBus := transparency.NewGlassBoxEventBus()
+
+		// Create Tool Event bus for always-visible tool execution notifications
+		toolEventBus := transparency.NewToolEventBus()
+
+		// Create Tool Store for persisting full tool execution results
+		var toolStore *store.ToolStore
+		toolsDBPath := filepath.Join(workspace, ".nerd", "tools.db")
+		if ts, err := store.NewToolStore(toolsDBPath); err == nil {
+			toolStore = ts
+			logging.Boot("Initialized ToolStore at %s", toolsDBPath)
+		} else {
+			logging.Get(logging.CategoryBoot).Warn("Failed to initialize ToolStore: %v", err)
 		}
 
 		logStep("Registering shard types...")
@@ -643,6 +746,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
+			shard.SetGlassBox(glassBoxEventBus)   // Wire Glass Box for debug visibility
+			shard.SetToolEventBus(toolEventBus)   // Wire Tool Event Bus for always-visible tool execution
+			shard.SetToolStore(toolStore)         // Wire Tool Store for full result persistence
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
@@ -655,6 +761,83 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard := shardsystem.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// =========================================================================
+		// GAP-001 FIX: Register 5 missing shards (legislator, campaign_runner,
+		// nemesis, tool_generator, requirements_interrogator)
+		// =========================================================================
+
+		// Helper: wrap store.LearningStore to implement core.LearningStore interface
+		getLearningStore := func() core.LearningStore {
+			if learningStore == nil {
+				return nil
+			}
+			return &coreLearningStoreAdapter{store: learningStore}
+		}
+
+		// Register RequirementsInterrogator - Socratic clarification shard
+		shardMgr.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shards.NewRequirementsInterrogatorShard()
+			shard.SetLLMClient(llmClient)
+			shard.SetParentKernel(kernel)
+			return shard
+		})
+
+		// Register ToolGenerator - Ouroboros tool creation shard
+		shardMgr.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := tool_generator.NewToolGeneratorShard(id, config)
+			shard.SetParentKernel(kernel)
+			shard.SetWorkspaceRoot(workspace) // MUST be called before SetLLMClient
+			shard.SetLLMClient(llmClient)
+			if ls := getLearningStore(); ls != nil {
+				shard.SetLearningStore(ls)
+			}
+			shard.SetVirtualStore(virtualStore)
+			return shard
+		})
+
+		// Register Nemesis - Adversarial co-evolution shard
+		shardMgr.RegisterShard("nemesis", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := nemesis.NewNemesisShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			if ls := getLearningStore(); ls != nil {
+				shard.SetLearningStore(ls)
+			}
+			// Initialize Armory for regression test persistence
+			armory := nemesis.NewArmory(filepath.Join(workspace, ".nerd"))
+			shard.SetArmory(armory)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// Register Legislator - Runtime rule compilation shard
+		shardMgr.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shardsystem.NewLegislatorShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			if promptAssembler != nil {
+				shard.SetPromptAssembler(promptAssembler)
+			}
+			return shard
+		})
+
+		// Register CampaignRunner - Campaign orchestration shard
+		shardMgr.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+			shard := shardsystem.NewCampaignRunnerShard()
+			shard.SetParentKernel(kernel)
+			shard.SetVirtualStore(virtualStore)
+			shard.SetLLMClient(llmClient)
+			shard.SetWorkspaceRoot(workspace)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -691,7 +874,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		logStep("Creating shadow mode & scanner...")
 		shadowMode := core.NewShadowMode(kernel)
-		emitter := articulation.NewEmitter()
+		// GAP-011 FIX: Removed unused emitter - articulation uses PromptAssembler.JIT instead
 		scanner := world.NewScanner()
 
 		logStep("Initializing context compressor...")
@@ -704,6 +887,13 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			ctxCfg.RecentTurnWindow,
 			ctxCfg.CompressionThreshold, ctxCfg.TargetCompressionRatio, ctxCfg.ActivationThreshold,
 		)
+
+		// GAP-003 FIX: Seed activation engine with corpus priorities
+		if corpus := kernel.GetPredicateCorpus(); corpus != nil {
+			if err := compressor.LoadPrioritiesFromCorpus(corpus); err != nil {
+				logging.Get(logging.CategoryContext).Warn("Failed to load corpus priorities: %v", err)
+			}
+		}
 
 		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
@@ -765,6 +955,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Get(logging.CategoryKernel).Warn("Failed to create Mangle watcher: %v", err)
 		}
 
+		// glassBoxEventBus was created earlier to allow shard factories to capture it
+
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
 			components: &SystemComponents{
@@ -773,7 +965,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				ShadowMode:            shadowMode,
 				Transducer:            transducer,
 				Executor:              executor,
-				Emitter:               emitter,
+				Emitter:               nil, // GAP-011: Emitter unused, using JIT PromptAssembler instead
 				VirtualStore:          virtualStore,
 				Scanner:               scanner,
 				Workspace:             workspace,
@@ -791,6 +983,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				BrowserCtxCancel:      browserCtxCancel,
 				JITCompiler:           jitCompiler,
 				MangleWatcher:         mangleWatcher,
+				TransparencyMgr:       transparencyMgr,
+				PreferencesMgr:        prefsMgr,
+				Retriever:             retriever,
+				GlassBoxEventBus:      glassBoxEventBus,
+				ToolEventBus:          toolEventBus,
+				ToolStore:             toolStore,
 			},
 		}
 	}
@@ -954,7 +1152,7 @@ func (m *Model) saveSessionState() {
 	// Session management should not require `/init` (which is about world-model wiring).
 	nerdDir := filepath.Join(m.workspace, ".nerd")
 	if err := os.MkdirAll(nerdDir, 0755); err != nil {
-		logging.Session("saveSessionState: failed to create .nerd directory: %v", err)
+		logging.Get(logging.CategorySession).Error("saveSessionState: failed to create .nerd directory: %v", err)
 		return
 	}
 
@@ -976,7 +1174,7 @@ func (m *Model) saveSessionState() {
 
 	// Save session state (JSON)
 	if err := nerdinit.SaveSessionState(m.workspace, state); err != nil {
-		logging.Session("ERROR saving session state: %v", err)
+		logging.Get(logging.CategorySession).Error("Failed to save session state: %v", err)
 	}
 
 	// Convert and save conversation history (JSON)
@@ -989,7 +1187,7 @@ func (m *Model) saveSessionState() {
 		}
 	}
 	if err := nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
-		logging.Session("ERROR saving session history: %v", err)
+		logging.Get(logging.CategorySession).Error("Failed to save session history: %v", err)
 	} else {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
@@ -1023,6 +1221,9 @@ func (m *Model) hydrateCompressorForSession(sessionID string) {
 	// Always reset to avoid leaking state across sessions.
 	m.compressor.Reset()
 	m.compressor.SetSessionID(sessionID)
+
+	// Always refresh budget at the end so status bar shows accurate context usage.
+	defer m.compressor.RefreshBudget()
 
 	if m.localDB == nil {
 		return
@@ -1284,4 +1485,52 @@ func (a *LocalStoreTraceAdapter) StoreReasoningTrace(trace *perception.Reasoning
 	}
 	// Pass the trace directly - LocalStore accepts interface{} and handles conversion
 	return a.store.StoreReasoningTrace(trace)
+}
+
+// =============================================================================
+// LEARNING STORE ADAPTER (GAP-001 FIX)
+// =============================================================================
+// Adapts store.LearningStore to implement core.LearningStore interface for
+// shard autopoiesis.
+
+// coreLearningStoreAdapter wraps store.LearningStore to implement core.LearningStore.
+type coreLearningStoreAdapter struct {
+	store *store.LearningStore
+}
+
+func (a *coreLearningStoreAdapter) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
+}
+
+func (a *coreLearningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	// store.LearningStore.Load already returns []types.ShardLearning
+	return a.store.Load(shardType)
+}
+
+func (a *coreLearningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
+	if a.store == nil {
+		return nil, nil
+	}
+	// store.LearningStore.LoadByPredicate already returns []types.ShardLearning
+	return a.store.LoadByPredicate(shardType, predicate)
+}
+
+func (a *coreLearningStoreAdapter) DecayConfidence(shardType string, decayFactor float64) error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.DecayConfidence(shardType, decayFactor)
+}
+
+func (a *coreLearningStoreAdapter) Close() error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.Close()
 }

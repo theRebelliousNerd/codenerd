@@ -482,7 +482,7 @@ func (c *UserConfig) GetShardProfile(shardType string) ShardProfile {
 
 	// Ultimate fallback - sensible defaults
 	return ShardProfile{
-		Model:                 "glm-4.6",
+		Model:                 "glm-4.7",
 		Temperature:           0.7,
 		TopP:                  0.9,
 		MaxContextTokens:      20000,
@@ -553,27 +553,15 @@ func (c *UserConfig) GetWorldConfig() WorldConfig {
 }
 
 // GetIntegrations returns integration settings with defaults.
+// By default, no external MCP servers are configured.
+// Internal capabilities (code analysis, browser automation) use internal packages directly.
 func (c *UserConfig) GetIntegrations() IntegrationsConfig {
 	if c.Integrations != nil {
 		return *c.Integrations
 	}
-	// Return defaults (all enabled on localhost)
+	// Return empty - no default MCP servers. User configures external servers as needed.
 	return IntegrationsConfig{
-		CodeGraph: CodeGraphIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8080",
-			Timeout: "30s",
-		},
-		Browser: BrowserIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8081",
-			Timeout: "60s",
-		},
-		Scraper: ScraperIntegration{
-			Enabled: true,
-			BaseURL: "http://localhost:8082",
-			Timeout: "120s",
-		},
+		Servers: make(map[string]MCPServerIntegration),
 	}
 }
 
@@ -636,7 +624,7 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 func DefaultUserConfig() *UserConfig {
 	return &UserConfig{
 		Provider: "zai",
-		Model:    "glm-4.6",
+		Model:    "glm-4.7",
 		Theme:    "light",
 	}
 }

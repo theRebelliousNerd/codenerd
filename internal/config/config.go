@@ -1,6 +1,7 @@
 package config
 
 import (
+	"codenerd/internal/logging"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,6 +37,9 @@ type Config struct {
 	// Tool Generation settings
 	ToolGeneration ToolGenerationConfig `yaml:"tool_generation" json:"tool_generation"`
 
+	// Transparency settings
+	Transparency TransparencyConfig `yaml:"transparency" json:"transparency"`
+
 	// Logging
 	Logging LoggingConfig `yaml:"logging"`
 
@@ -57,7 +61,7 @@ func DefaultConfig() *Config {
 
 		LLM: LLMConfig{
 			Provider: "zai",
-			Model:    "glm-4.6", // Z.AI GLM-4.6 - Default for codeNERD
+			Model:    "glm-4.7", // Z.AI GLM-4.7 - Default for codeNERD
 			BaseURL:  "https://api.z.ai/api/coding/paas/v4",
 			Timeout:  "120s",
 		},
@@ -95,22 +99,10 @@ func DefaultConfig() *Config {
 			TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
 		},
 
+		// Integrations: No default MCP servers - user configures external servers as needed.
+		// Internal capabilities (code analysis, browser automation) use internal packages directly.
 		Integrations: IntegrationsConfig{
-			CodeGraph: CodeGraphIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8080",
-				Timeout: "30s",
-			},
-			Browser: BrowserIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8081",
-				Timeout: "60s",
-			},
-			Scraper: ScraperIntegration{
-				Enabled: true,
-				BaseURL: "http://localhost:8082",
-				Timeout: "120s",
-			},
+			Servers: make(map[string]MCPServerIntegration),
 		},
 
 		Execution: ExecutionConfig{
@@ -125,6 +117,8 @@ func DefaultConfig() *Config {
 		},
 
 		ToolGeneration: DefaultToolGenerationConfig(),
+
+		Transparency: *DefaultTransparencyConfig(),
 
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -143,7 +137,7 @@ func DefaultConfig() *Config {
 
 		// Default shard settings (fallback for undefined shard types)
 		DefaultShard: ShardProfile{
-			Model:                 "glm-4.6", // Inherit from main LLM config
+			Model:                 "glm-4.7", // Inherit from main LLM config
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      20000,
@@ -157,7 +151,7 @@ func DefaultConfig() *Config {
 		// Per-shard profiles (custom settings per shard type)
 		ShardProfiles: map[string]ShardProfile{
 			"coder": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for code generation
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code generation
 				Temperature:           0.7,
 				TopP:                  0.9,
 				MaxContextTokens:      30000, // More context for code
@@ -168,7 +162,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        true,
 			},
 			"tester": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for test generation
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for test generation
 				Temperature:           0.5,       // Lower temp for precise tests
 				TopP:                  0.9,
 				MaxContextTokens:      20000,
@@ -179,7 +173,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        true,
 			},
 			"reviewer": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for code review
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code review
 				Temperature:           0.3,       // Very low temp for rigorous analysis
 				TopP:                  0.9,
 				MaxContextTokens:      40000, // Max context for full codebase
@@ -190,7 +184,7 @@ func DefaultConfig() *Config {
 				EnableLearning:        false, // No learning for safety-critical
 			},
 			"researcher": {
-				Model:                 "glm-4.6", // Z.AI GLM-4.6 for research
+				Model:                 "glm-4.7", // Z.AI GLM-4.7 for research
 				Temperature:           0.6,
 				TopP:                  0.95,
 				MaxContextTokens:      25000,
@@ -207,22 +201,29 @@ func DefaultConfig() *Config {
 // Load loads configuration from a YAML file.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
+	logging.BootDebug("Loading config from: %s", path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return defaults if config file doesn't exist
+			logging.Boot("Config file not found, using defaults: %s", path)
+			cfg.applyEnvOverrides()
+			logging.BootDebug("Config loaded: provider=%s", cfg.LLM.Provider)
 			return cfg, nil
 		}
+		logging.BootError("Failed to read config file %s: %v", path, err)
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
+		logging.BootError("Failed to parse config file %s: %v", path, err)
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	// Override with environment variables
 	cfg.applyEnvOverrides()
+	logging.Boot("Config loaded: provider=%s model=%s", cfg.LLM.Provider, cfg.LLM.Model)
 
 	return cfg, nil
 }
@@ -278,13 +279,13 @@ func (c *Config) applyEnvOverrides() {
 
 	// Integration URLs from environment
 	if url := os.Getenv("CODEGRAPH_URL"); url != "" {
-		c.Integrations.CodeGraph.BaseURL = url
+		c.setMCPServerURL("code_graph", url)
 	}
 	if url := os.Getenv("BROWSERNERD_URL"); url != "" {
-		c.Integrations.Browser.BaseURL = url
+		c.setMCPServerURL("browser", url)
 	}
 	if url := os.Getenv("SCRAPER_URL"); url != "" {
-		c.Integrations.Scraper.BaseURL = url
+		c.setMCPServerURL("scraper", url)
 	}
 
 	// Database path from environment
@@ -387,17 +388,32 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// setMCPServerURL is a helper to update a server's URL in the integrations map.
+func (c *Config) setMCPServerURL(serverID, url string) {
+	if c.Integrations.Servers == nil {
+		c.Integrations.Servers = make(map[string]MCPServerIntegration)
+	}
+	server := c.Integrations.Servers[serverID]
+	server.BaseURL = url
+	c.Integrations.Servers[serverID] = server
+}
+
+// IsMCPServerEnabled returns whether a specific MCP server is enabled.
+func (c *Config) IsMCPServerEnabled(serverID string) bool {
+	return c.Integrations.IsServerEnabled(serverID)
+}
+
 // IsCodeGraphEnabled returns whether code graph integration is enabled.
 func (c *Config) IsCodeGraphEnabled() bool {
-	return c.Integrations.CodeGraph.Enabled
+	return c.IsMCPServerEnabled("code_graph")
 }
 
 // IsBrowserEnabled returns whether browser integration is enabled.
 func (c *Config) IsBrowserEnabled() bool {
-	return c.Integrations.Browser.Enabled
+	return c.IsMCPServerEnabled("browser")
 }
 
 // IsScraperEnabled returns whether scraper integration is enabled.
 func (c *Config) IsScraperEnabled() bool {
-	return c.Integrations.Scraper.Enabled
+	return c.IsMCPServerEnabled("scraper")
 }

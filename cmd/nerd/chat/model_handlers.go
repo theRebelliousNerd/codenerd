@@ -121,6 +121,11 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m.handleDreamLearningCorrection(input)
 	}
 
+	// Check for dream plan execution trigger ("do it", "execute that", "run the plan")
+	if m.dreamPlanManager != nil && m.dreamPlanManager.HasPendingPlan() && isDreamExecutionTrigger(input) {
+		return m.handleDreamPlanExecution(input)
+	}
+
 	// Process in background
 	return m, tea.Batch(
 		m.spinner.Tick,
@@ -381,6 +386,109 @@ func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) 
 	})
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
+
+	m.isLoading = false
+	return m, nil
+}
+
+// handleDreamPlanExecution processes user approval to execute a dream plan.
+// This is triggered by phrases like "do it", "execute that", "run the plan".
+func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
+	// Add user message to history
+	m.history = append(m.history, Message{
+		Role:    "user",
+		Content: input,
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	m.textarea.Reset()
+
+	plan := m.dreamPlanManager.GetCurrentPlan()
+	if plan == nil || len(plan.Subtasks) == 0 {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "No dream plan to execute. Ask a hypothetical question first (e.g., \"what if we added caching?\").",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.isLoading = false
+		return m, nil
+	}
+
+	// Approve the plan
+	if err := m.dreamPlanManager.ApprovePlan(); err != nil {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Cannot execute plan: %v", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.isLoading = false
+		return m, nil
+	}
+
+	// Convert DreamSubtasks to the existing Subtask format for multi-step execution
+	subtasks := make([]Subtask, len(plan.Subtasks))
+	for i, ds := range plan.Subtasks {
+		subtasks[i] = Subtask{
+			ID:          ds.ID,
+			Description: ds.Description,
+			ShardType:   ds.ShardType,
+			IsMutation:  ds.IsMutation,
+		}
+	}
+
+	// Build execution summary
+	var sb strings.Builder
+	sb.WriteString("## Executing Dream Plan\n\n")
+	sb.WriteString(fmt.Sprintf("**Goal:** %s\n\n", plan.Hypothetical))
+	sb.WriteString(fmt.Sprintf("**Steps:** %d | **Risk:** %s | **Mode:** [%c] %s\n\n",
+		len(subtasks), plan.RiskLevel,
+		'A'+rune(m.continuationMode), m.continuationMode.String()))
+
+	sb.WriteString("| # | Step | Shard |\n")
+	sb.WriteString("|---|------|-------|\n")
+	for i, s := range subtasks {
+		mutation := ""
+		if s.IsMutation {
+			mutation = " *"
+		}
+		sb.WriteString(fmt.Sprintf("| %d | %s%s | %s |\n", i+1, truncateString(s.Description, 50), mutation, s.ShardType))
+	}
+	sb.WriteString("\n_* = mutation (file change)_\n")
+
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: sb.String(),
+		Time:    time.Now(),
+	})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	// Start execution using existing multi-step infrastructure
+	if err := m.dreamPlanManager.StartExecution(); err != nil {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Failed to start execution: %v", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.isLoading = false
+		return m, nil
+	}
+
+	// Set up pending subtasks for the continuation protocol
+	m.pendingSubtasks = subtasks
+	m.continuationStep = 1
+	m.continuationTotal = len(subtasks)
+	m.isLoading = true
+
+	// Execute the first subtask
+	if len(subtasks) > 0 {
+		first := subtasks[0]
+		return m, m.executeSubtask(first.ID, first.Description, first.ShardType)
+	}
 
 	m.isLoading = false
 	return m, nil

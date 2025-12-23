@@ -226,7 +226,7 @@ func (r *AttackRunner) RunAttackBattery(ctx context.Context, scripts []*AttackSc
 
 		exec, err := r.RunAttack(ctx, script)
 		if err != nil {
-			logging.Shards("AttackRunner: Failed to run %s: %v", script.Name, err)
+			logging.Get(logging.CategoryShards).Error("AttackRunner: Failed to run %s: %v", script.Name, err)
 			continue
 		}
 		results = append(results, exec)
@@ -293,7 +293,7 @@ func (r *AttackRunner) GenerateAttackScripts(
 
 	scripts, err := r.parseAttackScripts(response)
 	if err != nil {
-		logging.Shards("AttackRunner: Failed to parse attack scripts: %v", err)
+		logging.Get(logging.CategoryShards).Error("AttackRunner: Failed to parse attack scripts: %v", err)
 		return nil, err
 	}
 

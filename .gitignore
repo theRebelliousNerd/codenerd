@@ -43,6 +43,7 @@ Docs/*
 !Docs/plans/**/*.md
 !.claude/skills/**/*.md
 !internal/prompt/atoms/**/*.md
+!conductor/**/*.md
 
 # Debug files
 debug_program*.mg

@@ -519,6 +519,250 @@ error_burst(BucketSec, Count) :-
 
 ---
 
+## Loop Detection & Root Cause Analysis
+
+These patterns detect loops, state stagnation, and other problematic behaviors that appear as successful operations but indicate bugs. Added in v2.2.0.
+
+### Pattern: Structured Event Facts
+
+The enhanced parser extracts structured events from log messages:
+
+```mangle
+# Tool execution with call_id tracking
+Decl tool_execution(Time.Type<int>, ToolName.Type<string>, Action.Type<string>,
+                    Target.Type<string>, CallId.Type<string>,
+                    DurationMs.Type<int>, ResultLen.Type<int>).
+
+# Action routing events
+Decl action_routing(Time.Type<int>, Predicate.Type<name>, ArgCount.Type<int>).
+
+# Action completion with success/output
+Decl action_completed(Time.Type<int>, Action.Type<name>, Success.Type<name>,
+                      OutputLen.Type<int>).
+
+# API scheduler slot status
+Decl slot_status(Time.Type<int>, ShardId.Type<string>, Active.Type<int>,
+                 MaxSlots.Type<int>, Waiting.Type<int>).
+
+# Slot acquisition timing
+Decl slot_acquired(Time.Type<int>, ShardId.Type<string>, WaitDurationMs.Type<int>).
+```
+
+### Pattern: Action Loop Detection
+
+```mangle
+# Same action executed repeatedly (>5 times = loop)
+Decl action_loop(Action.Type<name>, Count.Type<int>, WindowMs.Type<int>,
+                 FirstTime.Type<int>, LastTime.Type<int>).
+
+action_loop(Act, N, Window, FirstT, LastT) :-
+    action_completed(T, Act, _, _) |>
+    do fn:group_by(Act),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Window = fn:minus(LastT, FirstT),
+    N > 5.
+```
+
+### Pattern: Repeated Call ID Detection
+
+```mangle
+# Same call_id used multiple times (state not advancing)
+Decl repeated_call_id(CallId.Type<string>, Count.Type<int>,
+                      FirstTime.Type<int>, LastTime.Type<int>).
+
+repeated_call_id(CID, N, FirstT, LastT) :-
+    tool_execution(T, _, _, _, CID, _, _) |>
+    do fn:group_by(CID),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    N > 2.  # More than 2 uses = suspicious
+```
+
+### Pattern: Routing Stagnation
+
+```mangle
+# next_action not advancing (same routing repeated)
+Decl routing_stagnation(Predicate.Type<name>, Count.Type<int>,
+                        DurationMs.Type<int>).
+
+routing_stagnation(Pred, N, Dur) :-
+    action_routing(T, Pred, _) |>
+    do fn:group_by(Pred),
+    let N = fn:Count(),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Dur = fn:minus(LastT, FirstT),
+    N > 10.  # 10+ same routing = stagnation
+```
+
+### Pattern: Identical Results Detection
+
+```mangle
+# Suspicious result pattern (same result_len repeatedly = cached response)
+Decl identical_results(Action.Type<name>, ResultLen.Type<int>, Count.Type<int>).
+
+identical_results(Act, Len, N) :-
+    action_completed(_, Act, /true, Len) |>
+    do fn:group_by(Act, Len),
+    let N = fn:Count(),
+    N > 5.  # 5+ identical results = suspicious
+```
+
+### Pattern: Slot Starvation Detection
+
+```mangle
+# Slot starvation (waiting count increasing)
+Decl slot_starvation_event(ShardId.Type<string>, MaxWaiting.Type<int>,
+                           DurationMs.Type<int>).
+
+slot_starvation_event(SID, MaxW, Dur) :-
+    slot_status(T, SID, _, _, W) |>
+    do fn:group_by(SID),
+    let MaxW = fn:Max(W),
+    let FirstT = fn:Min(T),
+    let LastT = fn:Max(T),
+    Dur = fn:minus(LastT, FirstT),
+    MaxW > 3.  # More than 3 waiting = starvation
+
+# Long slot wait (>10 seconds)
+Decl long_slot_wait(ShardId.Type<string>, WaitDurationMs.Type<int>).
+
+long_slot_wait(SID, Wait) :-
+    slot_acquired(_, SID, Wait),
+    Wait > 10000.  # >10 seconds
+```
+
+### Pattern: False Success Detection
+
+```mangle
+# Success but looping (success=true but same action keeps running)
+Decl false_success_loop(Action.Type<name>, SuccessCount.Type<int>,
+                        LoopDurationMs.Type<int>).
+
+false_success_loop(Act, N, Dur) :-
+    action_loop(Act, N, Dur, _, _),
+    action_completed(_, Act, /true, _).
+```
+
+### Pattern: Anomaly Classification
+
+```mangle
+# Combined anomaly with severity
+Decl loop_anomaly(Action.Type<name>, Severity.Type<name>, Evidence.Type<string>).
+
+loop_anomaly(Act, /critical, "repeated_call_id") :-
+    repeated_call_id(_, N, _, _), N > 10,
+    tool_execution(_, _, Act, _, _, _, _).
+
+loop_anomaly(Act, /critical, "action_loop") :-
+    action_loop(Act, N, _, _, _), N > 20.
+
+loop_anomaly(Act, /high, "identical_results") :-
+    identical_results(Act, _, N), N > 10.
+
+loop_anomaly(Act, /high, "false_success") :-
+    false_success_loop(Act, _, _).
+```
+
+### Pattern: Root Cause Diagnosis
+
+```mangle
+# Diagnosis: Why is state not advancing?
+Decl loop_root_cause(Action.Type<name>, Cause.Type<name>, Evidence.Type<string>).
+
+# Cause 1: No fact assertion after action
+loop_root_cause(Act, /missing_fact_update,
+                "action completes but no kernel fact asserted") :-
+    action_loop(Act, _, _, _, _),
+    action_completed(AT, Act, /true, _),
+    !kernel_fact_asserted_after(AT, 500).
+
+# Cause 2: Same next_action derived repeatedly (kernel rule issue)
+loop_root_cause(Act, /kernel_rule_stuck,
+                "next_action derives same result") :-
+    action_loop(Act, N, _, _, _),
+    routing_stagnation(/next_action, N2, _),
+    N2 > 5.
+
+# Cause 3: Tool returning cached/dummy response
+loop_root_cause(Act, /tool_caching,
+                "tool returns identical result every time") :-
+    action_loop(Act, _, _, _, _),
+    identical_results(Act, _, N),
+    N > 5.
+
+# Cause 4: Slot starvation blocking state updates
+loop_root_cause(Act, /slot_starvation_correlated,
+                "API slots exhausted during loop") :-
+    action_loop(Act, _, _, FirstT, LastT),
+    slot_starvation_event(_, _, Dur),
+    Dur > 10000.
+```
+
+### Pattern: Full Diagnosis Report
+
+```mangle
+# Complete diagnosis with all information
+Decl loop_diagnosis(Action.Type<name>, LoopCount.Type<int>, DurationMs.Type<int>,
+                    RootCause.Type<name>, Severity.Type<name>).
+
+loop_diagnosis(Act, N, Dur, Cause, Sev) :-
+    action_loop(Act, N, Dur, _, _),
+    loop_root_cause(Act, Cause, _),
+    loop_anomaly(Act, Sev, _).
+```
+
+### Workflow: Loop Diagnosis
+
+1. Detect loops: `?action_loop(Act, Count, Duration, First, Last).`
+2. Check for repeated call IDs: `?repeated_call_id(CID, Count, First, Last).`
+3. Check for identical results: `?identical_results(Act, Len, Count).`
+4. Check for slot starvation: `?slot_starvation_event(SID, MaxWait, Dur).`
+5. Get anomaly classification: `?loop_anomaly(Act, Severity, Evidence).`
+6. Determine root cause: `?loop_root_cause(Act, Cause, Evidence).`
+7. Full diagnosis: `?loop_diagnosis(Act, Count, Dur, Cause, Severity).`
+
+### Quick Detection Script
+
+For fast analysis without Mangle compilation, use `detect_loops.py`:
+
+```bash
+# Analyze logs and output JSON
+python3 scripts/detect_loops.py .nerd/logs/*.log --pretty
+
+# With custom threshold
+python3 scripts/detect_loops.py .nerd/logs/*.log --threshold 3
+
+# Save to file
+python3 scripts/detect_loops.py .nerd/logs/*.log -o anomalies.json
+```
+
+### logquery Builtins
+
+The logquery tool provides computed builtins for loop detection:
+
+| Builtin | Description |
+|---------|-------------|
+| `:loops` | Find action loops |
+| `:stagnation` | Find routing stagnation |
+| `:identical-results` | Find identical result patterns |
+| `:slot-starvation` | Find slot starvation events |
+| `:false-success` | Find success masking failure |
+| `:anomalies` | Combined anomaly report |
+| `:diagnose` | Full diagnosis with root cause |
+| `:root-cause` | Root cause analysis only |
+
+```bash
+./logquery.exe facts.mg -i
+logquery> :diagnose
+logquery> :root-cause
+```
+
+---
+
 ## Debugging Workflows
 
 ### Workflow 1: "Why did this fail?"

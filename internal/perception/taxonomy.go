@@ -2,6 +2,7 @@ package perception
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"context"
 	"fmt"
@@ -46,6 +47,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	// Load Intent Definition Schemas (Modular) - must be loaded in order
 	intentFiles := []string{
 		"schema/intent_core.mg",         // Core Decl statements
+		"schema/intent_qualifiers.mg",   // Interrogatives, modals, copular, negation
 		"schema/intent_queries.mg",      // /query category intents
 		"schema/intent_mutations.mg",    // /mutation category intents
 		"schema/intent_instructions.mg", // /instruction category intents
@@ -313,20 +315,42 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 	// Actually, if we don't Clear(), we accumulate context_token.
 	// This is bad.
-	// We MUST Clear() but then we lose the static facts.
-	// So we MUST re-add static facts.
-	// Since we have them in DefaultTaxonomyData, we can re-add them fast.
-	// Or relying on the previous fix where we loaded them.
+	// We MUST Reset() to clear schema fragments too, otherwise reloading schemas creates duplicate Decls.
+	t.engine.Reset()
 
-	t.engine.Clear()
+	// 1. Reload Intent Schemas (Modular) - ALWAYS REQUIRED for inference
+	// These contain critical facts like interrogative_type, modal_type, etc.
+	intentFiles := []string{
+		"schema/intent_core.mg",
+		"schema/intent_qualifiers.mg",
+		"schema/intent_queries.mg",
+		"schema/intent_mutations.mg",
+		"schema/intent_instructions.mg",
+		"schema/intent_campaign.mg",
+		"schema/intent_system.mg",
+		"schema/learning.mg", // CRITICAL: Required by InferenceLogicMG
+	}
+	for _, file := range intentFiles {
+		content, err := core.GetDefaultContent(file)
+		if err == nil {
+			if err := t.engine.LoadSchemaString(content); err != nil {
+				logging.PerceptionDebug("Failed to reload schema %s: %v", file, err)
+			}
+		} else {
+			logging.PerceptionDebug("Failed to get content for %s: %v", file, err)
+		}
+	}
 
-	// Re-hydrate
+	// 2. Reload Inference Logic - ALWAYS REQUIRED
+	if err := t.engine.LoadSchemaString(InferenceLogicMG); err != nil {
+		logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
+	}
+
+	// 3. Re-hydrate Verb Taxonomy (EDB facts)
 	if t.store != nil {
 		t.HydrateFromDB()
 	} else {
 		// Re-add defaults
-		// Note: We must re-load the schema (declarations) AND the facts.
-		t.engine.LoadSchemaString(InferenceLogicMG)
 		for _, entry := range DefaultTaxonomyData {
 			t.engine.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority)
 			for _, syn := range entry.Synonyms {
@@ -346,10 +370,6 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	// Inject full input string for exact/fuzzy matching against learned patterns
 	facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []interface{}{input}})
 
-	if len(candidates) == 0 {
-		return "", 0, nil
-	}
-
 	for _, cand := range candidates {
 		baseScore := float64(cand.Priority)
 		facts = append(facts, mangle.Fact{
@@ -362,15 +382,45 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 		return "", 0, fmt.Errorf("failed to add facts: %w", err)
 	}
 
-	// Use Query for inference
-	result, err := t.engine.Query(context.Background(), "selected_verb(Verb)")
+	// Use GetFacts to get all derived potential scores and aggregate in Go
+	// This avoids "predicate potential_score has no modes declared" errors.
+	factsFromStore, err := t.engine.GetFacts("potential_score")
 	if err != nil {
-		return "", 0, fmt.Errorf("inference query failed: %w", err)
+		return "", 0, fmt.Errorf("failed to get potential_score facts: %w", err)
 	}
 
-	if len(result.Bindings) > 0 {
-		verb := result.Bindings[0]["Verb"].(string)
-		return verb, 1.0, nil
+	var bestScore float64 = -1.0
+
+	for _, fact := range factsFromStore {
+		if len(fact.Args) != 2 {
+			continue
+		}
+		verb, ok := fact.Args[0].(string)
+		if !ok {
+			continue
+		}
+		
+		// Handle score which might be int64 or float64 depending on Mangle internal representation
+		var score float64
+		switch s := fact.Args[1].(type) {
+		case float64:
+			score = s
+		case int64:
+			score = float64(s)
+		case int:
+			score = float64(s)
+		default:
+			continue
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestVerb = verb
+		}
+	}
+
+	if bestVerb != "" {
+		return bestVerb, 1.0, nil
 	}
 
 	return "", 0, nil
@@ -644,82 +694,62 @@ Decl verb_pattern(Verb, Regex).
 Decl potential_score(Verb, Score).
 
 # 1. Base Score
-# 1. Base Score
+# Convert float score to int for calculation if needed, but here we just pass it.
+# candidate_intent RawScore is already scaled to int64 by engine.go if it was > 1.0.
 potential_score(Verb, Score) :- candidate_intent(Verb, Score).
 
 # Learned Pattern Override (Highest Priority)
 # If the input matches a learned pattern, give it a massive boost.
-potential_score(Verb, 100.0) :-
+potential_score(Verb, 100) :-
     user_input_string(Input),
     learned_exemplar(Pattern, Verb, _, _, _),
-    # Simple case-insensitive exact match for now. 
-    # Mangle doesn't have robust fuzzy matching built-in yet, relying on LLM for fuzzy part.
-    # But this handles exact recurrence.
     Input = Pattern.
 
 # 2. Boosted Scores (Rule-based)
+# Use integer arithmetic for scores (0-100 scale).
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /security,
     context_token("security"),
-    NewScore = fn:plus(Base, 0.3).
+    NewScore = fn:plus(Base, 30).
 
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /security,
     context_token("vulnerability"),
-    NewScore = fn:plus(Base, 0.3).
+    NewScore = fn:plus(Base, 30).
 
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /test,
     context_token("coverage"),
-    NewScore = fn:plus(Base, 0.2).
+    NewScore = fn:plus(Base, 20).
 
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /debug,
     context_token("panic"),
-    NewScore = fn:plus(Base, 0.15).
+    NewScore = fn:plus(Base, 15).
 
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /debug,
     context_token("stacktrace"),
-    NewScore = fn:plus(Base, 0.15).
+    NewScore = fn:plus(Base, 15).
 
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /test,
     context_token("verify"),
-    NewScore = fn:plus(Base, 0.2).
+    NewScore = fn:plus(Base, 20).
 
-# 3. Relational Max Score Selection
-# Define a predicate that finds scores that are NOT max
-Decl has_greater_score(Score).
-has_greater_score(S) :-
-    potential_score(_, S),
-    potential_score(_, Other),
-    Other > S.
-
-# Define max score as one that has no greater score
-Decl best_score(MaxScore).
-best_score(S) :-
-    potential_score(_, S),
-    !has_greater_score(S).
-
-# Select verb matching the max score
-Decl selected_verb(Verb).
-selected_verb(Verb) :-
-    potential_score(Verb, S),
-    best_score(Max),
-    S = Max.
+# Note: Aggregation (finding max score) is now handled in Go code to avoid
+# "no modes declared" errors caused by complex negation in Mangle.
 
 # =============================================================================
 # SEMANTIC MATCHING INFERENCE
 # =============================================================================
 # These rules use semantic_match facts to influence verb selection.
-# They work alongside existing token-based boosting.
 
 # EDB declarations for semantic matching (facts asserted by SemanticClassifier)
 Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
@@ -737,7 +767,7 @@ semantic_suggested_verb(Verb, Similarity) :-
 
 # HIGH-CONFIDENCE SEMANTIC OVERRIDE
 # If rank 1 match has similarity >= 85, override to max score
-potential_score(Verb, 100.0) :-
+potential_score(Verb, 100) :-
     semantic_match(_, _, Verb, _, 1, Similarity),
     Similarity >= 85.
 
@@ -749,7 +779,7 @@ potential_score(Verb, NewScore) :-
     Rank <= 3,
     Similarity >= 70,
     Similarity < 85,
-    NewScore = fn:plus(Base, 30.0).
+    NewScore = fn:plus(Base, 30).
 
 # LOW-CONFIDENCE SEMANTIC BOOST
 # Rank 1-5 with similarity 60-69 get +15 boost
@@ -759,7 +789,7 @@ potential_score(Verb, NewScore) :-
     Rank <= 5,
     Similarity >= 60,
     Similarity < 70,
-    NewScore = fn:plus(Base, 15.0).
+    NewScore = fn:plus(Base, 15).
 
 # VERB COMPOSITION FROM MULTIPLE MATCHES
 # If two different verbs both have high similarity, suggest composition
@@ -780,5 +810,290 @@ potential_score(Verb, NewScore) :-
     Similarity >= 70,
     learned_exemplar(Sentence, Verb, _, _, _),
     candidate_intent(Verb, Base),
-    NewScore = fn:plus(Base, 40.0).
+    NewScore = fn:plus(Base, 40).
+
+# =============================================================================
+# INTENT QUALIFIER INFERENCE
+# =============================================================================
+# These rules use the intent qualifiers (interrogatives, modals, copular states,
+# negation) to enhance verb selection beyond simple pattern matching.
+
+# --- Derived predicates for qualifier detection ---
+Decl detected_interrogative(Word, SemanticType, DefaultVerb, Priority).
+Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
+Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
+Decl detected_negation(Word, NegationType, Priority).
+Decl detected_existence(Pattern, DefaultVerb, Priority).
+Decl has_negation(Flag).
+Decl has_polite_modal(Flag).
+Decl has_hypothetical_modal(Flag).
+
+# --- Detect interrogatives from context tokens ---
+# Single-word tokens are often atomized if they are identifiers (like 'where', 'is')
+detected_interrogative(Word, SemanticType, DefaultVerb, Priority) :-
+    context_token(Word),
+    interrogative_type(Word, SemanticType, DefaultVerb, Priority).
+
+# Two-word interrogatives (check for both tokens present)
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/what),
+    context_token(/is),
+    interrogative_type("what is", SemanticType, DefaultVerb, Priority),
+    Phrase = "what is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/what),
+    context_token(/if),
+    interrogative_type("what if", SemanticType, DefaultVerb, Priority),
+    Phrase = "what if".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/why),
+    context_token(/is),
+    interrogative_type("why is", SemanticType, DefaultVerb, Priority),
+    Phrase = "why is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/why),
+    context_token(/does),
+    interrogative_type("why does", SemanticType, DefaultVerb, Priority),
+    Phrase = "why does".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/how),
+    context_token(/do),
+    context_token(/i),
+    interrogative_type("how do i", SemanticType, DefaultVerb, Priority),
+    Phrase = "how do i".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/how),
+    context_token(/can),
+    context_token(/i),
+    interrogative_type("how can i", SemanticType, DefaultVerb, Priority),
+    Phrase = "how can i".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/where),
+    context_token(/is),
+    interrogative_type("where is", SemanticType, DefaultVerb, Priority),
+    Phrase = "where is".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/who),
+    context_token(/wrote),
+    interrogative_type("who wrote", SemanticType, DefaultVerb, Priority),
+    Phrase = "who wrote".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/which),
+    context_token(/file),
+    interrogative_type("which file", SemanticType, DefaultVerb, Priority),
+    Phrase = "which file".
+
+detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
+    context_token(/which),
+    context_token(/files),
+    interrogative_type("which files", SemanticType, DefaultVerb, Priority),
+    Phrase = "which files".
+
+# --- Detect modals from context tokens ---
+detected_modal(Word, ModalMeaning, Transformation, Priority) :-
+    context_token(Word),
+    modal_type(Word, ModalMeaning, Transformation, Priority).
+
+# Two-word modals
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token(/can),
+    context_token(/you),
+    modal_type("can you", ModalMeaning, Transformation, Priority),
+    Phrase = "can you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token(/could),
+    context_token(/you),
+    modal_type("could you", ModalMeaning, Transformation, Priority),
+    Phrase = "could you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token(/would),
+    context_token(/you),
+    modal_type("would you", ModalMeaning, Transformation, Priority),
+    Phrase = "would you".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token(/help),
+    context_token(/me),
+    modal_type("help me", ModalMeaning, Transformation, Priority),
+    Phrase = "help me".
+
+detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
+    context_token(/what),
+    context_token(/if),
+    modal_type("what if", ModalMeaning, Transformation, Priority),
+    Phrase = "what if".
+
+# --- Detect state adjectives from context tokens ---
+detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority) :-
+    context_token(Adjective),
+    state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
+
+# --- Detect negation from context tokens ---
+detected_negation(Word, NegationType, Priority) :-
+    context_token(Word),
+    negation_marker(Word, NegationType, Priority).
+
+# Flag if any negation is present (use /true sentinel for boolean)
+has_negation(/true) :-
+    detected_negation(_, _, _).
+
+# Flag if polite modal is present (use /true sentinel for boolean)
+has_polite_modal(/true) :-
+    detected_modal(_, /polite_request, _, _).
+
+# Flag if hypothetical modal is present (use /true sentinel for boolean)
+has_hypothetical_modal(/true) :-
+    detected_modal(_, /hypothetical, _, _).
+
+# --- Detect existence patterns ---
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token(/is),
+    context_token(/there),
+    existence_pattern("is there", _, DefaultVerb, Priority),
+    Pattern = "is there".
+
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token(/are),
+    context_token(/there),
+    existence_pattern("are there", _, DefaultVerb, Priority),
+    Pattern = "are there".
+
+detected_existence(Pattern, DefaultVerb, Priority) :-
+    context_token(/do),
+    context_token(/we),
+    context_token(/have),
+    existence_pattern("do we have", _, DefaultVerb, Priority),
+    Pattern = "do we have".
+
+# =============================================================================
+# QUALIFIER-ENHANCED VERB SCORING
+# =============================================================================
+
+# --- NEGATION BLOCKING (Highest Priority) ---
+# If negation + verb detected, DO NOT select that verb
+# Instead, convert to an instruction intent
+Decl negated_verb(Verb).
+negated_verb(Verb) :-
+    has_negation(/true),
+    context_token(VerbWord),
+    verb_synonym(Verb, VerbWord).
+
+# Negated verbs get negative score (effectively blocked)
+potential_score(Verb, -100) :-
+    negated_verb(Verb).
+
+# When negation present, boost /instruction or /explain instead
+potential_score(/explain, 85) :-
+    has_negation(/true),
+    negated_verb(_).
+
+# --- MODAL STRIPPING (High Priority) ---
+# "Can you review this?" -> strip modal, boost /review
+# This fires when polite modal + verb synonym detected
+potential_score(Verb, 95) :-
+    has_polite_modal(/true),
+    context_token(VerbWord),
+    verb_synonym(Verb, VerbWord),
+    !negated_verb(Verb).
+
+# --- HYPOTHETICAL MODE (High Priority) ---
+# "What if I deleted this?" -> boost /dream
+potential_score(/dream, 92) :-
+    has_hypothetical_modal(/true).
+
+# --- COPULAR + STATE ADJECTIVE (High Priority) ---
+# "Is this code secure?" -> /security
+# Requires copular verb + state adjective in context
+Decl copular_state_intent(ImpliedVerb, Priority).
+copular_state_intent(ImpliedVerb, Priority) :-
+    context_token(Copular),
+    copular_verb(Copular, _, _),
+    detected_state_adj(_, ImpliedVerb, _, Priority).
+
+# Helper predicates for safe negation (wildcards in negated atoms cause safety violations)
+Decl has_copular_state_intent(Flag).
+has_copular_state_intent(/true) :- copular_state_intent(_, _).
+
+Decl has_candidate_intent(Flag).
+has_candidate_intent(/true) :- candidate_intent(_, _).
+
+potential_score(Verb, Score) :-
+    copular_state_intent(Verb, BasePriority),
+    !has_negation(/true),
+    Score = fn:plus(BasePriority, 5).
+
+# --- INTERROGATIVE + STATE COMBINATION (Very High Priority) ---
+# "Why is this failing?" -> causation + error_state -> /debug
+Decl interrogative_state_combo(CombinedVerb, Priority).
+interrogative_state_combo(CombinedVerb, Priority) :-
+    detected_interrogative(_, InterrogType, _, _),
+    detected_state_adj(_, _, StateCategory, _),
+    interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
+
+Decl has_interrogative_state_combo(Flag).
+has_interrogative_state_combo(/true) :- interrogative_state_combo(_, _).
+
+potential_score(Verb, Score) :-
+    interrogative_state_combo(Verb, Priority),
+    !has_negation(/true),
+    Score = fn:plus(Priority, 2).
+
+# --- PURE INTERROGATIVE FALLBACK (Medium Priority) ---
+# If interrogative detected but no verb match, use interrogative's default verb
+Decl pure_interrogative_intent(DefaultVerb, Priority).
+pure_interrogative_intent(DefaultVerb, Priority) :-
+    detected_interrogative(_, _, DefaultVerb, Priority),
+    !has_polite_modal(/true),
+    !has_copular_state_intent(/true),
+    !has_interrogative_state_combo(/true).
+
+potential_score(Verb, Score) :-
+    pure_interrogative_intent(Verb, Priority),
+    !has_candidate_intent(/true),
+    !has_negation(/true),
+    Score = Priority.
+
+# --- EXISTENCE QUERIES (Medium Priority) ---
+# "Is there a config file?" -> /search
+potential_score(DefaultVerb, Score) :-
+    detected_existence(_, DefaultVerb, Priority),
+    !has_negation(/true),
+    Score = Priority.
+
+# =============================================================================
+# INTENT METADATA DERIVATION
+# =============================================================================
+# Derive additional metadata about the intent for routing decisions.
+# Note: Mangle requires at least one argument per predicate; use /true sentinel for booleans.
+
+Decl intent_is_question(Flag).
+Decl intent_is_hypothetical(Flag).
+Decl intent_is_negated(Flag).
+Decl intent_semantic_type(Type).
+Decl intent_state_category(Category).
+
+intent_is_question(/true) :-
+    detected_interrogative(_, _, _, _).
+
+intent_is_hypothetical(/true) :-
+    has_hypothetical_modal(/true).
+
+intent_is_negated(/true) :-
+    has_negation(/true).
+
+intent_semantic_type(Type) :-
+    detected_interrogative(_, Type, _, _).
+
+intent_state_category(Category) :-
+    detected_state_adj(_, _, Category, _).
 `

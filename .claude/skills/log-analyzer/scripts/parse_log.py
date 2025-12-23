@@ -31,6 +31,52 @@ class LogEntry(NamedTuple):
     line_number: int
 
 
+# =============================================================================
+# STRUCTURED EVENT TYPES (for loop/anomaly detection)
+# =============================================================================
+
+class ToolExecution(NamedTuple):
+    """Tool execution event (from tools.log)."""
+    timestamp_ms: int
+    tool_name: str
+    action: str
+    target: str
+    call_id: str
+    duration_ms: Optional[int]  # None for start events
+    result_len: Optional[int]   # None for start events
+
+
+class ActionRouting(NamedTuple):
+    """Action routing event (from virtual_store.log)."""
+    timestamp_ms: int
+    predicate: str
+    arg_count: int
+
+
+class ActionCompleted(NamedTuple):
+    """Action completion event (from virtual_store.log)."""
+    timestamp_ms: int
+    action: str
+    success: bool
+    output_len: int
+
+
+class SlotStatus(NamedTuple):
+    """API scheduler slot status (from shards.log)."""
+    timestamp_ms: int
+    shard_id: str
+    active: int
+    max_slots: int
+    waiting: int
+
+
+class SlotAcquired(NamedTuple):
+    """Slot acquisition event (from shards.log)."""
+    timestamp_ms: int
+    shard_id: str
+    wait_duration_ms: int
+
+
 # Regex to parse log lines
 # Format: 2025/12/08 10:30:45.123456 [LEVEL] message
 LOG_PATTERN = re.compile(
@@ -42,6 +88,47 @@ LOG_PATTERN = re.compile(
 
 # Extract category from filename pattern: {date}_{category}.log
 FILENAME_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}_(.+)\.log$')
+
+# =============================================================================
+# STRUCTURED FIELD EXTRACTION PATTERNS (for loop/anomaly detection)
+# =============================================================================
+
+# tools.log: Executing tool: code_search (action=/analyze_code, target=jit system, call_id=action-1766467874958742200)
+TOOL_EXEC_START_PATTERN = re.compile(
+    r'Executing tool:\s*(\w+)\s*'
+    r'\(action=(/[\w_]+),\s*'
+    r'target=([^,]+),\s*'
+    r'call_id=([^)]+)\)'
+)
+
+# tools.log: Tool execution completed: code_search (call_id=..., duration=1.1727344s, result_len=44)
+TOOL_EXEC_COMPLETE_PATTERN = re.compile(
+    r'Tool execution completed:\s*(\w+)\s*'
+    r'\(call_id=([^,]+),\s*'
+    r'duration=([^,]+),\s*'
+    r'result_len=(\d+)\)'
+)
+
+# virtual_store.log: Routing action: predicate=next_action, args=4
+ACTION_ROUTING_PATTERN = re.compile(
+    r'Routing action:\s*predicate=(\w+),\s*args=(\d+)'
+)
+
+# virtual_store.log: Action analyze_code completed: success=true, output_len=44
+ACTION_COMPLETED_PATTERN = re.compile(
+    r'Action\s+(\w+)\s+completed:\s*success=(\w+),\s*output_len=(\d+)'
+)
+
+# shards.log: APIScheduler: shard X waiting for slot (active=5/5, waiting=1)
+SLOT_WAITING_PATTERN = re.compile(
+    r'APIScheduler:\s*shard\s+(\S+)\s+waiting for slot\s*'
+    r'\(active=(\d+)/(\d+),\s*waiting=(\d+)\)'
+)
+
+# shards.log: APIScheduler: shard X acquired slot after 40.1027628s
+SLOT_ACQUIRED_PATTERN = re.compile(
+    r'APIScheduler:\s*shard\s+(\S+)\s+acquired slot after\s*([0-9.]+)s'
+)
 
 
 def parse_timestamp(date_str: str, time_str: str) -> int:
@@ -78,6 +165,127 @@ def escape_mangle_string(s: str) -> str:
     s = s.replace('\r', '\\r')
     s = s.replace('\t', '\\t')
     return s
+
+
+def parse_duration_to_ms(duration_str: str) -> int:
+    """Parse duration string (e.g., '1.1727344s', '994.4174ms') to milliseconds."""
+    duration_str = duration_str.strip()
+    if duration_str.endswith('ms'):
+        return int(float(duration_str[:-2]))
+    elif duration_str.endswith('s'):
+        return int(float(duration_str[:-1]) * 1000)
+    elif duration_str.endswith('m'):
+        return int(float(duration_str[:-1]) * 60000)
+    else:
+        # Try to parse as seconds
+        try:
+            return int(float(duration_str) * 1000)
+        except ValueError:
+            return 0
+
+
+def extract_structured_events(entry: LogEntry) -> list:
+    """
+    Extract structured events from a log entry message.
+    Returns a list of structured event objects (ToolExecution, ActionRouting, etc.)
+    """
+    events = []
+    msg = entry.message
+
+    # Tool execution start
+    match = TOOL_EXEC_START_PATTERN.search(msg)
+    if match:
+        tool_name, action, target, call_id = match.groups()
+        events.append(ToolExecution(
+            timestamp_ms=entry.timestamp_ms,
+            tool_name=tool_name,
+            action=action,
+            target=target.strip(),
+            call_id=call_id,
+            duration_ms=None,
+            result_len=None
+        ))
+
+    # Tool execution complete
+    match = TOOL_EXEC_COMPLETE_PATTERN.search(msg)
+    if match:
+        tool_name, call_id, duration, result_len = match.groups()
+        events.append(ToolExecution(
+            timestamp_ms=entry.timestamp_ms,
+            tool_name=tool_name,
+            action="",  # Not in completion message
+            target="",
+            call_id=call_id,
+            duration_ms=parse_duration_to_ms(duration),
+            result_len=int(result_len)
+        ))
+
+    # Action routing
+    match = ACTION_ROUTING_PATTERN.search(msg)
+    if match:
+        predicate, arg_count = match.groups()
+        events.append(ActionRouting(
+            timestamp_ms=entry.timestamp_ms,
+            predicate=predicate,
+            arg_count=int(arg_count)
+        ))
+
+    # Action completed
+    match = ACTION_COMPLETED_PATTERN.search(msg)
+    if match:
+        action, success, output_len = match.groups()
+        events.append(ActionCompleted(
+            timestamp_ms=entry.timestamp_ms,
+            action=action,
+            success=(success.lower() == 'true'),
+            output_len=int(output_len)
+        ))
+
+    # Slot waiting
+    match = SLOT_WAITING_PATTERN.search(msg)
+    if match:
+        shard_id, active, max_slots, waiting = match.groups()
+        events.append(SlotStatus(
+            timestamp_ms=entry.timestamp_ms,
+            shard_id=shard_id,
+            active=int(active),
+            max_slots=int(max_slots),
+            waiting=int(waiting)
+        ))
+
+    # Slot acquired
+    match = SLOT_ACQUIRED_PATTERN.search(msg)
+    if match:
+        shard_id, wait_duration = match.groups()
+        events.append(SlotAcquired(
+            timestamp_ms=entry.timestamp_ms,
+            shard_id=shard_id,
+            wait_duration_ms=int(float(wait_duration) * 1000)
+        ))
+
+    return events
+
+
+def structured_event_to_mangle(event) -> str:
+    """Convert a structured event to a Mangle fact."""
+    if isinstance(event, ToolExecution):
+        if event.duration_ms is not None:
+            # Completion event
+            return f'tool_execution_complete({event.timestamp_ms}, "{escape_mangle_string(event.tool_name)}", "{escape_mangle_string(event.call_id)}", {event.duration_ms}, {event.result_len}).'
+        else:
+            # Start event
+            return f'tool_execution_start({event.timestamp_ms}, "{escape_mangle_string(event.tool_name)}", {event.action}, "{escape_mangle_string(event.target)}", "{escape_mangle_string(event.call_id)}").'
+    elif isinstance(event, ActionRouting):
+        return f'action_routing({event.timestamp_ms}, /{event.predicate}, {event.arg_count}).'
+    elif isinstance(event, ActionCompleted):
+        success_atom = "/true" if event.success else "/false"
+        return f'action_completed({event.timestamp_ms}, /{event.action}, {success_atom}, {event.output_len}).'
+    elif isinstance(event, SlotStatus):
+        return f'slot_status({event.timestamp_ms}, "{escape_mangle_string(event.shard_id)}", {event.active}, {event.max_slots}, {event.waiting}).'
+    elif isinstance(event, SlotAcquired):
+        return f'slot_acquired({event.timestamp_ms}, "{escape_mangle_string(event.shard_id)}", {event.wait_duration_ms}).'
+    else:
+        return ""
 
 
 def parse_log_file(
@@ -177,6 +385,34 @@ def generate_schema() -> str:
 # Core log entry fact
 # log_entry(Timestamp, Category, Level, Message, File, Line)
 Decl log_entry(Time.Type<int>, Category.Type<name>, Level.Type<name>, Message.Type<string>, File.Type<string>, Line.Type<int>).
+
+# =============================================================================
+# STRUCTURED EVENT FACTS (for loop/anomaly detection)
+# =============================================================================
+
+# Tool execution start event (from tools.log)
+# tool_execution_start(Time, ToolName, Action, Target, CallId)
+Decl tool_execution_start(Time.Type<int>, ToolName.Type<string>, Action.Type<name>, Target.Type<string>, CallId.Type<string>).
+
+# Tool execution complete event (from tools.log)
+# tool_execution_complete(Time, ToolName, CallId, DurationMs, ResultLen)
+Decl tool_execution_complete(Time.Type<int>, ToolName.Type<string>, CallId.Type<string>, DurationMs.Type<int>, ResultLen.Type<int>).
+
+# Action routing event (from virtual_store.log)
+# action_routing(Time, Predicate, ArgCount)
+Decl action_routing(Time.Type<int>, Predicate.Type<name>, ArgCount.Type<int>).
+
+# Action completion event (from virtual_store.log)
+# action_completed(Time, Action, Success, OutputLen)
+Decl action_completed(Time.Type<int>, Action.Type<name>, Success.Type<name>, OutputLen.Type<int>).
+
+# API scheduler slot status (from shards.log)
+# slot_status(Time, ShardId, Active, MaxSlots, Waiting)
+Decl slot_status(Time.Type<int>, ShardId.Type<string>, Active.Type<int>, MaxSlots.Type<int>, Waiting.Type<int>).
+
+# Slot acquisition event (from shards.log)
+# slot_acquired(Time, ShardId, WaitDurationMs)
+Decl slot_acquired(Time.Type<int>, ShardId.Type<string>, WaitDurationMs.Type<int>).
 
 # =============================================================================
 # DERIVED PREDICATES
@@ -359,6 +595,9 @@ Examples:
             sys.exit(1)
 
         total_entries = 0
+        total_structured_events = 0
+        structured_events_list = []  # For JSON output
+
         for filepath in args.files:
             # Expand globs on Windows
             if '*' in filepath:
@@ -383,8 +622,61 @@ Examples:
 
                     if args.format == 'mangle':
                         out.write(entry_to_mangle(entry) + '\n')
+
+                        # Also extract and output structured events
+                        for event in extract_structured_events(entry):
+                            fact = structured_event_to_mangle(event)
+                            if fact:
+                                out.write(fact + '\n')
+                                total_structured_events += 1
+
                     elif args.format == 'json':
-                        entries.append(entry_to_json(entry))
+                        entry_dict = entry_to_json(entry)
+                        # Add structured events as nested objects
+                        structured = extract_structured_events(entry)
+                        if structured:
+                            entry_dict['structured_events'] = []
+                            for event in structured:
+                                total_structured_events += 1
+                                if isinstance(event, ToolExecution):
+                                    entry_dict['structured_events'].append({
+                                        'type': 'tool_execution',
+                                        'tool_name': event.tool_name,
+                                        'action': event.action,
+                                        'target': event.target,
+                                        'call_id': event.call_id,
+                                        'duration_ms': event.duration_ms,
+                                        'result_len': event.result_len
+                                    })
+                                elif isinstance(event, ActionRouting):
+                                    entry_dict['structured_events'].append({
+                                        'type': 'action_routing',
+                                        'predicate': event.predicate,
+                                        'arg_count': event.arg_count
+                                    })
+                                elif isinstance(event, ActionCompleted):
+                                    entry_dict['structured_events'].append({
+                                        'type': 'action_completed',
+                                        'action': event.action,
+                                        'success': event.success,
+                                        'output_len': event.output_len
+                                    })
+                                elif isinstance(event, SlotStatus):
+                                    entry_dict['structured_events'].append({
+                                        'type': 'slot_status',
+                                        'shard_id': event.shard_id,
+                                        'active': event.active,
+                                        'max_slots': event.max_slots,
+                                        'waiting': event.waiting
+                                    })
+                                elif isinstance(event, SlotAcquired):
+                                    entry_dict['structured_events'].append({
+                                        'type': 'slot_acquired',
+                                        'shard_id': event.shard_id,
+                                        'wait_duration_ms': event.wait_duration_ms
+                                    })
+                        entries.append(entry_dict)
+
                     elif args.format == 'csv':
                         out.write(entry_to_csv(entry) + '\n')
 
@@ -397,8 +689,9 @@ Examples:
         # Summary comment
         if args.format == 'mangle':
             out.write(f'\n# Total log entries: {total_entries}\n')
+            out.write(f'# Total structured events: {total_structured_events}\n')
 
-        print(f"Parsed {total_entries} log entries", file=sys.stderr)
+        print(f"Parsed {total_entries} log entries, {total_structured_events} structured events", file=sys.stderr)
 
     finally:
         if args.output:

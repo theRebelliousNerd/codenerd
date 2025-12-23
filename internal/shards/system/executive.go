@@ -98,6 +98,10 @@ type ExecutivePolicyShard struct {
 	// Mangle feedback loop for validated rule generation
 	feedbackLoop          *feedback.FeedbackLoop
 	budgetExhaustedLogged bool // Prevents repeated "budget exhausted" warnings
+
+	// Boot guard: prevents action execution until first user interaction
+	// This ensures session rehydration doesn't trigger old actions
+	bootGuardActive bool
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -129,6 +133,7 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 		patternSuccess:   make(map[string]int),
 		patternFailure:   make(map[string]int),
 		feedbackLoop:     feedback.NewFeedbackLoop(feedback.DefaultConfig()),
+		bootGuardActive:  true, // Prevent actions until first user interaction
 	}
 }
 
@@ -148,6 +153,25 @@ func (e *ExecutivePolicyShard) ResetValidationBudget() {
 	e.budgetExhaustedLogged = false
 	e.mu.Unlock()
 	logging.SystemShardsDebug("[ExecutivePolicy] Validation budget reset, autopoiesis re-enabled")
+}
+
+// DisableBootGuard disables the boot guard, allowing action execution.
+// This should be called when the first user message is received to signal
+// that the system is ready for normal operation.
+func (e *ExecutivePolicyShard) DisableBootGuard() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.bootGuardActive {
+		e.bootGuardActive = false
+		logging.SystemShards("[ExecutivePolicy] Boot guard disabled, action execution enabled")
+	}
+}
+
+// IsBootGuardActive returns whether the boot guard is currently active.
+func (e *ExecutivePolicyShard) IsBootGuardActive() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.bootGuardActive
 }
 
 // trackSuccess records a successful action derivation.
@@ -209,6 +233,18 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		e.Kernel = kernel
 	}
 
+	// Clear stale intent facts from previous sessions to prevent startup loops (Bug #X: Infinite Loop Prevention)
+	// This ensures the OODA loop doesn't process old user_intent facts that may have been
+	// left over from persisted kernel state or previous sessions.
+	if e.Kernel != nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Clearing stale intent facts from previous sessions")
+		_ = e.Kernel.Retract("user_intent")
+		_ = e.Kernel.Retract("processed_intent")
+		_ = e.Kernel.Retract("executive_processed_intent")
+		_ = e.Kernel.Retract("pending_action")
+		_ = e.Kernel.Retract("delegate_task")
+	}
+
 	ticker := time.NewTicker(e.config.TickInterval)
 	defer ticker.Stop()
 
@@ -237,7 +273,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			if e.Autopoiesis.ShouldPropose() {
 				logging.SystemShardsDebug("[ExecutivePolicy] Triggering async autopoiesis rule proposal")
 				go func() {
-					autoCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute) // Extended for LLM rule generation
 					defer cancel()
 					e.handleAutopoiesis(autoCtx)
 				}()
@@ -293,6 +329,16 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	if err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Action query failed: %v", err)
 		return fmt.Errorf("action query failed: %w", err)
+	}
+
+	// Boot guard: prevent action execution until first user interaction
+	// This ensures session rehydration doesn't trigger old persisted actions
+	e.mu.RLock()
+	bootGuardActive := e.bootGuardActive
+	e.mu.RUnlock()
+	if bootGuardActive && len(actions) > 0 {
+		logging.SystemShardsDebug("[ExecutivePolicy] Boot guard active: suppressing %d actions until user interaction", len(actions))
+		return nil
 	}
 
 	// Limit actions per tick to prevent storms
@@ -620,13 +666,20 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 		actions = append(actions, decision)
 	}
 
-	// If no actions derived, record for autopoiesis
+	// If no actions derived BUT there is an active user intent, record for autopoiesis.
+	// BUG FIX: Only record when there's a genuine gap (user intent exists but no action derived).
+	// Recording on every empty tick causes autopoiesis spam at startup when no user has
+	// interacted yet, leading to immediate budget exhaustion and wasted LLM calls.
 	if len(actions) == 0 && len(results) == 0 {
-		e.Autopoiesis.RecordUnhandled(
-			"next_action",
-			map[string]string{"reason": "no_action_derived"},
-			nil,
-		)
+		// Check if there's an active user intent that we failed to handle
+		if intent := e.latestUserIntent(); intent != nil {
+			e.Autopoiesis.RecordUnhandled(
+				"next_action",
+				map[string]string{"reason": "no_action_derived", "intent_id": intent.ID},
+				nil,
+			)
+		}
+		// Otherwise: no user intent and no action is the NORMAL idle state - don't record
 	}
 
 	return actions, nil
@@ -722,10 +775,12 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		if !alreadyLogged {
 			logging.SystemShards("[ExecutivePolicy] Autopoiesis suspended: FeedbackLoop validation budget exhausted (will resume on budget reset)")
 		}
-		// Re-queue cases for later processing when budget is reset
-		for _, cas := range cases {
-			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
-		}
+		// BUG FIX: Do NOT re-queue cases when budget is exhausted.
+		// Re-queuing causes an infinite loop: cases get re-added to UnhandledCases,
+		// ShouldPropose() returns true, handleAutopoiesis is called again, budget is
+		// still exhausted, cases get re-queued, repeat forever.
+		// Cases are discarded for this session. When budget is reset (on new turn/session),
+		// fresh unhandled cases will naturally accumulate if needed.
 		return
 	}
 
@@ -741,6 +796,12 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 
 	// Build the user prompt describing unhandled cases
 	userPrompt := e.buildPolicyProposalPrompt(cases)
+
+	canRetry, reason := e.feedbackLoop.CanRetryPrompt(userPrompt)
+	if !canRetry {
+		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis skipped: FeedbackLoop budget exhausted (%s)", reason)
+		return
+	}
 
 	// Try JIT prompt compilation first, fall back to legacy constant
 	systemPrompt, jitUsed := e.TryJITPrompt(ctx, "executive_autopoiesis")
@@ -772,7 +833,16 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 			"[ExecutivePolicy] FeedbackLoop failed after %d attempts: %v",
 			result.Attempts, err,
 		)
-		// Re-queue cases for later processing
+		// BUG FIX: Do NOT re-queue cases when budget is exhausted.
+		// This prevents the infinite loop where cases are re-added, causing
+		// ShouldPropose() to return true again immediately.
+		// Only re-queue for transient failures (context cancelled, LLM errors, etc.)
+		// that might succeed on a later attempt.
+		if strings.Contains(err.Error(), "validation budget exhausted") {
+			logging.SystemShardsDebug("[ExecutivePolicy] Dropping %d autopoiesis cases due to budget exhaustion", len(cases))
+			return
+		}
+		// For other errors (transient failures), re-queue for later processing
 		for _, cas := range cases {
 			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
 		}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
 )
 
 // =============================================================================
@@ -47,6 +48,7 @@ type ShardManager struct {
 	virtualStore  *VirtualStore
 	tracingClient TracingClient // Optional: set when llmClient implements TracingClient
 	learningStore LearningStore
+	transparencyMgr *transparency.TransparencyManager
 
 	// Resource limits enforcement
 	limitsEnforcer *LimitsEnforcer
@@ -153,6 +155,13 @@ func (sm *ShardManager) SetLearningStore(store LearningStore) {
 	defer sm.mu.Unlock()
 	sm.learningStore = store
 	logging.ShardsDebug("LearningStore attached to ShardManager")
+}
+
+func (sm *ShardManager) SetTransparencyManager(tm *transparency.TransparencyManager) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.transparencyMgr = tm
+	logging.ShardsDebug("TransparencyManager attached to ShardManager")
 }
 
 // SetLimitsEnforcer attaches a limits enforcer for resource constraint checking.
@@ -508,6 +517,30 @@ func (sm *ShardManager) GetBackpressureStatus() *BackpressureStatus {
 	}
 	status := sq.GetBackpressureStatus()
 	return &status
+}
+
+// =============================================================================
+// BOOT GUARD MANAGEMENT
+// =============================================================================
+
+// BootGuardDisabler is an interface for shards that support boot guard functionality.
+// Shards implementing this interface can prevent action execution until user interaction.
+type BootGuardDisabler interface {
+	DisableBootGuard()
+}
+
+// DisableExecutiveBootGuard disables the boot guard on any system shards that support it.
+// This should be called when the first user message is received to signal that
+// the system is ready for normal operation.
+func (sm *ShardManager) DisableExecutiveBootGuard() {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	for _, shard := range sm.shards {
+		if disabler, ok := shard.(BootGuardDisabler); ok {
+			disabler.DisableBootGuard()
+		}
+	}
 }
 
 // =============================================================================

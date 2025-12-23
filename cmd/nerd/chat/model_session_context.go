@@ -8,6 +8,8 @@ import (
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -124,6 +126,82 @@ func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
 	if m.learningStore != nil {
 		sessionCtx.KnowledgeAtoms = m.queryKnowledgeAtoms()
 		sessionCtx.SpecialistHints = m.querySpecialistHints()
+	}
+
+	// ==========================================================================
+	// GAP-004 FIX: MULTI-TIER MEMORY RETRIEVAL (Vector, Graph, Cold)
+	// ==========================================================================
+	if m.localDB != nil {
+		// Vector Tier: Semantic search for relevant past knowledge
+		m.queryVectorMemory(ctx, sessionCtx)
+
+		// Graph Tier: Entity relationships for active files
+		m.queryGraphMemory(sessionCtx)
+
+		// Cold Tier: Persistent learned facts
+		m.queryColdMemory(sessionCtx)
+	}
+
+	// ==========================================================================
+	// SEMANTIC KNOWLEDGE BRIDGE: Assert knowledge atoms to kernel
+	// ==========================================================================
+	// Assert strategic knowledge atoms to kernel for spreading activation.
+	// This enables knowledge_atom facts to receive activation scores and
+	// be injected into shards via injectable_context predicates.
+	if m.kernel != nil && m.localDB != nil {
+		m.assertKnowledgeAtomsToKernel()
+	}
+
+	// ==========================================================================
+	// GATHERED KNOWLEDGE (LLM-First Knowledge Discovery)
+	// ==========================================================================
+	// Inject knowledge gathered from specialist consultations during this session.
+	// This enables action shards (coder, tester) to benefit from prior research.
+	if len(m.pendingKnowledge) > 0 {
+		for _, kr := range m.pendingKnowledge {
+			if kr.Error == nil && kr.Response != "" {
+				// Truncate for context budget (full output available separately)
+				summary := kr.Response
+				if len(summary) > 500 {
+					summary = summary[:500] + "..."
+				}
+				sessionCtx.GatheredKnowledge = append(sessionCtx.GatheredKnowledge, types.KnowledgeSummary{
+					Specialist: kr.Specialist,
+					Topic:      kr.Query,
+					Summary:    summary,
+					FullOutput: kr.Response,
+				})
+			}
+		}
+	}
+
+	// ==========================================================================
+	// RECENT TOOL EXECUTIONS (for LLM context awareness)
+	// ==========================================================================
+	if m.toolStore != nil {
+		if recent, err := m.toolStore.GetRecent(5); err == nil {
+			for _, exec := range recent {
+				// Truncate result for context budget
+				summary := exec.Result
+				if len(summary) > 500 {
+					summary = summary[:500] + "..."
+				}
+				if exec.Error != "" {
+					summary = exec.Error
+				}
+				sessionCtx.RecentToolExecutions = append(sessionCtx.RecentToolExecutions, types.ToolExecutionSummary{
+					CallID:     exec.CallID,
+					ToolName:   exec.ToolName,
+					Action:     exec.Action,
+					Success:    exec.Success,
+					ResultSize: exec.ResultSize,
+					DurationMs: exec.DurationMs,
+					Summary:    summary,
+				})
+				// Increment reference count since we're including in LLM context
+				_ = m.toolStore.IncrementReference(exec.CallID)
+			}
+		}
 	}
 
 	// ==========================================================================
@@ -474,18 +552,210 @@ func extractShardSummary(sr *ShardResult) string {
 	return truncateForContext(sr.RawOutput, 100)
 }
 
+// assertKnowledgeAtomsToKernel asserts strategic knowledge atoms to the kernel
+// for spreading activation scoring. This enables knowledge_atom facts to
+// participate in context selection and be injected via injectable_context.
+func (m *Model) assertKnowledgeAtomsToKernel() {
+	if m.kernel == nil || m.localDB == nil {
+		return
+	}
+
+	// Query strategic knowledge atoms (highest value for architectural decisions)
+	strategicAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/")
+	if err != nil {
+		logging.Get(logging.CategoryContext).Debug("Failed to query strategic atoms: %v", err)
+		return
+	}
+
+	asserted := 0
+	for _, atom := range strategicAtoms {
+		// Only assert high-confidence atoms to avoid noise
+		if atom.Confidence < 0.7 {
+			continue
+		}
+
+		fact := core.Fact{
+			Predicate: "knowledge_atom",
+			Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+		}
+		if err := m.kernel.Assert(fact); err == nil {
+			asserted++
+		}
+	}
+
+	// Also assert doc-level atoms with architecture/pattern tags
+	docAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("doc/")
+	if err == nil {
+		for _, atom := range docAtoms {
+			// Only high-confidence architecture/pattern docs
+			if atom.Confidence < 0.85 {
+				continue
+			}
+			// Filter for architecture and pattern categories
+			if !strings.Contains(atom.Concept, "/architecture/") &&
+				!strings.Contains(atom.Concept, "/pattern/") &&
+				!strings.Contains(atom.Concept, "/philosophy/") {
+				continue
+			}
+
+			fact := core.Fact{
+				Predicate: "knowledge_atom",
+				Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+			}
+			if err := m.kernel.Assert(fact); err == nil {
+				asserted++
+			}
+		}
+	}
+
+	if asserted > 0 {
+		logging.Get(logging.CategoryContext).Debug("Asserted %d knowledge atoms to kernel", asserted)
+	}
+}
+
 // queryKnowledgeAtoms retrieves relevant knowledge from learning store.
+// Returns high-confidence learnings formatted as readable knowledge atoms.
 func (m *Model) queryKnowledgeAtoms() []string {
-	// TODO: Implement query to learning store for domain knowledge
-	// For now, return empty
-	return nil
+	if m.learningStore == nil {
+		return nil
+	}
+
+	var atoms []string
+	shardTypes := []string{"coder", "reviewer", "tester", "researcher"}
+
+	for _, shardType := range shardTypes {
+		learnings, err := m.learningStore.Load(shardType)
+		if err != nil {
+			continue
+		}
+		for _, l := range learnings {
+			if l.Confidence < 0.5 {
+				continue // Only include high-confidence learnings
+			}
+			atom := formatLearningAsAtom(shardType, l)
+			if atom != "" {
+				atoms = append(atoms, atom)
+			}
+		}
+	}
+	return atoms
 }
 
 // querySpecialistHints retrieves specialist-specific hints.
+// Returns patterns that suggest specific tools or approaches.
+// Extended with Semantic Knowledge Bridge to include strategic knowledge atoms.
 func (m *Model) querySpecialistHints() []string {
-	// TODO: Implement query to learning store for specialist hints
-	// For now, return empty
-	return nil
+	var hints []string
+
+	// Query LearningStore for behavioral learnings (existing)
+	if m.learningStore != nil {
+		specialistPredicates := []string{"domain_expertise", "tool_preference", "style_preference", "preferred_pattern"}
+
+		for _, pred := range specialistPredicates {
+			for _, shardType := range []string{"coder", "reviewer", "tester"} {
+				learnings, err := m.learningStore.LoadByPredicate(shardType, pred)
+				if err != nil {
+					continue
+				}
+				for _, l := range learnings {
+					if l.Confidence >= 0.6 {
+						hint := formatLearningAsHint(shardType, l)
+						if hint != "" {
+							hints = append(hints, hint)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Semantic Knowledge Bridge: Also query knowledge atoms for domain expertise
+	if m.localDB != nil {
+		// Get strategic capability knowledge
+		capabilityAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/capability")
+		if err == nil {
+			for _, atom := range capabilityAtoms {
+				if atom.Confidence >= 0.8 {
+					hints = append(hints, fmt.Sprintf("[STRATEGIC] %s", atom.Content))
+				}
+			}
+		}
+
+		// Get strategic pattern knowledge
+		patternAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("strategic/pattern")
+		if err == nil {
+			for _, atom := range patternAtoms {
+				if atom.Confidence >= 0.85 {
+					hints = append(hints, fmt.Sprintf("[PATTERN] %s", atom.Content))
+				}
+			}
+		}
+
+		// Get high-confidence doc architecture atoms
+		archAtoms, err := m.localDB.GetKnowledgeAtomsByPrefix("doc/")
+		if err == nil {
+			archCount := 0
+			for _, atom := range archAtoms {
+				if archCount >= 5 { // Limit to avoid context bloat
+					break
+				}
+				if atom.Confidence >= 0.9 && strings.Contains(atom.Concept, "/architecture/") {
+					hints = append(hints, fmt.Sprintf("[ARCHITECTURE] %s", atom.Content))
+					archCount++
+				}
+			}
+		}
+	}
+
+	return hints
+}
+
+// formatLearningAsAtom converts a ShardLearning to a readable knowledge atom.
+func formatLearningAsAtom(shardType string, l types.ShardLearning) string {
+	switch l.FactPredicate {
+	case "avoid_pattern":
+		if len(l.FactArgs) >= 2 {
+			return fmt.Sprintf("[%s] Avoid: %v - %v", shardType, l.FactArgs[0], l.FactArgs[1])
+		} else if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Avoid: %v", shardType, l.FactArgs[0])
+		}
+	case "preferred_pattern":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Prefer: %v", shardType, l.FactArgs[0])
+		}
+	case "style_preference":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Style: %v", shardType, l.FactArgs[0])
+		}
+	case "domain_expertise":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("[%s] Expertise: %v", shardType, l.FactArgs[0])
+		}
+	}
+	return ""
+}
+
+// formatLearningAsHint converts a ShardLearning to a specialist hint.
+func formatLearningAsHint(shardType string, l types.ShardLearning) string {
+	switch l.FactPredicate {
+	case "tool_preference":
+		if len(l.FactArgs) >= 2 {
+			return fmt.Sprintf("For %v, use %v", l.FactArgs[0], l.FactArgs[1])
+		}
+	case "style_preference":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Style preference: %v", l.FactArgs[0])
+		}
+	case "domain_expertise":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Domain focus: %v", l.FactArgs[0])
+		}
+	case "preferred_pattern":
+		if len(l.FactArgs) >= 1 {
+			return fmt.Sprintf("Preferred approach: %v", l.FactArgs[0])
+		}
+	}
+	return ""
 }
 
 // queryAllowedActions returns constitutionally permitted actions.
@@ -548,3 +818,104 @@ func (m *Model) querySafetyWarnings() []string {
 	return warnings
 }
 
+// =============================================================================
+// GAP-004 FIX: MEMORY TIER QUERY HELPERS
+// =============================================================================
+
+// queryVectorMemory performs semantic search in the vector tier.
+// Appends relevant past knowledge to KnowledgeAtoms.
+func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *core.SessionContext) {
+	// Use last user message as query for semantic search
+	query := ""
+	for i := len(m.history) - 1; i >= 0; i-- {
+		if m.history[i].Role == "user" {
+			query = m.history[i].Content
+			break
+		}
+	}
+	if query == "" || len(query) < 10 {
+		return
+	}
+
+	// Limit query length for embedding
+	if len(query) > 500 {
+		query = query[:500]
+	}
+
+	// Semantic recall from vector store
+	entries, err := m.localDB.VectorRecallSemantic(ctx, query, 5)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.Content != "" {
+			// Format as knowledge atom: "[vector] content"
+			atom := fmt.Sprintf("[memory] %s", truncateForContext(entry.Content, 200))
+			sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
+		}
+	}
+}
+
+// queryGraphMemory retrieves entity relationships for active files.
+// Appends relationships to DependencyContext.
+func (m *Model) queryGraphMemory(sessionCtx *core.SessionContext) {
+	// Query graph for entities related to active files
+	for _, file := range sessionCtx.ActiveFiles {
+		if file == "" {
+			continue
+		}
+		// Query outgoing relationships
+		links, err := m.localDB.QueryLinks(file, "outgoing")
+		if err != nil {
+			continue
+		}
+		for _, link := range links {
+			// Format as dependency: "file -> target (relation)"
+			dep := fmt.Sprintf("%s -> %s (%s)", link.EntityA, link.EntityB, link.Relation)
+			sessionCtx.DependencyContext = append(sessionCtx.DependencyContext, dep)
+		}
+		// Limit to 10 relationships per file
+		if len(links) >= 10 {
+			break
+		}
+	}
+
+	// Limit total dependencies
+	if len(sessionCtx.DependencyContext) > 30 {
+		sessionCtx.DependencyContext = sessionCtx.DependencyContext[:30]
+	}
+}
+
+// queryColdMemory retrieves persistent learned facts from cold storage.
+// Appends high-priority facts to KnowledgeAtoms.
+func (m *Model) queryColdMemory(sessionCtx *core.SessionContext) {
+	// Query for high-priority persistent facts
+	predicates := []string{"learned_preference", "project_pattern", "avoid_pattern"}
+
+	for _, pred := range predicates {
+		facts, err := m.localDB.LoadFacts(pred)
+		if err != nil {
+			continue
+		}
+		for _, fact := range facts {
+			if fact.Priority >= 5 { // Only high-priority facts
+				// Format as knowledge atom
+				argsStr := ""
+				for i, arg := range fact.Args {
+					if i > 0 {
+						argsStr += ", "
+					}
+					argsStr += fmt.Sprintf("%v", arg)
+				}
+				atom := fmt.Sprintf("[cold:%s] %s", fact.Predicate, argsStr)
+				sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
+			}
+		}
+	}
+
+	// Limit total knowledge atoms
+	if len(sessionCtx.KnowledgeAtoms) > 50 {
+		sessionCtx.KnowledgeAtoms = sessionCtx.KnowledgeAtoms[:50]
+	}
+}

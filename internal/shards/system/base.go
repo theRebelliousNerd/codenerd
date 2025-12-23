@@ -19,9 +19,12 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
+	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
 
@@ -269,9 +272,12 @@ type BaseSystemShard struct {
 	State  types.ShardState
 
 	// Components
-	Kernel       *core.RealKernel
-	LLMClient    types.LLMClient
-	VirtualStore *core.VirtualStore
+	Kernel        *core.RealKernel
+	LLMClient     types.LLMClient
+	VirtualStore  *core.VirtualStore
+	GlassBox      *transparency.GlassBoxEventBus // For Glass Box visibility events
+	ToolEventBus  *transparency.ToolEventBus     // For always-visible tool execution events
+	ToolStore     *store.ToolStore               // For persisting full tool execution results
 
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
@@ -405,6 +411,36 @@ func (b *BaseSystemShard) SetVirtualStore(vs any) {
 		logging.SystemShardsDebug("[%s] VirtualStore attached", b.ID)
 	} else {
 		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid VirtualStore type", b.ID)
+	}
+}
+
+// SetGlassBox sets the Glass Box event bus for visibility events.
+func (b *BaseSystemShard) SetGlassBox(bus *transparency.GlassBoxEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.GlassBox = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] GlassBox event bus attached", b.ID)
+	}
+}
+
+// SetToolEventBus sets the tool event bus for always-visible tool execution events.
+func (b *BaseSystemShard) SetToolEventBus(bus *transparency.ToolEventBus) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolEventBus = bus
+	if bus != nil {
+		logging.SystemShardsDebug("[%s] ToolEventBus attached", b.ID)
+	}
+}
+
+// SetToolStore sets the tool store for persisting full tool execution results.
+func (b *BaseSystemShard) SetToolStore(ts *store.ToolStore) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ToolStore = ts
+	if ts != nil {
+		logging.SystemShardsDebug("[%s] ToolStore attached", b.ID)
 	}
 }
 
@@ -652,10 +688,11 @@ func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, user
 	}
 
 	// Apply per-call timeout if none exists
-	const defaultLLMTimeout = 90 * time.Second
+	// Note: Uses centralized timeout config to avoid conflicts with HTTP client timeouts
+	timeouts := config.GetLLMTimeouts()
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultLLMTimeout)
+		ctx, cancel = context.WithTimeout(ctx, timeouts.PerCallTimeout)
 		defer cancel()
 	}
 

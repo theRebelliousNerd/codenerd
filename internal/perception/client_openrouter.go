@@ -3,6 +3,7 @@ package perception
 import (
 	"bufio"
 	"bytes"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,7 +33,7 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 		APIKey:   apiKey,
 		BaseURL:  "https://openrouter.ai/api/v1",
 		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
-		Timeout:  300 * time.Second,
+		Timeout:  10 * time.Minute,            // Large context models need extended timeout
 		SiteName: "codeNERD",
 	}
 }
@@ -64,7 +65,11 @@ func (c *OpenRouterClient) Complete(ctx context.Context, prompt string) (string,
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	startTime := time.Now()
+	logging.PerceptionDebug("[OpenRouter] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
+
 	if c.apiKey == "" {
+		logging.PerceptionError("[OpenRouter] CompleteWithSystem: API key not configured")
 		return "", fmt.Errorf("API key not configured")
 	}
 
@@ -167,12 +172,16 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		}
 
 		if len(orResp.Choices) == 0 {
+			logging.PerceptionError("[OpenRouter] CompleteWithSystem: no completion returned")
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		return strings.TrimSpace(orResp.Choices[0].Message.Content), nil
+		response := strings.TrimSpace(orResp.Choices[0].Message.Content)
+		logging.Perception("[OpenRouter] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
 	}
 
+	logging.PerceptionError("[OpenRouter] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -182,11 +191,15 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
+	logging.PerceptionDebug("[OpenRouter] CompleteWithStreaming: starting streaming model=%s", c.model)
+
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+		startTime := time.Now()
 
 		if c.apiKey == "" {
+			logging.PerceptionError("[OpenRouter] CompleteWithStreaming: API key not configured")
 			errorChan <- fmt.Errorf("API key not configured")
 			return
 		}
@@ -336,17 +349,21 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			case <-scanDone:
 				select {
 				case err := <-scanErrChan:
+					logging.PerceptionError("[OpenRouter] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
 					errorChan <- fmt.Errorf("stream error: %w", err)
 				default:
+					logging.Perception("[OpenRouter] CompleteWithStreaming: completed in %v", time.Since(startTime))
 				}
 			case <-ctx.Done():
 				resp.Body.Close()
 				<-scanDone
+				logging.PerceptionWarn("[OpenRouter] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
 				errorChan <- ctx.Err()
 			}
 			return
 		}
 
+		logging.PerceptionError("[OpenRouter] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
 	}()
 

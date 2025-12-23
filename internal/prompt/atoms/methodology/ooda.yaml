@@ -5,7 +5,7 @@
   category: "methodology"
   subcategory: "ooda"
   priority: 90
-  is_mandatory: false
+  is_mandatory: true
   content: |
     ## OODA LOOP: THE DECISION CYCLE
 

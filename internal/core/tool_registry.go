@@ -1,6 +1,7 @@
 package core
 
 import (
+	"codenerd/internal/logging"
 	"context"
 	"fmt"
 	"os"
@@ -57,10 +58,14 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 
+	logging.ToolsDebug("RegisterTool: registering tool name=%s command=%s affinity=%s", name, command, shardAffinity)
+
 	if name == "" {
+		logging.ToolsError("RegisterTool: tool name cannot be empty")
 		return fmt.Errorf("tool name cannot be empty")
 	}
 	if command == "" {
+		logging.ToolsError("RegisterTool: tool command cannot be empty for %s", name)
 		return fmt.Errorf("tool command cannot be empty")
 	}
 
@@ -71,6 +76,7 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 			absPath = filepath.Join(tr.workDir, command)
 		}
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
+			logging.ToolsError("RegisterTool: tool binary not found: %s", absPath)
 			return fmt.Errorf("tool binary not found: %s", absPath)
 		}
 		command = absPath
@@ -87,7 +93,13 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 	tr.tools[name] = tool
 
 	// Inject facts into kernel
-	return tr.injectToolFacts(tool)
+	if err := tr.injectToolFacts(tool); err != nil {
+		logging.ToolsError("RegisterTool: failed to inject facts for %s: %v", name, err)
+		return err
+	}
+
+	logging.Tools("RegisterTool: successfully registered tool %s (affinity=%s)", name, shardAffinity)
+	return nil
 }
 
 // RegisterToolWithInfo registers a tool with full metadata
@@ -147,23 +159,33 @@ func (tr *ToolRegistry) ListTools() []*Tool {
 func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName string, args []string) (string, error) {
 	tool, exists := tr.GetTool(toolName)
 	if !exists {
+		logging.ToolsError("ExecuteRegisteredTool: tool not registered: %s", toolName)
 		return "", fmt.Errorf("tool not registered: %s", toolName)
 	}
 
 	// Update execution count
 	tr.mu.Lock()
 	tool.ExecuteCount++
+	execCount := tool.ExecuteCount
 	tr.mu.Unlock()
 
+	logging.Tools("ExecuteRegisteredTool: executing tool=%s exec_count=%d args=%v", toolName, execCount, args)
+
+	startTime := time.Now()
 	cmd := exec.CommandContext(ctx, tool.Command, args...)
 	if tr.workDir != "" {
 		cmd.Dir = tr.workDir
 	}
 	out, err := cmd.CombinedOutput()
+	duration := time.Since(startTime)
 	output := string(out)
+
 	if err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: tool=%s failed after %v: %v (output_len=%d)", toolName, duration, err, len(output))
 		return output, fmt.Errorf("tool execution failed: %w", err)
 	}
+
+	logging.Tools("ExecuteRegisteredTool: tool=%s completed in %v (output_len=%d)", toolName, duration, len(output))
 	return output, nil
 }
 
@@ -172,7 +194,10 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 
+	logging.ToolsDebug("UnregisterTool: unregistering tool %s", name)
+
 	if _, exists := tr.tools[name]; !exists {
+		logging.ToolsError("UnregisterTool: tool not registered: %s", name)
 		return fmt.Errorf("tool not registered: %s", name)
 	}
 
@@ -197,10 +222,12 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 		}
 
 		if len(errs) > 0 {
+			logging.ToolsError("UnregisterTool: errors retracting facts for %s: %v", name, errs)
 			return fmt.Errorf("errors retracting tool facts: %v", errs)
 		}
 	}
 
+	logging.Tools("UnregisterTool: successfully unregistered tool %s", name)
 	return nil
 }
 
@@ -251,10 +278,12 @@ func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
 // Continues syncing even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 	if toolExecutor == nil {
+		logging.ToolsDebug("SyncFromOuroboros: no tool executor provided, skipping")
 		return nil
 	}
 
 	tools := toolExecutor.ListTools()
+	logging.ToolsDebug("SyncFromOuroboros: syncing %d tools from Ouroboros", len(tools))
 	var errs []error
 	syncedCount := 0
 
@@ -270,6 +299,7 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 		}
 
 		if err := tr.RegisterToolWithInfo(tool); err != nil {
+			logging.ToolsWarn("SyncFromOuroboros: failed to sync tool %s: %v", tool.Name, err)
 			errs = append(errs, fmt.Errorf("tool %s: %w", tool.Name, err))
 		} else {
 			syncedCount++
@@ -277,19 +307,24 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 	}
 
 	if len(errs) > 0 {
+		logging.ToolsError("SyncFromOuroboros: synced %d tools, %d failed", syncedCount, len(errs))
 		return fmt.Errorf("synced %d tools, %d failed: %v", syncedCount, len(errs), errs)
 	}
+	logging.Tools("SyncFromOuroboros: successfully synced %d tools from Ouroboros", syncedCount)
 	return nil
 }
 
 // RestoreFromDisk restores the registry from a directory of compiled tools.
 // Continues restoring even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
+	logging.ToolsDebug("RestoreFromDisk: restoring tools from %s", compiledDir)
 	entries, err := os.ReadDir(compiledDir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logging.ToolsDebug("RestoreFromDisk: directory %s does not exist, skipping", compiledDir)
 			return nil // Directory doesn't exist yet, that's okay
 		}
+		logging.ToolsError("RestoreFromDisk: failed to read directory %s: %v", compiledDir, err)
 		return fmt.Errorf("failed to read compiled tools directory: %w", err)
 	}
 
@@ -318,6 +353,7 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		}
 
 		if err := tr.RegisterToolWithInfo(tool); err != nil {
+			logging.ToolsWarn("RestoreFromDisk: failed to restore tool %s: %v", name, err)
 			errs = append(errs, fmt.Errorf("tool %s: %w", name, err))
 		} else {
 			restoredCount++
@@ -325,8 +361,10 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 	}
 
 	if len(errs) > 0 {
+		logging.ToolsError("RestoreFromDisk: restored %d tools, %d failed from %s", restoredCount, len(errs), compiledDir)
 		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
 	}
+	logging.Tools("RestoreFromDisk: successfully restored %d tools from %s", restoredCount, compiledDir)
 	return nil
 }
 
@@ -344,6 +382,7 @@ type StaticToolDef struct {
 // This is used to hydrate tools from available_tools.json at session boot.
 // Continues restoring even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
+	logging.ToolsDebug("RestoreFromStaticDefs: restoring %d static tool definitions", len(defs))
 	var errs []error
 	restoredCount := 0
 
@@ -367,6 +406,7 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 		}
 
 		if err := tr.RegisterToolWithInfo(tool); err != nil {
+			logging.ToolsWarn("RestoreFromStaticDefs: failed to restore tool %s: %v", def.Name, err)
 			errs = append(errs, fmt.Errorf("tool %s: %w", def.Name, err))
 		} else {
 			restoredCount++
@@ -374,8 +414,10 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 	}
 
 	if len(errs) > 0 {
+		logging.ToolsError("RestoreFromStaticDefs: restored %d tools, %d failed", restoredCount, len(errs))
 		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
 	}
+	logging.Tools("RestoreFromStaticDefs: successfully restored %d tools from static definitions", restoredCount)
 	return nil
 }
 
