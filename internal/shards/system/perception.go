@@ -385,11 +385,10 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Normalize category/verb to name constants (leading '/').
 	intent.Category = normalizeAtom(intent.Category)
 	intent.Verb = normalizeAtom(intent.Verb)
-	if strings.TrimSpace(intent.Response) == "" {
-		// Ensure callers relying on a non-empty surface response (e.g. chat routing)
-		// do not fail hard when we degrade to deterministic parsing.
-		intent.Response = "Understood."
-	}
+	// NOTE: We intentionally leave intent.Response empty if perception didn't generate one.
+	// This forces articulation to generate a proper response. The old fallback of "Understood."
+	// was useless and would sometimes be returned directly to users, which is terrible UX.
+	// Articulation will always generate a meaningful response.
 
 	// Use a stable intent ID so policy can scope rules to the active user intent.
 	// This prevents stale intent accumulation across turns.
