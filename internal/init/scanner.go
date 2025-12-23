@@ -1420,24 +1420,9 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			MaxFactsInKernel:      250000,
 			MaxDerivedFactsLimit:  100000,
 		},
+		// No default MCP servers - internal capabilities use internal packages directly
 		Integrations: &config.IntegrationsConfig{
-			Servers: map[string]config.MCPServerIntegration{
-				"code_graph": {
-					Enabled: true,
-					BaseURL: "http://localhost:8080",
-					Timeout: "30s",
-				},
-				"browser": {
-					Enabled: true,
-					BaseURL: "http://localhost:8081",
-					Timeout: "60s",
-				},
-				"scraper": {
-					Enabled: true,
-					BaseURL: "http://localhost:8082",
-					Timeout: "120s",
-				},
-			},
+			Servers: make(map[string]config.MCPServerIntegration),
 		},
 		Execution: &config.ExecutionConfig{
 			AllowedBinaries: []string{

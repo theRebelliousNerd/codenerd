@@ -99,24 +99,10 @@ func DefaultConfig() *Config {
 			TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
 		},
 
+		// Integrations: No default MCP servers - user configures external servers as needed.
+		// Internal capabilities (code analysis, browser automation) use internal packages directly.
 		Integrations: IntegrationsConfig{
-			Servers: map[string]MCPServerIntegration{
-				"code_graph": {
-					Enabled: true,
-					BaseURL: "http://localhost:8080",
-					Timeout: "30s",
-				},
-				"browser": {
-					Enabled: true,
-					BaseURL: "http://localhost:8081",
-					Timeout: "60s",
-				},
-				"scraper": {
-					Enabled: true,
-					BaseURL: "http://localhost:8082",
-					Timeout: "120s",
-				},
-			},
+			Servers: make(map[string]MCPServerIntegration),
 		},
 
 		Execution: ExecutionConfig{
