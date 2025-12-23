@@ -26,7 +26,7 @@ func DefaultAnthropicConfig(apiKey string) AnthropicConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.anthropic.com/v1",
 		Model:   "claude-sonnet-4-5-20250514",
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
 

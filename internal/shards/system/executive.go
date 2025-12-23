@@ -237,7 +237,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			if e.Autopoiesis.ShouldPropose() {
 				logging.SystemShardsDebug("[ExecutivePolicy] Triggering async autopoiesis rule proposal")
 				go func() {
-					autoCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute) // Extended for LLM rule generation
 					defer cancel()
 					e.handleAutopoiesis(autoCtx)
 				}()

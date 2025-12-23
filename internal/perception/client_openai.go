@@ -36,7 +36,7 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
 		Model:   "gpt-5.1-codex-max", // Best Codex model for coding agents
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute,   // Large context models need extended timeout
 	}
 }
 

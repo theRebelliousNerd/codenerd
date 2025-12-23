@@ -1459,7 +1459,7 @@ func (m Model) renderToolInfo(toolName string) string {
 // runTool executes a generated tool asynchronously
 func (m Model) runTool(toolName, input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute) // Extended for LLM-based tools
 		defer cancel()
 
 		if m.autopoiesis == nil {
@@ -1511,7 +1511,7 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 // generateTool generates a new tool using the Ouroboros Loop
 func (m Model) generateTool(description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Ouroboros has multiple LLM stages
 		defer cancel()
 
 		if m.autopoiesis == nil {

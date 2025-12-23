@@ -28,7 +28,7 @@ func DefaultXAIConfig(apiKey string) XAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.x.ai/v1",
 		Model:   "grok-2-latest",
-		Timeout: 300 * time.Second,
+		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
 

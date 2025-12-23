@@ -1020,7 +1020,7 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 		return "", fmt.Errorf("shard manager not initialized")
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Extended for large context LLMs
 	defer cancel()
 
 	result, err := m.shardMgr.Spawn(cctx, "requirements_interrogator", goal)
@@ -1246,8 +1246,8 @@ Format your response as a structured analysis.`
 	// 1 second between shards, each shard's LLM call has 600ms minimum spacing
 	logging.Dream("Rate limiting: processing shards sequentially (1s delay between)")
 
-	// Longer timeout for sequential processing (30s per shard max)
-	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*30)*time.Second)
+	// Longer timeout for sequential processing (90s per shard for large context LLMs)
+	consultCtx, cancel := context.WithTimeout(ctx, time.Duration(len(shardTypes)*90)*time.Second)
 	defer cancel()
 
 	consultations := make([]DreamConsultation, 0, len(shardTypes))
