@@ -343,6 +343,14 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	}
 	logging.KernelDebug("HotLoadLearnedRule: schema validation passed")
 
+	// 1c. Pathological pattern check - prevent infinite loop rules
+	// This catches rules like "next_action(X) :- current_time(_)" that always fire
+	if loopErr := k.checkInfiniteLoopRisk(rule); loopErr != "" {
+		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: pathological pattern detected: %s", loopErr)
+		return fmt.Errorf("pathological rule rejected: %s", loopErr)
+	}
+	logging.KernelDebug("HotLoadLearnedRule: pathological pattern check passed")
+
 	// 2. Persist to learned.mg file
 	if err := k.appendToLearnedFile(rule); err != nil {
 		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: failed to persist rule: %v", err)

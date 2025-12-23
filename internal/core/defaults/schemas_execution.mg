@@ -33,6 +33,23 @@ Decl retry_count(Count).
 # SerializationOrder: 5
 Decl next_action(ActionType).
 
+# Strategy-Specific Next Actions (derived by strategy policy rules)
+# tdd_next_action(ActionType) - TDD repair loop derived action
+Decl tdd_next_action(ActionType).
+
+# campaign_next_action(ActionType) - Campaign orchestration derived action
+Decl campaign_next_action(ActionType).
+
+# repair_next_action(ActionType) - Repair strategy derived action
+Decl repair_next_action(ActionType).
+
+# Blocking Conditions (derived by policy rules)
+# block_action(Reason) - General action blocking condition
+Decl block_action(Reason).
+
+# test_state_blocking(Reason) - Test state prevents action
+Decl test_state_blocking(Reason).
+
 # action_details(ActionType, Payload)
 Decl action_details(ActionType, Payload).
 
