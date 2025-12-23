@@ -98,6 +98,10 @@ type ExecutivePolicyShard struct {
 	// Mangle feedback loop for validated rule generation
 	feedbackLoop          *feedback.FeedbackLoop
 	budgetExhaustedLogged bool // Prevents repeated "budget exhausted" warnings
+
+	// Boot guard: prevents action execution until first user interaction
+	// This ensures session rehydration doesn't trigger old actions
+	bootGuardActive bool
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -129,6 +133,7 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 		patternSuccess:   make(map[string]int),
 		patternFailure:   make(map[string]int),
 		feedbackLoop:     feedback.NewFeedbackLoop(feedback.DefaultConfig()),
+		bootGuardActive:  true, // Prevent actions until first user interaction
 	}
 }
 
@@ -148,6 +153,25 @@ func (e *ExecutivePolicyShard) ResetValidationBudget() {
 	e.budgetExhaustedLogged = false
 	e.mu.Unlock()
 	logging.SystemShardsDebug("[ExecutivePolicy] Validation budget reset, autopoiesis re-enabled")
+}
+
+// DisableBootGuard disables the boot guard, allowing action execution.
+// This should be called when the first user message is received to signal
+// that the system is ready for normal operation.
+func (e *ExecutivePolicyShard) DisableBootGuard() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.bootGuardActive {
+		e.bootGuardActive = false
+		logging.SystemShards("[ExecutivePolicy] Boot guard disabled, action execution enabled")
+	}
+}
+
+// IsBootGuardActive returns whether the boot guard is currently active.
+func (e *ExecutivePolicyShard) IsBootGuardActive() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.bootGuardActive
 }
 
 // trackSuccess records a successful action derivation.
@@ -305,6 +329,16 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	if err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Action query failed: %v", err)
 		return fmt.Errorf("action query failed: %w", err)
+	}
+
+	// Boot guard: prevent action execution until first user interaction
+	// This ensures session rehydration doesn't trigger old persisted actions
+	e.mu.RLock()
+	bootGuardActive := e.bootGuardActive
+	e.mu.RUnlock()
+	if bootGuardActive && len(actions) > 0 {
+		logging.SystemShardsDebug("[ExecutivePolicy] Boot guard active: suppressing %d actions until user interaction", len(actions))
+		return nil
 	}
 
 	// Limit actions per tick to prevent storms
@@ -762,6 +796,12 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 
 	// Build the user prompt describing unhandled cases
 	userPrompt := e.buildPolicyProposalPrompt(cases)
+
+	canRetry, reason := e.feedbackLoop.CanRetryPrompt(userPrompt)
+	if !canRetry {
+		logging.SystemShardsDebug("[ExecutivePolicy] Autopoiesis skipped: FeedbackLoop budget exhausted (%s)", reason)
+		return
+	}
 
 	// Try JIT prompt compilation first, fall back to legacy constant
 	systemPrompt, jitUsed := e.TryJITPrompt(ctx, "executive_autopoiesis")

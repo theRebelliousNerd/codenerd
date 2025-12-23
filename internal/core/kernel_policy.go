@@ -141,7 +141,6 @@ func (k *RealKernel) GetPolicy() string {
 // before accepting it, preventing invalid rules from bricking the kernel.
 func (k *RealKernel) HotLoadRule(rule string) error {
 	timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
-	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -151,6 +150,14 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
 		return err
 	}
+
+	normalizedRule := feedback.NormalizeRuleInput(rule)
+	if normalizedRule != rule {
+		logging.KernelDebug("HotLoadRule: normalized rule input for parser compatibility")
+	}
+	rule = normalizedRule
+
+	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 
 	// Log the rule being loaded (truncated for readability)
 	rulePreview := rule

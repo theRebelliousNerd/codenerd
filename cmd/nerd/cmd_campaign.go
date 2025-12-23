@@ -141,6 +141,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
+	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX: Wire persistence layers
 	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
@@ -493,6 +494,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 	executor := tactile.NewSafeExecutor()
 	virtualStore := core.NewVirtualStore(executor)
+	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 	shardMgr := core.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 

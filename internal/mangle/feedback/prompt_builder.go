@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -272,8 +273,14 @@ func ExtractRuleFromResponse(response string) string {
 		return response
 	}
 
-	// Return as-is if nothing else worked
-	return response
+	// Try to find a fact pattern anywhere in the response
+	factPattern := regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
+	if match := factPattern.FindString(response); match != "" {
+		return strings.TrimSpace(match)
+	}
+
+	// Return empty if nothing else worked
+	return ""
 }
 
 // ValidRuleExamples returns a list of valid rule examples for a given domain.

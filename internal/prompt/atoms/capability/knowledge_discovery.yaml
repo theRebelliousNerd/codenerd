@@ -3,7 +3,7 @@
 # and web research, enabling LLM-first knowledge discovery.
 
 - id: "capability/knowledge_discovery"
-  category: "capability"
+  category: "knowledge"
   subcategory: "knowledge_discovery"
   priority: 90
   is_mandatory: true
@@ -105,7 +105,7 @@
     - **optional**: Best-effort; respond even if gathering fails
 
 - id: "capability/specialist_fallback"
-  category: "capability"
+  category: "knowledge"
   subcategory: "knowledge_discovery"
   priority: 80
   is_mandatory: false

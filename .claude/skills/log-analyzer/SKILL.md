@@ -452,9 +452,173 @@ grep "/kernel" .nerd/logs/* | python3 parse_log.py /dev/stdin --no-schema > kern
 ./logquery.exe facts.mg --builtin errors --limit 100
 ```
 
+## Loop & Anomaly Detection (v2.2.0)
+
+As of December 2025, codeNERD log-analyzer includes sophisticated loop detection and root cause diagnosis. This addresses a critical debugging need: detecting patterns that appear as successful operations but indicate bugs.
+
+### Quick Loop Detection
+
+For fast analysis without Mangle compilation, use the `detect_loops.py` script:
+
+```bash
+# Analyze logs and output JSON
+python3 scripts/detect_loops.py .nerd/logs/*.log --pretty
+
+# With custom threshold (default: 5)
+python3 scripts/detect_loops.py .nerd/logs/*.log --threshold 3
+
+# Save to file
+python3 scripts/detect_loops.py .nerd/logs/*.log -o anomalies.json
+```
+
+**Example Output:**
+```json
+{
+  "analysis_timestamp": "2025-12-23T16:00:00",
+  "anomalies": [{
+    "type": "action_loop",
+    "severity": "critical",
+    "action": "/analyze_code",
+    "count": 40,
+    "root_cause": {
+      "diagnosis": "missing_fact_update",
+      "explanation": "Action completes with success=true but no kernel fact asserted",
+      "suggested_fix": "Check VirtualStore.RouteAction() for missing fact assertion"
+    }
+  }],
+  "summary": {
+    "total_anomalies": 2,
+    "critical": 1,
+    "high": 1,
+    "loops_detected": 1
+  }
+}
+```
+
+### logquery Loop Detection Builtins
+
+The logquery tool includes 8 new builtins for loop analysis:
+
+| Builtin | Description |
+|---------|-------------|
+| `:loops` | Find action loops (same action repeated >5 times) |
+| `:stagnation` | Find routing stagnation (next_action not advancing) |
+| `:identical-results` | Find suspicious patterns (same result_len repeatedly) |
+| `:slot-starvation` | Find API scheduler slot starvation events |
+| `:false-success` | Find success masking failure (success=true but looping) |
+| `:anomalies` | Combined anomaly report with severity levels |
+| `:diagnose` | Full diagnosis with loop count, duration, and root cause |
+| `:root-cause` | Root cause analysis only |
+
+```bash
+# Interactive analysis
+./logquery.exe facts.mg -i
+logquery> :loops
+logquery> :diagnose
+logquery> :root-cause
+
+# JSON output for programmatic use
+./logquery.exe facts.mg --builtin diagnose --format json
+```
+
+### Detected Patterns
+
+| Pattern | Severity | Evidence | Meaning |
+|---------|----------|----------|---------|
+| **Action Loop** | Critical | Same action executed >5 times | State not advancing |
+| **Repeated Call ID** | Critical | Same call_id used >2 times | Execution not regenerating IDs |
+| **Identical Results** | High | Same result_len returned repeatedly | Tool returning cached/dummy response |
+| **Routing Stagnation** | High | Same predicate queried >10 times | Kernel rule stuck |
+| **Slot Starvation** | High | Waiting count >3 | API slots exhausted |
+| **Long Slot Wait** | High | Wait duration >10s | Severe slot contention |
+| **False Success** | High | success=true but looping | Success masking failure |
+
+### Root Cause Diagnosis
+
+The system diagnoses 4 root causes:
+
+| Cause | Diagnosis | Explanation |
+|-------|-----------|-------------|
+| `missing_fact_update` | Action completes but no kernel fact asserted | VirtualStore.RouteAction() not calling Assert() |
+| `kernel_rule_stuck` | next_action predicate returns same result | Missing state transition conditions in Mangle policy |
+| `tool_caching` | Tool returns identical result every time | Tool returning cached/dummy response |
+| `slot_starvation_correlated` | Loop correlates with slot exhaustion | Loop is consuming all API slots |
+
+### Structured Event Extraction
+
+The enhanced `parse_log.py` now extracts structured events from log messages:
+
+```mangle
+# Tool execution with call_id tracking
+tool_execution(Time, ToolName, Action, Target, CallId, Duration, ResultLen).
+
+# Action routing events
+action_routing(Time, Predicate, ArgCount).
+
+# Action completion with success/output
+action_completed(Time, Action, Success, OutputLen).
+
+# API scheduler slot status
+slot_status(Time, ShardId, Active, MaxSlots, Waiting).
+
+# Slot acquisition timing
+slot_acquired(Time, ShardId, WaitDuration).
+```
+
+### Example Debugging Workflow
+
+```bash
+# 1. Quick detection with detect_loops.py
+python3 scripts/detect_loops.py .nerd/logs/2025-12-23*.log --pretty
+
+# 2. If anomalies found, deeper analysis with logquery
+python3 scripts/parse_log.py .nerd/logs/2025-12-23*.log --no-schema | \
+  grep "^log_entry\|^tool_execution\|^action_completed" > /tmp/facts.mg
+./scripts/logquery/logquery.exe /tmp/facts.mg -i
+
+# 3. Interactive diagnosis
+logquery> :diagnose
+logquery> :root-cause
+
+# 4. Export for reporting
+./scripts/logquery/logquery.exe /tmp/facts.mg --builtin diagnose --format json > diagnosis.json
+```
+
+### Common Loop Scenarios
+
+**Scenario 1: Action Not Advancing State**
+
+Symptoms:
+- Same action (e.g., `/analyze_code`) executed 40+ times
+- Same `call_id` never regenerated
+- `success=true` but kernel state unchanged
+
+Root Cause: `missing_fact_update`
+Fix: Check VirtualStore.RouteAction() for missing fact assertion after tool execution
+
+**Scenario 2: Kernel Rule Stuck**
+
+Symptoms:
+- `next_action` predicate queried 10+ times
+- Returns same action repeatedly
+- Routing stagnation detected
+
+Root Cause: `kernel_rule_stuck`
+Fix: Check Mangle policy rules for missing state transition conditions
+
+**Scenario 3: Tool Returning Dummy Response**
+
+Symptoms:
+- Identical `result_len` on every execution
+- Tool appears successful but returns same data
+
+Root Cause: `tool_caching`
+Fix: Check if tool is returning cached/dummy response instead of executing
+
 ## See Also
 
 - [mangle-programming skill](../mangle-programming/SKILL.md) - Full Mangle reference
 - [LOG_ANALYSIS_PATTERNS](references/LOG_ANALYSIS_PATTERNS.md) - Extended pattern catalog
 - [log-schema.mg](assets/log-schema.mg) - Full schema (for reference)
 - [logquery/schema.mg](scripts/logquery/schema.mg) - Embedded schema (simplified)
+- [detect_loops.py](scripts/detect_loops.py) - Quick loop detection script
