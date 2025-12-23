@@ -2,8 +2,8 @@
 //
 // The Campaign Runner is a Type S supervisor that ensures long-horizon
 // campaigns keep progressing hands-off. It watches persisted campaigns
-// on disk and automatically resumes any active/paused campaign until
-// completion, including across process restarts.
+// on disk and resumes active/paused campaigns when explicitly started.
+// NOTE: Uses StartupOnDemand to prevent automatic campaign execution on boot.
 package system
 
 import (
@@ -61,7 +61,7 @@ func NewCampaignRunnerShard() *CampaignRunnerShard {
 // NewCampaignRunnerShardWithConfig creates a Campaign Runner with custom config.
 func NewCampaignRunnerShardWithConfig(cfg CampaignRunnerConfig) *CampaignRunnerShard {
 	logging.SystemShards("[CampaignRunner] Initializing campaign runner shard")
-	base := NewBaseSystemShard("campaign_runner", StartupAuto)
+	base := NewBaseSystemShard("campaign_runner", StartupOnDemand)
 
 	base.Config.Permissions = []types.ShardPermission{
 		types.PermissionReadFile,
