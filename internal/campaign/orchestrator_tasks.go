@@ -69,10 +69,12 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				o.emitEvent("checkpoint_failed", phase.ID, "", failedSummary, nil)
 
 				// Seed a replan trigger so Replanner has a hard signal.
-				_ = o.kernel.Assert(core.Fact{
+				if err := o.kernel.Assert(core.Fact{
 					Predicate: "replan_trigger",
 					Args:      []interface{}{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},
-				})
+				}); err != nil {
+					logging.CampaignWarn("failed to assert replan_trigger: %v", err)
+				}
 
 				if o.replanner != nil {
 					if repErr := o.replanner.Replan(ctx, o.campaign, ""); repErr != nil {
@@ -80,7 +82,9 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 						o.emitEvent("replan_failed", phase.ID, "", repErr.Error(), nil)
 					} else {
 						o.mu.Lock()
-						_ = o.saveCampaign()
+						if err := o.saveCampaign(); err != nil {
+							logging.CampaignWarn("failed to save campaign after replan: %v", err)
+						}
 						o.mu.Unlock()
 					}
 				}
@@ -99,7 +103,9 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				phase.CompressedSummary = summary
 				phase.OriginalAtomCount = count
 				phase.CompressedAt = compressedAt
-				_ = o.saveCampaign()
+				if err := o.saveCampaign(); err != nil {
+					logging.CampaignWarn("failed to save campaign after compression: %v", err)
+				}
 				o.mu.Unlock()
 			}
 			o.completePhase(phase)
@@ -142,7 +148,9 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 					o.mu.Lock()
 					o.updateCampaignStatus(StatusFailed)
 					o.lastError = fmt.Errorf("phase blocked: %s", reason)
-					_ = o.saveCampaign()
+					if err := o.saveCampaign(); err != nil {
+						logging.CampaignWarn("failed to save campaign after block: %v", err)
+					}
 					o.mu.Unlock()
 					return fmt.Errorf("phase blocked: %s", reason)
 				}
@@ -190,7 +198,9 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 		logging.CampaignDebug("Reloading campaign facts after refinement")
 		o.kernel.Retract("campaign_phase")
 		o.kernel.Retract("campaign_task")
-		_ = o.kernel.LoadFacts(o.campaign.ToFacts())
+		if err := o.kernel.LoadFacts(o.campaign.ToFacts()); err != nil {
+			logging.CampaignWarn("failed to reload campaign facts after refinement: %v", err)
+		}
 
 		logging.Campaign("Rolling-wave refinement applied (revision=%d)", o.campaign.RevisionNumber)
 		o.emitEvent("replan", completedPhase.ID, "", "Rolling-wave refinement applied", map[string]any{
@@ -254,14 +264,18 @@ func (o *Orchestrator) updateTaskStatus(task *Task, status TaskStatus) {
 	}
 
 	// Update kernel
-	_ = o.kernel.RetractFact(core.Fact{
+	if err := o.kernel.RetractFact(core.Fact{
 		Predicate: "campaign_task",
 		Args:      []interface{}{task.ID},
-	})
-	o.kernel.Assert(core.Fact{
+	}); err != nil {
+		logging.CampaignWarn("failed to retract campaign_task for %s: %v", task.ID, err)
+	}
+	if err := o.kernel.Assert(core.Fact{
 		Predicate: "campaign_task",
 		Args:      []interface{}{task.ID, task.PhaseID, task.Description, string(status), string(task.Type)},
-	})
+	}); err != nil {
+		logging.CampaignWarn("failed to assert campaign_task for %s: %v", task.ID, err)
+	}
 }
 
 // completeTask marks a task as complete.
