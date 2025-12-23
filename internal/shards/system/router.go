@@ -21,6 +21,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/store"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 )
@@ -554,6 +555,29 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				})
 			}
 
+			// Persist full tool execution to SQLite for debugging and context
+			if r.ToolStore != nil {
+				sessionID := r.getSessionID()
+				exec := store.ToolExecution{
+					CallID:           call.ID,
+					SessionID:        sessionID,
+					ToolName:         route.ToolName,
+					Action:           actionType,
+					Input:            target, // Target is the primary input
+					Result:           call.Result,
+					Error:            call.Error,
+					Success:          call.Error == "",
+					DurationMs:       duration.Milliseconds(),
+					ResultSize:       len(call.Result),
+					SessionRuntimeMs: time.Since(r.StartTime).Milliseconds(),
+				}
+				if err := r.ToolStore.Store(exec); err != nil {
+					logging.Get(logging.CategoryTools).Warn("Failed to persist tool execution: %v", err)
+				} else {
+					logging.ToolsDebug("Persisted tool execution: %s (tool=%s, size=%d bytes)", call.ID, route.ToolName, len(call.Result))
+				}
+			}
+
 			// Update call in pendingCalls
 			r.mu.Lock()
 			for i := range r.pendingCalls {
@@ -863,6 +887,12 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 		result[k] = v
 	}
 	return result
+}
+
+// getSessionID returns the session ID for tool persistence.
+// Generates a stable ID from the router's start time.
+func (r *TactileRouterShard) getSessionID() string {
+	return fmt.Sprintf("session-%d", r.StartTime.Unix())
 }
 
 // DEPRECATED: routerAutopoiesisPrompt is the legacy system prompt for proposing new routes.

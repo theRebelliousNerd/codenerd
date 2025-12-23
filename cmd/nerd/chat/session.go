@@ -629,6 +629,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Create Tool Event bus for always-visible tool execution notifications
 		toolEventBus := transparency.NewToolEventBus()
 
+		// Create Tool Store for persisting full tool execution results
+		var toolStore *store.ToolStore
+		toolsDBPath := filepath.Join(workspace, ".nerd", "tools.db")
+		if ts, err := store.NewToolStore(toolsDBPath); err == nil {
+			toolStore = ts
+			logging.Boot("Initialized ToolStore at %s", toolsDBPath)
+		} else {
+			logging.Get(logging.CategoryBoot).Warn("Failed to initialize ToolStore: %v", err)
+		}
+
 		logStep("Registering shard types...")
 		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
 			shard := coder.NewCoderShard()
@@ -736,8 +746,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
-			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for debug visibility
-			shard.SetToolEventBus(toolEventBus) // Wire Tool Event Bus for always-visible tool execution
+			shard.SetGlassBox(glassBoxEventBus)   // Wire Glass Box for debug visibility
+			shard.SetToolEventBus(toolEventBus)   // Wire Tool Event Bus for always-visible tool execution
+			shard.SetToolStore(toolStore)         // Wire Tool Store for full result persistence
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}
@@ -977,6 +988,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				Retriever:             retriever,
 				GlassBoxEventBus:      glassBoxEventBus,
 				ToolEventBus:          toolEventBus,
+				ToolStore:             toolStore,
 			},
 		}
 	}

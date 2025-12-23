@@ -220,6 +220,18 @@ type KnowledgeSummary struct {
 	FullOutput string // Complete response (may be stored separately for retrieval)
 }
 
+// ToolExecutionSummary provides a summary of a tool execution for LLM context.
+// This is a lightweight representation for SessionContext (full data in ToolStore SQLite).
+type ToolExecutionSummary struct {
+	CallID     string // Unique identifier for the execution
+	ToolName   string // Name of the tool executed
+	Action     string // The action that triggered the tool
+	Success    bool   // Whether execution succeeded
+	ResultSize int    // Size of the result in bytes
+	DurationMs int64  // Execution duration in milliseconds
+	Summary    string // Truncated result for context budget (first 500 chars)
+}
+
 // =============================================================================
 // SESSION CONTEXT - Blackboard Pattern
 // =============================================================================
@@ -302,6 +314,11 @@ type SessionContext struct {
 	// AVAILABLE TOOLS (Autopoiesis/Ouroboros)
 	// ==========================================================================
 	AvailableTools []ToolInfo // Self-generated tools available for execution
+
+	// ==========================================================================
+	// RECENT TOOL EXECUTIONS (for LLM context awareness)
+	// ==========================================================================
+	RecentToolExecutions []ToolExecutionSummary // Recent tool results for context
 
 	// ==========================================================================
 	// CONSTITUTIONAL CONSTRAINTS

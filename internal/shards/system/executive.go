@@ -632,13 +632,20 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 		actions = append(actions, decision)
 	}
 
-	// If no actions derived, record for autopoiesis
+	// If no actions derived BUT there is an active user intent, record for autopoiesis.
+	// BUG FIX: Only record when there's a genuine gap (user intent exists but no action derived).
+	// Recording on every empty tick causes autopoiesis spam at startup when no user has
+	// interacted yet, leading to immediate budget exhaustion and wasted LLM calls.
 	if len(actions) == 0 && len(results) == 0 {
-		e.Autopoiesis.RecordUnhandled(
-			"next_action",
-			map[string]string{"reason": "no_action_derived"},
-			nil,
-		)
+		// Check if there's an active user intent that we failed to handle
+		if intent := e.latestUserIntent(); intent != nil {
+			e.Autopoiesis.RecordUnhandled(
+				"next_action",
+				map[string]string{"reason": "no_action_derived", "intent_id": intent.ID},
+				nil,
+			)
+		}
+		// Otherwise: no user intent and no action is the NORMAL idle state - don't record
 	}
 
 	return actions, nil
@@ -734,10 +741,12 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		if !alreadyLogged {
 			logging.SystemShards("[ExecutivePolicy] Autopoiesis suspended: FeedbackLoop validation budget exhausted (will resume on budget reset)")
 		}
-		// Re-queue cases for later processing when budget is reset
-		for _, cas := range cases {
-			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
-		}
+		// BUG FIX: Do NOT re-queue cases when budget is exhausted.
+		// Re-queuing causes an infinite loop: cases get re-added to UnhandledCases,
+		// ShouldPropose() returns true, handleAutopoiesis is called again, budget is
+		// still exhausted, cases get re-queued, repeat forever.
+		// Cases are discarded for this session. When budget is reset (on new turn/session),
+		// fresh unhandled cases will naturally accumulate if needed.
 		return
 	}
 
@@ -784,7 +793,16 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 			"[ExecutivePolicy] FeedbackLoop failed after %d attempts: %v",
 			result.Attempts, err,
 		)
-		// Re-queue cases for later processing
+		// BUG FIX: Do NOT re-queue cases when budget is exhausted.
+		// This prevents the infinite loop where cases are re-added, causing
+		// ShouldPropose() to return true again immediately.
+		// Only re-queue for transient failures (context cancelled, LLM errors, etc.)
+		// that might succeed on a later attempt.
+		if strings.Contains(err.Error(), "validation budget exhausted") {
+			logging.SystemShardsDebug("[ExecutivePolicy] Dropping %d autopoiesis cases due to budget exhaustion", len(cases))
+			return
+		}
+		// For other errors (transient failures), re-queue for later processing
 		for _, cas := range cases {
 			e.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
 		}
