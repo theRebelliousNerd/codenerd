@@ -475,7 +475,7 @@ func (n *NemesisShard) reviewTarget(ctx context.Context, target string) (string,
 	// Create attack runner
 	runner, err := NewAttackRunner(30*time.Second, 512)
 	if err != nil {
-		logging.Shards("Failed to create attack runner: %v", err)
+		logging.Get(logging.CategoryShards).Warn("Failed to create attack runner: %v (continuing with static analysis only)", err)
 		// Continue without execution - just do static analysis
 	}
 	if runner != nil {
@@ -497,7 +497,7 @@ func (n *NemesisShard) reviewTarget(ctx context.Context, target string) (string,
 		// Read source code
 		sourceCode, err := n.readSourceFile(file)
 		if err != nil {
-			logging.Shards("Failed to read %s: %v", file, err)
+			logging.Get(logging.CategoryShards).Error("Failed to read %s: %v", file, err)
 			continue
 		}
 
@@ -519,14 +519,14 @@ func (n *NemesisShard) reviewTarget(ctx context.Context, target string) (string,
 				sourceCode,
 			)
 			if err != nil {
-				logging.Shards("Failed to generate attacks for %s: %v", file, err)
+				logging.Get(logging.CategoryShards).Error("Failed to generate attacks for %s: %v", file, err)
 			} else {
 				result.AttacksGenerated += len(scripts)
 
 				// Execute the attacks
 				executions, err := runner.RunAttackBattery(ctx, scripts)
 				if err != nil {
-					logging.Shards("Attack execution error for %s: %v", file, err)
+					logging.Get(logging.CategoryShards).Error("Attack execution error for %s: %v", file, err)
 				}
 
 				result.AttacksExecuted += len(executions)

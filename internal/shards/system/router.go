@@ -517,7 +517,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			if err != nil {
 				call.Status = "failed"
 				call.Error = err.Error()
-				logging.Tools("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
+				logging.Get(logging.CategoryTools).Error("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
 					Args:      []interface{}{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},

@@ -386,23 +386,29 @@ func (r *ResearcherShard) isWorkspaceQuery(topic string) bool {
 	lower := strings.ToLower(topic)
 
 	// Direct file hints
-	if strings.Contains(lower, ".go") || strings.Contains(lower, ".md") || strings.Contains(lower, ".ts") {
+	if strings.Contains(lower, ".go") || strings.Contains(lower, ".md") || strings.Contains(lower, ".ts") ||
+		strings.Contains(lower, ".json") || strings.Contains(lower, ".yaml") || strings.Contains(lower, ".yml") ||
+		strings.Contains(lower, ".toml") || strings.Contains(lower, ".txt") {
 		return true
 	}
 
 	// Repo topology hints
 	if strings.Contains(lower, "internal/") || strings.Contains(lower, "internal\\") ||
-		strings.Contains(lower, "cmd/") || strings.Contains(lower, "pkg/") {
+		strings.Contains(lower, "cmd/") || strings.Contains(lower, "pkg/") ||
+		strings.Contains(lower, "bin/") || strings.Contains(lower, "docs/") {
 		return true
 	}
 
 	// Natural language hints
-	if strings.Contains(lower, "file") && (strings.Contains(lower, "/") || strings.Contains(lower, "\\")) {
+	if strings.Contains(lower, "file") || strings.Contains(lower, "code") || strings.Contains(lower, "config") ||
+		strings.Contains(lower, "setting") || strings.Contains(lower, "preference") || strings.Contains(lower, "script") {
 		return true
 	}
 
 	// Explicit workspace references
-	if strings.Contains(lower, "workspace") || strings.Contains(lower, "directory") || strings.Contains(lower, "folder") {
+	if strings.Contains(lower, "workspace") || strings.Contains(lower, "directory") ||
+		strings.Contains(lower, "folder") || strings.Contains(lower, "path") ||
+		strings.Contains(lower, "local") || strings.Contains(lower, "repo") {
 		return true
 	}
 
@@ -547,8 +553,10 @@ func (r *ResearcherShard) parseWorkspaceMatches(output, topic string) []Knowledg
 
 // extractWorkspaceTargets extracts filenames or symbols from the topic.
 func (r *ResearcherShard) extractWorkspaceTargets(topic string) []string {
-	re := regexp.MustCompile(`[\w.\-/\\]+\\.[A-Za-z0-9]+`)
-	matches := re.FindAllString(topic, -1)
+	// Pattern 1: Files with extensions
+	fileExtRegex := regexp.MustCompile(`[\w.\-/\\]+\.[A-Za-z0-9]+`)
+	matches := fileExtRegex.FindAllString(topic, -1)
+	
 	seen := make(map[string]bool)
 	var targets []string
 
@@ -571,7 +579,19 @@ func (r *ResearcherShard) extractWorkspaceTargets(topic string) []string {
 		}
 	}
 
-	// Fallback: use longest token if no explicit filename found
+	// Pattern 2: Keywords like "config", "settings" if no file found
+	if len(targets) == 0 {
+		lower := strings.ToLower(topic)
+		keywords := []string{"config", "settings", "preference", "setup", "init", "main", "kernel", "core"}
+		for _, kw := range keywords {
+			if strings.Contains(lower, kw) && !seen[kw] {
+				seen[kw] = true
+				targets = append(targets, kw)
+			}
+		}
+	}
+
+	// Fallback: use longest token if no explicit filename or keyword found
 	if len(targets) == 0 {
 		fields := strings.FieldsFunc(topic, func(r rune) bool {
 			return r == ' ' || r == ',' || r == ';'

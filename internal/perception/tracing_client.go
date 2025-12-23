@@ -275,7 +275,7 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 
 		duration := time.Since(start)
 		if firstErr != nil {
-			logging.API("LLM streaming call failed: shard=%s duration=%v error=%s", shardID, duration, firstErr.Error())
+			logging.Get(logging.CategoryAPI).Error("LLM streaming call failed: shard=%s duration=%v error=%s", shardID, duration, firstErr.Error())
 		} else {
 			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", shardID, duration, full.Len())
 		}

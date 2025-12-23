@@ -124,7 +124,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 					}
 				}
 
-				logging.Shards("Shard %s failed attempt %d: %v", shardName, attempt, err)
+				logging.Get(logging.CategoryShards).Error("Shard %s failed attempt %d: %v", shardName, attempt, err)
 				if attempt == 1 {
 					time.Sleep(500 * time.Millisecond) // Brief pause before retry
 				}
@@ -324,7 +324,7 @@ func (m Model) generateReviewNarrative(ctx context.Context, agg *AggregatedRevie
 
 	narrative, err := m.interpretShardOutput(ctx, promptInput, "reviewer", "multi-shard review", reviewContext)
 	if err != nil {
-		logging.Shards("Narrative summary failed: %v", err)
+		logging.Get(logging.CategoryShards).Error("Narrative summary failed: %v", err)
 		return ""
 	}
 	return narrative
@@ -724,7 +724,7 @@ func (m Model) loadAgentRegistry() *reviewer.AgentRegistry {
 
 	var registry reviewer.AgentRegistry
 	if err := json.Unmarshal(data, &registry); err != nil {
-		logging.Shards("Failed to parse agent registry: %v", err)
+		logging.Get(logging.CategoryShards).Error("Failed to parse agent registry: %v", err)
 		return nil
 	}
 

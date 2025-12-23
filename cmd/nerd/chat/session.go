@@ -1132,7 +1132,7 @@ func (m *Model) saveSessionState() {
 	// Session management should not require `/init` (which is about world-model wiring).
 	nerdDir := filepath.Join(m.workspace, ".nerd")
 	if err := os.MkdirAll(nerdDir, 0755); err != nil {
-		logging.Session("saveSessionState: failed to create .nerd directory: %v", err)
+		logging.Get(logging.CategorySession).Error("saveSessionState: failed to create .nerd directory: %v", err)
 		return
 	}
 
@@ -1154,7 +1154,7 @@ func (m *Model) saveSessionState() {
 
 	// Save session state (JSON)
 	if err := nerdinit.SaveSessionState(m.workspace, state); err != nil {
-		logging.Session("ERROR saving session state: %v", err)
+		logging.Get(logging.CategorySession).Error("Failed to save session state: %v", err)
 	}
 
 	// Convert and save conversation history (JSON)
@@ -1167,7 +1167,7 @@ func (m *Model) saveSessionState() {
 		}
 	}
 	if err := nerdinit.SaveSessionHistory(m.workspace, m.sessionID, messages); err != nil {
-		logging.Session("ERROR saving session history: %v", err)
+		logging.Get(logging.CategorySession).Error("Failed to save session history: %v", err)
 	} else {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
