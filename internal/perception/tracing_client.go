@@ -124,7 +124,7 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 
 	duration := time.Since(start)
 	if err != nil {
-		logging.API("LLM call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		logging.Get(logging.CategoryAPI).Error("LLM call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
 	} else {
 		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
 	}
