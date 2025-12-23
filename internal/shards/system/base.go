@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
@@ -652,11 +653,11 @@ func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, user
 	}
 
 	// Apply per-call timeout if none exists
-	// Note: GLM-4.7 with large contexts (160K+) can take 2-4+ minutes
-	const defaultLLMTimeout = 5 * time.Minute
+	// Note: Uses centralized timeout config to avoid conflicts with HTTP client timeouts
+	timeouts := config.GetLLMTimeouts()
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultLLMTimeout)
+		ctx, cancel = context.WithTimeout(ctx, timeouts.PerCallTimeout)
 		defer cancel()
 	}
 

@@ -1821,13 +1821,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	config := nerdinit.DefaultInitConfig(cwd)
 	config.Timeout = timeout
 
-	// Set up LLM client if available
+	// Set up LLM client if available (wrapped with scheduler for concurrency control)
 	key := apiKey
 	if key == "" {
 		key = os.Getenv("ZAI_API_KEY")
 	}
 	if key != "" {
-		config.LLMClient = perception.NewZAIClient(key)
+		rawClient := perception.NewZAIClient(key)
+		config.LLMClient = core.NewScheduledLLMCall("init", rawClient)
 	}
 
 	// Set Context7 API key from environment or config
