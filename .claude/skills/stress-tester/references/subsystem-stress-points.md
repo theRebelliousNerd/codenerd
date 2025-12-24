@@ -750,3 +750,128 @@ All 22 log categories for stress test monitoring:
 | `/embedding` | `*embedding*.log` | Vector ops |
 | `/session` | `*session*.log` | Session lifecycle |
 | `/system_shards` | `*system_shards*.log` | Type S shards |
+| `/mcp` | `*mcp*.log` | MCP tool operations |
+| `/chat` | `*chat*.log` | TUI chat interface |
+
+---
+
+## 9. NEW SYSTEMS (Dec 2024)
+
+### 9.1 MCP JIT Tool Compiler (internal/mcp/)
+
+**Entry Points:**
+```bash
+nerd mcp tools             # List available tools
+nerd mcp servers           # List MCP servers
+```
+
+**Critical Methods:**
+- `compiler.Compile(ctx, taskContext)` - JIT tool selection
+- `store.GetToolsForContext(ctx)` - Context-aware retrieval
+- `analyzer.ExtractMetadata(tool)` - LLM metadata extraction
+- `renderer.RenderToolSet(tools)` - Three-tier rendering
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Selection timeout | Too many tools | Slow compilation |
+| Score NaN | Missing embedding | Hybrid score fails |
+| Rendering overflow | Token budget exceeded | Truncated tools |
+| Server disconnected | Network issue | Tool not found |
+
+---
+
+### 9.2 Prompt Evolution System (internal/autopoiesis/prompt_evolution/)
+
+**Entry Points:**
+- Automatic during shard execution
+- Feedback recorded after task completion
+
+**Critical Methods:**
+- `evolver.Evolve(ctx, feedback)` - Main evolution loop
+- `judge.Evaluate(ctx, record)` - LLM-as-Judge
+- `generator.GenerateAtom(ctx, verdict)` - Atom creation
+- `collector.Record(ctx, execution)` - Feedback storage
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Judge timeout | LLM call slow | No verdict |
+| Category miss | Ambiguous failure | Wrong classification |
+| Atom collision | Duplicate pattern | Atom not created |
+| Strategy overflow | Many failures | DB growth |
+
+---
+
+### 9.3 LLM Provider System (internal/perception/client*.go)
+
+**Entry Points:**
+```bash
+nerd config show           # Show provider config
+nerd perception "test"     # Direct LLM call
+```
+
+**Supported Providers:**
+- Z.AI (`glm-4.7`), Anthropic (`claude-sonnet-4`)
+- OpenAI (`gpt-5.1-codex-max`), Gemini (`gemini-3-pro-preview`)
+- xAI (`grok-3-beta`), OpenRouter (various)
+- Claude CLI, Codex CLI (subprocess)
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| API key missing | Env not set | Client creation fails |
+| Rate limit | Too many calls | 429 error |
+| Timeout | Slow response | Context deadline |
+| Provider mismatch | Wrong API key | Auth error |
+
+---
+
+### 9.4 LLM Timeout Consolidation (internal/config/llm_timeouts.go)
+
+**Timeout Tiers:**
+| Tier | Purpose | Default |
+|------|---------|---------|
+| Tier 1: Per-Call | HTTP/API | 10 min |
+| Tier 2: Operation | Multi-step | 5-20 min |
+| Tier 3: Campaign | Long-running | 30 min |
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Premature timeout | Wrong tier | Operation cut short |
+| Timeout conflict | Misaligned chain | Warning in logs |
+| Leaked context | Missing defer | Goroutine leak |
+
+---
+
+### 9.5 Glass-Box Tool Visibility (cmd/nerd/chat/glass_box.go)
+
+**Entry Points:**
+- Automatic in TUI chat mode
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Display flicker | Rapid updates | UI instability |
+| Truncation | Large output | Content cut off |
+| Deadlock | Thread contention | UI freeze |
+| Memory leak | Retained boxes | Growing memory |
+
+---
+
+### 9.6 Knowledge Discovery System (internal/articulation/, internal/store/)
+
+**Entry Points:**
+```bash
+nerd refresh-docs          # Ingest documents
+nerd query "knowledge_atom" # Query atoms
+```
+
+**Failure Modes:**
+| Failure | Trigger | Symptom |
+|---------|---------|---------|
+| Embedding mismatch | Dimension changed | Search fails |
+| DB lock | Concurrent writes | SQLITE_BUSY |
+| Memory overflow | Too many docs | OOM on ingestion |
+| Stale knowledge | No refresh | Outdated atoms |

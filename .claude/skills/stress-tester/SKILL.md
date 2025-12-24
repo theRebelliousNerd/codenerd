@@ -1,6 +1,6 @@
 ---
 name: stress-tester
-description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 25+ subsystems. Includes 28 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation.
+description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 35 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation and new system stress tests (MCP, Prompt Evolution, LLM Providers).
 ---
 
 # Stress Tester
@@ -47,7 +47,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-**Total: 29 workflows across 8 categories**
+**Total: 35 workflows across 9 categories**
 
 ### 01-kernel-core (8 workflows)
 
@@ -120,6 +120,17 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [ouroboros-thunderdome-nemesis.md](references/workflows/08-hybrid-integration/ouroboros-thunderdome-nemesis.md) | Adversarial evolution loop |
 | [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle |
 
+### 09-new-systems (6 workflows)
+
+| Workflow | What It Stresses | Duration |
+|----------|------------------|----------|
+| [mcp-jit-compiler.md](references/workflows/09-new-systems/mcp-jit-compiler.md) | MCP tool discovery, JIT selection, skeleton/flesh bifurcation | 20-35 min |
+| [prompt-evolution.md](references/workflows/09-new-systems/prompt-evolution.md) | LLM-as-Judge, strategy database, atom generation | 30-50 min |
+| [llm-provider-system.md](references/workflows/09-new-systems/llm-provider-system.md) | Multi-provider client, rate limits, failover | 25-40 min |
+| [timeout-consolidation.md](references/workflows/09-new-systems/timeout-consolidation.md) | 3-tier timeout hierarchy, deadline propagation | 15-25 min |
+| [glass-box-visibility.md](references/workflows/09-new-systems/glass-box-visibility.md) | TUI glass-box rendering, concurrent tool updates | 15-25 min |
+| [knowledge-discovery.md](references/workflows/09-new-systems/knowledge-discovery.md) | Semantic Knowledge Bridge, document ingestion, vector search | 20-35 min |
+
 ## Severity Levels
 
 | Level | Description | Use When |
@@ -180,7 +191,7 @@ See [root-cause-mandate.md](references/root-cause-mandate.md) for complete inves
 
 | Reference | Contents |
 |-----------|----------|
-| [subsystem-stress-points.md](references/subsystem-stress-points.md) | All 25+ subsystems with failure modes |
+| [subsystem-stress-points.md](references/subsystem-stress-points.md) | All 31+ subsystems with failure modes |
 | [panic-catalog.md](references/panic-catalog.md) | Known panic vectors with triggers |
 | [resource-limits.md](references/resource-limits.md) | Config limits and safe/dangerous values |
 | [root-cause-mandate.md](references/root-cause-mandate.md) | Investigation protocol, anti-patterns |
