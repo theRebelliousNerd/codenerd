@@ -2,9 +2,12 @@
 
 This package implements autopoiesis (self-creation) - the ability for codeNERD to modify itself by detecting needs and generating new capabilities.
 
+**Subpackage:** See [prompt_evolution/CLAUDE.md](prompt_evolution/CLAUDE.md) for the System Prompt Learning (SPL) subsystem.
+
 ## Architecture
 
-Autopoiesis provides nine core capabilities:
+Autopoiesis provides ten core capabilities:
+
 1. **Complexity Analysis** - Detect when campaigns are needed
 2. **Tool Generation** - Create new tools when capabilities are missing
 3. **Persistence Analysis** - Identify when persistent agents are needed
@@ -14,6 +17,7 @@ Autopoiesis provides nine core capabilities:
 7. **Tool Quality Profiles** - LLM-defined per-tool performance expectations
 8. **Thunderdome** - Adversarial testing arena for attack vector validation
 9. **Chaos Engineering** - Generate attack vectors to test tool robustness
+10. **Prompt Evolution** - System Prompt Learning (SPL) for automatic prompt improvement
 
 ## File Index
 

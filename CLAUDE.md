@@ -36,18 +36,19 @@ codeNERD inverts the traditional agent hierarchy:
 
 ```text
 cmd/
-├── nerd/               # CLI entrypoint (67 Go files)
-│   ├── chat/           # TUI chat interface (Elm architecture)
+├── nerd/               # CLI entrypoint (80+ Go files)
+│   ├── chat/           # TUI chat interface (Elm architecture, modularized)
 │   └── ui/             # UI components
 ├── query-kb/           # Knowledge base query tool
 ├── test-research/      # Research testing tool
 └── tools/              # Build tools (corpus_builder, mangle_check, etc.)
 
-internal/               # 30 packages, ~128K LOC
+internal/               # 32 packages, ~140K LOC
 ├── core/               # Kernel, VirtualStore, ShardManager (modularized)
 ├── perception/         # NL → Mangle atom transduction
 ├── articulation/       # Mangle atom → NL transduction
-├── autopoiesis/        # Self-modification: Ouroboros, Thunderdome, tool learning
+├── autopoiesis/        # Self-modification: Ouroboros, Thunderdome, tool learning, prompt evolution
+├── mcp/                # MCP (Model Context Protocol) integration, JIT Tool Compiler
 ├── prompt/             # JIT Prompt Compiler, atoms, context-aware assembly
 ├── shards/             # Shard implementations (coder/, tester/, reviewer/, researcher/, nemesis/, system/, tool_generator/)
 ├── mangle/             # .mg schema/policy files + feedback/, transpiler/
@@ -399,7 +400,7 @@ Large files have been modularized for maintainability. The parent file serves as
 
 ## Documentation
 
-The codebase includes **46 CLAUDE.md files** providing AI-readable documentation with standardized File Index tables.
+The codebase includes **51 CLAUDE.md files** providing AI-readable documentation with standardized File Index tables.
 
 ## Dynamic Adaptation
 
@@ -460,6 +461,210 @@ When a shard needs to interact with an LLM, the JIT compiler executes:
 - **Autopoiesis:** Injects learned patterns and tool usage instructions dynamically
 - **Observability:** `/jit` command inspects last compiled prompt and statistics
 
+## MCP (Model Context Protocol) Integration
+
+The MCP package provides a JIT Tool Compiler for intelligent MCP tool serving based on task context.
+
+**Location:** `internal/mcp/`
+
+### Architecture
+
+```
+MCPClientManager → ToolAnalyzer → MCPToolStore → Mangle Facts
+                                      ↓
+TaskContext → Vector Search + Mangle Logic → Tool Selection
+                                      ↓
+ToolRenderer → Full/Condensed/Minimal → LLM Context
+```
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `types.go` | Core type definitions (MCPServer, MCPTool, etc.) |
+| `client.go` | Server connections, protocol negotiation |
+| `transport_http.go` | HTTP-based MCP communication |
+| `store.go` | SQLite storage with embeddings |
+| `analyzer.go` | LLM-based metadata extraction |
+| `compiler.go` | JIT tool selection pipeline |
+| `renderer.go` | Tool set rendering for LLM |
+
+### Skeleton/Flesh Bifurcation
+
+Mirrors the JIT Prompt Compiler pattern:
+- **Skeleton Tools**: Always available (filesystem read, shell exec) — selected via Mangle logic
+- **Flesh Tools**: Context-dependent — hybrid scoring: (Logic × 0.7) + (Vector × 0.3)
+
+### Three-Tier Rendering
+
+| Tier | Threshold | Content |
+|------|-----------|---------|
+| Full | ≥70 | Complete JSON schema, description, examples |
+| Condensed | 40-69 | Name + one-line description |
+| Minimal | 20-39 | Name only (available on request) |
+| Excluded | <20 | Not sent to LLM |
+
+### Mangle Integration
+
+```mangle
+mcp_server_registered(ServerID, Endpoint, Protocol, RegisteredAt).
+mcp_tool_capability(ToolID, Capability).
+mcp_tool_shard_affinity(ToolID, ShardType, Score).
+mcp_tool_selected(ShardType, ToolID, RenderMode).
+```
+
+## Prompt Evolution System (System Prompt Learning)
+
+The Prompt Evolution System implements Karpathy's "third paradigm" of LLM learning — automatic evolution of prompt atoms based on execution feedback.
+
+**Location:** `internal/autopoiesis/prompt_evolution/`
+
+### Architecture
+
+```
+Execute → Evaluate (LLM-as-Judge) → Evolve (Meta-Prompt) → Integrate (JIT Compiler)
+```
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `types.go` | Core type definitions (ExecutionRecord, JudgeVerdict, Strategy) |
+| `judge.go` | LLM-as-Judge evaluation with explanations |
+| `feedback_collector.go` | Execution outcome recording and storage |
+| `strategy_store.go` | Problem-type-specific strategy database |
+| `classifier.go` | Problem type classification |
+| `atom_generator.go` | Automatic atom creation from failures |
+| `evolver.go` | Main evolution orchestrator |
+
+### Error Categories
+
+| Category | Description |
+|----------|-------------|
+| `LOGIC_ERROR` | Wrong approach or algorithm |
+| `SYNTAX_ERROR` | Code syntax issues |
+| `API_MISUSE` | Wrong API or library usage |
+| `EDGE_CASE` | Missing edge case handling |
+| `CONTEXT_MISS` | Missed relevant codebase context |
+| `INSTRUCTION_MISS` | Didn't follow instructions |
+| `HALLUCINATION` | Made up information |
+| `CORRECT` | Task completed correctly |
+
+### Storage
+
+```
+.nerd/prompts/
+├── evolution.db        # Execution records, verdicts
+├── strategies.db       # Strategy database
+└── evolved/
+    ├── pending/        # Awaiting promotion
+    ├── promoted/       # Promoted to corpus
+    └── rejected/       # User rejected
+```
+
+## LLM Provider System
+
+The perception package implements a multi-provider LLM client factory supporting 7 providers with unified interface.
+
+**Location:** `internal/perception/client*.go`
+
+### Supported Providers
+
+| Provider | Default Model | Config Key | Notes |
+|----------|---------------|------------|-------|
+| Z.AI | `glm-4.7` | `zai_api_key` | 200K context, 128K output |
+| Anthropic | `claude-sonnet-4` | `anthropic_api_key` | Claude 4 series |
+| OpenAI | `gpt-5.1-codex-max` | `openai_api_key` | Codex models supported |
+| Gemini | `gemini-3-pro-preview` | `gemini_api_key` | Gemini 3 Flash/Pro |
+| xAI | `grok-3-beta` | `xai_api_key` | Grok series |
+| OpenRouter | (various) | `openrouter_api_key` | Multi-model routing |
+| CLI Engines | - | `engine: claude-cli` | Claude Code / Codex CLI subprocess |
+
+### Provider Detection
+
+```go
+// Auto-detect provider from config/environment
+client, err := perception.NewClientFromEnv()
+
+// Each provider implements LLMClient interface
+type LLMClient interface {
+    Complete(ctx context.Context, prompt string) (string, error)
+    CompleteWithSystem(ctx context.Context, system, user string) (string, error)
+}
+```
+
+## LLM Timeout Consolidation
+
+Centralized timeout configuration for all LLM operations, preventing timeout conflicts.
+
+**Location:** `internal/config/llm_timeouts.go`
+
+### Key Insight
+
+In Go, the SHORTEST timeout in the chain wins. This configuration provides canonical timeouts that all LLM operations use.
+
+### Timeout Tiers
+
+| Tier | Purpose | Default |
+|------|---------|---------|
+| **Tier 1: Per-Call** | HTTP/API timeouts | 10 minutes |
+| **Tier 2: Operation** | Multi-step operations | 5-20 minutes |
+| **Tier 3: Campaign** | Long-running orchestration | 30 minutes |
+
+### Key Timeouts
+
+| Timeout | Default | Purpose |
+|---------|---------|---------|
+| `HTTPClientTimeout` | 10 min | Maximum HTTP operation time |
+| `PerCallTimeout` | 10 min | Single LLM call context |
+| `ShardExecutionTimeout` | 20 min | Shard spawn + research + LLM |
+| `ArticulationTimeout` | 5 min | Transducer LLM calls |
+| `CampaignPhaseTimeout` | 30 min | Full campaign phase |
+
+### Usage
+
+```go
+timeouts := config.GetLLMTimeouts()
+ctx, cancel := context.WithTimeout(ctx, timeouts.ShardExecutionTimeout)
+```
+
+## Glass-Box Tool Visibility
+
+Real-time visibility into tool execution for transparency and debugging.
+
+**Location:** `cmd/nerd/chat/glass_box.go`
+
+### Features
+
+- **Tool Execution Display**: Shows which tools are being invoked
+- **Parameter Visibility**: Displays tool parameters in real-time
+- **Result Streaming**: Shows tool output as it arrives
+- **Error Context**: Provides detailed error information with remediation
+
+### Integration
+
+Wired into the TUI chat interface for real-time observation of tool invocations during shard execution.
+
+## Knowledge Discovery System
+
+LLM-First Knowledge Discovery enables shards to access specialized knowledge dynamically.
+
+**Location:** `internal/articulation/prompt_assembler.go` (Semantic Knowledge Bridge)
+
+### Semantic Knowledge Bridge
+
+Bridges JIT Prompt Compiler and shard knowledge for context-aware knowledge injection:
+1. **Query Time**: When JIT compiles a prompt, it queries the bridge for relevant knowledge
+2. **Shard Context**: Knowledge atoms are filtered by shard type and current task
+3. **Vector Search**: Semantic similarity finds relevant knowledge from specialist databases
+
+### Document Ingestion
+
+The `/refresh-docs` command enables runtime document ingestion:
+- Scans markdown files for strategic knowledge
+- Uses LLM filtering for relevance
+- Persists knowledge atoms with vector embeddings
+
 ## Full Specifications
 
 For detailed architecture and implementation specs, see:
@@ -496,6 +701,11 @@ For detailed architecture and implementation specs, see:
 | UX | [internal/ux/](internal/ux/) | User journey, progressive disclosure |
 | Activation | [internal/context/activation.go](internal/context/activation.go) | Spreading activation engine |
 | Compressor | [internal/context/compressor.go](internal/context/compressor.go) | Semantic compression |
+| MCP Compiler | [internal/mcp/compiler.go](internal/mcp/compiler.go) | JIT Tool Compiler |
+| MCP Store | [internal/mcp/store.go](internal/mcp/store.go) | Tool storage with embeddings |
+| Prompt Evolution | [internal/autopoiesis/prompt_evolution/evolver.go](internal/autopoiesis/prompt_evolution/evolver.go) | System Prompt Learning |
+| LLM Timeouts | [internal/config/llm_timeouts.go](internal/config/llm_timeouts.go) | Centralized timeout config |
+| Glass-Box | [cmd/nerd/chat/glass_box.go](cmd/nerd/chat/glass_box.go) | Tool execution visibility |
 
 ## Development Guidelines
 

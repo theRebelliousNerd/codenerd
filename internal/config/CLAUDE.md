@@ -34,6 +34,7 @@ Configuration is split into domain-specific files:
 | `logging.go` | Logging configuration with per-category toggles. Exports LoggingConfig with debug mode master toggle, level, format, and IsCategoryEnabled() for selective logging. |
 | `build.go` | Build environment configuration for go build/test commands. Exports BuildConfig with CGO environment variables, Go flags, and CGO package detection. |
 | `ux.go` | User experience and onboarding configuration. Exports ExperienceLevel constants, OnboardingState, TransparencyConfig for progressive disclosure and visibility settings. |
+| `llm_timeouts.go` | Centralized LLM timeout configuration with 3-tier timeout hierarchy. Exports LLMTimeouts struct, DefaultLLMTimeouts(), FastLLMTimeouts(), AggressiveLLMTimeouts(), and global GetLLMTimeouts()/SetLLMTimeouts(). |
 | `config_test.go` | Unit tests for configuration loading and validation. Tests DefaultConfig(), YAML parsing, and limit validation. |
 
 ## Key Types

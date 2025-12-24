@@ -115,14 +115,16 @@ The package implements a multi-provider LLM client factory (`client.go`).
 
 ### Supported Providers
 
-| Provider | Config Key | Environment Variable | Default Model |
-|----------|------------|---------------------|---------------|
-| Z.AI | `zai_api_key` | `ZAI_API_KEY` | `glm-4.6` |
-| Anthropic | `anthropic_api_key` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` |
-| OpenAI | `openai_api_key` | `OPENAI_API_KEY` | `gpt-4o` |
-| Gemini | `gemini_api_key` | `GEMINI_API_KEY` | `gemini-3-pro-preview` |
-| xAI | `xai_api_key` | `XAI_API_KEY` | `grok-3-beta` |
-| OpenRouter | `openrouter_api_key` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` |
+| Provider | Config Key | Environment Variable | Default Model | Notes |
+|----------|------------|---------------------|---------------|-------|
+| Z.AI | `zai_api_key` | `ZAI_API_KEY` | `glm-4.7` | 200K context, 128K output |
+| Anthropic | `anthropic_api_key` | `ANTHROPIC_API_KEY` | `claude-sonnet-4` | Claude 4 series |
+| OpenAI | `openai_api_key` | `OPENAI_API_KEY` | `gpt-5.1-codex-max` | Codex models |
+| Gemini | `gemini_api_key` | `GEMINI_API_KEY` | `gemini-3-pro-preview` | Flash/Pro available |
+| xAI | `xai_api_key` | `XAI_API_KEY` | `grok-3-beta` | Grok series |
+| OpenRouter | `openrouter_api_key` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` | Multi-model routing |
+| Claude CLI | `engine: claude-cli` | - | (CLI default) | Subprocess backend |
+| Codex CLI | `engine: codex-cli` | - | (CLI default) | Subprocess backend |
 
 ### Provider Detection
 
