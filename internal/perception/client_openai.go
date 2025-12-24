@@ -104,7 +104,7 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		Temperature: 0.1,
 	}
 	if isPiggyback {
-		reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+		reqBody.ResponseFormat = BuildOpenAIPiggybackEnvelopeSchema()
 	}
 
 	// Retry loop for rate limits
@@ -236,7 +236,7 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			},
 		}
 		if isPiggyback {
-			reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+			reqBody.ResponseFormat = BuildOpenAIPiggybackEnvelopeSchema()
 		}
 
 		// Retry loop for initial request setup / rate limits (before streaming begins).

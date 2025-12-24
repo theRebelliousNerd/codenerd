@@ -101,10 +101,8 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		},
 	}
 	if isPiggyback {
-		if env := BuildPiggybackEnvelopeSchema(); env != nil && env.JSONSchema != nil {
-			reqBody.GenerationConfig.ResponseMimeType = "application/json"
-			reqBody.GenerationConfig.ResponseJsonSchema = env.JSONSchema.Schema
-		}
+		reqBody.GenerationConfig.ResponseMimeType = "application/json"
+		reqBody.GenerationConfig.ResponseJsonSchema = BuildGeminiPiggybackEnvelopeSchema()
 	}
 
 	// Construct URL with API key
@@ -243,10 +241,8 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			},
 		}
 		if isPiggyback {
-			if env := BuildPiggybackEnvelopeSchema(); env != nil && env.JSONSchema != nil {
-				reqBody.GenerationConfig.ResponseMimeType = "application/json"
-				reqBody.GenerationConfig.ResponseJsonSchema = env.JSONSchema.Schema
-			}
+			reqBody.GenerationConfig.ResponseMimeType = "application/json"
+			reqBody.GenerationConfig.ResponseJsonSchema = BuildGeminiPiggybackEnvelopeSchema()
 		}
 
 		url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)

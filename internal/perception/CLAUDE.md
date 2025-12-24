@@ -37,7 +37,7 @@ Every LLM response contains dual payloads:
 | `client_gemini.go` | LLMClient implementation for Google Gemini API with streaming support. Exports GeminiClient with Complete() and CompleteWithSystem() methods. |
 | `client_openai.go` | LLMClient implementation for OpenAI API including Codex models. Exports OpenAIClient with gpt-5.1-codex-max as default model. |
 | `client_openrouter.go` | LLMClient implementation for OpenRouter multi-provider API. Exports OpenRouterClient with site attribution and model routing. |
-| `client_schema.go` | JSON schema builder for structured output validation. Exports BuildPiggybackEnvelopeSchema() enforcing Piggyback Protocol at API level. |
+| `client_schema.go` | Provider-specific JSON schema builders for structured output. Exports BuildZAIPiggybackEnvelopeSchema(), BuildOpenAIPiggybackEnvelopeSchema(), BuildGeminiPiggybackEnvelopeSchema(), BuildOpenRouterPiggybackEnvelopeSchema() for each provider's API format. |
 | `client_types.go` | Core type definitions including LLMClient interface and config structs. Exports Provider constants and ZAIConfig, AnthropicConfig, OpenAIConfig, etc. |
 | `client_xai.go` | LLMClient implementation for xAI (Grok) API. Exports XAIClient with Complete() and CompleteWithSystem() methods. |
 | `client_zai.go` | LLMClient implementation for Z.AI API with concurrency semaphore. Exports ZAIClient with 5-concurrent-request limit and streaming support. |
