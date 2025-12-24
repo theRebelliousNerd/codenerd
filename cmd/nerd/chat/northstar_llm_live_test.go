@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/perception"
 	"os"
 	"path/filepath"
@@ -15,9 +16,26 @@ func requireLiveLLMClient(t *testing.T) perception.LLMClient {
 		t.Skip("skipping live LLM test: set CODENERD_LIVE_LLM=1 to enable")
 	}
 
-	client, err := perception.NewClientFromEnv()
+	configPath := config.DefaultUserConfigPath()
+	cfg, err := config.LoadUserConfig(configPath)
 	if err != nil {
-		t.Skipf("skipping live LLM test: %v", err)
+		t.Skipf("skipping live LLM test: load config %s: %v", configPath, err)
+	}
+
+	apiKey := cfg.ZAIAPIKey
+	if apiKey == "" && cfg.Provider == "zai" && cfg.APIKey != "" {
+		apiKey = cfg.APIKey
+	}
+	if apiKey == "" && cfg.Provider == "" && cfg.APIKey != "" {
+		apiKey = cfg.APIKey
+	}
+	if apiKey == "" {
+		t.Skipf("skipping live LLM test: zai_api_key not configured in %s", configPath)
+	}
+
+	client := perception.NewZAIClient(apiKey)
+	if cfg.Provider == "zai" && cfg.Model != "" {
+		client.SetModel(cfg.Model)
 	}
 	return client
 }
