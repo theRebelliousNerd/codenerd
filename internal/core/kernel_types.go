@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/types"
 
 	"github.com/google/mangle/analysis"
+	"github.com/google/mangle/ast"
 	"github.com/google/mangle/factstore"
 )
 
@@ -41,6 +42,7 @@ type LearnedRuleInterceptor interface {
 type RealKernel struct {
 	mu                sync.RWMutex
 	facts             []Fact
+	cachedAtoms       []ast.Atom          // OPTIMIZATION: Cached Mangle atoms to avoid O(N) ToAtom() conversions
 	factIndex         map[string]struct{} // Canonical fact set for deduplication
 	bootFacts         []Fact              // EDB facts extracted from hybrid .mg data sections
 	bootIntents       []HybridIntent      // Canonical intents extracted from hybrid .mg files

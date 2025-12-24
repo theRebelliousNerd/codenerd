@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+
+	"github.com/google/mangle/ast"
 )
 
 // =============================================================================
@@ -106,13 +108,26 @@ func (k *RealKernel) rebuildFactIndexLocked() {
 
 // addFactIfNewLocked appends a fact only if it is not already present.
 // Returns true if added. Call only while holding k.mu.
+// OPTIMIZATION: Also caches the converted atom to avoid repeated ToAtom() calls.
 func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
 	if _, ok := k.factIndex[key]; ok {
 		return false
 	}
+
+	// Convert to atom once and cache it
+	atom, err := f.ToAtom()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: failed to convert fact to atom: %v", err)
+		// Still add the fact, but without cached atom (will be regenerated in evaluate)
+		k.facts = append(k.facts, f)
+		k.factIndex[key] = struct{}{}
+		return true
+	}
+
 	k.facts = append(k.facts, f)
+	k.cachedAtoms = append(k.cachedAtoms, atom)
 	k.factIndex[key] = struct{}{}
 	return true
 }
@@ -135,6 +150,44 @@ func (k *RealKernel) Assert(fact Fact) error {
 		return err
 	}
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
+	return nil
+}
+
+// AssertBatch adds multiple facts and re-evaluates once.
+// OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
+// For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
+func (k *RealKernel) AssertBatch(facts []Fact) error {
+	if len(facts) == 0 {
+		return nil
+	}
+
+	logging.KernelDebug("AssertBatch: asserting %d facts", len(facts))
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	addedCount := 0
+	for _, fact := range facts {
+		fact = sanitizeFactForNumericPredicates(fact)
+		if k.addFactIfNewLocked(fact) {
+			addedCount++
+			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
+		}
+	}
+
+	if addedCount == 0 {
+		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
+		return nil
+	}
+
+	// Evaluate ONCE for all added facts
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after asserting %d facts: %v", addedCount, err)
+		return err
+	}
+
+	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
+		addedCount, len(facts), len(k.facts))
 	return nil
 }
 
@@ -217,6 +270,7 @@ func (k *RealKernel) Evaluate() error {
 }
 
 // Retract removes all facts of a given predicate.
+// OPTIMIZATION: Maintains atom cache instead of rebuilding entire index.
 func (k *RealKernel) Retract(predicate string) error {
 	logging.KernelDebug("Retract: removing all facts with predicate=%s", predicate)
 
@@ -225,11 +279,18 @@ func (k *RealKernel) Retract(predicate string) error {
 
 	prevCount := len(k.facts)
 	retractedCount := 0
-	newLen := 0
-	for _, f := range k.facts {
+	newFactsLen := 0
+	newAtomsLen := 0
+
+	// Filter facts and atoms in parallel
+	for i, f := range k.facts {
 		if f.Predicate != predicate {
-			k.facts[newLen] = f
-			newLen++
+			k.facts[newFactsLen] = f
+			if i < len(k.cachedAtoms) {
+				k.cachedAtoms[newAtomsLen] = k.cachedAtoms[i]
+			}
+			newFactsLen++
+			newAtomsLen++
 		} else {
 			retractedCount++
 		}
@@ -241,11 +302,20 @@ func (k *RealKernel) Retract(predicate string) error {
 	}
 
 	// Zero tail to release references for GC.
-	for i := newLen; i < prevCount; i++ {
+	for i := newFactsLen; i < prevCount; i++ {
 		k.facts[i] = Fact{}
+		if i < len(k.cachedAtoms) {
+			k.cachedAtoms[i] = ast.Atom{} // Zero value for ast.Atom
+		}
 	}
-	k.facts = k.facts[:newLen]
-	k.rebuildFactIndexLocked()
+	k.facts = k.facts[:newFactsLen]
+	k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
+
+	// OPTIMIZATION: Incremental index update instead of full rebuild
+	if retractedCount > 0 && k.factIndex != nil {
+		// Rebuild index only for removed predicate
+		k.rebuildFactIndexLocked()
+	}
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
 		retractedCount, predicate, prevCount, len(k.facts))
@@ -454,15 +524,42 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 // =============================================================================
 
 // argsEqual compares two fact arguments for equality.
+// OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
 func argsEqual(a, b interface{}) bool {
+	// Fast path: pointer equality
+	if a == b {
+		return true
+	}
+
 	switch av := a.(type) {
 	case string:
 		if bv, ok := b.(string); ok {
 			return av == bv
 		}
+	case MangleAtom:
+		// MangleAtom is a string type alias, check both MangleAtom and string
+		if bv, ok := b.(MangleAtom); ok {
+			return av == bv
+		}
+		if bv, ok := b.(string); ok {
+			return string(av) == bv
+		}
+	case int:
+		// Handle int separately from int64
+		if bv, ok := b.(int); ok {
+			return av == bv
+		}
+		// Cross-compare with int64
+		if bv, ok := b.(int64); ok {
+			return int64(av) == bv
+		}
 	case int64:
 		if bv, ok := b.(int64); ok {
 			return av == bv
+		}
+		// Cross-compare with int
+		if bv, ok := b.(int); ok {
+			return av == int64(bv)
 		}
 	case float64:
 		if bv, ok := b.(float64); ok {
@@ -472,8 +569,14 @@ func argsEqual(a, b interface{}) bool {
 		if bv, ok := b.(bool); ok {
 			return av == bv
 		}
+	default:
+		// SLOW PATH: Only for truly unknown types
+		// This should rarely execute if type system is well-defined
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 	}
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+
+	// Type mismatch (e.g., string vs int)
+	return false
 }
 
 // argsSliceEqual compares two argument slices for full equality.

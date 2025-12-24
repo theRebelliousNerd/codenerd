@@ -127,7 +127,46 @@ func patternArgMatches(pattern interface{}, value interface{}) bool {
 	if s, ok := pattern.(string); ok && strings.HasPrefix(s, "?") {
 		return true
 	}
-	return reflect.DeepEqual(normalizeQueryValue(pattern), normalizeQueryValue(value))
+
+	// OPTIMIZATION: Replace reflect.DeepEqual with type switches
+	// Normalize both values first
+	normPattern := normalizeQueryValue(pattern)
+	normValue := normalizeQueryValue(value)
+
+	// Fast path: pointer equality
+	if normPattern == normValue {
+		return true
+	}
+
+	// Type-based comparison (avoid reflection)
+	switch p := normPattern.(type) {
+	case int64:
+		if v, ok := normValue.(int64); ok {
+			return p == v
+		}
+	case string:
+		if v, ok := normValue.(string); ok {
+			return p == v
+		}
+	case MangleAtom:
+		if v, ok := normValue.(MangleAtom); ok {
+			return p == v
+		}
+		// Cross-compare with string
+		if v, ok := normValue.(string); ok {
+			return string(p) == v
+		}
+	case bool:
+		if v, ok := normValue.(bool); ok {
+			return p == v
+		}
+	default:
+		// FALLBACK: Only for truly unknown types
+		// This should rarely execute with well-typed facts
+		return reflect.DeepEqual(normPattern, normValue)
+	}
+
+	return false
 }
 
 func normalizeQueryValue(v interface{}) interface{} {
