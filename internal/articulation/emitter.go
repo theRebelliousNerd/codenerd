@@ -87,6 +87,7 @@ type ResponseProcessor struct {
 	RequireValidJSON     bool
 	AllowMarkdownWrapped bool
 	MaxSurfaceLength     int
+	LogFallbackAsError   bool
 
 	// Statistics for monitoring
 	stats ProcessorStats
@@ -125,6 +126,7 @@ func NewResponseProcessor() *ResponseProcessor {
 		RequireValidJSON:     false, // Allow fallback parsing
 		AllowMarkdownWrapped: true,
 		MaxSurfaceLength:     50000,
+		LogFallbackAsError:   true,
 	}
 	logging.ArticulationDebug("ResponseProcessor initialized: RequireValidJSON=%v, AllowMarkdownWrapped=%v, MaxSurfaceLength=%d",
 		rp.RequireValidJSON, rp.AllowMarkdownWrapped, rp.MaxSurfaceLength)
@@ -231,17 +233,30 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		rp.stats.FallbackParses++
 		result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
 
-		// Log comprehensive diagnostic info for debugging Piggyback failures
+		// Log comprehensive diagnostic info for debugging Piggyback failures.
 		responsePreview := rawResponse
 		if len(responsePreview) > 300 {
 			responsePreview = responsePreview[:300] + "..."
 		}
-		logging.Get(logging.CategoryArticulation).Error(
-			"Fallback parse: no valid Piggyback JSON found (len=%d, errors=[%s], preview=%q)",
-			len(rawResponse),
-			strings.Join(parseErrors, "; "),
-			responsePreview,
-		)
+		if rp.LogFallbackAsError {
+			logging.Get(logging.CategoryArticulation).Error(
+				"Fallback parse: no valid Piggyback JSON found (len=%d, errors=[%s], preview=%q)",
+				len(rawResponse),
+				strings.Join(parseErrors, "; "),
+				responsePreview,
+			)
+		} else if strings.TrimSpace(rawResponse) == "" {
+			logging.Get(logging.CategoryArticulation).Warn(
+				"Fallback parse: empty response with no Piggyback JSON (errors=[%s])",
+				strings.Join(parseErrors, "; "),
+			)
+		} else {
+			logging.ArticulationDebug(
+				"Fallback parse: using raw response (len=%d, errors=[%s])",
+				len(rawResponse),
+				strings.Join(parseErrors, "; "),
+			)
+		}
 		logging.ArticulationDebug("Fallback surface length: %d bytes", len(result.Surface))
 		rp.applyCaps(result)
 		return result, nil
@@ -747,6 +762,42 @@ func ProcessLLMResponse(rawResponse string) *ProcessedLLMResponse {
 	}
 
 	// Only include control packet if we actually parsed it
+	if result.ParseMethod != "fallback" {
+		processed.Control = &result.Control
+	}
+
+	return processed
+}
+
+// ProcessLLMResponseAllowPlain treats non-Piggyback responses as expected output.
+// It avoids emitting error logs when the response is intentionally plain text.
+func ProcessLLMResponseAllowPlain(rawResponse string) *ProcessedLLMResponse {
+	logging.ArticulationDebug("ProcessLLMResponseAllowPlain: processing %d bytes", len(rawResponse))
+
+	processor := NewResponseProcessor()
+	processor.RequireValidJSON = false
+	processor.LogFallbackAsError = false
+
+	result, err := processor.Process(rawResponse)
+	if err != nil {
+		logging.Get(logging.CategoryArticulation).Warn("ProcessLLMResponseAllowPlain: parse failed, using raw: %v", err)
+		return &ProcessedLLMResponse{
+			Surface:     strings.TrimSpace(rawResponse),
+			Control:     nil,
+			ParseMethod: "fallback",
+			Confidence:  0.0,
+		}
+	}
+
+	logging.Articulation("ProcessLLMResponseAllowPlain: method=%s, confidence=%.2f, surface_len=%d",
+		result.ParseMethod, result.Confidence, len(result.Surface))
+
+	processed := &ProcessedLLMResponse{
+		Surface:     result.Surface,
+		ParseMethod: result.ParseMethod,
+		Confidence:  result.Confidence,
+	}
+
 	if result.ParseMethod != "fallback" {
 		processed.Control = &result.Control
 	}

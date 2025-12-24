@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,15 @@ var prologNegationRe = regexp.MustCompile(`\\\+\s*`)
 // 1. Prolog-style negation (\+) to Mangle negation (!)
 // 2. Backslashes inside quoted strings
 func NormalizeRuleInput(rule string) string {
+	rule = strings.TrimSpace(rule)
+
+	// If the entire rule is a JSON-quoted string, unquote it first.
+	if strings.HasPrefix(rule, "\"") && strings.HasSuffix(rule, "\"") {
+		if unquoted, err := strconv.Unquote(rule); err == nil {
+			rule = strings.TrimSpace(unquoted)
+		}
+	}
+
 	// First fix Prolog negation \+ -> !
 	// This is a common LLM mistake when generating Mangle rules
 	if strings.Contains(rule, "\\+") {

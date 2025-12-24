@@ -198,6 +198,17 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 			shardID, activeSlots, s.config.MaxConcurrentAPICalls, atomic.LoadInt32(&s.currentlyWaiting))
 	}
 
+	waitCtx := ctx
+	var waitCancel context.CancelFunc
+	if timeout := s.config.SlotAcquireTimeout; timeout > 0 {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > timeout {
+			waitCtx, waitCancel = context.WithTimeout(ctx, timeout)
+		}
+	}
+	if waitCancel != nil {
+		defer waitCancel()
+	}
+
 	// Try to acquire slot
 	select {
 	case s.slots <- struct{}{}:
@@ -226,11 +237,11 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		}
 		return nil
 
-	case <-ctx.Done():
+	case <-waitCtx.Done():
 		// Context cancelled while waiting
 		s.mu.Lock()
 		state.Phase = PhaseFailed
-		state.Error = ctx.Err()
+		state.Error = waitCtx.Err()
 		// Remove from wait queue
 		for i, e := range s.waitQueue {
 			if e.shardID == shardID {
@@ -242,7 +253,7 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 
 		logging.Get(logging.CategoryShards).Warn("APIScheduler: shard %s cancelled while waiting for slot (waited %v)",
 			shardID, time.Since(waitStart))
-		return ctx.Err()
+		return waitCtx.Err()
 
 	case <-s.stopCh:
 		// Clean up wait queue on scheduler stop

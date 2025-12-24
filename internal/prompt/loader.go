@@ -534,8 +534,6 @@ func LoadProjectPrompts(ctx context.Context, nerdDir string, embeddingEngine emb
 	timer := logging.StartTimer(logging.CategoryStore, "LoadProjectPrompts")
 	defer timer.Stop()
 
-	logging.Get(logging.CategoryStore).Warn("LoadProjectPrompts called but project-level prompts are deprecated - prompts should be per-agent in .nerd/agents/{name}/prompts.yaml")
-
 	promptsDir := filepath.Join(nerdDir, "prompts")
 	if _, err := os.Stat(promptsDir); os.IsNotExist(err) {
 		logging.Get(logging.CategoryStore).Debug("No prompts directory found")
@@ -556,7 +554,10 @@ func LoadProjectPrompts(ctx context.Context, nerdDir string, embeddingEngine emb
 	}
 
 	if yamlCount > 0 {
+		logging.Get(logging.CategoryStore).Warn("LoadProjectPrompts called but project-level prompts are deprecated - prompts should be per-agent in .nerd/agents/{name}/prompts.yaml")
 		logging.Get(logging.CategoryStore).Warn("Found %d YAML files in .nerd/prompts/ - these should be migrated to per-agent prompts.yaml files", yamlCount)
+	} else {
+		logging.Get(logging.CategoryStore).Debug("No legacy project-level prompt YAML files found")
 	}
 
 	return 0, nil

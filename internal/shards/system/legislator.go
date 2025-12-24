@@ -50,7 +50,7 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 	}
 
 	// Process through Piggyback Protocol - extract surface response
-	processed := articulation.ProcessLLMResponse(rawResponse)
+	processed := articulation.ProcessLLMResponseAllowPlain(rawResponse)
 	logging.SystemShardsDebug("[%s] Piggyback: method=%s, confidence=%.2f",
 		a.shardID, processed.ParseMethod, processed.Confidence)
 
