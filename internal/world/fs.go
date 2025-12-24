@@ -197,6 +197,23 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 		if info.IsDir() {
 			name := info.Name()
+
+			// OPTIMIZATION: Explicitly ignore heavy dependency directories
+			// This prevents scanning tens of thousands of irrelevant files.
+			ignoredDirs := map[string]bool{
+				"node_modules": true,
+				"vendor":       true,
+				"dist":         true,
+				"build":        true,
+				".git":         true,
+				".nerd":        true,
+			}
+			if ignoredDirs[name] {
+				logging.WorldDebug("Skipping dependency/build directory: %s", path)
+				skippedDirs++
+				return filepath.SkipDir
+			}
+
 			// "Blind Spot" Fix: Allow specific hidden directories
 			if strings.HasPrefix(name, ".") && name != "." {
 				allowed := map[string]bool{
@@ -243,10 +260,13 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			return nil
 		}
 
+		// CRITICAL FIX: Acquire semaphore BEFORE spawning goroutine
+		// This blocks filepath.Walk when worker pool is full, preventing unbounded goroutine spawning
+		sem <- struct{}{}
+
 		wg.Add(1)
 		go func(path string, info os.FileInfo) {
 			defer wg.Done()
-			sem <- struct{}{}        // Acquire token
 			defer func() { <-sem }() // Release token
 
 			fileStart := time.Now()
