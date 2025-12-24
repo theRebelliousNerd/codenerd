@@ -18,10 +18,11 @@ type Category string
 
 const (
 	// Core system categories
-	CategoryBoot       Category = "boot"        // Boot/initialization
-	CategorySession    Category = "session"     // Session management, persistence
-	CategoryKernel     Category = "kernel"      // Mangle kernel operations
-	CategoryAPI        Category = "api"         // LLM API calls
+	CategoryBoot        Category = "boot"        // Boot/initialization
+	CategorySession     Category = "session"     // Session management, persistence
+	CategoryPerformance Category = "performance" // Performance metrics, slow operations
+	CategoryKernel      Category = "kernel"      // Mangle kernel operations
+	CategoryAPI         Category = "api"         // LLM API calls
 
 	// Transduction categories
 	CategoryPerception   Category = "perception"   // NL -> atoms transduction

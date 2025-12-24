@@ -61,8 +61,9 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 
 		camp := campaign.NewAdversarialAssaultCampaign(m.workspace, cfg)
 
-		progressChan := make(chan campaign.Progress, 10)
-		eventChan := make(chan campaign.OrchestratorEvent, 20)
+		// Larger buffers prevent backpressure during adversarial campaigns
+		progressChan := make(chan campaign.Progress, 100)
+		eventChan := make(chan campaign.OrchestratorEvent, 200)
 
 		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:        m.workspace,

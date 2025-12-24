@@ -19,50 +19,82 @@ import (
 func (m Model) renderHistory() string {
 	var sb strings.Builder
 
-	for _, msg := range m.history {
-		switch msg.Role {
-		case "user":
-			// Render user message
-			userStyle := m.styles.Bold.
-				Foreground(m.styles.Theme.Primary).
-				MarginTop(1)
-			sb.WriteString(userStyle.Render("You") + "\n")
-			sb.WriteString(m.styles.UserInput.Render(msg.Content))
-			sb.WriteString("\n\n")
+	// Optimization: Only render messages visible in viewport (with some buffer)
+	// For very long sessions, this prevents O(N) rendering on every frame
+	startIdx := 0
+	if len(m.history) > 100 {
+		// Keep last 100 messages + some buffer for smooth scrolling
+		startIdx = len(m.history) - 100
+	}
 
-		case "system":
-			// Render Glass Box system event (only when enabled)
-			if !m.glassBoxEnabled {
+	for idx := startIdx; idx < len(m.history); idx++ {
+		msg := m.history[idx]
+
+		// Check cache first - use cached render if available and valid
+		if m.renderedCache != nil && m.cacheInvalidFrom >= 0 && idx < m.cacheInvalidFrom {
+			if cached, exists := m.renderedCache[idx]; exists {
+				sb.WriteString(cached)
 				continue
 			}
-			sb.WriteString(m.renderGlassBoxMessage(msg))
-
-		case "tool":
-			// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
-			toolStyle := m.styles.Bold.
-				Foreground(lipgloss.Color("214")). // Orange for tool execution
-				MarginTop(1)
-			sb.WriteString(toolStyle.Render("Tool Execution") + "\n")
-			// Render tool output with markdown (result/error)
-			rendered := m.safeRenderMarkdown(msg.Content)
-			sb.WriteString(rendered)
-			sb.WriteString("\n")
-
-		default: // "assistant"
-			// Render assistant message with markdown
-			assistantStyle := m.styles.Bold.
-				Foreground(m.styles.Theme.Accent).
-				MarginTop(1)
-			sb.WriteString(assistantStyle.Render("codeNERD") + "\n")
-
-			// Render markdown with panic recovery
-			rendered := m.safeRenderMarkdown(msg.Content)
-			sb.WriteString(rendered)
-			sb.WriteString("\n")
 		}
+
+		// Message not cached or cache invalidated - render it now
+		rendered := m.renderSingleMessage(msg)
+
+		// Note: Can't update cache here (View() is value receiver, updates won't persist)
+		// Cache is populated in Update() via updateMessageCache() helper
+		sb.WriteString(rendered)
 	}
 
 	return sb.String()
+}
+
+// renderSingleMessage renders a single message without caching
+func (m Model) renderSingleMessage(msg Message) string {
+	var rendered strings.Builder
+
+	switch msg.Role {
+	case "user":
+		// Render user message
+		userStyle := m.styles.Bold.
+			Foreground(m.styles.Theme.Primary).
+			MarginTop(1)
+		rendered.WriteString(userStyle.Render("You") + "\n")
+		rendered.WriteString(m.styles.UserInput.Render(msg.Content))
+		rendered.WriteString("\n\n")
+
+	case "system":
+		// Render Glass Box system event (only when enabled)
+		if !m.glassBoxEnabled {
+			return ""
+		}
+		rendered.WriteString(m.renderGlassBoxMessage(msg))
+
+	case "tool":
+		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
+		toolStyle := m.styles.Bold.
+			Foreground(lipgloss.Color("214")). // Orange for tool execution
+			MarginTop(1)
+		rendered.WriteString(toolStyle.Render("Tool Execution") + "\n")
+		// Render tool output with markdown (result/error)
+		markdownRendered := m.safeRenderMarkdown(msg.Content)
+		rendered.WriteString(markdownRendered)
+		rendered.WriteString("\n")
+
+	default: // "assistant"
+		// Render assistant message with markdown
+		assistantStyle := m.styles.Bold.
+			Foreground(m.styles.Theme.Accent).
+			MarginTop(1)
+		rendered.WriteString(assistantStyle.Render("codeNERD") + "\n")
+
+		// Render markdown with panic recovery
+		markdownRendered := m.safeRenderMarkdown(msg.Content)
+		rendered.WriteString(markdownRendered)
+		rendered.WriteString("\n")
+	}
+
+	return rendered.String()
 }
 
 // renderGlassBoxMessage formats a Glass Box system event for display.

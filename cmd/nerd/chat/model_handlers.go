@@ -13,6 +13,56 @@ import (
 )
 
 // =============================================================================
+// RENDERING CACHE HELPERS
+// =============================================================================
+
+// addMessage appends a message to history and pre-renders it into cache.
+// This pre-computation during Update() avoids expensive rendering during View().
+func (m Model) addMessage(msg Message) Model {
+	idx := len(m.history)
+	m.history = append(m.history, msg)
+
+	// Pre-render and cache the message (saves work during View())
+	if m.renderedCache != nil {
+		rendered := m.renderSingleMessage(msg)
+		if rendered != "" {
+			m.renderedCache[idx] = rendered
+		}
+	}
+
+	// Mark all messages as cached
+	m.cacheInvalidFrom = len(m.history)
+
+	return m
+}
+
+// addMessages appends multiple messages and pre-renders them into cache.
+func (m Model) addMessages(msgs ...Message) Model {
+	if len(msgs) == 0 {
+		return m
+	}
+
+	startIdx := len(m.history)
+	m.history = append(m.history, msgs...)
+
+	// Pre-render all new messages
+	if m.renderedCache != nil {
+		for i, msg := range msgs {
+			idx := startIdx + i
+			rendered := m.renderSingleMessage(msg)
+			if rendered != "" {
+				m.renderedCache[idx] = rendered
+			}
+		}
+	}
+
+	// Mark all messages as cached
+	m.cacheInvalidFrom = len(m.history)
+
+	return m
+}
+
+// =============================================================================
 // INPUT HANDLERS
 // =============================================================================
 
