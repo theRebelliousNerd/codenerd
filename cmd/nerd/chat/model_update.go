@@ -20,6 +20,20 @@ import (
 	"github.com/charmbracelet/glamour"
 )
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Performance instrumentation: Track slow Update() handlers
+	startTime := time.Now()
+	defer func() {
+		elapsed := time.Since(startTime)
+		// Warn if Update() takes > 100ms (Bubbletea target is 60fps = 16ms per frame)
+		if elapsed > 100*time.Millisecond {
+			msgType := fmt.Sprintf("%T", msg)
+			logging.Get(logging.CategoryPerformance).Warn(
+				"Slow Update() handler: %s took %v (target: <100ms)",
+				msgType, elapsed,
+			)
+		}
+	}()
+
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd

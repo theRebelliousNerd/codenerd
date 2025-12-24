@@ -175,6 +175,9 @@ func InitChat(cfg Config) Model {
 		showSystemActions: appCfg != nil && appCfg.Logging != nil && appCfg.Logging.DebugMode,
 		history:      []Message{},
 		Config:       appCfg,
+		// Rendering cache for performance
+		renderedCache:    make(map[int]string),
+		cacheInvalidFrom: 0, // All messages need rendering initially
 		// Backend components start nil
 		kernel:              nil,
 		shardMgr:            nil,
@@ -190,6 +193,7 @@ func InitChat(cfg Config) Model {
 		shutdownOnce:   &sync.Once{},
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
+		goroutineWg:    &sync.WaitGroup{},
 		// UX components
 		preferencesMgr:  prefsMgr,
 		transparencyMgr: transparencyMgr,

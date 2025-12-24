@@ -886,7 +886,14 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// Process turn asynchronously - don't block response
+			if m.goroutineWg != nil {
+				m.goroutineWg.Add(1)
+			}
 			go func(t ctxcompress.Turn, capturedIntent perception.Intent, capturedResponse string) {
+				if m.goroutineWg != nil {
+					defer m.goroutineWg.Done()
+				}
+
 				// Use a shutdown-scoped context so compression can finish after the main turn ctx is canceled.
 				baseCtx := m.shutdownCtx
 				if baseCtx == nil {
@@ -894,6 +901,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				}
 				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
 				defer cancel()
+
 				// COMPRESSION: Semantic compression for infinite context (§8.2)
 				if _, err := m.compressor.ProcessTurn(compressCtx, t); err != nil {
 					// Log compression errors but don't fail the turn

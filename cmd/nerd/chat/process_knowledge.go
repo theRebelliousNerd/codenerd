@@ -80,7 +80,13 @@ If you need to search documentation or the web, do so to provide accurate inform
 	}
 
 	// Wait for all specialists to complete
+	if m.goroutineWg != nil {
+		m.goroutineWg.Add(1)
+	}
 	go func() {
+		if m.goroutineWg != nil {
+			defer m.goroutineWg.Done()
+		}
 		wg.Wait()
 		close(resultsChan)
 	}()

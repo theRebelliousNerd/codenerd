@@ -187,6 +187,11 @@ type Model struct {
 	ready     bool
 	Config    *config.UserConfig
 
+	// Rendering Performance Cache
+	// Caches rendered markdown for messages to avoid O(N) re-renders
+	renderedCache     map[int]string // Maps message index to rendered output
+	cacheInvalidFrom  int            // Index from which cache needs refresh (-1 = all valid)
+
 	// JIT Compiler (Observability)
 	jitCompiler *prompt.JITPromptCompiler
 
@@ -348,6 +353,7 @@ type Model struct {
 	shutdownOnce   *sync.Once         // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
 	shutdownCtx    context.Context    // Root context for all background operations
 	shutdownCancel context.CancelFunc // Cancels shutdownCtx on quit
+	goroutineWg    *sync.WaitGroup    // Tracks background goroutines for clean shutdown (pointer to share across value copies)
 }
 
 // ShardResult stores the full output from a shard execution for follow-up queries.
