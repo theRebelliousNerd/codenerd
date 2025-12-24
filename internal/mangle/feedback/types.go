@@ -4,6 +4,7 @@
 package feedback
 
 import (
+	"codenerd/internal/config"
 	"sync"
 	"time"
 )
@@ -121,14 +122,21 @@ type RetryConfig struct {
 
 // DefaultConfig returns the default retry configuration.
 func DefaultConfig() RetryConfig {
+	timeouts := config.GetLLMTimeouts()
+	perAttempt := timeouts.PerCallTimeout
+	if perAttempt <= 0 {
+		perAttempt = 60 * time.Second
+	}
+	maxRetries := 3
+	totalTimeout := perAttempt * time.Duration(maxRetries)
 	return RetryConfig{
-		MaxRetries:          3,
+		MaxRetries:          maxRetries,
 		SessionBudget:       20,
 		EnableAutoRepair:    true,
 		InjectPredicates:    true,
 		SimplifyOnLastRetry: true,
-		PerAttemptTimeout:   60 * time.Second,
-		TotalTimeout:        180 * time.Second,
+		PerAttemptTimeout:   perAttempt,
+		TotalTimeout:        totalTimeout,
 	}
 }
 

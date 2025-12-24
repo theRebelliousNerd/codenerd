@@ -89,6 +89,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// Configure global LLM API concurrency before any scheduled calls
 	schedulerCfg := core.DefaultAPISchedulerConfig()
 	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
 
 	// 3. Initialize LLM client using workspace config/env detection

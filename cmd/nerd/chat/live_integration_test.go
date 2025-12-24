@@ -138,6 +138,13 @@ func envBool(name string) bool {
 	return raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "yes")
 }
 
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func ensureWorkspaceRoot(t *testing.T) string {
 	t.Helper()
 
@@ -305,6 +312,7 @@ func assertNoLogIssues(t *testing.T, since time.Time) {
 	}
 
 	assertNoCriticalLogPatterns(t, entries)
+	assertNoSchedulerStarvation(t, entries)
 	runLoopAnalyzer(t, logDir, since)
 	runLogQueryAnomalies(t, logDir, since)
 	runStressLogAnalyzer(t, logDir, since)
@@ -495,6 +503,75 @@ func assertNoCriticalLogPatterns(t *testing.T, entries []logEntry) {
 	}
 	if len(matches) > limit {
 		sb.WriteString(fmt.Sprintf("...and %d more\n", len(matches)-limit))
+	}
+
+	t.Fatalf("%s", sb.String())
+}
+
+func assertNoSchedulerStarvation(t *testing.T, entries []logEntry) {
+	t.Helper()
+
+	if envBool("CODENERD_SKIP_SCHEDULER_CHECK") {
+		return
+	}
+
+	maxWait := envDuration("CODENERD_MAX_SLOT_WAIT", 30*time.Second)
+	maxQueue := envInt("CODENERD_MAX_SLOT_QUEUE", 10)
+	if maxWait <= 0 && maxQueue <= 0 {
+		return
+	}
+
+	waitRe := regexp.MustCompile(`acquired slot after ([0-9.]+[a-z]+)`)
+	queueRe := regexp.MustCompile(`waiting=([0-9]+)`)
+
+	var waitViolations []logEntry
+	var queueViolations []logEntry
+
+	for _, entry := range entries {
+		if entry.Category != "/shards" {
+			continue
+		}
+
+		if maxWait > 0 {
+			if match := waitRe.FindStringSubmatch(entry.Message); len(match) == 2 {
+				if dur, err := time.ParseDuration(match[1]); err == nil && dur > maxWait {
+					waitViolations = append(waitViolations, entry)
+				}
+			}
+		}
+
+		if maxQueue > 0 {
+			if match := queueRe.FindStringSubmatch(entry.Message); len(match) == 2 {
+				if count, err := strconv.Atoi(match[1]); err == nil && count > maxQueue {
+					queueViolations = append(queueViolations, entry)
+				}
+			}
+		}
+	}
+
+	if len(waitViolations) == 0 && len(queueViolations) == 0 {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("APIScheduler starvation detected\n")
+	if maxWait > 0 && len(waitViolations) > 0 {
+		sb.WriteString(fmt.Sprintf("- slot wait > %s (%d)\n", maxWait, len(waitViolations)))
+		for _, entry := range waitViolations[:minInt(len(waitViolations), 6)] {
+			sb.WriteString(fmt.Sprintf("  %s [%s] %s\n", entry.Time.Format(time.RFC3339), entry.Category, entry.Message))
+		}
+		if len(waitViolations) > 6 {
+			sb.WriteString(fmt.Sprintf("  ...and %d more\n", len(waitViolations)-6))
+		}
+	}
+	if maxQueue > 0 && len(queueViolations) > 0 {
+		sb.WriteString(fmt.Sprintf("- slot queue > %d (%d)\n", maxQueue, len(queueViolations)))
+		for _, entry := range queueViolations[:minInt(len(queueViolations), 6)] {
+			sb.WriteString(fmt.Sprintf("  %s [%s] %s\n", entry.Time.Format(time.RFC3339), entry.Category, entry.Message))
+		}
+		if len(queueViolations) > 6 {
+			sb.WriteString(fmt.Sprintf("  ...and %d more\n", len(queueViolations)-6))
+		}
 	}
 
 	t.Fatalf("%s", sb.String())

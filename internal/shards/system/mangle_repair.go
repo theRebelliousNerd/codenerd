@@ -216,7 +216,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		// Process response through Piggyback
-		processed := articulation.ProcessLLMResponse(rawResponse)
+		processed := articulation.ProcessLLMResponseAllowPlain(rawResponse)
 		repairedRule := m.extractRule(processed.Surface)
 
 		if repairedRule == "" {

@@ -463,6 +463,21 @@ func TestExtractRuleFromResponse(t *testing.T) {
 			response: "We should assert next_action(/run). It keeps things moving",
 			expected: "next_action(/run).",
 		},
+		{
+			name:     "json object with rule field",
+			response: `{"rule":"next_action(/run) :- test(/fail).","confidence":0.9}`,
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "json object with surface_response field",
+			response: `{"control_packet":{"mangle_updates":[]},"surface_response":"next_action(/run) :- test(/fail)."}`,
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "json quoted string",
+			response: `"next_action(/run) :- test(/fail)."`,
+			expected: "next_action(/run) :- test(/fail).",
+		},
 	}
 
 	for _, tt := range tests {
@@ -505,6 +520,11 @@ func TestNormalizeRuleInput(t *testing.T) {
 			name:     "known escapes in strings remain intact",
 			input:    `message("line1\nline2").`,
 			expected: `message("line1\nline2").`,
+		},
+		{
+			name:     "json quoted rule is unquoted",
+			input:    `"next_action(/run) :- test(/fail)."`,
+			expected: "next_action(/run) :- test(/fail).",
 		},
 	}
 

@@ -71,7 +71,7 @@ func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string
 	}
 
 	// Process through Piggyback Protocol - extract surface response
-	processed := articulation.ProcessLLMResponse(rawResp)
+	processed := articulation.ProcessLLMResponseAllowPlain(rawResp)
 	resp := processed.Surface
 
 	questions := s.extractQuestions(resp)

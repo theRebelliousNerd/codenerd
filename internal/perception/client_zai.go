@@ -36,6 +36,21 @@ func zaiLogger() *logging.Logger {
 	return logging.Get(logging.CategoryAPI)
 }
 
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // ZAIClient implements LLMClient for Z.AI API.
 type ZAIClient struct {
 	apiKey      string
@@ -186,8 +201,14 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			"would_exceed_deadline":      sleepDuration > remainingBeforeSleep,
 		})
 
-		// WARNING: This sleep is NOT context-aware (investigation point)
-		time.Sleep(sleepDuration)
+		if err := sleepWithContext(ctx, sleepDuration); err != nil {
+			c.mu.Unlock()
+			log.StructuredLog("error", "Rate limit sleep cancelled", map[string]interface{}{
+				"request_id": reqID,
+				"error":      err.Error(),
+			})
+			return "", err
+		}
 
 		log.Debug("[%s] Rate limit sleep completed, context_remaining_ms=%d",
 			reqID, time.Until(contextDeadline).Milliseconds())
@@ -243,8 +264,14 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 				"would_exceed_deadline":      backoffDuration > remainingBeforeBackoff,
 			})
 
-			// WARNING: This sleep is NOT context-aware (investigation point)
-			time.Sleep(backoffDuration)
+			if err := sleepWithContext(ctx, backoffDuration); err != nil {
+				log.StructuredLog("error", "Retry backoff cancelled", map[string]interface{}{
+					"request_id": reqID,
+					"attempt":    i + 1,
+					"error":      err.Error(),
+				})
+				return "", err
+			}
 		}
 
 		// Check context before making HTTP request
@@ -508,8 +535,14 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			"would_exceed_deadline": sleepDuration > remainingBeforeSleep,
 		})
 
-		// WARNING: This sleep is NOT context-aware (investigation point)
-		time.Sleep(sleepDuration)
+		if err := sleepWithContext(ctx, sleepDuration); err != nil {
+			c.mu.Unlock()
+			log.StructuredLog("error", "Rate limit sleep cancelled", map[string]interface{}{
+				"request_id": reqID,
+				"error":      err.Error(),
+			})
+			return "", err
+		}
 
 		log.Debug("[%s] Rate limit sleep completed, context_remaining_ms=%d",
 			reqID, time.Until(contextDeadline).Milliseconds())
@@ -574,8 +607,14 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 				"would_exceed_deadline": backoffDuration > remainingBeforeBackoff,
 			})
 
-			// WARNING: This sleep is NOT context-aware (investigation point)
-			time.Sleep(backoffDuration)
+			if err := sleepWithContext(ctx, backoffDuration); err != nil {
+				log.StructuredLog("error", "Retry backoff cancelled", map[string]interface{}{
+					"request_id": reqID,
+					"attempt":    i + 1,
+					"error":      err.Error(),
+				})
+				return "", err
+			}
 		}
 
 		// Check context before making HTTP request
@@ -772,14 +811,19 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			systemPrompt = defaultSystemPrompt + "\n" + systemPrompt
 		}
 
-		// Rate limiting
-		c.mu.Lock()
-		elapsed := time.Since(c.lastRequest)
-		if elapsed < 600*time.Millisecond {
-			time.Sleep(600*time.Millisecond - elapsed)
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 600*time.Millisecond {
+		sleepDuration := 600*time.Millisecond - elapsed
+		if err := sleepWithContext(ctx, sleepDuration); err != nil {
+			c.mu.Unlock()
+			errorChan <- err
+			return
 		}
-		c.lastRequest = time.Now()
-		c.mu.Unlock()
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
 
 		messages := make([]ZAIMessage, 0)
 		if systemPrompt != "" {

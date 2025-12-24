@@ -70,6 +70,14 @@ func NewLocalStore(path string) (*LocalStore, error) {
 		logging.Get(logging.CategoryStore).Error("Failed to open database at %s: %v", path, err)
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		logging.StoreDebug("Failed to set sqlite busy_timeout: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		logging.StoreDebug("Failed to set sqlite journal_mode=WAL: %v", err)
+	}
 	logging.StoreDebug("Opened SQLite database connection")
 
 	store := &LocalStore{db: db, dbPath: path}

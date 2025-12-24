@@ -205,15 +205,20 @@ func (c *Compressor) refreshActivationContextsLocked() {
 	// -------------------------------------------------------------------------
 	issueID := ""
 	source := ""
-	if swe, _ := c.kernel.Query("swebench_instance"); len(swe) > 0 {
-		issueID, _ = swe[len(swe)-1].Args[0].(string)
-		source = "swebench"
-	} else if issues, _ := c.kernel.Query("issue_context"); len(issues) > 0 {
+	if c.kernel.IsPredicateDeclared("swebench_instance") {
+		if swe, _ := c.kernel.Query("swebench_instance"); len(swe) > 0 {
+			issueID, _ = swe[len(swe)-1].Args[0].(string)
+			source = "swebench"
+		}
+	}
+	if issueID == "" {
+		if issues, _ := c.kernel.Query("issue_context"); len(issues) > 0 {
 		issueID, _ = issues[len(issues)-1].Args[0].(string)
 		source = "issue_tracker"
-	} else if kws, _ := c.kernel.Query("issue_keyword"); len(kws) > 0 {
+		} else if kws, _ := c.kernel.Query("issue_keyword"); len(kws) > 0 {
 		issueID, _ = kws[len(kws)-1].Args[0].(string)
 		source = "issue_tracker"
+		}
 	}
 
 	issueText := ""

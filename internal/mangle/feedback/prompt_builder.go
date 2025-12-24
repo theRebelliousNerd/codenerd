@@ -1,6 +1,7 @@
 package feedback
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -197,11 +198,110 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string) string
 	return sb.String()
 }
 
+func extractRuleFromJSON(response string) string {
+	trimmed := strings.TrimSpace(response)
+	if trimmed == "" {
+		return ""
+	}
+
+	// JSON string literal containing the rule.
+	if strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"") {
+		var decoded string
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return cleanRuleCandidate(decoded)
+		}
+	}
+
+	// JSON object or array.
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return ""
+	}
+
+	var obj map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
+		return extractRuleString(obj)
+	}
+
+	var list []interface{}
+	if err := json.Unmarshal([]byte(trimmed), &list); err == nil {
+		for _, item := range list {
+			switch typed := item.(type) {
+			case string:
+				if candidate := cleanRuleCandidate(typed); candidate != "" {
+					return candidate
+				}
+			case map[string]interface{}:
+				if candidate := extractRuleString(typed); candidate != "" {
+					return candidate
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func extractRuleString(payload map[string]interface{}) string {
+	if payload == nil {
+		return ""
+	}
+
+	primaryKeys := []string{"rule", "result", "surface_response", "output", "response"}
+	for _, key := range primaryKeys {
+		if value, ok := payload[key]; ok {
+			switch typed := value.(type) {
+			case string:
+				return cleanRuleCandidate(typed)
+			case map[string]interface{}:
+				if candidate := extractRuleString(typed); candidate != "" {
+					return candidate
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func cleanRuleCandidate(candidate string) string {
+	trimmed := strings.TrimSpace(candidate)
+	if trimmed == "" {
+		return ""
+	}
+
+	upper := strings.ToUpper(trimmed)
+	if strings.HasPrefix(upper, "RULE:") {
+		trimmed = strings.TrimSpace(trimmed[len("RULE:"):])
+	}
+
+	trimmed = strings.Trim(trimmed, "`")
+	lines := strings.Split(trimmed, "\n")
+	for i, line := range lines {
+		leadingTrimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(leadingTrimmed, "- ") || strings.HasPrefix(leadingTrimmed, "* ") ||
+			strings.HasPrefix(leadingTrimmed, "-\t") || strings.HasPrefix(leadingTrimmed, "*\t") {
+			lines[i] = strings.TrimLeft(leadingTrimmed, "-* \t")
+		} else {
+			lines[i] = line
+		}
+	}
+	trimmed = strings.TrimSpace(strings.Join(lines, "\n"))
+
+	return strings.TrimSpace(trimmed)
+}
+
 // ExtractRuleFromResponse extracts the Mangle rule from an LLM response.
 // It handles various response formats (markdown code blocks, plain text, etc.)
 // Also sanitizes common LLM artifacts like "RULE:" prefixes that would cause parse errors.
 func ExtractRuleFromResponse(response string) string {
 	response = strings.TrimSpace(response)
+	if response == "" {
+		return ""
+	}
+
+	if candidate := extractRuleFromJSON(response); candidate != "" {
+		return candidate
+	}
 
 	// First, handle structured output format: "RULE: <code>\nCONFIDENCE: ...\nRATIONALE: ..."
 	// This format is used by autopoiesis prompts in executive.go and constitution.go
@@ -219,7 +319,7 @@ func ExtractRuleFromResponse(response string) string {
 			}
 		}
 
-		rule := strings.TrimSpace(ruleContent[:ruleEnd])
+		rule := cleanRuleCandidate(ruleContent[:ruleEnd])
 		if rule != "" {
 			return rule
 		}
@@ -231,7 +331,7 @@ func ExtractRuleFromResponse(response string) string {
 		start := idx + len(codeBlockPattern)
 		end := strings.Index(response[start:], "```")
 		if end > 0 {
-			return strings.TrimSpace(response[start : start+end])
+			return cleanRuleCandidate(response[start : start+end])
 		}
 	}
 
@@ -245,7 +345,7 @@ func ExtractRuleFromResponse(response string) string {
 		}
 		end := strings.Index(response[start:], "```")
 		if end > 0 {
-			return strings.TrimSpace(response[start : start+end])
+			return cleanRuleCandidate(response[start : start+end])
 		}
 	}
 
@@ -261,22 +361,19 @@ func ExtractRuleFromResponse(response string) string {
 		end := strings.Index(response[idx:], ".")
 		if end > 0 {
 			rule := strings.TrimSpace(response[start : idx+end+1])
-			// Clean up any markdown artifacts
-			rule = strings.TrimPrefix(rule, "`")
-			rule = strings.TrimSuffix(rule, "`")
-			return rule
+			return cleanRuleCandidate(rule)
 		}
 	}
 
 	// Try to find fact pattern (just a predicate with .)
 	if strings.Contains(response, "(") && strings.HasSuffix(response, ".") {
-		return response
+		return cleanRuleCandidate(response)
 	}
 
 	// Try to find a fact pattern anywhere in the response
 	factPattern := regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
 	if match := factPattern.FindString(response); match != "" {
-		return strings.TrimSpace(match)
+		return cleanRuleCandidate(match)
 	}
 
 	// Return empty if nothing else worked
