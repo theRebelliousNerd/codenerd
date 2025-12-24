@@ -159,9 +159,9 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 
 			case file, ok := <-fileResults:
 				if !ok {
-					// dirResults will also be closed
-					dirResults = nil
-					continue
+					// Both channels are closed together (see end of ScanWorkspaceCtx)
+					// so we can safely return here
+					return
 				}
 				result.FileCount++
 				result.Languages[file.language]++
