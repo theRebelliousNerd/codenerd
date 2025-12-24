@@ -117,12 +117,8 @@ func checkFile(engine *mangle.Engine, path string) error {
 		return err
 	}
 
-	// Try to load schemas.mg first if it exists, to provide context
-	// We assume a standard location or relative path; for now hardcode likely location
-	// In a real tool, this would be a flag --schema or --include
-	// Try to find and load schemas.mg to provide context
-	// Iterate through search paths to find where schemas.mg actually lives
-	// The canonical location is internal/core/defaults/schemas.mg
+	// Load all schema files (modular design: schemas.mg, schemas_intent.mg, etc.)
+	// The canonical location is internal/core/defaults/
 	searchPaths := []string{
 		"internal/core/defaults",
 		".",
@@ -130,27 +126,48 @@ func checkFile(engine *mangle.Engine, path string) error {
 		"../../internal/core/defaults",
 	}
 
-	var schemaData []byte
-	foundSchema := false
-
+	schemasLoaded := 0
 	for _, basePath := range searchPaths {
-		excludePath := filepath.Join(basePath, "schemas.mg")
-		if _, err := os.Stat(excludePath); err == nil {
-			if filepath.Base(path) != "schemas.mg" {
-				data, err := os.ReadFile(excludePath)
-				if err == nil {
-					schemaData = data
-					foundSchema = true
-					break
-				}
+		// Check if this directory exists
+		if _, err := os.Stat(basePath); err != nil {
+			continue
+		}
+
+		// Find all schema*.mg files in this directory
+		schemaPattern := filepath.Join(basePath, "schemas*.mg")
+		schemaFiles, err := filepath.Glob(schemaPattern)
+		if err != nil {
+			continue
+		}
+
+		for _, schemaFile := range schemaFiles {
+			// Skip if we're checking this exact file
+			if filepath.Base(path) == filepath.Base(schemaFile) {
+				continue
 			}
+			data, err := os.ReadFile(schemaFile)
+			if err != nil {
+				continue
+			}
+			if err := tmpEngine.LoadSchemaString(string(data)); err != nil {
+				// Warn but continue with other schema files
+				fmt.Printf("WARNING: Failed to load %s: %v\n", filepath.Base(schemaFile), err)
+			} else {
+				schemasLoaded++
+			}
+		}
+		if schemasLoaded > 0 {
+			break // Found schemas in this directory, stop searching
 		}
 	}
 
-	if foundSchema {
-		if err := tmpEngine.LoadSchemaString(string(schemaData)); err != nil {
-			// If the schema itself is broken, we should probably warn but proceed
-			fmt.Printf("WARNING: Failed to load context from schemas.mg: %v\n", err)
+	// Also load MCP schemas if available
+	mcpSchemaPath := "internal/mcp/schemas_mcp.mg"
+	if _, err := os.Stat(mcpSchemaPath); err == nil {
+		if data, err := os.ReadFile(mcpSchemaPath); err == nil {
+			if err := tmpEngine.LoadSchemaString(string(data)); err == nil {
+				schemasLoaded++
+			}
 		}
 	}
 
