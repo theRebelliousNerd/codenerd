@@ -58,6 +58,13 @@ func (c *XAIClient) Complete(ctx context.Context, prompt string) (string, error)
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *XAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	logging.PerceptionDebug("[XAI] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
 

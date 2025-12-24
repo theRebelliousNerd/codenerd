@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
@@ -20,7 +20,7 @@ import (
 
 func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().DocumentProcessingTimeout)
 		defer cancel()
 
 		registry := m.loadAgentRegistry()

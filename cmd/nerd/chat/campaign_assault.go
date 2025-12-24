@@ -3,6 +3,7 @@ package chat
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/usage"
 	"context"
@@ -11,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -40,9 +40,9 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 		var ctx context.Context
 		var cancel context.CancelFunc
 		if m.shutdownCtx != nil {
-			ctx, cancel = context.WithTimeout(m.shutdownCtx, 2*time.Minute)
+			ctx, cancel = context.WithTimeout(m.shutdownCtx, config.GetLLMTimeouts().ShardExecutionTimeout)
 		} else {
-			ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
+			ctx, cancel = context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		}
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
