@@ -141,10 +141,8 @@ Decl mcp_tool_success_rate(ToolID, Rate).
 # 50.6 Intent-Capability Mapping (for tool selection)
 # -----------------------------------------------------------------------------
 
-# intent_requires_capability(Verb, Capability, Weight)
-# Maps intent verbs to required capabilities with weights.
-# Used by tool selection to boost tools matching current intent.
-Decl intent_requires_capability(Verb, Capability, Weight).
+# NOTE: intent_requires_capability/3 is declared in schemas_tools.mg
+# We use it here for MCP tool selection but don't re-declare it.
 
 # =============================================================================
 # END SECTION 50
