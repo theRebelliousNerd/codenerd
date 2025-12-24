@@ -1,9 +1,21 @@
 package perception
 
-// BuildPiggybackEnvelopeSchema creates the JSON schema for structured output.
-// This enforces the PiggybackEnvelope format at the API level, eliminating
-// JSON parsing errors and guaranteeing thought-first ordering (Bug #14 fix).
+// BuildPiggybackEnvelopeSchema creates the response format for Z.AI structured output.
+// Z.AI only supports basic JSON mode: {"type": "json_object"}
+// Schema enforcement must happen via prompt instructions, not API-level constraints.
+// See: https://docs.z.ai/guides/capabilities/struct-output
 func BuildPiggybackEnvelopeSchema() *ZAIResponseFormat {
+	return &ZAIResponseFormat{
+		Type: "json_object", // Z.AI only supports "json_object" or "text"
+		// Note: Z.AI does NOT support json_schema with strict mode like OpenAI
+		// The PiggybackEnvelope schema is enforced via system prompt instructions
+	}
+}
+
+// BuildOpenAIPiggybackEnvelopeSchema creates full JSON schema for OpenAI-compatible APIs.
+// Use this for OpenAI, OpenRouter with OpenAI models, and other providers that support
+// the json_schema response format with strict mode.
+func BuildOpenAIPiggybackEnvelopeSchema() *ZAIResponseFormat {
 	return &ZAIResponseFormat{
 		Type: "json_schema",
 		JSONSchema: &ZAIJSONSchema{
