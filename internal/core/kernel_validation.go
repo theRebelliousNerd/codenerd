@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+
+	"github.com/google/mangle/parse"
 )
 
 // =============================================================================
@@ -112,7 +114,23 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 		if isRule || isFact {
 			result.stats.TotalRules++
 
-			// Schema + safety validation for learned rules/facts.
+			// STEP 1: Syntax validation - try parsing the rule/fact
+			if syntaxErr := checkSyntax(trimmed); syntaxErr != nil {
+				result.stats.InvalidRules++
+				errMsg := fmt.Sprintf("line %d: syntax error: %v", i+1, syntaxErr)
+				result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
+				logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
+
+				if heal {
+					healedLines = append(healedLines, "# SELF-HEALED: syntax error: "+syntaxErr.Error())
+					healedLines = append(healedLines, "# "+line)
+				} else {
+					healedLines = append(healedLines, line)
+				}
+				continue
+			}
+
+			// STEP 2: Schema + safety validation for learned rules/facts.
 			if err := k.schemaValidator.ValidateLearnedRule(trimmed); err != nil {
 				result.stats.InvalidRules++
 				errMsg := fmt.Sprintf("line %d: %v", i+1, err)
@@ -365,4 +383,42 @@ func (k *RealKernel) GetSchemas() string {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	return k.schemas
+}
+
+// checkSyntax attempts to parse a single Mangle rule/fact to validate syntax.
+// Returns nil if syntax is valid, error otherwise.
+func checkSyntax(ruleText string) error {
+	// Wrap in minimal program context for parsing
+	programText := ruleText
+
+	// Try parsing
+	_, err := parse.Unit(strings.NewReader(programText))
+	if err != nil {
+		// CRITICAL: Return ONLY the first line of error to prevent multi-line
+		// error messages from corrupting the healed file.
+		errStr := err.Error()
+
+		// Take only first line
+		if idx := strings.Index(errStr, "\n"); idx > 0 {
+			errStr = errStr[:idx]
+		}
+
+		// Strip line/column prefix (e.g., "1:7 ") since we're parsing single rules
+		if idx := strings.Index(errStr, " "); idx > 0 {
+			if strings.Contains(errStr[:idx], ":") {
+				parts := strings.SplitN(errStr, " ", 2)
+				if len(parts) > 1 {
+					errStr = parts[1]
+				}
+			}
+		}
+
+		// Truncate to avoid extremely long error messages
+		if len(errStr) > 100 {
+			errStr = errStr[:100] + "..."
+		}
+
+		return fmt.Errorf("%s", errStr)
+	}
+	return nil
 }
