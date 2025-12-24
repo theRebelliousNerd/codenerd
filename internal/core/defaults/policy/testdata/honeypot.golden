@@ -1,0 +1,5 @@
+# Expected derived facts
+is_honeypot("2").
+honeypot_css_hidden("2").
+honeypot_css_invisible("2").
+honeypot_opacity_hidden("2").

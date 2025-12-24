@@ -153,44 +153,6 @@ func (k *RealKernel) Assert(fact Fact) error {
 	return nil
 }
 
-// AssertBatch adds multiple facts and re-evaluates once.
-// OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
-// For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
-func (k *RealKernel) AssertBatch(facts []Fact) error {
-	if len(facts) == 0 {
-		return nil
-	}
-
-	logging.KernelDebug("AssertBatch: asserting %d facts", len(facts))
-
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	addedCount := 0
-	for _, fact := range facts {
-		fact = sanitizeFactForNumericPredicates(fact)
-		if k.addFactIfNewLocked(fact) {
-			addedCount++
-			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
-		}
-	}
-
-	if addedCount == 0 {
-		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
-		return nil
-	}
-
-	// Evaluate ONCE for all added facts
-	if err := k.evaluate(); err != nil {
-		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after asserting %d facts: %v", addedCount, err)
-		return err
-	}
-
-	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
-		addedCount, len(facts), len(k.facts))
-	return nil
-}
-
 // AssertString parses a Mangle fact string and asserts it.
 // Format: predicate(arg1, arg2, ...) where args can be:
 //   - Name constants: /foo, /bar
@@ -526,10 +488,9 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 // argsEqual compares two fact arguments for equality.
 // OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
 func argsEqual(a, b interface{}) bool {
-	// Fast path: pointer equality
-	if a == b {
-		return true
-	}
+	// Fast path: direct equality check (BUT must be careful with uncomparable types like maps)
+	// We cannot simply do `if a == b` because if a/b contain maps, it panics.
+	// So we proceed to type switch immediately.
 
 	switch av := a.(type) {
 	case string:
@@ -572,6 +533,9 @@ func argsEqual(a, b interface{}) bool {
 	default:
 		// SLOW PATH: Only for truly unknown types
 		// This should rarely execute if type system is well-defined
+		// CAUTION: reflect.DeepEqual would be safer but slower.
+		// For uncomparable types (maps, slices), fmt.Sprintf is a reasonable fallback for equality check
+		// because we only care if they "look" the same for retraction purposes.
 		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 	}
 
