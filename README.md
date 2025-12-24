@@ -354,6 +354,24 @@ Runtime prompt assembly with context-aware atom selection:
 - **Contextual Selection** - Atoms selected by intent verb, language, campaign phase
 - **Semantic Search** - Embedding-based retrieval of relevant prompt fragments
 
+### MCP (Model Context Protocol) Integration
+
+JIT Tool Compiler for intelligent MCP tool serving:
+
+- **Skeleton/Flesh Bifurcation** - Core tools always available, context-dependent tools scored
+- **Three-Tier Rendering** - Full (≥70), Condensed (40-69), Minimal (20-39) based on relevance
+- **LLM Tool Analysis** - Automatic metadata extraction for new tools
+- **Mangle Integration** - Tool selection rules in logic
+
+### Prompt Evolution System (System Prompt Learning)
+
+Automatic evolution of prompt atoms based on execution feedback:
+
+- **LLM-as-Judge** - Evaluates task execution with detailed error categorization
+- **Strategy Database** - Problem-type-specific strategies that improve over time
+- **Atom Generator** - Creates new prompt atoms from failure patterns
+- **JIT Integration** - Evolved atoms immediately available at runtime
+
 ### Impact-Aware Code Review
 
 ReviewerShard uses Mangle to build surgical review context:
@@ -426,21 +444,24 @@ nerd run --shadow "delete all test files"
 ```
 codenerd/
 ├── cmd/
-│   └── nerd/              # CLI entrypoint (Cobra)
-│       └── chat/          # Interactive TUI (Bubble Tea)
-├── internal/
+│   └── nerd/              # CLI entrypoint (Cobra, 80+ files)
+│       └── chat/          # Interactive TUI (Bubble Tea, modularized)
+├── internal/              # 32 packages, ~140K LOC
 │   ├── core/              # Kernel, VirtualStore, ShardManager
-│   ├── perception/        # NL → Mangle transduction
+│   ├── perception/        # NL → Mangle transduction, multi-provider LLM
 │   ├── articulation/      # Mangle → NL + Piggyback Protocol
+│   ├── autopoiesis/       # Self-modification, Ouroboros, Prompt Evolution
+│   ├── mcp/               # MCP integration, JIT Tool Compiler
 │   ├── shards/            # CoderShard, TesterShard, etc.
 │   │   ├── researcher/    # Deep research subsystem
 │   │   └── system/        # Built-in system shards
-│   ├── mangle/            # .gl schema and policy files
+│   ├── mangle/            # .mg schema and policy files
 │   ├── store/             # Memory tiers (RAM, Vector, Graph)
 │   ├── campaign/          # Multi-phase goal orchestration
 │   ├── browser/           # Rod-based browser automation
 │   ├── world/             # Filesystem and AST projection
 │   ├── tactile/           # Tool execution layer
+│   ├── config/            # Configuration with LLM timeout consolidation
 │   ├── ux/                # User experience & journey tracking
 │   └── transparency/      # Operation visibility & explanations
 └── .nerd/                 # Workspace state (created by init)
