@@ -121,7 +121,7 @@ type sessionItem struct {
 }
 
 func (i sessionItem) Title() string       { return i.date }
-func (i sessionItem) Description() string { return "["+ i.id + "] " + i.desc }
+func (i sessionItem) Description() string { return "[" + i.id + "] " + i.desc }
 func (i sessionItem) FilterValue() string { return i.id + " " + i.desc }
 
 // =============================================================================
@@ -152,12 +152,12 @@ type Model struct {
 	viewMode ViewMode
 
 	// Split-pane TUI (Glass Box Interface)
-	splitPane *ui.SplitPaneView
-	logicPane *ui.LogicPane
-	showLogic bool
-	paneMode  ui.PaneMode
-	showError bool
-	focusError bool
+	splitPane         *ui.SplitPaneView
+	logicPane         *ui.LogicPane
+	showLogic         bool
+	paneMode          ui.PaneMode
+	showError         bool
+	focusError        bool
 	showSystemActions bool
 
 	// Usage Page
@@ -186,6 +186,11 @@ type Model struct {
 	height    int
 	ready     bool
 	Config    *config.UserConfig
+
+	// Rendering Performance Cache
+	// Caches rendered markdown for messages to avoid O(N) re-renders
+	renderedCache    map[int]string // Maps message index to rendered output
+	cacheInvalidFrom int            // Index from which cache needs refresh (-1 = all valid)
 
 	// JIT Compiler (Observability)
 	jitCompiler *prompt.JITPromptCompiler
@@ -299,12 +304,12 @@ type Model struct {
 
 	// Glass Box Debug Mode - shows system internals inline in chat
 	glassBoxEnabled   bool                              // Runtime toggle
-	glassBoxEventBus  *transparency.GlassBoxEventBus   // Event collection and dispatch
+	glassBoxEventBus  *transparency.GlassBoxEventBus    // Event collection and dispatch
 	glassBoxEventChan <-chan transparency.GlassBoxEvent // Subscription channel
 	glassBoxEvents    []transparency.GlassBoxEvent      // Recent events buffer (capped)
 
 	// Tool Event Visibility - ALWAYS shows tool execution in chat (not gated by Glass Box)
-	toolEventBus  *transparency.ToolEventBus   // Tool event collection
+	toolEventBus  *transparency.ToolEventBus    // Tool event collection
 	toolEventChan <-chan transparency.ToolEvent // Tool event subscription channel
 
 	// Tool Execution Persistence - Stores full tool results in SQLite
@@ -348,6 +353,7 @@ type Model struct {
 	shutdownOnce   *sync.Once         // Ensures Shutdown() is only called once (pointer to allow Model copy without sync.Once copy)
 	shutdownCtx    context.Context    // Root context for all background operations
 	shutdownCancel context.CancelFunc // Cancels shutdownCtx on quit
+	goroutineWg    *sync.WaitGroup    // Tracks background goroutines for clean shutdown (pointer to share across value copies)
 }
 
 // ShardResult stores the full output from a shard execution for follow-up queries.
@@ -447,9 +453,9 @@ type SystemComponents struct {
 	TransparencyMgr       *transparency.TransparencyManager
 	PreferencesMgr        *ux.PreferencesManager
 	Retriever             *retrieval.SparseRetriever
-	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
-	ToolEventBus          *transparency.ToolEventBus     // Always-visible tool execution event bus
-	ToolStore             *store.ToolStore               // Tool execution persistence store
+	GlassBoxEventBus      *transparency.GlassBoxEventBus  // Glass Box debug mode event bus
+	ToolEventBus          *transparency.ToolEventBus      // Always-visible tool execution event bus
+	ToolStore             *store.ToolStore                // Tool execution persistence store
 	PromptEvolver         *prompt_evolution.PromptEvolver // System Prompt Learning evolver
 }
 
@@ -457,11 +463,11 @@ type SystemComponents struct {
 type OnboardingWizardStep int
 
 const (
-	OnboardingStepWelcome OnboardingWizardStep = iota // Show welcome message
-	OnboardingStepExperience                          // Ask about experience level
-	OnboardingStepAPICheck                            // Check/configure API
-	OnboardingStepWow                                 // Demonstrate unique capabilities
-	OnboardingStepComplete                            // Finish onboarding
+	OnboardingStepWelcome    OnboardingWizardStep = iota // Show welcome message
+	OnboardingStepExperience                             // Ask about experience level
+	OnboardingStepAPICheck                               // Check/configure API
+	OnboardingStepWow                                    // Demonstrate unique capabilities
+	OnboardingStepComplete                               // Finish onboarding
 )
 
 // OnboardingWizardState tracks the state of the onboarding wizard.

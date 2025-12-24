@@ -22,19 +22,19 @@ type Decomposer func(input string, captures []string, pattern *MultiStepPattern,
 
 // DecomposerRegistry maps decomposer names to their implementations
 var DecomposerRegistry = map[string]Decomposer{
-	"explicit_sequence":    decomposeExplicitSequence,
-	"numbered_steps":       decomposeNumberedSteps,
-	"verb_pair_chain":      decomposeVerbPairChain,
-	"conditional_chain":    decomposeConditionalChain,
-	"fallback_chain":       decomposeFallbackChain,
-	"parallel_split":       decomposeParallelSplit,
-	"pronoun_resolution":   decomposePronounResolution,
-	"iterative_expansion":  decomposeIterativeExpansion,
-	"batch_expansion":      decomposeBatchExpansion,
-	"pipeline_chain":       decomposePipelineChain,
-	"comparison_chain":     decomposeComparisonChain,
+	"explicit_sequence":     decomposeExplicitSequence,
+	"numbered_steps":        decomposeNumberedSteps,
+	"verb_pair_chain":       decomposeVerbPairChain,
+	"conditional_chain":     decomposeConditionalChain,
+	"fallback_chain":        decomposeFallbackChain,
+	"parallel_split":        decomposeParallelSplit,
+	"pronoun_resolution":    decomposePronounResolution,
+	"iterative_expansion":   decomposeIterativeExpansion,
+	"batch_expansion":       decomposeBatchExpansion,
+	"pipeline_chain":        decomposePipelineChain,
+	"comparison_chain":      decomposeComparisonChain,
 	"constrained_operation": decomposeConstrainedOperation,
-	"git_workflow":         decomposeGitWorkflow,
+	"git_workflow":          decomposeGitWorkflow,
 }
 
 // DecomposeWithStrategy uses the registered strategy to decompose input

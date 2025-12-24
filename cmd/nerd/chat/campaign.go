@@ -85,8 +85,9 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		}
 
 		// Create channels for real-time orchestrator feedback
-		progressChan := make(chan campaign.Progress, 10)
-		eventChan := make(chan campaign.OrchestratorEvent, 20)
+		// Larger buffers prevent backpressure during long campaigns (100+ phases)
+		progressChan := make(chan campaign.Progress, 100)
+		eventChan := make(chan campaign.OrchestratorEvent, 200)
 
 		// Create orchestrator with channels for real-time progress/event streaming
 		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
@@ -137,7 +138,13 @@ func (m Model) runCampaignOrchestrator() tea.Cmd {
 	}
 
 	// Start orchestrator execution in background
+	if m.goroutineWg != nil {
+		m.goroutineWg.Add(1)
+	}
 	go func() {
+		if m.goroutineWg != nil {
+			defer m.goroutineWg.Done()
+		}
 		defer cancel()
 		if err := orch.Run(ctx); err != nil && err != context.Canceled {
 			// Error will be captured via event channel or campaign status

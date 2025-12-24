@@ -33,4 +33,3 @@ func (p *campaignJITProvider) GetPrompt(ctx context.Context, role campaign.Campa
 
 	return p.assembler.AssembleSystemPrompt(ctx, pc)
 }
-

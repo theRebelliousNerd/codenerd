@@ -99,4 +99,3 @@ func TestNormalizeAssaultInclude_AbsolutePath(t *testing.T) {
 		t.Fatalf("unexpected include: %q", inc)
 	}
 }
-
