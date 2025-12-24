@@ -1,11 +1,25 @@
 package feedback
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// prologNegationRe matches Prolog-style negation \+ followed by predicate
+var prologNegationRe = regexp.MustCompile(`\\\+\s*`)
 
 // NormalizeRuleInput prepares a rule for parsing by fixing common escape issues
-// in LLM output. It only touches backslashes inside quoted strings so the
-// logical structure of the rule remains unchanged.
+// in LLM output. It fixes:
+// 1. Prolog-style negation (\+) to Mangle negation (!)
+// 2. Backslashes inside quoted strings
 func NormalizeRuleInput(rule string) string {
+	// First fix Prolog negation \+ -> !
+	// This is a common LLM mistake when generating Mangle rules
+	if strings.Contains(rule, "\\+") {
+		rule = prologNegationRe.ReplaceAllString(rule, "!")
+	}
+
+	// Then handle backslashes in quoted strings
 	if !strings.Contains(rule, "\\") || !strings.Contains(rule, "\"") {
 		return rule
 	}
