@@ -6,6 +6,7 @@
 //   commands.go            - Main command dispatcher (handleCommand switch)
 //   commands_help.go       - Help text constants (helpCommandText)
 //   commands_tools.go      - Tool/status helpers (buildStatusReport, handleCleanupToolsCommand)
+//   commands_evolution.go  - Prompt Evolution helpers (renderEvolutionStats, runEvolutionCycle)
 //
 // Command Categories (within handleCommand switch):
 //
@@ -20,6 +21,7 @@
 //   Query:      /query, /why, /logic, /glassbox, /transparency, /shadow, /whatif
 //   Review:     /approve, /reject-finding, /accept-finding, /review-accuracy
 //   Tools:      /tool, /jit, /cleanup-tools
+//   Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /strategies
 package chat
 
 import (
@@ -1747,6 +1749,138 @@ You have an existing Northstar definition. What would you like to do?
 			Content: content,
 			Time:    time.Now(),
 		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	// =============================================================================
+	// PROMPT EVOLUTION COMMANDS (System Prompt Learning)
+	// =============================================================================
+
+	case "/evolve":
+		// Trigger manual evolution cycle
+		if m.promptEvolver == nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Prompt Evolution system not initialized.\n\nEnable it in config.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Running evolution cycle...",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.isLoading = true
+		m.textarea.Reset()
+		return m, tea.Batch(m.spinner.Tick, m.runEvolutionCycle())
+
+	case "/evolution-stats":
+		content := m.renderEvolutionStats()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/evolved-atoms":
+		content := m.renderEvolvedAtoms()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/strategies":
+		content := m.renderStrategies()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/promote-atom":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/promote-atom <atom-id>`",
+				Time:    time.Now(),
+			})
+		} else if m.promptEvolver == nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Prompt Evolution system not initialized.",
+				Time:    time.Now(),
+			})
+		} else {
+			atomID := parts[1]
+			if err := m.promptEvolver.PromoteAtom(atomID); err != nil {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Failed to promote atom: %v", err),
+					Time:    time.Now(),
+				})
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Atom `%s` promoted to corpus.", atomID),
+					Time:    time.Now(),
+				})
+			}
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/reject-atom":
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/reject-atom <atom-id>`",
+				Time:    time.Now(),
+			})
+		} else if m.promptEvolver == nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Prompt Evolution system not initialized.",
+				Time:    time.Now(),
+			})
+		} else {
+			atomID := parts[1]
+			if err := m.promptEvolver.RejectAtom(atomID); err != nil {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Failed to reject atom: %v", err),
+					Time:    time.Now(),
+				})
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Atom `%s` rejected.", atomID),
+					Time:    time.Now(),
+				})
+			}
+		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		m.textarea.Reset()

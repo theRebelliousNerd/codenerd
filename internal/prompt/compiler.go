@@ -100,6 +100,9 @@ type CompilationStats struct {
 	// ShardAtoms is count of atoms from shard-specific database
 	ShardAtoms int
 
+	// EvolvedAtoms is count of atoms from prompt evolution (SPL system)
+	EvolvedAtoms int
+
 	// --- Render Mode Distribution ---
 	// StandardModeCount is atoms rendered in full/standard mode
 	StandardModeCount int
@@ -248,6 +251,9 @@ type JITPromptCompiler struct {
 
 	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
 	localDB *store.LocalStore
+
+	// Evolved atoms manager for System Prompt Learning (SPL)
+	evolvedAtomMgr *EvolvedAtomManager
 }
 
 // CompilerConfig holds configuration for the JIT compiler.
@@ -389,11 +395,12 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	stats.EmbeddedAtoms = sourceBreakdown.embedded
 	stats.ProjectAtoms = sourceBreakdown.project
 	stats.ShardAtoms = sourceBreakdown.shard
+	stats.EvolvedAtoms = sourceBreakdown.evolved
 
 	logging.Get(logging.CategoryJIT).Debug(
-		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d) in %dms",
+		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
 		len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
-		stats.CollectAtomsMs,
+		sourceBreakdown.evolved, stats.CollectAtomsMs,
 	)
 
 	// Step 1.5: Assert context facts to kernel for Mangle-based selection
@@ -612,6 +619,7 @@ type sourceBreakdown struct {
 	embedded int
 	project  int
 	shard    int
+	evolved  int
 }
 
 // collectAtomsWithStats gathers atoms and tracks source breakdown.
@@ -652,6 +660,11 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 			}
 		}
 	}
+
+	// 4. Evolved atoms from SPL (System Prompt Learning)
+	evolvedAtoms := c.collectEvolvedAtoms(cc)
+	breakdown.evolved = len(evolvedAtoms)
+	allAtoms = append(allAtoms, evolvedAtoms...)
 
 	return allAtoms, breakdown, nil
 }
@@ -822,8 +835,8 @@ func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result 
 	)
 
 	logger.Debug(
-		"Source breakdown: embedded=%d project=%d shard=%d",
-		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms,
+		"Source breakdown: embedded=%d project=%d shard=%d evolved=%d",
+		stats.EmbeddedAtoms, stats.ProjectAtoms, stats.ShardAtoms, stats.EvolvedAtoms,
 	)
 
 	logger.Debug(

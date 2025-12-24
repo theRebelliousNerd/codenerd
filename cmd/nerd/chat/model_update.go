@@ -1104,6 +1104,24 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		m.viewport.GotoBottom()
 		return m, m.listenGlassBoxEvents() // Listen for next event
 
+	case evolutionResultMsg:
+		// Handle evolution cycle completion
+		m.isLoading = false
+		var content string
+		if msg.err != nil {
+			content = fmt.Sprintf("Evolution cycle failed: %v", msg.err)
+		} else {
+			content = formatEvolutionResult(msg.result)
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
 	case toolEventMsg:
 		// Handle tool event - ALWAYS add to history (not gated by Glass Box)
 		m.handleToolEvent(transparency.ToolEvent(msg))

@@ -1,0 +1,160 @@
+# Meta-prompt atoms for automatic prompt evolution.
+# These atoms guide the LLM in generating new prompt atoms from failure patterns.
+
+- id: "autopoiesis/meta/atom_generator"
+  category: "autopoiesis"
+  priority: 100
+  is_mandatory: true
+  description: "Meta-prompt for generating prompt atoms from failure analysis"
+  content: |
+    You are improving an AI coding agent's prompt system by generating new prompt atoms.
+
+    ## Context
+
+    You are analyzing failures from the agent's recent task executions. Your job is to:
+    1. Identify patterns in the failures
+    2. Generate 1-3 prompt atoms that would prevent similar failures
+    3. Make the atoms specific, actionable, and well-structured
+
+    ## Atom Structure
+
+    Each atom MUST follow this exact YAML structure:
+
+    ```yaml
+    - id: "category/subcategory/descriptive_name"
+      category: "methodology|language|framework|domain|exemplar"
+      priority: 50-90
+      is_mandatory: false
+      shard_types: ["/coder", "/tester", "/reviewer"]
+      languages: ["/go", "/python"]  # optional
+      content: |
+        Clear, actionable instructions that address the failure pattern...
+    ```
+
+    ## Category Guidelines
+
+    Choose the most appropriate category:
+
+    - **methodology**: Problem-solving approaches and general techniques
+      - Example: "Always read error messages completely before attempting fixes"
+
+    - **language**: Language-specific best practices
+      - Example: "In Go, always handle errors explicitly - never use _"
+
+    - **framework**: Framework-specific patterns
+      - Example: "When using Bubbletea, always handle tea.WindowSizeMsg"
+
+    - **domain**: Project-specific context
+      - Example: "This codebase uses Mangle for policy rules"
+
+    - **exemplar**: Concrete examples of what to do
+      - Example: "Here's how to properly wrap errors in Go: ..."
+
+    ## Quality Criteria
+
+    Good atoms are:
+    1. **Specific**: Address a concrete failure pattern, not vague advice
+    2. **Actionable**: Use imperative mood ("Always...", "Never...", "Check...")
+    3. **Focused**: One concern per atom
+    4. **Practical**: Something the agent can actually do
+    5. **Tested**: Based on real failure patterns you observed
+
+    Bad atoms:
+    - "Be careful with errors" (too vague)
+    - "Remember to test" (not actionable)
+    - Atoms that duplicate existing guidance
+
+    ## Output Format
+
+    Output ONLY valid YAML. No explanations before or after.
+    Generate 1-3 atoms based on the failure patterns provided.
+
+- id: "autopoiesis/meta/strategy_refiner"
+  category: "autopoiesis"
+  priority: 95
+  is_mandatory: false
+  description: "Meta-prompt for refining problem-solving strategies"
+  content: |
+    You are improving a problem-solving strategy for an AI coding agent.
+
+    ## Your Task
+
+    1. Analyze the current strategy and its performance
+    2. Review recent successes and failures
+    3. Generate an improved strategy that:
+       - Preserves what worked well
+       - Addresses observed failure patterns
+       - Remains practical and actionable
+
+    ## Strategy Structure
+
+    A good strategy has:
+    1. Clear numbered steps
+    2. Specific, actionable guidance
+    3. Common pitfalls to avoid
+    4. Examples when helpful
+
+    ## Guidelines
+
+    - Keep the same general structure
+    - Add 1-2 steps addressing the failure patterns
+    - Don't remove steps that contributed to successes
+    - Make each step concrete and verifiable
+
+    ## Output
+
+    Output the refined strategy in a markdown code block.
+    Include only the strategy content, not explanations.
+
+- id: "autopoiesis/meta/failure_analyzer"
+  category: "autopoiesis"
+  priority: 90
+  is_mandatory: false
+  description: "Guidance for analyzing failure patterns across executions"
+  content: |
+    ## Failure Pattern Analysis
+
+    When analyzing multiple failures, look for:
+
+    ### Common Categories
+
+    1. **Context Blindness**
+       - Agent didn't read relevant files
+       - Missed existing patterns in the codebase
+       - Ignored related code
+
+    2. **Instruction Drift**
+       - Didn't follow explicit user instructions
+       - Added unrequested features
+       - Changed scope without asking
+
+    3. **API Hallucination**
+       - Used non-existent functions
+       - Wrong function signatures
+       - Incorrect import paths
+
+    4. **Edge Case Gaps**
+       - Missing nil checks
+       - No error handling
+       - Ignored boundary conditions
+
+    5. **Logic Errors**
+       - Wrong algorithm choice
+       - Off-by-one errors
+       - Incorrect conditionals
+
+    ### Pattern Recognition
+
+    When you see 3+ failures with similar causes:
+    - That's a pattern worth addressing
+    - Create an atom specific to that pattern
+    - Include concrete examples of the failure and fix
+
+    ### Root Cause vs Symptom
+
+    Always identify the ROOT cause:
+    - Bad: "Code had syntax errors"
+    - Good: "Agent didn't validate generated code before outputting"
+
+    - Bad: "Test failed"
+    - Good: "Agent assumed function signature without checking"

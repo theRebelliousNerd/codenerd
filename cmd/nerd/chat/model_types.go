@@ -8,6 +8,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
+	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/browser"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -258,6 +259,9 @@ type Model struct {
 	autopoiesis           *autopoiesis.Orchestrator
 	autopoiesisCancel     context.CancelFunc // Cancels kernel listener goroutine
 	autopoiesisListenerCh <-chan struct{}    // Closed when listener stops
+
+	// Prompt Evolution (SPL - System Prompt Learning)
+	promptEvolver *prompt_evolution.PromptEvolver
 
 	// Mangle File Watcher - monitors .nerd/mangle/*.mg for changes and triggers validation/repair
 	mangleWatcher *core.MangleWatcher

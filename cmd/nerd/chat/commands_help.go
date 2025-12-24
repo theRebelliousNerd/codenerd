@@ -79,6 +79,20 @@ const helpCommandText = `## Available Commands
 Note: Tools are generated automatically when capabilities are missing,
 or you can create them on-demand with /tool generate.
 
+### Prompt Evolution (System Prompt Learning)
+
+| Command | Description |
+|---------|-------------|
+| /evolve | Trigger manual evolution cycle |
+| /evolution-stats | Show evolution statistics |
+| /evolved-atoms | List evolved prompt atoms |
+| /promote-atom <id> | Promote pending atom to corpus |
+| /reject-atom <id> | Reject an evolved atom |
+| /strategies | Show strategy database |
+
+Note: The evolution system learns from task failures and automatically
+generates new prompt atoms to prevent similar failures in the future.
+
 ### Keyboard Shortcuts
 
 | Key | Action |
