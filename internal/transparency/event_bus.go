@@ -3,6 +3,7 @@
 package transparency
 
 import (
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -96,11 +97,14 @@ func (b *GlassBoxEventBus) Subscribe() <-chan GlassBoxEvent {
 
 // Unsubscribe removes a subscriber channel.
 func (b *GlassBoxEventBus) Unsubscribe(ch <-chan GlassBoxEvent) {
+	if ch == nil {
+		return
+	}
+	target := reflect.ValueOf(ch).Pointer()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for i, sub := range b.subscribers {
-		// Compare by channel address
-		if cap(sub) == cap(ch) {
+		if reflect.ValueOf(sub).Pointer() == target {
 			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
 			close(sub)
 			break
