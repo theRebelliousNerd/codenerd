@@ -334,6 +334,71 @@ Select-String -Path ".nerd/logs/*chat*.log" -Pattern "stream|chunk|incremental"
 
 ---
 
+## Automated Live Integration Tests
+
+The codebase includes comprehensive Go integration tests for TUI stress testing with real LLM calls.
+
+### Running Live Tests
+
+```bash
+# Enable live LLM tests (requires Z.AI API key and debug_mode in config)
+$env:CODENERD_LIVE_LLM='1'; go test ./cmd/nerd/chat -run TestChatLiveLLM_ -timeout 60m
+```
+
+### Test Suite
+
+| Test | Duration | What It Tests |
+|------|----------|---------------|
+| `HeadlessProgram` | ~12 min | Basic boot/scan/response cycle |
+| `RendererPath` | ~12 min | With TUI renderer enabled |
+| `StressSequence` | ~15 min | Rapid resizes + multiple prompts |
+| `EventStorm` | ~20 min | Heavy UI events (Alt+l/p/a/s/c) + prompts |
+| `RaceStorm` | ~20 min | 4 concurrent senders racing UI updates |
+| `Soak` | ~25 min | Long-duration + memory/goroutine monitoring |
+| `PromptEvolutionSystem` | ~12 min | /evolution-stats, /evolved-atoms, /strategies |
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CODENERD_LIVE_LLM` | - | Set to `1` to enable live tests |
+| `CODENERD_SKIP_SCHEDULER_CHECK` | - | Skip APIScheduler starvation check |
+| `CODENERD_SKIP_LOOP_ANALYZER` | - | Skip loop detection |
+| `CODENERD_SKIP_LOGQUERY` | - | Skip logquery anomaly analysis |
+| `CODENERD_SKIP_LOG_ANALYZER` | - | Skip stress log analyzer |
+| `CODENERD_LIVE_STORM_ROUNDS` | 5 | Rounds for EventStorm test |
+| `CODENERD_LIVE_STORM_DURATION` | 2m | Duration for RaceStorm |
+| `CODENERD_LIVE_STORM_SENDERS` | 4 | Concurrent senders for RaceStorm |
+| `CODENERD_LIVE_SOAK_DURATION` | 3m | Duration for Soak test |
+| `CODENERD_LIVE_MAX_ALLOC_MB` | 1024 | Max memory growth for Soak |
+| `CODENERD_LIVE_MAX_GOROUTINES` | 2000 | Max goroutine count for Soak |
+| `CODENERD_MAX_SLOT_WAIT` | 30s | Max APIScheduler slot wait |
+| `CODENERD_MAX_SLOT_QUEUE` | 10 | Max APIScheduler queue depth |
+| `CODENERD_LOOP_THRESHOLD` | 5 | Loop detection threshold |
+
+### Prerequisites
+
+- Z.AI API key configured in `.nerd/config.json`
+- `logging.debug_mode` set to `true`
+- Python 3 for loop analyzer and log parsers
+- logquery built (auto-built on first run)
+
+### What the Tests Validate
+
+Each test automatically runs:
+1. **Log warning/error detection** - Fails on any warnings or errors
+2. **Critical pattern detection** - Panics, deadlocks, races, OOM
+3. **Scheduler starvation check** - APIScheduler slot wait times
+4. **Loop analyzer** - Detects action loops via Python script
+5. **Logquery anomalies** - Mangle-based log anomaly detection
+6. **Stress log analyzer** - Comprehensive stress report
+
+### Key File
+
+`cmd/nerd/chat/live_integration_test.go` - ~1500 lines of comprehensive TUI stress tests
+
+---
+
 ## Related Files
 
 - [perception-to-campaign.md](../08-hybrid-integration/perception-to-campaign.md) - Full pipeline
