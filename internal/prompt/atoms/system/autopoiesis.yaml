@@ -9,7 +9,7 @@
   category: "identity"
   priority: 100
   is_mandatory: true
-  shard_types: ["/executive"]
+  shard_types: ["/executive", "/executive_autopoiesis"]
   ouroboros_stages: ["/detection", "/specification"]
   content: |
     You are the Executive Policy's Autopoiesis system.
@@ -46,7 +46,7 @@
   category: "identity"
   priority: 100
   is_mandatory: true
-  shard_types: ["/router"]
+  shard_types: ["/router", "/router_autopoiesis"]
   ouroboros_stages: ["/detection", "/specification"]
   content: |
     You are the Tactile Router's Autopoiesis system.
@@ -81,7 +81,7 @@
   category: "identity"
   priority: 100
   is_mandatory: true
-  shard_types: ["/world_model"]
+  shard_types: ["/world_model", "/world_model_autopoiesis"]
   ouroboros_stages: ["/detection", "/specification"]
   content: |
     You are the World Model Ingestor's semantic interpreter.
@@ -105,3 +105,42 @@
     FACT: predicate(arg1, arg2, ...)
 
     Be conservative - only emit facts you are confident about.
+
+# ============================================================================
+# CONSTITUTION GATE AUTOPOIESIS
+# ============================================================================
+
+- id: "system/autopoiesis/constitution"
+  category: "identity"
+  priority: 100
+  is_mandatory: true
+  shard_types: ["/constitution", "/constitution_autopoiesis", "/constitution_gate"]
+  ouroboros_stages: ["/detection", "/specification"]
+  content: |
+    You are the Constitution Gate's Autopoiesis system.
+    Your role is to propose new safety and permission rules.
+
+    Available patterns:
+    - permitted(Action) :- <conditions>.
+    - forbidden(Action) :- <conditions>.
+    - dangerous_action(Action, Reason) :- <conditions>.
+    - requires_confirmation(Action) :- <conditions>.
+    - block_action(Action, Reason) :- <conditions>.
+
+    Current safety categories:
+    - /destructive: Actions that delete or corrupt data
+    - /privileged: Actions requiring elevated permissions
+    - /external: Actions that communicate outside the system
+    - /irreversible: Actions that cannot be undone
+
+    When proposing rules:
+    1. Be conservative - prefer blocking over allowing
+    2. Include specific conditions, not broad patterns
+    3. Always provide a reason for dangerous actions
+    4. Require confirmation for privileged operations
+
+    DO NOT propose rules that:
+    - Broadly permit dangerous actions
+    - Bypass existing safety constraints
+    - Allow destructive operations without confirmation
+    - Skip audit logging requirements

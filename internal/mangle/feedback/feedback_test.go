@@ -497,9 +497,9 @@ func TestNormalizeRuleInput(t *testing.T) {
 			expected: `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
 		},
 		{
-			name:     "backslashes outside quotes unchanged",
+			name:     "prolog negation converted to mangle",
 			input:    `blocked(X) :- \+ permitted(X), has_path("C:\Code\Nerd").`,
-			expected: `blocked(X) :- \+ permitted(X), has_path("C:\\Code\\Nerd").`,
+			expected: `blocked(X) :- !permitted(X), has_path("C:\\Code\\Nerd").`,
 		},
 		{
 			name:     "known escapes in strings remain intact",
@@ -928,8 +928,10 @@ func TestFeedbackLoop_PreValidateOnly(t *testing.T) {
 	config := DefaultConfig()
 	fl := NewFeedbackLoop(config)
 
-	// Use regular string for proper escaping: \+ is single backslash followed by plus
-	ruleWithIssues := "blocked(X) :- \\+ permitted(X), state(X, \"active\")."
+	// Rule with atom/string issue ("active" should be /active)
+	// Note: Prolog negation \+ is now auto-fixed to ! in NormalizeRuleInput,
+	// so we only expect the atom/string error here
+	ruleWithIssues := "blocked(X) :- !permitted(X), state(X, \"active\")."
 
 	errors := fl.PreValidateOnly(ruleWithIssues)
 
@@ -937,17 +939,31 @@ func TestFeedbackLoop_PreValidateOnly(t *testing.T) {
 		t.Error("expected pre-validation errors")
 	}
 
-	// Should find prolog negation and atom/string issues
+	// Should find atom/string issue (active should be /active)
 	categories := make(map[ErrorCategory]bool)
 	for _, e := range errors {
 		categories[e.Category] = true
 	}
 
-	if !categories[CategoryPrologNegation] {
-		t.Error("expected prolog negation error")
-	}
 	if !categories[CategoryAtomString] {
 		t.Error("expected atom/string error")
+	}
+}
+
+func TestFeedbackLoop_PreValidateOnly_PrologNegationAutoFixed(t *testing.T) {
+	config := DefaultConfig()
+	fl := NewFeedbackLoop(config)
+
+	// Rule with Prolog negation \+ - this should be auto-fixed by NormalizeRuleInput
+	ruleWithPrologNegation := "blocked(X) :- \\+ permitted(X)."
+
+	errors := fl.PreValidateOnly(ruleWithPrologNegation)
+
+	// Prolog negation is now auto-fixed, so no error for it
+	for _, e := range errors {
+		if e.Category == CategoryPrologNegation {
+			t.Error("Prolog negation should be auto-fixed, not reported as error")
+		}
 	}
 }
 
