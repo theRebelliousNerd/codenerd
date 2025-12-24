@@ -252,6 +252,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Configure global LLM API concurrency before any scheduled calls
 		schedulerCfg := core.DefaultAPISchedulerConfig()
 		schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+		schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 		core.ConfigureGlobalAPIScheduler(schedulerCfg)
 		initialMessages := []Message{}
 

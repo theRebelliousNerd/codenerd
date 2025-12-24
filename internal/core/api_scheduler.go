@@ -440,6 +440,10 @@ type tracingContextSetter interface {
 	ClearShardContext()
 }
 
+type semaphoreDisabler interface {
+	DisableSemaphore()
+}
+
 // SetShardContext forwards tracing context into the wrapped client, if supported.
 // This enables accurate attribution even when clients are wrapped by the scheduler.
 func (c *ScheduledLLMCall) SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string) {
@@ -635,6 +639,10 @@ func NewScheduledLLMCall(shardID string, client LLMClient) *ScheduledLLMCall {
 	// Register shard if not already registered
 	if _, ok := scheduler.GetShardState(shardID); !ok {
 		scheduler.RegisterShard(shardID, "unknown")
+	}
+
+	if disabler, ok := client.(semaphoreDisabler); ok {
+		disabler.DisableSemaphore()
 	}
 
 	return &ScheduledLLMCall{
