@@ -103,7 +103,7 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 		Temperature: 0.1,
 	}
 	if isPiggyback {
-		reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+		reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
 	}
 
 	// Retry loop for rate limits
@@ -238,7 +238,7 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			},
 		}
 		if isPiggyback {
-			reqBody.ResponseFormat = BuildPiggybackEnvelopeSchema()
+			reqBody.ResponseFormat = BuildOpenRouterPiggybackEnvelopeSchema()
 		}
 
 		maxRetries := 3

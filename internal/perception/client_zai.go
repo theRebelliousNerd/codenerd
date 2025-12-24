@@ -522,7 +522,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		Temperature: 0.1,
 		TopP:        0.9,
 		// Stream: false (default)
-		ResponseFormat: BuildPiggybackEnvelopeSchema(), // Structured output
+		ResponseFormat: BuildZAIPiggybackEnvelopeSchema(), // Z.AI: json_object only
 	}
 
 	// Enable thinking mode if requested
@@ -779,7 +779,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			TopP:           0.9,
 			Stream:         true,
 			StreamOptions:  &ZAIStreamOptions{IncludeUsage: true},
-			ResponseFormat: BuildPiggybackEnvelopeSchema(), // Structured output with streaming
+			ResponseFormat: BuildZAIPiggybackEnvelopeSchema(), // Z.AI: json_object only with streaming
 		}
 
 		if enableThinking {
