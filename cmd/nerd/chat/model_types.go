@@ -450,6 +450,7 @@ type SystemComponents struct {
 	GlassBoxEventBus      *transparency.GlassBoxEventBus // Glass Box debug mode event bus
 	ToolEventBus          *transparency.ToolEventBus     // Always-visible tool execution event bus
 	ToolStore             *store.ToolStore               // Tool execution persistence store
+	PromptEvolver         *prompt_evolution.PromptEvolver // System Prompt Learning evolver
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.

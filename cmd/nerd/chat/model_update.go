@@ -1188,6 +1188,9 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			// Wire Tool Store for tool execution persistence
 			m.toolStore = c.ToolStore
 
+			// Wire Prompt Evolution System (System Prompt Learning)
+			m.promptEvolver = c.PromptEvolver
+
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
