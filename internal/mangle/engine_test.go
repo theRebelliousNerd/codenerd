@@ -4,7 +4,16 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
+	)
+}
 
 func TestNewEngine(t *testing.T) {
 	cfg := DefaultConfig()
