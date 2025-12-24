@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 
@@ -355,7 +356,7 @@ func (m Model) getRecentTurns(n int) []Message {
 
 func (m Model) createAgentFromPrompt(description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().FollowUpTimeout)
 		defer cancel()
 
 		systemPrompt := "You design specialist software agents. Respond in English. Return JSON with fields: name (CamelCase, no spaces), topic (<=80 chars), knowledge_path (path string). Keep responses compact."

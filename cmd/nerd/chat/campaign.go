@@ -5,6 +5,7 @@ package chat
 import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
@@ -43,9 +44,9 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		var ctx context.Context
 		var cancel context.CancelFunc
 		if m.shutdownCtx != nil {
-			ctx, cancel = context.WithTimeout(m.shutdownCtx, 30*time.Minute)
+			ctx, cancel = context.WithTimeout(m.shutdownCtx, config.GetLLMTimeouts().CampaignPhaseTimeout)
 		} else {
-			ctx, cancel = context.WithTimeout(context.Background(), 30*time.Minute)
+			ctx, cancel = context.WithTimeout(context.Background(), config.GetLLMTimeouts().CampaignPhaseTimeout)
 		}
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)

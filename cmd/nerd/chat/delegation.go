@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards"
@@ -285,7 +286,7 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 // spawnShard spawns a shard agent for a task
 func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
 		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
@@ -337,7 +338,7 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 //   - ModeAdvisoryWithCritique: Advise → Execute → Critique (for /fix, /refactor)
 func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
 		startTime := time.Now()

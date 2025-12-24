@@ -91,6 +91,13 @@ func (c *ZAIClient) Complete(ctx context.Context, prompt string) (string, error)
 // CompleteWithSystem sends a prompt with a system message.
 // ENHANCED (v1.2.0): Automatically uses structured output + thinking mode for Piggyback Protocol.
 func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
 	// Generate request ID for tracing
 	reqID := generateRequestID()
 	log := zaiLogger()
@@ -417,6 +424,13 @@ func (c *ZAIClient) GetModel() string {
 // CompleteWithStructuredOutput sends a request with JSON schema enforcement.
 // This is the preferred method for Piggyback Protocol interactions.
 func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
 	// Generate request ID for tracing
 	reqID := generateRequestID()
 	log := zaiLogger()
@@ -726,6 +740,14 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+
+		// Auto-apply timeout if context has no deadline (centralized timeout handling)
+		// For streaming, this applies the HTTP client timeout as a maximum duration
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+			defer cancel()
+		}
 
 		if c.apiKey == "" {
 			errorChan <- fmt.Errorf("API key not configured")

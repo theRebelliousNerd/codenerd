@@ -41,12 +41,49 @@ type LLMTimeouts struct {
 	// RateLimitDelay is the minimum delay between consecutive API calls.
 	// Z.AI recommends 600ms between requests.
 	RateLimitDelay time.Duration `json:"rate_limit_delay"`
+
+	// ============================================================================
+	// Tier 2 - Operation Timeouts (multi-step operations that include LLM calls)
+	// ============================================================================
+
+	// ShardExecutionTimeout is the timeout for shard spawn and execution.
+	// Includes research, context building, LLM call, and post-processing.
+	ShardExecutionTimeout time.Duration `json:"shard_execution_timeout"`
+
+	// ArticulationTimeout is the timeout for articulation transducer LLM calls.
+	// These convert internal state to user-facing natural language.
+	ArticulationTimeout time.Duration `json:"articulation_timeout"`
+
+	// FollowUpTimeout is the timeout for quick follow-up responses.
+	// Used for clarification questions and simple responses.
+	FollowUpTimeout time.Duration `json:"follow_up_timeout"`
+
+	// OuroborosTimeout is the timeout for the tool generation pipeline.
+	// Includes detection, generation, safety check, and simulation stages.
+	OuroborosTimeout time.Duration `json:"ouroboros_timeout"`
+
+	// DocumentProcessingTimeout is the timeout for document ingestion and refresh.
+	// Includes vector embedding, storage, and knowledge synthesis.
+	DocumentProcessingTimeout time.Duration `json:"document_processing_timeout"`
+
+	// ============================================================================
+	// Tier 3 - Campaign Timeouts (long-running orchestration)
+	// ============================================================================
+
+	// CampaignPhaseTimeout is the timeout for a full campaign phase.
+	// Campaign phases may include multiple shard executions.
+	CampaignPhaseTimeout time.Duration `json:"campaign_phase_timeout"`
+
+	// OODALoopTimeout is the timeout for the full OODA loop (input processing).
+	// Covers Observe, Orient, Decide, Act cycle including perception and articulation.
+	OODALoopTimeout time.Duration `json:"ooda_loop_timeout"`
 }
 
 // DefaultLLMTimeouts returns sensible defaults for GLM-4.7 with large context windows.
 // These values are calibrated for the Z.AI API with 200K context and 128K output tokens.
 func DefaultLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
+		// Tier 1 - Per-Call
 		HTTPClientTimeout:      10 * time.Minute, // GLM-4.7 needs extended timeout
 		SlotAcquisitionTimeout: 10 * time.Minute, // Wait for slow calls to complete
 		PerCallTimeout:         10 * time.Minute, // Match HTTP timeout to avoid conflicts
@@ -55,36 +92,74 @@ func DefaultLLMTimeouts() LLMTimeouts {
 		RetryBackoffMax:        30 * time.Second,
 		MaxRetries:             3,
 		RateLimitDelay:         600 * time.Millisecond,
+
+		// Tier 2 - Operation
+		// NOTE: Z.AI responses take 150+ seconds minimum for SIMPLE prompts.
+		// Complex prompts can take 5-10+ minutes. All values have generous buffers.
+		ShardExecutionTimeout:     20 * time.Minute, // Shard spawn includes research + LLM
+		ArticulationTimeout:       5 * time.Minute,  // Articulation transducer
+		FollowUpTimeout:           5 * time.Minute,  // ZAI simple prompts: 150s+
+		OuroborosTimeout:          10 * time.Minute, // Tool generation pipeline
+		DocumentProcessingTimeout: 20 * time.Minute, // Document ingestion and refresh
+
+		// Tier 3 - Campaign
+		CampaignPhaseTimeout: 30 * time.Minute, // Full campaign phase
+		OODALoopTimeout:      30 * time.Minute, // Full OODA loop
 	}
 }
 
 // FastLLMTimeouts returns shorter timeouts for quick operations.
 // Use this for simple prompts with small context.
+// NOTE: Even "fast" operations need 150+ seconds minimum for ZAI simple prompts.
 func FastLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
-		HTTPClientTimeout:      2 * time.Minute,
-		SlotAcquisitionTimeout: 3 * time.Minute,
-		PerCallTimeout:         2 * time.Minute,
-		StreamingTimeout:       3 * time.Minute,
+		// Tier 1 - Per-Call (5 min for simple ZAI prompts)
+		HTTPClientTimeout:      5 * time.Minute,
+		SlotAcquisitionTimeout: 6 * time.Minute,
+		PerCallTimeout:         5 * time.Minute,
+		StreamingTimeout:       6 * time.Minute,
 		RetryBackoffBase:       500 * time.Millisecond,
 		RetryBackoffMax:        10 * time.Second,
 		MaxRetries:             2,
 		RateLimitDelay:         600 * time.Millisecond,
+
+		// Tier 2 - Operation (ZAI simple prompts: 150s+)
+		ShardExecutionTimeout:     7 * time.Minute,
+		ArticulationTimeout:       5 * time.Minute,
+		FollowUpTimeout:           5 * time.Minute,
+		OuroborosTimeout:          7 * time.Minute,
+		DocumentProcessingTimeout: 7 * time.Minute,
+
+		// Tier 3 - Campaign
+		CampaignPhaseTimeout: 15 * time.Minute,
+		OODALoopTimeout:      15 * time.Minute,
 	}
 }
 
-// AggressiveLLMTimeouts returns timeouts for time-sensitive operations.
-// Use sparingly - may cause failures with large context.
+// AggressiveLLMTimeouts returns minimal timeouts while respecting ZAI floor.
+// ZAI simple prompts take 150s+ minimum, so 5 min floor gives buffer for variance.
 func AggressiveLLMTimeouts() LLMTimeouts {
 	return LLMTimeouts{
-		HTTPClientTimeout:      1 * time.Minute,
-		SlotAcquisitionTimeout: 2 * time.Minute,
-		PerCallTimeout:         1 * time.Minute,
-		StreamingTimeout:       2 * time.Minute,
+		// Tier 1 - Per-Call (5 min floor = 2x ZAI simple prompt minimum)
+		HTTPClientTimeout:      5 * time.Minute,
+		SlotAcquisitionTimeout: 6 * time.Minute,
+		PerCallTimeout:         5 * time.Minute,
+		StreamingTimeout:       5 * time.Minute,
 		RetryBackoffBase:       250 * time.Millisecond,
 		RetryBackoffMax:        5 * time.Second,
 		MaxRetries:             1,
 		RateLimitDelay:         600 * time.Millisecond,
+
+		// Tier 2 - Operation (5 min floor = 2x ZAI simple prompt minimum)
+		ShardExecutionTimeout:     5 * time.Minute,
+		ArticulationTimeout:       5 * time.Minute,
+		FollowUpTimeout:           5 * time.Minute,
+		OuroborosTimeout:          5 * time.Minute,
+		DocumentProcessingTimeout: 5 * time.Minute,
+
+		// Tier 3 - Campaign
+		CampaignPhaseTimeout: 10 * time.Minute,
+		OODALoopTimeout:      10 * time.Minute,
 	}
 }
 

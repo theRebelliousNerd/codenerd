@@ -25,6 +25,7 @@ package chat
 import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -54,7 +55,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("system not ready: LLM client not initialized"))
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().OODALoopTimeout)
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
@@ -1095,7 +1096,7 @@ func (m Model) runClarifierShard(ctx context.Context, goal string) (string, erro
 		return "", fmt.Errorf("shard manager not initialized")
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Extended for large context LLMs
+	cctx, cancel := context.WithTimeout(ctx, config.GetLLMTimeouts().ArticulationTimeout)
 	defer cancel()
 
 	result, err := m.shardMgr.Spawn(cctx, "requirements_interrogator", goal)

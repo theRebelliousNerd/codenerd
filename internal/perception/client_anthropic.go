@@ -56,6 +56,13 @@ func (c *AnthropicClient) Complete(ctx context.Context, prompt string) (string, 
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	logging.PerceptionDebug("[Anthropic] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
 
@@ -147,6 +154,14 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+
+		// Auto-apply timeout if context has no deadline (centralized timeout handling)
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+			defer cancel()
+		}
+
 		startTime := time.Now()
 
 		if c.apiKey == "" {

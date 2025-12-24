@@ -5,6 +5,7 @@ package chat
 import (
 	"bufio"
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
@@ -531,7 +532,7 @@ func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
 
 func (m Model) runInitialization(force bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
 		// Detect project type for profile
@@ -737,7 +738,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 		startTime := time.Now()
 		m.ReportStatus("Discovering documentation files...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().DocumentProcessingTimeout)
 		defer cancel()
 
 		// Create initializer for doc processing (reuses init infrastructure)
@@ -745,7 +746,7 @@ func (m Model) runDocRefresh(force bool) tea.Cmd {
 			Workspace:    m.workspace,
 			LLMClient:    m.client,
 			ShardManager: m.shardMgr,
-			Timeout:      15 * time.Minute,
+			Timeout:      config.GetLLMTimeouts().DocumentProcessingTimeout,
 			Interactive:  false,
 		}
 
@@ -1518,7 +1519,7 @@ func (m Model) renderToolInfo(toolName string) string {
 // runTool executes a generated tool asynchronously
 func (m Model) runTool(toolName, input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute) // Extended for LLM-based tools
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
 		if m.autopoiesis == nil {
@@ -1570,7 +1571,7 @@ func (m Model) runTool(toolName, input string) tea.Cmd {
 // generateTool generates a new tool using the Ouroboros Loop
 func (m Model) generateTool(description string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Ouroboros has multiple LLM stages
+		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().OuroborosTimeout)
 		defer cancel()
 
 		if m.autopoiesis == nil {

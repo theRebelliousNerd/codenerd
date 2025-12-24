@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,7 +60,7 @@ func (m *Model) checkContinuation(shardType, task, result string) *continueMsg {
 func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd {
 	return func() tea.Msg {
 		// Use per-shard execution timeout from config when available.
-		timeout := 5 * time.Minute
+		timeout := config.GetLLMTimeouts().ShardExecutionTimeout
 		if m.Config != nil {
 			profile := m.Config.GetShardProfile(shardType)
 			if profile.MaxExecutionTimeSec > 0 {

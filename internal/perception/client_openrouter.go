@@ -65,6 +65,13 @@ func (c *OpenRouterClient) Complete(ctx context.Context, prompt string) (string,
 
 // CompleteWithSystem sends a prompt with a system message.
 func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	logging.PerceptionDebug("[OpenRouter] CompleteWithSystem: model=%s system_len=%d user_len=%d", c.model, len(systemPrompt), len(userPrompt))
 
@@ -196,6 +203,14 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 	go func() {
 		defer close(contentChan)
 		defer close(errorChan)
+
+		// Auto-apply timeout if context has no deadline (centralized timeout handling)
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+			defer cancel()
+		}
+
 		startTime := time.Now()
 
 		if c.apiKey == "" {
