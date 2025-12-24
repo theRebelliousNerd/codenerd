@@ -111,6 +111,9 @@ type SpawnQueue struct {
 	// Priority queues (4 levels: Low, Normal, High, Critical)
 	queues [4]chan *SpawnRequest
 
+	// OPTIMIZATION: Work notification channel to eliminate polling
+	workAvailable chan struct{}
+
 	// Configuration
 	config SpawnQueueConfig
 
@@ -160,6 +163,7 @@ func NewSpawnQueue(sm *ShardManager, le *LimitsEnforcer, cfg SpawnQueueConfig) *
 		shardManager:   sm,
 		limitsEnforcer: le,
 		stopCh:         make(chan struct{}),
+		workAvailable:  make(chan struct{}, 1), // OPTIMIZATION: Buffered to prevent blocking
 	}
 
 	// Initialize priority queues
@@ -277,6 +281,8 @@ func (sq *SpawnQueue) Submit(ctx context.Context, req SpawnRequest) (<-chan Spaw
 		atomic.AddInt64(&sq.totalQueued, 1)
 		logging.ShardsDebug("SpawnQueue: queued request %s (type=%s, priority=%s)",
 			req.ID, req.TypeName, req.Priority)
+		// OPTIMIZATION: Signal workers that work is available
+		sq.signalWorkAvailable()
 		return req.ResultCh, nil
 	default:
 		// Priority queue is full
@@ -314,16 +320,20 @@ func (sq *SpawnQueue) worker(id int) {
 		case <-sq.stopCh:
 			logging.ShardsDebug("SpawnQueue: worker %d stopping", id)
 			return
-		default:
-			// Try to get a request (priority order)
+		case <-sq.workAvailable:
+			// OPTIMIZATION: Block on work notification instead of polling
+			// Work is available, try to grab it
 			req := sq.selectNextRequest()
 			if req == nil {
-				// No requests available, brief sleep to avoid busy-waiting
-				time.Sleep(50 * time.Millisecond)
+				// Race condition: work was grabbed by another worker
+				// Continue to next iteration
 				continue
 			}
 
 			sq.processRequest(id, req)
+
+			// Signal that we might have capacity for more work
+			sq.signalWorkAvailable()
 		}
 	}
 }
@@ -511,6 +521,17 @@ func (sq *SpawnQueue) sendResult(req *SpawnRequest, result SpawnResult) {
 	default:
 		// Channel full or closed, log warning
 		logging.Get(logging.CategoryShards).Warn("SpawnQueue: could not send result for request %s", req.ID)
+	}
+}
+
+// signalWorkAvailable notifies workers that work may be available.
+// Non-blocking - if channel is full, workers are already aware.
+func (sq *SpawnQueue) signalWorkAvailable() {
+	select {
+	case sq.workAvailable <- struct{}{}:
+		// Signal sent successfully
+	default:
+		// Channel buffer is full - workers are already notified
 	}
 }
 
