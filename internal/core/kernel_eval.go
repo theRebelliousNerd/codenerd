@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/logging"
 
 	"github.com/google/mangle/analysis"
+	"github.com/google/mangle/ast"
 	"github.com/google/mangle/engine"
 	"github.com/google/mangle/factstore"
 	"github.com/google/mangle/parse"
@@ -103,16 +104,26 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	// Create fresh store and populate with EDB facts
+	// OPTIMIZATION: Use cached atoms instead of converting every time
 	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
 	baseStore := factstore.NewSimpleInMemoryStore()
-	factConversionErrors := 0
-	for _, f := range k.facts {
-		atom, err := f.ToAtom()
-		if err != nil {
-			factConversionErrors++
-			logging.Get(logging.CategoryKernel).Error("evaluate: failed to convert fact %s: %v", f.Predicate, err)
-			return fmt.Errorf("failed to convert fact %v: %w", f, err)
+
+	// Defensive sync check: ensure cache is valid
+	if len(k.cachedAtoms) != len(k.facts) {
+		logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), len(k.facts))
+		k.cachedAtoms = make([]ast.Atom, 0, len(k.facts))
+		for _, f := range k.facts {
+			atom, err := f.ToAtom()
+			if err != nil {
+				logging.Get(logging.CategoryKernel).Error("evaluate: failed to convert fact %s: %v", f.Predicate, err)
+				return fmt.Errorf("failed to convert fact %v: %w", f, err)
+			}
+			k.cachedAtoms = append(k.cachedAtoms, atom)
 		}
+	}
+
+	// Use cached atoms (fast path - no conversions!)
+	for _, atom := range k.cachedAtoms {
 		baseStore.Add(atom)
 	}
 	k.store = baseStore
@@ -178,6 +189,7 @@ func (k *RealKernel) Clear() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.facts = make([]Fact, 0)
+	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.wrapStoreLocked()
@@ -190,6 +202,7 @@ func (k *RealKernel) Reset() {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.facts = make([]Fact, 0)
+	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.wrapStoreLocked()
@@ -205,6 +218,7 @@ func (k *RealKernel) Clone() *RealKernel {
 
 	clone := &RealKernel{
 		facts:             make([]Fact, len(k.facts)),
+		cachedAtoms:       make([]ast.Atom, len(k.cachedAtoms)), // OPTIMIZATION: Clone atom cache
 		factIndex:         make(map[string]struct{}, len(k.factIndex)),
 		bootFacts:         make([]Fact, len(k.bootFacts)),
 		bootIntents:       make([]HybridIntent, len(k.bootIntents)),
@@ -226,8 +240,9 @@ func (k *RealKernel) Clone() *RealKernel {
 		virtualStore:      k.virtualStore,
 	}
 
-	// Deep copy facts
+	// Deep copy facts and cached atoms
 	copy(clone.facts, k.facts)
+	copy(clone.cachedAtoms, k.cachedAtoms) // OPTIMIZATION: Copy atom cache
 	copy(clone.bootFacts, k.bootFacts)
 	copy(clone.bootIntents, k.bootIntents)
 	copy(clone.bootPrompts, k.bootPrompts)
@@ -242,11 +257,9 @@ func (k *RealKernel) Clone() *RealKernel {
 		clone.loadedPolicyFiles[key] = struct{}{}
 	}
 
-	// Populate cloned store with facts
-	for _, f := range clone.facts {
-		if atom, err := f.ToAtom(); err == nil {
-			clone.store.Add(atom)
-		}
+	// OPTIMIZATION: Use cached atoms instead of re-converting
+	for _, atom := range clone.cachedAtoms {
+		clone.store.Add(atom)
 	}
 	clone.wrapStoreLocked()
 
