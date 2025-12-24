@@ -7,7 +7,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store.go
+//	go run ./cmd/tools/action_linter -mg-root internal/core/defaults -virtual-store internal/core/virtual_store_types.go
 package main
 
 import (
@@ -38,7 +38,7 @@ type issue struct {
 
 func main() {
 	mgRoot := flag.String("mg-root", "internal/core/defaults", "Root directory to scan for .mg policy files")
-	virtualStoreFile := flag.String("virtual-store", "internal/core/virtual_store.go", "Path to internal/core/virtual_store.go")
+	virtualStoreFile := flag.String("virtual-store", "internal/core/virtual_store_types.go", "Path to internal/core/virtual_store_types.go")
 	failOnWarn := flag.Bool("fail-on-warn", false, "Exit non-zero if warnings are present")
 	warnUnusedExecutors := flag.Bool("warn-unused-executors", true, "Warn when VirtualStore action types are never emitted by policy")
 	exemptFile := flag.String("exempt-file", "", "Optional path to file containing action exemptions (one glob per line, comments with #)")
