@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	"codenerd/internal/prompt"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -85,7 +86,7 @@ Generate between 5-15 requirements focusing on:
 - User needs from personas
 - Constraints and non-functional requirements (performance, security, usability)`)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), northstarLLMTimeout())
 		defer cancel()
 
 		// Build prompt using helper (supports JIT if available)
@@ -175,6 +176,14 @@ Return requirements in a structured format with clear prioritization.`
 	}
 }
 
+func northstarLLMTimeout() time.Duration {
+	timeout := config.GetLLMTimeouts().PerCallTimeout
+	if timeout <= 0 {
+		return 10 * time.Minute
+	}
+	return timeout
+}
+
 // analyzeNorthstarDocs reads and analyzes research documents using the LLM
 // to extract key insights for the northstar definition process.
 func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
@@ -204,7 +213,7 @@ func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
 			return northstarDocsAnalyzedMsg{err: fmt.Errorf("no documents could be read")}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), northstarLLMTimeout())
 		defer cancel()
 
 		// Build prompt using helper (supports JIT if available)
