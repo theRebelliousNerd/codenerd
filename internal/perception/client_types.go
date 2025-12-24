@@ -33,6 +33,11 @@ type ZAIConfig struct {
 	Timeout          time.Duration
 	SystemPrompt     string
 	DisableSemaphore bool // Set true when using external APIScheduler for concurrency control
+	MaxRetries       int
+	RetryBackoffBase time.Duration
+	RetryBackoffMax  time.Duration
+	RateLimitDelay   time.Duration
+	StreamingTimeout time.Duration
 }
 
 // AnthropicConfig holds configuration for Anthropic client.

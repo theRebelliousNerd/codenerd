@@ -100,6 +100,13 @@ func (tc *TracingLLMClient) GetCurrentContext() (shardID, shardType, shardCatego
 	return tc.shardID, tc.shardType, tc.shardCategory, tc.sessionID, tc.taskContext
 }
 
+// DisableSemaphore forwards concurrency control to the underlying client when available.
+func (tc *TracingLLMClient) DisableSemaphore() {
+	if disabler, ok := tc.underlying.(interface{ DisableSemaphore() }); ok {
+		disabler.DisableSemaphore()
+	}
+}
+
 // Complete implements LLMClient.Complete with tracing.
 func (tc *TracingLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return tc.CompleteWithSystem(ctx, "", prompt)

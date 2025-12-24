@@ -318,10 +318,17 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// This ensures shards release their API slot between LLM calls
 		scheduler := GetAPIScheduler()
 		scheduler.RegisterShard(id, typeName)
+		client := sm.llmClient
+		if scheduled, ok := client.(*ScheduledLLMCall); ok {
+			client = scheduled.Client
+		}
+		if disabler, ok := client.(semaphoreDisabler); ok {
+			disabler.DisableSemaphore()
+		}
 		scheduledClient := &ScheduledLLMCall{
 			Scheduler: scheduler,
 			ShardID:   id,
-			Client:    sm.llmClient,
+			Client:    client,
 		}
 		agent.SetLLMClient(scheduledClient)
 		depsInjected = append(depsInjected, "llmClient(scheduled)")

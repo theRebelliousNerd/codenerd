@@ -145,6 +145,51 @@ func minInt(a, b int) int {
 	return b
 }
 
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+type liveTimeouts struct {
+	boot     time.Duration
+	scan     time.Duration
+	response time.Duration
+	shutdown time.Duration
+}
+
+func resolveLiveTimeouts() liveTimeouts {
+	timeouts := config.GetLLMTimeouts()
+	return liveTimeouts{
+		boot: envDuration("CODENERD_LIVE_BOOT_TIMEOUT",
+			maxDuration(4*time.Minute, minDuration(12*time.Minute, timeouts.ShardExecutionTimeout))),
+		scan: envDuration("CODENERD_LIVE_SCAN_TIMEOUT",
+			maxDuration(6*time.Minute, minDuration(12*time.Minute, timeouts.DocumentProcessingTimeout))),
+		response: envDuration("CODENERD_LIVE_RESPONSE_TIMEOUT",
+			maxDuration(4*time.Minute, minDuration(10*time.Minute, timeouts.PerCallTimeout))),
+		shutdown: envDuration("CODENERD_LIVE_SHUTDOWN_TIMEOUT", 3*time.Minute),
+	}
+}
+
+func programTimeoutFor(t liveTimeouts, promptCount int, extra time.Duration) time.Duration {
+	if promptCount < 0 {
+		promptCount = 0
+	}
+	total := t.boot + t.scan + t.shutdown + time.Duration(promptCount)*t.response + extra
+	if total < t.response {
+		total = t.response
+	}
+	return envDuration("CODENERD_LIVE_PROGRAM_TIMEOUT", total)
+}
+
 func ensureWorkspaceRoot(t *testing.T) string {
 	t.Helper()
 
@@ -232,22 +277,87 @@ func sendAlt(p *tea.Program, r rune) {
 	p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: true})
 }
 
-func waitForSignal(t *testing.T, name string, sig <-chan struct{}, signals *testSignals, resultCh <-chan runResult, timeout time.Duration) {
+func waitForSignal(t *testing.T, name string, sig <-chan struct{}, signals *testSignals, resultCh <-chan runResult, timeout time.Duration, since time.Time) {
 	t.Helper()
 
-	select {
-	case <-sig:
+	if logSignalDetected(t, name, since) {
 		return
-	case err := <-signals.errCh:
-		t.Fatalf("unexpected error while waiting for %s: %v", name, err)
-	case result := <-resultCh:
-		if result.err != nil {
-			t.Fatalf("program exited early while waiting for %s: %v", name, result.err)
-		}
-		t.Fatalf("program exited early while waiting for %s", name)
-	case <-time.After(timeout):
-		t.Fatalf("timeout waiting for %s", name)
 	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-sig:
+			return
+		case err := <-signals.errCh:
+			t.Fatalf("unexpected error while waiting for %s: %v", name, err)
+		case result := <-resultCh:
+			if result.err != nil {
+				t.Fatalf("program exited early while waiting for %s: %v", name, result.err)
+			}
+			t.Fatalf("program exited early while waiting for %s", name)
+		case <-ticker.C:
+			if logSignalDetected(t, name, since) {
+				return
+			}
+		case <-deadline.C:
+			t.Fatalf("timeout waiting for %s", name)
+		}
+	}
+}
+
+func logSignalDetected(t *testing.T, name string, since time.Time) bool {
+	t.Helper()
+
+	if name != "boot" && name != "scan" {
+		return false
+	}
+
+	root, err := config.FindWorkspaceRoot()
+	if err != nil {
+		t.Fatalf("find workspace root: %v", err)
+	}
+	logDir := filepath.Join(root, ".nerd", "logs")
+
+	entries := readLogEntriesSince(t, logDir, since)
+	if len(entries) == 0 {
+		return false
+	}
+
+	switch name {
+	case "boot":
+		if logHasMarker(entries, "boot", []string{"Starting Mangle file watcher", "Complete!"}) {
+			return true
+		}
+		if logHasMarker(entries, "kernel", []string{"Mangle file watcher started", "MangleWatcher: watching"}) {
+			return true
+		}
+	case "scan":
+		if logHasMarker(entries, "world", []string{"Directory scan completed", "Workspace scan completed", "Incremental scan completed"}) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func logHasMarker(entries []logEntry, category string, markers []string) bool {
+	for _, entry := range entries {
+		if entry.Category != category {
+			continue
+		}
+		for _, marker := range markers {
+			if strings.Contains(entry.Message, marker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func waitForResponse(t *testing.T, signals *testSignals, resultCh <-chan runResult, timeout time.Duration) string {
@@ -621,6 +731,7 @@ func runLoopAnalyzer(t *testing.T, logDir string, since time.Time) {
 	var stderr bytes.Buffer
 	cmd := exec.Command(python, args...)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
@@ -678,6 +789,7 @@ func runLogQueryAnomalies(t *testing.T, logDir string, since time.Time) {
 	var parseErr bytes.Buffer
 	parseCmd := exec.Command(python, args...)
 	parseCmd.Dir = root
+	parseCmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 	parseCmd.Stderr = &parseErr
 	if _, err := parseCmd.Output(); err != nil {
 		t.Fatalf("parse_log failed: %v\n%s", err, parseErr.String())
@@ -729,6 +841,7 @@ func runStressLogAnalyzer(t *testing.T, logDir string, since time.Time) {
 
 	cmd := exec.Command(python, script, "--logs-dir", filteredDir, "--output", reportPath)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("stress log analyzer failed: %v\n%s", err, string(output))
@@ -1103,24 +1216,26 @@ func TestChatLiveLLM_HeadlessProgram(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	programTimeout := programTimeoutFor(timeouts, 1, 2*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, false)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	sendInput(program, "Give a one-sentence summary of codeNERD.")
-	resp := waitForResponse(t, signals, resultCh, 3*time.Minute)
+	resp := waitForResponse(t, signals, resultCh, timeouts.response)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response")
 	}
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1141,24 +1256,26 @@ func TestChatLiveLLM_RendererPath(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	programTimeout := programTimeoutFor(timeouts, 1, 2*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, true)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	sendInput(program, "Summarize the codeNERD architecture in one paragraph.")
-	resp := waitForResponse(t, signals, resultCh, 3*time.Minute)
+	resp := waitForResponse(t, signals, resultCh, timeouts.response)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response")
 	}
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1179,15 +1296,22 @@ func TestChatLiveLLM_StressSequence(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	prompts := []string{
+		"List three core subsystems of codeNERD.",
+		"Explain what the Mangle kernel does in one short paragraph.",
+		"Name one stability risk for Bubble Tea apps like this.",
+	}
+	programTimeout := programTimeoutFor(timeouts, len(prompts), 3*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, false)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	stopResize := make(chan struct{})
 	go func() {
@@ -1211,16 +1335,10 @@ func TestChatLiveLLM_StressSequence(t *testing.T) {
 		}
 	}()
 
-	prompts := []string{
-		"List three core subsystems of codeNERD.",
-		"Explain what the Mangle kernel does in one short paragraph.",
-		"Name one stability risk for Bubble Tea apps like this.",
-	}
-
 	for _, prompt := range prompts {
 		sendAlt(program, 'l') // Toggle logic pane on/off to stress layout.
 		sendInput(program, prompt)
-		resp := waitForResponse(t, signals, resultCh, 4*time.Minute)
+		resp := waitForResponse(t, signals, resultCh, timeouts.response)
 		if strings.TrimSpace(resp) == "" {
 			t.Fatalf("expected non-empty response")
 		}
@@ -1230,7 +1348,7 @@ func TestChatLiveLLM_StressSequence(t *testing.T) {
 	close(stopResize)
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1251,20 +1369,21 @@ func TestChatLiveLLM_EventStorm(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	rounds := envInt("CODENERD_LIVE_STORM_ROUNDS", 5)
+	if rounds < 1 {
+		rounds = 1
+	}
+	programTimeout := programTimeoutFor(timeouts, rounds, 3*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, false)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
-
-	rounds := envInt("CODENERD_LIVE_STORM_ROUNDS", 5)
-	if rounds < 1 {
-		rounds = 1
-	}
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	for i := 0; i < rounds; i++ {
 		sendAlt(program, 'l')
@@ -1275,14 +1394,14 @@ func TestChatLiveLLM_EventStorm(t *testing.T) {
 		program.Send(tea.WindowSizeMsg{Width: 110 + i, Height: 36 + i})
 
 		sendInput(program, fmt.Sprintf("Give one concise stability risk for a Bubble Tea app (round %d).", i+1))
-		resp := waitForResponse(t, signals, resultCh, 4*time.Minute)
+		resp := waitForResponse(t, signals, resultCh, timeouts.response)
 		if strings.TrimSpace(resp) == "" {
 			t.Fatalf("expected non-empty response")
 		}
 	}
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1303,21 +1422,27 @@ func TestChatLiveLLM_RaceStorm(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
-	t.Cleanup(cancel)
-
-	program, resultCh := startProgram(t, ctx, signals, false)
-	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
-
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
-
+	timeouts := resolveLiveTimeouts()
 	stormDuration := envDuration("CODENERD_LIVE_STORM_DURATION", 2*time.Minute)
 	senders := envInt("CODENERD_LIVE_STORM_SENDERS", 4)
 	if senders < 1 {
 		senders = 1
 	}
+	prompts := []string{
+		"List two failure modes for long-running TUIs.",
+		"Summarize how codeNERD enforces safety in one paragraph.",
+		"Name one risk for concurrent shard execution.",
+	}
+	programTimeout := programTimeoutFor(timeouts, len(prompts), stormDuration+3*time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
+	t.Cleanup(cancel)
+
+	program, resultCh := startProgram(t, ctx, signals, false)
+	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -1340,14 +1465,9 @@ func TestChatLiveLLM_RaceStorm(t *testing.T) {
 		}(i)
 	}
 
-	prompts := []string{
-		"List two failure modes for long-running TUIs.",
-		"Summarize how codeNERD enforces safety in one paragraph.",
-		"Name one risk for concurrent shard execution.",
-	}
 	for _, prompt := range prompts {
 		sendInput(program, prompt)
-		resp := waitForResponse(t, signals, resultCh, 4*time.Minute)
+		resp := waitForResponse(t, signals, resultCh, timeouts.response)
 		if strings.TrimSpace(resp) == "" {
 			t.Fatalf("expected non-empty response")
 		}
@@ -1372,7 +1492,7 @@ func TestChatLiveLLM_RaceStorm(t *testing.T) {
 	wg.Wait()
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1393,23 +1513,25 @@ func TestChatLiveLLM_Soak(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	soakDuration := envDuration("CODENERD_LIVE_SOAK_DURATION", 3*time.Minute)
+	programTimeout := programTimeoutFor(timeouts, 1, soakDuration+3*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, false)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	sendInput(program, "Give a short mission statement for codeNERD.")
-	resp := waitForResponse(t, signals, resultCh, 4*time.Minute)
+	resp := waitForResponse(t, signals, resultCh, timeouts.response)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response")
 	}
 
-	soakDuration := envDuration("CODENERD_LIVE_SOAK_DURATION", 3*time.Minute)
 	maxAllocMB := envInt("CODENERD_LIVE_MAX_ALLOC_MB", 1024)
 	maxGoroutines := envInt("CODENERD_LIVE_MAX_GOROUTINES", 2000)
 
@@ -1451,7 +1573,7 @@ func TestChatLiveLLM_Soak(t *testing.T) {
 	close(stop)
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
@@ -1485,19 +1607,22 @@ func TestChatLiveLLM_PromptEvolutionSystem(t *testing.T) {
 
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
+	timeouts := resolveLiveTimeouts()
+	commandTimeout := envDuration("CODENERD_LIVE_COMMAND_TIMEOUT", 45*time.Second)
+	programTimeout := programTimeoutFor(timeouts, 0, 3*time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
 	t.Cleanup(cancel)
 
 	program, resultCh := startProgram(t, ctx, signals, false)
 	program.Send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, 4*time.Minute)
-	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, 6*time.Minute)
+	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
+	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
 	// Verify Prompt Evolution System is initialized by testing the /evolution-stats command
 	sendInput(program, "/evolution-stats")
-	resp := waitForResponse(t, signals, resultCh, 30*time.Second)
+	resp := waitForResponse(t, signals, resultCh, commandTimeout)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response from /evolution-stats")
 	}
@@ -1510,20 +1635,20 @@ func TestChatLiveLLM_PromptEvolutionSystem(t *testing.T) {
 
 	// Test /evolved-atoms command
 	sendInput(program, "/evolved-atoms")
-	resp = waitForResponse(t, signals, resultCh, 30*time.Second)
+	resp = waitForResponse(t, signals, resultCh, commandTimeout)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response from /evolved-atoms")
 	}
 
 	// Test /strategies command
 	sendInput(program, "/strategies")
-	resp = waitForResponse(t, signals, resultCh, 30*time.Second)
+	resp = waitForResponse(t, signals, resultCh, commandTimeout)
 	if strings.TrimSpace(resp) == "" {
 		t.Fatalf("expected non-empty response from /strategies")
 	}
 
 	program.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	result := waitForRunResult(t, resultCh, 2*time.Minute)
+	result := waitForRunResult(t, resultCh, timeouts.shutdown)
 	if result.err != nil {
 		t.Fatalf("program exited with error: %v", result.err)
 	}
