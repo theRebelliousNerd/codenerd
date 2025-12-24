@@ -20,10 +20,10 @@ import (
 type ConfigWizardStep int
 
 const (
-	StepWelcome ConfigWizardStep = iota
-	StepEngine           // NEW: Select engine (api, claude-cli, codex-cli)
-	StepClaudeCLIConfig  // NEW: Claude CLI model/timeout config
-	StepCodexCLIConfig   // NEW: Codex CLI model/sandbox/timeout config
+	StepWelcome         ConfigWizardStep = iota
+	StepEngine                           // NEW: Select engine (api, claude-cli, codex-cli)
+	StepClaudeCLIConfig                  // NEW: Claude CLI model/timeout config
+	StepCodexCLIConfig                   // NEW: Codex CLI model/sandbox/timeout config
 	StepProvider
 	StepAPIKey
 	StepModel

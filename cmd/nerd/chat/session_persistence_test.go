@@ -27,4 +27,3 @@ func TestSaveSessionState_WritesWithoutInit(t *testing.T) {
 		t.Fatalf("expected .nerd/sessions/sess_test.json to exist: %v", err)
 	}
 }
-

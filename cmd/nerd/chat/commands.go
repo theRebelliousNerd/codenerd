@@ -3,25 +3,25 @@
 //
 // File Index (modularized):
 //
-//   commands.go            - Main command dispatcher (handleCommand switch)
-//   commands_help.go       - Help text constants (helpCommandText)
-//   commands_tools.go      - Tool/status helpers (buildStatusReport, handleCleanupToolsCommand)
-//   commands_evolution.go  - Prompt Evolution helpers (renderEvolutionStats, runEvolutionCycle)
+//	commands.go            - Main command dispatcher (handleCommand switch)
+//	commands_help.go       - Help text constants (helpCommandText)
+//	commands_tools.go      - Tool/status helpers (buildStatusReport, handleCleanupToolsCommand)
+//	commands_evolution.go  - Prompt Evolution helpers (renderEvolutionStats, runEvolutionCycle)
 //
 // Command Categories (within handleCommand switch):
 //
-//   Session:    /quit, /exit, /continue, /usage, /clear, /reset, /new-session, /sessions
-//   Help:       /help, /status
-//   Init:       /init, /scan, /refresh-docs, /scan-path, /scan-dir
-//   Config:     /config, /embedding
-//   Files:      /read, /mkdir, /write, /search, /patch, /edit, /append, /pick
-//   Agents:     /define-agent, /northstar, /learn, /agents, /spawn, /ingest
-//   Analysis:   /review, /security, /analyze, /test, /fix, /refactor
-//   Campaigns:  /legislate, /clarify, /launchcampaign, /campaign
-//   Query:      /query, /why, /logic, /glassbox, /transparency, /shadow, /whatif
-//   Review:     /approve, /reject-finding, /accept-finding, /review-accuracy
-//   Tools:      /tool, /jit, /cleanup-tools
-//   Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /strategies
+//	Session:    /quit, /exit, /continue, /usage, /clear, /reset, /new-session, /sessions
+//	Help:       /help, /status
+//	Init:       /init, /scan, /refresh-docs, /scan-path, /scan-dir
+//	Config:     /config, /embedding
+//	Files:      /read, /mkdir, /write, /search, /patch, /edit, /append, /pick
+//	Agents:     /define-agent, /northstar, /learn, /agents, /spawn, /ingest
+//	Analysis:   /review, /security, /analyze, /test, /fix, /refactor
+//	Campaigns:  /legislate, /clarify, /launchcampaign, /campaign
+//	Query:      /query, /why, /logic, /glassbox, /transparency, /shadow, /whatif
+//	Review:     /approve, /reject-finding, /accept-finding, /review-accuracy
+//	Tools:      /tool, /jit, /cleanup-tools
+//	Evolution:  /evolve, /evolution-stats, /evolved-atoms, /promote-atom, /reject-atom, /strategies
 package chat
 
 import (
