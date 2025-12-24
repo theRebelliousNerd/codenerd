@@ -25,11 +25,12 @@ type GeminiClient struct {
 }
 
 // DefaultGeminiConfig returns sensible defaults.
+// Uses gemini-3-flash-preview - Google's most intelligent model built for speed.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
-		Model:   "gemini-3-pro-preview",
+		Model:   "gemini-3-flash-preview",
 		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
@@ -102,7 +103,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	}
 	if isPiggyback {
 		reqBody.GenerationConfig.ResponseMimeType = "application/json"
-		reqBody.GenerationConfig.ResponseJsonSchema = BuildGeminiPiggybackEnvelopeSchema()
+		reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
 	}
 
 	// Construct URL with API key
@@ -148,13 +149,13 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			// Some models may reject responseJsonSchema; retry once without it.
-			if isPiggyback && reqBody.GenerationConfig.ResponseJsonSchema != nil && resp.StatusCode == http.StatusBadRequest {
+			// Some models may reject response_schema; retry once without it.
+			if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
 				bodyStr := string(body)
-				if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") {
-					reqBody.GenerationConfig.ResponseJsonSchema = nil
+				if strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
+					reqBody.GenerationConfig.ResponseSchema = nil
 					reqBody.GenerationConfig.ResponseMimeType = ""
-					lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
+					lastErr = fmt.Errorf("request rejected structured output, retrying without response_schema: %s", bodyStr)
 					continue
 				}
 			}
@@ -242,7 +243,7 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 		}
 		if isPiggyback {
 			reqBody.GenerationConfig.ResponseMimeType = "application/json"
-			reqBody.GenerationConfig.ResponseJsonSchema = BuildGeminiPiggybackEnvelopeSchema()
+			reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
 		}
 
 		url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)
@@ -287,13 +288,13 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
 
-				// Some models may reject responseJsonSchema; retry once without it.
-				if isPiggyback && reqBody.GenerationConfig.ResponseJsonSchema != nil && resp.StatusCode == http.StatusBadRequest {
+				// Some models may reject response_schema; retry once without it.
+				if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
 					bodyStr := string(body)
-					if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") {
-						reqBody.GenerationConfig.ResponseJsonSchema = nil
+					if strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
+						reqBody.GenerationConfig.ResponseSchema = nil
 						reqBody.GenerationConfig.ResponseMimeType = ""
-						lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
+						lastErr = fmt.Errorf("request rejected structured output, retrying without response_schema: %s", bodyStr)
 						continue
 					}
 				}
