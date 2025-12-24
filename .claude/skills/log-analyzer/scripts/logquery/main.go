@@ -261,6 +261,72 @@ var builtinQueries = map[string]struct {
 		Description: "Root cause analysis for detected loops",
 		Query:       "_root_cause",
 	},
+
+	// === NEW BUILTINS (v2.3.0) ===
+
+	// Duplication detection
+	"duplicates": {
+		Description: "Detect duplicate log messages",
+		Query:       "_duplicates",
+	},
+	"timestamp-dups": {
+		Description: "Detect messages at exact same timestamp",
+		Query:       "_timestamp_dups",
+	},
+
+	// JIT analysis
+	"jit-spam": {
+		Description: "Detect JIT compilation spam (same prompt recompiled)",
+		Query:       "_jit_spam",
+	},
+	"jit-events": {
+		Description: "All JIT compilation events",
+		Query:       "_jit_events",
+	},
+
+	// Initialization analysis
+	"init-spam": {
+		Description: "Detect repeated system initialization",
+		Query:       "_init_spam",
+	},
+	"init-events": {
+		Description: "All initialization events",
+		Query:       "_init_events",
+	},
+
+	// Database issues
+	"db-locks": {
+		Description: "Detect database lock events",
+		Query:       "_db_locks",
+	},
+
+	// API/LLM issues
+	"rate-limits": {
+		Description: "Detect rate limit events",
+		Query:       "_rate_limits",
+	},
+	"timeouts": {
+		Description: "Detect timeout events",
+		Query:       "_timeouts",
+	},
+	"empty-responses": {
+		Description: "Detect empty LLM responses",
+		Query:       "_empty_responses",
+	},
+	"feedback-failures": {
+		Description: "Detect FeedbackLoop failures",
+		Query:       "_feedback_failures",
+	},
+	"deadlines": {
+		Description: "Detect context deadline exceeded events",
+		Query:       "_deadlines",
+	},
+
+	// Combined health check
+	"health-check": {
+		Description: "Comprehensive health check for common issues",
+		Query:       "_health_check",
+	},
 }
 
 type result struct {
@@ -434,22 +500,26 @@ func printBuiltinList() {
 
 	// Group queries by category
 	categories := map[string][]string{
-		"Level Filters": {"errors", "warnings", "all-errors"},
-		"Categories":    {"categories", "error-categories"},
-		"Core Systems":  {"kernel", "kernel-errors", "shards", "shard-errors", "perception", "api", "api-errors", "boot", "session"},
-		"Shards":        {"coder", "tester", "reviewer", "researcher"},
-		"Components":    {"dream", "browser", "tactile", "store", "world", "context", "embedding", "routing", "tools", "campaign", "articulation", "virtual-store", "system-shards", "autopoiesis"},
-		"Analysis":      {"timing", "summary"},
+		"Level Filters":     {"errors", "warnings", "all-errors"},
+		"Categories":        {"categories", "error-categories"},
+		"Core Systems":      {"kernel", "kernel-errors", "shards", "shard-errors", "perception", "api", "api-errors", "boot", "session"},
+		"Shards":            {"coder", "tester", "reviewer", "researcher"},
+		"Components":        {"dream", "browser", "tactile", "store", "world", "context", "embedding", "routing", "tools", "campaign", "articulation", "virtual-store", "system-shards", "autopoiesis"},
+		"General Analysis":  {"timing", "summary"},
+		"Loop Detection":    {"loops", "stagnation", "identical-results", "slot-starvation", "false-success", "anomalies", "diagnose", "root-cause"},
+		"Duplication":       {"duplicates", "timestamp-dups", "jit-spam", "jit-events", "init-spam", "init-events"},
+		"API/LLM Issues":    {"rate-limits", "timeouts", "empty-responses", "feedback-failures", "deadlines", "db-locks"},
+		"Health":            {"health-check"},
 	}
 
-	categoryOrder := []string{"Level Filters", "Categories", "Core Systems", "Shards", "Components", "Analysis"}
+	categoryOrder := []string{"Level Filters", "Categories", "Core Systems", "Shards", "Components", "General Analysis", "Loop Detection", "Duplication", "API/LLM Issues", "Health"}
 
 	for _, cat := range categoryOrder {
 		names := categories[cat]
 		fmt.Printf("%s%s%s\n", colorBold, cat, colorReset)
 		for _, name := range names {
 			if q, ok := builtinQueries[name]; ok {
-				fmt.Printf("  %-16s %s\n", name, q.Description)
+				fmt.Printf("  %-20s %s\n", name, q.Description)
 			}
 		}
 		fmt.Println()
@@ -559,6 +629,33 @@ func runBuiltinQuery(eng *logEngine, name string) ([]result, error) {
 		return computeDiagnosis(eng)
 	case "_root_cause":
 		return computeRootCause(eng)
+	// === NEW COMPUTED ANALYSES (v2.3.0) ===
+	case "_duplicates":
+		return computeDuplicates(eng)
+	case "_timestamp_dups":
+		return computeTimestampDups(eng)
+	case "_jit_spam":
+		return computeJITSpam(eng)
+	case "_jit_events":
+		return computePatternEvents(eng, "JIT compiled prompt", "jit_event")
+	case "_init_spam":
+		return computeInitSpam(eng)
+	case "_init_events":
+		return computePatternEvents(eng, "Initializing", "initialization")
+	case "_db_locks":
+		return computePatternEvents(eng, "database is locked", "db_lock")
+	case "_rate_limits":
+		return computePatternEvents(eng, "rate limit", "rate_limit")
+	case "_timeouts":
+		return computePatternEvents(eng, "timed out", "timeout_event")
+	case "_empty_responses":
+		return computePatternEvents(eng, "length=0 bytes", "empty_response")
+	case "_feedback_failures":
+		return computePatternEvents(eng, "FeedbackLoop failed", "feedback_failure")
+	case "_deadlines":
+		return computePatternEvents(eng, "context deadline exceeded", "deadline_exceeded")
+	case "_health_check":
+		return computeHealthCheck(eng)
 	default:
 		return queryPredicate(eng, builtin.Query)
 	}
@@ -1132,6 +1229,479 @@ func computeRootCause(eng *logEngine) ([]result, error) {
 			})
 		}
 	}
+
+	return results, nil
+}
+
+// =============================================================================
+// NEW COMPUTED ANALYSES (v2.3.0)
+// =============================================================================
+
+// computeDuplicates detects log messages that appear multiple times.
+func computeDuplicates(eng *logEngine) ([]result, error) {
+	messageCounts := make(map[string]int)
+	messageFirstTime := make(map[string]int64)
+	messageLastTime := make(map[string]int64)
+
+	// Query all log entries
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "log_entry" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					timeVal := termToInt64(a.Args[0])
+					msg := termToString(a.Args[3])
+
+					messageCounts[msg]++
+					if _, exists := messageFirstTime[msg]; !exists {
+						messageFirstTime[msg] = timeVal
+					}
+					messageLastTime[msg] = timeVal
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query log entries: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for msg, count := range messageCounts {
+		if count >= 5 { // Threshold for duplication
+			// Truncate long messages
+			displayMsg := msg
+			if len(displayMsg) > 80 {
+				displayMsg = displayMsg[:77] + "..."
+			}
+
+			severity := "/medium"
+			if count > 20 {
+				severity = "/critical"
+			} else if count > 10 {
+				severity = "/high"
+			}
+
+			results = append(results, result{
+				Predicate: "duplicate_message",
+				Args: []interface{}{
+					displayMsg,
+					int64(count),
+					severity,
+					messageFirstTime[msg],
+					messageLastTime[msg],
+				},
+			})
+		}
+	}
+
+	// Sort by count descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Args[1].(int64) > results[j].Args[1].(int64)
+	})
+
+	return results, nil
+}
+
+// computeTimestampDups detects multiple messages at the exact same timestamp.
+func computeTimestampDups(eng *logEngine) ([]result, error) {
+	timestampMessages := make(map[int64][]string)
+
+	// Query all log entries
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "log_entry" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					timeVal := termToInt64(a.Args[0])
+					msg := termToString(a.Args[3])
+					timestampMessages[timeVal] = append(timestampMessages[timeVal], msg)
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query log entries: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for ts, messages := range timestampMessages {
+		if len(messages) > 2 { // More than 2 at same timestamp
+			uniqueMessages := make(map[string]bool)
+			for _, m := range messages {
+				uniqueMessages[m] = true
+			}
+
+			dupType := "/concurrent"
+			if len(uniqueMessages) == 1 {
+				dupType = "/exact_duplicate"
+			}
+
+			// Get a sample message
+			sampleMsg := messages[0]
+			if len(sampleMsg) > 60 {
+				sampleMsg = sampleMsg[:57] + "..."
+			}
+
+			results = append(results, result{
+				Predicate: "timestamp_duplicate",
+				Args: []interface{}{
+					ts,
+					int64(len(messages)),
+					int64(len(uniqueMessages)),
+					dupType,
+					sampleMsg,
+				},
+			})
+		}
+	}
+
+	// Sort by message count descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Args[1].(int64) > results[j].Args[1].(int64)
+	})
+
+	return results, nil
+}
+
+// computeJITSpam detects JIT compilation spam patterns.
+func computeJITSpam(eng *logEngine) ([]result, error) {
+	// Track JIT events by looking for the pattern in messages
+	jitCounts := make(map[string]int) // bytes -> count
+	jitFirstTime := make(map[string]int64)
+	jitLastTime := make(map[string]int64)
+
+	// Query all log entries looking for JIT patterns
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "log_entry" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					timeVal := termToInt64(a.Args[0])
+					msg := termToString(a.Args[3])
+
+					if strings.Contains(msg, "JIT compiled prompt") {
+						// Extract bytes count from message like "JIT compiled prompt: 51145 bytes"
+						parts := strings.Split(msg, ":")
+						if len(parts) > 1 {
+							bytesStr := strings.TrimSpace(parts[1])
+							if idx := strings.Index(bytesStr, " "); idx > 0 {
+								bytesStr = bytesStr[:idx]
+							}
+							jitCounts[bytesStr]++
+							if _, exists := jitFirstTime[bytesStr]; !exists {
+								jitFirstTime[bytesStr] = timeVal
+							}
+							jitLastTime[bytesStr] = timeVal
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query log entries: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+	for bytes, count := range jitCounts {
+		if count >= 5 { // Threshold for JIT spam
+			severity := "/high"
+			if count > 15 {
+				severity = "/critical"
+			}
+
+			duration := jitLastTime[bytes] - jitFirstTime[bytes]
+
+			results = append(results, result{
+				Predicate: "jit_spam",
+				Args: []interface{}{
+					bytes + " bytes",
+					int64(count),
+					severity,
+					duration,
+					jitFirstTime[bytes],
+					jitLastTime[bytes],
+				},
+			})
+		}
+	}
+
+	// Sort by count descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Args[1].(int64) > results[j].Args[1].(int64)
+	})
+
+	return results, nil
+}
+
+// computeInitSpam detects repeated initialization patterns.
+func computeInitSpam(eng *logEngine) ([]result, error) {
+	initEvents := []int64{}
+	componentCounts := make(map[string]int)
+
+	// Query all log entries looking for init patterns
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "log_entry" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					timeVal := termToInt64(a.Args[0])
+					msg := termToString(a.Args[3])
+
+					if strings.Contains(msg, "Initializing") ||
+						strings.Contains(msg, "initialized successfully") ||
+						strings.Contains(msg, "Creating new FileScope") ||
+						strings.Contains(msg, "CompositeExecutor initialized") {
+						initEvents = append(initEvents, timeVal)
+
+						// Extract component name
+						if strings.Contains(msg, "Initializing") {
+							parts := strings.Split(msg, "Initializing ")
+							if len(parts) > 1 {
+								comp := parts[1]
+								if idx := strings.Index(comp, " "); idx > 0 {
+									comp = comp[:idx]
+								}
+								componentCounts[comp]++
+							}
+						}
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query log entries: %w", err)
+			}
+			break
+		}
+	}
+
+	var results []result
+
+	// Analyze init windows (group events within 5 seconds)
+	if len(initEvents) > 0 {
+		sort.Slice(initEvents, func(i, j int) bool {
+			return initEvents[i] < initEvents[j]
+		})
+
+		windowCount := 1
+		lastWindow := initEvents[0]
+		for i := 1; i < len(initEvents); i++ {
+			// If gap > 5 seconds (5000ms), new window
+			if initEvents[i]-lastWindow > 5000 {
+				windowCount++
+				lastWindow = initEvents[i]
+			}
+		}
+
+		if windowCount > 3 {
+			severity := "/high"
+			if windowCount > 10 {
+				severity = "/critical"
+			}
+
+			results = append(results, result{
+				Predicate: "init_spam_detected",
+				Args: []interface{}{
+					int64(windowCount),
+					int64(len(initEvents)),
+					severity,
+					"System re-initialized multiple times during session",
+				},
+			})
+		}
+	}
+
+	// Add component-specific init counts
+	for comp, count := range componentCounts {
+		if count >= 3 {
+			results = append(results, result{
+				Predicate: "component_reinit",
+				Args: []interface{}{
+					comp,
+					int64(count),
+				},
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// computeHealthCheck runs a comprehensive health check.
+func computeHealthCheck(eng *logEngine) ([]result, error) {
+	var results []result
+	var issues int
+
+	// Check for duplicates
+	dups, _ := computeDuplicates(eng)
+	if len(dups) > 0 {
+		issues++
+		results = append(results, result{
+			Predicate: "health_issue",
+			Args: []interface{}{
+				"/duplicates",
+				int64(len(dups)),
+				"Duplicate log messages detected",
+			},
+		})
+	}
+
+	// Check for JIT spam
+	jit, _ := computeJITSpam(eng)
+	if len(jit) > 0 {
+		issues++
+		results = append(results, result{
+			Predicate: "health_issue",
+			Args: []interface{}{
+				"/jit_spam",
+				int64(len(jit)),
+				"JIT compilation spam detected",
+			},
+		})
+	}
+
+	// Check for init spam
+	init, _ := computeInitSpam(eng)
+	if len(init) > 0 {
+		issues++
+		results = append(results, result{
+			Predicate: "health_issue",
+			Args: []interface{}{
+				"/init_spam",
+				int64(len(init)),
+				"Repeated initialization detected",
+			},
+		})
+	}
+
+	// Check for loops
+	loops, _ := computeLoops(eng)
+	if len(loops) > 0 {
+		issues++
+		results = append(results, result{
+			Predicate: "health_issue",
+			Args: []interface{}{
+				"/action_loops",
+				int64(len(loops)),
+				"Action loops detected",
+			},
+		})
+	}
+
+	// Check for stagnation
+	stag, _ := computeStagnation(eng)
+	if len(stag) > 0 {
+		issues++
+		results = append(results, result{
+			Predicate: "health_issue",
+			Args: []interface{}{
+				"/stagnation",
+				int64(len(stag)),
+				"Routing stagnation detected",
+			},
+		})
+	}
+
+	// Check for errors in logs
+	errorCount := 0
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "error_entry" {
+			eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				errorCount++
+				return nil
+			})
+			break
+		}
+	}
+
+	if errorCount > 0 {
+		severity := "/info"
+		if errorCount > 10 {
+			severity = "/high"
+			issues++
+		} else if errorCount > 50 {
+			severity = "/critical"
+		}
+		results = append(results, result{
+			Predicate: "health_metric",
+			Args: []interface{}{
+				"/error_count",
+				int64(errorCount),
+				severity,
+			},
+		})
+	}
+
+	// Summary
+	healthStatus := "/healthy"
+	if issues > 0 {
+		healthStatus = "/degraded"
+	}
+	if issues > 3 {
+		healthStatus = "/unhealthy"
+	}
+
+	results = append([]result{{
+		Predicate: "health_summary",
+		Args: []interface{}{
+			healthStatus,
+			int64(issues),
+			"issues detected",
+		},
+	}}, results...)
+
+	return results, nil
+}
+
+// computePatternEvents searches log entries for a specific pattern and returns matching events.
+func computePatternEvents(eng *logEngine, pattern string, predicateName string) ([]result, error) {
+	var results []result
+
+	// Query all log entries looking for the pattern
+	for pred := range eng.programInfo.Decls {
+		if pred.Symbol == "log_entry" {
+			err := eng.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				if len(a.Args) >= 4 {
+					timeVal := termToInt64(a.Args[0])
+					category := termToString(a.Args[1])
+					level := termToString(a.Args[2])
+					msg := termToString(a.Args[3])
+
+					// Case-insensitive pattern match
+					if strings.Contains(strings.ToLower(msg), strings.ToLower(pattern)) {
+						// Truncate long messages
+						displayMsg := msg
+						if len(displayMsg) > 100 {
+							displayMsg = displayMsg[:97] + "..."
+						}
+
+						results = append(results, result{
+							Predicate: predicateName,
+							Args: []interface{}{
+								timeVal,
+								category,
+								level,
+								displayMsg,
+							},
+						})
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query log entries: %w", err)
+			}
+			break
+		}
+	}
+
+	// Sort by timestamp (most recent first)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Args[0].(int64) > results[j].Args[0].(int64)
+	})
 
 	return results, nil
 }

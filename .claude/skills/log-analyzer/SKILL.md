@@ -2,8 +2,8 @@
 name: log-analyzer
 description: Analyze codeNERD system logs using Mangle logic programming. This skill should be used when debugging codeNERD execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, or correlating events across the 22 logging categories. Converts log files to Mangle facts for declarative querying.
 license: Apache-2.0
-version: 2.1.0
-last_updated: 2025-12-23
+version: 2.3.0
+last_updated: 2025-12-24
 ---
 
 # Log Analyzer: Mangle-Powered codeNERD Debugging
@@ -614,6 +614,150 @@ Symptoms:
 
 Root Cause: `tool_caching`
 Fix: Check if tool is returning cached/dummy response instead of executing
+
+## Comprehensive Anomaly Detection (v2.3.0)
+
+As of December 2025, codeNERD log-analyzer includes comprehensive anomaly detection covering message duplication, JIT spam, initialization spam, API/LLM issues, and automated health checks.
+
+### Quick Health Check
+
+```bash
+# Comprehensive health check with one command
+./logquery.exe --builtin health-check /tmp/facts.mg
+
+# Example output:
+# health_summary(/degraded, 2, "issues detected")
+# health_issue(/duplicates, 5, "Duplicate log messages detected")
+# health_issue(/jit_spam, 1, "JIT compilation spam detected")
+```
+
+### New Duplication Detection Builtins
+
+| Builtin | Description |
+|---------|-------------|
+| `:duplicates` | Detect messages that appear 5+ times with severity levels |
+| `:timestamp-dups` | Find multiple messages at exact same timestamp |
+| `:jit-spam` | Detect JIT compilation of same prompt repeatedly |
+| `:jit-events` | List all JIT compilation events |
+| `:init-spam` | Detect system re-initialization patterns |
+| `:init-events` | List all initialization events |
+
+### New API/LLM Issue Builtins
+
+| Builtin | Description |
+|---------|-------------|
+| `:db-locks` | Detect database lock events |
+| `:rate-limits` | Detect rate limit events |
+| `:timeouts` | Detect timeout events |
+| `:empty-responses` | Detect empty LLM responses (length=0) |
+| `:feedback-failures` | Detect FeedbackLoop failures |
+| `:deadlines` | Detect context deadline exceeded events |
+| `:health-check` | Comprehensive health check combining all detectors |
+
+### Severity Levels
+
+Results include severity classification:
+
+| Severity | Threshold | Meaning |
+|----------|-----------|---------|
+| `/medium` | 5-10 occurrences | Minor concern, worth monitoring |
+| `/high` | 10-20 occurrences | Significant issue needing attention |
+| `/critical` | >20 occurrences | Serious problem requiring immediate action |
+
+### Health Status
+
+The `health-check` builtin returns overall health status:
+
+| Status | Condition |
+|--------|-----------|
+| `/healthy` | No issues detected |
+| `/degraded` | 1-3 issues detected |
+| `/unhealthy` | >3 issues detected |
+
+### Detecting JIT Spam
+
+JIT spam occurs when the same prompt is recompiled repeatedly, indicating a logic bug:
+
+```bash
+./logquery.exe --builtin jit-spam /tmp/facts.mg
+
+# Example output:
+# jit_spam("51145 bytes", 37, /critical, 1031612, 1766557134099, 1766558165711)
+# Meaning: A 51145-byte prompt was compiled 37 times (critical severity)
+```
+
+### Detecting Message Duplication
+
+Finds any log message appearing multiple times:
+
+```bash
+./logquery.exe --builtin duplicates /tmp/facts.mg
+
+# Example output:
+# duplicate_message("JIT compiled prompt: 51145 bytes", 37, /critical, ...)
+# duplicate_message("ProcessLLMResponseAllowPlain: empty response", 5, /medium, ...)
+```
+
+### Enhanced detect_loops.py
+
+The `detect_loops.py` script now detects 12 additional anomaly patterns:
+
+```python
+# New patterns detected:
+- message_duplication      # Same message appearing repeatedly
+- timestamp_collision      # Multiple events at same timestamp
+- exact_duplicate          # Identical messages at same time
+- jit_spam                 # JIT compilation repetition
+- shard_jit_spam           # Per-shard JIT analysis
+- init_spam                # Repeated initialization
+- db_lock_cascade          # Database lock events
+- rate_limit_cascade       # Rate limit events
+- llm_timeout_cascade      # LLM timeout events
+- empty_llm_responses      # Empty LLM responses
+- feedback_loop_failures   # FeedbackLoop errors
+- context_deadline_cascade # Context deadline exceeded
+```
+
+### Example: Full Session Analysis
+
+```bash
+# Parse all today's logs
+python3 scripts/parse_log.py .nerd/logs/2025-12-24*.log --no-schema | \
+  grep "^log_entry" > /tmp/session.mg
+
+# Run comprehensive health check
+./logquery.exe --builtin health-check /tmp/session.mg
+
+# Get detailed breakdown
+./logquery.exe --builtin duplicates /tmp/session.mg --limit 20
+./logquery.exe --builtin jit-spam /tmp/session.mg
+./logquery.exe --builtin empty-responses /tmp/session.mg
+
+# Quick Python analysis
+python3 scripts/detect_loops.py .nerd/logs/2025-12-24*.log --pretty
+```
+
+### Interpreting Results
+
+**JIT Spam (Critical):**
+- Same prompt compiled 5+ times indicates state not advancing
+- Check if `next_action` is stuck returning same action
+- Verify kernel fact updates after action completion
+
+**Empty Responses:**
+- LLM returning 0-byte responses indicates API issues
+- Check rate limits, timeouts, or model availability
+- May need retry logic or fallback model
+
+**Duplicate Messages:**
+- Normal for debug-level messages (ignore)
+- Critical for action/execution messages (investigate)
+- Look for loops in business logic
+
+**Timestamp Collisions:**
+- Normal for goroutine logging
+- Concerning if many identical messages at same time
+- May indicate buffered logging or clock issues
 
 ## See Also
 

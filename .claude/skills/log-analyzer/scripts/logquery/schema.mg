@@ -376,6 +376,37 @@ Decl slot_status(Time, ShardId, Active, MaxSlots, Waiting).
 Decl slot_acquired(Time, ShardId, WaitDurationMs).
 
 # =============================================================================
+# SECTION 10b: NEW STRUCTURED EVENT FACTS (v2.3.0)
+# =============================================================================
+
+# JIT compilation event (from articulation.log, jit.log)
+Decl jit_compilation(Time, Bytes, Atoms, BudgetPct).
+
+# Prompt assembly event (from articulation.log)
+Decl prompt_assembly(Time, Shard, ShardType).
+
+# Initialization event (from various logs)
+Decl init_event(Time, Component, Message).
+
+# Database lock event (from store.log)
+Decl db_lock_event(Time, Message).
+
+# Rate limit event (from api.log, system_shards.log)
+Decl rate_limit_event(Time, Message).
+
+# LLM timeout event (from system_shards.log)
+Decl llm_timeout(Time, Duration).
+
+# Empty LLM response event (from articulation.log)
+Decl empty_llm_response(Time, Message).
+
+# FeedbackLoop failure event (from system_shards.log)
+Decl feedback_loop_failure(Time, Attempts, Message).
+
+# Context deadline exceeded event
+Decl context_deadline(Time, Message).
+
+# =============================================================================
 # SECTION 11: LOOP DETECTION PREDICATES (simplified for embedded use)
 # =============================================================================
 #
@@ -402,6 +433,43 @@ slot_waiting(T, SID, W) :- slot_status(T, SID, _, _, W).
 # Long slot waits (>10 seconds)
 Decl long_wait(Time, ShardId, WaitMs).
 long_wait(T, SID, W) :- slot_acquired(T, SID, W), W > 10000.
+
+# =============================================================================
+# SECTION 12: NEW PATTERN PREDICATES (v2.3.0)
+# =============================================================================
+#
+# NOTE: These predicates are computed by Go code in logquery since Mangle
+# doesn't have native string pattern matching. Use the corresponding
+# --builtin commands instead:
+#   :jit-spam, :jit-events, :init-spam, :init-events, :db-locks,
+#   :rate-limits, :timeouts, :empty-responses, :feedback-failures, :deadlines
+#
+# The declarations below allow these predicates to be used if parse_log.py
+# is extended to extract structured events.
+
+# JIT events (use :jit-spam or :jit-events builtins)
+Decl jit_event(Time, Message).
+
+# Initialization events (use :init-spam or :init-events builtins)
+Decl initialization(Time, Message).
+
+# Database lock events (use :db-locks builtin)
+Decl db_lock(Time, Message).
+
+# Rate limit events (use :rate-limits builtin)
+Decl rate_limit(Time, Message).
+
+# Timeout events (use :timeouts builtin)
+Decl timeout_event(Time, Message).
+
+# Empty response events (use :empty-responses builtin)
+Decl empty_response(Time, Message).
+
+# FeedbackLoop failure events (use :feedback-failures builtin)
+Decl feedback_failure(Time, Message).
+
+# Context deadline events (use :deadlines builtin)
+Decl deadline_exceeded(Time, Message).
 
 # =============================================================================
 # END OF SCHEMA

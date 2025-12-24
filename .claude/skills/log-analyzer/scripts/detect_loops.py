@@ -11,6 +11,19 @@ Usage:
     python detect_loops.py .nerd/logs/*.log --pretty
 
 Output: JSON with detected anomalies, root causes, and recommendations.
+
+Detected Patterns (v2.3.0):
+- Action loops (same action repeated >5 times)
+- Repeated call_ids
+- Routing stagnation
+- Slot starvation
+- Message duplication (exact message repeated)
+- Timestamp duplicates (multiple messages at same microsecond)
+- JIT compilation spam
+- Repeated initialization
+- Database lock cascades
+- Rate limit cascades
+- Empty LLM responses
 """
 
 import argparse
@@ -73,6 +86,51 @@ SLOT_ACQUIRED = re.compile(
     r'APIScheduler:\s*shard\s+(\S+)\s+acquired slot after\s*([0-9.]+)s'
 )
 
+# JIT compilation: JIT compiled prompt: 51145 bytes, 53 atoms, 13.9% budget
+JIT_COMPILED = re.compile(
+    r'JIT compiled prompt:\s*(\d+)\s*bytes,\s*(\d+)\s*atoms,\s*([0-9.]+)%\s*budget'
+)
+
+# Assembling system prompt: Assembling system prompt for shard=X (type=Y)
+ASSEMBLING_PROMPT = re.compile(
+    r'Assembling system prompt for shard=(\S+)\s*\(type=(\S+)\)'
+)
+
+# Initialization patterns
+INIT_PATTERNS = [
+    re.compile(r'Initializing (\w+) with'),
+    re.compile(r'(\w+) initialized successfully'),
+    re.compile(r'Creating new FileScope'),
+    re.compile(r'CompositeExecutor initialized'),
+    re.compile(r'Kernel attached to VirtualStore'),
+    re.compile(r'Permission cache built'),
+    re.compile(r'Starting incremental workspace scan'),
+]
+
+# Database lock: database is locked
+DB_LOCK = re.compile(r'database is locked')
+
+# Rate limit: rate limit exceeded (429)
+RATE_LIMIT = re.compile(r'rate limit exceeded.*\(429\)|429.*rate limit', re.IGNORECASE)
+
+# LLM timeout: LLM call timed out after
+LLM_TIMEOUT = re.compile(r'LLM call timed out after\s*([0-9.]+[smh]?)')
+
+# Empty LLM response: Processing LLM response (attempt #1, length=0 bytes)
+EMPTY_LLM_RESPONSE = re.compile(r'Processing LLM response.*length=0 bytes')
+
+# FeedbackLoop failures
+FEEDBACK_LOOP_FAILED = re.compile(r'FeedbackLoop failed after (\d+) attempts')
+
+# Context deadline exceeded
+CONTEXT_DEADLINE = re.compile(r'context deadline exceeded')
+
+# Provider detection duplicates
+PROVIDER_DETECT = re.compile(r'DetectProvider: using provider=(\S+)')
+
+# Migration failures
+MIGRATION_FAILED = re.compile(r'Migration.*failed')
+
 
 # =============================================================================
 # DATA STRUCTURES
@@ -105,9 +163,48 @@ class LoopDetector:
         self.slot_waiting_events: List[dict] = []
         self.slot_acquired_events: List[dict] = []
 
+        # === NEW PATTERN TRACKING (v2.3.0) ===
+
+        # Message duplication tracking (exact message -> list of timestamps)
+        self.message_timestamps: Dict[str, List[str]] = defaultdict(list)
+
+        # Timestamp duplicate tracking (timestamp -> list of messages)
+        self.timestamp_messages: Dict[str, List[str]] = defaultdict(list)
+
+        # JIT compilation tracking
+        self.jit_compilations: List[dict] = []
+        self.jit_by_shard: Dict[str, List[dict]] = defaultdict(list)
+
+        # Initialization tracking
+        self.init_events: List[dict] = []
+        self.init_windows: List[dict] = []  # Groups of init events within 5s
+
+        # Database lock tracking
+        self.db_lock_events: List[dict] = []
+
+        # Rate limit tracking
+        self.rate_limit_events: List[dict] = []
+
+        # LLM timeout tracking
+        self.llm_timeout_events: List[dict] = []
+
+        # Empty LLM response tracking
+        self.empty_response_events: List[dict] = []
+
+        # FeedbackLoop failure tracking
+        self.feedback_loop_failures: List[dict] = []
+
+        # Context deadline tracking
+        self.context_deadline_events: List[dict] = []
+
         # Log files processed
         self.log_files: List[str] = []
         self.total_entries = 0
+
+        # Category tracking for cross-category analysis
+        self.category_counts: Dict[str, int] = defaultdict(int)
+        self.category_errors: Dict[str, int] = defaultdict(int)
+        self.category_warnings: Dict[str, int] = defaultdict(int)
 
     def parse_file(self, filepath: str) -> None:
         """Parse a single log file."""
@@ -132,6 +229,13 @@ class LoopDetector:
         self.total_entries += 1
         date_str, time_str, level, message = match.groups()
         timestamp = f"{date_str} {time_str}"
+
+        # Track message duplicates and timestamp duplicates
+        self.message_timestamps[message].append(timestamp)
+        self.timestamp_messages[timestamp].append(message)
+
+        # Category tracking (extract from log filename context, or infer from message)
+        # This is done at file level in parse_file
 
         # Tool execution start
         m = TOOL_EXEC_START.search(message)
@@ -188,6 +292,87 @@ class LoopDetector:
                 'timestamp': timestamp,
                 'shard_id': shard_id,
                 'wait_duration_ms': int(float(wait_duration) * 1000)
+            })
+
+        # === NEW PATTERN DETECTION (v2.3.0) ===
+
+        # JIT compilation
+        m = JIT_COMPILED.search(message)
+        if m:
+            bytes_count, atoms, budget_pct = m.groups()
+            jit_event = {
+                'timestamp': timestamp,
+                'bytes': int(bytes_count),
+                'atoms': int(atoms),
+                'budget_pct': float(budget_pct)
+            }
+            self.jit_compilations.append(jit_event)
+
+        # Assembling prompt (to correlate with JIT)
+        m = ASSEMBLING_PROMPT.search(message)
+        if m:
+            shard, shard_type = m.groups()
+            jit_event = {
+                'timestamp': timestamp,
+                'shard': shard,
+                'type': shard_type
+            }
+            self.jit_by_shard[shard].append(jit_event)
+
+        # Initialization events
+        for pat in INIT_PATTERNS:
+            if pat.search(message):
+                self.init_events.append({
+                    'timestamp': timestamp,
+                    'message': message[:100]  # Truncate for storage
+                })
+                break
+
+        # Database lock
+        if DB_LOCK.search(message):
+            self.db_lock_events.append({
+                'timestamp': timestamp,
+                'message': message[:100]
+            })
+
+        # Rate limit
+        if RATE_LIMIT.search(message):
+            self.rate_limit_events.append({
+                'timestamp': timestamp,
+                'message': message[:100]
+            })
+
+        # LLM timeout
+        m = LLM_TIMEOUT.search(message)
+        if m:
+            duration = m.group(1)
+            self.llm_timeout_events.append({
+                'timestamp': timestamp,
+                'duration': duration
+            })
+
+        # Empty LLM response
+        if EMPTY_LLM_RESPONSE.search(message):
+            self.empty_response_events.append({
+                'timestamp': timestamp,
+                'message': message[:100]
+            })
+
+        # FeedbackLoop failures
+        m = FEEDBACK_LOOP_FAILED.search(message)
+        if m:
+            attempts = m.group(1)
+            self.feedback_loop_failures.append({
+                'timestamp': timestamp,
+                'attempts': int(attempts),
+                'message': message[:100]
+            })
+
+        # Context deadline exceeded
+        if CONTEXT_DEADLINE.search(message):
+            self.context_deadline_events.append({
+                'timestamp': timestamp,
+                'message': message[:100]
             })
 
     def analyze(self) -> dict:
@@ -281,12 +466,219 @@ class LoopDetector:
                     'timestamp': event['timestamp']
                 })
 
+        # === NEW ANOMALY DETECTION (v2.3.0) ===
+
+        # Detect message duplication (same exact message appearing multiple times)
+        for message, timestamps in self.message_timestamps.items():
+            if len(timestamps) >= self.threshold:
+                # Skip generic messages that are expected to repeat
+                if self._is_expected_repeat(message):
+                    continue
+                anomalies.append({
+                    'type': 'message_duplication',
+                    'severity': 'high' if len(timestamps) > 10 else 'medium',
+                    'message': message[:80] + '...' if len(message) > 80 else message,
+                    'count': len(timestamps),
+                    'first_time': timestamps[0],
+                    'last_time': timestamps[-1],
+                    'root_cause': {
+                        'diagnosis': 'repeated_log_message',
+                        'explanation': f'Exact same message logged {len(timestamps)} times',
+                        'suggested_fix': 'Check for polling loops or redundant logging calls'
+                    }
+                })
+
+        # Detect timestamp duplicates (multiple messages at EXACT same microsecond)
+        for timestamp, messages in self.timestamp_messages.items():
+            if len(messages) > 2:  # More than 2 messages at same microsecond is suspicious
+                unique_messages = list(set(messages))
+                if len(unique_messages) > 1:  # Different messages at same time
+                    anomalies.append({
+                        'type': 'timestamp_collision',
+                        'severity': 'medium',
+                        'timestamp': timestamp,
+                        'message_count': len(messages),
+                        'unique_messages': len(unique_messages),
+                        'sample_messages': [m[:50] for m in unique_messages[:3]],
+                        'root_cause': {
+                            'diagnosis': 'concurrent_logging',
+                            'explanation': f'{len(messages)} messages logged at identical timestamp',
+                            'suggested_fix': 'Check for race conditions or multiple goroutines logging simultaneously'
+                        }
+                    })
+                else:  # Same message at same time (true duplicate)
+                    anomalies.append({
+                        'type': 'exact_duplicate',
+                        'severity': 'high',
+                        'timestamp': timestamp,
+                        'count': len(messages),
+                        'message': messages[0][:80],
+                        'root_cause': {
+                            'diagnosis': 'duplicate_log_call',
+                            'explanation': f'Same message logged {len(messages)} times at exact same microsecond',
+                            'suggested_fix': 'Check for duplicate logging calls in the same code path'
+                        }
+                    })
+
+        # Detect JIT compilation spam
+        if len(self.jit_compilations) > self.threshold:
+            # Group by bytes count to detect identical compilations
+            bytes_counts = [j['bytes'] for j in self.jit_compilations]
+            most_common_bytes = max(set(bytes_counts), key=bytes_counts.count) if bytes_counts else 0
+            same_bytes_count = bytes_counts.count(most_common_bytes)
+
+            if same_bytes_count >= self.threshold:
+                anomalies.append({
+                    'type': 'jit_spam',
+                    'severity': 'critical' if same_bytes_count > 15 else 'high',
+                    'total_compilations': len(self.jit_compilations),
+                    'identical_compilations': same_bytes_count,
+                    'bytes': most_common_bytes,
+                    'first_time': self.jit_compilations[0]['timestamp'],
+                    'last_time': self.jit_compilations[-1]['timestamp'],
+                    'root_cause': {
+                        'diagnosis': 'jit_cache_miss',
+                        'explanation': f'JIT compiler produced identical {most_common_bytes}-byte prompt {same_bytes_count} times',
+                        'suggested_fix': 'Check JIT prompt caching in PromptAssembler, possible missing cache key'
+                    }
+                })
+
+        # Detect per-shard JIT spam
+        for shard, events in self.jit_by_shard.items():
+            if len(events) > self.threshold:
+                anomalies.append({
+                    'type': 'shard_jit_spam',
+                    'severity': 'high',
+                    'shard': shard,
+                    'count': len(events),
+                    'first_time': events[0]['timestamp'],
+                    'last_time': events[-1]['timestamp'],
+                    'root_cause': {
+                        'diagnosis': 'shard_prompt_loop',
+                        'explanation': f'Shard {shard} triggered {len(events)} prompt assemblies',
+                        'suggested_fix': 'Check shard execution loop for redundant prompt assembly calls'
+                    }
+                })
+
+        # Detect initialization spam (repeated re-init)
+        if len(self.init_events) > 10:
+            # Group init events by time windows (events within 5 seconds of each other)
+            windows = self._group_events_by_window(self.init_events, window_seconds=5)
+            if len(windows) > 3:
+                anomalies.append({
+                    'type': 'init_spam',
+                    'severity': 'critical' if len(windows) > 10 else 'high',
+                    'init_windows': len(windows),
+                    'total_init_events': len(self.init_events),
+                    'root_cause': {
+                        'diagnosis': 'repeated_initialization',
+                        'explanation': f'System re-initialized {len(windows)} times during session',
+                        'suggested_fix': 'Check for crash loops, health check restarts, or polling that triggers re-init'
+                    }
+                })
+
+        # Detect database lock cascade
+        if len(self.db_lock_events) >= 3:
+            anomalies.append({
+                'type': 'db_lock_cascade',
+                'severity': 'critical' if len(self.db_lock_events) > 10 else 'high',
+                'count': len(self.db_lock_events),
+                'first_time': self.db_lock_events[0]['timestamp'],
+                'last_time': self.db_lock_events[-1]['timestamp'],
+                'root_cause': {
+                    'diagnosis': 'sqlite_contention',
+                    'explanation': f'Database locked {len(self.db_lock_events)} times, indicating write contention',
+                    'suggested_fix': 'Check for concurrent DB writers, consider WAL mode or connection pooling'
+                }
+            })
+
+        # Detect rate limit cascade
+        if len(self.rate_limit_events) >= 3:
+            anomalies.append({
+                'type': 'rate_limit_cascade',
+                'severity': 'critical',
+                'count': len(self.rate_limit_events),
+                'first_time': self.rate_limit_events[0]['timestamp'],
+                'last_time': self.rate_limit_events[-1]['timestamp'],
+                'root_cause': {
+                    'diagnosis': 'api_rate_exhausted',
+                    'explanation': f'Hit rate limit {len(self.rate_limit_events)} times in quick succession',
+                    'suggested_fix': 'Implement exponential backoff, reduce parallel requests, or increase rate limit'
+                }
+            })
+
+        # Detect LLM timeout cascade
+        if len(self.llm_timeout_events) >= 3:
+            anomalies.append({
+                'type': 'llm_timeout_cascade',
+                'severity': 'high',
+                'count': len(self.llm_timeout_events),
+                'first_time': self.llm_timeout_events[0]['timestamp'],
+                'last_time': self.llm_timeout_events[-1]['timestamp'],
+                'durations': [e['duration'] for e in self.llm_timeout_events[:5]],
+                'root_cause': {
+                    'diagnosis': 'llm_overload',
+                    'explanation': f'{len(self.llm_timeout_events)} LLM calls timed out',
+                    'suggested_fix': 'Check API provider status, increase timeout, or reduce prompt size'
+                }
+            })
+
+        # Detect empty LLM responses
+        if len(self.empty_response_events) >= 2:
+            anomalies.append({
+                'type': 'empty_llm_responses',
+                'severity': 'high',
+                'count': len(self.empty_response_events),
+                'first_time': self.empty_response_events[0]['timestamp'],
+                'last_time': self.empty_response_events[-1]['timestamp'],
+                'root_cause': {
+                    'diagnosis': 'llm_empty_response',
+                    'explanation': f'LLM returned {len(self.empty_response_events)} empty (0-byte) responses',
+                    'suggested_fix': 'Check prompt validity, API quota, or safety filter blocks'
+                }
+            })
+
+        # Detect FeedbackLoop failure cascade
+        if len(self.feedback_loop_failures) >= 3:
+            anomalies.append({
+                'type': 'feedback_loop_failures',
+                'severity': 'critical',
+                'count': len(self.feedback_loop_failures),
+                'first_time': self.feedback_loop_failures[0]['timestamp'],
+                'last_time': self.feedback_loop_failures[-1]['timestamp'],
+                'root_cause': {
+                    'diagnosis': 'autopoiesis_blocked',
+                    'explanation': f'FeedbackLoop failed {len(self.feedback_loop_failures)} times',
+                    'suggested_fix': 'Check LLM connectivity, validation rules, or budget exhaustion'
+                }
+            })
+
+        # Detect context deadline cascade
+        if len(self.context_deadline_events) >= 5:
+            anomalies.append({
+                'type': 'context_deadline_cascade',
+                'severity': 'critical',
+                'count': len(self.context_deadline_events),
+                'first_time': self.context_deadline_events[0]['timestamp'],
+                'last_time': self.context_deadline_events[-1]['timestamp'],
+                'root_cause': {
+                    'diagnosis': 'timeout_cascade',
+                    'explanation': f'{len(self.context_deadline_events)} operations hit context deadline',
+                    'suggested_fix': 'Check timeout configuration, network latency, or operation complexity'
+                }
+            })
+
         # Build summary
         summary = {
             'total_anomalies': len(anomalies),
             'critical': len([a for a in anomalies if a.get('severity') == 'critical']),
             'high': len([a for a in anomalies if a.get('severity') == 'high']),
+            'medium': len([a for a in anomalies if a.get('severity') == 'medium']),
             'loops_detected': len([a for a in anomalies if a['type'] == 'action_loop']),
+            'jit_issues': len([a for a in anomalies if 'jit' in a['type']]),
+            'timeout_issues': len([a for a in anomalies if 'timeout' in a['type'] or 'deadline' in a['type']]),
+            'rate_limit_issues': len([a for a in anomalies if 'rate_limit' in a['type']]),
+            'duplication_issues': len([a for a in anomalies if 'duplicate' in a['type'] or 'spam' in a['type']]),
             'affected_actions': list(set(a.get('action', '') for a in anomalies if a.get('action')))
         }
 
@@ -297,6 +689,64 @@ class LoopDetector:
             'anomalies': anomalies,
             'summary': summary
         }
+
+    def _is_expected_repeat(self, message: str) -> bool:
+        """Check if a message is expected to repeat (not anomalous)."""
+        expected_patterns = [
+            'heartbeat',
+            'keepalive',
+            'health check',
+            'polling',
+            'tick',
+        ]
+        msg_lower = message.lower()
+        return any(pat in msg_lower for pat in expected_patterns)
+
+    def _group_events_by_window(self, events: List[dict], window_seconds: int = 5) -> List[List[dict]]:
+        """Group events that occur within window_seconds of each other."""
+        if not events:
+            return []
+
+        windows = []
+        current_window = [events[0]]
+
+        for i in range(1, len(events)):
+            # Parse timestamps and compare (simplified - assumes same date)
+            prev_time = events[i-1]['timestamp']
+            curr_time = events[i]['timestamp']
+
+            # Extract time portion and compare
+            prev_secs = self._timestamp_to_seconds(prev_time)
+            curr_secs = self._timestamp_to_seconds(curr_time)
+
+            if curr_secs is not None and prev_secs is not None:
+                if curr_secs - prev_secs <= window_seconds:
+                    current_window.append(events[i])
+                else:
+                    if current_window:
+                        windows.append(current_window)
+                    current_window = [events[i]]
+            else:
+                current_window.append(events[i])
+
+        if current_window:
+            windows.append(current_window)
+
+        return windows
+
+    def _timestamp_to_seconds(self, timestamp: str) -> Optional[float]:
+        """Convert timestamp string to seconds since midnight."""
+        try:
+            # Format: "YYYY/MM/DD HH:MM:SS.microseconds"
+            parts = timestamp.split(' ')
+            if len(parts) >= 2:
+                time_part = parts[1]
+                h, m, rest = time_part.split(':')
+                s = float(rest)
+                return int(h) * 3600 + int(m) * 60 + s
+        except (ValueError, IndexError):
+            pass
+        return None
 
     def _determine_root_cause(self, action: str, identical_results: bool) -> dict:
         """Determine the root cause of an action loop."""
