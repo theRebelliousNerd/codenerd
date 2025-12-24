@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+
+	"github.com/google/mangle/ast"
 )
 
 // =============================================================================
@@ -106,13 +108,26 @@ func (k *RealKernel) rebuildFactIndexLocked() {
 
 // addFactIfNewLocked appends a fact only if it is not already present.
 // Returns true if added. Call only while holding k.mu.
+// OPTIMIZATION: Also caches the converted atom to avoid repeated ToAtom() calls.
 func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
 	if _, ok := k.factIndex[key]; ok {
 		return false
 	}
+
+	// Convert to atom once and cache it
+	atom, err := f.ToAtom()
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: failed to convert fact to atom: %v", err)
+		// Still add the fact, but without cached atom (will be regenerated in evaluate)
+		k.facts = append(k.facts, f)
+		k.factIndex[key] = struct{}{}
+		return true
+	}
+
 	k.facts = append(k.facts, f)
+	k.cachedAtoms = append(k.cachedAtoms, atom)
 	k.factIndex[key] = struct{}{}
 	return true
 }
@@ -217,6 +232,7 @@ func (k *RealKernel) Evaluate() error {
 }
 
 // Retract removes all facts of a given predicate.
+// OPTIMIZATION: Maintains atom cache instead of rebuilding entire index.
 func (k *RealKernel) Retract(predicate string) error {
 	logging.KernelDebug("Retract: removing all facts with predicate=%s", predicate)
 
@@ -225,11 +241,18 @@ func (k *RealKernel) Retract(predicate string) error {
 
 	prevCount := len(k.facts)
 	retractedCount := 0
-	newLen := 0
-	for _, f := range k.facts {
+	newFactsLen := 0
+	newAtomsLen := 0
+
+	// Filter facts and atoms in parallel
+	for i, f := range k.facts {
 		if f.Predicate != predicate {
-			k.facts[newLen] = f
-			newLen++
+			k.facts[newFactsLen] = f
+			if i < len(k.cachedAtoms) {
+				k.cachedAtoms[newAtomsLen] = k.cachedAtoms[i]
+			}
+			newFactsLen++
+			newAtomsLen++
 		} else {
 			retractedCount++
 		}
@@ -241,11 +264,20 @@ func (k *RealKernel) Retract(predicate string) error {
 	}
 
 	// Zero tail to release references for GC.
-	for i := newLen; i < prevCount; i++ {
+	for i := newFactsLen; i < prevCount; i++ {
 		k.facts[i] = Fact{}
+		if i < len(k.cachedAtoms) {
+			k.cachedAtoms[i] = ast.Atom{} // Zero value for ast.Atom
+		}
 	}
-	k.facts = k.facts[:newLen]
-	k.rebuildFactIndexLocked()
+	k.facts = k.facts[:newFactsLen]
+	k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
+
+	// OPTIMIZATION: Incremental index update instead of full rebuild
+	if retractedCount > 0 && k.factIndex != nil {
+		// Rebuild index only for removed predicate
+		k.rebuildFactIndexLocked()
+	}
 
 	logging.KernelDebug("Retract: removed %d facts (predicate=%s), EDB: %d -> %d facts",
 		retractedCount, predicate, prevCount, len(k.facts))

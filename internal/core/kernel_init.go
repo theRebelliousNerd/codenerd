@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
+	"github.com/google/mangle/ast"
 	"github.com/google/mangle/factstore"
 )
 
@@ -20,6 +21,7 @@ func NewRealKernel() (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:             make([]Fact, 0),
+		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         make(map[string]struct{}),
 		bootFacts:         make([]Fact, 0),
 		bootIntents:       make([]HybridIntent, 0),
@@ -73,6 +75,7 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:             make([]Fact, 0),
+		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         make(map[string]struct{}),
 		bootFacts:         make([]Fact, 0),
 		bootIntents:       make([]HybridIntent, 0),
@@ -121,6 +124,7 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 
 	k := &RealKernel{
 		facts:             make([]Fact, 0),
+		cachedAtoms:       make([]ast.Atom, 0), // OPTIMIZATION: Initialize atom cache
 		factIndex:         make(map[string]struct{}),
 		bootFacts:         make([]Fact, 0),
 		bootIntents:       make([]HybridIntent, 0),
