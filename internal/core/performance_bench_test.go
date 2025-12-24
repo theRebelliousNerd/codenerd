@@ -145,7 +145,7 @@ func BenchmarkFactDeduplication(b *testing.B) {
 	}
 }
 
-// Benchmark: Batch assertion (to compare with single Assert)
+// Benchmark: Batch assertion using AssertBatch (OPTIMIZED)
 func BenchmarkKernelAssertBatch(b *testing.B) {
 	kernel, err := NewRealKernel()
 	if err != nil {
@@ -172,7 +172,39 @@ func BenchmarkKernelAssertBatch(b *testing.B) {
 				Args:      []interface{}{i*100 + j},
 			}
 		}
-		// This will currently be slow - we'll add AssertBatch later
+		// OPTIMIZATION: Single evaluate() call for all 100 facts
+		kernel.AssertBatch(batch)
+	}
+}
+
+// Benchmark: Batch assertion using Assert loop (SLOW - for comparison)
+func BenchmarkKernelAssertLoop(b *testing.B) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		b.Fatalf("Failed to create kernel: %v", err)
+	}
+	defer kernel.Reset()
+
+	// Initial load
+	initial := make([]Fact, 1000)
+	for i := 0; i < 1000; i++ {
+		initial[i] = Fact{
+			Predicate: "base_fact",
+			Args:      []interface{}{i},
+		}
+	}
+	kernel.LoadFacts(initial)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		batch := make([]Fact, 100)
+		for j := 0; j < 100; j++ {
+			batch[j] = Fact{
+				Predicate: "batch_fact",
+				Args:      []interface{}{i*100 + j},
+			}
+		}
+		// SLOW PATH: evaluate() called 100 times
 		for _, f := range batch {
 			kernel.Assert(f)
 		}

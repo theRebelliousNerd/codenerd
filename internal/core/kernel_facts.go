@@ -153,6 +153,44 @@ func (k *RealKernel) Assert(fact Fact) error {
 	return nil
 }
 
+// AssertBatch adds multiple facts and re-evaluates once.
+// OPTIMIZATION: This is significantly faster than calling Assert() in a loop.
+// For M assertions, Assert loop = O(M*N) evaluations, AssertBatch = O(N) evaluation.
+func (k *RealKernel) AssertBatch(facts []Fact) error {
+	if len(facts) == 0 {
+		return nil
+	}
+
+	logging.KernelDebug("AssertBatch: asserting %d facts", len(facts))
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	addedCount := 0
+	for _, fact := range facts {
+		fact = sanitizeFactForNumericPredicates(fact)
+		if k.addFactIfNewLocked(fact) {
+			addedCount++
+			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
+		}
+	}
+
+	if addedCount == 0 {
+		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
+		return nil
+	}
+
+	// Evaluate ONCE for all added facts
+	if err := k.evaluate(); err != nil {
+		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after asserting %d facts: %v", addedCount, err)
+		return err
+	}
+
+	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
+		addedCount, len(facts), len(k.facts))
+	return nil
+}
+
 // AssertString parses a Mangle fact string and asserts it.
 // Format: predicate(arg1, arg2, ...) where args can be:
 //   - Name constants: /foo, /bar
@@ -486,15 +524,42 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 // =============================================================================
 
 // argsEqual compares two fact arguments for equality.
+// OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
 func argsEqual(a, b interface{}) bool {
+	// Fast path: pointer equality
+	if a == b {
+		return true
+	}
+
 	switch av := a.(type) {
 	case string:
 		if bv, ok := b.(string); ok {
 			return av == bv
 		}
+	case MangleAtom:
+		// MangleAtom is a string type alias, check both MangleAtom and string
+		if bv, ok := b.(MangleAtom); ok {
+			return av == bv
+		}
+		if bv, ok := b.(string); ok {
+			return string(av) == bv
+		}
+	case int:
+		// Handle int separately from int64
+		if bv, ok := b.(int); ok {
+			return av == bv
+		}
+		// Cross-compare with int64
+		if bv, ok := b.(int64); ok {
+			return int64(av) == bv
+		}
 	case int64:
 		if bv, ok := b.(int64); ok {
 			return av == bv
+		}
+		// Cross-compare with int
+		if bv, ok := b.(int); ok {
+			return av == int64(bv)
 		}
 	case float64:
 		if bv, ok := b.(float64); ok {
@@ -504,8 +569,14 @@ func argsEqual(a, b interface{}) bool {
 		if bv, ok := b.(bool); ok {
 			return av == bv
 		}
+	default:
+		// SLOW PATH: Only for truly unknown types
+		// This should rarely execute if type system is well-defined
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 	}
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+
+	// Type mismatch (e.g., string vs int)
+	return false
 }
 
 // argsSliceEqual compares two argument slices for full equality.
