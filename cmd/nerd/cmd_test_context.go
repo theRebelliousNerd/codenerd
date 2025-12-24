@@ -8,28 +8,28 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/testing/context_harness"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/testing/context_harness"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 )
 
 var (
-	testContextScenario    string
-	testContextAll         bool
-	testContextFormat      string
-	testContextMaxTurns    int
-	testContextBudget      int
-	testContextWithPaging  bool
-	testContextVerbose     bool
-	testContextInspectPrompts bool
-	testContextTraceJIT      bool
+	testContextScenario        string
+	testContextAll             bool
+	testContextFormat          string
+	testContextMaxTurns        int
+	testContextBudget          int
+	testContextWithPaging      bool
+	testContextVerbose         bool
+	testContextInspectPrompts  bool
+	testContextTraceJIT        bool
 	testContextTraceActivation bool
-	testContextVisCompression bool
-	testContextTracePiggyback bool
-	testContextLogDir      string
-	testContextConsoleOutput bool
+	testContextVisCompression  bool
+	testContextTracePiggyback  bool
+	testContextLogDir          string
+	testContextConsoleOutput   bool
 )
 
 // testContextCmd runs context system stress tests
@@ -199,7 +199,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 
 	// List scenarios if requested
 	if testContextScenario == "" && !testContextAll {
-		fmt.Println("📋 Available Test Scenarios:\n")
+		fmt.Println("📋 Available Test Scenarios:")
 		scenarios := harness.ListScenarios()
 		for i, name := range scenarios {
 			fmt.Printf("  %d. %s\n", i+1, name)
@@ -221,7 +221,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	if testContextAll {
 		logger.Info("Running all context test scenarios")
 		fmt.Println("🧪 Running All Context Test Scenarios")
-		fmt.Println("This may take several minutes...\n")
+		fmt.Println("This may take several minutes...")
 
 		results, err := harness.RunAll(ctx)
 		if err != nil {

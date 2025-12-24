@@ -50,6 +50,9 @@ Decl shard_model_config(ShardType, ModelType).
 # user_input_string(Input) - raw user input string for NL processing
 Decl user_input_string(Input).
 
+# string_contains(Haystack, Needle) - virtual predicate for dynamic substring checks
+Decl string_contains(Haystack, Needle).
+
 # is_relevant(Path) - derived: path is relevant to current campaign/intent
 Decl is_relevant(Path).
 

@@ -21,13 +21,13 @@ import (
 
 // LSPServer provides language intelligence for Mangle files.
 type LSPServer struct {
-	mu           sync.RWMutex
-	engine       *Engine
-	documents    map[string]*Document     // Open documents by URI
-	definitions  map[string][]Definition  // Definitions by symbol name
-	references   map[string][]Reference   // References by symbol name
-	diagnostics  map[string][]Diagnostic  // Diagnostics by file URI
-	hover        map[string]string        // Hover documentation by symbol
+	mu          sync.RWMutex
+	engine      *Engine
+	documents   map[string]*Document    // Open documents by URI
+	definitions map[string][]Definition // Definitions by symbol name
+	references  map[string][]Reference  // References by symbol name
+	diagnostics map[string][]Diagnostic // Diagnostics by file URI
+	hover       map[string]string       // Hover documentation by symbol
 }
 
 // Document represents an open Mangle file.
@@ -83,10 +83,10 @@ const (
 type ReferenceKind int
 
 const (
-	RefInHead ReferenceKind = iota // Used in rule head
-	RefInBody                      // Used in rule body
-	RefInFact                      // Used in a fact
-	RefInQuery                     // Used in a query
+	RefInHead  ReferenceKind = iota // Used in rule head
+	RefInBody                       // Used in rule body
+	RefInFact                       // Used in a fact
+	RefInQuery                      // Used in a query
 )
 
 // DiagnosticSeverity follows LSP severity levels.
@@ -557,7 +557,7 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 	// Add built-in functions if typing fn:
 	if strings.HasPrefix(prefix, "fn:") || strings.HasSuffix(lineText[:min(col, len(lineText))], "fn:") {
 		builtins := []string{
-			"fn:Count", "fn:Sum", "fn:Max", "fn:Min",
+			"fn:count", "fn:sum", "fn:max", "fn:min",
 			"fn:plus", "fn:minus", "fn:mult", "fn:div",
 			"fn:group_by", "fn:list:get", "fn:pair",
 		}

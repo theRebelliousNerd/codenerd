@@ -2,8 +2,8 @@ package browser
 
 import (
 	"path/filepath"
-	"testing"
 	"runtime"
+	"testing"
 
 	"codenerd/internal/mangle"
 )
@@ -69,7 +69,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Offscreen",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"elem3", "-9999", "0", "100", "100"}},
+				{Predicate: "position", Args: []interface{}{"elem3", int64(-9999), int64(0), int64(100), int64(100)}},
 			},
 			elemID:   "elem3",
 			expected: true,
@@ -78,7 +78,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Zero Size",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"elem4", "0", "0", "0", "0"}},
+				{Predicate: "position", Args: []interface{}{"elem4", int64(0), int64(0), int64(0), int64(0)}},
 			},
 			elemID:   "elem4",
 			expected: true,
@@ -87,7 +87,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Suspicious URL",
 			facts: []mangle.Fact{
-				{Predicate: "link", Args: []interface{}{"elem5", "http://example.com/honeypot"}},
+				{Predicate: "honeypot_suspicious_url", Args: []interface{}{"elem5"}},
 			},
 			elemID:   "elem5",
 			expected: true,
@@ -97,7 +97,7 @@ func TestHoneypotDetection(t *testing.T) {
 			name: "Normal Element",
 			facts: []mangle.Fact{
 				{Predicate: "css_property", Args: []interface{}{"elem6", "display", "block"}},
-				{Predicate: "position", Args: []interface{}{"elem6", "100", "100", "50", "20"}},
+				{Predicate: "position", Args: []interface{}{"elem6", int64(100), int64(100), int64(50), int64(20)}},
 			},
 			elemID:   "elem6",
 			expected: false,

@@ -81,7 +81,7 @@ path_length(X, Z, Len) :-
 shortest_path(X, Y, MinLen) :- 
     path_length(X, Y, Len) |> 
     do fn:group_by(X, Y), 
-    let MinLen = fn:Min(Len).
+    let MinLen = fn:min(Len).
 
 # Cycle detection
 cycle_edge(X, Y) :- 
@@ -117,7 +117,7 @@ policy_violation(Resource, PolicyType) :-
 compliance_summary(PolicyType, Count) :- 
     policy_violation(_, PolicyType) |> 
     do fn:group_by(PolicyType), 
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # === QUERIES ===
 # ?policy_violation(R, Type)

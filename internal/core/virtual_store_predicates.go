@@ -812,6 +812,26 @@ func (v *VirtualStore) getQueryTraceStatsAtoms(query ast.Atom) ([]ast.Atom, erro
 	return atoms, nil
 }
 
+func (v *VirtualStore) getStringContainsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	if len(query.Args) != 2 {
+		return nil, nil
+	}
+	haystack, ok := queryArgStringRaw(query.Args, 0)
+	if !ok {
+		return nil, nil
+	}
+	needle, ok := queryArgStringRaw(query.Args, 1)
+	if !ok {
+		return nil, nil
+	}
+	if !strings.Contains(haystack, needle) {
+		return nil, nil
+	}
+	atoms := make([]ast.Atom, 0, 1)
+	atoms = appendAtom(atoms, "string_contains", haystack, needle)
+	return atoms, nil
+}
+
 func boundNameArg(args []ast.BaseTerm, idx int) (string, string, bool) {
 	raw, ok := queryArgStringRaw(args, idx)
 	if !ok {

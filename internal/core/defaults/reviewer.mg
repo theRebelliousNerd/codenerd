@@ -143,11 +143,11 @@ security_rule("SEC006", /warning, "md5|sha1", "Weak cryptographic algorithm").
 
 # Abstract security rules keyed by sink type (language-agnostic)
 # SinkType: /sql_sink, /command_sink, /dom_sink, /hardcoded_secret, /weak_crypto
-flow_security_rule(/SEC001, /critical, /sql_sink, "SQL injection: user input flows to SQL execution").
-flow_security_rule(/SEC002, /critical, /command_sink, "Command injection: user input flows to command execution").
-flow_security_rule(/SEC003, /critical, /hardcoded_secret, "Hardcoded credential detected in source").
-flow_security_rule(/SEC004, /error, /dom_sink, "XSS: untrusted data flows to DOM manipulation").
-flow_security_rule(/SEC006, /warning, /weak_crypto, "Weak cryptographic algorithm detected").
+flow_security_rule("SEC001", /critical, /sql_sink, "SQL injection: user input flows to SQL execution").
+flow_security_rule("SEC002", /critical, /command_sink, "Command injection: user input flows to command execution").
+flow_security_rule("SEC003", /critical, /hardcoded_secret, "Hardcoded credential detected in source").
+flow_security_rule("SEC004", /error, /dom_sink, "XSS: untrusted data flows to DOM manipulation").
+flow_security_rule("SEC006", /warning, /weak_crypto, "Weak cryptographic algorithm detected").
 
 # Derive security findings from flow analysis results
 # detected_security_flow/5 facts are emitted by language-specific analyzers
@@ -392,7 +392,7 @@ suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
     false_positive_pattern(Pattern, Category, Occurrences, Confidence),
     Occurrences > 2,
     Confidence > 70,
-    :string:contains(Message, Pattern).
+    string_contains(Message, Pattern).
 
 # --- Self-Correction Signals ---
 
@@ -540,7 +540,7 @@ configured_layer_pattern("bin/", /entrypoint).
 layer(File, Layer) :-
     symbol_graph(_, _, _, File, _),
     configured_layer_pattern(Pattern, Layer),
-    :string:contains(File, Pattern).
+    string_contains(File, Pattern).
 
 architecture_violation(CallerFile, CalleeFile) :-
     dependency_link(CallerID, CalleeID, _),

@@ -1,10 +1,10 @@
 package system_test
 
 import (
-	"context"
 	"codenerd/internal/core"
 	"codenerd/internal/system"
 	"codenerd/internal/tactile"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -46,6 +46,7 @@ ancestor(X, Y) :-
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard()
 
 	scope := system.NewHolographicCodeScope(ws, kernel, nil, 0)
 	vs.SetCodeScope(scope)

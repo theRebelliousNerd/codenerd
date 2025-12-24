@@ -59,13 +59,13 @@ log_entry(1005, /warning, "Memory high").
 total_sales_count(N) :-
     sale(_, _, _, _) |>
     do fn:group_by(),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Count by region
 sales_count_by_region(Region, N) :-
     sale(Region, _, _, _) |>
     do fn:group_by(Region),
-    let N = fn:Count().
+    let N = fn:count().
 
 # =============================================================================
 # PATTERN 2: Sum Aggregation
@@ -75,19 +75,19 @@ sales_count_by_region(Region, N) :-
 total_revenue(Total) :-
     sale(_, _, Amount, _) |>
     do fn:group_by(),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 
 # Revenue by region
 revenue_by_region(Region, Total) :-
     sale(Region, _, Amount, _) |>
     do fn:group_by(Region),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 
 # Revenue by product
 revenue_by_product(Product, Total) :-
     sale(_, Product, Amount, _) |>
     do fn:group_by(Product),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 
 # =============================================================================
 # PATTERN 3: Min/Max
@@ -97,20 +97,20 @@ revenue_by_product(Product, Total) :-
 max_sale_amount(Max) :-
     sale(_, _, Amount, _) |>
     do fn:group_by(),
-    let Max = fn:Max(Amount).
+    let Max = fn:max(Amount).
 
 # Lowest sale amount by region
 min_sale_by_region(Region, Min) :-
     sale(Region, _, Amount, _) |>
     do fn:group_by(Region),
-    let Min = fn:Min(Amount).
+    let Min = fn:min(Amount).
 
 # Salary range by department
 salary_range(Dept, MinSal, MaxSal) :-
     employee(_, _, Dept, Salary) |>
     do fn:group_by(Dept),
-    let MinSal = fn:Min(Salary),
-    let MaxSal = fn:Max(Salary).
+    let MinSal = fn:min(Salary),
+    let MaxSal = fn:max(Salary).
 
 # =============================================================================
 # PATTERN 4: Multi-Variable Grouping
@@ -120,8 +120,8 @@ salary_range(Dept, MinSal, MaxSal) :-
 sales_by_region_product(Region, Product, Total, Count) :-
     sale(Region, Product, Amount, _) |>
     do fn:group_by(Region, Product),
-    let Total = fn:Sum(Amount),
-    let Count = fn:Count().
+    let Total = fn:sum(Amount),
+    let Count = fn:count().
 
 # =============================================================================
 # PATTERN 5: Average (Computed from Sum and Count)
@@ -131,16 +131,16 @@ sales_by_region_product(Region, Product, Total, Count) :-
 average_sale(Avg) :-
     sale(_, _, Amount, _) |>
     do fn:group_by(),
-    let Total = fn:Sum(Amount),
-    let Count = fn:Count() |>
+    let Total = fn:sum(Amount),
+    let Count = fn:count() |>
     let Avg = fn:divide(Total, Count).
 
 # Average salary by department
 avg_salary_by_dept(Dept, Avg) :-
     employee(_, _, Dept, Salary) |>
     do fn:group_by(Dept),
-    let Total = fn:Sum(Salary),
-    let Count = fn:Count() |>
+    let Total = fn:sum(Salary),
+    let Count = fn:count() |>
     let Avg = fn:divide(Total, Count).
 
 # =============================================================================
@@ -151,20 +151,20 @@ avg_salary_by_dept(Dept, Avg) :-
 error_count(N) :-
     log_entry(_, /error, _) |>
     do fn:group_by(),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Revenue from widget_a only
 widget_a_revenue(Total) :-
     sale(_, /widget_a, Amount, _) |>
     do fn:group_by(),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 
 # High earners count by department
 high_earner_count(Dept, N) :-
     employee(_, _, Dept, Salary),
     Salary > 100000.0 |>
     do fn:group_by(Dept),
-    let N = fn:Count().
+    let N = fn:count().
 
 # =============================================================================
 # PATTERN 7: Aggregation with Join
@@ -175,14 +175,14 @@ employee_total_hours(Name, TotalHours) :-
     employee(EmpID, Name, _, _),
     project_assignment(EmpID, _, Hours) |>
     do fn:group_by(Name),
-    let TotalHours = fn:Sum(Hours).
+    let TotalHours = fn:sum(Hours).
 
 # Project hours by department
 project_hours_by_dept(Dept, ProjectID, TotalHours) :-
     employee(EmpID, _, Dept, _),
     project_assignment(EmpID, ProjectID, Hours) |>
     do fn:group_by(Dept, ProjectID),
-    let TotalHours = fn:Sum(Hours).
+    let TotalHours = fn:sum(Hours).
 
 # =============================================================================
 # PATTERN 8: Nested Aggregation (Two-Stage)
@@ -195,13 +195,13 @@ project_hours_by_dept(Dept, ProjectID, TotalHours) :-
 region_sale_count(Region, Count) :-
     sale(Region, _, _, _) |>
     do fn:group_by(Region),
-    let Count = fn:Count().
+    let Count = fn:count().
 
 avg_sales_per_region(Avg) :-
     region_sale_count(_, Count) |>
     do fn:group_by(),
-    let Total = fn:Sum(Count),
-    let Num = fn:Count() |>
+    let Total = fn:sum(Count),
+    let Num = fn:count() |>
     let Avg = fn:divide(Total, Num).
 
 # =============================================================================
@@ -213,13 +213,13 @@ large_sale_count(Region, Count) :-
     sale(Region, _, Amount, _),
     Amount > 100.0 |>
     do fn:group_by(Region),
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # Ratio of large sales to total (requires two aggregations)
 region_sale_totals(Region, Total) :-
     sale(Region, _, _, _) |>
     do fn:group_by(Region),
-    let Total = fn:Count().
+    let Total = fn:count().
 
 large_sale_ratio(Region, Ratio) :-
     large_sale_count(Region, Large),
@@ -234,14 +234,14 @@ large_sale_ratio(Region, Ratio) :-
 large_department(Dept) :-
     employee(_, _, Dept, _) |>
     do fn:group_by(Dept),
-    let Count = fn:Count(),
+    let Count = fn:count(),
     Count >= 2.
 
 # Projects with multiple assignees
 shared_project(ProjectID) :-
     project_assignment(_, ProjectID, _) |>
     do fn:group_by(ProjectID),
-    let Count = fn:Count(),
+    let Count = fn:count(),
     Count > 1.
 
 # =============================================================================

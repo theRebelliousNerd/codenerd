@@ -51,6 +51,7 @@ func TestKernelLoadFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
+	baseCount := kernel.FactCount()
 
 	facts := []Fact{
 		{Predicate: "test_state", Args: []interface{}{"/passing"}},
@@ -61,8 +62,16 @@ func TestKernelLoadFacts(t *testing.T) {
 		t.Fatalf("LoadFacts() error = %v", err)
 	}
 
-	if kernel.FactCount() != 1 {
-		t.Errorf("FactCount() = %d, want 1", kernel.FactCount())
+	if kernel.FactCount() != baseCount+len(facts) {
+		t.Errorf("FactCount() = %d, want %d", kernel.FactCount(), baseCount+len(facts))
+	}
+
+	results, err := kernel.Query("test_state")
+	if err != nil {
+		t.Fatalf("Query(test_state) error = %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("Query(test_state) returned no results after LoadFacts()")
 	}
 }
 
@@ -160,9 +169,20 @@ func TestKernelRetract(t *testing.T) {
 		t.Fatalf("Retract() error = %v", err)
 	}
 
-	// Check that only retry_count remains
-	if kernel.FactCount() != 1 {
-		t.Errorf("FactCount() = %d after Retract(), want 1", kernel.FactCount())
+	testStateFacts, err := kernel.Query("test_state")
+	if err != nil {
+		t.Fatalf("Query(test_state) error = %v", err)
+	}
+	if len(testStateFacts) != 0 {
+		t.Errorf("expected test_state facts to be retracted, found %d", len(testStateFacts))
+	}
+
+	retryFacts, err := kernel.Query("retry_count")
+	if err != nil {
+		t.Fatalf("Query(retry_count) error = %v", err)
+	}
+	if len(retryFacts) == 0 {
+		t.Error("expected retry_count fact to remain after Retract()")
 	}
 }
 

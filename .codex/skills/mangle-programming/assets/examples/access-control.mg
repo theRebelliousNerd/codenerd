@@ -144,13 +144,13 @@ user_privilege_level(User, MaxLevel) :-
     effective_role(User, Role),
     role(Role, _, Level) |>
     do fn:group_by(User),
-    let MaxLevel = fn:Max(Level).
+    let MaxLevel = fn:max(Level).
 
 # Count permissions per user
 permission_count(User, Count) :-
     has_permission_base(User, _, _) |>
     do fn:group_by(User),
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # Find resources with no access controls
 unprotected_resource(Resource) :-

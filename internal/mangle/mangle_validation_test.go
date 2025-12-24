@@ -1,8 +1,10 @@
 package mangle
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -169,6 +171,113 @@ func TestSchemasPlusPolicyAnalyzeTogether(t *testing.T) {
 		if !found {
 			t.Errorf("Expected predicate %q not found in program", pred)
 		}
+	}
+}
+
+// TestDefaults_NoDuplicatePredicateDecls ensures default schemas and policies
+// do not redeclare predicates across modules.
+func TestDefaults_NoDuplicatePredicateDecls(t *testing.T) {
+	root := findDefaultsRoot(t)
+	schemaModules := []string{
+		"schemas.mg",
+		"schemas_intent.mg",
+		"schemas_world.mg",
+		"schemas_execution.mg",
+		"schemas_browser.mg",
+		"schemas_project.mg",
+		"schemas_dreamer.mg",
+		"schemas_memory.mg",
+		"schemas_knowledge.mg",
+		"schemas_safety.mg",
+		"schemas_analysis.mg",
+		"schemas_misc.mg",
+		"schemas_codedom.mg",
+		"schemas_testing.mg",
+		"schemas_campaign.mg",
+		"schemas_tools.mg",
+		"schemas_prompts.mg",
+		"schemas_reviewer.mg",
+		"schemas_shards.mg",
+	}
+	coreModules := []string{
+		"doc_taxonomy.mg",
+		"topology_planner.mg",
+		"build_topology.mg",
+		"campaign_rules.mg",
+		"selection_policy.mg",
+		"taxonomy.mg",
+		"inference.mg",
+		"jit_compiler.mg",
+		"learned.mg",
+	}
+
+	paths := make(map[string]struct{})
+	addPath := func(path string) {
+		if _, err := os.Stat(path); err == nil {
+			paths[path] = struct{}{}
+		}
+	}
+
+	for _, name := range schemaModules {
+		addPath(filepath.Join(root, name))
+	}
+	addPath(filepath.Join(root, "schema", "prompts.mg"))
+
+	policyDir := filepath.Join(root, "policy")
+	if entries, err := os.ReadDir(policyDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".mg") {
+				continue
+			}
+			addPath(filepath.Join(policyDir, entry.Name()))
+		}
+	}
+
+	for _, name := range coreModules {
+		addPath(filepath.Join(root, name))
+	}
+
+	files := make([]string, 0, len(paths))
+	for path := range paths {
+		files = append(files, path)
+	}
+	sort.Strings(files)
+
+	if len(files) == 0 {
+		t.Skip("no default .mg files found to validate")
+		return
+	}
+
+	decls := make(map[string][]string)
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", path, err)
+		}
+		unit, err := parse.Unit(strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("failed to parse %s: %v", path, err)
+		}
+		for _, decl := range unit.Decls {
+			pred := decl.DeclaredAtom.Predicate.Symbol
+			if pred == "Package" {
+				continue
+			}
+			decls[pred] = append(decls[pred], path)
+		}
+	}
+
+	var duplicates []string
+	for pred, paths := range decls {
+		if len(paths) > 1 {
+			sort.Strings(paths)
+			duplicates = append(duplicates, fmt.Sprintf("%s -> %s", pred, strings.Join(paths, ", ")))
+		}
+	}
+
+	if len(duplicates) > 0 {
+		sort.Strings(duplicates)
+		t.Fatalf("duplicate predicate declarations found:\n%s", strings.Join(duplicates, "\n"))
 	}
 }
 
@@ -707,6 +816,23 @@ func findMangleFile(t *testing.T, filename string) string {
 	}
 
 	t.Fatalf("Could not find %s in any search path", filename)
+	return ""
+}
+
+func findDefaultsRoot(t *testing.T) string {
+	candidates := []string{
+		filepath.Join("internal", "core", "defaults"),
+		filepath.Join("..", "core", "defaults"),
+		filepath.Join("..", "..", "internal", "core", "defaults"),
+	}
+
+	for _, path := range candidates {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path
+		}
+	}
+
+	t.Fatalf("Could not find defaults directory in any search path")
 	return ""
 }
 

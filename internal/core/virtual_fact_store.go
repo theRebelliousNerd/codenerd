@@ -17,6 +17,7 @@ var virtualPredicateHandlers = map[string]struct{}{
 	"query_traces":          {},
 	"query_trace_stats":     {},
 	"query_strategic":       {}, // Strategic knowledge (vision, philosophy, patterns)
+	"string_contains":       {},
 }
 
 type virtualFactStore struct {

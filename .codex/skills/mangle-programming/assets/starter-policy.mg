@@ -50,13 +50,13 @@ isolated_node(N) :- node(N), !edge(N, _), !edge(_, N).
 node_count(N) :-
     node(_) |>
     do fn:group_by(),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Count outgoing edges per node
 edge_count_by_source(Src, Count) :-
     edge(Src, _) |>
     do fn:group_by(Src),
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # Find nodes with most connections
 highly_connected(Node, Degree) :-
@@ -67,7 +67,7 @@ highly_connected(Node, Degree) :-
 total_weight(Node, Total) :-
     edge_weight(Node, _, W) |>
     do fn:group_by(Node),
-    let Total = fn:Sum(W).
+    let Total = fn:sum(W).
 
 # =============================================================================
 # SECTION 5: Classification Rules
@@ -144,6 +144,6 @@ orphan_edge(From, To) :-
 avg_degree(Avg) :-
     edge_count_by_source(_, Count) |>
     do fn:group_by(),
-    let Total = fn:Sum(Count),
-    let Num = fn:Count() |>
+    let Total = fn:sum(Count),
+    let Num = fn:count() |>
     let Avg = fn:divide(Total, Num).

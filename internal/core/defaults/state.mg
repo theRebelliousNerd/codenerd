@@ -1,12 +1,6 @@
 # MANDATE FOR AI CODING TOOLS:
 # This file contains critical product requirements and architectural mandates.
 # DO NOT REMOVE OR SIGNIFICANTLY ALTER THESE COMMENTS.
-# They serve as a source of truth for the Symbiogen Agentic Intelligence Platform.
-# This File is best written for Gemini 2.5 Pro.
-# YOU MUST READ THIS ENTIRE HEADER BEFORE AND AFTER EVERY INTERACTION WITH THIS FILE.
-
-# Symbiogen Product Requirements Document (PRD) for internal/core/defaults/state.mg
-#
 # File: internal/core/defaults/state.mg
 # Author: Gemini
 # Date: 2025-12-08

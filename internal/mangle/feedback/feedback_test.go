@@ -458,6 +458,11 @@ func TestExtractRuleFromResponse(t *testing.T) {
 			response: "Here is my proposal:\nRULE: next_action(/run) :- test(/fail).\nCONFIDENCE: 0.8\nRATIONALE: Good rule",
 			expected: "next_action(/run) :- test(/fail).",
 		},
+		{
+			name:     "inline fact in narrative",
+			response: "We should assert next_action(/run). It keeps things moving",
+			expected: "next_action(/run).",
+		},
 	}
 
 	for _, tt := range tests {
@@ -467,6 +472,71 @@ func TestExtractRuleFromResponse(t *testing.T) {
 				t.Errorf("ExtractRuleFromResponse() = %q, want %q", result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNormalizeRuleInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no changes without escapes",
+			input:    "next_action(/run) :- test(/fail).",
+			expected: "next_action(/run) :- test(/fail).",
+		},
+		{
+			name:     "windows path inside quotes is normalized",
+			input:    `next_action(/open) :- has_path("C:\CodeProjects\codeNERD\core").`,
+			expected: `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
+		},
+		{
+			name:     "escaped backslashes preserved",
+			input:    `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
+			expected: `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
+		},
+		{
+			name:     "backslashes outside quotes unchanged",
+			input:    `blocked(X) :- \+ permitted(X), has_path("C:\Code\Nerd").`,
+			expected: `blocked(X) :- \+ permitted(X), has_path("C:\\Code\\Nerd").`,
+		},
+		{
+			name:     "known escapes in strings remain intact",
+			input:    `message("line1\nline2").`,
+			expected: `message("line1\nline2").`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeRuleInput(tt.input)
+			if got != tt.expected {
+				t.Errorf("NormalizeRuleInput() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFeedbackLoop_CanRetryPrompt(t *testing.T) {
+	loop := NewFeedbackLoop(RetryConfig{
+		MaxRetries:    1,
+		SessionBudget: 2,
+	})
+	prompt := "generate a safe rule"
+
+	can, _ := loop.CanRetryPrompt(prompt)
+	if !can {
+		t.Fatalf("expected initial retry to be allowed")
+	}
+
+	loop.GetBudget().RecordAttempt(hashPrompt(prompt))
+	can, reason := loop.CanRetryPrompt(prompt)
+	if can {
+		t.Fatalf("expected retry budget to be exhausted")
+	}
+	if reason == "" {
+		t.Fatalf("expected exhaustion reason to be reported")
 	}
 }
 
