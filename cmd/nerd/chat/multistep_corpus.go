@@ -8,9 +8,9 @@
 //   - internal/core/defaults/schema/intent.mg: multistep_pattern, multistep_keyword, etc.
 //
 // This Go file provides:
-//   1. Runtime regex compilation (can't be stored in Mangle)
-//   2. Pattern matching infrastructure
-//   3. Decomposition strategies
+//  1. Runtime regex compilation (can't be stored in Mangle)
+//  2. Pattern matching infrastructure
+//  3. Decomposition strategies
 //
 // The patterns defined here should mirror the Mangle schema. For new patterns,
 // ALWAYS add them to the .mg files first, then add regex support here.
@@ -51,15 +51,15 @@ const (
 
 // MultiStepPattern defines a pattern for detecting and decomposing multi-step tasks
 type MultiStepPattern struct {
-	Name        string           // Human-readable name
-	Category    string           // Pattern category
-	Patterns    []*regexp.Regexp // Detection patterns
-	Keywords    []string         // Trigger keywords
-	Relation    StepRelation     // Default step relation
-	Priority    int              // Higher = matched first
-	Decomposer  string           // Which decomposition strategy to use
-	Examples    []string         // Example user inputs
-	VerbPairs   [][2]string      // Common verb combinations [verb1, verb2]
+	Name       string           // Human-readable name
+	Category   string           // Pattern category
+	Patterns   []*regexp.Regexp // Detection patterns
+	Keywords   []string         // Trigger keywords
+	Relation   StepRelation     // Default step relation
+	Priority   int              // Higher = matched first
+	Decomposer string           // Which decomposition strategy to use
+	Examples   []string         // Example user inputs
+	VerbPairs  [][2]string      // Common verb combinations [verb1, verb2]
 }
 
 // =============================================================================
@@ -67,26 +67,26 @@ type MultiStepPattern struct {
 // =============================================================================
 
 const (
-	CategorySequentialExplicit   = "sequential_explicit"   // "first X, then Y"
-	CategorySequentialImplicit   = "sequential_implicit"   // "X and Y" with implied order
-	CategoryConditionalSuccess   = "conditional_success"   // "X, if it works, Y"
-	CategoryConditionalFailure   = "conditional_failure"   // "X, if it fails, Y"
-	CategoryParallelIndependent  = "parallel_independent"  // "X and Y" (no dependency)
-	CategoryCompoundWithRef      = "compound_with_ref"     // "X and Y it" (pronoun ref)
-	CategoryIterativeCollection  = "iterative_collection"  // "X each file"
-	CategoryPipelineChain        = "pipeline_chain"        // "X then pass to Y"
-	CategoryVerifyAfterMutation  = "verify_after_mutation" // "X and make sure/verify"
-	CategoryResearchThenAct      = "research_then_act"     // "figure out X then do Y"
-	CategoryReviewThenFix        = "review_then_fix"       // "review and fix"
-	CategoryCreateThenValidate   = "create_then_validate"  // "create and test"
-	CategoryRefactorPreserve     = "refactor_preserve"     // "refactor but keep X"
-	CategoryBatchOperation       = "batch_operation"       // "do X to all Y"
-	CategoryUndoRecovery         = "undo_recovery"         // "try X, revert if needed"
-	CategoryCompareAndChoose     = "compare_and_choose"    // "compare X and Y, pick best"
-	CategoryAnalyzeThenOptimize  = "analyze_then_optimize" // "analyze and improve"
-	CategoryDocumentAfterChange  = "document_after_change" // "change X and update docs"
-	CategoryTestDrivenFlow       = "test_driven_flow"      // "write tests then implement"
-	CategorySecurityAuditFix     = "security_audit_fix"    // "scan and fix vulnerabilities"
+	CategorySequentialExplicit  = "sequential_explicit"   // "first X, then Y"
+	CategorySequentialImplicit  = "sequential_implicit"   // "X and Y" with implied order
+	CategoryConditionalSuccess  = "conditional_success"   // "X, if it works, Y"
+	CategoryConditionalFailure  = "conditional_failure"   // "X, if it fails, Y"
+	CategoryParallelIndependent = "parallel_independent"  // "X and Y" (no dependency)
+	CategoryCompoundWithRef     = "compound_with_ref"     // "X and Y it" (pronoun ref)
+	CategoryIterativeCollection = "iterative_collection"  // "X each file"
+	CategoryPipelineChain       = "pipeline_chain"        // "X then pass to Y"
+	CategoryVerifyAfterMutation = "verify_after_mutation" // "X and make sure/verify"
+	CategoryResearchThenAct     = "research_then_act"     // "figure out X then do Y"
+	CategoryReviewThenFix       = "review_then_fix"       // "review and fix"
+	CategoryCreateThenValidate  = "create_then_validate"  // "create and test"
+	CategoryRefactorPreserve    = "refactor_preserve"     // "refactor but keep X"
+	CategoryBatchOperation      = "batch_operation"       // "do X to all Y"
+	CategoryUndoRecovery        = "undo_recovery"         // "try X, revert if needed"
+	CategoryCompareAndChoose    = "compare_and_choose"    // "compare X and Y, pick best"
+	CategoryAnalyzeThenOptimize = "analyze_then_optimize" // "analyze and improve"
+	CategoryDocumentAfterChange = "document_after_change" // "change X and update docs"
+	CategoryTestDrivenFlow      = "test_driven_flow"      // "write tests then implement"
+	CategorySecurityAuditFix    = "security_audit_fix"    // "scan and fix vulnerabilities"
 )
 
 // =============================================================================
@@ -377,9 +377,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?(?:assuming|provided)\s+(?:it\s+)?(?:works?|succeeds?)\s*,?\s+(.+)$`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?on\s+success\s*,?\s+(.+)$`),
 		},
-		Keywords: []string{"if it works", "if successful", "if it passes", "on success", "assuming it works"},
-		Relation: RelationConditional,
-		Priority: 85,
+		Keywords:   []string{"if it works", "if successful", "if it passes", "on success", "assuming it works"},
+		Relation:   RelationConditional,
+		Priority:   85,
 		Decomposer: "conditional_chain",
 		Examples: []string{
 			"run the tests, if they pass, commit",
@@ -394,9 +394,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?if\s+(?:the\s+)?tests?\s+pass(?:es)?\s*,?\s+(?:then\s+)?(.+)$`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?(?:once|when)\s+(?:the\s+)?tests?\s+(?:pass(?:es)?|(?:are\s+)?green)\s*,?\s+(.+)$`),
 		},
-		Keywords: []string{"if tests pass", "when tests pass", "once tests are green"},
-		Relation: RelationConditional,
-		Priority: 87,
+		Keywords:   []string{"if tests pass", "when tests pass", "once tests are green"},
+		Relation:   RelationConditional,
+		Priority:   87,
 		Decomposer: "conditional_chain",
 		Examples: []string{
 			"fix the handler, if the tests pass, push to main",
@@ -415,9 +415,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?(?:otherwise|or\s+else)\s+(.+)$`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?on\s+(?:failure|error)\s*,?\s+(.+)$`),
 		},
-		Keywords: []string{"if it fails", "if it doesn't work", "otherwise", "or else", "on failure"},
-		Relation: RelationFallback,
-		Priority: 83,
+		Keywords:   []string{"if it fails", "if it doesn't work", "otherwise", "or else", "on failure"},
+		Relation:   RelationFallback,
+		Priority:   83,
 		Decomposer: "fallback_chain",
 		Examples: []string{
 			"try the migration, if it fails, rollback",
@@ -432,9 +432,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(?:try\s+(?:to\s+)?)?(.+?),?\s+(?:and\s+)?(?:revert|rollback|undo)\s+if\s+(?:it\s+)?(?:fails?|(?:doesn'?t|does\s+not)\s+work|breaks?)`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:but\s+)?(?:be\s+ready\s+to\s+)?(?:revert|rollback)\s+if\s+(?:needed|necessary|something\s+goes\s+wrong)`),
 		},
-		Keywords: []string{"revert if fails", "rollback if", "undo if fails", "revert if needed"},
-		Relation: RelationFallback,
-		Priority: 82,
+		Keywords:   []string{"revert if fails", "rollback if", "undo if fails", "revert if needed"},
+		Relation:   RelationFallback,
+		Priority:   82,
 		Decomposer: "fallback_chain",
 		Examples: []string{
 			"try the database migration, revert if it fails",
@@ -453,9 +453,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(review|analyze|scan|check)\s+(.+?)\s+and\s+(review|analyze|scan|check)\s+(.+)`),
 			regexp.MustCompile(`(?i)(?:both\s+)?(review|analyze|scan)\s+(.+?)\s+and\s+(.+)`),
 		},
-		Keywords: []string{"review X and review Y", "scan X and scan Y"},
-		Relation: RelationParallel,
-		Priority: 75,
+		Keywords:   []string{"review X and review Y", "scan X and scan Y"},
+		Relation:   RelationParallel,
+		Priority:   75,
 		Decomposer: "parallel_split",
 		Examples: []string{
 			"review auth.go and review handler.go",
@@ -471,9 +471,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(.+?),?\s+additionally\s+(.+)$`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?(?:at\s+the\s+same\s+time|simultaneously|in\s+parallel)\s+(.+)$`),
 		},
-		Keywords: []string{"also", "additionally", "at the same time", "simultaneously", "in parallel"},
-		Relation: RelationParallel,
-		Priority: 70,
+		Keywords:   []string{"also", "additionally", "at the same time", "simultaneously", "in parallel"},
+		Relation:   RelationParallel,
+		Priority:   70,
 		Decomposer: "parallel_split",
 		Examples: []string{
 			"review the API, also check the tests",
@@ -492,9 +492,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(review|analyze|check|fix|create|implement|refactor)\s+(.+?)\s+and\s+(test|document|commit|deploy|push|merge)\s+it`),
 			regexp.MustCompile(`(?i)(create|implement|write|build)\s+(.+?)\s+and\s+(test|run|execute|verify)\s+(?:it|them)`),
 		},
-		Keywords: []string{"and test it", "and commit it", "and deploy it", "and document it"},
-		Relation: RelationSequential,
-		Priority: 88,
+		Keywords:   []string{"and test it", "and commit it", "and deploy it", "and document it"},
+		Relation:   RelationSequential,
+		Priority:   88,
 		Decomposer: "pronoun_resolution",
 		Examples: []string{
 			"create the handler and test it",
@@ -515,9 +515,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(review|fix|refactor|test|update|check)\s+all\s+(?:the\s+)?(.+?)(?:\s+in\s+(.+))?$`),
 			regexp.MustCompile(`(?i)for\s+(?:each|every)\s+(.+?)\s*[,:]\s*(review|fix|refactor|test|update|check)`),
 		},
-		Keywords: []string{"each", "every", "all the", "for each", "for every"},
-		Relation: RelationIterative,
-		Priority: 80,
+		Keywords:   []string{"each", "every", "all the", "for each", "for every"},
+		Relation:   RelationIterative,
+		Priority:   80,
 		Decomposer: "iterative_expansion",
 		Examples: []string{
 			"review each handler in cmd/api/",
@@ -533,9 +533,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(review|fix|refactor|test|update|check|format|lint)\s+all\s+(?:the\s+)?(?:go|python|javascript|typescript|rust|java)\s+files?`),
 			regexp.MustCompile(`(?i)(review|fix|refactor|test|update|check|format|lint)\s+(?:the\s+)?(?:entire\s+)?(?:codebase|project|repo(?:sitory)?)`),
 		},
-		Keywords: []string{"all files", "entire codebase", "whole project", "all go files"},
-		Relation: RelationIterative,
-		Priority: 78,
+		Keywords:   []string{"all files", "entire codebase", "whole project", "all go files"},
+		Relation:   RelationIterative,
+		Priority:   78,
 		Decomposer: "batch_expansion",
 		Examples: []string{
 			"format all go files",
@@ -554,9 +554,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?(?:then\s+)?(?:pass|feed|send|pipe)\s+(?:the\s+)?(?:results?|output|findings?)\s+to\s+(.+)`),
 			regexp.MustCompile(`(?i)(.+?),?\s+(?:and\s+)?use\s+(?:the\s+)?(?:results?|output|findings?)\s+(?:to|for)\s+(.+)`),
 		},
-		Keywords: []string{"pass the results to", "feed output to", "use the results to", "pipe to"},
-		Relation: RelationSequential,
-		Priority: 85,
+		Keywords:   []string{"pass the results to", "feed output to", "use the results to", "pipe to"},
+		Relation:   RelationSequential,
+		Priority:   85,
 		Decomposer: "pipeline_chain",
 		Examples: []string{
 			"analyze the code and pass the results to the optimizer",
@@ -570,9 +570,9 @@ var MultiStepCorpus = []MultiStepPattern{
 		Patterns: []*regexp.Regexp{
 			regexp.MustCompile(`(?i)(review|analyze|scan|check)\s+(.+?)\s+(?:and\s+)?(?:then\s+)?(fix|refactor|update|improve)\s+(?:based\s+on|according\s+to)\s+(?:the\s+)?(?:results?|findings?|issues?)`),
 		},
-		Keywords: []string{"based on the results", "according to findings", "based on issues"},
-		Relation: RelationSequential,
-		Priority: 86,
+		Keywords:   []string{"based on the results", "according to findings", "based on issues"},
+		Relation:   RelationSequential,
+		Priority:   86,
 		Decomposer: "pipeline_chain",
 		Examples: []string{
 			"review the handlers and then fix based on the findings",
@@ -590,9 +590,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)compare\s+(.+?)\s+(?:and|with|to)\s+(.+?)\s+(?:and\s+)?(?:pick|choose|select|use)\s+(?:the\s+)?(?:best|better|preferred)`),
 			regexp.MustCompile(`(?i)(?:evaluate|assess)\s+(.+?)\s+(?:and|vs\.?|versus)\s+(.+?)\s+(?:and\s+)?(?:recommend|suggest)`),
 		},
-		Keywords: []string{"compare and pick", "compare and choose", "evaluate and recommend"},
-		Relation: RelationSequential,
-		Priority: 75,
+		Keywords:   []string{"compare and pick", "compare and choose", "evaluate and recommend"},
+		Relation:   RelationSequential,
+		Priority:   75,
 		Decomposer: "comparison_chain",
 		Examples: []string{
 			"compare the two implementations and pick the best",
@@ -610,9 +610,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(review|fix|refactor|change|update)\s+(.+?)\s+but\s+(?:not|without|don'?t(?:\s+touch)?|skip(?:ping)?|except(?:ing)?|excluding)\s+(.+)`),
 			regexp.MustCompile(`(?i)(review|fix|refactor|change|update)\s+(.+?)\s+(?:while\s+)?(?:keeping|preserving|maintaining)\s+(.+)`),
 		},
-		Keywords: []string{"but not", "but skip", "except", "excluding", "while keeping", "preserving"},
-		Relation: RelationSequential,
-		Priority: 82,
+		Keywords:   []string{"but not", "but skip", "except", "excluding", "while keeping", "preserving"},
+		Relation:   RelationSequential,
+		Priority:   82,
 		Decomposer: "constrained_operation",
 		Examples: []string{
 			"refactor the handlers but not the middleware",
@@ -652,9 +652,9 @@ var MultiStepCorpus = []MultiStepPattern{
 			regexp.MustCompile(`(?i)(?:create|make)\s+(?:a\s+)?(?:new\s+)?branch\s+(?:for\s+)?(.+?)\s+(?:and\s+)?(?:then\s+)?(?:start|begin|work\s+on)`),
 			regexp.MustCompile(`(?i)(?:checkout|switch\s+to)\s+(.+?)\s+(?:and\s+)?(?:then\s+)?(.+)`),
 		},
-		Keywords: []string{"create branch and", "checkout and", "switch to and"},
-		Relation: RelationSequential,
-		Priority: 80,
+		Keywords:   []string{"create branch and", "checkout and", "switch to and"},
+		Relation:   RelationSequential,
+		Priority:   80,
 		Decomposer: "git_workflow",
 		Examples: []string{
 			"create a new branch for the feature and start working",

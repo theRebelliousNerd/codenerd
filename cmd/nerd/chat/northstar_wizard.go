@@ -3,25 +3,25 @@
 //
 // File Index (modularized):
 //
-//   northstar_wizard.go      - Input router and phase handlers (this file)
-//   northstar_types.go       - Types, constants, NorthstarWizardState, constructors
-//   northstar_utils.go       - Parsing utility functions
-//   northstar_persistence.go - Save, Mangle generation, KB storage
-//   northstar_navigation.go  - Phase navigation, prompts, auto-generate
-//   northstar_llm.go         - LLM integration (doc analysis, requirement generation)
+//	northstar_wizard.go      - Input router and phase handlers (this file)
+//	northstar_types.go       - Types, constants, NorthstarWizardState, constructors
+//	northstar_utils.go       - Parsing utility functions
+//	northstar_persistence.go - Save, Mangle generation, KB storage
+//	northstar_navigation.go  - Phase navigation, prompts, auto-generate
+//	northstar_llm.go         - LLM integration (doc analysis, requirement generation)
 //
 // Wizard Phases:
 //
-//   1. Welcome          - Initial greeting, research doc question
-//   2. DocIngestion     - Optional research document analysis
-//   3. ProblemStatement - Define the problem being solved
-//   4. VisionStatement  - Vision + one-line mission
-//   5. TargetUsers      - User personas with pain points/needs
-//   6. Capabilities     - Future capabilities with timeline/priority
-//   7. RedTeaming       - Risks with likelihood/impact/mitigation
-//   8. Requirements     - Crystallized requirements (manual or auto-generated)
-//   9. Constraints      - Hard constraints
-//   10. Summary         - Review and save
+//  1. Welcome          - Initial greeting, research doc question
+//  2. DocIngestion     - Optional research document analysis
+//  3. ProblemStatement - Define the problem being solved
+//  4. VisionStatement  - Vision + one-line mission
+//  5. TargetUsers      - User personas with pain points/needs
+//  6. Capabilities     - Future capabilities with timeline/priority
+//  7. RedTeaming       - Risks with likelihood/impact/mitigation
+//  8. Requirements     - Crystallized requirements (manual or auto-generated)
+//  9. Constraints      - Hard constraints
+//  10. Summary         - Review and save
 package chat
 
 import (

@@ -19,6 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 )
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Performance instrumentation: Track slow Update() handlers
 	startTime := time.Now()
@@ -35,10 +36,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	var (
-		tiCmd tea.Cmd
-		vpCmd tea.Cmd
+		tiCmd  tea.Cmd
+		vpCmd  tea.Cmd
 		errCmd tea.Cmd
-		spCmd tea.Cmd
+		spCmd  tea.Cmd
 	)
 
 	switch msg := msg.(type) {
