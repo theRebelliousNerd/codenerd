@@ -34,6 +34,7 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 	vsCfg.WorkingDir = workdir
 	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	virtualStore.SetKernel(kernel)
+	virtualStore.DisableBootGuard()
 
 	constitution := NewConstitutionGateShard()
 	constitution.Kernel = kernel

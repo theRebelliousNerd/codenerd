@@ -320,16 +320,8 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 	// 1. Reload Intent Schemas (Modular) - ALWAYS REQUIRED for inference
 	// These contain critical facts like interrogative_type, modal_type, etc.
-	intentFiles := []string{
-		"schema/intent_core.mg",
-		"schema/intent_qualifiers.mg",
-		"schema/intent_queries.mg",
-		"schema/intent_mutations.mg",
-		"schema/intent_instructions.mg",
-		"schema/intent_campaign.mg",
-		"schema/intent_system.mg",
-		"schema/learning.mg", // CRITICAL: Required by InferenceLogicMG
-	}
+	intentFiles := core.DefaultIntentSchemaFiles()
+	intentFiles = append(intentFiles, "schema/learning.mg") // CRITICAL: Required by InferenceLogicMG
 	for _, file := range intentFiles {
 		content, err := core.GetDefaultContent(file)
 		if err == nil {
@@ -399,7 +391,7 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 		if !ok {
 			continue
 		}
-		
+
 		// Handle score which might be int64 or float64 depending on Mangle internal representation
 		var score float64
 		switch s := fact.Args[1].(type) {

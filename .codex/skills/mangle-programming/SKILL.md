@@ -52,7 +52,7 @@ If you have files mixing these, use a "Split-Brain Loader" (see Section 11 in 15
 | Pattern | WRONG | CORRECT |
 |---------|-------|---------|
 | Constants | `"active"` | `/active` |
-| Aggregation | `sum(X)` | `\|> let S = fn:Sum(X)` |
+| Aggregation | `sum(X)` | `\|> let S = fn:sum(X)` |
 | Grouping | `GROUP BY X` | `\|> do fn:group_by(X)` |
 | Declaration | `.decl p(x:int)` | `Decl p(X.Type<int>).` |
 | Negation | `not foo(X)` alone | `gen(X), not foo(X)` |
@@ -243,8 +243,8 @@ fn:tuple(1, 2, 3)   # Tuples
 ### Built-in Functions
 
 ```mangle
-fn:Count()                        # Count elements
-fn:Sum(V), fn:Max(V), fn:Min(V)   # Aggregations
+fn:count()                        # Count elements
+fn:sum(V), fn:max(V), fn:min(V)   # Aggregations
 fn:group_by(V1, V2, ...)          # Group by
 fn:plus(A, B), fn:minus(A, B)     # Arithmetic
 fn:list:get(List, Index)          # List access (0-based)
@@ -274,7 +274,7 @@ safe(X) :- candidate(X), !excluded(X).
 count_by_category(Cat, N) :-
     item(Cat, _) |>
     do fn:group_by(Cat),
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 #### Structured Data Query
@@ -364,13 +364,13 @@ region_sales(Region, Total) :-
 region_sales(Region, Total) :-
     sales(Region, Amount) |>
     fn:group_by(Region),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 
 # CORRECT - Full pipeline syntax
 region_sales(Region, Total) :-
     sales(Region, Amount) |>
     do fn:group_by(Region),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 ```
 
 ### Pitfall 4: Wrong Declaration Syntax
@@ -498,7 +498,7 @@ python3 scripts/validate_mangle.py program.mg --verbose
 - Aggregation pipelines (|> do fn: let)
 - Safety constraints (head variables bound in body)
 - Negation safety (variables bound before negation)
-- Built-in function validation (fn:Count, fn:Sum, etc.)
+- Built-in function validation (fn:count, fn:sum, etc.)
 - Basic stratification analysis
 
 ### diagnose_stratification.py - Stratification Diagnostic Tool

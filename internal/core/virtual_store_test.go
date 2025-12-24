@@ -28,6 +28,8 @@ func (s *stubKernel) Assert(f Fact) error                  { s.asserted = append
 func (s *stubKernel) Retract(string) error                 { return nil }
 func (s *stubKernel) RetractFact(Fact) error               { return nil }
 func (s *stubKernel) UpdateSystemFacts() error             { return nil }
+func (s *stubKernel) Reset()                               {}
+func (s *stubKernel) AppendPolicy(string)                  {}
 
 func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
@@ -251,6 +253,7 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	cfg.WorkingDir = workspace
 	vs := NewVirtualStoreWithConfig(nil, cfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard()
 
 	out, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",

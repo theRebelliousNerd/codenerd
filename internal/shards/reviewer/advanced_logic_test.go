@@ -67,6 +67,11 @@ func TestAdvancedReviewerCapabilities(t *testing.T) {
         # We explicitly use paths that match the DEFAULTS in reviewer.mg
         file_topology("internal/core/logic.go", "hash", /go, 1, /false).
         file_topology("cmd/nerd/main.go", "hash", /go, 1, /false).
+
+        # Simulate string_contains virtual predicate for layer detection
+        string_contains("internal/core/logic.go", "internal/").
+        string_contains("internal/core/logic.go", "core/").
+        string_contains("cmd/nerd/main.go", "cmd/").
         
         symbol_graph("core_id", /function, /public, "internal/core/logic.go", "sig").
         symbol_graph("ui_id", /function, /public, "cmd/nerd/main.go", "sig").

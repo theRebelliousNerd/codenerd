@@ -28,6 +28,7 @@ func TestReadFileContext_InjectsFactsViaVirtualStore(t *testing.T) {
 	vsCfg.WorkingDir = workspace
 	vs := core.NewVirtualStoreWithConfig(nil, vsCfg)
 	vs.SetKernel(kernel)
+	vs.DisableBootGuard()
 
 	coderCfg := DefaultCoderConfig()
 	coderCfg.WorkingDir = workspace

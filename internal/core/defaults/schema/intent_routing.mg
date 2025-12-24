@@ -323,7 +323,7 @@ tool_affinity_domain(/performance, /benchmark, 90).
 
 Decl best_mode(Mode, Score).
 Decl best_shard(Shard, Score).
-Decl context_priority(ContextCategory, Score).
+Decl context_category_priority(ContextCategory, Score).
 Decl tool_priority(Tool, Score).
 
 # Aggregate mode scores from all signals

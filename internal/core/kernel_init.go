@@ -225,24 +225,24 @@ func (k *RealKernel) loadMangleFiles() error {
 	// Load all modular schema files (schemas_*.mg)
 	// This allows selective loading and better organization (18 modules, all under 600 lines)
 	schemaFiles := []string{
-		"schemas_intent.mg",     // Intent & Focus Resolution
-		"schemas_world.mg",      // File Topology, Symbol Graph, Diagnostics
-		"schemas_execution.mg",  // TDD Loop & Action Execution
-		"schemas_browser.mg",    // Browser Physics & Spatial Reasoning
-		"schemas_project.mg",    // Project Profile, User Preferences, Session State
-		"schemas_dreamer.mg",    // Speculative Dreamer & Cross-Module Support
-		"schemas_memory.mg",     // Memory Tiers & Knowledge
-		"schemas_knowledge.mg",  // Knowledge Atoms, LSP, Semantic Matching
-		"schemas_safety.mg",     // Constitution, Git Safety, Shadow Mode
-		"schemas_analysis.mg",   // Spreading Activation, Strategy, Impact
-		"schemas_misc.mg",       // Northstar, Continuation Protocol, Benchmarks
-		"schemas_codedom.mg",    // Code DOM & Interactive Elements
-		"schemas_testing.mg",    // Verification, Reasoning Traces, Pytest
-		"schemas_campaign.mg",   // Campaign Orchestration
-		"schemas_tools.mg",      // Ouroboros, Tool Learning, Routing
-		"schemas_prompts.mg",    // Dynamic Prompt Composition & JIT
-		"schemas_reviewer.mg",   // Static Analysis & Data Flow
-		"schemas_shards.mg",     // Shard Delegation & Coordination
+		"schemas_intent.mg",    // Intent & Focus Resolution
+		"schemas_world.mg",     // File Topology, Symbol Graph, Diagnostics
+		"schemas_execution.mg", // TDD Loop & Action Execution
+		"schemas_browser.mg",   // Browser Physics & Spatial Reasoning
+		"schemas_project.mg",   // Project Profile, User Preferences, Session State
+		"schemas_dreamer.mg",   // Speculative Dreamer & Cross-Module Support
+		"schemas_memory.mg",    // Memory Tiers & Knowledge
+		"schemas_knowledge.mg", // Knowledge Atoms, LSP, Semantic Matching
+		"schemas_safety.mg",    // Constitution, Git Safety, Shadow Mode
+		"schemas_analysis.mg",  // Spreading Activation, Strategy, Impact
+		"schemas_misc.mg",      // Northstar, Continuation Protocol, Benchmarks
+		"schemas_codedom.mg",   // Code DOM & Interactive Elements
+		"schemas_testing.mg",   // Verification, Reasoning Traces, Pytest
+		"schemas_campaign.mg",  // Campaign Orchestration
+		"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing
+		"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT
+		"schemas_reviewer.mg",  // Static Analysis & Data Flow
+		"schemas_shards.mg",    // Shard Delegation & Coordination
 	}
 
 	loadedSchemaBytes := 0
@@ -317,6 +317,9 @@ func (k *RealKernel) loadMangleFiles() error {
 		}
 	}
 	logging.KernelDebug("Loaded %d/%d core modules", loadedModules, len(coreModules))
+
+	// Load embedded intent corpus facts for routing and semantic classification.
+	k.loadEmbeddedIntentFacts()
 
 	// Load base learned rules (if any)
 	if data, err := coreLogic.ReadFile("defaults/learned.mg"); err == nil {
