@@ -148,6 +148,7 @@ func (sv *SchemaValidator) ValidateRule(ruleText string) error {
 //
 // In addition to schema drift checks (undefined predicates in the body), learned rules are
 // prevented from defining protected control-plane predicates that must remain deterministic.
+// Also validates that head predicates match declared arities.
 func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	trimmed := strings.TrimSpace(ruleText)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -159,9 +160,81 @@ func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 		if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
 			return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
 		}
+
+		// Validate arity of head predicate against declared schema
+		if err := sv.validateHeadArity(trimmed, head); err != nil {
+			return err
+		}
 	}
 
 	return sv.ValidateRule(ruleText)
+}
+
+// validateHeadArity checks that the head predicate's argument count matches the schema.
+func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
+	expectedArity, hasDeclaredArity := sv.predicateArities[headName]
+	if !hasDeclaredArity {
+		// Not declared, skip arity check (schema validation will catch undefined)
+		return nil
+	}
+
+	// Extract actual arity from the line: predicate_name(arg1, arg2, ...)
+	// Find the opening paren after the predicate name
+	headIdx := strings.Index(line, headName)
+	if headIdx < 0 {
+		return nil
+	}
+
+	// Find the argument list
+	afterHead := line[headIdx+len(headName):]
+	parenStart := strings.Index(afterHead, "(")
+	if parenStart < 0 {
+		return nil
+	}
+
+	// Find matching close paren (handle nested parens)
+	depth := 0
+	argStart := parenStart + 1
+	argEnd := -1
+	for i, c := range afterHead[parenStart:] {
+		if c == '(' {
+			depth++
+		} else if c == ')' {
+			depth--
+			if depth == 0 {
+				argEnd = parenStart + i
+				break
+			}
+		}
+	}
+
+	if argEnd < 0 {
+		return nil // Malformed, let parse handle it
+	}
+
+	argsStr := strings.TrimSpace(afterHead[argStart:argEnd])
+	actualArity := 0
+	if argsStr != "" {
+		// Count args by tracking commas at depth 0
+		depth = 0
+		actualArity = 1
+		for _, c := range argsStr {
+			if c == '(' {
+				depth++
+			} else if c == ')' {
+				depth--
+			} else if c == ',' && depth == 0 {
+				actualArity++
+			}
+		}
+	}
+
+	if actualArity != expectedArity {
+		return fmt.Errorf("arity mismatch: %s has %d args but schema declares %d",
+			headName, actualArity, expectedArity)
+	}
+
+	return nil
 }
 
 var forbiddenLearnedHeads = map[string]string{
