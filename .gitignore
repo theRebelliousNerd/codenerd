@@ -42,6 +42,7 @@ Docs/*
 !Docs/research/**
 !Docs/plans/**/*.md
 !.claude/skills/**/*.md
+!.codex/skills/**/SKILL.md
 !internal/prompt/atoms/**/*.md
 !conductor/**/*.md
 
