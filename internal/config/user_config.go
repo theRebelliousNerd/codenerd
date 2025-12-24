@@ -13,7 +13,7 @@ import (
 // Supported models by provider:
 //   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
 //   - openai:      gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
-//   - gemini:      gemini-3-pro-preview (default), gemini-2.5-pro, gemini-2.5-flash
+//   - gemini:      gemini-3-flash-preview (default), gemini-3-pro-preview, gemini-2.5-pro, gemini-2.5-flash
 //   - xai:         grok-2-latest (default), grok-2, grok-beta
 //   - zai:         GLM-4.6 (default)
 //   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.

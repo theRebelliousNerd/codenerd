@@ -254,11 +254,12 @@ type GeminiPart struct {
 }
 
 // GeminiGenerationConfig represents generation parameters.
+// Note: Gemini REST API uses snake_case for these fields.
 type GeminiGenerationConfig struct {
-	Temperature        float64                `json:"temperature,omitempty"`
-	MaxOutputTokens    int                    `json:"maxOutputTokens,omitempty"`
-	ResponseMimeType   string                 `json:"responseMimeType,omitempty"`
-	ResponseJsonSchema map[string]interface{} `json:"responseJsonSchema,omitempty"`
+	Temperature      float64                `json:"temperature,omitempty"`
+	MaxOutputTokens  int                    `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType string                 `json:"response_mime_type,omitempty"`
+	ResponseSchema   map[string]interface{} `json:"response_schema,omitempty"`
 }
 
 // GeminiRequest represents the Gemini API request.
@@ -314,6 +315,7 @@ var OpenRouterModels = []string{
 	"openai/o1-preview",
 	"openai/o1-mini",
 	// Google
+	"google/gemini-3-flash-preview",
 	"google/gemini-2.0-flash-exp:free",
 	"google/gemini-pro-1.5",
 	// Meta
