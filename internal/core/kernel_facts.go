@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -202,41 +203,6 @@ func (k *RealKernel) AssertString(factStr string) error {
 		return fmt.Errorf("AssertString: failed to parse %q: %w", factStr, err)
 	}
 	return k.Assert(fact)
-}
-
-// AssertBatch adds multiple facts and evaluates once (more efficient).
-func (k *RealKernel) AssertBatch(facts []Fact) error {
-	timer := logging.StartTimer(logging.CategoryKernel, "AssertBatch")
-	logging.KernelDebug("AssertBatch: adding %d facts", len(facts))
-
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	prevCount := len(k.facts)
-	sanitized := make([]Fact, len(facts))
-	for i, f := range facts {
-		sanitized[i] = sanitizeFactForNumericPredicates(f)
-	}
-	added := 0
-	for _, f := range sanitized {
-		if k.addFactIfNewLocked(f) {
-			added++
-		}
-	}
-	if added == 0 {
-		timer.Stop()
-		logging.KernelDebug("AssertBatch: no new facts added (all duplicates)")
-		return nil
-	}
-
-	if err := k.evaluate(); err != nil {
-		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after adding %d facts: %v", len(facts), err)
-		return err
-	}
-
-	timer.Stop()
-	logging.KernelDebug("AssertBatch: added %d/%d facts, EDB: %d -> %d facts", added, len(facts), prevCount, len(k.facts))
-	return nil
 }
 
 // AssertWithoutEval adds a fact without re-evaluating.
@@ -526,11 +492,15 @@ func (k *RealKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 // argsEqual compares two fact arguments for equality.
 // OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
 func argsEqual(a, b interface{}) bool {
-	// Fast path: pointer equality
-	if a == b {
+	// Check for nil
+	if a == nil && b == nil {
 		return true
 	}
+	if a == nil || b == nil {
+		return false
+	}
 
+	// Use type switch to handle specific types (avoids panic on non-comparable types like maps)
 	switch av := a.(type) {
 	case string:
 		if bv, ok := b.(string); ok {
@@ -569,10 +539,20 @@ func argsEqual(a, b interface{}) bool {
 		if bv, ok := b.(bool); ok {
 			return av == bv
 		}
+	case map[string]interface{}:
+		// Maps are not comparable with ==, use reflect.DeepEqual
+		if bv, ok := b.(map[string]interface{}); ok {
+			return reflect.DeepEqual(av, bv)
+		}
+	case []interface{}:
+		// Slices are not comparable with ==, use reflect.DeepEqual
+		if bv, ok := b.([]interface{}); ok {
+			return reflect.DeepEqual(av, bv)
+		}
 	default:
-		// SLOW PATH: Only for truly unknown types
-		// This should rarely execute if type system is well-defined
-		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+		// SLOW PATH: Use reflect.DeepEqual for truly unknown types
+		// This handles any comparable and non-comparable types safely
+		return reflect.DeepEqual(a, b)
 	}
 
 	// Type mismatch (e.g., string vs int)
