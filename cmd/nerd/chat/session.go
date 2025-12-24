@@ -6,6 +6,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
+	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
@@ -485,6 +486,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Initialize JIT Prompt Compiler with embedded corpus
 		logStep("Initializing JIT prompt compiler...")
 		var jitCompiler *prompt.JITPromptCompiler
+		var promptEvolver *prompt_evolution.PromptEvolver
 
 		// Load embedded corpus (baked-in prompt atoms)
 		embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
@@ -586,6 +588,27 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				logging.Boot("JIT compiler wired with LocalDB for semantic knowledge queries")
 			}
 
+			// Initialize Prompt Evolution System (System Prompt Learning) - inside JIT block for nerdDir access
+			logStep("Initializing Prompt Evolution System...")
+			evolverConfig := prompt_evolution.DefaultEvolverConfig()
+			if pe, err := prompt_evolution.NewPromptEvolver(nerdDir, llmClient, evolverConfig); err == nil {
+				promptEvolver = pe
+				logging.Boot("Prompt Evolution System initialized")
+
+				// Create and register EvolvedAtomManager with JIT compiler
+				eam := prompt.NewEvolvedAtomManager(nerdDir)
+				jitCompiler.RegisterEvolvedAtomManager(eam)
+				logging.Boot("EvolvedAtomManager registered with JIT compiler: %d atoms", eam.Count())
+
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: "✓ Prompt Evolution System initialized",
+					Time:    time.Now(),
+				})
+			} else {
+				logging.Boot("Warning: Failed to initialize Prompt Evolution: %v", err)
+			}
+
 			initialMessages = append(initialMessages, Message{
 				Role:    "assistant",
 				Content: "✓ JIT prompt compiler initialized",
@@ -598,6 +621,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				Time:    time.Now(),
 			})
 		}
+
 		// Create PromptAssembler with JIT for dynamic prompt compilation
 		var promptAssembler *articulation.PromptAssembler
 		if jitCompiler != nil {
@@ -989,6 +1013,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				GlassBoxEventBus:      glassBoxEventBus,
 				ToolEventBus:          toolEventBus,
 				ToolStore:             toolStore,
+				PromptEvolver:         promptEvolver,
 			},
 		}
 	}
