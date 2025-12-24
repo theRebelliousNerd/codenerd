@@ -34,21 +34,21 @@ type reviewCommandOptions struct {
 
 // AggregatedReview holds the combined results from all shards
 type AggregatedReview struct {
-	ID               string
-	Target           string
-	Files            []string
-	Participants     []string
-	IsComplete       bool
-	IncompleteReason []string
-	Summary          string
-	Narrative        string
-	FindingsByShard  map[string][]reviewer.ParsedFinding
-	DeduplicatedList []reviewer.ParsedFinding
-	HolisticInsights []string
+	ID                 string
+	Target             string
+	Files              []string
+	Participants       []string
+	IsComplete         bool
+	IncompleteReason   []string
+	Summary            string
+	Narrative          string
+	FindingsByShard    map[string][]reviewer.ParsedFinding
+	DeduplicatedList   []reviewer.ParsedFinding
+	HolisticInsights   []string
 	EnhancementSection string
-	TotalFindings    int
-	StartTime        time.Time
-	Duration         time.Duration
+	TotalFindings      int
+	StartTime          time.Time
+	Duration           time.Duration
 }
 
 // ShardReviewResult holds the result from a single shard
@@ -623,19 +623,19 @@ func normalizeReviewFiles(files []string, workspace string) ([]string, []string)
 
 func normalizeReviewFilesInternal(files []string, workspace string, filterExt bool) ([]string, []string) {
 	allowedExts := map[string]bool{
-		".go":  true,
-		".py":  true,
-		".js":  true,
-		".jsx": true,
-		".ts":  true,
-		".tsx": true,
-		".rs":  true,
+		".go":   true,
+		".py":   true,
+		".js":   true,
+		".jsx":  true,
+		".ts":   true,
+		".tsx":  true,
+		".rs":   true,
 		".java": true,
-		".c":   true,
-		".cpp": true,
-		".h":   true,
-		".mg":  true,
-		".gl":  true,
+		".c":    true,
+		".cpp":  true,
+		".h":    true,
+		".mg":   true,
+		".gl":   true,
 	}
 
 	skipDirs := []string{"vendor", "node_modules", ".git", ".nerd", "dist", "build"}

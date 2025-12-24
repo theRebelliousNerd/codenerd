@@ -3,8 +3,8 @@
 package chat
 
 import (
-	"codenerd/internal/core"
 	ctxcompress "codenerd/internal/context"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"context"
 	"encoding/json"

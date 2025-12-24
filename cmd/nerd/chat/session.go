@@ -173,8 +173,11 @@ func InitChat(cfg Config) Model {
 		focusError:   false,
 		// System action summaries are noisy; default to showing them only in debug mode.
 		showSystemActions: appCfg != nil && appCfg.Logging != nil && appCfg.Logging.DebugMode,
-		history:      []Message{},
-		Config:       appCfg,
+		history:           []Message{},
+		Config:            appCfg,
+		// Rendering cache for performance
+		renderedCache:    make(map[int]string),
+		cacheInvalidFrom: 0, // All messages need rendering initially
 		// Backend components start nil
 		kernel:              nil,
 		shardMgr:            nil,
@@ -190,6 +193,7 @@ func InitChat(cfg Config) Model {
 		shutdownOnce:   &sync.Once{},
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
+		goroutineWg:    &sync.WaitGroup{},
 		// UX components
 		preferencesMgr:  prefsMgr,
 		transparencyMgr: transparencyMgr,
@@ -770,9 +774,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
-			shard.SetGlassBox(glassBoxEventBus)   // Wire Glass Box for debug visibility
-			shard.SetToolEventBus(toolEventBus)   // Wire Tool Event Bus for always-visible tool execution
-			shard.SetToolStore(toolStore)         // Wire Tool Store for full result persistence
+			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for debug visibility
+			shard.SetToolEventBus(toolEventBus) // Wire Tool Event Bus for always-visible tool execution
+			shard.SetToolStore(toolStore)       // Wire Tool Store for full result persistence
 			if browserMgr != nil {
 				shard.SetBrowserManager(browserMgr)
 			}

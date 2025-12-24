@@ -14,12 +14,12 @@ import (
 
 // reembedCompleteMsg is sent when re-embedding finishes.
 type reembedCompleteMsg struct {
-	dbCount       int
-	vectorsDone   int
-	atomsDone     int
-	skipped       []string
-	duration      time.Duration
-	err           error
+	dbCount     int
+	vectorsDone int
+	atomsDone   int
+	skipped     []string
+	duration    time.Duration
+	err         error
 }
 
 // runReembedAllDBs force re-embeds vectors and prompt atoms across all .db files

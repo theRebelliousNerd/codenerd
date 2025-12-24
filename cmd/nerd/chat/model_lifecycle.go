@@ -53,6 +53,24 @@ func (m *Model) Shutdown() {
 			m.campaignOrch.Stop()
 		}
 
+		// Wait for all background goroutines with timeout
+		if m.goroutineWg != nil {
+			done := make(chan struct{})
+			go func() {
+				m.goroutineWg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// All goroutines finished cleanly
+			case <-time.After(5 * time.Second):
+				// Timeout waiting for goroutines - some may be stuck
+				// Proceeding anyway to prevent hanging shutdown
+				fmt.Println("[Shutdown] Warning: Some background goroutines did not finish within timeout")
+			}
+		}
+
 		// Close status channel to unblock waitForStatus
 		// Set to nil after close to prevent sends on closed channel
 		if m.statusChan != nil {

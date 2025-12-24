@@ -2,12 +2,13 @@
 // This file contains evolution-related helper methods for the Prompt Evolution System (SPL).
 //
 // Commands (defined in commands.go):
-//   /evolve          - Trigger manual evolution cycle
-//   /evolution-stats - Show evolution statistics
-//   /evolved-atoms   - List evolved atoms
-//   /promote-atom    - Promote pending atom to corpus
-//   /reject-atom     - Reject evolved atom
-//   /strategies      - Show strategy database
+//
+//	/evolve          - Trigger manual evolution cycle
+//	/evolution-stats - Show evolution statistics
+//	/evolved-atoms   - List evolved atoms
+//	/promote-atom    - Promote pending atom to corpus
+//	/reject-atom     - Reject evolved atom
+//	/strategies      - Show strategy database
 package chat
 
 import (
