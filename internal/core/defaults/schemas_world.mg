@@ -53,3 +53,37 @@ Decl dependency_link(CallerID, CalleeID, ImportPath).
 # SerializationOrder: 3
 Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
 
+# =============================================================================
+# SECTION 5.1: LSP CODE INTELLIGENCE (Language Server Protocol Integration)
+# =============================================================================
+# These predicates are derived from LSP servers (Mangle LSP, gopls, etc.)
+# and provide semantic code intelligence to the World Model.
+
+# symbol_defined(Lang, SymbolName, FilePath, Line, Column)
+# Marks where a symbol is defined in code
+# Lang: /mangle, /go, /python, /rust, etc.
+# Priority: 75
+# SerializationOrder: 12
+Decl symbol_defined(Lang, SymbolName, FilePath, Line, Column).
+
+# symbol_referenced(Lang, SymbolName, FilePath, Line, Column, Kind)
+# Marks where a symbol is referenced/used in code
+# Kind: /head, /body, /fact, /query (for Mangle), /call, /import (for other languages)
+# Priority: 70
+# SerializationOrder: 13
+Decl symbol_referenced(Lang, SymbolName, FilePath, Line, Column, Kind).
+
+# code_diagnostic(FilePath, Line, Severity, Message)
+# LSP-derived diagnostics (syntax errors, warnings, hints)
+# Severity: /error, /warning, /info, /hint
+# Priority: 95
+# SerializationOrder: 3
+Decl code_diagnostic(FilePath, Line, Severity, Message).
+
+# symbol_completion(FilePath, Line, Column, Suggestions)
+# Available completions at a cursor position (list of suggestion strings)
+# Used by LegislatorShard and CoderShard for intelligent code generation
+# Priority: 60
+# SerializationOrder: 15
+Decl symbol_completion(FilePath, Line, Column, Suggestions).
+

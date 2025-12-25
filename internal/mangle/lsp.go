@@ -574,6 +574,129 @@ func (s *LSPServer) GetCompletions(uri string, line, col int) []CompletionItem {
 }
 
 // ============================================================================
+// Batch Query API (for World Model Projection)
+// ============================================================================
+
+// GetDefinitions returns all definitions for a symbol.
+// Used by LSP Manager to project definitions into World Model facts.
+func (s *LSPServer) GetDefinitions(symbol string) []Definition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.definitions[symbol]
+}
+
+// GetReferences returns all references to a symbol.
+// Used by LSP Manager to project references into World Model facts.
+func (s *LSPServer) GetReferences(symbol string) []Reference {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.references[symbol]
+}
+
+// GetAllDefinitions returns all definitions across all symbols.
+// Used by LSP Manager for full World Model fact projection.
+func (s *LSPServer) GetAllDefinitions() map[string][]Definition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string][]Definition, len(s.definitions))
+	for symbol, defs := range s.definitions {
+		result[symbol] = append([]Definition(nil), defs...)
+	}
+	return result
+}
+
+// GetAllReferences returns all references across all symbols.
+// Used by LSP Manager for full World Model fact projection.
+func (s *LSPServer) GetAllReferences() map[string][]Reference {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string][]Reference, len(s.references))
+	for symbol, refs := range s.references {
+		result[symbol] = append([]Reference(nil), refs...)
+	}
+	return result
+}
+
+// GetAllDiagnostics returns all diagnostics across all documents.
+// Used by LSP Manager for full World Model fact projection.
+func (s *LSPServer) GetAllDiagnostics() map[string][]Diagnostic {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string][]Diagnostic, len(s.diagnostics))
+	for uri, diags := range s.diagnostics {
+		result[uri] = append([]Diagnostic(nil), diags...)
+	}
+	return result
+}
+
+// ValidateCode validates Mangle code without opening it as a document.
+// Returns diagnostics for the given code.
+// Used by CoderShard and LegislatorShard to validate generated code.
+func (s *LSPServer) ValidateCode(uri, content string) []Diagnostic {
+	var diags []Diagnostic
+	lines := strings.Split(content, "\n")
+
+	for lineNum, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Check for missing period
+		if !strings.HasSuffix(line, ".") && !strings.HasSuffix(line, ":-") && !strings.Contains(line, "|>") {
+			diags = append(diags, Diagnostic{
+				FilePath: uriToPath(uri),
+				Line:     lineNum + 1,
+				Column:   len(line),
+				Severity: DiagWarning,
+				Message:  "Statement should end with period",
+				Code:     "missing-period",
+				Source:   "mangle-lsp",
+			})
+		}
+
+		// Check for unbalanced parentheses
+		openCount := strings.Count(line, "(")
+		closeCount := strings.Count(line, ")")
+		if openCount != closeCount {
+			diags = append(diags, Diagnostic{
+				FilePath: uriToPath(uri),
+				Line:     lineNum + 1,
+				Column:   0,
+				Severity: DiagError,
+				Message:  "Unbalanced parentheses",
+				Code:     "unbalanced-parens",
+				Source:   "mangle-lsp",
+			})
+		}
+
+		// Check for empty rule body
+		if strings.Contains(line, ":-") {
+			parts := strings.Split(line, ":-")
+			if len(parts) > 1 && strings.TrimSpace(parts[1]) == "." {
+				diags = append(diags, Diagnostic{
+					FilePath: uriToPath(uri),
+					Line:     lineNum + 1,
+					Column:   strings.Index(line, ":-"),
+					Severity: DiagError,
+					Message:  "Empty rule body",
+					Code:     "empty-body",
+					Source:   "mangle-lsp",
+				})
+			}
+		}
+	}
+
+	return diags
+}
+
+// ============================================================================
 // Index Workspace
 // ============================================================================
 
