@@ -57,3 +57,8 @@ debug_program*.mg
 !.nerd/knowledge.db
 !.nerd/learned_patterns.db
 
+
+# SQLite runtime files
+*.db-shm
+*.db-wal
+*.backup_*
