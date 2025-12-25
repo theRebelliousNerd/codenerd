@@ -61,7 +61,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex (System Stabilization)
-	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
