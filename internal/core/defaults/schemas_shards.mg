@@ -529,4 +529,3 @@ Decl last_action_time(Timestamp).
 # Builtin helper predicates
 # Note: time_diff removed - use fn:minus(Now, Timestamp) inline in rules instead.
 # Note: list_length is DEPRECATED - use fn:list:length(List) in transform pipelines instead.
-
