@@ -33,7 +33,35 @@ import (
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
+	"sync"
 )
+
+// Global singleton Cortex instance to prevent repeated initialization (Bug #1 fix)
+var (
+	globalCortex     *Cortex
+	globalCortexOnce sync.Once
+	globalCortexErr  error
+)
+
+// GetOrBootCortex returns the global Cortex singleton, initializing it once if needed.
+// This prevents the massive initialization spam (2,141 reinitializations) that was
+// occurring when every command created its own Cortex instance.
+//
+// IMPORTANT: This function should be used instead of BootCortex() in all command handlers.
+func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
+	globalCortexOnce.Do(func() {
+		globalCortex, globalCortexErr = BootCortex(ctx, workspace, apiKey, disableSystemShards)
+	})
+	return globalCortex, globalCortexErr
+}
+
+// ResetGlobalCortex resets the global Cortex singleton. This is primarily for testing.
+// WARNING: This should NOT be used in production code as it can cause inconsistent state.
+func ResetGlobalCortex() {
+	globalCortex = nil
+	globalCortexErr = nil
+	globalCortexOnce = sync.Once{}
+}
 
 // Cortex represents a fully initialized system instance.
 type Cortex struct {

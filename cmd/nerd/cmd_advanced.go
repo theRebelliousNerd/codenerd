@@ -140,7 +140,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -207,7 +207,7 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -247,7 +247,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -310,7 +310,7 @@ func runLogicQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -349,7 +349,7 @@ func runAgentsList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -403,7 +403,7 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -530,7 +530,7 @@ func runJITStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
