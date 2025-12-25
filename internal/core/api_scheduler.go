@@ -91,7 +91,7 @@ type APISchedulerConfig struct {
 // DefaultAPISchedulerConfig returns sensible defaults.
 func DefaultAPISchedulerConfig() APISchedulerConfig {
 	return APISchedulerConfig{
-		MaxConcurrentAPICalls: 5,               // Z.AI limit
+		MaxConcurrentAPICalls: 2,               // Bug #2 fix: Reduced from 5 to prevent rate limit cascade
 		SlotAcquireTimeout:    5 * time.Minute, // Match typical API timeout
 		EnableMetrics:         true,
 	}

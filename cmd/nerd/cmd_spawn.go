@@ -70,7 +70,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex to get wired environment
-	cortex, err := coresys.BootCortex(cmd.Context(), workspace, key, disableSystemShards)
+	cortex, err := coresys.GetOrBootCortex(cmd.Context(), workspace, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
@@ -120,7 +120,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex
-	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}

@@ -617,6 +617,20 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
+		// Bug #6 fix: Check for empty response (safety filter or API failure)
+		trimmedBody := bytes.TrimSpace(body)
+		if len(trimmedBody) == 0 {
+			retryDelay := c.nextRetryDelay(i)
+			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]interface{}{
+				"request_id": reqID,
+				"attempt":    i + 1,
+				"backoff_ms": retryDelay.Milliseconds(),
+			})
+			lastErr = fmt.Errorf("empty response from API")
+			retryDelayOverride = retryDelay
+			continue
+		}
+
 		var zaiResp ZAIResponse
 		if err := json.Unmarshal(body, &zaiResp); err != nil {
 			log.Error("[%s] Failed to parse response: %v", reqID, err)
@@ -984,6 +998,20 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			}
 			log.Error("[%s] API request failed with status %d: %s", reqID, resp.StatusCode, string(body))
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Bug #6 fix: Check for empty response (safety filter or API failure)
+		trimmedBody := bytes.TrimSpace(body)
+		if len(trimmedBody) == 0 {
+			retryDelay := c.nextRetryDelay(i)
+			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]interface{}{
+				"request_id": reqID,
+				"attempt":    i + 1,
+				"backoff_ms": retryDelay.Milliseconds(),
+			})
+			lastErr = fmt.Errorf("empty response from API")
+			retryDelayOverride = retryDelay
+			continue
 		}
 
 		var zaiResp ZAIResponse

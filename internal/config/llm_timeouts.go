@@ -96,7 +96,8 @@ func DefaultLLMTimeouts() LLMTimeouts {
 		// Tier 2 - Operation
 		// NOTE: Z.AI responses take 150+ seconds minimum for SIMPLE prompts.
 		// Complex prompts can take 5-10+ minutes. All values have generous buffers.
-		ShardExecutionTimeout:     20 * time.Minute, // Shard spawn includes research + LLM
+		// Bug #3 fix: Increased from 20 to 30 min to account for API slot contention during high load
+		ShardExecutionTimeout:     30 * time.Minute, // Shard spawn includes research + LLM
 		ArticulationTimeout:       5 * time.Minute,  // Articulation transducer
 		FollowUpTimeout:           5 * time.Minute,  // ZAI simple prompts: 150s+
 		OuroborosTimeout:          10 * time.Minute, // Tool generation pipeline
