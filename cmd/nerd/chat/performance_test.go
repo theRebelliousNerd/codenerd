@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 )
 
