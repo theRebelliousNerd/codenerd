@@ -1,7 +1,9 @@
 package prompt
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"strings"
 )
 
 // CompilationContext holds all dimensions for prompt atom selection.
@@ -450,4 +452,41 @@ func AllContextDimensions() []ContextDimension {
 			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn"},
 		},
 	}
+}
+
+// Hash generates a stable hash key for caching based on context fields.
+// Bug #5 fix: Enable prompt caching to prevent recompilation spam.
+func (cc *CompilationContext) Hash() string {
+	if cc == nil {
+		return "nil"
+	}
+
+	// Concatenate all relevant fields that affect compilation
+	// Order matters! Keep stable for consistent hashing.
+	parts := []string{
+		cc.OperationalMode,
+		cc.CampaignPhase,
+		cc.CampaignID,
+		cc.BuildLayer,
+		cc.ShardType,
+		cc.ShardID,
+		cc.Language,
+		strings.Join(cc.Frameworks, ","),
+		cc.IntentVerb,
+		cc.IntentTarget,
+		cc.NorthstarPhase,
+		cc.InitPhase,
+		cc.OuroborosStage,
+		cc.SemanticQuery,
+		fmt.Sprintf("%d", cc.TokenBudget),
+		fmt.Sprintf("%d", cc.FailingTestCount),
+		fmt.Sprintf("%d", cc.DiagnosticCount),
+		fmt.Sprintf("%t", cc.IsLargeRefactor),
+		fmt.Sprintf("%t", cc.HasSecurityIssues),
+	}
+
+	// Create deterministic hash
+	data := strings.Join(parts, "|")
+	hash := sha256.Sum256([]byte(data))
+	return fmt.Sprintf("%x", hash)
 }
