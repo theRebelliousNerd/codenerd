@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -240,6 +241,12 @@ type JITPromptCompiler struct {
 	budgetMgr *TokenBudgetManager
 	assembler *FinalAssembler
 
+	// Bug #5 fix: Prompt cache to prevent recompilation spam
+	cache      map[string]*CompilationResult
+	cacheMu    sync.RWMutex
+	cacheHits  int64
+	cacheMiss  int64
+
 	// Observability
 	lastResult *CompilationResult
 
@@ -300,6 +307,7 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 		resolver:  NewDependencyResolver(),
 		budgetMgr: NewTokenBudgetManager(),
 		assembler: NewFinalAssembler(),
+		cache:     make(map[string]*CompilationResult), // Bug #5 fix: Initialize prompt cache
 	}
 
 	// Apply options
@@ -374,6 +382,19 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		return nil, fmt.Errorf("invalid compilation context: %w", err)
 	}
 
+	// Bug #5 fix: Check cache before compilation
+	cacheKey := cc.Hash()
+	c.cacheMu.RLock()
+	if cached, ok := c.cache[cacheKey]; ok {
+		c.cacheMu.RUnlock()
+		atomic.AddInt64(&c.cacheHits, 1)
+		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
+			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
+		return cached, nil
+	}
+	c.cacheMu.RUnlock()
+	atomic.AddInt64(&c.cacheMiss, 1)
+
 	// Start comprehensive timing after validation
 	compileStart := time.Now()
 	stats := &CompilationStats{
@@ -382,7 +403,8 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		IntentVerb:      cc.IntentVerb,
 	}
 
-	logging.Get(logging.CategoryJIT).Info("Compiling prompt: %s", cc.String())
+	logging.Get(logging.CategoryJIT).Info("Compiling prompt (cache MISS): %s (hash=%s, misses=%d)",
+		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
 	// Step 1: Collect all candidate atoms from all sources
 	collectStart := time.Now()
@@ -501,6 +523,12 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	c.mu.Lock()
 	c.lastResult = result
 	c.mu.Unlock()
+
+	// Bug #5 fix: Store result in cache for future reuse
+	c.cacheMu.Lock()
+	c.cache[cacheKey] = result
+	c.cacheMu.Unlock()
+	logging.Get(logging.CategoryJIT).Debug("Stored compiled prompt in cache (hash=%s)", cacheKey[:8])
 
 	// Log comprehensive stats using JIT category
 	c.logCompilationStats(stats, result)
