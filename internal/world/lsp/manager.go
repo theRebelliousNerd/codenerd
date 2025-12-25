@@ -42,7 +42,7 @@ func (m *Manager) Initialize(ctx context.Context) error {
 	logging.World("Initializing LSP Manager")
 
 	// Create Mangle engine for LSP server
-	engine, err := mangle.NewEngine()
+	engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("Failed to create Mangle engine for LSP: %v", err)
 		return fmt.Errorf("failed to create Mangle engine: %w", err)

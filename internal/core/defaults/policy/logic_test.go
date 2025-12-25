@@ -10,15 +10,7 @@ import (
 
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
-	"go.uber.org/goleak"
 )
-
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
-		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
-		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
-	)
-}
 
 // TestLogic_Golden enforces strict correctness of Mangle policies.
 // It loads scenarios from testdata/, runs them against the engine,

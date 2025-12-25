@@ -19,18 +19,17 @@ Decl safe_interactable(ID).
 Decl target_checkbox(CheckID, LabelText).
 
 # Honeypot Intermediate Predicates
-# Moved to policy/browser_honeypot.mg
-# Decl honeypot_css_hidden(Elem).
-# Decl honeypot_css_invisible(Elem).
-# Decl honeypot_opacity_hidden(Elem).
-# Decl honeypot_offscreen(Elem).
-# Decl honeypot_zero_size(Elem).
-# Decl honeypot_aria_hidden(Elem).
-# Decl honeypot_no_keyboard(Elem).
-# Decl honeypot_pointer_events_none(Elem).
-# Decl honeypot_suspicious_url(Elem).
-# Decl is_honeypot(Elem).
-# Decl high_confidence_honeypot(Elem).
+Decl honeypot_css_hidden(Elem).
+Decl honeypot_css_invisible(Elem).
+Decl honeypot_opacity_hidden(Elem).
+Decl honeypot_offscreen(Elem).
+Decl honeypot_zero_size(Elem).
+Decl honeypot_aria_hidden(Elem).
+Decl honeypot_no_keyboard(Elem).
+Decl honeypot_pointer_events_none(Elem).
+Decl honeypot_suspicious_url(Elem).
+Decl is_honeypot(Elem).
+Decl high_confidence_honeypot(Elem).
 
 # DOM Tree Extended
 Decl dom_node(ID, Tag, Text, Parent).
