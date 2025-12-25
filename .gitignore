@@ -62,3 +62,4 @@ debug_program*.mg
 *.db-shm
 *.db-wal
 *.backup_*
+.claude/skills/log-analyzer/scripts/logquery/logquery
