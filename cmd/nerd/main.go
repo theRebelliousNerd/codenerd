@@ -29,8 +29,9 @@
 //                          browserSnapshotCmd, getBrowserConfig(), browserLaunch(),
 //                          browserSession(), browserSnapshot()
 //
-// Mangle Validation:
+// Mangle Validation & LSP:
 //   - cmd_mangle_check.go - checkMangleCmd, runCheckMangle(), checkFile()
+//   - cmd_mangle_lsp.go   - mangleLSPCmd, runMangleLSP() (Language Server Protocol for IDE integration)
 //
 // Query & Status:
 //   - cmd_query.go       - queryCmd, statusCmd, whyCmd, queryFacts(), showStatus(),
@@ -214,6 +215,7 @@ func init() {
 		whyCmd,
 		campaignCmd,
 		checkMangleCmd,
+		mangleLSPCmd,
 		authCmd,
 	)
 

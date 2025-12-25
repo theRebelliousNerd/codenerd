@@ -20,6 +20,11 @@ var WorldPredicates = []string{
 	"error_checked_return",
 	"error_checked_block",
 	"function_scope",
+	// LSP-derived predicates (code intelligence)
+	"symbol_defined",
+	"symbol_referenced",
+	"code_diagnostic",
+	"symbol_completion",
 }
 
 // WorldPredicateSet returns a map form for fast membership checks.
