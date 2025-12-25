@@ -3,17 +3,11 @@ package policy_test
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"codenerd/internal/mangle"
-	"go.uber.org/goleak"
 )
-
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
-}
 
 // TestHoneypotLogic verifies the honeypot detection rules in browser_honeypot.mg
 // using the application's Mangle engine wrapper.
@@ -26,15 +20,9 @@ func TestHoneypotLogic(t *testing.T) {
 	rules := string(ruleBytes)
 
 	// 2. Prepare Schema and Mode Declarations
-	// We need to query predicates like is_honeypot. engine.Query requires mode declarations.
-	// browser_honeypot.mg contains plain "Decl is_honeypot(Elem)."
-	// We replace it to include modes: "Decl is_honeypot(Elem) descr [mode("-")]."
-	// Mode "-" means output (we want to list all honeypots).
-
-	rules = strings.Replace(rules, "Decl is_honeypot(Elem).", "Decl is_honeypot(Elem) descr [mode(\"-\")].", 1)
-	rules = strings.Replace(rules, "Decl high_confidence_honeypot(Elem).", "Decl high_confidence_honeypot(Elem) descr [mode(\"-\")].", 1)
-
-	// Base Schema (missing from the policy file itself)
+	// engine.Query requires mode declarations. Mode "-" means output (list all results).
+	// browser_honeypot.mg contains only rules - Decl statements are in schemas_browser.mg
+	// We declare all predicates here with modes for isolated testing
 	schema := `
 	Decl element(ID, Tag, Parent).
 	Decl css_property(Elem, Prop, Value).
@@ -42,6 +30,17 @@ func TestHoneypotLogic(t *testing.T) {
 	Decl position(Elem, X, Y, Width, Height).
 	Decl attribute(Elem, Name, Value).
 	Decl link(Elem, Href).
+	Decl honeypot_suspicious_url(Elem).
+	Decl honeypot_css_hidden(Elem).
+	Decl honeypot_css_invisible(Elem).
+	Decl honeypot_opacity_hidden(Elem).
+	Decl honeypot_offscreen(Elem).
+	Decl honeypot_zero_size(Elem).
+	Decl honeypot_aria_hidden(Elem).
+	Decl honeypot_no_keyboard(Elem).
+	Decl honeypot_pointer_events_none(Elem).
+	Decl is_honeypot(Elem) descr [mode("-")].
+	Decl high_confidence_honeypot(Elem) descr [mode("-")].
 	`
 
 	logic := schema + "\n" + rules

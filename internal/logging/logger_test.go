@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -211,12 +212,16 @@ func TestDebugModeDisabled(t *testing.T) {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
-	// Reset logging state
+	// Reset logging state completely (including sync.Once guard)
 	CloseAll()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
 	configLoaded = false
+	config = loggingConfig{} // Reset config to avoid state leakage from previous tests
+	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
+	initErr = nil
+	initialized = false
 
 	// Initialize logging with temp workspace
 	if err := Initialize(tempDir); err != nil {
@@ -307,12 +312,16 @@ func TestCategoryToggle(t *testing.T) {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
-	// Reset logging state
+	// Reset logging state completely (including sync.Once guard)
 	CloseAll()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
 	configLoaded = false
+	config = loggingConfig{} // Reset config to avoid state leakage from previous tests
+	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
+	initErr = nil
+	initialized = false
 
 	// Initialize
 	if err := Initialize(tempDir); err != nil {
