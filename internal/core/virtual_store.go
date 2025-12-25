@@ -825,8 +825,12 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 		Payload: make(map[string]interface{}),
 	}
 
+	// Bug #4 fix: Add detailed logging for malformed action facts
 	if len(action.Args) < 3 {
-		return req, fmt.Errorf("invalid action fact: requires at least 3 arguments (ActionID, Type, Target)")
+		logging.Get(logging.CategoryVirtualStore).Error(
+			"Malformed action fact: predicate=%s, got %d args (need 3+), args=%v",
+			action.Predicate, len(action.Args), action.Args)
+		return req, fmt.Errorf("invalid action fact: requires at least 3 arguments (ActionID, Type, Target), got %d", len(action.Args))
 	}
 
 	// First arg is ActionID
