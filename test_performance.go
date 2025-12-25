@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Standalone performance verification test
 // Run with: go run test_performance.go
 package main
