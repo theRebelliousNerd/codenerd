@@ -156,7 +156,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	cortex, err := coresys.BootCortex(ctx, workspace, key, nil)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}

@@ -98,6 +98,11 @@ var (
 	configLoaded bool
 	configMu     sync.RWMutex
 	logLevel     int // 0=debug, 1=info, 2=warn, 3=error
+
+	// Initialization guard (Bug #1 fix)
+	initOnce sync.Once
+	initErr  error
+	initialized bool
 )
 
 // Log levels
@@ -110,11 +115,26 @@ const (
 
 // Initialize sets up the logging directory and loads config.
 // Should be called once at startup with the workspace path.
+// Multiple calls are safe - only the first call will take effect (idempotent).
 func Initialize(ws string) error {
 	if ws == "" {
 		return fmt.Errorf("workspace path required")
 	}
 
+	// Use sync.Once to prevent re-initialization (Bug #1: Init Spam fix)
+	initOnce.Do(func() {
+		initErr = initializeInternal(ws)
+		if initErr == nil {
+			initialized = true
+		}
+	})
+
+	return initErr
+}
+
+// initializeInternal performs the actual initialization logic.
+// This is only called once via sync.Once in Initialize().
+func initializeInternal(ws string) error {
 	workspace = ws
 	logsDir = filepath.Join(workspace, ".nerd", "logs")
 

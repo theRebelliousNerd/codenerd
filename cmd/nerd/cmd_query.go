@@ -71,7 +71,7 @@ func queryFacts(cmd *cobra.Command, args []string) error {
 	}
 
 	// Boot Cortex to load all persisted facts (including scan.mg)
-	cortex, err := coresys.BootCortex(ctx, workspace, key, disableSystemShards)
+	cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, disableSystemShards)
 	if err != nil {
 		return fmt.Errorf("failed to boot cortex: %w", err)
 	}
