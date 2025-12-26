@@ -8,7 +8,7 @@ The Cortex - the decision-making center of codeNERD. Contains the Mangle kernel,
 core/
 ├── kernel.go         # RealKernel - Mangle engine wrapper
 ├── virtual_store.go  # FFI gateway to external systems
-├── shard_manager.go  # Shard lifecycle and orchestration
+├── shards/manager.go  # Shard lifecycle and orchestration
 └── learning.go       # Autopoiesis pattern tracking
 ```
 
@@ -236,22 +236,17 @@ delegate_to(/researcher) :-
 ### Usage
 
 ```go
-mgr := core.NewShardManager(deps)
-
-// Spawn a coder shard
-shard, _ := mgr.Spawn("coder", core.ShardConfig{
-    Type: core.ShardTypeGeneralist,
-})
+mgr := coreshards.NewShardManager()
 
 // Execute a task
-result, _ := mgr.Execute(ctx, "coder", `{
+result, _ := mgr.Spawn(ctx, "coder", `{
     "action": "fix",
     "target": "auth.go",
     "context": "Login fails for special chars"
 }`)
 
 // Shutdown when done
-mgr.Shutdown(shard.ID())
+mgr.StopAll()
 ```
 
 ## Learning (Autopoiesis)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 )
 
 // stubLLM implements perception.LLMClient for unit tests.
@@ -29,7 +30,7 @@ func TestOrchestrator_AssertsCampaignConfigFacts(t *testing.T) {
 		Workspace:        t.TempDir(),
 		Kernel:           kernel,
 		LLMClient:        &stubLLM{},
-		ShardManager:     core.NewShardManager(),
+		ShardManager:     coreshards.NewShardManager(),
 		MaxRetries:       5,
 		ReplanThreshold:  2,
 		AutoReplan:       true,

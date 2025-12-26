@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/system"
@@ -41,7 +42,7 @@ func TestRegisterAllShardFactories_HollowShardsFixed(t *testing.T) {
 		VirtualStore: virtualStore,
 	}
 
-	sm := core.NewShardManager()
+	sm := coreshards.NewShardManager()
 
 	// 2. Register Factories
 	shards.RegisterAllShardFactories(sm, ctx)
@@ -173,7 +174,7 @@ func TestRegisterAllShardFactories_HollowShardsFixed(t *testing.T) {
 	// 7. Verify Dynamic Shard Injection (ShardManager Fallback)
 	t.Run("DynamicShardInjection", func(t *testing.T) {
 		// Create a ShardManager and set VirtualStore
-		smDynamic := core.NewShardManager()
+		smDynamic := coreshards.NewShardManager()
 		smDynamic.SetParentKernel(kernel)
 		smDynamic.SetLLMClient(llmClient)
 		smDynamic.SetVirtualStore(virtualStore)

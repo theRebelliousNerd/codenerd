@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/store"
 )
 
@@ -173,7 +174,7 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 }
 
 func TestShardManagerGetResultCleansUp(t *testing.T) {
-	sm := NewShardManager()
+	sm := coreshards.NewShardManager()
 	sm.results["id"] = ShardResult{ShardID: "id"}
 
 	if _, ok := sm.GetResult("id"); !ok {
