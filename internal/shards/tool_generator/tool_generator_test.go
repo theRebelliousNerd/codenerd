@@ -1,12 +1,13 @@
 package tool_generator
 
 import (
-	"codenerd/internal/core"
 	"context"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
+
+	coreshards "codenerd/internal/core/shards"
 )
 
 // MockLLMClient for testing
@@ -42,7 +43,7 @@ func TestToolGeneratorShard_Execute_Generate(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create config
-	config := core.DefaultSpecialistConfig("tool_generator", "")
+	config := coreshards.DefaultSpecialistConfig("tool_generator", "")
 	shard := NewToolGeneratorShard("test-shard", config)
 	shard.generatorConfig.ToolsDir = tmpDir
 

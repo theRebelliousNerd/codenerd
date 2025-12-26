@@ -806,7 +806,7 @@ func TestFeedbackLoop_SuccessAfterRetry(t *testing.T) {
 	config.EnableAutoRepair = false // Disable sanitizer to avoid rule transformation
 	fl := NewFeedbackLoop(config)
 
-	invalidRule := `next_action(/run_tests) :- test_state("failing").` // String instead of atom
+	invalidRule := `next_action(/run_tests) :- test_state(/failing)` // Missing period to force retry
 	validRule := `next_action(/run_tests) :- test_state(/failing).`
 
 	mockLLM := &MockLLMClient{

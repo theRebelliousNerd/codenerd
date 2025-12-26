@@ -7,8 +7,9 @@ import (
 
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/campaign"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -135,18 +136,18 @@ func TestShardPageModelUpdateContent(t *testing.T) {
 	model := NewShardPageModel()
 	model.SetSize(80, 20)
 
-	cfg := core.ShardConfig{
+	cfg := types.ShardConfig{
 		Name: "tester",
-		Type: core.ShardTypeEphemeral,
+		Type: types.ShardTypeEphemeral,
 	}
-	agent := core.NewBaseShardAgent("shard-1", cfg)
-	agent.SetState(core.ShardStateRunning)
+	agent := coreshards.NewBaseShardAgent("shard-1", cfg)
+	agent.SetState(types.ShardStateRunning)
 
-	bp := &core.BackpressureStatus{
+	bp := &coreshards.BackpressureStatus{
 		QueueDepth:     2,
 		AvailableSlots: 1,
 	}
-	model.UpdateContent([]core.ShardAgent{agent}, bp)
+	model.UpdateContent([]types.ShardAgent{agent}, bp)
 	view := model.View()
 	if !strings.Contains(view, "shard-1") {
 		t.Fatalf("expected shard id in view")

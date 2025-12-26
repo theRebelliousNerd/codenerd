@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 )
 
 // mockKernel implements KernelQuerier for testing.
@@ -142,7 +143,7 @@ func TestAssembleSystemPrompt(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-session",
 				ShardType: "coder",
-				SessionCtx: &core.SessionContext{
+				SessionCtx: &types.SessionContext{
 					CurrentDiagnostics: []string{"internal/foo.go:42: undefined: Bar"},
 					TestState:          "/failing",
 					FailingTests:       []string{"TestBar", "TestBaz"},
@@ -167,7 +168,7 @@ func TestAssembleSystemPrompt(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-intent",
 				ShardType: "coder",
-				UserIntent: &core.StructuredIntent{
+				UserIntent: &types.StructuredIntent{
 					ID:         "intent-123",
 					Category:   "/mutation",
 					Verb:       "/fix",
@@ -191,7 +192,7 @@ func TestAssembleSystemPrompt(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-dream",
 				ShardType: "coder",
-				SessionCtx: &core.SessionContext{
+				SessionCtx: &types.SessionContext{
 					DreamMode: true,
 				},
 			},
@@ -369,7 +370,7 @@ func TestPromptContextBuilders(t *testing.T) {
 	}
 
 	// Test WithSessionContext
-	sessionCtx := &core.SessionContext{
+	sessionCtx := &types.SessionContext{
 		GitBranch: "main",
 	}
 	pc.WithSessionContext(sessionCtx)
@@ -378,7 +379,7 @@ func TestPromptContextBuilders(t *testing.T) {
 	}
 
 	// Test WithIntent
-	intent := &core.StructuredIntent{
+	intent := &types.StructuredIntent{
 		ID:       "intent-1",
 		Category: "/mutation",
 	}
@@ -518,7 +519,7 @@ func TestToCompilationContext(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-456",
 				ShardType: "coder",
-				SessionCtx: &core.SessionContext{
+				SessionCtx: &types.SessionContext{
 					DreamMode: true,
 				},
 			},
@@ -530,7 +531,7 @@ func TestToCompilationContext(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-789",
 				ShardType: "coder",
-				SessionCtx: &core.SessionContext{
+				SessionCtx: &types.SessionContext{
 					TestState:    "/failing",
 					FailingTests: []string{"TestFoo", "TestBar"},
 				},
@@ -543,7 +544,7 @@ func TestToCompilationContext(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-fix",
 				ShardType: "coder",
-				UserIntent: &core.StructuredIntent{
+				UserIntent: &types.StructuredIntent{
 					Verb:   "/fix",
 					Target: "internal/auth/login.go",
 				},
@@ -558,7 +559,7 @@ func TestToCompilationContext(t *testing.T) {
 				ShardID:    "coder-campaign",
 				ShardType:  "coder",
 				CampaignID: "campaign-123",
-				SessionCtx: &core.SessionContext{
+				SessionCtx: &types.SessionContext{
 					CampaignActive: true,
 					CampaignPhase:  "/planning",
 					CampaignGoal:   "Build user authentication",
