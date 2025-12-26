@@ -272,6 +272,10 @@ Decl tool_priority_rank(ShardType, ToolName, Rank).
 # Success: /true, /false
 Decl tool_execution(ToolName, Success, Timestamp).
 
+# tool_compilation_failed(ToolName, ErrorMessage)
+# Emitted when tool generation fails to compile
+Decl tool_compilation_failed(ToolName, ErrorMessage).
+
 # -----------------------------------------------------------------------------
 # 40.6 Helper Predicates for Safe Negation
 # -----------------------------------------------------------------------------

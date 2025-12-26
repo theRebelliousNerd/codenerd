@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 )
 
 type stubKernel struct {
@@ -175,16 +177,55 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 
 func TestShardManagerGetResultCleansUp(t *testing.T) {
 	sm := coreshards.NewShardManager()
-	sm.results["id"] = ShardResult{ShardID: "id"}
+	sm.RegisterShard("stub", func(id string, config types.ShardConfig) types.ShardAgent {
+		return &stubShard{id: id, config: config}
+	})
 
-	if _, ok := sm.GetResult("id"); !ok {
-		t.Fatalf("expected result to be returned")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	shardID, err := sm.SpawnAsync(ctx, "stub", "task")
+	if err != nil {
+		t.Fatalf("spawn failed: %v", err)
 	}
 
-	if _, ok := sm.GetResult("id"); ok {
+	found := false
+	for !found {
+		if _, ok := sm.GetResult(shardID); ok {
+			found = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for shard result")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	if _, ok := sm.GetResult(shardID); ok {
 		t.Fatalf("expected result to be cleaned up after retrieval")
 	}
 }
+
+type stubShard struct {
+	id     string
+	config types.ShardConfig
+	state  types.ShardState
+}
+
+func (s *stubShard) Execute(ctx context.Context, task string) (string, error) {
+	s.state = types.ShardStateCompleted
+	return "ok", nil
+}
+
+func (s *stubShard) GetID() string                    { return s.id }
+func (s *stubShard) GetState() types.ShardState       { return s.state }
+func (s *stubShard) GetConfig() types.ShardConfig     { return s.config }
+func (s *stubShard) Stop() error                      { return nil }
+func (s *stubShard) SetParentKernel(k types.Kernel)   {}
+func (s *stubShard) SetLLMClient(client types.LLMClient) {}
+func (s *stubShard) SetSessionContext(ctx *types.SessionContext) {}
 
 // TestPermissionCacheOptimization verifies O(1) permission lookups via the cache.
 func TestPermissionCacheOptimization(t *testing.T) {

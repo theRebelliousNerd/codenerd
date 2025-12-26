@@ -36,6 +36,9 @@ Decl recall_similar(Query, TopK, Results).
 # query_knowledge_graph(EntityA, Relation, EntityB) - Entity relationships
 Decl query_knowledge_graph(EntityA, Relation, EntityB).
 
+# query_strategic(Category, Content, Confidence) - Strategic knowledge atoms
+Decl query_strategic(Category, Content, Confidence).
+
 # query_activations(FactID, Score) - Activation log scores
 Decl query_activations(FactID, Score).
 
@@ -62,6 +65,21 @@ Decl activation(FactID, Score).
 
 # session_turn(SessionID, TurnNumber, UserInput, Response) - Conversation history
 Decl session_turn(SessionID, TurnNumber, UserInput, Response).
+
+# conversation_turn(TurnID, Speaker, Message, Intent) - Compressed conversation turn
+Decl conversation_turn(TurnID, Speaker, Message, Intent).
+
+# turn_references_file(TurnID, FilePath) - Files referenced in a turn
+Decl turn_references_file(TurnID, FilePath).
+
+# turn_error_message(TurnID, ErrorMessage) - Error messages captured in a turn
+Decl turn_error_message(TurnID, ErrorMessage).
+
+# turn_topic(TurnID, Topic) - Topics extracted from a turn
+Decl turn_topic(TurnID, Topic).
+
+# turn_references_back(TurnID, ReferencedTurnID) - Reference-back linkage
+Decl turn_references_back(TurnID, ReferencedTurnID).
 
 # similar_content(Rank, Content) - Semantic search results
 Decl similar_content(Rank, Content).
