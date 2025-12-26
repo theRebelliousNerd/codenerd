@@ -162,8 +162,8 @@ raw_finding(File, Line, Severity, /security, RuleID, Message) :-
 # =============================================================================
 
 Decl code_metrics(TotalLines, CodeLines, CyclomaticAvg, FunctionCount).
-Decl cyclomatic_complexity(File, Function, Complexity).
-Decl nesting_depth(File, Function, Depth).
+
+
 
 # High complexity warning
 complexity_warning(File, Function) :-

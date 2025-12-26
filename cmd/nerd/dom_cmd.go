@@ -1,10 +1,10 @@
 package main
 
 import (
-	"context"
 	"codenerd/internal/core"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,13 +18,13 @@ import (
 )
 
 var (
-	domDemoKeep       bool
-	domDemoDeepWorker int
-	domInspectLimit   int
-	domGetIncludeBody bool
-	domEditGoFmt      bool
-	domEditGoTest     bool
-	domEditContent    string
+	domDemoKeep        bool
+	domDemoDeepWorker  int
+	domInspectLimit    int
+	domGetIncludeBody  bool
+	domEditGoFmt       bool
+	domEditGoTest      bool
+	domEditContent     string
 	domEditContentFile string
 )
 
@@ -117,7 +117,7 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	}
 	kernel.SetWorkspace(ws)
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
@@ -257,7 +257,7 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 	}
 	kernel.SetWorkspace(ws)
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
@@ -471,7 +471,7 @@ func newDOMHarness(ws string, deepWorkers int) (*core.RealKernel, *core.VirtualS
 	}
 	kernel.SetWorkspace(ws)
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)

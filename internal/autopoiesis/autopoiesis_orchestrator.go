@@ -1,6 +1,9 @@
 package autopoiesis
 
 import (
+	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -53,17 +56,17 @@ func DefaultConfig(workspaceRoot string) Config {
 	toolDefaults := internalconfig.DefaultToolGenerationConfig()
 
 	cfg := Config{
-		ToolsDir:      filepath.Join(workspaceRoot, ".nerd", "tools"),
-		AgentsDir:     filepath.Join(workspaceRoot, ".nerd", "agents"),
-		MinConfidence: 0.6,
-		MinToolConfidence: 0.75,
-		EnableToolGeneration: true,
-		MaxToolsPerSession:   3,
+		ToolsDir:               filepath.Join(workspaceRoot, ".nerd", "tools"),
+		AgentsDir:              filepath.Join(workspaceRoot, ".nerd", "agents"),
+		MinConfidence:          0.6,
+		MinToolConfidence:      0.75,
+		EnableToolGeneration:   true,
+		MaxToolsPerSession:     3,
 		ToolGenerationCooldown: 0,
-		EnableLLM:     true,
-		TargetOS:      toolDefaults.TargetOS,
-		TargetArch:    toolDefaults.TargetArch,
-		WorkspaceRoot: workspaceRoot,
+		EnableLLM:              true,
+		TargetOS:               toolDefaults.TargetOS,
+		TargetArch:             toolDefaults.TargetArch,
+		WorkspaceRoot:          workspaceRoot,
 		// Safety: Explicit gas limit for Ouroboros self-generated logic.
 		// Prevents infinite recursion in self-modifying autopoiesis loops.
 		// This bounds the number of learning_event facts the kernel will retain.
@@ -179,4 +182,44 @@ func (o *Orchestrator) GetOuroborosLoop() *OuroborosLoop {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.ouroboros
+}
+
+// CompileTool compiles an existing tool source file.
+// It reads the file from disk, runs it through safety checks, and compiles/registers it.
+func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*RuntimeTool, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// 1. Resolve tool path
+	toolPath := filepath.Join(o.config.ToolsDir, toolName+".go")
+
+	// 2. Read source code
+	codeBytes, err := os.ReadFile(toolPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tool source for %s: %w", toolName, err)
+	}
+
+	// 3. Delegate to Ouroboros for Safety -> Write -> Compile -> Register
+	// We use "Manual Compilation" as purpose to distinguish in logs if needed.
+	success, _, _, errMsg := o.ouroboros.GenerateToolFromCode(
+		ctx,
+		toolName,
+		"Manual Compilation", // Purpose
+		string(codeBytes),
+		1.0,   // Confidence (manual override implies high confidence)
+		1.0,   // Priority
+		false, // isDiagnostic
+	)
+
+	if !success {
+		return nil, fmt.Errorf("compilation failed: %s", errMsg)
+	}
+
+	// 4. Retrieve registered tool to return
+	// We access the registry directly through Ouroboros
+	if tool, exists := o.ouroboros.registry.Get(toolName); exists {
+		return tool, nil
+	}
+
+	return nil, fmt.Errorf("tool compiled successfully but not found in registry")
 }

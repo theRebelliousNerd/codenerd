@@ -11,6 +11,7 @@ import (
 	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
@@ -310,8 +311,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		logStep("Creating executor & shard manager...")
-		executor := tactile.NewSafeExecutor()
-		shardMgr := core.NewShardManager()
+		executor := tactile.NewDirectExecutor()
+		shardMgr := coreshards.NewShardManager()
 		shardMgr.SetParentKernel(kernel)
 		shardMgr.SetTransparencyManager(transparencyMgr)
 
@@ -325,7 +326,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 		shardMgr.SetLimitsEnforcer(limitsEnforcer)
 
-		spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+		spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 		shardMgr.SetSpawnQueue(spawnQueue)
 		if err := spawnQueue.Start(); err != nil {
 			logging.Get(logging.CategoryBoot).Warn("Failed to start spawn queue: %v", err)
@@ -677,7 +678,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		logStep("Registering shard types...")
-		shardMgr.RegisterShard("coder", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("coder", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := coder.NewCoderShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
@@ -686,7 +687,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("reviewer", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("reviewer", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := reviewer.NewReviewerShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
@@ -695,7 +696,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("tester", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("tester", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := tester.NewTesterShard()
 			shard.SetVirtualStore(virtualStore)
 			shard.SetLLMClient(llmClient)
@@ -704,7 +705,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("researcher", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("researcher", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := researcher.NewResearcherShard()
 			shard.SetLLMClient(llmClient)
 			if localDB != nil {
@@ -725,7 +726,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// System Shards
-		shardMgr.RegisterShard("perception_firewall", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewPerceptionFirewallShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
@@ -734,7 +735,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("world_model_ingestor", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewWorldModelIngestorShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
@@ -744,7 +745,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("executive_policy", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewExecutivePolicyShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
@@ -753,7 +754,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("constitution_gate", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("constitution_gate", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewConstitutionGateShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
@@ -762,7 +763,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("mangle_repair", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("mangle_repair", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewMangleRepairShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
@@ -778,7 +779,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			kernel.SetRepairInterceptor(shard)
 			return shard
 		})
-		shardMgr.RegisterShard("tactile_router", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewTactileRouterShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
@@ -794,7 +795,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 			return shard
 		})
-		shardMgr.RegisterShard("session_planner", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
@@ -818,7 +819,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		// Register RequirementsInterrogator - Socratic clarification shard
-		shardMgr.RegisterShard("requirements_interrogator", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shards.NewRequirementsInterrogatorShard()
 			shard.SetLLMClient(llmClient)
 			shard.SetParentKernel(kernel)
@@ -826,7 +827,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// Register ToolGenerator - Ouroboros tool creation shard
-		shardMgr.RegisterShard("tool_generator", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("tool_generator", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := tool_generator.NewToolGeneratorShard(id, config)
 			shard.SetParentKernel(kernel)
 			shard.SetWorkspaceRoot(workspace) // MUST be called before SetLLMClient
@@ -839,7 +840,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// Register Nemesis - Adversarial co-evolution shard
-		shardMgr.RegisterShard("nemesis", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("nemesis", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := nemesis.NewNemesisShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
@@ -857,7 +858,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// Register Legislator - Runtime rule compilation shard
-		shardMgr.RegisterShard("legislator", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("legislator", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewLegislatorShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
@@ -869,7 +870,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// Register CampaignRunner - Campaign orchestration shard
-		shardMgr.RegisterShard("campaign_runner", func(id string, config core.ShardConfig) core.ShardAgent {
+		shardMgr.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewCampaignRunnerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
@@ -1032,7 +1033,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 	}
 }
 
-func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
+func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
 	nerdDir := filepath.Join(workspace, ".nerd")
 
 	// Load profile facts
@@ -1122,9 +1123,9 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *core.
 		var reg Registry
 		if err := json.Unmarshal(data, &reg); err == nil {
 			for _, agent := range reg.Agents {
-				cfg := core.DefaultSpecialistConfig(agent.Name, agent.KnowledgePath)
+				cfg := coreshards.DefaultSpecialistConfig(agent.Name, agent.KnowledgePath)
 				if agent.Type != "" {
-					cfg.Type = core.ShardType(agent.Type)
+					cfg.Type = types.ShardType(agent.Type)
 				}
 				shardMgr.DefineProfile(agent.Name, cfg)
 			}

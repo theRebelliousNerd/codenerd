@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -132,7 +133,7 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 	// This prioritizes domain experts from agents.json before generalists
 	type shardPriority struct {
 		name         string
-		shardType    core.ShardType
+		shardType    types.ShardType
 		hasKnowledge bool
 		priority     int // Lower = higher priority
 	}
@@ -155,21 +156,21 @@ func (m Model) handleDreamState(ctx context.Context, intent perception.Intent, i
 		// Calculate priority (lower = consulted first)
 		priority := 100
 		switch shard.Type {
-		case core.ShardTypePersistent:
+		case types.ShardTypePersistent:
 			if shard.HasKnowledge {
 				priority = 1 // Persistent specialists with knowledge = highest priority
 			} else {
 				priority = 2 // Persistent without knowledge
 			}
-		case core.ShardTypeUser:
+		case types.ShardTypeUser:
 			if shard.HasKnowledge {
 				priority = 3 // User-defined specialists with knowledge
 			} else {
 				priority = 4 // User-defined without knowledge
 			}
-		case core.ShardTypeEphemeral:
+		case types.ShardTypeEphemeral:
 			priority = 10 // Generalist ephemeral shards
-		case core.ShardTypeSystem:
+		case types.ShardTypeSystem:
 			priority = 20 // System shards last
 		}
 
@@ -269,11 +270,11 @@ Format your response as a structured analysis.`
 		prompt := fmt.Sprintf(consultPromptTemplate, hypothetical, name)
 
 		// Pass DreamMode=true so shards know NOT to execute, only describe
-		dreamCtx := &core.SessionContext{
+		dreamCtx := &types.SessionContext{
 			DreamMode: true,
 		}
 		// Dream mode = low priority (background speculation)
-		result, err := m.shardMgr.SpawnWithPriority(consultCtx, name, prompt, dreamCtx, core.PriorityLow)
+		result, err := m.shardMgr.SpawnWithPriority(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
 
 		consultation := DreamConsultation{
 			ShardName: name,
@@ -796,7 +797,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		sessionCtx := m.buildSessionContext(ctx)
-		result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+		result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
 			_ = m.kernel.LoadFacts(payload.Facts)

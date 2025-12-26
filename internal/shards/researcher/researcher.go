@@ -235,7 +235,7 @@ func (r *ResearcherShard) GetPromptAssembler() interface{} {
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).
-func (r *ResearcherShard) SetSessionContext(ctx *core.SessionContext) {
+func (r *ResearcherShard) SetSessionContext(ctx *types.SessionContext) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config.SessionContext = ctx

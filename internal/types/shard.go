@@ -79,7 +79,7 @@ type ShardConfig struct {
 	Model         ModelConfig       // LLM requirements
 	KnowledgePath string            // Path to local knowledge DB (Type B only)
 	// StartupMode controls when system shards (Type S) start (auto=on boot, on_demand=only when requested)
-	StartupMode   StartupMode
+	StartupMode StartupMode
 
 	// Tool associations (for specialist shards)
 	Tools           []string          // List of tool names this shard can use
@@ -142,3 +142,6 @@ func (p SpawnPriority) String() string {
 		return "unknown"
 	}
 }
+
+// CtxKeyPriority is the context key for passing spawn priority.
+const CtxKeyPriority = "spawn_priority"

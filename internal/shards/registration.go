@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards/coder"
@@ -163,7 +164,7 @@ func (r *reviewerFeedbackAdapter) GetAccuracyReport(reviewID string) string {
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
-func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
+func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext) {
 	// Ensure ShardManager has the VirtualStore for dynamic injection
 	if ctx.VirtualStore != nil {
 		sm.SetVirtualStore(ctx.VirtualStore)
@@ -243,7 +244,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 		}
 
 		// NEW: Register as feedback provider for validation triggers
-		core.SetReviewerFeedbackProvider(&reviewerFeedbackAdapter{shard: shard})
+		sm.SetReviewerFeedbackProvider(&reviewerFeedbackAdapter{shard: shard})
 
 		shard.SetPromptAssembler(createAssembler())
 		return shard
@@ -422,7 +423,7 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 }
 
 // defineShardProfiles registers shard profiles with appropriate configurations.
-func defineShardProfiles(sm *core.ShardManager) {
+func defineShardProfiles(sm *coreshards.ShardManager) {
 	// Coder profile - code generation specialist
 	sm.DefineProfile("coder", types.ShardConfig{
 		Name: "coder",
@@ -542,12 +543,12 @@ func defineShardProfiles(sm *core.ShardManager) {
 // RegisterSystemShardProfiles registers Type 1 system shard profiles.
 // This is exported for use by session initialization when factories are
 // registered manually with dependency injection.
-func RegisterSystemShardProfiles(sm *core.ShardManager) {
+func RegisterSystemShardProfiles(sm *coreshards.ShardManager) {
 	defineSystemShardProfiles(sm)
 }
 
 // defineSystemShardProfiles registers Type 1 system shard profiles.
-func defineSystemShardProfiles(sm *core.ShardManager) {
+func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
 	sm.DefineProfile("perception_firewall", types.ShardConfig{
 		Name:        "perception_firewall",

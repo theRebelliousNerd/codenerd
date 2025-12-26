@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/world"
 )
 
 // =============================================================================
@@ -24,6 +25,25 @@ func (r *ReviewerShard) reviewFiles(ctx context.Context, task *ReviewerTask) (*R
 		Files:    task.Files,
 		Findings: make([]ReviewFinding, 0),
 		Severity: ReviewSeverityClean,
+	}
+
+	// 0. World Update: Git History & Stale Facts
+	// Need project root - finding common root of files for now
+	if len(task.Files) > 0 {
+		// Heuristic: take dir of first file or just "."
+		// For now simple "." assuming running from root
+		root := "."
+		gitFacts, err := world.ScanGitHistory(ctx, root, 50) // Scan last 50 commits
+		if err == nil && len(gitFacts) > 0 {
+			logging.Reviewer("Injected %d git history facts", len(gitFacts))
+			for _, f := range gitFacts {
+				if r.kernel != nil {
+					_ = r.kernel.Assert(f)
+				}
+			}
+		} else {
+			logging.ReviewerDebug("Git scan skipped or failed: %v", err)
+		}
 	}
 
 	// Collect file contents for specialist detection

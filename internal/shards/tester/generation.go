@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -160,7 +161,7 @@ func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework st
 
 		// Create a structured intent for test generation
 		if task != nil {
-			userIntent := &core.StructuredIntent{
+			userIntent := &types.StructuredIntent{
 				ID:       fmt.Sprintf("test_gen_%d", time.Now().UnixNano()),
 				Category: "/mutation",
 				Verb:     "/generate_tests",
@@ -205,7 +206,7 @@ func (t *TesterShard) buildTestGenSystemPrompt(ctx context.Context, framework st
 
 			// Create a structured intent for test generation
 			if task != nil {
-				userIntent := &core.StructuredIntent{
+				userIntent := &types.StructuredIntent{
 					ID:       fmt.Sprintf("test_gen_%d", time.Now().UnixNano()),
 					Category: "/mutation",
 					Verb:     "/generate_tests",

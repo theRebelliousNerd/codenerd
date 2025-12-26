@@ -20,7 +20,7 @@ func (r *ReviewerShard) SetLLMClient(client types.LLMClient) {
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).
-func (r *ReviewerShard) SetSessionContext(ctx *core.SessionContext) {
+func (r *ReviewerShard) SetSessionContext(ctx *types.SessionContext) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config.SessionContext = ctx

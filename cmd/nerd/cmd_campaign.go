@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/shards"
@@ -139,7 +140,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
@@ -159,7 +160,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
 	}
 
-	shardMgr := core.NewShardManager()
+	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
 	// Initialize limits enforcer and spawn queue
@@ -186,7 +187,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
 	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
@@ -503,10 +504,10 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
-	shardMgr := core.NewShardManager()
+	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
 	// Initialize limits enforcer and spawn queue
@@ -532,7 +533,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
 	})
 	shardMgr.SetLimitsEnforcer(limitsEnforcer)
-	spawnQueue := core.NewSpawnQueue(shardMgr, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	spawnQueue := coreshards.NewSpawnQueue(shardMgr, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 	shardMgr.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 

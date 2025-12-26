@@ -22,7 +22,7 @@ import (
 
 // ShardLister provides shard discovery for campaign planning.
 type ShardLister interface {
-	ListAvailableShards() []core.ShardInfo
+	ListAvailableShards() []types.ShardInfo
 }
 
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
@@ -1503,7 +1503,7 @@ func cleanJSONResponse(resp string) string {
 }
 
 // formatShardList formats available shards for injection into the planner prompt.
-func formatShardList(shards []core.ShardInfo) string {
+func formatShardList(shards []types.ShardInfo) string {
 	if len(shards) == 0 {
 		return ""
 	}
@@ -1512,7 +1512,7 @@ func formatShardList(shards []core.ShardInfo) string {
 	sb.WriteString("AVAILABLE SHARDS (you can specify any of these for tasks):\n")
 
 	// Group by type for clarity
-	groups := make(map[types.ShardType][]core.ShardInfo)
+	groups := make(map[types.ShardType][]types.ShardInfo)
 	for _, s := range shards {
 		groups[s.Type] = append(groups[s.Type], s)
 	}

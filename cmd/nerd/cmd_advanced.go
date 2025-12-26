@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 
 	"github.com/spf13/cobra"
@@ -156,11 +157,11 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 	fmt.Printf("🤖 Consulting %d agents...\n\n", len(shards))
 
 	// Consult each shard in dream mode
-	dreamCtx := &core.SessionContext{DreamMode: true}
+	dreamCtx := &types.SessionContext{DreamMode: true}
 
 	for i, shard := range shards {
 		// Skip internal/system shards
-		if shard.Type == core.ShardTypeSystem {
+		if shard.Type == types.ShardTypeSystem {
 			continue
 		}
 
@@ -169,7 +170,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		prompt := fmt.Sprintf("Dream Mode Consultation:\n\nScenario: %s\n\nProvide your perspective on this hypothetical. Do NOT execute any actions - only describe what you would do and the implications.", scenario)
 
 		// Dream mode = low priority (background speculation)
-		result, err := cortex.ShardManager.SpawnWithPriority(ctx, shard.Name, prompt, dreamCtx, core.PriorityLow)
+		result, err := cortex.ShardManager.SpawnWithPriority(ctx, shard.Name, prompt, dreamCtx, types.PriorityLow)
 		if err != nil {
 			fmt.Printf("   ❌ Error: %v\n\n", err)
 			continue
@@ -214,11 +215,11 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	defer cortex.Close()
 
 	// Use coder shard in shadow mode
-	shadowCtx := &core.SessionContext{DreamMode: true}
+	shadowCtx := &types.SessionContext{DreamMode: true}
 	prompt := fmt.Sprintf("SHADOW MODE - Describe what would happen without executing:\n\n%s\n\nList the files that would be affected, changes that would be made, and potential risks. Do NOT actually make any changes.", action)
 
 	// Shadow mode = normal priority (user CLI command but speculative)
-	result, err := cortex.ShardManager.SpawnWithPriority(ctx, "coder", prompt, shadowCtx, core.PriorityNormal)
+	result, err := cortex.ShardManager.SpawnWithPriority(ctx, "coder", prompt, shadowCtx, types.PriorityNormal)
 	if err != nil {
 		return fmt.Errorf("shadow simulation failed: %w", err)
 	}
@@ -359,16 +360,16 @@ func runAgentsList(cmd *cobra.Command, args []string) error {
 	shards := cortex.ShardManager.ListAvailableShards()
 
 	// Group by type
-	typeGroups := make(map[core.ShardType][]core.ShardInfo)
+	typeGroups := make(map[types.ShardType][]types.ShardInfo)
 	for _, shard := range shards {
 		typeGroups[shard.Type] = append(typeGroups[shard.Type], shard)
 	}
 
-	typeNames := map[core.ShardType]string{
-		core.ShardTypeEphemeral:  "Ephemeral (Type A)",
-		core.ShardTypePersistent: "Persistent (Type B)",
-		core.ShardTypeUser:       "User-Defined (Type U)",
-		core.ShardTypeSystem:     "System (Type S)",
+	typeNames := map[types.ShardType]string{
+		types.ShardTypeEphemeral:  "Ephemeral (Type A)",
+		types.ShardTypePersistent: "Persistent (Type B)",
+		types.ShardTypeUser:       "User-Defined (Type U)",
+		types.ShardTypeSystem:     "System (Type S)",
 	}
 
 	for shardType, shards := range typeGroups {

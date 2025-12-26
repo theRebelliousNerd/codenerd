@@ -2,7 +2,7 @@ package chat
 
 import (
 	nerdconfig "codenerd/internal/config"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"context"
 	"fmt"
 	"os"
@@ -104,7 +104,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 	return func() tea.Msg {
 		// 1. Define Profile
-		config := core.DefaultSpecialistConfig(wizard.Name, fmt.Sprintf("memory/shards/%s_knowledge.db", wizard.Name))
+		config := coreshards.DefaultSpecialistConfig(wizard.Name, fmt.Sprintf("memory/shards/%s_knowledge.db", wizard.Name))
 		m.shardMgr.DefineProfile(wizard.Name, config)
 
 		// 2. Generate prompts.yaml template

@@ -1,14 +1,13 @@
 package campaign
 
 import (
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,13 +15,13 @@ import (
 
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
-	executor  *tactile.SafeExecutor
-	shardMgr  *core.ShardManager
+	executor  tactile.Executor
+	shardMgr  *coreshards.ShardManager
 	workspace string
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
-func NewCheckpointRunner(executor *tactile.SafeExecutor, shardMgr *core.ShardManager, workspace string) *CheckpointRunner {
+func NewCheckpointRunner(executor tactile.Executor, shardMgr *coreshards.ShardManager, workspace string) *CheckpointRunner {
 	return &CheckpointRunner{
 		executor:  executor,
 		shardMgr:  shardMgr,
@@ -83,21 +82,23 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 	}
 	parts := strings.Fields(testCmdStr)
 
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           parts[0],
 		Arguments:        parts[1:],
 		WorkingDirectory: cr.workspace,
-		TimeoutSeconds:   600, // 10 minutes
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: 600 * 1000, // 10 minutes
+		},
 	}
 
-	output, err := cr.executor.Execute(ctx, cmd)
+	res, err := cr.executor.Execute(ctx, cmd)
+	output := ""
+	if res != nil {
+		output = res.Output()
+	}
 	if err != nil {
-		// Check if it's a test failure vs command error
-		if _, ok := err.(*exec.ExitError); ok {
-			// Test failures return non-zero exit code
-			return false, fmt.Sprintf("Tests failed:\n%s", output), nil
-		}
-		return false, fmt.Sprintf("Error running tests: %v", err), err
+		// Test failures return non-zero exit code
+		return false, fmt.Sprintf("Error running tests: %v\n%s", err, output), nil
 	}
 
 	// Count passed/failed from output
@@ -138,14 +139,20 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 	logging.CampaignDebug("runBuildCheckpoint: detected command=%s workspace=%s", buildCmdStr, cr.workspace)
 	parts := strings.Fields(buildCmdStr)
 
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           parts[0],
 		Arguments:        parts[1:],
 		WorkingDirectory: cr.workspace,
-		TimeoutSeconds:   600, // 10 minutes
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: 600 * 1000, // 10 minutes
+		},
 	}
 
-	output, err := cr.executor.Execute(ctx, cmd)
+	res, err := cr.executor.Execute(ctx, cmd)
+	output := ""
+	if res != nil {
+		output = res.Output()
+	}
 	if err != nil {
 		logging.CampaignWarn("runBuildCheckpoint: build failed: %v (output_len=%d)", err, len(output))
 		return false, fmt.Sprintf("Build failed:\n%s", output), nil

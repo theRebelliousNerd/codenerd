@@ -20,6 +20,7 @@ package init
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -38,10 +39,10 @@ import (
 
 // InitProgress represents a progress update during initialization.
 type InitProgress struct {
-	Phase          string        // Current phase name
-	Message        string        // Human-readable status message
-	Percent        float64       // 0.0 - 1.0 completion percentage
-	IsError        bool          // True if this is an error message
+	Phase          string  // Current phase name
+	Message        string  // Human-readable status message
+	Percent        float64 // 0.0 - 1.0 completion percentage
+	IsError        bool    // True if this is an error message
 	AgentUpdate    *AgentCreationUpdate
 	ETARemaining   time.Duration // E2: Estimated time remaining
 	ElapsedTime    time.Duration // E2: Time elapsed since init started
@@ -77,14 +78,14 @@ type RecommendedAgent struct {
 type InitConfig struct {
 	Workspace       string
 	LLMClient       perception.LLMClient
-	ShardManager    *core.ShardManager // Shard manager for agent spawning
-	Interactive     bool               // Whether to prompt user for preferences
-	Timeout         time.Duration      // Maximum time for initialization
-	SkipResearch    bool               // Skip deep research phase (faster init)
-	SkipAgentCreate bool               // Skip Type 3 agent creation
-	PreferenceHints []string           // User-provided hints about preferences
-	ProgressChan    chan InitProgress  // Channel for progress updates
-	Context7APIKey  string             // Context7 API key for LLM-optimized docs
+	ShardManager    *coreshards.ShardManager // Shard manager for agent spawning
+	Interactive     bool                     // Whether to prompt user for preferences
+	Timeout         time.Duration            // Maximum time for initialization
+	SkipResearch    bool                     // Skip deep research phase (faster init)
+	SkipAgentCreate bool                     // Skip Type 3 agent creation
+	PreferenceHints []string                 // User-provided hints about preferences
+	ProgressChan    chan InitProgress        // Channel for progress updates
+	Context7APIKey  string                   // Context7 API key for LLM-optimized docs
 }
 
 // DefaultInitConfig returns sensible defaults.
@@ -196,12 +197,12 @@ type CreatedAgent struct {
 
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
-	config     InitConfig
-	researcher *researcher.ResearcherShard
-	scanner    *world.Scanner
-	localDB    *store.LocalStore
-	shardMgr   *core.ShardManager
-	kernel     *core.RealKernel
+	config      InitConfig
+	researcher  *researcher.ResearcherShard
+	scanner     *world.Scanner
+	localDB     *store.LocalStore
+	shardMgr    *coreshards.ShardManager
+	kernel      *core.RealKernel
 	embedEngine embedding.EmbeddingEngine
 
 	// Concurrency
@@ -214,12 +215,12 @@ type Initializer struct {
 
 // ETATracker calculates estimated time remaining based on historical phase durations.
 type ETATracker struct {
-	mu              sync.RWMutex
-	startTime       time.Time
-	phaseDurations  map[string]time.Duration // Historical durations for each phase
-	currentPhase    int
-	totalPhases     int
-	phaseStartTime  time.Time
+	mu             sync.RWMutex
+	startTime      time.Time
+	phaseDurations map[string]time.Duration // Historical durations for each phase
+	currentPhase   int
+	totalPhases    int
+	phaseStartTime time.Time
 }
 
 // DefaultPhaseDurations returns expected durations for each init phase.
@@ -227,28 +228,28 @@ type ETATracker struct {
 // E2: Updated to include all 22 phases for accurate ETA calculation.
 func DefaultPhaseDurations() map[string]time.Duration {
 	return map[string]time.Duration{
-		"setup":          2 * time.Second,
-		"migration":      3 * time.Second,
-		"directory":      5 * time.Second,
-		"scanning":       20 * time.Second,
-		"analysis":       75 * time.Second,  // 60-90s average
-		"profile":        5 * time.Second,
-		"facts":          10 * time.Second,
-		"prompt_atoms":   3 * time.Second,
-		"prompt_db":      5 * time.Second,
-		"agents":         5 * time.Second,
-		"shared_kb":      30 * time.Second,
-		"kb_creation":    105 * time.Second, // 90-120s average
-		"codebase_kb":    20 * time.Second,
-		"core_shards_kb": 30 * time.Second,
-		"campaign_kb":    15 * time.Second,
+		"setup":           2 * time.Second,
+		"migration":       3 * time.Second,
+		"directory":       5 * time.Second,
+		"scanning":        20 * time.Second,
+		"analysis":        75 * time.Second, // 60-90s average
+		"profile":         5 * time.Second,
+		"facts":           10 * time.Second,
+		"prompt_atoms":    3 * time.Second,
+		"prompt_db":       5 * time.Second,
+		"agents":          5 * time.Second,
+		"shared_kb":       30 * time.Second,
+		"kb_creation":     105 * time.Second, // 90-120s average
+		"codebase_kb":     20 * time.Second,
+		"core_shards_kb":  30 * time.Second,
+		"campaign_kb":     15 * time.Second,
 		"tool_generation": 10 * time.Second,
-		"preferences":    4 * time.Second,
-		"session":        2 * time.Second,
-		"tools":          20 * time.Second,
-		"registry":       5 * time.Second,
-		"prompt_sync":    10 * time.Second,
-		"complete":       1 * time.Second,
+		"preferences":     4 * time.Second,
+		"session":         2 * time.Second,
+		"tools":           20 * time.Second,
+		"registry":        5 * time.Second,
+		"prompt_sync":     10 * time.Second,
+		"complete":        1 * time.Second,
 	}
 }
 
@@ -404,7 +405,7 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 	if initConfig.ShardManager != nil {
 		init.shardMgr = initConfig.ShardManager
 	} else {
-		init.shardMgr = core.NewShardManager()
+		init.shardMgr = coreshards.NewShardManager()
 	}
 	if initConfig.LLMClient != nil {
 		init.shardMgr.SetLLMClient(initConfig.LLMClient)
@@ -507,7 +508,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create directory structure: %w", err)
 	}
-	
+
 	// Create Mangle overlay templates
 	if err := i.createMangleTemplates(nerdDir); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to create mangle templates: %v", err))
@@ -1200,7 +1201,7 @@ type SessionState struct {
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
-	Role    string    `json:"role"`    // "user" or "assistant"
+	Role    string    `json:"role"` // "user" or "assistant"
 	Content string    `json:"content"`
 	Time    time.Time `json:"time"`
 }

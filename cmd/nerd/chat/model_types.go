@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/config"
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
@@ -213,10 +214,10 @@ type Model struct {
 	// Backend
 	client              perception.LLMClient
 	kernel              *core.RealKernel
-	shardMgr            *core.ShardManager
+	shardMgr            *coreshards.ShardManager
 	shadowMode          *core.ShadowMode
 	transducer          perception.Transducer
-	executor            *tactile.SafeExecutor
+	executor            tactile.Executor
 	emitter             *articulation.Emitter
 	virtualStore        *core.VirtualStore
 	scanner             *world.Scanner
@@ -427,12 +428,12 @@ type Session struct {
 // SystemComponents holds the initialized backend services
 type SystemComponents struct {
 	Kernel                *core.RealKernel
-	ShardMgr              *core.ShardManager
+	ShardMgr              *coreshards.ShardManager
 	VirtualStore          *core.VirtualStore
 	LLMClient             perception.LLMClient
 	LocalDB               *store.LocalStore
 	Transducer            perception.Transducer
-	Executor              *tactile.SafeExecutor
+	Executor              tactile.Executor
 	Scanner               *world.Scanner
 	Autopoiesis           *autopoiesis.Orchestrator
 	Verifier              *verification.TaskVerifier

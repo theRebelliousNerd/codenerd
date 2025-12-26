@@ -36,7 +36,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 	}
 	kernel.SetWorkspace(ws)
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = ws
 	vs := core.NewVirtualStoreWithConfig(executor, vsCfg)
