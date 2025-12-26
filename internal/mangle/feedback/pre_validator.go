@@ -308,6 +308,13 @@ func (pv *PreValidator) compilePatterns() {
 func (pv *PreValidator) QuickFix(code string) string {
 	fixed := code
 
+	// Remove all backticks (markdown artifacts) - critical for LLM-generated rules
+	fixed = strings.ReplaceAll(fixed, "`", "")
+
+	// Convert quoted atoms to /atoms: "compile" -> /compile
+	quotedAtomRegex := regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
+	fixed = quotedAtomRegex.ReplaceAllString(fixed, "/$1")
+
 	// Fix Prolog negation \+ -> ! (regex \\\+ matches literal \+)
 	fixed = regexp.MustCompile(`\\\+\s*`).ReplaceAllString(fixed, "!")
 

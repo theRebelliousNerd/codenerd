@@ -24,6 +24,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -165,6 +166,16 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 	logging.SystemShardsDebug("[ConstitutionGate] Config: strict_mode=%v, escalate_on_ambiguity=%v, allowed_domains=%d, dangerous_patterns=%d",
 		cfg.StrictMode, cfg.EscalateOnAmbiguity, len(cfg.AllowedDomains), len(cfg.DangerousPatterns))
 	return shard
+}
+
+// SetParentKernel wires the kernel and configures context-aware predicate selection.
+func (c *ConstitutionGateShard) SetParentKernel(k types.Kernel) {
+	c.BaseSystemShard.SetParentKernel(k)
+	if rk, ok := k.(*core.RealKernel); ok {
+		if corpus := rk.GetPredicateCorpus(); corpus != nil {
+			c.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+		}
+	}
 }
 
 // Execute runs the Constitution Gate's continuous safety loop.

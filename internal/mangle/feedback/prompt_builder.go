@@ -274,7 +274,20 @@ func cleanRuleCandidate(candidate string) string {
 		trimmed = strings.TrimSpace(trimmed[len("RULE:"):])
 	}
 
-	trimmed = strings.Trim(trimmed, "`")
+	// Remove ALL backticks (not just outer ones) - fixes internal backtick artifacts
+	trimmed = strings.ReplaceAll(trimmed, "`", "")
+
+	// Remove leaked markdown language identifiers
+	trimmed = strings.TrimSpace(trimmed)
+	trimmed = strings.TrimPrefix(trimmed, "mangle")
+	trimmed = strings.TrimPrefix(trimmed, "datalog")
+	trimmed = strings.TrimPrefix(trimmed, "prolog")
+	trimmed = strings.TrimSpace(trimmed)
+
+	// Convert quoted atoms to /atoms: "compile" -> /compile
+	quotedAtomRegex := regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
+	trimmed = quotedAtomRegex.ReplaceAllString(trimmed, "/$1")
+
 	lines := strings.Split(trimmed, "\n")
 	for i, line := range lines {
 		leadingTrimmed := strings.TrimLeft(line, " \t")

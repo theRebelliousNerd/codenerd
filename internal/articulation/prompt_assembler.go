@@ -48,6 +48,11 @@ type PromptAssembler struct {
 	jitCompiler *prompt.JITPromptCompiler // Optional JIT compiler
 	useJIT      bool                      // Feature flag for JIT usage
 	mu          sync.RWMutex              // Protects JIT fields
+
+	// JIT budget overrides (optional; defaults set by prompt.NewCompilationContext)
+	tokenBudget    int
+	reservedTokens int
+	semanticTopK   int
 }
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
@@ -114,9 +119,17 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	cc.ShardID = stableShardID(pc.ShardID, pc.ShardType)
 	cc.ShardInstanceID = pc.ShardID
 
-	// Set default token budget
-	cc.TokenBudget = 100000
-	cc.ReservedTokens = 8000
+	// Apply configured JIT budgets (if any)
+	tokenBudget, reservedTokens, semanticTopK := pa.getBudgetConfig()
+	if tokenBudget > 0 {
+		cc.TokenBudget = tokenBudget
+	}
+	if reservedTokens > 0 {
+		cc.ReservedTokens = reservedTokens
+	}
+	if semanticTopK > 0 {
+		cc.SemanticTopK = semanticTopK
+	}
 
 	normalizeTag := func(v string) string {
 		v = strings.TrimSpace(v)
@@ -214,6 +227,11 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 		}
 	}
 
+	// Force Mangle language for system autopoiesis and rule synthesis prompts.
+	if cc.Language == "" && shouldForceMangleLanguage(pc.ShardType) {
+		cc.Language = "/mangle"
+	}
+
 	// Set campaign ID if present
 	if pc.CampaignID != "" {
 		cc.CampaignID = pc.CampaignID
@@ -248,6 +266,22 @@ func inferLanguageFromTarget(target string) string {
 	default:
 		return ""
 	}
+}
+
+// shouldForceMangleLanguage determines if a shard prompt should default to /mangle.
+func shouldForceMangleLanguage(shardType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(shardType, "/")))
+	if normalized == "" {
+		return false
+	}
+	if strings.Contains(normalized, "autopoiesis") {
+		return true
+	}
+	switch normalized {
+	case "legislator", "mangle_repair":
+		return true
+	}
+	return strings.Contains(normalized, "mangle")
 }
 
 // AssembleSystemPrompt constructs a complete system prompt for a shard.
@@ -884,6 +918,34 @@ func (pa *PromptAssembler) IsJITEnabled() bool {
 	pa.mu.RLock()
 	defer pa.mu.RUnlock()
 	return pa.useJIT
+}
+
+// SetJITBudgets overrides token budgets for compiled prompts.
+func (pa *PromptAssembler) SetJITBudgets(tokenBudget, reservedTokens, semanticTopK int) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	if tokenBudget > 0 {
+		pa.tokenBudget = tokenBudget
+	}
+	if reservedTokens > 0 {
+		pa.reservedTokens = reservedTokens
+	}
+	if semanticTopK > 0 {
+		pa.semanticTopK = semanticTopK
+	}
+	if pa.tokenBudget > 0 && pa.reservedTokens >= pa.tokenBudget {
+		// Clamp to a safe fallback so Validate() doesn't fail.
+		pa.reservedTokens = pa.tokenBudget / 10
+		if pa.reservedTokens >= pa.tokenBudget {
+			pa.reservedTokens = 0
+		}
+	}
+}
+
+func (pa *PromptAssembler) getBudgetConfig() (int, int, int) {
+	pa.mu.RLock()
+	defer pa.mu.RUnlock()
+	return pa.tokenBudget, pa.reservedTokens, pa.semanticTopK
 }
 
 // =============================================================================

@@ -692,6 +692,25 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 	return DefaultJITConfig()
 }
 
+// GetEffectiveJITConfig returns JIT config clamped to the context window.
+func (c *UserConfig) GetEffectiveJITConfig() JITConfig {
+	cfg := c.GetJITConfig()
+	ctxCfg := c.GetContextWindowConfig()
+
+	if ctxCfg.MaxTokens > 0 && cfg.TokenBudget > ctxCfg.MaxTokens {
+		cfg.TokenBudget = ctxCfg.MaxTokens
+	}
+
+	if cfg.TokenBudget > 0 && cfg.ReservedTokens >= cfg.TokenBudget {
+		cfg.ReservedTokens = cfg.TokenBudget / 10
+		if cfg.ReservedTokens >= cfg.TokenBudget {
+			cfg.ReservedTokens = 0
+		}
+	}
+
+	return cfg
+}
+
 // GetOnboardingState returns the onboarding state with defaults applied.
 func (c *UserConfig) GetOnboardingState() *OnboardingState {
 	if c.Onboarding != nil {

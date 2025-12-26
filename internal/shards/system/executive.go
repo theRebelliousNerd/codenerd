@@ -23,6 +23,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -134,6 +135,16 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 		patternFailure:   make(map[string]int),
 		feedbackLoop:     feedback.NewFeedbackLoop(feedback.DefaultConfig()),
 		bootGuardActive:  true, // Prevent actions until first user interaction
+	}
+}
+
+// SetParentKernel wires the kernel and configures context-aware predicate selection.
+func (e *ExecutivePolicyShard) SetParentKernel(k types.Kernel) {
+	e.BaseSystemShard.SetParentKernel(k)
+	if rk, ok := k.(*core.RealKernel); ok {
+		if corpus := rk.GetPredicateCorpus(); corpus != nil {
+			e.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+		}
 	}
 }
 
