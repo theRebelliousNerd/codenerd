@@ -1,0 +1,8 @@
+atom_has_lang_match("/atom_go")
+atom_has_framework_match("/atom_react")
+atom_matches_context("/atom_core", 100)
+atom_matches_context("/atom_go", 90)
+atom_matches_context("/atom_react", 90)
+atom_dependency_satisfied("/atom_core")
+atom_dependency_satisfied("/atom_go")
+atom_dependency_satisfied("/atom_react")
