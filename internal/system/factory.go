@@ -242,6 +242,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	shardManager := coreshards.NewShardManager()
 	shardManager.SetParentKernel(kernel)
 	shardManager.SetLLMClient(rawLLMClient)
+	virtualStore.SetShardManager(shardManager)
 
 	// Limits enforcement and spawn queue backpressure (config-driven)
 	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{

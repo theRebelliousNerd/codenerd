@@ -4,6 +4,10 @@ knowledge.db-journal
 sessions/
 cache/
 *.log
+logs/
+logs/*.mg
+mangle/scan.mg
+*.db-journal
 
 # Autopoiesis internal directories (always ignore)
 tools/.compiled/
