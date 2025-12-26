@@ -492,6 +492,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Initializing JIT prompt compiler...")
 		var jitCompiler *prompt.JITPromptCompiler
 		var promptEvolver *prompt_evolution.PromptEvolver
+		jitCfg := appCfg.GetEffectiveJITConfig()
 
 		// Load embedded corpus (baked-in prompt atoms)
 		embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
@@ -503,9 +504,14 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Create JIT compiler with both embedded corpus AND kernel for skeleton selection
 		// The kernel is REQUIRED for skeleton atom selection via Mangle rules
+		compilerCfg := prompt.DefaultCompilerConfig()
+		if jitCfg.TokenBudget > 0 {
+			compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
+		}
 		compilerOpts := []prompt.CompilerOption{
 			prompt.WithEmbeddedCorpus(embeddedCorpus),
 			prompt.WithKernel(nerdsystem.NewKernelAdapter(kernel)),
+			prompt.WithConfig(compilerCfg),
 		}
 		var defaultVectorSearcher *prompt.CompilerVectorSearcher
 		if embeddingEngine != nil {
@@ -632,6 +638,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if jitCompiler != nil {
 			if pa, err := articulation.NewPromptAssemblerWithJIT(kernel, jitCompiler); err == nil {
 				promptAssembler = pa
+				promptAssembler.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+				promptAssembler.EnableJIT(jitCfg.Enabled)
 				logging.Boot("PromptAssembler created with JIT compiler")
 			} else {
 				logging.Boot("Warning: Failed to create PromptAssembler with JIT: %v", err)

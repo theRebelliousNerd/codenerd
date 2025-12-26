@@ -169,6 +169,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		appCfg = config.DefaultUserConfig()
 	}
 	coreLimits := appCfg.GetCoreLimits()
+	jitCfg := appCfg.GetEffectiveJITConfig()
+	// Configure global LLM API concurrency
 
 	// Configure global LLM API concurrency
 	schedulerCfg := core.DefaultAPISchedulerConfig()
@@ -189,8 +191,13 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	_ = spawnQueue.Start()
 
 	// Initialize JIT Prompt Compiler
+	compilerCfg := prompt.DefaultCompilerConfig()
+	if jitCfg.TokenBudget > 0 {
+		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
+	}
 	jitCompiler, err := prompt.NewJITPromptCompiler(
 		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
+		prompt.WithConfig(compilerCfg),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
@@ -209,6 +216,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		VirtualStore: virtualStore,
 		Workspace:    cwd,
 		JITCompiler:  jitCompiler,
+		JITConfig:    jitCfg,
 	})
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
@@ -223,6 +231,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Create a PromptAssembler-backed provider
 	var campaignPromptProvider campaign.PromptProvider
 	if pa, err := articulation.NewPromptAssemblerWithJIT(kern, jitCompiler); err == nil {
+		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+		pa.EnableJIT(jitCfg.Enabled)
 		campaignPromptProvider = &CampaignJITProvider{assembler: pa}
 	}
 
@@ -506,6 +516,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		appCfg = config.DefaultUserConfig()
 	}
 	coreLimits := appCfg.GetCoreLimits()
+	jitCfg := appCfg.GetEffectiveJITConfig()
 
 	// Configure global LLM API concurrency
 	schedulerCfg := core.DefaultAPISchedulerConfig()
@@ -526,8 +537,13 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	_ = spawnQueue.Start()
 
 	// Initialize JIT Prompt Compiler
+	compilerCfg := prompt.DefaultCompilerConfig()
+	if jitCfg.TokenBudget > 0 {
+		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
+	}
 	jitCompiler, err := prompt.NewJITPromptCompiler(
 		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
+		prompt.WithConfig(compilerCfg),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
@@ -541,6 +557,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		VirtualStore: virtualStore,
 		Workspace:    cwd,
 		JITCompiler:  jitCompiler,
+		JITConfig:    jitCfg,
 	})
 
 	progressChan := make(chan campaign.Progress, 10)

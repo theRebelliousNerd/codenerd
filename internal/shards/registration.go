@@ -4,6 +4,7 @@ package shards
 
 import (
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -28,6 +29,7 @@ type RegistryContext struct {
 	VirtualStore *core.VirtualStore
 	Workspace    string
 	JITCompiler  *prompt.JITPromptCompiler
+	JITConfig    config.JITConfig
 }
 
 // learningStoreAdapter adapts store.LearningStore to core.LearningStore
@@ -200,8 +202,13 @@ func RegisterAllShardFactories(sm *core.ShardManager, ctx RegistryContext) {
 			return nil
 		}
 		if ctx.JITCompiler != nil {
+			jitCfg := ctx.JITConfig
+			if jitCfg.TokenBudget == 0 && jitCfg.ReservedTokens == 0 && jitCfg.SemanticTopK == 0 && !jitCfg.Enabled && !jitCfg.FallbackEnabled {
+				jitCfg = config.DefaultJITConfig()
+			}
 			pa.SetJITCompiler(ctx.JITCompiler)
-			pa.EnableJIT(true) // Enable by default if compiler is present
+			pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+			pa.EnableJIT(jitCfg.Enabled)
 		}
 		return pa
 	}

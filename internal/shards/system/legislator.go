@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -72,6 +73,16 @@ func NewLegislatorShard() *LegislatorShard {
 	return &LegislatorShard{
 		BaseSystemShard: base,
 		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
+	}
+}
+
+// SetParentKernel wires the kernel and configures context-aware predicate selection.
+func (l *LegislatorShard) SetParentKernel(k types.Kernel) {
+	l.BaseSystemShard.SetParentKernel(k)
+	if rk, ok := k.(*core.RealKernel); ok {
+		if corpus := rk.GetPredicateCorpus(); corpus != nil {
+			l.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+		}
 	}
 }
 
@@ -246,8 +257,9 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 	// Try JIT compilation if available
 	if pa != nil && pa.JITReady() {
 		pc := &articulation.PromptContext{
-			ShardID:   l.ID,
-			ShardType: "legislator",
+			ShardID:    l.ID,
+			ShardType:  "legislator",
+			SessionCtx: l.Config.SessionContext,
 		}
 		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
 		if err == nil && jitPrompt != "" {

@@ -498,6 +498,7 @@ func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (s
 	promptCtx := &articulation.PromptContext{
 		ShardID:   shardID,
 		ShardType: shardType,
+		SessionCtx: b.Config.SessionContext,
 	}
 
 	prompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)

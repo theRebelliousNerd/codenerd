@@ -59,6 +59,12 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		var promptProvider campaign.PromptProvider
 		if m.jitCompiler != nil {
 			if pa, err := articulation.NewPromptAssemblerWithJIT(m.kernel, m.jitCompiler); err == nil {
+				jitCfg := config.DefaultJITConfig()
+				if m.Config != nil {
+					jitCfg = m.Config.GetEffectiveJITConfig()
+				}
+				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+				pa.EnableJIT(jitCfg.Enabled)
 				promptProvider = &campaignJITProvider{assembler: pa}
 			}
 		}

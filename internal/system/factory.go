@@ -113,6 +113,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		appCfg = config.DefaultUserConfig()
 	}
 	coreLimits := appCfg.GetCoreLimits()
+	jitCfg := appCfg.GetEffectiveJITConfig()
 
 	// Configure global LLM API concurrency before any scheduled calls
 	schedulerCfg := core.DefaultAPISchedulerConfig()
@@ -358,9 +359,14 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	// Build compiler options
+	compilerCfg := prompt.DefaultCompilerConfig()
+	if jitCfg.TokenBudget > 0 {
+		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
+	}
 	compilerOpts := []prompt.CompilerOption{
 		prompt.WithKernel(NewKernelAdapter(kernel)),
 		prompt.WithEmbeddedCorpus(embeddedCorpus),
+		prompt.WithConfig(compilerCfg),
 	}
 
 	// Wire default vector searcher for semantic flesh selection when embeddings are available.
@@ -410,7 +416,8 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	var promptAssembler *articulation.PromptAssembler
 	if pa, err := articulation.NewPromptAssembler(kernel); err == nil {
 		pa.SetJITCompiler(jitCompiler)
-		pa.EnableJIT(true)
+		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+		pa.EnableJIT(jitCfg.Enabled)
 		promptAssembler = pa
 		transducer.SetPromptAssembler(pa)
 	}
@@ -451,6 +458,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		VirtualStore: virtualStore,
 		Workspace:    workspace,
 		JITCompiler:  jitCompiler,
+		JITConfig:    jitCfg,
 	}
 	shards.RegisterAllShardFactories(shardManager, regCtx)
 

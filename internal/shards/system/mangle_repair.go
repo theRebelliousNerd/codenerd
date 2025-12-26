@@ -203,7 +203,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		logging.SystemShardsDebug("[MangleRepair] Attempt %d: calling LLM for repair", attempt)
-		rawResponse, err := llmClient.CompleteWithSystem(ctx, m.getSystemPrompt(), repairPrompt)
+		rawResponse, err := llmClient.CompleteWithSystem(ctx, m.getSystemPrompt(ctx), repairPrompt)
 		if err != nil {
 			if costGuard != nil {
 				costGuard.RecordError()
@@ -580,7 +580,23 @@ func (m *MangleRepairShard) extractErrorTypes(errors []string) []string {
 }
 
 // getSystemPrompt returns the system prompt for repair.
-func (m *MangleRepairShard) getSystemPrompt() string {
+func (m *MangleRepairShard) getSystemPrompt(ctx context.Context) string {
+	if m.promptAssembler != nil && m.promptAssembler.JITReady() {
+		pc := &articulation.PromptContext{
+			ShardID:    m.ID,
+			ShardType:  "mangle_repair",
+			SessionCtx: m.Config.SessionContext,
+		}
+		jitPrompt, err := m.promptAssembler.AssembleSystemPrompt(ctx, pc)
+		if err == nil && jitPrompt != "" {
+			logging.SystemShards("[MangleRepair] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+			return jitPrompt
+		}
+		if err != nil {
+			logging.SystemShards("[MangleRepair] JIT compilation failed, using legacy: %v", err)
+		}
+	}
+
 	return `You are a Mangle (Datalog) expert. Your task is to repair invalid Mangle rules.
 
 Key Mangle syntax rules:
