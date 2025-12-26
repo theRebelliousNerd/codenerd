@@ -756,6 +756,10 @@ func (a *executiveLLMAdapter) Complete(ctx context.Context, systemPrompt, userPr
 	return a.shard.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 }
 
+func (a *executiveLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.Complete(ctx, systemPrompt, userPrompt)
+}
+
 // handleAutopoiesis uses the Mangle FeedbackLoop to propose and validate new policy rules.
 func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 	cases := e.Autopoiesis.GetUnhandledCases()

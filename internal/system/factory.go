@@ -761,6 +761,10 @@ func (a *perceptionLLMAdapter) Complete(ctx context.Context, prompt string) (str
 	return a.client.Complete(ctx, prompt)
 }
 
+func (a *perceptionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
 // mcpKernelAdapter adapts core.RealKernel to mcp.KernelInterface.
 // It converts string facts to core.Fact and handles query results.
 type mcpKernelAdapter struct {

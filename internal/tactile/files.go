@@ -2,6 +2,7 @@ package tactile
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -163,6 +164,13 @@ func (e *FileEditor) SetWorkingDir(dir string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.workingDir = dir
+}
+
+// Exec is not supported by FileEditor; it satisfies VirtualStore-style interfaces.
+func (e *FileEditor) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	_ = ctx
+	_ = env
+	return "", "", fmt.Errorf("exec not supported by file editor: %s", cmd)
 }
 
 // emitAudit emits an audit event and associated facts.

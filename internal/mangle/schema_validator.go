@@ -170,6 +170,22 @@ func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	return sv.ValidateRule(ruleText)
 }
 
+// HotLoadRule validates a single rule via syntax parsing and schema checks.
+// This mirrors the RuleValidator contract used by the feedback loop.
+func (sv *SchemaValidator) HotLoadRule(rule string) error {
+	trimmed := strings.TrimSpace(rule)
+	if trimmed == "" {
+		return fmt.Errorf("empty rule")
+	}
+	if !strings.HasSuffix(trimmed, ".") {
+		trimmed += "."
+	}
+	if _, err := parse.Unit(strings.NewReader(trimmed)); err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+	return sv.ValidateLearnedRule(trimmed)
+}
+
 // validateHeadArity checks that the head predicate's argument count matches the schema.
 func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
 	expectedArity, hasDeclaredArity := sv.predicateArities[headName]

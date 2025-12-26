@@ -706,6 +706,10 @@ func (a *constitutionLLMAdapter) Complete(ctx context.Context, systemPrompt, use
 	return result, nil
 }
 
+func (a *constitutionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.Complete(ctx, systemPrompt, userPrompt)
+}
+
 // buildRuleProposalPrompt creates a prompt for the LLM to propose a new rule.
 func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) string {
 	var sb strings.Builder

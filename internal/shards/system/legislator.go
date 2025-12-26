@@ -58,6 +58,10 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 	return processed.Surface, nil
 }
 
+func (a *llmClientAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.Complete(ctx, systemPrompt, userPrompt)
+}
+
 // NewLegislatorShard creates a Legislator shard.
 func NewLegislatorShard() *LegislatorShard {
 	logging.SystemShards("[Legislator] Initializing legislator shard")

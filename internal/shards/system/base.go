@@ -356,6 +356,13 @@ func (b *BaseSystemShard) GetConfig() types.ShardConfig {
 	return b.Config
 }
 
+// Execute returns an error for the base shard; concrete shards must override.
+func (b *BaseSystemShard) Execute(ctx context.Context, task string) (string, error) {
+	_ = ctx
+	_ = task
+	return "", fmt.Errorf("execute not implemented for base system shard %s", b.ID)
+}
+
 // GetKernel returns the shard's kernel for fact propagation.
 func (b *BaseSystemShard) GetKernel() *core.RealKernel {
 	b.mu.RLock()
