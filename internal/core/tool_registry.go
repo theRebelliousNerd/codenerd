@@ -155,6 +155,12 @@ func (tr *ToolRegistry) ListTools() []*Tool {
 	return tools
 }
 
+// ExecuteTool runs a registered tool with raw input (ToolExecutor interface).
+func (tr *ToolRegistry) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
+	args := parseToolInput(input)
+	return tr.ExecuteRegisteredTool(ctx, toolName, args)
+}
+
 // ExecuteRegisteredTool executes a registered tool with the given arguments
 func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName string, args []string) (string, error) {
 	tool, exists := tr.GetTool(toolName)
@@ -424,4 +430,15 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 // isCommandName checks if a string is a command name (not a path)
 func isCommandName(s string) bool {
 	return !filepath.IsAbs(s) && !strings.Contains(s, string(filepath.Separator))
+}
+
+func parseToolInput(input string) []string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return []string{trimmed}
+	}
+	return strings.Fields(trimmed)
 }

@@ -408,8 +408,17 @@ func (e *LimitedExecutorWindows) Capabilities() ExecutorCapabilities {
 	return caps
 }
 
+// Validate checks if a command can be executed.
+func (e *LimitedExecutorWindows) Validate(cmd Command) error {
+	return e.DirectExecutor.Validate(cmd)
+}
+
 // Execute runs a command with resource limits enforced via Job Objects.
 func (e *LimitedExecutorWindows) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	if err := e.Validate(cmd); err != nil {
+		return nil, err
+	}
+
 	// If no limits specified, use parent implementation
 	if cmd.Limits == nil {
 		return e.DirectExecutor.Execute(ctx, cmd)

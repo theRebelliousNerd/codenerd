@@ -103,6 +103,8 @@ class ExecutionAuditor:
     # Struct field check pattern (for detecting fields that are checked but not assigned)
     FIELD_CHECK_PATTERN = re.compile(r'\b(\w+)\.(\w+)\s*[!=]=\s*nil')
     FIELD_ASSIGN_PATTERN = re.compile(r'\b(\w+)\.(\w+)\s*=\s*[^=]')
+    STRUCT_LITERAL_ASSIGN_PATTERN = re.compile(r'(\w+)\s*:?=\s*&?\w+\s*{')
+    STRUCT_FIELD_PATTERN = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*:')
 
     def __init__(self, workspace: str, verbose: bool = False, component: Optional[str] = None):
         self.workspace = Path(workspace)
@@ -337,6 +339,24 @@ class ExecutionAuditor:
                         field_assigns[key] = set()
                     field_assigns[key].add(rel_path)
 
+                # Find struct literal assignments (m := Type{Field: ...})
+                for match in self.STRUCT_LITERAL_ASSIGN_PATTERN.finditer(content):
+                    receiver = match.group(1)
+                    start = content.find("{", match.end() - 1)
+                    if start == -1:
+                        continue
+                    end = self._find_matching_brace(content, start)
+                    if end == -1:
+                        continue
+
+                    literal_body = content[start + 1:end]
+                    for field_match in self.STRUCT_FIELD_PATTERN.finditer(literal_body):
+                        field_name = field_match.group(1)
+                        key = f"{receiver}.{field_name}"
+                        if key not in field_assigns:
+                            field_assigns[key] = set()
+                        field_assigns[key].add(rel_path)
+
             except Exception:
                 pass
 
@@ -351,12 +371,25 @@ class ExecutionAuditor:
                 _, field_name = key.split('.', 1)
                 if len(field_name) > 2 and not field_name.startswith('_'):
                     self.result.findings.append(Finding(
-                        severity=Severity.ERROR,
+                        severity=Severity.WARNING,
                         message=f"Field '{key}' is nil-checked but never assigned",
                         file=list(check_files)[0],
                         suggestion=f"Add assignment: {key} = NewSomething() somewhere",
                         pattern="field_assignment"
                     ))
+
+    def _find_matching_brace(self, content: str, start_index: int) -> int:
+        """Find the matching closing brace for a struct literal."""
+        depth = 0
+        for i in range(start_index, len(content)):
+            char = content[i]
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    return i
+        return -1
 
     def _audit_goroutine_spawning(self, go_files: List[Path]):
         """Check for blocking operations that should be in goroutines."""

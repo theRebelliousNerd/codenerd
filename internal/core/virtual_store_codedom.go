@@ -670,6 +670,13 @@ func (a *TactileFileEditorAdapter) ReplaceElement(path string, startLine, endLin
 	return a.convertResult(result), nil
 }
 
+func (a *TactileFileEditorAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	if a.editor == nil {
+		return "", "", fmt.Errorf("file editor not configured")
+	}
+	return a.editor.Exec(ctx, cmd, env)
+}
+
 func (a *TactileFileEditorAdapter) convertResult(r *tactile.FileResult) *FileEditResult {
 	if r == nil {
 		return nil

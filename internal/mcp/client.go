@@ -402,6 +402,32 @@ func (m *MCPClientManager) GetAllTools() []*MCPTool {
 	return tools
 }
 
+// ListTools returns cached tool schemas across all connected servers.
+func (m *MCPClientManager) ListTools(ctx context.Context) ([]MCPToolSchema, error) {
+	_ = ctx
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	schemas := make([]MCPToolSchema, 0)
+	for _, conn := range m.servers {
+		for _, tool := range conn.Tools {
+			schemas = append(schemas, MCPToolSchema{
+				Name:         tool.Name,
+				Description:  tool.Description,
+				InputSchema:  tool.InputSchema,
+				OutputSchema: tool.OutputSchema,
+			})
+		}
+	}
+
+	if len(schemas) == 0 {
+		return nil, fmt.Errorf("no tools cached")
+	}
+
+	return schemas, nil
+}
+
 // updateServerStatus updates server status and notifies callback.
 func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStatus) {
 	m.mu.RLock()

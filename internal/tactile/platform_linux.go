@@ -125,8 +125,17 @@ func (e *LimitedExecutorLinux) Capabilities() ExecutorCapabilities {
 	return caps
 }
 
+// Validate checks if a command can be executed.
+func (e *LimitedExecutorLinux) Validate(cmd Command) error {
+	return e.DirectExecutor.Validate(cmd)
+}
+
 // Execute runs a command with resource limits enforced via cgroups or rlimits.
 func (e *LimitedExecutorLinux) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	if err := e.Validate(cmd); err != nil {
+		return nil, err
+	}
+
 	// If no limits specified or cgroups not available, use parent implementation
 	if cmd.Limits == nil || !e.useCgroups {
 		return e.DirectExecutor.Execute(ctx, cmd)
@@ -643,8 +652,25 @@ func (e *NamespaceExecutor) Capabilities() ExecutorCapabilities {
 	return caps
 }
 
+// Validate checks if a command can be executed.
+func (e *NamespaceExecutor) Validate(cmd Command) error {
+	if cmd.Binary == "" {
+		return fmt.Errorf("binary is required")
+	}
+
+	if cmd.Sandbox != nil && cmd.Sandbox.Mode != SandboxNone && cmd.Sandbox.Mode != SandboxNamespace && cmd.Sandbox.Mode != "" {
+		return fmt.Errorf("NamespaceExecutor only supports SandboxNone or SandboxNamespace, got %s", cmd.Sandbox.Mode)
+	}
+
+	return nil
+}
+
 // Execute runs a command with namespace isolation.
 func (e *NamespaceExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	if err := e.Validate(cmd); err != nil {
+		return nil, err
+	}
+
 	// Check if namespace isolation is requested
 	if cmd.Sandbox == nil || cmd.Sandbox.Mode != SandboxNamespace {
 		return e.DirectExecutor.Execute(ctx, cmd)
@@ -880,8 +906,29 @@ func (e *FirejailExecutor) Capabilities() ExecutorCapabilities {
 	return caps
 }
 
+// Validate checks if a command can be executed.
+func (e *FirejailExecutor) Validate(cmd Command) error {
+	if cmd.Binary == "" {
+		return fmt.Errorf("binary is required")
+	}
+
+	if cmd.Sandbox != nil && cmd.Sandbox.Mode != SandboxNone && cmd.Sandbox.Mode != SandboxFirejail && cmd.Sandbox.Mode != "" {
+		return fmt.Errorf("FirejailExecutor only supports SandboxNone or SandboxFirejail, got %s", cmd.Sandbox.Mode)
+	}
+
+	if cmd.Sandbox != nil && cmd.Sandbox.Mode == SandboxFirejail && !e.available {
+		return fmt.Errorf("Firejail is not available on this system")
+	}
+
+	return nil
+}
+
 // Execute runs a command inside a Firejail sandbox.
 func (e *FirejailExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionResult, error) {
+	if err := e.Validate(cmd); err != nil {
+		return nil, err
+	}
+
 	// If not using firejail sandbox, delegate to parent
 	if cmd.Sandbox == nil || cmd.Sandbox.Mode != SandboxFirejail {
 		return e.DirectExecutor.Execute(ctx, cmd)
