@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -121,7 +122,7 @@ type waitingEntry struct {
 	shardID   string
 	shardType string
 	waitStart time.Time
-	priority  SpawnPriority
+	priority  types.SpawnPriority
 }
 
 // NewAPIScheduler creates a new scheduler.
@@ -179,11 +180,25 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	state.Phase = PhaseWaitingForSlot
 	waitStart := time.Now()
 
+	// Determine initial priority bucket
+	// We map the request Context to a SpawnPriority if possible
+	// For now, default to Normal
+	initialPriority := types.PriorityNormal
+
+	// If the request context is associated with a high-priority shard (e.g. system), boost it.
+	// This requires inspecting the context values set by ShardManager.Spawn
+	if prioVal := ctx.Value(types.CtxKeyPriority); prioVal != nil {
+		if p, ok := prioVal.(types.SpawnPriority); ok {
+			initialPriority = p
+		}
+	}
+
 	// Add to wait queue for visibility
 	entry := &waitingEntry{
 		shardID:   shardID,
 		shardType: state.ShardType,
 		waitStart: waitStart,
+		priority:  initialPriority,
 	}
 	s.waitQueue = append(s.waitQueue, entry)
 	s.mu.Unlock()

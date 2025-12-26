@@ -27,8 +27,8 @@ import (
 // - Cross-shard execution history
 // - Domain knowledge atoms
 // - Constitutional constraints
-func (m *Model) buildSessionContext(ctx context.Context) *core.SessionContext {
-	sessionCtx := &core.SessionContext{
+func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
+	sessionCtx := &types.SessionContext{
 		ExtraContext: make(map[string]string),
 	}
 
@@ -441,7 +441,7 @@ func (m *Model) getCampaignLinkedReqs() []string {
 }
 
 // populateGitContext fills in Git state for Chesterton's Fence awareness.
-func (m *Model) populateGitContext(sessionCtx *core.SessionContext) {
+func (m *Model) populateGitContext(sessionCtx *types.SessionContext) {
 	if m.kernel == nil {
 		return
 	}
@@ -492,7 +492,7 @@ func splitContextList(raw string) []string {
 }
 
 // populateTestState fills in test execution state for TDD loop awareness.
-func (m *Model) populateTestState(sessionCtx *core.SessionContext) {
+func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 	if m.kernel == nil {
 		return
 	}
@@ -522,10 +522,10 @@ func (m *Model) populateTestState(sessionCtx *core.SessionContext) {
 }
 
 // buildPriorShardSummaries extracts summaries from recent shard executions.
-func (m *Model) buildPriorShardSummaries() []core.ShardSummary {
-	var summaries []core.ShardSummary
+func (m *Model) buildPriorShardSummaries() []types.ShardSummary {
+	var summaries []types.ShardSummary
 	for _, sr := range m.shardResultHistory {
-		summaries = append(summaries, core.ShardSummary{
+		summaries = append(summaries, types.ShardSummary{
 			ShardType: sr.ShardType,
 			Task:      truncateForContext(sr.Task, 100),
 			Summary:   extractShardSummary(sr),
@@ -824,7 +824,7 @@ func (m *Model) querySafetyWarnings() []string {
 
 // queryVectorMemory performs semantic search in the vector tier.
 // Appends relevant past knowledge to KnowledgeAtoms.
-func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *core.SessionContext) {
+func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *types.SessionContext) {
 	// Use last user message as query for semantic search
 	query := ""
 	for i := len(m.history) - 1; i >= 0; i-- {
@@ -859,7 +859,7 @@ func (m *Model) queryVectorMemory(ctx context.Context, sessionCtx *core.SessionC
 
 // queryGraphMemory retrieves entity relationships for active files.
 // Appends relationships to DependencyContext.
-func (m *Model) queryGraphMemory(sessionCtx *core.SessionContext) {
+func (m *Model) queryGraphMemory(sessionCtx *types.SessionContext) {
 	// Query graph for entities related to active files
 	for _, file := range sessionCtx.ActiveFiles {
 		if file == "" {
@@ -889,7 +889,7 @@ func (m *Model) queryGraphMemory(sessionCtx *core.SessionContext) {
 
 // queryColdMemory retrieves persistent learned facts from cold storage.
 // Appends high-priority facts to KnowledgeAtoms.
-func (m *Model) queryColdMemory(sessionCtx *core.SessionContext) {
+func (m *Model) queryColdMemory(sessionCtx *types.SessionContext) {
 	// Query for high-priority persistent facts
 	predicates := []string{"learned_preference", "project_pattern", "avoid_pattern"}
 

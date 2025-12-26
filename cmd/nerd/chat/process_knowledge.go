@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -66,7 +66,7 @@ If you need to search documentation or the web, do so to provide accurate inform
 			)
 
 			// Spawn the specialist with high priority (knowledge is blocking)
-			result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+			result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 
 			resultsChan <- KnowledgeResult{
 				Specialist: shardType,

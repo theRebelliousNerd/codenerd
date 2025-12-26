@@ -29,7 +29,7 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 		t.Fatalf("NewRealKernelWithWorkspace() error = %v", err)
 	}
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = workdir
 	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)

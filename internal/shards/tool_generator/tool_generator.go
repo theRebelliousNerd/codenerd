@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/autopoiesis"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
@@ -121,7 +122,7 @@ func (s *ToolGeneratorShard) SetParentKernel(k types.Kernel) {
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).
-func (s *ToolGeneratorShard) SetSessionContext(ctx *core.SessionContext) {
+func (s *ToolGeneratorShard) SetSessionContext(ctx *types.SessionContext) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config.SessionContext = ctx
@@ -240,6 +241,8 @@ func (s *ToolGeneratorShard) Execute(ctx context.Context, task string) (string, 
 		result, err = s.handleList(ctx)
 	case "status":
 		result, err = s.handleStatus(ctx, task)
+	case "compile":
+		result, err = s.handleCompile(ctx, task)
 	default:
 		// Default to generate if we detect a capability need
 		result, err = s.handleGenerate(ctx, task)
@@ -278,6 +281,11 @@ func (s *ToolGeneratorShard) parseAction(task string) string {
 	if strings.Contains(lower, "status") || strings.Contains(lower, "quality") ||
 		strings.Contains(lower, "performance") || strings.Contains(lower, "learning") {
 		return "status"
+	}
+
+	// Check for compile action
+	if strings.Contains(lower, "compile") || strings.Contains(lower, "build") {
+		return "compile"
 	}
 
 	// Default to generate
@@ -527,6 +535,56 @@ func (s *ToolGeneratorShard) handleStatus(ctx context.Context, task string) (*To
 				)
 			}
 		}
+	}
+
+	return result, nil
+}
+
+// handleCompile handles tool compilation requests.
+func (s *ToolGeneratorShard) handleCompile(ctx context.Context, task string) (*ToolGeneratorResult, error) {
+	s.mu.RLock()
+	orch := s.orchestrator
+	s.mu.RUnlock()
+
+	if orch == nil {
+		return nil, fmt.Errorf("orchestrator not initialized")
+	}
+
+	// Extract tool name from task
+	toolName := s.extractToolName(task)
+	if toolName == "" {
+		return nil, fmt.Errorf("could not determine which tool to compile")
+	}
+
+	logging.Get(logging.CategoryAutopoiesis).Info("ToolGeneratorShard: Compiling tool %s", toolName)
+
+	start := time.Now()
+	// Delegate to orchestrator
+	tool, err := orch.CompileTool(ctx, toolName)
+	duration := time.Since(start)
+
+	result := &ToolGeneratorResult{
+		Action:   "compile",
+		ToolName: toolName,
+		Duration: duration,
+		Facts:    []types.Fact{},
+	}
+
+	if err != nil {
+		result.Success = false
+		result.Message = fmt.Sprintf("Compilation failed: %v", err)
+		result.Facts = append(result.Facts,
+			types.Fact{Predicate: "tool_compilation_failed", Args: []interface{}{toolName, err.Error()}},
+		)
+	} else {
+		result.Success = true
+		result.Message = fmt.Sprintf("Successfully compiled tool '%s' (hash: %s)", toolName, tool.Hash[:8])
+		result.Facts = append(result.Facts,
+			types.Fact{Predicate: "tool_compiled", Args: []interface{}{toolName, time.Now().Unix()}},
+			types.Fact{Predicate: "tool_ready", Args: []interface{}{toolName}},
+		)
+		// Add tool to result list for easier inspection
+		result.Tools = []*autopoiesis.RuntimeTool{tool}
 	}
 
 	return result, nil

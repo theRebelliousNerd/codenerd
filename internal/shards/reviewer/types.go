@@ -52,14 +52,25 @@ type ReviewResult struct {
 
 // CodeMetrics holds code complexity metrics.
 type CodeMetrics struct {
-	TotalLines      int     `json:"total_lines"`
-	CodeLines       int     `json:"code_lines"`
-	CommentLines    int     `json:"comment_lines"`
-	BlankLines      int     `json:"blank_lines"`
-	CyclomaticAvg   float64 `json:"cyclomatic_avg"`
-	CyclomaticMax   int     `json:"cyclomatic_max"`
-	MaxNesting      int     `json:"max_nesting"`
-	FunctionCount   int     `json:"function_count"`
-	LongFunctions   int     `json:"long_functions"` // Functions > 50 lines
-	DuplicateBlocks int     `json:"duplicate_blocks"`
+	TotalLines      int              `json:"total_lines"`
+	CodeLines       int              `json:"code_lines"`
+	CommentLines    int              `json:"comment_lines"`
+	BlankLines      int              `json:"blank_lines"`
+	CyclomaticAvg   float64          `json:"cyclomatic_avg"`
+	CyclomaticMax   int              `json:"cyclomatic_max"`
+	MaxNesting      int              `json:"max_nesting"`
+	FunctionCount   int              `json:"function_count"`
+	LongFunctions   int              `json:"long_functions"` // Functions > 50 lines
+	DuplicateBlocks int              `json:"duplicate_blocks"`
+	Functions       []FunctionMetric `json:"functions,omitempty"`
+}
+
+// FunctionMetric holds metrics for a single function.
+type FunctionMetric struct {
+	Name       string `json:"name"`
+	File       string `json:"file"`
+	Complexity int    `json:"complexity"`
+	Nesting    int    `json:"nesting"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
 }

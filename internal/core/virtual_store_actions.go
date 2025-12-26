@@ -70,16 +70,18 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 	logging.VirtualStoreDebug("Using legacy SafeExecutor")
 
-	// Legacy path using SafeExecutor
-	cmd := tactile.ShellCommand{
+	// Legacy path using SafeExecutor (or whatever implementation is injected)
+	cmd := tactile.Command{
 		Binary:           binary,
 		Arguments:        args,
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   timeout,
-		EnvironmentVars:  v.getAllowedEnv(),
+		Environment:      v.getAllowedEnv(),
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: int64(timeout) * 1000,
+		},
 	}
 
-	output, err := v.executor.Execute(ctx, cmd)
+	result, err := v.executor.Execute(ctx, cmd)
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Shell command failed: %s - %v", binary, err)
 		return ActionResult{
@@ -91,12 +93,12 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		}, nil // Return nil error but unsuccessful result
 	}
 
-	logging.VirtualStoreDebug("Shell command succeeded: output_len=%d", len(output))
+	logging.VirtualStoreDebug("Shell command succeeded: output_len=%d", len(result.Output()))
 	return ActionResult{
 		Success: true,
-		Output:  output,
+		Output:  result.Output(),
 		FactsToAdd: []Fact{
-			{Predicate: "cmd_succeeded", Args: []interface{}{binary, output}},
+			{Predicate: "cmd_succeeded", Args: []interface{}{binary, result.Output()}},
 		},
 	}, nil
 }
@@ -597,16 +599,19 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Running tests: %s", testCmd)
 
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           "bash",
 		Arguments:        []string{"-c", testCmd},
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   timeoutSeconds,
-		EnvironmentVars:  v.getAllowedEnv(),
+		Environment:      v.getAllowedEnv(),
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: int64(timeoutSeconds) * 1000,
+		},
 	}
 
-	output, err := v.executor.Execute(ctx, cmd)
-	success := err == nil
+	result, err := v.executor.Execute(ctx, cmd)
+	success := err == nil && result.ExitCode == 0
+	output := result.Output()
 
 	testState := "/passing"
 	if !success {
@@ -637,16 +642,19 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 
 	logging.VirtualStore("Building project: %s", buildCmd)
 
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           "bash",
 		Arguments:        []string{"-c", buildCmd},
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   timeoutSeconds,
-		EnvironmentVars:  v.getAllowedEnv(),
+		Environment:      v.getAllowedEnv(),
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: int64(timeoutSeconds) * 1000,
+		},
 	}
 
-	output, err := v.executor.Execute(ctx, cmd)
-	success := err == nil
+	result, err := v.executor.Execute(ctx, cmd)
+	success := err == nil && result.ExitCode == 0
+	output := result.Output()
 
 	facts := []Fact{
 		{Predicate: "build_result", Args: []interface{}{success, output}},
@@ -687,15 +695,21 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 
 	logging.VirtualStore("Git operation: %s %v", operation, args[1:])
 
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           "git",
 		Arguments:        args,
 		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   60,
-		EnvironmentVars:  v.getAllowedEnv(),
+		Environment:      v.getAllowedEnv(),
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: 60 * 1000,
+		},
 	}
 
-	output, err := v.executor.Execute(ctx, cmd)
+	result, err := v.executor.Execute(ctx, cmd)
+	output := ""
+	if result != nil {
+		output = result.Output()
+	}
 
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Git %s failed: %v", operation, err)
@@ -960,13 +974,13 @@ func (v *VirtualStore) GetStrategicSummary() string {
 
 	// Group by category for organized output
 	categories := map[string][]string{
-		"vision":         {},
-		"philosophy":     {},
-		"architecture":   {},
-		"pattern":        {},
-		"component":      {},
-		"capability":     {},
-		"constraint":     {},
+		"vision":       {},
+		"philosophy":   {},
+		"architecture": {},
+		"pattern":      {},
+		"component":    {},
+		"capability":   {},
+		"constraint":   {},
 	}
 
 	for _, atom := range atoms {

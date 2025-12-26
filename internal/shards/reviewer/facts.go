@@ -73,6 +73,18 @@ func (r *ReviewerShard) generateFacts(result *ReviewResult) []core.Fact {
 				int64(result.Metrics.FunctionCount),
 			},
 		})
+
+		// Per-function metrics for complexity rules
+		for _, fn := range result.Metrics.Functions {
+			facts = append(facts, core.Fact{
+				Predicate: "cyclomatic_complexity",
+				Args:      []interface{}{fn.File, fn.Name, int64(fn.Complexity)},
+			})
+			facts = append(facts, core.Fact{
+				Predicate: "nesting_depth",
+				Args:      []interface{}{fn.File, fn.Name, int64(fn.Nesting)},
+			})
+		}
 	}
 
 	// Autopoiesis facts

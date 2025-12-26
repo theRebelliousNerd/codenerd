@@ -32,6 +32,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
@@ -412,7 +413,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				})
 			}
 
-			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, core.PriorityHigh)
+			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 
 			// Glass Box: Emit shard completion event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {

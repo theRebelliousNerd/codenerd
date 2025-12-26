@@ -1,7 +1,8 @@
 package ui
 
 import (
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/types"
 	"fmt"
 	"strings"
 
@@ -11,13 +12,13 @@ import (
 
 // ShardPageModel defines the state of the Shard Console.
 type ShardPageModel struct {
-	width    int
-	height   int
-	table    table.Model
+	width  int
+	height int
+	table  table.Model
 
 	// Data
-	activeShards []core.ShardAgent
-	backpressure *core.BackpressureStatus
+	activeShards []types.ShardAgent
+	backpressure *coreshards.BackpressureStatus
 
 	// Styles
 	styles Styles
@@ -82,7 +83,7 @@ func (m *ShardPageModel) SetSize(w, h int) {
 }
 
 // UpdateContent updates the data.
-func (m *ShardPageModel) UpdateContent(shards []core.ShardAgent, bp *core.BackpressureStatus) {
+func (m *ShardPageModel) UpdateContent(shards []types.ShardAgent, bp *coreshards.BackpressureStatus) {
 	m.activeShards = shards
 	m.backpressure = bp
 
@@ -91,7 +92,7 @@ func (m *ShardPageModel) UpdateContent(shards []core.ShardAgent, bp *core.Backpr
 		cfg := s.GetConfig()
 		state := s.GetState()
 		id := s.GetID()
-		
+
 		rows = append(rows, table.Row{
 			id,
 			string(cfg.Type),

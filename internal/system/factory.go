@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/browser"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
@@ -30,10 +31,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"sync"
+
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
-	"sync"
 )
 
 // Global singleton Cortex instance to prevent repeated initialization (Bug #1 fix)
@@ -67,7 +69,7 @@ func ResetGlobalCortex() {
 type Cortex struct {
 	Kernel         core.Kernel
 	LLMClient      perception.LLMClient
-	ShardManager   *core.ShardManager
+	ShardManager   *coreshards.ShardManager
 	VirtualStore   *core.VirtualStore
 	Transducer     *perception.RealTransducer
 	Orchestrator   *autopoiesis.Orchestrator
@@ -217,7 +219,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		}
 	}
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
 	vsCfg.WorkingDir = workspace
 	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
@@ -237,7 +239,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	fileEditor.SetWorkingDir(workspace)
 	virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
-	shardManager := core.NewShardManager()
+	shardManager := coreshards.NewShardManager()
 	shardManager.SetParentKernel(kernel)
 	shardManager.SetLLMClient(rawLLMClient)
 
@@ -251,7 +253,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	})
 	shardManager.SetLimitsEnforcer(limitsEnforcer)
 
-	spawnQueue := core.NewSpawnQueue(shardManager, limitsEnforcer, core.DefaultSpawnQueueConfig())
+	spawnQueue := coreshards.NewSpawnQueue(shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 	shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
@@ -443,7 +445,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		}
 
 		// Register agent profile with ShardManager as Type U (user-defined)
-		cfg := core.DefaultSpecialistConfig(agent.ID, agent.DBPath)
+		cfg := coreshards.DefaultSpecialistConfig(agent.ID, agent.DBPath)
 		cfg.Type = types.ShardTypeUser
 		shardManager.DefineProfile(agent.ID, cfg)
 	}
@@ -651,7 +653,7 @@ func (a *LocalStoreTraceAdapter) LoadReasoningTrace(traceID string) (*perception
 	return nil, nil
 }
 
-// KernelAdapter adapts core.Kernel to prompt.KernelQuerier.
+// KernelAdapter adapts core.RealKernel to prompt.KernelQuerier.
 // It handles type conversion between []interface{} and []core.Fact.
 type KernelAdapter struct {
 	kernel core.Kernel
@@ -813,33 +815,61 @@ func (a *mcpKernelAdapter) Assert(fact string) error {
 	}})
 }
 
-func (a *mcpKernelAdapter) Retract(fact string) error {
-	// Note: core.RealKernel doesn't have Retract - this is a no-op for now.
-	// In a real implementation, you'd need to extend the kernel to support retraction.
-	logging.Get(logging.CategoryTools).Debug("mcpKernelAdapter.Retract: not implemented (fact: %s)", fact)
-	return nil
-}
+func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]interface{}, error) {
+	// 1. Parse the query pattern to identify variables
+	queryFact, err := core.ParseFactString(predicate)
+	if err != nil {
+		// Provide a more helpful error if parsing fails
+		return nil, fmt.Errorf("invalid query format '%s': %w", predicate, err)
+	}
 
-func (a *mcpKernelAdapter) Query(query string) ([]map[string]interface{}, error) {
-	facts, err := a.kernel.Query(query)
+	// 2. Map variable names to argument indices
+	variableMap := make(map[int]string)
+	for i, arg := range queryFact.Args {
+		if s, ok := arg.(string); ok && strings.HasPrefix(s, "?") {
+			variableMap[i] = s[1:] // Trim "?" prefix
+		}
+	}
+
+	// 3. Execute query to get raw facts
+	facts, err := a.kernel.Query(predicate)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert []core.Fact to []map[string]interface{}
-	// The query pattern should match the variables in order
+	// 4. Transform facts into variable bindings maps
 	results := make([]map[string]interface{}, 0, len(facts))
 	for _, f := range facts {
-		// Create a map with positional keys if we can't determine variable names
-		row := make(map[string]interface{})
-		for i, arg := range f.Args {
-			// Use generic names like "Arg0", "Arg1", etc.
-			// In a more sophisticated implementation, we'd parse the query to extract variable names
-			key := fmt.Sprintf("Arg%d", i)
-			row[key] = arg
+		binding := make(map[string]interface{})
+
+		// If query had variables, extract them
+		if len(variableMap) > 0 {
+			for idx, varName := range variableMap {
+				if idx < len(f.Args) {
+					binding[varName] = f.Args[idx]
+				}
+			}
+		} else {
+			// Fallback for 0-arity or const-only queries: return usage of predicate as a flag?
+			// Mangle convention for boolean query is strict, but here we return empty map for match
 		}
-		results = append(results, row)
+
+		results = append(results, binding)
+	}
+	return results, nil
+}
+
+func (a *mcpKernelAdapter) Retract(fact string) error {
+	// Parse string fact into core.Fact
+	input := fact
+	if !strings.HasSuffix(input, ".") {
+		input += "."
 	}
 
-	return results, nil
+	parsed, err := core.ParseFactString(input)
+	if err != nil {
+		return fmt.Errorf("failed to parse fact '%s': %w", fact, err)
+	}
+
+	return a.kernel.RetractExactFact(parsed)
 }

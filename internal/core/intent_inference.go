@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // InferIntentFromTask derives a best-effort StructuredIntent from a free-form task string.
@@ -12,7 +14,7 @@ import (
 // This is primarily used for shard types that receive an unstructured "task" (e.g., user-defined
 // specialist agents backed by the researcher base shard) so that JIT prompt selectors like
 // intent_verbs can behave deterministically.
-func InferIntentFromTask(task string) *StructuredIntent {
+func InferIntentFromTask(task string) *types.StructuredIntent {
 	trimmed := strings.TrimSpace(task)
 	verb, remainder := inferVerbAndRemainder(trimmed)
 
@@ -21,7 +23,7 @@ func InferIntentFromTask(task string) *StructuredIntent {
 		constraint = strings.TrimSpace(task)
 	}
 
-	intent := &StructuredIntent{
+	intent := &types.StructuredIntent{
 		ID:         fmt.Sprintf("inferred-intent-%d", time.Now().UnixNano()),
 		Category:   inferCategoryFromVerb(verb),
 		Verb:       verb,

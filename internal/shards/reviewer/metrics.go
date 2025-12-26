@@ -196,7 +196,8 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 		inFunction := false
 		braceDepth := 0 // Track brace depth to detect function end
 
-		for _, line := range lines {
+		for i, line := range lines {
+			currentLineNum := i + 1
 			trimmed := strings.TrimSpace(line)
 
 			// Blank lines
@@ -245,13 +246,33 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 						metrics.LongFunctions++
 					}
 					functionComplexities = append(functionComplexities, currentFunctionCC)
+
+					// Record previous function metric
+					if len(metrics.Functions) > 0 {
+						lastIdx := len(metrics.Functions) - 1
+						metrics.Functions[lastIdx].Complexity = currentFunctionCC
+						metrics.Functions[lastIdx].EndLine = currentLineNum - 1 // Previous line
+					}
 				}
+
 				// Start new function
 				metrics.FunctionCount++
 				inFunction = true
 				currentFunctionLines = 0
 				currentFunctionCC = 1 // Reset CC for new function
 				braceDepth = 0
+
+				// Extract function name and start tracking
+				funcName := extractFunctionName(line, lang)
+				if funcName == "" {
+					funcName = "anonymous"
+				}
+				metrics.Functions = append(metrics.Functions, FunctionMetric{
+					Name:      funcName,
+					File:      filePath,
+					StartLine: currentLineNum,
+					Nesting:   currentNesting, // Starting nesting level
+				})
 			}
 
 			if inFunction {
@@ -263,12 +284,28 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 				// Count decision points for cyclomatic complexity
 				currentFunctionCC += countDecisionPoints(line, lang)
 
+				// Update max nesting for current function
+				if inFunction && len(metrics.Functions) > 0 {
+					lastIdx := len(metrics.Functions) - 1
+					if currentNesting > metrics.Functions[lastIdx].Nesting {
+						metrics.Functions[lastIdx].Nesting = currentNesting
+					}
+				}
+
 				// Function ended (brace depth returned to 0 after being > 0)
 				if braceDepth <= 0 && currentFunctionLines > 1 {
 					if currentFunctionLines > 50 {
 						metrics.LongFunctions++
 					}
 					functionComplexities = append(functionComplexities, currentFunctionCC)
+
+					// Update final metrics for this function
+					if len(metrics.Functions) > 0 {
+						lastIdx := len(metrics.Functions) - 1
+						metrics.Functions[lastIdx].Complexity = currentFunctionCC
+						metrics.Functions[lastIdx].EndLine = currentLineNum
+					}
+
 					inFunction = false
 					currentFunctionCC = 1
 					currentFunctionLines = 0
@@ -286,6 +323,13 @@ func (r *ReviewerShard) calculateMetrics(ctx context.Context, files []string) *C
 				metrics.LongFunctions++
 			}
 			functionComplexities = append(functionComplexities, currentFunctionCC)
+
+			// Update final metrics for last function
+			if len(metrics.Functions) > 0 {
+				lastIdx := len(metrics.Functions) - 1
+				metrics.Functions[lastIdx].Complexity = currentFunctionCC
+				metrics.Functions[lastIdx].EndLine = len(lines)
+			}
 		}
 	}
 
@@ -489,4 +533,58 @@ func countDecisionPoints(line string, lang Language) int {
 	}
 
 	return count
+}
+
+// extractFunctionName attempts to extract the function name from a declaration line
+func extractFunctionName(line string, lang Language) string {
+	cleaned := strings.TrimSpace(line)
+	// Simple regexes for common patterns
+	// Note: accurate parsing requires AST, this is a best-effort heuristic
+
+	switch lang {
+	case LangGo:
+		// func Name(...)
+		// func (r *Receiver) Name(...)
+		if strings.Contains(cleaned, "func ") {
+			// Try method receiver pattern first
+			reMethod := regexp.MustCompile(`func\s+\([^)]+\)\s+(\w+)`)
+			if matches := reMethod.FindStringSubmatch(cleaned); len(matches) > 1 {
+				return matches[1]
+			}
+			// Try standard func pattern
+			reFunc := regexp.MustCompile(`func\s+(\w+)`)
+			if matches := reFunc.FindStringSubmatch(cleaned); len(matches) > 1 {
+				return matches[1]
+			}
+		}
+	case LangPython:
+		// def name(...):
+		re := regexp.MustCompile(`def\s+(\w+)`)
+		if matches := re.FindStringSubmatch(cleaned); len(matches) > 1 {
+			return matches[1]
+		}
+	case LangJavaScript, LangTypeScript:
+		// function name(...)
+		re := regexp.MustCompile(`function\s+(\w+)`)
+		if matches := re.FindStringSubmatch(cleaned); len(matches) > 1 {
+			return matches[1]
+		}
+		// const name = (...) =>
+		reArrow := regexp.MustCompile(`(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(?`)
+		if matches := reArrow.FindStringSubmatch(cleaned); len(matches) > 1 {
+			return matches[1]
+		}
+	}
+
+	// Fallback: try to find the word before the first parenthesis
+	idx := strings.Index(cleaned, "(")
+	if idx > 0 {
+		sub := cleaned[:idx]
+		parts := strings.Fields(sub)
+		if len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+	}
+
+	return ""
 }

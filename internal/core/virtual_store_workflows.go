@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/tactile"
 )
 
 // =============================================================================
@@ -384,45 +383,18 @@ func (v *VirtualStore) handleOuroborosCompile(ctx context.Context, req ActionReq
 
 	logging.VirtualStore("Ouroboros compile: %s from %s", toolName, sourcePath)
 
-	// Compile the tool
-	if sourcePath == "" {
-		sourcePath = filepath.Join(v.workingDir, ".nerd", "tools", toolName+".go")
-	}
+	logging.VirtualStore("Delegating compilation of %s to ToolGenerator", toolName)
 
-	outputPath := filepath.Join(v.workingDir, ".nerd", "tools", ".compiled", toolName)
-
-	cmd := tactile.ShellCommand{
-		Binary:           "go",
-		Arguments:        []string{"build", "-o", outputPath, sourcePath},
-		WorkingDirectory: v.workingDir,
-		TimeoutSeconds:   60,
-		EnvironmentVars:  v.getAllowedEnv(),
-	}
-
-	output, err := v.executor.Execute(ctx, cmd)
-	if err != nil {
-		return ActionResult{
-			Success: false,
-			Output:  output,
-			Error:   err.Error(),
-			FactsToAdd: []Fact{
-				{Predicate: "ouroboros_compile_failed", Args: []interface{}{toolName, err.Error()}},
-			},
-		}, nil
-	}
-
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Tool %s compiled to %s", toolName, outputPath),
-		Metadata: map[string]interface{}{
-			"tool_name":   toolName,
-			"binary_path": outputPath,
+	// Construct delegation request with task payload
+	delegateReq := ActionRequest{
+		Type:   ActionDelegateToolGenerator,
+		Target: fmt.Sprintf("compile tool %s", toolName),
+		Payload: map[string]interface{}{
+			"task": fmt.Sprintf("compile tool %s", toolName),
 		},
-		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/compiled"}},
-			{Predicate: "tool_compiled", Args: []interface{}{toolName, outputPath}},
-		},
-	}, nil
+	}
+
+	return v.handleDelegateAlias(ctx, delegateReq, "/tool_generator")
 }
 
 // handleOuroborosRegister registers a compiled tool.

@@ -23,16 +23,19 @@ type IncrementalOptions struct {
 // IncrementalResult describes an incremental fast scan.
 // If Full=true, NewFacts contains a full world snapshot.
 type IncrementalResult struct {
-	Full          bool
-	Unchanged     bool
-	NewFacts      []core.Fact
-	RetractFacts  []core.Fact
-	ChangedFiles  []string
-	NewFiles      []string
-	DeletedFiles  []string
-	FileCount     int
+	Full           bool
+	Unchanged      bool
+	NewFacts       []core.Fact
+	RetractFacts   []core.Fact
+	ChangedFiles   []string
+	NewFiles       []string
+	DeletedFiles   []string
+	FileCount      int
 	DirectoryCount int
-	Duration      time.Duration
+	Duration       time.Duration
+
+	// New fields for Mangle integration
+	ProjectLanguage string
 }
 
 func fileFingerprint(info os.FileInfo) string {
@@ -164,13 +167,28 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			}
 		}
 
-		return &IncrementalResult{
+		res := &IncrementalResult{
 			Full:           true,
 			NewFacts:       fullFacts,
 			FileCount:      fileCount,
 			DirectoryCount: dirCount,
 			Duration:       time.Since(start),
-		}, nil
+		}
+
+		// Calculate project language from full set
+		if lang := detectProjectLanguage(fullFacts); lang != "" {
+			res.ProjectLanguage = lang
+			res.NewFacts = append(res.NewFacts, core.Fact{
+				Predicate: "project_language",
+				Args:      []interface{}{core.MangleAtom("/" + lang)},
+			})
+		}
+
+		// Entry point detection for full scan
+		entryPointFacts := detectEntryPoints(fullFacts)
+		res.NewFacts = append(res.NewFacts, entryPointFacts...)
+
+		return res, nil
 	}
 
 	changed := make([]string, 0)
@@ -406,4 +424,64 @@ func extractHashFromFacts(facts []core.Fact) string {
 		}
 	}
 	return ""
+}
+
+// detectProjectLanguage aggregates file stats to identify dominant language
+func detectProjectLanguage(facts []core.Fact) string {
+	counts := make(map[string]int)
+	for _, f := range facts {
+		if f.Predicate == "file_topology" && len(f.Args) >= 3 {
+			if langAtom, ok := f.Args[2].(core.MangleAtom); ok {
+				lang := strings.TrimPrefix(string(langAtom), "/")
+				if lang != "unknown" && lang != "text" {
+					counts[lang]++
+				}
+			}
+		}
+	}
+
+	// Simple majority wins
+	bestLang := ""
+	maxCount := 0
+	for lang, count := range counts {
+		if count > maxCount {
+			maxCount = count
+			bestLang = lang
+		}
+	}
+	return bestLang
+}
+
+// detectEntryPoints uses heuristics to identify entry points based on file paths and content facts
+func detectEntryPoints(facts []core.Fact) []core.Fact {
+	entryPoints := make([]core.Fact, 0)
+
+	for _, f := range facts {
+		if f.Predicate == "file_topology" && len(f.Args) > 0 {
+			path, ok := f.Args[0].(string)
+			if !ok {
+				continue
+			}
+
+			isEntry := false
+
+			// Simple Path Heuristics
+			if strings.HasSuffix(path, "main.go") ||
+				strings.HasSuffix(path, "__main__.py") ||
+				strings.HasSuffix(path, "index.js") ||
+				strings.HasSuffix(path, "index.ts") {
+				isEntry = true
+			}
+
+			// TODO: Inspect facts for 'package main' or 'func main' once we have AST facts indexed here
+
+			if isEntry {
+				entryPoints = append(entryPoints, core.Fact{
+					Predicate: "entry_point",
+					Args:      []interface{}{path},
+				})
+			}
+		}
+	}
+	return entryPoints
 }

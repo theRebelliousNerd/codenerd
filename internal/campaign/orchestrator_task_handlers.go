@@ -218,14 +218,20 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test run task %s, using direct execution: %v", task.ID, err)
 		// Fallback to direct execution
-		cmd := tactile.ShellCommand{
+		cmd := tactile.Command{
 			Binary:           "go",
 			Arguments:        []string{"test", target},
 			WorkingDirectory: o.workspace,
-			TimeoutSeconds:   300,
+			Limits: &tactile.ResourceLimits{
+				TimeoutMs: 300 * 1000,
+			},
 		}
 		logging.CampaignDebug("Executing tests directly via tactile: go test %s", target)
-		output, execErr := o.executor.Execute(ctx, cmd)
+		res, execErr := o.executor.Execute(ctx, cmd)
+		output := ""
+		if res != nil {
+			output = res.Output()
+		}
 		if execErr != nil {
 			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
 			return map[string]interface{}{"output": output, "passed": false}, execErr
@@ -242,13 +248,19 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Executing verify task %s: go build ./...", task.ID)
 	// Run build verification for this task
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           "go",
 		Arguments:        []string{"build", "./..."},
 		WorkingDirectory: o.workspace,
-		TimeoutSeconds:   300, // 5 minutes
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: 300 * 1000, // 5 minutes
+		},
 	}
-	output, err := o.executor.Execute(ctx, cmd)
+	res, err := o.executor.Execute(ctx, cmd)
+	output := ""
+	if res != nil {
+		output = res.Output()
+	}
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
 		return map[string]interface{}{

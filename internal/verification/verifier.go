@@ -6,7 +6,7 @@ package verification
 
 import (
 	"codenerd/internal/autopoiesis"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/shards/researcher"
@@ -62,10 +62,10 @@ type CorrectiveAction struct {
 
 // ShardSelectionResult contains the decision about which shard to use.
 type ShardSelectionResult struct {
-	ShardType   string   // Selected shard type
-	ShardName   string   // Specific shard name (for specialists)
-	Reason      string   // Why this shard was selected
-	Confidence  float64  // Confidence in this selection
+	ShardType    string   // Selected shard type
+	ShardName    string   // Specific shard name (for specialists)
+	Reason       string   // Why this shard was selected
+	Confidence   float64  // Confidence in this selection
 	Alternatives []string // Other shards that could work
 }
 
@@ -85,7 +85,7 @@ type TaskVerifier struct {
 	mu          sync.RWMutex
 	client      perception.LLMClient
 	localDB     *store.LocalStore
-	shardMgr    *core.ShardManager
+	shardMgr    *coreshards.ShardManager
 	autopoiesis *autopoiesis.Orchestrator
 	context7Key string
 
@@ -98,7 +98,7 @@ type TaskVerifier struct {
 func NewTaskVerifier(
 	client perception.LLMClient,
 	localDB *store.LocalStore,
-	shardMgr *core.ShardManager,
+	shardMgr *coreshards.ShardManager,
 	autopoiesisOrch *autopoiesis.Orchestrator,
 	context7Key string,
 ) *TaskVerifier {
@@ -735,25 +735,25 @@ func (v *TaskVerifier) heuristicShardSelection(
 		case HallucinatedAPI:
 			// Need research to find real APIs
 			return &ShardSelectionResult{
-				ShardType:   "researcher",
-				Reason:      "Hallucinated API detected - researcher can find real documentation",
-				Confidence:  0.8,
+				ShardType:    "researcher",
+				Reason:       "Hallucinated API detected - researcher can find real documentation",
+				Confidence:   0.8,
 				Alternatives: []string{originalShardType},
 			}
 		case MissingErrors:
 			// Reviewer can identify error handling patterns
 			return &ShardSelectionResult{
-				ShardType:   "reviewer",
-				Reason:      "Missing error handling - reviewer can identify patterns",
-				Confidence:  0.7,
+				ShardType:    "reviewer",
+				Reason:       "Missing error handling - reviewer can identify patterns",
+				Confidence:   0.7,
 				Alternatives: []string{"coder", originalShardType},
 			}
 		case FakeTests:
 			// Tester knows how to write real tests
 			return &ShardSelectionResult{
-				ShardType:   "tester",
-				Reason:      "Fake tests detected - tester shard specializes in real tests",
-				Confidence:  0.85,
+				ShardType:    "tester",
+				Reason:       "Fake tests detected - tester shard specializes in real tests",
+				Confidence:   0.85,
 				Alternatives: []string{originalShardType},
 			}
 		}
@@ -761,9 +761,9 @@ func (v *TaskVerifier) heuristicShardSelection(
 
 	// Default: retry with same shard but with more context
 	return &ShardSelectionResult{
-		ShardType:   originalShardType,
-		Reason:      "No specific shard better suited - retry with additional context",
-		Confidence:  0.6,
+		ShardType:    originalShardType,
+		Reason:       "No specific shard better suited - retry with additional context",
+		Confidence:   0.6,
 		Alternatives: []string{"researcher"},
 	}
 }

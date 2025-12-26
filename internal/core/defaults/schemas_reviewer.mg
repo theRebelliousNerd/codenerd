@@ -104,6 +104,16 @@ Decl git_branch(Branch).
 # Recent commit history for Chesterton's Fence analysis
 Decl recent_commit(Hash, Message, Author, Timestamp).
 
+
+
+# cyclomatic_complexity(File, Function, Complexity)
+# Cyclomatic complexity score for a function
+Decl cyclomatic_complexity(File, Function, Complexity).
+
+# nesting_depth(File, Function, Depth)
+# Maximum nesting depth in a function
+Decl nesting_depth(File, Function, Depth).
+
 # -----------------------------------------------------------------------------
 # 41.8 Test State Predicates
 # -----------------------------------------------------------------------------

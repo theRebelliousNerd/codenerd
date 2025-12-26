@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -82,7 +83,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 		sessionCtx := m.buildSessionContext(ctx)
 
 		// Execute the shard with queue backpressure (user-initiated = high priority)
-		result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, description, sessionCtx, core.PriorityHigh)
+		result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, description, sessionCtx, types.PriorityHigh)
 
 		// Inject result facts into kernel
 		m.injectShardResultFacts(shardType, description, result, err)

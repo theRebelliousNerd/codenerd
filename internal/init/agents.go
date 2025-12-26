@@ -2,12 +2,12 @@
 package init
 
 import (
-	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/shards/researcher"
 	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -986,19 +986,19 @@ func (i *Initializer) registerAgentsWithShardManager(agents []CreatedAgent) {
 
 	for _, agent := range agents {
 		// Create shard config for the agent
-		config := core.ShardConfig{
+		config := types.ShardConfig{
 			Name:          agent.Name,
-			Type:          core.ShardTypePersistent,
+			Type:          types.ShardTypePersistent,
 			BaseType:      "researcher",
 			KnowledgePath: agent.KnowledgePath,
 			Timeout:       30 * time.Minute,
 			MemoryLimit:   10000,
-			Permissions: []core.ShardPermission{
-				core.PermissionReadFile,
-				core.PermissionCodeGraph,
+			Permissions: []types.ShardPermission{
+				types.PermissionReadFile,
+				types.PermissionCodeGraph,
 			},
-			Model: core.ModelConfig{
-				Capability: core.CapabilityBalanced,
+			Model: types.ModelConfig{
+				Capability: types.CapabilityBalanced,
 			},
 			Tools:           agent.Tools,
 			ToolPreferences: agent.ToolPreferences,

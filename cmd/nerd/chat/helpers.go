@@ -10,6 +10,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/types"
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 	"context"
@@ -1117,15 +1118,15 @@ func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []
 	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
 }
 
-func (a *learningStoreAdapter) Load(shardType string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.Load(shardType)
 	if err != nil {
 		return nil, err
 	}
 	// Convert store.Learning to core.ShardLearning
-	result := make([]core.ShardLearning, len(learnings))
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,
@@ -1138,15 +1139,15 @@ func (a *learningStoreAdapter) DecayConfidence(shardType string, decayFactor flo
 	return a.store.DecayConfidence(shardType, decayFactor)
 }
 
-func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]core.ShardLearning, error) {
+func (a *learningStoreAdapter) LoadByPredicate(shardType, predicate string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.LoadByPredicate(shardType, predicate)
 	if err != nil {
 		return nil, err
 	}
 	// Convert store.Learning to core.ShardLearning
-	result := make([]core.ShardLearning, len(learnings))
+	result := make([]types.ShardLearning, len(learnings))
 	for i, l := range learnings {
-		result[i] = core.ShardLearning{
+		result[i] = types.ShardLearning{
 			FactPredicate: l.FactPredicate,
 			FactArgs:      l.FactArgs,
 			Confidence:    l.Confidence,
@@ -1346,8 +1347,8 @@ func (m Model) renderWorkspaceSummary(fileCount, dirCount, factCount int, experi
 }
 
 // getDefinedProfiles returns user-defined agent profiles
-func (m Model) getDefinedProfiles() map[string]core.ShardConfig {
-	profiles := make(map[string]core.ShardConfig)
+func (m Model) getDefinedProfiles() map[string]types.ShardConfig {
+	profiles := make(map[string]types.ShardConfig)
 
 	// Get profiles from shard manager
 	// Note: We need to iterate through known profile names

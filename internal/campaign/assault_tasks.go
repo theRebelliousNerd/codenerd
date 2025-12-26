@@ -73,9 +73,9 @@ type assaultFailure struct {
 }
 
 type assaultTriageOutput struct {
-	Summary            string                  `json:"summary"`
+	Summary            string                   `json:"summary"`
 	RecommendedTasks   []assaultRemediationTask `json:"recommended_tasks"`
-	AdditionalMetadata map[string]interface{}  `json:"metadata,omitempty"`
+	AdditionalMetadata map[string]interface{}   `json:"metadata,omitempty"`
 }
 
 type assaultRemediationTask struct {
@@ -111,13 +111,13 @@ func (o *Orchestrator) executeAssaultDiscoverTask(ctx context.Context, task *Tas
 	if existingBatchTasks > 0 {
 		// Likely already discovered; keep it idempotent.
 		return map[string]interface{}{
-			"campaign_id":    o.campaign.ID,
-			"campaign_slug":  slug,
-			"scope":          cfg.Scope,
-			"batches":        existingBatchTasks,
-			"status":         "already_discovered",
-			"targets_path":   normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "targets.json")),
-			"results_dir":    normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "results")),
+			"campaign_id":   o.campaign.ID,
+			"campaign_slug": slug,
+			"scope":         cfg.Scope,
+			"batches":       existingBatchTasks,
+			"status":        "already_discovered",
+			"targets_path":  normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "targets.json")),
+			"results_dir":   normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "results")),
 		}, nil
 	}
 
@@ -290,17 +290,17 @@ func (o *Orchestrator) executeAssaultBatchTask(ctx context.Context, task *Task) 
 	}
 
 	return map[string]interface{}{
-		"campaign_id":    o.campaign.ID,
-		"campaign_slug":  slug,
-		"batch_id":       batch.BatchID,
-		"targets":        len(batch.Targets),
-		"cycles":         cfg.Cycles,
-		"stages":         len(cfg.Stages),
-		"wrote_results":  wrote,
-		"skipped":        skipped,
-		"passed":         passed,
-		"failed":         failed,
-		"results_path":   normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "results", batch.BatchID+".jsonl")),
+		"campaign_id":   o.campaign.ID,
+		"campaign_slug": slug,
+		"batch_id":      batch.BatchID,
+		"targets":       len(batch.Targets),
+		"cycles":        cfg.Cycles,
+		"stages":        len(cfg.Stages),
+		"wrote_results": wrote,
+		"skipped":       skipped,
+		"passed":        passed,
+		"failed":        failed,
+		"results_path":  normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "results", batch.BatchID+".jsonl")),
 	}, nil
 }
 
@@ -487,13 +487,13 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	if existing > 0 {
 		// Keep triage idempotent: if remediation tasks already exist, don't duplicate them.
 		return map[string]interface{}{
-			"campaign_id":     o.campaign.ID,
-			"campaign_slug":   slug,
-			"total_results":   total,
-			"success":         success,
-			"failures":        len(failures),
-			"triage_path":     normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
-			"status":          "already_triaged",
+			"campaign_id":             o.campaign.ID,
+			"campaign_slug":           slug,
+			"total_results":           total,
+			"success":                 success,
+			"failures":                len(failures),
+			"triage_path":             normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
+			"status":                  "already_triaged",
 			"remediation_tasks_added": 0,
 		}, nil
 	}
@@ -557,13 +557,13 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 		len(failures), len(remediationTasks), normalizePath(triagePath))
 
 	return map[string]interface{}{
-		"campaign_id":               o.campaign.ID,
-		"campaign_slug":             slug,
-		"total_results":             total,
-		"success":                   success,
-		"failures":                  len(failures),
-		"triage_path":               normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
-		"remediation_tasks_added":   len(remediationTasks),
+		"campaign_id":                  o.campaign.ID,
+		"campaign_slug":                slug,
+		"total_results":                total,
+		"success":                      success,
+		"failures":                     len(failures),
+		"triage_path":                  normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "triage", "latest.json")),
+		"remediation_tasks_added":      len(remediationTasks),
 		"remediation_phase_task_count": existing + len(remediationTasks),
 	}, nil
 }
@@ -911,7 +911,7 @@ func (o *Orchestrator) discoverAssaultTargets(ctx context.Context, cfg AssaultCo
 
 func (o *Orchestrator) discoverGoTargets(ctx context.Context, cfg AssaultConfig) ([]string, error) {
 	if o.executor == nil {
-		o.executor = tactile.NewSafeExecutor()
+		o.executor = tactile.NewDirectExecutor()
 	}
 
 	timeout := cfg.DefaultTimeoutSeconds
@@ -920,17 +920,20 @@ func (o *Orchestrator) discoverGoTargets(ctx context.Context, cfg AssaultConfig)
 	}
 
 	// Ask go list for directories so we can group by subsystem/module.
-	cmd := tactile.ShellCommand{
+	cmd := tactile.Command{
 		Binary:           "go",
 		Arguments:        []string{"list", "-f", "{{.Dir}}", "./..."},
 		WorkingDirectory: o.workspace,
-		TimeoutSeconds:   timeout,
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: int64(timeout) * 1000,
+		},
 	}
 
-	out, err := o.executor.Execute(ctx, cmd)
+	res, err := o.executor.Execute(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("go list failed: %w", err)
 	}
+	out := res.Output()
 
 	lines := strings.Split(out, "\n")
 	pkgDirs := make([]string, 0, len(lines))

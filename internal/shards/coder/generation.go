@@ -2,8 +2,8 @@ package coder
 
 import (
 	"codenerd/internal/articulation"
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -143,7 +143,7 @@ func (c *CoderShard) buildJITSystemPrompt(task CoderTask) (string, error) {
 
 	// Create user intent from task
 	if task.Action != "" || task.Target != "" {
-		pc.UserIntent = &core.StructuredIntent{
+		pc.UserIntent = &types.StructuredIntent{
 			ID:         fmt.Sprintf("coder-task-%d", time.Now().UnixNano()),
 			Category:   "/mutation",
 			Verb:       "/" + task.Action,

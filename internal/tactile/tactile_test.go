@@ -435,52 +435,6 @@ func TestShellCommand_ToCommand(t *testing.T) {
 	}
 }
 
-func TestSafeExecutor_Execute(t *testing.T) {
-	executor := NewSafeExecutor()
-
-	// Test allowed command
-	var cmd ShellCommand
-	if runtime.GOOS == "windows" {
-		cmd = ShellCommand{
-			Binary:    "cmd",
-			Arguments: []string{"/c", "echo", "test"},
-		}
-	} else {
-		cmd = ShellCommand{
-			Binary:    "bash",
-			Arguments: []string{"-c", "echo test"},
-		}
-	}
-
-	output, err := executor.Execute(context.Background(), cmd)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if !strings.Contains(output, "test") {
-		t.Errorf("Expected output to contain 'test', got: %s", output)
-	}
-}
-
-func TestSafeExecutor_BlockedCommand(t *testing.T) {
-	executor := NewSafeExecutor()
-
-	// rm is explicitly blocked
-	cmd := ShellCommand{
-		Binary:    "rm",
-		Arguments: []string{"-rf", "/"},
-	}
-
-	_, err := executor.Execute(context.Background(), cmd)
-	if err == nil {
-		t.Errorf("Expected rm to be blocked")
-	}
-
-	if !strings.Contains(err.Error(), "Constitutional Logic") {
-		t.Errorf("Expected Constitutional Logic error, got: %v", err)
-	}
-}
-
 func TestExecutorConfig_Merge(t *testing.T) {
 	config := DefaultExecutorConfig()
 	config.DefaultWorkingDir = "/default"

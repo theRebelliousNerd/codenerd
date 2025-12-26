@@ -172,7 +172,7 @@ func (t *TesterShard) SetLLMClient(client types.LLMClient) {
 }
 
 // SetSessionContext sets the session context (for dream mode, etc.).
-func (t *TesterShard) SetSessionContext(ctx *core.SessionContext) {
+func (t *TesterShard) SetSessionContext(ctx *types.SessionContext) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.config.SessionContext = ctx

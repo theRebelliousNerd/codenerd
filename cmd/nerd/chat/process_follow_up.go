@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"codenerd/internal/config"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -188,7 +189,7 @@ Please respond with substantially more detail than before. Expand key findings, 
 				displayTask := fmt.Sprintf("follow-up: %s (original: %s)", strings.TrimSpace(input), strings.TrimSpace(sr.Task))
 
 				sessionCtx := m.buildSessionContext(ctx)
-				result, err := m.shardMgr.SpawnWithPriority(ctx, sr.ShardType, spawnTask, sessionCtx, core.PriorityHigh)
+				result, err := m.shardMgr.SpawnWithPriority(ctx, sr.ShardType, spawnTask, sessionCtx, types.PriorityHigh)
 
 				shardID := fmt.Sprintf("%s-followup-%d", sr.ShardType, time.Now().UnixNano())
 				facts := m.shardMgr.ResultToFacts(shardID, sr.ShardType, displayTask, result, err)
@@ -388,7 +389,7 @@ func (m Model) createAgentFromPrompt(description string) tea.Cmd {
 			kp = filepath.Join(m.workspace, ".nerd", "shards", fmt.Sprintf("%s_knowledge.db", name))
 		}
 
-		cfg := core.DefaultSpecialistConfig(name, kp)
+		cfg := coreshards.DefaultSpecialistConfig(name, kp)
 		m.shardMgr.DefineProfile(name, cfg)
 		_ = persistAgentProfile(m.workspace, name, "persistent", kp, 0, "ready")
 

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
-	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -42,7 +42,7 @@ type CampaignRunnerShard struct {
 	config CampaignRunnerConfig
 
 	workspace string
-	shardMgr  *core.ShardManager
+	shardMgr  *coreshards.ShardManager
 
 	activeOrch        *campaign.Orchestrator
 	activeCampaignID  string
@@ -84,7 +84,7 @@ func (s *CampaignRunnerShard) SetWorkspaceRoot(workspace string) {
 }
 
 // SetShardManager injects the shared ShardManager.
-func (s *CampaignRunnerShard) SetShardManager(sm *core.ShardManager) {
+func (s *CampaignRunnerShard) SetShardManager(sm *coreshards.ShardManager) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.shardMgr = sm
@@ -195,10 +195,10 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 	s.startCampaign(ctx, camp.ID, workspace, shardMgr)
 }
 
-func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, workspace string, shardMgr *core.ShardManager) {
+func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, workspace string, shardMgr *coreshards.ShardManager) {
 	logging.SystemShards("[CampaignRunner] Resuming campaign: %s", campaignID)
 
-	executor := tactile.NewSafeExecutor()
+	executor := tactile.NewDirectExecutor()
 	orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:        workspace,
 		Kernel:           s.Kernel,

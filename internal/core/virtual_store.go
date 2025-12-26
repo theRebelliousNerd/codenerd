@@ -27,8 +27,8 @@ var _ = types.ShardConfig{}
 type VirtualStore struct {
 	mu sync.RWMutex
 
-	// Execution layer - legacy SafeExecutor for backwards compatibility
-	executor *tactile.SafeExecutor
+	// Execution layer - Interface-based (modern/direct/safe)
+	executor tactile.Executor
 
 	// New execution layer - modern Executor with audit logging
 	modernExecutor tactile.Executor
@@ -114,13 +114,13 @@ func DefaultVirtualStoreConfig() VirtualStoreConfig {
 }
 
 // NewVirtualStore creates a new VirtualStore with the given executor.
-func NewVirtualStore(executor *tactile.SafeExecutor) *VirtualStore {
+func NewVirtualStore(executor tactile.Executor) *VirtualStore {
 	config := DefaultVirtualStoreConfig()
 	return NewVirtualStoreWithConfig(executor, config)
 }
 
 // NewVirtualStoreWithConfig creates a new VirtualStore with custom config.
-func NewVirtualStoreWithConfig(executor *tactile.SafeExecutor, config VirtualStoreConfig) *VirtualStore {
+func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreConfig) *VirtualStore {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "NewVirtualStoreWithConfig")
 	defer timer.Stop()
 
