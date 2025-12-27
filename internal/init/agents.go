@@ -8,6 +8,8 @@ import (
 	// "codenerd/internal/shards/researcher"
 	// "codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"context"
 	"crypto/sha256"
@@ -751,21 +753,63 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		}
 	}
 
-	// Research topics - STUBBED OUT
+	// Research topics using modular tools
 	// =========================================================================
-	// Research functionality has been removed from /init as part of JIT refactor.
-	// The JIT clean loop now handles research via:
-	// - Prompt atoms in internal/prompt/atoms/
-	// - ConfigFactory providing tool sets per intent
-	// - session.Executor with /researcher persona
+	// Research uses the modular tool registry (internal/tools/research/)
+	// Context7 provides LLM-optimized documentation for libraries/frameworks
 	// =========================================================================
 	if !i.config.SkipResearch && len(agent.Topics) > 0 {
-		fmt.Printf("     Research disabled (JIT refactor) - using base atoms only for %s\n", agent.Name)
-		// Set default quality metrics
-		stats.QualityScore = 50.0
-		stats.QualityRating = "Basic"
+		fmt.Printf("     Researching %d topics for %s...\n", len(agent.Topics), agent.Name)
+
+		// Create a temporary tool registry for research
+		registry := tools.NewRegistry()
+		if err := research.RegisterAll(registry); err != nil {
+			logging.Boot("Warning: failed to register research tools: %v", err)
+		} else {
+			researchCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+
+			for _, topic := range agent.Topics {
+				// Try Context7 for documentation
+				result, err := registry.Execute(researchCtx, "context7_fetch", map[string]any{"topic": topic})
+				if err != nil {
+					logging.Boot("Research failed for topic %s: %v", topic, err)
+					continue
+				}
+
+				if result.Result != "" && len(result.Result) > 100 {
+					// Parse research result into knowledge atoms
+					atoms := i.parseResearchResult(topic, result.Result)
+					for _, atom := range atoms {
+						added, err := appendKnowledgeAtom(agentDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+						if err != nil {
+							logging.Boot("Warning: failed to store research atom: %v", err)
+							continue
+						}
+						if added {
+							stats.NewAtoms++
+						}
+					}
+					logging.Boot("Added %d atoms from research on %s", len(atoms), topic)
+				}
+			}
+		}
+
+		// Calculate quality based on atoms found
+		if stats.NewAtoms > 10 {
+			stats.QualityScore = 80.0
+			stats.QualityRating = "Good"
+		} else if stats.NewAtoms > 5 {
+			stats.QualityScore = 65.0
+			stats.QualityRating = "Moderate"
+		} else {
+			stats.QualityScore = 50.0
+			stats.QualityRating = "Basic"
+		}
 	} else if i.config.SkipResearch {
 		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
+		stats.QualityScore = 50.0
+		stats.QualityRating = "Basic"
 	}
 
 	// Calculate total atoms
@@ -783,6 +827,50 @@ func buildAtomHashSet(atoms []store.KnowledgeAtom) map[string]bool {
 		hashes[hash] = true
 	}
 	return hashes
+}
+
+// parseResearchResult converts research output into knowledge atoms.
+// It splits the content into meaningful chunks for storage.
+func (i *Initializer) parseResearchResult(topic, content string) []initKnowledgeAtom {
+	var atoms []initKnowledgeAtom
+
+	// Split content into paragraphs/sections
+	sections := strings.Split(content, "\n\n")
+
+	for idx, section := range sections {
+		section = strings.TrimSpace(section)
+		if len(section) < 50 {
+			continue // Skip very short sections
+		}
+
+		// Truncate very long sections
+		if len(section) > 2000 {
+			section = section[:2000] + "..."
+		}
+
+		// Create atom with topic-based concept
+		concept := fmt.Sprintf("%s:section_%d", topic, idx)
+		atoms = append(atoms, initKnowledgeAtom{
+			Concept:    concept,
+			Content:    section,
+			Confidence: 0.8, // Research-derived atoms have good confidence
+		})
+	}
+
+	// Also create a summary atom if we have content
+	if len(content) > 100 {
+		summary := content
+		if len(summary) > 500 {
+			summary = summary[:500] + "..."
+		}
+		atoms = append(atoms, initKnowledgeAtom{
+			Concept:    topic + ":summary",
+			Content:    summary,
+			Confidence: 0.9,
+		})
+	}
+
+	return atoms
 }
 
 // computeAtomHash generates a unique hash for a knowledge atom based on concept and content.
@@ -1113,13 +1201,28 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			}
 		}
 
-		// Research shard-specific topics - STUBBED OUT
+		// Research shard-specific topics using modular tools
 		// =========================================================================
-		// Research functionality removed as part of JIT refactor.
-		// The JIT clean loop now handles research via prompt atoms.
+		// Research uses the modular tool registry (internal/tools/research/)
 		// =========================================================================
-		if i.config.LLMClient != nil && !i.config.SkipResearch {
-			logging.Boot("Research disabled (JIT refactor) for core shard %s", shard.Name)
+		if i.config.LLMClient != nil && !i.config.SkipResearch && len(shard.Topics) > 0 {
+			registry := tools.NewRegistry()
+			if err := research.RegisterAll(registry); err == nil {
+				researchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+				for _, topic := range shard.Topics {
+					result, err := registry.Execute(researchCtx, "context7_fetch", map[string]any{"topic": topic})
+					if err == nil && result.Result != "" && len(result.Result) > 100 {
+						atoms := i.parseResearchResult(topic, result.Result)
+						for _, atom := range atoms {
+							added, err := appendKnowledgeAtom(shardDB, atom.Concept, atom.Content, atom.Confidence, existingHashes)
+							if err == nil && added {
+								newAtoms++
+							}
+						}
+					}
+				}
+				cancel()
+			}
 		}
 
 		// Get final count
