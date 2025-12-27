@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 )
@@ -211,6 +212,9 @@ type CompilationResult struct {
 
 	// Compilation manifest (Flight Recorder)
 	Manifest *PromptManifest
+
+	// JIT-generated Agent Config
+	AgentConfig *config.AgentConfig
 
 	// Comprehensive compilation statistics
 	Stats *CompilationStats
