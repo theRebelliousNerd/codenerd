@@ -269,105 +269,12 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 }
 
 // defineShardProfiles registers shard profiles with appropriate configurations.
+// NOTE: Domain shard profiles (coder, reviewer, tester, researcher, tool_generator, nemesis)
+// have been removed. These shards are now handled by the JIT clean loop via session.Executor.
+// Only system shard profiles remain.
 func defineShardProfiles(sm *coreshards.ShardManager) {
-	// Coder profile - code generation specialist
-	sm.DefineProfile("coder", types.ShardConfig{
-		Name: "coder",
-		Type: types.ShardTypeEphemeral,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionWriteFile,
-			types.PermissionExecCmd,
-			types.PermissionCodeGraph,
-		},
-		Timeout:     10 * 60 * 1000000000, // 10 minutes
-		MemoryLimit: 12000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityHighReasoning,
-		},
-	})
-
-	// Reviewer profile - code review specialist
-	sm.DefineProfile("reviewer", types.ShardConfig{
-		Name: "reviewer",
-		Type: types.ShardTypeEphemeral,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionCodeGraph,
-		},
-		Timeout:     5 * 60 * 1000000000, // 5 minutes
-		MemoryLimit: 8000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityHighReasoning,
-		},
-	})
-
-	// Tester profile - testing specialist
-	sm.DefineProfile("tester", types.ShardConfig{
-		Name: "tester",
-		Type: types.ShardTypeEphemeral,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionWriteFile,
-			types.PermissionExecCmd,
-		},
-		Timeout:     15 * 60 * 1000000000, // 15 minutes
-		MemoryLimit: 8000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityBalanced,
-		},
-	})
-
-	// Researcher profile - research specialist
-	sm.DefineProfile("researcher", types.ShardConfig{
-		Name: "researcher",
-		Type: types.ShardTypeEphemeral,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionNetwork,
-			types.PermissionResearch,
-		},
-		Timeout:     10 * 60 * 1000000000, // 10 minutes
-		MemoryLimit: 12000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityBalanced,
-		},
-	})
-
-	// ToolGenerator profile - autopoiesis specialist
-	sm.DefineProfile("tool_generator", types.ShardConfig{
-		Name: "tool_generator",
-		Type: types.ShardTypePersistent,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionWriteFile,
-			types.PermissionExecCmd,
-			types.PermissionCodeGraph,
-		},
-		Timeout:     30 * 60 * 1000000000, // 30 minutes (tool generation can take time)
-		MemoryLimit: 20000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityHighReasoning,
-		},
-	})
-
-	// Nemesis profile - adversarial co-evolution specialist
-	sm.DefineProfile("nemesis", types.ShardConfig{
-		Name: "nemesis",
-		Type: types.ShardTypePersistent,
-		Permissions: []types.ShardPermission{
-			types.PermissionReadFile,
-			types.PermissionExecCmd,
-			types.PermissionCodeGraph,
-		},
-		Timeout:     20 * 60 * 1000000000, // 20 minutes (adversarial analysis can take time)
-		MemoryLimit: 16000,
-		Model: types.ModelConfig{
-			Capability: types.CapabilityHighReasoning, // Needs reasoning to find weaknesses
-		},
-	})
-
 	// Requirements Interrogator profile - Socratic clarification specialist
+	// (Kept because it has unique ask-user interaction pattern not covered by JIT)
 	sm.DefineProfile("requirements_interrogator", types.ShardConfig{
 		Name: "requirements_interrogator",
 		Type: types.ShardTypeEphemeral,
