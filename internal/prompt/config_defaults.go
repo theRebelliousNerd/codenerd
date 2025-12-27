@@ -57,8 +57,13 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 	// Researcher Intent (/researcher or /research)
 	researcherAtom := ConfigAtom{
 		Tools: []string{
+			"context7_fetch",
 			"web_search",
-			"fetch_docs",
+			"web_fetch",
+			"browser_navigate",
+			"browser_extract",
+			"research_cache_get",
+			"research_cache_set",
 		},
 		Policies: []string{
 			"base.mg",

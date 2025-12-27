@@ -1160,7 +1160,7 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleSWEBenchTeardown(ctx, req)
 
 	// Research tool actions (modular tools for any agent)
-	case ActionContext7Fetch, ActionWebFetch,
+	case ActionContext7Fetch, ActionWebSearch, ActionWebFetch,
 		ActionBrowserNavigate, ActionBrowserExtract, ActionBrowserScreenshot,
 		ActionBrowserClick, ActionBrowserType, ActionBrowserClose,
 		ActionResearchCacheGet, ActionResearchCacheSet:

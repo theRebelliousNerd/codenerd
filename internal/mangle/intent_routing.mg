@@ -142,6 +142,7 @@ tool_allowed(/researcher, /write_file).  # Can write documentation
 
 # Research tools - available for /research intent
 modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
 modular_tool_allowed(/web_fetch, Intent) :- intent_category(Intent, /research).
 modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /research).
 modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /research).
@@ -187,6 +188,7 @@ intent_category(Intent, /verify) :-
 # Tool priority (prefer cached results)
 modular_tool_priority(/research_cache_get, 90).
 modular_tool_priority(/context7_fetch, 80).
+modular_tool_priority(/web_search, 75).
 modular_tool_priority(/web_fetch, 70).
 modular_tool_priority(/browser_navigate, 60).
 
