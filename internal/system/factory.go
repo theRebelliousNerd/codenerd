@@ -568,15 +568,47 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
 	})
 
-	// TaskExecutor is nil here - BootCortex relies on ShardManager fallback.
-	// For full JIT support, use the TUI session which creates JITExecutor.
-	// See: cmd/nerd/chat/session.go
+	// 8. Create JITExecutor for CLI commands
+	// This enables CLI spawn commands to work without domain shards.
+	// Create adapters for session package interfaces
+	sessionKernel := &sessionKernelAdapter{kernel: kernel}
+	sessionVS := &sessionVirtualStoreAdapter{vs: virtualStore}
+	sessionLLM := &sessionLLMAdapter{client: llmClient}
+
+	// Create ConfigFactory with default config atoms
+	configFactory := prompt.NewDefaultConfigFactory()
+
+	// Create the clean execution loop components
+	sessionExecutor := session.NewExecutor(
+		sessionKernel,
+		sessionVS,
+		sessionLLM,
+		jitCompiler,
+		configFactory,
+		transducer,
+	)
+
+	sessionSpawner := session.NewSpawner(
+		sessionKernel,
+		sessionVS,
+		sessionLLM,
+		jitCompiler,
+		configFactory,
+		transducer,
+		session.DefaultSpawnerConfig(),
+	)
+
+	// Create JITExecutor and wire to VirtualStore
+	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
+	virtualStore.SetTaskExecutor(taskExecutor)
+
+	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
 
 	return &Cortex{
 		Kernel:         kernel,
 		LLMClient:      llmClient,
 		ShardManager:   shardManager,
-		TaskExecutor:   nil, // Falls back to ShardManager in SpawnTask
+		TaskExecutor:   taskExecutor,
 		VirtualStore:   virtualStore,
 		Transducer:     transducer,
 		Orchestrator:   poiesis,
@@ -925,4 +957,100 @@ func (a *mcpKernelAdapter) Retract(fact string) error {
 	}
 
 	return a.kernel.RetractExactFact(parsed)
+}
+
+// ============================================================================
+// Session Adapters for JITExecutor
+// These adapters bridge core types to types.Kernel, types.VirtualStore, and
+// types.LLMClient interfaces required by session.Executor and session.Spawner.
+// Note: core.Kernel = types.Kernel and core.Fact = types.Fact (aliased).
+// ============================================================================
+
+// sessionKernelAdapter adapts core.Kernel to types.Kernel for session package.
+type sessionKernelAdapter struct {
+	kernel types.Kernel
+}
+
+func (a *sessionKernelAdapter) LoadFacts(facts []types.Fact) error {
+	return a.kernel.LoadFacts(facts)
+}
+
+func (a *sessionKernelAdapter) Query(predicate string) ([]types.Fact, error) {
+	return a.kernel.Query(predicate)
+}
+
+func (a *sessionKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
+	return a.kernel.QueryAll()
+}
+
+func (a *sessionKernelAdapter) Assert(fact types.Fact) error {
+	return a.kernel.Assert(fact)
+}
+
+func (a *sessionKernelAdapter) Retract(predicate string) error {
+	return a.kernel.Retract(predicate)
+}
+
+func (a *sessionKernelAdapter) RetractFact(fact types.Fact) error {
+	return a.kernel.RetractFact(fact)
+}
+
+func (a *sessionKernelAdapter) UpdateSystemFacts() error {
+	return a.kernel.UpdateSystemFacts()
+}
+
+func (a *sessionKernelAdapter) Reset() {
+	a.kernel.Reset()
+}
+
+func (a *sessionKernelAdapter) AppendPolicy(policy string) {
+	a.kernel.AppendPolicy(policy)
+}
+
+func (a *sessionKernelAdapter) RetractExactFactsBatch(facts []types.Fact) error {
+	return a.kernel.RetractExactFactsBatch(facts)
+}
+
+func (a *sessionKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	return a.kernel.RemoveFactsByPredicateSet(predicates)
+}
+
+// sessionVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
+// NOTE: VirtualStore doesn't directly expose ReadFile/WriteFile/Exec methods.
+// These route through VirtualStore's HandleAction internally. For now, this
+// adapter provides fallback implementations using the os package directly.
+type sessionVirtualStoreAdapter struct {
+	vs *core.VirtualStore
+}
+
+func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
+	// Fallback: use os.ReadFile directly
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(data), "\n"), nil
+}
+
+func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
+	// Fallback: use os.WriteFile directly
+	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+}
+
+func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	// TODO: Route through VirtualStore's executor when wired
+	return "", "", fmt.Errorf("exec not yet wired through VirtualStore")
+}
+
+// sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
+type sessionLLMAdapter struct {
+	client perception.LLMClient
+}
+
+func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
+	return a.client.Complete(ctx, prompt)
+}
+
+func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
