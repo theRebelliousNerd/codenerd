@@ -1,0 +1,17 @@
+# Facts for TDD Loop Scenarios
+
+# Scenario 1: Failing tests, retry count < 3 -> read_error_log
+test_state(/failing).
+retry_count(1).
+
+# Scenario 2: Error Diagnostics -> Block Commit
+# Note: diagnostic("/error", "file.go", 10, "syntax error", "compiler")
+# Mangle might parse "10" as int64, need to ensure it matches schema or is flexible.
+diagnostic("/error", "file.go", 10, "syntax error", "compiler").
+
+# Scenario 3: Cause found -> Generate Patch
+test_state(/cause_found).
+
+# Scenario 4: User intends to test -> Run Tests
+test_state(/unknown).
+user_intent(/current_intent, /mutation, /test, "none", "none").

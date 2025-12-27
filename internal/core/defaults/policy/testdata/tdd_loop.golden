@@ -1,0 +1,13 @@
+# Expected Derived Facts for TDD Loop
+
+# From Scenario 1
+next_action(/read_error_log)
+
+# From Scenario 2
+block_commit("/error")
+
+# From Scenario 3
+next_action(/generate_patch)
+
+# From Scenario 4
+next_action(/run_tests)
