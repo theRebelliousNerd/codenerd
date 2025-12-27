@@ -26,6 +26,7 @@ func (o *Orchestrator) SetKernel(kernel KernelInterface) {
 
 // syncExistingToolsToKernel asserts facts for all tools already in the registry.
 // Called when kernel is first attached to ensure restored tools are discoverable.
+// Uses batch assertion for performance (single evaluate() call instead of one per fact).
 func (o *Orchestrator) syncExistingToolsToKernel() {
 	if o.ouroboros == nil || o.kernel == nil {
 		return
@@ -37,8 +38,28 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 	}
 
 	logging.Autopoiesis("Syncing %d existing tools to kernel", len(tools))
+
+	// Collect all facts for batch assertion (avoids O(n) evaluate() calls)
+	var allFacts []KernelFact
 	for _, tool := range tools {
-		o.assertToolRegistered(tool)
+		if tool == nil {
+			continue
+		}
+		timestamp := tool.RegisteredAt.Format("2006-01-02T15:04:05Z07:00")
+
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_registered", Args: []interface{}{tool.Name, timestamp}})
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_hash", Args: []interface{}{tool.Name, tool.Hash}})
+		allFacts = append(allFacts, KernelFact{Predicate: "has_capability", Args: []interface{}{tool.Name}})
+		if tool.Description != "" {
+			allFacts = append(allFacts, KernelFact{Predicate: "tool_description", Args: []interface{}{tool.Name, tool.Description}})
+		}
+		if tool.BinaryPath != "" {
+			allFacts = append(allFacts, KernelFact{Predicate: "tool_binary_path", Args: []interface{}{tool.Name, tool.BinaryPath}})
+		}
+	}
+
+	if err := o.kernel.AssertFactBatch(allFacts); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Error("Failed to batch assert tool facts: %v", err)
 	}
 	logging.AutopoiesisDebug("Kernel sync complete: %d tools registered", len(tools))
 }
