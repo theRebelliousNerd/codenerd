@@ -1140,10 +1140,16 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *cores
 
 // hydrateAllTools loads all tools into the VirtualStore's tool registry.
 // Sources:
+// 0. Built-in modular tools (core, shell, codedom, research)
 // 1. available_tools.json - Static language/framework tools from init
 // 2. .compiled/ directory - Autopoiesis-generated tools
 func hydrateAllTools(virtualStore *core.VirtualStore, nerdDir string) error {
 	var warnings []string
+
+	// 0. Register built-in modular tools (core, shell, codedom, research)
+	if err := virtualStore.HydrateModularTools(); err != nil {
+		warnings = append(warnings, fmt.Sprintf("modular tools: %v", err))
+	}
 
 	// 1. Load static tools from available_tools.json
 	if toolDefs, err := nerdinit.LoadToolsFromFile(nerdDir); err == nil && len(toolDefs) > 0 {
