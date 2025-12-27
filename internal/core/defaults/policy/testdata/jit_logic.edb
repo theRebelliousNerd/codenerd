@@ -1,0 +1,14 @@
+prompt_atom("/atom_core", /identity, 100, 50, /true).
+prompt_atom("/atom_go", /language, 80, 20, /false).
+prompt_atom("/atom_react", /framework, 80, 20, /false).
+
+atom_selector("/atom_go", /language, /go).
+atom_selector("/atom_react", /framework, /react).
+
+compile_context(/language, /go).
+compile_context(/framework, /react).
+
+# Virtual boost for testing
+atom_context_boost("/atom_core", 100).
+atom_context_boost("/atom_go", 90).
+atom_context_boost("/atom_react", 90).
