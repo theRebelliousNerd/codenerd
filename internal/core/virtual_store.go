@@ -15,9 +15,10 @@ import (
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 
 	"github.com/google/mangle/ast"
-)
+))
 
 // One-time imports
 var _ = types.ShardConfig{}
@@ -63,6 +64,7 @@ type VirtualStore struct {
 	// Code DOM - semantic code element operations
 	codeScope  CodeScope
 	fileEditor FileEditor
+	graphQuery world.GraphQuery // World Model Graph Query Interface
 
 	// Autopoiesis - tool execution and generation
 	toolExecutor  ToolExecutor
@@ -729,16 +731,6 @@ func (v *VirtualStore) checkConstitution(req ActionRequest) error {
 func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
 	defer timer.Stop()
-
-	// Boot guard: block ALL action routing until first user interaction.
-	// This prevents session rehydration from replaying old actions.
-	v.mu.RLock()
-	bootGuardActive := v.bootGuardActive
-	v.mu.RUnlock()
-	if bootGuardActive {
-		logging.VirtualStore("Boot guard active: blocking action routing (predicate=%s) until user interaction", action.Predicate)
-		return "", fmt.Errorf("boot guard active: action routing blocked until user interaction")
-	}
 
 	logging.VirtualStore("Routing action: predicate=%s, args=%d", action.Predicate, len(action.Args))
 
