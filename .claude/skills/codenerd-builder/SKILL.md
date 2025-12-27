@@ -1,12 +1,14 @@
 ---
 name: codenerd-builder
-description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, ShardAgents, Virtual Predicates, TDD loops, Piggyback Protocol, Dream State, Dreamer (Precog Safety), Legislator, Ouroboros Loop, and DifferentialEngine. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
+description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, JIT Clean Loop, SubAgents, Virtual Predicates, TDD loops, Piggyback Protocol, Dream State, Dreamer (Precog Safety), Legislator, Ouroboros Loop, and ConfigFactory. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
 ---
 
 # codeNERD Builder
 
 Build the codeNERD high-assurance Logic-First CLI coding agent.
 
+> **Architecture Update (Dec 2024):** codeNERD now uses a **JIT Clean Loop** architecture. Domain shards (coder, tester, reviewer, researcher) have been **deleted** and replaced by JIT-driven SubAgents. All persona/identity comes from prompt atoms compiled at runtime. See [internal/session/](internal/session/) for the clean execution loop.
+>
 > **Stability Notice:** This codebase is under active development. Code snippets illustrate architectural patterns but may not match current implementations exactly. Always read the actual source files.
 
 ## Build Instructions
@@ -47,19 +49,50 @@ Current AI agents make a category error: they ask LLMs to handle everything—cr
 ```text
 [ Terminal / User ]
        |
-[ Perception Transducer (LLM) ] --> [ Mangle Atoms ]
+[ Perception Transducer (LLM) ] --> [ Mangle Atoms (user_intent) ]
        |
-[ Cortex Kernel ]
+[ Session Executor - The Clean Loop ]
        |
-       +-> [ FactStore (RAM) ]
-       +-> [ Mangle Engine ]
-       +-> [ JIT Prompt Compiler ]
-       +-> [ Dreamer (Precog Safety) ]
-       +-> [ Virtual Store (FFI) ]
-             +-> [ Shard Manager ] → Type A/B/U/S Shards
-             +-> [ Autopoiesis ] → Ouroboros, Nemesis, Thunderdome
+       +-> [ JIT Prompt Compiler ] --> [ Persona Atoms + Context ]
+       +-> [ ConfigFactory ] --> [ Tools + Policies from Intent ]
+       +-> [ LLM.CompleteWithTools() ]
+       +-> [ Constitutional Gate ] --> [ Safety Check ]
+       +-> [ Virtual Store (FFI) ] --> [ Tool Execution ]
+       |
+       +-> [ Spawner ] --> [ SubAgents (JIT-configured) ]
+             +-> [ Autopoiesis ] → Ouroboros, Thunderdome
        |
 [ Articulation Transducer (LLM) ] --> [ User Response ]
+```
+
+### The Clean Execution Loop (replaces old shard spawning)
+
+```go
+// internal/session/executor.go - ~50 lines replacing 5000+
+func (e *Executor) Process(ctx context.Context, input string) (string, error) {
+    // 1. Transducer: NL → intent
+    intent := e.transducer.Transduce(ctx, input)
+    e.kernel.Assert(intent.ToFact())
+
+    // 2. JIT: Compile prompt (persona + skills + context)
+    prompt := e.jitCompiler.Compile(ctx, e.buildContext(intent))
+
+    // 3. JIT: Compile config (tools, policies)
+    config := e.configFactory.Generate(ctx, prompt.Result, intent.Verb)
+
+    // 4. LLM: Generate response with tool calls
+    response, err := e.llm.CompleteWithTools(ctx, prompt.Prompt, input, config.Tools)
+
+    // 5. Execute: Route tool calls through VirtualStore
+    for _, call := range response.ToolCalls {
+        if e.constitutionalGate.Permits(call) {
+            e.virtualStore.Execute(ctx, call)
+        }
+    }
+
+    // 6. Articulate: Response to user
+    return e.articulator.Emit(response)
+}
 ```
 
 For detailed architecture, see [references/architecture.md](references/architecture.md).
@@ -136,18 +169,27 @@ Dynamic prompt assembly from atomic components:
 
 See [prompt-architect skill](../prompt-architect/SKILL.md).
 
-### Shard Agents
+### SubAgents (JIT-Driven)
+
+> **Dec 2024:** Domain shards (CoderShard, TesterShard, etc.) have been **deleted**. SubAgents are now JIT-configured via persona atoms and `ConfigFactory`.
 
 | Type | Constant | Description | Memory |
 |------|----------|-------------|--------|
-| **A** | `ShardTypeEphemeral` | Spawn → Execute → Die | RAM |
-| **B** | `ShardTypePersistent` | Domain specialists | SQLite |
-| **U** | `ShardTypeUser` | User-defined specialists | SQLite |
-| **S** | `ShardTypeSystem` | Long-running services | RAM |
+| **Ephemeral** | `SubAgentTypeEphemeral` | Spawn → Execute → Die | RAM |
+| **Persistent** | `SubAgentTypePersistent` | User-defined specialists | SQLite |
+| **System** | `SubAgentTypeSystem` | Long-running services | RAM |
 
-Built-in shards: CoderShard, TesterShard, ReviewerShard, ResearcherShard, NemesisShard, Legislator.
+**Key Files:**
 
-See [references/shard-agents.md](references/shard-agents.md).
+| File | Purpose |
+|------|---------|
+| `internal/session/spawner.go` | JIT-driven SubAgent spawning |
+| `internal/session/subagent.go` | SubAgent lifecycle management |
+| `internal/prompt/config_factory.go` | Intent → tools/policies mapping |
+| `internal/prompt/atoms/identity/*.yaml` | Persona atoms (coder, tester, reviewer, researcher) |
+| `internal/mangle/intent_routing.mg` | Mangle rules for persona selection |
+
+See [references/shard-agents.md](references/shard-agents.md) for legacy context.
 
 ### Dreamer (Precog Safety)
 
@@ -237,16 +279,20 @@ See [references/logging-system.md](references/logging-system.md).
 
 | Component | Location |
 |-----------|----------|
+| **Session Executor** | `internal/session/executor.go` (The Clean Loop) |
+| **Spawner** | `internal/session/spawner.go` (JIT-driven spawning) |
+| **SubAgent** | `internal/session/subagent.go` (Context-isolated execution) |
+| **ConfigFactory** | `internal/prompt/config_factory.go` (Intent → tools/policies) |
+| **Persona Atoms** | `internal/prompt/atoms/identity/*.yaml` (coder, tester, reviewer, researcher) |
+| **Intent Routing** | `internal/mangle/intent_routing.mg` (Mangle routing rules) |
 | Kernel | `internal/core/kernel.go` (modularized into 8 files) |
 | VirtualStore | `internal/core/virtual_store.go` |
-| ShardManager | `internal/core/shard_manager.go` |
 | Dreamer | `internal/core/dreamer.go` |
 | Transducer | `internal/perception/transducer.go` |
 | SemanticClassifier | `internal/perception/semantic_classifier.go` |
 | Emitter | `internal/articulation/emitter.go` |
 | JITPromptCompiler | `internal/prompt/compiler.go` |
 | OuroborosLoop | `internal/autopoiesis/ouroboros.go` |
-| NemesisShard | `internal/shards/nemesis/nemesis.go` |
 | Thunderdome | `internal/autopoiesis/thunderdome.go` |
 
 ## Reference Documentation

@@ -1,11 +1,13 @@
 ---
 name: prompt-architect
-description: Master prompt engineering for codeNERD's neuro-symbolic architecture. Use when writing new shard prompts, auditing existing prompts, debugging LLM behavior, or optimizing context injection. Covers static prompts, dynamic injection, Piggybacking protocol, tool steering, and specialist knowledge hydration.
+description: Master prompt engineering for codeNERD's neuro-symbolic architecture. Use when writing new persona atoms, auditing existing prompts, debugging LLM behavior, or optimizing context injection. Covers JIT prompt compilation, persona atoms, dynamic injection, Piggybacking protocol, tool steering, and ConfigFactory.
 ---
 
 # Prompt Architect Skill
 
 Design, write, and audit prompts for codeNERD's neuro-symbolic architecture.
+
+> **Architecture Update (Dec 2024):** Domain shards (coder, tester, reviewer, researcher) have been **deleted**. All persona/identity now comes from **JIT-compiled prompt atoms** in `internal/prompt/atoms/identity/*.yaml`. The `ConfigFactory` maps intents to tools and policies.
 
 In codeNERD, a "prompt" is a **cybernetic control system** bridging the Stochastic (LLM) and Deterministic (Mangle Kernel).
 
@@ -24,7 +26,8 @@ In codeNERD, a "prompt" is a **cybernetic control system** bridging the Stochast
 
 | Activity | Goal |
 |----------|------|
-| Writing New Shards | Define persona, capabilities, kernel interface |
+| Writing New Persona Atoms | Define identity, capabilities, constraints in YAML |
+| Creating ConfigFactory Mappings | Map intents to tools and policies |
 | Auditing Prompts | Ensure Piggyback Protocol and Constitutional boundaries |
 | Debugging LLM Behavior | Identify "Context Starvation" or "Ambiguous Steering" |
 | Creating Specialists | Inject domain-specific Knowledge Atoms |
@@ -86,18 +89,43 @@ codeNERD's high compression ratio enables **maximalism over minimalism**:
 | Constitutional Boundaries | 1,000+ chars |
 | Quality Standards | 1,500+ chars |
 
-## Specialist Creation
+## Persona Atom Creation (New Standard)
 
-### Type B: Project-Specific Specialists
+> **Dec 2024:** All persona/identity now comes from YAML atoms in `internal/prompt/atoms/identity/`.
 
-**Creation**: Automatic during `/init` based on project detection
-**Hydration**: llms.txt, GitHub docs, pkg.go.dev, commit history
-**Persistence**: SQLite-backed (Vector + Graph + Cold tiers)
+### Creating a Persona Atom
 
-### Type U: User-Defined Specialists
+```yaml
+# internal/prompt/atoms/identity/coder.yaml
+- id: "identity/coder/mission"
+  category: "identity"
+  subcategory: "mission"
+  priority: 100
+  is_mandatory: true
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create"]
+  content: |
+    You are the Coder persona of codeNERD.
+    ## Core Responsibilities
+    1. Generate new code following project patterns
+    2. Modify existing code to fix bugs or add features
+    ...
+```
 
-**Creation**: Manual via `/define-agent` wizard
-**Validation**: Viva Voce examination (80% accuracy required)
+### ConfigFactory Tool Mapping
+
+```go
+// internal/prompt/config_factory.go
+// Maps intent verbs to allowed tools
+provider.atoms["/fix"] = ConfigAtom{
+    Tools: coderTools,  // read_file, write_file, edit_file, run_build, etc.
+    Priority: 100,
+}
+```
+
+### Legacy Specialist Types (for reference)
+
+**Type B**: Project-specific specialists (created during `/init`)
+**Type U**: User-defined specialists (created via `/define-agent`)
 
 ## JIT Prompt Compiler
 

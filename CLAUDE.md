@@ -6,6 +6,26 @@ A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic archit
 
 ## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM. IT IS THE CENTRAL PARADIGM OF THE SYSTEM. JIT, PIGGYBACKING, CONTROL PACKETS, MANGLE, THAT IS THE NAME OF THE GAME!
 
+> ## ⚠️ MAJOR ARCHITECTURE UPDATE (Dec 2024): JIT Clean Loop
+>
+> **Domain shards have been DELETED** (~35,000 lines removed). The following directories no longer exist:
+>
+> - `internal/shards/coder/`, `internal/shards/tester/`, `internal/shards/reviewer/`
+> - `internal/shards/researcher/`, `internal/shards/nemesis/`, `internal/shards/tool_generator/`
+>
+> **Replaced by JIT Clean Loop:**
+>
+> | New File | Purpose |
+> |----------|---------|
+> | `internal/session/executor.go` | The Clean Execution Loop (~50 lines) |
+> | `internal/session/spawner.go` | JIT-driven SubAgent spawning |
+> | `internal/session/subagent.go` | Context-isolated SubAgent implementation |
+> | `internal/prompt/config_factory.go` | Intent → tools/policies mapping |
+> | `internal/prompt/atoms/identity/*.yaml` | Persona atoms (coder, tester, reviewer, researcher) |
+> | `internal/mangle/intent_routing.mg` | Mangle routing rules for persona selection |
+>
+> **Philosophy:** The LLM doesn't need 5000+ lines of Go code telling it how to be a coder/tester/reviewer. It needs JIT-compiled prompts with persona atoms, tool access via VirtualStore, and safety via Constitutional Gate.
+
 All prompt atoms from internal go into: `C:\CodeProjects\codeNERD\internal\prompt\atoms`
 
 All prompt atoms from project-specific shards go to: `C:\CodeProjects\codeNERD\.nerd\agents`
@@ -43,15 +63,16 @@ cmd/
 ├── test-research/      # Research testing tool
 └── tools/              # Build tools (corpus_builder, mangle_check, etc.)
 
-internal/               # 32 packages, ~140K LOC
-├── core/               # Kernel, VirtualStore, ShardManager (modularized)
+internal/               # 32 packages, ~105K LOC (after JIT refactor)
+├── session/            # **NEW** Clean execution loop, Spawner, SubAgents
+├── core/               # Kernel, VirtualStore (modularized)
 ├── perception/         # NL → Mangle atom transduction
 ├── articulation/       # Mangle atom → NL transduction
 ├── autopoiesis/        # Self-modification: Ouroboros, Thunderdome, tool learning, prompt evolution
 ├── mcp/                # MCP (Model Context Protocol) integration, JIT Tool Compiler
-├── prompt/             # JIT Prompt Compiler, atoms, context-aware assembly
-├── shards/             # Shard implementations (coder/, tester/, reviewer/, researcher/, nemesis/, system/, tool_generator/)
-├── mangle/             # .mg schema/policy files + feedback/, transpiler/
+├── prompt/             # JIT Prompt Compiler, ConfigFactory, persona atoms, context-aware assembly
+├── shards/             # **REDUCED** System shards only (system/), domain shards DELETED
+├── mangle/             # .mg schema/policy files + intent_routing.mg + feedback/, transpiler/
 ├── store/              # Memory tiers (modularized into 10 files)
 ├── campaign/           # Multi-phase goal orchestration (25+ files)
 ├── world/              # Filesystem, AST projection, multi-lang data flow
@@ -153,56 +174,100 @@ The architecture acknowledges that LLMs excel at synthesis and pattern matching.
 - *Pattern:* Context Paging and Multi-Phase Goals (`internal/campaign/`)
 - *Details:* For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current phase while keeping core facts and working memory available.
 
-## Shard Architecture
+## SubAgent Architecture (JIT Clean Loop)
 
-Shards are specialized sub-agents that handle domain-specific tasks in parallel. The ShardManager (`internal/core/shard_manager.go`, modularized into 5 files) orchestrates their lifecycle.
+> **Dec 2024:** Domain shards (CoderShard, TesterShard, etc.) have been **deleted**. SubAgents are now JIT-configured via persona atoms and `ConfigFactory`.
 
-### Lifecycle Types
+### The Clean Execution Loop
 
-| Type | Constant | Description | Memory | Creation |
-|------|----------|-------------|--------|----------|
-| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
-| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
-| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
-| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
+```go
+// internal/session/executor.go - ~50 lines replacing 5000+
+func (e *Executor) Process(ctx context.Context, input string) (string, error) {
+    // 1. Transducer: NL → intent
+    intent := e.transducer.Transduce(ctx, input)
+    e.kernel.Assert(intent.ToFact())
 
-### Shard Implementations
+    // 2. JIT: Compile prompt (persona + skills + context)
+    prompt := e.jitCompiler.Compile(ctx, e.buildContext(intent))
 
-| Shard | Location | Purpose |
-|-------|----------|---------|
-| **CoderShard** | `internal/shards/coder/` | Code generation, file edits, refactoring |
-| **TesterShard** | `internal/shards/tester/` | Test execution, coverage analysis |
-| **ReviewerShard** | `internal/shards/reviewer/` | Code review, pre-flight checks, hypothesis verification |
-| **ResearcherShard** | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
-| **NemesisShard** | `internal/shards/nemesis/` | Adversarial testing, patch breaking (see Adversarial Engineering) |
-| **ToolGenerator** | `internal/shards/tool_generator/` | Ouroboros: self-generating tools |
-| **Legislator** | `internal/shards/system/legislator.go` | Compiles new Mangle rules at runtime |
+    // 3. JIT: Compile config (tools, policies)
+    config := e.configFactory.Generate(ctx, prompt.Result, intent.Verb)
 
-### System Shards (Type S)
+    // 4. LLM: Generate response with tool calls
+    response, err := e.llm.CompleteWithTools(ctx, prompt.Prompt, input, config.Tools)
+
+    // 5. Execute: Route tool calls through VirtualStore
+    for _, call := range response.ToolCalls {
+        if e.constitutionalGate.Permits(call) {
+            e.virtualStore.Execute(ctx, call)
+        }
+    }
+
+    // 6. Articulate: Response to user
+    return e.articulator.Emit(response)
+}
+```
+
+### SubAgent Types
+
+| Type | Constant | Description | Memory |
+|------|----------|-------------|--------|
+| **Ephemeral** | `SubAgentTypeEphemeral` | Spawn → Execute → Die | RAM only |
+| **Persistent** | `SubAgentTypePersistent` | User-defined specialists | SQLite-backed |
+| **System** | `SubAgentTypeSystem` | Long-running services | RAM |
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `internal/session/executor.go` | The Clean Execution Loop |
+| `internal/session/spawner.go` | JIT-driven SubAgent spawning |
+| `internal/session/subagent.go` | SubAgent lifecycle management |
+| `internal/prompt/config_factory.go` | Intent → tools/policies mapping |
+| `internal/prompt/atoms/identity/*.yaml` | Persona atoms (coder, tester, reviewer, researcher) |
+| `internal/mangle/intent_routing.mg` | Mangle routing rules for persona selection |
+
+### Persona Atoms (Replace Hardcoded Shard Prompts)
+
+All persona/identity now comes from YAML atoms in `internal/prompt/atoms/identity/`:
+
+```yaml
+# internal/prompt/atoms/identity/coder.yaml
+- id: "identity/coder/mission"
+  category: "identity"
+  priority: 100
+  is_mandatory: true
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create"]
+  content: |
+    You are the Coder Shard of codeNERD, the execution arm for code generation.
+    ## Core Responsibilities
+    1. Generate new code following project patterns
+    2. Modify existing code to fix bugs or add features
+    ...
+```
+
+### ConfigFactory (Intent → Tools Mapping)
+
+```go
+// internal/prompt/config_factory.go
+// Maps intent verbs to allowed tools
+provider.atoms["/fix"] = ConfigAtom{
+    Tools: []string{"read_file", "write_file", "edit_file", "run_build", "git_operation"},
+    Priority: 100,
+}
+```
+
+### System Shards (Still Active)
 
 Long-running background services that maintain system state:
 
 | Shard | Purpose |
 |-------|---------|
-| `perception_firewall` | NL → atoms transduction |
 | `world_model_ingestor` | file_topology, symbol_graph maintenance |
-| `executive_policy` | next_action derivation |
 | `constitution_gate` | Safety enforcement |
-| `tactile_router` | Action → tool routing |
 | `session_planner` | Agenda/campaign orchestration |
-| `nemesis` | Adversarial co-evolution, patch breaking |
 
-### Go Interface
-
-All shards implement the `Shard` interface:
-
-```go
-type Shard interface {
-    Execute(ctx context.Context, task ShardTask) (string, error)
-}
-```
-
-## Adversarial Engineering: Nemesis & Panic Maker
+## Adversarial Engineering: Thunderdome & Panic Maker
 
 codeNERD employs an Adversarial Co-Evolution strategy. Instead of relying solely on passive testing, it actively attempts to break its own code using two distinct but related components: the Panic Maker (tactical tool breaker) and the Nemesis Shard (strategic system breaker).
 
@@ -681,20 +746,23 @@ For detailed architecture and implementation specs, see:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
+| **Session Executor** | [internal/session/executor.go](internal/session/executor.go) | **NEW** The Clean Execution Loop |
+| **Spawner** | [internal/session/spawner.go](internal/session/spawner.go) | **NEW** JIT-driven SubAgent spawning |
+| **SubAgent** | [internal/session/subagent.go](internal/session/subagent.go) | **NEW** Context-isolated SubAgents |
+| **ConfigFactory** | [internal/prompt/config_factory.go](internal/prompt/config_factory.go) | **NEW** Intent → tools/policies mapping |
+| **Persona Atoms** | [internal/prompt/atoms/identity/](internal/prompt/atoms/identity/) | **NEW** Persona atoms (coder, tester, etc.) |
+| **Intent Routing** | [internal/mangle/intent_routing.mg](internal/mangle/intent_routing.mg) | **NEW** Mangle routing rules |
 | Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management (modularized) |
 | Policy | [internal/mangle/policy.mg](internal/mangle/policy.mg) | IDB rules (20 sections) |
 | Schemas | [internal/mangle/schemas.mg](internal/mangle/schemas.mg) | EDB declarations |
 | VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
-| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle (see Shard Architecture) |
 | Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
 | Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
 | JIT Compiler | [internal/prompt/compiler.go](internal/prompt/compiler.go) | Runtime prompt assembly |
 | LocalStore | [internal/store/local.go](internal/store/local.go) | 4-tier persistence (modularized into 10 files) |
-| Nemesis | [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go) | Adversarial patch analysis |
 | Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Attack vector arena |
 | DataFlow | [internal/world/dataflow_multilang.go](internal/world/dataflow_multilang.go) | Multi-language taint analysis |
 | Holographic | [internal/world/holographic.go](internal/world/holographic.go) | Impact-aware context builder |
-| Hypotheses | [internal/shards/reviewer/hypotheses.go](internal/shards/reviewer/hypotheses.go) | Mangle→LLM verification |
 | Context Harness | [internal/testing/context_harness/](internal/testing/context_harness/) | Infinite context validation |
 | Tactile | [internal/tactile/](internal/tactile/) | Motor cortex, sandboxed execution |
 | Transparency | [internal/transparency/transparency.go](internal/transparency/transparency.go) | Operation visibility layer |
