@@ -185,9 +185,11 @@ func loadEDBViaEngine(t *testing.T, eng *mangle.Engine, content string) {
 		}
 
 		// Convert ast.Atom args to interface{} for Engine.AddFact
+		// We pass ast.BaseTerm directly to avoid ambiguity in the engine wrapper
+		// (e.g. strings starting with "/" being auto-converted to Atoms)
 		args := make([]interface{}, len(parsedAtom.Args))
 		for i, arg := range parsedAtom.Args {
-			args[i] = convertTermToInterface(arg)
+			args[i] = arg
 		}
 
 		if err := eng.AddFact(parsedAtom.Predicate.Symbol, args...); err != nil {
