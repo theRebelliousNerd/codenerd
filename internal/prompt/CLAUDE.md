@@ -1,19 +1,55 @@
-# internal/prompt - JIT Prompt Compiler
+# internal/prompt - JIT Prompt Compiler + ConfigFactory
 
-This package implements the JIT (Just-In-Time) Prompt Compiler for codeNERD. It compiles optimal system prompts from atomic fragments based on compilation context (operational mode, shard type, language, etc.).
+**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
+
+This package implements codeNERD's JIT (Just-In-Time) Prompt Compiler and ConfigFactory. Together, they compile optimal system prompts and agent configurations from atomic fragments based on compilation context (operational mode, agent type, language, intent, etc.).
+
+**Key Components:**
+1. **JIT Prompt Compiler** - Runtime prompt assembly from prompt atoms
+2. **ConfigFactory** - AgentConfig generation (tools + policies + mode)
+
+These components replaced ~35,000 lines of hardcoded shard implementations with declarative, runtime-configurable agent behavior.
 
 **Related Packages:**
+- [internal/session](../session/CLAUDE.md) - Session Executor consuming JIT + ConfigFactory output
+- [internal/jit/config](../jit/CLAUDE.md) - AgentConfig schema
 - [internal/articulation](../articulation/CLAUDE.md) - PromptAssembler consuming JIT output
 - [internal/store](../store/CLAUDE.md) - Prompt atom persistence
 - [internal/embedding](../embedding/CLAUDE.md) - Vector search for atom selection
 
 ## Architecture
 
-The JIT compiler achieves "infinite" effective prompt length through:
+The JIT system achieves "infinite" effective prompt length and zero-boilerplate agent creation through:
+
+### JIT Prompt Compiler
 1. **Atomic decomposition** - Prompts stored as small, reusable YAML atoms
 2. **Context-aware selection** - Only relevant atoms selected via Mangle + vector
 3. **Skeleton/Flesh bifurcation** - Mandatory vs probabilistic atoms
 4. **Budget-constrained assembly** - Polymorphic content fitting within token limits
+
+### ConfigFactory
+1. **ConfigAtom retrieval** - Fetch tools/policies for intent verb
+2. **AgentConfig generation** - Merge ConfigAtoms into complete configuration
+3. **Tool enforcement** - Session Executor validates tool calls against AllowedTools
+4. **Policy loading** - Mangle files loaded into kernel for safety checks
+
+**Integration Flow:**
+```
+User Input → Intent Routing → persona(/coder)
+                                  ↓
+                    ┌─────────────┴─────────────┐
+                    ↓                           ↓
+            JIT Compiler                  ConfigFactory
+    (CompilationContext → Prompt)  (Intent → AgentConfig)
+                    ↓                           ↓
+            "You are a code fixer..."   {Tools: [...], Policies: [...]}
+                    ↓                           ↓
+                    └─────────────┬─────────────┘
+                                  ↓
+                          Session Executor
+                                  ↓
+                      LLM + VirtualStore + Safety
+```
 
 ## File Index
 
@@ -21,9 +57,10 @@ The JIT compiler achieves "infinite" effective prompt length through:
 |------|-------------|
 | `atoms.go` | Core atom types and AtomCategory constants (identity, protocol, safety, etc.). Exports PromptAtom with 14 category types and MatchesContext() for selector dimension matching. |
 | `compiler.go` | JITPromptCompiler orchestrating the full compilation pipeline. Exports Compile(), CompilationStats with phase timing metrics, and SearchResult for vector integration. |
+| `config_factory.go` | **NEW:** ConfigFactory generating AgentConfig objects from intent. Exports Generate(), ConfigAtom (tools + policies), and GetAtom() for intent-based config retrieval. |
 | `assembler.go` | FinalAssembler concatenating atoms into final prompt string with category ordering. Exports NewFinalAssembler() with configurable section headers and separators. |
 | `selector.go` | AtomSelector implementing Skeleton/Flesh bifurcation for hybrid selection. Exports ScoredAtom, NewAtomSelector() with Mangle rules + vector search scoring. |
-| `context.go` | CompilationContext holding 10 contextual tiers for atom selection. Exports 10-tier structure: OperationalMode, CampaignPhase, BuildLayer, ShardType, Language, etc. |
+| `context.go` | CompilationContext holding 10 contextual tiers for atom selection. Exports 10-tier structure: OperationalMode, CampaignPhase, BuildLayer, AgentType (formerly ShardType), Language, etc. |
 | `budget.go` | BudgetManager allocating tokens across categories with priority levels. Exports BudgetPriority constants, CategoryBudget, and FitToBudget() for polymorphic content. |
 | `resolver.go` | DependencyResolver ordering atoms by dependencies with cycle detection. Exports OrderedAtom, NewDependencyResolver() with topological sorting. |
 | `loader.go` | AtomLoader for runtime YAML→SQLite ingestion of prompt atoms. Exports LoadFromYAML(), LoadFromDirectory(), StoreAtom() with embedding generation. |
@@ -58,7 +95,7 @@ type PromptAtom struct {
 
     // Contextual Selectors (11 dimensions)
     OperationalModes []string  // ["/active", "/debugging", "/dream"]
-    ShardTypes       []string  // ["/coder", "/tester", "/reviewer"]
+    AgentTypes       []string  // ["/coder", "/tester", "/reviewer"] (formerly ShardTypes)
     IntentVerbs      []string  // ["/fix", "/debug", "/refactor"]
     Languages        []string  // ["/go", "/python", "/typescript"]
 
@@ -81,7 +118,7 @@ type CompilationContext struct {
     NorthstarPhase  string  // Tier 5
     OuroborosStage  string  // Tier 6
     IntentVerb      string  // Tier 7
-    ShardType       string  // Tier 8
+    AgentType       string  // Tier 8 (formerly ShardType)
     Language        string  // Tier 9
     Framework       string  // Tier 10
 
