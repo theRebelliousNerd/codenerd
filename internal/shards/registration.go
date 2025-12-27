@@ -9,16 +9,17 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	"codenerd/internal/shards/coder"
-	"codenerd/internal/shards/nemesis"
-	"codenerd/internal/shards/researcher"
-	"codenerd/internal/shards/reviewer"
+	// Domain shards removed - JIT clean loop handles these via prompt atoms
+	// "codenerd/internal/shards/coder"
+	// "codenerd/internal/shards/nemesis"
+	// "codenerd/internal/shards/researcher"
+	// "codenerd/internal/shards/reviewer"
+	// "codenerd/internal/shards/tester"
+	// "codenerd/internal/shards/tool_generator"
 	"codenerd/internal/shards/system"
-	"codenerd/internal/shards/tester"
-	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
-	"codenerd/internal/world"
+	// "codenerd/internal/world" // Only used by reviewer holographic - removed
 )
 
 // RegistryContext holds dependencies for shard dependency injection.
@@ -84,83 +85,10 @@ func (a *learningStoreAdapter) Close() error {
 	return a.store.Close()
 }
 
-// holographicAdapter adapts world.HolographicProvider to reviewer.HolographicProvider
-type holographicAdapter struct {
-	provider *world.HolographicProvider
-}
-
-func (h *holographicAdapter) GetContext(filePath string) (*reviewer.HolographicContext, error) {
-	ctx, err := h.provider.GetContext(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert world.HolographicContext to reviewer.HolographicContext
-	result := &reviewer.HolographicContext{
-		TargetFile:      ctx.TargetFile,
-		TargetPkg:       ctx.TargetPkg,
-		PackageSiblings: ctx.PackageSiblings,
-		Layer:           ctx.Layer,
-		Module:          ctx.Module,
-		Role:            ctx.Role,
-		SystemPurpose:   ctx.SystemPurpose,
-		HasTests:        ctx.HasTests,
-	}
-
-	// Convert signatures
-	for _, sig := range ctx.PackageSignatures {
-		result.PackageSignatures = append(result.PackageSignatures, reviewer.SymbolSignature{
-			Name:       sig.Name,
-			Receiver:   sig.Receiver,
-			Params:     sig.Params,
-			Returns:    sig.Returns,
-			File:       sig.File,
-			Line:       sig.Line,
-			Exported:   sig.Exported,
-			DocComment: sig.DocComment,
-		})
-	}
-
-	// Convert types
-	for _, t := range ctx.PackageTypes {
-		result.PackageTypes = append(result.PackageTypes, reviewer.TypeDefinition{
-			Name:     t.Name,
-			Kind:     t.Kind,
-			Fields:   t.Fields,
-			Methods:  t.Methods,
-			File:     t.File,
-			Line:     t.Line,
-			Exported: t.Exported,
-		})
-	}
-
-	return result, nil
-}
-
-// reviewerFeedbackAdapter adapts reviewer.ReviewerShard to core.ReviewerFeedbackProvider
-type reviewerFeedbackAdapter struct {
-	shard *reviewer.ReviewerShard
-}
-
-func (r *reviewerFeedbackAdapter) NeedsValidation(reviewID string) bool {
-	return r.shard.NeedsValidation(reviewID)
-}
-
-func (r *reviewerFeedbackAdapter) GetSuspectReasons(reviewID string) []string {
-	return r.shard.GetSuspectReasons(reviewID)
-}
-
-func (r *reviewerFeedbackAdapter) AcceptFinding(reviewID, file string, line int) {
-	r.shard.AcceptFinding(reviewID, file, line)
-}
-
-func (r *reviewerFeedbackAdapter) RejectFinding(reviewID, file string, line int, reason string) {
-	r.shard.RejectFinding(reviewID, file, line, reason)
-}
-
-func (r *reviewerFeedbackAdapter) GetAccuracyReport(reviewID string) string {
-	return r.shard.GetAccuracyReport(reviewID)
-}
+// NOTE: holographicAdapter and reviewerFeedbackAdapter removed.
+// Domain shards (coder, reviewer, tester, researcher, nemesis, tool_generator)
+// are replaced by the JIT clean loop architecture. Their functionality is now
+// provided by JIT-compiled prompts with persona atoms and ConfigFactory.
 
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
@@ -168,14 +96,6 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 	// Ensure ShardManager has the VirtualStore for dynamic injection
 	if ctx.VirtualStore != nil {
 		sm.SetVirtualStore(ctx.VirtualStore)
-	}
-
-	// Helper to safely get LocalDB from VirtualStore
-	getLocalDB := func() *store.LocalStore {
-		if ctx.VirtualStore != nil {
-			return ctx.VirtualStore.GetLocalDB()
-		}
-		return nil
 	}
 
 	// Helper to safely get LearningStore as interface (all shards use core.LearningStore)
@@ -214,100 +134,26 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		return pa
 	}
 
-	// Be defensive about interface satisfaction - core.Kernel returns []core.Fact,
-	// articulation.KernelQuerier expects []types.Fact. They are aliases but Go type system
-	// might require specific casting. Let's see if compilation passes.
+	// =========================================================================
+	// DOMAIN SHARDS REMOVED - JIT CLEAN LOOP ARCHITECTURE
+	// =========================================================================
+	// The following domain shards have been replaced by the JIT clean loop:
+	// - coder: Now handled by session.Executor with /coder persona atoms
+	// - reviewer: Now handled by session.Executor with /reviewer persona atoms
+	// - tester: Now handled by session.Executor with /tester persona atoms
+	// - researcher: Now handled by session.Executor with /researcher persona atoms
+	// - tool_generator: Now handled by Ouroboros via VirtualStore
+	// - nemesis: Now handled by Thunderdome adversarial testing
+	//
+	// The JIT prompt compiler assembles the appropriate persona, skills, and
+	// context based on user intent. ConfigFactory provides tool sets per intent.
+	// =========================================================================
 
-	// Register Coder shard factory
-	sm.RegisterShard("coder", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := coder.NewCoderShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
-		shard.SetPromptAssembler(createAssembler())
-		return shard
-	})
-
-	// Register Reviewer shard factory
-	sm.RegisterShard("reviewer", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := reviewer.NewReviewerShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
-
-		// NEW: Inject holographic provider for package-aware code review
-		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
-			holoProvider := world.NewHolographicProvider(realKernel, ctx.Workspace)
-			shard.SetHolographicProvider(&holographicAdapter{provider: holoProvider})
-		}
-
-		// NEW: Register as feedback provider for validation triggers
-		sm.SetReviewerFeedbackProvider(&reviewerFeedbackAdapter{shard: shard})
-
-		shard.SetPromptAssembler(createAssembler())
-		return shard
-	})
-
-	// Register Tester shard factory
-	sm.RegisterShard("tester", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := tester.NewTesterShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
-		shard.SetPromptAssembler(createAssembler())
-		return shard
-	})
-
-	// Register Researcher shard factory
-	sm.RegisterShard("researcher", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := researcher.NewResearcherShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLocalDB(getLocalDB())             // FIX: Enable knowledge atom storage
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
-		// Use Workspace from context
-		shard.SetWorkspaceRoot(ctx.Workspace)
-		shard.SetPromptAssembler(createAssembler())
-		return shard
-	})
-
-	// Register Requirements Interrogator (Socratic clarifier)
+	// Register Requirements Interrogator (Socratic clarifier) - still needed for clarification
 	sm.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
 		shard := NewRequirementsInterrogatorShard()
 		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetParentKernel(ctx.Kernel) // FIX: Enable kernel access
-		// shard.SetVirtualStore(ctx.VirtualStore) // Removed: Interrogator doesn't support VirtualStore yet
-		return shard
-	})
-
-	// Register ToolGenerator shard factory (autopoiesis)
-	sm.RegisterShard("tool_generator", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := tool_generator.NewToolGeneratorShard(id, config)
 		shard.SetParentKernel(ctx.Kernel)
-		shard.SetWorkspaceRoot(ctx.Workspace) // MUST be called before SetLLMClient
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence for Type B shard
-		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable tool execution
-		return shard
-	})
-
-	// Register Nemesis shard factory (adversarial co-evolution)
-	sm.RegisterShard("nemesis", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := nemesis.NewNemesisShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore())
-		// Initialize Armory for regression test persistence
-		if ctx.Workspace != "" {
-			armory := nemesis.NewArmory(ctx.Workspace + "/.nerd")
-			shard.SetArmory(armory)
-		}
-		shard.SetPromptAssembler(createAssembler())
 		return shard
 	})
 

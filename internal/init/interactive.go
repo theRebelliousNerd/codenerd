@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/shards/researcher"
+	// researcher removed - JIT clean loop handles research
 )
 
 // DetectedAgent represents an agent detected during project analysis.
@@ -338,12 +338,9 @@ type AgentSuggestion struct {
 	SourceTopic string   `json:"source_topic"`
 }
 
-// GetContext7AgentSuggestions queries Context7 for agent suggestions based on detected frameworks.
-func GetContext7AgentSuggestions(ctx context.Context, researchShard *researcher.ResearcherShard, profile ProjectProfile) ([]AgentSuggestion, error) {
-	if researchShard == nil {
-		return nil, nil
-	}
-
+// GetContext7AgentSuggestions suggests agents based on detected frameworks.
+// NOTE: ResearchShard parameter removed as part of JIT refactor - uses static detection.
+func GetContext7AgentSuggestions(ctx context.Context, profile ProjectProfile) ([]AgentSuggestion, error) {
 	suggestions := make([]AgentSuggestion, 0)
 
 	// Collect topics to research based on dependencies

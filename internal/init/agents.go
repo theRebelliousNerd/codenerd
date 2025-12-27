@@ -2,10 +2,11 @@
 package init
 
 import (
-	coreshards "codenerd/internal/core/shards"
+	// coreshards removed - was only used by tool_generator
 	"codenerd/internal/logging"
-	"codenerd/internal/shards/researcher"
-	"codenerd/internal/shards/tool_generator"
+	// Domain shards removed - JIT clean loop handles research and tool generation:
+	// "codenerd/internal/shards/researcher"
+	// "codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 	"context"
@@ -19,6 +20,38 @@ import (
 	"sync"
 	"time"
 )
+
+// =============================================================================
+// LOCAL TYPE STUBS (previously in deleted shard packages)
+// =============================================================================
+// Research functionality has been removed from /init.
+// The JIT clean loop now handles research via prompt atoms and ConfigFactory.
+
+// initKnowledgeAtom is a stub type for knowledge atoms.
+type initKnowledgeAtom struct {
+	Concept    string
+	Content    string
+	Title      string
+	Confidence float64
+	SourceURL  string
+}
+
+// initQualityMetrics holds research quality metrics.
+type initQualityMetrics struct {
+	Score  float64
+	Rating string
+}
+
+// initResearchResult holds the result of research.
+type initResearchResult struct {
+	Atoms           []initKnowledgeAtom
+	FallbackUsed    int
+	FallbackReason  string
+	AttemptsMade    int
+	EffectiveTopics []string
+}
+
+const initFallbackNone = 0
 
 // generateAgentPromptsYAML generates a prompts.yaml template for a Type B (persistent) agent.
 // Creates .nerd/agents/{name}/prompts.yaml with identity, methodology, and domain knowledge atoms.
@@ -718,63 +751,19 @@ func (i *Initializer) createAgentKnowledgeBase(ctx context.Context, kbPath strin
 		}
 	}
 
-	// Research topics - use concept-aware research with graceful degradation
+	// Research topics - STUBBED OUT
+	// =========================================================================
+	// Research functionality has been removed from /init as part of JIT refactor.
+	// The JIT clean loop now handles research via:
+	// - Prompt atoms in internal/prompt/atoms/
+	// - ConfigFactory providing tool sets per intent
+	// - session.Executor with /researcher persona
+	// =========================================================================
 	if !i.config.SkipResearch && len(agent.Topics) > 0 {
-		// Create a researcher for this specific agent
-		agentResearcher := researcher.NewResearcherShard()
-		if i.config.LLMClient != nil {
-			agentResearcher.SetLLMClient(i.config.LLMClient)
-		}
-		if i.config.Context7APIKey != "" {
-			agentResearcher.SetContext7APIKey(i.config.Context7APIKey)
-		}
-		agentResearcher.SetLocalDB(agentDB)
-
-		// Convert existing atoms to researcher format for concept-aware analysis
-		existingAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-		researcherAtoms := convertStoreAtomsToResearcherAtoms(existingAtoms)
-
-		fmt.Printf("     Researching topics for %s (concept-aware: %d existing atoms)...\n",
-			agent.Name, len(researcherAtoms))
-
-		// Use concept-aware research with graceful degradation
-		// This analyzes existing knowledge first to skip redundant Context7 queries
-		gracefulResult, err := agentResearcher.ResearchWithExistingKnowledgeAndGracefulDegradation(
-			ctx, agent.Topics, researcherAtoms)
-		if err != nil {
-			fmt.Printf("     Warning: Research for %s had issues: %v\n", agent.Name, err)
-		} else if gracefulResult != nil {
-			// Log fallback info if used
-			if gracefulResult.FallbackUsed != researcher.FallbackNone {
-				fmt.Printf("     Note: Used fallback strategy for %s (%s)\n", agent.Name, gracefulResult.FallbackReason)
-			} else if gracefulResult.AttemptsMade == 0 {
-				// All topics were covered - no API calls needed
-				fmt.Printf("     All topics already have sufficient coverage - no API calls needed\n")
-			}
-
-			// In upgrade mode, the researcher stores atoms directly to DB
-			// We need to count only newly added atoms
-			if upgradeMode {
-				// Re-fetch to get accurate count
-				currentAtoms, _ := agentDB.GetAllKnowledgeAtoms()
-				newFromResearch := len(currentAtoms) - stats.ExistingAtoms - stats.NewAtoms
-				if newFromResearch > 0 {
-					stats.NewAtoms += newFromResearch
-				}
-			} else {
-				stats.NewAtoms += len(gracefulResult.Atoms)
-			}
-
-			if len(gracefulResult.Atoms) > 0 {
-				fmt.Printf("     Gathered %d knowledge atoms for %s (attempts: %d)\n",
-					len(gracefulResult.Atoms), agent.Name, gracefulResult.AttemptsMade)
-			}
-
-			// Calculate and store quality metrics
-			qualityMetrics := researcher.CalculateQualityMetrics(gracefulResult.Atoms, gracefulResult.EffectiveTopics)
-			stats.QualityScore = qualityMetrics.Score
-			stats.QualityRating = qualityMetrics.Rating
-		}
+		fmt.Printf("     Research disabled (JIT refactor) - using base atoms only for %s\n", agent.Name)
+		// Set default quality metrics
+		stats.QualityScore = 50.0
+		stats.QualityRating = "Basic"
 	} else if i.config.SkipResearch {
 		fmt.Printf("     Skipping research for %s (--skip-research)\n", agent.Name)
 	}
@@ -891,22 +880,20 @@ func filterTopicsNeedingResearch(existingAtoms []store.KnowledgeAtom, topics []s
 	return needsResearch
 }
 
-// convertStoreAtomsToResearcherAtoms converts store.KnowledgeAtom to researcher.KnowledgeAtom
-// for use with concept-aware research methods.
-func convertStoreAtomsToResearcherAtoms(storeAtoms []store.KnowledgeAtom) []researcher.KnowledgeAtom {
-	researcherAtoms := make([]researcher.KnowledgeAtom, 0, len(storeAtoms))
-
+// convertStoreAtomsToInitAtoms converts store.KnowledgeAtom to initKnowledgeAtom.
+// STUB: Research functionality removed as part of JIT refactor.
+func convertStoreAtomsToInitAtoms(storeAtoms []store.KnowledgeAtom) []initKnowledgeAtom {
+	atoms := make([]initKnowledgeAtom, 0, len(storeAtoms))
 	for _, sa := range storeAtoms {
-		researcherAtoms = append(researcherAtoms, researcher.KnowledgeAtom{
+		atoms = append(atoms, initKnowledgeAtom{
 			Concept:    sa.Concept,
 			Content:    sa.Content,
-			Title:      sa.Concept, // Use concept as title if not available
+			Title:      sa.Concept,
 			Confidence: sa.Confidence,
-			SourceURL:  "", // Store atoms don't track source URL
+			SourceURL:  "",
 		})
 	}
-
-	return researcherAtoms
+	return atoms
 }
 
 // generateBaseKnowledgeAtoms generates foundational knowledge for an agent.
@@ -1126,24 +1113,13 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			}
 		}
 
-		// Research shard-specific topics if LLM available
+		// Research shard-specific topics - STUBBED OUT
+		// =========================================================================
+		// Research functionality removed as part of JIT refactor.
+		// The JIT clean loop now handles research via prompt atoms.
+		// =========================================================================
 		if i.config.LLMClient != nil && !i.config.SkipResearch {
-			researcher := researcher.NewResearcherShard()
-			researcher.SetLLMClient(i.config.LLMClient)
-			if i.config.Context7APIKey != "" {
-				researcher.SetContext7APIKey(i.config.Context7APIKey)
-			}
-			researcher.SetLocalDB(shardDB)
-
-			// Research 1-2 topics per shard (quick)
-			for j, topic := range shard.Topics {
-				if j >= 2 {
-					break
-				}
-				task := fmt.Sprintf("research docs: %s for %s (brief)", topic, profile.Language)
-				researcher.Execute(ctx, task)
-				atomCount += 5 // Approximate
-			}
+			logging.Boot("Research disabled (JIT refactor) for core shard %s", shard.Name)
 		}
 
 		// Get final count
@@ -1170,8 +1146,12 @@ type ToolGenerationRequest struct {
 }
 
 // generateProjectTools generates tools based on detected technologies during init.
+// =========================================================================
+// Tool generation via ToolGenerator shard has been removed as part of JIT refactor.
+// The Ouroboros system now handles tool generation through VirtualStore.
+// This function is stubbed to preserve the interface.
+// =========================================================================
 func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, profile ProjectProfile) ([]string, error) {
-	toolsDir := filepath.Join(nerdDir, "tools")
 	generatedTools := make([]string, 0)
 
 	// Determine which tools to generate based on project profile
@@ -1181,63 +1161,12 @@ func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, 
 		return generatedTools, nil
 	}
 
-	fmt.Printf("\n[tools] Generating %d project-specific tools...\n", len(toolDefs))
+	fmt.Printf("\n[tools] Tool generation disabled (JIT refactor) - %d tools would be generated\n", len(toolDefs))
+	fmt.Println("   Tools are now generated on-demand via Ouroboros/VirtualStore")
 
-	// Create ToolGenerator shard if LLM client available
-	if i.config.LLMClient == nil {
-		fmt.Println("   [warning] Skipping tool generation (no LLM client)")
-		return generatedTools, nil
-	}
-
-	// Initialize ToolGenerator
-	toolGenConfig := coreshards.DefaultGeneralistConfig("init_tool_generator")
-	toolGenShard := tool_generator.NewToolGeneratorShard("init_tool_generator", toolGenConfig)
-	toolGenShard.SetLLMClient(i.config.LLMClient)
-	toolGenShard.SetParentKernel(i.kernel)
-
-	// Generate each tool
-	for idx, toolDef := range toolDefs {
-		// Show progress
-		i.sendProgress("tool_generation",
-			fmt.Sprintf("Generating tool %d/%d: %s", idx+1, len(toolDefs), toolDef.Name),
-			0.70+float64(idx)/float64(len(toolDefs))*0.10)
-
-		fmt.Printf("   * %s - %s\n", toolDef.Name, toolDef.Purpose)
-
-		// Create task for tool generation
-		task := fmt.Sprintf("generate tool for %s", toolDef.Purpose)
-
-		// Execute tool generation
-		result, err := toolGenShard.Execute(ctx, task)
-		if err != nil {
-			fmt.Printf("     [warning] Failed: %v\n", err)
-			continue
-		}
-
-		// Parse result to check success
-		var genResult map[string]interface{}
-		if err := json.Unmarshal([]byte(result), &genResult); err == nil {
-			if success, ok := genResult["success"].(bool); ok && success {
-				fmt.Printf("     + Generated successfully\n")
-				generatedTools = append(generatedTools, toolDef.Name)
-
-				// Store metadata about generated tool
-				toolMetaPath := filepath.Join(toolsDir, fmt.Sprintf("%s.meta.json", toolDef.Name))
-				metadata := map[string]interface{}{
-					"name":       toolDef.Name,
-					"purpose":    toolDef.Purpose,
-					"technology": toolDef.Technology,
-					"reason":     toolDef.Reason,
-					"generated":  time.Now().Unix(),
-					"priority":   toolDef.Priority,
-				}
-				if metaData, err := json.MarshalIndent(metadata, "", "  "); err == nil {
-					os.WriteFile(toolMetaPath, metaData, 0644)
-				}
-			} else {
-				fmt.Printf("     [warning] Generation failed\n")
-			}
-		}
+	// Log which tools would have been generated
+	for _, toolDef := range toolDefs {
+		logging.Boot("Tool definition available: %s - %s", toolDef.Name, toolDef.Purpose)
 	}
 
 	return generatedTools, nil

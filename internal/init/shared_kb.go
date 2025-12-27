@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/shards/researcher"
+	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
 )
 
@@ -101,7 +101,8 @@ var BaseSharedAtoms = []SharedKnowledgeAtom{
 
 // CreateSharedKnowledgePool creates the shared knowledge database with common concepts.
 // This should be called BEFORE individual agent KBs are created.
-func CreateSharedKnowledgePool(ctx context.Context, projectPath string, researchShard *researcher.ResearcherShard, callback func(status string, progress float64)) error {
+// NOTE: Research functionality removed as part of JIT refactor - only base atoms are added.
+func CreateSharedKnowledgePool(ctx context.Context, projectPath string, callback func(status string, progress float64)) error {
 	timer := logging.StartTimer(logging.CategoryBoot, "CreateSharedKnowledgePool")
 	defer timer.Stop()
 
@@ -124,7 +125,8 @@ func CreateSharedKnowledgePool(ctx context.Context, projectPath string, research
 	}
 	defer sharedStore.Close()
 
-	// Step 1: Add base atoms (no API calls needed)
+	// Add base atoms (no API calls needed)
+	// Research functionality removed - JIT clean loop handles on-demand research
 	logging.Boot("Adding %d base shared atoms", len(BaseSharedAtoms))
 	for _, baseAtom := range BaseSharedAtoms {
 		if err := sharedStore.StoreKnowledgeAtom(baseAtom.Concept, baseAtom.Content, baseAtom.Confidence); err != nil {
@@ -133,40 +135,11 @@ func CreateSharedKnowledgePool(ctx context.Context, projectPath string, research
 	}
 
 	if callback != nil {
-		callback("Base shared knowledge added", 0.3)
+		callback("Base shared knowledge added", 0.5)
 	}
 
-	// Step 2: Research additional shared topics via Context7 if available
-	if researchShard != nil {
-		logging.Boot("Researching %d shared topics via Context7", len(SharedKnowledgeTopics))
-
-		for i, topic := range SharedKnowledgeTopics {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			progress := 0.3 + (float64(i+1)/float64(len(SharedKnowledgeTopics)))*0.7
-			if callback != nil {
-				callback(fmt.Sprintf("Researching shared topic: %s", topic), progress)
-			}
-
-			// Research the topic
-			result, err := researchShard.ResearchTopicsParallel(ctx, []string{topic})
-			if err != nil {
-				logging.Boot("Warning: failed to research shared topic '%s': %v", topic, err)
-				continue
-			}
-
-			// Store resulting atoms
-			for _, atom := range result.Atoms {
-				if err := sharedStore.StoreKnowledgeAtom(atom.Title, atom.Content, 0.9); err != nil {
-					logging.Boot("Warning: failed to store researched atom: %v", err)
-				}
-			}
-		}
-	}
+	// Additional research topics are now handled on-demand via JIT clean loop
+	logging.Boot("Additional research available on-demand via JIT (topics: %d)", len(SharedKnowledgeTopics))
 
 	if callback != nil {
 		callback("Shared knowledge pool created", 1.0)

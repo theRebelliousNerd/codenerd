@@ -3,7 +3,7 @@
 ## Phase 1: Test Harness Development (Go)
 Goal: Build the infrastructure to load, run, and assert facts against Mangle programs in a testing context.
 
-- [ ] Task: Create `internal/mangle/testing` package and base test runner
+- [~] Task: Create `internal/mangle/testing` package and base test runner
     - [ ] Sub-task: Write unit test for Mangle program loader
     - [ ] Sub-task: Implement `Loader` that reads `.mg` files and handles includes
 - [ ] Task: Implement Assertion Engine

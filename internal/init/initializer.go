@@ -25,7 +25,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	"codenerd/internal/shards/researcher"
+	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
@@ -198,7 +198,7 @@ type CreatedAgent struct {
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
 	config      InitConfig
-	researcher  *researcher.ResearcherShard
+	// researcher removed - JIT clean loop handles research
 	scanner     *world.Scanner
 	localDB     *store.LocalStore
 	shardMgr    *coreshards.ShardManager
@@ -367,9 +367,7 @@ func (i *Initializer) completePhaseWithETA(phaseName string) {
 
 // NewInitializer creates a new initializer.
 func NewInitializer(initConfig InitConfig) (*Initializer, error) {
-	researcher := researcher.NewResearcherShard()
-	researcher.SetWorkspaceRoot(initConfig.Workspace) // Ensure .nerd paths resolve correctly
-
+	// Researcher shard removed - JIT clean loop handles research
 	// Auto-detect Context7 API key if not explicitly provided (C1 enhancement)
 	context7Key := initConfig.Context7APIKey
 	if context7Key == "" {
@@ -380,11 +378,6 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 		}
 	}
 
-	// Set Context7 API key if available (explicit or auto-detected)
-	if context7Key != "" {
-		researcher.SetContext7APIKey(context7Key)
-	}
-
 	kernel, err := core.NewRealKernel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kernel: %w", err)
@@ -393,7 +386,6 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 
 	init := &Initializer{
 		config:        initConfig,
-		researcher:    researcher,
 		scanner:       world.NewScanner(),
 		kernel:        kernel,
 		createdAgents: make([]CreatedAgent, 0),
@@ -528,14 +520,11 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		}
 		i.localDB.SetEmbeddingEngine(i.embedEngine)
 		result.FilesCreated = append(result.FilesCreated, dbPath)
-		i.researcher.SetLocalDB(i.localDB)
+		// i.researcher.SetLocalDB removed - JIT clean loop handles research
 		fmt.Println("✓ Initialized knowledge database")
 	}
 
-	// Set LLM client if provided
-	if i.config.LLMClient != nil {
-		i.researcher.SetLLMClient(i.config.LLMClient)
-	}
+	// LLM client available for JIT-driven research (no researcher shard needed)
 	i.completePhaseWithETA("directory")
 	advancePhase()
 
@@ -566,18 +555,14 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	advancePhase()
 
 	// =========================================================================
-	// PHASE 3: Run Researcher Shard for Analysis
+	// PHASE 3: Analysis (STUBBED - JIT refactor)
 	// =========================================================================
-	i.startPhaseWithETA(phaseNum, "analysis", "Running deep analysis...", 0.20, remainingPhases)
-	fmt.Println("\n🔬 Phase 3: Deep Analysis via Researcher Shard")
-
-	researchTask := fmt.Sprintf("analyze codebase: %s", i.config.Workspace)
-	summary, err := i.researcher.Execute(ctx, researchTask)
-	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Codebase analysis failed: %v", err))
-	} else {
-		fmt.Println(summary)
-	}
+	// Research shard removed - JIT clean loop handles research via prompt atoms.
+	// Deep analysis is now performed on-demand via session.Executor with
+	// /researcher persona atoms.
+	i.startPhaseWithETA(phaseNum, "analysis", "Preparing analysis framework...", 0.20, remainingPhases)
+	fmt.Println("\n🔬 Phase 3: Analysis Framework Setup")
+	fmt.Println("   Analysis will be performed on-demand via JIT clean loop")
 	i.completePhaseWithETA("analysis")
 	advancePhase()
 
@@ -674,7 +659,7 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		i.startPhaseWithETA(phaseNum, "shared_kb", "Creating shared knowledge pool...", 0.52, remainingPhases)
 		fmt.Println("\n📚 Phase 7a: Creating Shared Knowledge Pool")
 
-		sharedPoolErr := CreateSharedKnowledgePool(ctx, i.config.Workspace, i.researcher, func(status string, progress float64) {
+		sharedPoolErr := CreateSharedKnowledgePool(ctx, i.config.Workspace, func(status string, progress float64) {
 			i.sendProgressWithETA("shared_kb", status, 0.52+progress*0.03, remainingPhases)
 		})
 		if sharedPoolErr != nil {

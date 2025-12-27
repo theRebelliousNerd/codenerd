@@ -260,6 +260,9 @@ type JITPromptCompiler struct {
 	// Configuration
 	config CompilerConfig
 
+	// ConfigFactory for generating AgentConfigs
+	configFactory *ConfigFactory
+
 	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
 	localDB *store.LocalStore
 
@@ -366,6 +369,14 @@ func WithVectorSearcher(vs VectorSearcher) CompilerOption {
 func WithConfig(config CompilerConfig) CompilerOption {
 	return func(c *JITPromptCompiler) error {
 		c.config = config
+		return nil
+	}
+}
+
+// WithConfigFactory sets the config factory for generating AgentConfigs.
+func WithConfigFactory(factory *ConfigFactory) CompilerOption {
+	return func(c *JITPromptCompiler) error {
+		c.configFactory = factory
 		return nil
 	}
 }
@@ -522,6 +533,27 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Build result with comprehensive stats
 	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
+
+	// Step 6: Generate Agent Config if factory is present
+	if c.configFactory != nil {
+		intents := []string{}
+		if cc.IntentVerb != "" {
+			intents = append(intents, cc.IntentVerb)
+		}
+		if cc.ShardType != "" {
+			intents = append(intents, cc.ShardType)
+		}
+
+		if len(intents) > 0 {
+			agentCfg, err := c.configFactory.Generate(ctx, result, intents...)
+			if err != nil {
+				logging.Get(logging.CategoryJIT).Warn("Failed to generate agent config: %v", err)
+			} else {
+				result.AgentConfig = agentCfg
+				logging.Get(logging.CategoryJIT).Debug("Generated JIT Agent Config for intents: %v", intents)
+			}
+		}
+	}
 
 	// Update observability state
 	c.mu.Lock()

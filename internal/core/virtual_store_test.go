@@ -31,8 +31,10 @@ func (s *stubKernel) Assert(f Fact) error                  { s.asserted = append
 func (s *stubKernel) Retract(string) error                 { return nil }
 func (s *stubKernel) RetractFact(Fact) error               { return nil }
 func (s *stubKernel) UpdateSystemFacts() error             { return nil }
-func (s *stubKernel) Reset()                               {}
-func (s *stubKernel) AppendPolicy(string)                  {}
+func (s *stubKernel) Reset()                                                   {}
+func (s *stubKernel) AppendPolicy(string)                                      {}
+func (s *stubKernel) RemoveFactsByPredicateSet(map[string]struct{}) error      { return nil }
+func (s *stubKernel) RetractExactFactsBatch([]Fact) error                      { return nil }
 
 func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())

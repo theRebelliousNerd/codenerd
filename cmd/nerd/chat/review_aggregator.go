@@ -14,11 +14,200 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/shards/reviewer"
 	"codenerd/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// =============================================================================
+// LOCAL TYPE DEFINITIONS (previously in internal/shards/reviewer/)
+// =============================================================================
+// These types were moved here after deleting domain shards as part of JIT refactor.
+// The reviewer shard implementation is now handled by the JIT clean loop.
+
+// ParsedFinding represents a single finding from a review.
+type ParsedFinding struct {
+	File           string
+	Line           int
+	Severity       string
+	Message        string
+	Source         string // Which shard/specialist produced this
+	Category       string // Category of finding (e.g., "security", "performance")
+	Recommendation string // Suggested fix or action
+	ShardSource    string // Alternative name for source shard
+}
+
+// SpecialistMatch represents a matched specialist for review.
+type SpecialistMatch struct {
+	AgentName     string
+	KnowledgePath string
+	Files         []string
+	Score         float64
+}
+
+// AgentRegistry holds registered agents.
+type AgentRegistry struct {
+	Version   string         `json:"version"`
+	CreatedAt time.Time      `json:"created_at"`
+	Agents    []RegisteredAgent `json:"agents"`
+}
+
+// RegisteredAgent represents an agent in the registry.
+type RegisteredAgent struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`
+	KnowledgePath string   `json:"knowledge_path"`
+	Topics        []string `json:"topics"`
+}
+
+// PersistedReview represents a review stored to disk.
+type PersistedReview struct {
+	ID               string
+	Timestamp        time.Time
+	Target           string
+	Files            []string
+	Participants     []string
+	IsComplete       bool
+	IncompleteReason []string
+	Summary          string
+	FindingsByShard  map[string][]ParsedFinding
+	HolisticInsights []string
+	TotalFindings    int
+	Duration         time.Duration
+}
+
+// SpecialistTask represents a task for a specialist.
+type SpecialistTask struct {
+	AgentName string
+	Files     []string
+	Knowledge string
+}
+
+// =============================================================================
+// STUB FUNCTIONS (temporarily disabled - will be reimplemented via JIT)
+// =============================================================================
+
+// MatchSpecialistsForReview matches specialists for the files being reviewed.
+// TODO: Reimplement via JIT-based specialist matching using Mangle rules.
+func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
+	if registry == nil {
+		return nil
+	}
+	// Stub: return empty for now - JIT handles specialist dispatch
+	return nil
+}
+
+// LoadAndQueryKnowledgeBase loads knowledge for a specialist.
+func loadAndQueryKnowledgeBase(ctx context.Context, kbPath string, files []string) (string, error) {
+	// Stub: return empty knowledge
+	return "", nil
+}
+
+// BuildSpecialistTask builds a task for a specialist.
+func buildSpecialistTask(match SpecialistMatch, files []string, knowledge string) SpecialistTask {
+	return SpecialistTask{
+		AgentName: match.AgentName,
+		Files:     files,
+		Knowledge: knowledge,
+	}
+}
+
+// FormatSpecialistReviewTask formats a specialist task as string.
+func formatSpecialistReviewTask(task SpecialistTask) string {
+	return fmt.Sprintf("review files for %s", task.AgentName)
+}
+
+// ParseShardOutput parses shard output into findings.
+func parseShardOutput(output string, shardName string) []ParsedFinding {
+	// Simple parsing - look for patterns like [SEVERITY] file:line - message
+	var findings []ParsedFinding
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Try to extract severity markers
+		for _, sev := range []string{"CRITICAL", "ERROR", "WARNING", "INFO"} {
+			if strings.Contains(strings.ToUpper(line), sev) {
+				findings = append(findings, ParsedFinding{
+					Severity: strings.ToLower(sev),
+					Message:  line,
+					Source:   shardName,
+				})
+				break
+			}
+		}
+	}
+	return findings
+}
+
+// PersistReview saves a review to the database.
+func persistReview(ctx context.Context, db *store.LocalStore, review *PersistedReview) error {
+	// Stub: review persistence disabled
+	logging.Shards("Review persistence stub called for %s", review.ID)
+	return nil
+}
+
+// ExportReviewToMarkdown exports a review to markdown file.
+func exportReviewToMarkdown(review *PersistedReview, reviewsDir string) (string, error) {
+	// Create reviews directory if needed
+	if err := os.MkdirAll(reviewsDir, 0755); err != nil {
+		return "", err
+	}
+
+	// Generate markdown content
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Review: %s\n\n", review.Target))
+	sb.WriteString(fmt.Sprintf("**ID**: %s\n", review.ID))
+	sb.WriteString(fmt.Sprintf("**Date**: %s\n", review.Timestamp.Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("**Participants**: %s\n\n", strings.Join(review.Participants, ", ")))
+	sb.WriteString(fmt.Sprintf("## Summary\n\n%s\n\n", review.Summary))
+	sb.WriteString(fmt.Sprintf("**Total Findings**: %d\n", review.TotalFindings))
+
+	// Write to file
+	filename := fmt.Sprintf("%s.md", strings.ReplaceAll(review.ID, ":", "-"))
+	filePath := filepath.Join(reviewsDir, filename)
+	if err := os.WriteFile(filePath, []byte(sb.String()), 0644); err != nil {
+		return "", err
+	}
+
+	return filePath, nil
+}
+
+// FormatMultiShardReviewHeader formats the header for multi-shard review output.
+func formatMultiShardReviewHeader(target string, participants []string, isComplete bool) string {
+	status := "✓ Complete"
+	if !isComplete {
+		status = "⚠ Incomplete"
+	}
+	return fmt.Sprintf("# Multi-Shard Review: %s\n\n**Status**: %s\n**Participants**: %s\n\n",
+		target, status, strings.Join(participants, ", "))
+}
+
+// FormatShardSection formats findings from a single shard.
+func formatShardSection(shardName string, findings []ParsedFinding) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("### %s\n\n", shardName))
+	if len(findings) == 0 {
+		sb.WriteString("No findings.\n\n")
+		return sb.String()
+	}
+	for _, f := range findings {
+		line := ""
+		if f.Line > 0 {
+			line = fmt.Sprintf(":%d", f.Line)
+		}
+		file := f.File
+		if file == "" {
+			file = "(general)"
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] %s%s: %s\n",
+			strings.ToUpper(f.Severity), file, line, f.Message))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
 
 // =============================================================================
 // MULTI-SHARD REVIEW AGGREGATOR
@@ -42,8 +231,8 @@ type AggregatedReview struct {
 	IncompleteReason   []string
 	Summary            string
 	Narrative          string
-	FindingsByShard    map[string][]reviewer.ParsedFinding
-	DeduplicatedList   []reviewer.ParsedFinding
+	FindingsByShard    map[string][]ParsedFinding
+	DeduplicatedList   []ParsedFinding
 	HolisticInsights   []string
 	EnhancementSection string
 	TotalFindings      int
@@ -99,7 +288,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		registry := m.loadAgentRegistry()
 
 		// 3. Match specialists BEFORE review
-		specialists := reviewer.MatchSpecialistsForReview(ctx, absFiles, registry)
+		specialists := matchSpecialistsForReview(ctx, absFiles, registry)
 		logging.Shards("Matched %d specialists for review", len(specialists))
 
 		// 4. Track results and failures
@@ -164,18 +353,18 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		// Spawn matching specialists
 		for _, spec := range specialists {
 			wg.Add(1)
-			go func(s reviewer.SpecialistMatch) {
+			go func(s SpecialistMatch) {
 				defer wg.Done()
 
 				// Load knowledge base for this specialist
-				knowledge, err := reviewer.LoadAndQueryKnowledgeBase(ctx, s.KnowledgePath, s.Files)
+				knowledge, err := loadAndQueryKnowledgeBase(ctx, s.KnowledgePath, s.Files)
 				if err != nil {
 					logging.Shards("Warning: Failed to load KB for %s: %v", s.AgentName, err)
 				}
 
 				// Build specialist task
-				specTask := reviewer.BuildSpecialistTask(s, absFiles, knowledge)
-				taskStr := reviewer.FormatSpecialistReviewTask(specTask)
+				specTask := buildSpecialistTask(s, absFiles, knowledge)
+				taskStr := formatSpecialistReviewTask(specTask)
 
 				result := spawnWithRetry(s.AgentName, taskStr)
 				mu.Lock()
@@ -239,7 +428,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 			logging.Shards("Skipping persistence: localDB is nil")
 		}
 		if m.localDB != nil {
-			persistedReview := &reviewer.PersistedReview{
+			persistedReview := &PersistedReview{
 				ID:               agg.ID,
 				Timestamp:        agg.StartTime,
 				Target:           agg.Target,
@@ -253,13 +442,13 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 				TotalFindings:    agg.TotalFindings,
 				Duration:         agg.Duration,
 			}
-			if err := reviewer.PersistReview(ctx, m.localDB, persistedReview); err != nil {
+			if err := persistReview(ctx, m.localDB, persistedReview); err != nil {
 				logging.Shards("Warning: Failed to persist review: %v", err)
 			}
 
 			// Export to markdown
 			reviewsDir := filepath.Join(m.workspace, ".nerd", "reviews")
-			if exportPath, err := reviewer.ExportReviewToMarkdown(persistedReview, reviewsDir); err == nil {
+			if exportPath, err := exportReviewToMarkdown(persistedReview, reviewsDir); err == nil {
 				logging.Shards("Review exported to: %s", exportPath)
 			}
 		}
@@ -278,7 +467,7 @@ func (m Model) aggregateReviewResults(results []ShardReviewResult, target string
 		StartTime:       startTime,
 		Duration:        time.Since(startTime),
 		IsComplete:      true,
-		FindingsByShard: make(map[string][]reviewer.ParsedFinding),
+		FindingsByShard: make(map[string][]ParsedFinding),
 		Participants:    make([]string, 0),
 	}
 
@@ -291,7 +480,7 @@ func (m Model) aggregateReviewResults(results []ShardReviewResult, target string
 		}
 
 		// Parse the shard's output
-		findings := reviewer.ParseShardOutput(result.Result, result.Shard)
+		findings := parseShardOutput(result.Result, result.Shard)
 		agg.FindingsByShard[result.Shard] = findings
 		agg.TotalFindings += len(findings)
 
@@ -369,12 +558,12 @@ func formatReviewNarrativeContext(agg *AggregatedReview) string {
 	return sb.String()
 }
 
-func formatNarrativeFindings(findings []reviewer.ParsedFinding, limit int) string {
+func formatNarrativeFindings(findings []ParsedFinding, limit int) string {
 	if len(findings) == 0 {
 		return "None\n"
 	}
 
-	ordered := make([]reviewer.ParsedFinding, 0, len(findings))
+	ordered := make([]ParsedFinding, 0, len(findings))
 	ordered = append(ordered, findings...)
 
 	severityRank := map[string]int{
@@ -426,9 +615,9 @@ func trimPromptSection(value string, maxLen int) string {
 }
 
 // deduplicateFindings removes duplicate findings, keeping highest severity
-func deduplicateFindings(findingsByShard map[string][]reviewer.ParsedFinding) []reviewer.ParsedFinding {
+func deduplicateFindings(findingsByShard map[string][]ParsedFinding) []ParsedFinding {
 	// Key: file:line
-	seen := make(map[string]reviewer.ParsedFinding)
+	seen := make(map[string]ParsedFinding)
 
 	severityRank := map[string]int{
 		"critical": 4,
@@ -457,7 +646,7 @@ func deduplicateFindings(findingsByShard map[string][]reviewer.ParsedFinding) []
 	}
 
 	// Convert to slice
-	result := make([]reviewer.ParsedFinding, 0, len(seen))
+	result := make([]ParsedFinding, 0, len(seen))
 	for _, f := range seen {
 		result = append(result, f)
 	}
@@ -505,7 +694,7 @@ func generateHolisticSummary(agg *AggregatedReview) string {
 }
 
 // extractCrossShardInsights finds patterns across multiple shards
-func extractCrossShardInsights(findingsByShard map[string][]reviewer.ParsedFinding) []string {
+func extractCrossShardInsights(findingsByShard map[string][]ParsedFinding) []string {
 	var insights []string
 
 	// Count files with findings from multiple shards
@@ -713,7 +902,7 @@ func extractEnhancementSection(output string) string {
 }
 
 // loadAgentRegistry loads the agent registry from .nerd/agents.json
-func (m Model) loadAgentRegistry() *reviewer.AgentRegistry {
+func (m Model) loadAgentRegistry() *AgentRegistry {
 	registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
 
 	data, err := os.ReadFile(registryPath)
@@ -722,7 +911,7 @@ func (m Model) loadAgentRegistry() *reviewer.AgentRegistry {
 		return nil
 	}
 
-	var registry reviewer.AgentRegistry
+	var registry AgentRegistry
 	if err := json.Unmarshal(data, &registry); err != nil {
 		logging.Get(logging.CategoryShards).Error("Failed to parse agent registry: %v", err)
 		return nil
@@ -737,7 +926,7 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(reviewer.FormatMultiShardReviewHeader(review.Target, review.Participants, review.IsComplete))
+	sb.WriteString(formatMultiShardReviewHeader(review.Target, review.Participants, review.IsComplete))
 
 	// Narrative summary (LLM-interpreted)
 	if strings.TrimSpace(review.Narrative) != "" {
@@ -772,7 +961,7 @@ func formatMultiShardResponse(review *AggregatedReview) string {
 	// Findings by shard
 	sb.WriteString("## Findings by Specialist\n\n")
 	for shard, findings := range review.FindingsByShard {
-		sb.WriteString(reviewer.FormatShardSection(shard, findings))
+		sb.WriteString(formatShardSection(shard, findings))
 	}
 
 	// Enhancement suggestions (from ReviewerShard) if present

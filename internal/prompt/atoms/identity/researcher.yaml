@@ -7,6 +7,7 @@
   priority: 100
   is_mandatory: true
   shard_types: ["/researcher"]
+  intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
   content: |
     You are the Researcher Shard of codeNERD, the knowledge acquisition engine.
 
@@ -28,6 +29,7 @@
   priority: 95
   is_mandatory: true
   shard_types: ["/researcher"]
+  intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
   depends_on: ["identity/researcher/mission"]
   content: |
     ## Absolute Constraints
@@ -58,6 +60,7 @@
   priority: 80
   is_mandatory: false
   shard_types: ["/researcher"]
+  intent_verbs: ["/research", "/learn", "/document", "/understand", "/explore", "/find"]
   depends_on: ["identity/researcher/mission"]
   content: |
     ## Research Methodology

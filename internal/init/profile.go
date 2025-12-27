@@ -27,32 +27,8 @@ func (i *Initializer) buildProjectProfile() ProjectProfile {
 		UpdatedAt: time.Now(),
 	}
 
-	// Extract from researcher's analysis if available
-	// The researcher shard stores results in its kernel
-	if i.researcher != nil {
-		// Try to get project type facts
-		if kernel := i.researcher.GetKernel(); kernel != nil {
-			// Query for project profile facts
-			langFacts, _ := kernel.Query("project_language")
-			if len(langFacts) > 0 && len(langFacts[0].Args) > 0 {
-				profile.Language = cleanNameConstant(fmt.Sprintf("%v", langFacts[0].Args[0]))
-			}
-
-			fwFacts, _ := kernel.Query("project_framework")
-			if len(fwFacts) > 0 && len(fwFacts[0].Args) > 0 {
-				profile.Framework = cleanNameConstant(fmt.Sprintf("%v", fwFacts[0].Args[0]))
-			}
-
-			archFacts, _ := kernel.Query("project_architecture")
-			if len(archFacts) > 0 && len(archFacts[0].Args) > 0 {
-				profile.Architecture = cleanNameConstant(fmt.Sprintf("%v", archFacts[0].Args[0]))
-			}
-
-			// Count files
-			fileFacts, _ := kernel.Query("file_topology")
-			profile.FileCount = len(fileFacts)
-		}
-	}
+	// Researcher shard removed - using direct detection methods
+	// Profile detection is now file-based only
 
 	// Fallback: file-based language detection if kernel didn't provide it
 	if profile.Language == "" || profile.Language == "unknown" {
@@ -860,23 +836,10 @@ func (i *Initializer) createCampaignKnowledgeBase(ctx context.Context, nerdDir s
 		}
 	}
 
-	// Research campaign patterns if LLM available
+	// Research campaign patterns - STUBBED (JIT refactor)
+	// Research is now handled on-demand via session.Executor with /researcher persona
 	if i.config.LLMClient != nil && !i.config.SkipResearch {
-		// Create a dedicated researcher for campaign KB
-		campaignResearcher := i.researcher
-		if campaignResearcher != nil {
-			// Temporarily set the campaign DB
-			campaignResearcher.SetLocalDB(campaignDB)
-
-			// Research software development workflows
-			campaignResearcher.Execute(ctx, "research docs: software development workflow patterns (brief)")
-			atomCount += 5
-
-			// Restore original DB if it exists
-			if i.localDB != nil {
-				campaignResearcher.SetLocalDB(i.localDB)
-			}
-		}
+		logging.Boot("Campaign research stubbed (JIT refactor) - using base atoms only")
 	}
 
 	return kbPath, atomCount, nil
