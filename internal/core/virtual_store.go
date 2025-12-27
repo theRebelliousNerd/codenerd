@@ -15,7 +15,10 @@ import (
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/tools"
+	"codenerd/internal/tools/codedom"
+	"codenerd/internal/tools/core"
 	"codenerd/internal/tools/research"
+	"codenerd/internal/tools/shell"
 	"codenerd/internal/types"
 
 	"github.com/google/mangle/ast"
@@ -578,6 +581,24 @@ func (v *VirtualStore) HydrateModularTools() error {
 
 	logging.VirtualStore("Hydrating modular tools")
 
+	// Register all core filesystem tools
+	if err := core.RegisterAll(registry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register core tools: %v", err)
+		return fmt.Errorf("failed to register core tools: %w", err)
+	}
+
+	// Register all shell execution tools
+	if err := shell.RegisterAll(registry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register shell tools: %v", err)
+		return fmt.Errorf("failed to register shell tools: %w", err)
+	}
+
+	// Register all Code DOM tools
+	if err := codedom.RegisterAll(registry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register codedom tools: %v", err)
+		return fmt.Errorf("failed to register codedom tools: %w", err)
+	}
+
 	// Register all research tools
 	if err := research.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register research tools: %v", err)
@@ -966,6 +987,15 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleEditFile(ctx, req)
 	case ActionDeleteFile:
 		return v.handleDeleteFile(ctx, req)
+
+	// Modular core filesystem tools
+	case ActionListFiles, ActionGlob, ActionGrep:
+		return v.handleModularTool(ctx, req)
+
+	// Modular shell execution tools
+	case ActionRunCommand, ActionBash, ActionRunBuild:
+		return v.handleModularTool(ctx, req)
+
 	case ActionSearchCode, ActionSearchFiles, ActionAnalyzeCode:
 		return v.handleSearchCode(ctx, req)
 	case ActionRunTests:

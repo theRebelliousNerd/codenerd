@@ -15,10 +15,16 @@ const (
 	ActionWriteFile     ActionType = "write_file"
 	ActionEditFile      ActionType = "edit_file"
 	ActionDeleteFile    ActionType = "delete_file"
+	ActionListFiles     ActionType = "list_files"     // List files in directory
+	ActionGlob          ActionType = "glob"           // Find files by pattern
+	ActionGrep          ActionType = "grep"           // Search file contents
 	ActionSearchCode    ActionType = "search_code"
 	ActionSearchFiles   ActionType = "search_files" // Back-compat alias for ActionSearchCode
 	ActionAnalyzeCode   ActionType = "analyze_code" // Alias for ActionSearchCode (policy emits /analyze_code)
 	ActionRunTests      ActionType = "run_tests"
+	ActionRunCommand    ActionType = "run_command"   // Execute shell command
+	ActionBash          ActionType = "bash"          // Run bash script
+	ActionRunBuild      ActionType = "run_build"     // Run build command (auto-detect)
 	ActionBuildProject  ActionType = "build_project"
 	ActionGitOperation  ActionType = "git_operation"
 	ActionAnalyzeImpact ActionType = "analyze_impact"
