@@ -13,6 +13,29 @@ import (
 	"github.com/google/mangle/factstore"
 )
 
+// filterBootFacts removes ephemeral facts from boot facts to ensure quiescent boot.
+// This prevents stale user_intent, pending_action, etc. from triggering action derivation at boot.
+func filterBootFacts(bootFacts []Fact) []Fact {
+	if len(bootFacts) == 0 {
+		return bootFacts
+	}
+
+	persistentFacts := make([]Fact, 0, len(bootFacts))
+	filteredCount := 0
+	for _, fact := range bootFacts {
+		if IsEphemeral(fact.Predicate) {
+			logging.KernelDebug("Filtering ephemeral fact from boot: %s", fact.Predicate)
+			filteredCount++
+			continue
+		}
+		persistentFacts = append(persistentFacts, fact)
+	}
+	if filteredCount > 0 {
+		logging.Kernel("Filtered %d ephemeral facts from boot (quiescent boot)", filteredCount)
+	}
+	return persistentFacts
+}
+
 // NewRealKernel creates a new kernel instance.
 // Returns an error if the embedded constitution fails to compile (e.g., corrupted binary).
 func NewRealKernel() (*RealKernel, error) {
@@ -42,8 +65,9 @@ func NewRealKernel() (*RealKernel, error) {
 	k.loadPredicateCorpus()
 
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, k.bootFacts...)
+		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
 	}
 	k.rebuildFactIndexLocked()
 
@@ -97,8 +121,9 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 	k.loadPredicateCorpus()
 
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, k.bootFacts...)
+		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
 	}
 	k.rebuildFactIndexLocked()
 
@@ -145,8 +170,9 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 	k.loadPredicateCorpus()
 
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
+	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
-		k.facts = append(k.facts, k.bootFacts...)
+		k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
 	}
 	k.rebuildFactIndexLocked()
 

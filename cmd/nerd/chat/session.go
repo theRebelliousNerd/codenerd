@@ -1067,41 +1067,26 @@ func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *cores
 		}
 	}
 
-	// Load session info
+	// QUIESCENT BOOT: Always start fresh sessions.
+	// Previous sessions can be resumed explicitly via /sessions command.
+	// This prevents stale state from affecting new sessions.
 	var session *Session
-	sessionPath := filepath.Join(nerdDir, "session.json")
-	if data, err := os.ReadFile(sessionPath); err == nil {
-		var s Session
-		if err := json.Unmarshal(data, &s); err == nil {
-			session = &s
+	// Generate a new session ID for this boot
+	newSessionID := fmt.Sprintf("session-%d", time.Now().UnixNano())
+	session = &Session{
+		SessionID: newSessionID,
+		StartedAt: time.Now().Format(time.RFC3339),
+		TurnCount: 0,
+	}
+	logging.Session("Starting fresh session: %s", newSessionID)
 
-			// Load conversation history for this session
-			if session.SessionID != "" {
-				if history, err := nerdinit.LoadSessionHistory(workspace, session.SessionID); err == nil {
-					// Convert and prepend history to initialMessages
-					for _, msg := range history.Messages {
-						*initialMessages = append(*initialMessages, Message{
-							Role:    msg.Role,
-							Content: msg.Content,
-							Time:    msg.Time,
-						})
-					}
-					if len(history.Messages) > 0 {
-						*initialMessages = append(*initialMessages, Message{
-							Role:    "assistant",
-							Content: fmt.Sprintf("*Restored %d messages from previous session*", len(history.Messages)),
-							Time:    time.Now(),
-						})
-					}
-				}
-			}
-		} else {
-			*initialMessages = append(*initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to parse .nerd/session.json: %v", err),
-				Time:    time.Now(),
-			})
-		}
+	// Check if there are previous sessions to hint about
+	if sessions, err := nerdinit.ListSessionHistories(workspace); err == nil && len(sessions) > 0 {
+		*initialMessages = append(*initialMessages, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("*Fresh session started.* Use `/sessions` to load previous sessions (%d available).", len(sessions)),
+			Time:    time.Now(),
+		})
 	}
 
 	// Ensure .nerd/agents.json reflects any agents present under .nerd/agents/*.

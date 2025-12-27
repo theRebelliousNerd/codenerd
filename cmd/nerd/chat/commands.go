@@ -168,6 +168,22 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.textarea.Reset()
 		return m, nil
 
+	case "/load-session":
+		// Load a specific session by ID: /load-session <session-id>
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Usage: `/load-session <session-id>`\n\nUse `/sessions` to see available sessions.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+		sessionID := parts[1]
+		return m.loadSelectedSession(sessionID)
+
 	case "/help":
 		m.history = append(m.history, Message{
 			Role:    "assistant",
