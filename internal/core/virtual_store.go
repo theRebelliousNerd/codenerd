@@ -845,6 +845,16 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
 	defer timer.Stop()
 
+	// Boot guard: block all action routing until first user interaction.
+	// This prevents session rehydration from replaying old next_action facts.
+	v.mu.RLock()
+	bootGuardActive := v.bootGuardActive
+	v.mu.RUnlock()
+	if bootGuardActive {
+		logging.VirtualStore("RouteAction BLOCKED by boot guard: %s (waiting for user interaction)", action.Predicate)
+		return "", fmt.Errorf("boot guard active: action routing blocked until first user interaction")
+	}
+
 	logging.VirtualStore("Routing action: predicate=%s, args=%d", action.Predicate, len(action.Args))
 
 	// Parse the action fact

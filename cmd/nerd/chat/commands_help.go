@@ -14,7 +14,8 @@ const helpCommandText = `## Available Commands
 | /help | Show this help message |
 | /clear | Clear chat history |
 | /new-session | Start a fresh session (preserves old) |
-| /sessions | List saved sessions |
+| /sessions | List and select saved sessions (interactive) |
+| /load-session <id> | Load a specific session by ID |
 | /continue | Resume from paused multi-step task |
 | /status | Show system status (includes tools) |
 | /init | Initialize codeNERD in the workspace |
