@@ -29,6 +29,23 @@ func (ab *AutopoiesisBridge) AssertFact(fact types.KernelFact) error {
 	return ab.kernel.Assert(coreFact)
 }
 
+// AssertFactBatch implements types.KernelInterface.
+// This is much faster than calling AssertFact in a loop because it only evaluates once.
+func (ab *AutopoiesisBridge) AssertFactBatch(facts []types.KernelFact) error {
+	if len(facts) == 0 {
+		return nil
+	}
+
+	coreFacts := make([]Fact, len(facts))
+	for i, f := range facts {
+		coreFacts[i] = Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return ab.kernel.AssertBatch(coreFacts)
+}
+
 // QueryPredicate implements types.KernelInterface.
 func (ab *AutopoiesisBridge) QueryPredicate(predicate string) ([]types.KernelFact, error) {
 	facts, err := ab.kernel.Query(predicate)

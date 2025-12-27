@@ -157,6 +157,8 @@ func (kf KernelFact) ToFact() Fact {
 type KernelInterface interface {
 	// AssertFact adds a fact to the kernel's EDB
 	AssertFact(fact KernelFact) error
+	// AssertFactBatch adds multiple facts and evaluates once (much faster than multiple AssertFact calls)
+	AssertFactBatch(facts []KernelFact) error
 	// QueryPredicate queries for facts matching a predicate
 	QueryPredicate(predicate string) ([]KernelFact, error)
 	// QueryBool returns true if any facts match the predicate

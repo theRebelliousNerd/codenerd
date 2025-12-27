@@ -300,7 +300,6 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	spawnQueue := coreshards.NewSpawnQueue(shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
 	shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
-
 	// 3. Autopoiesis & Tools
 	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 	poiesis := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
@@ -311,7 +310,6 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	if ouroborosLoop := poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
 		virtualStore.SetToolGenerator(ouroborosLoop)
 	}
-
 	// 4. Browser Physics
 	browserCfg := browser.DefaultConfig()
 	browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
