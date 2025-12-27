@@ -568,15 +568,15 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
 	})
 
-	// Create TaskExecutor using LegacyBridge during migration
-	// Once all consumers are migrated, this will switch to JITExecutor
-	taskExecutor := session.NewLegacyBridge(shardManager)
+	// TaskExecutor is nil here - BootCortex relies on ShardManager fallback.
+	// For full JIT support, use the TUI session which creates JITExecutor.
+	// See: cmd/nerd/chat/session.go
 
 	return &Cortex{
 		Kernel:         kernel,
 		LLMClient:      llmClient,
 		ShardManager:   shardManager,
-		TaskExecutor:   taskExecutor,
+		TaskExecutor:   nil, // Falls back to ShardManager in SpawnTask
 		VirtualStore:   virtualStore,
 		Transducer:     transducer,
 		Orchestrator:   poiesis,

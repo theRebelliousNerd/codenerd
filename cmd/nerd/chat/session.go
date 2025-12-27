@@ -334,9 +334,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Get(logging.CategoryBoot).Warn("Failed to start spawn queue: %v", err)
 		}
 
-		// Create TaskExecutor using LegacyBridge during migration
-		// Once all consumers are migrated, this will switch to JITExecutor
-		taskExecutor := session.NewLegacyBridge(shardMgr)
+		// TaskExecutor will be initialized later with JITExecutor
+		// after the JIT components are created (sessionExecutor, sessionSpawner)
+		var taskExecutor session.TaskExecutor
 
 		// Browser Manager is created on-demand when needed (not at boot)
 		// This avoids spawning Chrome during normal TUI usage
@@ -348,7 +348,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		vsCfg.WorkingDir = workspace
 		virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 		virtualStore.SetKernel(kernel)
-		virtualStore.SetTaskExecutor(taskExecutor)
+		// Note: SetTaskExecutor is called later after JITExecutor is created
 
 		logStep("Opening knowledge database...")
 		var localDB *store.LocalStore
@@ -714,6 +714,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		)
 
 		logging.Boot("Clean loop executor and spawner initialized")
+
+		// Create JITExecutor - the new unified task execution interface
+		// This replaces LegacyBridge which wrapped ShardManager
+		taskExecutor = session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
+		virtualStore.SetTaskExecutor(taskExecutor)
+		logging.Boot("JITExecutor wired to VirtualStore")
 
 		// Create Tool Store for persisting full tool execution results
 		var toolStore *store.ToolStore
