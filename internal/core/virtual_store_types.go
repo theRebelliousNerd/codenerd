@@ -129,6 +129,18 @@ const (
 	ActionSWEBenchRestore    ActionType = "swebench_restore"     // Restore from snapshot
 	ActionSWEBenchEvaluate   ActionType = "swebench_evaluate"    // Evaluate prediction
 	ActionSWEBenchTeardown   ActionType = "swebench_teardown"    // Cleanup environment
+
+	// Research Tool Actions (modular tools for any agent)
+	ActionContext7Fetch    ActionType = "context7_fetch"     // Fetch LLM-optimized docs
+	ActionWebFetch         ActionType = "web_fetch"          // Fetch URL content
+	ActionBrowserNavigate  ActionType = "browser_navigate"   // Navigate browser to URL
+	ActionBrowserExtract   ActionType = "browser_extract"    // Extract content from page
+	ActionBrowserScreenshot ActionType = "browser_screenshot" // Capture screenshot
+	ActionBrowserClick     ActionType = "browser_click"      // Click element
+	ActionBrowserType      ActionType = "browser_type"       // Type into input
+	ActionBrowserClose     ActionType = "browser_close"      // Close browser session
+	ActionResearchCacheGet ActionType = "research_cache_get" // Get cached research
+	ActionResearchCacheSet ActionType = "research_cache_set" // Cache research result
 )
 
 // ActionRequest represents a request to execute an action.
