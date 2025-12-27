@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
-	"codenerd/internal/world"
+	"codenerd/internal/types"
 
 	"github.com/google/mangle/ast"
 )
 
 // SetGraphQuery sets the graph query interface for world model access.
-func (v *VirtualStore) SetGraphQuery(gq world.GraphQuery) {
+func (v *VirtualStore) SetGraphQuery(gq types.GraphQuery) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.graphQuery = gq
@@ -39,20 +39,10 @@ func (v *VirtualStore) getQueryGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
 	}
 	qType := cleanMangleString(qTypeTerm.String())
 
-	// 2. Extract Params (Map or List or String)
-	// For simplicity, we assume Params is passed as a Map-like structure or just raw args
-	// But Mangle AST might be complex. Let'sക്കു support a simple key-value map if passed as a Map.
-	// Or maybe Params is just a string/list.
-	// Let's assume Params is a Map for now.
+	// 2. Extract Params
+	// Mangle's Map type is complex; for simplicity we extract the string representation.
 	params := make(map[string]interface{})
-	if mapTerm, ok := query.Args[1].(ast.Map); ok {
-		for k, val := range mapTerm.Values {
-			params[cleanMangleString(k.String())] = cleanMangleString(val.String())
-		}
-	} else {
-		// Fallback: treat as single "arg" param
-		params["arg"] = cleanMangleString(query.Args[1].String())
-	}
+	params["arg"] = cleanMangleString(query.Args[1].String())
 
 	// 3. Execute Query
 	result, err := gq.QueryGraph(qType, params)
@@ -75,7 +65,7 @@ func (v *VirtualStore) getQueryGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
 // Helper to clean Mangle strings (remove quotes, leading slashes)
 func cleanMangleString(s string) string {
 	s = strings.TrimPrefix(s, "/")
-	s = strings.Trim(s, """)
+	s = strings.Trim(s, "\"")
 	return s
 }
 
@@ -94,7 +84,7 @@ func goToMangleTerm(val interface{}) (ast.BaseTerm, error) {
 		}
 		return ast.FalseConstant, nil
 	case []string:
-		list := make([]ast.BaseTerm, len(v))
+		list := make([]ast.Constant, len(v))
 		for i, s := range v {
 			list[i] = ast.String(s)
 		}

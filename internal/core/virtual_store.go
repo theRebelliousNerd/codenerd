@@ -15,10 +15,9 @@ import (
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
-	"codenerd/internal/world"
 
 	"github.com/google/mangle/ast"
-))
+)
 
 // One-time imports
 var _ = types.ShardConfig{}
@@ -64,7 +63,7 @@ type VirtualStore struct {
 	// Code DOM - semantic code element operations
 	codeScope  CodeScope
 	fileEditor FileEditor
-	graphQuery world.GraphQuery // World Model Graph Query Interface
+	graphQuery types.GraphQuery // World Model Graph Query Interface
 
 	// Autopoiesis - tool execution and generation
 	toolExecutor  ToolExecutor
