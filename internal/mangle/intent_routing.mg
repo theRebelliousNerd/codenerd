@@ -111,34 +111,109 @@ test_framework(/minitest) :- file_exists("Gemfile"), file_contains("Gemfile", "m
 tool_allowed(P, /read_file) :- persona(P).
 tool_allowed(P, /search_code) :- persona(P).
 tool_allowed(P, /list_files) :- persona(P).
+tool_allowed(P, /glob) :- persona(P).
+tool_allowed(P, /grep) :- persona(P).
+
+# Code DOM tools - available to all personas for semantic code navigation
+tool_allowed(P, /get_elements) :- persona(P).
+tool_allowed(P, /get_element) :- persona(P).
 
 # Coder-specific tools
 tool_allowed(/coder, /write_file).
 tool_allowed(/coder, /edit_file).
-tool_allowed(/coder, /create_file).
+tool_allowed(/coder, /delete_file).
 tool_allowed(/coder, /run_build).
+tool_allowed(/coder, /run_command).
+tool_allowed(/coder, /bash).
 tool_allowed(/coder, /git_operation).
+tool_allowed(/coder, /edit_lines).
+tool_allowed(/coder, /insert_lines).
+tool_allowed(/coder, /delete_lines).
 
 # Tester-specific tools
 tool_allowed(/tester, /run_tests).
-tool_allowed(/tester, /coverage_report).
+tool_allowed(/tester, /run_command).
+tool_allowed(/tester, /bash).
 tool_allowed(/tester, /write_file).  # Can write test files
+tool_allowed(/tester, /edit_file).
+tool_allowed(/tester, /edit_lines).
+tool_allowed(/tester, /insert_lines).
+tool_allowed(/tester, /delete_lines).
 
 # Reviewer-specific tools (read-heavy)
 tool_allowed(/reviewer, /git_diff).
 tool_allowed(/reviewer, /git_log).
-tool_allowed(/reviewer, /security_scan).
+tool_allowed(/reviewer, /run_command).  # For static analysis tools
 
 # Researcher-specific tools
 tool_allowed(/researcher, /web_search).
 tool_allowed(/researcher, /web_fetch).
+tool_allowed(/researcher, /context7_fetch).
 tool_allowed(/researcher, /write_file).  # Can write documentation
 
 # =============================================================================
 # SECTION 4.5: Modular Tool Routing
 # =============================================================================
-# Maps intents to modular tools (internal/tools/research/, etc.)
+# Maps intents to modular tools (internal/tools/*)
 # These tools are available to any agent via the JIT system.
+
+# Core filesystem tools - available to all intents
+modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/list_files, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/glob, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/grep, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/search_code, Intent) :- user_intent(_, _, Intent, _, _).
+
+# Write tools - available for code modification intents
+modular_tool_allowed(/write_file, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/edit_file, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/delete_file, Intent) :- intent_category(Intent, /code).
+
+# Shell tools - available for code and test intents
+modular_tool_allowed(/run_command, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/run_command, Intent) :- intent_category(Intent, /test).
+modular_tool_allowed(/bash, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/bash, Intent) :- intent_category(Intent, /test).
+modular_tool_allowed(/run_build, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/run_tests, Intent) :- intent_category(Intent, /test).
+
+# Code DOM tools - available for code intents
+modular_tool_allowed(/get_elements, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/edit_lines, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/insert_lines, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/delete_lines, Intent) :- intent_category(Intent, /code).
+
+# Intent category mappings for code
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /fix.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /implement.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /refactor.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /create.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /modify.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /add.
+intent_category(Intent, /code) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /update.
+
+# Intent category mappings for test
+intent_category(Intent, /test) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /test.
+intent_category(Intent, /test) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /cover.
 
 # Research tools - available for /research intent
 modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /research).

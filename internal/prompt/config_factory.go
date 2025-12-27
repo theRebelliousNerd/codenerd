@@ -116,29 +116,44 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"grep",
 	}
 
+	// Code DOM tools for semantic code operations
+	codeDomTools := []string{
+		"get_elements",
+		"get_element",
+		"edit_lines",
+		"insert_lines",
+		"delete_lines",
+	}
+
 	// Coder persona tools
 	coderTools := append(coreTools,
 		"write_file",
 		"edit_file",
-		"create_file",
+		"delete_file",
 		"run_build",
 		"git_operation",
 		"run_command",
+		"bash",
 	)
+	coderTools = append(coderTools, codeDomTools...)
 
 	// Tester persona tools
 	testerTools := append(coreTools,
 		"run_tests",
-		"coverage_report",
+		"run_command",
+		"bash",
 		"write_file", // Can write test files
+		"edit_file",
 	)
+	testerTools = append(testerTools, codeDomTools...)
 
-	// Reviewer persona tools (read-heavy)
+	// Reviewer persona tools (read-heavy, includes Code DOM for inspection)
 	reviewerTools := append(coreTools,
 		"git_diff",
 		"git_log",
-		"security_scan",
+		"run_command", // For running static analysis tools
 	)
+	reviewerTools = append(reviewerTools, codeDomTools...)
 
 	// Researcher persona tools
 	researcherTools := append(coreTools,
