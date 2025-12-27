@@ -1,8 +1,8 @@
 package world
 
 import (
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,11 +25,11 @@ func NewASTParser() *ASTParser {
 }
 
 // Parse parses a source file and returns symbol facts.
-func (p *ASTParser) Parse(path string) ([]core.Fact, error) {
+func (p *ASTParser) Parse(path string) ([]types.Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("AST parsing file: %s", filepath.Base(path))
 
-	var facts []core.Fact
+	var facts []types.Fact
 	var err error
 
 	if strings.HasSuffix(path, ".go") {
@@ -54,14 +54,14 @@ func (p *ASTParser) Parse(path string) ([]core.Fact, error) {
 	return facts, nil
 }
 
-func (p *ASTParser) parseGo(path string) ([]core.Fact, error) {
+func (p *ASTParser) parseGo(path string) ([]types.Fact, error) {
 	logging.WorldDebug("Delegating Go parsing to Cartographer: %s", filepath.Base(path))
 	c := NewCartographer()
 	return c.MapFile(path)
 }
 
 // parsePython implements tree-sitter-based parsing for Python with regex fallback
-func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
+func (p *ASTParser) parsePython(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("Failed to read Python file: %s - %v", path, err)
@@ -81,7 +81,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 
 	// Fallback: regex-based parsing
 	logging.WorldDebug("Using regex fallback for Python parsing: %s", filepath.Base(path))
-	var facts []core.Fact
+	var facts []types.Fact
 	lines := strings.Split(string(content), "\n")
 
 	// Regex for definitions
@@ -96,7 +96,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 		if matches := classRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("class:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "class", "public", path, line},
 			})
@@ -107,7 +107,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 		if matches := defRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("func:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
@@ -117,7 +117,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 		// Imports
 		if matches := importRegex.FindStringSubmatch(line); len(matches) > 1 {
 			module := matches[1]
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("mod:%s", module), module},
 			})
@@ -131,7 +131,7 @@ func (p *ASTParser) parsePython(path string) ([]core.Fact, error) {
 }
 
 // parseRust implements tree-sitter-based parsing for Rust with regex fallback
-func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
+func (p *ASTParser) parseRust(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("Failed to read Rust file: %s - %v", path, err)
@@ -151,7 +151,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 
 	// Fallback: regex-based parsing
 	logging.WorldDebug("Using regex fallback for Rust parsing: %s", filepath.Base(path))
-	var facts []core.Fact
+	var facts []types.Fact
 	lines := strings.Split(string(content), "\n")
 
 	// Regex for definitions
@@ -168,7 +168,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 		if matches := fnRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("fn:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
@@ -179,7 +179,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 		if matches := structRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("struct:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "struct", "public", path, line},
 			})
@@ -190,7 +190,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 		if matches := enumRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("enum:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "enum", "public", path, line},
 			})
@@ -201,7 +201,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 		if matches := modRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("mod:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "module", "public", path, line},
 			})
@@ -211,7 +211,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 		// Imports (use)
 		if matches := useRegex.FindStringSubmatch(line); len(matches) > 1 {
 			pkg := matches[1]
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("crate:%s", pkg), pkg},
 			})
@@ -225,7 +225,7 @@ func (p *ASTParser) parseRust(path string) ([]core.Fact, error) {
 }
 
 // parseTypeScript implements tree-sitter-based parsing for TS/JS with regex fallback
-func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
+func (p *ASTParser) parseTypeScript(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("Failed to read TS/JS file: %s - %v", path, err)
@@ -234,7 +234,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 
 	// Try tree-sitter parsing first
 	if p.tsParser != nil {
-		var facts []core.Fact
+		var facts []types.Fact
 		var parseErr error
 
 		// Determine if TypeScript or JavaScript
@@ -255,7 +255,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 
 	// Fallback: regex-based parsing
 	logging.WorldDebug("Using regex fallback for TS/JS parsing: %s", filepath.Base(path))
-	var facts []core.Fact
+	var facts []types.Fact
 	lines := strings.Split(string(content), "\n")
 
 	// Regex for definitions
@@ -272,7 +272,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		if matches := classRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("class:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "class", "public", path, line},
 			})
@@ -283,7 +283,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		if matches := interfaceRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("interface:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "interface", "public", path, line},
 			})
@@ -294,7 +294,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		if matches := funcRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("func:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
@@ -305,7 +305,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		if matches := constFuncRegex.FindStringSubmatch(line); len(matches) > 1 {
 			name := matches[1]
 			id := fmt.Sprintf("func:%s", name)
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "symbol_graph",
 				Args:      []interface{}{id, "function", "public", path, line},
 			})
@@ -315,7 +315,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		// Imports
 		if matches := importRegex.FindStringSubmatch(line); len(matches) > 1 {
 			module := matches[1]
-			facts = append(facts, core.Fact{
+			facts = append(facts, types.Fact{
 				Predicate: "dependency_link",
 				Args:      []interface{}{path, fmt.Sprintf("mod:%s", module), module},
 			})
@@ -327,6 +327,7 @@ func (p *ASTParser) parseTypeScript(path string) ([]core.Fact, error) {
 		filepath.Base(path), classCount, ifaceCount, funcCount, importCount)
 	return facts, nil
 }
+
 
 // Close releases resources held by the AST parser
 func (p *ASTParser) Close() {

@@ -20,6 +20,10 @@ type Kernel interface {
 	Reset()
 	// AppendPolicy adds shard-specific policy rules to the kernel
 	AppendPolicy(policy string)
+
+	// Optimized batch operations (required by world scanner)
+	RetractExactFactsBatch(facts []Fact) error
+	RemoveFactsByPredicateSet(predicates map[string]struct{}) error
 }
 
 // LLMClient defines the interface for LLM interactions.

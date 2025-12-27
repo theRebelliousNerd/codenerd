@@ -1,8 +1,8 @@
 package world
 
 import (
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"path/filepath"

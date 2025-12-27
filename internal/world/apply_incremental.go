@@ -1,33 +1,28 @@
 package world
 
-import "codenerd/internal/core"
+import "codenerd/internal/types"
 
 // ApplyIncrementalResult updates the kernel with an incremental scan result.
 // For Full results, it replaces all world predicates.
 // For delta results, it retracts old facts (when available) and asserts new ones.
-func ApplyIncrementalResult(kernel core.Kernel, res *IncrementalResult) error {
+func ApplyIncrementalResult(kernel types.Kernel, res *IncrementalResult) error {
 	if res == nil {
 		return nil
 	}
 
 	if res.Full {
-		if rk, ok := kernel.(*core.RealKernel); ok {
-			_ = rk.RemoveFactsByPredicateSet(WorldPredicateSet())
-		} else {
-			for _, p := range WorldPredicates {
-				_ = kernel.Retract(p)
-			}
-		}
+		_ = kernel.RemoveFactsByPredicateSet(WorldPredicateSet())
 		if len(res.NewFacts) == 0 {
 			return nil
 		}
-		return kernel.LoadFacts(res.NewFacts)
+		// Convert world.Fact to types.Fact
+		typeFacts := toTypesFacts(res.NewFacts)
+		return kernel.LoadFacts(typeFacts)
 	}
 
 	if len(res.RetractFacts) > 0 {
-		if rk, ok := kernel.(*core.RealKernel); ok {
-			_ = rk.RetractExactFactsBatch(res.RetractFacts)
-		}
+		typeFacts := toTypesFacts(res.RetractFacts)
+		_ = kernel.RetractExactFactsBatch(typeFacts)
 	}
 
 	// Refresh directory facts every scan.
@@ -36,6 +31,20 @@ func ApplyIncrementalResult(kernel core.Kernel, res *IncrementalResult) error {
 	if len(res.NewFacts) == 0 {
 		return nil
 	}
-	return kernel.LoadFacts(res.NewFacts)
+	// Convert world.Fact to types.Fact
+	typeFacts := toTypesFacts(res.NewFacts)
+	return kernel.LoadFacts(typeFacts)
 }
+
+func toTypesFacts(worldFacts []Fact) []types.Fact {
+	res := make([]types.Fact, len(worldFacts))
+	for i, f := range worldFacts {
+		res[i] = types.Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	return res
+}
+
 
