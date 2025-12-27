@@ -97,8 +97,10 @@ type ShardProfileConfig struct {
 	EnableLearning   bool
 }
 
-// ShardTypes for iteration
-var shardTypes = []string{"coder", "tester", "reviewer", "researcher"}
+// intentTypes lists the primary intent types for persona configuration.
+// These map to legacy shard names but are now handled by JIT-compiled prompts.
+// DEPRECATED: Per-intent config is now handled by ConfigFactory and persona atoms.
+var intentTypes = []string{"coder", "tester", "reviewer", "researcher"}
 
 // ProviderModels maps providers to their available models.
 var ProviderModels = map[string][]string{
@@ -588,7 +590,7 @@ func (m Model) configWizardShardConfig(input string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(strings.ToLower(input), "y") {
 		m.configWizard.ConfigureShards = true
 		m.configWizard.ShardIndex = 0
-		m.configWizard.CurrentShard = shardTypes[0]
+		m.configWizard.CurrentShard = intentTypes[0]
 		m.configWizard.Step = StepShardModel
 		return m.showShardModelPrompt()
 	}
@@ -757,8 +759,8 @@ func (m Model) configWizardShardContext(input string) (tea.Model, tea.Cmd) {
 func (m Model) configWizardNextShard(input string) (tea.Model, tea.Cmd) {
 	m.configWizard.ShardIndex++
 
-	if m.configWizard.ShardIndex < len(shardTypes) {
-		m.configWizard.CurrentShard = shardTypes[m.configWizard.ShardIndex]
+	if m.configWizard.ShardIndex < len(intentTypes) {
+		m.configWizard.CurrentShard = intentTypes[m.configWizard.ShardIndex]
 		m.configWizard.Step = StepShardModel
 		return m.showShardModelPrompt()
 	}
@@ -951,7 +953,7 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 		sb.WriteString("\n### Per-Shard Configuration\n\n")
 		sb.WriteString("| Shard | Model | Temp | Context |\n")
 		sb.WriteString("|-------|-------|------|-------:|\n")
-		for _, shard := range shardTypes {
+		for _, shard := range intentTypes {
 			if profile, ok := w.ShardProfiles[shard]; ok {
 				sb.WriteString(fmt.Sprintf("| %s | %s | %.1f | %d |\n",
 					shard, profile.Model, profile.Temperature, profile.MaxContextTokens))
