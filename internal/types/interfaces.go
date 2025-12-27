@@ -98,3 +98,15 @@ type VirtualStore interface {
 	WriteFile(path string, content []string) error
 	Exec(ctx context.Context, cmd string, env []string) (string, string, error)
 }
+
+// GraphQuery defines the interface for querying the World Model graph.
+// This interface allows Mangle policies (via Virtual Predicates) to access
+// the dependency graph, AST, and file topology without direct coupling.
+// Moved from world package to break import cycles (core <-> world).
+type GraphQuery interface {
+	// QueryGraph performs a query against the world graph.
+	// queryType: e.g., "dependencies", "symbols", "callers"
+	// params: query-specific parameters
+	// Returns: structured result (e.g., []string, []Symbol, etc.)
+	QueryGraph(queryType string, params map[string]interface{}) (interface{}, error)
+}

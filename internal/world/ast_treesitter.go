@@ -1,13 +1,13 @@
 package world
 
 import (
-	"codenerd/internal/logging"
-	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"codenerd/internal/logging"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
@@ -49,7 +49,7 @@ func (p *TreeSitterParser) Close() {
 }
 
 // ParseGo parses Go code using tree-sitter
-func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]core.Fact, error) {
+func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("TreeSitter: parsing Go file: %s (%d bytes)", filepath.Base(path), len(content))
 
@@ -61,7 +61,7 @@ func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]core.Fact, er
 	}
 	defer tree.Close()
 
-	var facts []core.Fact
+	var facts []Fact
 	root := tree.RootNode()
 
 	// Walk the tree and extract symbols
@@ -72,8 +72,8 @@ func (p *TreeSitterParser) ParseGo(path string, content []byte) ([]core.Fact, er
 }
 
 // extractGoSymbols walks the Go AST and extracts symbols
-func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content string) []core.Fact {
-	var facts []core.Fact
+func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
 
 	// Helper to get node text
 	getText := func(n *sitter.Node) string {
@@ -107,7 +107,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 					visibility = "public"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "function", visibility, path, signature},
 				})
@@ -136,7 +136,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 					visibility = "public"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "method", visibility, path, signature},
 				})
@@ -188,7 +188,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 												if len(fieldName) > 0 && fieldName[0] >= 'A' && fieldName[0] <= 'Z' {
 													fieldVis = "public"
 												}
-												facts = append(facts, core.Fact{
+												facts = append(facts, Fact{
 													Predicate: "symbol_graph",
 													Args:      []interface{}{fieldID, "field", fieldVis, path, fmt.Sprintf("%s %s", fieldName, fieldType)},
 												})
@@ -225,7 +225,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 											if len(methodName) > 0 && methodName[0] >= 'A' && methodName[0] <= 'Z' {
 												methodVis = "public"
 											}
-											facts = append(facts, core.Fact{
+											facts = append(facts, Fact{
 												Predicate: "symbol_graph",
 												Args:      []interface{}{methodID, "interface_method", methodVis, path, methodSig},
 											})
@@ -236,7 +236,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 						}
 
 						id := fmt.Sprintf("%s:%s", kind, name)
-						facts = append(facts, core.Fact{
+						facts = append(facts, Fact{
 							Predicate: "symbol_graph",
 							Args:      []interface{}{id, kind, visibility, path, signature},
 						})
@@ -251,7 +251,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 					pathNode := spec.ChildByFieldName("path")
 					if pathNode != nil {
 						importPath := strings.Trim(getText(pathNode), "\"")
-						facts = append(facts, core.Fact{
+						facts = append(facts, Fact{
 							Predicate: "dependency_link",
 							Args:      []interface{}{path, fmt.Sprintf("pkg:%s", importPath), importPath},
 						})
@@ -270,7 +270,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 }
 
 // ParsePython parses Python code using tree-sitter
-func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]core.Fact, error) {
+func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("TreeSitter: parsing Python file: %s (%d bytes)", filepath.Base(path), len(content))
 
@@ -282,7 +282,7 @@ func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]core.Fact
 	}
 	defer tree.Close()
 
-	var facts []core.Fact
+	var facts []Fact
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractPythonSymbols(root, path, string(content))...)
@@ -291,8 +291,8 @@ func (p *TreeSitterParser) ParsePython(path string, content []byte) ([]core.Fact
 }
 
 // extractPythonSymbols walks the Python AST and extracts symbols
-func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content string) []core.Fact {
-	var facts []core.Fact
+func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
 	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
 
 	var walk func(*sitter.Node)
@@ -317,7 +317,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 					visibility = "private"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "class", visibility, path, signature},
 				})
@@ -340,7 +340,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 					visibility = "private"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "function", visibility, path, signature},
 				})
@@ -350,7 +350,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 				child := n.NamedChild(i)
 				if child.Type() == "dotted_name" {
 					moduleName := getText(child)
-					facts = append(facts, core.Fact{
+					facts = append(facts, Fact{
 						Predicate: "dependency_link",
 						Args:      []interface{}{path, fmt.Sprintf("mod:%s", moduleName), moduleName},
 					})
@@ -367,7 +367,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 }
 
 // ParseRust parses Rust code using tree-sitter
-func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]core.Fact, error) {
+func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("TreeSitter: parsing Rust file: %s (%d bytes)", filepath.Base(path), len(content))
 
@@ -379,7 +379,7 @@ func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]core.Fact, 
 	}
 	defer tree.Close()
 
-	var facts []core.Fact
+	var facts []Fact
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractRustSymbols(root, path, string(content))...)
@@ -388,8 +388,8 @@ func (p *TreeSitterParser) ParseRust(path string, content []byte) ([]core.Fact, 
 }
 
 // extractRustSymbols walks the Rust AST and extracts symbols
-func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content string) []core.Fact {
-	var facts []core.Fact
+func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
 	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
 	hasPubVisibility := func(n *sitter.Node) bool {
 		for i := 0; i < int(n.ChildCount()); i++ {
@@ -421,7 +421,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 					visibility = "public"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "function", visibility, path, signature},
 				})
@@ -437,7 +437,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 					visibility = "public"
 				}
 
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "struct", visibility, path, signature},
 				})
@@ -452,7 +452,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 				if hasPubVisibility(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "enum", visibility, path, signature},
 				})
@@ -467,7 +467,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 				if hasPubVisibility(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "module", visibility, path, signature},
 				})
@@ -479,7 +479,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 				parts := strings.Split(usePath, "::")
 				if len(parts) > 0 {
 					crateName := parts[0]
-					facts = append(facts, core.Fact{
+					facts = append(facts, Fact{
 						Predicate: "dependency_link",
 						Args:      []interface{}{path, fmt.Sprintf("crate:%s", crateName), usePath},
 					})
@@ -495,7 +495,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 }
 
 // ParseJavaScript parses JavaScript code using tree-sitter
-func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]core.Fact, error) {
+func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("TreeSitter: parsing JavaScript file: %s (%d bytes)", filepath.Base(path), len(content))
 
@@ -507,7 +507,7 @@ func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]core.
 	}
 	defer tree.Close()
 
-	var facts []core.Fact
+	var facts []Fact
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractJSSymbols(root, path, string(content))...)
@@ -516,8 +516,8 @@ func (p *TreeSitterParser) ParseJavaScript(path string, content []byte) ([]core.
 }
 
 // extractJSSymbols walks the JavaScript AST and extracts symbols
-func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content string) []core.Fact {
-	var facts []core.Fact
+func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
 	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
 	hasExport := func(n *sitter.Node) bool {
 		parent := n.Parent()
@@ -542,7 +542,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				if hasExport(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "class", visibility, path, signature},
 				})
@@ -561,7 +561,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				if hasExport(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "function", visibility, path, signature},
 				})
@@ -581,7 +581,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 							if hasExport(n) {
 								visibility = "public"
 							}
-							facts = append(facts, core.Fact{
+							facts = append(facts, Fact{
 								Predicate: "symbol_graph",
 								Args:      []interface{}{id, "function", visibility, path, signature},
 							})
@@ -593,7 +593,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 			sourceNode := n.ChildByFieldName("source")
 			if sourceNode != nil {
 				source := strings.Trim(getText(sourceNode), "\"'")
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "dependency_link",
 					Args:      []interface{}{path, fmt.Sprintf("mod:%s", source), source},
 				})
@@ -608,7 +608,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 }
 
 // ParseTypeScript parses TypeScript code using tree-sitter
-func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]core.Fact, error) {
+func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]Fact, error) {
 	start := time.Now()
 	logging.WorldDebug("TreeSitter: parsing TypeScript file: %s (%d bytes)", filepath.Base(path), len(content))
 
@@ -620,7 +620,7 @@ func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]core.
 	}
 	defer tree.Close()
 
-	var facts []core.Fact
+	var facts []Fact
 	root := tree.RootNode()
 
 	facts = append(facts, p.extractTSSymbols(root, path, string(content))...)
@@ -629,8 +629,8 @@ func (p *TreeSitterParser) ParseTypeScript(path string, content []byte) ([]core.
 }
 
 // extractTSSymbols walks the TypeScript AST and extracts symbols
-func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content string) []core.Fact {
-	var facts []core.Fact
+func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content string) []Fact {
+	var facts []Fact
 	getText := func(n *sitter.Node) string { return n.Content([]byte(content)) }
 	hasExport := func(n *sitter.Node) bool {
 		parent := n.Parent()
@@ -655,7 +655,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				if hasExport(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "class", visibility, path, signature},
 				})
@@ -674,7 +674,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				if hasExport(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "function", visibility, path, signature},
 				})
@@ -689,7 +689,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				if hasExport(n) {
 					visibility = "public"
 				}
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
 					Args:      []interface{}{id, "interface", visibility, path, signature},
 				})
@@ -698,7 +698,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 			sourceNode := n.ChildByFieldName("source")
 			if sourceNode != nil {
 				source := strings.Trim(getText(sourceNode), "\"'")
-				facts = append(facts, core.Fact{
+				facts = append(facts, Fact{
 					Predicate: "dependency_link",
 					Args:      []interface{}{path, fmt.Sprintf("mod:%s", source), source},
 				})
