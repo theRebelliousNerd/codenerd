@@ -80,9 +80,9 @@ Current AI coding agents make a **category error**: they ask LLMs to handle *eve
 Every interaction flows through:
 
 1. **Observe** — Perception Transducer converts NL to intent atoms
-2. **Orient** — Spreading Activation selects relevant context
-3. **Decide** — Mangle Engine derives `next_action` from policy rules
-4. **Act** — Virtual Store executes via ShardAgents
+2. **Orient** — Intent Routing logic determines persona and config atoms
+3. **Decide** — JIT Compiler assembles prompt and AgentConfig
+4. **Act** — Session Executor runs the unified execution loop
 
 ---
 
@@ -263,36 +263,53 @@ Type `/help` in chat mode for full command list. Help is **progressive** — it 
 
 ---
 
-## ShardAgents
+## Agent Execution Model
 
-ShardAgents are ephemeral sub-kernels for parallel task execution:
+codeNERD uses a **JIT-driven universal executor** that replaces hardcoded shard classes with dynamic, config-based agents. All agent behavior is now determined by:
 
-### Type A: Ephemeral Generalists
-> Spawn → Execute → Die. RAM only.
+- **JIT-compiled prompts** from `internal/prompt/atoms/`
+- **Mangle intent routing rules** in `internal/mangle/intent_routing.mg`
+- **ConfigFactory-generated AgentConfig** specifying tools and policies
 
-| Shard | Purpose |
-|-------|---------|
-| **CoderShard** | Code generation, refactoring, bug fixes |
-| **TesterShard** | Test creation, TDD loops, coverage analysis |
-| **ReviewerShard** | Code review, security audit, best practices |
+### The Session Executor
 
-### Type B: Persistent Specialists
-> Pre-populated with domain knowledge. SQLite-backed.
+The **Session Executor** (`internal/session/executor.go`) is a unified execution loop that:
 
-| Shard | Purpose |
-|-------|---------|
-| **ResearcherShard** | Deep research, knowledge ingestion, llms.txt parsing |
+1. Receives intent atoms from the Perception Transducer
+2. Queries Mangle logic to determine persona (coder, tester, reviewer, researcher)
+3. JIT-compiles a system prompt and AgentConfig
+4. Executes the LLM interaction with appropriate tools and safety gates
+5. Routes actions through VirtualStore
 
-### Type S: System Shards
-> Built-in capabilities, always available.
+### SubAgents
 
-| Shard | Purpose |
-|-------|---------|
-| **FileShard** | Filesystem operations (read, write, search) |
-| **ShellShard** | Command execution with safety gates |
-| **GitShard** | Version control operations |
-| **ToolGeneratorShard** | Self-generating tools (Ouroboros Loop) |
-| **NemesisShard** | Adversarial testing—tries to break patches before merge |
+**SubAgents** (`internal/session/subagent.go`) are dynamically spawned execution contexts with configurable lifecycle:
+
+| Type | Lifespan | Description |
+|------|----------|-------------|
+| **Ephemeral** | Single task | Spawn → Execute → Terminate (RAM only) |
+| **Persistent** | Multi-turn | Maintains conversation history and state |
+| **System** | Long-running | Background services (indexing, learning) |
+
+### Intent → Persona Mapping
+
+Mangle rules automatically route intents to the appropriate persona:
+
+| Intent Verbs | Persona | Tools | Policies |
+|--------------|---------|-------|----------|
+| fix, implement, refactor, create | **Coder** | file_write, shell_exec, git | code_safety.mg |
+| test, cover, verify, validate | **Tester** | test_exec, coverage_analyzer | test_strategy.mg |
+| review, audit, check, analyze | **Reviewer** | hypothesis_gen, impact_analysis | review_policy.mg |
+| research, learn, document, explore | **Researcher** | web_fetch, doc_parse, kb_ingest | research_strategy.mg |
+
+### No More Hardcoded Shards
+
+The previous architecture required separate Go implementations for each shard type (CoderShard, TesterShard, etc.), totaling ~35,000 lines of code. The new JIT-driven model eliminates this boilerplate, replacing it with:
+
+- **391 lines** in `session/executor.go` (universal loop)
+- **385 lines** in `session/spawner.go` (dynamic spawning)
+- **339 lines** in `session/subagent.go` (lifecycle management)
+- **228 lines** in `mangle/intent_routing.mg` (declarative routing)
 
 ---
 
@@ -367,14 +384,32 @@ Data flow extraction now supports 5 languages via Tree-sitter:
 | JavaScript | Tree-sitter | Variable flow, closure analysis |
 | Rust | Tree-sitter | Ownership, borrowing, unsafe blocks |
 
-### JIT Prompt Compiler
+### JIT Prompt Compiler & Configuration System
 
-Runtime prompt assembly with context-aware atom selection:
+Runtime prompt and configuration assembly with context-aware atom selection:
 
+**Prompt Compilation:**
 - **Storage** - Agent prompts in `.nerd/shards/{agent}_knowledge.db`; shared corpus in `.nerd/prompts/corpus.db` (seeded from baked `internal/core/defaults/prompt_corpus.db`)
 - **Token Budget** - Automatic prompt trimming to stay within context limits
 - **Contextual Selection** - Atoms selected by intent verb, language, campaign phase
 - **Semantic Search** - Embedding-based retrieval of relevant prompt fragments
+
+**Configuration Generation (`internal/prompt/config_factory.go`):**
+- **ConfigAtom** - Fragments specifying tools, policies, and priority for each intent
+- **Config Merging** - Multiple ConfigAtoms merge to create comprehensive AgentConfig
+- **Tool Selection** - Only necessary tools are exposed to the LLM for each task
+- **Policy Loading** - Mangle policy files hot-loaded based on agent persona
+
+**Architecture:**
+```
+User Intent → Intent Routing (.mg) → ConfigFactory → AgentConfig
+                                   ↓
+                            JIT Compiler → System Prompt
+                                   ↓
+                            Session Executor → LLM + VirtualStore
+```
+
+This eliminates the need for hardcoded shard configurations, enabling fully dynamic agent specialization at runtime
 
 ### MCP (Model Context Protocol) Integration
 
@@ -468,26 +503,35 @@ codenerd/
 ├── cmd/
 │   └── nerd/              # CLI entrypoint (Cobra, 80+ files)
 │       └── chat/          # Interactive TUI (Bubble Tea, modularized)
-├── internal/              # 32 packages, ~140K LOC
-│   ├── core/              # Kernel, VirtualStore, ShardManager
-│   ├── perception/        # NL → Mangle transduction, multi-provider LLM
-│   ├── articulation/      # Mangle → NL + Piggyback Protocol
+├── internal/              # 32 packages, ~105K LOC (35K lines removed in JIT refactor)
+│   ├── core/              # Kernel, VirtualStore (modularized, ShardManager removed)
+│   ├── session/           # NEW: Session Executor, Spawner, SubAgent
+│   ├── jit/               # NEW: JIT configuration types and validation
+│   │   └── config/        # AgentConfig schema
+│   ├── perception/        # NL → Intent transduction, multi-provider LLM
+│   ├── articulation/      # Response generation + Piggyback Protocol
 │   ├── autopoiesis/       # Self-modification, Ouroboros, Prompt Evolution
 │   ├── mcp/               # MCP integration, JIT Tool Compiler
-│   ├── shards/            # CoderShard, TesterShard, etc.
-│   │   ├── researcher/    # Deep research subsystem
-│   │   └── system/        # Built-in system shards
-│   ├── mangle/            # .mg schema and policy files
+│   ├── prompt/            # JIT Prompt Compiler, ConfigFactory, atoms
+│   ├── shards/            # Registration only (implementations removed)
+│   ├── mangle/            # .mg schema, policy, and intent routing files
+│   │   └── intent_routing.mg  # NEW: Declarative persona/action routing
 │   ├── store/             # Memory tiers (RAM, Vector, Graph)
 │   ├── campaign/          # Multi-phase goal orchestration
 │   ├── browser/           # Rod-based browser automation
-│   ├── world/             # Filesystem and AST projection
+│   ├── world/             # Filesystem, AST, and GraphQuery interface
 │   ├── tactile/           # Tool execution layer
 │   ├── config/            # Configuration with LLM timeout consolidation
 │   ├── ux/                # User experience & journey tracking
 │   └── transparency/      # Operation visibility & explanations
 └── .nerd/                 # Workspace state (created by init)
 ```
+
+**Major Architectural Changes (Dec 2024):**
+- **Removed** 35,000+ lines of hardcoded shard implementations
+- **Added** unified session-based execution model (~1,100 lines)
+- **Replaced** Go-based shard logic with Mangle intent routing rules
+- **Centralized** agent configuration through JIT ConfigFactory
 
 ---
 
