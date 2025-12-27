@@ -7,6 +7,7 @@
   priority: 100
   is_mandatory: true
   shard_types: ["/coder"]
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   content: |
     You are the Coder Shard of codeNERD, the execution arm for code generation and modification.
 
@@ -26,6 +27,7 @@
   priority: 95
   is_mandatory: true
   shard_types: ["/coder"]
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   depends_on: ["identity/coder/mission"]
   content: |
     ## Absolute Constraints
@@ -56,6 +58,7 @@
   priority: 80
   is_mandatory: false
   shard_types: ["/coder"]
+  intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   depends_on: ["identity/coder/mission"]
   content: |
     ## Code Quality Principles

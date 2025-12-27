@@ -83,6 +83,9 @@ func TestAssembleSystemPrompt(t *testing.T) {
 			promptCtx: &PromptContext{
 				ShardID:   "coder-123",
 				ShardType: "coder",
+				UserIntent: &types.StructuredIntent{
+					Verb: "/fix", // Required for coder identity atoms to match
+				},
 			},
 			wantContains: []string{
 				"Coder Shard of codeNERD",
@@ -354,8 +357,11 @@ func TestAssembleQuickPrompt(t *testing.T) {
 		t.Fatalf("AssembleQuickPrompt() error = %v", err)
 	}
 
-	if !containsString(result, "Coder Shard of codeNERD") {
-		t.Error("AssembleQuickPrompt() missing baseline prompt")
+	// Without an intent verb, the piggyback protocol atoms are included
+	// (they're mandatory and match any context), but coder identity atoms
+	// require an intent verb to match.
+	if !containsString(result, "PIGGYBACK ENVELOPE") && !containsString(result, "control_packet") {
+		t.Error("AssembleQuickPrompt() missing baseline prompt content")
 	}
 
 	if !containsString(result, "Quick context") {
@@ -629,6 +635,9 @@ func TestAssembleSystemPromptFallsBackOnNoJIT(t *testing.T) {
 	pc := &PromptContext{
 		ShardID:   "coder-test",
 		ShardType: "coder",
+		UserIntent: &types.StructuredIntent{
+			Verb: "/fix", // Required for coder identity atoms to match
+		},
 	}
 
 	result, err := pa.AssembleSystemPrompt(context.Background(), pc)

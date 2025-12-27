@@ -9,7 +9,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/shards/researcher"
+	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
 	"context"
 	"crypto/sha256"
@@ -17,12 +17,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
 
 // ErrMaxRetriesExceeded is returned when verification fails after max retries.
@@ -540,36 +536,16 @@ func (v *TaskVerifier) storeVerification(
 }
 
 // fetchContext7Docs fetches documentation from Context7 API.
+// STUBBED: Researcher shard removed as part of JIT refactor.
+// Context7 research is now handled on-demand via session.Executor with /researcher persona.
 func (v *TaskVerifier) fetchContext7Docs(ctx context.Context, query string) string {
 	if v.context7Key == "" || query == "" {
 		return ""
 	}
 
-	cacheDir := filepath.Join(os.TempDir(), "codenerd_context7_cache")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		logging.ResearcherWarn("failed to create context7 cache dir: %v", err)
-	}
-
-	cache := researcher.NewResearchCache(cacheDir)
-	client := &http.Client{Timeout: 60 * time.Second}
-	c7 := researcher.NewContext7Tool(client, cache)
-	c7.SetAPIKey(v.context7Key)
-
-	atoms, err := c7.ResearchTopic(ctx, query, nil)
-	if err != nil || len(atoms) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	for _, atom := range atoms {
-		if atom.Title != "" {
-			sb.WriteString(atom.Title)
-			sb.WriteString("\n")
-		}
-		sb.WriteString(atom.Content)
-		sb.WriteString("\n\n")
-	}
-	return sb.String()
+	// Context7 research stubbed out - JIT clean loop handles this
+	logging.Boot("Context7 docs fetch stubbed (JIT refactor) - query: %s", query)
+	return ""
 }
 
 // basicQualityCheck performs simple pattern matching for quality violations.

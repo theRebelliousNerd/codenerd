@@ -20,6 +20,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/session"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
@@ -458,6 +459,9 @@ type SystemComponents struct {
 	ToolEventBus          *transparency.ToolEventBus      // Always-visible tool execution event bus
 	ToolStore             *store.ToolStore                // Tool execution persistence store
 	PromptEvolver         *prompt_evolution.PromptEvolver // System Prompt Learning evolver
+	// Clean Loop Architecture (replaces hardcoded shard logic)
+	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
+	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.

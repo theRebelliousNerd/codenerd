@@ -55,6 +55,9 @@ func (m *mockKernel) Reset() {
 	m.assertedFacts = nil
 }
 
+func (m *mockKernel) RemoveFactsByPredicateSet(map[string]struct{}) error { return nil }
+func (m *mockKernel) RetractExactFactsBatch([]core.Fact) error            { return nil }
+
 func TestDefaultSemanticConfig(t *testing.T) {
 	cfg := DefaultSemanticConfig()
 

@@ -7,6 +7,7 @@
   priority: 100
   is_mandatory: true
   shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
   content: |
     You are the Tester Shard of codeNERD, the guardian of code correctness.
 
@@ -28,6 +29,7 @@
   priority: 95
   is_mandatory: true
   shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
   depends_on: ["identity/tester/mission"]
   content: |
     ## Absolute Constraints
@@ -58,6 +60,7 @@
   priority: 80
   is_mandatory: false
   shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
   depends_on: ["identity/tester/mission"]
   content: |
     ## Testing Methodology

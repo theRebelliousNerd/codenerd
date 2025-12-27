@@ -1,14 +1,13 @@
 package chat
 
 import (
-	"codenerd/internal/shards/reviewer"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestDeduplicateFindings_EmptyInput(t *testing.T) {
-	findingsByShard := make(map[string][]reviewer.ParsedFinding)
+	findingsByShard := make(map[string][]ParsedFinding)
 	result := deduplicateFindings(findingsByShard)
 	if len(result) != 0 {
 		t.Errorf("Expected 0 findings, got %d", len(result))
@@ -16,7 +15,7 @@ func TestDeduplicateFindings_EmptyInput(t *testing.T) {
 }
 
 func TestDeduplicateFindings_NoDuplicates(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {
 			{File: "a.go", Line: 10, Severity: "error", Message: "Error 1"},
 			{File: "a.go", Line: 20, Severity: "warning", Message: "Warning 1"},
@@ -33,7 +32,7 @@ func TestDeduplicateFindings_NoDuplicates(t *testing.T) {
 }
 
 func TestDeduplicateFindings_WithDuplicates_KeepsHigherSeverity(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {
 			{File: "a.go", Line: 10, Severity: "warning", Message: "Warning from shard1"},
 		},
@@ -54,7 +53,7 @@ func TestDeduplicateFindings_WithDuplicates_KeepsHigherSeverity(t *testing.T) {
 }
 
 func TestDeduplicateFindings_Critical_BeatsAll(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {
 			{File: "a.go", Line: 10, Severity: "error", Message: "Error"},
 		},
@@ -82,7 +81,7 @@ func TestGenerateHolisticSummary_Basic(t *testing.T) {
 		Participants: []string{"Reviewer", "GoExpert"},
 		Files:        []string{"kernel.go", "store.go"},
 		Duration:     5 * time.Second,
-		FindingsByShard: map[string][]reviewer.ParsedFinding{
+		FindingsByShard: map[string][]ParsedFinding{
 			"Reviewer": {
 				{Severity: "error", Message: "Test error"},
 				{Severity: "warning", Message: "Test warning"},
@@ -118,7 +117,7 @@ func TestGenerateHolisticSummary_NoFindings(t *testing.T) {
 		Participants:    []string{"Reviewer"},
 		Files:           []string{"clean.go"},
 		Duration:        1 * time.Second,
-		FindingsByShard: map[string][]reviewer.ParsedFinding{},
+		FindingsByShard: map[string][]ParsedFinding{},
 	}
 
 	summary := generateHolisticSummary(agg)
@@ -132,7 +131,7 @@ func TestGenerateHolisticSummary_NoFindings(t *testing.T) {
 }
 
 func TestExtractCrossShardInsights_NoOverlap(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {{File: "a.go", Line: 10}},
 		"shard2": {{File: "b.go", Line: 20}},
 	}
@@ -148,7 +147,7 @@ func TestExtractCrossShardInsights_NoOverlap(t *testing.T) {
 }
 
 func TestExtractCrossShardInsights_HotSpotDetection(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {{File: "problem.go", Line: 10}},
 		"shard2": {{File: "problem.go", Line: 20}}, // Same file, different line
 	}
@@ -168,7 +167,7 @@ func TestExtractCrossShardInsights_HotSpotDetection(t *testing.T) {
 }
 
 func TestExtractCrossShardInsights_CriticalAttention(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {
 			{File: "a.go", Line: 10, Severity: "critical"},
 			{File: "b.go", Line: 20, Severity: "critical"},
@@ -190,7 +189,7 @@ func TestExtractCrossShardInsights_CriticalAttention(t *testing.T) {
 }
 
 func TestExtractCrossShardInsights_MultipleErrors(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {
 			{Severity: "error"},
 			{Severity: "error"},
@@ -214,7 +213,7 @@ func TestExtractCrossShardInsights_MultipleErrors(t *testing.T) {
 }
 
 func TestExtractCrossShardInsights_CrossDomainReview(t *testing.T) {
-	findingsByShard := map[string][]reviewer.ParsedFinding{
+	findingsByShard := map[string][]ParsedFinding{
 		"shard1": {{File: "a.go"}},
 		"shard2": {{File: "b.go"}},
 		"shard3": {{File: "c.go"}}, // 3 shards > 2 threshold
@@ -240,7 +239,7 @@ func TestFormatMultiShardResponse_Complete(t *testing.T) {
 		Participants: []string{"Reviewer", "GoExpert"},
 		IsComplete:   true,
 		Summary:      "Test summary",
-		FindingsByShard: map[string][]reviewer.ParsedFinding{
+		FindingsByShard: map[string][]ParsedFinding{
 			"Reviewer": {{File: "a.go", Line: 1, Severity: "warning", Message: "Test"}},
 		},
 		HolisticInsights: []string{"Insight 1", "Insight 2"},
@@ -249,8 +248,8 @@ func TestFormatMultiShardResponse_Complete(t *testing.T) {
 	output := formatMultiShardResponse(review)
 
 	expectedParts := []string{
-		"# Multi-Shard Code Review: test/",
-		"**Status**: Complete",
+		"# Multi-Shard Review: test/",
+		"**Status**: ✓ Complete",
 		"## Summary",
 		"## Cross-Shard Insights",
 		"Insight 1",
@@ -271,7 +270,7 @@ func TestFormatMultiShardResponse_Incomplete(t *testing.T) {
 		IsComplete:       false,
 		IncompleteReason: []string{"GoExpert: failed after 2 attempts"},
 		Summary:          "Partial review",
-		FindingsByShard:  map[string][]reviewer.ParsedFinding{},
+		FindingsByShard:  map[string][]ParsedFinding{},
 	}
 
 	output := formatMultiShardResponse(review)

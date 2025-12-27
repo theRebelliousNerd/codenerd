@@ -18,14 +18,16 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
-	"codenerd/internal/shards/coder"
-	"codenerd/internal/shards/nemesis"
-	"codenerd/internal/shards/researcher"
-	"codenerd/internal/shards/reviewer"
+	// Domain shards removed - JIT clean loop handles these via prompt atoms:
+	// "codenerd/internal/shards/coder"
+	// "codenerd/internal/shards/nemesis"
+	// "codenerd/internal/shards/researcher"
+	// "codenerd/internal/shards/reviewer"
+	// "codenerd/internal/shards/tester"
+	// "codenerd/internal/shards/tool_generator"
 	shardsystem "codenerd/internal/shards/system"
-	"codenerd/internal/shards/tester"
-	"codenerd/internal/shards/tool_generator"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
@@ -667,6 +669,47 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		// Create Tool Event bus for always-visible tool execution notifications
 		toolEventBus := transparency.NewToolEventBus()
 
+		// =======================================================================
+		// CLEAN LOOP ARCHITECTURE: Create Session Executor and Spawner
+		// These replace hardcoded shard logic with JIT-driven behavior
+		// =======================================================================
+		logStep("Creating clean loop executor...")
+		var sessionExecutor *session.Executor
+		var sessionSpawner *session.Spawner
+
+		// Create adapters to bridge core types to session types
+		// Use "cleanLoop" prefix to avoid conflicts with other adapters in this file
+		cleanLoopKernelAdapter := &sessionKernelAdapter{kernel: kernel}
+		cleanLoopVSAdapter := &sessionVirtualStoreAdapter{vs: virtualStore}
+		cleanLoopLLMAdapter := &sessionLLMAdapter{client: llmClient}
+
+		// Create ConfigFactory with default config atoms
+		// This provides tool sets and policies for different intent verbs
+		configFactory := prompt.NewDefaultConfigFactory()
+
+		// Create the clean execution loop
+		sessionExecutor = session.NewExecutor(
+			cleanLoopKernelAdapter,
+			cleanLoopVSAdapter,
+			cleanLoopLLMAdapter,
+			jitCompiler,
+			configFactory,
+			transducer,
+		)
+
+		// Create the JIT-driven subagent spawner with default config
+		sessionSpawner = session.NewSpawner(
+			cleanLoopKernelAdapter,
+			cleanLoopVSAdapter,
+			cleanLoopLLMAdapter,
+			jitCompiler,
+			configFactory,
+			transducer,
+			session.DefaultSpawnerConfig(),
+		)
+
+		logging.Boot("Clean loop executor and spawner initialized")
+
 		// Create Tool Store for persisting full tool execution results
 		var toolStore *store.ToolStore
 		toolsDBPath := filepath.Join(workspace, ".nerd", "tools.db")
@@ -678,52 +721,19 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		}
 
 		logStep("Registering shard types...")
-		shardMgr.RegisterShard("coder", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := coder.NewCoderShard()
-			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
-			if promptAssembler != nil {
-				shard.SetPromptAssembler(promptAssembler)
-			}
-			return shard
-		})
-		shardMgr.RegisterShard("reviewer", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := reviewer.NewReviewerShard()
-			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
-			if promptAssembler != nil {
-				shard.SetPromptAssembler(promptAssembler)
-			}
-			return shard
-		})
-		shardMgr.RegisterShard("tester", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := tester.NewTesterShard()
-			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
-			if promptAssembler != nil {
-				shard.SetPromptAssembler(promptAssembler)
-			}
-			return shard
-		})
-		shardMgr.RegisterShard("researcher", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := researcher.NewResearcherShard()
-			shard.SetLLMClient(llmClient)
-			if localDB != nil {
-				shard.SetLocalDB(localDB)
-			}
-			shard.SetWorkspaceRoot(workspace)
-			context7Key := appCfg.Context7APIKey
-			if context7Key == "" {
-				context7Key = os.Getenv("CONTEXT7_API_KEY")
-			}
-			if context7Key != "" {
-				shard.SetContext7APIKey(context7Key)
-			}
-			if promptAssembler != nil {
-				shard.SetPromptAssembler(promptAssembler)
-			}
-			return shard
-		})
+		// =========================================================================
+		// DOMAIN SHARDS REMOVED - JIT CLEAN LOOP ARCHITECTURE
+		// =========================================================================
+		// The following domain shards have been replaced by the JIT clean loop:
+		// - coder: Now handled by session.Executor with /coder persona atoms
+		// - reviewer: Now handled by session.Executor with /reviewer persona atoms
+		// - tester: Now handled by session.Executor with /tester persona atoms
+		// - researcher: Now handled by session.Executor with /researcher persona atoms
+		//
+		// The JIT prompt compiler assembles the appropriate persona, skills, and
+		// context based on user intent. ConfigFactory provides tool sets per intent.
+		// See: internal/mangle/intent_routing.mg for routing rules
+		// =========================================================================
 
 		// System Shards
 		shardMgr.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
@@ -806,17 +816,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		})
 
 		// =========================================================================
-		// GAP-001 FIX: Register 5 missing shards (legislator, campaign_runner,
-		// nemesis, tool_generator, requirements_interrogator)
+		// Register remaining system shards (legislator, campaign_runner,
+		// requirements_interrogator) - domain shards moved to JIT clean loop
 		// =========================================================================
-
-		// Helper: wrap store.LearningStore to implement core.LearningStore interface
-		getLearningStore := func() core.LearningStore {
-			if learningStore == nil {
-				return nil
-			}
-			return &coreLearningStoreAdapter{store: learningStore}
-		}
 
 		// Register RequirementsInterrogator - Socratic clarification shard
 		shardMgr.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
@@ -826,36 +828,13 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 
-		// Register ToolGenerator - Ouroboros tool creation shard
-		shardMgr.RegisterShard("tool_generator", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := tool_generator.NewToolGeneratorShard(id, config)
-			shard.SetParentKernel(kernel)
-			shard.SetWorkspaceRoot(workspace) // MUST be called before SetLLMClient
-			shard.SetLLMClient(llmClient)
-			if ls := getLearningStore(); ls != nil {
-				shard.SetLearningStore(ls)
-			}
-			shard.SetVirtualStore(virtualStore)
-			return shard
-		})
-
-		// Register Nemesis - Adversarial co-evolution shard
-		shardMgr.RegisterShard("nemesis", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := nemesis.NewNemesisShard()
-			shard.SetParentKernel(kernel)
-			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
-			if ls := getLearningStore(); ls != nil {
-				shard.SetLearningStore(ls)
-			}
-			// Initialize Armory for regression test persistence
-			armory := nemesis.NewArmory(filepath.Join(workspace, ".nerd"))
-			shard.SetArmory(armory)
-			if promptAssembler != nil {
-				shard.SetPromptAssembler(promptAssembler)
-			}
-			return shard
-		})
+		// =========================================================================
+		// TOOL_GENERATOR AND NEMESIS REMOVED - JIT CLEAN LOOP
+		// =========================================================================
+		// - tool_generator: Now handled via Ouroboros through VirtualStore
+		// - nemesis: Now handled via Thunderdome adversarial testing
+		// The JIT system provides the appropriate tools and context.
+		// =========================================================================
 
 		// Register Legislator - Runtime rule compilation shard
 		shardMgr.RegisterShard("legislator", func(id string, config types.ShardConfig) types.ShardAgent {
@@ -936,8 +915,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
-		kernelAdapter := core.NewAutopoiesisBridge(kernel)
-		autopoiesisOrch.SetKernel(kernelAdapter)
+		autopoiesisKernelAdapter := core.NewAutopoiesisBridge(kernel)
+		autopoiesisOrch.SetKernel(autopoiesisKernelAdapter)
 
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
@@ -978,8 +957,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
 
-		// Start Mangle file watcher for .nerd/mangle/*.mg validation
-		logStep("Starting Mangle file watcher...")
+		shards.RegisterSystemShardProfiles(shardMgr)
+
+		// HEAVY OPERATION: Start System Shards (Async but setup overhead)
+		logStep("Starting system shards...")
 		var mangleWatcher *core.MangleWatcher
 		if mw, err := core.NewMangleWatcher(workspace, kernel); err == nil {
 			mangleWatcher = mw
@@ -1028,6 +1009,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				ToolEventBus:          toolEventBus,
 				ToolStore:             toolStore,
 				PromptEvolver:         promptEvolver,
+				// Clean Loop Architecture
+				SessionExecutor: sessionExecutor,
+				SessionSpawner:  sessionSpawner,
 			},
 		}
 	}
@@ -1572,4 +1556,101 @@ func (a *coreLearningStoreAdapter) Close() error {
 		return nil
 	}
 	return a.store.Close()
+}
+
+// =============================================================================
+// SESSION ADAPTERS (Clean Loop Architecture)
+// =============================================================================
+// These adapters bridge core.* types to types.* interfaces required by
+// the session.Executor and session.Spawner.
+
+// sessionKernelAdapter adapts *core.RealKernel to types.Kernel.
+type sessionKernelAdapter struct {
+	kernel *core.RealKernel
+}
+
+func (a *sessionKernelAdapter) LoadFacts(facts []types.Fact) error {
+	return a.kernel.LoadFacts(facts)
+}
+
+func (a *sessionKernelAdapter) Query(predicate string) ([]types.Fact, error) {
+	return a.kernel.Query(predicate)
+}
+
+func (a *sessionKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
+	return a.kernel.QueryAll()
+}
+
+func (a *sessionKernelAdapter) Assert(fact types.Fact) error {
+	return a.kernel.Assert(fact)
+}
+
+func (a *sessionKernelAdapter) Retract(predicate string) error {
+	return a.kernel.Retract(predicate)
+}
+
+func (a *sessionKernelAdapter) RetractFact(fact types.Fact) error {
+	return a.kernel.RetractFact(fact)
+}
+
+func (a *sessionKernelAdapter) UpdateSystemFacts() error {
+	return a.kernel.UpdateSystemFacts()
+}
+
+func (a *sessionKernelAdapter) Reset() {
+	a.kernel.Reset()
+}
+
+func (a *sessionKernelAdapter) AppendPolicy(policy string) {
+	a.kernel.AppendPolicy(policy)
+}
+
+func (a *sessionKernelAdapter) RetractExactFactsBatch(facts []types.Fact) error {
+	return a.kernel.RetractExactFactsBatch(facts)
+}
+
+func (a *sessionKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	return a.kernel.RemoveFactsByPredicateSet(predicates)
+}
+
+// sessionVirtualStoreAdapter adapts *core.VirtualStore to types.VirtualStore.
+// NOTE: VirtualStore doesn't directly expose these methods yet.
+// The executor's tool execution is TODO and will route through VirtualStore.
+// For now, this adapter provides stub implementations.
+type sessionVirtualStoreAdapter struct {
+	vs *core.VirtualStore
+}
+
+func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
+	// TODO: Route through VirtualStore's FileEditor when wired
+	// For now, use os.ReadFile directly as a fallback
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(data), "\n"), nil
+}
+
+func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
+	// TODO: Route through VirtualStore's FileEditor when wired
+	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+}
+
+func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	// TODO: Route through VirtualStore's executor when wired
+	// For now, return an error indicating the method is not yet wired
+	return "", "", fmt.Errorf("exec not yet wired through VirtualStore")
+}
+
+// sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
+type sessionLLMAdapter struct {
+	client perception.LLMClient
+}
+
+func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
+	return a.client.Complete(ctx, prompt)
+}
+
+func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
