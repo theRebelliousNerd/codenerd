@@ -1,9 +1,23 @@
 # internal/shards/system - Type S Permanent System Shards
 
+**Status:** ACTIVE - System shards remain in JIT-driven architecture
+**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
+
+---
+
+## ⚠️ Note on Architecture Changes
+
+As of **December 2024**, the hardcoded shard architecture (CoderShard, TesterShard, etc.) has been **replaced** by the JIT-driven **Session Executor**. However, **Type S (System) shards remain active** as they provide core OODA loop functionality.
+
+**What Changed:**
+- **Removed:** Type A/B Generalist/Specialist shards (CoderShard, TesterShard, etc.) - Replaced by Session Executor + JIT
+- **Remains:** Type S System shards (this package) - Core OODA loop infrastructure
+
 This package implements Type S (System) permanent shards that provide core OODA loop functionality for codeNERD. These shards run continuously in the background, managing perception, decision-making, safety enforcement, and action routing.
 
 **Related Packages:**
-- [internal/core](../../core/CLAUDE.md) - Kernel, VirtualStore, ShardManager consumed by all shards
+- [internal/session](../../session/CLAUDE.md) - **NEW:** Session Executor for agent execution
+- [internal/core](../../core/CLAUDE.md) - Kernel, VirtualStore integration
 - [internal/perception](../../perception/CLAUDE.md) - Intent parsing used by PerceptionFirewallShard
 - [internal/articulation](../../articulation/CLAUDE.md) - Piggyback Protocol for LLM response handling
 - [internal/mangle/feedback](../../mangle/feedback/CLAUDE.md) - FeedbackLoop for rule generation

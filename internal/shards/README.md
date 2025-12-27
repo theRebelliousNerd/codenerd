@@ -1,322 +1,321 @@
 # internal/shards/
 
-ShardAgents are ephemeral sub-kernels for parallel task execution. Each shard owns its Mangle kernel instance, allowing isolated reasoning and safe concurrent operation.
+**Status:** LEGACY - Implementations removed (December 2024)
+**Current Architecture:** See [JIT-Driven Execution Model](../../.claude/skills/codenerd-builder/references/jit-execution-model.md)
 
-## Shard Types
+---
 
-### Type A: Ephemeral Generalists
+## ⚠️ Major Architectural Change
 
-> Spawn → Execute → Die. RAM only.
+As of **December 2024**, this directory no longer contains shard implementations. The **hardcoded shard architecture has been completely replaced** by the **JIT-driven execution model**.
 
-These shards handle one-off tasks and are garbage collected after completion.
+### What Changed?
 
-| Shard | File | Purpose |
-|-------|------|---------|
-| **CoderShard** | `coder.go` | Code generation, refactoring, bug fixes |
-| **TesterShard** | `tester.go` | Test creation, TDD loops, coverage |
-| **ReviewerShard** | `reviewer.go` | Code review, security audit |
+- **Removed:** All shard implementations (~35,000 lines)
+  - `internal/shards/coder/` - DELETED
+  - `internal/shards/tester/` - DELETED
+  - `internal/shards/reviewer/` - DELETED
+  - `internal/shards/researcher/` - DELETED
+  - `internal/shards/nemesis/` - DELETED
+  - `internal/shards/tool_generator/` - DELETED
 
-### Type B: Persistent Specialists
+- **Replaced By:** JIT-driven session-based execution (~1,600 lines)
+  - `internal/session/executor.go` - Universal execution loop
+  - `internal/session/spawner.go` - Dynamic subagent creation
+  - `internal/session/subagent.go` - Execution context
+  - `internal/mangle/intent_routing.mg` - Declarative routing logic
+  - `internal/prompt/config_factory.go` - AgentConfig generation
 
-> Pre-populated with domain knowledge. SQLite-backed.
-
-These shards maintain knowledge across sessions.
-
-| Shard | Directory | Purpose |
-|-------|-----------|---------|
-| **ResearcherShard** | `researcher/` | Deep research, knowledge ingestion |
-
-### Type S: System Shards
-
-> Built-in capabilities, always available.
-
-| Shard | Directory | Purpose |
-|-------|-----------|---------|
-| **FileShard** | `system/` | File read/write/search |
-| **ShellShard** | `system/` | Command execution |
-| **GitShard** | `system/` | Version control |
-
-### Type O: Ouroboros
-
-> Self-generating tools.
-
-| Shard | File | Purpose |
-|-------|------|---------|
-| **ToolGeneratorShard** | `tool_generator.go` | Creates new tools at runtime |
-
-## Structure
+### Current Directory Structure
 
 ```
 shards/
-├── registration.go      # Shard registry and factory
-├── coder.go            # CoderShard implementation
-├── tester.go           # TesterShard implementation
-├── reviewer.go         # ReviewerShard implementation
-├── tool_generator.go   # Ouroboros Loop
-├── researcher/         # Deep research subsystem
-│   ├── researcher.go   # ResearcherShard
-│   ├── extract.go      # Knowledge extraction
-│   └── CLAUDE.md       # Subsystem docs
-└── system/             # Built-in shards
-    ├── base.go         # Common system shard interface
-    ├── file.go         # FileShard
-    ├── shell.go        # ShellShard
-    └── git.go          # GitShard
+├── registration.go      # Legacy command mapping to intents
+└── system/             # System utilities (not shard implementations)
+    └── CLAUDE.md       # System component docs
 ```
 
-## Shard Interface
+**Note:** `registration.go` remains only to map legacy `/coder`, `/tester` commands to intents for backward compatibility.
 
-Every shard implements:
+---
 
+## Migration Guide: Old Shards → New System
+
+### Old Shard Types → New SubAgent Types
+
+| Old (Deprecated) | New (Current) |
+|------------------|---------------|
+| **Type A: Ephemeral Generalists** | **Ephemeral SubAgents** |
+| Spawn → Execute → Die, RAM only | Same concept, but configured via JIT |
+| CoderShard, TesterShard, ReviewerShard | persona(/coder), persona(/tester), persona(/reviewer) |
+| | |
+| **Type B: Persistent Specialists** | **Persistent SubAgents** |
+| Pre-populated with knowledge, SQLite | Multi-turn conversation, maintains history |
+| ResearcherShard | persona(/researcher) with custom ConfigAtoms |
+| | |
+| **Type S: System Shards** | **System SubAgents** |
+| Built-in capabilities | Long-running background services |
+| FileShard, ShellShard, GitShard | VirtualStore predicates + system tools |
+| | |
+| **Type O: Ouroboros** | **Autopoiesis + Prompt Evolution** |
+| ToolGeneratorShard | Remains in `internal/autopoiesis/` |
+
+### How Tasks Were Routed: Old vs New
+
+**Old (Hardcoded in ShardManager):**
 ```go
-type Shard interface {
-    ID() string
-    Config() ShardConfig
-    State() ShardState
-    Execute(ctx context.Context, task string) (string, error)
-    Shutdown() error
-}
-
-type ShardConfig struct {
-    Type           ShardType    // /generalist, /specialist
-    MountStrategy  MountType    // /ram, /sqlite
-    KnowledgeBase  string       // Path to knowledge DB
-    Permissions    []Permission // Allowed operations
-}
-
-type ShardState struct {
-    Status    Status    // /idle, /running, /failed
-    StartedAt time.Time
-    TaskCount int
-    LastError string
-}
-```
-
-## Lifecycle
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    SHARD MANAGER                        │
-│               (core/shards/manager.go)                  │
-└────────────────────────┬────────────────────────────────┘
-                         │
-         ┌───────────────┼───────────────┐
-         ▼               ▼               ▼
-    ┌─────────┐     ┌─────────┐     ┌─────────┐
-    │ Spawn() │     │Execute()│     │Shutdown │
-    │         │────▶│         │────▶│   ()    │
-    └─────────┘     └─────────┘     └─────────┘
-         │               │               │
-         ▼               ▼               ▼
-    ┌─────────┐     ┌─────────┐     ┌─────────┐
-    │ Create  │     │  Run    │     │ Collect │
-    │ Kernel  │     │  Task   │     │ Facts   │
-    └─────────┘     └─────────┘     └─────────┘
-```
-
-## CoderShard
-
-Handles all code modification tasks.
-
-### Capabilities
-
-- **Generate** - Create new code from spec
-- **Refactor** - Restructure existing code
-- **Fix** - Debug and patch bugs
-- **Explain** - Document code behavior
-
-### Task Format
-
-```json
-{
-  "action": "fix",
-  "target": "internal/auth/handler.go",
-  "context": "The login function fails for users with special characters",
-  "constraints": ["maintain backwards compatibility", "add tests"]
-}
-```
-
-### Autopoiesis Integration
-
-CoderShard tracks acceptance/rejection patterns:
-
-```go
-// On user rejection
-c.trackRejection(action, reason)
-
-// After 3 rejections of same pattern
-// → promotes to long-term preference
-```
-
-## TesterShard
-
-Handles test creation and the TDD repair loop.
-
-### Capabilities
-
-- **Generate** - Create tests for existing code
-- **TDD Loop** - Write → Run → Analyze → Fix
-- **Coverage** - Identify untested paths
-- **Mutation** - Test quality via mutation testing
-
-### TDD Repair Loop
-
-```mangle
-next_action(/read_error_log) :-
-    test_state(/failing),
-    retry_count(N), N < 3.
-
-next_action(/analyze_root_cause) :-
-    test_state(/log_read).
-
-next_action(/generate_patch) :-
-    test_state(/cause_found).
-
-next_action(/run_tests) :-
-    test_state(/patch_applied).
-
-next_action(/escalate_to_user) :-
-    test_state(/failing),
-    retry_count(N), N >= 3.
-```
-
-## ReviewerShard
-
-Handles code review with security focus.
-
-### Capabilities
-
-- **Review** - General code review
-- **Security** - OWASP Top 10 scanning
-- **Style** - Code style enforcement
-- **Architecture** - Design pattern analysis
-
-### Output Format
-
-```json
-{
-  "severity": "warning",
-  "file": "auth/handler.go",
-  "line": 42,
-  "code": "SEC001",
-  "message": "SQL injection vulnerability",
-  "suggestion": "Use parameterized queries"
-}
-```
-
-## ResearcherShard
-
-Deep research with persistent knowledge.
-
-### Capabilities
-
-- **Web Research** - Fetch and parse documentation
-- **llms.txt** - Context7-style knowledge ingestion
-- **Knowledge Atoms** - Extract and store facts
-- **Specialist Hydration** - Pre-populate new specialists
-
-See [researcher/CLAUDE.md](researcher/CLAUDE.md) for detailed docs.
-
-## ToolGeneratorShard
-
-The Ouroboros Loop - self-generating capabilities.
-
-### Trigger
-
-```mangle
-missing_tool_for(IntentID, Cap) :-
-    user_intent(IntentID, _, _, _, _),
-    goal_requires(_, Cap),
-    !has_capability(Cap).
-
-next_action(/generate_tool) :-
-    missing_tool_for(_, _).
-```
-
-### Output
-
-Generates new tool definitions that are hot-loaded into the runtime.
-
-## Creating a New Shard
-
-### 1. Define the Shard
-
-```go
-type MyShard struct {
-    id           string
-    config       core.ShardConfig
-    state        core.ShardState
-    kernel       *core.RealKernel
-    llmClient    perception.LLMClient
-    virtualStore *core.VirtualStore
-}
-
-func NewMyShard(id string, deps Dependencies) *MyShard {
-    return &MyShard{
-        id: id,
-        config: core.ShardConfig{
-            Type:          core.ShardTypeGeneralist,
-            MountStrategy: core.MountRAM,
-        },
-        state: core.ShardState{Status: core.StatusIdle},
+// internal/core/shard_manager.go (DELETED)
+func (sm *ShardManager) Route(intent UserIntent) Shard {
+    switch intent.Verb {
+    case "/fix", "/implement", "/refactor":
+        return sm.GetShard("coder")
+    case "/test":
+        return sm.GetShard("tester")
+    case "/review":
+        return sm.GetShard("reviewer")
+    // ... 200 more lines of hardcoded routing
     }
 }
 ```
 
-### 2. Implement the Interface
+**New (Declarative Mangle Logic):**
+```mangle
+# internal/mangle/intent_routing.mg
+persona(/coder) :- user_intent(_, _, /fix, _, _).
+persona(/coder) :- user_intent(_, _, /implement, _, _).
+persona(/coder) :- user_intent(_, _, /refactor, _, _).
 
+persona(/tester) :- user_intent(_, _, /test, _, _).
+
+persona(/reviewer) :- user_intent(_, _, /review, _, _).
+```
+
+### How Configurations Were Set: Old vs New
+
+**Old (Hardcoded in Each Shard):**
 ```go
-func (s *MyShard) Execute(ctx context.Context, task string) (string, error) {
-    s.state.Status = core.StatusRunning
-    defer func() { s.state.Status = core.StatusIdle }()
+// internal/shards/coder/coder.go (DELETED)
+type CoderShard struct {
+    // Hardcoded tools
+    allowedTools []string{"file_read", "file_write", "shell_exec", "git"}
 
-    // 1. Parse task
-    // 2. Assert facts to kernel
-    // 3. Query for next_action
-    // 4. Execute action
-    // 5. Return result + facts
+    // Hardcoded policies
+    policies []string{"code_safety.mg", "git_workflow.mg"}
 
-    return result, nil
+    // Hardcoded system prompt
+    systemPrompt = "You are a code generation expert..."
 }
 ```
 
-### 3. Register the Shard
+**New (JIT-Compiled Configuration):**
+```go
+// internal/prompt/config_factory.go
+ConfigAtom{
+    Tools:    ["file_read", "file_write", "shell_exec", "git"],
+    Policies: ["code_safety.mg", "git_workflow.mg"],
+    Priority: 10,
+}
+// Merged at runtime + JIT-compiled system prompt
+```
 
-In `registration.go`:
+---
+
+## Current Architecture
+
+### Intent → Persona → Configuration Flow
+
+```
+User Input: "Fix the bug in auth.go"
+     ↓
+Perception Transducer
+     ↓
+user_intent("id", /command, /fix, "auth.go", /none)
+     ↓
+Intent Routing (Mangle Logic)
+     Query: persona(P) :- user_intent(_, _, /fix, _, _).
+     Result: persona(/coder)
+     ↓
+ConfigFactory
+     GetAtom("/coder") → ConfigAtom{
+       Tools: ["file_read", "file_write", "shell_exec", "git"],
+       Policies: ["code_safety.mg", "git_workflow.mg"]
+     }
+     ↓
+JIT Compiler
+     Compile system prompt from atoms in internal/prompt/atoms/identity/coder.yaml
+     ↓
+Session Executor
+     Execute(ctx, AgentConfig{
+       IdentityPrompt: "You are a code fixer...",
+       Tools: [...],
+       Policies: [...]
+     })
+     ↓
+LLM + VirtualStore + Safety Gates
+     ↓
+Response
+```
+
+### Available Personas
+
+| Persona | Intent Verbs | Tools | Policies |
+|---------|--------------|-------|----------|
+| **Coder** | fix, implement, refactor, create, modify | file_write, shell_exec, git, build | code_safety.mg |
+| **Tester** | test, cover, verify, validate | test_exec, coverage_analyzer | test_strategy.mg |
+| **Reviewer** | review, audit, check, analyze | hypothesis_gen, impact_analysis | review_policy.mg |
+| **Researcher** | research, learn, document, explore | web_fetch, doc_parse, kb_ingest | research_strategy.mg |
+
+---
+
+## Adding a New "Shard" (Persona)
+
+**Old Way (Required 500-2000 lines of Go):**
+1. Implement `Shard` interface
+2. Create struct with kernel, virtualStore, llmClient
+3. Implement `Execute()` method with task parsing, LLM calls, etc.
+4. Register in ShardManager
+5. Write tests
+6. Recompile binary
+
+**New Way (Requires ~20 lines total):**
+
+### Step 1: Add Intent Routing Rule
+
+```mangle
+# File: internal/mangle/intent_routing.mg
+persona(/my_new_agent) :- user_intent(_, _, /my_verb, _, _).
+```
+
+### Step 2: Add Prompt Atoms
+
+```yaml
+# File: internal/prompt/atoms/identity/my_new_agent.yaml
+id: my_new_agent_identity
+category: identity
+content: |
+  You are a specialized agent for [purpose].
+  Your capabilities include:
+  - [capability 1]
+  - [capability 2]
+```
+
+### Step 3: (Optional) Define ConfigAtom
 
 ```go
-func init() {
-    RegisterShard("myshard", NewMyShard)
+// File: internal/prompt/config_defaults.go
+// Or use default provider which auto-detects from persona name
+```
+
+**That's it!** The Session Executor will automatically:
+- Route intents with `/my_verb` to `persona(/my_new_agent)`
+- Load the identity prompt atoms
+- Generate AgentConfig with appropriate tools and policies
+- Execute the LLM interaction
+
+**No Go code. No recompilation. No tests beyond existing executor tests.**
+
+---
+
+## Where Did Shard Logic Go?
+
+### CoderShard Logic → Multiple Places
+
+| Old CoderShard Method | New Location |
+|----------------------|--------------|
+| `parseTask()` | `internal/mangle/intent_routing.mg` (declarative rules) |
+| `buildContext()` | `internal/session/executor.go` (JIT Compiler integration) |
+| `generateCode()` | LLM with JIT-compiled prompt |
+| `applyEdits()` | VirtualStore tool execution |
+| `runBuild()` | VirtualStore `build_check` tool |
+| `trackLearning()` | `internal/autopoiesis/` (unchanged) |
+
+### TesterShard Logic → Multiple Places
+
+| Old TesterShard Method | New Location |
+|----------------------|--------------|
+| `detectFramework()` | `internal/mangle/intent_routing.mg` (test_framework rules) |
+| `generateTests()` | LLM with JIT-compiled prompt |
+| `runTests()` | VirtualStore `test_exec` tool |
+| `parseCoverage()` | VirtualStore tool |
+| `tddRepairLoop()` | `internal/mangle/policy.mg` (TDD rules unchanged) |
+
+### ReviewerShard Logic → Multiple Places
+
+| Old ReviewerShard Method | New Location |
+|----------------------|--------------|
+| `preflightChecks()` | VirtualStore `build_check`, `vet_check` tools |
+| `generateHypotheses()` | `internal/mangle/policy.mg` (hypothesis rules) |
+| `impactAnalysis()` | `internal/world/holographic.go` (unchanged) |
+| `verifyWithLLM()` | LLM with JIT-compiled prompt |
+| `scoreReview()` | LLM response parsing |
+
+---
+
+## Backward Compatibility
+
+### Legacy Commands Still Work
+
+The `/coder`, `/tester`, `/reviewer` commands still function via `registration.go`:
+
+```go
+// internal/shards/registration.go
+func MapLegacyCommand(cmd string) string {
+    switch cmd {
+    case "/coder":   return "fix"
+    case "/tester":  return "test"
+    case "/reviewer": return "review"
+    default:         return cmd
+    }
 }
 ```
 
-### 4. Add Mangle Rules
+### Migration Path for Users
 
-Create `internal/mangle/myshard.gl`:
+Users can continue using:
+- `/coder "fix bug in auth.go"` → routes to `persona(/coder)`
+- `/tester "run tests"` → routes to `persona(/tester)`
+- `/reviewer "check for issues"` → routes to `persona(/reviewer)`
 
-```mangle
-# MyShard-specific rules
-next_action(/my_action) :-
-    shard_type(/myshard),
-    task_requires(/my_capability).
-```
+Or use natural language:
+- "Fix bug in auth.go" → auto-routes to `persona(/coder)`
+- "Run tests" → auto-routes to `persona(/tester)`
+- "Review this code" → auto-routes to `persona(/reviewer)`
 
-## Permissions
+---
 
-Shards operate under constitutional safety:
+## Key Benefits
 
-```mangle
-permitted(Action) :-
-    shard_permission(ShardID, Action),
-    !blocked_by_policy(Action).
-```
+### 1. Massive Code Reduction
+- **95% less code** (35,000 → 1,600 lines)
+- Easier to maintain and debug
+- Fewer tests needed
 
-### Permission Types
+### 2. Runtime Configurability
+- Update behavior via `.mg` files or YAML
+- No recompilation required
+- Hot-reload friendly (future)
 
-| Permission | Description |
-|------------|-------------|
-| `/read_file` | Read filesystem |
-| `/write_file` | Write filesystem |
-| `/exec_cmd` | Execute commands |
-| `/network` | Network access |
-| `/git_write` | Git modifications |
+### 3. Zero Boilerplate for New Personas
+- Add Mangle rule + prompt atoms
+- No Go implementation required
+- Immediate availability
+
+### 4. Cleaner Architecture
+- Declarative routing (Mangle logic)
+- Composable configurations (ConfigAtoms)
+- Universal execution (Session Executor)
+
+---
+
+## See Also
+
+- [JIT-Driven Execution Model](../../.claude/skills/codenerd-builder/references/jit-execution-model.md) - Complete guide to new architecture
+- [Intent Routing Rules](../mangle/intent_routing.mg) - Declarative routing logic
+- [Session Executor](../session/executor.go) - Universal execution loop
+- [ConfigFactory](../prompt/config_factory.go) - AgentConfig generation
+- [Architecture Changes](../../conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
+
+---
+
+**Last Updated:** December 27, 2024
+**Architecture Version:** 2.0.0 (JIT-Driven)

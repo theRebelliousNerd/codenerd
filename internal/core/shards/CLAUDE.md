@@ -1,13 +1,26 @@
-# internal/core/shards - ShardManager Core Components
+# internal/core/shards - Legacy Shard Infrastructure
 
-This package provides the core ShardManager implementation and shard infrastructure for codeNERD.
+**Status:** LEGACY - Will be phased out (December 2024)
+**Current Architecture:** See [internal/session/](../../session/CLAUDE.md) for Session Executor
+
+---
+
+## ⚠️ Major Architectural Change
+
+As of **December 2024**, the `ShardManager` (`internal/core/shard_manager.go`) has been **removed** and replaced by the **Session Executor** in `internal/session/`.
+
+This directory contains legacy shard infrastructure that may still be used for backward compatibility. New code should use:
+- **Session Executor** (`internal/session/executor.go`) - Universal execution loop
+- **Spawner** (`internal/session/spawner.go`) - Dynamic subagent creation
+- **SubAgent** (`internal/session/subagent.go`) - Execution context
 
 **Related Packages:**
+- [internal/session](../../session/CLAUDE.md) - **NEW:** Session-based execution (replaces ShardManager)
 - [internal/core](../CLAUDE.md) - Kernel and VirtualStore integration
-- [internal/shards](../../shards/CLAUDE.md) - Shard implementations
-- [internal/types](../../types/CLAUDE.md) - ShardAgent interface
+- [internal/shards](../../shards/CLAUDE.md) - **DEPRECATED:** Legacy shard implementations
+- [internal/types](../../types/CLAUDE.md) - ShardAgent interface (legacy)
 
-## Architecture
+## Architecture (LEGACY)
 
 This subpackage contains the core shard lifecycle management:
 - **ShardManager**: Orchestrates all shard agents

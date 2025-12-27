@@ -1,8 +1,48 @@
-# Prompt System (JIT Compiler)
+# Prompt System (JIT Compiler + ConfigFactory)
 
-`internal/prompt` implements codeNERD’s JIT Prompt Compiler: prompts are assembled at runtime from **prompt atoms** based on the current `CompilationContext` plus kernel/world state.
+**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
 
-This directory is the boundary between the deterministic executive (Mangle kernel + world model) and the creative center (LLM). Every shard LLM call should flow through this pipeline.
+`internal/prompt` implements codeNERD's JIT Prompt Compiler and ConfigFactory: prompts and agent configurations are assembled at runtime from **prompt atoms** and **ConfigAtoms** based on the current `CompilationContext` plus kernel/world state.
+
+This directory is the boundary between the deterministic executive (Mangle kernel + world model) and the creative center (LLM). Every agent LLM call flows through this pipeline via the Session Executor.
+
+## Key Components
+
+1. **JIT Prompt Compiler** (`compiler.go`) - Assembles system prompts from prompt atoms
+2. **ConfigFactory** (`config_factory.go`) - Generates `AgentConfig` objects from intent
+3. **Prompt Atoms** (`atoms/`) - Identity, capabilities, and context fragments
+4. **ConfigAtoms** (declarative) - Tools and policies per intent
+
+These components replaced ~35,000 lines of hardcoded shard implementations with declarative, runtime-configurable agent behavior.
+
+## ConfigFactory Integration (NEW)
+
+The ConfigFactory (`config_factory.go`) is the second half of the JIT system, generating `AgentConfig` objects that define:
+- **Tools**: Which tools the agent can use (enforced by Session Executor)
+- **Policies**: Which Mangle policy files govern behavior
+- **Mode**: Execution mode (SingleTurn, Campaign, etc.)
+
+**Flow:**
+```
+User Input → Intent Routing → persona(/coder)
+                                  ↓
+                    ConfigFactory.GetAtom("/coder")
+                                  ↓
+                    ConfigAtom{Tools: [...], Policies: [...]}
+                                  ↓
+                    ConfigFactory.Generate(ctx, compilationResult, "/fix")
+                                  ↓
+                         AgentConfig (complete config)
+                                  ↓
+                           Session Executor
+```
+
+**ConfigAtoms** are declarative configurations stored per intent:
+- `/fix` → `["file_read", "file_write", "git"]` + `["code_safety.mg"]`
+- `/test` → `["file_read", "test_exec", "coverage"]` + `["test_strategy.mg"]`
+- `/review` → `["file_read", "hypothesis_gen"]` + `["review_policy.mg"]`
+
+See: `config_factory.go` and `internal/jit/config/types.go`
 
 ## Atom sources (where prompt text comes from)
 
@@ -20,13 +60,13 @@ The compiler can draw candidate atoms from three places:
    - Boot seeding: when available, the baked default corpus (`internal/core/defaults/prompt_corpus.db`, embedded into the binary) is materialized to this path via `prompt.MaterializeDefaultPromptCorpus(...)`.
    - Boot ingestion: hybrid `.mg` files can emit `PROMPT:` directives which get ingested into the corpus (see `internal/system/factory.go` and `internal/core/hybrid_loader.go`).
 
-3. **Agent / shard DBs (agent-scoped)**
-   - Convention: `.nerd/shards/{agent}_knowledge.db`
+3. **Agent DBs (agent-scoped, formerly shard DBs)**
+   - Convention: `.nerd/agents/{agent}_knowledge.db` (legacy: `.nerd/shards/{agent}_knowledge.db`)
    - YAML source: `.nerd/agents/{agent}/prompts.yaml`
    - Synced via:
      - `prompt.LoadAgentPrompts(...)` (see `internal/prompt/loader.go`), or
      - `internal/prompt/sync.AgentSynchronizer` (boot sync).
-   - Registered via: `compiler.RegisterShardDB(agent, db)` or `prompt.RegisterAgentDBWithJIT(...)`.
+   - Registered via: `compiler.RegisterAgentDB(agent, db)` or `prompt.RegisterAgentDBWithJIT(...)`.
 
 ## Atom format (YAML)
 
@@ -36,7 +76,7 @@ Atoms are defined as YAML objects (or a YAML list) with fields like:
 - `category` (string): one of `identity|protocol|safety|methodology|...` (see `internal/prompt/atoms.go`)
 - `content` (string, markdown): the prompt text (or `content_file` for file-backed content)
 - Optional composition: `priority`, `is_mandatory`, `is_exclusive`, `depends_on`, `conflicts_with`
-- Optional selectors: `operational_modes`, `campaign_phases`, `build_layers`, `init_phases`, `northstar_phases`, `ouroboros_stages`, `intent_verbs`, `shard_types`, `languages`, `frameworks`, `world_states`
+- Optional selectors: `operational_modes`, `campaign_phases`, `build_layers`, `init_phases`, `northstar_phases`, `ouroboros_stages`, `intent_verbs`, `agent_types` (formerly `shard_types`), `languages`, `frameworks`, `world_states`
 - Optional polymorphism: `description`, `content_concise`, `content_min`
 
 See any file under `internal/prompt/atoms/` for examples.
@@ -87,13 +127,49 @@ When you change built-in atoms under `internal/prompt/atoms/`, regenerate the ba
 ## Where to add new prompt behavior
 
 - **Core/system behavior**: add new atoms under `internal/prompt/atoms/<category>/...` (they get embedded into the binary).
-- **Project/user behavior**: add atoms to `.nerd/agents/<agent>/prompts.yaml` and sync into `.nerd/shards/<agent>_knowledge.db`.
+- **Project/user behavior**: add atoms to `.nerd/agents/<agent>/prompts.yaml` and sync into `.nerd/agents/<agent>_knowledge.db`.
 - **Hybrid Mangle files**: add `PROMPT:` directives to `.mg` hybrid files when you want "one file" that contains both logic and prompt atoms; these are ingested into `.nerd/prompts/corpus.db` at boot.
+
+## Session Executor Integration (NEW)
+
+The JIT Compiler and ConfigFactory work together to provide complete agent configuration to the Session Executor:
+
+```
+Session Executor receives task
+  ↓
+1. Transducer → Intent
+  ↓
+2. BuildCompilationContext(intent) → CompilationContext
+  ↓
+3. JITCompiler.Compile(ctx, compilationCtx) → CompilationResult (system prompt)
+  ↓
+4. ConfigFactory.Generate(ctx, compileResult, intentVerb) → AgentConfig (tools + policies)
+  ↓
+5. LLM call with:
+   - System prompt (from JIT)
+   - Tools (from ConfigFactory)
+   - Policies loaded into kernel
+  ↓
+6. Tool calls enforced against AgentConfig.Tools.AllowedTools
+  ↓
+Response
+```
+
+**Key Integration Points:**
+- `executor.buildCompilationContext(intent)` - Creates CompilationContext from current state
+- `executor.jitCompiler.Compile(ctx, compilationCtx)` - Assembles system prompt
+- `executor.configFactory.Generate(ctx, result, intent.Verb)` - Generates AgentConfig
+- `executor.isToolAllowed(toolName, agentConfig)` - Enforces tool permissions
+
+See: `internal/session/executor.go`, `internal/session/CLAUDE.md`
 
 ## Useful cross-refs
 
 - `internal/prompt/compiler.go` (JIT compilation entrypoint)
+- `internal/prompt/config_factory.go` (ConfigFactory for AgentConfig generation)
 - `internal/prompt/atoms/` (canonical built-in atom library)
 - `internal/prompt/loader.go` + `internal/prompt/sync/` (YAML -> SQLite ingestion + sync)
 - `internal/prompt/context.go` (selection dimensions)
+- `internal/session/executor.go` (Session Executor using JIT + ConfigFactory)
+- `internal/jit/config/types.go` (AgentConfig schema)
 - `internal/articulation/emitter.go` (Piggyback protocol integration)
