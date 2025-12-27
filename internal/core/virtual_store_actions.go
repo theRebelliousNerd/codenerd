@@ -819,27 +819,135 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 	}, nil
 }
 
-// handleResearch handles research requests.
-// Research functionality is provided by ResearcherShard which has proper web research,
-// document ingestion, and knowledge atom extraction capabilities.
-// VirtualStore provides a routing layer that directs to the appropriate shard.
+// handleResearch handles research requests using modular tools.
+// Research functionality is now provided by modular tools (Context7, WebFetch, Browser, etc.)
+// that any agent can use via the JIT system.
 func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
 	defer timer.Stop()
 
 	query := req.Target
-	logging.VirtualStore("Research request: %s (routing to ResearcherShard)", query)
+	logging.VirtualStore("Research request: %s", query)
 
-	// Research is handled by ResearcherShard which has proper web research tools,
-	// Context7 integration, and knowledge atom extraction.
-	// VirtualStore cannot directly execute research - it must go through the shard system.
-	// This ensures proper research orchestration, caching, and knowledge persistence.
+	// Try Context7 first for library/framework documentation
+	v.mu.RLock()
+	registry := v.modularTools
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return ActionResult{
+			Success: false,
+			Error:   "modular tools registry not initialized",
+		}, nil
+	}
+
+	// Execute context7_fetch tool
+	tool := registry.Get("context7_fetch")
+	if tool == nil {
+		return ActionResult{
+			Success: false,
+			Error:   "context7_fetch tool not registered",
+		}, nil
+	}
+
+	result, err := registry.Execute(ctx, "context7_fetch", map[string]any{"topic": query})
+	if err != nil {
+		logging.VirtualStoreDebug("Context7 fetch failed: %v", err)
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "research_failed", Args: []interface{}{query, err.Error()}},
+			},
+		}, nil
+	}
+
 	return ActionResult{
-		Success: false,
-		Output:  "",
-		Error:   "research operations must be executed via ResearcherShard - use shard-based research",
+		Success: true,
+		Output:  result.Result,
 		FactsToAdd: []Fact{
-			{Predicate: "research_routing", Args: []interface{}{query, "/requires_shard"}},
+			{Predicate: "research_completed", Args: []interface{}{query, len(result.Result)}},
+		},
+	}, nil
+}
+
+// handleModularTool handles execution of modular tools via the registry.
+func (v *VirtualStore) handleModularTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleModularTool")
+	defer timer.Stop()
+
+	toolName := string(req.Type)
+	logging.VirtualStore("Executing modular tool: %s", toolName)
+
+	v.mu.RLock()
+	registry := v.modularTools
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return ActionResult{
+			Success: false,
+			Error:   "modular tools registry not initialized",
+		}, nil
+	}
+
+	// Build args from request
+	args := make(map[string]any)
+
+	// Add target as primary arg based on tool type
+	switch req.Type {
+	case ActionContext7Fetch:
+		args["topic"] = req.Target
+	case ActionWebFetch:
+		args["url"] = req.Target
+	case ActionBrowserNavigate:
+		args["url"] = req.Target
+		if sid, ok := req.Payload["session_id"].(string); ok {
+			args["session_id"] = sid
+		}
+	case ActionBrowserExtract, ActionBrowserScreenshot, ActionBrowserClose:
+		args["session_id"] = req.Target
+		if sel, ok := req.Payload["selector"].(string); ok {
+			args["selector"] = sel
+		}
+	case ActionBrowserClick:
+		args["session_id"] = req.Target
+		args["selector"], _ = req.Payload["selector"].(string)
+	case ActionBrowserType:
+		args["session_id"] = req.Target
+		args["selector"], _ = req.Payload["selector"].(string)
+		args["text"], _ = req.Payload["text"].(string)
+	case ActionResearchCacheGet:
+		args["key"] = req.Target
+	case ActionResearchCacheSet:
+		args["key"] = req.Target
+		args["value"], _ = req.Payload["value"].(string)
+		args["source"], _ = req.Payload["source"].(string)
+	}
+
+	// Merge any additional payload args
+	for k, v := range req.Payload {
+		if _, exists := args[k]; !exists {
+			args[k] = v
+		}
+	}
+
+	result, err := registry.Execute(ctx, toolName, args)
+	if err != nil {
+		logging.VirtualStoreDebug("Modular tool %s failed: %v", toolName, err)
+		return ActionResult{
+			Success: false,
+			Error:   err.Error(),
+			FactsToAdd: []Fact{
+				{Predicate: "tool_failed", Args: []interface{}{toolName, err.Error()}},
+			},
+		}, nil
+	}
+
+	return ActionResult{
+		Success: true,
+		Output:  result.Result,
+		FactsToAdd: []Fact{
+			{Predicate: "tool_executed", Args: []interface{}{toolName, result.DurationMs}},
 		},
 	}, nil
 }

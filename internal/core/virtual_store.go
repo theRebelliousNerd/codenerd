@@ -14,6 +14,8 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
+	"codenerd/internal/tools"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 
 	"github.com/google/mangle/ast"
@@ -102,6 +104,9 @@ type VirtualStore struct {
 	// Tool registry - integration with kernel and shards
 	toolRegistry *ToolRegistry
 
+	// Modular tools registry - pre-built tools for any agent
+	modularTools *tools.Registry
+
 	// Knowledge persistence - LocalStore for knowledge.db queries
 	// Enables virtual predicates to query learned facts, session history, etc.
 	localDB *store.LocalStore
@@ -166,6 +171,7 @@ func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreCon
 		allowedBinaries: config.AllowedBinaries,
 		shardManager:    coreshards.NewShardManager(),
 		toolRegistry:    NewToolRegistry(config.WorkingDir),
+		modularTools:    tools.NewRegistry(),
 		mcpClients:      make(map[string]IntegrationClient),
 		bootGuardActive: true, // Prevent action execution until first user interaction
 	}
@@ -534,6 +540,52 @@ func (v *VirtualStore) GetToolRegistry() *ToolRegistry {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.toolRegistry
+}
+
+// GetModularTools returns the modular tools registry.
+func (v *VirtualStore) GetModularTools() *tools.Registry {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.modularTools
+}
+
+// RegisterModularTool registers a modular tool that any agent can use.
+func (v *VirtualStore) RegisterModularTool(tool *tools.Tool) error {
+	v.mu.RLock()
+	registry := v.modularTools
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return fmt.Errorf("modular tools registry not initialized")
+	}
+
+	return registry.Register(tool)
+}
+
+// HydrateModularTools registers all built-in modular tools.
+// This should be called during session initialization.
+func (v *VirtualStore) HydrateModularTools() error {
+	timer := logging.StartTimer(logging.CategoryVirtualStore, "HydrateModularTools")
+	defer timer.Stop()
+
+	v.mu.RLock()
+	registry := v.modularTools
+	v.mu.RUnlock()
+
+	if registry == nil {
+		return fmt.Errorf("modular tools registry not initialized")
+	}
+
+	logging.VirtualStore("Hydrating modular tools")
+
+	// Register all research tools
+	if err := research.RegisterAll(registry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Error("Failed to register research tools: %v", err)
+		return fmt.Errorf("failed to register research tools: %w", err)
+	}
+
+	logging.VirtualStore("Modular tools hydrated: %d tools registered", registry.Count())
+	return nil
 }
 
 // RegisterTool registers a tool with the registry and injects facts into the kernel.
@@ -1106,6 +1158,13 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleSWEBenchEvaluate(ctx, req)
 	case ActionSWEBenchTeardown:
 		return v.handleSWEBenchTeardown(ctx, req)
+
+	// Research tool actions (modular tools for any agent)
+	case ActionContext7Fetch, ActionWebFetch,
+		ActionBrowserNavigate, ActionBrowserExtract, ActionBrowserScreenshot,
+		ActionBrowserClick, ActionBrowserType, ActionBrowserClose,
+		ActionResearchCacheGet, ActionResearchCacheSet:
+		return v.handleModularTool(ctx, req)
 
 	default:
 		return ActionResult{}, fmt.Errorf("unknown action type: %s", req.Type)
