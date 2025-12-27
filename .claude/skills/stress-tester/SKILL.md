@@ -1,11 +1,13 @@
 ---
 name: stress-tester
-description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 35 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation and new system stress tests (MCP, Prompt Evolution, LLM Providers).
+description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 35 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation and new system stress tests (MCP, Prompt Evolution, LLM Providers, JIT Clean Loop).
 ---
 
 # Stress Tester
 
 Live stress testing for codeNERD that systematically pushes all subsystems to their limits via CLI commands. Unlike unit tests, these are extensive end-to-end scenarios designed to find panics, race conditions, resource exhaustion, and edge cases.
+
+> **Architecture Note (Dec 2024):** codeNERD now uses a JIT Clean Loop architecture. Domain shards (coder, tester, reviewer, researcher) have been replaced by JIT-driven SubAgents configured via persona atoms and `ConfigFactory`. See [internal/session/](internal/session/) for the clean execution loop.
 
 **When to use:**
 
@@ -15,6 +17,7 @@ Live stress testing for codeNERD that systematically pushes all subsystems to th
 - Validating resource limits
 - Finding panic vectors
 - Testing Mangle self-healing systems
+- Testing JIT prompt compilation and subagent spawning
 
 ## Quick Start
 
@@ -70,14 +73,16 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [piggyback-corruption.md](references/workflows/02-perception-articulation/piggyback-corruption.md) | Truncated JSON, invalid ControlPackets |
 | [taxonomy-exhaustion.md](references/workflows/02-perception-articulation/taxonomy-exhaustion.md) | Every verb + unknown verbs |
 
-### 03-shards-campaigns (4 workflows)
+### 03-subagents-campaigns (4 workflows)
+
+> **Note:** Domain shards replaced by JIT-driven SubAgents. Tests now stress subagent spawning via `Spawner`.
 
 | Workflow | What It Stresses |
 |----------|------------------|
 | [campaign-marathon.md](references/workflows/03-shards-campaigns/campaign-marathon.md) | 50-phase campaign, 500 tasks |
-| [shard-explosion.md](references/workflows/03-shards-campaigns/shard-explosion.md) | All shard types rapidly |
+| [shard-explosion.md](references/workflows/03-shards-campaigns/shard-explosion.md) | SubAgent spawning via JIT ConfigFactory |
 | [tdd-infinite-loop.md](references/workflows/03-shards-campaigns/tdd-infinite-loop.md) | Always-failing test, repair loop |
-| [reviewer-finding-explosion.md](references/workflows/03-shards-campaigns/reviewer-finding-explosion.md) | 1000+ issues |
+| [reviewer-finding-explosion.md](references/workflows/03-shards-campaigns/reviewer-finding-explosion.md) | 1000+ review issues |
 
 ### 04-autopoiesis-ouroboros (3 workflows)
 
@@ -116,11 +121,11 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | Workflow | What It Stresses |
 |----------|------------------|
 | [perception-to-campaign.md](references/workflows/08-hybrid-integration/perception-to-campaign.md) | NL → full campaign |
-| [research-to-coder-to-tester.md](references/workflows/08-hybrid-integration/research-to-coder-to-tester.md) | Full shard handoff |
+| [research-to-coder-to-tester.md](references/workflows/08-hybrid-integration/research-to-coder-to-tester.md) | Full subagent handoff via JIT |
 | [ouroboros-thunderdome-nemesis.md](references/workflows/08-hybrid-integration/ouroboros-thunderdome-nemesis.md) | Adversarial evolution loop |
-| [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle |
+| [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle with clean loop |
 
-### 09-new-systems (6 workflows)
+### 09-new-systems (8 workflows)
 
 | Workflow | What It Stresses | Duration |
 |----------|------------------|----------|
@@ -130,6 +135,8 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [timeout-consolidation.md](references/workflows/09-new-systems/timeout-consolidation.md) | 3-tier timeout hierarchy, deadline propagation | 15-25 min |
 | [glass-box-visibility.md](references/workflows/09-new-systems/glass-box-visibility.md) | TUI glass-box rendering, concurrent tool updates | 15-25 min |
 | [knowledge-discovery.md](references/workflows/09-new-systems/knowledge-discovery.md) | Semantic Knowledge Bridge, document ingestion, vector search | 20-35 min |
+| **jit-clean-loop.md** | Clean execution loop, Spawner, SubAgent lifecycle | 20-30 min |
+| **persona-atoms.md** | JIT persona compilation, ConfigFactory, intent routing | 15-25 min |
 
 ## Severity Levels
 
@@ -195,6 +202,17 @@ See [root-cause-mandate.md](references/root-cause-mandate.md) for complete inves
 | [panic-catalog.md](references/panic-catalog.md) | Known panic vectors with triggers |
 | [resource-limits.md](references/resource-limits.md) | Config limits and safe/dangerous values |
 | [root-cause-mandate.md](references/root-cause-mandate.md) | Investigation protocol, anti-patterns |
+
+## Key Architecture Files (Dec 2024)
+
+| File | Purpose |
+|------|---------|
+| `internal/session/executor.go` | Clean execution loop (~50 lines) |
+| `internal/session/spawner.go` | JIT-driven SubAgent spawning |
+| `internal/session/subagent.go` | Context-isolated SubAgent implementation |
+| `internal/prompt/config_factory.go` | Intent → tools/policies mapping |
+| `internal/mangle/intent_routing.mg` | Mangle routing rules for personas |
+| `internal/prompt/atoms/identity/*.yaml` | Persona atoms (coder, tester, reviewer, researcher) |
 
 ## Test Assets
 

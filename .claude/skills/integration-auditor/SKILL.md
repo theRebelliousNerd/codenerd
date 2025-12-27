@@ -1,11 +1,13 @@
 ---
 name: integration-auditor
-description: Comprehensive audit and repair of integration wiring across all 39+ codeNERD systems. Use when implementing new features, creating shards, debugging "code exists but doesn't run" issues, or verifying system integration.
+description: Comprehensive audit and repair of integration wiring across all 39+ codeNERD systems. Use when implementing new features, creating SubAgents, debugging "code exists but doesn't run" issues, or verifying system integration.
 ---
 
 # Integration Auditor
 
 Systematic verification that all codeNERD components are properly wired through the 39+ integration points.
+
+> **Architecture Update (Dec 2024):** Domain shards (coder, tester, reviewer, researcher) have been replaced by JIT-driven SubAgents. Shard registration patterns now use `internal/session/spawner.go` and `ConfigFactory` instead of `internal/shards/registration.go`. See the codenerd-builder skill for details.
 
 ## Core Principle: Wire, Don't Remove
 
@@ -157,16 +159,21 @@ If a component fails, check that its dependencies booted first.
 
 **Full checklist:** [audit-workflows.md#workflow-1-new-feature-audit](references/audit-workflows.md#workflow-1-new-feature-audit)
 
-### Workflow 2: New Shard Audit
+### Workflow 2: New SubAgent Audit
 
-Type-specific checklists for all 4 shard types:
+> **Dec 2024:** Domain shards replaced by JIT-driven SubAgents. Use `Spawner` and `ConfigFactory`.
 
 | Type | Lifecycle | Memory | Key Requirement |
 |------|-----------|--------|-----------------|
-| **A** (Ephemeral) | Spawn→Execute→Die | RAM | Basic injection |
-| **B** (Persistent) | Created at /init | SQLite | + LearningStore |
-| **U** (User) | Via /define-agent | SQLite | + Dynamic profile |
-| **S** (System) | Auto-start | RAM | + StartSystemShards() list |
+| **Ephemeral** | Spawn→Execute→Die | RAM | JIT config via ConfigFactory |
+| **Persistent** | User-defined specialists | SQLite | + Persona atoms |
+| **System** | Auto-start background | RAM | + System shard list |
+
+**Key Files:**
+
+- `internal/session/spawner.go` - JIT-driven spawning
+- `internal/prompt/config_factory.go` - Intent → tools/policies
+- `internal/prompt/atoms/identity/*.yaml` - Persona atoms
 
 **Full matrix:** [shard-wiring-matrix.md](references/shard-wiring-matrix.md)
 

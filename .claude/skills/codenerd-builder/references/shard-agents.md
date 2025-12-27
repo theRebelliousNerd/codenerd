@@ -1,12 +1,36 @@
 # Shard Agents: Recursive Cognition & Fractal Parallelism
 
-**Version:** 1.0.0
+**Version:** 2.0.0 (Dec 2024 - JIT Clean Loop Architecture)
 **Specification Section:** §6.0, §7.0, §9.0
-**Implementation:** `internal/core/shard_manager.go`, `internal/shards/*.go`
+**Implementation:** `internal/session/spawner.go`, `internal/session/subagent.go`
 
 ---
 
-## 1. The Hypervisor Pattern
+> ## ⚠️ MAJOR ARCHITECTURE CHANGE (Dec 2024)
+>
+> **Domain shards have been DELETED.** The following directories no longer exist:
+> - `internal/shards/coder/`
+> - `internal/shards/tester/`
+> - `internal/shards/reviewer/`
+> - `internal/shards/researcher/`
+> - `internal/shards/nemesis/`
+> - `internal/shards/tool_generator/`
+>
+> **Replaced by JIT Clean Loop:**
+> - `internal/session/executor.go` - The clean execution loop (~50 lines)
+> - `internal/session/spawner.go` - JIT-driven SubAgent spawning
+> - `internal/session/subagent.go` - Context-isolated SubAgent implementation
+> - `internal/prompt/config_factory.go` - Intent → tools/policies mapping
+> - `internal/prompt/atoms/identity/*.yaml` - Persona atoms (coder, tester, reviewer, researcher)
+> - `internal/mangle/intent_routing.mg` - Mangle routing rules for persona selection
+>
+> **Philosophy:** The LLM doesn't need 5000+ lines of Go code telling it how to be a coder/tester/reviewer. It needs JIT-compiled prompts with persona atoms, tool access via VirtualStore, and safety via Constitutional Gate. Everything else was cruft that hamstrung the LLM.
+>
+> The content below is preserved for **historical reference only**.
+
+---
+
+## 1. The Hypervisor Pattern (LEGACY)
 
 codeNERD implements **Fractal Cognition** through ShardAgents—miniature, hyper-focused agent kernels that spawn, execute specific sub-tasks in total isolation, and return distilled logical results. The main Kernel acts as a **Hypervisor**: it does not think about *how* to solve a sub-problem; it only thinks about *who* to assign it to.
 
