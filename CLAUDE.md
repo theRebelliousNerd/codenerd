@@ -137,13 +137,13 @@ The architecture acknowledges that LLMs excel at synthesis and pattern matching.
 - *Pattern:* Schema validation and recovery
 - *Details:* Output from the LLM is forced to conform to strict Mangle syntax and JSON schemas. This ensures that the "thoughts" of the agent can be parsed and executed reliably by the deterministic kernel.
 
-**OODA Loop:**
+**OODA Loop (JIT-Driven):**
 - *Pattern:* Observe → Orient → Decide → Act
 - *Details:* The system cycles through:
-  1. **Observe:** Transducer converts input to atoms
-  2. **Orient:** Spreading Activation selects relevant context facts based on logical dependencies
-  3. **Decide:** Mangle Engine derives the single best next_action
-  4. **Act:** Virtual Store executes the tool or command
+  1. **Observe:** Transducer converts input to intent atoms
+  2. **Orient:** Intent Routing logic determines persona and ConfigAtoms
+  3. **Decide:** JIT Compiler assembles system prompt and AgentConfig
+  4. **Act:** Session Executor runs unified loop with VirtualStore
 
 **Autopoiesis (Self-Learning):**
 - *Pattern:* Runtime feedback loops (`internal/autopoiesis/`)
@@ -153,53 +153,149 @@ The architecture acknowledges that LLMs excel at synthesis and pattern matching.
 - *Pattern:* Context Paging and Multi-Phase Goals (`internal/campaign/`)
 - *Details:* For complex goals (e.g., migrations), the system breaks the work into phases. It uses "Context Paging" to manage token budget, loading only the context relevant to the current phase while keeping core facts and working memory available.
 
-## Shard Architecture
+## JIT-Driven Execution Architecture
 
-Shards are specialized sub-agents that handle domain-specific tasks in parallel. The ShardManager (`internal/core/shard_manager.go`, modularized into 5 files) orchestrates their lifecycle.
+**MAJOR ARCHITECTURAL CHANGE (Dec 2024):** codeNERD has eliminated hardcoded shard implementations in favor of a **JIT-driven universal executor**. All agent specialization now occurs through dynamic prompt and configuration compilation.
 
-### Lifecycle Types
+### The Session-Based Execution Model
 
-| Type | Constant | Description | Memory | Creation |
-|------|----------|-------------|--------|----------|
-| **Type A** | `ShardTypeEphemeral` | Generalist agents. Spawn → Execute → Die. | RAM only | `/review`, `/test`, `/fix` |
-| **Type B** | `ShardTypePersistent` | Domain specialists with pre-loaded knowledge. | SQLite-backed | `/init` project setup |
-| **Type U** | `ShardTypeUser` | User-defined specialists via wizard. | SQLite-backed | `/define-agent` |
-| **Type S** | `ShardTypeSystem` | Long-running system services. | RAM | Auto-start |
+The system now uses a clean, unified execution loop powered by three core components:
 
-### Shard Implementations
+**1. Session Executor** (`internal/session/executor.go`)
+- *Purpose:* Universal execution loop for all agent types
+- *Flow:* Intent → JIT Config → LLM Interaction → VirtualStore → Response
+- *Features:* Safety gates, tool call limiting, timeout management
+- *Lines of Code:* ~391 (replaces ~35,000 lines of shard implementations)
 
-| Shard | Location | Purpose |
-|-------|----------|---------|
-| **CoderShard** | `internal/shards/coder/` | Code generation, file edits, refactoring |
-| **TesterShard** | `internal/shards/tester/` | Test execution, coverage analysis |
-| **ReviewerShard** | `internal/shards/reviewer/` | Code review, pre-flight checks, hypothesis verification |
-| **ResearcherShard** | `internal/shards/researcher/` | Knowledge gathering, documentation ingestion |
-| **NemesisShard** | `internal/shards/nemesis/` | Adversarial testing, patch breaking (see Adversarial Engineering) |
-| **ToolGenerator** | `internal/shards/tool_generator/` | Ouroboros: self-generating tools |
-| **Legislator** | `internal/shards/system/legislator.go` | Compiles new Mangle rules at runtime |
+**2. Spawner** (`internal/session/spawner.go`)
+- *Purpose:* Dynamic subagent creation with configurable lifecycle
+- *Manages:* Ephemeral, persistent, and system subagents
+- *Lifecycle:* Spawn → Configure → Execute → Terminate (or persist)
 
-### System Shards (Type S)
+**3. SubAgent** (`internal/session/subagent.go`)
+- *Purpose:* Execution context with conversation history and state
+- *Types:* Ephemeral (single-task), Persistent (multi-turn), System (long-running)
 
-Long-running background services that maintain system state:
+### Intent Routing System
 
-| Shard | Purpose |
-|-------|---------|
-| `perception_firewall` | NL → atoms transduction |
-| `world_model_ingestor` | file_topology, symbol_graph maintenance |
-| `executive_policy` | next_action derivation |
-| `constitution_gate` | Safety enforcement |
-| `tactile_router` | Action → tool routing |
-| `session_planner` | Agenda/campaign orchestration |
-| `nemesis` | Adversarial co-evolution, patch breaking |
+**Intent → Persona Mapping** (`internal/mangle/intent_routing.mg`)
 
-### Go Interface
+Declarative Mangle rules replace hardcoded shard selection logic:
 
-All shards implement the `Shard` interface:
+```mangle
+# Persona selection based on intent verbs
+persona(/coder) :- user_intent(_, _, /fix, _, _).
+persona(/coder) :- user_intent(_, _, /implement, _, _).
+persona(/tester) :- user_intent(_, _, /test, _, _).
+persona(/reviewer) :- user_intent(_, _, /review, _, _).
+persona(/researcher) :- user_intent(_, _, /research, _, _).
+
+# Action type derivation
+action_type(/create) :- user_intent(_, /command, /create, _, _).
+action_type(/modify) :- user_intent(_, /command, /fix, _, _).
+action_type(/query) :- user_intent(_, /question, _, _, _).
+```
+
+**Available Personas:**
+| Persona | Intent Verbs | Typical Tools | Policies |
+|---------|--------------|---------------|----------|
+| **Coder** | fix, implement, refactor, create, modify | file_write, shell_exec, git, build | code_safety.mg |
+| **Tester** | test, cover, verify, validate | test_exec, coverage, mock_gen | test_strategy.mg |
+| **Reviewer** | review, audit, check, analyze, inspect | hypothesis_gen, impact_analysis | review_policy.mg |
+| **Researcher** | research, learn, document, explore, find | web_fetch, doc_parse, kb_ingest | research_strategy.mg |
+
+### JIT Configuration System
+
+**ConfigFactory** (`internal/prompt/config_factory.go`)
+
+Generates `AgentConfig` objects dynamically based on intent:
 
 ```go
-type Shard interface {
-    Execute(ctx context.Context, task ShardTask) (string, error)
+type AgentConfig struct {
+    IdentityPrompt string      // JIT-compiled system prompt
+    Tools          ToolSet      // Allowed tools for this task
+    Policies       PolicySet    // Mangle policy files to load
+    Mode           string       // SingleTurn, Campaign, etc.
 }
+```
+
+**ConfigAtom Merging:**
+- Each intent verb maps to a `ConfigAtom` (tools + policies + priority)
+- Multiple ConfigAtoms merge to create comprehensive configuration
+- Tool selection is minimal and task-specific (no tool bloat)
+
+**Architecture Flow:**
+```
+User Input → Perception Transducer → user_intent atoms
+                                          ↓
+                                   Intent Routing (.mg)
+                                          ↓
+                    ┌─────────────────────┴─────────────────────┐
+                    ↓                                           ↓
+            ConfigFactory                               JIT Compiler
+         (Generate AgentConfig)                    (Compile System Prompt)
+                    ↓                                           ↓
+                    └─────────────────────┬─────────────────────┘
+                                          ↓
+                                  Session Executor
+                                          ↓
+                              LLM + VirtualStore + Safety Gates
+```
+
+### Migration from Hardcoded Shards
+
+**What Was Removed:**
+- `internal/shards/coder/` (~3,500 lines)
+- `internal/shards/tester/` (~2,800 lines)
+- `internal/shards/reviewer/` (~8,500 lines)
+- `internal/shards/researcher/` (~5,200 lines)
+- `internal/shards/nemesis/` (~2,000 lines)
+- `internal/shards/tool_generator/` (~1,000 lines)
+- `internal/core/shard_manager.go` and related factories (~12,000 lines)
+
+**Total Removed:** ~35,000 lines of rigid, boilerplate Go code
+
+**What Replaced It:**
+- `internal/session/executor.go` (391 lines)
+- `internal/session/spawner.go` (385 lines)
+- `internal/session/subagent.go` (339 lines)
+- `internal/mangle/intent_routing.mg` (228 lines)
+- `internal/prompt/config_factory.go` (205 lines)
+- `internal/jit/config/types.go` (46 lines)
+
+**Total Added:** ~1,600 lines of flexible, declarative logic
+
+**Benefits:**
+- **90% code reduction** in agent execution layer
+- **Fully declarative** persona/tool/policy selection via Mangle
+- **Zero boilerplate** for adding new personas (just add .mg rules + prompt atoms)
+- **Dynamic specialization** - agents configured at runtime, not compile-time
+- **Cleaner separation** - LLM as creative center, logic as executive
+
+### Backward Compatibility
+
+The following patterns remain for gradual migration:
+- `internal/shards/registration.go` - Maps legacy `/coder`, `/tester` commands to intents
+- Prompt atoms stored in `internal/prompt/atoms/identity/*.yaml`
+- Knowledge bases in `.nerd/shards/{persona}_knowledge.db` (will migrate to `.nerd/agents/`)
+
+### SubAgent Lifecycle Types
+
+| Type | Lifespan | Memory | Use Case |
+|------|----------|--------|----------|
+| **Ephemeral** | Single task | RAM only | Quick fixes, queries, single edits |
+| **Persistent** | Multi-turn conversation | RAM + context history | Complex refactors, campaigns, research |
+| **System** | Long-running background | RAM + periodic snapshots | World model updates, learning loops |
+
+**Creation Example:**
+```go
+spawner.Spawn(ctx, SpawnRequest{
+    Name:       "code-fixer",
+    Task:       "Fix null pointer in auth.go",
+    Type:       Ephemeral,
+    IntentVerb: "fix",
+    Timeout:    5 * time.Minute,
+})
 ```
 
 ## Adversarial Engineering: Nemesis & Panic Maker
@@ -681,31 +777,55 @@ For detailed architecture and implementation specs, see:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
+| **Core Execution** | | |
 | Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management (modularized) |
+| Session Executor | [internal/session/executor.go](internal/session/executor.go) | **NEW:** Unified execution loop (replaces ShardManager) |
+| Spawner | [internal/session/spawner.go](internal/session/spawner.go) | **NEW:** Dynamic subagent creation |
+| SubAgent | [internal/session/subagent.go](internal/session/subagent.go) | **NEW:** Execution context with lifecycle management |
+| VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
+| **Logic & Routing** | | |
 | Policy | [internal/mangle/policy.mg](internal/mangle/policy.mg) | IDB rules (20 sections) |
 | Schemas | [internal/mangle/schemas.mg](internal/mangle/schemas.mg) | EDB declarations |
-| VirtualStore | [internal/core/virtual_store.go](internal/core/virtual_store.go) | FFI to external systems |
-| ShardManager | [internal/core/shard_manager.go](internal/core/shard_manager.go) | Shard lifecycle (see Shard Architecture) |
-| Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Atoms |
-| Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Atoms→NL (Piggyback) |
+| Intent Routing | [internal/mangle/intent_routing.mg](internal/mangle/intent_routing.mg) | **NEW:** Declarative persona/action routing |
+| **JIT System** | | |
 | JIT Compiler | [internal/prompt/compiler.go](internal/prompt/compiler.go) | Runtime prompt assembly |
+| ConfigFactory | [internal/prompt/config_factory.go](internal/prompt/config_factory.go) | **NEW:** Dynamic AgentConfig generation |
+| ConfigAtom | [internal/jit/config/types.go](internal/jit/config/types.go) | **NEW:** Agent configuration schema |
+| **Perception & Articulation** | | |
+| Transducer | [internal/perception/transducer.go](internal/perception/transducer.go) | NL→Intent atoms |
+| Emitter | [internal/articulation/emitter.go](internal/articulation/emitter.go) | Response generation (Piggyback) |
+| **Memory & Storage** | | |
 | LocalStore | [internal/store/local.go](internal/store/local.go) | 4-tier persistence (modularized into 10 files) |
-| Nemesis | [internal/shards/nemesis/nemesis.go](internal/shards/nemesis/nemesis.go) | Adversarial patch analysis |
-| Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Attack vector arena |
+| **World Model** | | |
 | DataFlow | [internal/world/dataflow_multilang.go](internal/world/dataflow_multilang.go) | Multi-language taint analysis |
 | Holographic | [internal/world/holographic.go](internal/world/holographic.go) | Impact-aware context builder |
-| Hypotheses | [internal/shards/reviewer/hypotheses.go](internal/shards/reviewer/hypotheses.go) | Mangle→LLM verification |
-| Context Harness | [internal/testing/context_harness/](internal/testing/context_harness/) | Infinite context validation |
-| Tactile | [internal/tactile/](internal/tactile/) | Motor cortex, sandboxed execution |
-| Transparency | [internal/transparency/transparency.go](internal/transparency/transparency.go) | Operation visibility layer |
-| UX | [internal/ux/](internal/ux/) | User journey, progressive disclosure |
+| GraphQuery | [internal/world/graph_interface.go](internal/world/graph_interface.go) | **NEW:** Unified graph query interface |
+| **Adversarial & Learning** | | |
+| Thunderdome | [internal/autopoiesis/thunderdome.go](internal/autopoiesis/thunderdome.go) | Attack vector arena |
+| Prompt Evolution | [internal/autopoiesis/prompt_evolution/evolver.go](internal/autopoiesis/prompt_evolution/evolver.go) | System Prompt Learning |
+| **Context Management** | | |
 | Activation | [internal/context/activation.go](internal/context/activation.go) | Spreading activation engine |
 | Compressor | [internal/context/compressor.go](internal/context/compressor.go) | Semantic compression |
+| Context Harness | [internal/testing/context_harness/](internal/testing/context_harness/) | Infinite context validation |
+| **MCP & Tools** | | |
 | MCP Compiler | [internal/mcp/compiler.go](internal/mcp/compiler.go) | JIT Tool Compiler |
 | MCP Store | [internal/mcp/store.go](internal/mcp/store.go) | Tool storage with embeddings |
-| Prompt Evolution | [internal/autopoiesis/prompt_evolution/evolver.go](internal/autopoiesis/prompt_evolution/evolver.go) | System Prompt Learning |
-| LLM Timeouts | [internal/config/llm_timeouts.go](internal/config/llm_timeouts.go) | Centralized timeout config |
+| Tactile | [internal/tactile/](internal/tactile/) | Motor cortex, sandboxed execution |
+| **UX & Transparency** | | |
+| Transparency | [internal/transparency/transparency.go](internal/transparency/transparency.go) | Operation visibility layer |
+| UX | [internal/ux/](internal/ux/) | User journey, progressive disclosure |
 | Glass-Box | [cmd/nerd/chat/glass_box.go](cmd/nerd/chat/glass_box.go) | Tool execution visibility |
+| **Configuration** | | |
+| LLM Timeouts | [internal/config/llm_timeouts.go](internal/config/llm_timeouts.go) | Centralized timeout config |
+
+**Removed (Dec 2024 Refactor):**
+- `internal/core/shard_manager.go` - Replaced by Session Executor
+- `internal/shards/coder/` - Logic moved to intent_routing.mg + prompt atoms
+- `internal/shards/tester/` - Logic moved to intent_routing.mg + prompt atoms
+- `internal/shards/reviewer/` - Logic moved to intent_routing.mg + prompt atoms
+- `internal/shards/researcher/` - Logic moved to intent_routing.mg + prompt atoms
+- `internal/shards/nemesis/` - Logic moved to intent_routing.mg + prompt atoms
+- `internal/shards/tool_generator/` - Logic moved to intent_routing.mg + prompt atoms
 
 ## Development Guidelines
 
@@ -718,9 +838,11 @@ For detailed architecture and implementation specs, see:
 
 ### Go Patterns
 
-- Shards implement the `Shard` interface (see Shard Architecture section)
+- **No more Shard interface** - Replaced by Session Executor with JIT-compiled configs
 - Facts use `ToAtom()` to convert Go structs to Mangle AST
 - Virtual predicates abstract external APIs into logic queries
+- SubAgents are dynamically spawned, not pre-registered
+- Agent behavior defined in .mg files and prompt atoms, not Go code
 
 ### Testing
 
@@ -768,21 +890,24 @@ For detailed architecture and implementation specs, see:
 | Protocol | Description |
 |----------|-------------|
 | **Piggyback** | Dual-channel output: surface (user) + control (kernel) |
-| **OODA Loop** | Observe → Orient → Decide → Act |
+| **OODA Loop (JIT)** | Observe (Transducer) → Orient (Intent Routing) → Decide (JIT Config) → Act (Executor) |
+| **JIT Prompt Compile** | Runtime prompt assembly with token budget and context selectors |
+| **JIT Config Generation** | Intent → ConfigAtom → Merge → AgentConfig (tools + policies + prompt) |
 | **TDD Repair** | Test fails → Read log → Find cause → Patch → Retest |
 | **Autopoiesis** | Self-learning from rejection patterns |
 | **Ouroboros** | Self-generating missing tools |
 | **Thunderdome** | Adversarial arena: tools battle attack vectors in sandboxes |
 | **The Gauntlet** | Nemesis adversarial review pipeline |
-| **JIT Prompt Compile** | Runtime prompt assembly with token budget and context selectors |
 
 ## Quick Reference
 
-**OODA Loop:** Observe (Transducer) → Orient (Spreading Activation) → Decide (Mangle Engine) → Act (Virtual Store)
+**OODA Loop (JIT-Driven):** Observe (Transducer) → Orient (Intent Routing) → Decide (JIT Compiler + ConfigFactory) → Act (Session Executor)
 
 **Constitutional Safety:** Every action requires `permitted(Action)` to derive. Default deny.
 
-**Fact Flow:** User Input → Transducer → `user_intent` fact → Kernel derives `next_action` → VirtualStore executes → Result facts → Articulation → Response
+**Execution Flow:** User Input → Transducer → `user_intent` atoms → Intent Routing → JIT Config → Session Executor → LLM + VirtualStore → Response
+
+**Configuration Flow:** Intent Verbs → Mangle Routing Logic → ConfigAtoms → Merge → AgentConfig (IdentityPrompt + Tools + Policies)
 
 ## Top 30 Mangle Errors
 
