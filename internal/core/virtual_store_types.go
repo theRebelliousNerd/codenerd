@@ -132,6 +132,7 @@ const (
 
 	// Research Tool Actions (modular tools for any agent)
 	ActionContext7Fetch    ActionType = "context7_fetch"     // Fetch LLM-optimized docs
+	ActionWebSearch        ActionType = "web_search"         // Search the web
 	ActionWebFetch         ActionType = "web_fetch"          // Fetch URL content
 	ActionBrowserNavigate  ActionType = "browser_navigate"   // Navigate browser to URL
 	ActionBrowserExtract   ActionType = "browser_extract"    // Extract content from page

@@ -142,8 +142,13 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 	// Researcher persona tools
 	researcherTools := append(coreTools,
+		"context7_fetch", // LLM-optimized documentation
 		"web_search",
 		"web_fetch",
+		"browser_navigate",
+		"browser_extract",
+		"research_cache_get",
+		"research_cache_set",
 		"write_file", // Can write documentation
 	)
 

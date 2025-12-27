@@ -10,6 +10,9 @@ func RegisterAll(registry *tools.Registry) error {
 		// Context7 - LLM-optimized documentation
 		Context7Tool(),
 
+		// Web search
+		WebSearchTool(),
+
 		// Web fetching
 		WebFetchTool(),
 
