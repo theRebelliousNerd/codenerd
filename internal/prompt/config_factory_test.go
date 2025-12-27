@@ -74,7 +74,7 @@ func TestConfigFactory_Generate(t *testing.T) {
 			// In the real implementation, we might extract it from CompilationContext.
 			// Here we just test the factory logic.
 			
-			cfg, err := factory.Generate(ctx, tt.intent, compilationResult)
+			cfg, err := factory.Generate(ctx, compilationResult, tt.intent)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ConfigFactory.Generate() error = %v, wantErr %v", err, tt.wantErr)
 				return
