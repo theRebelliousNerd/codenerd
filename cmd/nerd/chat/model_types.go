@@ -215,7 +215,8 @@ type Model struct {
 	// Backend
 	client              perception.LLMClient
 	kernel              *core.RealKernel
-	shardMgr            *coreshards.ShardManager
+	shardMgr            *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
+	taskExecutor        session.TaskExecutor       // New: unified task execution interface
 	shadowMode          *core.ShadowMode
 	transducer          perception.Transducer
 	executor            tactile.Executor
@@ -429,7 +430,8 @@ type Session struct {
 // SystemComponents holds the initialized backend services
 type SystemComponents struct {
 	Kernel                *core.RealKernel
-	ShardMgr              *coreshards.ShardManager
+	ShardMgr              *coreshards.ShardManager  // DEPRECATED: Use TaskExecutor instead
+	TaskExecutor          session.TaskExecutor       // New: unified task execution interface
 	VirtualStore          *core.VirtualStore
 	LLMClient             perception.LLMClient
 	LocalDB               *store.LocalStore

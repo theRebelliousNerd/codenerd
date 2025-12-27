@@ -189,7 +189,7 @@ Please respond with substantially more detail than before. Expand key findings, 
 				displayTask := fmt.Sprintf("follow-up: %s (original: %s)", strings.TrimSpace(input), strings.TrimSpace(sr.Task))
 
 				sessionCtx := m.buildSessionContext(ctx)
-				result, err := m.shardMgr.SpawnWithPriority(ctx, sr.ShardType, spawnTask, sessionCtx, types.PriorityHigh)
+				result, err := m.spawnTaskWithContext(ctx, sr.ShardType, spawnTask, sessionCtx, types.PriorityHigh)
 
 				shardID := fmt.Sprintf("%s-followup-%d", sr.ShardType, time.Now().UnixNano())
 				facts := m.shardMgr.ResultToFacts(shardID, sr.ShardType, displayTask, result, err)

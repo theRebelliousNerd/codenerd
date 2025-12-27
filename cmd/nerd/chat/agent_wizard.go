@@ -124,7 +124,7 @@ func (m Model) runAgentResearch(wizard *AgentWizardState) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), nerdconfig.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
-		result, err := m.shardMgr.Spawn(ctx, "researcher", researchTask)
+		result, err := m.spawnTask(ctx, "researcher", researchTask)
 		if err != nil {
 			return errorMsg(fmt.Errorf("research failed: %w", err))
 		}

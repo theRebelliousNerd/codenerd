@@ -19,6 +19,35 @@ import (
 	"github.com/google/mangle/ast"
 )
 
+// TaskDelegator is a minimal interface for task delegation.
+// This interface is implemented by session.TaskExecutor to avoid import cycles.
+type TaskDelegator interface {
+	// Execute runs a task synchronously and returns the result.
+	// The intent parameter is an intent verb (e.g., "/fix", "/test", "/review").
+	Execute(ctx context.Context, intent string, task string) (string, error)
+}
+
+// LegacyShardNameToIntent maps legacy shard type names to intent verbs.
+// This enables gradual migration from ShardManager.Spawn("coder", task)
+// to TaskExecutor.Execute("/fix", task).
+func LegacyShardNameToIntent(shardType string) string {
+	mapping := map[string]string{
+		"coder":            "/fix",
+		"tester":           "/test",
+		"reviewer":         "/review",
+		"researcher":       "/research",
+		"debugger":         "/debug",
+		"security_auditor": "/audit",
+		"tool_generator":   "/generate-tool",
+		"nemesis":          "/attack",
+	}
+	if intent, ok := mapping[shardType]; ok {
+		return intent
+	}
+	// Default: use the shard type as-is with a leading slash
+	return "/" + shardType
+}
+
 // One-time imports
 var _ = types.ShardConfig{}
 
@@ -39,7 +68,8 @@ type VirtualStore struct {
 	mcpClients map[string]IntegrationClient
 
 	// Shard delegation
-	shardManager *coreshards.ShardManager
+	shardManager *coreshards.ShardManager // DEPRECATED: Use taskDelegator instead
+	taskDelegator TaskDelegator           // New: unified task delegation interface
 
 	// Kernel feedback loop
 	kernel  Kernel
@@ -391,11 +421,22 @@ func (v *VirtualStore) rebuildPermissionCache() {
 }
 
 // SetShardManager sets the shard manager for delegation.
+// DEPRECATED: Use SetTaskExecutor instead.
 func (v *VirtualStore) SetShardManager(sm *coreshards.ShardManager) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.shardManager = sm
 	logging.VirtualStoreDebug("ShardManager attached to VirtualStore")
+}
+
+// SetTaskExecutor sets the task delegator for delegation.
+// This is the preferred method - uses the new JIT architecture.
+// The delegator parameter must implement TaskDelegator (e.g., session.TaskExecutor).
+func (v *VirtualStore) SetTaskExecutor(delegator TaskDelegator) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.taskDelegator = delegator
+	logging.VirtualStoreDebug("TaskDelegator attached to VirtualStore")
 }
 
 // SetMCPClient registers an MCP integration client for the given server ID.

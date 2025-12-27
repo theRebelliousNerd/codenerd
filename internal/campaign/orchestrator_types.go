@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"context"
 	"sync"
@@ -20,7 +21,8 @@ type Orchestrator struct {
 	// Core components
 	kernel       *core.RealKernel
 	llmClient    perception.LLMClient
-	shardMgr     *coreshards.ShardManager
+	shardMgr     *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
+	taskExecutor session.TaskExecutor       // New: unified task execution interface
 	executor     tactile.Executor
 	virtualStore *core.VirtualStore
 	transducer   *perception.RealTransducer
@@ -74,7 +76,8 @@ type OrchestratorConfig struct {
 	Workspace            string
 	Kernel               *core.RealKernel
 	LLMClient            perception.LLMClient
-	ShardManager         *coreshards.ShardManager
+	ShardManager         *coreshards.ShardManager // DEPRECATED: Use TaskExecutor instead
+	TaskExecutor         session.TaskExecutor      // New: unified task execution interface
 	Executor             tactile.Executor
 	VirtualStore         *core.VirtualStore
 	ProgressChan         chan Progress

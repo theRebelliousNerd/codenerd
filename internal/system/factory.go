@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	prsync "codenerd/internal/prompt/sync"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/types"
@@ -69,7 +70,8 @@ func ResetGlobalCortex() {
 type Cortex struct {
 	Kernel         core.Kernel
 	LLMClient      perception.LLMClient
-	ShardManager   *coreshards.ShardManager
+	ShardManager   *coreshards.ShardManager  // DEPRECATED: Use TaskExecutor instead
+	TaskExecutor   session.TaskExecutor       // New: unified task execution interface
 	VirtualStore   *core.VirtualStore
 	Transducer     *perception.RealTransducer
 	Orchestrator   *autopoiesis.Orchestrator
@@ -79,6 +81,47 @@ type Cortex struct {
 	LocalDB        *store.LocalStore
 	Workspace      string
 	JITCompiler    *prompt.JITPromptCompiler
+}
+
+// SpawnTask is the unified entry point for task execution.
+// It uses TaskExecutor when available, falling back to ShardManager.
+//
+// Migration helper: replaces direct ShardManager.Spawn() calls.
+// Usage: cortex.SpawnTask(ctx, "coder", "fix the bug")
+func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	// Prefer TaskExecutor when available
+	if c.TaskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return c.TaskExecutor.Execute(ctx, intent, task)
+	}
+
+	// Fall back to ShardManager
+	if c.ShardManager != nil {
+		return c.ShardManager.Spawn(ctx, shardType, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+}
+
+// SpawnTaskWithContext spawns a task with additional session context and priority.
+// This is used for dream mode, shadow mode, and other speculative execution scenarios.
+//
+// Migration helper: replaces ShardManager.SpawnWithPriority() calls.
+// Usage: cortex.SpawnTaskWithContext(ctx, "coder", task, sessionCtx, priority)
+func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	// Currently falls back to ShardManager.SpawnWithPriority
+	// TODO: Add native support in TaskExecutor for dream mode via intent routing (e.g., "/dream")
+	if c.ShardManager != nil {
+		return c.ShardManager.SpawnWithPriority(ctx, shardType, task, sessionCtx, priority)
+	}
+
+	// If no ShardManager, use basic TaskExecutor (loses priority/context - acceptable for migration)
+	if c.TaskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return c.TaskExecutor.Execute(ctx, intent, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
 }
 
 // BootCortex initializes the entire system stack for a given workspace.
@@ -525,10 +568,15 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
 	})
 
+	// Create TaskExecutor using LegacyBridge during migration
+	// Once all consumers are migrated, this will switch to JITExecutor
+	taskExecutor := session.NewLegacyBridge(shardManager)
+
 	return &Cortex{
 		Kernel:         kernel,
 		LLMClient:      llmClient,
 		ShardManager:   shardManager,
+		TaskExecutor:   taskExecutor,
 		VirtualStore:   virtualStore,
 		Transducer:     transducer,
 		Orchestrator:   poiesis,

@@ -850,12 +850,13 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 	defer timer.Stop()
 
 	v.mu.RLock()
+	delegator := v.taskDelegator
 	sm := v.shardManager
 	v.mu.RUnlock()
 
-	if sm == nil {
-		logging.Get(logging.CategoryVirtualStore).Error("ShardManager not configured for delegation")
-		return ActionResult{Success: false, Error: "shard manager not configured"}, nil
+	if delegator == nil && sm == nil {
+		logging.Get(logging.CategoryVirtualStore).Error("No executor configured for delegation")
+		return ActionResult{Success: false, Error: "no executor configured (taskDelegator and shardManager are nil)"}, nil
 	}
 
 	shardType := req.Target
@@ -863,7 +864,17 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 
 	logging.VirtualStore("Delegating to shard: type=%s, task_len=%d", shardType, len(task))
 
-	result, err := sm.Spawn(ctx, shardType, task)
+	var result string
+	var err error
+	if delegator != nil {
+		// Use new TaskDelegator (JIT architecture)
+		intent := LegacyShardNameToIntent(shardType)
+		result, err = delegator.Execute(ctx, intent, task)
+	} else {
+		// Fall back to legacy ShardManager
+		result, err = sm.Spawn(ctx, shardType, task)
+	}
+
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Shard delegation failed: %s - %v", shardType, err)
 		return ActionResult{

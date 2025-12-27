@@ -66,7 +66,7 @@ If you need to search documentation or the web, do so to provide accurate inform
 			)
 
 			// Spawn the specialist with high priority (knowledge is blocking)
-			result, err := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			result, err := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 
 			resultsChan <- KnowledgeResult{
 				Specialist: shardType,

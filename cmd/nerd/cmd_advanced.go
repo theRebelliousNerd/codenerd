@@ -170,7 +170,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 		prompt := fmt.Sprintf("Dream Mode Consultation:\n\nScenario: %s\n\nProvide your perspective on this hypothetical. Do NOT execute any actions - only describe what you would do and the implications.", scenario)
 
 		// Dream mode = low priority (background speculation)
-		result, err := cortex.ShardManager.SpawnWithPriority(ctx, shard.Name, prompt, dreamCtx, types.PriorityLow)
+		result, err := cortex.SpawnTaskWithContext(ctx, shard.Name, prompt, dreamCtx, types.PriorityLow)
 		if err != nil {
 			fmt.Printf("   ❌ Error: %v\n\n", err)
 			continue
@@ -219,7 +219,7 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	prompt := fmt.Sprintf("SHADOW MODE - Describe what would happen without executing:\n\n%s\n\nList the files that would be affected, changes that would be made, and potential risks. Do NOT actually make any changes.", action)
 
 	// Shadow mode = normal priority (user CLI command but speculative)
-	result, err := cortex.ShardManager.SpawnWithPriority(ctx, "coder", prompt, shadowCtx, types.PriorityNormal)
+	result, err := cortex.SpawnTaskWithContext(ctx, "coder", prompt, shadowCtx, types.PriorityNormal)
 	if err != nil {
 		return fmt.Errorf("shadow simulation failed: %w", err)
 	}
@@ -279,7 +279,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	// Use researcher for deeper analysis
 	prompt := fmt.Sprintf("Analyze the implications of this hypothetical change:\n\n%s\n\nConsider:\n1. What systems would be affected?\n2. What would break?\n3. What would improve?\n4. What risks exist?", change)
 
-	result, err := cortex.ShardManager.Spawn(ctx, "researcher", prompt)
+	result, err := cortex.SpawnTask(ctx, "researcher", prompt)
 	if err != nil {
 		fmt.Printf("Analysis failed: %v\n", err)
 	} else {
@@ -502,8 +502,8 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("📝 Description: %s\n", description)
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Use tool_generator shard
-		result, err := cortex.ShardManager.Spawn(ctx, "tool_generator", description)
+		// Use tool_generator via unified SpawnTask
+		result, err := cortex.SpawnTask(ctx, "tool_generator", description)
 		if err != nil {
 			return fmt.Errorf("tool generation failed: %w", err)
 		}

@@ -1172,6 +1172,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			c := msg.components
 			m.kernel = c.Kernel
 			m.shardMgr = c.ShardMgr
+			m.taskExecutor = c.TaskExecutor
 			m.shadowMode = c.ShadowMode
 			m.transducer = c.Transducer
 			m.executor = c.Executor

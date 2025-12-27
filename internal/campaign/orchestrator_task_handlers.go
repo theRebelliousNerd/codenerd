@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"context"
 	"fmt"
@@ -10,6 +11,33 @@ import (
 	"path/filepath"
 	"time"
 )
+
+// spawnTask is the unified entry point for task execution.
+// It uses TaskExecutor when available, falling back to ShardManager.
+//
+// Migration helper: replaces direct shardMgr.Spawn() calls.
+// Once all consumers migrate, ShardManager can be removed.
+func (o *Orchestrator) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	o.mu.RLock()
+	te := o.taskExecutor
+	sm := o.shardMgr
+	o.mu.RUnlock()
+
+	// Prefer TaskExecutor when available
+	if te != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		logging.CampaignDebug("spawnTask: using TaskExecutor (intent=%s) for %s", intent, shardType)
+		return te.Execute(ctx, intent, task)
+	}
+
+	// Fall back to ShardManager
+	if sm != nil {
+		logging.CampaignDebug("spawnTask: using ShardManager for %s", shardType)
+		return sm.Spawn(ctx, shardType, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+}
 
 // executeTask executes a single task.
 func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error) {
@@ -84,8 +112,8 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	input := o.buildTaskInput(task)
 	logging.CampaignDebug("Built shard input (%d bytes) for task %s", len(input), task.ID)
 
-	// Spawn the shard
-	result, err := o.shardMgr.Spawn(ctx, shardType, input)
+	// Spawn the shard via unified spawnTask
+	result, err := o.spawnTask(ctx, shardType, input)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Shard %s failed for task %s: %v", shardType, task.ID, err)
 		return nil, fmt.Errorf("shard %s failed: %w", shardType, err)
@@ -103,7 +131,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
-	result, err := o.shardMgr.Spawn(ctx, "researcher", task.Description)
+	result, err := o.spawnTask(ctx, "researcher", task.Description)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Researcher shard failed for task %s: %v", task.ID, err)
 		return nil, err
@@ -133,7 +161,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	logging.CampaignDebug("Spawning coder shard: action=%s, path=%s, task=%s", action, targetPath, shardTask)
 
 	// Delegate to coder shard
-	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
+	result, err := o.spawnTask(ctx, "coder", shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Coder shard failed for task %s, using fallback: %v", task.ID, err)
 		// Fallback to direct LLM if shard fails
@@ -189,7 +217,7 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	logging.CampaignDebug("Spawning tester shard for test generation")
 
 	// Delegate to tester shard
-	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
+	result, err := o.spawnTask(ctx, "tester", shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test write task %s, falling back to coder: %v", task.ID, err)
 		// Fallback to coder shard for test generation
@@ -214,7 +242,7 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 	logging.CampaignDebug("Spawning tester shard for test execution")
 
 	// Delegate to tester shard
-	result, err := o.shardMgr.Spawn(ctx, "tester", shardTask)
+	result, err := o.spawnTask(ctx, "tester", shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Tester shard failed for test run task %s, using direct execution: %v", task.ID, err)
 		// Fallback to direct execution
@@ -282,7 +310,7 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 	// Extract shard type from description
 	shardType := "coder" // Default
 	logging.CampaignDebug("Executing shard spawn task %s: type=%s", task.ID, shardType)
-	result, err := o.shardMgr.Spawn(ctx, shardType, task.Description)
+	result, err := o.spawnTask(ctx, shardType, task.Description)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Shard spawn task %s failed: %v", task.ID, err)
 		return nil, err
@@ -305,7 +333,7 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	logging.CampaignDebug("Spawning coder shard for refactoring")
 
 	// Delegate to coder shard
-	result, err := o.shardMgr.Spawn(ctx, "coder", shardTask)
+	result, err := o.spawnTask(ctx, "coder", shardTask)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("Refactor shard failed for task %s, falling back to file task: %v", task.ID, err)
 		// Fallback to generic file task
@@ -453,7 +481,7 @@ func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
-	result, err := o.shardMgr.Spawn(ctx, "coder", task.Description)
+	result, err := o.spawnTask(ctx, "coder", task.Description)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Generic task %s failed: %v", task.ID, err)
 		return nil, err

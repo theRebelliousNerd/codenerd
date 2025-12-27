@@ -274,7 +274,7 @@ Format your response as a structured analysis.`
 			DreamMode: true,
 		}
 		// Dream mode = low priority (background speculation)
-		result, err := m.shardMgr.SpawnWithPriority(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
+		result, err := m.spawnTaskWithContext(consultCtx, name, prompt, dreamCtx, types.PriorityLow)
 
 		consultation := DreamConsultation{
 			ShardName: name,
@@ -797,7 +797,7 @@ func (m Model) executeDelegateTaskFallback(ctx context.Context, input string, in
 		}
 
 		sessionCtx := m.buildSessionContext(ctx)
-		result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+		result, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 		payload := m.buildShardResultPayload(shardType, task, result, spawnErr)
 		if payload != nil && m.kernel != nil && len(payload.Facts) > 0 {
 			_ = m.kernel.LoadFacts(payload.Facts)
@@ -1277,7 +1277,7 @@ func (m Model) executeMultiStepTask(ctx context.Context, intent perception.Inten
 				i+1, strings.TrimPrefix(step.Verb, "/"), step.Target, step.ShardType))
 
 			if step.ShardType != "" {
-				result, err := m.shardMgr.Spawn(ctx, step.ShardType, step.Task)
+				result, err := m.spawnTask(ctx, step.ShardType, step.Task)
 
 				// CRITICAL FIX: Inject multi-step shard results as facts
 				shardID := fmt.Sprintf("%s-step%d-%d", step.ShardType, i, time.Now().UnixNano())

@@ -299,7 +299,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		spawnWithRetry := func(shardName, task string) ShardReviewResult {
 			for attempt := 1; attempt <= 2; attempt++ {
 				spawnStart := time.Now()
-				result, err := m.shardMgr.Spawn(ctx, shardName, task)
+				result, err := m.spawnTask(ctx, shardName, task)
 				duration := time.Since(spawnStart)
 
 				if err == nil {
