@@ -19,6 +19,17 @@ rule_metadata("delegate_task", "shard_delegation").
 rule_metadata("activation", "activation_rules").
 rule_metadata("derived_context", "context_inference").
 
+# Rule Descriptions for Trace Visualization
+Decl rule_description(Predicate, Text).
+rule_description("next_action", "next_action(X) :- user_intent(_, Verb, _), action_for_verb(Verb, X).").
+rule_description("impacted", "impacted(X) :- dependency_link(X, Y, _), modified(Y).").
+rule_description("clarification_needed", "clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 85.").
+rule_description("block_commit", "block_commit(Reason) :- diagnostic(/error, _, _, _, _).").
+rule_description("permitted", "permitted(Action) :- safe_action(Action).").
+rule_description("context_to_inject", "context_to_inject(Fact) :- activation(Fact, Score), Score > 30.").
+rule_description("unsafe_to_refactor", "unsafe_to_refactor(Target) :- impacted(Dep), not test_coverage(Dep).").
+rule_description("needs_research", "needs_research(Agent) :- shard_profile(Agent, _, Topics, _), not knowledge_ingested(Agent).").
+
 # EDB Predicates Metadata (Base Facts)
 Decl is_edb_predicate(Predicate).
 
