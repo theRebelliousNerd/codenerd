@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
+	"go.uber.org/goleak"
 )
 
 // TestLogic_Golden enforces strict correctness of Mangle policies.
@@ -17,46 +18,60 @@ import (
 // and compares the resulting IDB (derived facts) with a golden file.
 func TestLogic_Golden(t *testing.T) {
 	scenarios := []struct {
-		name       string
-		policyFile string
-		schemaFile string
-		edbFile    string
-		goldenFile string
+		name        string
+		policyFiles []string // Changed to support multiple policy/logic files
+		schemaFiles []string // Changed to support multiple schema files
+		edbFile     string
+		goldenFile  string
 	}{
 		{
-			name:       "Honeypot Detection",
-			policyFile: "browser_honeypot.mg",
-			schemaFile: "../schemas_browser.mg",
-			edbFile:    "testdata/honeypot.edb",
-			goldenFile: "testdata/honeypot.golden",
+			name:        "Honeypot Detection",
+			policyFiles: []string{"browser_honeypot.mg"},
+			schemaFiles: []string{"../schemas_browser.mg"},
+			edbFile:     "testdata/honeypot.edb",
+			goldenFile:  "testdata/honeypot.golden",
+		},
+		{
+			name:        "JIT Logic Context Matching",
+			policyFiles: []string{"jit_logic.mg"},
+			schemaFiles: []string{"../schemas_prompts.mg"},
+			edbFile:     "testdata/jit_logic.edb",
+			goldenFile:  "testdata/jit_logic.golden",
 		},
 	}
 
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			// 1. Setup Engine
+			// 1. Setup Leaks Trap (Testudo Pattern)
+			defer goleak.VerifyNone(t)
+
+			// 2. Setup Engine
 			cfg := mangle.DefaultConfig()
 			eng, err := mangle.NewEngine(cfg, nil)
 			if err != nil {
 				t.Fatalf("Failed to create engine: %v", err)
 			}
+			defer eng.Close() // Ensure resources are cleaned up
 
 			// 2. Load Logic (Schema + Policy)
-			// We load them as schema strings because Mangle treats them similarly
-			schemaContent, err := os.ReadFile(sc.schemaFile)
-			if err != nil {
-				t.Fatalf("Failed to read schema %s: %v", sc.schemaFile, err)
-			}
-			if err := eng.LoadSchemaString(string(schemaContent)); err != nil {
-				t.Fatalf("Failed to load schema: %v", err)
+			for _, sf := range sc.schemaFiles {
+				schemaContent, err := os.ReadFile(sf)
+				if err != nil {
+					t.Fatalf("Failed to read schema %s: %v", sf, err)
+				}
+				if err := eng.LoadSchemaString(string(schemaContent)); err != nil {
+					t.Fatalf("Failed to load schema %s: %v", sf, err)
+				}
 			}
 
-			policyContent, err := os.ReadFile(sc.policyFile)
-			if err != nil {
-				t.Fatalf("Failed to read policy %s: %v", sc.policyFile, err)
-			}
-			if err := eng.LoadSchemaString(string(policyContent)); err != nil {
-				t.Fatalf("Failed to load policy: %v", err)
+			for _, pf := range sc.policyFiles {
+				policyContent, err := os.ReadFile(pf)
+				if err != nil {
+					t.Fatalf("Failed to read policy %s: %v", pf, err)
+				}
+				if err := eng.LoadSchemaString(string(policyContent)); err != nil {
+					t.Fatalf("Failed to load policy %s: %v", pf, err)
+				}
 			}
 
 			// 3. Load EDB (Facts)
@@ -75,11 +90,14 @@ func TestLogic_Golden(t *testing.T) {
 // TestTypeCanary ensures that Atoms and Strings are strictly distinct.
 // This prevents the "String-for-Atom" hallucination.
 func TestTypeCanary(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
 	cfg := mangle.DefaultConfig()
 	eng, err := mangle.NewEngine(cfg, nil)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
+	defer eng.Close()
 
 	// Declare schema for user predicate to avoid "not declared" error
 	schema := `Decl user(Type).`
@@ -97,28 +115,7 @@ func TestTypeCanary(t *testing.T) {
 		t.Fatalf("AddFact(/alice): %v", err)
 	}
 
-	// Add String: "alice"
-	// To pass a string that might look like an atom, or just a plain string.
-	// "alice" is an identifier, so internal heuristic might promote it to /alice depending on schema types.
-	// However, our Decl user(Type) leaves Type as Any (-1).
-	// convertValueToTypedTerm implementation:
-	// - if value is string and expectedType is unknown:
-	//   - if it starts with /, it's Name.
-	//   - if it's identifier-like (isIdentifier("alice") == true), it promotes to Name(/alice)!
-	//   - else String.
-
-	// This means user("alice") becomes user(/alice) automatically if type is loose!
-	// This confirms the risk mentioned in the memory: "automatically converts identifier-like strings... -> /display".
-
-	// To force a string "alice", we might need to rely on the fact that Mangle's engine wrapper
-	// treats quoted strings in AddFacts differently? No, AddFact takes interface{}.
-
-	// Let's test this behavior. If they ARE collapsed, we want to know.
-	// But the canary purpose is to ensure we CAN distinguish them if we want to.
-	// If the engine auto-promotes, we can't distinguish "alice" from /alice unless we force StringType in schema.
-
-	// Let's try to add a string that is NOT an identifier to be sure it stays a string.
-	// e.g. "alice " (with space).
+	// Add String: "alice bob" (space ensures it's not identifier-promoted)
 	if err := eng.AddFact("user", "alice bob"); err != nil {
 		t.Fatalf("AddFact(alice bob): %v", err)
 	}
@@ -133,38 +130,38 @@ func TestTypeCanary(t *testing.T) {
 		t.Errorf("Expected 2 facts, got %d: %v", len(facts), facts)
 	}
 
-	// Now, let's verify if we can force a string "alice" vs atom /alice with a schema.
-	// Schema: Decl strict_user(Name). Decl loose_user(Any).
-	// But let's verify the "Type Mismatch" scenario.
-	// If I have a rule: p(X) :- q(X), r(X).
-	// q(/a). r("a").
-	// p should NOT be derived.
-
+	// Test a non-identifier string to prove they DON'T join when types differ.
 	schema2 := `
 	Decl q(X).
 	Decl r(X).
 	Decl p(X).
 	p(X) :- q(X), r(X).
 	`
-	eng2, _ := mangle.NewEngine(cfg, nil)
-	eng2.LoadSchemaString(schema2)
+	eng3, err := mangle.NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng3.Close()
+	if err := eng3.LoadSchemaString(schema2); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
 
-	eng2.AddFact("q", "/alice")     // q(/alice)
-	eng2.AddFact("r", "alice")      // r(/alice) due to auto-promotion of "alice"!
-
-	// Wait, if "alice" is promoted to /alice, then they JOIN!
-	// This is the "feature" of the wrapper.
-	// The memory says: "logic rules must strictly align with this by using atoms for such values."
-
-	// Let's test a non-identifier string to prove they DON'T join when types differ.
-	eng3, _ := mangle.NewEngine(cfg, nil)
-	eng3.LoadSchemaString(schema2)
-
-	eng3.AddFact("q", "/url")
-	eng3.AddFact("r", "http://url") // Not an identifier (contains :)
+	if err := eng3.AddFact("q", "/url"); err != nil {
+		t.Fatalf("AddFact(q): %v", err)
+	}
+	if err := eng3.AddFact("r", "http://url"); err != nil {
+		t.Fatalf("AddFact(r): %v", err)
+	}
 
 	// They should not join.
-	facts, _ = eng3.GetFacts("p")
+	facts, err = eng3.GetFacts("p")
+	if err != nil {
+		// GetFacts might error if predicate not found, which acts as empty set here.
+		// But if it's a real error, we should fail.
+		// However, GetFacts returns facts for predicate. If predicate p exists (declared), it returns empty list if no facts.
+		// If p was not declared, it might error. We declared p in schema2.
+		t.Fatalf("GetFacts(p): %v", err)
+	}
 	if len(facts) != 0 {
 		t.Errorf("Type Canary Failed: Joined Atom(/url) with String(\"http://url\") unexpectedly.")
 	}
@@ -245,7 +242,11 @@ func convertTermToInterface(term ast.BaseTerm) interface{} {
 	case ast.Constant:
 		switch c.Type {
 		case ast.NameType:
-			return "/" + c.Symbol // Wrapper expects /prefix for names
+			// Handle existing / prefix to avoid double-slash
+			if strings.HasPrefix(c.Symbol, "/") {
+				return c.Symbol
+			}
+			return "/" + c.Symbol
 		case ast.StringType:
 			return c.Symbol
 		case ast.NumberType:
