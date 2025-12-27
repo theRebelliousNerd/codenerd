@@ -126,7 +126,7 @@ The system fundamentally separates concerns into two distinct domains:
 - *Implementation:* `internal/core/virtual_store.go`
 - *Function:* Serves as a Foreign Function Interface (FFI) that abstracts external APIs (filesystem, shell, MCP tools) into logic predicates. When the logic engine queries a virtual predicate (e.g., file_content), it triggers the actual underlying system call.
 
-**Shard Agents:** See dedicated "Shard Architecture" section below for comprehensive coverage of shard types, lifecycle, and implementations.
+**SubAgents:** See "SubAgent Architecture (JIT Clean Loop)" section below. Domain shards (coder/tester/reviewer/researcher) have been deleted and replaced by JIT-configured SubAgents.
 
 **Memory Tiers:** See "Memory Tiers" table in Nomenclature section below.
 
@@ -223,9 +223,38 @@ func (e *Executor) Process(ctx context.Context, input string) (string, error) {
 | `internal/session/executor.go` | The Clean Execution Loop |
 | `internal/session/spawner.go` | JIT-driven SubAgent spawning |
 | `internal/session/subagent.go` | SubAgent lifecycle management |
+| `internal/session/task_executor.go` | TaskExecutor interface and JITExecutor |
 | `internal/prompt/config_factory.go` | Intent → tools/policies mapping |
 | `internal/prompt/atoms/identity/*.yaml` | Persona atoms (coder, tester, reviewer, researcher) |
 | `internal/mangle/intent_routing.mg` | Mangle routing rules for persona selection |
+
+### TaskExecutor (Unified Task Interface)
+
+The `TaskExecutor` interface provides a unified API for task execution, abstracting both the JIT architecture and legacy ShardManager:
+
+```go
+// internal/session/task_executor.go
+type TaskExecutor interface {
+    Execute(ctx context.Context, intent string, task string) (string, error)
+    ExecuteAsync(ctx context.Context, intent string, task string) (taskID string, err error)
+    GetResult(taskID string) (result string, done bool, err error)
+    WaitForResult(ctx context.Context, taskID string) (string, error)
+}
+```
+
+**JITExecutor** implements this interface using the clean execution loop:
+
+- Simple intents → `Executor.Process()` → Direct LLM call
+- Complex intents → `Spawner.Spawn()` → Isolated SubAgent
+
+**Intent Mapping** converts legacy shard names to intent verbs:
+
+| Legacy Shard | Intent Verb |
+|--------------|-------------|
+| `coder` | `/fix` |
+| `tester` | `/test` |
+| `reviewer` | `/review` |
+| `researcher` | `/research` |
 
 ### Persona Atoms (Replace Hardcoded Shard Prompts)
 
@@ -322,7 +351,7 @@ codeNERD exhibits a highly advanced and multi-layered approach to contextual awa
 
 This CompilationContext is critical for JIT Prompt Compilation, ensuring that only the most relevant "prompt atoms" are selected for LLM injection.
 
-**SessionContext** (`internal/types/types.go`, `internal/core/shard_manager.go`): Implements a "Blackboard Pattern" as shared working memory across shards and turns:
+**SessionContext** (`internal/types/types.go`): Implements a "Blackboard Pattern" as shared working memory across SubAgents and turns:
 - Compressed History (semantically condensed past interactions)
 - Current Diagnostics & Test State
 - Active Files, Symbols, and Dependencies
@@ -491,11 +520,11 @@ Dynamic Adaptation is a foundational feature implemented through codeNERD's Auto
 
 **Dynamic Policy Adjustment:**
 - **FeedbackLoop** (`internal/mangle/feedback/loop.go`): Proposes and validates new policy rules
-- **Legislator Shard**: Compiles and incorporates new Mangle rules at runtime (see Shard Architecture)
+- **Legislator** (`internal/shards/system/legislator.go`): System shard that compiles new Mangle rules at runtime
 
 **Adaptive Workflows:**
 - **Campaign Replanning** (`internal/campaign/replan.go`): Dynamically adapts plans in response to failures or new requirements
-- **Adaptive Batch Sizing** (`internal/shards/researcher/researcher.go`): Adjusts research batch sizes based on complexity
+- **Adaptive Execution**: SubAgents adjust behavior based on task complexity via JIT-compiled ConfigAtoms
 
 ## JIT (Just-In-Time) Prompt Compiler
 
@@ -746,10 +775,11 @@ For detailed architecture and implementation specs, see:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| **Session Executor** | [internal/session/executor.go](internal/session/executor.go) | **NEW** The Clean Execution Loop |
-| **Spawner** | [internal/session/spawner.go](internal/session/spawner.go) | **NEW** JIT-driven SubAgent spawning |
-| **SubAgent** | [internal/session/subagent.go](internal/session/subagent.go) | **NEW** Context-isolated SubAgents |
-| **ConfigFactory** | [internal/prompt/config_factory.go](internal/prompt/config_factory.go) | **NEW** Intent → tools/policies mapping |
+| **Session Executor** | [internal/session/executor.go](internal/session/executor.go) | The Clean Execution Loop |
+| **Spawner** | [internal/session/spawner.go](internal/session/spawner.go) | JIT-driven SubAgent spawning |
+| **SubAgent** | [internal/session/subagent.go](internal/session/subagent.go) | Context-isolated SubAgents |
+| **TaskExecutor** | [internal/session/task_executor.go](internal/session/task_executor.go) | Unified task execution interface |
+| **ConfigFactory** | [internal/prompt/config_factory.go](internal/prompt/config_factory.go) | Intent → tools/policies mapping |
 | **Persona Atoms** | [internal/prompt/atoms/identity/](internal/prompt/atoms/identity/) | **NEW** Persona atoms (coder, tester, etc.) |
 | **Intent Routing** | [internal/mangle/intent_routing.mg](internal/mangle/intent_routing.mg) | **NEW** Mangle routing rules |
 | Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management (modularized) |
@@ -786,7 +816,8 @@ For detailed architecture and implementation specs, see:
 
 ### Go Patterns
 
-- Shards implement the `Shard` interface (see Shard Architecture section)
+- SubAgents use `session.Executor` and `session.Spawner` for JIT-driven execution
+- System shards implement `types.ShardAgent` interface (perception_firewall, legislator, etc.)
 - Facts use `ToAtom()` to convert Go structs to Mangle AST
 - Virtual predicates abstract external APIs into logic queries
 
