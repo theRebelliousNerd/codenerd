@@ -135,6 +135,62 @@ tool_allowed(/researcher, /web_fetch).
 tool_allowed(/researcher, /write_file).  # Can write documentation
 
 # =============================================================================
+# SECTION 4.5: Modular Tool Routing
+# =============================================================================
+# Maps intents to modular tools (internal/tools/research/, etc.)
+# These tools are available to any agent via the JIT system.
+
+# Research tools - available for /research intent
+modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/web_fetch, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_screenshot, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_click, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_type, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/browser_close, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/research_cache_get, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/research_cache_set, Intent) :- intent_category(Intent, /research).
+
+# Context7 also available for /learn and /document intents
+modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /learn).
+modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /document).
+
+# Browser tools also available for verification intents
+modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /verify).
+modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /verify).
+modular_tool_allowed(/browser_screenshot, Intent) :- intent_category(Intent, /verify).
+
+# Intent category mapping
+intent_category(Intent, /research) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /research.
+intent_category(Intent, /research) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /explore.
+intent_category(Intent, /learn) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /learn.
+intent_category(Intent, /learn) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /understand.
+intent_category(Intent, /document) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /document.
+intent_category(Intent, /verify) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /verify.
+intent_category(Intent, /verify) :-
+    user_intent(_, _, Intent, _, _),
+    Intent = /validate.
+
+# Tool priority (prefer cached results)
+modular_tool_priority(/research_cache_get, 90).
+modular_tool_priority(/context7_fetch, 80).
+modular_tool_priority(/web_fetch, 70).
+modular_tool_priority(/browser_navigate, 60).
+
+# =============================================================================
 # SECTION 5: Safety Constraints
 # =============================================================================
 # Constitutional gate integration
