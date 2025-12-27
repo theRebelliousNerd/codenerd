@@ -156,8 +156,8 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				output = fmt.Sprintf("Autopoiesis: Generated %d tools", count)
 			}
 		} else {
-			// Standard Shard
-			result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
+			// Standard Shard - use unified SpawnTask
+			result, err := cortex.SpawnTask(ctx, shardType, task)
 			if err != nil {
 				output = fmt.Sprintf("Shard execution failed: %v", err)
 			} else {

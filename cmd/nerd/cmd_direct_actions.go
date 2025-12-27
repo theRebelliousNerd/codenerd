@@ -229,9 +229,9 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 			ctx = usage.NewContext(ctx, cortex.UsageTracker)
 		}
 
-		// Spawn shard directly
+		// Spawn shard directly - use unified SpawnTask
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
-		result, err := cortex.ShardManager.Spawn(ctx, shardType, task)
+		result, err := cortex.SpawnTask(ctx, shardType, task)
 		if err != nil {
 			return fmt.Errorf("shard execution failed: %w", err)
 		}

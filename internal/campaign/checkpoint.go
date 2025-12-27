@@ -3,6 +3,7 @@ package campaign
 import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"context"
 	"encoding/json"
@@ -15,9 +16,10 @@ import (
 
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
-	executor  tactile.Executor
-	shardMgr  *coreshards.ShardManager
-	workspace string
+	executor     tactile.Executor
+	shardMgr     *coreshards.ShardManager // DEPRECATED: Use taskExecutor instead
+	taskExecutor session.TaskExecutor      // New: unified task execution
+	workspace    string
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
@@ -27,6 +29,28 @@ func NewCheckpointRunner(executor tactile.Executor, shardMgr *coreshards.ShardMa
 		shardMgr:  shardMgr,
 		workspace: workspace,
 	}
+}
+
+// SetTaskExecutor sets the task executor for JIT-driven execution.
+func (cr *CheckpointRunner) SetTaskExecutor(te session.TaskExecutor) {
+	cr.taskExecutor = te
+}
+
+// spawnTask is the unified entry point for task execution.
+// Uses TaskExecutor when available, falling back to ShardManager.
+func (cr *CheckpointRunner) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	// Prefer TaskExecutor
+	if cr.taskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return cr.taskExecutor.Execute(ctx, intent, task)
+	}
+
+	// Fall back to ShardManager
+	if cr.shardMgr != nil {
+		return cr.spawnTask(ctx, shardType, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
 }
 
 // Run executes a checkpoint based on the verification method.
@@ -208,7 +232,7 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 	reviewPrompt.WriteString("\nProvide a brief assessment: PASS if objectives are met, FAIL with reason if not.")
 
 	// Spawn reviewer shard
-	result, err := cr.shardMgr.Spawn(ctx, "reviewer", reviewPrompt.String())
+	result, err := cr.spawnTask(ctx, "reviewer", reviewPrompt.String())
 	if err != nil {
 		logging.CampaignError("runShardValidationCheckpoint: reviewer shard failed for phase=%s: %v", phase.Name, err)
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
@@ -259,7 +283,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 
 	taskStr := fmt.Sprintf("review:%s", target)
 	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s task=%s", target, taskStr)
-	result, err := cr.shardMgr.Spawn(ctx, "nemesis", taskStr)
+	result, err := cr.spawnTask(ctx, "nemesis", taskStr)
 	if err != nil {
 		logging.CampaignError("runNemesisGauntletCheckpoint: nemesis shard failed for phase=%s: %v", phaseName, err)
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err

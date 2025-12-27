@@ -324,7 +324,7 @@ func (o *Orchestrator) runAssaultStage(
 
 		dir := targetToDir(target)
 		taskStr := fmt.Sprintf("review:%s", filepath.Join(o.workspace, filepath.FromSlash(dir)))
-		result, err := o.shardMgr.Spawn(ctx, "nemesis", taskStr)
+		result, err := o.spawnTask(ctx, "nemesis", taskStr)
 		content := "nemesis review\n\n" + taskStr + "\n\n" + result
 		if err != nil {
 			content += "\n\nERROR: " + err.Error()

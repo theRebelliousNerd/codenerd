@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/session"
 	"path/filepath"
 	"time"
 )
@@ -56,6 +57,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		kernel:           cfg.Kernel,
 		llmClient:        cfg.LLMClient,
 		shardMgr:         cfg.ShardManager,
+		taskExecutor:     cfg.TaskExecutor,
 		executor:         cfg.Executor,
 		virtualStore:     cfg.VirtualStore,
 		workspace:        cfg.Workspace,
@@ -100,4 +102,19 @@ func (o *Orchestrator) SetPromptProvider(provider PromptProvider) {
 	if o.replanner != nil {
 		o.replanner.SetPromptProvider(provider)
 	}
+}
+
+// SetTaskExecutor sets the task executor for JIT-driven task execution.
+// When set, the orchestrator will prefer TaskExecutor over ShardManager.
+//
+// This is part of the migration from shards to the clean execution loop.
+// Usage:
+//
+//	orch := campaign.NewOrchestrator(cfg)
+//	orch.SetTaskExecutor(session.NewJITExecutor(executor, spawner, transducer))
+func (o *Orchestrator) SetTaskExecutor(te session.TaskExecutor) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.taskExecutor = te
+	logging.Campaign("TaskExecutor set on orchestrator")
 }

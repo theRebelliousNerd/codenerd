@@ -334,6 +334,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logging.Get(logging.CategoryBoot).Warn("Failed to start spawn queue: %v", err)
 		}
 
+		// Create TaskExecutor using LegacyBridge during migration
+		// Once all consumers are migrated, this will switch to JITExecutor
+		taskExecutor := session.NewLegacyBridge(shardMgr)
+
 		// Browser Manager is created on-demand when needed (not at boot)
 		// This avoids spawning Chrome during normal TUI usage
 		var browserMgr *browser.SessionManager // nil until needed
@@ -344,6 +348,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		vsCfg.WorkingDir = workspace
 		virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 		virtualStore.SetKernel(kernel)
+		virtualStore.SetTaskExecutor(taskExecutor)
 
 		logStep("Opening knowledge database...")
 		var localDB *store.LocalStore
@@ -933,6 +938,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			autopoiesisOrch,
 			context7Key,
 		)
+		taskVerifier.SetTaskExecutor(taskExecutor)
 
 		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
 		virtualStore.SetToolExecutor(toolExecutor)
@@ -981,6 +987,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			components: &SystemComponents{
 				Kernel:                kernel,
 				ShardMgr:              shardMgr,
+				TaskExecutor:          taskExecutor,
 				ShadowMode:            shadowMode,
 				Transducer:            transducer,
 				Executor:              executor,

@@ -413,7 +413,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				})
 			}
 
-			result, spawnErr := m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, types.PriorityHigh)
+			result, spawnErr := m.spawnTaskWithContext(ctx, shardType, task, sessionCtx, types.PriorityHigh)
 
 			// Glass Box: Emit shard completion event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -1101,14 +1101,14 @@ func (m *Model) seedCampaignFacts() {
 
 // runClarifierShard invokes the requirements_interrogator shard synchronously to gather clarifying questions.
 func (m Model) runClarifierShard(ctx context.Context, goal string) (string, error) {
-	if m.shardMgr == nil {
-		return "", fmt.Errorf("shard manager not initialized")
+	if m.shardMgr == nil && m.taskExecutor == nil {
+		return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, config.GetLLMTimeouts().ArticulationTimeout)
 	defer cancel()
 
-	result, err := m.shardMgr.Spawn(cctx, "requirements_interrogator", goal)
+	result, err := m.spawnTask(cctx, "requirements_interrogator", goal)
 	if err != nil {
 		return "", err
 	}

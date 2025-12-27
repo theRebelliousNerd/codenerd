@@ -89,7 +89,7 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	researchTask := fmt.Sprintf("Research the topic '%s' and generate Mangle facts for the %s agent knowledge base.", topic, name)
-	if _, err := cortex.ShardManager.Spawn(ctx, "researcher", researchTask); err != nil {
+	if _, err := cortex.SpawnTask(ctx, "researcher", researchTask); err != nil {
 		logger.Warn("Deep research phase failed", zap.Error(err))
 		fmt.Printf("Warning: Deep research failed (%v). Agent will start with empty knowledge base.\n", err)
 	} else {
@@ -129,7 +129,7 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	// Generate shard ID for fact recording
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 
-	result, spawnErr := cortex.ShardManager.Spawn(ctx, shardType, task)
+	result, spawnErr := cortex.SpawnTask(ctx, shardType, task)
 
 	// Record execution facts regardless of success/failure
 	facts := cortex.ShardManager.ResultToFacts(shardID, shardType, task, result, spawnErr)

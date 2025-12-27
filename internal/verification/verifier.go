@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	// researcher removed - JIT clean loop handles research
+	"codenerd/internal/session"
 	"codenerd/internal/store"
 	"context"
 	"crypto/sha256"
@@ -78,16 +79,41 @@ type VerificationResult struct {
 
 // TaskVerifier implements the quality-enforcing verification loop.
 type TaskVerifier struct {
-	mu          sync.RWMutex
-	client      perception.LLMClient
-	localDB     *store.LocalStore
-	shardMgr    *coreshards.ShardManager
-	autopoiesis *autopoiesis.Orchestrator
-	context7Key string
+	mu           sync.RWMutex
+	client       perception.LLMClient
+	localDB      *store.LocalStore
+	shardMgr     *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
+	taskExecutor session.TaskExecutor       // New: unified task execution interface
+	autopoiesis  *autopoiesis.Orchestrator
+	context7Key  string
 
 	// Session context for persistence
 	sessionID string
 	turnCount int
+}
+
+// SetTaskExecutor sets the unified task executor for shard spawning.
+func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.taskExecutor = te
+}
+
+// spawnTask is the unified entry point for task execution.
+// It uses TaskExecutor when available, falling back to ShardManager.
+func (v *TaskVerifier) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	// Prefer TaskExecutor when available
+	if v.taskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return v.taskExecutor.Execute(ctx, intent, task)
+	}
+
+	// Fall back to ShardManager
+	if v.shardMgr != nil || v.taskExecutor != nil {
+		return v.spawnTask(ctx, shardType, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
 }
 
 // NewTaskVerifier creates a new verifier with all dependencies.
@@ -136,7 +162,7 @@ func (v *TaskVerifier) VerifyWithRetry(
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// 1. Execute shard (uses selected shard type which may change between attempts)
-		result, err := v.shardMgr.Spawn(ctx, currentShardType, currentTask)
+		result, err := v.spawnTask(ctx, currentShardType, currentTask)
 		if err != nil {
 			// Shard execution failed - not a verification issue
 			return "", nil, fmt.Errorf("shard execution failed: %w", err)
@@ -305,9 +331,9 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 
 	// FIRST: Check if we have a specialist shard that can help
 	// This avoids unnecessary Context7 API calls when we have local knowledge
-	if action.ShardHint != "" && v.shardMgr != nil {
+	if action.ShardHint != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
 		if specialist := v.findMatchingSpecialist(action.ShardHint, action.Query); specialist != "" {
-			result, err := v.shardMgr.Spawn(ctx, specialist, action.Query)
+			result, err := v.spawnTask(ctx, specialist, action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
 			}
@@ -317,15 +343,15 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 	switch action.Type {
 	case CorrectiveResearch:
 		// Check for specialist before web research
-		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && v.shardMgr != nil {
-			result, err := v.shardMgr.Spawn(ctx, specialist, action.Query)
+		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
+			result, err := v.spawnTask(ctx, specialist, action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
 			}
 		}
 		// Fallback to web research
-		if v.shardMgr != nil {
-			result, err := v.shardMgr.Spawn(ctx, "researcher", "research: "+action.Query)
+		if v.shardMgr != nil || v.taskExecutor != nil {
+			result, err := v.spawnTask(ctx, "researcher", "research: "+action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Research Results\n%s", truncateContext(result, 2000))
 			}
@@ -333,8 +359,8 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 
 	case CorrectiveDocs:
 		// PRIORITY 1: Check for specialist with pre-built knowledge
-		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && v.shardMgr != nil {
-			result, err := v.shardMgr.Spawn(ctx, specialist, "docs: "+action.Query)
+		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
+			result, err := v.spawnTask(ctx, specialist, "docs: "+action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, truncateContext(result, 2000))
 			}
@@ -349,8 +375,8 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 		}
 
 		// PRIORITY 3: Researcher web fallback
-		if v.shardMgr != nil {
-			result, err := v.shardMgr.Spawn(ctx, "researcher", "research docs: "+action.Query)
+		if v.shardMgr != nil || v.taskExecutor != nil {
+			result, err := v.spawnTask(ctx, "researcher", "research docs: "+action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Documentation Research\n%s", truncateContext(result, 2000))
 			}

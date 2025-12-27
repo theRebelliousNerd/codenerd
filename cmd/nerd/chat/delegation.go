@@ -17,10 +17,55 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// =============================================================================
+// TASK EXECUTION HELPERS - Migration from ShardManager to TaskExecutor
+// =============================================================================
+
+// spawnTask is the unified entry point for task execution in the chat model.
+// It uses TaskExecutor when available, falling back to ShardManager.
+//
+// Migration helper: replaces direct m.shardMgr.Spawn() calls.
+func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+	// Prefer TaskExecutor when available
+	if m.taskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return m.taskExecutor.Execute(ctx, intent, task)
+	}
+
+	// Fall back to ShardManager
+	if m.shardMgr != nil {
+		return m.shardMgr.Spawn(ctx, shardType, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
+}
+
+// spawnTaskWithContext spawns a task with additional session context and priority.
+// This is used for dream mode, shadow mode, and other speculative execution scenarios.
+//
+// Migration helper: replaces m.shardMgr.SpawnWithPriority() calls.
+func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	// Currently falls back to ShardManager.SpawnWithPriority
+	// TODO: Add native support in TaskExecutor for dream mode via intent routing (e.g., "/dream")
+	if m.shardMgr != nil {
+		return m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, priority)
+	}
+
+	// If no ShardManager, use basic TaskExecutor (loses priority/context - acceptable for migration)
+	if m.taskExecutor != nil {
+		intent := session.LegacyShardNameToIntent(shardType)
+		return m.taskExecutor.Execute(ctx, intent, task)
+	}
+
+	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
+}
 
 // =============================================================================
 // Functions for formatting tasks, spawning shards, and handling delegation
@@ -291,7 +336,7 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 
 		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
 
-		result, err := m.shardMgr.Spawn(ctx, shardType, task)
+		result, err := m.spawnTask(ctx, shardType, task)
 
 		// Generate a shard ID for fact tracking
 		shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
@@ -380,7 +425,7 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 // spawnSimpleShard handles the case where no specialists are matched
 func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, startTime time.Time) tea.Msg {
 	m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
-	result, err := m.shardMgr.Spawn(ctx, shardType, task)
+	result, err := m.spawnTask(ctx, shardType, task)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 	if m.kernel != nil && len(facts) > 0 {
@@ -414,7 +459,7 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, err := m.shardMgr.Spawn(ctx, shardType, task)
+			result, err := m.spawnTask(ctx, shardType, task)
 			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err}
 		}()
 	}
@@ -426,7 +471,7 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 			defer wg.Done()
 			specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
 				strings.TrimPrefix(verb, "/"), strings.Join(s.Files, ","), s.Reason)
-			result, err := m.shardMgr.Spawn(ctx, s.AgentName, specTask)
+			result, err := m.spawnTask(ctx, s.AgentName, specTask)
 			resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err}
 		}(spec)
 	}
@@ -477,7 +522,7 @@ func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, t
 			task, combinedAdvice.String())
 	}
 
-	result, err := m.shardMgr.Spawn(ctx, shardType, enhancedTask)
+	result, err := m.spawnTask(ctx, shardType, enhancedTask)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 
@@ -542,7 +587,7 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 			task, combinedAdvice.String())
 	}
 
-	result, err := m.shardMgr.Spawn(ctx, shardType, enhancedTask)
+	result, err := m.spawnTask(ctx, shardType, enhancedTask)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 
@@ -623,7 +668,7 @@ Keep your advice concise and actionable. Do NOT make changes yourself - just adv
 				strings.Join(s.Files, ", "),
 				s.Reason)
 
-			result, err := m.shardMgr.Spawn(ctx, s.AgentName, adviceTask)
+			result, err := m.spawnTask(ctx, s.AgentName, adviceTask)
 			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
 		}(spec)
 	}
@@ -673,7 +718,7 @@ Be concise. Focus on domain-specific insights others might miss.`,
 				s.Reason,
 				truncatedResult)
 
-			result, err := m.shardMgr.Spawn(ctx, s.AgentName, critiqueTask)
+			result, err := m.spawnTask(ctx, s.AgentName, critiqueTask)
 			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
 		}(spec)
 	}
