@@ -196,10 +196,24 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	if jitCfg.TokenBudget > 0 {
 		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
 	}
-	jitCompiler, err := prompt.NewJITPromptCompiler(
+
+	// FIX(BUG-004): Load embedded corpus - required for JIT atoms to be available
+	// Without this, the campaign planner gets an empty system prompt
+	embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
+	if embeddedErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load embedded corpus: %v\n", embeddedErr)
+	}
+
+	// Build compiler options with embedded corpus
+	compilerOpts := []prompt.CompilerOption{
 		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
 		prompt.WithConfig(compilerCfg),
-	)
+	}
+	if embeddedCorpus != nil {
+		compilerOpts = append(compilerOpts, prompt.WithEmbeddedCorpus(embeddedCorpus))
+	}
+
+	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
@@ -542,10 +556,22 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	if jitCfg.TokenBudget > 0 {
 		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
 	}
-	jitCompiler, err := prompt.NewJITPromptCompiler(
+
+	// FIX(BUG-004): Load embedded corpus - required for JIT atoms to be available
+	embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
+	if embeddedErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load embedded corpus: %v\n", embeddedErr)
+	}
+
+	compilerOpts := []prompt.CompilerOption{
 		prompt.WithKernel(coresys.NewKernelAdapter(kern)),
 		prompt.WithConfig(compilerCfg),
-	)
+	}
+	if embeddedCorpus != nil {
+		compilerOpts = append(compilerOpts, prompt.WithEmbeddedCorpus(embeddedCorpus))
+	}
+
+	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
