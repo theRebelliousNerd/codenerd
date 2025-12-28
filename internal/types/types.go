@@ -29,8 +29,46 @@ func isValidMangleNameConstant(v string) bool {
 	if !strings.HasPrefix(v, "/") {
 		return false
 	}
+
+	// Whitespace is never valid in Mangle name constants
+	if strings.ContainsAny(v, " \t\n\r") {
+		return false
+	}
+
+	// File paths should NOT be treated as name constants.
+	// Mangle atoms are typically short like /true, /markdown, /coder
+	// while file paths look like /mnt/c/path/to/file.go
+
+	// More than 2 path segments indicates a file path
+	if strings.Count(v, "/") > 2 {
+		return false
+	}
+
+	// Common file extensions indicate a file path
+	if hasFileExtension(v) {
+		return false
+	}
+
 	_, err := ast.Name(v)
 	return err == nil
+}
+
+// hasFileExtension checks if the string ends with a common file extension.
+func hasFileExtension(v string) bool {
+	commonExts := []string{
+		".go", ".md", ".py", ".js", ".ts", ".tsx", ".jsx",
+		".yaml", ".yml", ".json", ".txt", ".mg", ".html", ".css",
+		".sh", ".bash", ".ps1", ".bat", ".exe", ".dll", ".so",
+		".c", ".h", ".cpp", ".hpp", ".rs", ".rb", ".java",
+		".xml", ".toml", ".ini", ".cfg", ".conf", ".log",
+	}
+	lowerV := strings.ToLower(v)
+	for _, ext := range commonExts {
+		if strings.HasSuffix(lowerV, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // String returns the Datalog string representation of the fact.
