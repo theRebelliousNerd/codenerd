@@ -8,21 +8,10 @@
 # Schema: Sample Data
 # =============================================================================
 
-Decl sale(Region, Product, Amount, Quantity)
-    descr [doc("Sales transactions")]
-    bound [/name, /name, /number, /number].
-
-Decl employee(ID, Name, Department, Salary)
-    descr [doc("Employee records")]
-    bound [/name, /string, /name, /number].
-
-Decl project_assignment(EmployeeID, ProjectID, Hours)
-    descr [doc("Project assignments")]
-    bound [/name, /name, /number].
-
-Decl log_entry(Timestamp, Level, Message)
-    descr [doc("Log entries")]
-    bound [/number, /name, /string].
+Decl sale(Region.Type<n>, Product.Type<n>, Amount.Type<float>, Quantity.Type<int>).
+Decl employee(ID.Type<n>, Name.Type<string>, Department.Type<n>, Salary.Type<float>).
+Decl project_assignment(EmployeeID.Type<n>, ProjectID.Type<n>, Hours.Type<int>).
+Decl log_entry(Timestamp.Type<int>, Level.Type<n>, Message.Type<string>).
 
 # =============================================================================
 # Sample Data
@@ -139,20 +128,18 @@ sales_by_region_product(Region, Product, Total, Count) :-
 # =============================================================================
 
 # Average sale amount
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 average_sale(Avg) :-
     sale(_, _, Amount, _) |>
     do fn:group_by(),
-    let Total = fn:sum(Amount),
-    let Count = fn:count() |>
-    let Avg = fn:float:div(Total, Count).
+    let Avg = fn:avg(Amount).
 
 # Average salary by department
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 avg_salary_by_dept(Dept, Avg) :-
     employee(_, _, Dept, Salary) |>
     do fn:group_by(Dept),
-    let Total = fn:sum(Salary),
-    let Count = fn:count() |>
-    let Avg = fn:float:div(Total, Count).
+    let Avg = fn:avg(Salary).
 
 # =============================================================================
 # PATTERN 6: Filtering Before Aggregation
@@ -211,9 +198,7 @@ region_sale_count(Region, Count) :-
 avg_sales_per_region(Avg) :-
     region_sale_count(_, Count) |>
     do fn:group_by(),
-    let Total = fn:sum(Count),
-    let Num = fn:count() |>
-    let Avg = fn:float:div(Total, Num).
+    let Avg = fn:avg(Count).
 
 # =============================================================================
 # PATTERN 9: Conditional Aggregation
@@ -232,33 +217,28 @@ region_sale_totals(Region, Total) :-
     do fn:group_by(Region),
     let Total = fn:count().
 
+# Ratio requires division - use fn:div (integer) or fn:float:div (float)
 large_sale_ratio(Region, Ratio) :-
     large_sale_count(Region, Large),
     region_sale_totals(Region, Total) |>
-    let Ratio = fn:float:div(Large, Total).
+    let Ratio = fn:div(Large, Total).
 
 # =============================================================================
 # PATTERN 10: Existence Checks with Aggregation
 # =============================================================================
 
-# Departments with at least 2 employees (intermediate predicate)
-dept_employee_count(Dept, Count) :-
+# Departments with at least 2 employees
+large_department(Dept) :-
     employee(_, _, Dept, _) |>
     do fn:group_by(Dept),
-    let Count = fn:count().
-
-large_department(Dept) :-
-    dept_employee_count(Dept, Count),
+    let Count = fn:count(),
     Count >= 2.
 
-# Projects with multiple assignees (intermediate predicate)
-project_assignee_count(ProjectID, Count) :-
+# Projects with multiple assignees
+shared_project(ProjectID) :-
     project_assignment(_, ProjectID, _) |>
     do fn:group_by(ProjectID),
-    let Count = fn:count().
-
-shared_project(ProjectID) :-
-    project_assignee_count(ProjectID, Count),
+    let Count = fn:count(),
     Count > 1.
 
 # =============================================================================
