@@ -876,7 +876,7 @@ kernel.Query("atom_selected(AtomID)")
 kernel.Query("final_atom(AtomID, Order)")
 
 // 4. Go assembles prompt text
-atoms := kernel.Query("final_atom(AtomID, Order) |> do fn:group_by(), let _ = fn:Count()")
+atoms := kernel.Query("final_atom(AtomID, Order) |> do fn:group_by(), let _ = fn:count()")
 orderedAtoms := sortByOrder(atoms)
 prompt := assemblePrompt(orderedAtoms)
 ```

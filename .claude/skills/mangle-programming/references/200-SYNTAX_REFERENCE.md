@@ -17,9 +17,9 @@
 | **Maps** | `{/k: v}` | `{/name: "Alice"}` | 3.6 |
 | **Negation** | `not atom` | `not excluded(X)` | 4.3 |
 | **Comparison** | `X op Y` | `X != Y`, `X > 100` | 4.5 |
-| **Transform** | `... \|> ...` | `data \|> fn:Count()` | 5 |
+| **Transform** | `... \|> ...` | `data \|> fn:count()` | 5 |
 | **Grouping** | `fn:group_by(V)` | `fn:group_by(Cat)` | 5.2 |
-| **Aggregation** | `fn:Sum(V)` | `let Total = fn:Sum(Value)` | 5.3 |
+| **Aggregation** | `fn:sum(V)` | `let Total = fn:sum(Value)` | 5.3 |
 
 ---
 
@@ -389,113 +389,143 @@ result(Vars, AggResults) :-
 
 ```mangle
 # Group by single variable
-count_per_category(Cat, N) :- 
-    item(Cat, _) |> 
-    do fn:group_by(Cat), 
-    let N = fn:Count().
+count_per_category(Cat, N) :-
+    item(Cat, _) |>
+    do fn:group_by(Cat),
+    let N = fn:count().
 
 # Group by multiple variables
-stats(Region, Product, Count) :- 
-    sale(Region, Product, Amount) |> 
-    do fn:group_by(Region, Product), 
-    let Count = fn:Count().
+stats(Region, Product, Count) :-
+    sale(Region, Product, Amount) |>
+    do fn:group_by(Region, Product),
+    let Count = fn:count().
 ```
 
 ### 5.3 Aggregation Functions
 
 **Count**:
 ```mangle
-fn:Count()  # Count elements in group
+fn:count()  # Count elements in group
 ```
 
 **Sum**:
 ```mangle
-fn:Sum(Variable)  # Sum numeric values
+fn:sum(Variable)  # Sum numeric values
 ```
 
 **Min/Max**:
 ```mangle
-fn:Min(Variable)  # Minimum value
-fn:Max(Variable)  # Maximum value
+fn:min(Variable)  # Minimum value
+fn:max(Variable)  # Maximum value
 ```
 
 **Example - all aggregations**:
 ```mangle
-category_stats(Cat, Count, Total, Avg, Min, Max) :- 
-    item(Cat, Value) |> 
-    do fn:group_by(Cat), 
-    let Count = fn:Count(),
-    let Total = fn:Sum(Value),
-    let Min = fn:Min(Value),
-    let Max = fn:Max(Value) |>
-    let Avg = fn:divide(Total, Count).
+category_stats(Cat, Count, Total, Avg, Min, Max) :-
+    item(Cat, Value) |>
+    do fn:group_by(Cat),
+    let Count = fn:count(),
+    let Total = fn:sum(Value),
+    let Min = fn:min(Value),
+    let Max = fn:max(Value),
+    let Avg = fn:div(Total, Count).
 ```
 
 ### 5.4 Arithmetic Functions
 
 **Basic operations**:
 ```mangle
-fn:plus(A, B)      # A + B
-fn:minus(A, B)     # A - B
-fn:multiply(A, B)  # A × B
-fn:divide(A, B)    # A / B
-fn:modulo(A, B)    # A % B
-fn:negate(A)       # -A
-fn:abs(A)          # |A|
+fn:plus(A, B)      # A + B (variadic: fn:plus(A, B, C, ...))
+fn:minus(A, B)     # A - B (variadic)
+fn:mult(A, B)      # A × B (variadic)
+fn:div(A, B)       # A / B integer division (variadic)
+fn:sqrt(A)         # Square root
+```
+
+**Float variants** (for float64 precision):
+```mangle
+fn:float:plus(A, B)   # Float addition
+fn:float:mult(A, B)   # Float multiplication
+fn:float:div(A, B)    # Float division
 ```
 
 **Usage in transforms**:
 ```mangle
 # Calculate average
-average(Cat, Avg) :- 
-    item(Cat, Value) |> 
-    do fn:group_by(Cat), 
-    let Total = fn:Sum(Value),
-    let Count = fn:Count(),
-    let Avg = fn:divide(Total, Count).
+average(Cat, Avg) :-
+    item(Cat, Value) |>
+    do fn:group_by(Cat),
+    let Total = fn:sum(Value),
+    let Count = fn:count(),
+    let Avg = fn:div(Total, Count).
 ```
 
-### 5.5 Comparison Functions
+### 5.5 Comparison Predicates
 
-**Functions**:
+**Predicates** (use in rule body, NOT as functions):
 ```mangle
-fn:eq(A, B)   # A = B
-fn:ne(A, B)   # A ≠ B
-fn:lt(A, B)   # A < B
-fn:le(A, B)   # A ≤ B
-fn:gt(A, B)   # A > B
-fn:ge(A, B)   # A ≥ B
+:lt(A, B)   # A < B
+:le(A, B)   # A ≤ B
+:gt(A, B)   # A > B
+:ge(A, B)   # A ≥ B
 ```
 
-**Usage in filter transforms**:
+**Or use infix operators directly**:
 ```mangle
-high_values(Cat, N) :- 
-    item(Cat, Value) |> 
-    do fn:filter(fn:gt(Value, 1000)),
-    do fn:group_by(Cat), 
-    let N = fn:Count().
+A < B       # Less than
+A <= B      # Less or equal
+A > B       # Greater than
+A >= B      # Greater or equal
+A = B       # Unification (equality)
+A != B      # Inequality
 ```
 
-### 5.6 Data Structure Functions
-
-**Struct/Map access**:
+**Usage**:
 ```mangle
-:match_field(Struct, /field_name, Value)
-:match_entry(Map, /key, Value)
+# Filter with comparison
+high_values(Cat, N) :-
+    item(Cat, Value),
+    Value > 1000 |>
+    do fn:group_by(Cat),
+    let N = fn:count().
 ```
 
-**List operations**:
+### 5.6 Data Structure Functions and Predicates
+
+**Struct/Map access** (predicates):
 ```mangle
-fn:list_cons(Head, Tail)        # [Head|Tail]
-fn:list_append(List1, List2)    # List1 ++ List2
-fn:list_length(List)             # Length
+:match_field(Struct, /field_name, Value)   # Extract struct field
+:match_entry(Map, /key, Value)             # Extract map entry
 ```
 
-**String operations**:
+**List functions**:
 ```mangle
-fn:string_concat(S1, S2)         # S1 + S2
-fn:string_length(S)              # Length
-fn:string_contains(S, Substring) # Contains check
+fn:list(A, B, C)              # Construct list [A, B, C]
+fn:list:cons(Head, Tail)      # Construct [Head|Tail]
+fn:list:append(List, Elem)    # Append element to list
+fn:list:get(List, Index)      # Get element at index (0-based)
+fn:list:len(List)             # Get list length
+fn:list:contains(List, Elem)  # Returns /true if Elem in List
+```
+
+**List predicates**:
+```mangle
+:match_cons(List, Head, Tail)  # Destructure list to head/tail
+:match_nil(List)               # Match empty list
+:list:member(Elem, List)       # Bind Elem to each element
+```
+
+**String functions**:
+```mangle
+fn:string:concat(S1, S2, ...)  # Concatenate strings
+fn:string:replace(Str, Old, New, N)  # Replace first N occurrences
+```
+
+**String predicates** (NOT functions!):
+```mangle
+:string:contains(Str, Sub)     # True if Str contains Sub
+:string:starts_with(Str, Pre)  # True if Str starts with Pre
+:string:ends_with(Str, Suf)    # True if Str ends with Suf
 ```
 
 ---
@@ -599,16 +629,16 @@ unsafe(X) :- not foo(X).                   # X never bound
 
 ```mangle
 # ✅ SAFE
-count_per_cat(Cat, N) :- 
+count_per_cat(Cat, N) :-
     item(Cat, _) |>          # Cat appears in body
     do fn:group_by(Cat),      # Group by Cat
-    let N = fn:Count().
+    let N = fn:count().
 
 # ❌ UNSAFE
-bad(Cat, N) :- 
+bad(Cat, N) :-
     item(_, _) |>             # Cat never appears
     do fn:group_by(Cat),      # Can't group by unbound
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 ---

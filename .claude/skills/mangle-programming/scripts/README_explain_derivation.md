@@ -222,7 +222,7 @@ Shows both the base case (direct parent) and recursive case (transitive closure)
 - Shows partial derivations even for cyclic rules
 
 ### Limitations
-- Does not execute aggregations (fn:Count, etc.) - treats them as opaque
+- Does not execute aggregations (fn:count, etc.) - treats them as opaque
 - Does not evaluate arithmetic or comparisons (>, <, ==)
 - Does not handle stratification constraints (see `diagnose_stratification.py`)
 - Assumes all variables are safe (properly bound)

@@ -110,7 +110,7 @@ high_risk_project(Project) :-
 risk_summary(Project, VulnCount) :- 
     vulnerable_project(Project, _, _) |> 
     do fn:group_by(Project), 
-    let VulnCount = fn:Count().
+    let VulnCount = fn:count().
 
 # === QUERIES ===
 # ?vulnerable_project(P, CVE, Sev)
@@ -156,7 +156,7 @@ path_length(X, Z, Len) :-
 shortest_path(X, Y, MinLen) :- 
     path_length(X, Y, Len) |> 
     do fn:group_by(X, Y), 
-    let MinLen = fn:Min(Len).
+    let MinLen = fn:min(Len).
 
 # === QUERIES ===
 # ?reachable(/server1, /server2)
@@ -212,13 +212,13 @@ single_point_of_failure(Server) :-
 compliance_issues(Type, Count) :- 
     pii_violation(_, _) |> 
     do fn:group_by(), 
-    let Count = fn:Count() |> 
+    let Count = fn:count() |> 
     let Type = /pii_violation.
 
 compliance_issues(Type, Count) :- 
     availability_violation(_) |> 
     do fn:group_by(), 
-    let Count = fn:Count() |> 
+    let Count = fn:count() |> 
     let Type = /availability_violation.
 
 # === QUERIES ===
@@ -277,7 +277,7 @@ good_match(Volunteer, Name, Project) :-
 volunteers_per_project(Project, Count) :- 
     can_help(_, _, Project) |> 
     do fn:group_by(Project), 
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # Understaffed projects
 needs_volunteers(Project) :- 
@@ -324,7 +324,7 @@ route(Start, Dest, Codes, Price) :-
 cheapest_route(Start, Dest, MinPrice) :- 
     route(Start, Dest, _, Price) |> 
     do fn:group_by(Start, Dest), 
-    let MinPrice = fn:Min(Price).
+    let MinPrice = fn:min(Price).
 
 # === QUERIES ===
 # ?route(/sfo, /lhr, Codes, Price)
@@ -378,7 +378,7 @@ source_lineage(Table, Source) :-
 lineage_depth(Table, Depth) :- 
     source_lineage(Table, _) |> 
     do fn:group_by(Table), 
-    let Depth = fn:Count().
+    let Depth = fn:count().
 
 # === QUERIES ===
 # ?source_lineage(/customer_orders, Source)

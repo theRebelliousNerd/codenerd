@@ -60,7 +60,7 @@ Mangle occupies a unique position:
 Datalog ──extends──> Mangle ──extends──> ?
                       ↓
                   Adds:
-                  - Aggregation (fn:Count, fn:Sum)
+                  - Aggregation (fn:count, fn:sum)
                   - Transforms (|> pipeline)
                   - Structured types (maps, structs)
                   - Optional types (gradual typing)
@@ -308,7 +308,7 @@ GROUP BY category;
 count_per_cat(Cat, N) :- 
     item(Cat, _) |> 
     do fn:group_by(Cat), 
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 **When to use SQL instead**:
@@ -320,7 +320,7 @@ count_per_cat(Cat, N) :-
 
 | Aspect | Mangle | Pure Datalog |
 |--------|--------|--------------|
-| **Aggregation** | ✅ fn:Sum, etc | ❌ Extensions only |
+| **Aggregation** | ✅ fn:sum, etc | ❌ Extensions only |
 | **Structured data** | ✅ Maps, structs | ❌ Flat only |
 | **Types** | ⚠️ Optional | ❌ None |
 | **Transforms** | ✅ Pipeline | ❌ None |

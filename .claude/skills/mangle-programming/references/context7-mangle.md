@@ -944,7 +944,7 @@ This Mangle snippet demonstrates aggregation by counting projects identified as 
 
 ```Mangle
 count_projects_with_vulnerable_log4j(Num) :-
-  projects_with_vulnerable_log4j(P) |> do fn:group_by(), let Num = fn:Count().
+  projects_with_vulnerable_log4j(P) |> do fn:group_by(), let Num = fn:count().
 ```
 
 --------------------------------

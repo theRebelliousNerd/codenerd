@@ -121,8 +121,8 @@ min_distance(Start, End, TotalDist) :-
 category_stats(Category, Count, TotalValue) :- 
     item(Category, Item, Value) |> 
     do fn:group_by(Category), 
-    let Count = fn:Count(),
-    let TotalValue = fn:Sum(Value).
+    let Count = fn:count(),
+    let TotalValue = fn:sum(Value).
 ```
 
 ### Conditional Aggregation
@@ -133,7 +133,7 @@ high_value_count(Category, Count) :-
     item(Category, Value) |> 
     do fn:filter(fn:gt(Value, 1000)),
     do fn:group_by(Category), 
-    let Count = fn:Count().
+    let Count = fn:count().
 ```
 
 ### Nested Aggregation
@@ -143,7 +143,7 @@ high_value_count(Category, Count) :-
 overall_average(Avg) :- 
     category_stats(Cat, Total) |> 
     do fn:group_by(), 
-    let Avg = fn:Average(Total).
+    let Avg = fn:avg(Total).
 ```
 
 ## Type System Advanced Features

@@ -9,39 +9,25 @@
 # =============================================================================
 
 # Users in the system
-Decl user(ID, Name, Active)
-    descr [doc("Users in the system")]
-    bound [/name, /string, /name].
+Decl user(ID.Type<n>, Name.Type<string>, Active.Type<n>).
 
 # Roles in the system
-Decl role(ID, Name, Level)
-    descr [doc("Roles with privilege levels")]
-    bound [/name, /string, /number].
+Decl role(ID.Type<n>, Name.Type<string>, Level.Type<int>).
 
 # Role hierarchy (parent role grants child role permissions)
-Decl role_inherits(Child, Parent)
-    descr [doc("Role inheritance relationship")]
-    bound [/name, /name].
+Decl role_inherits(Child.Type<n>, Parent.Type<n>).
 
 # Direct role assignments
-Decl user_role(User, Role)
-    descr [doc("User-to-role assignments")]
-    bound [/name, /name].
+Decl user_role(User.Type<n>, Role.Type<n>).
 
 # Resources in the system
-Decl resource(ID, Type, Owner)
-    descr [doc("System resources")]
-    bound [/name, /name, /name].
+Decl resource(ID.Type<n>, Type.Type<n>, Owner.Type<n>).
 
 # Permission grants (role can perform action on resource type)
-Decl permission(Role, Action, ResourceType)
-    descr [doc("Permission grants")]
-    bound [/name, /name, /name].
+Decl permission(Role.Type<n>, Action.Type<n>, ResourceType.Type<n>).
 
 # Explicit denials (override grants)
-Decl deny(User, Action, Resource)
-    descr [doc("Explicit permission denials")]
-    bound [/name, /name, /name].
+Decl deny(User.Type<n>, Action.Type<n>, Resource.Type<n>).
 
 # =============================================================================
 # Sample Data
@@ -123,30 +109,26 @@ can_access(User, Action, Resource) :-
     has_permission_base(User, Action, ResourceType),
     !deny(User, Action, Resource).
 
-# Cannot access (denied explicitly)
+# Cannot access (denied or no permission)
 cannot_access(User, Action, Resource) :-
     user(User, _, /active),
     resource(Resource, _, _),
     deny(User, Action, Resource).
 
-# Cannot access (no permission) - bind Action before negation
 cannot_access(User, Action, Resource) :-
     user(User, _, /active),
     resource(Resource, ResourceType, _),
-    permission(_, Action, _),
     !has_permission_base(User, Action, ResourceType).
 
-# Suspended users cannot access anything - bind Action first
+# Suspended users cannot access anything
 cannot_access(User, Action, Resource) :-
     user(User, _, /suspended),
-    resource(Resource, _, _),
-    permission(_, Action, _).
+    resource(Resource, _, _).
 
-# Resource owners always have full access - bind Action first
+# Resource owners always have full access
 can_access(User, Action, Resource) :-
     user(User, _, /active),
-    resource(Resource, _, User),
-    permission(_, Action, _).
+    resource(Resource, _, User).
 
 # =============================================================================
 # Rules: Analysis and Reporting (IDB)
