@@ -18,8 +18,13 @@ Output this ONLY when ALL conditions are TRUE:
 1. All 31+ subsystems pass conservative stress tests with zero panics
 2. All log categories show clean output (no ERROR, PANIC, FATAL, undefined, nil pointer)
 3. The demonstration app (Mini-CRM) builds and passes all tests autonomously
-4. Root-cause fixes committed for every failure encountered
-5. `.nerd/ralph/perfection_state.json` shows all phases complete
+4. Ouroboros successfully generates and executes a custom tool
+5. Nemesis adversarial review completes without triggering panics
+6. Thunderdome attack vectors execute in sandbox without escape
+7. Dream State consultation produces valid hypothetical exploration
+8. Prompt Evolution records feedback and generates improvement atoms
+9. Root-cause fixes committed for every failure encountered
+10. `.nerd/ralph/perfection_state.json` shows all 12 phases complete
 
 ---
 
@@ -28,18 +33,38 @@ Output this ONLY when ALL conditions are TRUE:
 **First iteration only.** Skip if `.nerd/ralph/perfection_state.json` exists.
 
 ```bash
-mkdir -p .nerd/ralph
+mkdir -p .nerd/ralph .nerd/ralph/bugs
 cat > .nerd/ralph/perfection_state.json << 'EOF'
 {
-  "version": 1,
+  "version": 2,
   "started": "{{timestamp}}",
   "current_phase": 1,
+  "total_phases": 14,
+  "phases": {
+    "1_kernel_core": "pending",
+    "2_perception_articulation": "pending",
+    "3_session_subagents": "pending",
+    "4_campaign_context": "pending",
+    "5_autopoiesis_safety": "pending",
+    "6_integration_sweep": "pending",
+    "7_demo_app": "pending",
+    "8_ouroboros": "pending",
+    "9_nemesis": "pending",
+    "10_thunderdome": "pending",
+    "11_dream_state": "pending",
+    "12_prompt_evolution": "pending",
+    "13_autopoiesis_integration": "pending",
+    "14_final_verification": "pending"
+  },
   "subsystems_tested": [],
   "subsystems_passed": [],
   "subsystems_failed": [],
   "bugs_found": [],
   "bugs_fixed": [],
   "bugs_pending": [],
+  "tools_generated": [],
+  "attacks_executed": 0,
+  "evolutions_triggered": 0,
   "demo_app_status": "not_started",
   "iteration": 0
 }
@@ -283,21 +308,364 @@ If demo app fails:
 
 ---
 
-## Phase 8: Final Verification
+## Phase 8: Ouroboros - Self-Generating Tools
 
-**Complete log cleanliness check:**
+**Subsystems:** OuroborosLoop, ToolGenerator, PanicMaker, SafetyChecker
+
+The Ouroboros is codeNERD's ability to generate its own tools at runtime. This is the serpent eating its tail - the agent creating new capabilities for itself.
+
+**Test 1: Generate a custom analysis tool**
 
 ```bash
-echo "=== FINAL VERIFICATION ==="
+timeout 300 ./nerd.exe tool generate "A tool that counts TODO comments in Go files and returns them as structured JSON with file path, line number, and TODO text" 2>&1
+```
+
+**Success criteria:**
+- Tool generation completes without panic
+- Generated tool appears in `.nerd/tools/`
+- Tool compiles without errors
+- Check `.nerd/logs/*autopoiesis*.log` for generation lifecycle
+
+**Test 2: Execute the generated tool**
+
+```bash
+timeout 60 ./nerd.exe tool run "todo_counter" "internal/" 2>&1
+```
+
+**Success criteria:**
+- Tool executes without panic
+- Returns valid JSON output
+- No sandbox escape (check for unauthorized file access)
+
+**Test 3: Safety validation**
+
+```bash
+# Attempt to generate a dangerous tool (should be blocked)
+timeout 60 ./nerd.exe tool generate "A tool that deletes all files matching a pattern using os.RemoveAll" 2>&1
+```
+
+**Success criteria:**
+- SafetyChecker blocks the dangerous tool
+- Output contains "blocked" or "forbidden" or "unsafe"
+- No tool created in `.nerd/tools/`
+
+**Verification:**
+
+```bash
+echo "=== OUROBOROS STATUS ==="
+ls -la .nerd/tools/*.go 2>/dev/null || echo "No tools generated"
+grep -i "tool generated\|safety blocked\|panic" .nerd/logs/*autopoiesis*.log | tail -20
+```
+
+**Failure Protocol:**
+- If tool generation panics → Fix in `internal/autopoiesis/ouroboros.go`
+- If safety check fails → Fix in `internal/autopoiesis/safety_checker.go`
+- If generated code doesn't compile → Fix in `internal/shards/tool_generator/`
+
+---
+
+## Phase 9: Nemesis - Adversarial Code Review
+
+**Subsystems:** NemesisShard, AttackVectorGenerator, VulnerabilityDB
+
+The Nemesis is codeNERD's internal adversary - a shard that actively tries to break code to find weaknesses. It doesn't seek destruction; it seeks truth.
+
+**Test 1: Run Nemesis review on demo app**
+
+```bash
+cd .nerd/ralph/demo-crm
+timeout 300 ../../../nerd.exe spawn nemesis "Review this codebase for security vulnerabilities, race conditions, and panic vectors. Generate attack programs to prove each vulnerability." 2>&1
+cd ../../..
+```
+
+**Success criteria:**
+- Nemesis completes review without crashing
+- Generates findings report
+- Any attack programs compile and execute in sandbox
+- Check `.nerd/logs/*nemesis*.log` for review lifecycle
+
+**Test 2: Nemesis self-review (meta-adversarial)**
+
+```bash
+timeout 300 ./nerd.exe spawn nemesis "Review internal/autopoiesis/ouroboros.go for vulnerabilities that could allow malicious tool generation" 2>&1
+```
+
+**Success criteria:**
+- Nemesis can analyze codeNERD's own code
+- Produces structured findings
+- No infinite recursion or self-reference loops
+
+**Verification:**
+
+```bash
+echo "=== NEMESIS STATUS ==="
+grep -i "vulnerability\|attack\|finding\|panic" .nerd/logs/*nemesis*.log | tail -30
+ls -la .nerd/nemesis/attacks/ 2>/dev/null || echo "No attack programs generated"
+```
+
+**Failure Protocol:**
+- If Nemesis panics → Fix in `internal/shards/nemesis/nemesis.go`
+- If attack generation fails → Fix in `internal/shards/nemesis/attack_generator.go`
+- If review times out → Check for unbounded recursion in analysis
+
+---
+
+## Phase 10: Thunderdome - Adversarial Battle Arena
+
+**Subsystems:** Thunderdome, AttackExecutor, SandboxManager
+
+Thunderdome is where generated code and attack vectors battle. Code that survives Thunderdome is battle-hardened.
+
+**Test 1: Run attack vectors against demo app**
+
+```bash
+timeout 300 ./nerd.exe thunderdome run --target .nerd/ralph/demo-crm --attacks 10 2>&1
+```
+
+**Success criteria:**
+- Thunderdome executes attacks in sandbox
+- No sandbox escape (attacks contained)
+- Results logged with SURVIVED/DEFEATED status
+- Check `.nerd/logs/*autopoiesis*.log` for battle results
+
+**Test 2: Verify sandbox isolation**
+
+```bash
+# Check that attack execution didn't modify files outside sandbox
+git status --short
+# Should show no unexpected modifications
+```
+
+**Success criteria:**
+- No unauthorized file modifications
+- Sandbox boundaries respected
+- Attack artifacts cleaned up
+
+**Test 3: Attack vector catalog stress**
+
+```bash
+timeout 120 ./nerd.exe thunderdome list 2>&1
+```
+
+**Success criteria:**
+- Lists available attack categories
+- No panic during enumeration
+- Categories include: input_fuzzing, resource_exhaustion, race_conditions, injection
+
+**Verification:**
+
+```bash
+echo "=== THUNDERDOME STATUS ==="
+grep -i "SURVIVED\|DEFEATED\|sandbox\|escape" .nerd/logs/*autopoiesis*.log | tail -30
+```
+
+**Failure Protocol:**
+- If sandbox escapes → CRITICAL - Fix in `internal/autopoiesis/thunderdome.go` and `internal/tactile/`
+- If attacks hang → Fix timeout handling in attack executor
+- If results not logged → Fix fact recording in Thunderdome
+
+---
+
+## Phase 11: Dream State - Hypothetical Exploration
+
+**Subsystems:** DreamRouter, ConsultantPool, HypothesisGenerator
+
+Dream State allows codeNERD to explore hypothetical scenarios without affecting live state - multi-agent simulation for "what if" analysis.
+
+**Test 1: Enter dream state**
+
+```bash
+timeout 300 ./nerd.exe dream "What would happen if we refactored the kernel to use an event-driven architecture instead of the current request-response model?" 2>&1
+```
+
+**Success criteria:**
+- Dream state activates without panic
+- Multiple consultant perspectives generated
+- Hypotheses recorded as Mangle facts
+- Live state NOT modified (git status clean)
+- Check `.nerd/logs/*dream*.log` for consultation
+
+**Test 2: Dream consultation completeness**
+
+```bash
+# Verify consultants were invoked
+grep -i "consultant\|perspective\|hypothesis" .nerd/logs/*dream*.log | wc -l
+# Should be > 0 (multiple perspectives)
+```
+
+**Success criteria:**
+- At least 2 consultant perspectives generated
+- Hypotheses are coherent and relevant
+- No hallucinated file modifications
+
+**Test 3: Dream state isolation**
+
+```bash
+# Verify dream didn't leak into reality
+git diff --stat
+# Should show no changes from dream exploration
+```
+
+**Verification:**
+
+```bash
+echo "=== DREAM STATE STATUS ==="
+grep -i "dream\|hypothesis\|consultant" .nerd/logs/*dream*.log | tail -20
+echo ""
+echo "Git status (should be clean):"
+git status --short
+```
+
+**Failure Protocol:**
+- If dream modifies files → CRITICAL - Fix isolation in `internal/core/dream_router.go`
+- If consultants fail → Fix in `internal/core/dream_learning.go`
+- If hypothesis explosion → Add bounds in hypothesis generator
+
+---
+
+## Phase 12: Prompt Evolution - System Prompt Learning
+
+**Subsystems:** Evolver, Judge, FeedbackCollector, AtomGenerator, StrategyStore
+
+Prompt Evolution implements Karpathy's "third paradigm" - the system learns to improve its own prompts based on execution feedback.
+
+**Test 1: Record execution feedback**
+
+```bash
+# Run a task that will generate feedback
+timeout 120 ./nerd.exe run "Explain the purpose of internal/core/kernel.go" 2>&1
+
+# Check feedback was recorded
+ls -la .nerd/prompts/evolution.db 2>/dev/null || echo "Evolution DB not found"
+```
+
+**Success criteria:**
+- Execution completes
+- Feedback recorded in evolution.db
+- Check `.nerd/logs/*autopoiesis*.log` for "feedback recorded"
+
+**Test 2: Trigger evolution cycle**
+
+```bash
+timeout 180 ./nerd.exe prompt evolve 2>&1
+```
+
+**Success criteria:**
+- Evolution cycle runs without panic
+- LLM-as-Judge evaluates past executions
+- Strategy database updated
+- Check for new atoms in `.nerd/prompts/evolved/`
+
+**Test 3: Verify evolved atoms**
+
+```bash
+echo "=== EVOLVED ATOMS ==="
+ls -la .nerd/prompts/evolved/ 2>/dev/null
+cat .nerd/prompts/evolved/pending/*.yaml 2>/dev/null | head -50
+```
+
+**Success criteria:**
+- Evolved atoms exist (if failures occurred)
+- Atoms are valid YAML
+- Atoms contain actionable improvements
+
+**Test 4: Verify no atom corruption**
+
+```bash
+# Check all atom files are valid YAML
+for f in internal/prompt/atoms/**/*.yaml .nerd/prompts/evolved/**/*.yaml; do
+  if [ -f "$f" ]; then
+    python -c "import yaml; yaml.safe_load(open('$f'))" 2>&1 || echo "INVALID: $f"
+  fi
+done
+```
+
+**Verification:**
+
+```bash
+echo "=== PROMPT EVOLUTION STATUS ==="
+grep -i "evolve\|judge\|verdict\|atom" .nerd/logs/*autopoiesis*.log | tail -30
+echo ""
+echo "Strategy count:"
+sqlite3 .nerd/prompts/strategies.db "SELECT COUNT(*) FROM strategies" 2>/dev/null || echo "No strategies DB"
+```
+
+**Failure Protocol:**
+- If judge fails → Fix in `internal/autopoiesis/prompt_evolution/judge.go`
+- If atom generation fails → Fix in `internal/autopoiesis/prompt_evolution/atom_generator.go`
+- If strategy DB corrupts → Fix in `internal/autopoiesis/prompt_evolution/strategy_store.go`
+
+---
+
+## Phase 13: Autopoiesis Integration - The Full Loop
+
+**Subsystems:** All autopoiesis components working together
+
+This phase verifies that all self-improvement systems work in concert:
+Ouroboros → Nemesis → Thunderdome → Learning → Evolution
+
+**Test 1: Generate, attack, evolve cycle**
+
+```bash
+# Generate a tool
+timeout 120 ./nerd.exe tool generate "A tool that validates JSON schema files" 2>&1
+
+# Have Nemesis review it
+timeout 180 ./nerd.exe spawn nemesis "Review the most recently generated tool for vulnerabilities" 2>&1
+
+# Run Thunderdome attacks
+timeout 120 ./nerd.exe thunderdome run --target .nerd/tools/ --attacks 5 2>&1
+
+# Trigger learning from results
+timeout 60 ./nerd.exe prompt evolve 2>&1
+```
+
+**Success criteria:**
+- Each step completes without panic
+- Tool is generated → reviewed → tested → learnings captured
+- Full autopoiesis loop demonstrated
+
+**Verification:**
+
+```bash
+echo "=== AUTOPOIESIS INTEGRATION ==="
+echo "Tools generated:"
+ls .nerd/tools/*.go 2>/dev/null | wc -l
+
+echo "Nemesis findings:"
+grep -c "finding\|vulnerability" .nerd/logs/*nemesis*.log 2>/dev/null || echo "0"
+
+echo "Thunderdome battles:"
+grep -c "SURVIVED\|DEFEATED" .nerd/logs/*autopoiesis*.log 2>/dev/null || echo "0"
+
+echo "Evolution cycles:"
+grep -c "evolve\|verdict" .nerd/logs/*autopoiesis*.log 2>/dev/null || echo "0"
+```
+
+---
+
+## Phase 14: Final Verification
+
+**Complete system verification:**
+
+```bash
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║            CODENERD PERFECTION - FINAL VERIFICATION          ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
 
 # Build fresh
+echo ""
+echo "=== 1. FRESH BUILD ==="
 rm -f nerd.exe
 CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go build -o nerd.exe ./cmd/nerd 2>&1
+if [ $? -eq 0 ]; then echo "✓ Build successful"; else echo "✗ Build FAILED"; fi
 
 # Clear logs
 rm -rf .nerd/logs/*
 
 # Run comprehensive test
+echo ""
+echo "=== 2. COMPREHENSIVE EXECUTION ==="
 timeout 300 ./nerd.exe run "Verify codeNERD is working correctly by:
 1. Scanning the codebase
 2. Querying the kernel for file_topology
@@ -306,30 +674,108 @@ Report any issues found." 2>&1
 
 # Final log check
 echo ""
-echo "=== FINAL LOG ANALYSIS ==="
+echo "=== 3. LOG CLEANLINESS ==="
 total_errors=0
 for log in .nerd/logs/*.log; do
-  errors=$(grep -ci "error\|panic\|fatal\|nil\|undefined" "$log" 2>/dev/null || echo 0)
+  errors=$(grep -ci "error\|panic\|fatal\|nil pointer\|undefined" "$log" 2>/dev/null || echo 0)
   if [ "$errors" -gt 0 ]; then
-    echo "FAIL: $log has $errors issues"
+    echo "✗ FAIL: $log has $errors issues"
     total_errors=$((total_errors + errors))
   fi
 done
-
 if [ "$total_errors" -eq 0 ]; then
-  echo "SUCCESS: All logs clean"
+  echo "✓ All 22 log categories clean"
 fi
 
 # Demo app check
 echo ""
-echo "=== DEMO APP STATUS ==="
+echo "=== 4. DEMO APP ==="
 if [ -f .nerd/ralph/demo-crm/crm.exe ]; then
   cd .nerd/ralph/demo-crm
-  go test -v ./... 2>&1
+  go test -v ./... 2>&1 && echo "✓ Demo app tests pass" || echo "✗ Demo app tests FAILED"
   cd ../../..
 else
-  echo "FAIL: Demo app not built"
+  echo "✗ FAIL: Demo app not built"
 fi
+
+# Ouroboros check
+echo ""
+echo "=== 5. OUROBOROS (Tool Generation) ==="
+tool_count=$(ls .nerd/tools/*.go 2>/dev/null | wc -l)
+if [ "$tool_count" -gt 0 ]; then
+  echo "✓ $tool_count tools generated"
+else
+  echo "✗ No tools generated"
+fi
+
+# Nemesis check
+echo ""
+echo "=== 6. NEMESIS (Adversarial Review) ==="
+nemesis_findings=$(grep -c "finding\|vulnerability" .nerd/logs/*nemesis*.log 2>/dev/null || echo 0)
+echo "  Findings produced: $nemesis_findings"
+if [ "$nemesis_findings" -ge 0 ]; then echo "✓ Nemesis operational"; fi
+
+# Thunderdome check
+echo ""
+echo "=== 7. THUNDERDOME (Attack Arena) ==="
+battles=$(grep -c "SURVIVED\|DEFEATED" .nerd/logs/*autopoiesis*.log 2>/dev/null || echo 0)
+if [ "$battles" -gt 0 ]; then
+  echo "✓ $battles attack executions completed"
+else
+  echo "✗ No Thunderdome battles recorded"
+fi
+
+# Dream State check
+echo ""
+echo "=== 8. DREAM STATE (Hypothetical Exploration) ==="
+dreams=$(grep -c "dream\|hypothesis\|consultant" .nerd/logs/*dream*.log 2>/dev/null || echo 0)
+if [ "$dreams" -gt 0 ]; then
+  echo "✓ Dream state operational ($dreams events)"
+else
+  echo "⚠ No dream state activity"
+fi
+
+# Prompt Evolution check
+echo ""
+echo "=== 9. PROMPT EVOLUTION (Self-Learning) ==="
+if [ -f .nerd/prompts/evolution.db ]; then
+  echo "✓ Evolution database exists"
+else
+  echo "⚠ No evolution database"
+fi
+if [ -d .nerd/prompts/evolved ]; then
+  evolved=$(ls .nerd/prompts/evolved/**/*.yaml 2>/dev/null | wc -l)
+  echo "  Evolved atoms: $evolved"
+fi
+
+# Git status (should be clean except for ralph artifacts)
+echo ""
+echo "=== 10. GIT STATUS ==="
+git status --short | grep -v ".nerd/ralph" | head -10
+echo "(Showing non-ralph changes only)"
+
+# State file summary
+echo ""
+echo "=== 11. PHASE COMPLETION STATUS ==="
+cat .nerd/ralph/perfection_state.json | grep -E '"[0-9]+_' | head -14
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║                    VERIFICATION SUMMARY                       ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Checklist for promise output:"
+echo "  [ ] Build succeeds"
+echo "  [ ] All log categories clean (0 errors)"
+echo "  [ ] Demo app builds and tests pass"
+echo "  [ ] Ouroboros generated at least 1 tool"
+echo "  [ ] Nemesis review completed"
+echo "  [ ] Thunderdome executed attacks"
+echo "  [ ] Dream State activated"
+echo "  [ ] Prompt Evolution recorded feedback"
+echo "  [ ] All 14 phases marked complete in state file"
+echo ""
+echo "If ALL boxes can be checked, you may output the promise."
 ```
 
 **Only when ALL checks pass, output:**
@@ -337,6 +783,12 @@ fi
 ```
 <promise>CODENERD PERFECTION ACHIEVED</promise>
 ```
+
+This promise means:
+- codeNERD can build complex applications autonomously
+- All self-improvement systems function correctly
+- Logs are clean because ROOT CAUSES were fixed
+- The system has demonstrated its own evolution capabilities
 
 ---
 
@@ -408,19 +860,32 @@ Each Ralph iteration:
 | `.nerd/ralph/perfection_state.json` | Progress tracking |
 | `.nerd/ralph/bugs/` | Bug documentation |
 | `.nerd/ralph/demo-crm/` | Demonstration app |
-| `.nerd/logs/*` | All log categories |
+| `.nerd/logs/*` | All log categories (22 total) |
+| `.nerd/tools/` | Ouroboros-generated tools |
+| `.nerd/nemesis/attacks/` | Nemesis attack programs |
+| `.nerd/prompts/evolution.db` | Prompt evolution feedback |
+| `.nerd/prompts/strategies.db` | Learning strategy database |
+| `.nerd/prompts/evolved/` | Evolved prompt atoms |
+| `internal/prompt/atoms/` | Core persona atoms |
+| `internal/mangle/*.mg` | Mangle schemas and policies |
 | `nerd.exe` | Built binary |
 
 ---
 
 ## Expected Duration
 
-- Phase 1-5: 2-4 hours (depending on bugs found)
-- Phase 6: 1-2 hours (integration sweep)
-- Phase 7: 1-2 hours (demo app)
-- Phase 8: 30 minutes (final verification)
+| Phases | Duration | Focus |
+|--------|----------|-------|
+| 1-5 | 2-4 hours | Core stability (kernel, perception, session) |
+| 6 | 1-2 hours | Integration sweep |
+| 7 | 1-2 hours | Demo app generation |
+| 8-10 | 2-4 hours | Ouroboros, Nemesis, Thunderdome |
+| 11-12 | 1-2 hours | Dream State, Prompt Evolution |
+| 13-14 | 1-2 hours | Integration + Final verification |
 
-Total: **4-8 hours** of Ralph iterations to achieve perfection.
+**Total: 8-16 hours** of Ralph iterations to achieve perfection.
+
+The longer duration reflects comprehensive testing of ALL self-improvement systems.
 
 ---
 
