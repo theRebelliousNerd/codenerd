@@ -1,6 +1,6 @@
 # Mangle Policy Template
 # Intensional Database (IDB) Rules
-# These define derived facts computed from base facts in schemas.gl
+# These define derived facts computed from base facts in schemas.mg
 #
 # Usage: Copy this file and customize rules for your domain.
 # Mangle v0.4.0 compatible
@@ -20,14 +20,15 @@ ancestor(A, D) :- parent(A, D).
 ancestor(A, D) :- parent(A, C), ancestor(C, D).
 
 # =============================================================================
-# SECTION 2: Path Construction Rules
+# SECTION 2: Path Existence Rules
 # =============================================================================
 
-# Track path through graph (with list accumulation)
-path(Start, End, [Start, End]) :- edge(Start, End).
-path(Start, End, [Start | Rest]) :-
+# Check if a path exists (without tracking the actual path)
+# Note: For path tracking with lists, see advanced patterns
+path_exists(Start, End) :- edge(Start, End).
+path_exists(Start, End) :-
     edge(Start, Mid),
-    path(Mid, End, Rest).
+    path_exists(Mid, End).
 
 # =============================================================================
 # SECTION 3: Negation Patterns (Set Difference)
@@ -50,13 +51,13 @@ isolated_node(N) :- node(N), !edge(N, _), !edge(_, N).
 node_count(N) :-
     node(_) |>
     do fn:group_by(),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Count outgoing edges per node
 edge_count_by_source(Src, Count) :-
     edge(Src, _) |>
     do fn:group_by(Src),
-    let Count = fn:Count().
+    let Count = fn:count().
 
 # Find nodes with most connections
 highly_connected(Node, Degree) :-
@@ -67,7 +68,7 @@ highly_connected(Node, Degree) :-
 total_weight(Node, Total) :-
     edge_weight(Node, _, W) |>
     do fn:group_by(Node),
-    let Total = fn:Sum(W).
+    let Total = fn:sum(W).
 
 # =============================================================================
 # SECTION 5: Classification Rules
@@ -92,21 +93,16 @@ cousin(X, Y) :- parent(PX, X), parent(PY, Y), sibling(PX, PY).
 # SECTION 7: Structured Data Access Rules
 # =============================================================================
 
-# Extract metadata values
+# Check if entity has specific metadata key
 has_metadata_key(Entity, Key) :-
-    metadata(Entity, Data),
-    :match_field(Data, /key, Key).
-
-# Check if entity has specific tag
-has_tag(Entity, Tag) :-
-    tags(Entity, TagList),
-    :list:member(Tag, TagList).
+    metadata(Entity, Key, _).
 
 # =============================================================================
 # SECTION 8: Temporal Rules
 # =============================================================================
 
-# Check if entity is currently valid (assuming current_time is a fact)
+# Declare current_time as an EDB fact (must be asserted externally)
+# Check if entity is currently valid
 currently_valid(Entity) :-
     valid_from(Entity, Start),
     valid_until(Entity, End),
@@ -144,6 +140,6 @@ orphan_edge(From, To) :-
 avg_degree(Avg) :-
     edge_count_by_source(_, Count) |>
     do fn:group_by(),
-    let Total = fn:Sum(Count),
-    let Num = fn:Count() |>
-    let Avg = fn:divide(Total, Num).
+    let Total = fn:sum(Count),
+    let Num = fn:count() |>
+    let Avg = fn:float:div(Total, Num).
