@@ -65,6 +65,7 @@ cmd/
 
 internal/               # 32 packages, ~105K LOC (after JIT refactor)
 ├── session/            # **NEW** Clean execution loop, Spawner, SubAgents
+├── tools/              # **NEW** Modular tool registry (core/, shell/, codedom/, research/)
 ├── core/               # Kernel, VirtualStore (modularized)
 ├── perception/         # NL → Mangle atom transduction
 ├── articulation/       # Mangle atom → NL transduction
@@ -295,6 +296,150 @@ Long-running background services that maintain system state:
 | `world_model_ingestor` | file_topology, symbol_graph maintenance |
 | `constitution_gate` | Safety enforcement |
 | `session_planner` | Agenda/campaign orchestration |
+
+## Quiescent Boot & Session Management
+
+> **Dec 2024:** Implemented clean session architecture with proper ephemeral fact filtering.
+
+### The Problem: Stale Facts Triggering Actions at Boot
+
+Old `user_intent` facts persisting from previous sessions would trigger action derivation at boot via:
+```mangle
+next_action(/execute_intent) :- user_intent(_, _, _, _, _), not tdd_state(_).
+```
+
+### Solution: Ephemeral Fact Filtering
+
+**Location:** `internal/core/fact_categories.go`, `internal/core/kernel_init.go`
+
+Facts are categorized as ephemeral (session-scoped) or persistent:
+
+```go
+// Ephemeral predicates - filtered at boot
+var ephemeralPredicates = map[string]bool{
+    "user_intent":      true,  // Current turn's intent
+    "pending_action":   true,  // Actions awaiting execution
+    "next_action":      true,  // Derived next action
+    "active_tool":      true,  // Currently executing tool
+    "turn_context":     true,  // Per-turn context
+}
+```
+
+At kernel boot, `filterBootFacts()` removes ephemeral facts before loading:
+```go
+// kernel_init.go
+if len(k.bootFacts) > 0 {
+    k.facts = append(k.facts, filterBootFacts(k.bootFacts)...)
+}
+```
+
+### Clean Session Architecture
+
+**Philosophy:** Boot always starts fresh. Previous sessions are explicitly resumed.
+
+| Command | Purpose |
+|---------|---------|
+| `/sessions` | List and interactively select previous sessions |
+| `/load-session <id>` | Load a specific session by ID |
+| `/new-session` | Start a fresh session (preserves old in history) |
+
+**Startup Behavior:**
+1. Generate fresh session ID
+2. Filter ephemeral facts from kernel boot
+3. Display hint: "Use `/sessions` to load previous sessions (N available)"
+
+**Location:** `cmd/nerd/chat/session.go`, `cmd/nerd/chat/commands.go`
+
+### Defense-in-Depth: Boot Guard
+
+As additional safety, a boot guard blocks `RouteAction()` until first user interaction:
+
+```go
+// virtual_store.go
+if v.bootGuardActive {
+    return "", fmt.Errorf("boot guard active: action routing blocked")
+}
+```
+
+The guard is released when the first real user message arrives (not rehydrated history).
+
+## Modular Tool Registry
+
+> **Dec 2024:** Tools are now modular and any agent can use any tool via JIT selection.
+
+### The Problem: Tools Embedded in Shards
+
+Old architecture embedded tools inside domain shards. When shards were deleted, tools were lost. The JIT architecture separates:
+
+| Component | Purpose |
+|-----------|---------|
+| **Personas** (prompt atoms) | Define *who* the agent is |
+| **Tools** (registry) | Define *what* the agent can do |
+| **Policies** (Mangle rules) | Define *when* tools are allowed |
+| **Intent routing** (ConfigFactory) | Define *which* tools for *which* intent |
+
+### Tool Registry Architecture
+
+**Location:** `internal/tools/`
+
+```
+internal/tools/
+├── registry.go       # Central tool registry
+├── types.go          # Tool, ToolSchema, ToolCategory types
+├── core/             # Filesystem tools (read_file, write_file, glob, grep)
+├── shell/            # Execution tools (run_command, bash, run_build)
+├── codedom/          # Semantic code tools (get_elements, edit_lines)
+└── research/         # Research tools (web_search, web_fetch, context7_fetch)
+```
+
+### Tool Categories
+
+| Category | Tools | Available To |
+|----------|-------|--------------|
+| `/core` | read_file, write_file, glob, grep, list_files | All personas |
+| `/shell` | run_command, bash, run_build, run_tests | Coder, Tester |
+| `/codedom` | get_elements, get_element, edit_lines | All personas |
+| `/research` | context7_fetch, web_search, web_fetch | Researcher |
+
+### Mangle Tool Routing
+
+Tools are routed via intent in `internal/mangle/intent_routing.mg`:
+
+```mangle
+# Core tools available to all intents
+modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
+
+# Write tools - available for code intents
+modular_tool_allowed(/write_file, Intent) :- intent_category(Intent, /code).
+
+# Research tools - available for /research intent
+modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
+```
+
+### Tool Hydration at Boot
+
+`VirtualStore.HydrateModularTools()` registers all tools at boot:
+
+```go
+// virtual_store.go
+func (v *VirtualStore) HydrateModularTools() error {
+    core.RegisterAll(v.toolRegistry)
+    shell.RegisterAll(v.toolRegistry)
+    codedom.RegisterAll(v.toolRegistry)
+    research.RegisterAll(v.toolRegistry)
+}
+```
+
+### VirtualStore Tool Routing
+
+`handleModularTool()` routes tool calls through the registry:
+
+```go
+case ActionListFiles, ActionGlob, ActionGrep:
+    return v.handleModularTool(ctx, req)
+case ActionRunCommand, ActionBash, ActionRunBuild:
+    return v.handleModularTool(ctx, req)
+```
 
 ## Adversarial Engineering: Thunderdome & Panic Maker
 
@@ -780,8 +925,14 @@ For detailed architecture and implementation specs, see:
 | **SubAgent** | [internal/session/subagent.go](internal/session/subagent.go) | Context-isolated SubAgents |
 | **TaskExecutor** | [internal/session/task_executor.go](internal/session/task_executor.go) | Unified task execution interface |
 | **ConfigFactory** | [internal/prompt/config_factory.go](internal/prompt/config_factory.go) | Intent → tools/policies mapping |
-| **Persona Atoms** | [internal/prompt/atoms/identity/](internal/prompt/atoms/identity/) | **NEW** Persona atoms (coder, tester, etc.) |
-| **Intent Routing** | [internal/mangle/intent_routing.mg](internal/mangle/intent_routing.mg) | **NEW** Mangle routing rules |
+| **Persona Atoms** | [internal/prompt/atoms/identity/](internal/prompt/atoms/identity/) | Persona atoms (coder, tester, etc.) |
+| **Intent Routing** | [internal/mangle/intent_routing.mg](internal/mangle/intent_routing.mg) | Mangle routing rules |
+| **Tool Registry** | [internal/tools/registry.go](internal/tools/registry.go) | **NEW** Modular tool registry |
+| **Core Tools** | [internal/tools/core/](internal/tools/core/) | **NEW** Filesystem tools (read, write, glob) |
+| **Shell Tools** | [internal/tools/shell/](internal/tools/shell/) | **NEW** Execution tools (bash, run_command) |
+| **CodeDOM Tools** | [internal/tools/codedom/](internal/tools/codedom/) | **NEW** Semantic code tools |
+| **Research Tools** | [internal/tools/research/](internal/tools/research/) | **NEW** Research tools (web_search, context7) |
+| **Fact Categories** | [internal/core/fact_categories.go](internal/core/fact_categories.go) | **NEW** Ephemeral vs persistent facts |
 | Kernel | [internal/core/kernel.go](internal/core/kernel.go) | Mangle engine + fact management (modularized) |
 | Policy | [internal/mangle/policy.mg](internal/mangle/policy.mg) | IDB rules (20 sections) |
 | Schemas | [internal/mangle/schemas.mg](internal/mangle/schemas.mg) | EDB declarations |
