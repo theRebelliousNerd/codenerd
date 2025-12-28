@@ -100,6 +100,10 @@ Decl context_overflow(ShardID).
 # active_shard(ShardID, ShardType) - currently active shard being configured
 Decl active_shard(ShardID, ShardType).
 
+# has_active_shard(ShardType) - helper for safe negation (0-arity for type)
+# Use this instead of "!active_shard(/coder, _)" which has unbound variable
+Decl has_active_shard(ShardType).
+
 # shard_family(ShardID, Family) - shard belongs to a family (e.g., /planner, /coder)
 Decl shard_family(ShardID, Family).
 
