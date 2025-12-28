@@ -1,7 +1,7 @@
 ---
 description: "Start the codeNERD Perfection Loop - systematic stress testing and root-cause fixing"
 argument-hint: "[--max-iterations N]"
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-perfection-loop.sh:*)"]
 hide-from-slash-command-tool: "true"
 ---
 
@@ -9,47 +9,40 @@ hide-from-slash-command-tool: "true"
 
 This launches a specialized Ralph Wiggum loop designed to bring codeNERD to 100% tested reliability.
 
-Execute the setup script with the perfection prompt:
+Execute the setup script:
 
 ```!
-# Read the perfection prompt
-PROMPT_FILE="${CLAUDE_PLUGIN_ROOT}/prompts/CODENERD_PERFECTION.md"
-
-# Default iterations for perfection loop (high because we need thoroughness)
-DEFAULT_ITERATIONS="100"
-
-# Parse arguments
-MAX_ITERATIONS="$DEFAULT_ITERATIONS"
-for arg in $ARGUMENTS; do
-  case "$arg" in
-    --max-iterations)
-      shift_next=true
-      ;;
-    *)
-      if [ "$shift_next" = "true" ]; then
-        MAX_ITERATIONS="$arg"
-        shift_next=false
-      fi
-      ;;
-  esac
-done
-
-# Read prompt content
-if [ -f "$PROMPT_FILE" ]; then
-  PROMPT_CONTENT=$(cat "$PROMPT_FILE")
-
-  # Call the setup script with the prompt
-  "${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh" "$PROMPT_CONTENT" --max-iterations "$MAX_ITERATIONS" --completion-promise "CODENERD PERFECTION ACHIEVED"
-else
-  echo "ERROR: Perfection prompt not found at $PROMPT_FILE"
-  exit 1
-fi
+"${CLAUDE_PLUGIN_ROOT}/scripts/setup-perfection-loop.sh" $ARGUMENTS
 ```
 
-The perfection loop will:
-1. Systematically test all 31+ codeNERD subsystems
-2. Apply root-cause analysis to every failure
-3. Build a demonstration app to prove stability
-4. Continue until all logs are clean and demo works
+## What This Does
 
-CRITICAL: Only output the completion promise when it is GENUINELY TRUE.
+The perfection loop runs 14 systematic phases testing all 31+ codeNERD subsystems:
+
+| Phase | System | Tests |
+|-------|--------|-------|
+| 1-5 | Core | Kernel, Perception, Session, Campaign, Safety |
+| 6 | Integration | All logs clean |
+| 7 | Demo App | Autonomous Mini-CRM creation |
+| 8 | Ouroboros | Self-generating tools |
+| 9 | Nemesis | Adversarial code review |
+| 10 | Thunderdome | Attack arena sandbox |
+| 11 | Dream State | Hypothetical exploration |
+| 12 | Prompt Evolution | Self-learning |
+| 13-14 | Integration | Full loop + verification |
+
+## Root-Cause Mandate
+
+When you find bugs, you MUST:
+1. Trace to ROOT CAUSE using Five Whys
+2. Fix the generation pipeline, not the artifact
+3. Document in `.nerd/ralph/bugs/BUG-XXX.md`
+4. Commit with `fix(<component>): <description>`
+
+## Completion
+
+Only output `<promise>CODENERD PERFECTION ACHIEVED</promise>` when:
+- All 14 phases complete
+- All logs clean (0 errors)
+- Demo app builds and tests pass
+- Ouroboros, Nemesis, Thunderdome, Dream State, Prompt Evolution all demonstrated
