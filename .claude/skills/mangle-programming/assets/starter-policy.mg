@@ -1,6 +1,6 @@
 # Mangle Policy Template
 # Intensional Database (IDB) Rules
-# These define derived facts computed from base facts in schemas.mg
+# These define derived facts computed from base facts in schemas.gl
 #
 # Usage: Copy this file and customize rules for your domain.
 # Mangle v0.4.0 compatible
@@ -20,15 +20,14 @@ ancestor(A, D) :- parent(A, D).
 ancestor(A, D) :- parent(A, C), ancestor(C, D).
 
 # =============================================================================
-# SECTION 2: Path Existence Rules
+# SECTION 2: Path Construction Rules
 # =============================================================================
 
-# Check if a path exists (without tracking the actual path)
-# Note: For path tracking with lists, see advanced patterns
-path_exists(Start, End) :- edge(Start, End).
-path_exists(Start, End) :-
+# Track path through graph (with list accumulation)
+path(Start, End, [Start, End]) :- edge(Start, End).
+path(Start, End, [Start | Rest]) :-
     edge(Start, Mid),
-    path_exists(Mid, End).
+    path(Mid, End, Rest).
 
 # =============================================================================
 # SECTION 3: Negation Patterns (Set Difference)
@@ -93,16 +92,21 @@ cousin(X, Y) :- parent(PX, X), parent(PY, Y), sibling(PX, PY).
 # SECTION 7: Structured Data Access Rules
 # =============================================================================
 
-# Check if entity has specific metadata key
+# Extract metadata values
 has_metadata_key(Entity, Key) :-
-    metadata(Entity, Key, _).
+    metadata(Entity, Data),
+    :match_field(Data, /key, Key).
+
+# Check if entity has specific tag
+has_tag(Entity, Tag) :-
+    tags(Entity, TagList),
+    :list:member(Tag, TagList).
 
 # =============================================================================
 # SECTION 8: Temporal Rules
 # =============================================================================
 
-# Declare current_time as an EDB fact (must be asserted externally)
-# Check if entity is currently valid
+# Check if entity is currently valid (assuming current_time is a fact)
 currently_valid(Entity) :-
     valid_from(Entity, Start),
     valid_until(Entity, End),
@@ -137,9 +141,8 @@ orphan_edge(From, To) :-
 # =============================================================================
 
 # Average degree of nodes
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 avg_degree(Avg) :-
     edge_count_by_source(_, Count) |>
     do fn:group_by(),
-    let Total = fn:sum(Count),
-    let Num = fn:count() |>
-    let Avg = fn:float:div(Total, Num).
+    let Avg = fn:avg(Count).
