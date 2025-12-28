@@ -203,9 +203,11 @@ interface_impl(StructRef, InterfaceRef) :-
     code_element(MethodRef, /method, _, _, _).
 
 # Test file mocks source file if it's a _test.go in same package
+# BUG-002 FIX: Constrained to prevent Cartesian explosion (was 592^2 = 349K facts)
+# Now: only pairs (test file, source file) - much smaller set
 mock_file(TestFile, SourceFile) :-
-    file_topology(TestFile, _, /go, _, _),
-    file_topology(SourceFile, _, /go, _, _),
+    file_topology(TestFile, _, /go, _, /true),   # TestFile must be a test file
+    file_topology(SourceFile, _, /go, _, /false), # SourceFile must NOT be a test file
     TestFile != SourceFile.
 
 # Suggest updating mocks when source function signature changes

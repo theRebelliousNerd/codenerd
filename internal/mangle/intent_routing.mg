@@ -10,6 +10,29 @@
 # =============================================================================
 
 # =============================================================================
+# LOCAL SCHEMA DECLARATIONS (for standalone validation)
+# These predicates are from other .mg files - not loaded by default in check-mangle
+# =============================================================================
+# From tester.mg (not in default schemas)
+Decl file_exists(FilePath).
+Decl file_contains(FilePath, Pattern).
+
+# Internal predicates defined only in this file
+Decl test_scope(Scope).
+Decl review_type(Type).
+Decl code_modified_recently().
+Decl code_quality_issue(Issue, Details).
+Decl complex_target(Target).
+Decl blocked_pattern(Pattern).
+Decl target_contains_multiple_files(Target).
+Decl target_word_count(Target, Cnt).
+Decl tests_run_recently().
+Decl test_passed_after_fix().
+Decl verb_has_specialist(Verb).
+Decl imports(Target, Path).
+Decl test_failed(Path, TestName, Reason).
+
+# =============================================================================
 # SECTION 1: Action Type Derivation
 # =============================================================================
 # What used to be hardcoded in CoderShard.parseTask()
@@ -330,8 +353,7 @@ context_priority(Path, 50) :-
 
 # Lowest priority: test files for non-test intents
 context_priority(Path, 20) :-
-    file_topology(Path, _, _),
-    is_test_file(Path),
+    file_topology(Path, _, _, _, /true),  # IsTestFile = /true
     !persona(/tester).
 
 # Boost priority for failing tests
@@ -354,5 +376,9 @@ next_action(/run_tests) :- tdd_state(/green), !tests_run_recently().
 next_action(/fix_code) :- tdd_state(/red).
 next_action(/refactor_code) :- tdd_state(/refactor).
 
-# General next action
-next_action(/execute_intent) :- user_intent(_, _, _, _, _), !tdd_state(_).
+# General next action (only when not in TDD loop)
+next_action(/execute_intent) :-
+    user_intent(_, _, _, _, _),
+    !tdd_state(/red),
+    !tdd_state(/green),
+    !tdd_state(/refactor).
