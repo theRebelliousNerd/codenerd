@@ -25,12 +25,12 @@ type GeminiClient struct {
 }
 
 // DefaultGeminiConfig returns sensible defaults.
-// Uses gemini-3-flash-preview - Google's most intelligent model built for speed.
+// Uses gemini-2.5-flash - Google's fast multimodal model with 1M token context.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
 		APIKey:  apiKey,
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
-		Model:   "gemini-3-flash-preview",
+		Model:   "gemini-2.5-flash",
 		Timeout: 10 * time.Minute, // Large context models need extended timeout
 	}
 }
