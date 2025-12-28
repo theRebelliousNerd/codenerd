@@ -1,13 +1,15 @@
 ---
 name: codenerd-builder
-description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, JIT Clean Loop, SubAgents, Virtual Predicates, TDD loops, Piggyback Protocol, Dream State, Dreamer (Precog Safety), Legislator, Ouroboros Loop, and ConfigFactory. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
+description: Build the codeNERD Logic-First Neuro-Symbolic coding agent framework. This skill should be used when implementing components of the codeNERD architecture including the Mangle kernel, Perception/Articulation Transducers, JIT Clean Loop, SubAgents, Modular Tool Registry, Virtual Predicates, TDD loops, Piggyback Protocol, Quiescent Boot, Dream State, Dreamer (Precog Safety), Legislator, Ouroboros Loop, and ConfigFactory. Use for tasks involving Google Mangle logic, Go runtime integration, or any neuro-symbolic agent development following the Creative-Executive Partnership pattern.
 ---
 
 # codeNERD Builder
 
 Build the codeNERD high-assurance Logic-First CLI coding agent.
 
-> **Architecture Update (Dec 2024):** codeNERD now uses a **JIT Clean Loop** architecture. Domain shards (coder, tester, reviewer, researcher) have been **deleted** and replaced by JIT-driven SubAgents. All persona/identity comes from prompt atoms compiled at runtime. See [internal/session/](internal/session/) for the clean execution loop.
+> **Architecture Update (Dec 2024):** codeNERD now uses a **JIT Clean Loop** architecture. Domain shards (coder, tester, reviewer, researcher) have been **deleted** and replaced by JIT-driven SubAgents. All persona/identity comes from prompt atoms compiled at runtime. Tools are now modular via `internal/tools/` and any agent can use any tool via JIT selection.
+>
+> **Quiescent Boot (Dec 2024):** Sessions start fresh. Ephemeral facts (`user_intent`, `next_action`, etc.) are filtered at kernel boot. Use `/sessions` to load previous sessions explicitly.
 >
 > **Stability Notice:** This codebase is under active development. Code snippets illustrate architectural patterns but may not match current implementations exactly. Always read the actual source files.
 
@@ -190,6 +192,49 @@ See [prompt-architect skill](../prompt-architect/SKILL.md).
 | `internal/mangle/intent_routing.mg` | Mangle rules for persona selection |
 
 See [references/shard-agents.md](references/shard-agents.md) for legacy context.
+
+### Modular Tool Registry
+
+> **Dec 2024:** Tools are modular and any agent can use any tool via JIT selection.
+
+**Location:** `internal/tools/`
+
+| Package | Tools | Purpose |
+|---------|-------|---------|
+| `core/` | read_file, write_file, glob, grep | Filesystem operations |
+| `shell/` | run_command, bash, run_build | Shell execution |
+| `codedom/` | get_elements, edit_lines | Semantic code operations |
+| `research/` | web_search, web_fetch, context7 | Research tools |
+
+Tools are routed via Mangle rules in `intent_routing.mg`:
+
+```mangle
+modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
+modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
+```
+
+### Quiescent Boot & Sessions
+
+> **Dec 2024:** Sessions start fresh. Previous sessions loaded explicitly.
+
+**Key Components:**
+
+| File | Purpose |
+|------|---------|
+| `internal/core/fact_categories.go` | Defines ephemeral vs persistent predicates |
+| `internal/core/kernel_init.go` | `filterBootFacts()` removes ephemeral facts at boot |
+| `cmd/nerd/chat/session.go` | Fresh session generation, `/sessions` command |
+
+**Ephemeral Predicates** (filtered at boot):
+- `user_intent` - Current turn's intent
+- `pending_action` - Actions awaiting execution
+- `next_action` - Derived next action
+- `active_tool` - Currently executing tool
+
+**Session Commands:**
+- `/sessions` - List and select previous sessions
+- `/load-session <id>` - Load specific session
+- `/new-session` - Start fresh (preserves old)
 
 ### Dreamer (Precog Safety)
 

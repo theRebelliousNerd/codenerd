@@ -8,6 +8,10 @@ description: Comprehensive audit and repair of integration wiring across all 39+
 Systematic verification that all codeNERD components are properly wired through the 39+ integration points.
 
 > **Architecture Update (Dec 2024):** Domain shards (coder, tester, reviewer, researcher) have been replaced by JIT-driven SubAgents. Shard registration patterns now use `internal/session/spawner.go` and `ConfigFactory` instead of `internal/shards/registration.go`. See the codenerd-builder skill for details.
+>
+> **Quiescent Boot (Dec 2024):** Sessions start fresh. Ephemeral facts filtered at kernel boot via `filterBootFacts()`. Use `/sessions` to load previous sessions.
+>
+> **Modular Tool Registry (Dec 2024):** Tools are modular in `internal/tools/` (core/, shell/, codedom/, research/). Hydrated via `VirtualStore.HydrateModularTools()` at boot.
 
 ## Core Principle: Wire, Don't Remove
 
@@ -142,10 +146,19 @@ Every feature touches multiple systems. Summary table:
 ### Boot Sequence
 
 ```text
-1. Config      → 2. Logging     → 3. Kernel    → 4. Storage
-5. VirtualStore → 6. Registration → 7. System Shards → 8. Session
-9. World Model  → 10. Ready
+1. Config       → 2. Logging      → 3. Kernel (filterBootFacts) → 4. Storage
+5. VirtualStore → 6. Tool Hydration → 7. System Shards → 8. Fresh Session
+9. World Model  → 10. Boot Guard Released → 11. Ready
 ```
+
+**Key Boot Steps (Dec 2024):**
+
+| Step | Component | What Happens |
+|------|-----------|--------------|
+| 3 | Kernel | `filterBootFacts()` removes ephemeral facts (user_intent, next_action, etc.) |
+| 6 | VirtualStore | `HydrateModularTools()` registers tools from internal/tools/* |
+| 8 | Session | Fresh session ID generated; previous sessions available via `/sessions` |
+| 10 | Boot Guard | Released on first user interaction, not rehydrated history |
 
 If a component fails, check that its dependencies booted first.
 
