@@ -80,7 +80,7 @@ path_len(X, Y, Len) :- ...  # From above
 shortest(X, Y, MinLen) :- 
     path_len(X, Y, Len) |>
     do fn:group_by(X, Y),
-    let MinLen = fn:Min(Len).
+    let MinLen = fn:min(Len).
 ```
 
 ### Maximum Depth
@@ -93,7 +93,7 @@ depth(Node, D) :-
 
 max_depth(MaxD) :- 
     depth(_, D) |>
-    let MaxD = fn:Max(D).
+    let MaxD = fn:max(D).
 ```
 
 ## Mutual Recursion
@@ -136,7 +136,7 @@ subtree_size(Node, Size) :-
     child(Node, C),
     subtree_size(C, ChildSize) |>
     do fn:group_by(Node),
-    let TotalChildren = fn:Sum(ChildSize),
+    let TotalChildren = fn:sum(ChildSize),
     let Size = fn:plus(TotalChildren, 1).
 ```
 

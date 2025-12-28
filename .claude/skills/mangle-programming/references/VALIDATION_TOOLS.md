@@ -27,7 +27,7 @@ python3 scripts/validate_mangle.py program.mg --verbose
 - Aggregation pipelines (|> do fn: let)
 - Safety constraints (head variables bound in body)
 - Negation safety (variables bound before negation)
-- Built-in function validation (fn:Count, fn:Sum, etc.)
+- Built-in function validation (fn:count, fn:sum, etc.)
 - Basic stratification analysis
 
 ## diagnose_stratification.py - Stratification Diagnostic Tool

@@ -87,7 +87,7 @@ region_sales(Region, Total) :-
 region_sales(Region, Total) :-
     sales(Region, Amount) |>
     fn:group_by(Region),  # Missing `do`!
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 ```
 
 ### Correct Syntax
@@ -97,7 +97,7 @@ region_sales(Region, Total) :-
 region_sales(Region, Total) :-
     sales(Region, Amount) |>
     do fn:group_by(Region),
-    let Total = fn:Sum(Amount).
+    let Total = fn:sum(Amount).
 ```
 
 ### Required Keywords
@@ -106,16 +106,19 @@ region_sales(Region, Total) :-
 |---------|---------|---------|
 | `\|>` | Pipeline operator | `source() \|> ...` |
 | `do` | Apply transform function | `do fn:group_by(X)` |
-| `let` | Bind aggregation result | `let N = fn:Count()` |
-| `fn:` | Function namespace | `fn:Sum`, `fn:Count`, `fn:group_by` |
+| `let` | Bind aggregation result | `let N = fn:count()` |
+| `fn:` | Function namespace | `fn:sum`, `fn:count`, `fn:group_by` |
 
 ### Function Casing
 
-**CRITICAL**: Aggregation functions use specific casing:
-- `fn:Count()` - Capital C
-- `fn:Sum(X)` - Capital S
-- `fn:Min(X)`, `fn:Max(X)` - Capital M
+**CRITICAL**: All built-in functions use **lowercase** after the `fn:` prefix:
+- `fn:count()` - lowercase c
+- `fn:sum(X)` - lowercase s
+- `fn:min(X)`, `fn:max(X)` - lowercase m
 - `fn:group_by(X)` - lowercase
+- `fn:collect(X)` - lowercase
+
+**Common AI mistake**: Capitalizing function names (`fn:Sum`, `fn:Count`) will cause errors.
 
 ---
 
@@ -518,7 +521,7 @@ Before running Mangle code, verify:
 | Pattern | WRONG | CORRECT |
 |---------|-------|---------|
 | Atom | `"active"` | `/active` |
-| Aggregation | `sum(X)` | `\|> let S = fn:Sum(X)` |
+| Aggregation | `sum(X)` | `\|> let S = fn:sum(X)` |
 | Grouping | `group by X` | `\|> do fn:group_by(X)` |
 | Declaration | `.decl p(x:int)` | `Decl p(X.Type<int>).` |
 | Negation | `not foo(X)` alone | `gen(X), not foo(X)` |
@@ -617,10 +620,10 @@ fn:endswith(S, Suffix)               # DOES NOT EXIST
 - `X = Y`, `X != Y`, `X < Y`, `X > Y`, `X <= Y`, `X >= Y`
 
 **Aggregation** (must use `|> do`/`let` pipeline):
-- `fn:Count()` - Count items
-- `fn:Sum(X)` - Sum values
-- `fn:Min(X)` - Minimum value
-- `fn:Max(X)` - Maximum value
+- `fn:count()` - Count items
+- `fn:sum(X)` - Sum values
+- `fn:min(X)` - Minimum value
+- `fn:max(X)` - Maximum value
 - `fn:group_by(X)` - Group by value
 - `fn:collect(X)` - Collect into list
 

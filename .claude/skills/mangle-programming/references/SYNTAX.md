@@ -73,15 +73,16 @@ Decl salary(ID.Type<int>, Amount.Type<float>).
 ```mangle
 fn:plus(A, B)      # Addition
 fn:minus(A, B)     # Subtraction
-fn:multiply(A, B)  # Multiplication
+fn:mult(A, B)      # Multiplication
+fn:div(A, B)       # Division
 ```
 
 ### Aggregation
 ```mangle
-fn:Count()         # Count elements
-fn:Sum(Var)        # Sum numeric values
-fn:Max(Var)        # Maximum value
-fn:Min(Var)        # Minimum value
+fn:count()         # Count elements
+fn:sum(Var)        # Sum numeric values
+fn:max(Var)        # Maximum value
+fn:min(Var)        # Minimum value
 fn:group_by(V...)  # Group by variables
 ```
 
@@ -98,7 +99,7 @@ fn:group_by(V...)  # Group by variables
 result(Count) :- 
     data(X) |> 
     do fn:group_by(), 
-    let Count = fn:Count().
+    let Count = fn:count().
 ```
 
 ### Multi-stage Transform
@@ -107,7 +108,7 @@ stats(Category, Total) :-
     item(Category, Value) |> 
     do fn:filter(fn:gt(Value, 10)),
     do fn:group_by(Category), 
-    let Total = fn:Sum(Value).
+    let Total = fn:sum(Value).
 ```
 
 ## Variable Naming

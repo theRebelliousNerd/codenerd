@@ -2,9 +2,9 @@
 name: mangle-programming
 description: Master Google's Mangle declarative programming language for deductive database programming, constraint-like reasoning, and software analysis. From basic facts to production deployment, graph traversal to vulnerability detection, theoretical foundations to optimization. Includes comprehensive AI failure mode prevention (atom/string confusion, aggregation syntax, safety violations, stratification errors). Complete encyclopedic reference with progressive disclosure architecture.
 license: Apache-2.0
-version: 0.6.0
+version: 0.7.0
 mangle_version: 0.4.0 (November 1, 2024)
-last_updated: 2025-12-23
+last_updated: 2025-12-28
 ---
 
 # Mangle Programming: The Complete Reference
@@ -42,7 +42,7 @@ sibling(X, Y) :- parent(P, X), parent(P, Y), X != Y.
 | Pattern | WRONG | CORRECT |
 |---------|-------|---------|
 | Constants | `"active"` | `/active` |
-| Aggregation | `sum(X)` | `\|> let S = fn:Sum(X)` |
+| Aggregation | `sum(X)` | `\|> let S = fn:sum(X)` |
 | Grouping | `GROUP BY X` | `\|> do fn:group_by(X)` |
 | Declaration | `.decl p(x:int)` | `Decl p(X.Type<int>).` |
 | Negation | `not foo(X)` alone | `gen(X), not foo(X)` |
@@ -73,8 +73,8 @@ sibling(X, Y) :- parent(P, X), parent(P, Y), X != Y.
 ### Built-in Functions
 
 ```mangle
-fn:Count()                        # Count elements
-fn:Sum(V), fn:Max(V), fn:Min(V)   # Aggregations
+fn:count()                        # Count elements
+fn:sum(V), fn:max(V), fn:min(V)   # Aggregations
 fn:group_by(V1, V2, ...)          # Group by
 fn:plus(A, B), fn:minus(A, B)     # Arithmetic
 fn:list:get(List, Index)          # List access (0-based)
@@ -96,7 +96,7 @@ safe(X) :- candidate(X), !excluded(X).
 count_by_category(Cat, N) :-
     item(Cat, _) |>
     do fn:group_by(Cat),
-    let N = fn:Count().
+    let N = fn:count().
 
 # Structured Data Query
 volunteer_name(Id, Name) :-
@@ -124,7 +124,7 @@ Total = sum(Amount).
 # CORRECT - Full pipeline syntax
 sales(Region, Amount) |>
 do fn:group_by(Region),
-let Total = fn:Sum(Amount).
+let Total = fn:sum(Amount).
 ```
 
 ### Unbound Variables in Negation
@@ -151,6 +151,7 @@ This skill uses **progressive disclosure**: Start with quick references, explore
 | [100-FUNDAMENTALS](references/100-FUNDAMENTALS.md) | Theory, concepts, mental models |
 | [150-AI_FAILURE_MODES](references/150-AI_FAILURE_MODES.md) | **CRITICAL: Read before writing Mangle** |
 | [200-SYNTAX_REFERENCE](references/200-SYNTAX_REFERENCE.md) | Complete language specification |
+| [250-BUILTINS_COMPLETE](references/250-BUILTINS_COMPLETE.md) | Authoritative built-in functions & predicates |
 | [300-PATTERN_LIBRARY](references/300-PATTERN_LIBRARY.md) | Every common pattern |
 | [400-RECURSION_MASTERY](references/400-RECURSION_MASTERY.md) | Deep dive on recursive techniques |
 | [450-PROMPT_ATOM_PREDICATES](references/450-PROMPT_ATOM_PREDICATES.md) | JIT Prompt Compiler predicates |
@@ -159,8 +160,19 @@ This skill uses **progressive disclosure**: Start with quick references, explore
 | [700-OPTIMIZATION](references/700-OPTIMIZATION.md) | Performance engineering |
 | [800-THEORY](references/800-THEORY.md) | Mathematical foundations |
 | [900-ECOSYSTEM](references/900-ECOSYSTEM.md) | Tools, libraries, integrations |
+| [950-ADVANCED_ARCHITECTURE](references/950-ADVANCED_ARCHITECTURE.md) | God-Tier patterns: ReBAC, taint analysis, bisimulation |
 | [GO_API_REFERENCE](references/GO_API_REFERENCE.md) | Complete Go package documentation |
+| [VALIDATION_TOOLS](references/VALIDATION_TOOLS.md) | Script documentation for validation tools |
 | [context7-mangle](references/context7-mangle.md) | Up-to-date API patterns (v0.4.0) |
+
+### Legacy References (Being Migrated)
+
+| Reference | Contents | Migrating To |
+|-----------|----------|--------------|
+| [SYNTAX](references/SYNTAX.md) | Original syntax reference | 200-SYNTAX_REFERENCE |
+| [EXAMPLES](references/EXAMPLES.md) | Original examples collection | 300-PATTERN_LIBRARY |
+| [ADVANCED_PATTERNS](references/ADVANCED_PATTERNS.md) | Complex patterns | 400/500/700/950 |
+| [PRODUCTION](references/PRODUCTION.md) | Deployment guide | 900-ECOSYSTEM |
 
 ## Learning Paths
 
@@ -195,36 +207,94 @@ GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest
 ::help              # Help
 ```
 
-## Validation Tools
+## Scripts & Tools
 
-Scripts for validating Mangle programs. See [VALIDATION_TOOLS](references/VALIDATION_TOOLS.md) for complete documentation.
+Python tools for validating, analyzing, and generating Mangle code. See [VALIDATION_TOOLS](references/VALIDATION_TOOLS.md) and [scripts/README.md](scripts/README.md) for complete documentation.
 
-| Tool | Purpose |
-|------|---------|
-| `validate_mangle.py` | Syntax validation, safety checks |
-| `diagnose_stratification.py` | Stratification issue detection |
-| `dead_code.py` | Unreachable/unused code detection |
-| `trace_query.py` | Query evaluation tracing |
-| `explain_derivation.py` | Proof tree visualization |
-| `analyze_module.py` | Cross-file coherence analysis |
-| `generate_stubs.py` | Go virtual predicate stubs |
-| `profile_rules.py` | Cartesian explosion detection |
-| `validate_go_mangle.py` | Go integration validation |
+### Validation & Analysis
 
-Quick usage:
+| Script | Purpose | Documentation |
+|--------|---------|---------------|
+| `validate_mangle.py` | Syntax validation, safety checks | [VALIDATION_TOOLS](references/VALIDATION_TOOLS.md) |
+| `validate_go_mangle.py` | Go integration validation | [VALIDATION_TOOLS](references/VALIDATION_TOOLS.md) |
+| `diagnose_stratification.py` | Stratification & negation cycle detection | [README.md](scripts/README.md) |
+| `dead_code.py` | Unreachable/unused code detection | [README.md](scripts/README.md) |
+| `profile_rules.py` | Cartesian explosion & performance analysis | [README.md](scripts/README.md) |
+
+### Debugging & Tracing
+
+| Script | Purpose | Documentation |
+|--------|---------|---------------|
+| `trace_query.py` | Query evaluation tracing | [README_trace_query.md](scripts/README_trace_query.md) |
+| `explain_derivation.py` | Proof tree visualization | [README_explain_derivation.md](scripts/README_explain_derivation.md) |
+| `analyze_module.py` | Cross-file coherence analysis | [README_ANALYZER.md](scripts/README_ANALYZER.md), [QUICKSTART.md](scripts/QUICKSTART.md) |
+
+### Code Generation
+
+| Script | Purpose | Documentation |
+|--------|---------|---------------|
+| `generate_stubs.py` | Go virtual predicate stubs | [STUB_GENERATOR_README.md](scripts/STUB_GENERATOR_README.md) |
+| `generate_template.py` | Mangle file templates | See script docstring |
+
+### Quick Usage
+
 ```bash
+# Validate syntax
 python3 scripts/validate_mangle.py program.mg --strict
+
+# Detect stratification issues
 python3 scripts/diagnose_stratification.py program.mg --verbose
+
+# Profile performance
+python3 scripts/profile_rules.py program.mg --warn-expensive
+
+# Analyze multi-file module
+python3 scripts/analyze_module.py *.mg --check-completeness
+
+# Generate Go stubs for virtual predicates
+python3 scripts/generate_stubs.py schemas.mg --virtual-only --output stubs.go
+```
+
+### CI/CD Integration
+
+```bash
+# Pre-commit validation
+python3 scripts/validate_mangle.py *.mg --strict
+python3 scripts/diagnose_stratification.py *.mg
+python3 scripts/profile_rules.py *.mg --warn-expensive --threshold medium
 ```
 
 ## Asset Templates
 
+Templates and examples for starting new Mangle projects. See [assets/README.md](assets/README.md) for complete documentation.
+
+### Templates
+
 | Asset | Purpose |
 |-------|---------|
-| [starter-schema.gl](assets/starter-schema.gl) | Schema template with EDB declarations |
-| [starter-policy.gl](assets/starter-policy.gl) | Policy template with common IDB rules |
-| [examples/](assets/examples/) | Vulnerability scanner, access control, aggregation |
-| [go-integration/](assets/go-integration/) | Complete Go embedding example |
+| [starter-schema.mg](assets/starter-schema.mg) | Schema template with EDB declarations (entities, attributes, relationships) |
+| [starter-policy.mg](assets/starter-policy.mg) | Policy template with common IDB rules (transitive closure, negation, aggregation) |
+| [codenerd-schemas.mg](assets/codenerd-schemas.mg) | Schema for codeNERD's neuro-symbolic architecture (intent, world model, TDD) |
+
+### Examples
+
+| Asset | Purpose |
+|-------|---------|
+| [examples/vulnerability-scanner.mg](assets/examples/vulnerability-scanner.mg) | Dependency tracking, CVE propagation, vulnerability paths |
+| [examples/access-control.mg](assets/examples/access-control.mg) | RBAC with role hierarchy, permission inheritance, explicit denials |
+| [examples/aggregation-patterns.mg](assets/examples/aggregation-patterns.mg) | All aggregation patterns: count, sum, min/max, grouping, nesting |
+
+### Go Integration
+
+| Asset | Purpose |
+|-------|---------|
+| [go-integration/](assets/go-integration/) | Complete Go embedding example with `main.go` and `go.mod` |
+
+**Quick start**: Copy templates to start a new project:
+```bash
+cp assets/starter-schema.mg my-schema.mg
+cp assets/starter-policy.mg my-policy.mg
+```
 
 ## Resources
 

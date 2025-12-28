@@ -19,8 +19,8 @@ result(Vars, Final) :-
     do fn:filter(fn:gt(X, 10)) |>
     do fn:transform(X) |>
     do fn:group_by(Category) |>
-    let Count = fn:Count() |>
-    let Total = fn:Sum(Value) |>
+    let Count = fn:count() |>
+    let Total = fn:sum(Value) |>
     let Final = fn:divide(Total, Count).
 ```
 
@@ -31,7 +31,7 @@ result(Vars, Final) :-
 items_per_category(Cat, N) :- 
     item(Cat, _) |>
     do fn:group_by(Cat),
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 ### Sum, Min, Max
@@ -39,9 +39,9 @@ items_per_category(Cat, N) :-
 category_stats(Cat, Total, Min, Max) :- 
     item(Cat, Value) |>
     do fn:group_by(Cat),
-    let Total = fn:Sum(Value),
-    let Min = fn:Min(Value),
-    let Max = fn:Max(Value).
+    let Total = fn:sum(Value),
+    let Min = fn:min(Value),
+    let Max = fn:max(Value).
 ```
 
 ### Average (Derived)
@@ -49,8 +49,8 @@ category_stats(Cat, Total, Min, Max) :-
 average_per_category(Cat, Avg) :- 
     item(Cat, Value) |>
     do fn:group_by(Cat),
-    let Total = fn:Sum(Value),
-    let Count = fn:Count(),
+    let Total = fn:sum(Value),
+    let Count = fn:count(),
     let Avg = fn:divide(Total, Count).
 ```
 
@@ -62,7 +62,7 @@ high_value_count(Cat, N) :-
     item(Cat, Value) |>
     do fn:filter(fn:gt(Value, 1000)),
     do fn:group_by(Cat),
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 ### Multiple Conditional Aggregations
@@ -75,13 +75,13 @@ high_value_count(Cat, N) :-
     item(Cat, V) |> 
     do fn:filter(fn:gt(V, 1000)),
     do fn:group_by(Cat), 
-    let N = fn:Count().
+    let N = fn:count().
 
 low_value_count(Cat, N) :- 
     item(Cat, V) |> 
     do fn:filter(fn:le(V, 1000)),
     do fn:group_by(Cat), 
-    let N = fn:Count().
+    let N = fn:count().
 ```
 
 ## Multi-Dimensional Grouping
@@ -91,8 +91,8 @@ low_value_count(Cat, N) :-
 sales_summary(Region, Product, Count, Revenue) :- 
     sale(Region, Product, Amount) |>
     do fn:group_by(Region, Product),
-    let Count = fn:Count(),
-    let Revenue = fn:Sum(Amount).
+    let Count = fn:count(),
+    let Revenue = fn:sum(Amount).
 ```
 
 ## Nested Aggregation
@@ -103,14 +103,14 @@ sales_summary(Region, Product, Count, Revenue) :-
 category_total(Cat, Total) :- 
     item(Cat, Value) |>
     do fn:group_by(Cat),
-    let Total = fn:Sum(Value).
+    let Total = fn:sum(Value).
 
 # Step 2: Overall statistics from category totals
 overall_stats(GrandTotal, AvgCategoryTotal) :- 
     category_total(_, Total) |>
     do fn:group_by(),
-    let GrandTotal = fn:Sum(Total),
-    let Count = fn:Count(),
+    let GrandTotal = fn:sum(Total),
+    let Count = fn:count(),
     let AvgCategoryTotal = fn:divide(GrandTotal, Count).
 ```
 
@@ -124,7 +124,7 @@ running_total(Item, RunningSum) :-
     item(PrevItem, PrevValue),
     PrevItem < Item |>  # Ordering assumption
     do fn:group_by(Item),
-    let RunningSum = fn:Sum(PrevValue).
+    let RunningSum = fn:sum(PrevValue).
 ```
 
 ### Rank (Simulated)
@@ -135,7 +135,7 @@ rank(Item, Rank) :-
     item(OtherItem, OtherValue),
     OtherValue > Value |>
     do fn:group_by(Item),
-    let Rank = fn:plus(fn:Count(), 1).
+    let Rank = fn:plus(fn:count(), 1).
 ```
 
 ---
