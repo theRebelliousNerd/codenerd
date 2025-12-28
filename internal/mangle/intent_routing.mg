@@ -3,34 +3,42 @@
 # The JIT system queries these rules to determine agent behavior.
 
 # =============================================================================
+# Note: This file depends on predicates declared in:
+#   - schemas.mg (user_intent, file_topology, test_failed, etc.)
+#   - tester.mg (file_exists, file_contains)
+#   - Various schema files for virtual predicates
+# =============================================================================
+
+# =============================================================================
 # SECTION 1: Action Type Derivation
 # =============================================================================
 # What used to be hardcoded in CoderShard.parseTask()
+# Note: Using intent_action_type to avoid schema conflict with action_type/2
 
 # Create actions - wholly new functionality
-action_type(/create) :- user_intent(_, /command, /create, _, _).
-action_type(/create) :- user_intent(_, /command, /implement, _, _).
-action_type(/create) :- user_intent(_, /command, /add, _, _).
-action_type(/create) :- user_intent(_, /command, /new, _, _).
-action_type(/create) :- user_intent(_, /command, /generate, _, _).
+intent_action_type(/create) :- user_intent(_, /command, /create, _, _).
+intent_action_type(/create) :- user_intent(_, /command, /implement, _, _).
+intent_action_type(/create) :- user_intent(_, /command, /add, _, _).
+intent_action_type(/create) :- user_intent(_, /command, /new, _, _).
+intent_action_type(/create) :- user_intent(_, /command, /generate, _, _).
 
 # Modify actions - changes to existing code
-action_type(/modify) :- user_intent(_, /command, /fix, _, _).
-action_type(/modify) :- user_intent(_, /command, /refactor, _, _).
-action_type(/modify) :- user_intent(_, /command, /update, _, _).
-action_type(/modify) :- user_intent(_, /command, /change, _, _).
-action_type(/modify) :- user_intent(_, /command, /edit, _, _).
-action_type(/modify) :- user_intent(_, /command, /patch, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /fix, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /refactor, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /update, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /change, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /edit, _, _).
+intent_action_type(/modify) :- user_intent(_, /command, /patch, _, _).
 
 # Delete actions
-action_type(/delete) :- user_intent(_, /command, /remove, _, _).
-action_type(/delete) :- user_intent(_, /command, /delete, _, _).
+intent_action_type(/delete) :- user_intent(_, /command, /remove, _, _).
+intent_action_type(/delete) :- user_intent(_, /command, /delete, _, _).
 
 # Query actions - read-only
-action_type(/query) :- user_intent(_, /question, _, _, _).
-action_type(/query) :- user_intent(_, /command, /find, _, _).
-action_type(/query) :- user_intent(_, /command, /search, _, _).
-action_type(/query) :- user_intent(_, /command, /explain, _, _).
+intent_action_type(/query) :- user_intent(_, /question, _, _, _).
+intent_action_type(/query) :- user_intent(_, /command, /find, _, _).
+intent_action_type(/query) :- user_intent(_, /command, /search, _, _).
+intent_action_type(/query) :- user_intent(_, /command, /explain, _, _).
 
 # =============================================================================
 # SECTION 2: Persona Selection
@@ -45,8 +53,8 @@ persona(/coder) :- user_intent(_, _, /create, _, _).
 persona(/coder) :- user_intent(_, _, /modify, _, _).
 persona(/coder) :- user_intent(_, _, /add, _, _).
 persona(/coder) :- user_intent(_, _, /update, _, _).
-persona(/coder) :- action_type(/create).
-persona(/coder) :- action_type(/modify).
+persona(/coder) :- intent_action_type(/create).
+persona(/coder) :- intent_action_type(/modify).
 
 # Tester persona
 persona(/tester) :- user_intent(_, _, /test, _, _).
@@ -70,8 +78,26 @@ persona(/researcher) :- user_intent(_, _, /explore, _, _).
 persona(/researcher) :- user_intent(_, _, /find, _, _).
 
 # Default to coder for unmatched intents
-persona(/coder) :- user_intent(_, _, V, _, _), not persona_matched(V).
-persona_matched(V) :- persona(P), P != /coder, user_intent(_, _, V, _, _).
+# Note: We check if specific verbs are NOT matched by tester/reviewer/researcher
+# This avoids stratification issues by not referencing persona/1 in the check
+persona(/coder) :- user_intent(_, _, V, _, _), !verb_has_specialist(V).
+
+# Verbs that have specialist personas (not coder)
+verb_has_specialist(/test).
+verb_has_specialist(/cover).
+verb_has_specialist(/verify).
+verb_has_specialist(/validate).
+verb_has_specialist(/review).
+verb_has_specialist(/audit).
+verb_has_specialist(/check).
+verb_has_specialist(/analyze).
+verb_has_specialist(/inspect).
+verb_has_specialist(/research).
+verb_has_specialist(/learn).
+verb_has_specialist(/document).
+verb_has_specialist(/understand).
+verb_has_specialist(/explore).
+verb_has_specialist(/find).
 
 # =============================================================================
 # SECTION 3: Test Framework Detection
@@ -90,10 +116,13 @@ test_framework(/mocha) :- file_exists("mocharc.json").
 test_framework(/mocha) :- file_exists(".mocharc.js").
 
 # Python
-test_framework(/pytest) :- file_exists("pytest.ini").
-test_framework(/pytest) :- file_exists("pyproject.toml"), file_contains("pyproject.toml", "pytest").
-test_framework(/pytest) :- file_exists("conftest.py").
-test_framework(/unittest) :- file_exists("test_*.py"), not test_framework(/pytest).
+# Use intermediate predicate to avoid stratification cycle
+pytest_detected() :- file_exists("pytest.ini").
+pytest_detected() :- file_exists("pyproject.toml"), file_contains("pyproject.toml", "pytest").
+pytest_detected() :- file_exists("conftest.py").
+
+test_framework(/pytest) :- pytest_detected().
+test_framework(/unittest) :- file_exists("test_*.py"), !pytest_detected().
 
 # Rust
 test_framework(/cargo_test) :- file_exists("Cargo.toml").
@@ -185,35 +214,17 @@ modular_tool_allowed(/insert_lines, Intent) :- intent_category(Intent, /code).
 modular_tool_allowed(/delete_lines, Intent) :- intent_category(Intent, /code).
 
 # Intent category mappings for code
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /fix.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /implement.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /refactor.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /create.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /modify.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /add.
-intent_category(Intent, /code) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /update.
+intent_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
+intent_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
+intent_category(/refactor, /code) :- user_intent(_, _, /refactor, _, _).
+intent_category(/create, /code) :- user_intent(_, _, /create, _, _).
+intent_category(/modify, /code) :- user_intent(_, _, /modify, _, _).
+intent_category(/add, /code) :- user_intent(_, _, /add, _, _).
+intent_category(/update, /code) :- user_intent(_, _, /update, _, _).
 
 # Intent category mappings for test
-intent_category(Intent, /test) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /test.
-intent_category(Intent, /test) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /cover.
+intent_category(/test, /test) :- user_intent(_, _, /test, _, _).
+intent_category(/cover, /test) :- user_intent(_, _, /cover, _, _).
 
 # Research tools - available for /research intent
 modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /research).
@@ -237,28 +248,14 @@ modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /veri
 modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /verify).
 modular_tool_allowed(/browser_screenshot, Intent) :- intent_category(Intent, /verify).
 
-# Intent category mapping
-intent_category(Intent, /research) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /research.
-intent_category(Intent, /research) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /explore.
-intent_category(Intent, /learn) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /learn.
-intent_category(Intent, /learn) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /understand.
-intent_category(Intent, /document) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /document.
-intent_category(Intent, /verify) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /verify.
-intent_category(Intent, /verify) :-
-    user_intent(_, _, Intent, _, _),
-    Intent = /validate.
+# Intent category mappings for research/learn/document/verify
+intent_category(/research, /research) :- user_intent(_, _, /research, _, _).
+intent_category(/explore, /research) :- user_intent(_, _, /explore, _, _).
+intent_category(/learn, /learn) :- user_intent(_, _, /learn, _, _).
+intent_category(/understand, /learn) :- user_intent(_, _, /understand, _, _).
+intent_category(/document, /document) :- user_intent(_, _, /document, _, _).
+intent_category(/verify, /verify) :- user_intent(_, _, /verify, _, _).
+intent_category(/validate, /verify) :- user_intent(_, _, /validate, _, _).
 
 # Tool priority (prefer cached results)
 modular_tool_priority(/research_cache_get, 90).
@@ -335,7 +332,7 @@ context_priority(Path, 50) :-
 context_priority(Path, 20) :-
     file_topology(Path, _, _),
     is_test_file(Path),
-    not persona(/tester).
+    !persona(/tester).
 
 # Boost priority for failing tests
 context_priority(Path, 90) :-
@@ -348,14 +345,14 @@ context_priority(Path, 90) :-
 # TDD repair loop and other workflow patterns
 
 # TDD states
-tdd_state(/red) :- test_failed(_, _, _), not test_passed_after_fix.
-tdd_state(/green) :- not test_failed(_, _, _), code_modified_recently.
+tdd_state(/red) :- test_failed(_, _, _), !test_passed_after_fix().
+tdd_state(/green) :- !test_failed(_, _, _), code_modified_recently().
 tdd_state(/refactor) :- tdd_state(/green), code_quality_issue(_, _).
 
 # Next action derivation for TDD
-next_action(/run_tests) :- tdd_state(/green), not tests_run_recently.
+next_action(/run_tests) :- tdd_state(/green), !tests_run_recently().
 next_action(/fix_code) :- tdd_state(/red).
 next_action(/refactor_code) :- tdd_state(/refactor).
 
 # General next action
-next_action(/execute_intent) :- user_intent(_, _, _, _, _), not tdd_state(_).
+next_action(/execute_intent) :- user_intent(_, _, _, _, _), !tdd_state(_).
