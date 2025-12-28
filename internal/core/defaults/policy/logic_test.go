@@ -13,6 +13,10 @@ import (
 	"go.uber.org/goleak"
 )
 
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
+
 // TestLogic_Golden enforces strict correctness of Mangle policies.
 // It loads scenarios from testdata/, runs them against the engine,
 // and compares the resulting IDB (derived facts) with a golden file.
@@ -37,6 +41,13 @@ func TestLogic_Golden(t *testing.T) {
 			schemaFiles: []string{"../schemas_prompts.mg"},
 			edbFile:     "testdata/jit_logic.edb",
 			goldenFile:  "testdata/jit_logic.golden",
+		},
+		{
+			name:        "TDD Loop Logic",
+			policyFiles: []string{"tdd_loop.mg"},
+			schemaFiles: []string{"../schemas_execution.mg", "../schemas_intent.mg"},
+			edbFile:     "testdata/tdd_loop.edb",
+			goldenFile:  "testdata/tdd_loop.golden",
 		},
 	}
 
