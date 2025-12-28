@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +14,22 @@ import (
 
 	"github.com/google/mangle/factstore"
 )
+
+// unsafeNegationPattern matches negated atoms with anonymous variables
+// e.g., !active_shard(/coder, _) or !foo(_, Bar, _)
+var unsafeNegationPattern = regexp.MustCompile(`!\s*\w+\s*\([^)]*_[^)]*\)`)
+
+// checkUnsafeNegation validates that a rule doesn't contain unsafe negation patterns.
+// Unsafe patterns include anonymous variables (_) in negated atoms, which would be
+// unbound and violate Mangle's negation safety requirement.
+func checkUnsafeNegation(rule string) error {
+	if unsafeNegationPattern.MatchString(rule) {
+		// Extract the offending pattern for better error messages
+		matches := unsafeNegationPattern.FindAllString(rule, -1)
+		return fmt.Errorf("unsafe negation pattern detected: %v - anonymous variables in negated atoms are unbound. Use a helper predicate instead (e.g., has_active_shard(Type) instead of !active_shard(_, Type))", matches)
+	}
+	return nil
+}
 
 // =============================================================================
 // POLICY MANAGEMENT
@@ -156,6 +173,13 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 		logging.KernelDebug("HotLoadRule: normalized rule input for parser compatibility")
 	}
 	rule = normalizedRule
+
+	// Pre-validation: Check for unsafe negation patterns (unbound variables in negation)
+	// Pattern: !predicate(..., _) where _ is an anonymous variable that would be unbound
+	if err := checkUnsafeNegation(rule); err != nil {
+		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
+		return err
+	}
 
 	logging.Kernel("HotLoadRule: attempting to load rule (%d bytes)", len(rule))
 

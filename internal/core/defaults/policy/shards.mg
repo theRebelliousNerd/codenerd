@@ -22,6 +22,10 @@ shard_model_config(/ephemeral, /high_speed).
 shard_model_config(/persistent, /balanced).
 shard_model_config(/user, /high_reasoning).
 
+# Helper predicates for safe negation
+# Use has_active_shard(Type) instead of "!active_shard(Type, _)" to avoid unbound variables
+has_active_shard(ShardType) :- active_shard(_, ShardType).
+
 # Section 24: Reasoning Trace Policy
 
 # Trace Quality Tracking
