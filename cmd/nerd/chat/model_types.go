@@ -264,6 +264,9 @@ type Model struct {
 	// Semantic Compression (§8.2) - Infinite Context
 	compressor *ctxcompress.Compressor
 
+	// Context Feedback Store (§8.4) - Third feedback loop: learns which context facts are useful
+	feedbackStore *ctxcompress.ContextFeedbackStore
+
 	// Autopoiesis (§8.3) - Self-Modification
 	autopoiesis           *autopoiesis.Orchestrator
 	autopoiesisCancel     context.CancelFunc // Cancels kernel listener goroutine
@@ -448,6 +451,7 @@ type SystemComponents struct {
 	Autopoiesis           *autopoiesis.Orchestrator
 	Verifier              *verification.TaskVerifier
 	Compressor            *ctxcompress.Compressor
+	FeedbackStore         *ctxcompress.ContextFeedbackStore // Third feedback loop: context usefulness learning
 	ShadowMode            *core.ShadowMode
 	InitialMessages       []Message
 	Client                perception.LLMClient

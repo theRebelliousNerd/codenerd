@@ -22,6 +22,7 @@ type SessionSimulator struct {
 	activationTracer  *ActivationTracer
 	compressionViz    *CompressionVisualizer
 	piggybackTracer   *PiggybackTracer
+	feedbackTracer    *FeedbackTracer
 
 	// Engine integration (mock or real)
 	contextEngine ContextEngine
@@ -43,12 +44,14 @@ func (s *SessionSimulator) SetObservability(
 	activationTracer *ActivationTracer,
 	compressionViz *CompressionVisualizer,
 	piggybackTracer *PiggybackTracer,
+	feedbackTracer *FeedbackTracer,
 ) {
 	s.promptInspector = promptInspector
 	s.jitTracer = jitTracer
 	s.activationTracer = activationTracer
 	s.compressionViz = compressionViz
 	s.piggybackTracer = piggybackTracer
+	s.feedbackTracer = feedbackTracer
 }
 
 // SetContextEngine wires in the context engine (mock or real).

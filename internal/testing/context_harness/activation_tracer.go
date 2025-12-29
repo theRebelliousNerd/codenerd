@@ -57,13 +57,14 @@ type FactActivation struct {
 	Score    float64
 	Selected bool
 
-	// Score Breakdown (components that sum to final score)
+	// Score Breakdown (8 components that sum to final score)
 	RecencyScore     float64
 	RelevanceScore   float64
 	DependencyScore  float64
 	CampaignScore    float64
 	IssueScore       float64
 	SessionScore     float64
+	FeedbackScore    float64 // NEW: Learned predicate usefulness (-20 to +20)
 
 	// Explanation
 	Reason string // Human-readable explanation of score
@@ -219,7 +220,7 @@ func (t *ActivationTracer) TraceActivation(snapshot *ActivationSnapshot) {
 				status, fa.Score, truncate(fa.Fact.String(), 80)))
 
 			if t.verbose {
-				// Show score breakdown
+				// Show score breakdown (8 components)
 				sb.WriteString(fmt.Sprintf("    Score Breakdown:\n"))
 				if fa.RecencyScore > 0 {
 					sb.WriteString(fmt.Sprintf("      Recency:     %.3f\n", fa.RecencyScore))
@@ -238,6 +239,13 @@ func (t *ActivationTracer) TraceActivation(snapshot *ActivationSnapshot) {
 				}
 				if fa.SessionScore > 0 {
 					sb.WriteString(fmt.Sprintf("      Session:     %.3f\n", fa.SessionScore))
+				}
+				if fa.FeedbackScore != 0 {
+					indicator := "↑"
+					if fa.FeedbackScore < 0 {
+						indicator = "↓"
+					}
+					sb.WriteString(fmt.Sprintf("      Feedback:    %s%.3f (learned)\n", indicator, fa.FeedbackScore))
 				}
 			}
 

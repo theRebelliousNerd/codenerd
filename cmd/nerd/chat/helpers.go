@@ -65,6 +65,7 @@ type ArticulationOutput struct {
 	MangleUpdates     []string
 	SelfCorrection    *articulation.SelfCorrection
 	KnowledgeRequests []articulation.KnowledgeRequest // LLM-initiated knowledge gathering
+	ContextFeedback   *articulation.ContextFeedback   // LLM feedback on context usefulness
 	ParseMethod       string
 	Warnings          []string
 	GroundingSources  []string // URLs used to ground the response (from Google Search/URL Context)
@@ -255,6 +256,7 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		MemoryOperations:  result.Control.MemoryOperations,
 		MangleUpdates:     result.Control.MangleUpdates,
 		KnowledgeRequests: result.Control.KnowledgeRequests,
+		ContextFeedback:   result.Control.ContextFeedback, // NEW: Extract context usefulness feedback
 		ParseMethod:       result.ParseMethod,
 		Warnings:          result.Warnings,
 	}

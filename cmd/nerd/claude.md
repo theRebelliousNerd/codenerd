@@ -89,3 +89,7 @@ go test ./cmd/nerd/...
 2. If complex, create helper function
 3. Update `/help` output
 4. Add to VerbCorpus in `internal/perception/transducer.go` for natural language support
+
+---
+
+**Remember: Push to GitHub regularly!**

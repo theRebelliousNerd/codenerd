@@ -46,11 +46,12 @@ Observability Layer ◄───────────────────
 | `scenarios_integration.go` | Integration scenarios (6 new). Exports CampaignPhaseTransition, SWEBenchIssueResolution, TokenBudgetOverflow, DependencySpreading, VerbSpecificBoosting, EphemeralFiltering scenarios. |
 | `metrics.go` | Metrics collection. Exports MetricsCollector tracking compression ratios, retrieval precision/recall, latencies. |
 | `reporter.go` | Results output. Exports Reporter with Report(), ReportSummary() supporting console and JSON formats. |
-| `file_logger.go` | Log file management. Exports FileLogger creating session directories with 6 log files + MANIFEST.txt. |
+| `file_logger.go` | Log file management. Exports FileLogger creating session directories with 7 log files + MANIFEST.txt. |
 | `jit_tracer.go` | JIT compilation tracing. Exports JITTracer, CompilationSnapshot, CompiledAtom. TraceCompilation() writes detailed atom selection logs. |
 | `activation_tracer.go` | Spreading activation tracing. Exports ActivationTracer, ActivationSnapshot, FactActivation. TraceActivation() writes fact scoring details. |
 | `compression_viz.go` | Compression visualization. Exports CompressionVisualizer, CompressionEvent. VisualizeCompression() shows before/after with ratios. |
 | `piggyback_tracer.go` | Piggyback protocol tracing. Exports PiggybackTracer, PiggybackEvent. TracePiggyback() shows surface/control packet split and state changes. |
+| `feedback_tracer.go` | Context feedback learning tracing. Exports FeedbackTracer, FeedbackSnapshot, PredicateFeedbackState, PredicateScoreImpact. TraceFeedback() shows LLM usefulness ratings and learned predicate scores. TraceScoreImpact() shows how feedback affects activation scoring. |
 | `inspector.go` | Deep inspection tools. Exports PromptInspector for LLM prompt logging with token counts. |
 
 ## Engine Modes
@@ -85,6 +86,7 @@ Observability Layer ◄───────────────────
 | `dependency-spreading` | Dependency Spreading | 40 | Symbol graph spreading, 50% depth decay |
 | `verb-specific-boosting` | Verb-Specific Boosting | 30 | 8 intent verb boost validation |
 | `ephemeral-filtering` | Ephemeral Filtering | 20 | Boot guard, fact category filtering |
+| `context-feedback-learning` | Context Feedback Learning | 40 | Third feedback loop: LLM-driven context usefulness learning |
 
 ## Key Types
 
@@ -144,7 +146,8 @@ type Checkpoint struct {
     ├── jit-compilation.log    # JIT atom selection details
     ├── spreading-activation.log # Fact scoring and retrieval
     ├── compression.log        # Before/after compression
-    └── piggyback-protocol.log # Control packet parsing
+    ├── piggyback-protocol.log # Control packet parsing
+    └── context-feedback.log   # LLM usefulness ratings and learning
 ```
 
 ## Usage

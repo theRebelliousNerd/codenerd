@@ -24,6 +24,7 @@ type Harness struct {
 	activationTracer  *ActivationTracer
 	compressionViz    *CompressionVisualizer
 	piggybackTracer   *PiggybackTracer
+	feedbackTracer    *FeedbackTracer
 }
 
 // NewHarness creates a new test harness.
@@ -69,6 +70,7 @@ func NewHarnessWithObservability(
 	activationTracer *ActivationTracer,
 	compressionViz *CompressionVisualizer,
 	piggybackTracer *PiggybackTracer,
+	feedbackTracer *FeedbackTracer,
 	contextEngine ContextEngine, // Changed from *RealContextEngine to interface
 ) *Harness {
 	h := NewHarness(kernel, config, output, outputFormat)
@@ -79,6 +81,7 @@ func NewHarnessWithObservability(
 	h.activationTracer = activationTracer
 	h.compressionViz = compressionViz
 	h.piggybackTracer = piggybackTracer
+	h.feedbackTracer = feedbackTracer
 
 	// Override engine if provided
 	if contextEngine != nil {
@@ -98,13 +101,14 @@ func (h *Harness) RunScenario(ctx context.Context, scenarioName string) (*TestRe
 	simulator := NewSessionSimulator(h.kernel, h.config)
 
 	// Wire in observability if available
-	if h.promptInspector != nil || h.jitTracer != nil || h.activationTracer != nil || h.compressionViz != nil || h.piggybackTracer != nil {
+	if h.promptInspector != nil || h.jitTracer != nil || h.activationTracer != nil || h.compressionViz != nil || h.piggybackTracer != nil || h.feedbackTracer != nil {
 		simulator.SetObservability(
 			h.promptInspector,
 			h.jitTracer,
 			h.activationTracer,
 			h.compressionViz,
 			h.piggybackTracer,
+			h.feedbackTracer,
 		)
 	}
 

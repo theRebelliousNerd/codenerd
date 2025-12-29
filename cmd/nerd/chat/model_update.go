@@ -1197,6 +1197,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.scanner = c.Scanner
 			m.localDB = c.LocalDB
 			m.compressor = c.Compressor
+			m.feedbackStore = c.FeedbackStore
 			m.autopoiesis = c.Autopoiesis
 			m.autopoiesisCancel = c.AutopoiesisCancel
 			m.autopoiesisListenerCh = c.AutopoiesisListenerCh

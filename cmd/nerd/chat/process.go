@@ -763,6 +763,29 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// =====================================================================
+		// CONTEXT FEEDBACK STORAGE (Third Feedback Loop)
+		// =====================================================================
+		// Store LLM's feedback on which context facts were useful vs noise.
+		// This feeds into the ActivationEngine to improve future context selection.
+		if artOutput.ContextFeedback != nil && m.feedbackStore != nil {
+			if err := m.feedbackStore.StoreFeedback(
+				m.turnCount,
+				"", // manifestHash - TODO: add when JIT manifest tracking is implemented
+				artOutput.ContextFeedback.OverallUsefulness,
+				intent.Verb,
+				artOutput.ContextFeedback.HelpfulFacts,
+				artOutput.ContextFeedback.NoiseFacts,
+			); err != nil {
+				logging.Get(logging.CategoryContext).Warn("Failed to store context feedback: %v", err)
+			} else {
+				logging.ContextDebug("Stored context feedback: usefulness=%.2f, helpful=%d, noise=%d",
+					artOutput.ContextFeedback.OverallUsefulness,
+					len(artOutput.ContextFeedback.HelpfulFacts),
+					len(artOutput.ContextFeedback.NoiseFacts))
+			}
+		}
+
+		// =====================================================================
 		// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
 		// =====================================================================
 		// If the LLM requested knowledge from specialists, gather it and re-process.

@@ -92,3 +92,7 @@ Handles code changes:
 ```bash
 go test ./internal/shards/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

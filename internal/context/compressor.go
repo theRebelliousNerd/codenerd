@@ -401,6 +401,16 @@ func (c *Compressor) GetSessionID() string {
 	return c.sessionID
 }
 
+// SetFeedbackStore wires the context feedback store to the activation engine.
+// This enables the third feedback loop: learning which context facts are useful.
+func (c *Compressor) SetFeedbackStore(store *ContextFeedbackStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activation != nil {
+		c.activation.SetFeedbackStore(store)
+	}
+}
+
 // NewCompressorWithConfig creates a compressor with custom configuration.
 func NewCompressorWithConfig(kernel *core.RealKernel, localStorage *store.LocalStore, llmClient perception.LLMClient, cfg config.ContextWindowConfig) *Compressor {
 	// Convert config.ContextWindowConfig to context.CompressorConfig

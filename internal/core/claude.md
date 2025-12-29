@@ -142,3 +142,7 @@ Automated test-driven development:
 ```bash
 go test ./internal/core/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -11,3 +11,7 @@ Reusable Bubble Tea components for the codeNERD CLI, including campaign dashboar
 | `splitpane.go` | Glass Box Interface showing live Mangle derivations alongside chat. Exports `LogicPane` with collapsible derivation trees and spreading activation scores. |
 | `styles.go` | Visual styling with codeNERD brand colors and light/dark mode support. Exports `Theme`, `Styles`, and `DefaultStyles()` using Lipgloss. |
 | `usage_page.go` | Token usage statistics dashboard showing input/output counts by shard. Exports `UsagePageModel` wrapping the `usage.Tracker` data. |
+
+---
+
+**Remember: Push to GitHub regularly!**

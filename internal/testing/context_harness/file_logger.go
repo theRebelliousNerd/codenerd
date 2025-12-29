@@ -18,7 +18,8 @@ type FileLogger struct {
 	jitLog         *os.File
 	activationLog  *os.File
 	compressionLog *os.File
-	piggybacking *os.File
+	piggybacking   *os.File
+	feedbackLog    *os.File
 	summaryLog     *os.File
 
 	// Multi-writers (console + file)
@@ -27,6 +28,7 @@ type FileLogger struct {
 	activationWriter  io.Writer
 	compressionWriter io.Writer
 	piggybackWriter   io.Writer
+	feedbackWriter    io.Writer
 	summaryWriter     io.Writer
 }
 
@@ -73,6 +75,11 @@ func NewFileLogger(baseDir string, console io.Writer) (*FileLogger, error) {
 		return nil, fmt.Errorf("failed to create piggyback-protocol.log: %w", err)
 	}
 
+	fl.feedbackLog, err = os.Create(filepath.Join(sessionDir, "context-feedback.log"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create context-feedback.log: %w", err)
+	}
+
 	fl.summaryLog, err = os.Create(filepath.Join(sessionDir, "summary.log"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create summary.log: %w", err)
@@ -85,6 +92,7 @@ func NewFileLogger(baseDir string, console io.Writer) (*FileLogger, error) {
 		fl.activationWriter = io.MultiWriter(console, fl.activationLog)
 		fl.compressionWriter = io.MultiWriter(console, fl.compressionLog)
 		fl.piggybackWriter = io.MultiWriter(console, fl.piggybacking)
+		fl.feedbackWriter = io.MultiWriter(console, fl.feedbackLog)
 		fl.summaryWriter = io.MultiWriter(console, fl.summaryLog)
 	} else {
 		// File-only
@@ -93,6 +101,7 @@ func NewFileLogger(baseDir string, console io.Writer) (*FileLogger, error) {
 		fl.activationWriter = fl.activationLog
 		fl.compressionWriter = fl.compressionLog
 		fl.piggybackWriter = fl.piggybacking
+		fl.feedbackWriter = fl.feedbackLog
 		fl.summaryWriter = fl.summaryLog
 	}
 
@@ -118,6 +127,7 @@ Session Directory: %s
 	fl.activationLog.WriteString(header)
 	fl.compressionLog.WriteString(header)
 	fl.piggybacking.WriteString(header)
+	fl.feedbackLog.WriteString(header)
 	fl.summaryLog.WriteString(header)
 }
 
@@ -151,6 +161,11 @@ func (fl *FileLogger) GetSummaryWriter() io.Writer {
 	return fl.summaryWriter
 }
 
+// GetFeedbackWriter returns the context feedback log writer.
+func (fl *FileLogger) GetFeedbackWriter() io.Writer {
+	return fl.feedbackWriter
+}
+
 // GetSessionDir returns the session directory path.
 func (fl *FileLogger) GetSessionDir() string {
 	return fl.session
@@ -167,6 +182,7 @@ func (fl *FileLogger) Close() error {
 	fl.activationLog.WriteString(footer)
 	fl.compressionLog.WriteString(footer)
 	fl.piggybacking.WriteString(footer)
+	fl.feedbackLog.WriteString(footer)
 	fl.summaryLog.WriteString(footer)
 
 	// Close all files
@@ -176,6 +192,7 @@ func (fl *FileLogger) Close() error {
 		fl.activationLog,
 		fl.compressionLog,
 		fl.piggybacking,
+		fl.feedbackLog,
 		fl.summaryLog,
 	}
 
@@ -242,6 +259,12 @@ piggyback-protocol.log
   - Kernel state changes
   - Tool call tracking
 
+context-feedback.log
+  - LLM context usefulness ratings
+  - Helpful vs noise predicate tracking
+  - Learned predicate scores over time
+  - Score impact on activation
+
 summary.log
   - Overall session statistics
   - Aggregate metrics
@@ -258,6 +281,7 @@ VIEWING INSTRUCTIONS:
 4. Review spreading-activation.log for retrieval decisions
 5. Examine compression.log to validate compression quality
 6. Inspect piggyback-protocol.log for kernel state changes
+7. Check context-feedback.log for usefulness learning patterns
 
 All logs are plain text and can be viewed with any text editor.
 
