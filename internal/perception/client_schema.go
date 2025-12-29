@@ -2,6 +2,7 @@ package perception
 
 // piggybackEnvelopeRawSchema returns the raw JSON schema for PiggybackEnvelope.
 // This is the base schema used by providers that support JSON schema enforcement.
+// IMPORTANT: This schema must match articulation/schema.go PiggybackEnvelopeSchema.
 func piggybackEnvelopeRawSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
@@ -46,11 +47,50 @@ func piggybackEnvelopeRawSchema() map[string]interface{} {
 							"triggered":  map[string]interface{}{"type": "boolean"},
 							"hypothesis": map[string]interface{}{"type": "string"},
 						},
-						"required":             []string{"triggered", "hypothesis"},
+						"additionalProperties": false,
+					},
+					"reasoning_trace": map[string]interface{}{
+						"type":        "string",
+						"description": "Step-by-step reasoning for debugging",
+					},
+					"knowledge_requests": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"specialist": map[string]interface{}{"type": "string"},
+								"query":      map[string]interface{}{"type": "string"},
+								"purpose":    map[string]interface{}{"type": "string"},
+								"priority":   map[string]interface{}{"type": "string"},
+							},
+							"required":             []string{"specialist", "query"},
+							"additionalProperties": false,
+						},
+					},
+					"context_feedback": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"overall_usefulness": map[string]interface{}{
+								"type":        "number",
+								"description": "How useful was the provided context (0.0-1.0)",
+							},
+							"helpful_facts": map[string]interface{}{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+							"noise_facts": map[string]interface{}{
+								"type":  "array",
+								"items": map[string]interface{}{"type": "string"},
+							},
+							"missing_context": map[string]interface{}{
+								"type":        "string",
+								"description": "What context would have been helpful",
+							},
+						},
 						"additionalProperties": false,
 					},
 				},
-				"required":             []string{"intent_classification", "mangle_updates", "memory_operations", "self_correction"},
+				"required":             []string{"intent_classification", "mangle_updates"},
 				"additionalProperties": false,
 			},
 			"surface_response": map[string]interface{}{

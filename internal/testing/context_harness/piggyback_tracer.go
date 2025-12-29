@@ -107,6 +107,31 @@ func (t *PiggybackTracer) TracePiggyback(event *PiggybackEvent) {
 			}
 			sb.WriteString("\n")
 		}
+
+		// Context Feedback (LLM-driven context learning)
+		if cp.ContextFeedback != nil {
+			sb.WriteString("Context Feedback:\n")
+			sb.WriteString(fmt.Sprintf("  Overall Usefulness: %.2f\n", cp.ContextFeedback.OverallUsefulness))
+
+			if len(cp.ContextFeedback.HelpfulFacts) > 0 {
+				sb.WriteString(fmt.Sprintf("  Helpful Predicates (%d):\n", len(cp.ContextFeedback.HelpfulFacts)))
+				for _, p := range cp.ContextFeedback.HelpfulFacts {
+					sb.WriteString(fmt.Sprintf("    + %s\n", p))
+				}
+			}
+
+			if len(cp.ContextFeedback.NoiseFacts) > 0 {
+				sb.WriteString(fmt.Sprintf("  Noise Predicates (%d):\n", len(cp.ContextFeedback.NoiseFacts)))
+				for _, p := range cp.ContextFeedback.NoiseFacts {
+					sb.WriteString(fmt.Sprintf("    - %s\n", p))
+				}
+			}
+
+			if cp.ContextFeedback.MissingContext != "" {
+				sb.WriteString(fmt.Sprintf("  Missing Context: %s\n", cp.ContextFeedback.MissingContext))
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	// State Changes

@@ -249,6 +249,16 @@ type ControlPacket struct {
 	NextPhase            string
 	ToolCalls            []string
 	Metadata             map[string]interface{}
+	ContextFeedback      *ContextFeedback // LLM feedback on context usefulness
+}
+
+// ContextFeedback represents the LLM's rating of provided context usefulness.
+// This is the third feedback loop: LLM-driven context learning.
+type ContextFeedback struct {
+	OverallUsefulness float64  // 0.0-1.0: how useful was provided context
+	HelpfulFacts      []string // Predicates that were particularly useful
+	NoiseFacts        []string // Predicates that were irrelevant noise
+	MissingContext    string   // What context would have been helpful
 }
 
 // IntentClassification from the LLM's understanding.
