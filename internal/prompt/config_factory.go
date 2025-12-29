@@ -125,8 +125,16 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"delete_lines",
 	}
 
+	// Helper to copy slice and avoid aliasing
+	copyTools := func(base []string, more ...string) []string {
+		result := make([]string, 0, len(base)+len(more))
+		result = append(result, base...)
+		result = append(result, more...)
+		return result
+	}
+
 	// Coder persona tools
-	coderTools := append(coreTools,
+	coderTools := copyTools(coreTools,
 		"write_file",
 		"edit_file",
 		"delete_file",
@@ -138,7 +146,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	coderTools = append(coderTools, codeDomTools...)
 
 	// Tester persona tools
-	testerTools := append(coreTools,
+	testerTools := copyTools(coreTools,
 		"run_tests",
 		"run_command",
 		"bash",
@@ -148,7 +156,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	testerTools = append(testerTools, codeDomTools...)
 
 	// Reviewer persona tools (read-heavy, includes Code DOM for inspection)
-	reviewerTools := append(coreTools,
+	reviewerTools := copyTools(coreTools,
 		"git_diff",
 		"git_log",
 		"run_command", // For running static analysis tools
@@ -156,7 +164,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	reviewerTools = append(reviewerTools, codeDomTools...)
 
 	// Researcher persona tools
-	researcherTools := append(coreTools,
+	researcherTools := copyTools(coreTools,
 		"context7_fetch", // LLM-optimized documentation
 		"web_search",
 		"web_fetch",
@@ -196,6 +204,36 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    researcherTools,
 			Priority: 70,
+		}
+	}
+
+	// Nemesis/adversarial intents (attack persona)
+	nemesisTools := copyTools(coreTools,
+		"run_command", // For running attack programs
+		"bash",
+		"run_build",
+		"run_tests",
+		"write_file", // For writing attack code
+	)
+	nemesisTools = append(nemesisTools, codeDomTools...)
+	for _, intent := range []string{"/attack", "/break", "/exploit", "/fuzz", "/pentest", "/nemesis"} {
+		provider.atoms[intent] = ConfigAtom{
+			Tools:    nemesisTools,
+			Priority: 85, // Higher priority than reviewer
+		}
+	}
+
+	// Tool generator intents
+	toolGenTools := copyTools(coreTools,
+		"write_file",
+		"run_build",
+		"run_tests",
+		"run_command",
+	)
+	for _, intent := range []string{"/generate", "/generate-tool", "/tool_generator", "/create_tool"} {
+		provider.atoms[intent] = ConfigAtom{
+			Tools:    toolGenTools,
+			Priority: 75,
 		}
 	}
 

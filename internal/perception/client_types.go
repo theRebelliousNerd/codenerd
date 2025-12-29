@@ -1,17 +1,35 @@
 package perception
 
 import (
-	"context"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 const defaultSystemPrompt = "You are codeNERD. Respond in English. Be concise. When summarizing code, ground answers only in provided text. Do not claim to browse the filesystem or network; only use supplied content."
 
 // LLMClient defines the interface for LLM providers.
-type LLMClient interface {
-	Complete(ctx context.Context, prompt string) (string, error)
-	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+// This is an alias to types.LLMClient for backward compatibility within the perception package.
+type LLMClient = types.LLMClient
+
+// ToolDefinition describes a tool that the LLM can invoke.
+// Alias to types.ToolDefinition for package compatibility.
+type ToolDefinition = types.ToolDefinition
+
+// ToolCall represents a tool invocation requested by the LLM.
+// Alias to types.ToolCall for package compatibility.
+type ToolCall = types.ToolCall
+
+// ToolResult represents the result of executing a tool.
+type ToolResult struct {
+	ToolUseID string `json:"tool_use_id"` // Matches ToolCall.ID
+	Content   string `json:"content"`     // Result content
+	IsError   bool   `json:"is_error"`    // Whether this is an error result
 }
+
+// LLMToolResponse contains both text response and tool calls from the LLM.
+// Alias to types.LLMToolResponse for package compatibility.
+type LLMToolResponse = types.LLMToolResponse
 
 // Provider represents an LLM provider.
 type Provider string
@@ -58,10 +76,11 @@ type OpenAIConfig struct {
 
 // GeminiConfig holds configuration for Gemini client.
 type GeminiConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey          string
+	BaseURL         string
+	Model           string
+	Timeout         time.Duration
+	MaxOutputTokens int // Maximum tokens in response (default 8192)
 }
 
 // XAIConfig holds configuration for xAI client.
@@ -157,10 +176,29 @@ type ZAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// AnthropicMessage represents a message.
+// AnthropicMessage represents a message (supports both text and tool results).
 type AnthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // Can be string or []AnthropicContentBlock
+}
+
+// AnthropicContentBlock represents a content block in a message.
+type AnthropicContentBlock struct {
+	Type      string                 `json:"type"`                  // "text", "tool_use", "tool_result"
+	Text      string                 `json:"text,omitempty"`        // For text blocks
+	ID        string                 `json:"id,omitempty"`          // For tool_use blocks
+	Name      string                 `json:"name,omitempty"`        // For tool_use blocks
+	Input     map[string]interface{} `json:"input,omitempty"`       // For tool_use blocks
+	ToolUseID string                 `json:"tool_use_id,omitempty"` // For tool_result blocks
+	Content   string                 `json:"content,omitempty"`     // For tool_result blocks (result content)
+	IsError   bool                   `json:"is_error,omitempty"`    // For tool_result blocks
+}
+
+// AnthropicTool represents a tool definition for Anthropic API.
+type AnthropicTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	InputSchema map[string]interface{} `json:"input_schema"`
 }
 
 // AnthropicRequest represents the Anthropic API request.
@@ -169,20 +207,19 @@ type AnthropicRequest struct {
 	MaxTokens   int                `json:"max_tokens"`
 	System      string             `json:"system,omitempty"`
 	Messages    []AnthropicMessage `json:"messages"`
+	Tools       []AnthropicTool    `json:"tools,omitempty"`
 	Temperature float64            `json:"temperature,omitempty"`
 	Stream      bool               `json:"stream,omitempty"`
 }
 
 // AnthropicResponse represents the API response.
 type AnthropicResponse struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	Model        string `json:"model"`
+	ID      string                  `json:"id"`
+	Type    string                  `json:"type"`
+	Role    string                  `json:"role"`
+	Content []AnthropicContentBlock `json:"content"`
+	Model   string                  `json:"model"`
+	// StopReason: "end_turn" for normal completion, "tool_use" when tools are invoked
 	StopReason   string `json:"stop_reason"`
 	StopSequence string `json:"stop_sequence"`
 	Usage        struct {
@@ -255,7 +292,14 @@ type GeminiContent struct {
 
 // GeminiPart represents a part of the content.
 type GeminiPart struct {
-	Text string `json:"text"`
+	Text         string                 `json:"text,omitempty"`
+	FunctionCall *GeminiFunctionCall    `json:"functionCall,omitempty"`
+}
+
+// GeminiFunctionCall represents a function call from the model.
+type GeminiFunctionCall struct {
+	Name string                 `json:"name"`
+	Args map[string]interface{} `json:"args"`
 }
 
 // GeminiGenerationConfig represents generation parameters.
@@ -272,16 +316,27 @@ type GeminiRequest struct {
 	Contents          []GeminiContent        `json:"contents"`
 	SystemInstruction *GeminiContent         `json:"systemInstruction,omitempty"`
 	GenerationConfig  GeminiGenerationConfig `json:"generationConfig,omitempty"`
+	Tools             []GeminiTool           `json:"tools,omitempty"`
+}
+
+// GeminiTool represents a tool declaration for function calling.
+type GeminiTool struct {
+	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations"`
+}
+
+// GeminiFunctionDeclaration represents a function declaration.
+type GeminiFunctionDeclaration struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
 // GeminiResponse represents the API response.
 type GeminiResponse struct {
 	Candidates []struct {
 		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-			Role string `json:"role"`
+			Parts []GeminiResponsePart `json:"parts"`
+			Role  string               `json:"role"`
 		} `json:"content"`
 		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
@@ -295,6 +350,12 @@ type GeminiResponse struct {
 		Message string `json:"message"`
 		Status  string `json:"status"`
 	} `json:"error,omitempty"`
+}
+
+// GeminiResponsePart represents a part of the response content.
+type GeminiResponsePart struct {
+	Text         string              `json:"text,omitempty"`
+	FunctionCall *GeminiFunctionCall `json:"functionCall,omitempty"`
 }
 
 // XAI uses OpenAI-compatible API format

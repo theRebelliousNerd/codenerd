@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"path/filepath"
@@ -117,4 +118,27 @@ func (o *Orchestrator) SetTaskExecutor(te session.TaskExecutor) {
 	defer o.mu.Unlock()
 	o.taskExecutor = te
 	logging.Campaign("TaskExecutor set on orchestrator")
+}
+
+// SetSpecialistKnowledgeProvider sets the provider for specialist knowledge injection.
+// When set, the orchestrator will inject relevant knowledge from specialist databases
+// into task context, enabling specialists to leverage their domain expertise.
+func (o *Orchestrator) SetSpecialistKnowledgeProvider(provider SpecialistKnowledgeProvider) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.specialistKnowledgeProvider = provider
+	logging.Campaign("SpecialistKnowledgeProvider set on orchestrator")
+}
+
+// SetNorthstarObserver sets the Northstar vision guardian observer.
+// When set, the orchestrator will perform alignment checks at phase transitions,
+// task completions, and other critical points during campaign execution.
+//
+// The observer monitors whether work remains aligned with the project vision,
+// can block phases that drift from goals, and records observations for analysis.
+func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.northstarObserver = observer
+	logging.Campaign("NorthstarObserver set on orchestrator")
 }

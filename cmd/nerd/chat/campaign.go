@@ -110,6 +110,10 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			orch.SetPromptProvider(promptProvider)
 		}
 
+		// Wire specialist knowledge provider for context injection
+		specialistKnowledgeProvider := campaign.NewLocalSpecialistKnowledgeProvider(m.workspace)
+		orch.SetSpecialistKnowledgeProvider(specialistKnowledgeProvider)
+
 		if err := orch.SetCampaign(result.Campaign); err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to set campaign: %w", err)}
 		}

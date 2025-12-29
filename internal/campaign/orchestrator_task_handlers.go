@@ -108,8 +108,8 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	shardType := task.Shard
 	logging.Campaign("Executing task %s with explicit shard: %s", task.ID, shardType)
 
-	// Build input with context injection from dependent tasks
-	input := o.buildTaskInput(task)
+	// Build input with context injection from dependent tasks AND specialist knowledge
+	input := o.buildTaskInputWithSpecialistKnowledge(ctx, task, shardType)
 	logging.CampaignDebug("Built shard input (%d bytes) for task %s", len(input), task.ID)
 
 	// Spawn the shard via unified spawnTask

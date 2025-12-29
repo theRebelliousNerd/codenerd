@@ -304,6 +304,18 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 
 	// Store result for context injection into dependent tasks
 	o.storeTaskResult(task.ID, resultSummary)
+
+	// Northstar alignment check on task completion
+	if o.northstarObserver != nil {
+		// Collect modified file paths from task artifacts
+		filePaths := make([]string, 0)
+		for _, a := range task.Artifacts {
+			if a.Path != "" {
+				filePaths = append(filePaths, a.Path)
+			}
+		}
+		_, _ = o.northstarObserver.OnTaskComplete(context.Background(), task.ID, task.Description, resultSummary, filePaths)
+	}
 }
 
 // applyLearnings applies autopoiesis learnings from task execution.

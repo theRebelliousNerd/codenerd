@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -28,11 +29,13 @@ type Orchestrator struct {
 	transducer   *perception.RealTransducer
 
 	// Campaign-specific components
-	contextPager   *ContextPager
-	checkpoint     *CheckpointRunner
-	replanner      *Replanner
-	decomposer     *Decomposer
-	promptProvider PromptProvider
+	contextPager               *ContextPager
+	checkpoint                 *CheckpointRunner
+	replanner                  *Replanner
+	decomposer                 *Decomposer
+	promptProvider             PromptProvider
+	specialistKnowledgeProvider SpecialistKnowledgeProvider
+	northstarObserver          *northstar.CampaignObserver
 
 	// State
 	campaign     *Campaign

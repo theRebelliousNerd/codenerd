@@ -136,11 +136,11 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Code DOM demo workspace: %s\n", ws)
 	fmt.Printf("Opening: %s\n", demoFile)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", demoFile}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", demoFile}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
-	elementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/get_elements", ""}})
+	elementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-elements", "/get_elements", ""}})
 	if err != nil {
 		return fmt.Errorf("get_elements failed: %w", err)
 	}
@@ -214,7 +214,7 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/close_scope", ""}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-close", "/close_scope", ""}}); err != nil {
 		return fmt.Errorf("close_scope failed: %w", err)
 	}
 
@@ -274,14 +274,14 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
 	inScope := scope.GetInScopeFiles()
 	fmt.Printf("Files in scope: %d\n", len(inScope))
 
-	fileElementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/get_elements", absTarget}})
+	fileElementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-elements", "/get_elements", absTarget}})
 	if err != nil {
 		return fmt.Errorf("get_elements failed: %w", err)
 	}
@@ -348,7 +348,7 @@ func runDomGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
@@ -424,7 +424,7 @@ func runDomEdit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
@@ -628,7 +628,7 @@ func printPredicateCounts(kernel core.Kernel, predicates []string) {
 }
 
 func closeScopeQuiet(ctx context.Context, vs *core.VirtualStore) error {
-	_, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/close_scope", ""}})
+	_, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-close", "/close_scope", ""}})
 	return err
 }
 

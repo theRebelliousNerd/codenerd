@@ -89,6 +89,10 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			orch.SetPromptProvider(promptProvider)
 		}
 
+		// Wire specialist knowledge provider for context injection
+		specialistKnowledgeProvider := campaign.NewLocalSpecialistKnowledgeProvider(m.workspace)
+		orch.SetSpecialistKnowledgeProvider(specialistKnowledgeProvider)
+
 		if err := orch.SetCampaign(camp); err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to set assault campaign: %w", err)}
 		}

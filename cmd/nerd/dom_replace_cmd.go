@@ -227,7 +227,7 @@ func collectReplaceFiles(ctx context.Context, ws, absRoot string) ([]string, err
 			return nil, err
 		}
 
-		if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"/open_file", absRoot}}); err != nil {
+		if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absRoot}}); err != nil {
 			return nil, fmt.Errorf("open_file failed: %w", err)
 		}
 

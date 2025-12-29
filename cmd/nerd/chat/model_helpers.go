@@ -1,7 +1,15 @@
 package chat
 
 import (
+	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
+
+	"codenerd/internal/northstar"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // extractFindings parses findings from shard output (reviewer/tester results).
@@ -190,4 +198,192 @@ func extractCorrectionContent(input string) string {
 
 	// Fallback: return the full input
 	return input
+}
+
+// runAlignmentCheck runs a Northstar alignment check and returns the result.
+func (m *Model) runAlignmentCheck(subject string) tea.Cmd {
+	return func() tea.Msg {
+		// Get nerd directory
+		nerdDir := filepath.Join(m.workspace, ".nerd")
+
+		// Load the Northstar store
+		store, err := northstar.NewStore(nerdDir)
+		if err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+		defer store.Close()
+
+		// Create guardian with default config
+		config := northstar.DefaultGuardianConfig()
+		guardian := northstar.NewGuardian(store, config)
+
+		// Set LLM client if available
+		if m.client != nil {
+			guardian.SetLLMClient(m.client)
+		}
+
+		// Initialize the guardian
+		if err := guardian.Initialize(); err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+
+		// Check if vision is defined
+		if !guardian.HasVision() {
+			return alignmentCheckMsg{
+				Subject:     subject,
+				Result:      "skipped",
+				Score:       1.0,
+				Explanation: "No vision defined. Use /northstar to define your project vision first.",
+			}
+		}
+
+		// Build context from session state
+		contextStr := m.buildAlignmentContext()
+
+		// Run alignment check with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		check, err := guardian.CheckAlignment(ctx, northstar.TriggerManual, subject, contextStr)
+		if err != nil {
+			return alignmentCheckMsg{
+				Subject: subject,
+				Result:  "error",
+				Err:     err,
+			}
+		}
+
+		return alignmentCheckMsg{
+			Subject:     check.Subject,
+			Result:      string(check.Result),
+			Score:       check.Score,
+			Explanation: check.Explanation,
+			Suggestions: check.Suggestions,
+		}
+	}
+}
+
+// buildAlignmentContext builds context for alignment check from current session state.
+func (m *Model) buildAlignmentContext() string {
+	var sb strings.Builder
+
+	// Add recent conversation context
+	if len(m.history) > 0 {
+		sb.WriteString("## Recent Conversation\n")
+		// Last 3 messages
+		start := len(m.history) - 3
+		if start < 0 {
+			start = 0
+		}
+		for i := start; i < len(m.history); i++ {
+			msg := m.history[i]
+			sb.WriteString(msg.Role + ": " + truncateStr(msg.Content, 200) + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add last shard result if available
+	if m.lastShardResult != nil {
+		sb.WriteString("## Recent Task\n")
+		sb.WriteString("Type: " + m.lastShardResult.ShardType + "\n")
+		sb.WriteString("Task: " + m.lastShardResult.Task + "\n")
+		sb.WriteString("\n")
+	}
+
+	// Add active campaign info if running
+	if m.activeCampaign != nil {
+		sb.WriteString("## Active Campaign\n")
+		sb.WriteString("Goal: " + m.activeCampaign.Goal + "\n")
+		if m.campaignProgress != nil {
+			sb.WriteString("Phase: " + m.campaignProgress.CurrentPhase + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// truncateStr truncates a string to the given length with ellipsis.
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// formatAlignmentCheckResult formats an alignment check result for display.
+func (m *Model) formatAlignmentCheckResult(msg alignmentCheckMsg) string {
+	var sb strings.Builder
+	sb.WriteString("## Northstar Alignment Check\n\n")
+
+	// Result emoji and status
+	var emoji, color string
+	switch msg.Result {
+	case "passed":
+		emoji = "✅"
+		color = "green"
+	case "warning":
+		emoji = "⚠️"
+		color = "yellow"
+	case "failed":
+		emoji = "❌"
+		color = "red"
+	case "blocked":
+		emoji = "🚫"
+		color = "red"
+	case "skipped":
+		emoji = "⏭️"
+		color = "gray"
+	default:
+		emoji = "❓"
+		color = "gray"
+	}
+	_ = color // For future styling
+
+	sb.WriteString("**Subject:** " + msg.Subject + "\n\n")
+	sb.WriteString("**Result:** " + emoji + " " + strings.ToUpper(msg.Result) + "\n\n")
+	sb.WriteString("**Alignment Score:** " + formatScore(msg.Score) + "\n\n")
+
+	if msg.Explanation != "" {
+		sb.WriteString("**Explanation:** " + msg.Explanation + "\n\n")
+	}
+
+	if len(msg.Suggestions) > 0 {
+		sb.WriteString("**Suggestions:**\n")
+		for _, s := range msg.Suggestions {
+			sb.WriteString("- " + s + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add hints based on result
+	switch msg.Result {
+	case "skipped":
+		sb.WriteString("*Tip: Run `/northstar` to define your project vision.*\n")
+	case "warning":
+		sb.WriteString("*Consider reviewing the suggestions above to improve alignment.*\n")
+	case "failed", "blocked":
+		sb.WriteString("*This indicates significant drift from your project vision. Review the suggestions carefully.*\n")
+	}
+
+	return sb.String()
+}
+
+// formatScore formats a 0.0-1.0 score as a percentage with visual bar.
+func formatScore(score float64) string {
+	pct := int(score * 100)
+
+	// Visual bar (10 chars)
+	filled := pct / 10
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
+
+	return bar + " " + fmt.Sprintf("%d%%", pct)
 }

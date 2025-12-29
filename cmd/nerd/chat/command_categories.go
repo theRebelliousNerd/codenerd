@@ -286,6 +286,14 @@ var CommandRegistry = []CommandInfo{
 		ShowInHelp:  true,
 	},
 	{
+		Name:        "/alignment",
+		Aliases:     []string{"/align"},
+		Description: "Check alignment with project vision",
+		Usage:       "/alignment [subject]",
+		Category:    CategoryAdvanced,
+		ShowInHelp:  true,
+	},
+	{
 		Name:        "/approve",
 		Description: "Approve a pending action",
 		Usage:       "/approve",

@@ -11,6 +11,9 @@ func RegisterAll(registry *tools.Registry) error {
 		BashTool(),
 		RunBuildTool(),
 		RunTestsTool(),
+		GitDiffTool(),
+		GitLogTool(),
+		GitOperationTool(),
 	}
 
 	for _, tool := range allTools {

@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/types"
 )
 
 // stubLLM implements perception.LLMClient for unit tests.
@@ -18,6 +19,9 @@ func (s *stubLLM) Complete(ctx context.Context, prompt string) (string, error) {
 }
 func (s *stubLLM) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return "ok", nil
+}
+func (s *stubLLM) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return &types.LLMToolResponse{Text: "ok", StopReason: "end_turn"}, nil
 }
 
 func TestOrchestrator_AssertsCampaignConfigFacts(t *testing.T) {

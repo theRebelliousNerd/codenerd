@@ -450,6 +450,21 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
+// CompleteWithTools makes an LLM call with tools and cooperative scheduling.
+// Acquires a slot, makes the call, releases the slot.
+func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	// Acquire slot (blocks until available)
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		return nil, fmt.Errorf("failed to acquire API slot: %w", err)
+	}
+
+	// Always release the slot when done
+	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+
+	// Make the actual LLM call with tools
+	return c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+}
+
 type tracingContextSetter interface {
 	SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
 	ClearShardContext()

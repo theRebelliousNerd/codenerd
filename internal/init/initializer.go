@@ -23,6 +23,7 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	// researcher removed - JIT clean loop handles research
@@ -522,6 +523,17 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 		result.FilesCreated = append(result.FilesCreated, dbPath)
 		// i.researcher.SetLocalDB removed - JIT clean loop handles research
 		fmt.Println("✓ Initialized knowledge database")
+	}
+
+	// Initialize Northstar Guardian store (vision alignment tracking)
+	northstarStore, err := northstar.NewStore(nerdDir)
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Failed to initialize Northstar store: %v", err))
+	} else {
+		northstarStore.Close() // Close after schema creation - will be reopened at boot
+		northstarDBPath := filepath.Join(nerdDir, "northstar_knowledge.db")
+		result.FilesCreated = append(result.FilesCreated, northstarDBPath)
+		fmt.Println("✓ Initialized Northstar vision guardian store")
 	}
 
 	// LLM client available for JIT-driven research (no researcher shard needed)
@@ -1089,6 +1101,7 @@ func (i *Initializer) printSummary(result *InitResult, profile ProjectProfile) {
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("🚀 Next steps:")
 	fmt.Println("   • Run `nerd chat` to start interactive session")
+	fmt.Println("   • Use `/northstar` to define your project vision")
 	fmt.Println("   • Use `/agents` to see available agents")
 	fmt.Println("   • Use `/spawn <agent> <task>` to delegate tasks")
 	fmt.Println(strings.Repeat("─", 60))

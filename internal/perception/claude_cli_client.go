@@ -538,6 +538,20 @@ func (c *ClaudeCodeCLIClient) GetMaxTurns() int {
 	return c.maxTurns
 }
 
+// CompleteWithTools sends a prompt with tool definitions.
+// TODO: Implement proper Claude CLI function calling - for now falls back to simple completion.
+func (c *ClaudeCodeCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Fallback: Use simple completion without tools
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
 // isRateLimitError checks if the error message indicates a rate limit.
 func isRateLimitError(errMsg string) bool {
 	lower := strings.ToLower(errMsg)
