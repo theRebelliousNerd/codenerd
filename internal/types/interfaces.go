@@ -147,3 +147,22 @@ type GraphQuery interface {
 	// Returns: structured result (e.g., []string, []Symbol, etc.)
 	QueryGraph(queryType string, params map[string]interface{}) (interface{}, error)
 }
+
+// GroundingProvider is an optional interface for LLM clients that support
+// grounding (Google Search, URL Context, etc.). Use type assertion to check
+// if a client supports grounding:
+//
+//	if gp, ok := client.(types.GroundingProvider); ok {
+//	    sources := gp.GetLastGroundingSources()
+//	}
+type GroundingProvider interface {
+	// GetLastGroundingSources returns URLs used to ground the last response.
+	// Returns nil if no grounding was used or client doesn't support grounding.
+	GetLastGroundingSources() []string
+
+	// IsGoogleSearchEnabled returns whether Google Search grounding is enabled.
+	IsGoogleSearchEnabled() bool
+
+	// IsURLContextEnabled returns whether URL Context grounding is enabled.
+	IsURLContextEnabled() bool
+}

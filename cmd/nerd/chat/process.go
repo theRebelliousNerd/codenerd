@@ -753,6 +753,15 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
+		// Add grounding sources as a "Sources:" section for transparency
+		// This shows users what URLs were used to ground the response (Google Search / URL Context)
+		if len(artOutput.GroundingSources) > 0 {
+			response += "\n\n**Sources:**\n"
+			for _, src := range artOutput.GroundingSources {
+				response += fmt.Sprintf("- %s\n", src)
+			}
+		}
+
 		// =====================================================================
 		// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
 		// =====================================================================

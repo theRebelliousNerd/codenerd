@@ -34,7 +34,7 @@ Every LLM response contains dual payloads:
 | `client.go` | Package marker documenting client modularization across 10 files. Points to client_types, client_schema, and six provider implementations. |
 | `client_anthropic.go` | LLMClient implementation for Anthropic API with streaming support. Exports AnthropicClient with Complete() and CompleteWithSystem() methods. |
 | `client_factory.go` | Provider detection and client factory functions for multi-provider support. Exports DetectProvider(), LoadConfigJSON(), and NewClientFromEnv() with config priority. |
-| `client_gemini.go` | LLMClient implementation for Google Gemini API with streaming support. Exports GeminiClient with Complete() and CompleteWithSystem() methods. |
+| `client_gemini.go` | LLMClient implementation for Google Gemini API with streaming, thinking mode, and grounding tools. Exports GeminiClient with CompleteWithTools(), CompleteWithToolResults(), thinking mode config (thinkingLevel: minimal/low/medium/high), Google Search grounding, URL context, and thought signature capture for multi-turn function calling. |
 | `client_openai.go` | LLMClient implementation for OpenAI API including Codex models. Exports OpenAIClient with gpt-5.1-codex-max as default model. |
 | `client_openrouter.go` | LLMClient implementation for OpenRouter multi-provider API. Exports OpenRouterClient with site attribution and model routing. |
 | `client_schema.go` | Provider-specific JSON schema builders for structured output. Exports BuildZAIPiggybackEnvelopeSchema(), BuildOpenAIPiggybackEnvelopeSchema(), BuildGeminiPiggybackEnvelopeSchema(), BuildOpenRouterPiggybackEnvelopeSchema() for each provider's API format. |
@@ -156,6 +156,97 @@ type LLMClient interface {
 ```
 
 Each concrete client also has `GetModel() string` for introspection.
+
+## Gemini 3 Features
+
+The GeminiClient supports advanced Gemini 3 Flash Preview features:
+
+### Thinking Mode
+
+Enables explicit reasoning before responding. Levels (lowercase):
+- `minimal` - Minimal reasoning
+- `low` - Light reasoning
+- `medium` - Moderate reasoning
+- `high` - Maximum reasoning depth (default)
+
+```go
+// Configure via GeminiConfig
+cfg := GeminiConfig{
+    EnableThinking: true,
+    ThinkingLevel:  "high",
+}
+```
+
+### Built-in Tools
+
+| Tool | Description |
+|------|-------------|
+| Google Search | Real-time search grounding |
+| URL Context | Ground responses with URLs (max 20) |
+
+```go
+cfg := GeminiConfig{
+    EnableGoogleSearch: true,
+    EnableURLContext:   true,
+}
+client.SetURLContextURLs([]string{"https://example.com/docs"})
+
+// After a call, get grounding sources for transparency
+sources := client.GetLastGroundingSources()
+```
+
+### Thought Signatures (Multi-Turn Function Calling)
+
+For Gemini 3, thought signatures must be passed back in multi-turn conversations:
+
+```go
+// First call - get tool calls and thought signature
+resp, _ := client.CompleteWithTools(ctx, system, user, tools)
+sig := client.GetLastThoughtSignature()
+
+// Continue conversation with tool results
+resp2, _ := client.CompleteWithToolResults(ctx, system, contents, results, tools)
+```
+
+### LLMToolResponse Metadata
+
+Gemini responses include thinking metadata for learning:
+
+```go
+type LLMToolResponse struct {
+    ThoughtSummary   string   // Model's reasoning process
+    ThoughtSignature string   // For multi-turn continuity
+    ThinkingTokens   int      // Tokens used for reasoning
+    GroundingSources []string // URLs from Google Search
+}
+```
+
+### GroundingProvider Interface
+
+For accessing grounding sources across the ecosystem, use the `types.GroundingProvider` interface:
+
+```go
+// Check if client supports grounding (GeminiClient does)
+if gp, ok := client.(types.GroundingProvider); ok {
+    sources := gp.GetLastGroundingSources()
+    if len(sources) > 0 {
+        // Display sources to user for transparency
+    }
+}
+```
+
+GeminiClient implements `GroundingProvider`:
+- `GetLastGroundingSources()` - URLs used to ground the last response
+- `IsGoogleSearchEnabled()` - Check if Google Search grounding is active
+- `IsURLContextEnabled()` - Check if URL Context grounding is active
+
+### Ecosystem Integration
+
+When Gemini with grounding is used:
+1. **Perception Layer**: Grounding sources captured during `CompleteWithSystem`
+2. **Articulation Layer**: Sources extracted via `types.GroundingProvider` interface
+3. **TUI Display**: Sources appended as "**Sources:**" section in response
+4. **Logging**: Source counts logged in perception logs (`grounding_sources=N`)
 
 ## Testing
 

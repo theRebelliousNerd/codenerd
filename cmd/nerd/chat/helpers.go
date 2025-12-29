@@ -67,6 +67,7 @@ type ArticulationOutput struct {
 	KnowledgeRequests []articulation.KnowledgeRequest // LLM-initiated knowledge gathering
 	ParseMethod       string
 	Warnings          []string
+	GroundingSources  []string // URLs used to ground the response (from Google Search/URL Context)
 }
 
 // articulateWithContext performs the articulation phase and returns the surface response.
@@ -278,6 +279,11 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	if len(result.Control.MangleUpdates) == 0 && len(payload.Control.MangleUpdates) > 0 {
 		output.Envelope.Control.MangleUpdates = payload.Control.MangleUpdates
 		output.MangleUpdates = payload.Control.MangleUpdates
+	}
+
+	// Extract grounding sources if client supports grounding (e.g., Gemini with Google Search)
+	if gp, ok := client.(types.GroundingProvider); ok {
+		output.GroundingSources = gp.GetLastGroundingSources()
 	}
 
 	return output, nil
