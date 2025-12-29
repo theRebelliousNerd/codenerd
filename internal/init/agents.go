@@ -275,6 +275,18 @@ func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []Recommen
 			Priority:    100,
 			Reason:      "Rust project detected - ownership expertise critical",
 		})
+
+	case "kotlin":
+		// FIX(BUG-006): Add Kotlin/Android language support
+		agents = append(agents, RecommendedAgent{
+			Name:        "AndroidExpert",
+			Type:        "persistent",
+			Description: "Expert in Kotlin Android development, Jetpack Compose, and mobile patterns",
+			Topics:      []string{"kotlin android", "jetpack compose", "android architecture", "coroutines", "room database", "hilt dependency injection"},
+			Permissions: []string{"read_file", "code_graph", "exec_cmd"},
+			Priority:    100,
+			Reason:      "Kotlin/Android project detected - mobile expertise critical",
+		})
 	}
 
 	// Framework-specific agents
@@ -395,27 +407,70 @@ func (i *Initializer) determineRequiredAgents(profile ProjectProfile) []Recommen
 		})
 	}
 
-	// Always include core agents
-	agents = append(agents,
-		RecommendedAgent{
-			Name:        "SecurityAuditor",
+	// FIX(BUG-006): ArangoDB graph database expert
+	if depNames["arangodb"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "ArangoExpert",
 			Type:        "persistent",
-			Description: "Security vulnerability detection and best practices",
-			Topics:      []string{"OWASP top 10", "secure coding", "vulnerability patterns", "code injection"},
-			Permissions: []string{"read_file", "code_graph"},
-			Priority:    90,
-			Reason:      "Security analysis is critical for all projects",
-		},
-		RecommendedAgent{
-			Name:        "TestArchitect",
-			Type:        "persistent",
-			Description: "Test strategy, coverage analysis, and TDD patterns",
-			Topics:      []string{"unit testing", "integration testing", "test coverage", "mocking patterns"},
-			Permissions: []string{"read_file", "exec_cmd"},
+			Description: "Expert in ArangoDB graph database, AQL queries, and document/graph modeling",
+			Topics:      []string{"arangodb", "AQL queries", "graph traversal", "document modeling", "multi-model database", "graph database patterns"},
+			Permissions: []string{"read_file", "code_graph", "network"},
 			Priority:    85,
-			Reason:      "Test quality directly impacts code reliability",
-		},
-	)
+			Reason:      "ArangoDB detected - graph database expertise beneficial",
+		})
+	}
+
+	// FIX(BUG-006): Google ADK agent orchestration expert
+	if depNames["adk"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "ADKExpert",
+			Type:        "persistent",
+			Description: "Expert in Google ADK for LLM agent orchestration and tool use",
+			Topics:      []string{"google adk", "agent orchestration", "llm tool use", "multi-agent systems", "agent workflows"},
+			Permissions: []string{"read_file", "code_graph", "network"},
+			Priority:    90,
+			Reason:      "Google ADK detected - agent orchestration expertise beneficial",
+		})
+	}
+
+	// FIX(BUG-006): A2A card/manifest agent expert
+	if depNames["a2a"] {
+		agents = append(agents, RecommendedAgent{
+			Name:        "A2AExpert",
+			Type:        "persistent",
+			Description: "Expert in A2A card-driven and manifest-based agent patterns",
+			Topics:      []string{"a2a protocol", "agent cards", "manifest agents", "agent interoperability", "card-driven workflows"},
+			Permissions: []string{"read_file", "code_graph"},
+			Priority:    85,
+			Reason:      "A2A protocol detected - agent interop expertise beneficial",
+		})
+	}
+
+	// FIX: Only add core agents if no language-specific or dependency-specific agents were found
+	// This prevents the system from adding only generic agents when it should be detecting specialists
+	if len(agents) == 0 {
+		// Fallback: Only add generic agents if we couldn't detect anything specific
+		agents = append(agents,
+			RecommendedAgent{
+				Name:        "SecurityAuditor",
+				Type:        "persistent",
+				Description: "Security vulnerability detection and best practices",
+				Topics:      []string{"OWASP top 10", "secure coding", "vulnerability patterns", "code injection"},
+				Permissions: []string{"read_file", "code_graph"},
+				Priority:    90,
+				Reason:      "Security analysis is critical for all projects",
+			},
+			RecommendedAgent{
+				Name:        "TestArchitect",
+				Type:        "persistent",
+				Description: "Test strategy, coverage analysis, and TDD patterns",
+				Topics:      []string{"unit testing", "integration testing", "test coverage", "mocking patterns"},
+				Permissions: []string{"read_file", "exec_cmd"},
+				Priority:    85,
+				Reason:      "Test quality directly impacts code reliability",
+			},
+		)
+	}
 
 	// Assign tools to all agents based on their type and project language
 	for idx := range agents {
