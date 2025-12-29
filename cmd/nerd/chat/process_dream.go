@@ -898,16 +898,33 @@ func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task,
 		return "", err
 	}
 
-	processor := articulation.NewResponseProcessor()
-	if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
-		return processed.Surface, nil
+	// Extract grounding sources if client supports it (e.g., Gemini with Google Search)
+	var groundingSources []string
+	if gp, ok := m.client.(types.GroundingProvider); ok {
+		groundingSources = gp.GetLastGroundingSources()
 	}
 
-	trimmed := strings.TrimSpace(interpResp)
-	if trimmed == "" {
-		return "", fmt.Errorf("empty interpretation response")
+	var interpretation string
+	processor := articulation.NewResponseProcessor()
+	if processed, procErr := processor.Process(interpResp); procErr == nil && strings.TrimSpace(processed.Surface) != "" {
+		interpretation = processed.Surface
+	} else {
+		trimmed := strings.TrimSpace(interpResp)
+		if trimmed == "" {
+			return "", fmt.Errorf("empty interpretation response")
+		}
+		interpretation = trimmed
 	}
-	return trimmed, nil
+
+	// Append grounding sources for transparency
+	if len(groundingSources) > 0 {
+		interpretation += "\n\n**Sources:**\n"
+		for _, src := range groundingSources {
+			interpretation += fmt.Sprintf("- %s\n", src)
+		}
+	}
+
+	return interpretation, nil
 }
 
 func (m Model) formatInterpretedResult(ctx context.Context, input, shardType, task, result, warning string) string {

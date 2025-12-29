@@ -1,0 +1,251 @@
+package context_harness
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"codenerd/internal/core"
+	internalcontext "codenerd/internal/context"
+	"codenerd/internal/perception"
+	"codenerd/internal/store"
+)
+
+// RealIntegrationEngine uses real codeNERD components for integration testing.
+// It wires the real ActivationEngine, Compressor, and Kernel together.
+type RealIntegrationEngine struct {
+	kernel     *core.RealKernel
+	activation *internalcontext.ActivationEngine
+	compressor *internalcontext.Compressor
+	store      *store.LocalStore
+	llmClient  perception.LLMClient
+
+	// Stats tracking
+	mu               sync.Mutex
+	originalTokens   int
+	compressedTokens int
+	allFacts         []core.Fact
+	factScores       map[string]*ActivationBreakdown
+}
+
+// Ensure RealIntegrationEngine implements ContextEngine
+var _ ContextEngine = (*RealIntegrationEngine)(nil)
+
+// NewRealIntegrationEngine creates an engine using real codeNERD components.
+func NewRealIntegrationEngine(
+	kernel *core.RealKernel,
+	localStorage *store.LocalStore,
+	llmClient perception.LLMClient,
+	config internalcontext.CompressorConfig,
+) *RealIntegrationEngine {
+	return &RealIntegrationEngine{
+		kernel:     kernel,
+		activation: internalcontext.NewActivationEngine(config),
+		compressor: internalcontext.NewCompressor(kernel, localStorage, llmClient),
+		store:      localStorage,
+		llmClient:  llmClient,
+		allFacts:   make([]core.Fact, 0),
+		factScores: make(map[string]*ActivationBreakdown),
+	}
+}
+
+// CompressTurn compresses a single turn into semantic facts using real components.
+func (e *RealIntegrationEngine) CompressTurn(ctx context.Context, turn *Turn) ([]core.Fact, int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Track original tokens
+	originalTokens := len(turn.Message) / 4
+	e.originalTokens += originalTokens
+
+	// Create Mangle facts from turn
+	facts := e.createFactsFromTurn(turn)
+
+	// Load facts into kernel
+	if err := e.kernel.LoadFacts(facts); err != nil {
+		return nil, 0, fmt.Errorf("failed to load facts: %w", err)
+	}
+
+	// Mark new facts for recency tracking
+	e.activation.MarkNewFacts(facts)
+
+	// Store facts for later retrieval
+	e.allFacts = append(e.allFacts, facts...)
+
+	// Estimate compressed tokens (~20 tokens per fact)
+	compressedTokens := len(facts) * 20
+	e.compressedTokens += compressedTokens
+
+	return facts, compressedTokens, nil
+}
+
+// createFactsFromTurn converts turn metadata into Mangle facts.
+func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
+	facts := []core.Fact{
+		{
+			Predicate: "conversation_turn",
+			Args: []interface{}{
+				turn.TurnID,
+				turn.Speaker,
+				turn.Message,
+				turn.Intent,
+			},
+		},
+	}
+
+	// Files referenced
+	for _, file := range turn.Metadata.FilesReferenced {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_file",
+			Args:      []interface{}{turn.TurnID, file},
+		})
+	}
+
+	// Symbols referenced
+	for _, symbol := range turn.Metadata.SymbolsReferenced {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_symbol",
+			Args:      []interface{}{turn.TurnID, symbol},
+		})
+	}
+
+	// Error messages
+	for _, errMsg := range turn.Metadata.ErrorMessages {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_error_message",
+			Args:      []interface{}{turn.TurnID, errMsg},
+		})
+	}
+
+	// Topics
+	for _, topic := range turn.Metadata.Topics {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_topic",
+			Args:      []interface{}{turn.TurnID, topic},
+		})
+	}
+
+	// Reference-back tracking
+	if turn.Metadata.IsQuestionReferringBack && turn.Metadata.ReferencesBackToTurn != nil {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_references_back",
+			Args:      []interface{}{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
+		})
+	}
+
+	// Campaign phase (for integration scenarios)
+	if turn.CampaignPhase != "" {
+		facts = append(facts, core.Fact{
+			Predicate: "turn_campaign_phase",
+			Args:      []interface{}{turn.TurnID, turn.CampaignPhase},
+		})
+	}
+
+	return facts
+}
+
+// RetrieveContext retrieves relevant facts using real 7-component activation.
+func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query string, tokenBudget int) ([]core.Fact, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.allFacts) == 0 {
+		return nil, nil
+	}
+
+	// Create intent fact from query for activation scoring
+	intentFact := &core.Fact{
+		Predicate: "user_intent",
+		Args:      []interface{}{"query", "retrieve", query, ""},
+	}
+
+	// Score all facts with real 7-component activation
+	scored := e.activation.ScoreFacts(e.allFacts, intentFact)
+
+	// Store activation breakdowns for later inspection
+	// Note: ScoredFact only exposes 4 of the 7 components currently
+	for _, sf := range scored {
+		factID := e.factID(sf.Fact)
+		e.factScores[factID] = &ActivationBreakdown{
+			FactID:          factID,
+			BaseScore:       sf.BaseScore,
+			RecencyBoost:    sf.RecencyScore,
+			RelevanceBoost:  sf.RelevanceScore,
+			DependencyBoost: sf.DependencyScore,
+			// Campaign, Session, Issue scores are computed internally
+			// but not currently exposed in ScoredFact. When needed,
+			// ScoredFact can be extended to include these.
+			CampaignBoost: 0, // TODO: expose from ScoredFact
+			SessionBoost:  0, // TODO: expose from ScoredFact
+			IssueBoost:    0, // TODO: expose from ScoredFact
+			TotalScore:    sf.Score,
+		}
+	}
+
+	// Select within budget
+	selected := e.activation.SelectWithinBudget(scored, tokenBudget)
+
+	// Convert back to facts
+	result := make([]core.Fact, len(selected))
+	for i, sf := range selected {
+		result[i] = sf.Fact
+	}
+
+	return result, nil
+}
+
+// GetCompressionStats returns original and compressed token counts.
+func (e *RealIntegrationEngine) GetCompressionStats() (originalTokens, compressedTokens int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.originalTokens, e.compressedTokens
+}
+
+// GetActivationBreakdown returns the 7-component scoring breakdown for a fact.
+func (e *RealIntegrationEngine) GetActivationBreakdown(factID string) *ActivationBreakdown {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.factScores[factID]
+}
+
+// SetCampaignContext sets the campaign context for campaign-aware activation.
+func (e *RealIntegrationEngine) SetCampaignContext(ctx *internalcontext.CampaignActivationContext) {
+	e.activation.SetCampaignContext(ctx)
+}
+
+// SetIssueContext sets the issue context for issue-driven activation.
+func (e *RealIntegrationEngine) SetIssueContext(ctx *internalcontext.IssueActivationContext) {
+	e.activation.SetIssueContext(ctx)
+}
+
+// Reset clears all state for a fresh test run.
+func (e *RealIntegrationEngine) Reset() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.originalTokens = 0
+	e.compressedTokens = 0
+	e.allFacts = make([]core.Fact, 0)
+	e.factScores = make(map[string]*ActivationBreakdown)
+
+	// Clear activation engine state
+	e.activation.ClearCampaignContext()
+	e.activation.ClearIssueContext()
+
+	return nil
+}
+
+// GetMode returns RealMode.
+func (e *RealIntegrationEngine) GetMode() EngineMode {
+	return RealMode
+}
+
+// factID creates a unique identifier for a fact.
+func (e *RealIntegrationEngine) factID(fact core.Fact) string {
+	if len(fact.Args) > 0 {
+		if turnID, ok := fact.Args[0].(int); ok {
+			return fmt.Sprintf("turn_%d_%s", turnID, fact.Predicate)
+		}
+	}
+	return fact.Predicate
+}

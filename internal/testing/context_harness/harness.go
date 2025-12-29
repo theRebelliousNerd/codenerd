@@ -15,12 +15,15 @@ type Harness struct {
 	reporter  *Reporter
 	scenarios map[string]*Scenario
 
+	// Engine (mock or real) - implements ContextEngine interface
+	contextEngine ContextEngine
+
 	// Observability components (optional)
-	promptInspector  *PromptInspector
-	jitTracer        *JITTracer
-	activationTracer *ActivationTracer
-	compressionViz   *CompressionVisualizer
-	contextEngine    *RealContextEngine
+	promptInspector   *PromptInspector
+	jitTracer         *JITTracer
+	activationTracer  *ActivationTracer
+	compressionViz    *CompressionVisualizer
+	piggybackTracer   *PiggybackTracer
 }
 
 // NewHarness creates a new test harness.
@@ -31,12 +34,28 @@ func NewHarness(kernel *core.RealKernel, config SimulatorConfig, output io.Write
 		scenarios[scenario.ScenarioID] = scenario
 	}
 
-	return &Harness{
-		kernel:    kernel,
-		config:    config,
-		reporter:  NewReporter(output, outputFormat),
-		scenarios: scenarios,
+	// Create engine based on mode
+	var engine ContextEngine
+	if config.Mode == RealMode {
+		// Will be set via SetContextEngine for real mode
+		engine = nil
+	} else {
+		// Default to mock mode
+		engine = NewMockContextEngine(kernel)
 	}
+
+	return &Harness{
+		kernel:        kernel,
+		config:        config,
+		reporter:      NewReporter(output, outputFormat),
+		scenarios:     scenarios,
+		contextEngine: engine,
+	}
+}
+
+// SetContextEngine sets the context engine (for real mode injection).
+func (h *Harness) SetContextEngine(engine ContextEngine) {
+	h.contextEngine = engine
 }
 
 // NewHarnessWithObservability creates a harness with full observability wired in.
@@ -49,7 +68,8 @@ func NewHarnessWithObservability(
 	jitTracer *JITTracer,
 	activationTracer *ActivationTracer,
 	compressionViz *CompressionVisualizer,
-	contextEngine *RealContextEngine,
+	piggybackTracer *PiggybackTracer,
+	contextEngine ContextEngine, // Changed from *RealContextEngine to interface
 ) *Harness {
 	h := NewHarness(kernel, config, output, outputFormat)
 
@@ -58,7 +78,12 @@ func NewHarnessWithObservability(
 	h.jitTracer = jitTracer
 	h.activationTracer = activationTracer
 	h.compressionViz = compressionViz
-	h.contextEngine = contextEngine
+	h.piggybackTracer = piggybackTracer
+
+	// Override engine if provided
+	if contextEngine != nil {
+		h.contextEngine = contextEngine
+	}
 
 	return h
 }
@@ -73,12 +98,13 @@ func (h *Harness) RunScenario(ctx context.Context, scenarioName string) (*TestRe
 	simulator := NewSessionSimulator(h.kernel, h.config)
 
 	// Wire in observability if available
-	if h.promptInspector != nil || h.jitTracer != nil || h.activationTracer != nil || h.compressionViz != nil {
+	if h.promptInspector != nil || h.jitTracer != nil || h.activationTracer != nil || h.compressionViz != nil || h.piggybackTracer != nil {
 		simulator.SetObservability(
 			h.promptInspector,
 			h.jitTracer,
 			h.activationTracer,
 			h.compressionViz,
+			h.piggybackTracer,
 		)
 	}
 

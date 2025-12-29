@@ -33,10 +33,10 @@
     "activation_threshold": 30
   },
   "embedding": {
-    "provider": "ollama",
+    "provider": "genai",
     "ollama_endpoint": "http://localhost:11434",
     "ollama_model": "nomic-embed-text",
-    "genai_api_key": "",
+    "genai_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
     "genai_model": "gemini-embedding-001",
     "task_type": "SEMANTIC_SIMILARITY"
   },

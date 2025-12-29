@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/world"
 )
 
@@ -123,7 +124,37 @@ Respond with a JSON object matching this structure:
 IMPORTANT: Be specific to THIS project, not generic. Extract real insights from the codebase structure.
 `, codebaseContext)
 
-	response, err := i.config.LLMClient.Complete(ctx, prompt)
+	// Use grounded completion if Gemini grounding is available
+	var response string
+	var err error
+	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
+		// Get documentation URLs for the project's tech stack
+		var docURLs []string
+		if profile.Language != "" {
+			docURLs = append(docURLs, research.GetDocURLsForTech(profile.Language)...)
+		}
+		if profile.Framework != "" {
+			docURLs = append(docURLs, research.GetDocURLsForTech(profile.Framework)...)
+		}
+
+		// Enable URL context if we have relevant doc URLs
+		if len(docURLs) > 0 {
+			i.grounding.EnableURLContext(docURLs)
+		}
+
+		response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+
+		// Capture grounding sources
+		sources := i.grounding.CaptureGroundingSources()
+		if len(sources) > 0 {
+			i.mu.Lock()
+			i.groundingSources = append(i.groundingSources, sources...)
+			i.mu.Unlock()
+			logging.Boot("Strategic knowledge grounded with %d sources", len(sources))
+		}
+	} else {
+		response, err = i.config.LLMClient.Complete(ctx, prompt)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("LLM analysis failed: %w", err)
 	}
@@ -457,7 +488,21 @@ Categories to use:
 Be specific and extract only genuinely useful insights. Skip boilerplate.
 `, doc.Path, chunkIdx+1, len(chunks), doc.Title, chunk)
 
-		response, err := i.config.LLMClient.Complete(ctx, prompt)
+		// Use grounded completion if available
+		var response string
+		var err error
+		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
+			response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+			// Capture grounding sources
+			sources := i.grounding.CaptureGroundingSources()
+			if len(sources) > 0 {
+				i.mu.Lock()
+				i.groundingSources = append(i.groundingSources, sources...)
+				i.mu.Unlock()
+			}
+		} else {
+			response, err = i.config.LLMClient.Complete(ctx, prompt)
+		}
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Debug("LLM extraction failed for chunk %d: %v", chunkIdx, err)
 			continue
@@ -610,9 +655,27 @@ Respond with JSON matching this structure:
 }
 `, state.TotalProcessed, len(atoms), keysFromMap(categories), atomsSummary.String())
 
-	response, err := i.config.LLMClient.Complete(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("synthesis LLM call failed: %w", err)
+	// Use grounded completion if available
+	var response string
+	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
+		var grErr error
+		response, _, grErr = i.grounding.CompleteWithGrounding(ctx, prompt)
+		if grErr != nil {
+			return nil, fmt.Errorf("synthesis LLM call failed: %w", grErr)
+		}
+		// Capture grounding sources
+		sources := i.grounding.CaptureGroundingSources()
+		if len(sources) > 0 {
+			i.mu.Lock()
+			i.groundingSources = append(i.groundingSources, sources...)
+			i.mu.Unlock()
+		}
+	} else {
+		var llmErr error
+		response, llmErr = i.config.LLMClient.Complete(ctx, prompt)
+		if llmErr != nil {
+			return nil, fmt.Errorf("synthesis LLM call failed: %w", llmErr)
+		}
 	}
 
 	// Parse synthesis result
@@ -888,7 +951,21 @@ Be selective - only mark as relevant documents that provide genuine strategic in
 Prefer fewer, high-quality documents over including everything.
 `, docList.String())
 
-		response, err := i.config.LLMClient.Complete(ctx, prompt)
+		// Use grounded completion if available
+		var response string
+		var err error
+		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
+			response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+			// Capture grounding sources
+			sources := i.grounding.CaptureGroundingSources()
+			if len(sources) > 0 {
+				i.mu.Lock()
+				i.groundingSources = append(i.groundingSources, sources...)
+				i.mu.Unlock()
+			}
+		} else {
+			response, err = i.config.LLMClient.Complete(ctx, prompt)
+		}
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Warn("LLM relevance filtering failed for batch: %v", err)
 			// On error, include priority docs

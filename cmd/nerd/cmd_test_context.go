@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	internalcontext "codenerd/internal/context"
 	"codenerd/internal/core"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/testing/context_harness"
@@ -30,6 +31,8 @@ var (
 	testContextTracePiggyback  bool
 	testContextLogDir          string
 	testContextConsoleOutput   bool
+	testContextMode            string // "mock" or "real"
+	testContextCategory        string // Scenario category filter
 )
 
 // testContextCmd runs context system stress tests
@@ -39,15 +42,29 @@ var testContextCmd = &cobra.Command{
 	Long: `Stress-tests codeNERD's infinite context system (compression, retrieval, paging)
 with realistic coding session simulations.
 
-Available scenarios:
+Modes:
+  --mode=mock    Fast mock implementations for CI (default)
+  --mode=real    Real ActivationEngine, Compressor, and Kernel (slower, LLM required)
+
+Mock Scenarios (category: mock):
   - debugging-marathon      50-turn debugging session testing context retention
   - feature-implementation  75-turn feature implementation testing multi-phase paging
   - refactoring-campaign   100-turn refactoring testing long-term stability
   - research-and-build      80-turn research + implementation testing cross-phase retrieval
 
+Integration Scenarios (category: integration, requires --mode=real):
+  - campaign-phase-transition  Phase reset and context paging
+  - swebench-issue-resolution  Issue context with tiered file boosting
+  - token-budget-overflow      Compression triggering at 60% utilization
+  - dependency-spreading       Symbol graph spreading with depth decay
+  - verb-specific-boosting     8 intent verb boost validation
+  - ephemeral-filtering        Boot guard and fact category filtering
+
 Examples:
   nerd test-context --scenario debugging-marathon
   nerd test-context --all
+  nerd test-context --scenario campaign-phase-transition --mode=real
+  nerd test-context --category=integration --mode=real
   nerd test-context --scenario debugging-marathon --format json > results.json`,
 	RunE: runTestContext,
 }
@@ -59,6 +76,10 @@ func init() {
 	testContextCmd.Flags().IntVar(&testContextMaxTurns, "max-turns", 0, "Override scenario turn count")
 	testContextCmd.Flags().IntVar(&testContextBudget, "token-budget", 8000, "Token budget for context retrieval")
 	testContextCmd.Flags().BoolVar(&testContextWithPaging, "paging", true, "Enable context paging")
+
+	// Mode selection
+	testContextCmd.Flags().StringVar(&testContextMode, "mode", "mock", "Engine mode: 'mock' (fast, for CI) or 'real' (uses real components)")
+	testContextCmd.Flags().StringVar(&testContextCategory, "category", "", "Filter by scenario category: 'mock' or 'integration'")
 
 	// Observability flags
 	testContextCmd.Flags().BoolVarP(&testContextVerbose, "verbose", "v", false, "Verbose output (show all details)")
@@ -107,6 +128,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	var jitTracer *context_harness.JITTracer
 	var activationTracer *context_harness.ActivationTracer
 	var compressionViz *context_harness.CompressionVisualizer
+	var piggybackTracer *context_harness.PiggybackTracer
 
 	if testContextInspectPrompts {
 		promptInspector = context_harness.NewPromptInspector(
@@ -132,6 +154,13 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	if testContextVisCompression {
 		compressionViz = context_harness.NewCompressionVisualizer(
 			fileLogger.GetCompressionWriter(),
+			testContextVerbose,
+		)
+	}
+
+	if testContextTracePiggyback {
+		piggybackTracer = context_harness.NewPiggybackTracer(
+			fileLogger.GetPiggybackWriter(),
 			testContextVerbose,
 		)
 	}
@@ -162,6 +191,12 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 	defer cortex.Close()
 
+	// Determine engine mode
+	engineMode := context_harness.MockMode
+	if testContextMode == "real" {
+		engineMode = context_harness.RealMode
+	}
+
 	// Configure simulator
 	simConfig := context_harness.SimulatorConfig{
 		MaxTurns:           testContextMaxTurns,
@@ -169,31 +204,41 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		CompressionEnabled: true,
 		PagingEnabled:      testContextWithPaging,
 		VectorStoreEnabled: true,
+		Mode:               engineMode,
 	}
 
-	// Create context engine integration
 	// Type assert to get *core.RealKernel from the interface
 	realKernel, _ := cortex.Kernel.(*core.RealKernel)
 
-	var contextEngine *context_harness.RealContextEngine
-	if cortex.LocalDB != nil && cortex.LLMClient != nil && realKernel != nil {
-		contextEngine = context_harness.NewRealContextEngine(
+	// Create context engine based on mode
+	var contextEngine context_harness.ContextEngine
+	if engineMode == context_harness.RealMode {
+		// Real mode: use actual ActivationEngine with 7-component scoring
+		fmt.Println("🔬 Using RealIntegrationEngine with 7-component activation scoring")
+		config := internalcontext.DefaultConfig()
+		contextEngine = context_harness.NewRealIntegrationEngine(
 			realKernel,
 			cortex.LocalDB,
 			cortex.LLMClient,
+			config,
 		)
+	} else {
+		// Mock mode: fast mock implementations for CI
+		contextEngine = context_harness.NewMockContextEngine(realKernel)
 	}
 
 	// Create harness with observability
+	// Use file logger's summary writer so reports go to file + console
 	harness := context_harness.NewHarnessWithObservability(
 		realKernel,
 		simConfig,
-		os.Stdout,
+		fileLogger.GetSummaryWriter(), // Write reports to summary.log (+ console via MultiWriter)
 		testContextFormat,
 		promptInspector,
 		jitTracer,
 		activationTracer,
 		compressionViz,
+		piggybackTracer,
 		contextEngine,
 	)
 

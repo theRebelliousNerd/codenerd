@@ -15,7 +15,8 @@ The initializer performs comprehensive workspace setup:
 
 | File | Description |
 |------|-------------|
-| `initializer.go` | Main initialization orchestration with 10-phase Initialize() method and progress reporting. Exports Initializer struct, InitConfig, InitProgress, InitResult, RecommendedAgent types and SetProgressChannel() for real-time updates. |
+| `initializer.go` | Main initialization orchestration with 10-phase Initialize() method and progress reporting. Exports Initializer struct, InitConfig, InitProgress, InitResult, RecommendedAgent types. Includes Gemini grounding integration - when Gemini is the LLM provider, Google Search and URL Context grounding are automatically enabled for research-heavy phases. |
+| `strategic_knowledge.go` | Deep strategic knowledge generation using LLM analysis with Gemini grounding support. Exports StrategicKnowledge struct, generateStrategicKnowledge(), GatherProjectDocumentation() for doc discovery, filterDocumentsByRelevance() for LLM-based filtering, and ProcessDocumentsWithTracking() for incremental knowledge extraction. Uses grounded completions when Gemini is configured. |
 | `scanner.go` | File system traversal with dependency detection and directory structure creation. Exports createDirectoryStructure(), detectLanguageFromFiles() checking 12+ config files, detectDependencies() parsing go.mod/package.json with version extraction. |
 | `profile.go` | Profile generation with facts file creation and session state management. Exports buildProjectProfile(), saveProfile(), generateFactsFile(), initPreferences(), initSessionState(), and createCodebaseKnowledgeBase() for project-specific atoms. |
 | `agents.go` | Agent recommendation and creation with knowledge base hydration and registration. Exports determineRequiredAgents() analyzing dependencies, createType3Agents() with research, generateAgentPromptsYAML() for JIT atoms, and registerAgentsWithShardManager(). |
@@ -57,6 +58,64 @@ type InitResult struct {
     RecommendedAgents []RecommendedAgent
     CreatedAgents     []CreatedAgent
     AgentKBs          map[string]int
+
+    // Gemini Grounding (when Gemini is the LLM provider)
+    GroundingSources []string // URLs used to ground LLM responses
+    GroundingEnabled bool     // Whether grounding was active
+}
+```
+
+## Gemini Grounding Integration
+
+When Gemini is configured as the LLM provider, the init system automatically enables grounding features:
+
+### Features Enabled
+- **Google Search**: Real-time search grounding for strategic knowledge generation
+- **URL Context**: Documentation URLs for the project's tech stack (Go, Python, React, etc.)
+
+### How It Works
+```
+NewInitializer()
+    │
+    ▼
+Detect Gemini client via types.GroundingController
+    │
+    ▼
+Enable Google Search grounding
+    │
+    ▼
+generateStrategicKnowledge()
+    ├── Get tech stack doc URLs (research.GetDocURLsForTech)
+    ├── Enable URL Context with doc URLs
+    ├── CompleteWithGrounding()
+    └── Capture grounding sources
+    │
+    ▼
+filterDocumentsByRelevance()
+    ├── CompleteWithGrounding()
+    └── Capture grounding sources
+    │
+    ▼
+InitResult.GroundingSources populated
+```
+
+### Using Grounding in Other Systems
+
+The grounding helper from `internal/tools/research` can be used anywhere:
+
+```go
+import "codenerd/internal/tools/research"
+
+// Create helper from any LLM client
+helper := research.NewGroundingHelper(llmClient)
+
+// Check if grounding is available (only for Gemini)
+if helper.IsGroundingAvailable() {
+    helper.EnableGoogleSearch()
+    helper.EnableURLContext([]string{"https://docs.example.com"})
+
+    response, sources, err := helper.CompleteWithGrounding(ctx, prompt)
+    // sources contains URLs used for grounding
 }
 ```
 
