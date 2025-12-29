@@ -161,3 +161,8 @@ func TestContainsAndSortByScore(t *testing.T) {
 		t.Fatalf("scores not sorted desc: %+v", facts)
 	}
 }
+
+// contains checks if two strings are equal (simple string equality).
+func contains(a, b string) bool {
+	return a == b
+}
