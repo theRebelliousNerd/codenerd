@@ -2,6 +2,8 @@
 
 The CLI entrypoint for codeNERD. Built with Cobra for commands and Bubble Tea for the interactive TUI.
 
+**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
+
 ## Portable Usage
 
 The compiled `nerd.exe` binary is fully portable:
@@ -16,12 +18,15 @@ Each project maintains its own `.nerd/` directory with project-specific knowledg
 
 ```
 cmd/nerd/
-├── main.go           # Cobra root command and subcommands
-└── chat/             # Interactive TUI (Bubble Tea)
-    ├── model.go      # Main TUI model and state
-    ├── session.go    # Chat session management
-    ├── commands.go   # Slash command handlers
-    └── agent_wizard.go  # Agent creation wizard
+├── main.go              # Cobra root command and subcommands
+├── ui/                  # UI components (campaign page, diff view, etc.)
+└── chat/                # Interactive TUI (Bubble Tea)
+    ├── model.go         # Main TUI model and state
+    ├── session.go       # Chat session management (quiescent boot)
+    ├── commands.go      # Slash command handlers
+    ├── agent_wizard.go  # Agent creation wizard
+    ├── glass_box.go     # Tool execution visibility
+    └── northstar_*.go   # North Star goal tracking
 ```
 
 ## Commands
@@ -44,12 +49,13 @@ nerd --timeout 5m       # Set operation timeout
 | `nerd query <predicate>` | Query derived facts from kernel |
 | `nerd why [predicate]` | Explain derivation chain |
 | `nerd status` | Show system status |
-| `nerd spawn <shard> <task>` | Invoke specialist shard |
+| `nerd spawn <type> <task>` | Invoke SubAgent (legacy: maps to intents) |
 | `nerd define-agent` | Define a new specialist agent |
 | `nerd browser <action>` | Browser automation |
 | `nerd campaign <action>` | Multi-phase goal orchestration |
 | `nerd check-mangle <files>` | Validate Mangle syntax |
 | `nerd embedding <action>` | Manage embeddings (set/stats/reembed) |
+| `nerd test-context` | Run context system validation |
 
 ## Interactive TUI
 
@@ -69,9 +75,14 @@ The chat interface is built with [Bubble Tea](https://github.com/charmbracelet/b
 | `/facts` | Show current fact count |
 | `/shadow` | Enter shadow mode |
 | `/whatif <action>` | Project effects |
-| `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Manage multi-phase campaigns (including adversarial assault sweeps) |
+| `/campaign <start\|assault\|status\|pause\|resume\|list> [...]` | Manage multi-phase campaigns |
+| `/sessions` | List and select previous sessions |
+| `/load-session <id>` | Load a specific session |
+| `/new-session` | Start a fresh session |
+| `/jit` | Inspect last JIT-compiled prompt |
+| `/transparency [on\|off]` | Toggle operation visibility |
 | `/approve` | Approve pending changes |
-| `/agents` | Show active shards |
+| `/agents` | Show active SubAgents |
 | `/config` | Configuration menu |
 | `/clear` | Clear chat history |
 | `/quit` | Exit TUI |
@@ -111,9 +122,17 @@ Artifacts persist under `.nerd/campaigns/<campaign>/assault/` (targets, batches,
                               │                    │
                               ▼                    ▼
                     ┌──────────────────────────────────────┐
-                    │           internal/core/             │
-                    │    Kernel, VirtualStore, Shards      │
+                    │         internal/session/            │
+                    │    Executor, Spawner, SubAgents      │
                     └──────────────────────────────────────┘
+                                      │
+                              ┌───────┴───────┐
+                              ▼               ▼
+                    ┌─────────────┐   ┌─────────────┐
+                    │ core/       │   │ prompt/     │
+                    │ Kernel      │   │ JIT Compiler│
+                    │ VirtualStore│   │ ConfigFactory│
+                    └─────────────┘   └─────────────┘
 ```
 
 ## Adding New Commands
@@ -185,3 +204,8 @@ func (m *Model) handleMyCommand(input string) tea.Cmd {
 - [Lipgloss](https://github.com/charmbracelet/lipgloss) - Styling
 - [Glamour](https://github.com/charmbracelet/glamour) - Markdown rendering
 - [Zap](https://github.com/uber-go/zap) - Structured logging
+
+---
+
+**Last Updated:** December 2024
+**Architecture Version:** 2.0.0 (JIT-Driven)
