@@ -180,9 +180,10 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 	if o.virtualStore != nil {
 		logging.CampaignDebug("Refreshing world model scope")
 		// Best-effort scope refresh to update code graph facts
+		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 		_, _ = o.virtualStore.RouteAction(ctx, core.Fact{
-			Predicate: "action",
-			Args:      []interface{}{"/refresh_scope", o.workspace},
+			Predicate: "next_action",
+			Args:      []interface{}{fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano()), "/refresh_scope", o.workspace},
 		})
 	}
 

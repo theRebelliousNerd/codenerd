@@ -30,6 +30,15 @@ type EmbeddingEngine interface {
 	Name() string
 }
 
+// HealthChecker is an optional interface for embedding engines that support
+// health checks. If an engine implements this interface, the system can
+// verify availability before attempting batch operations.
+type HealthChecker interface {
+	// HealthCheck verifies the embedding service is reachable.
+	// Returns nil if healthy, error otherwise.
+	HealthCheck(ctx context.Context) error
+}
+
 // =============================================================================
 // EMBEDDING CONFIGURATION
 // =============================================================================

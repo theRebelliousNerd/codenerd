@@ -248,6 +248,7 @@ func TestDefaults_NoDuplicatePredicateDecls(t *testing.T) {
 		return
 	}
 
+	// Use predicate name + arity as key since Mangle supports arity overloading
 	decls := make(map[string][]string)
 	for _, path := range files {
 		data, err := os.ReadFile(path)
@@ -263,7 +264,10 @@ func TestDefaults_NoDuplicatePredicateDecls(t *testing.T) {
 			if pred == "Package" {
 				continue
 			}
-			decls[pred] = append(decls[pred], path)
+			// Include arity to allow arity overloading (e.g., task_complexity/1 and task_complexity/2)
+			arity := len(decl.DeclaredAtom.Args)
+			key := fmt.Sprintf("%s/%d", pred, arity)
+			decls[key] = append(decls[key], path)
 		}
 	}
 

@@ -206,6 +206,40 @@ func (e *OllamaEngine) Name() string {
 	return fmt.Sprintf("ollama:%s", e.model)
 }
 
+// HealthCheck verifies that the Ollama service is reachable.
+// This should be called before batch embedding operations to fail fast
+// instead of blocking for minutes with retries.
+func (e *OllamaEngine) HealthCheck(ctx context.Context) error {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "Ollama.HealthCheck")
+	defer timer.Stop()
+
+	// Create a short timeout context for the health check
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	logging.EmbeddingDebug("Ollama.HealthCheck: checking endpoint %s/api/tags", e.endpoint)
+
+	req, err := http.NewRequestWithContext(checkCtx, "GET", e.endpoint+"/api/tags", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create health check request: %w", err)
+	}
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Warn("Ollama.HealthCheck: endpoint unreachable: %v", err)
+		return fmt.Errorf("ollama unavailable at %s: %w", e.endpoint, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logging.Get(logging.CategoryEmbedding).Warn("Ollama.HealthCheck: endpoint returned status %d", resp.StatusCode)
+		return fmt.Errorf("ollama returned status %d", resp.StatusCode)
+	}
+
+	logging.Embedding("Ollama.HealthCheck: endpoint healthy")
+	return nil
+}
+
 // =============================================================================
 // OLLAMA API TYPES
 // =============================================================================

@@ -62,6 +62,17 @@ func (a *llmClientAdapter) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return a.Complete(ctx, systemPrompt, userPrompt)
 }
 
+// CompleteWithTools implements types.LLMClient interface.
+// The legislator shard uses standard completion for rule generation, not tool-calling.
+func (a *llmClientAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("no LLM client configured")
+	}
+
+	// Forward to underlying client if it supports tool calling
+	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+}
+
 // NewLegislatorShard creates a Legislator shard.
 func NewLegislatorShard() *LegislatorShard {
 	logging.SystemShards("[Legislator] Initializing legislator shard")

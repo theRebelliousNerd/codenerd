@@ -49,6 +49,33 @@ type Config struct {
 }
 ```
 
+### HealthChecker
+```go
+// Optional interface for pre-flight availability checks
+type HealthChecker interface {
+    HealthCheck(ctx context.Context) error
+}
+```
+
+## Health Check Pattern (BUG-001 Fix)
+
+The `HealthChecker` interface enables fast-fail when embedding services are unavailable.
+Without this, batch embedding operations on 779+ atoms with 3 retries each can block
+boot for 35+ minutes.
+
+**Usage in factory.go:**
+```go
+if checker, ok := engine.(embedding.HealthChecker); ok {
+    if err := checker.HealthCheck(ctx); err != nil {
+        // Graceful degradation - continue without embeddings
+        embeddingEngine = nil
+    }
+}
+```
+
+**WSL2 Note:** Ollama running on Windows requires `OLLAMA_HOST=0.0.0.0` to be
+reachable from WSL2, since localhost in WSL2 refers to the Linux VM.
+
 ## Content Types
 
 | Type | Task Type |

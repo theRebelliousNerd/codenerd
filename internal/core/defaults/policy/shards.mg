@@ -240,13 +240,14 @@ specialist_context_source(Specialist, DBPath) :-
     specialist_knowledge_db(Specialist, DBPath).
 
 # Activate specialist for campaign phase based on role
+# campaign_phase(PhaseID, CampaignID, Name, Order, Status, ContextProfile) - 6 args
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /phase_executor),
-    campaign_phase(Phase, /implementation, _).
+    campaign_phase(Phase, _, /implementation, _, _, _).
 
 activate_specialist_for_phase(Specialist, Phase) :-
     specialist_campaign_role(Specialist, /plan_reviewer),
-    campaign_phase(Phase, /planning, _).
+    campaign_phase(Phase, _, /planning, _, _, _).
 
 # Cross-Specialist Collaboration
 # Strategic advisors can assist technical executors

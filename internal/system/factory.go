@@ -347,7 +347,20 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		engineCfg = embedding.DefaultConfig()
 	}
 	if engine, err := embedding.NewEngine(engineCfg); err == nil {
-		embeddingEngine = engine
+		// Perform health check to fail fast instead of blocking for 35+ minutes
+		// when embedding service is unavailable (BUG-001 fix)
+		if checker, ok := engine.(embedding.HealthChecker); ok {
+			if err := checker.HealthCheck(ctx); err != nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Embedding engine health check failed: %v (semantic features disabled)", err)
+				fmt.Fprintf(os.Stderr, "Warning: Embedding engine unavailable: %v (semantic features disabled)\n", err)
+				// Don't assign embeddingEngine - leave nil for graceful degradation
+			} else {
+				embeddingEngine = engine
+			}
+		} else {
+			// Engine doesn't support health check - use it directly
+			embeddingEngine = engine
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v (semantic features degrade)\n", err)
 	}
@@ -847,6 +860,17 @@ func (a *perceptionLLMAdapter) Complete(ctx context.Context, prompt string) (str
 
 func (a *perceptionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+// CompleteWithTools implements types.LLMClient interface for MCP integration.
+func (a *perceptionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	// Forward to underlying client if it supports tool calling
+	if toolClient, ok := a.client.(interface {
+		CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}); ok {
+		return toolClient.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	}
+	return nil, fmt.Errorf("underlying client does not support CompleteWithTools")
 }
 
 // mcpKernelAdapter adapts core.RealKernel to mcp.KernelInterface.
