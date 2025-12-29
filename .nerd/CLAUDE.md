@@ -91,3 +91,7 @@ Type A (ephemeral) agents do NOT use this architecture. Their prompts come from:
 - Embedded corpus in the binary
 - Build-time compiled prompt databases
 - Static system prompts in shard code
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -163,3 +163,7 @@ mcp_tool_selected(ShardType, ToolID, RenderMode).  # Final selection
 | `renderer.go` | ~100 | Output formatting |
 | `schemas_mcp.mg` | ~50 | Mangle schema declarations |
 | `policy_mcp.mg` | ~100 | Mangle selection rules |
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -56,3 +56,7 @@ cmd.Env = env
 ```bash
 go test ./internal/build/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

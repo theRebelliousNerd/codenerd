@@ -43,3 +43,7 @@ All `.mg` files in this directory should be loaded together. The recommended ord
 2. `intent_qualifiers.mg` (grammatical patterns)
 3. Domain-specific files (stats, conversational, code_review, etc.)
 4. `intent_multi_step.mg` (compound pattern detection)
+
+---
+
+**Remember: Push to GitHub regularly!**

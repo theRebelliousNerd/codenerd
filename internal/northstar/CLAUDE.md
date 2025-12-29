@@ -235,3 +235,7 @@ Northstar prompt atoms are in `internal/prompt/atoms/northstar/`:
 - `alignment_check.yaml` - **NEW** Mandatory JIT atoms for campaign awareness, drift detection, high-impact gates
 
 These define HOW to be a Northstar guardian. The project-specific WHAT is stored in the knowledge DB.
+
+---
+
+**Remember: Push to GitHub regularly!**

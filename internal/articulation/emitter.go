@@ -36,6 +36,10 @@ type ControlPacket struct {
 	// When populated, the TUI orchestrator will spawn specialists and re-invoke the LLM
 	// with gathered knowledge before generating the final response.
 	KnowledgeRequests []KnowledgeRequest `json:"knowledge_requests,omitempty"`
+	// ContextFeedback allows the LLM to rate the usefulness of provided context facts.
+	// This creates a feedback loop to improve spreading activation scoring over time.
+	// The LLM should emit this on every turn to provide continuous learning signal.
+	ContextFeedback *ContextFeedback `json:"context_feedback,omitempty"`
 }
 
 // KnowledgeRequest represents a request for specialist consultation or research.
@@ -74,6 +78,27 @@ type MemoryOperation struct {
 type SelfCorrection struct {
 	Triggered  bool   `json:"triggered"`
 	Hypothesis string `json:"hypothesis"`
+}
+
+// ContextFeedback represents LLM feedback on context usefulness.
+// This enables self-improving context selection via spreading activation.
+// The LLM rates which predicate types were helpful vs noise, creating
+// training signal to improve future context retrieval.
+type ContextFeedback struct {
+	// OverallUsefulness: 0.0-1.0 rating of how useful the provided context was.
+	// 1.0 = context was exactly what was needed
+	// 0.5 = context was partially helpful
+	// 0.0 = context was irrelevant or confusing
+	OverallUsefulness float64 `json:"overall_usefulness"`
+	// HelpfulFacts: Predicate names that were particularly useful.
+	// Examples: ["file_topology", "test_state", "symbol_graph"]
+	HelpfulFacts []string `json:"helpful_facts,omitempty"`
+	// NoiseFacts: Predicate names that were irrelevant noise.
+	// Examples: ["dom_node", "browser_state"]
+	NoiseFacts []string `json:"noise_facts,omitempty"`
+	// MissingContext: Description of what context would have been helpful.
+	// Example: "needed dependency graph for this module"
+	MissingContext string `json:"missing_context,omitempty"`
 }
 
 // =============================================================================

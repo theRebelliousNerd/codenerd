@@ -64,3 +64,7 @@ type SparseRetrieverConfig struct {
 ```bash
 go test ./internal/retrieval/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

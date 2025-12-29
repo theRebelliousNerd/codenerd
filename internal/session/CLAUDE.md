@@ -632,3 +632,7 @@ subagent, _ := spawner.SpawnForIntent(ctx, intent, task)
 **Last Updated:** December 27, 2024
 **Architecture Version:** 2.0.0 (JIT-Driven)
 **Replaces:** `internal/core/shard_manager.go` and all shard implementations
+
+---
+
+**Remember: Push to GitHub regularly!**

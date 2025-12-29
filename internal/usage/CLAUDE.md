@@ -84,3 +84,7 @@ Usage data is stored in `.nerd/usage.json`:
 ```bash
 go test ./internal/usage/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

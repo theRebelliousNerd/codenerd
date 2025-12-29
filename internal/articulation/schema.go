@@ -18,7 +18,9 @@ package articulation
 //	    "mangle_updates": ["atom1", "atom2", ...],
 //	    "memory_operations": [{ op, key, value }, ...],
 //	    "self_correction": { triggered, hypothesis },
-//	    "reasoning_trace": "step-by-step thinking"
+//	    "reasoning_trace": "step-by-step thinking",
+//	    "knowledge_requests": [{ specialist, query, purpose, priority }, ...],
+//	    "context_feedback": { overall_usefulness, helpful_facts, noise_facts, missing_context }
 //	  },
 //	  "surface_response": "User-facing text response"
 //	}
@@ -109,6 +111,61 @@ const PiggybackEnvelopeSchema = `{
         "reasoning_trace": {
           "type": "string",
           "description": "Step-by-step reasoning (for debugging)"
+        },
+        "knowledge_requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["specialist", "query"],
+            "additionalProperties": false,
+            "properties": {
+              "specialist": {
+                "type": "string",
+                "description": "Target agent for consultation (e.g., goexpert, researcher, _any_specialist)"
+              },
+              "query": {
+                "type": "string",
+                "description": "Specific question or topic to research"
+              },
+              "purpose": {
+                "type": "string",
+                "description": "Why this knowledge is needed"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["required", "optional"],
+                "description": "Whether to block until complete or best-effort"
+              }
+            }
+          },
+          "description": "Requests for specialist consultation or research"
+        },
+        "context_feedback": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "overall_usefulness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "How useful was the provided context (0.0 = irrelevant, 1.0 = exactly what was needed)"
+            },
+            "helpful_facts": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Predicate names that were particularly useful (e.g., file_topology, test_state)"
+            },
+            "noise_facts": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Predicate names that were irrelevant noise (e.g., dom_node, browser_state)"
+            },
+            "missing_context": {
+              "type": "string",
+              "description": "Description of what context would have been helpful"
+            }
+          },
+          "description": "Feedback on context usefulness for improving future context selection"
         }
       }
     },

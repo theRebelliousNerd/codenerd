@@ -71,3 +71,7 @@ const (
 ```bash
 go test ./internal/transparency/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -31,3 +31,7 @@ Lists all fields in `github.com/google/mangle/ast.Clause`:
 ```bash
 go run ./cmd/tools/mangle_check
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

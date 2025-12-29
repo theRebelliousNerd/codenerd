@@ -193,3 +193,7 @@ Final Prompt + CompilationStats
 ```bash
 go test ./internal/prompt/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

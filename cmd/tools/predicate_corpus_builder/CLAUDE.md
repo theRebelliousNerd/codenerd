@@ -56,3 +56,7 @@ type PredicateEntry struct {
 ```bash
 go run ./cmd/tools/predicate_corpus_builder
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

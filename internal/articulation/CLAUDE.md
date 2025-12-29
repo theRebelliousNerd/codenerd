@@ -72,3 +72,7 @@ Key principle: control_packet MUST appear before surface_response in JSON to pre
 ```bash
 go test ./internal/articulation/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

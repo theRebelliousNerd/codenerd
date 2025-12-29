@@ -27,7 +27,13 @@
         "memory_operations": [
           {"op": "promote_to_long_term|forget|store_vector|note", "key": "...", "value": "..."}
         ],
-        "reasoning_trace": "Step-by-step reasoning..."
+        "reasoning_trace": "Step-by-step reasoning...",
+        "context_feedback": {
+          "overall_usefulness": 0.8,
+          "helpful_facts": ["file_topology", "test_state"],
+          "noise_facts": ["dom_node"],
+          "missing_context": "optional: what would have helped"
+        }
       },
       "surface_response": "Human-readable response to the user"
     }
@@ -192,6 +198,97 @@
         "correction_trigger": "Found sql.DB import",
         "final_assessment": "/integration layer - wiring code",
         "reason": "File imports both HTTP and SQL, indicating integration/main.go pattern"
+      }
+    }
+    ```
+
+- id: "protocol/piggyback/context_feedback"
+  category: "protocol"
+  subcategory: "feedback"
+  priority: 70
+  is_mandatory: false
+  depends_on: ["protocol/piggyback/envelope"]
+  content: |
+    ## CONTEXT FEEDBACK PROTOCOL (Encouraged on Every Turn)
+
+    Help improve future context selection by rating the usefulness of provided facts.
+    This creates a feedback loop that learns which predicates help for each task type.
+
+    ### WHEN TO INCLUDE
+    Include context_feedback on EVERY turn. This provides continuous learning signal
+    to improve spreading activation scoring over time.
+
+    ### CONTEXT FEEDBACK FORMAT
+    Include in control_packet:
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.8,
+        "helpful_facts": ["file_topology", "test_state", "symbol_graph"],
+        "noise_facts": ["dom_node", "browser_state"],
+        "missing_context": "needed dependency graph for this refactoring"
+      }
+    }
+    ```
+
+    ### FIELD DESCRIPTIONS
+
+    **overall_usefulness** (0.0-1.0): How useful was the provided context?
+    - 1.0 = Exactly what was needed, couldn't have done better
+    - 0.7-0.9 = Very helpful, had most of what was needed
+    - 0.4-0.6 = Somewhat useful, but had to work around gaps
+    - 0.1-0.3 = Mostly irrelevant, only a few useful facts
+    - 0.0 = Completely irrelevant context
+
+    **helpful_facts** (array of predicate names): Which predicates were useful?
+    - Use predicate type names, not specific instances
+    - Examples: "file_topology", "test_state", "error_context", "symbol_graph"
+    - Only list predicates that meaningfully contributed to your response
+
+    **noise_facts** (array of predicate names): Which predicates were irrelevant?
+    - Predicates that added tokens but no value
+    - Examples: "dom_node" when doing Go debugging, "browser_state" for CLI work
+    - Helps prune future context windows
+
+    **missing_context** (string, optional): What would have helped?
+    - Describe what information you wished you had
+    - Examples: "needed call graph for this function", "needed test coverage data"
+    - Helps identify gaps in spreading activation
+
+    ### EXAMPLES BY TASK TYPE
+
+    **Debugging a test failure:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.85,
+        "helpful_facts": ["test_state", "error_context", "file_topology"],
+        "noise_facts": ["browser_state", "campaign_context"],
+        "missing_context": "stack trace from the actual panic"
+      }
+    }
+    ```
+
+    **Code review:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.7,
+        "helpful_facts": ["symbol_graph", "file_topology", "diagnostic_found"],
+        "noise_facts": ["session_context", "dom_node"],
+        "missing_context": "git blame for recently changed lines"
+      }
+    }
+    ```
+
+    **Research task:**
+    ```json
+    {
+      "context_feedback": {
+        "overall_usefulness": 0.6,
+        "helpful_facts": ["project_context", "dependency_link"],
+        "noise_facts": ["test_state", "error_context"],
+        "missing_context": "API documentation for external dependencies"
       }
     }
     ```

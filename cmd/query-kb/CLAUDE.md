@@ -38,3 +38,7 @@ Queries the standard shard knowledge database schema:
 go run ./cmd/query-kb
 go run deep_query.go .nerd/shards/researcher_knowledge.db --atoms
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

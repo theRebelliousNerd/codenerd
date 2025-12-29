@@ -592,3 +592,7 @@ type BattleResult struct {
 ```bash
 go test ./internal/autopoiesis/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

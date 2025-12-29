@@ -50,3 +50,7 @@ Tests `perception.DebugTaxonomy(input)` returning:
 ```bash
 go run ./cmd/tools/verify_taxonomy
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

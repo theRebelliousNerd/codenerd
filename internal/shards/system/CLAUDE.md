@@ -165,3 +165,7 @@ ConstitutionGateShard
 ```bash
 go test ./internal/shards/system/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

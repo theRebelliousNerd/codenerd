@@ -71,3 +71,7 @@ type DiscoveredAgent struct {
 ```bash
 go test ./internal/prompt/sync/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

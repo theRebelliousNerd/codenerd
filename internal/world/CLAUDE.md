@@ -137,3 +137,7 @@ func (fs *FileScope) ScopeFacts() []core.Fact
 ```bash
 go test ./internal/world/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

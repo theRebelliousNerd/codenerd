@@ -68,3 +68,7 @@ type EvaluationResult struct {
 ```bash
 go test ./internal/tactile/swebench/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

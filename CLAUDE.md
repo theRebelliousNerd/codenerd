@@ -1178,3 +1178,7 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 2. **Solver-in-the-Loop:** Don't trust "Zero-Shot" code. Run a loop: Generate → Parse (with `mangle/parse`) → Feed Errors back to LLM → Regenerate
 3. **Explicit Typing:** Force the AI to declare types (`Decl`) first. This forces it to decide between `/atoms` and `"strings"` early
 4. **Review for Liveness:** Manually audit recursive rules for termination conditions
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -56,3 +56,7 @@ Validates correct field names for all 11 selector dimensions:
 ```bash
 go run ./cmd/tools/validate_prompt_atoms -root internal/prompt/atoms
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

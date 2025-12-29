@@ -139,3 +139,7 @@ go test ./internal/tactile/...
 
 - `python/` - Python environment management for SWE-bench
 - `swebench/` - SWE-bench task orchestration
+
+---
+
+**Remember: Push to GitHub regularly!**

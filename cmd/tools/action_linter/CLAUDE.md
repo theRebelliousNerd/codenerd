@@ -49,3 +49,7 @@ go run ./cmd/tools/action_linter \
 ```bash
 go run ./cmd/tools/action_linter
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

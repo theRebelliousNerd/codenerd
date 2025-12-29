@@ -65,3 +65,7 @@ is_honeypot("elem-123").  # Derived by rules
 ```bash
 go test ./internal/browser/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

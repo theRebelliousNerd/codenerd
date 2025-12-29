@@ -75,3 +75,7 @@ type UserMetrics struct {
 ```bash
 go test ./internal/ux/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

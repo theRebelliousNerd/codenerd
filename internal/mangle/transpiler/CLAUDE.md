@@ -63,3 +63,7 @@ unsafe(X) :- candidate(X), not safe(X).
 ```bash
 go test ./internal/mangle/transpiler/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

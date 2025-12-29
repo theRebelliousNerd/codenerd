@@ -119,9 +119,9 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 // Applies threshold filtering to match production behavior.
 func (e *MockContextEngine) RetrieveContext(ctx context.Context, query string, tokenBudget int) ([]core.Fact, error) {
 	// Activation threshold - facts need meaningful activation to be included
-	// This matches the real ActivationEngine behavior (105.0 threshold)
-	// Base(50) + recency(40) = 90, so facts need relevance boost (+15+) to pass
-	const activationThreshold = 105.0
+	// Base(50) + recency(40) = 90, so facts need relevance boost (+10+) to pass
+	// Set at 100 to allow facts with relevance matches to pass even at low recency
+	const activationThreshold = 100.0
 
 	// Score all facts with simplified logic
 	scoredFacts := make([]scoredFact, 0, len(e.facts))
@@ -244,16 +244,87 @@ func (e *MockContextEngine) GetMode() EngineMode {
 	return MockMode
 }
 
-// containsKeyword checks if query contains target (simple substring match)
+// containsKeyword checks for semantic relevance between query and target.
+// It uses bidirectional matching:
+// 1. Short targets (topics): check if query contains target words
+// 2. Long targets (messages): check if target contains query keywords
 func containsKeyword(query, target string) bool {
 	if len(query) == 0 || len(target) == 0 {
 		return false
 	}
-	// Simple case-insensitive contains
+
 	queryLower := toLower(query)
 	targetLower := toLower(target)
-	return len(queryLower) > 0 && len(targetLower) > 0 &&
-		findSubstring(queryLower, targetLower)
+
+	// For short targets (topics, keywords), check if query contains them
+	// Also normalize hyphens to spaces for matching "original-error" with "original error"
+	targetNormalized := normalizeForMatch(targetLower)
+	queryNormalized := normalizeForMatch(queryLower)
+
+	// Direct substring check
+	if findSubstring(queryNormalized, targetNormalized) {
+		return true
+	}
+
+	// For longer targets (error messages, etc.), check if target contains query keywords
+	// Extract significant words from query (skip common words)
+	queryWords := extractKeywords(queryNormalized)
+	for _, word := range queryWords {
+		if len(word) >= 4 && findSubstring(targetNormalized, word) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// normalizeForMatch replaces hyphens with spaces for flexible matching
+func normalizeForMatch(s string) string {
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '-' {
+			result[i] = ' '
+		} else {
+			result[i] = s[i]
+		}
+	}
+	return string(result)
+}
+
+// extractKeywords splits a string into significant words
+func extractKeywords(s string) []string {
+	// Common stop words to skip
+	stopWords := map[string]bool{
+		"the": true, "was": true, "what": true, "is": true, "a": true,
+		"an": true, "and": true, "or": true, "to": true, "in": true,
+		"of": true, "for": true, "we": true, "our": true, "all": true,
+		"that": true, "this": true, "with": true, "how": true, "list": true,
+	}
+
+	var words []string
+	var current []byte
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' {
+			current = append(current, c)
+		} else if len(current) > 0 {
+			word := string(current)
+			if !stopWords[word] {
+				words = append(words, word)
+			}
+			current = current[:0]
+		}
+	}
+
+	if len(current) > 0 {
+		word := string(current)
+		if !stopWords[word] {
+			words = append(words, word)
+		}
+	}
+
+	return words
 }
 
 // toLower converts string to lowercase (simple ASCII)
