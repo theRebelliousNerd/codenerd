@@ -106,9 +106,10 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	safeCampaignID := sanitizeCampaignID(campaignID)
 	logging.Campaign("Generated campaign ID: %s", campaignID)
 
-	// Set defaults
+	// Set defaults - if not provided, caller should pass from config.ContextWindow.MaxTokens
+	// 200k is a reasonable default if config wasn't passed through
 	if req.ContextBudget == 0 {
-		req.ContextBudget = 100000 // 100k tokens default
+		req.ContextBudget = 200000 // 200k tokens default - caller should override from config
 	}
 
 	kbPath := filepath.Join(d.workspace, ".nerd", "campaigns", safeCampaignID, "knowledge.db")

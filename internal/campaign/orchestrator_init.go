@@ -73,7 +73,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	}
 
 	// Initialize sub-components
-	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient)
+	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient, cfg.ContextBudget)
 	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.ShardManager, cfg.Workspace)
 	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
 	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)

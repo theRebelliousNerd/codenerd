@@ -52,6 +52,10 @@ type AssaultConfig struct {
 
 	EnableNemesis       bool `json:"enable_nemesis,omitempty"`
 	MaxRemediationTasks int  `json:"max_remediation_tasks,omitempty"`
+
+	// ContextBudget is the token budget for campaign context management.
+	// If 0, will use config.ContextWindow.MaxTokens or default 200000.
+	ContextBudget int `json:"context_budget,omitempty"`
 }
 
 func DefaultAssaultConfig() AssaultConfig {
@@ -67,6 +71,7 @@ func DefaultAssaultConfig() AssaultConfig {
 		LogMaxBytes:          2 * 1024 * 1024, // 2MB
 		EnableNemesis:        true,
 		MaxRemediationTasks:  25,
+		ContextBudget:        200000, // 200k tokens default - caller should override from config
 	}
 }
 
@@ -89,6 +94,9 @@ func (c AssaultConfig) Normalize() AssaultConfig {
 	}
 	if out.MaxRemediationTasks <= 0 {
 		out.MaxRemediationTasks = DefaultAssaultConfig().MaxRemediationTasks
+	}
+	if out.ContextBudget <= 0 {
+		out.ContextBudget = DefaultAssaultConfig().ContextBudget
 	}
 	if len(out.Stages) == 0 {
 		out.Stages = DefaultAssaultConfig().Stages

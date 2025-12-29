@@ -165,6 +165,25 @@ func (tj *TaskJudge) buildEvaluationPrompt(exec *ExecutionRecord) string {
 	if exec.ProblemType != "" {
 		sb.WriteString(fmt.Sprintf("- **Problem Type**: %s\n", exec.ProblemType))
 	}
+	if exec.ThinkingTokens > 0 {
+		sb.WriteString(fmt.Sprintf("- **Thinking Tokens**: %d\n", exec.ThinkingTokens))
+	}
+
+	// Include model's reasoning process if available (for learning)
+	if exec.ThoughtSummary != "" {
+		sb.WriteString("\n## Model's Reasoning Process\n")
+		summary := truncateString(exec.ThoughtSummary, 2000)
+		sb.WriteString(summary)
+		sb.WriteString("\n")
+	}
+
+	// Include grounding sources if available
+	if len(exec.GroundingSources) > 0 {
+		sb.WriteString("\n## Grounding Sources\n")
+		for _, source := range exec.GroundingSources {
+			sb.WriteString(fmt.Sprintf("- %s\n", source))
+		}
+	}
 
 	return sb.String()
 }

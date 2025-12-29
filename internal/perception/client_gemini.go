@@ -22,6 +22,19 @@ type GeminiClient struct {
 	httpClient  *http.Client
 	mu          sync.Mutex
 	lastRequest time.Time
+
+	// Thinking mode settings
+	enableThinking bool
+	thinkingLevel  string // "Low", "Medium", "High", "Minimal"
+	thinkingBudget int    // For Gemini 2.5: 128-32768
+
+	// Built-in tools
+	enableGoogleSearch bool
+	enableURLContext   bool
+	urlContextURLs     []string
+
+	// Multi-turn function calling: thought signature from last response
+	lastThoughtSignature string
 }
 
 // DefaultGeminiConfig returns sensible defaults.
@@ -43,6 +56,12 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 
 // NewGeminiClientWithConfig creates a new Gemini client with custom config.
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
+	// Default thinking level for Gemini 3 (must be lowercase)
+	thinkingLevel := config.ThinkingLevel
+	if thinkingLevel == "" && config.EnableThinking {
+		thinkingLevel = "high" // Default to "high" for maximum reasoning depth
+	}
+
 	return &GeminiClient{
 		apiKey:  config.APIKey,
 		baseURL: config.BaseURL,
@@ -50,7 +69,73 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
+		// Thinking mode
+		enableThinking: config.EnableThinking,
+		thinkingLevel:  thinkingLevel,
+		thinkingBudget: config.ThinkingBudget,
+		// Built-in tools
+		enableGoogleSearch: config.EnableGoogleSearch,
+		enableURLContext:   config.EnableURLContext,
+		urlContextURLs:     config.URLContextURLs,
 	}
+}
+
+// buildThinkingConfig creates a GeminiThinkingConfig if thinking is enabled.
+func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
+	if !c.enableThinking {
+		return nil
+	}
+
+	cfg := &GeminiThinkingConfig{
+		IncludeThoughts: true,
+	}
+
+	// For Gemini 3: use thinkingLevel
+	if c.thinkingLevel != "" {
+		cfg.ThinkingLevel = c.thinkingLevel
+	}
+
+	// For Gemini 2.5: use thinkingBudget (if specified)
+	if c.thinkingBudget > 0 {
+		cfg.ThinkingBudget = c.thinkingBudget
+	}
+
+	return cfg
+}
+
+// buildBuiltInTools creates GeminiTool entries for enabled built-in tools.
+func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
+	var tools []GeminiTool
+
+	if c.enableGoogleSearch {
+		tools = append(tools, GeminiTool{
+			GoogleSearch: &GeminiGoogleSearch{},
+		})
+	}
+
+	if c.enableURLContext && len(c.urlContextURLs) > 0 {
+		// Limit to max 20 URLs per API spec
+		urls := c.urlContextURLs
+		if len(urls) > 20 {
+			urls = urls[:20]
+		}
+		tools = append(tools, GeminiTool{
+			URLContext: &GeminiURLContext{URLs: urls},
+		})
+	}
+
+	return tools
+}
+
+// SetURLContextURLs sets URLs for the URL context tool.
+func (c *GeminiClient) SetURLContextURLs(urls []string) {
+	c.urlContextURLs = urls
+}
+
+// GetLastThoughtSignature returns the thought signature from the last response.
+// This should be passed back in multi-turn function calling scenarios.
+func (c *GeminiClient) GetLastThoughtSignature() string {
+	return c.lastThoughtSignature
 }
 
 // Complete sends a prompt and returns the completion.
@@ -106,7 +191,9 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     0.1,
 			MaxOutputTokens: 4096,
+			ThinkingConfig:  c.buildThinkingConfig(),
 		},
+		Tools: c.buildBuiltInTools(),
 	}
 	if isPiggyback {
 		reqBody.GenerationConfig.ResponseMimeType = "application/json"
@@ -182,13 +269,25 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("no completion returned")
 		}
 
+		// Capture thought signature for multi-turn function calling (Gemini 3)
+		if geminiResp.ThoughtSignature != "" {
+			c.lastThoughtSignature = geminiResp.ThoughtSignature
+		}
+
 		var result strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
 			result.WriteString(part.Text)
 		}
 
 		response := strings.TrimSpace(result.String())
-		logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+
+		// Log thinking tokens if used
+		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount)
+		} else {
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		}
 		return response, nil
 	}
 
@@ -254,7 +353,9 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			GenerationConfig: GeminiGenerationConfig{
 				Temperature:     0.1,
 				MaxOutputTokens: 4096,
+				ThinkingConfig:  c.buildThinkingConfig(),
 			},
+			Tools: c.buildBuiltInTools(),
 		}
 		if isPiggyback {
 			reqBody.GenerationConfig.ResponseMimeType = "application/json"
@@ -430,7 +531,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		}
 	}
 
-	// Build request
+	// Build request with thinking config
 	reqBody := GeminiRequest{
 		Contents: []GeminiContent{
 			{
@@ -441,6 +542,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     0.1,
 			MaxOutputTokens: 8192,
+			ThinkingConfig:  c.buildThinkingConfig(),
 		},
 	}
 
@@ -450,8 +552,13 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		}
 	}
 
+	// Merge function declarations with built-in tools
+	allTools := c.buildBuiltInTools()
 	if len(geminiTools) > 0 {
-		reqBody.Tools = []GeminiTool{{FunctionDeclarations: geminiTools}}
+		allTools = append(allTools, GeminiTool{FunctionDeclarations: geminiTools})
+	}
+	if len(allTools) > 0 {
+		reqBody.Tools = allTools
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -494,8 +601,25 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		return nil, fmt.Errorf("API error: %s", geminiResp.Error.Message)
 	}
 
+	// Capture thought signature for multi-turn function calling (Gemini 3)
+	// This is mandatory for Gemini 3 function calling - must be passed back in subsequent turns
+	if geminiResp.ThoughtSignature != "" {
+		c.lastThoughtSignature = geminiResp.ThoughtSignature
+	}
+
 	// Parse response content into text and tool calls
 	result := &LLMToolResponse{}
+
+	// Populate thinking metadata for learning and improvement
+	if geminiResp.ThoughtSummary != "" {
+		result.ThoughtSummary = geminiResp.ThoughtSummary
+	}
+	if geminiResp.ThoughtSignature != "" {
+		result.ThoughtSignature = geminiResp.ThoughtSignature
+	}
+	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+	}
 
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
@@ -513,9 +637,197 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 			}
 		}
 		result.Text = strings.TrimSpace(textBuilder.String())
+
+		// Extract grounding sources for transparency and learning
+		if geminiResp.Candidates[0].GroundingMetadata != nil {
+			gm := geminiResp.Candidates[0].GroundingMetadata
+			if len(gm.GroundingChunks) > 0 {
+				for _, chunk := range gm.GroundingChunks {
+					if chunk.Web != nil && chunk.Web.URI != "" {
+						result.GroundingSources = append(result.GroundingSources, chunk.Web.URI)
+					}
+				}
+				logging.PerceptionDebug("[Gemini] CompleteWithTools: grounding sources=%d queries=%v",
+					len(gm.GroundingChunks), gm.WebSearchQueries)
+			}
+		}
 	}
 
-	logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
+	// Log thinking tokens if used
+	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+		logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s thinking_tokens=%d",
+			time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason, geminiResp.UsageMetadata.ThoughtsTokenCount)
+	} else {
+		logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
+			time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
+	}
+
+	return result, nil
+}
+
+// CompleteWithToolResults continues a multi-turn function calling conversation.
+// This is used after the model returns tool calls - we execute the tools and
+// pass the results back along with the thought signature for reasoning continuity.
+func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, contents []GeminiContent, toolResults []ToolResult, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Auto-apply timeout if context has no deadline
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[Gemini] CompleteWithToolResults: model=%s tool_results=%d prev_thought_sig=%t",
+		c.model, len(toolResults), c.lastThoughtSignature != "")
+
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("API key not configured")
+	}
+
+	// Build tool result parts
+	var resultParts []GeminiPart
+	for _, tr := range toolResults {
+		resultParts = append(resultParts, GeminiPart{
+			FunctionResponse: &GeminiFunctionResponse{
+				Name: tr.ToolUseID, // Use tool ID as name reference
+				Response: map[string]interface{}{
+					"content":  tr.Content,
+					"is_error": tr.IsError,
+				},
+			},
+		})
+	}
+
+	// Append the tool results as a function role message
+	allContents := append(contents, GeminiContent{
+		Role:  "function",
+		Parts: resultParts,
+	})
+
+	// Convert tools to Gemini format
+	geminiTools := make([]GeminiFunctionDeclaration, len(tools))
+	for i, t := range tools {
+		geminiTools[i] = GeminiFunctionDeclaration{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.InputSchema,
+		}
+	}
+
+	// Build request with thought signature for reasoning continuity
+	reqBody := GeminiRequest{
+		Contents:         allContents,
+		ThoughtSignature: c.lastThoughtSignature, // Pass back the previous signature
+		GenerationConfig: GeminiGenerationConfig{
+			Temperature:     0.1,
+			MaxOutputTokens: 8192,
+			ThinkingConfig:  c.buildThinkingConfig(),
+		},
+	}
+
+	if systemPrompt != "" {
+		reqBody.SystemInstruction = &GeminiContent{
+			Parts: []GeminiPart{{Text: systemPrompt}},
+		}
+	}
+
+	// Merge function declarations with built-in tools
+	allTools := c.buildBuiltInTools()
+	if len(geminiTools) > 0 {
+		allTools = append(allTools, GeminiTool{FunctionDeclarations: geminiTools})
+	}
+	if len(allTools) > 0 {
+		reqBody.Tools = allTools
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		logging.PerceptionError("[Gemini] CompleteWithToolResults: request failed after %v: %v", time.Since(startTime), err)
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logging.PerceptionError("[Gemini] CompleteWithToolResults: API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var geminiResp GeminiResponse
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if geminiResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s", geminiResp.Error.Message)
+	}
+
+	// Update thought signature for next turn
+	if geminiResp.ThoughtSignature != "" {
+		c.lastThoughtSignature = geminiResp.ThoughtSignature
+	}
+
+	// Parse response
+	result := &LLMToolResponse{}
+
+	// Populate thinking metadata
+	if geminiResp.ThoughtSummary != "" {
+		result.ThoughtSummary = geminiResp.ThoughtSummary
+	}
+	if geminiResp.ThoughtSignature != "" {
+		result.ThoughtSignature = geminiResp.ThoughtSignature
+	}
+	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+	}
+
+	if len(geminiResp.Candidates) > 0 {
+		result.StopReason = geminiResp.Candidates[0].FinishReason
+		var textBuilder strings.Builder
+		for _, part := range geminiResp.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				textBuilder.WriteString(part.Text)
+			}
+			if part.FunctionCall != nil {
+				result.ToolCalls = append(result.ToolCalls, ToolCall{
+					ID:    fmt.Sprintf("call_%d", len(result.ToolCalls)),
+					Name:  part.FunctionCall.Name,
+					Input: part.FunctionCall.Args,
+				})
+			}
+		}
+		result.Text = strings.TrimSpace(textBuilder.String())
+
+		// Extract grounding sources
+		if geminiResp.Candidates[0].GroundingMetadata != nil {
+			gm := geminiResp.Candidates[0].GroundingMetadata
+			for _, chunk := range gm.GroundingChunks {
+				if chunk.Web != nil && chunk.Web.URI != "" {
+					result.GroundingSources = append(result.GroundingSources, chunk.Web.URI)
+				}
+			}
+		}
+	}
+
+	logging.Perception("[Gemini] CompleteWithToolResults: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
 		time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
 
 	return result, nil

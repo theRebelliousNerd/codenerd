@@ -98,6 +98,7 @@ type OrchestratorConfig struct {
 	TaskResultCacheLimit int           // Max task results kept for context injection (default: 100)
 	RetryBackoffBase     time.Duration // Base backoff between retries (default: 5s)
 	RetryBackoffMax      time.Duration // Max backoff between retries (default: 5m)
+	ContextBudget        int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
 }
 
 // taskResult is used to collect async task outcomes in runPhase.

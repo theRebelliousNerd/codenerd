@@ -40,14 +40,15 @@ type CompressorConfig struct {
 }
 
 // DefaultConfig returns a configuration optimized for typical usage.
+// Note: TotalBudget should be overridden from config.ContextWindow.MaxTokens.
 func DefaultConfig() CompressorConfig {
 	return CompressorConfig{
-		// 128k context window budget
-		TotalBudget:    128000,
-		CoreReserve:    6400,  // 5% - constitutional facts
-		AtomReserve:    38400, // 30% - high-activation atoms
-		HistoryReserve: 19200, // 15% - compressed history
-		WorkingReserve: 64000, // 50% - working memory
+		// 200k context window budget (callers should override from config.ContextWindow.MaxTokens)
+		TotalBudget:    200000,
+		CoreReserve:    10000, // 5% - constitutional facts
+		AtomReserve:    60000, // 30% - high-activation atoms
+		HistoryReserve: 30000, // 15% - compressed history
+		WorkingReserve: 100000, // 50% - working memory
 
 		// Keep last 5 turns fully
 		RecentTurnWindow: 5,
@@ -122,6 +123,23 @@ func DefaultConfig() CompressorConfig {
 			"turn_context":  40,
 		},
 	}
+}
+
+// NewConfigWithBudget creates a CompressorConfig with a specific total budget.
+// Use this to create a config from config.ContextWindow.MaxTokens.
+// The reserves are automatically calculated as percentages of the total budget.
+func NewConfigWithBudget(totalBudget int) CompressorConfig {
+	if totalBudget <= 0 {
+		totalBudget = 200000 // Default 200k tokens
+	}
+
+	cfg := DefaultConfig()
+	cfg.TotalBudget = totalBudget
+	cfg.CoreReserve = totalBudget * 5 / 100    // 5%
+	cfg.AtomReserve = totalBudget * 30 / 100   // 30%
+	cfg.HistoryReserve = totalBudget * 15 / 100 // 15%
+	cfg.WorkingReserve = totalBudget * 50 / 100 // 50%
+	return cfg
 }
 
 // =============================================================================

@@ -292,9 +292,10 @@ type CompilerConfig struct {
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
+// Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
-		DefaultTokenBudget:  100000,
+		DefaultTokenBudget:  200000, // 200k tokens default - callers should override from config
 		EnableVectorSearch:  true,
 		VectorSearchWeight:  0.3, // 70% logic, 30% vector
 		MaxAtomsPerCategory: 10,
@@ -369,6 +370,17 @@ func WithVectorSearcher(vs VectorSearcher) CompilerOption {
 func WithConfig(config CompilerConfig) CompilerOption {
 	return func(c *JITPromptCompiler) error {
 		c.config = config
+		return nil
+	}
+}
+
+// WithDefaultTokenBudget sets the default token budget for prompt compilation.
+// Use this to pass config.ContextWindow.MaxTokens from the application config.
+func WithDefaultTokenBudget(budget int) CompilerOption {
+	return func(c *JITPromptCompiler) error {
+		if budget > 0 {
+			c.config.DefaultTokenBudget = budget
+		}
 		return nil
 	}
 }

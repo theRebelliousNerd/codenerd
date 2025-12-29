@@ -18,6 +18,9 @@ type ProviderConfig struct {
 	Engine    string                  // "api", "claude-cli", "codex-cli"
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
+
+	// Provider-specific configurations
+	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
 }
 
 // DefaultConfigPath returns the default path to .nerd/config.json.
@@ -69,6 +72,7 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		APIKey:         apiKey,
 		Model:          userCfg.Model,
 		Context7APIKey: context7Key,
+		Gemini:         userCfg.GetGeminiConfig(),
 	}, nil
 }
 
@@ -161,11 +165,20 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		return client, nil
 
 	case ProviderGemini:
-		client := NewGeminiClient(config.APIKey)
+		// Build GeminiConfig with user settings
+		geminiCfg := DefaultGeminiConfig(config.APIKey)
 		if config.Model != "" {
-			client.SetModel(config.Model)
+			geminiCfg.Model = config.Model
 		}
-		return client, nil
+		// Apply user's Gemini provider config (thinking, grounding tools)
+		if config.Gemini != nil {
+			geminiCfg.EnableThinking = config.Gemini.EnableThinking
+			geminiCfg.ThinkingLevel = config.Gemini.ThinkingLevel
+			geminiCfg.ThinkingBudget = config.Gemini.ThinkingBudget
+			geminiCfg.EnableGoogleSearch = config.Gemini.EnableGoogleSearch
+			geminiCfg.EnableURLContext = config.Gemini.EnableURLContext
+		}
+		return NewGeminiClientWithConfig(geminiCfg), nil
 
 	case ProviderXAI:
 		client := NewXAIClient(config.APIKey)

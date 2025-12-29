@@ -44,7 +44,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		Confidence:      1.0,
-		ContextBudget:   100000,
+		ContextBudget:   cfg.ContextBudget,
 		Phases:          make([]Phase, 0, 4),
 		ContextProfiles: make([]ContextProfile, 0, 4),
 		TotalPhases:     0,
