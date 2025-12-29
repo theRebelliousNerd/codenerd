@@ -259,26 +259,39 @@ func (ae *ActivationEngine) buildSymbolGraph(facts []core.Fact) {
 }
 
 // FilterByThreshold returns only facts above the activation threshold.
+// Facts below the threshold are considered insufficiently activated for the current context.
 func (ae *ActivationEngine) FilterByThreshold(scored []ScoredFact) []ScoredFact {
 	threshold := ae.config.ActivationThreshold
 	filtered := make([]ScoredFact, 0)
+	pruned := 0
 
 	for _, sf := range scored {
 		if sf.Score >= threshold {
 			filtered = append(filtered, sf)
+		} else {
+			pruned++
 		}
 	}
+
+	logging.ContextDebug("FilterByThreshold: %d input, %d passed (≥%.1f), %d pruned",
+		len(scored), len(filtered), threshold, pruned)
 
 	return filtered
 }
 
 // SelectWithinBudget selects facts that fit within the token budget.
+// IMPORTANT: This function automatically applies threshold filtering first.
+// This defensive design ensures callers cannot accidentally skip filtering.
 func (ae *ActivationEngine) SelectWithinBudget(scored []ScoredFact, budget int) []ScoredFact {
+	// ALWAYS apply threshold filter first - defensive design
+	// This ensures no caller can bypass activation filtering
+	filtered := ae.FilterByThreshold(scored)
+
 	counter := NewTokenCounter()
 	selected := make([]ScoredFact, 0)
 	usedTokens := 0
 
-	for _, sf := range scored {
+	for _, sf := range filtered {
 		tokens := counter.CountFact(sf.Fact)
 		if usedTokens+tokens <= budget {
 			selected = append(selected, sf)
@@ -286,8 +299,8 @@ func (ae *ActivationEngine) SelectWithinBudget(scored []ScoredFact, budget int) 
 		}
 	}
 
-	logging.ContextDebug("SelectWithinBudget: selected %d/%d facts, using %d/%d tokens",
-		len(selected), len(scored), usedTokens, budget)
+	logging.ContextDebug("SelectWithinBudget: %d input → %d above threshold (%.1f) → %d selected (%d/%d tokens)",
+		len(scored), len(filtered), ae.config.ActivationThreshold, len(selected), usedTokens, budget)
 
 	return selected
 }

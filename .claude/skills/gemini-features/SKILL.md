@@ -216,6 +216,181 @@ See reference files for complete API structures:
 5. **Temperature Default** - Gemini 3 defaults to 1.0; remove explicit temperature to avoid looping
 6. **Built-in Tool Exclusivity** - Cannot combine built-in tools with function calling (yet)
 
+## Ecosystem Integration (Complete)
+
+Grounding sources are fully wired into codeNERD's ecosystem:
+
+### Integration Points
+
+| Layer | File | How Grounding Is Used |
+|-------|------|----------------------|
+| **GeminiClient** | `client_gemini.go` | Captures sources in `lastGroundingSources` |
+| **GroundingProvider** | `types/interfaces.go` | Interface for grounding-capable clients |
+| **Articulation** | `chat/helpers.go` | Extracts sources via type assertion |
+| **Main Response** | `chat/process.go` | Appends "**Sources:**" section |
+| **Dream State** | `chat/process_dream.go` | Shard interpretation includes sources |
+| **Logging** | `perception/client_gemini.go` | `grounding_sources=N` in logs |
+
+### How It Works
+
+```
+User Query
+    │
+    ▼
+Perception (ParseIntent)
+    │
+    ▼
+Kernel Processing (Derive next_action)
+    │
+    ▼
+articulateWithConversation()
+    │ ◄─── GeminiClient.CompleteWithSystem()
+    │      └─► Captures grounding sources
+    │
+    ▼
+GroundingProvider type assertion
+    │
+    ▼
+Sources appended to response
+    │
+    ▼
+User sees: "Answer...\n\n**Sources:**\n- url1\n- url2"
+```
+
+### GroundingProvider Interface
+
+```go
+// types/interfaces.go
+type GroundingProvider interface {
+    GetLastGroundingSources() []string
+    IsGoogleSearchEnabled() bool
+    IsURLContextEnabled() bool
+}
+
+// Usage in any component
+if gp, ok := client.(types.GroundingProvider); ok {
+    sources := gp.GetLastGroundingSources()
+    if len(sources) > 0 {
+        response += "\n\n**Sources:**\n"
+        for _, src := range sources {
+            response += fmt.Sprintf("- %s\n", src)
+        }
+    }
+}
+```
+
+### Runtime Methods
+
+```go
+// Enable/disable at runtime
+client.SetEnableGoogleSearch(true)
+client.SetEnableURLContext(true)
+client.SetURLContextURLs([]string{"https://docs.example.com"})
+
+// Check status
+if client.IsGoogleSearchEnabled() { ... }
+
+// Get last sources (after CompleteWithSystem)
+sources := client.GetLastGroundingSources()
+```
+
+## Reasoning Traces for Self-Improvement (SPL Integration)
+
+Gemini's Thinking Mode produces reasoning traces that feed into codeNERD's System Prompt Learning (SPL) system. This enables automatic improvement of prompt atoms based on understanding WHY tasks succeeded or failed.
+
+### ThinkingProvider Interface
+
+```go
+// types/interfaces.go
+type ThinkingProvider interface {
+    GetLastThoughtSummary() string  // Model's reasoning process
+    GetLastThinkingTokens() int     // Tokens used for reasoning
+    IsThinkingEnabled() bool
+    GetThinkingLevel() string       // "minimal", "low", "medium", "high"
+}
+
+// Usage: Check if client supports thinking metadata
+if tp, ok := client.(types.ThinkingProvider); ok {
+    summary := tp.GetLastThoughtSummary()
+    tokens := tp.GetLastThinkingTokens()
+}
+```
+
+### How Reasoning Traces Flow into SPL
+
+```
+LLM Call (Gemini with Thinking Mode)
+    │
+    ▼
+CompleteWithSystem() / CompleteWithTools()
+    │ ◄─── Captures ThoughtSummary, ThinkingTokens
+    │
+    ▼
+recordShardExecution() [delegation.go]
+    │ ◄─── Extracts via ThinkingProvider interface
+    │
+    ▼
+ExecutionRecord populated with:
+    - ThoughtSummary (model's reasoning)
+    - ThinkingTokens (budget used)
+    - GroundingSources (if grounding enabled)
+    │
+    ▼
+FeedbackCollector.Record() [prompt_evolution]
+    │
+    ▼
+TaskJudge.Evaluate() [LLM-as-Judge]
+    │ ◄─── Uses ThoughtSummary in evaluation prompt
+    │      (see judge.go:168-178)
+    │
+    ▼
+JudgeVerdict with:
+    - Category (LOGIC_ERROR, HALLUCINATION, etc.)
+    - ImprovementRule ("When X, always Y")
+    │
+    ▼
+Evolver generates new prompt atoms
+```
+
+### ExecutionRecord Fields
+
+```go
+// prompt_evolution/types.go
+type ExecutionRecord struct {
+    // ... task details ...
+
+    // LLM Reasoning Metadata (Gemini 3+ Thinking Mode)
+    ThoughtSummary   string   // Model's reasoning process summary
+    ThinkingTokens   int      // Tokens used for reasoning
+    GroundingSources []string // URLs used to ground the response
+}
+```
+
+### Why This Matters
+
+1. **Reasoning Quality Assessment**: The LLM-as-Judge can evaluate not just WHAT the model produced, but WHY it made certain decisions
+
+2. **Error Root Cause**: When tasks fail, the ThoughtSummary reveals flawed reasoning patterns that can be corrected in future prompts
+
+3. **Budget Monitoring**: ThinkingTokens helps track reasoning overhead and optimize thinking levels
+
+4. **Grounding Transparency**: GroundingSources shows which external information influenced decisions
+
+### Configuration
+
+Enable thinking mode in `.nerd/config.json`:
+
+```json
+{
+  "provider": "gemini",
+  "model": "gemini-3-flash-preview",
+  "gemini": {
+    "enable_thinking": true,
+    "thinking_level": "high"
+  }
+}
+```
+
 ## Testing
 
 ```bash
@@ -225,4 +400,7 @@ go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd
 
 # Test Gemini client
 go test ./internal/perception/... -run Gemini
+
+# Verify grounding in logs
+grep "grounding_sources" .nerd/logs/*_perception.log
 ```

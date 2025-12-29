@@ -30,7 +30,7 @@ Intent → ConfigFactory → AllowedTools[] → Registry.Get() → Tool.Execute(
 | `core/` | Filesystem tools: read_file, write_file, glob, grep, list_files |
 | `shell/` | Execution tools: run_command, bash, run_build, run_tests |
 | `codedom/` | Semantic code tools: get_elements, get_element, edit_lines |
-| `research/` | Research tools: context7_fetch, web_search, web_fetch, browser |
+| `research/` | Research tools: context7_fetch, web_search, web_fetch, browser, grounding (Gemini) |
 
 ## Key Types
 
@@ -107,6 +107,40 @@ research.RegisterAll(registry)
 result, err := registry.Execute(ctx, "read_file", map[string]any{
     "path": "/path/to/file.go",
 })
+```
+
+## Gemini Grounding Helper
+
+The `research/grounding.go` file provides a reusable helper for Gemini's grounding features (Google Search, URL Context). This is **only active when Gemini is the LLM provider**.
+
+### Usage
+```go
+import "codenerd/internal/tools/research"
+
+// Create helper from any LLM client
+helper := research.NewGroundingHelper(llmClient)
+
+// Check if grounding is available (only for Gemini)
+if helper.IsGroundingAvailable() {
+    helper.EnableGoogleSearch()
+    helper.EnableURLContext([]string{"https://docs.example.com"})
+
+    response, sources, err := helper.CompleteWithGrounding(ctx, prompt)
+    // sources contains URLs used for grounding
+}
+```
+
+### Key Types
+- `GroundingHelper` - Wraps any LLM client, activates grounding only for Gemini
+- `GroundingStats` - Usage statistics (searches, URLs used)
+- `GroundedResearchResult` - Query results with sources
+
+### Documentation URLs
+The helper includes `CommonDocURLs` map with well-known documentation URLs:
+```go
+research.GetDocURLsForTech("go")     // go.dev/doc, pkg.go.dev
+research.GetDocURLsForTech("python") // docs.python.org
+research.GetDocURLsForTech("react")  // react.dev
 ```
 
 ## Testing

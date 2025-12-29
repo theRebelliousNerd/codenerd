@@ -21,7 +21,7 @@ Types in this package are foundational data structures with no complex dependenc
 |------|-------------|
 | `types.go` | Core Mangle fact types and SessionContext for blackboard pattern. Exports `MangleAtom`, `Fact` with String()/ToAtom(), `SessionContext` containing compressed history, diagnostics, git context, knowledge atoms, allowed/blocked actions. |
 | `shard.go` | Shard type definitions and configuration structures. Exports `ShardType` enum (ephemeral/persistent/user/system), `ShardState` enum, `ShardPermission` enum (8 permissions), `ModelCapability` enum, `ShardConfig`, `ShardResult`. |
-| `interfaces.go` | Core interfaces breaking import cycles. Exports `Kernel` (LoadFacts/Query/Assert/Retract), `LLMClient` (Complete/CompleteWithSystem/CompleteWithTools), `LLMToolResponse` (with GroundingSources), `ShardAgent` (Execute/GetID/GetState), `ShardFactory`, `LearningStore`, `LimitsEnforcer`, `GroundingProvider` (optional interface for grounding-capable LLM clients like Gemini). |
+| `interfaces.go` | Core interfaces breaking import cycles. Exports `Kernel` (LoadFacts/Query/Assert/Retract), `LLMClient` (Complete/CompleteWithSystem/CompleteWithTools), `LLMToolResponse` (with GroundingSources), `ShardAgent` (Execute/GetID/GetState), `ShardFactory`, `LearningStore`, `LimitsEnforcer`, `GroundingProvider` (read-only grounding status), `GroundingController` (control grounding features - Gemini only). |
 
 ## Key Types
 
@@ -92,6 +92,48 @@ if gp, ok := client.(types.GroundingProvider); ok {
     sources := gp.GetLastGroundingSources()
 }
 ```
+
+### GroundingController (Optional Interface)
+
+Extends GroundingProvider with control methods. Use this when you need to enable/disable grounding (only available for Gemini):
+
+```go
+type GroundingController interface {
+    GroundingProvider
+    SetEnableGoogleSearch(enable bool)
+    SetEnableURLContext(enable bool)
+    SetURLContextURLs(urls []string) // Max 20 URLs, 34MB each
+}
+
+// Usage: Type assertion to check for grounding control
+if gc, ok := client.(types.GroundingController); ok {
+    gc.SetEnableGoogleSearch(true)
+    gc.SetURLContextURLs([]string{"https://docs.example.com"})
+}
+```
+
+**Used by:** `internal/tools/research/grounding.go` (GroundingHelper), `internal/init/` (strategic knowledge generation)
+
+### ThinkingProvider (Optional Interface)
+
+LLM clients that support explicit thinking/reasoning mode (like GeminiClient with Thinking Mode) implement this interface. This metadata feeds into the System Prompt Learning (SPL) system:
+
+```go
+type ThinkingProvider interface {
+    GetLastThoughtSummary() string  // Model's reasoning process
+    GetLastThinkingTokens() int     // Tokens used for reasoning
+    IsThinkingEnabled() bool
+    GetThinkingLevel() string       // "minimal", "low", "medium", "high"
+}
+
+// Usage: Type assertion to check for thinking metadata
+if tp, ok := client.(types.ThinkingProvider); ok {
+    summary := tp.GetLastThoughtSummary()
+    tokens := tp.GetLastThinkingTokens()
+}
+```
+
+**SPL Integration:** The `recordShardExecution()` function in `cmd/nerd/chat/delegation.go` extracts thinking metadata via this interface and populates `ExecutionRecord.ThoughtSummary` and `ExecutionRecord.ThinkingTokens` for LLM-as-Judge evaluation.
 
 ## Dependencies
 

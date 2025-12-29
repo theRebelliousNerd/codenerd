@@ -28,6 +28,7 @@ import (
 	"codenerd/internal/prompt"
 	// researcher removed - JIT clean loop handles research
 	"codenerd/internal/store"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/world"
 	"context"
 	"fmt"
@@ -178,6 +179,10 @@ type InitResult struct {
 	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitempty"`
 	CreatedAgents     []CreatedAgent     `json:"created_agents,omitempty"`
 	AgentKBs          map[string]int     `json:"agent_knowledge_bases,omitempty"` // agent name -> KB size
+
+	// Gemini Grounding (when Gemini is the LLM provider)
+	GroundingSources []string `json:"grounding_sources,omitempty"` // URLs used to ground LLM responses
+	GroundingEnabled bool     `json:"grounding_enabled,omitempty"` // Whether grounding was active
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -205,6 +210,10 @@ type Initializer struct {
 	shardMgr    *coreshards.ShardManager
 	kernel      *core.RealKernel
 	embedEngine embedding.EmbeddingEngine
+
+	// Gemini grounding helper (nil if not Gemini or grounding unavailable)
+	grounding        *research.GroundingHelper
+	groundingSources []string // Accumulated grounding sources from all LLM calls
 
 	// Concurrency
 	mu            sync.RWMutex
@@ -402,6 +411,14 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 	}
 	if initConfig.LLMClient != nil {
 		init.shardMgr.SetLLMClient(initConfig.LLMClient)
+
+		// Initialize Gemini grounding helper if LLM client is Gemini
+		init.grounding = research.NewGroundingHelper(initConfig.LLMClient)
+		if init.grounding.IsGroundingAvailable() {
+			// Enable Google Search grounding for init phases (strategic knowledge, doc analysis)
+			init.grounding.EnableGoogleSearch()
+			logging.Boot("Gemini grounding enabled for init (Google Search active)")
+		}
 	}
 
 	return init, nil
@@ -893,6 +910,27 @@ func (i *Initializer) Initialize(ctx context.Context) (*InitResult, error) {
 	// =========================================================================
 	result.Success = true
 	result.Duration = time.Since(startTime)
+
+	// Populate Gemini grounding results if grounding was used
+	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
+		result.GroundingEnabled = true
+		i.mu.RLock()
+		if len(i.groundingSources) > 0 {
+			// Deduplicate sources
+			seen := make(map[string]bool)
+			for _, src := range i.groundingSources {
+				if !seen[src] {
+					seen[src] = true
+					result.GroundingSources = append(result.GroundingSources, src)
+				}
+			}
+		}
+		i.mu.RUnlock()
+		if len(result.GroundingSources) > 0 {
+			logging.Boot("Init grounded with %d unique sources from Gemini", len(result.GroundingSources))
+		}
+	}
+
 	i.startPhaseWithETA(phaseNum, "complete", "Initialization complete!", 1.0, remainingPhases)
 	i.completePhaseWithETA("complete")
 

@@ -56,7 +56,11 @@ func DefaultConfig() CompressorConfig {
 		// Compress at 60% usage, target 100:1 ratio
 		CompressionThreshold:   0.60,
 		TargetCompressionRatio: 100.0,
-		ActivationThreshold:    30.0, // Matches policy.mg: Score > 30
+		// Activation threshold: facts need base (50) + recency (50) + relevance boost
+		// to be included. This ensures only contextually relevant facts pass.
+		// Base(50) + recency(50) = 100, threshold(105) requires additional relevance.
+		// Facts with no query relevance are filtered out even if they're recent.
+		ActivationThreshold: 105.0,
 
 		// DEPRECATED: These hardcoded priorities are fallback only.
 		// Use predicate_corpus.db via ActivationEngine.LoadPrioritiesFromCorpus().

@@ -4,6 +4,27 @@ import (
 	"time"
 )
 
+// EngineMode specifies whether to use mock or real components.
+type EngineMode string
+
+const (
+	// MockMode uses fast mock implementations for CI.
+	// Facts persist within scenario but use simplified scoring.
+	MockMode EngineMode = "mock"
+
+	// RealMode uses real ActivationEngine, Compressor, and Kernel.
+	// Required for integration scenarios testing actual system behavior.
+	RealMode EngineMode = "real"
+)
+
+// ScenarioCategory groups scenarios by what they test.
+type ScenarioCategory string
+
+const (
+	CategoryMock        ScenarioCategory = "mock"        // Fast mock scenarios (original 8)
+	CategoryIntegration ScenarioCategory = "integration" // Real component scenarios (new 6)
+)
+
 // Scenario represents a complete test scenario for the context system.
 type Scenario struct {
 	ScenarioID  string // kebab-case identifier (e.g., "debugging-marathon")
@@ -12,6 +33,13 @@ type Scenario struct {
 	Turns       []Turn
 	Checkpoints []Checkpoint
 	ExpectedMetrics Metrics
+
+	// Engine configuration (new for dual-mode support)
+	Mode     EngineMode       // Required engine mode (mock/real)
+	Category ScenarioCategory // Scenario category for filtering
+
+	// Initial facts to seed the kernel (for integration scenarios)
+	InitialFacts []string // Mangle fact strings to assert at start
 }
 
 // Turn represents a single interaction in a coding session.
@@ -21,6 +49,10 @@ type Turn struct {
 	Message  string
 	Intent   string // "debug", "implement", "test", "refactor", etc.
 	Metadata TurnMetadata
+
+	// Campaign context (for integration scenarios)
+	CampaignPhase   string // e.g., "planning", "implementation", "testing"
+	PhaseTransition bool   // True if this turn triggers ResetPhaseContext + ActivatePhase
 }
 
 // TurnMetadata contains rich context about the turn.
@@ -42,11 +74,30 @@ type Checkpoint struct {
 	MinRecall    float64  // Minimum acceptable recall
 	MinPrecision float64  // Minimum acceptable precision
 	Description  string
+
+	// Advanced validation for integration scenarios (optional)
+	ValidateActivation   *ActivationValidation   // Verify 7-component scoring
+	ValidateCompression  *CompressionCheckpoint  // Verify compression behavior
+}
+
+// CompressionCheckpoint validates compression behavior at a checkpoint.
+type CompressionCheckpoint struct {
+	ExpectTriggered         bool     // Should compression have fired?
+	MinRatio                float64  // Minimum compression ratio (e.g., 50.0 for 50:1)
+	MaxBudgetUtilization    float64  // Maximum token budget usage (e.g., 0.8 for 80%)
+	ValidateSummaryContains []string // Key insights that must be in LLM summary
 }
 
 // Metrics represents measured performance.
 type Metrics struct {
-	CompressionRatio   float64 // original_tokens / compressed_tokens
+	// CompressionRatio = original_tokens / compressed_tokens
+	// Values < 1.0 indicate semantic ENRICHMENT (short message → rich facts)
+	// Values > 1.0 indicate actual COMPRESSION (verbose text → compact facts)
+	// For the context harness, expect ~0.3-0.5x (enrichment) because
+	// short user messages are expanded into structured Mangle facts with
+	// extracted topics, file references, error messages, and back-references.
+	// True compression happens over session lifetime via fact decay/pruning.
+	CompressionRatio float64
 	AvgRetrievalPrec   float64
 	AvgRetrievalRecall float64
 	AvgF1Score         float64
@@ -86,4 +137,7 @@ type SimulatorConfig struct {
 	CompressionEnabled bool
 	PagingEnabled  bool
 	VectorStoreEnabled bool
+
+	// Engine mode selection
+	Mode EngineMode // mock (default) or real
 }

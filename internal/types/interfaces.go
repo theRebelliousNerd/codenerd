@@ -166,3 +166,54 @@ type GroundingProvider interface {
 	// IsURLContextEnabled returns whether URL Context grounding is enabled.
 	IsURLContextEnabled() bool
 }
+
+// GroundingController extends GroundingProvider with control methods.
+// Use this interface when you need to enable/disable grounding features:
+//
+//	if gc, ok := client.(types.GroundingController); ok {
+//	    gc.SetEnableGoogleSearch(true)
+//	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
+//	}
+type GroundingController interface {
+	GroundingProvider
+
+	// SetEnableGoogleSearch enables or disables Google Search grounding.
+	SetEnableGoogleSearch(enable bool)
+
+	// SetEnableURLContext enables or disables URL Context grounding.
+	SetEnableURLContext(enable bool)
+
+	// SetURLContextURLs sets the URLs for URL Context grounding.
+	// Max 20 URLs, 34MB each per Gemini API limits.
+	SetURLContextURLs(urls []string)
+}
+
+// ThinkingProvider is an optional interface for LLM clients that support
+// explicit thinking/reasoning mode (Gemini 3 Thinking Mode, Claude extended thinking, etc.).
+// Use type assertion to check if a client supports thinking metadata:
+//
+//	if tp, ok := client.(types.ThinkingProvider); ok {
+//	    summary := tp.GetLastThoughtSummary()
+//	    tokens := tp.GetLastThinkingTokens()
+//	}
+//
+// This metadata is used by the System Prompt Learning (SPL) system to:
+// 1. Evaluate WHY a task succeeded or failed (reasoning quality)
+// 2. Learn from the model's decision-making process
+// 3. Generate better prompt atoms based on reasoning patterns
+type ThinkingProvider interface {
+	// GetLastThoughtSummary returns the model's reasoning process from the last call.
+	// Returns empty string if thinking mode is disabled or client doesn't support it.
+	GetLastThoughtSummary() string
+
+	// GetLastThinkingTokens returns the number of tokens used for reasoning.
+	// Returns 0 if thinking mode is disabled or client doesn't support it.
+	GetLastThinkingTokens() int
+
+	// IsThinkingEnabled returns whether thinking mode is currently enabled.
+	IsThinkingEnabled() bool
+
+	// GetThinkingLevel returns the current thinking level (e.g., "minimal", "low", "medium", "high").
+	// Returns empty string if thinking mode uses token budget instead of levels.
+	GetThinkingLevel() string
+}

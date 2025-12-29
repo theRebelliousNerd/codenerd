@@ -38,6 +38,10 @@ type GeminiClient struct {
 
 	// Grounding sources from last response (for transparency)
 	lastGroundingSources []string
+
+	// Thinking metadata from last response (for SPL learning)
+	lastThoughtSummary string
+	lastThinkingTokens int
 }
 
 // DefaultGeminiConfig returns sensible defaults.
@@ -165,6 +169,32 @@ func (c *GeminiClient) GetLastGroundingSources() []string {
 // This should be passed back in multi-turn function calling scenarios.
 func (c *GeminiClient) GetLastThoughtSignature() string {
 	return c.lastThoughtSignature
+}
+
+// =============================================================================
+// ThinkingProvider Interface Implementation
+// =============================================================================
+
+// GetLastThoughtSummary returns the model's reasoning process from the last call.
+// Used by SPL to understand WHY the model made certain decisions.
+func (c *GeminiClient) GetLastThoughtSummary() string {
+	return c.lastThoughtSummary
+}
+
+// GetLastThinkingTokens returns the number of tokens used for reasoning.
+// Used by SPL for budget monitoring and reasoning quality assessment.
+func (c *GeminiClient) GetLastThinkingTokens() int {
+	return c.lastThinkingTokens
+}
+
+// IsThinkingEnabled returns whether thinking mode is currently enabled.
+func (c *GeminiClient) IsThinkingEnabled() bool {
+	return c.enableThinking
+}
+
+// GetThinkingLevel returns the current thinking level (e.g., "minimal", "low", "medium", "high").
+func (c *GeminiClient) GetThinkingLevel() string {
+	return c.thinkingLevel
 }
 
 // Complete sends a prompt and returns the completion.
@@ -302,6 +332,10 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		if geminiResp.ThoughtSignature != "" {
 			c.lastThoughtSignature = geminiResp.ThoughtSignature
 		}
+
+		// Capture thinking metadata for SPL learning
+		c.lastThoughtSummary = geminiResp.ThoughtSummary
+		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 
 		var result strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
