@@ -1,5 +1,5 @@
-# Shard Types & Trace Analysis
-# Section 18, 24 of Cortex Executive Policy
+# Shard Types, Trace Analysis & Specialist Classification
+# Section 18, 18B, 24 of Cortex Executive Policy
 
 
 # Section 18: Shard Type Classification
@@ -157,3 +157,119 @@ shard_can_handle(ShardType, TaskType) :-
     reasoning_trace(TraceID, ShardType, /specialist, _, /true, _),
     trace_task_type(TraceID, TaskType),
     high_quality_trace(TraceID).
+
+
+# =============================================================================
+# Section 18B: Specialist Classification System
+# =============================================================================
+# Specialists are classified by execution mode and knowledge tier.
+# This determines whether they can execute directly or must advise.
+
+# Specialist Execution Modes
+# /executor - Can write/modify code in their domain
+# /advisor  - Provides guidance, cannot execute
+# /observer - Background monitoring only
+
+# Specialist Knowledge Tiers
+# /technical - Implementation expertise (how to code)
+# /strategic - Architectural guidance (what to code)
+# /domain    - Project-specific knowledge (why we code this way)
+
+# Executor Specialists (Technical Tier) - Can write code directly
+specialist_classification(/goexpert, /executor, /technical).
+specialist_classification(/bubbleteaexpert, /executor, /technical).
+specialist_classification(/cobraexpert, /executor, /technical).
+specialist_classification(/rodexpert, /executor, /technical).
+specialist_classification(/mangleexpert, /executor, /technical).
+
+# Advisor Specialists (Strategic Tier) - Guide but don't execute
+specialist_classification(/securityauditor, /advisor, /strategic).
+specialist_classification(/testarchitect, /advisor, /strategic).
+
+# Specialist Knowledge DB Paths (for JIT context hydration)
+specialist_knowledge_db(/goexpert, "goexpert_knowledge.db").
+specialist_knowledge_db(/bubbleteaexpert, "bubbleteaexpert_knowledge.db").
+specialist_knowledge_db(/cobraexpert, "cobraexpert_knowledge.db").
+specialist_knowledge_db(/rodexpert, "rodexpert_knowledge.db").
+specialist_knowledge_db(/mangleexpert, "mangleexpert_knowledge.db").
+specialist_knowledge_db(/securityauditor, "securityauditor_knowledge.db").
+specialist_knowledge_db(/testarchitect, "testarchitect_knowledge.db").
+
+# Campaign Integration Roles
+# /phase_executor  - Executes during implementation phases
+# /plan_reviewer   - Reviews campaign plans
+# /background_mon  - Background monitoring
+
+specialist_campaign_role(/goexpert, /phase_executor).
+specialist_campaign_role(/bubbleteaexpert, /phase_executor).
+specialist_campaign_role(/cobraexpert, /phase_executor).
+specialist_campaign_role(/rodexpert, /phase_executor).
+specialist_campaign_role(/mangleexpert, /phase_executor).
+specialist_campaign_role(/securityauditor, /plan_reviewer).
+specialist_campaign_role(/testarchitect, /plan_reviewer).
+
+# Determine if specialist can execute (not just advise)
+specialist_can_execute(Specialist) :-
+    specialist_classification(Specialist, /executor, _).
+
+# Determine if specialist should execute directly
+# High confidence (>0.8) on an executor specialist triggers direct execution
+specialist_should_execute(Specialist, Task) :-
+    specialist_match(Specialist, Task, Confidence),
+    specialist_can_execute(Specialist),
+    Confidence > 80.
+
+# Determine if specialist should advise instead
+specialist_should_advise(Specialist, Task) :-
+    specialist_match(Specialist, Task, Confidence),
+    Confidence > 40,
+    Confidence <= 80.
+
+# Always consult strategic advisors for complex tasks
+strategic_advisor_required(Task) :-
+    task_complexity(Task, /high),
+    specialist_classification(Advisor, /advisor, /strategic).
+
+# Route to specialist's knowledge DB for context
+specialist_context_source(Specialist, DBPath) :-
+    specialist_knowledge_db(Specialist, DBPath).
+
+# Activate specialist for campaign phase based on role
+activate_specialist_for_phase(Specialist, Phase) :-
+    specialist_campaign_role(Specialist, /phase_executor),
+    campaign_phase(Phase, /implementation, _).
+
+activate_specialist_for_phase(Specialist, Phase) :-
+    specialist_campaign_role(Specialist, /plan_reviewer),
+    campaign_phase(Phase, /planning, _).
+
+# Cross-Specialist Collaboration
+# Strategic advisors can assist technical executors
+
+specialist_assists(Advisor, Executor) :-
+    specialist_classification(Advisor, /advisor, /strategic),
+    specialist_classification(Executor, /executor, /technical).
+
+# Specialist consultation request routing
+specialist_consultation_route(FromSpec, ToSpec, Question) :-
+    consultation_request(FromSpec, ToSpec, Question, _),
+    specialist_classification(ToSpec, _, _).
+
+# Derive specialist tools from classification
+specialist_allowed_tools(Specialist, /write_file) :-
+    specialist_can_execute(Specialist).
+
+specialist_allowed_tools(Specialist, /edit_file) :-
+    specialist_can_execute(Specialist).
+
+specialist_allowed_tools(Specialist, /run_command) :-
+    specialist_classification(Specialist, _, _).
+
+specialist_allowed_tools(Specialist, /read_file) :-
+    specialist_classification(Specialist, _, _).
+
+specialist_allowed_tools(Specialist, /list_files) :-
+    specialist_classification(Specialist, _, _).
+
+specialist_allowed_tools(Specialist, /glob) :-
+    specialist_classification(Specialist, _, _).
