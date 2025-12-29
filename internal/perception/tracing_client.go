@@ -331,6 +331,66 @@ func (tc *TracingLLMClient) GetUnderlying() LLMClient {
 	return tc.underlying
 }
 
+// CompleteWithTools implements LLMClient.CompleteWithTools with tracing.
+func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Capture current context
+	tc.mu.RLock()
+	shardID := tc.shardID
+	shardType := tc.shardType
+	shardCategory := tc.shardCategory
+	sessionID := tc.sessionID
+	taskContext := tc.taskContext
+	tc.mu.RUnlock()
+
+	start := time.Now()
+	logging.API("LLM tool call started: shard=%s type=%s tools=%d prompt_len=%d", shardID, shardType, len(tools), len(userPrompt))
+
+	// Make the actual LLM call
+	response, err := tc.underlying.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("LLM tool call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+	} else {
+		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", shardID, duration, len(response.ToolCalls), len(response.Text))
+	}
+
+	// Create trace
+	responseText := ""
+	if response != nil {
+		responseText = response.Text
+	}
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       shardID,
+		ShardType:     shardType,
+		ShardCategory: shardCategory,
+		SessionID:     sessionID,
+		TaskContext:   taskContext,
+		SystemPrompt:  systemPrompt,
+		UserPrompt:    userPrompt,
+		Response:      responseText,
+		DurationMs:    duration.Milliseconds(),
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+	}
+
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+
+	// Store trace asynchronously to not block execution
+	if tc.store != nil {
+		go func() {
+			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
+				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
+			}
+		}()
+	}
+
+	return response, err
+}
+
 // ShardTraceAccessor provides shards with access to their own historical traces.
 // This enables self-learning by querying past reasoning patterns.
 type ShardTraceAccessor interface {
@@ -526,6 +586,11 @@ func (s *SystemLLMContext) Complete(ctx context.Context, prompt string) (string,
 // CompleteWithSystem makes an LLM call with system prompt and proper tracking.
 func (s *SystemLLMContext) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return s.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+// CompleteWithTools makes an LLM call with tools and proper tracking.
+func (s *SystemLLMContext) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	return s.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }
 
 // Clear clears the system context after operations complete.

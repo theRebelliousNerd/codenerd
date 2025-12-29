@@ -430,3 +430,277 @@ func addTestPattern(command, pattern string) string {
 	}
 	return command + " " + pattern
 }
+
+// GitDiffTool returns a tool for viewing git diffs.
+func GitDiffTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "git_diff",
+		Description: "Show git diff for files or commits",
+		Category:    tools.CategoryCode,
+		Priority:    70,
+		Execute:     executeGitDiff,
+		Schema: tools.ToolSchema{
+			Required: []string{},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "File or directory path to diff (optional)",
+				},
+				"staged": {
+					Type:        "boolean",
+					Description: "Show staged changes only (--cached)",
+					Default:     false,
+				},
+				"commit": {
+					Type:        "string",
+					Description: "Compare against specific commit or range (e.g., HEAD~3, main..feature)",
+				},
+				"working_dir": {
+					Type:        "string",
+					Description: "Working directory (default: current directory)",
+				},
+			},
+		},
+	}
+}
+
+func executeGitDiff(ctx context.Context, args map[string]any) (string, error) {
+	cmdArgs := []string{"diff"}
+
+	// Add --cached for staged changes
+	if staged, ok := args["staged"].(bool); ok && staged {
+		cmdArgs = append(cmdArgs, "--cached")
+	}
+
+	// Add commit reference
+	if commit, ok := args["commit"].(string); ok && commit != "" {
+		cmdArgs = append(cmdArgs, commit)
+	}
+
+	// Add path
+	if path, ok := args["path"].(string); ok && path != "" {
+		cmdArgs = append(cmdArgs, "--", path)
+	}
+
+	command := "git " + strings.Join(cmdArgs, " ")
+
+	logging.VirtualStoreDebug("git_diff: cmd=%s", command)
+
+	return executeRunCommand(ctx, map[string]any{
+		"command":         command,
+		"working_dir":     args["working_dir"],
+		"timeout_seconds": 60,
+	})
+}
+
+// GitLogTool returns a tool for viewing git history.
+func GitLogTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "git_log",
+		Description: "Show git commit history",
+		Category:    tools.CategoryCode,
+		Priority:    70,
+		Execute:     executeGitLog,
+		Schema: tools.ToolSchema{
+			Required: []string{},
+			Properties: map[string]tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "File or directory path to show history for (optional)",
+				},
+				"count": {
+					Type:        "integer",
+					Description: "Number of commits to show (default: 10)",
+					Default:     10,
+				},
+				"format": {
+					Type:        "string",
+					Description: "Output format: oneline, short, medium, full (default: medium)",
+					Default:     "medium",
+				},
+				"since": {
+					Type:        "string",
+					Description: "Show commits since date (e.g., '1 week ago', '2024-01-01')",
+				},
+				"author": {
+					Type:        "string",
+					Description: "Filter by author name or email",
+				},
+				"working_dir": {
+					Type:        "string",
+					Description: "Working directory (default: current directory)",
+				},
+			},
+		},
+	}
+}
+
+func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
+	cmdArgs := []string{"log"}
+
+	// Add count
+	count := 10
+	if c, ok := args["count"].(int); ok && c > 0 {
+		count = c
+	}
+	if cf, ok := args["count"].(float64); ok && cf > 0 {
+		count = int(cf)
+	}
+	cmdArgs = append(cmdArgs, fmt.Sprintf("-n%d", count))
+
+	// Add format
+	format := "medium"
+	if f, ok := args["format"].(string); ok && f != "" {
+		format = f
+	}
+	cmdArgs = append(cmdArgs, "--format="+format)
+
+	// Add since filter
+	if since, ok := args["since"].(string); ok && since != "" {
+		cmdArgs = append(cmdArgs, "--since="+since)
+	}
+
+	// Add author filter
+	if author, ok := args["author"].(string); ok && author != "" {
+		cmdArgs = append(cmdArgs, "--author="+author)
+	}
+
+	// Add path
+	if path, ok := args["path"].(string); ok && path != "" {
+		cmdArgs = append(cmdArgs, "--", path)
+	}
+
+	command := "git " + strings.Join(cmdArgs, " ")
+
+	logging.VirtualStoreDebug("git_log: cmd=%s", command)
+
+	return executeRunCommand(ctx, map[string]any{
+		"command":         command,
+		"working_dir":     args["working_dir"],
+		"timeout_seconds": 60,
+	})
+}
+
+// GitOperationTool returns a tool for general git operations.
+func GitOperationTool() *tools.Tool {
+	return &tools.Tool{
+		Name:        "git_operation",
+		Description: "Execute git operations like status, add, commit, checkout, branch, push, pull",
+		Category:    tools.CategoryCode,
+		Priority:    70,
+		Execute:     executeGitOperation,
+		Schema: tools.ToolSchema{
+			Required: []string{"operation"},
+			Properties: map[string]tools.Property{
+				"operation": {
+					Type:        "string",
+					Description: "Git operation: status, add, commit, checkout, branch, push, pull, fetch, stash, reset",
+				},
+				"args": {
+					Type:        "string",
+					Description: "Additional arguments for the operation (e.g., file paths, branch names, commit messages)",
+				},
+				"message": {
+					Type:        "string",
+					Description: "Commit message (for commit operation)",
+				},
+				"branch": {
+					Type:        "string",
+					Description: "Branch name (for checkout/branch operations)",
+				},
+				"files": {
+					Type:        "string",
+					Description: "Files to add/commit (space-separated, for add/commit operations)",
+				},
+				"working_dir": {
+					Type:        "string",
+					Description: "Working directory (default: current directory)",
+				},
+			},
+		},
+	}
+}
+
+func executeGitOperation(ctx context.Context, args map[string]any) (string, error) {
+	operation, _ := args["operation"].(string)
+	if operation == "" {
+		return "", fmt.Errorf("operation is required")
+	}
+
+	var cmdArgs []string
+
+	switch operation {
+	case "status":
+		cmdArgs = []string{"status"}
+	case "add":
+		cmdArgs = []string{"add"}
+		if files, ok := args["files"].(string); ok && files != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(files)...)
+		} else if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		} else {
+			cmdArgs = append(cmdArgs, ".") // Default to all
+		}
+	case "commit":
+		cmdArgs = []string{"commit"}
+		if msg, ok := args["message"].(string); ok && msg != "" {
+			cmdArgs = append(cmdArgs, "-m", msg)
+		} else {
+			return "", fmt.Errorf("commit message is required")
+		}
+	case "checkout":
+		cmdArgs = []string{"checkout"}
+		if branch, ok := args["branch"].(string); ok && branch != "" {
+			cmdArgs = append(cmdArgs, branch)
+		} else if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		} else {
+			return "", fmt.Errorf("branch name or args required for checkout")
+		}
+	case "branch":
+		cmdArgs = []string{"branch"}
+		if branch, ok := args["branch"].(string); ok && branch != "" {
+			cmdArgs = append(cmdArgs, branch)
+		}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	case "push":
+		cmdArgs = []string{"push"}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	case "pull":
+		cmdArgs = []string{"pull"}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	case "fetch":
+		cmdArgs = []string{"fetch"}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	case "stash":
+		cmdArgs = []string{"stash"}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	case "reset":
+		cmdArgs = []string{"reset"}
+		if extraArgs, ok := args["args"].(string); ok && extraArgs != "" {
+			cmdArgs = append(cmdArgs, strings.Fields(extraArgs)...)
+		}
+	default:
+		return "", fmt.Errorf("unsupported git operation: %s", operation)
+	}
+
+	command := "git " + strings.Join(cmdArgs, " ")
+
+	logging.VirtualStoreDebug("git_operation: cmd=%s", command)
+
+	return executeRunCommand(ctx, map[string]any{
+		"command":         command,
+		"working_dir":     args["working_dir"],
+		"timeout_seconds": 120,
+	})
+}

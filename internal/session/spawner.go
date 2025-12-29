@@ -332,6 +332,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	compilationCtx := &prompt.CompilationContext{
 		IntentVerb:      intentVerb,
 		OperationalMode: "/active",
+		TokenBudget:     8192, // Default token budget for JIT compilation
 	}
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)

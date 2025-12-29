@@ -30,6 +30,30 @@ type Kernel interface {
 type LLMClient interface {
 	Complete(ctx context.Context, prompt string) (string, error)
 	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
+	// This enables agentic behavior where the LLM can invoke tools to complete tasks.
+	CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error)
+}
+
+// ToolDefinition describes a tool that the LLM can invoke.
+type ToolDefinition struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"` // JSON Schema for parameters
+}
+
+// ToolCall represents a tool invocation requested by the LLM.
+type ToolCall struct {
+	ID    string                 `json:"id"`    // Unique ID for this tool use
+	Name  string                 `json:"name"`  // Tool name to invoke
+	Input map[string]interface{} `json:"input"` // Tool arguments
+}
+
+// LLMToolResponse contains both text response and tool calls from the LLM.
+type LLMToolResponse struct {
+	Text       string     `json:"text"`        // Text response (may be empty if only tool calls)
+	ToolCalls  []ToolCall `json:"tool_calls"`  // Tool invocations requested by LLM
+	StopReason string     `json:"stop_reason"` // "end_turn", "tool_use", etc.
 }
 
 // ShardAgent defines the interface for all agents.

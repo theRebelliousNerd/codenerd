@@ -394,3 +394,17 @@ func (c *OpenRouterClient) SetModel(model string) {
 func (c *OpenRouterClient) GetModel() string {
 	return c.model
 }
+
+// CompleteWithTools sends a prompt with tool definitions.
+// TODO: Implement proper OpenRouter function calling - for now falls back to simple completion.
+func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Fallback: Use simple completion without tools
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}

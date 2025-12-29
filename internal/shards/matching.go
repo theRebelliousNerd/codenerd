@@ -270,6 +270,15 @@ var DefaultSpecialistClassifications = map[string]SpecialistClassification{
 		BackgroundCapable:   true,
 		CampaignIntegration: "/plan_reviewer",
 	},
+	"northstar": {
+		ExecutionMode:       SpecialistModeObserver,
+		KnowledgeTier:       TierStrategic,
+		CanExecute:          false,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/alignment_guardian",
+	},
 }
 
 // GetSpecialistClassification returns the classification for a specialist

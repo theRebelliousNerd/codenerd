@@ -581,31 +581,47 @@ func (v *VirtualStore) HydrateModularTools() error {
 
 	logging.VirtualStore("Hydrating modular tools")
 
-	// Register all core filesystem tools
+	// Get the global registry for tools.Global() access by session.Executor
+	globalRegistry := tools.Global()
+
+	// Register all core filesystem tools (to both registries)
 	if err := core.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register core tools: %v", err)
 		return fmt.Errorf("failed to register core tools: %w", err)
 	}
+	if err := core.RegisterAll(globalRegistry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register core tools to global registry: %v", err)
+		// Don't return error - global registry may already have tools from previous call
+	}
 
-	// Register all shell execution tools
+	// Register all shell execution tools (to both registries)
 	if err := shell.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register shell tools: %v", err)
 		return fmt.Errorf("failed to register shell tools: %w", err)
 	}
+	if err := shell.RegisterAll(globalRegistry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register shell tools to global registry: %v", err)
+	}
 
-	// Register all Code DOM tools
+	// Register all Code DOM tools (to both registries)
 	if err := codedom.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register codedom tools: %v", err)
 		return fmt.Errorf("failed to register codedom tools: %w", err)
 	}
+	if err := codedom.RegisterAll(globalRegistry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register codedom tools to global registry: %v", err)
+	}
 
-	// Register all research tools
+	// Register all research tools (to both registries)
 	if err := research.RegisterAll(registry); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Error("Failed to register research tools: %v", err)
 		return fmt.Errorf("failed to register research tools: %w", err)
 	}
+	if err := research.RegisterAll(globalRegistry); err != nil {
+		logging.Get(logging.CategoryVirtualStore).Warn("Failed to register research tools to global registry: %v", err)
+	}
 
-	logging.VirtualStore("Modular tools hydrated: %d tools registered", registry.Count())
+	logging.VirtualStore("Modular tools hydrated: %d tools in registry, %d tools in global", registry.Count(), globalRegistry.Count())
 	return nil
 }
 

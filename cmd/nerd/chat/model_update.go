@@ -615,6 +615,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Persist session after each response
 		m.saveSessionState()
 
+	case alignmentCheckMsg:
+		m.isLoading = false
+		var content string
+		if msg.Err != nil {
+			content = fmt.Sprintf("## Alignment Check Failed\n\n**Error:** %v", msg.Err)
+		} else {
+			content = m.formatAlignmentCheckResult(msg)
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+
 	case multiShardReviewMsg:
 		// Multi-shard review completed
 		m.isLoading = false
@@ -1206,6 +1222,12 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 			// Wire Prompt Evolution System (System Prompt Learning)
 			m.promptEvolver = c.PromptEvolver
+
+			// Wire Background Observer Manager (Northstar alignment guardian)
+			m.observerMgr = c.ObserverMgr
+
+			// Wire Consultation Manager (cross-specialist collaboration protocol)
+			m.consultationMgr = c.ConsultationMgr
 
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()

@@ -24,6 +24,10 @@ func (f *fakeStreamingLLM) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return "", nil
 }
 
+func (f *fakeStreamingLLM) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	return &LLMToolResponse{Text: "", StopReason: "end_turn"}, nil
+}
+
 func (f *fakeStreamingLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 8)
 	errorChan := make(chan error, 1)

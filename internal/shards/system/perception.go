@@ -167,6 +167,21 @@ func (g guardedPerceptionClient) CompleteWithSystem(ctx context.Context, systemP
 	return g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 }
 
+func (g guardedPerceptionClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if g.base == nil {
+		return nil, fmt.Errorf("no base shard configured")
+	}
+	// Perception doesn't need tool calling - fall back to simple completion
+	text, err := g.base.GuardedLLMCall(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &types.LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
 func (p *PerceptionFirewallShard) ensureTransducer() *perception.RealTransducer {
 	p.mu.Lock()
 	defer p.mu.Unlock()

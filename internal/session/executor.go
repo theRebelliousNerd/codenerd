@@ -22,6 +22,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/tools"
 	"codenerd/internal/types"
 )
 
@@ -188,31 +189,41 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		logging.Get(logging.CategorySession).Warn("Config compilation failed: %v", err)
 		// Continue with empty config - LLM can still respond
 		agentConfig = &config.AgentConfig{}
+	} else {
+		logging.Session("Config compiled: %d tools allowed", len(agentConfig.Tools.AllowedTools))
 	}
 
-	// 5. LLM: Generate response
-	response, err := e.generateResponse(ctx, compileResult.Prompt, input, agentConfig)
+	// 5. LLM: Generate response with tool calling
+	llmResponse, err := e.generateResponse(ctx, compileResult.Prompt, input, agentConfig)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
 	// 6. Execute tool calls (if any)
-	toolCalls := e.extractToolCalls(response)
-	for i, call := range toolCalls {
+	for i, call := range llmResponse.ToolCalls {
 		if i >= e.config.MaxToolCalls {
 			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
 			break
 		}
 
-		if err := e.executeToolCall(ctx, call, agentConfig); err != nil {
-			logging.Get(logging.CategorySession).Error("Tool call failed: %v", err)
+		toolCall := ToolCall{
+			ID:   call.ID,
+			Name: call.Name,
+			Args: call.Input,
+		}
+
+		toolResult, err := e.executeToolCall(ctx, toolCall, agentConfig)
+		if err != nil {
+			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, err)
 			// Continue with other tool calls
+		} else {
+			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(toolResult))
 		}
 		result.ToolCallsExecuted++
 	}
 
 	// 7. Articulate response
-	result.Response = e.extractTextResponse(response)
+	result.Response = llmResponse.Text
 	result.Duration = time.Since(start)
 
 	// Update conversation history
@@ -239,6 +250,7 @@ func (e *Executor) buildCompilationContext(intent perception.Intent) *prompt.Com
 		IntentVerb:      intent.Verb,
 		IntentTarget:    intent.Target,
 		OperationalMode: "/active",
+		TokenBudget:     8192, // Default token budget for prompt compilation
 	}
 
 	// Determine world states from kernel facts
@@ -282,46 +294,105 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 	return e.configFactory.Generate(ctx, result, intentVerb)
 }
 
-// generateResponse calls the LLM with the compiled prompt and input.
-func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (string, error) {
-	// TODO: Pass tools to LLM for tool calling
-	// For now, use simple completion
-	return e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
+// generateResponse calls the LLM with the compiled prompt and tools for tool calling.
+func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (*types.LLMToolResponse, error) {
+	// Convert AgentConfig tool names to ToolDefinition structs
+	toolDefs := e.buildToolDefinitions(cfg)
+
+	// If we have tools, use tool calling; otherwise fall back to simple completion
+	if len(toolDefs) > 0 {
+		logging.Session("Calling LLM with %d tools via CompleteWithTools", len(toolDefs))
+		return e.llmClient.CompleteWithTools(ctx, systemPrompt, userInput, toolDefs)
+	}
+	logging.Session("No tools configured, using CompleteWithSystem")
+
+	// No tools configured - use simple completion
+	text, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
+	if err != nil {
+		return nil, err
+	}
+	return &types.LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}
+
+// buildToolDefinitions converts tool names from AgentConfig to ToolDefinition structs.
+func (e *Executor) buildToolDefinitions(cfg *config.AgentConfig) []types.ToolDefinition {
+	if cfg == nil || len(cfg.Tools.AllowedTools) == 0 {
+		logging.SessionDebug("buildToolDefinitions: no tools configured (cfg=%v)", cfg != nil)
+		return nil
+	}
+	logging.Session("buildToolDefinitions: building %d tool definitions", len(cfg.Tools.AllowedTools))
+
+	registry := tools.Global()
+	var defs []types.ToolDefinition
+
+	for _, toolName := range cfg.Tools.AllowedTools {
+		tool := registry.Get(toolName)
+		if tool == nil {
+			logging.SessionDebug("Tool %s not found in registry", toolName)
+			continue
+		}
+
+		// Build input schema from tool's schema
+		inputSchema := make(map[string]interface{})
+		inputSchema["type"] = "object"
+		inputSchema["properties"] = tool.Schema.Properties
+		if len(tool.Schema.Required) > 0 {
+			inputSchema["required"] = tool.Schema.Required
+		}
+
+		defs = append(defs, types.ToolDefinition{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: inputSchema,
+		})
+	}
+
+	logging.Session("Built %d tool definitions from %d allowed tools", len(defs), len(cfg.Tools.AllowedTools))
+	return defs
 }
 
 // ToolCall represents a tool invocation from the LLM.
 type ToolCall struct {
-	Name   string
-	Args   map[string]interface{}
-	RawArg string
+	ID   string
+	Name string
+	Args map[string]interface{}
 }
 
-// extractToolCalls parses tool calls from LLM response.
-// TODO: Implement proper tool call parsing based on LLM response format.
-func (e *Executor) extractToolCalls(response string) []ToolCall {
-	// Placeholder - will be implemented when we add tool calling to LLM
-	return nil
-}
-
-// executeToolCall routes a tool call through VirtualStore with safety checks.
-func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.AgentConfig) error {
+// executeToolCall routes a tool call through the modular tool registry with safety checks.
+func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.AgentConfig) (string, error) {
 	// Check if tool is allowed by config
 	if !e.isToolAllowed(call.Name, cfg) {
-		return fmt.Errorf("tool %s not allowed by config", call.Name)
+		return "", fmt.Errorf("tool %s not allowed by config", call.Name)
 	}
 
 	// Safety check via Constitutional Gate
 	if e.config.EnableSafetyGate {
 		if !e.checkSafety(call) {
-			return fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
+			return "", fmt.Errorf("tool call blocked by safety gate: %s", call.Name)
 		}
 	}
 
-	// Execute via VirtualStore
-	// TODO: Implement tool execution through VirtualStore
-	logging.SessionDebug("Would execute tool: %s", call.Name)
+	// Apply timeout to tool execution
+	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
+	defer cancel()
 
-	return nil
+	// Execute via modular tool registry
+	logging.Session("Executing tool: %s with %d args", call.Name, len(call.Args))
+
+	result, err := tools.Execute(toolCtx, call.Name, call.Args)
+	if err != nil {
+		return "", fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	// Check for errors
+	if result.Error != nil {
+		return "", fmt.Errorf("tool returned error: %w", result.Error)
+	}
+
+	return result.Result, nil
 }
 
 // isToolAllowed checks if a tool is in the allowed list.
@@ -349,12 +420,6 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	return true
 }
 
-// extractTextResponse extracts the text portion of the LLM response.
-func (e *Executor) extractTextResponse(response string) string {
-	// For now, return the full response
-	// TODO: Parse out tool calls and return just text
-	return response
-}
 
 // appendToHistory adds a turn to conversation history.
 func (e *Executor) appendToHistory(role, content string) {

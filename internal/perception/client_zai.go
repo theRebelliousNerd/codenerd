@@ -1353,3 +1353,17 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 
 	return contentChan, errorChan
 }
+
+// CompleteWithTools sends a prompt with tool definitions.
+// TODO: Implement proper ZAI function calling - for now falls back to simple completion.
+func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Fallback: Use simple completion without tools
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}

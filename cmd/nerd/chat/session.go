@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
+	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
@@ -988,6 +989,34 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// glassBoxEventBus was created earlier to allow shard factories to capture it
 
+		// Initialize Background Observer Manager (for Northstar alignment guardian, etc.)
+		logStep("Setting up background observers...")
+		observerMgr := shards.NewBackgroundObserverManager(&shardManagerObserverSpawner{shardMgr})
+		// Register Northstar as a background observer (if available)
+		if err := observerMgr.RegisterObserver("northstar"); err == nil {
+			// Don't start yet - will be started on demand
+			logging.Get(logging.CategoryBoot).Info("Northstar observer registered")
+
+			// Wire Northstar Guardian for intelligent periodic checks
+			nerdDir := filepath.Join(workspace, ".nerd")
+			if northstarStore, err := northstar.NewStore(nerdDir); err == nil {
+				guardianConfig := northstar.DefaultGuardianConfig()
+				guardian := northstar.NewGuardian(northstarStore, guardianConfig)
+				guardian.SetLLMClient(llmClient)
+				if err := guardian.Initialize(); err == nil {
+					sessionID := resolveSessionID(loadedSession)
+					handler := northstar.NewBackgroundEventHandler(guardian, sessionID)
+					observerMgr.SetNorthstarHandler(&northstarHandlerAdapter{handler})
+					logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian wired into background observer")
+				}
+			}
+		}
+
+		// Initialize Consultation Manager (cross-specialist collaboration protocol)
+		logStep("Setting up consultation protocol...")
+		consultationMgr := shards.NewConsultationManager(&shardManagerConsultationSpawner{shardMgr})
+		logging.Get(logging.CategoryBoot).Info("Consultation manager initialized")
+
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
 		return bootCompleteMsg{
 			components: &SystemComponents{
@@ -1025,9 +1054,66 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				// Clean Loop Architecture
 				SessionExecutor: sessionExecutor,
 				SessionSpawner:  sessionSpawner,
+				// Background Observer Manager
+				ObserverMgr: observerMgr,
+				// Consultation Manager
+				ConsultationMgr: consultationMgr,
 			},
 		}
 	}
+}
+
+// shardManagerObserverSpawner adapts ShardManager to ObserverSpawner interface.
+type shardManagerObserverSpawner struct {
+	shardMgr *coreshards.ShardManager
+}
+
+func (s *shardManagerObserverSpawner) SpawnObserver(ctx context.Context, observerName, task string) (string, error) {
+	if s.shardMgr == nil {
+		return "", fmt.Errorf("shard manager not available")
+	}
+	return s.shardMgr.Spawn(ctx, observerName, task)
+}
+
+// shardManagerConsultationSpawner adapts ShardManager to ConsultationSpawner interface.
+type shardManagerConsultationSpawner struct {
+	shardMgr *coreshards.ShardManager
+}
+
+func (s *shardManagerConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
+	if s.shardMgr == nil {
+		return "", fmt.Errorf("shard manager not available")
+	}
+	return s.shardMgr.Spawn(ctx, specialistName, task)
+}
+
+// northstarHandlerAdapter adapts northstar.BackgroundEventHandler to shards.NorthstarHandler interface.
+type northstarHandlerAdapter struct {
+	handler *northstar.BackgroundEventHandler
+}
+
+func (a *northstarHandlerAdapter) HandleEvent(ctx context.Context, event shards.ObserverEvent) (*shards.ObserverAssessment, error) {
+	// Convert shards event to northstar handler call
+	assessment, err := a.handler.HandleEvent(ctx, string(event.Type), event.Source, event.Target, event.Details, event.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+	if assessment == nil {
+		return nil, nil
+	}
+
+	// Convert northstar assessment to shards assessment
+	return &shards.ObserverAssessment{
+		ObserverName: assessment.ObserverName,
+		EventID:      assessment.EventID,
+		Score:        assessment.Score,
+		Level:        shards.AssessmentLevel(assessment.Level),
+		VisionMatch:  assessment.VisionMatch,
+		Deviations:   assessment.Deviations,
+		Suggestions:  assessment.Suggestions,
+		Metadata:     assessment.Metadata,
+		Timestamp:    assessment.Timestamp,
+	}, nil
 }
 
 func hydrateNerdState(workspace string, kernel *core.RealKernel, shardMgr *coreshards.ShardManager, initialMessages *[]Message) (*Session, *Preferences) {
@@ -1657,4 +1743,8 @@ func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string
 
 func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }

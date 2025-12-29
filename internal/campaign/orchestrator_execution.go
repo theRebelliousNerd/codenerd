@@ -28,6 +28,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	logging.Campaign("Campaign: %s (type=%s, phases=%d, tasks=%d)",
 		o.campaign.Title, o.campaign.Type, o.campaign.TotalPhases, o.campaign.TotalTasks)
 
+	// Northstar alignment check at campaign start
+	if o.northstarObserver != nil {
+		if err := o.northstarObserver.StartCampaign(ctx, o.campaign.ID, o.campaign.Goal); err != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Northstar blocked campaign start: %v", err)
+			o.mu.Unlock()
+			return fmt.Errorf("northstar alignment failed: %w", err)
+		}
+	}
+
 	// Normalize any dangling in-progress tasks/phases (e.g., after restart)
 	o.resetInProgress()
 
@@ -96,6 +105,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				logging.Campaign("Final stats: phases=%d/%d, tasks=%d/%d",
 					o.campaign.CompletedPhases, o.campaign.TotalPhases,
 					o.campaign.CompletedTasks, o.campaign.TotalTasks)
+
+				// Northstar final observation
+				if o.northstarObserver != nil {
+					summary := fmt.Sprintf("phases=%d/%d, tasks=%d/%d",
+						o.campaign.CompletedPhases, o.campaign.TotalPhases,
+						o.campaign.CompletedTasks, o.campaign.TotalTasks)
+					_ = o.northstarObserver.EndCampaign(ctx, true, summary)
+				}
+
 				o.mu.Lock()
 				o.updateCampaignStatus(StatusCompleted)
 				_ = o.saveCampaign()

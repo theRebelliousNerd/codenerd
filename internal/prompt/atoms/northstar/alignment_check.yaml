@@ -1,0 +1,137 @@
+# Northstar Alignment Check Atoms
+# These atoms are injected during campaigns and task execution to maintain vision alignment.
+
+- id: "northstar/alignment/campaign_awareness"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 85
+  is_mandatory: true
+  campaign_phases: ["/planning", "/implementation", "/testing", "/review"]
+  agent_types: ["/coder", "/tester", "/reviewer", "/researcher"]
+  content: |
+    ## NORTHSTAR VISION ALIGNMENT
+
+    You are operating within a project that has a defined Northstar vision.
+    The Northstar Guardian is monitoring this session for alignment with the project's:
+    - **Mission**: The core purpose of this project
+    - **Vision**: What success looks like
+    - **Personas**: Who the target users are
+    - **Capabilities**: What the system should do
+    - **Constraints**: Boundaries that must be respected
+
+    **Before proposing significant changes, consider:**
+    1. Does this change serve the project's stated mission?
+    2. Will this move us toward or away from the vision?
+    3. Does this address actual user needs (personas)?
+    4. Is this within the project's constraints?
+
+    If you detect potential drift from the vision, flag it explicitly in your response.
+
+- id: "northstar/alignment/drift_detection"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 80
+  is_mandatory: false
+  campaign_phases: ["/implementation", "/testing"]
+  agent_types: ["/coder", "/reviewer"]
+  depends_on: ["northstar/alignment/campaign_awareness"]
+  content: |
+    ## DRIFT DETECTION PROTOCOL
+
+    Watch for these signs of vision drift:
+
+    **Feature Creep**:
+    - Adding capabilities not in the original plan
+    - Scope expanding beyond stated goals
+    - "Nice to have" overriding "must have"
+
+    **Architecture Drift**:
+    - Introducing patterns that conflict with project architecture
+    - Dependencies that don't align with constraints
+    - Technical decisions that compromise vision
+
+    **User Focus Drift**:
+    - Solving problems for non-target personas
+    - Prioritizing developer convenience over user needs
+    - Ignoring accessibility or performance requirements
+
+    When you detect potential drift, output:
+    ```
+    [ALIGNMENT_FLAG]
+    Issue: <what you observed>
+    Vision element: <which part of the vision this affects>
+    Recommendation: <how to realign>
+    ```
+
+- id: "northstar/alignment/task_context"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 75
+  is_mandatory: true
+  campaign_phases: ["/implementation", "/testing", "/review"]
+  agent_types: ["/coder", "/tester", "/reviewer"]
+  content: |
+    ## TASK-LEVEL ALIGNMENT
+
+    For each task, ensure:
+
+    1. **Traceability**: This task traces to a capability in the vision
+    2. **Proportionality**: Effort matches the capability's priority
+    3. **Consistency**: Solution aligns with established patterns
+    4. **Completeness**: All relevant constraints are respected
+
+    If a task seems disconnected from the vision:
+    - Ask for clarification before proceeding
+    - Suggest how to reconnect it to vision goals
+    - Flag if it appears to be outside scope
+
+- id: "northstar/alignment/periodic_reflection"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 60
+  is_mandatory: false
+  campaign_phases: ["/implementation"]
+  agent_types: ["/coder"]
+  content: |
+    ## PERIODIC ALIGNMENT REFLECTION
+
+    After completing significant work, briefly reflect:
+
+    1. **What was accomplished**: Summarize the changes made
+    2. **Vision alignment**: How this advances the project vision
+    3. **Potential concerns**: Any risks or drift observed
+    4. **Next considerations**: What should be checked next
+
+    This reflection helps the Northstar Guardian track progress and detect
+    cumulative drift that might not be visible in individual changes.
+
+- id: "northstar/alignment/high_impact_gate"
+  category: "northstar"
+  subcategory: "alignment"
+  priority: 90
+  is_mandatory: true
+  agent_types: ["/coder"]
+  content: |
+    ## HIGH-IMPACT CHANGE GATE
+
+    When modifying critical files or making architectural changes:
+
+    1. **Pause before proceeding**: Consider the full impact
+    2. **Check against vision**: Does this align with project goals?
+    3. **Consider alternatives**: Is there a less disruptive approach?
+    4. **Document rationale**: Explain why this change is necessary
+
+    Critical paths include:
+    - Core architecture files (kernel, engine, store)
+    - API contracts and interfaces
+    - Security-sensitive code
+    - Configuration and deployment
+    - Database schema changes
+
+    For high-impact changes, explicitly state:
+    ```
+    [HIGH_IMPACT_CHANGE]
+    Files: <list of files being modified>
+    Justification: <why this change is aligned with vision>
+    Risk assessment: <what could go wrong>
+    ```

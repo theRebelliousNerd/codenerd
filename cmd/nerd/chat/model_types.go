@@ -15,6 +15,7 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/shards"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
@@ -277,6 +278,12 @@ type Model struct {
 	// Transparency Layer (Phase 4 UX) - Makes operations visible to users
 	transparencyMgr *transparency.TransparencyManager
 
+	// Background Observer Manager - runs observer specialists (Northstar) in background
+	observerMgr *shards.BackgroundObserverManager
+
+	// Consultation Manager - cross-specialist consultation protocol
+	consultationMgr *shards.ConsultationManager
+
 	// User Preferences Manager
 	preferencesMgr *ux.PreferencesManager
 
@@ -464,6 +471,10 @@ type SystemComponents struct {
 	// Clean Loop Architecture (replaces hardcoded shard logic)
 	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
 	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning
+	// Background Observer Manager (Northstar, etc.)
+	ObserverMgr *shards.BackgroundObserverManager
+	// Consultation Manager for cross-specialist consultations
+	ConsultationMgr *shards.ConsultationManager
 }
 
 // OnboardingWizardStep represents the current phase of the onboarding wizard.
@@ -610,5 +621,15 @@ type (
 		Results         []KnowledgeResult // Results from all consulted specialists
 		OriginalInput   string            // The user input that triggered knowledge gathering
 		InterimResponse string            // The initial LLM response (may include "let me look that up")
+	}
+
+	// alignmentCheckMsg carries the result of a Northstar alignment check
+	alignmentCheckMsg struct {
+		Subject     string   // What was checked
+		Result      string   // passed, warning, failed, blocked, skipped
+		Score       float64  // 0.0-1.0 alignment score
+		Explanation string   // Why this result
+		Suggestions []string // Improvement suggestions
+		Err         error    // Any error that occurred
 	}
 )

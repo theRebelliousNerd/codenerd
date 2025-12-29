@@ -283,6 +283,108 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 	return contentChan, errorChan
 }
 
+// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
+func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Auto-apply timeout if context has no deadline
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[Anthropic] CompleteWithTools: model=%s tools=%d system_len=%d user_len=%d",
+		c.model, len(tools), len(systemPrompt), len(userPrompt))
+
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("API key not configured")
+	}
+
+	// Convert tools to Anthropic format
+	anthropicTools := make([]AnthropicTool, len(tools))
+	for i, t := range tools {
+		anthropicTools[i] = AnthropicTool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		}
+	}
+
+	reqBody := AnthropicRequest{
+		Model:       c.model,
+		MaxTokens:   8192, // Higher limit for tool use
+		System:      systemPrompt,
+		Messages:    []AnthropicMessage{{Role: "user", Content: userPrompt}},
+		Tools:       anthropicTools,
+		Temperature: 0.1,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		logging.PerceptionError("[Anthropic] CompleteWithTools: request failed after %v: %v", time.Since(startTime), err)
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logging.PerceptionError("[Anthropic] CompleteWithTools: API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var anthropicResp AnthropicResponse
+	if err := json.Unmarshal(body, &anthropicResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if anthropicResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s", anthropicResp.Error.Message)
+	}
+
+	// Parse response content into text and tool calls
+	result := &LLMToolResponse{
+		StopReason: anthropicResp.StopReason,
+	}
+
+	var textBuilder strings.Builder
+	for _, block := range anthropicResp.Content {
+		switch block.Type {
+		case "text":
+			textBuilder.WriteString(block.Text)
+		case "tool_use":
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			})
+		}
+	}
+	result.Text = strings.TrimSpace(textBuilder.String())
+
+	logging.Perception("[Anthropic] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
+		time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
+
+	return result, nil
+}
+
 // SetModel changes the model used for completions.
 func (c *AnthropicClient) SetModel(model string) {
 	c.model = model

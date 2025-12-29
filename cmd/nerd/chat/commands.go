@@ -993,6 +993,23 @@ You have an existing Northstar definition. What would you like to do?
 		m.textarea.Reset()
 		return m, nil
 
+	case "/alignment", "/align":
+		// Run on-demand alignment check against project vision
+		subject := "Current session state"
+		if len(parts) > 1 {
+			subject = strings.Join(parts[1:], " ")
+		}
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Running Northstar alignment check...",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		m.isLoading = true
+		return m, tea.Batch(m.spinner.Tick, m.runAlignmentCheck(subject))
+
 	case "/spawn":
 		if len(parts) < 3 {
 			m.history = append(m.history, Message{

@@ -186,6 +186,9 @@ specialist_classification(/mangleexpert, /executor, /technical).
 specialist_classification(/securityauditor, /advisor, /strategic).
 specialist_classification(/testarchitect, /advisor, /strategic).
 
+# Observer Specialists (Strategic Tier) - Background monitoring
+specialist_classification(/northstar, /observer, /strategic).
+
 # Specialist Knowledge DB Paths (for JIT context hydration)
 specialist_knowledge_db(/goexpert, "goexpert_knowledge.db").
 specialist_knowledge_db(/bubbleteaexpert, "bubbleteaexpert_knowledge.db").
@@ -194,6 +197,7 @@ specialist_knowledge_db(/rodexpert, "rodexpert_knowledge.db").
 specialist_knowledge_db(/mangleexpert, "mangleexpert_knowledge.db").
 specialist_knowledge_db(/securityauditor, "securityauditor_knowledge.db").
 specialist_knowledge_db(/testarchitect, "testarchitect_knowledge.db").
+specialist_knowledge_db(/northstar, "northstar_knowledge.db").
 
 # Campaign Integration Roles
 # /phase_executor  - Executes during implementation phases
@@ -207,6 +211,7 @@ specialist_campaign_role(/rodexpert, /phase_executor).
 specialist_campaign_role(/mangleexpert, /phase_executor).
 specialist_campaign_role(/securityauditor, /plan_reviewer).
 specialist_campaign_role(/testarchitect, /plan_reviewer).
+specialist_campaign_role(/northstar, /alignment_guardian).
 
 # Determine if specialist can execute (not just advise)
 specialist_can_execute(Specialist) :-

@@ -391,3 +391,17 @@ func (c *OpenAIClient) SetModel(model string) {
 func (c *OpenAIClient) GetModel() string {
 	return c.model
 }
+
+// CompleteWithTools sends a prompt with tool definitions.
+// TODO: Implement proper OpenAI function calling - for now falls back to simple completion.
+func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Fallback: Use simple completion without tools
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &LLMToolResponse{
+		Text:       text,
+		StopReason: "end_turn",
+	}, nil
+}

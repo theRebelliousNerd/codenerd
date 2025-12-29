@@ -275,6 +275,12 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 		virtualStore.SetLearningStore(learningStore)
 	}
 
+	// Hydrate modular tools so tools.Global() works for session.Executor
+	if err := virtualStore.HydrateModularTools(); err != nil {
+		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
+		// Don't fail - tools will just be unavailable
+	}
+
 	// Wire Code DOM (CodeScope + FileEditor) for semantic editing workflows.
 	worldCfg := appCfg.GetWorldConfig()
 	virtualStore.SetCodeScope(NewHolographicCodeScope(workspace, kernel, localDB, worldCfg.DeepWorkers))
@@ -1051,4 +1057,8 @@ func (a *sessionLLMAdapter) Complete(ctx context.Context, prompt string) (string
 
 func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }

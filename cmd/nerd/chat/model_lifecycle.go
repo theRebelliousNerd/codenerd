@@ -88,6 +88,11 @@ func (m *Model) Shutdown() {
 			m.toolStore.Close()
 		}
 
+		// Stop Background Observer Manager
+		if m.observerMgr != nil {
+			m.observerMgr.Stop()
+		}
+
 		// Stop Mangle file watcher
 		if m.mangleWatcher != nil {
 			m.mangleWatcher.Stop()

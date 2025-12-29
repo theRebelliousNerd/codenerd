@@ -219,6 +219,18 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 				},
 			})
 
+			// Northstar alignment check at phase transition
+			if o.northstarObserver != nil {
+				check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, o.campaign.Phases[i].Name)
+				if err != nil {
+					logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
+					return fmt.Errorf("northstar alignment failed: %w", err)
+				}
+				if check != nil {
+					logging.Campaign("Northstar phase check: %s score=%.2f", check.Result, check.Score)
+				}
+			}
+
 			o.emitEvent("phase_started", phaseID, "", o.campaign.Phases[i].Name, nil)
 			return nil
 		}
@@ -267,6 +279,13 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 					phase.ContextProfile,
 				},
 			})
+
+			// Northstar observation on phase completion
+			if o.northstarObserver != nil {
+				success := o.campaign.Phases[i].Status == PhaseCompleted
+				summary := fmt.Sprintf("Completed %d/%d tasks", completedTasks, len(o.campaign.Phases[i].Tasks))
+				_ = o.northstarObserver.OnPhaseComplete(context.Background(), phase.ID, success, summary)
+			}
 
 			o.emitEvent("phase_completed", phase.ID, "", phase.Name, nil)
 			_ = o.saveCampaign()

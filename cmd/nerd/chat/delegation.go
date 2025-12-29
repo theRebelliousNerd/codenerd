@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
+	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
@@ -328,15 +330,70 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 %s`, header, surfaceNote, intent.Target, shardType, task, result)
 }
 
+// sendObserverEvent sends an event to the background observer manager (if active).
+func (m Model) sendObserverEvent(eventType shards.ObserverEventType, source, target string, details map[string]string) {
+	if m.observerMgr == nil {
+		return
+	}
+	m.observerMgr.SendEvent(shards.ObserverEvent{
+		Type:    eventType,
+		Source:  source,
+		Target:  target,
+		Details: details,
+	})
+}
+
+// recordShardExecution records a shard execution for prompt evolution learning.
+// This enables the System Prompt Learning (SPL) system to improve prompts over time.
+func (m Model) recordShardExecution(shardType, task, result string, err error, duration time.Duration) {
+	if m.promptEvolver == nil {
+		return
+	}
+
+	// Create execution record
+	exec := &prompt_evolution.ExecutionRecord{
+		TaskID:    fmt.Sprintf("shard-%d", time.Now().UnixNano()),
+		SessionID: m.sessionID,
+		Timestamp: time.Now(),
+		ShardID:   fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano()),
+		ShardType: shardType,
+		TaskRequest: task,
+		Duration:  duration,
+		ExecutionResult: prompt_evolution.ExecutionResult{
+			Success: err == nil,
+			Output:  result,
+		},
+	}
+
+	// Add error details if failed
+	if err != nil {
+		exec.ExecutionResult.BuildErrors = []string{err.Error()}
+	}
+
+	// Record the execution asynchronously
+	go func() {
+		if recErr := m.promptEvolver.RecordExecution(exec); recErr != nil {
+			logging.Get(logging.CategoryAutopoiesis).Debug("Failed to record shard execution: %v", recErr)
+		}
+	}()
+}
+
 // spawnShard spawns a shard agent for a task
 func (m Model) spawnShard(shardType, task string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
+		startTime := time.Now()
 		m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
 
+		// Notify observers about task start
+		m.sendObserverEvent(shards.EventTaskStarted, shardType, task, map[string]string{
+			"shard_type": shardType,
+		})
+
 		result, err := m.spawnTask(ctx, shardType, task)
+		duration := time.Since(startTime)
 
 		// Generate a shard ID for fact tracking
 		shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
@@ -351,9 +408,22 @@ func (m Model) spawnShard(shardType, task string) tea.Cmd {
 			}
 		}
 
+		// Record execution for prompt evolution learning
+		m.recordShardExecution(shardType, task, result, err, duration)
+
 		if err != nil {
+			// Notify observers about task failure
+			m.sendObserverEvent(shards.EventTaskFailed, shardType, task, map[string]string{
+				"shard_type": shardType,
+				"error":      err.Error(),
+			})
 			return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
 		}
+
+		// Notify observers about task completion
+		m.sendObserverEvent(shards.EventTaskCompleted, shardType, task, map[string]string{
+			"shard_type": shardType,
+		})
 
 		response := fmt.Sprintf(`## Shard Execution Complete
 
@@ -409,7 +479,17 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 			return m.spawnSimpleShard(ctx, shardType, task, startTime)
 		}
 
-		// 4. Route based on execution mode
+		// 4. Check for high-confidence executor specialist that should handle directly
+		//    This implements the specialist_should_execute rule from shards.mg
+		for _, spec := range specialists {
+			if spec.ShouldExecute && spec.Classification != nil &&
+				spec.Classification.ExecutionMode == shards.SpecialistModeExecutor {
+				// High-confidence executor specialist - route directly to them
+				return m.executeSpecialistDirectMode(ctx, verb, spec, task, target, startTime)
+			}
+		}
+
+		// 5. Route based on execution mode
 		mode := shards.GetExecutionMode(verb)
 		switch mode {
 		case shards.ModeAdvisory:
@@ -426,16 +506,21 @@ func (m Model) spawnShardWithSpecialists(verb, shardType, task, target string) t
 func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, startTime time.Time) tea.Msg {
 	m.ReportStatus(fmt.Sprintf("Spawning %s...", shardType))
 	result, err := m.spawnTask(ctx, shardType, task)
+	duration := time.Since(startTime)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 	if m.kernel != nil && len(facts) > 0 {
 		_ = m.kernel.LoadFacts(facts)
 	}
+
+	// Record execution for prompt evolution learning
+	m.recordShardExecution(shardType, task, result, err, duration)
+
 	if err != nil {
 		return errorMsg(fmt.Errorf("shard spawn failed: %w", err))
 	}
 	response := fmt.Sprintf("## Shard Execution Complete\n\n**Agent**: %s\n**Task**: %s\n**Duration**: %s\n\n### Result\n%s",
-		shardType, task, time.Since(startTime).Round(time.Second), result)
+		shardType, task, duration.Round(time.Second), result)
 	return assistantMsg{
 		Surface: response,
 		ShardResult: &ShardResultPayload{
@@ -459,8 +544,10 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			shardStart := time.Now()
 			result, err := m.spawnTask(ctx, shardType, task)
-			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err}
+			duration := time.Since(shardStart)
+			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err, Task: task, Duration: duration}
 		}()
 	}
 
@@ -469,10 +556,12 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 		wg.Add(1)
 		go func(s shards.SpecialistMatch) {
 			defer wg.Done()
+			shardStart := time.Now()
 			specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
 				strings.TrimPrefix(verb, "/"), strings.Join(s.Files, ","), s.Reason)
 			result, err := m.spawnTask(ctx, s.AgentName, specTask)
-			resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err}
+			duration := time.Since(shardStart)
+			resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err, Task: specTask, Duration: duration}
 		}(spec)
 	}
 
@@ -481,6 +570,11 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 	var results []spawnResult
 	for r := range resultsChan {
 		results = append(results, r)
+	}
+
+	// Record each execution for prompt evolution learning
+	for _, r := range results {
+		m.recordShardExecution(r.Name, r.Task, r.Result, r.Err, r.Duration)
 	}
 
 	return m.formatParallelResults(verb, shardType, task, target, results, startTime)
@@ -522,7 +616,9 @@ func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, t
 			task, combinedAdvice.String())
 	}
 
+	execStart := time.Now()
 	result, err := m.spawnTask(ctx, shardType, enhancedTask)
+	execDuration := time.Since(execStart)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 
@@ -536,6 +632,9 @@ func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, t
 	if m.kernel != nil && len(facts) > 0 {
 		_ = m.kernel.LoadFacts(facts)
 	}
+
+	// Record execution for prompt evolution learning
+	m.recordShardExecution(shardType, enhancedTask, result, err, execDuration)
 
 	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
 	sb.WriteString(fmt.Sprintf("**Advisors**: %s\n", formatAdvisorNames(adviceResults)))
@@ -587,7 +686,9 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 			task, combinedAdvice.String())
 	}
 
+	execStart := time.Now()
 	result, err := m.spawnTask(ctx, shardType, enhancedTask)
+	execDuration := time.Since(execStart)
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 
@@ -619,6 +720,9 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 		_ = m.kernel.LoadFacts(facts)
 	}
 
+	// Record execution for prompt evolution learning
+	m.recordShardExecution(shardType, enhancedTask, result, err, execDuration)
+
 	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
 	sb.WriteString(fmt.Sprintf("**Advisors**: %s\n", formatAdvisorNames(adviceResults)))
 
@@ -627,6 +731,71 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 		Surface: sb.String(),
 		ShardResult: &ShardResultPayload{
 			ShardType: shardType,
+			Task:      task,
+			Result:    result,
+			Facts:     facts,
+		},
+	}
+}
+
+// executeSpecialistDirectMode handles high-confidence executor specialists directly.
+// When a specialist has ShouldExecute=true and is an Executor, they handle the task
+// without going through the generic shard. This implements specialist_should_execute.
+func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, specialist shards.SpecialistMatch, task, target string, startTime time.Time) tea.Msg {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
+	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
+	sb.WriteString(fmt.Sprintf("**Specialist**: %s (confidence: %.0f%%)\n", specialist.AgentName, specialist.Score*100))
+	sb.WriteString(fmt.Sprintf("**Mode**: Direct Execution\n\n"))
+
+	if specialist.Classification != nil {
+		sb.WriteString(fmt.Sprintf("**Classification**: %s / %s\n\n",
+			specialist.Classification.ExecutionMode,
+			specialist.Classification.KnowledgeTier))
+	}
+
+	m.ReportStatus(fmt.Sprintf("Specialist %s executing %s directly...", specialist.AgentName, verb))
+
+	// Build specialist-specific task with full context
+	specialistTask := fmt.Sprintf(`%s
+
+Target files: %s
+Your expertise: %s
+
+You are executing this task DIRECTLY as the domain specialist. Apply your full expertise.
+Do NOT just advise - implement the solution.`,
+		task,
+		strings.Join(specialist.Files, ", "),
+		specialist.Reason)
+
+	execStart := time.Now()
+	result, err := m.spawnTask(ctx, specialist.AgentName, specialistTask)
+	execDuration := time.Since(execStart)
+	shardID := fmt.Sprintf("%s-%d", specialist.AgentName, time.Now().UnixNano())
+	facts := m.shardMgr.ResultToFacts(shardID, specialist.AgentName, task, result, err)
+
+	if err != nil {
+		sb.WriteString(fmt.Sprintf("### Execution Failed\n\n❌ Error: %v\n\n", err))
+	} else {
+		sb.WriteString(fmt.Sprintf("### Result\n\n%s\n\n", result))
+	}
+
+	// Inject facts
+	if m.kernel != nil && len(facts) > 0 {
+		_ = m.kernel.LoadFacts(facts)
+	}
+
+	// Record execution for prompt evolution learning
+	m.recordShardExecution(specialist.AgentName, specialistTask, result, err, execDuration)
+
+	sb.WriteString(fmt.Sprintf("---\n\n**Duration**: %s\n", time.Since(startTime).Round(time.Second)))
+	sb.WriteString(fmt.Sprintf("**Executor**: %s\n", specialist.AgentName))
+
+	m.ReportStatus(fmt.Sprintf("%s complete (specialist direct)", specialist.AgentName))
+	return assistantMsg{
+		Surface: sb.String(),
+		ShardResult: &ShardResultPayload{
+			ShardType: specialist.AgentName,
 			Task:      task,
 			Result:    result,
 			Facts:     facts,
@@ -734,9 +903,11 @@ Be concise. Focus on domain-specific insights others might miss.`,
 
 // spawnResult holds the result from a parallel shard spawn
 type spawnResult struct {
-	Name   string
-	Result string
-	Err    error
+	Name     string
+	Result   string
+	Err      error
+	Task     string        // Task that was executed
+	Duration time.Duration // Execution duration
 }
 
 // formatParallelResults formats the output for parallel execution mode

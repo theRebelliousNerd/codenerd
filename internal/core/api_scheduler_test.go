@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // MockLLMClient for testing
@@ -32,6 +34,14 @@ func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, er
 
 func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return m.Complete(ctx, systemPrompt+"\n"+userPrompt)
+}
+
+func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	text, err := m.Complete(ctx, systemPrompt+"\n"+userPrompt)
+	if err != nil {
+		return nil, err
+	}
+	return &types.LLMToolResponse{Text: text, StopReason: "end_turn"}, nil
 }
 
 // TestAPIScheduler_AcquireRelease tests basic slot acquisition and release

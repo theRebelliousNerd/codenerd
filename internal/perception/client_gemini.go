@@ -402,3 +402,121 @@ func (c *GeminiClient) SetModel(model string) {
 func (c *GeminiClient) GetModel() string {
 	return c.model
 }
+
+// CompleteWithTools sends a prompt with tool definitions and returns tool calls.
+func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	// Auto-apply timeout if context has no deadline
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[Gemini] CompleteWithTools: model=%s tools=%d system_len=%d user_len=%d",
+		c.model, len(tools), len(systemPrompt), len(userPrompt))
+
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("API key not configured")
+	}
+
+	// Convert tools to Gemini format
+	geminiTools := make([]GeminiFunctionDeclaration, len(tools))
+	for i, t := range tools {
+		geminiTools[i] = GeminiFunctionDeclaration{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.InputSchema,
+		}
+	}
+
+	// Build request
+	reqBody := GeminiRequest{
+		Contents: []GeminiContent{
+			{
+				Role:  "user",
+				Parts: []GeminiPart{{Text: userPrompt}},
+			},
+		},
+		GenerationConfig: GeminiGenerationConfig{
+			Temperature:     0.1,
+			MaxOutputTokens: 8192,
+		},
+	}
+
+	if systemPrompt != "" {
+		reqBody.SystemInstruction = &GeminiContent{
+			Parts: []GeminiPart{{Text: systemPrompt}},
+		}
+	}
+
+	if len(geminiTools) > 0 {
+		reqBody.Tools = []GeminiTool{{FunctionDeclarations: geminiTools}}
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		logging.PerceptionError("[Gemini] CompleteWithTools: request failed after %v: %v", time.Since(startTime), err)
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logging.PerceptionError("[Gemini] CompleteWithTools: API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var geminiResp GeminiResponse
+	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if geminiResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s", geminiResp.Error.Message)
+	}
+
+	// Parse response content into text and tool calls
+	result := &LLMToolResponse{}
+
+	if len(geminiResp.Candidates) > 0 {
+		result.StopReason = geminiResp.Candidates[0].FinishReason
+		var textBuilder strings.Builder
+		for _, part := range geminiResp.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				textBuilder.WriteString(part.Text)
+			}
+			if part.FunctionCall != nil {
+				result.ToolCalls = append(result.ToolCalls, ToolCall{
+					ID:    fmt.Sprintf("call_%d", len(result.ToolCalls)),
+					Name:  part.FunctionCall.Name,
+					Input: part.FunctionCall.Args,
+				})
+			}
+		}
+		result.Text = strings.TrimSpace(textBuilder.String())
+	}
+
+	logging.Perception("[Gemini] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
+		time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
+
+	return result, nil
+}

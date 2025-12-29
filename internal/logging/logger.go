@@ -53,6 +53,7 @@ const (
 	CategoryTactile     Category = "tactile"     // Tactile executor, command execution
 	CategoryJIT         Category = "jit"         // JIT Prompt Compiler operations
 	CategoryBuild       Category = "build"       // Build environment and compilation
+	CategoryNorthstar   Category = "northstar"   // Northstar vision guardian
 )
 
 // loggingConfig mirrors the relevant parts of config.LoggingConfig
