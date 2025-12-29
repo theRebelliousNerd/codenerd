@@ -81,6 +81,16 @@ type GeminiConfig struct {
 	Model           string
 	Timeout         time.Duration
 	MaxOutputTokens int // Maximum tokens in response (default 8192)
+
+	// Thinking mode settings (Gemini 2.5+ and Gemini 3+)
+	EnableThinking bool   // Set true to enable thinking/reasoning mode
+	ThinkingLevel  string // For Gemini 3: "Low", "Medium", "High", "Minimal" (default: "Medium")
+	ThinkingBudget int    // For Gemini 2.5: 128-32768 tokens (0 = use default)
+
+	// Built-in tools
+	EnableGoogleSearch bool     // Enable Google Search grounding
+	EnableURLContext   bool     // Enable URL context tool
+	URLContextURLs     []string // URLs to include for context (max 20)
 }
 
 // XAIConfig holds configuration for xAI client.
@@ -292,14 +302,28 @@ type GeminiContent struct {
 
 // GeminiPart represents a part of the content.
 type GeminiPart struct {
-	Text         string                 `json:"text,omitempty"`
-	FunctionCall *GeminiFunctionCall    `json:"functionCall,omitempty"`
+	Text             string                   `json:"text,omitempty"`
+	FunctionCall     *GeminiFunctionCall      `json:"functionCall,omitempty"`
+	FunctionResponse *GeminiFunctionResponse  `json:"functionResponse,omitempty"`
 }
 
 // GeminiFunctionCall represents a function call from the model.
 type GeminiFunctionCall struct {
 	Name string                 `json:"name"`
 	Args map[string]interface{} `json:"args"`
+}
+
+// GeminiFunctionResponse represents a tool result sent back to the model.
+type GeminiFunctionResponse struct {
+	Name     string                 `json:"name"`
+	Response map[string]interface{} `json:"response"`
+}
+
+// GeminiThinkingConfig configures thinking/reasoning mode.
+type GeminiThinkingConfig struct {
+	IncludeThoughts bool   `json:"includeThoughts,omitempty"` // Enable thinking mode
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`   // Gemini 3: "Low", "Medium", "High", "Minimal"
+	ThinkingBudget  int    `json:"thinkingBudget,omitempty"`  // Gemini 2.5: 128-32768 tokens
 }
 
 // GeminiGenerationConfig represents generation parameters.
@@ -309,6 +333,7 @@ type GeminiGenerationConfig struct {
 	MaxOutputTokens  int                    `json:"maxOutputTokens,omitempty"`
 	ResponseMimeType string                 `json:"response_mime_type,omitempty"`
 	ResponseSchema   map[string]interface{} `json:"response_schema,omitempty"`
+	ThinkingConfig   *GeminiThinkingConfig  `json:"thinkingConfig,omitempty"` // Thinking mode settings
 }
 
 // GeminiRequest represents the Gemini API request.
@@ -317,11 +342,26 @@ type GeminiRequest struct {
 	SystemInstruction *GeminiContent         `json:"systemInstruction,omitempty"`
 	GenerationConfig  GeminiGenerationConfig `json:"generationConfig,omitempty"`
 	Tools             []GeminiTool           `json:"tools,omitempty"`
+	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
+	// Must pass back the signature from the previous response to maintain reasoning context
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
-// GeminiTool represents a tool declaration for function calling.
+// GeminiGoogleSearch represents the Google Search grounding tool.
+type GeminiGoogleSearch struct {
+	// Empty struct - Google Search is enabled by presence
+}
+
+// GeminiURLContext represents the URL context tool for grounding.
+type GeminiURLContext struct {
+	URLs []string `json:"urls,omitempty"` // Max 20 URLs, 34MB per URL
+}
+
+// GeminiTool represents a tool declaration for function calling or built-in tools.
 type GeminiTool struct {
-	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations"`
+	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations,omitempty"`
+	GoogleSearch         *GeminiGoogleSearch         `json:"google_search,omitempty"` // Built-in Google Search
+	URLContext           *GeminiURLContext           `json:"url_context,omitempty"`   // Built-in URL Context
 }
 
 // GeminiFunctionDeclaration represents a function declaration.
@@ -331,20 +371,64 @@ type GeminiFunctionDeclaration struct {
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
+// GeminiGroundingChunk represents a chunk of grounding data from Google Search.
+type GeminiGroundingChunk struct {
+	Web *struct {
+		URI   string `json:"uri"`
+		Title string `json:"title"`
+	} `json:"web,omitempty"`
+}
+
+// GeminiGroundingSupport represents grounding support for a segment of text.
+type GeminiGroundingSupport struct {
+	Segment struct {
+		StartIndex int    `json:"startIndex"`
+		EndIndex   int    `json:"endIndex"`
+		Text       string `json:"text"`
+	} `json:"segment"`
+	GroundingChunkIndices []int     `json:"groundingChunkIndices"`
+	ConfidenceScores      []float64 `json:"confidenceScores"`
+}
+
+// GeminiSearchEntryPoint represents a search entry point for grounding.
+type GeminiSearchEntryPoint struct {
+	RenderedContent string `json:"renderedContent,omitempty"`
+	SDKBlob         string `json:"sdkBlob,omitempty"`
+}
+
+// GeminiGroundingMetadata contains grounding information from Google Search.
+type GeminiGroundingMetadata struct {
+	GroundingChunks      []GeminiGroundingChunk   `json:"groundingChunks,omitempty"`
+	GroundingSupports    []GeminiGroundingSupport `json:"groundingSupports,omitempty"`
+	WebSearchQueries     []string                 `json:"webSearchQueries,omitempty"`
+	SearchEntryPoint     *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitempty"`
+	RetrievalMetadata    map[string]interface{}   `json:"retrievalMetadata,omitempty"`
+}
+
+// GeminiResponseCandidate represents a single response candidate.
+type GeminiResponseCandidate struct {
+	Content struct {
+		Parts []GeminiResponsePart `json:"parts"`
+		Role  string               `json:"role"`
+	} `json:"content"`
+	FinishReason     string                   `json:"finishReason"`
+	GroundingMetadata *GeminiGroundingMetadata `json:"groundingMetadata,omitempty"`
+}
+
 // GeminiResponse represents the API response.
 type GeminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Parts []GeminiResponsePart `json:"parts"`
-			Role  string               `json:"role"`
-		} `json:"content"`
-		FinishReason string `json:"finishReason"`
-	} `json:"candidates"`
+	Candidates    []GeminiResponseCandidate `json:"candidates"`
 	UsageMetadata struct {
 		PromptTokenCount     int `json:"promptTokenCount"`
 		CandidatesTokenCount int `json:"candidatesTokenCount"`
 		TotalTokenCount      int `json:"totalTokenCount"`
+		ThoughtsTokenCount   int `json:"thoughtsTokenCount,omitempty"` // Tokens used for thinking
 	} `json:"usageMetadata"`
+	// ThoughtSummary contains the model's reasoning process (when thinking is enabled)
+	ThoughtSummary string `json:"thoughtSummary,omitempty"`
+	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
+	// Must be passed back in subsequent turns for the model to maintain reasoning context
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 	Error *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`

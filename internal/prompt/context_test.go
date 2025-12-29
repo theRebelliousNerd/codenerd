@@ -14,7 +14,7 @@ func TestNewCompilationContext(t *testing.T) {
 		cc := NewCompilationContext()
 
 		assert.Equal(t, "/active", cc.OperationalMode)
-		assert.Equal(t, 100000, cc.TokenBudget)
+		assert.Equal(t, 200000, cc.TokenBudget) // Default updated to 200k
 		assert.Equal(t, 8000, cc.ReservedTokens)
 		assert.Equal(t, 20, cc.SemanticTopK)
 	})

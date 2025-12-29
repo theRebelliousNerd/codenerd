@@ -1409,69 +1409,89 @@ tools/.traces/
 }
 
 // createDefaultConfig creates a config.json with sensible defaults.
+// Uses Gemini 3 Flash Preview as the default model with thinking mode and grounding tools.
 func (i *Initializer) createDefaultConfig(path string) error {
 	cfg := &config.UserConfig{
-		Provider: "zai",
-		Model:    "glm-4.7",
+		// Default to Gemini 3 Flash Preview - 1M context, thinking, grounding
+		Provider: "gemini",
+		Model:    "gemini-3-flash-preview",
+		Engine:   "gemini",
 		Theme:    "light",
+
+		// Gemini-specific settings: high thinking (dynamic), search grounding, URL context
+		// Thinking levels: "minimal", "low", "medium", "high" (default=dynamic)
+		Gemini: &config.GeminiProviderConfig{
+			EnableThinking:     true,
+			ThinkingLevel:      "high",
+			EnableGoogleSearch: true,
+			EnableURLContext:   true,
+		},
+
+		// Context window tuned for Gemini 3 Flash (1M input, 65K output)
 		ContextWindow: &config.ContextWindowConfig{
-			MaxTokens:              128000,
+			MaxTokens:              1048576, // Gemini 3 Flash: 1M input tokens
 			CoreReservePercent:     5,
-			AtomReservePercent:     30,
-			HistoryReservePercent:  15,
+			AtomReservePercent:     25,
+			HistoryReservePercent:  20,
 			WorkingReservePercent:  50,
-			RecentTurnWindow:       5,
+			OutputReserve:          65536, // Gemini 3 Flash: 65K output tokens
+			ThinkingReserve:        16384, // Reserve for thinking mode
+			ToolUseBuffer:          8000,
+			RecentTurnWindow:       8,
 			CompressionThreshold:   0.80,
 			TargetCompressionRatio: 100.0,
 			ActivationThreshold:    30.0,
 		},
+
 		Embedding: &config.EmbeddingConfig{
-			Provider:       "ollama",
+			Provider:       "genai",
 			OllamaEndpoint: "http://localhost:11434",
-			OllamaModel:    "embeddinggemma",
+			OllamaModel:    "nomic-embed-text",
 			GenAIModel:     "gemini-embedding-001",
 			TaskType:       "SEMANTIC_SIMILARITY",
 		},
+
+		// Shard profiles tuned for Gemini 3 Flash
 		ShardProfiles: map[string]config.ShardProfile{
 			"coder": {
-				Model:                 "glm-4.7",
+				Model:                 "gemini-3-flash-preview",
 				Temperature:           0.7,
 				TopP:                  0.9,
-				MaxContextTokens:      30000,
-				MaxOutputTokens:       6000,
+				MaxContextTokens:      1048576,
+				MaxOutputTokens:       65536,
 				MaxExecutionTimeSec:   600,
 				MaxRetries:            3,
 				MaxFactsInShardKernel: 30000,
 				EnableLearning:        true,
 			},
 			"tester": {
-				Model:                 "glm-4.7",
+				Model:                 "gemini-3-flash-preview",
 				Temperature:           0.5,
 				TopP:                  0.9,
-				MaxContextTokens:      20000,
-				MaxOutputTokens:       4000,
+				MaxContextTokens:      1048576,
+				MaxOutputTokens:       65536,
 				MaxExecutionTimeSec:   300,
 				MaxRetries:            3,
 				MaxFactsInShardKernel: 20000,
 				EnableLearning:        true,
 			},
 			"reviewer": {
-				Model:                 "glm-4.7",
+				Model:                 "gemini-3-flash-preview",
 				Temperature:           0.3,
 				TopP:                  0.9,
-				MaxContextTokens:      40000,
-				MaxOutputTokens:       8000,
+				MaxContextTokens:      1048576,
+				MaxOutputTokens:       65536,
 				MaxExecutionTimeSec:   900,
 				MaxRetries:            2,
 				MaxFactsInShardKernel: 30000,
 				EnableLearning:        false,
 			},
 			"researcher": {
-				Model:                 "glm-4.7",
+				Model:                 "gemini-3-flash-preview",
 				Temperature:           0.6,
 				TopP:                  0.95,
-				MaxContextTokens:      25000,
-				MaxOutputTokens:       5000,
+				MaxContextTokens:      1048576,
+				MaxOutputTokens:       65536,
 				MaxExecutionTimeSec:   600,
 				MaxRetries:            3,
 				MaxFactsInShardKernel: 25000,
@@ -1479,11 +1499,11 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			},
 		},
 		DefaultShard: &config.ShardProfile{
-			Model:                 "glm-4.7",
+			Model:                 "gemini-3-flash-preview",
 			Temperature:           0.7,
 			TopP:                  0.9,
-			MaxContextTokens:      20000,
-			MaxOutputTokens:       4000,
+			MaxContextTokens:      1048576,
+			MaxOutputTokens:       65536,
 			MaxExecutionTimeSec:   300,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 20000,

@@ -64,3 +64,46 @@ type CodexCLIConfig struct {
 	// When true, responses are streamed as they arrive
 	Streaming bool `json:"streaming,omitempty"`
 }
+
+// GeminiProviderConfig holds Gemini-specific configuration.
+// Supports Gemini 3 Flash Preview features: thinking mode, grounding tools.
+//
+// Thinking Mode:
+//   - For Gemini 3: use ThinkingLevel ("Low", "Medium", "High", "Minimal")
+//   - For Gemini 2.5: use ThinkingBudget (128-32768 tokens)
+//
+// Built-in Tools:
+//   - GoogleSearch: Enables grounding responses with Google Search results
+//   - URLContext: Allows including URLs for context (max 20 URLs, 34MB each)
+type GeminiProviderConfig struct {
+	// EnableThinking enables thinking/reasoning mode
+	EnableThinking bool `json:"enable_thinking,omitempty"`
+
+	// ThinkingLevel for Gemini 3: "Low", "Medium", "High", "Minimal"
+	// Default: "High" when thinking is enabled
+	ThinkingLevel string `json:"thinking_level,omitempty"`
+
+	// ThinkingBudget for Gemini 2.5: token budget 128-32768
+	// Only used when ThinkingLevel is empty
+	ThinkingBudget int `json:"thinking_budget,omitempty"`
+
+	// EnableGoogleSearch enables Google Search grounding
+	// Responses will be grounded with real-time search results
+	EnableGoogleSearch bool `json:"enable_google_search,omitempty"`
+
+	// EnableURLContext enables the URL context tool
+	// Allows including URLs for grounding (max 20 URLs)
+	EnableURLContext bool `json:"enable_url_context,omitempty"`
+}
+
+// DefaultGeminiProviderConfig returns sensible defaults for Gemini 3 Flash Preview.
+// Uses "high" thinking level for dynamic reasoning (Gemini 3 default).
+// Available levels: "minimal", "low", "medium", "high"
+func DefaultGeminiProviderConfig() *GeminiProviderConfig {
+	return &GeminiProviderConfig{
+		EnableThinking:     true,
+		ThinkingLevel:      "high", // Dynamic reasoning - maximizes reasoning depth
+		EnableGoogleSearch: true,
+		EnableURLContext:   true,
+	}
+}

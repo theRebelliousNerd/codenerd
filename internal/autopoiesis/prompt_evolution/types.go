@@ -148,6 +148,12 @@ type ExecutionRecord struct {
 	PromptManifest *prompt.PromptManifest `json:"prompt_manifest,omitempty"`
 	AtomIDs        []string               `json:"atom_ids,omitempty"` // Simplified list
 
+	// LLM Reasoning Metadata (Gemini 3+ Thinking Mode)
+	// These fields capture the model's reasoning process for learning and improvement
+	ThoughtSummary   string   `json:"thought_summary,omitempty"`   // Model's reasoning process summary
+	ThinkingTokens   int      `json:"thinking_tokens,omitempty"`   // Tokens used for reasoning
+	GroundingSources []string `json:"grounding_sources,omitempty"` // URLs used to ground the response
+
 	// Verdict (filled after evaluation)
 	Verdict *JudgeVerdict `json:"verdict,omitempty"`
 }

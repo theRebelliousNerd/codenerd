@@ -45,6 +45,9 @@ type UserConfig struct {
 	// When set to "claude-cli" or "codex-cli", uses CLI subprocess instead of HTTP API
 	Engine string `json:"engine,omitempty"`
 
+	// Gemini-specific configuration (thinking mode, grounding tools)
+	Gemini *GeminiProviderConfig `json:"gemini,omitempty"`
+
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
 
@@ -160,50 +163,50 @@ type UserConfig struct {
 
 // GetContextWindowConfig returns the context window config with defaults.
 func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
+	def := DefaultContextWindowConfig()
 	if c.ContextWindow != nil {
 		cfg := *c.ContextWindow
 		// Apply defaults for zero values
 		if cfg.MaxTokens == 0 {
-			cfg.MaxTokens = 128000
+			cfg.MaxTokens = def.MaxTokens
 		}
 		if cfg.CoreReservePercent == 0 {
-			cfg.CoreReservePercent = 5
+			cfg.CoreReservePercent = def.CoreReservePercent
 		}
 		if cfg.AtomReservePercent == 0 {
-			cfg.AtomReservePercent = 30
+			cfg.AtomReservePercent = def.AtomReservePercent
 		}
 		if cfg.HistoryReservePercent == 0 {
-			cfg.HistoryReservePercent = 15
+			cfg.HistoryReservePercent = def.HistoryReservePercent
 		}
 		if cfg.WorkingReservePercent == 0 {
-			cfg.WorkingReservePercent = 50
+			cfg.WorkingReservePercent = def.WorkingReservePercent
+		}
+		if cfg.OutputReserve == 0 {
+			cfg.OutputReserve = def.OutputReserve
+		}
+		// Note: ThinkingReserve can be 0 (disabled) - only set if explicitly negative
+		if cfg.ThinkingReserve < 0 {
+			cfg.ThinkingReserve = 0
+		}
+		if cfg.ToolUseBuffer == 0 {
+			cfg.ToolUseBuffer = def.ToolUseBuffer
 		}
 		if cfg.RecentTurnWindow == 0 {
-			cfg.RecentTurnWindow = 5
+			cfg.RecentTurnWindow = def.RecentTurnWindow
 		}
 		if cfg.CompressionThreshold == 0 {
-			cfg.CompressionThreshold = 0.60
+			cfg.CompressionThreshold = def.CompressionThreshold
 		}
 		if cfg.TargetCompressionRatio == 0 {
-			cfg.TargetCompressionRatio = 100.0
+			cfg.TargetCompressionRatio = def.TargetCompressionRatio
 		}
 		if cfg.ActivationThreshold == 0 {
-			cfg.ActivationThreshold = 30.0
+			cfg.ActivationThreshold = def.ActivationThreshold
 		}
 		return cfg
 	}
-	// Return defaults
-	return ContextWindowConfig{
-		MaxTokens:              128000,
-		CoreReservePercent:     5,
-		AtomReservePercent:     30,
-		HistoryReservePercent:  15,
-		WorkingReservePercent:  50,
-		RecentTurnWindow:       5,
-		CompressionThreshold:   0.60,
-		TargetCompressionRatio: 100.0,
-		ActivationThreshold:    30.0,
-	}
+	return def
 }
 
 // GetEmbeddingConfig returns the embedding config with defaults.
@@ -679,7 +682,7 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		cfg := *c.JIT
 		// Apply defaults for zero values (except booleans which default to false)
 		if cfg.TokenBudget == 0 {
-			cfg.TokenBudget = 100000
+			cfg.TokenBudget = 200000 // 200k tokens default
 		}
 		if cfg.ReservedTokens == 0 {
 			cfg.ReservedTokens = 8000
@@ -733,6 +736,21 @@ func (c *UserConfig) GetGuidanceConfig() *GuidanceConfig {
 		return c.Guidance
 	}
 	return DefaultGuidanceConfig()
+}
+
+// GetGeminiConfig returns the Gemini provider config with defaults applied.
+// Defaults to "high" thinking level (dynamic reasoning) with Google Search and URL Context enabled.
+// Thinking levels: "minimal", "low", "medium", "high"
+func (c *UserConfig) GetGeminiConfig() *GeminiProviderConfig {
+	if c.Gemini != nil {
+		cfg := *c.Gemini
+		// Apply defaults for thinking level if thinking is enabled but level not set
+		if cfg.EnableThinking && cfg.ThinkingLevel == "" && cfg.ThinkingBudget == 0 {
+			cfg.ThinkingLevel = "high" // Dynamic reasoning - maximizes reasoning depth
+		}
+		return &cfg
+	}
+	return DefaultGeminiProviderConfig()
 }
 
 // IsOnboardingComplete returns true if the user has completed onboarding.

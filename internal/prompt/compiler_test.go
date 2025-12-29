@@ -54,7 +54,7 @@ func atomsToFacts(atoms []*PromptAtom) []interface{} {
 func TestDefaultCompilerConfig(t *testing.T) {
 	config := DefaultCompilerConfig()
 
-	assert.Equal(t, 100000, config.DefaultTokenBudget)
+	assert.Equal(t, 200000, config.DefaultTokenBudget) // Default updated to 200k
 	assert.True(t, config.EnableVectorSearch)
 	assert.Equal(t, 0.3, config.VectorSearchWeight)
 	assert.Equal(t, 10, config.MaxAtomsPerCategory)
@@ -377,7 +377,7 @@ func TestJITPromptCompiler_GetSetConfig(t *testing.T) {
 
 	t.Run("get returns current config", func(t *testing.T) {
 		config := compiler.GetConfig()
-		assert.Equal(t, 100000, config.DefaultTokenBudget)
+		assert.Equal(t, 200000, config.DefaultTokenBudget) // Default updated to 200k
 	})
 
 	t.Run("set updates config", func(t *testing.T) {

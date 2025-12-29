@@ -191,14 +191,25 @@ type CompilationContext struct {
 }
 
 // NewCompilationContext creates a new CompilationContext with defaults.
+// Note: TokenBudget should be overridden by callers from config.ContextWindow.MaxTokens.
 func NewCompilationContext() *CompilationContext {
 	return &CompilationContext{
 		OperationalMode:     "/active",
-		TokenBudget:         100000, // Default 100k tokens
+		TokenBudget:         200000, // 200k tokens default - callers should override from config
 		ReservedTokens:      8000,   // Reserve 8k for response
 		SemanticTopK:        20,     // Top 20 semantic results
 		ActivationThreshold: 0.5,    // Default activation threshold
 	}
+}
+
+// NewCompilationContextWithBudget creates a new CompilationContext with a specific token budget.
+// Use this when creating compilation context with config.ContextWindow.MaxTokens.
+func NewCompilationContextWithBudget(tokenBudget int) *CompilationContext {
+	cc := NewCompilationContext()
+	if tokenBudget > 0 {
+		cc.TokenBudget = tokenBudget
+	}
+	return cc
 }
 
 // WorldStates returns the world state strings for atom matching.

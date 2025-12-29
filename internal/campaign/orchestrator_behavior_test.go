@@ -151,7 +151,7 @@ func TestContextPager_ResetPhaseContextClearsFacts(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
 
-	cp := NewContextPager(kernel, &stubLLM{})
+	cp := NewContextPager(kernel, &stubLLM{}, 0) // 0 uses default budget
 	_ = kernel.Assert(core.Fact{
 		Predicate: "activation",
 		Args:      []interface{}{"file_pattern(\"**/*\")", 100},

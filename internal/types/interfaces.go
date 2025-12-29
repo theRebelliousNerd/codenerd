@@ -54,6 +54,19 @@ type LLMToolResponse struct {
 	Text       string     `json:"text"`        // Text response (may be empty if only tool calls)
 	ToolCalls  []ToolCall `json:"tool_calls"`  // Tool invocations requested by LLM
 	StopReason string     `json:"stop_reason"` // "end_turn", "tool_use", etc.
+
+	// Gemini Thinking Mode metadata (for learning and improvement)
+	// ThoughtSummary captures the model's reasoning process for post-hoc analysis
+	ThoughtSummary string `json:"thought_summary,omitempty"`
+	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
+	// Must be passed back in subsequent turns for reasoning continuity
+	ThoughtSignature string `json:"thought_signature,omitempty"`
+	// ThinkingTokens tracks tokens used for reasoning (for budget monitoring)
+	ThinkingTokens int `json:"thinking_tokens,omitempty"`
+
+	// Grounding metadata (from Google Search / URL Context)
+	// GroundingSources lists URLs used to ground the response
+	GroundingSources []string `json:"grounding_sources,omitempty"`
 }
 
 // ShardAgent defines the interface for all agents.

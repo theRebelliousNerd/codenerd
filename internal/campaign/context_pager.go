@@ -29,17 +29,24 @@ type ContextPager struct {
 }
 
 // NewContextPager creates a new context pager.
-func NewContextPager(kernel *core.RealKernel, llmClient perception.LLMClient) *ContextPager {
-	logging.CampaignDebug("Creating new ContextPager with default budget")
+// If initialBudget is 0, defaults to 200000 tokens (caller should pass config.ContextWindow.MaxTokens).
+func NewContextPager(kernel *core.RealKernel, llmClient perception.LLMClient, initialBudget int) *ContextPager {
+	// Use provided budget or default to 200k (caller should override from config)
+	budget := initialBudget
+	if budget <= 0 {
+		budget = 200000 // 200k tokens default - caller should pass config.ContextWindow.MaxTokens
+	}
+
+	logging.CampaignDebug("Creating new ContextPager with budget=%d", budget)
 	cp := &ContextPager{
 		kernel:          kernel,
 		llmClient:       llmClient,
-		totalBudget:     100000, // 100k tokens default
-		coreReserve:     5000,   // 5% for core facts
-		phaseReserve:    30000,  // 30% for current phase
-		historyReserve:  15000,  // 15% for compressed history
-		workingReserve:  40000,  // 40% for working memory
-		prefetchReserve: 10000,  // 10% for prefetch
+		totalBudget:     budget,
+		coreReserve:     budget * 5 / 100,   // 5% for core facts
+		phaseReserve:    budget * 30 / 100,  // 30% for current phase
+		historyReserve:  budget * 15 / 100,  // 15% for compressed history
+		workingReserve:  budget * 40 / 100,  // 40% for working memory
+		prefetchReserve: budget * 10 / 100,  // 10% for prefetch
 	}
 	logging.CampaignDebug("ContextPager budget allocation: total=%d, core=%d, phase=%d, history=%d, working=%d, prefetch=%d",
 		cp.totalBudget, cp.coreReserve, cp.phaseReserve, cp.historyReserve, cp.workingReserve, cp.prefetchReserve)

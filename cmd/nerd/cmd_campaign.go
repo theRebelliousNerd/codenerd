@@ -266,11 +266,16 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		decomposer.SetPromptProvider(campaignPromptProvider)
 	}
 
-	// Build request
+	// Build request with context budget from config
+	contextBudget := 200000 // Default 200k tokens
+	if appCfg != nil && appCfg.ContextWindow != nil && appCfg.ContextWindow.MaxTokens > 0 {
+		contextBudget = appCfg.ContextWindow.MaxTokens
+	}
 	req := campaign.DecomposeRequest{
-		Goal:         goal,
-		SourcePaths:  docs,
-		CampaignType: campaign.CampaignType("/" + campaignType),
+		Goal:          goal,
+		SourcePaths:   docs,
+		CampaignType:  campaign.CampaignType("/" + campaignType),
+		ContextBudget: contextBudget,
 	}
 
 	fmt.Println("📋 Decomposing goal into phases and tasks...")
