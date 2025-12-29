@@ -35,11 +35,13 @@ type RegisteredAgent struct {
 
 // SpecialistMatch represents a matched specialist for task orchestration
 type SpecialistMatch struct {
-	AgentName     string   // Name of the specialist agent
-	KnowledgePath string   // Path to the knowledge DB
-	Files         []string // Files this specialist should work on
-	Score         float64  // Match confidence (0.0-1.0)
-	Reason        string   // Why this specialist was matched
+	AgentName      string                    // Name of the specialist agent
+	KnowledgePath  string                    // Path to the knowledge DB
+	Files          []string                  // Files this specialist should work on
+	Score          float64                   // Match confidence (0.0-1.0)
+	Reason         string                    // Why this specialist was matched
+	Classification *SpecialistClassification // Classification info (executor/advisor/observer)
+	ShouldExecute  bool                      // Whether this specialist should execute directly
 }
 
 // TechnologyPattern maps file patterns and imports to specialist agents
@@ -160,6 +162,164 @@ var AgentPatternMapping = map[string]string{
 }
 
 // =============================================================================
+// SPECIALIST CLASSIFICATION SYSTEM
+// =============================================================================
+
+// SpecialistExecutionMode defines the execution capability of a specialist
+type SpecialistExecutionMode string
+
+const (
+	// SpecialistModeExecutor - Can directly write/modify code in their domain
+	SpecialistModeExecutor SpecialistExecutionMode = "/executor"
+
+	// SpecialistModeAdvisor - Can only advise, not execute
+	SpecialistModeAdvisor SpecialistExecutionMode = "/advisor"
+
+	// SpecialistModeObserver - Background monitoring only
+	SpecialistModeObserver SpecialistExecutionMode = "/observer"
+)
+
+// SpecialistKnowledgeTier defines the type of knowledge a specialist has
+type SpecialistKnowledgeTier string
+
+const (
+	// TierTechnical - Implementation expertise (how to code)
+	TierTechnical SpecialistKnowledgeTier = "/technical"
+
+	// TierStrategic - Architectural/philosophical guidance (what to code)
+	TierStrategic SpecialistKnowledgeTier = "/strategic"
+
+	// TierDomain - Project-specific knowledge (why we code this way)
+	TierDomain SpecialistKnowledgeTier = "/domain"
+)
+
+// SpecialistClassification holds the classification of a specialist
+type SpecialistClassification struct {
+	ExecutionMode       SpecialistExecutionMode
+	KnowledgeTier       SpecialistKnowledgeTier
+	CanExecute          bool
+	CanAdvise           bool
+	CanObserve          bool
+	BackgroundCapable   bool
+	CampaignIntegration string // /phase_executor, /plan_reviewer, /background_monitor
+}
+
+// DefaultSpecialistClassifications maps specialist names to their classifications
+// These are parsed from the classification atoms in .nerd/agents/*/prompts.yaml
+var DefaultSpecialistClassifications = map[string]SpecialistClassification{
+	"goexpert": {
+		ExecutionMode:       SpecialistModeExecutor,
+		KnowledgeTier:       TierTechnical,
+		CanExecute:          true,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/phase_executor",
+	},
+	"bubbleteaexpert": {
+		ExecutionMode:       SpecialistModeExecutor,
+		KnowledgeTier:       TierTechnical,
+		CanExecute:          true,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/phase_executor",
+	},
+	"cobraexpert": {
+		ExecutionMode:       SpecialistModeExecutor,
+		KnowledgeTier:       TierTechnical,
+		CanExecute:          true,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/phase_executor",
+	},
+	"rodexpert": {
+		ExecutionMode:       SpecialistModeExecutor,
+		KnowledgeTier:       TierTechnical,
+		CanExecute:          true,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/phase_executor",
+	},
+	"mangleexpert": {
+		ExecutionMode:       SpecialistModeExecutor,
+		KnowledgeTier:       TierTechnical,
+		CanExecute:          true,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/phase_executor",
+	},
+	"securityauditor": {
+		ExecutionMode:       SpecialistModeAdvisor,
+		KnowledgeTier:       TierStrategic,
+		CanExecute:          false,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/plan_reviewer",
+	},
+	"testarchitect": {
+		ExecutionMode:       SpecialistModeAdvisor,
+		KnowledgeTier:       TierStrategic,
+		CanExecute:          false,
+		CanAdvise:           true,
+		CanObserve:          true,
+		BackgroundCapable:   true,
+		CampaignIntegration: "/plan_reviewer",
+	},
+}
+
+// GetSpecialistClassification returns the classification for a specialist
+func GetSpecialistClassification(name string) (SpecialistClassification, bool) {
+	// Normalize name to lowercase
+	lowerName := strings.ToLower(strings.TrimSpace(name))
+	class, ok := DefaultSpecialistClassifications[lowerName]
+	return class, ok
+}
+
+// CanSpecialistExecute returns whether a specialist can execute tasks directly
+func CanSpecialistExecute(name string) bool {
+	class, ok := GetSpecialistClassification(name)
+	if !ok {
+		return false // Unknown specialists default to advisory
+	}
+	return class.CanExecute
+}
+
+// IsExecutorSpecialist returns whether a specialist is an executor type
+func IsExecutorSpecialist(name string) bool {
+	class, ok := GetSpecialistClassification(name)
+	if !ok {
+		return false
+	}
+	return class.ExecutionMode == SpecialistModeExecutor
+}
+
+// IsStrategicAdvisor returns whether a specialist is a strategic advisor
+func IsStrategicAdvisor(name string) bool {
+	class, ok := GetSpecialistClassification(name)
+	if !ok {
+		return false
+	}
+	return class.KnowledgeTier == TierStrategic
+}
+
+// ShouldSpecialistExecuteTask determines if a specialist should execute directly
+// based on task confidence and specialist classification
+func ShouldSpecialistExecuteTask(name string, confidence float64) bool {
+	class, ok := GetSpecialistClassification(name)
+	if !ok || !class.CanExecute {
+		return false
+	}
+	// High confidence (>0.8) means specialist should execute directly
+	// Lower confidence means specialist should advise instead
+	return confidence > 0.8
+}
+
+// =============================================================================
 // VERB-AWARE SPECIALIST MATCHING
 // =============================================================================
 
@@ -181,6 +341,10 @@ const (
 	// Phase 2: Generic shard executes the task
 	// Phase 3: Specialists critique the result AFTER execution
 	ModeAdvisoryWithCritique
+
+	// ModeSpecialistDirect - Executor specialist handles task directly
+	// Used when a high-confidence executor specialist is matched
+	ModeSpecialistDirect
 )
 
 // VerbSpecialistConfig defines which specialists are relevant for each verb
@@ -379,6 +543,8 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 			if existing, ok := agentMatches[agentLower]; ok {
 				if score > existing.Score {
 					existing.Score = score
+					// Update ShouldExecute based on new score
+					existing.ShouldExecute = ShouldSpecialistExecuteTask(agentLower, score)
 				}
 				// Add file if not already present
 				fileExists := false
@@ -392,12 +558,20 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 					existing.Files = append(existing.Files, file)
 				}
 			} else {
+				// Get classification for this specialist
+				var classification *SpecialistClassification
+				if class, ok := GetSpecialistClassification(agentLower); ok {
+					classification = &class
+				}
+
 				agentMatches[agentLower] = &SpecialistMatch{
-					AgentName:     agent.Name,
-					KnowledgePath: agent.KnowledgePath,
-					Files:         []string{file},
-					Score:         score,
-					Reason:        tech.Description,
+					AgentName:      agent.Name,
+					KnowledgePath:  agent.KnowledgePath,
+					Files:          []string{file},
+					Score:          score,
+					Reason:         tech.Description,
+					Classification: classification,
+					ShouldExecute:  ShouldSpecialistExecuteTask(agentLower, score),
 				}
 			}
 		}
