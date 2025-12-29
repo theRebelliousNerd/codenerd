@@ -79,8 +79,8 @@ type GeminiProviderConfig struct {
 	// EnableThinking enables thinking/reasoning mode
 	EnableThinking bool `json:"enable_thinking,omitempty"`
 
-	// ThinkingLevel for Gemini 3: "Low", "Medium", "High", "Minimal"
-	// Default: "High" when thinking is enabled
+	// ThinkingLevel for Gemini 3: "minimal", "low", "medium", "high" (MUST be lowercase)
+	// Default: "high" when thinking is enabled
 	ThinkingLevel string `json:"thinking_level,omitempty"`
 
 	// ThinkingBudget for Gemini 2.5: token budget 128-32768

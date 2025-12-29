@@ -84,7 +84,7 @@ type GeminiConfig struct {
 
 	// Thinking mode settings (Gemini 2.5+ and Gemini 3+)
 	EnableThinking bool   // Set true to enable thinking/reasoning mode
-	ThinkingLevel  string // For Gemini 3: "Low", "Medium", "High", "Minimal" (default: "Medium")
+	ThinkingLevel  string // For Gemini 3: "minimal", "low", "medium", "high" (lowercase required, default: "high")
 	ThinkingBudget int    // For Gemini 2.5: 128-32768 tokens (0 = use default)
 
 	// Built-in tools

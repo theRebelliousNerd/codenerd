@@ -21,7 +21,7 @@ Types in this package are foundational data structures with no complex dependenc
 |------|-------------|
 | `types.go` | Core Mangle fact types and SessionContext for blackboard pattern. Exports `MangleAtom`, `Fact` with String()/ToAtom(), `SessionContext` containing compressed history, diagnostics, git context, knowledge atoms, allowed/blocked actions. |
 | `shard.go` | Shard type definitions and configuration structures. Exports `ShardType` enum (ephemeral/persistent/user/system), `ShardState` enum, `ShardPermission` enum (8 permissions), `ModelCapability` enum, `ShardConfig`, `ShardResult`. |
-| `interfaces.go` | Core interfaces breaking import cycles. Exports `Kernel` (LoadFacts/Query/Assert/Retract), `LLMClient` (Complete/CompleteWithSystem), `ShardAgent` (Execute/GetID/GetState), `ShardFactory`, `LearningStore`, `LimitsEnforcer`. |
+| `interfaces.go` | Core interfaces breaking import cycles. Exports `Kernel` (LoadFacts/Query/Assert/Retract), `LLMClient` (Complete/CompleteWithSystem/CompleteWithTools), `LLMToolResponse` (with GroundingSources), `ShardAgent` (Execute/GetID/GetState), `ShardFactory`, `LearningStore`, `LimitsEnforcer`, `GroundingProvider` (optional interface for grounding-capable LLM clients like Gemini). |
 
 ## Key Types
 
@@ -74,6 +74,23 @@ const (
     PermissionAskUser   ShardPermission = "ask_user"
     PermissionResearch  ShardPermission = "research"
 )
+```
+
+### GroundingProvider (Optional Interface)
+
+LLM clients that support grounding (like GeminiClient with Google Search) implement this interface:
+
+```go
+type GroundingProvider interface {
+    GetLastGroundingSources() []string
+    IsGoogleSearchEnabled() bool
+    IsURLContextEnabled() bool
+}
+
+// Usage: Type assertion to check for grounding support
+if gp, ok := client.(types.GroundingProvider); ok {
+    sources := gp.GetLastGroundingSources()
+}
 ```
 
 ## Dependencies

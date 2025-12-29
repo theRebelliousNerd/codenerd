@@ -20,6 +20,7 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | [SK-010](#sk-010-cli-engine-integration) | cli-engine-integration | LLM Integration | Core |
 | [SK-011](#sk-011-prompt-architect) | prompt-architect | Prompt Engineering | Core |
 | [SK-012](#sk-012-stress-tester) | stress-tester | Testing & QA | Utility |
+| [SK-013](#sk-013-gemini-features) | gemini-features | LLM Integration | Component |
 
 ---
 
@@ -764,6 +765,79 @@ build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 
 ---
 
+## SK-013: gemini-features
+
+**Name:** `gemini-features`
+
+**Domain:** LLM Integration (Gemini-Specific)
+
+**Description:** Master Google Gemini 3 API integration for codeNERD. This skill should be used when implementing Gemini-specific features including: thinking mode configuration (thinkingLevel vs thinkingBudget), thought signatures for multi-turn function calling, Google Search grounding, URL Context tool, document processing, and structured output. Covers Go implementation patterns, API request/response formats, and integration with codeNERD's perception layer.
+
+### Trigger Conditions
+
+- Writing or debugging Gemini client code (`client_gemini.go`)
+- Configuring thinking modes (thinkingLevel for Gemini 3, thinkingBudget for 2.5)
+- Implementing multi-turn function calling with thought signatures
+- Enabling Google Search grounding or URL Context tools
+- Processing PDF/image documents with Gemini
+- Troubleshooting Gemini API errors (400 signature errors, etc.)
+- Deciding between Deep Research Agent vs URL Context/Search
+
+### Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| Thinking Mode | Configure thinkingLevel (minimal/low/medium/high) for Gemini 3 |
+| Thought Signatures | Handle encrypted reasoning context for multi-turn calls |
+| Google Search | Enable real-time web grounding with citation metadata |
+| URL Context | Ground responses with up to 20 specific URLs (34MB each) |
+| Document Processing | Process PDFs, images, and text with inline/GCS upload |
+| API Types | Complete Go type definitions for request/response |
+
+### Bundled Resources
+
+| Resource | Type | Purpose |
+|----------|------|---------|
+| `SKILL.md` | Core | Quick reference, patterns, common pitfalls |
+| `references/api_reference.md` | Reference | Complete API type definitions |
+| `references/thinking-mode.md` | Reference | Thinking configuration (levels vs budget) |
+| `references/grounding-tools.md` | Reference | Google Search and URL Context |
+| `references/thought-signatures.md` | Reference | Multi-turn function calling |
+| `references/document-processing.md` | Reference | PDF and image handling |
+
+### Integration Points
+
+| Integrates With | Relationship |
+|-----------------|--------------|
+| codenerd-builder | Implements GeminiClient as LLM provider |
+| go-architect | Go patterns for client implementation |
+| research-builder | Gemini grounding tools for ResearcherShard |
+| cli-engine-integration | Alternative to CLI engines for API-based LLM |
+
+### Key Implementation Files
+
+```text
+internal/perception/client_gemini.go     - Gemini client implementation
+internal/perception/client_types.go      - Gemini type definitions
+internal/perception/client_factory.go    - Provider wiring
+internal/config/llm.go                   - GeminiProviderConfig
+.nerd/config.json                        - User configuration
+```
+
+### Decision: Deep Research vs Built-in Tools
+
+**Deep Research Agent** (`/interactions` endpoint):
+- Async, up to 60 minutes execution
+- Cannot use codeNERD tools (no custom function calling)
+- Different API model
+
+**Recommendation:** Use Google Search + URL Context instead:
+- Synchronous, fits codeNERD flow
+- Works with codeNERD's tool ecosystem
+- Grounding metadata for citations
+
+---
+
 ## Adding New Skills to the Registry
 
 To register a new skill:
@@ -830,6 +904,7 @@ Add the new skill to:
 | Date | Change | Author |
 |------|--------|--------|
 | 2025-12-08 | Initial registry creation | Claude |
+| 2025-12-29 | Added SK-013 gemini-features | Claude |
 
 ### Guidelines
 

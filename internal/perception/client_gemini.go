@@ -35,6 +35,9 @@ type GeminiClient struct {
 
 	// Multi-turn function calling: thought signature from last response
 	lastThoughtSignature string
+
+	// Grounding sources from last response (for transparency)
+	lastGroundingSources []string
 }
 
 // DefaultGeminiConfig returns sensible defaults.
@@ -130,6 +133,32 @@ func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 // SetURLContextURLs sets URLs for the URL context tool.
 func (c *GeminiClient) SetURLContextURLs(urls []string) {
 	c.urlContextURLs = urls
+}
+
+// SetEnableGoogleSearch enables or disables Google Search grounding at runtime.
+func (c *GeminiClient) SetEnableGoogleSearch(enable bool) {
+	c.enableGoogleSearch = enable
+}
+
+// SetEnableURLContext enables or disables URL Context tool at runtime.
+func (c *GeminiClient) SetEnableURLContext(enable bool) {
+	c.enableURLContext = enable
+}
+
+// IsGoogleSearchEnabled returns whether Google Search grounding is enabled.
+func (c *GeminiClient) IsGoogleSearchEnabled() bool {
+	return c.enableGoogleSearch
+}
+
+// IsURLContextEnabled returns whether URL Context tool is enabled.
+func (c *GeminiClient) IsURLContextEnabled() bool {
+	return c.enableURLContext
+}
+
+// GetLastGroundingSources returns the grounding sources from the last response.
+// These are URLs that Gemini used to ground its response via Google Search or URL Context.
+func (c *GeminiClient) GetLastGroundingSources() []string {
+	return c.lastGroundingSources
 }
 
 // GetLastThoughtSignature returns the thought signature from the last response.
@@ -281,12 +310,28 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		response := strings.TrimSpace(result.String())
 
+		// Extract and store grounding sources for transparency
+		c.lastGroundingSources = nil // Reset
+		if len(geminiResp.Candidates) > 0 && geminiResp.Candidates[0].GroundingMetadata != nil {
+			gm := geminiResp.Candidates[0].GroundingMetadata
+			for _, chunk := range gm.GroundingChunks {
+				if chunk.Web != nil && chunk.Web.URI != "" {
+					c.lastGroundingSources = append(c.lastGroundingSources, chunk.Web.URI)
+				}
+			}
+			if len(c.lastGroundingSources) > 0 {
+				logging.PerceptionDebug("[Gemini] CompleteWithSystem: grounding sources=%d queries=%v",
+					len(c.lastGroundingSources), gm.WebSearchQueries)
+			}
+		}
+
 		// Log thinking tokens if used
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount)
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources))
 		} else {
-			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d",
+				time.Since(startTime), len(response), len(c.lastGroundingSources))
 		}
 		return response, nil
 	}
