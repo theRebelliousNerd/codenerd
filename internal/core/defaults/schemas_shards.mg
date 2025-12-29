@@ -17,6 +17,59 @@ Decl delegate_task(ShardType, TaskDescription, Status).
 # shard_profile(AgentName, Type, KnowledgePath)
 Decl shard_profile(AgentName, Type, KnowledgePath).
 
+# -----------------------------------------------------------------------------
+# 6.1 Specialist/Advisor Predicates
+# -----------------------------------------------------------------------------
+
+# task_complexity(ComplexityLevel) - current task complexity level (1-arg)
+# ComplexityLevel: /simple, /complex, /critical
+Decl task_complexity(ComplexityLevel).
+
+# task_complexity(Task, ComplexityLevel) - task-specific complexity (2-arg)
+Decl task_complexity(Task, ComplexityLevel).
+
+# specialist_classification(Agent, AgentType, SpecialistType) - agent type classification
+# AgentType: /advisor, /executor
+# SpecialistType: /strategic, /technical
+Decl specialist_classification(Agent, AgentType, SpecialistType).
+
+# specialist_knowledge_db(Specialist, DBPath) - specialist's knowledge database
+Decl specialist_knowledge_db(Specialist, DBPath).
+
+# specialist_campaign_role(Specialist, Role) - specialist's role in campaigns
+# Role: /phase_executor, /plan_reviewer, /alignment_guardian
+Decl specialist_campaign_role(Specialist, Role).
+
+# specialist_can_execute(Specialist) - derived: specialist can execute tasks
+Decl specialist_can_execute(Specialist).
+
+# consultation_request(FromSpec, ToSpec, Question, Timestamp) - specialist consultation request
+Decl consultation_request(FromSpec, ToSpec, Question, Timestamp).
+
+# specialist_should_execute(Specialist, Task) - derived: specialist should execute task directly
+Decl specialist_should_execute(Specialist, Task).
+
+# specialist_should_advise(Specialist, Task) - derived: specialist should advise on task
+Decl specialist_should_advise(Specialist, Task).
+
+# strategic_advisor_required(Task) - derived: task requires strategic advisor
+Decl strategic_advisor_required(Task).
+
+# specialist_context_source(Specialist, DBPath) - derived: route to specialist knowledge DB
+Decl specialist_context_source(Specialist, DBPath).
+
+# activate_specialist_for_phase(Specialist, Phase) - derived: activate specialist for campaign phase
+Decl activate_specialist_for_phase(Specialist, Phase).
+
+# specialist_assists(Advisor, Executor) - derived: advisor can assist executor
+Decl specialist_assists(Advisor, Executor).
+
+# specialist_consultation_route(FromSpec, ToSpec, Question) - derived: consultation routing
+Decl specialist_consultation_route(FromSpec, ToSpec, Question).
+
+# specialist_allowed_tools(Specialist, Tool) - derived: tools specialist can use
+Decl specialist_allowed_tools(Specialist, Tool).
+
 # =============================================================================
 # SECTION 30: CODER SHARD HELPERS
 # =============================================================================

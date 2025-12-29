@@ -6,7 +6,8 @@ import (
 
 // Scenario represents a complete test scenario for the context system.
 type Scenario struct {
-	Name        string
+	ScenarioID  string // kebab-case identifier (e.g., "debugging-marathon")
+	Name        string // Human-readable name (e.g., "Debugging Marathon")
 	Description string
 	Turns       []Turn
 	Checkpoints []Checkpoint

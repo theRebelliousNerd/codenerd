@@ -25,10 +25,10 @@ type Harness struct {
 
 // NewHarness creates a new test harness.
 func NewHarness(kernel *core.RealKernel, config SimulatorConfig, output io.Writer, outputFormat string) *Harness {
-	// Load all scenarios
+	// Load all scenarios - use ScenarioID (kebab-case) as key, not Name
 	scenarios := make(map[string]*Scenario)
 	for _, scenario := range AllScenarios() {
-		scenarios[scenario.Name] = scenario
+		scenarios[scenario.ScenarioID] = scenario
 	}
 
 	return &Harness{

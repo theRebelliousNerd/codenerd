@@ -710,6 +710,35 @@ func (a *constitutionLLMAdapter) CompleteWithSystem(ctx context.Context, systemP
 	return a.Complete(ctx, systemPrompt, userPrompt)
 }
 
+// CompleteWithTools implements types.LLMClient interface.
+// The constitution gate doesn't use tool-calling, so this delegates to the underlying client.
+func (a *constitutionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("LLM client not configured")
+	}
+
+	// Check cost guard
+	can, reason := a.costGuard.CanCall()
+	if !can {
+		return nil, fmt.Errorf("LLM call blocked by cost guard: %s", reason)
+	}
+
+	// Forward to underlying client if it supports tool calling
+	if toolClient, ok := a.client.(interface {
+		CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}); ok {
+		result, err := toolClient.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+		if err != nil {
+			a.costGuard.RecordError()
+			return nil, err
+		}
+		a.costGuard.RecordCall()
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("underlying client does not support CompleteWithTools")
+}
+
 // buildRuleProposalPrompt creates a prompt for the LLM to propose a new rule.
 func (c *ConstitutionGateShard) buildRuleProposalPrompt(cases []UnhandledCase) string {
 	var sb strings.Builder

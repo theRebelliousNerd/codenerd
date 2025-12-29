@@ -370,6 +370,10 @@ Decl review_insight(Index, Insight).
 # Records which specialists were matched for a review and why
 Decl specialist_match(ReviewID, AgentName, Score, Reason).
 
+# specialist_match(Specialist, Task, Confidence)
+# BUG FIX: 3-arg overload for task matching rules in shards.mg
+Decl specialist_match(Specialist, Task, Confidence).
+
 # symbol_verified_exists(Symbol, File, VerifiedAt)
 # Symbol was verified to exist (counters false "undefined" claims)
 Decl symbol_verified_exists(Symbol, File, VerifiedAt).

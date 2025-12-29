@@ -329,9 +329,11 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 	t.transition(TDDStateRunning, TDDActionRunTests, nil)
 
 	// Execute tests via VirtualStore
+	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
 		Args: []interface{}{
+			fmt.Sprintf("tdd-test-%d", time.Now().UnixNano()),
 			"/run_tests",
 			t.config.TestCommand,
 		},
@@ -509,9 +511,11 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 		}
 
 		// Apply via VirtualStore
+		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 		action := Fact{
 			Predicate: "next_action",
 			Args: []interface{}{
+				fmt.Sprintf("tdd-edit-%d", time.Now().UnixNano()),
 				"/edit_file",
 				patch.FilePath,
 				map[string]interface{}{
@@ -540,9 +544,11 @@ func (t *TDDLoop) build(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
 		Args: []interface{}{
+			fmt.Sprintf("tdd-build-%d", time.Now().UnixNano()),
 			"/build_project",
 			t.config.BuildCommand,
 		},
@@ -571,9 +577,11 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 	reason := fmt.Sprintf("TDD loop exhausted after %d retries. Last diagnostics: %d errors",
 		t.retryCount, len(t.diagnostics))
 
+	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
 		Args: []interface{}{
+			fmt.Sprintf("tdd-escalate-%d", time.Now().UnixNano()),
 			"/escalate",
 			reason,
 		},

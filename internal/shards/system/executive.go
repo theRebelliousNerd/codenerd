@@ -760,6 +760,13 @@ func (a *executiveLLMAdapter) CompleteWithSystem(ctx context.Context, systemProm
 	return a.Complete(ctx, systemPrompt, userPrompt)
 }
 
+// CompleteWithTools implements types.LLMClient interface.
+// The executive policy shard doesn't use tool-calling directly.
+func (a *executiveLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	// Executive policy uses standard completion, not tool calling
+	return nil, fmt.Errorf("executiveLLMAdapter does not support CompleteWithTools")
+}
+
 // handleAutopoiesis uses the Mangle FeedbackLoop to propose and validate new policy rules.
 func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 	cases := e.Autopoiesis.GetUnhandledCases()

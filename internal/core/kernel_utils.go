@@ -143,6 +143,17 @@ func (k *RealKernel) AssertFact(fact types.KernelFact) error {
 	return k.Assert(fact.ToFact())
 }
 
+// AssertFactBatch adds multiple facts and evaluates once (much faster than multiple AssertFact calls).
+// Implements types.KernelInterface.
+func (k *RealKernel) AssertFactBatch(facts []types.KernelFact) error {
+	// Convert to core.Fact slice
+	coreFacts := make([]Fact, len(facts))
+	for i, f := range facts {
+		coreFacts[i] = f.ToFact()
+	}
+	return k.AssertBatch(coreFacts)
+}
+
 // QueryPredicate queries for facts matching a predicate string.
 func (k *RealKernel) QueryPredicate(predicate string) ([]types.KernelFact, error) {
 	facts, err := k.Query(predicate)

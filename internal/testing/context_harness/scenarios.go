@@ -34,6 +34,7 @@ func AllScenarios() []*Scenario {
 // Tests: Long-term context retention, error tracking, solution history.
 func DebuggingMarathonScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "debugging-marathon",
 		Name:        "Debugging Marathon",
 		Description: "50-turn debugging session testing context retention and solution tracking",
 		Turns: []Turn{
@@ -122,6 +123,7 @@ func DebuggingMarathonScenario() *Scenario {
 // Tests: Multi-phase context paging (plan → implement → test), cross-file tracking.
 func FeatureImplementationScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "feature-implementation",
 		Name:        "Feature Implementation",
 		Description: "75-turn feature implementation testing multi-phase context paging",
 		Turns: []Turn{
@@ -200,6 +202,7 @@ func FeatureImplementationScenario() *Scenario {
 // Tests: Long-term stability, cross-file context, campaign paging.
 func RefactoringCampaignScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "refactoring-campaign",
 		Name:        "Refactoring Campaign",
 		Description: "100-turn refactoring campaign testing long-term stability",
 		Turns: []Turn{
@@ -256,6 +259,7 @@ func RefactoringCampaignScenario() *Scenario {
 // Tests: Cross-phase context, knowledge retrieval from research phase.
 func ResearchAndBuildScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "research-and-build",
 		Name:        "Research and Build",
 		Description: "80-turn research and implementation testing cross-phase knowledge retrieval",
 		Turns: []Turn{
@@ -329,6 +333,7 @@ func intPtr(i int) *int {
 // Tests: Test failure → analyze → fix → retest cycle compression.
 func TDDLoopScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "tdd-loop",
 		Name:        "TDD Loop",
 		Description: "40-turn TDD repair loop testing compression across test-fix cycles",
 		Turns: []Turn{
@@ -405,6 +410,7 @@ func TDDLoopScenario() *Scenario {
 // Tests: Context paging across campaign phases, phase-aware activation.
 func CampaignExecutionScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "campaign-execution",
 		Name:        "Campaign Execution",
 		Description: "60-turn multi-phase campaign testing context paging and phase transitions",
 		Turns: []Turn{
@@ -494,6 +500,7 @@ func CampaignExecutionScenario() *Scenario {
 // Tests: Piggyback protocol, cross-shard context, shard result tracking.
 func ShardCollaborationScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "shard-collaboration",
 		Name:        "Shard Collaboration",
 		Description: "50-turn multi-shard workflow testing Piggyback protocol and cross-shard context",
 		Turns: []Turn{
@@ -585,6 +592,7 @@ func ShardCollaborationScenario() *Scenario {
 // Tests: Policy rule comprehension, spreading activation for logic queries.
 func ManglePolicyDebugScenario() *Scenario {
 	return &Scenario{
+		ScenarioID:  "mangle-policy-debug",
 		Name:        "Mangle Policy Debug",
 		Description: "45-turn Mangle policy debugging testing logic-specific context retrieval",
 		Turns: []Turn{
