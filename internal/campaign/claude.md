@@ -75,3 +75,7 @@ Run with sqlite headers available:
 ```bash
 CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go test ./internal/campaign/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

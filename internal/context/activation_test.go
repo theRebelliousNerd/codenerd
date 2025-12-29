@@ -90,6 +90,9 @@ func TestFilterByThreshold(t *testing.T) {
 
 func TestSelectWithinBudget(t *testing.T) {
 	config := DefaultConfig()
+	// Set threshold below our test scores (100, 90, 80) so they pass threshold filter
+	// Default is 105.0, which would filter out all test facts
+	config.ActivationThreshold = 50.0
 	engine := NewActivationEngine(config)
 
 	scored := []ScoredFact{
@@ -109,7 +112,7 @@ func TestSelectWithinBudget(t *testing.T) {
 	// Large budget should include all
 	allSelected := engine.SelectWithinBudget(scored, 10000)
 	if len(allSelected) != 3 {
-		t.Logf("Selected %d of 3 facts with large budget", len(allSelected))
+		t.Errorf("Expected all 3 facts with large budget, got %d", len(allSelected))
 	}
 }
 

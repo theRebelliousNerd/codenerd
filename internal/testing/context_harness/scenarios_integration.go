@@ -323,6 +323,101 @@ func EphemeralFilteringScenario() *Scenario {
 	}
 }
 
+// ContextFeedbackLearningScenario tests the third feedback loop: LLM-driven context usefulness learning.
+func ContextFeedbackLearningScenario() *Scenario {
+	turns := make([]Turn, 40)
+
+	// Phase 1: Build up feedback history (turns 0-19)
+	// Some predicates will be consistently helpful, others consistently noise
+	for i := 0; i < 20; i++ {
+		intent := "debug"
+		if i%3 == 0 {
+			intent = "implement"
+		}
+		turns[i] = Turn{
+			TurnID:  i,
+			Speaker: "user",
+			Message: feedbackLearningMessages[i%len(feedbackLearningMessages)],
+			Intent:  intent,
+			Metadata: TurnMetadata{
+				Topics:          []string{"debugging", "implementation"},
+				FilesReferenced: []string{"auth/handler.go", "auth/middleware.go"},
+				ErrorMessages:   []string{"TypeError: unsupported operand"},
+			},
+		}
+	}
+
+	// Phase 2: Verify learned scores affect activation (turns 20-39)
+	for i := 20; i < 40; i++ {
+		turns[i] = Turn{
+			TurnID:                  i,
+			Speaker:                 "user",
+			Message:                 "Continue with the auth implementation",
+			Intent:                  "implement",
+			Metadata: TurnMetadata{
+				Topics:                  []string{"implementation", "auth"},
+				FilesReferenced:         []string{"auth/handler.go"},
+				IsQuestionReferringBack: true,
+				ReferencesBackToTurn:    intPtr(5),
+			},
+		}
+	}
+
+	return &Scenario{
+		ScenarioID:  "context-feedback-learning",
+		Name:        "Context Feedback Learning",
+		Description: "Tests LLM-driven context usefulness learning (third feedback loop)",
+		Mode:        RealMode,
+		Category:    CategoryIntegration,
+		InitialFacts: []string{
+			// Seed some facts that will be rated as helpful
+			`file_topology("auth/handler.go", "/auth", 150)`,
+			`symbol_graph("HandleAuth", "ValidateToken", "calls")`,
+			// Seed some facts that will be rated as noise
+			`dom_node("legacy_ui_component", "div", "12345")`,
+			`browser_state("idle", 0)`,
+		},
+		Turns: turns,
+		Checkpoints: []Checkpoint{
+			{
+				AfterTurn:    25,
+				Query:        "What auth patterns are we using?",
+				MustRetrieve: []string{"file_topology_handler", "symbol_graph_auth"},
+				ShouldAvoid:  []string{"dom_node", "browser_state"},
+				MinRecall:    0.6,
+				MinPrecision: 0.5,
+				Description:  "Verify helpful predicates get boosted after feedback",
+				ValidateFeedback: &FeedbackValidation{
+					MinFeedbackSamples: 10,
+					ExpectedHelpful:    []string{"file_topology", "symbol_graph", "turn_error_message"},
+					ExpectedNoise:      []string{"dom_node", "browser_state"},
+					MinHelpfulBoost:    5.0,  // At least +5 score from learned usefulness
+					MaxNoiseBoost:      -5.0, // At most -5 score for noise predicates
+				},
+			},
+			{
+				AfterTurn:    35,
+				Query:        "What errors occurred in auth?",
+				MustRetrieve: []string{"turn_5_error_message", "turn_10_topic"},
+				ShouldAvoid:  []string{"dom_node"},
+				MinRecall:    0.7,
+				MinPrecision: 0.6,
+				Description:  "Verify learning stabilizes and improves retrieval",
+				ValidateFeedback: &FeedbackValidation{
+					MinFeedbackSamples: 20,
+					ExpectedHelpful:    []string{"turn_error_message", "file_topology"},
+					MinHelpfulBoost:    10.0, // Stronger boost after more samples
+				},
+			},
+		},
+		ExpectedMetrics: Metrics{
+			CompressionRatio:   0.4,
+			AvgRetrievalRecall: 0.65,
+			AvgRetrievalPrec:   0.55,
+		},
+	}
+}
+
 // IntegrationScenarios returns all integration scenarios.
 func IntegrationScenarios() []*Scenario {
 	return []*Scenario{
@@ -332,6 +427,7 @@ func IntegrationScenarios() []*Scenario {
 		DependencySpreadingScenario(),
 		VerbSpecificBoostingScenario(),
 		EphemeralFilteringScenario(),
+		ContextFeedbackLearningScenario(),
 	}
 }
 
@@ -383,4 +479,15 @@ var verbMessages = map[string]string{
 	"review":    "Review the recent changes to auth",
 	"research":  "Research best practices for JWT handling",
 	"explain":   "Explain how the session manager works",
+}
+
+var feedbackLearningMessages = []string{
+	"Debug the auth token validation error",
+	"What's causing the TypeError in handler.go?",
+	"Show me the symbol graph for HandleAuth",
+	"Find all callers of ValidateToken",
+	"The middleware is throwing an error on line 45",
+	"Check the file topology for the auth module",
+	"Why is the authentication failing?",
+	"Trace the error through the call stack",
 }

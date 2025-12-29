@@ -29,6 +29,7 @@ var (
 	testContextTraceActivation bool
 	testContextVisCompression  bool
 	testContextTracePiggyback  bool
+	testContextTraceFeedback   bool
 	testContextLogDir          string
 	testContextConsoleOutput   bool
 	testContextMode            string // "mock" or "real"
@@ -88,6 +89,7 @@ func init() {
 	testContextCmd.Flags().BoolVar(&testContextTraceActivation, "trace-activation", true, "Trace spreading activation")
 	testContextCmd.Flags().BoolVar(&testContextVisCompression, "vis-compression", true, "Visualize compression (before/after)")
 	testContextCmd.Flags().BoolVar(&testContextTracePiggyback, "trace-piggyback", true, "Trace Piggyback protocol")
+	testContextCmd.Flags().BoolVar(&testContextTraceFeedback, "trace-feedback", true, "Trace context feedback learning")
 	testContextCmd.Flags().StringVar(&testContextLogDir, "log-dir", ".nerd/context-tests", "Directory for log files")
 	testContextCmd.Flags().BoolVar(&testContextConsoleOutput, "console", true, "Also print to console (in addition to files)")
 
@@ -129,6 +131,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	var activationTracer *context_harness.ActivationTracer
 	var compressionViz *context_harness.CompressionVisualizer
 	var piggybackTracer *context_harness.PiggybackTracer
+	var feedbackTracer *context_harness.FeedbackTracer
 
 	if testContextInspectPrompts {
 		promptInspector = context_harness.NewPromptInspector(
@@ -165,6 +168,13 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	if testContextTraceFeedback {
+		feedbackTracer = context_harness.NewFeedbackTracer(
+			fileLogger.GetFeedbackWriter(),
+			testContextVerbose,
+		)
+	}
+
 	// Boot Cortex (need kernel + compression system)
 	fmt.Println("🚀 Booting codeNERD Cortex...")
 	fmt.Printf("📊 Observability Enabled:\n")
@@ -182,6 +192,9 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 	}
 	if testContextTracePiggyback {
 		fmt.Println("  ✓ Piggyback Protocol Tracing")
+	}
+	if testContextTraceFeedback {
+		fmt.Println("  ✓ Context Feedback Learning Tracing")
 	}
 	fmt.Println()
 
@@ -239,6 +252,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		activationTracer,
 		compressionViz,
 		piggybackTracer,
+		feedbackTracer,
 		contextEngine,
 	)
 
@@ -258,6 +272,7 @@ func runTestContext(cmd *cobra.Command, args []string) error {
 		fmt.Println("  --trace-activation     Trace spreading activation")
 		fmt.Println("  --vis-compression      Visualize compression (before/after)")
 		fmt.Println("  --trace-piggyback      Trace Piggyback protocol")
+		fmt.Println("  --trace-feedback       Trace context feedback learning")
 		fmt.Println("  --verbose, -v          Show all internal details")
 		return nil
 	}

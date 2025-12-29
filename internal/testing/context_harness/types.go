@@ -76,8 +76,23 @@ type Checkpoint struct {
 	Description  string
 
 	// Advanced validation for integration scenarios (optional)
-	ValidateActivation   *ActivationValidation   // Verify 7-component scoring
+	ValidateActivation   *ActivationValidation   // Verify 8-component scoring (including feedback)
 	ValidateCompression  *CompressionCheckpoint  // Verify compression behavior
+	ValidateFeedback     *FeedbackValidation     // Verify feedback learning behavior
+}
+
+// FeedbackValidation validates context feedback learning at a checkpoint.
+type FeedbackValidation struct {
+	// Expected minimum feedback samples collected by this turn
+	MinFeedbackSamples int
+	// Expected predicates that should have positive usefulness scores
+	ExpectedHelpful []string
+	// Expected predicates that should have negative usefulness scores
+	ExpectedNoise []string
+	// Minimum positive impact for helpful predicates (-20 to +20 scale)
+	MinHelpfulBoost float64
+	// Maximum negative impact for noise predicates (-20 to +20 scale)
+	MaxNoiseBoost float64
 }
 
 // CompressionCheckpoint validates compression behavior at a checkpoint.

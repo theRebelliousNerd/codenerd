@@ -924,6 +924,19 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			}
 		}
 
+		// Initialize Context Feedback Store (Third feedback loop: context usefulness learning)
+		logStep("Initializing context feedback store...")
+		feedbackDBPath := filepath.Join(workspace, ".nerd", "context_feedback.db")
+		var feedbackStore *ctxcompress.ContextFeedbackStore
+		if fs, err := ctxcompress.NewContextFeedbackStore(feedbackDBPath); err != nil {
+			logging.Get(logging.CategoryContext).Warn("Failed to create context feedback store: %v", err)
+		} else {
+			feedbackStore = fs
+			// Wire feedback store to compressor's activation engine
+			compressor.SetFeedbackStore(feedbackStore)
+			logging.Context("Context feedback store initialized at %s", feedbackDBPath)
+		}
+
 		logStep("Starting autopoiesis orchestrator...")
 		autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
@@ -1034,6 +1047,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				TurnCount:             resolveTurnCount(loadedSession),
 				LocalDB:               localDB,
 				Compressor:            compressor,
+				FeedbackStore:         feedbackStore,
 				Autopoiesis:           autopoiesisOrch,
 				AutopoiesisCancel:     autopoiesisCancel,
 				AutopoiesisListenerCh: autopoiesisListenerCh,
