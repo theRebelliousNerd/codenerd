@@ -8,16 +8,19 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -160,6 +163,11 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
 	}
 
+	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
+	if err := virtualStore.HydrateModularTools(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
+	}
+
 	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
@@ -299,11 +307,41 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
+	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
+	transducer := perception.NewRealTransducer(llmClient)
+	configFactory := prompt.NewDefaultConfigFactory()
+	campaignKernelAdapter := &campaignKernelAdapter{kernel: kern}
+	campaignVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
+	campaignLLMAdapter := &campaignLLMAdapter{client: llmClient}
+
+	sessionExecutor := session.NewExecutor(
+		campaignKernelAdapter,
+		campaignVSAdapter,
+		campaignLLMAdapter,
+		jitCompiler,
+		configFactory,
+		transducer,
+	)
+
+	sessionSpawner := session.NewSpawner(
+		campaignKernelAdapter,
+		campaignVSAdapter,
+		campaignLLMAdapter,
+		jitCompiler,
+		configFactory,
+		transducer,
+		session.DefaultSpawnerConfig(),
+	)
+
+	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
+	virtualStore.SetTaskExecutor(taskExecutor)
+
 	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:    cwd,
 		Kernel:       kern,
 		LLMClient:    llmClient,
 		ShardManager: shardMgr,
+		TaskExecutor: taskExecutor,
 		Executor:     executor,
 		VirtualStore: virtualStore,
 		ProgressChan: progressChan,
@@ -521,6 +559,12 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	executor := tactile.NewDirectExecutor()
 	virtualStore := core.NewVirtualStore(executor)
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
+
+	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
+	if err := virtualStore.HydrateModularTools(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to hydrate modular tools: %v\n", err)
+	}
+
 	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
@@ -590,11 +634,41 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	progressChan := make(chan campaign.Progress, 10)
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
+	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
+	transducer := perception.NewRealTransducer(llmClient)
+	configFactory := prompt.NewDefaultConfigFactory()
+	resumeKernelAdapter := &campaignKernelAdapter{kernel: kern}
+	resumeVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
+	resumeLLMAdapter := &campaignLLMAdapter{client: llmClient}
+
+	sessionExecutor := session.NewExecutor(
+		resumeKernelAdapter,
+		resumeVSAdapter,
+		resumeLLMAdapter,
+		jitCompiler,
+		configFactory,
+		transducer,
+	)
+
+	sessionSpawner := session.NewSpawner(
+		resumeKernelAdapter,
+		resumeVSAdapter,
+		resumeLLMAdapter,
+		jitCompiler,
+		configFactory,
+		transducer,
+		session.DefaultSpawnerConfig(),
+	)
+
+	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
+	virtualStore.SetTaskExecutor(taskExecutor)
+
 	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:    cwd,
 		Kernel:       kern,
 		LLMClient:    llmClient,
 		ShardManager: shardMgr,
+		TaskExecutor: taskExecutor,
 		Executor:     executor,
 		VirtualStore: virtualStore,
 		ProgressChan: progressChan,
@@ -701,4 +775,97 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// ============================================================================
+// SESSION ADAPTERS FOR JITEXECUTOR
+// These adapt internal types to the types.* interfaces required by session package.
+// ============================================================================
+
+// campaignKernelAdapter adapts core.Kernel to types.Kernel for session package.
+type campaignKernelAdapter struct {
+	kernel types.Kernel
+}
+
+func (a *campaignKernelAdapter) LoadFacts(facts []types.Fact) error {
+	return a.kernel.LoadFacts(facts)
+}
+
+func (a *campaignKernelAdapter) Query(predicate string) ([]types.Fact, error) {
+	return a.kernel.Query(predicate)
+}
+
+func (a *campaignKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
+	return a.kernel.QueryAll()
+}
+
+func (a *campaignKernelAdapter) Assert(fact types.Fact) error {
+	return a.kernel.Assert(fact)
+}
+
+func (a *campaignKernelAdapter) Retract(predicate string) error {
+	return a.kernel.Retract(predicate)
+}
+
+func (a *campaignKernelAdapter) RetractFact(fact types.Fact) error {
+	return a.kernel.RetractFact(fact)
+}
+
+func (a *campaignKernelAdapter) UpdateSystemFacts() error {
+	return a.kernel.UpdateSystemFacts()
+}
+
+func (a *campaignKernelAdapter) Reset() {
+	a.kernel.Reset()
+}
+
+func (a *campaignKernelAdapter) AppendPolicy(policy string) {
+	a.kernel.AppendPolicy(policy)
+}
+
+func (a *campaignKernelAdapter) RetractExactFactsBatch(facts []types.Fact) error {
+	return a.kernel.RetractExactFactsBatch(facts)
+}
+
+func (a *campaignKernelAdapter) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	return a.kernel.RemoveFactsByPredicateSet(predicates)
+}
+
+// campaignVirtualStoreAdapter adapts core.VirtualStore to types.VirtualStore.
+type campaignVirtualStoreAdapter struct {
+	vs *core.VirtualStore
+}
+
+func (a *campaignVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(data), "\n"), nil
+}
+
+func (a *campaignVirtualStoreAdapter) WriteFile(path string, lines []string) error {
+	content := strings.Join(lines, "\n")
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func (a *campaignVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	return "", "", fmt.Errorf("exec not implemented in campaign adapter")
+}
+
+// campaignLLMAdapter adapts perception.LLMClient to types.LLMClient.
+type campaignLLMAdapter struct {
+	client perception.LLMClient
+}
+
+func (a *campaignLLMAdapter) Complete(ctx context.Context, prompt string) (string, error) {
+	return a.client.Complete(ctx, prompt)
+}
+
+func (a *campaignLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+func (a *campaignLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }

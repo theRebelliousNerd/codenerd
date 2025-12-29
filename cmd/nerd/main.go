@@ -244,6 +244,18 @@ func init() {
 		domCmd,
 		embeddingCmd,
 	)
+
+	// Strategic planning commands
+	rootCmd.AddCommand(
+		northstarCmd,
+	)
+
+	// System visibility commands
+	rootCmd.AddCommand(
+		mcpCmd,
+		autopoiesisCmd,
+		memoryCmd,
+	)
 }
 
 func main() {

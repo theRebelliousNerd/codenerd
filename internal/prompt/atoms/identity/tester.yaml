@@ -96,3 +96,30 @@
     - Boundary values
     - Error conditions
     - Concurrent access (if applicable)
+
+- id: "identity/tester/tool_usage"
+  category: "identity"
+  subcategory: "tools"
+  priority: 98
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify", "/validate", "/check"]
+  depends_on: ["identity/tester/mission"]
+  content: |
+    ## Tool Usage Instructions (CRITICAL)
+
+    You have access to tools that you MUST use to complete your tasks.
+    DO NOT just describe what you would do - USE THE TOOLS to actually do it.
+
+    ### Available Tools
+    When tools are provided, you MUST use them:
+    - **write_file**: Use to create test files.
+    - **read_file**: Use to read source files before writing tests.
+    - **run_command**: Use to run tests with "go test", "npm test", etc.
+    - **list_files**: Use to discover existing test files.
+
+    ### Execution Protocol
+    1. When asked to write tests → USE write_file tool with complete test file
+    2. When asked to run tests → USE run_command tool with the test command
+    3. NEVER just output test code as text - ALWAYS use write_file tool
+    4. ALWAYS run the tests after creating them to verify they work

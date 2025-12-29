@@ -11,6 +11,7 @@ import (
 )
 
 // detectLanguageFromFiles detects the primary language by looking for config files.
+// FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
 func (i *Initializer) detectLanguageFromFiles() string {
 	workspace := i.config.Workspace
 
@@ -27,11 +28,14 @@ func (i *Initializer) detectLanguageFromFiles() string {
 		{"setup.py", "python"},
 		{"pom.xml", "java"},
 		{"build.gradle", "java"},
+		{"build.gradle.kts", "kotlin"}, // FIX(BUG-006): Kotlin/Android detection
+		{"settings.gradle.kts", "kotlin"},
 		{"*.csproj", "csharp"},
 		{"mix.exs", "elixir"},
 		{"Gemfile", "ruby"},
 	}
 
+	// First check root directory
 	for _, check := range checks {
 		pattern := filepath.Join(workspace, check.file)
 		matches, err := filepath.Glob(pattern)
@@ -40,59 +44,131 @@ func (i *Initializer) detectLanguageFromFiles() string {
 		}
 	}
 
+	// FIX(BUG-006): For monorepos, check subdirectories (2 levels deep)
+	// Count occurrences of each language
+	langCounts := make(map[string]int)
+	for _, check := range checks {
+		// Check 1 level deep: */go.mod
+		pattern1 := filepath.Join(workspace, "*", check.file)
+		if matches, err := filepath.Glob(pattern1); err == nil {
+			langCounts[check.language] += len(matches)
+		}
+		// Check 2 levels deep: */*/go.mod
+		pattern2 := filepath.Join(workspace, "*", "*", check.file)
+		if matches, err := filepath.Glob(pattern2); err == nil {
+			langCounts[check.language] += len(matches)
+		}
+	}
+
+	// Return the language with the most config files
+	var maxLang string
+	var maxCount int
+	for lang, count := range langCounts {
+		if count > maxCount {
+			maxCount = count
+			maxLang = lang
+		}
+	}
+
+	if maxLang != "" {
+		return maxLang
+	}
+
 	return "unknown"
 }
 
 // detectDependencies scans project files for key dependencies with version information.
 // D4 enhancement: Extracts versions to enable version-specific agent recommendations.
+// FIX(BUG-006): Searches subdirectories (2 levels deep) for monorepo support.
 func (i *Initializer) detectDependencies() []DependencyInfo {
 	deps := []DependencyInfo{}
 	workspace := i.config.Workspace
+	seen := make(map[string]bool) // Dedupe dependencies
 
-	// Check go.mod for Go dependencies with versions
-	goModPath := filepath.Join(workspace, "go.mod")
-	if data, err := os.ReadFile(goModPath); err == nil {
-		content := string(data)
+	// Key Go dependencies to detect
+	goDeps := map[string]string{
+		"github.com/go-rod/rod":              "rod",
+		"github.com/chromedp/chromedp":       "chromedp",
+		"github.com/playwright-community":    "playwright",
+		"google/mangle":                      "mangle",
+		"github.com/google/mangle":           "mangle",
+		"github.com/sashabaranov/go-openai":  "openai",
+		"github.com/anthropics/anthropic":    "anthropic",
+		"github.com/charmbracelet/bubbletea": "bubbletea",
+		"github.com/spf13/cobra":             "cobra",
+		"github.com/gin-gonic/gin":           "gin",
+		"github.com/labstack/echo":           "echo",
+		"github.com/gofiber/fiber":           "fiber",
+		"gorm.io/gorm":                       "gorm",
+		"github.com/jmoiron/sqlx":            "sqlx",
+		"database/sql":                       "sql",
+		"github.com/gorilla/mux":             "gorilla",
+		"net/http":                           "http",
+		"github.com/arangodb/go-driver":      "arangodb",
+		"google.golang.org/adk":              "adk",
+		"github.com/a2aserver/a2a-go":        "a2a",
+	}
 
-		// Key Go dependencies to detect
-		goDeps := map[string]string{
-			"github.com/go-rod/rod":              "rod",
-			"github.com/chromedp/chromedp":       "chromedp",
-			"github.com/playwright-community":    "playwright",
-			"google/mangle":                      "mangle",
-			"github.com/sashabaranov/go-openai":  "openai",
-			"github.com/anthropics/anthropic":    "anthropic",
-			"github.com/charmbracelet/bubbletea": "bubbletea",
-			"github.com/spf13/cobra":             "cobra",
-			"github.com/gin-gonic/gin":           "gin",
-			"github.com/labstack/echo":           "echo",
-			"github.com/gofiber/fiber":           "fiber",
-			"gorm.io/gorm":                       "gorm",
-			"github.com/jmoiron/sqlx":            "sqlx",
-			"database/sql":                       "sql",
-			"github.com/gorilla/mux":             "gorilla",
-			"net/http":                           "http",
-		}
-
-		for pkg, name := range goDeps {
-			if strings.Contains(content, pkg) {
-				version := i.extractGoModVersion(content, pkg)
-				majorVersion := extractMajorVersion(version)
-				deps = append(deps, DependencyInfo{
-					Name:         name,
-					Version:      version,
-					MajorVersion: majorVersion,
-					Type:         "direct",
-				})
+	// Helper to scan a go.mod file
+	scanGoMod := func(path string) {
+		if data, err := os.ReadFile(path); err == nil {
+			content := string(data)
+			for pkg, name := range goDeps {
+				if strings.Contains(content, pkg) && !seen[name] {
+					version := i.extractGoModVersion(content, pkg)
+					majorVersion := extractMajorVersion(version)
+					deps = append(deps, DependencyInfo{
+						Name:         name,
+						Version:      version,
+						MajorVersion: majorVersion,
+						Type:         "direct",
+					})
+					seen[name] = true
+				}
 			}
 		}
 	}
 
-	// Check package.json for Node dependencies with versions
-	pkgPath := filepath.Join(workspace, "package.json")
-	if data, err := os.ReadFile(pkgPath); err == nil {
-		nodeDeps := i.parsePackageJSONDependencies(data)
-		deps = append(deps, nodeDeps...)
+	// Helper to scan a package.json file
+	scanPackageJSON := func(path string) {
+		if data, err := os.ReadFile(path); err == nil {
+			nodeDeps := i.parsePackageJSONDependencies(data)
+			for _, dep := range nodeDeps {
+				if !seen[dep.Name] {
+					deps = append(deps, dep)
+					seen[dep.Name] = true
+				}
+			}
+		}
+	}
+
+	// Check root directory first
+	scanGoMod(filepath.Join(workspace, "go.mod"))
+	scanPackageJSON(filepath.Join(workspace, "package.json"))
+
+	// FIX(BUG-006): Check subdirectories for monorepo support
+	// Check 1 level deep
+	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "go.mod")); err == nil {
+		for _, goMod := range goMods {
+			scanGoMod(goMod)
+		}
+	}
+	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "package.json")); err == nil {
+		for _, pkg := range pkgJSONs {
+			scanPackageJSON(pkg)
+		}
+	}
+
+	// Check 2 levels deep
+	if goMods, err := filepath.Glob(filepath.Join(workspace, "*", "*", "go.mod")); err == nil {
+		for _, goMod := range goMods {
+			scanGoMod(goMod)
+		}
+	}
+	if pkgJSONs, err := filepath.Glob(filepath.Join(workspace, "*", "*", "package.json")); err == nil {
+		for _, pkg := range pkgJSONs {
+			scanPackageJSON(pkg)
+		}
 	}
 
 	// Parse transitive dependencies from lock files
