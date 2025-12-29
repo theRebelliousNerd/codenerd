@@ -66,3 +66,7 @@ type ValidationError struct {
 ```bash
 go test ./internal/mangle/feedback/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

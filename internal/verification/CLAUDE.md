@@ -71,3 +71,7 @@ type CorrectiveAction struct {
 ```bash
 go test ./internal/verification/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

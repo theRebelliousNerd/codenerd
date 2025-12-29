@@ -123,3 +123,7 @@ type PromptAtom struct {
 ```bash
 go test ./internal/store/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

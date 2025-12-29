@@ -28,7 +28,13 @@
         ],
         "reasoning_trace": "1. Analyzed existing User struct. 2. Identified validation needs. 3. Implemented regex-based email validation. 4. Added length checks per requirements.",
         "confidence": 0.9,
-        "next_actions": ["/test", "/review"]
+        "next_actions": ["/test", "/review"],
+        "context_feedback": {
+          "overall_usefulness": 0.85,
+          "helpful_facts": ["file_topology", "symbol_graph", "project_context"],
+          "noise_facts": ["browser_state"],
+          "missing_context": ""
+        }
       },
       "artifacts": [
         {
@@ -84,7 +90,13 @@
           "review_finding(\"style\", \"/internal/handler/user.go\", 52, \"low\")"
         ],
         "verdict": "changes_requested",
-        "confidence": 0.85
+        "confidence": 0.85,
+        "context_feedback": {
+          "overall_usefulness": 0.75,
+          "helpful_facts": ["symbol_graph", "file_topology", "diagnostic_found"],
+          "noise_facts": ["session_context", "campaign_context"],
+          "missing_context": "git blame for recently changed lines"
+        }
       }
     }
     ```
@@ -125,7 +137,13 @@
           "coverage_target(\"ValidateEmail\", 0.90)"
         ],
         "reasoning_trace": "1. Identified function signature. 2. Analyzed RFC 5322 email format. 3. Generated valid cases. 4. Generated boundary cases. 5. Generated error cases.",
-        "confidence": 0.95
+        "confidence": 0.95,
+        "context_feedback": {
+          "overall_usefulness": 0.9,
+          "helpful_facts": ["test_state", "file_topology", "symbol_graph"],
+          "noise_facts": ["browser_state", "dom_node"],
+          "missing_context": ""
+        }
       },
       "artifacts": [
         {

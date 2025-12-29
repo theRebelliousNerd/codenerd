@@ -253,3 +253,7 @@ When Gemini with grounding is used:
 ```bash
 go test ./internal/perception/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

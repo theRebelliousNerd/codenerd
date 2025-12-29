@@ -86,3 +86,7 @@ type SpawnQueueConfig struct {
 ```bash
 go test ./internal/core/shards/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -122,3 +122,7 @@ type CoreLimits struct {
 ```bash
 go test ./internal/config/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

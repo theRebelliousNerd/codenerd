@@ -81,3 +81,7 @@ const (
 ```bash
 go test ./internal/tactile/python/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

@@ -98,3 +98,7 @@ reachable from WSL2, since localhost in WSL2 refers to the Linux VM.
 ```bash
 go test ./internal/embedding/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

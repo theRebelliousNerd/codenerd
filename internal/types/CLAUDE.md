@@ -144,3 +144,7 @@ if tp, ok := client.(types.ThinkingProvider); ok {
 ```bash
 go test ./internal/types/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

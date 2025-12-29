@@ -85,3 +85,7 @@ result, err := harness.RunScenario("debugging-marathon")
 ```bash
 go test ./internal/testing/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

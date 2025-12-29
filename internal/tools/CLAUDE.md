@@ -148,3 +148,7 @@ research.GetDocURLsForTech("react")  // react.dev
 ```bash
 go test ./internal/tools/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

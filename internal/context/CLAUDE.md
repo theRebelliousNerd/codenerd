@@ -74,3 +74,7 @@ type CompressorConfig struct {
 ```bash
 go test ./internal/context/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

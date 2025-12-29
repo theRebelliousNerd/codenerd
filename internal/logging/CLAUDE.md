@@ -89,3 +89,7 @@ Logging is controlled by `.nerd/config.json`:
 ```bash
 go test ./internal/logging/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

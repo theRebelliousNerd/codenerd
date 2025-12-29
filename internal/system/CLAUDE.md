@@ -69,3 +69,7 @@ type Cortex struct {
 ```bash
 go test ./internal/system/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

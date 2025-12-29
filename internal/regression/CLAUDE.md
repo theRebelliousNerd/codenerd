@@ -83,3 +83,7 @@ tasks:
 ```bash
 go test ./internal/regression/...
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

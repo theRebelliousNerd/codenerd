@@ -41,3 +41,7 @@ Creates `internal/core/defaults/intent_corpus.db` with:
 ## Building
 
 Requires CGO_CFLAGS for sqlite-vec headers.
+
+---
+
+**Remember: Push to GitHub regularly!**

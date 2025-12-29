@@ -55,6 +55,13 @@ type ActivationEngine struct {
 	// Corpus-based priorities (loaded from predicate_corpus.db)
 	// These take precedence over config.PredicatePriorities
 	corpusPriorities map[string]int
+
+	// Feedback store for learned predicate usefulness
+	// Provides historical feedback on which predicates help for each intent type
+	feedbackStore *ContextFeedbackStore
+
+	// Current intent verb for intent-specific feedback lookup
+	currentIntentVerb string
 }
 
 // CampaignActivationContext holds campaign-specific activation state.
@@ -172,6 +179,13 @@ func (ae *ActivationEngine) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpu
 	return nil
 }
 
+// SetFeedbackStore sets the context feedback store for learned predicate usefulness.
+// When set, the scoring system will use historical feedback to boost/penalize predicates
+// based on how useful they've been for each task type.
+func (ae *ActivationEngine) SetFeedbackStore(store *ContextFeedbackStore) {
+	ae.feedbackStore = store
+}
+
 // =============================================================================
 // Core Scoring
 // =============================================================================
@@ -184,6 +198,14 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 
 	ae.state.ActiveIntent = currentIntent
 	ae.state.LastUpdate = time.Now()
+
+	// Extract intent verb for intent-specific feedback lookup
+	ae.currentIntentVerb = ""
+	if currentIntent != nil && len(currentIntent.Args) >= 3 {
+		if v, ok := currentIntent.Args[2].(string); ok {
+			ae.currentIntentVerb = v
+		}
+	}
 
 	intentStr := "<none>"
 	if currentIntent != nil {
@@ -205,6 +227,10 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 			RecencyScore:    score.recency,
 			RelevanceScore:  score.relevance,
 			DependencyScore: score.dependency,
+			CampaignScore:   score.campaign,
+			SessionScore:    score.session,
+			IssueScore:      score.issue,
+			FeedbackScore:   score.feedback,
 		})
 	}
 
@@ -349,10 +375,11 @@ type scoreComponents struct {
 	campaign   float64 // Campaign-specific boost
 	session    float64 // Session-specific boost
 	issue      float64 // Issue/SWE-bench specific boost
+	feedback   float64 // Learned predicate usefulness from LLM feedback
 }
 
 func (s *scoreComponents) Total() float64 {
-	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue
+	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue + s.feedback
 }
 
 // computeScore calculates the activation score for a fact.
@@ -365,6 +392,7 @@ func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 		campaign:   ae.computeCampaignScore(fact),
 		session:    ae.computeSessionScore(fact),
 		issue:      ae.computeIssueScore(fact),
+		feedback:   ae.computeFeedbackScore(fact),
 	}
 }
 
@@ -756,6 +784,31 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 	}
 
 	return math.Min(score, 80.0) // Cap at 80
+}
+
+// computeFeedbackScore applies learned predicate usefulness from LLM feedback.
+// This implements the third feedback loop: LLM-driven context learning.
+// Score range: -20 (consistently noise) to +20 (consistently helpful)
+func (ae *ActivationEngine) computeFeedbackScore(fact core.Fact) float64 {
+	if ae.feedbackStore == nil {
+		return 0.0 // No feedback store configured
+	}
+
+	// Try intent-specific feedback first for more targeted learning
+	var usefulnessScore float64
+	if ae.currentIntentVerb != "" {
+		usefulnessScore = ae.feedbackStore.GetPredicateUsefulnessForIntent(fact.Predicate, ae.currentIntentVerb)
+	}
+
+	// Fall back to general usefulness if no intent-specific feedback
+	if usefulnessScore == 0.0 {
+		usefulnessScore = ae.feedbackStore.GetPredicateUsefulness(fact.Predicate)
+	}
+
+	// usefulnessScore is -1.0 (always noise) to +1.0 (always helpful)
+	// Scale to -20 to +20 activation boost/penalty
+	// This is a significant but not overwhelming factor in total scoring
+	return usefulnessScore * 20.0
 }
 
 // =============================================================================

@@ -129,3 +129,7 @@ type EvolverConfig struct {
     EnableStrategies        bool          // Default: true
 }
 ```
+
+---
+
+**Remember: Push to GitHub regularly!**

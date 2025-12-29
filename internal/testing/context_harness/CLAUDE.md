@@ -232,3 +232,7 @@ func MyNewScenario() *Scenario {
 2. Add to `Harness` and `SessionSimulator`
 3. Wire in `NewHarnessWithObservability()`
 4. Call tracer methods from `executeTurn()`
+
+---
+
+**Remember: Push to GitHub regularly!**

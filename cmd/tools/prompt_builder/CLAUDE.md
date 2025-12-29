@@ -56,3 +56,7 @@ content: |
 ## Building
 
 Requires CGO_CFLAGS for sqlite-vec headers.
+
+---
+
+**Remember: Push to GitHub regularly!**

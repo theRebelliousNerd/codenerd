@@ -70,3 +70,7 @@ All `.mg` files should be loaded together. The Mangle engine handles stratificat
 2. Strategy/activation rules (context selection)
 3. Action derivation rules (next_action)
 4. Specialized domain rules (campaign, verification, etc.)
+
+---
+
+**Remember: Push to GitHub regularly!**
