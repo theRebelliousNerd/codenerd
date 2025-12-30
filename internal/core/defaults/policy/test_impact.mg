@@ -4,42 +4,21 @@
 #
 # This file implements test impact analysis using the dependency graph
 # to determine which tests need to run when code is modified.
+#
+# NOTE: Test file and function identification is done in Go code
+# (internal/world/test_dependency.go) because Mangle doesn't have
+# string matching functions (fn:match, fn:basename, fn:dirname, etc.).
+# The Go code asserts is_test_file(File) and is_test_function(Ref) facts
+# which these rules then consume.
 
 # =============================================================================
-# SECTION 1: TEST IDENTIFICATION
+# SECTION 1: TEST IDENTIFICATION PREDICATES
 # =============================================================================
-# Identify test files and functions by naming convention.
+# These predicates are ASSERTED BY GO CODE (test_dependency.go), not derived.
+# Declarations are in schemas_shards.mg (is_test_file, same_package).
+# is_test_function is not yet declared elsewhere, so we declare it here.
 
-# Go test files end in _test.go
-is_test_file(File) :- file_topology(File, _, _), fn:match("_test\\.go$", File).
-
-# Python test files start with test_ or end with _test.py
-is_test_file(File) :- file_topology(File, _, _), fn:match("^test_.*\\.py$", fn:basename(File)).
-is_test_file(File) :- file_topology(File, _, _), fn:match("_test\\.py$", File).
-
-# TypeScript/JavaScript test files
-is_test_file(File) :- file_topology(File, _, _), fn:match("\\.test\\.(ts|tsx|js|jsx)$", File).
-is_test_file(File) :- file_topology(File, _, _), fn:match("\\.spec\\.(ts|tsx|js|jsx)$", File).
-
-# Rust test files in tests/ directory
-is_test_file(File) :- file_topology(File, _, _), fn:match("/tests/.*\\.rs$", File).
-
-# Test functions are code elements in test files
-is_test_function(Ref) :-
-    code_element(Ref, /function, File, _, _),
-    is_test_file(File).
-
-# Go: Functions starting with Test
-is_test_function(Ref) :-
-    code_element(Ref, /function, File, _, _),
-    fn:match("\\.go$", File),
-    fn:match(":Test[A-Z]", Ref).
-
-# Python: Functions starting with test_
-is_test_function(Ref) :-
-    code_element(Ref, /function, File, _, _),
-    fn:match("\\.py$", File),
-    fn:match(":test_", Ref).
+Decl is_test_function(Ref).
 
 
 # =============================================================================
@@ -124,7 +103,8 @@ impacted_test(TestRef) :-
 # For languages that run tests at package level (Go).
 
 # Get the package containing a test function
-test_package(TestRef, Pkg) :-
+# NOTE: Named test_func_package to avoid conflict with test_package/1 in tester.mg
+test_func_package(TestRef, Pkg) :-
     is_test_function(TestRef),
     code_element(TestRef, _, File, _, _),
     file_package(File, Pkg).
@@ -132,7 +112,7 @@ test_package(TestRef, Pkg) :-
 # A package has impacted tests if any test in it is impacted
 impacted_test_package(Pkg) :-
     impacted_test(TestRef),
-    test_package(TestRef, Pkg).
+    test_func_package(TestRef, Pkg).
 
 
 # =============================================================================
@@ -197,9 +177,6 @@ test_priority(TestRef, /low) :-
 # =============================================================================
 # Aggregate test results for reporting.
 
-# Count impacted tests (use in transform pipeline)
-# impacted_test_count :- impacted_test(Ref) |> let Count = fn:count().
-
 # Get all impacted test files
 impacted_test_file(File) :-
     impacted_test(TestRef),
@@ -211,14 +188,10 @@ impacted_test_file(File) :-
 # =============================================================================
 # Supporting predicates for test analysis.
 
-# Two files are in the same package if they share the same directory
-same_package(File1, File2) :-
-    file_topology(File1, _, _),
-    file_topology(File2, _, _),
-    fn:dirname(File1) = fn:dirname(File2).
+# same_package is already declared in schemas_shards.mg
+# (Mangle has no fn:dirname, so assertion happens in Go)
 
 # Test references a symbol (simplified - could be enhanced with AST analysis)
 test_references_symbol(TestRef, SourceRef) :-
     code_calls(TestRef, SourceRef).
-
 

@@ -190,3 +190,21 @@ Decl has_test_coverage(Ref).
 # cross_lang_refactor_target(Ref) - Element is target of cross-language refactoring
 Decl cross_lang_refactor_target(Ref).
 
+
+# =============================================================================
+# SECTION 6: TEST IMPACT PREDICATES
+# =============================================================================
+# Predicates for test impact analysis (asserted by Go code or derived in policy).
+
+# file_imports(Importer, Imported) - File imports another file
+Decl file_imports(Importer, Imported).
+
+# type_embeds(Type, EmbeddedType) - Type embeds another type (Go struct embedding)
+Decl type_embeds(Type, EmbeddedType).
+
+# plan_edit(Ref) - Element is planned for editing
+Decl plan_edit(Ref).
+
+# modified_file(File) - File has been modified
+Decl modified_file(File).
+
