@@ -316,11 +316,11 @@ context_pressure_high(CampaignID) :-
 context_pressure_critical(CampaignID) :-
     context_pressure_level(CampaignID, /critical).
 
-# Trigger compression when pressure is high
+# Trigger compression when pressure is high (but not critical)
 next_action(/compress_context) :-
     current_campaign(CampaignID),
-    context_pressure_high(CampaignID),
-    !context_pressure_critical(CampaignID).
+    !context_pressure_critical(CampaignID),
+    context_pressure_high(CampaignID).
 
 # Emergency compression when critical
 next_action(/emergency_compress) :-
@@ -367,11 +367,11 @@ activation(Atom, 150) :-
 # NOTE: Mangle can't compute CurrentOrder - 1; simplified to all completed phases
 # in same campaign get activation (Go can refine with previous_phase predicate)
 activation(Summary, 80) :-
-    campaign_phase(PhaseID, CampaignID, _, _, /completed, _),
     current_phase(CurrentPhaseID),
     campaign_phase(CurrentPhaseID, CampaignID, _, _, _, _),
-    context_compression(PhaseID, Summary, _, _),
-    PhaseID != CurrentPhaseID.
+    campaign_phase(PhaseID, CampaignID, _, _, /completed, _),
+    PhaseID != CurrentPhaseID,
+    context_compression(PhaseID, Summary, _, _).
 
 # =============================================================================
 # SECTION 5: CROSS-PHASE LEARNING
@@ -498,8 +498,8 @@ replan_needed(CampaignID, "phase_failure_cascade") :-
 # Phase is stuck: in-progress but no runnable tasks
 phase_stuck(PhaseID) :-
     campaign_phase(PhaseID, CampaignID, _, _, /in_progress, _),
-    current_campaign(CampaignID),
     !has_runnable_task(PhaseID),
+    current_campaign(CampaignID),
     has_pending_tasks(PhaseID).
 
 # Helper: phase has runnable tasks
@@ -537,8 +537,8 @@ task_can_skip(TaskID) :-
 
 task_can_skip(TaskID) :-
     task_retry_exhausted(TaskID),
-    task_priority(TaskID, /normal),
-    !task_blocks_others(TaskID).
+    !task_blocks_others(TaskID),
+    task_priority(TaskID, /normal).
 
 # Helper: task blocks other tasks
 task_blocks_others(TaskID) :-
@@ -700,10 +700,10 @@ campaign_intent_conflict(IntentID) :-
 
 # Intent is campaign-related if it matches current phase
 intent_is_campaign_related(IntentID) :-
-    current_campaign(CampaignID),
     current_phase(PhaseID),
-    user_intent(IntentID, _, _, Target, _),
-    phase_objective(PhaseID, _, Description, _).
+    phase_objective(PhaseID, _, Description, _),
+    current_campaign(_),
+    user_intent(IntentID, _, _, _, _).
 
 # Route conflict to user for decision
 next_action(/ask_campaign_interrupt) :-
@@ -882,9 +882,9 @@ phase_layer_priority(PhaseID, Priority) :-
 
 # Earlier layers should complete before later layers start
 layer_sequencing_correct(PhaseA, PhaseB) :-
+    phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseA, PriorityA),
     phase_layer_priority(PhaseB, PriorityB),
-    phase_dependency(PhaseB, PhaseA, _),
     PriorityA < PriorityB.
 
 # Warning if layer sequencing is wrong

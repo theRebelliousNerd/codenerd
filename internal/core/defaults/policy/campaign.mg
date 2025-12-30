@@ -75,16 +75,16 @@ task_conflict_active(TaskID) :-
 
 # Optional conflict heuristic: same artifact path -> conflict
 task_conflict(TaskID, OtherTaskID) :-
-    TaskID != OtherTaskID,
     task_artifact(TaskID, _, Path, _),
-    task_artifact(OtherTaskID, _, Path, _).
+    task_artifact(OtherTaskID, _, Path, _),
+    TaskID != OtherTaskID.
 
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
     campaign_task(OtherTaskID, PhaseID, _, /pending, _),
-    OtherTaskID != TaskID,
     task_priority(OtherTaskID, OtherPriority),
     task_priority(TaskID, Priority),
+    OtherTaskID != TaskID,
     priority_higher(OtherPriority, Priority).
 
 # Priority ordering helper
@@ -320,6 +320,7 @@ phase_tool_permitted(Tool) :-
     tool_in_list(Tool, RequiredTools).
 
 # Block tools not in phase profile during active campaign
+# NOTE: E023 warning is false positive - current_campaign/current_phase are singletons (1×1×N)
 tool_advisory_block(Tool, "not_in_phase_profile") :-
     current_campaign(_),
     current_phase(_),

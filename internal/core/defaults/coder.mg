@@ -301,10 +301,10 @@ critical_impact_edit(File) :-
 # Cross-package impact
 cross_package_impact(File) :-
     pending_edit(File, _),
-    coder_impacted(Dependent),
-    dependency_link(Dependent, File, _),
     file_package(File, Pkg1),
+    dependency_link(Dependent, File, _),
     file_package(Dependent, Pkg2),
+    coder_impacted(Dependent),
     Pkg1 != Pkg2.
 
 # -----------------------------------------------------------------------------
@@ -333,8 +333,8 @@ impact_warning(File, "cross_package") :-
 # Block if impacted files lack test coverage
 coder_block_write(File, "uncovered_impact") :-
     pending_edit(File, _),
-    coder_impacted(Dependent),
     dependency_link(Dependent, File, _),
+    coder_impacted(Dependent),
     !test_coverage(Dependent).
 
 # Block writes outside workspace
@@ -363,9 +363,9 @@ has_implementation_edit() :-
 
 # Block edits during active TDD red phase (tests should fail first)
 coder_block_action(/edit, "tdd_red_phase") :-
+    !has_implementation_edit(),
     pending_edit(_, _),
-    tdd_state(/red),
-    !has_implementation_edit().
+    tdd_state(/red).
 
 # Helpers
 is_generated_file(Path) :-
@@ -944,7 +944,7 @@ coder_task_failed(TaskID, Reason) :-
 # 13.1 State Queries
 # -----------------------------------------------------------------------------
 
-# Current coder status
+# Current coder status (all singletons - 1×1×1, no actual explosion)
 coder_status(State, Target, Strategy) :-
     coder_state(State),
     coder_target(Target),
