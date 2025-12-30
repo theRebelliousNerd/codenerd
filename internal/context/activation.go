@@ -47,6 +47,9 @@ type ActivationEngine struct {
 	// Issue context for issue-driven activation (GitHub issues, bug reports, etc.)
 	issueContext *IssueActivationContext
 
+	// Back-reference context for follow-up questions referring to previous turns
+	backReferenceContext *BackReferenceActivationContext
+
 	// Session tracking
 	sessionID      string
 	sessionStarted time.Time
@@ -122,6 +125,38 @@ type IssueActivationContext struct {
 	Source string
 }
 
+// BackReferenceActivationContext holds back-reference activation state.
+// Used when users ask follow-up questions referring to previous context.
+// Examples: "What was the original error?", "List all solutions we tried"
+//
+// This enables "infinite context" by boosting facts from referenced turns
+// even when they have low recency scores due to being many turns ago.
+type BackReferenceActivationContext struct {
+	// ReferencedTurnIDs are the turns being referred back to.
+	// Multiple turns can be referenced (e.g., "all the errors we saw")
+	ReferencedTurnIDs []int
+
+	// ReferenceStrength indicates how explicit the reference is (0.0-1.0).
+	// 1.0 = explicit ("What was the error in turn 5?")
+	// 0.5 = implicit ("What was the original problem?")
+	ReferenceStrength float64
+
+	// ReferencedTopics are topics/entities from the referenced turns.
+	// Extracted from turn_topic facts of referenced turns.
+	ReferencedTopics []string
+
+	// ReferencedFiles are files mentioned in the referenced turns.
+	// Extracted from turn_references_file facts of referenced turns.
+	ReferencedFiles []string
+
+	// ReferencedSymbols are symbols mentioned in the referenced turns.
+	// Extracted from turn_references_symbol facts of referenced turns.
+	ReferencedSymbols []string
+
+	// ReferencedErrors are error messages from the referenced turns.
+	// Extracted from turn_error_message facts of referenced turns.
+	ReferencedErrors []string
+}
 
 // NewActivationEngine creates a new activation engine.
 func NewActivationEngine(config CompressorConfig) *ActivationEngine {
@@ -156,6 +191,17 @@ func (ae *ActivationEngine) SetIssueContext(ctx *IssueActivationContext) {
 // ClearIssueContext clears the issue context.
 func (ae *ActivationEngine) ClearIssueContext() {
 	ae.issueContext = nil
+}
+
+// SetBackReferenceContext sets the current back-reference context.
+// Call this when the user asks a follow-up question referring to previous turns.
+func (ae *ActivationEngine) SetBackReferenceContext(ctx *BackReferenceActivationContext) {
+	ae.backReferenceContext = ctx
+}
+
+// ClearBackReferenceContext clears the back-reference context.
+func (ae *ActivationEngine) ClearBackReferenceContext() {
+	ae.backReferenceContext = nil
 }
 
 // SetCorpusPriorities sets priorities from the predicate corpus.
@@ -221,16 +267,17 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	for _, fact := range facts {
 		score := ae.computeScore(fact)
 		scored = append(scored, ScoredFact{
-			Fact:            fact,
-			Score:           score.Total(),
-			BaseScore:       score.base,
-			RecencyScore:    score.recency,
-			RelevanceScore:  score.relevance,
-			DependencyScore: score.dependency,
-			CampaignScore:   score.campaign,
-			SessionScore:    score.session,
-			IssueScore:      score.issue,
-			FeedbackScore:   score.feedback,
+			Fact:               fact,
+			Score:              score.Total(),
+			BaseScore:          score.base,
+			RecencyScore:       score.recency,
+			RelevanceScore:     score.relevance,
+			DependencyScore:    score.dependency,
+			CampaignScore:      score.campaign,
+			SessionScore:       score.session,
+			IssueScore:         score.issue,
+			FeedbackScore:      score.feedback,
+			BackReferenceScore: score.backReference,
 		})
 	}
 
@@ -368,31 +415,33 @@ func (ae *ActivationEngine) AddDependency(dependent, dependency core.Fact) {
 // =============================================================================
 
 type scoreComponents struct {
-	base       float64
-	recency    float64
-	relevance  float64
-	dependency float64
-	campaign   float64 // Campaign-specific boost
-	session    float64 // Session-specific boost
-	issue      float64 // Issue/SWE-bench specific boost
-	feedback   float64 // Learned predicate usefulness from LLM feedback
+	base          float64
+	recency       float64
+	relevance     float64
+	dependency    float64
+	campaign      float64 // Campaign-specific boost
+	session       float64 // Session-specific boost
+	issue         float64 // Issue/SWE-bench specific boost
+	feedback      float64 // Learned predicate usefulness from LLM feedback
+	backReference float64 // Back-reference boost for follow-up questions
 }
 
 func (s *scoreComponents) Total() float64 {
-	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue + s.feedback
+	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue + s.feedback + s.backReference
 }
 
 // computeScore calculates the activation score for a fact.
 func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 	return scoreComponents{
-		base:       ae.computeBaseScore(fact),
-		recency:    ae.computeRecencyScore(fact),
-		relevance:  ae.computeRelevanceScore(fact),
-		dependency: ae.computeDependencyScore(fact),
-		campaign:   ae.computeCampaignScore(fact),
-		session:    ae.computeSessionScore(fact),
-		issue:      ae.computeIssueScore(fact),
-		feedback:   ae.computeFeedbackScore(fact),
+		base:          ae.computeBaseScore(fact),
+		recency:       ae.computeRecencyScore(fact),
+		relevance:     ae.computeRelevanceScore(fact),
+		dependency:    ae.computeDependencyScore(fact),
+		campaign:      ae.computeCampaignScore(fact),
+		session:       ae.computeSessionScore(fact),
+		issue:         ae.computeIssueScore(fact),
+		feedback:      ae.computeFeedbackScore(fact),
+		backReference: ae.computeBackReferenceScore(fact),
 	}
 }
 
@@ -809,6 +858,94 @@ func (ae *ActivationEngine) computeFeedbackScore(fact core.Fact) float64 {
 	// Scale to -20 to +20 activation boost/penalty
 	// This is a significant but not overwhelming factor in total scoring
 	return usefulnessScore * 20.0
+}
+
+// computeBackReferenceScore adds back-reference activation boost.
+// Facts related to previously referenced turns get boosted when the user
+// asks follow-up questions like "What was the original error?"
+func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
+	if ae.backReferenceContext == nil {
+		return 0.0
+	}
+
+	score := 0.0
+	factStr := strings.ToLower(fact.String())
+
+	// Primary boost: facts from referenced turns
+	// Check if fact's turn ID matches any referenced turn
+	if len(fact.Args) > 0 {
+		if turnID, ok := fact.Args[0].(int); ok {
+			for _, refTurnID := range ae.backReferenceContext.ReferencedTurnIDs {
+				if turnID == refTurnID {
+					score += 50.0 // Primary reference gets 50 points
+					break
+				}
+			}
+		}
+	}
+
+	// Topic boost: facts matching topics from referenced turns
+	for _, topic := range ae.backReferenceContext.ReferencedTopics {
+		if strings.Contains(factStr, strings.ToLower(topic)) {
+			score += 30.0
+			break
+		}
+	}
+
+	// File boost: facts mentioning files from referenced turns
+	for _, file := range ae.backReferenceContext.ReferencedFiles {
+		if strings.Contains(factStr, strings.ToLower(file)) {
+			score += 20.0
+			break
+		}
+	}
+
+	// Symbol boost: facts mentioning symbols from referenced turns
+	for _, symbol := range ae.backReferenceContext.ReferencedSymbols {
+		if strings.Contains(factStr, strings.ToLower(symbol)) {
+			score += 25.0
+			break
+		}
+	}
+
+	// Error boost: facts mentioning errors from referenced turns
+	for _, errMsg := range ae.backReferenceContext.ReferencedErrors {
+		if strings.Contains(factStr, strings.ToLower(errMsg)) {
+			score += 35.0
+			break
+		}
+	}
+
+	// Reference strength multiplier (0.0-1.0)
+	// Explicit references get full boost, implicit get partial
+	if ae.backReferenceContext.ReferenceStrength > 0 && ae.backReferenceContext.ReferenceStrength < 1.0 {
+		score *= ae.backReferenceContext.ReferenceStrength
+	}
+
+	// Back-reference specific predicates get extra boost
+	backRefPredicates := map[string]float64{
+		"turn_references_back":   50.0, // Explicit back-reference tracking
+		"turn_error_message":     30.0, // Errors are often referenced back
+		"turn_topic":             25.0, // Topics help identify context
+		"turn_references_file":   20.0, // File references
+		"turn_references_symbol": 20.0, // Symbol references
+	}
+
+	if boost, ok := backRefPredicates[fact.Predicate]; ok {
+		// Only apply predicate boost if this fact is from a referenced turn
+		if len(fact.Args) > 0 {
+			if turnID, ok := fact.Args[0].(int); ok {
+				for _, refTurnID := range ae.backReferenceContext.ReferencedTurnIDs {
+					if turnID == refTurnID {
+						score += boost
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return math.Min(score, 70.0) // Cap at 70
 }
 
 // =============================================================================
