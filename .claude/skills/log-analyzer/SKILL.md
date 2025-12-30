@@ -1,9 +1,9 @@
 ---
 name: log-analyzer
-description: Analyze codeNERD system logs using Mangle logic programming. This skill should be used when debugging codeNERD execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, or correlating events across the 22 logging categories. Converts log files to Mangle facts for declarative querying.
+description: Analyze codeNERD system logs using Mangle logic programming. This skill should be used when debugging codeNERD execution, tracing cross-system interactions, identifying error patterns, analyzing performance bottlenecks, or correlating events across the 22 logging categories. Converts log files to Mangle facts for declarative querying. Now includes context harness log cross-referencing for infinite context system debugging.
 license: Apache-2.0
-version: 2.3.0
-last_updated: 2025-12-24
+version: 2.4.0
+last_updated: 2025-12-29
 ---
 
 # Log Analyzer: Mangle-Powered codeNERD Debugging
@@ -759,6 +759,143 @@ python3 scripts/detect_loops.py .nerd/logs/2025-12-24*.log --pretty
 - Concerning if many identical messages at same time
 - May indicate buffered logging or clock issues
 
+## Context Harness Log Analysis (v2.4.0)
+
+The log-analyzer skill now supports cross-referencing between system logs (`.nerd/logs/`) and context harness test sessions (`.nerd/context-tests/`).
+
+### Context Harness Log Files
+
+Each context test session generates 7 specialized log files:
+
+| File | Purpose |
+|------|---------|
+| `prompts.log` | Full prompts sent to LLM, token counts, budget utilization |
+| `jit-compilation.log` | JIT prompt compiler traces, atom selection, priority ordering |
+| `spreading-activation.log` | Activation score calculations, dependency graph traversal |
+| `compression.log` | Before/after compression comparisons, ratios per turn |
+| `piggyback-protocol.log` | Surface vs. control packet parsing, kernel state changes |
+| `context-feedback.log` | LLM context usefulness ratings, learned predicate scores |
+| `summary.log` | Overall session statistics, checkpoint results |
+
+### Quick Context Harness Analysis
+
+```bash
+# Parse context harness session
+python3 scripts/parse_context_harness.py .nerd/context-tests/session-20251229-190425/
+
+# Cross-reference with system logs from same time period
+python3 scripts/parse_context_harness.py \
+  .nerd/context-tests/session-20251229-190425/ \
+  --cross-ref .nerd/logs/2025-12-29*.log \
+  --output context_analysis.mg
+
+# Use logquery for combined analysis
+./scripts/logquery/logquery.exe context_analysis.mg --builtin context-issues
+```
+
+### Context Harness Mangle Facts
+
+The parser generates these context-specific facts:
+
+```mangle
+# JIT compilation events
+# jit_compilation(Time, AtomCount, TotalTokens, BudgetUsed)
+Decl jit_compilation(Time.Type<int>, AtomCount.Type<int>, TotalTokens.Type<int>, BudgetUsed.Type<float>).
+
+# Spreading activation events
+# activation_score(Time, FactId, Score, Source)
+Decl activation_score(Time.Type<int>, FactId.Type<string>, Score.Type<float>, Source.Type<string>).
+
+# Compression events
+# compression_event(Time, InputTokens, OutputTokens, Ratio)
+Decl compression_event(Time.Type<int>, InputTokens.Type<int>, OutputTokens.Type<int>, Ratio.Type<float>).
+
+# Checkpoint results
+# checkpoint_result(Turn, Description, Passed, Precision, Recall)
+Decl checkpoint_result(Turn.Type<int>, Description.Type<string>, Passed.Type<name>, Precision.Type<float>, Recall.Type<float>).
+
+# Context feedback events
+# context_feedback(Time, PredicateId, Rating, Impact)
+Decl context_feedback(Time.Type<int>, PredicateId.Type<string>, Rating.Type<string>, Impact.Type<float>).
+
+# Piggyback protocol events
+# piggyback_event(Time, EventType, IntentVerb, ToolCount)
+Decl piggyback_event(Time.Type<int>, EventType.Type<string>, IntentVerb.Type<string>, ToolCount.Type<int>).
+```
+
+### Cross-Reference Queries
+
+Find correlations between context harness events and system logs:
+
+```bash
+# In logquery REPL
+logquery> ?context_correlated(HarnessTime, HarnessCat, SystemTime, SystemCat)
+
+# Find JIT compilations that preceded errors
+logquery> ?jit_before_error(JitTime, AtomCount, ErrorTime, ErrorMsg)
+
+# Find compression events correlated with API timeouts
+logquery> ?compression_api_correlation(CompTime, Ratio, ApiTime, Duration)
+```
+
+### logquery Context Builtins
+
+| Builtin | Description |
+|---------|-------------|
+| `:context-issues` | Combined context system health check |
+| `:jit-hotspots` | Frequent JIT recompilation patterns |
+| `:activation-anomalies` | Unusual activation score patterns |
+| `:compression-failures` | Low compression ratio events |
+| `:checkpoint-failures` | Failed checkpoint validations |
+| `:feedback-drift` | Context feedback score degradation |
+
+### Example: Full Context Debugging Session
+
+```bash
+# 1. Run context harness test
+./nerd.exe test-context --scenario debugging-marathon
+
+# 2. Find the latest test session
+$session = Get-ChildItem .nerd/context-tests -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+# 3. Parse both context harness and system logs
+python3 .claude/skills/log-analyzer/scripts/parse_context_harness.py $session.FullName \
+  --cross-ref .nerd/logs/*.log \
+  --no-schema > /tmp/context_facts.mg
+
+python3 .claude/skills/log-analyzer/scripts/parse_log.py .nerd/logs/*.log \
+  --no-schema >> /tmp/context_facts.mg
+
+# 4. Analyze with logquery
+./scripts/logquery/logquery.exe /tmp/context_facts.mg -i
+
+logquery> :context-issues
+logquery> :jit-hotspots
+logquery> ?checkpoint_result(Turn, Desc, /false, P, R)
+```
+
+### Interpreting Context Harness Results
+
+**Low Retrieval Precision (<10%):**
+- Too many irrelevant facts selected by spreading activation
+- Check `activation_score` facts for overly broad activation
+- Review `activation-anomalies` builtin
+
+**Low Retrieval Recall (<50%):**
+- Important facts not being activated
+- Check for missing dependency links in knowledge graph
+- Review spreading activation decay parameters
+
+**Checkpoint Failures:**
+- Expected facts not retrievable after N turns
+- Cross-reference with compression events (lossy compression?)
+- Check for fact expiration in ephemeral predicates
+
+**JIT Hotspots:**
+- Same prompt compiled repeatedly
+- Usually indicates kernel state not advancing
+- Cross-reference with loop detection (`:loops`)
+
 ## See Also
 
 - [mangle-programming skill](../mangle-programming/SKILL.md) - Full Mangle reference
@@ -766,3 +903,4 @@ python3 scripts/detect_loops.py .nerd/logs/2025-12-24*.log --pretty
 - [log-schema.mg](assets/log-schema.mg) - Full schema (for reference)
 - [logquery/schema.mg](scripts/logquery/schema.mg) - Embedded schema (simplified)
 - [detect_loops.py](scripts/detect_loops.py) - Quick loop detection script
+- [parse_context_harness.py](scripts/parse_context_harness.py) - Context harness log parser
