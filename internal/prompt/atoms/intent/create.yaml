@@ -10,47 +10,78 @@
   content: |
     ## CREATE INTENT PROTOCOL (Encyclopedic)
 
-    Your intent is to **CREATE** — bring new code into existence that is *already wired, testable, and coherent with the living codebase*.
+    Your intent is to **CREATE** — but ONLY after verifying that creation is truly necessary.
 
     ### Prime Directive
-    New code is not “done” when it compiles — it is done when it is **integrated end‑to‑end** and respects the kernel’s logic‑first reality.
+    **EXPLORE BEFORE YOU CREATE.** Most "create" tasks should become "extend" or "modify" tasks
+    once you understand the existing codebase. New code is a last resort, not the first choice.
 
-    ### Create vs. Refactor
-    - CREATE when there is no close existing structure to extend safely.
-    - REFRACTOR/EXTEND when a nearby abstraction already exists and can be evolved without semantic drift.
-    - If unsure, start by mirroring the closest existing feature.
+    ### MANDATORY: Pre-Creation Exploration (DO THIS FIRST)
+    Before creating ANYTHING, you MUST:
+
+    ```
+    1. SEARCH for existing similar code:
+       - glob("**/*{concept}*") - find files with similar names
+       - grep("{TypeName}|{FunctionName}") - find existing implementations
+
+    2. EXPLORE the directory structure:
+       - list_files at project root
+       - list_files in likely parent directories
+       - Identify existing patterns and conventions
+
+    3. READ adjacent files:
+       - How are similar features organized?
+       - What naming conventions are used?
+       - What directory structure is established?
+
+    4. DECIDE: Create vs Extend
+       - Can I add to an existing file? → EXTEND
+       - Can I follow an existing pattern exactly? → MIRROR
+       - Is there truly nothing similar? → CREATE (with justification)
+    ```
+
+    ### Create vs. Refactor Decision Tree
+    ```
+    Does similar code exist?
+    ├── YES → Can it be extended?
+    │         ├── YES → EXTEND (don't create)
+    │         └── NO → Why not? Document reason, then CREATE
+    └── NO → Did you ACTUALLY search? (glob + grep)
+              ├── NO → Go back and search!
+              └── YES → CREATE, following nearest pattern
+    ```
 
     ### Encyclopedic Create Workflow
-    1. **Intent crystallization**
-       - What exact artifact is needed? (file, module, tool, shard, predicate, CLI command)
-       - What is explicitly *not* requested?
-    2. **Context absorption**
-       - Read 3–5 adjacent examples.
-       - Identify layer placement (scaffold/domain_core/data_layer/service/transport/integration).
-    3. **Design the interface**
-       - Define public API and invariants.
-       - Prefer small interfaces, explicit error contracts, and stable names.
-    4. **Scaffold the structure**
-       - Create files in the correct directory scope.
-       - Add PRD headers and doc refs where required.
-    5. **Wire the integration**
-       - Register in DI, routers, shard manager, kernel predicates/rules, or CLI.
-       - If an LLM behavior is introduced, add/adjust prompt atoms + JIT selectors.
-    6. **Test-first verification**
-       - Add targeted unit tests for boundary/edge/error paths.
-       - Add integration tests when new wiring crosses layers.
-    7. **Self‑review**
-       - Check for unused wiring, dead ends, or missing registrations.
-       - Confirm no hidden TODOs or stubs remain.
+    1. **MANDATORY EXPLORATION** (Steps above - cannot skip!)
+    2. **Intent crystallization**
+       - What exact artifact is needed?
+       - Why can't existing code be extended? (MUST answer this)
+    3. **Pattern absorption**
+       - Read 3–5 adjacent examples
+       - Match their conventions EXACTLY
+    4. **Design the interface**
+       - Follow existing naming patterns
+       - Match existing directory structure
+    5. **Create in the RIGHT location**
+       - Use existing directories, don't create parallel structures
+       - Match singular/plural conventions
+    6. **Wire the integration**
+       - Register using existing patterns
+    7. **Test-first verification**
+    8. **Self‑review**
+       - Did I create duplicate structure?
+       - Did I follow project conventions?
 
     ### Create Checklist (must satisfy)
+    - [ ] **SEARCHED for existing similar code** (glob + grep evidence required)
+    - [ ] **EXPLAINED why extending existing code won't work**
+    - [ ] Using existing directory structure (not creating parallel)
+    - [ ] Following existing naming conventions exactly
     - [ ] Correct layer placement and import boundaries
     - [ ] Public APIs documented and stable
     - [ ] Errors handled explicitly, wrapped with context
     - [ ] Feature wired into system entrypoints
     - [ ] Tests cover happy + edge + error paths
-    - [ ] Prompt atoms added for any new LLM surface
-    - [ ] No unused methods/flags left unconsumed without explanation
 
 - id: "intent/create/scaffolding"
   category: "intent"

@@ -243,3 +243,138 @@
     - Check the Go version in go.mod
     - Prefer standard library over external packages
     - Use modern idioms for the project's Go version
+
+- id: "hallucination/coder/duplicate_file_creation"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 98
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: DUPLICATE FILE/DIRECTORY CREATION
+
+    You will be tempted to create new files and directories without checking if similar ones already exist.
+    This is one of the MOST COMMON and MOST DAMAGING hallucinations.
+
+    ### THE FAILURE PATTERN
+    ```
+    Task: "Add user authentication"
+
+    WRONG BEHAVIOR:
+    1. Immediately create new directory: `auth/`
+    2. Create new files: `auth/login.go`, `auth/user.go`
+    3. Implement from scratch
+
+    WHAT ACTUALLY EXISTED:
+    - `internal/security/user_auth.go` (already had auth logic!)
+    - `internal/models/user.go` (User struct already defined!)
+    - `pkg/auth/` directory (auth patterns already established!)
+
+    RESULT: Duplicate code, inconsistent patterns, wasted work
+    ```
+
+    ### SYMPTOMS OF THIS HALLUCINATION
+    - Creating `utils/` when `internal/helpers/` exists
+    - Creating `models/user.go` when `domain/user.go` exists
+    - Creating `services/` when `internal/service/` exists
+    - Creating `types.go` when types are in `schema.go`
+    - Creating new directory hierarchies that parallel existing ones
+
+    ### MANDATORY PRE-CREATION CHECKS
+    Before ANY file or directory creation:
+
+    ```
+    1. SEARCH for similar names:
+       glob("**/*{keyword}*")
+       glob("**/*{concept}*")
+
+    2. SEARCH for similar functionality:
+       grep("func.*{FunctionName}")
+       grep("type.*{TypeName}")
+
+    3. LIST parent directory:
+       list_files("{parent_directory}")
+
+    4. CHECK if you're duplicating:
+       - Same concept, different name?
+       - Same structure, different location?
+       - Same pattern, different package?
+    ```
+
+    ### CORRECT WORKFLOW
+    ```
+    Task: "Add user authentication"
+
+    CORRECT BEHAVIOR:
+    1. Search: glob("**/*auth*"), glob("**/*user*"), glob("**/*login*")
+    2. Find: internal/security/user_auth.go exists!
+    3. Read: Understand existing patterns
+    4. Decide: EXTEND existing file, don't create new one
+    5. If truly new: Explain WHY existing files don't work
+    ```
+
+    ### MITIGATION
+    - NEVER create a file without first searching for similar files
+    - NEVER create a directory without checking for similar directories
+    - When in doubt, EXTEND existing code over creating new files
+    - If you must create, document why existing structures don't work
+    - The burden of proof is on CREATION, not on editing
+
+  content_concise: |
+    ## Duplicate File Prevention (CRITICAL)
+    Before ANY file/directory creation:
+    1. glob("**/*{keyword}*") - search for similar names
+    2. grep("type.*{Name}") - search for similar code
+    3. list_files(parent) - check what exists
+    EXTEND existing over CREATE new. Explain why if creating.
+
+- id: "hallucination/coder/parallel_structure"
+  category: "hallucination"
+  subcategory: "prevention"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/coder"]
+  content: |
+    ## HALLUCINATION PREVENTION: PARALLEL STRUCTURE CREATION
+
+    You will be tempted to create new organizational structures that duplicate existing ones.
+
+    ### THE PATTERN
+    ```
+    Existing: internal/handlers/
+    Created:  handlers/          <- WRONG! Parallel structure
+
+    Existing: pkg/models/
+    Created:  internal/models/   <- WRONG! Same concept, different location
+
+    Existing: service/user.go
+    Created:  services/user_service.go  <- WRONG! Plural vs singular confusion
+    ```
+
+    ### WHY THIS HAPPENS
+    - Training data has multiple conventions
+    - You "know" common patterns but don't check THIS project's patterns
+    - You assume structure instead of verifying it
+
+    ### DETECTION QUESTIONS
+    Before creating any directory or file:
+    1. Is there a similar directory with slightly different name?
+       - `handlers/` vs `handler/`
+       - `services/` vs `service/`
+       - `models/` vs `model/` vs `domain/`
+    2. Is there a similar directory at a different path?
+       - `pkg/auth/` vs `internal/auth/`
+    3. Am I using project conventions or my assumptions?
+
+    ### MITIGATION
+    - Run `list_files` at project root to see top-level structure
+    - Check both `pkg/` AND `internal/` before creating in either
+    - Match EXACT naming convention (plural vs singular)
+    - When uncertain, add to existing files rather than create new
+
+  content_concise: |
+    ## Parallel Structure Prevention
+    Check for existing similar directories before creating:
+    - handlers/ vs handler/ (plural confusion)
+    - pkg/X/ vs internal/X/ (path confusion)
+    Run list_files at root first. Match existing conventions exactly.
