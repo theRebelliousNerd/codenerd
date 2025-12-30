@@ -1157,26 +1157,92 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		plannerPrompt = PlannerLogic
 	}
 
-	prompt := fmt.Sprintf(`%s
+	// System prompt with JSON enforcement - includes "control_packet" to trigger Gemini's JSON mode
+	systemPrompt := `You are a Campaign Planner. Output a JSON object with control_packet and surface_response.
+
+CRITICAL: Your response MUST be valid JSON matching this schema:
+{
+  "title": "Campaign Title",
+  "confidence": 0.9,
+  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}],
+  "control_packet": {"status": "plan_created"},
+  "surface_response": "Created campaign with N phases"
+}
+
+Do NOT use markdown. Do NOT include text outside the JSON object.`
+
+	userPrompt := fmt.Sprintf(`%s
 
 %s
 
-Output ONLY valid JSON:`, plannerPrompt, contextBuilder.String())
+Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 
-	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(prompt))
-	resp, err := d.llmClient.Complete(ctx, prompt)
-	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", err)
-		return nil, err
+	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(userPrompt))
+
+	// Try with CompleteWithSystem for better prompt separation (enables Gemini JSON mode)
+	var resp string
+	var llmErr error
+	if systemClient, ok := d.llmClient.(interface {
+		CompleteWithSystem(ctx context.Context, system, user string) (string, error)
+	}); ok {
+		resp, llmErr = systemClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	} else {
+		// Fallback to Complete with inline system prompt
+		resp, llmErr = d.llmClient.Complete(ctx, systemPrompt+"\n\n"+userPrompt)
+	}
+	if llmErr != nil {
+		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", llmErr)
+		return nil, llmErr
 	}
 	logging.CampaignDebug("LLM response received (length=%d)", len(resp))
 
-	// Parse response
+	// Parse response with retry on failure
 	resp = cleanJSONResponse(resp)
 	var plan RawPlan
-	if err := json.Unmarshal([]byte(resp), &plan); err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to parse plan JSON: %v", err)
-		return nil, fmt.Errorf("failed to parse plan JSON: %w", err)
+	if parseErr := json.Unmarshal([]byte(resp), &plan); parseErr != nil {
+		// Log the raw response for debugging
+		rawPreview := resp
+		if len(rawPreview) > 500 {
+			rawPreview = rawPreview[:500]
+		}
+		logging.CampaignDebug("Raw response (first 500 chars): %s", rawPreview)
+		logging.Get(logging.CategoryCampaign).Error("Failed to parse plan JSON: %v", parseErr)
+
+		// Retry with stronger enforcement
+		logging.Campaign("Retrying plan proposal with JSON enforcement")
+		contextPreview := contextBuilder.String()
+		if len(contextPreview) > 2000 {
+			contextPreview = contextPreview[:2000]
+		}
+		retryPrompt := fmt.Sprintf(`The previous response was not valid JSON. Output ONLY a JSON object.
+
+Required structure (control_packet triggers JSON mode):
+{"title": "string", "confidence": 0.9, "phases": [], "control_packet": {}, "surface_response": ""}
+
+Goal: %s
+Context: %s
+
+Output ONLY the JSON:`, req.Goal, contextPreview)
+
+		if systemClient, ok := d.llmClient.(interface {
+			CompleteWithSystem(ctx context.Context, system, user string) (string, error)
+		}); ok {
+			resp, llmErr = systemClient.CompleteWithSystem(ctx, "You output ONLY valid JSON with control_packet.", retryPrompt)
+		} else {
+			resp, llmErr = d.llmClient.Complete(ctx, retryPrompt)
+		}
+		if llmErr != nil {
+			return nil, fmt.Errorf("retry failed: %w", llmErr)
+		}
+		resp = cleanJSONResponse(resp)
+		if retryErr := json.Unmarshal([]byte(resp), &plan); retryErr != nil {
+			retryPreview := resp
+			if len(retryPreview) > 500 {
+				retryPreview = retryPreview[:500]
+			}
+			logging.CampaignDebug("Retry raw response (first 500 chars): %s", retryPreview)
+			return nil, fmt.Errorf("failed to parse plan JSON after retry: %w", retryErr)
+		}
 	}
 
 	logging.Campaign("Plan proposed: %s (confidence=%.2f, phases=%d)", plan.Title, plan.Confidence, len(plan.Phases))
