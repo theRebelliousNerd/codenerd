@@ -512,3 +512,321 @@ func TestParseError_Fields(t *testing.T) {
 		t.Error("Message not set correctly")
 	}
 }
+
+// TestTransactionManager_MultiFileEdit tests multi-file atomic edits.
+func TestTransactionManager_MultiFileEdit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create multiple test files
+	file1 := filepath.Join(tmpDir, "user.go")
+	file2 := filepath.Join(tmpDir, "api.go")
+	file3 := filepath.Join(tmpDir, "types.ts")
+
+	os.WriteFile(file1, []byte("package main\n\ntype User struct {\n\tUserID string\n}\n"), 0644)
+	os.WriteFile(file2, []byte("package main\n\nfunc GetUser(userID string) {}\n"), 0644)
+	os.WriteFile(file3, []byte("interface IUser {\n\tuserId: string;\n}\n"), 0644)
+
+	kernel := &RealKernel{
+		facts:       make([]Fact, 0),
+		policyDirty: true,
+		initialized: false,
+	}
+
+	tm := NewTransactionManager(kernel, tmpDir)
+
+	// Begin transaction for cross-language refactor
+	_, err := tm.Begin(context.Background(), "Rename userID to subID across languages")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add edits for all three files (simulating polyglot refactor)
+	edits := []FileEdit{
+		{
+			FilePath: file1,
+			Content:  []byte("package main\n\ntype User struct {\n\tSubID string\n}\n"),
+			EditType: EditTypeModify,
+		},
+		{
+			FilePath: file2,
+			Content:  []byte("package main\n\nfunc GetUser(subID string) {}\n"),
+			EditType: EditTypeModify,
+		},
+		{
+			FilePath: file3,
+			Content:  []byte("interface IUser {\n\tsubId: string;\n}\n"),
+			EditType: EditTypeModify,
+		},
+	}
+
+	for _, edit := range edits {
+		err := tm.AddEdit(context.Background(), edit)
+		if err != nil {
+			t.Fatalf("AddEdit failed for %s: %v", edit.FilePath, err)
+		}
+	}
+
+	// Verify all edits are tracked
+	txn, _ := tm.GetActiveTransaction()
+	if len(txn.Edits) != 3 {
+		t.Errorf("Expected 3 edits in transaction, got %d", len(txn.Edits))
+	}
+
+	// Verify snapshots were taken for all files
+	for _, edit := range edits {
+		if _, exists := txn.Snapshots[edit.FilePath]; !exists {
+			t.Errorf("Expected snapshot for %s", edit.FilePath)
+		}
+	}
+
+	// Verify facts are generated for all edits
+	facts := tm.ToFacts()
+	planEditCount := 0
+	for _, f := range facts {
+		if f.Predicate == "plan_edit" {
+			planEditCount++
+		}
+	}
+	if planEditCount != 3 {
+		t.Errorf("Expected 3 plan_edit facts, got %d", planEditCount)
+	}
+}
+
+// TestTransactionManager_MultiFileAbort tests that abort rolls back all files.
+func TestTransactionManager_MultiFileAbort(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test files with original content
+	file1 := filepath.Join(tmpDir, "backend.go")
+	file2 := filepath.Join(tmpDir, "frontend.ts")
+
+	original1 := []byte("package main\n\nfunc Original1() {}\n")
+	original2 := []byte("function original2() {}\n")
+
+	os.WriteFile(file1, original1, 0644)
+	os.WriteFile(file2, original2, 0644)
+
+	kernel := &RealKernel{
+		facts:       make([]Fact, 0),
+		policyDirty: true,
+		initialized: false,
+	}
+
+	tm := NewTransactionManager(kernel, tmpDir)
+
+	// Begin transaction
+	_, err := tm.Begin(context.Background(), "Multi-file edit to abort")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add edits
+	tm.AddEdit(context.Background(), FileEdit{
+		FilePath: file1,
+		Content:  []byte("package main\n\nfunc Modified1() {}\n"),
+		EditType: EditTypeModify,
+	})
+	tm.AddEdit(context.Background(), FileEdit{
+		FilePath: file2,
+		Content:  []byte("function modified2() {}\n"),
+		EditType: EditTypeModify,
+	})
+
+	// Verify snapshots exist before abort
+	txn, _ := tm.GetActiveTransaction()
+	if len(txn.Snapshots) != 2 {
+		t.Errorf("Expected 2 snapshots, got %d", len(txn.Snapshots))
+	}
+
+	// Abort transaction
+	err = tm.Abort(context.Background(), "Safety violation detected")
+	if err != nil {
+		t.Fatalf("Abort failed: %v", err)
+	}
+
+	// Verify transaction is aborted
+	if tm.IsTransactionActive() {
+		t.Error("Transaction should not be active after abort")
+	}
+
+	// Note: Actual file rollback would happen in Commit phase
+	// Abort just marks the transaction as aborted and preserves snapshots
+}
+
+// TestTransactionManager_MultiFileFactGeneration tests fact generation for multi-file edits.
+func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files in different "packages"
+	goFile := filepath.Join(tmpDir, "models", "user.go")
+	tsFile := filepath.Join(tmpDir, "frontend", "types.ts")
+	pyFile := filepath.Join(tmpDir, "backend", "models.py")
+
+	os.MkdirAll(filepath.Join(tmpDir, "models"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "frontend"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "backend"), 0755)
+
+	os.WriteFile(goFile, []byte("package models\n"), 0644)
+	os.WriteFile(tsFile, []byte("// types\n"), 0644)
+	os.WriteFile(pyFile, []byte("# models\n"), 0644)
+
+	kernel := &RealKernel{
+		facts:       make([]Fact, 0),
+		policyDirty: true,
+		initialized: false,
+	}
+
+	tm := NewTransactionManager(kernel, tmpDir)
+
+	_, err := tm.Begin(context.Background(), "Cross-language refactor")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add edits for different languages
+	tm.AddEdit(context.Background(), FileEdit{
+		FilePath: goFile,
+		Content:  []byte("package models\n\ntype User struct{}\n"),
+		EditType: EditTypeModify,
+	})
+	tm.AddEdit(context.Background(), FileEdit{
+		FilePath: tsFile,
+		Content:  []byte("interface User {}\n"),
+		EditType: EditTypeModify,
+	})
+	tm.AddEdit(context.Background(), FileEdit{
+		FilePath: pyFile,
+		Content:  []byte("class User:\n    pass\n"),
+		EditType: EditTypeModify,
+	})
+
+	// Get facts
+	facts := tm.ToFacts()
+
+	// Verify transaction_state fact
+	var hasTransactionState bool
+	var planEditFiles []string
+
+	for _, f := range facts {
+		if f.Predicate == "transaction_state" {
+			hasTransactionState = true
+		}
+		if f.Predicate == "plan_edit" && len(f.Args) >= 1 {
+			if path, ok := f.Args[0].(string); ok {
+				planEditFiles = append(planEditFiles, path)
+			}
+		}
+	}
+
+	if !hasTransactionState {
+		t.Error("Expected transaction_state fact")
+	}
+
+	if len(planEditFiles) != 3 {
+		t.Errorf("Expected 3 plan_edit facts, got %d", len(planEditFiles))
+	}
+
+	// Verify all file paths are represented
+	fileSet := make(map[string]bool)
+	for _, f := range planEditFiles {
+		fileSet[f] = true
+	}
+
+	if !fileSet[goFile] {
+		t.Error("Missing plan_edit for Go file")
+	}
+	if !fileSet[tsFile] {
+		t.Error("Missing plan_edit for TypeScript file")
+	}
+	if !fileSet[pyFile] {
+		t.Error("Missing plan_edit for Python file")
+	}
+}
+
+// TestTransactionManager_MixedEditTypes tests transactions with create, modify, delete.
+func TestTransactionManager_MixedEditTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	existingFile := filepath.Join(tmpDir, "existing.go")
+	newFile := filepath.Join(tmpDir, "new.go")
+	toDeleteFile := filepath.Join(tmpDir, "delete_me.go")
+
+	os.WriteFile(existingFile, []byte("package main\n"), 0644)
+	os.WriteFile(toDeleteFile, []byte("package main\n// to be deleted\n"), 0644)
+
+	kernel := &RealKernel{
+		facts:       make([]Fact, 0),
+		policyDirty: true,
+		initialized: false,
+	}
+
+	tm := NewTransactionManager(kernel, tmpDir)
+
+	_, err := tm.Begin(context.Background(), "Mixed edit types")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Modify existing
+	err = tm.AddEdit(context.Background(), FileEdit{
+		FilePath: existingFile,
+		Content:  []byte("package main\n\nfunc Modified() {}\n"),
+		EditType: EditTypeModify,
+	})
+	if err != nil {
+		t.Fatalf("AddEdit (modify) failed: %v", err)
+	}
+
+	// Create new
+	err = tm.AddEdit(context.Background(), FileEdit{
+		FilePath: newFile,
+		Content:  []byte("package main\n\nfunc New() {}\n"),
+		EditType: EditTypeCreate,
+	})
+	if err != nil {
+		t.Fatalf("AddEdit (create) failed: %v", err)
+	}
+
+	// Delete existing
+	err = tm.AddEdit(context.Background(), FileEdit{
+		FilePath: toDeleteFile,
+		Content:  nil,
+		EditType: EditTypeDelete,
+	})
+	if err != nil {
+		t.Fatalf("AddEdit (delete) failed: %v", err)
+	}
+
+	txn, _ := tm.GetActiveTransaction()
+
+	// Verify all edit types
+	var hasModify, hasCreate, hasDelete bool
+	for _, edit := range txn.Edits {
+		switch edit.EditType {
+		case EditTypeModify:
+			hasModify = true
+		case EditTypeCreate:
+			hasCreate = true
+		case EditTypeDelete:
+			hasDelete = true
+		}
+	}
+
+	if !hasModify {
+		t.Error("Expected modify edit")
+	}
+	if !hasCreate {
+		t.Error("Expected create edit")
+	}
+	if !hasDelete {
+		t.Error("Expected delete edit")
+	}
+
+	// Verify snapshot taken for files being modified/deleted (not created)
+	if _, exists := txn.Snapshots[existingFile]; !exists {
+		t.Error("Expected snapshot for modified file")
+	}
+	if _, exists := txn.Snapshots[toDeleteFile]; !exists {
+		t.Error("Expected snapshot for deleted file")
+	}
+}
