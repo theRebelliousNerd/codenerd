@@ -2,7 +2,9 @@ package context_harness
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"codenerd/internal/core"
@@ -248,4 +250,167 @@ func (e *RealIntegrationEngine) factID(fact core.Fact) string {
 		}
 	}
 	return fact.Predicate
+}
+
+// LiveLLMResponse represents a response from the live LLM.
+type LiveLLMResponse struct {
+	SurfaceText     string
+	ContextFeedback *ContextFeedback
+	ResponseTokens  int
+}
+
+// GenerateAssistantResponse generates a real assistant response using the LLM.
+// This is used in live LLM mode to get real context_feedback from Gemini.
+func (e *RealIntegrationEngine) GenerateAssistantResponse(ctx context.Context, userMessage string, intent string, facts []core.Fact) (*LiveLLMResponse, error) {
+	if e.llmClient == nil {
+		return nil, fmt.Errorf("no LLM client configured for live mode")
+	}
+
+	// Build context from compressed facts
+	factContext := buildFactContext(facts)
+
+	// System prompt that requests piggyback-style response with context feedback
+	systemPrompt := fmt.Sprintf(`You are a coding assistant in a context harness test.
+
+## Context Facts
+%s
+
+## Instructions
+Respond to the user message. After your response, provide feedback on which context facts were helpful vs noise.
+
+Your response MUST be valid JSON with this structure:
+{
+  "surface_response": "Your helpful response to the user",
+  "control_packet": {
+    "intent_classification": {
+      "category": "code",
+      "verb": "%s",
+      "target": "",
+      "confidence": 0.95
+    },
+    "context_feedback": {
+      "overall_usefulness": 0.8,
+      "helpful_facts": ["fact_name_1", "fact_name_2"],
+      "noise_facts": ["noisy_fact_1"],
+      "missing_context": ""
+    }
+  }
+}
+
+Rate context usefulness from 0.0 to 1.0. List predicate names (like "turn_error_message", "file_topology", "test_state") that were helpful or noise.`, factContext, intent)
+
+	// Call the LLM
+	response, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userMessage)
+	if err != nil {
+		return nil, fmt.Errorf("LLM call failed: %w", err)
+	}
+
+	// Parse the response
+	return parseLiveLLMResponse(response)
+}
+
+// buildFactContext formats facts for LLM context.
+func buildFactContext(facts []core.Fact) string {
+	if len(facts) == 0 {
+		return "(no context facts)"
+	}
+
+	var sb strings.Builder
+	for _, fact := range facts {
+		sb.WriteString(fmt.Sprintf("- %s(", fact.Predicate))
+		for i, arg := range fact.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%v", arg))
+		}
+		sb.WriteString(")\n")
+	}
+	return sb.String()
+}
+
+// parseLiveLLMResponse parses the JSON response from the LLM.
+func parseLiveLLMResponse(response string) (*LiveLLMResponse, error) {
+	// Try to extract JSON from response (may have markdown wrapper)
+	jsonStr := extractJSON(response)
+	if jsonStr == "" {
+		// Fallback: treat entire response as surface text
+		return &LiveLLMResponse{
+			SurfaceText:    response,
+			ResponseTokens: len(response) / 4,
+		}, nil
+	}
+
+	// Parse the JSON
+	var parsed struct {
+		SurfaceResponse string `json:"surface_response"`
+		ControlPacket   struct {
+			IntentClassification struct {
+				Category   string  `json:"category"`
+				Verb       string  `json:"verb"`
+				Target     string  `json:"target"`
+				Confidence float64 `json:"confidence"`
+			} `json:"intent_classification"`
+			ContextFeedback *struct {
+				OverallUsefulness float64  `json:"overall_usefulness"`
+				HelpfulFacts      []string `json:"helpful_facts"`
+				NoiseFacts        []string `json:"noise_facts"`
+				MissingContext    string   `json:"missing_context"`
+			} `json:"context_feedback"`
+		} `json:"control_packet"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		// Fallback on parse error
+		return &LiveLLMResponse{
+			SurfaceText:    response,
+			ResponseTokens: len(response) / 4,
+		}, nil
+	}
+
+	result := &LiveLLMResponse{
+		SurfaceText:    parsed.SurfaceResponse,
+		ResponseTokens: len(response) / 4,
+	}
+
+	if parsed.ControlPacket.ContextFeedback != nil {
+		result.ContextFeedback = &ContextFeedback{
+			OverallUsefulness: parsed.ControlPacket.ContextFeedback.OverallUsefulness,
+			HelpfulFacts:      parsed.ControlPacket.ContextFeedback.HelpfulFacts,
+			NoiseFacts:        parsed.ControlPacket.ContextFeedback.NoiseFacts,
+			MissingContext:    parsed.ControlPacket.ContextFeedback.MissingContext,
+		}
+	}
+
+	return result, nil
+}
+
+// extractJSON extracts JSON from a potentially markdown-wrapped response.
+func extractJSON(response string) string {
+	// Try to find JSON in code blocks
+	if start := strings.Index(response, "```json"); start != -1 {
+		start += 7
+		if end := strings.Index(response[start:], "```"); end != -1 {
+			return strings.TrimSpace(response[start : start+end])
+		}
+	}
+
+	// Try to find raw JSON (starts with {)
+	if start := strings.Index(response, "{"); start != -1 {
+		// Find matching closing brace
+		depth := 0
+		for i := start; i < len(response); i++ {
+			switch response[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return response[start : i+1]
+				}
+			}
+		}
+	}
+
+	return ""
 }
