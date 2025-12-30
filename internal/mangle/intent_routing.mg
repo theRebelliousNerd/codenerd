@@ -34,6 +34,36 @@ Decl test_failed(Path, TestName, Reason).
 Decl diagnostic_active(Path, Line, Severity, Message).
 
 # =============================================================================
+# CODEDOM PREDICATE DECLARATIONS
+# These predicates are declared in schemas_codedom.mg and schemas_codedom_polyglot.mg
+# but declared here for standalone validation of intent_routing rules.
+# =============================================================================
+# Core CodeDOM predicates (from schemas_codedom.mg)
+Decl code_element(Ref, Type, File, StartLine, EndLine).
+Decl code_calls(Caller, Callee).
+Decl method_of(Method, Type).
+Decl element_visibility(Ref, Visibility).
+Decl element_modified(Ref, SessionID, Timestamp).
+
+# Cross-language semantic predicates (from schemas_codedom_polyglot.mg)
+Decl wire_name(Ref, JsonName).
+Decl api_dependency(BackendRef, FrontendRef).
+Decl is_data_contract(Ref).
+Decl is_async_context(Ref).
+Decl has_auth_guard(Ref).
+Decl has_test_coverage(Ref).
+
+# Test impact predicates (from test_impact.mg)
+Decl impacted_test(TestRef).
+Decl impacted_test_package(Pkg).
+Decl test_depends_on(TestRef, SourceRef).
+
+# Safety predicates (from codedom_safety.mg)
+Decl deny_edit(Ref, Reason).
+Decl edit_warning(Ref, Reason).
+Decl safe_to_edit(Ref).
+
+# =============================================================================
 # SECTION 1: Action Type Derivation
 # =============================================================================
 # What used to be hardcoded in CoderShard.parseTask()
