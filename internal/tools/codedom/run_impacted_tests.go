@@ -81,6 +81,7 @@ func RunImpactedTestsTool() *tools.Tool {
 				"edited_refs": {
 					Type:        "array",
 					Description: "List of code element refs that were edited. If empty, uses plan_edit facts from kernel.",
+					Items:       &tools.PropertyItems{Type: "string"},
 				},
 				"include_low_priority": {
 					Type:        "boolean",
@@ -121,6 +122,7 @@ func GetImpactedTestsTool() *tools.Tool {
 				"edited_refs": {
 					Type:        "array",
 					Description: "List of code element refs to check. If empty, uses plan_edit facts from kernel.",
+					Items:       &tools.PropertyItems{Type: "string"},
 				},
 				"include_coverage_gaps": {
 					Type:        "boolean",
