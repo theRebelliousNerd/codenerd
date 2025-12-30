@@ -26,6 +26,11 @@ type SessionSimulator struct {
 
 	// Engine integration (mock or real)
 	contextEngine ContextEngine
+
+	// Live LLM mode state
+	lastUserMessage string       // Track last user message for live LLM generation
+	lastUserIntent  string       // Track intent for live LLM generation
+	allFacts        []core.Fact  // Accumulated facts for context
 }
 
 // NewSessionSimulator creates a new session simulator.
@@ -105,6 +110,17 @@ func (s *SessionSimulator) RunScenario(ctx context.Context, scenario *Scenario) 
 
 // executeTurn simulates a single turn in the session.
 func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
+	// Track user messages for live LLM mode
+	if turn.Speaker == "user" {
+		s.lastUserMessage = turn.Message
+		s.lastUserIntent = turn.Intent
+	}
+
+	// In live LLM mode, generate real assistant responses
+	if s.config.UseLiveLLM && turn.Speaker == "assistant" && s.lastUserMessage != "" {
+		return s.executeLiveLLMTurn(ctx, turn)
+	}
+
 	// Estimate original tokens
 	originalTokens := len(turn.Message) / 4 // Rough estimate: 4 chars per token
 
@@ -143,6 +159,9 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 			})
 		}
 	}
+
+	// Accumulate facts for live LLM context
+	s.allFacts = append(s.allFacts, compressedFacts...)
 
 	compressionLatency := time.Since(compressionStart)
 
@@ -874,6 +893,77 @@ func (s *SessionSimulator) inferOperationalMode(intent string) string {
 	default:
 		return "/default"
 	}
+}
+
+// executeLiveLLMTurn executes an assistant turn using the real LLM.
+// This generates a real response with real context_feedback from Gemini.
+func (s *SessionSimulator) executeLiveLLMTurn(ctx context.Context, turn *Turn) error {
+	// Get the real integration engine (must be RealIntegrationEngine for live mode)
+	realEngine, ok := s.contextEngine.(*RealIntegrationEngine)
+	if !ok {
+		return fmt.Errorf("live LLM mode requires RealIntegrationEngine")
+	}
+
+	// Call the LLM to generate a real response
+	llmStart := time.Now()
+	llmResponse, err := realEngine.GenerateAssistantResponse(ctx, s.lastUserMessage, s.lastUserIntent, s.allFacts)
+	if err != nil {
+		return fmt.Errorf("live LLM generation failed: %w", err)
+	}
+	llmLatency := time.Since(llmStart)
+
+	// Log the live LLM response
+	if s.compressionViz != nil {
+		s.compressionViz.writer.Write([]byte(fmt.Sprintf(
+			"\n=== LIVE LLM RESPONSE (Turn %d) ===\nLatency: %v\nSurface: %s\n",
+			turn.TurnID, llmLatency, truncateString(llmResponse.SurfaceText, 200))))
+	}
+
+	// Use the real context feedback from the LLM
+	contextFeedback := llmResponse.ContextFeedback
+
+	// Trace to piggyback tracer
+	if s.piggybackTracer != nil {
+		event := &PiggybackEvent{
+			Timestamp:       time.Now(),
+			TurnNumber:      turn.TurnID,
+			Speaker:         "assistant",
+			SurfaceText:     llmResponse.SurfaceText,
+			ResponseTokens:  llmResponse.ResponseTokens,
+			ResponseLatency: llmLatency,
+			ControlPacket: &ControlPacket{
+				IntentClassification: IntentClassification{
+					Category:   "code",
+					Verb:       s.lastUserIntent,
+					Target:     "",
+					Constraint: "",
+					Confidence: 0.95,
+				},
+				MangleUpdates:   []string{fmt.Sprintf("conversation_turn(%d, \"assistant\", \"%s\").", turn.TurnID, s.lastUserIntent)},
+				ContextFeedback: contextFeedback,
+			},
+			AddedFacts: []string{fmt.Sprintf("conversation_turn(%d, \"assistant\", \"%s\")", turn.TurnID, s.lastUserIntent)},
+		}
+		s.piggybackTracer.TracePiggyback(event)
+	}
+
+	// Trace to feedback tracer with real feedback
+	if s.feedbackTracer != nil && contextFeedback != nil {
+		s.traceFeedbackLearning(turn, contextFeedback, s.allFacts)
+	}
+
+	// Record metrics
+	s.metrics.RecordCompression(llmResponse.ResponseTokens, llmResponse.ResponseTokens/5, llmLatency)
+
+	return nil
+}
+
+// truncateString truncates a string to maxLen characters.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // generateMockContextFeedback generates realistic context feedback based on turn context.

@@ -155,4 +155,9 @@ type SimulatorConfig struct {
 
 	// Engine mode selection
 	Mode EngineMode // mock (default) or real
+
+	// Live LLM mode - actually call Gemini for assistant responses
+	// When enabled, user messages are sent to the LLM and responses
+	// include real context_feedback from the control packet.
+	UseLiveLLM bool
 }
