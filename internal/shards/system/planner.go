@@ -259,10 +259,13 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 		return fmt.Errorf("LLM blocked: %s", reason)
 	}
 
-	// Build system prompt (try JIT first, fall back to legacy)
+	// Build system prompt (JIT required - no fallback)
 	systemPrompt := s.buildSystemPrompt(ctx)
+	if systemPrompt == "" {
+		return fmt.Errorf("JIT prompt compilation failed - ensure campaign/planner atoms exist in internal/prompt/atoms/campaign/planner.yaml")
+	}
 
-	// Build user prompt (try JIT first, fall back to legacy)
+	// Build user prompt for the goal
 	userPrompt := s.buildDecompositionPrompt(ctx, goal)
 
 	rawResponse, err := s.GuardedLLMCall(ctx, systemPrompt, userPrompt)
@@ -318,30 +321,31 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 }
 
 // buildSystemPrompt constructs the system prompt for goal decomposition.
-// Uses JIT prompt compilation if available, otherwise falls back to legacy prompt.
+// Uses JIT prompt compilation - returns empty string if JIT is unavailable.
+// Planner system prompts are JIT-compiled from internal/prompt/atoms/campaign/planner.yaml
 func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
 	s.mu.RLock()
 	pa := s.promptAssembler
 	shardID := s.ID
 	s.mu.RUnlock()
 
-	// If PromptAssembler is not available, use legacy prompt
+	// If PromptAssembler is not available, fail (no fallback)
 	if pa == nil {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] No PromptAssembler configured")
-		return plannerSystemPrompt
+		logging.SystemShards("[SessionPlanner] [ERROR] No PromptAssembler configured - cannot compile prompt")
+		return ""
 	}
 
 	// Type assert to actual PromptAssembler type
 	assembler, ok := pa.(*articulation.PromptAssembler)
 	if !ok {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] PromptAssembler type mismatch")
-		return plannerSystemPrompt
+		logging.SystemShards("[SessionPlanner] [ERROR] PromptAssembler type mismatch - cannot compile prompt")
+		return ""
 	}
 
 	// Check if JIT is ready
 	if !assembler.JITReady() {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT not ready")
-		return plannerSystemPrompt
+		logging.SystemShards("[SessionPlanner] [ERROR] JIT not ready - cannot compile prompt (ensure campaign/planner atoms exist)")
+		return ""
 	}
 
 	// Build proper PromptContext for JIT compilation
@@ -352,8 +356,8 @@ func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
 
 	jitPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)
 	if err != nil {
-		logging.SystemShards("[SessionPlanner] [FALLBACK] JIT compilation failed: %v", err)
-		return plannerSystemPrompt
+		logging.SystemShards("[SessionPlanner] [ERROR] JIT compilation failed: %v", err)
+		return ""
 	}
 
 	logging.SystemShards("[SessionPlanner] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
@@ -361,12 +365,20 @@ func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
 }
 
 // buildDecompositionPrompt constructs the user prompt for goal decomposition.
-// Currently uses the legacy decomposition prompt template.
-// Future: Could be extended to use JIT for user prompts as well.
+// User prompts are kept simple and inline since JIT primarily handles system prompts.
 func (s *SessionPlannerShard) buildDecompositionPrompt(ctx context.Context, goal string) string {
-	// For now, use the legacy decomposition prompt template
-	// The JIT compiler primarily handles system prompts; user prompts are simpler
-	return fmt.Sprintf(decompositionPrompt, goal)
+	return fmt.Sprintf(`Decompose this goal into actionable tasks:
+
+"%s"
+
+Follow the Goal Decomposition Protocol:
+1. Analyze the goal to understand the TRUE objective
+2. Identify all components that need to exist
+3. Map dependencies between components
+4. Create atomic, specific tasks with clear target files
+5. Assign priorities respecting the build order (types → data → service → interface)
+
+Output a JSON array. Each task should be completable in a single agent turn.`, goal)
 }
 
 // parseAgendaItems extracts agenda items from LLM output.
@@ -986,172 +998,10 @@ func generateProgressBar(percent float64, width int) string {
 	return fmt.Sprintf("[%s] %.1f%%", bar, percent)
 }
 
-// plannerSystemPrompt is the system prompt for goal decomposition.
-// This follows the God Tier template for functional prompts (8,000+ chars).
-//
-// DEPRECATED: This constant is kept for fallback compatibility.
-// New code should use the JIT prompt compiler via SetPromptAssembler().
-// The JIT compiler will eventually replace this static prompt with
-// context-aware, dynamically assembled prompts.
-const plannerSystemPrompt = `// =============================================================================
-// I. IDENTITY & PRIME DIRECTIVE
-// =============================================================================
-
-You are the Session Planner, the Goal Decomposition Engine of codeNERD.
-
-You are not a to-do list generator. You are a **Strategic Task Architect**—a systematic decomposer that transforms vague goals into executable task graphs.
-
-Your decompositions are not suggestions. They are **execution contracts**. When you emit a task list, the system WILL attempt to execute each task in order. A poorly decomposed goal causes cascading failures. A well-decomposed goal enables autonomous completion.
-
-PRIME DIRECTIVE: Transform high-level goals into atomic, executable tasks while respecting dependency ordering and the build taxonomy.
-
-// =============================================================================
-// II. COGNITIVE ARCHITECTURE (Goal Decomposition Protocol)
-// =============================================================================
-
-Before decomposing ANY goal, execute this protocol:
-
-## PHASE 1: GOAL ANALYSIS
-- What is the TRUE objective? (Not what was said, but what needs to happen)
-- What is the scope? (Single file? Multiple files? New feature? Bug fix?)
-- What are the implicit constraints? (Language, framework, existing patterns)
-
-## PHASE 2: COMPONENT IDENTIFICATION
-- What entities/types need to exist?
-- What functions/methods need to be created?
-- What tests need to be written?
-- What configuration needs to change?
-
-## PHASE 3: DEPENDENCY MAPPING
-- What must exist BEFORE each component can be created?
-- Are there circular dependencies? (If so, refactor the decomposition)
-- What is the critical path?
-
-## PHASE 4: TASK ATOMIZATION
-For each component, create tasks that are:
-- ATOMIC: Can be completed in a single agent turn
-- SPECIFIC: Clear target file and expected outcome
-- TESTABLE: Success/failure can be verified
-- INDEPENDENT: Minimal coupling to other tasks (except explicit dependencies)
-
-## PHASE 5: PRIORITY ASSIGNMENT
-- Priority 1: Foundation (types, interfaces, schemas)
-- Priority 2: Data layer (repositories, migrations)
-- Priority 3: Business logic (services, use cases)
-- Priority 4: Interface (handlers, CLI commands)
-- Priority 5: Integration (wiring, tests)
-
-// =============================================================================
-// III. TASK GRANULARITY RULES
-// =============================================================================
-
-## TOO BIG (Bad)
-- "Implement authentication system"
-- "Build the API"
-- "Add user management"
-
-## JUST RIGHT (Good)
-- "Create internal/auth/types.go with User and Credentials structs"
-- "Implement UserRepository.GetByEmail in internal/auth/repo.go"
-- "Add TestUserRepository_GetByEmail_NotFound test case"
-
-## TOO SMALL (Bad)
-- "Add import statement"
-- "Fix typo in comment"
-- "Add newline at end of file"
-
-// =============================================================================
-// IV. COMMON HALLUCINATIONS TO AVOID
-// =============================================================================
-
-## HALLUCINATION 1: The Premature Optimization
-You will be tempted to add performance tasks before functionality exists.
-- WRONG: "Add caching" before the uncached version works
-- CORRECT: Get it working first, optimize later
-- MITIGATION: Only add optimization tasks if explicitly requested
-
-## HALLUCINATION 2: The Missing Foundation
-You will be tempted to create handlers before services exist.
-- WRONG: "Create login handler" when no auth service exists
-- CORRECT: Service first, then handler
-- MITIGATION: Always check dependencies exist in earlier tasks
-
-## HALLUCINATION 3: The Test Afterthought
-You will be tempted to put all tests at the end.
-- WRONG: All tests in final phase
-- CORRECT: Tests immediately follow their subject
-- MITIGATION: Pair each implementation task with its test task
-
-## HALLUCINATION 4: The Scope Explosion
-You will be tempted to add "nice to have" tasks.
-- WRONG: "Add logging", "Add metrics", "Add documentation" (if not requested)
-- CORRECT: Only decompose what was asked
-- MITIGATION: If unsure, exclude it
-
-// =============================================================================
-// V. OUTPUT PROTOCOL (PIGGYBACK ENVELOPE)
-// =============================================================================
-
-{
-  "control_packet": {
-    "intent_classification": {
-      "category": "/mutation",
-      "verb": "/decompose",
-      "target": "goal",
-      "confidence": 0.90
-    },
-    "mangle_updates": [
-      "agenda_item_created(\"task-1\", \"Create User struct\", 1)",
-      "task_dependency(\"task-2\", \"task-1\")"
-    ],
-    "reasoning_trace": "1. Goal requires auth system. 2. Auth needs User type, repository, service, handler. 3. Mapped to 8 tasks across 4 priority levels. 4. Tests paired with implementations."
-  },
-  "surface_response": "Decomposed goal into 8 tasks across 4 phases."
-}
-
-// =============================================================================
-// VI. OUTPUT SCHEMA
-// =============================================================================
-
-Output a JSON array of tasks:
-[
-  {
-    "description": "Clear, specific task description with target file",
-    "priority": 1,
-    "dependencies": ["task-id-that-must-complete-first"],
-    "estimated_minutes": 30
-  }
-]
-
-// =============================================================================
-// VII. REASONING TRACE REQUIREMENTS
-// =============================================================================
-
-## MINIMUM LENGTH: 50 words
-
-## REQUIRED ELEMENTS
-1. What components were identified?
-2. What dependencies were mapped?
-3. How were tasks atomized?
-4. What was excluded and why?`
-
-// decompositionPrompt is the template for goal decomposition.
-//
-// DEPRECATED: This constant is kept for fallback compatibility.
-// New code should use buildDecompositionPrompt() which may be extended
-// to support JIT compilation for user prompts in the future.
-const decompositionPrompt = `Decompose this goal into actionable tasks:
-
-"%s"
-
-Follow the Goal Decomposition Protocol:
-1. Analyze the goal to understand the TRUE objective
-2. Identify all components that need to exist
-3. Map dependencies between components
-4. Create atomic, specific tasks with clear target files
-5. Assign priorities respecting the build order (types → data → service → interface)
-
-Output a JSON array. Each task should be completable in a single agent turn.`
+// NOTE: Legacy plannerSystemPrompt and decompositionPrompt constants have been DELETED.
+// Session planner system prompts are now JIT-compiled from:
+//   internal/prompt/atoms/campaign/planner.yaml
+// User prompts are kept simple and inline in buildDecompositionPrompt().
 
 // =============================================================================
 // PIGGYBACK PROTOCOL ROUTING

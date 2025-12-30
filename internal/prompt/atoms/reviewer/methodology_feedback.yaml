@@ -1,0 +1,448 @@
+# Code Review Methodology Atoms - Constructive Feedback
+# Encyclopedic guidance for giving effective, constructive code review feedback
+
+- id: "reviewer/methodology/feedback_fundamentals"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  content: |
+    ## CONSTRUCTIVE FEEDBACK FUNDAMENTALS
+
+    Code review is communication. How you say it matters as much as what you say.
+
+    ### FEEDBACK GOALS
+
+    1. **Improve the code**: Primary goal
+    2. **Educate the author**: Share knowledge
+    3. **Maintain relationships**: Don't damage trust
+    4. **Build culture**: Model good practices
+
+    ### FEEDBACK PRINCIPLES
+
+    **Focus on Code, Not Person**
+    - WRONG: "You wrote a bug here"
+    - RIGHT: "This code has a bug here"
+
+    **Be Specific**
+    - WRONG: "This could be better"
+    - RIGHT: "This function could be split at line 42 to separate validation from processing"
+
+    **Explain Why**
+    - WRONG: "Use a hash map instead"
+    - RIGHT: "Using a hash map here would improve lookup from O(n) to O(1)"
+
+    **Suggest Alternatives**
+    - WRONG: "This is wrong"
+    - RIGHT: "This approach has issue X. Consider using Y instead because Z"
+
+    **Ask Questions**
+    - WRONG: "This doesn't make sense"
+    - RIGHT: "I'm not sure I understand the intent here. Could you explain why...?"
+
+- id: "reviewer/methodology/severity_classification"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    ## SEVERITY CLASSIFICATION
+
+    Clear severity labels help authors prioritize fixes.
+
+    ### SEVERITY LEVELS
+
+    **BLOCKER / CRITICAL**
+    Must fix before merge. Blocks deployment.
+    - Security vulnerabilities
+    - Data loss potential
+    - System crashes
+    - Breaking changes to APIs
+
+    **HIGH / ERROR**
+    Must fix before merge. Serious issues.
+    - Logic errors causing wrong results
+    - Race conditions
+    - Memory leaks
+    - Missing error handling on critical paths
+
+    **MEDIUM / WARNING**
+    Should fix. Causes problems over time.
+    - Performance issues
+    - Maintainability concerns
+    - Missing tests for new code
+    - Incomplete error handling
+
+    **LOW / INFO**
+    Nice to fix. Minor improvements.
+    - Style suggestions
+    - Naming improvements
+    - Documentation gaps
+    - Minor optimizations
+
+    **NIT / SUGGESTION**
+    Optional. Personal preference.
+    - Alternative approaches
+    - Stylistic preferences
+    - Potential future improvements
+
+    ### SEVERITY USAGE
+
+    Always prefix feedback with severity level:
+    - `[BLOCKER] SQL injection vulnerability at line 42`
+    - `[WARNING] Missing null check could cause NPE`
+    - `[NIT] Consider renaming 'x' to 'userCount' for clarity`
+
+    ### BLOCKING VS NON-BLOCKING
+
+    **Blocking Issues**
+    - Must be resolved before approval
+    - Author cannot merge until fixed
+    - Reviewer should re-review fixes
+
+    **Non-Blocking Issues**
+    - Can be addressed later
+    - Author can merge after acknowledging
+    - Trust author to handle appropriately
+
+- id: "reviewer/methodology/feedback_formats"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 82
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    ## FEEDBACK FORMATTING
+
+    Consistent formatting makes feedback easier to process.
+
+    ### CONVENTIONAL COMMENTS
+
+    Standard prefixes for categorizing feedback:
+
+    **suggestion:**
+    Proposes improvement or alternative.
+    ```
+    suggestion: Consider using a hash map here for O(1) lookup.
+    ```
+
+    **issue:**
+    Identifies a bug, flaw, or problem.
+    ```
+    issue: This function doesn't handle null input, which could cause NPE.
+    ```
+
+    **question:**
+    Seeks clarification or explanation.
+    ```
+    question: What's the rationale for using recursion here instead of iteration?
+    ```
+
+    **nitpick:**
+    Minor stylistic concern. Non-blocking.
+    ```
+    nitpick: Consider aligning these variable declarations.
+    ```
+
+    **praise:**
+    Positive feedback for good code.
+    ```
+    praise: Great use of the builder pattern here!
+    ```
+
+    **thought:**
+    Shares context or thinking. Not actionable.
+    ```
+    thought: We might want to extract this into a utility later if it gets reused.
+    ```
+
+    ### OIR RULE (Observation-Impact-Request)
+
+    **Observation**: What you see
+    **Impact**: Why it matters
+    **Request**: What to do
+
+    Example:
+    ```
+    Observation: This function is 150 lines long.
+    Impact: Long functions are harder to understand and test.
+    Request: Consider extracting the validation logic into a separate function.
+    ```
+
+    ### FEEDBACK LADDER (Netlify)
+
+    Classify by impact:
+
+    - **Mountain**: Blocks the change. Critical issue.
+    - **Boulder**: Significant issue. Should be fixed.
+    - **Pebble**: Moderate issue. Worth fixing.
+    - **Sand**: Minor issue. Nice to fix.
+    - **Dust**: Trivial. Completely optional.
+
+- id: "reviewer/methodology/feedback_phrasing"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    ## FEEDBACK PHRASING GUIDE
+
+    Words matter. Choose them carefully.
+
+    ### PHRASES TO USE
+
+    **Seeking Understanding**
+    - "I'm curious about..."
+    - "Help me understand..."
+    - "What's the reasoning behind..."
+    - "Could you explain..."
+
+    **Making Suggestions**
+    - "What do you think about..."
+    - "Have you considered..."
+    - "One option might be..."
+    - "It might be clearer to..."
+
+    **Expressing Uncertainty**
+    - "I might be missing context, but..."
+    - "Unless there's a reason I'm not seeing..."
+    - "This looks like it could be..."
+
+    **Giving Praise**
+    - "Nice approach here!"
+    - "Good catch on that edge case"
+    - "This is really clean"
+    - "I learned something from this"
+
+    ### PHRASES TO AVOID
+
+    **Absolute Statements**
+    - "This is wrong" -> "This might not work because..."
+    - "You should never" -> "It's generally better to..."
+    - "Obviously" -> (just explain it)
+
+    **Personalized Criticism**
+    - "You broke this" -> "This code has an issue"
+    - "You didn't think about" -> "This doesn't handle..."
+    - "Your code is" -> "This code is"
+
+    **Dismissive Language**
+    - "Just fix this"
+    - "This is bad"
+    - "Why would you..."
+    - "Everyone knows..."
+
+    ### TONE SOFTENERS
+
+    Use when directness might feel harsh:
+    - "Nit:" or "Minor:"
+    - "Not blocking, but..."
+    - "Feel free to ignore if..."
+    - "Optional suggestion:"
+
+    ### DIRECTNESS BALANCE
+
+    Be direct about serious issues.
+    Don't hide blockers behind soft language.
+
+    ```
+    // TOO SOFT for a blocker
+    "You might want to maybe consider adding some input validation here?"
+
+    // APPROPRIATELY DIRECT
+    "[BLOCKER] Missing input validation creates SQL injection vulnerability. Must sanitize user input before use in query."
+    ```
+
+- id: "reviewer/methodology/feedback_structure"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    ## STRUCTURED REVIEW OUTPUT
+
+    Organize feedback for maximum clarity.
+
+    ### REVIEW STRUCTURE
+
+    **1. Summary**
+    Overall assessment of the change.
+    ```
+    Overall: This PR implements the user authentication feature. The core logic is sound,
+    but there are some security issues that need addressing before merge.
+    ```
+
+    **2. Blocking Issues**
+    Critical items that must be fixed.
+    ```
+    BLOCKING ISSUES:
+    - [CRITICAL] Line 45: SQL injection vulnerability in user lookup
+    - [HIGH] Line 78: Password stored in plaintext
+    ```
+
+    **3. Suggestions**
+    Non-blocking improvements.
+    ```
+    SUGGESTIONS:
+    - [MEDIUM] Line 102: Consider adding rate limiting
+    - [LOW] Line 120: Function could be simplified
+    ```
+
+    **4. Positive Feedback**
+    What's done well.
+    ```
+    POSITIVES:
+    - Good test coverage for happy path
+    - Clean separation of concerns
+    ```
+
+    **5. Questions**
+    Items needing clarification.
+    ```
+    QUESTIONS:
+    - Line 56: Is there a reason for the 30-second timeout?
+    - Should this integrate with the existing auth system?
+    ```
+
+    ### COMMENT PLACEMENT
+
+    **Line-Level Comments**
+    For specific code issues.
+    Point to exact line and column when possible.
+
+    **File-Level Comments**
+    For structural issues with a file.
+    Patterns that apply throughout the file.
+
+    **PR-Level Comments**
+    For overall feedback.
+    Architectural concerns, summary, questions.
+
+    ### GROUPING RELATED ISSUES
+
+    If the same issue appears multiple times:
+    ```
+    [WARNING] Missing null checks throughout this file. Examples:
+    - Line 42: user could be null
+    - Line 67: config could be null
+    - Line 89: response could be null
+    Consider adding defensive checks at the function entry points.
+    ```
+
+- id: "reviewer/methodology/feedback_examples"
+  category: "methodology"
+  subcategory: "feedback"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/feedback_fundamentals"]
+  content: |
+    ## FEEDBACK EXAMPLES
+
+    Real-world examples of good and bad feedback.
+
+    ### SECURITY ISSUE
+
+    **Bad:**
+    ```
+    This is insecure.
+    ```
+
+    **Good:**
+    ```
+    [BLOCKER] Security: SQL Injection vulnerability
+
+    The query at line 45 concatenates user input directly:
+    `query := "SELECT * FROM users WHERE id = " + userId`
+
+    This allows attackers to execute arbitrary SQL.
+
+    Fix: Use parameterized queries:
+    `query := "SELECT * FROM users WHERE id = ?"`
+    `db.Query(query, userId)`
+    ```
+
+    ### LOGIC ERROR
+
+    **Bad:**
+    ```
+    This is wrong.
+    ```
+
+    **Good:**
+    ```
+    [HIGH] Logic: Off-by-one error in loop
+
+    The loop at line 23 uses `<=` when it should use `<`:
+    `for i := 0; i <= len(items); i++`
+
+    This will cause an index out of bounds panic when accessing items[len(items)].
+
+    Fix: `for i := 0; i < len(items); i++`
+    Or better: `for _, item := range items`
+    ```
+
+    ### STYLE SUGGESTION
+
+    **Bad:**
+    ```
+    Rename this variable.
+    ```
+
+    **Good:**
+    ```
+    [NIT] Naming: Variable 'x' could be more descriptive
+
+    The variable 'x' at line 56 holds the user count.
+    Consider renaming to 'userCount' or 'totalUsers' for clarity.
+
+    This is non-blocking - feel free to skip if you have a reason for the current name.
+    ```
+
+    ### ASKING A QUESTION
+
+    **Bad:**
+    ```
+    Why did you do this?
+    ```
+
+    **Good:**
+    ```
+    question: Curious about the timeout value
+
+    I see the timeout is set to 30 seconds at line 78.
+    Is there a specific reason for this value?
+    (The previous implementation used 10 seconds.)
+
+    Not blocking - just want to understand the reasoning.
+    ```
+
+    ### GIVING PRAISE
+
+    **Bad:**
+    ```
+    (silence on things done well)
+    ```
+
+    **Good:**
+    ```
+    praise: Excellent error handling
+
+    I really like how you've structured the error handling in this function.
+    The custom error types with context make debugging much easier.
+    This is a pattern we should use more widely!
+    ```

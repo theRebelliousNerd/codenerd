@@ -1,0 +1,853 @@
+# Go Concurrency - Encyclopedic Reference
+# Comprehensive guidance for goroutines, channels, sync primitives, and patterns
+
+- id: "language/go/concurrency/fundamentals"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    ## GO CONCURRENCY FUNDAMENTALS
+
+    ### The Go Concurrency Philosophy
+    "Don't communicate by sharing memory; share memory by communicating." - Rob Pike
+
+    Go's concurrency model is based on CSP (Communicating Sequential Processes).
+    Goroutines are lightweight threads managed by the Go runtime.
+    Channels are typed conduits for synchronization and communication.
+
+    ### Goroutine Basics
+
+    **Spawning Goroutines:**
+    ```go
+    go func() {
+        // Runs concurrently
+    }()
+
+    go processItem(item)  // Named function
+    ```
+
+    **CRITICAL: Goroutine Lifecycle Management**
+    Every goroutine MUST have:
+    1. A clear exit condition
+    2. A way to signal completion (channel, WaitGroup)
+    3. Context cancellation support for long-running work
+
+    **Goroutine Leak Prevention:**
+    ```go
+    // BAD: Goroutine never exits
+    go func() {
+        for {
+            process()  // Runs forever!
+        }
+    }()
+
+    // GOOD: Context-based cancellation
+    go func() {
+        for {
+            select {
+            case <-ctx.Done():
+                return  // Clean exit
+            case item := <-ch:
+                process(item)
+            }
+        }
+    }()
+    ```
+
+    ### Channel Fundamentals
+
+    **Channel Types:**
+    ```go
+    ch := make(chan int)      // Unbuffered - synchronous
+    ch := make(chan int, 10)  // Buffered - async up to capacity
+    var ch <-chan int         // Receive-only
+    var ch chan<- int         // Send-only
+    ```
+
+    **Channel Operations:**
+    ```go
+    ch <- value      // Send (blocks if full/unbuffered)
+    value := <-ch    // Receive (blocks if empty)
+    value, ok := <-ch // Receive with closed check
+    close(ch)        // Close channel (only sender should close!)
+    ```
+
+    **Channel Axioms:**
+    - Sending to a nil channel blocks forever
+    - Receiving from a nil channel blocks forever
+    - Sending to a closed channel panics
+    - Receiving from a closed channel returns zero value immediately
+    - Closing a nil channel panics
+    - Closing a closed channel panics
+
+  content_concise: |
+    ## Go Concurrency Essentials
+    - Goroutines: `go func(){}()` - lightweight, need exit conditions
+    - Channels: `make(chan T)` unbuffered, `make(chan T, n)` buffered
+    - Always use context cancellation for long-running goroutines
+    - Only sender closes channels; close(nil) and double-close panic
+    - Share memory by communicating, not vice versa
+
+- id: "language/go/concurrency/patterns"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    ## GO CONCURRENCY PATTERNS
+
+    ### Worker Pool Pattern
+    ```go
+    func WorkerPool(ctx context.Context, jobs <-chan Job, results chan<- Result, workers int) {
+        var wg sync.WaitGroup
+        for i := 0; i < workers; i++ {
+            wg.Add(1)
+            go func() {
+                defer wg.Done()
+                for {
+                    select {
+                    case <-ctx.Done():
+                        return
+                    case job, ok := <-jobs:
+                        if !ok {
+                            return  // Channel closed
+                        }
+                        results <- process(job)
+                    }
+                }
+            }()
+        }
+        wg.Wait()
+        close(results)
+    }
+    ```
+
+    ### Fan-Out, Fan-In Pattern
+    ```go
+    // Fan-out: Distribute work to multiple goroutines
+    func fanOut(ctx context.Context, input <-chan int, workers int) []<-chan int {
+        channels := make([]<-chan int, workers)
+        for i := 0; i < workers; i++ {
+            channels[i] = worker(ctx, input)
+        }
+        return channels
+    }
+
+    // Fan-in: Merge multiple channels into one
+    func fanIn(ctx context.Context, channels ...<-chan int) <-chan int {
+        var wg sync.WaitGroup
+        out := make(chan int)
+
+        for _, ch := range channels {
+            wg.Add(1)
+            go func(c <-chan int) {
+                defer wg.Done()
+                for {
+                    select {
+                    case <-ctx.Done():
+                        return
+                    case v, ok := <-c:
+                        if !ok {
+                            return
+                        }
+                        select {
+                        case out <- v:
+                        case <-ctx.Done():
+                            return
+                        }
+                    }
+                }
+            }(ch)
+        }
+
+        go func() {
+            wg.Wait()
+            close(out)
+        }()
+        return out
+    }
+    ```
+
+    ### Pipeline Pattern
+    ```go
+    func Pipeline(ctx context.Context, input <-chan int) <-chan int {
+        stage1 := transform(ctx, input, double)
+        stage2 := transform(ctx, stage1, addOne)
+        return filter(ctx, stage2, isEven)
+    }
+
+    func transform(ctx context.Context, in <-chan int, fn func(int) int) <-chan int {
+        out := make(chan int)
+        go func() {
+            defer close(out)
+            for {
+                select {
+                case <-ctx.Done():
+                    return
+                case v, ok := <-in:
+                    if !ok {
+                        return
+                    }
+                    select {
+                    case out <- fn(v):
+                    case <-ctx.Done():
+                        return
+                    }
+                }
+            }
+        }()
+        return out
+    }
+    ```
+
+    ### Semaphore Pattern (Bounded Concurrency)
+    ```go
+    type Semaphore chan struct{}
+
+    func NewSemaphore(n int) Semaphore {
+        return make(chan struct{}, n)
+    }
+
+    func (s Semaphore) Acquire() { s <- struct{}{} }
+    func (s Semaphore) Release() { <-s }
+
+    // Usage: Limit concurrent operations
+    sem := NewSemaphore(10)
+    for _, item := range items {
+        sem.Acquire()
+        go func(item Item) {
+            defer sem.Release()
+            process(item)
+        }(item)
+    }
+    ```
+
+    ### Or-Done Pattern (Early Exit)
+    ```go
+    func orDone(ctx context.Context, ch <-chan int) <-chan int {
+        out := make(chan int)
+        go func() {
+            defer close(out)
+            for {
+                select {
+                case <-ctx.Done():
+                    return
+                case v, ok := <-ch:
+                    if !ok {
+                        return
+                    }
+                    select {
+                    case out <- v:
+                    case <-ctx.Done():
+                        return
+                    }
+                }
+            }
+        }()
+        return out
+    }
+    ```
+
+  content_concise: |
+    ## Go Concurrency Patterns
+    - Worker Pool: Fixed goroutines processing job channel
+    - Fan-Out/Fan-In: Distribute work, merge results
+    - Pipeline: Chain of processing stages
+    - Semaphore: `make(chan struct{}, n)` for bounded concurrency
+    - Or-Done: Wrap channel with context cancellation
+
+- id: "language/go/concurrency/sync_primitives"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    ## GO SYNC PRIMITIVES
+
+    ### sync.WaitGroup
+    ```go
+    var wg sync.WaitGroup
+
+    for i := 0; i < n; i++ {
+        wg.Add(1)  // MUST be called before goroutine starts
+        go func() {
+            defer wg.Done()  // Decrement when done
+            work()
+        }()
+    }
+
+    wg.Wait()  // Block until counter reaches 0
+    ```
+
+    **WaitGroup Rules:**
+    - `Add()` MUST be called before goroutine starts (not inside)
+    - `Done()` MUST be called exactly once per `Add(1)`
+    - Never copy a WaitGroup after first use
+
+    ### sync.Mutex / sync.RWMutex
+    ```go
+    var mu sync.Mutex
+    mu.Lock()
+    defer mu.Unlock()
+    // Critical section
+
+    var rw sync.RWMutex
+    rw.RLock()   // Multiple readers allowed
+    defer rw.RUnlock()
+
+    rw.Lock()    // Exclusive write access
+    defer rw.Unlock()
+    ```
+
+    **Mutex Best Practices:**
+    - Always use defer for Unlock to prevent deadlocks on panic
+    - Keep critical sections as small as possible
+    - Use RWMutex when reads vastly outnumber writes
+    - Never copy a Mutex after first use
+
+    ### sync.Once
+    ```go
+    var once sync.Once
+    var instance *Service
+
+    func GetService() *Service {
+        once.Do(func() {
+            instance = &Service{}
+            instance.init()
+        })
+        return instance
+    }
+    ```
+
+    **Once guarantees:**
+    - Function runs exactly once, even with concurrent calls
+    - All callers block until the function completes
+    - Safe for lazy initialization patterns
+
+    ### sync.Cond
+    ```go
+    var mu sync.Mutex
+    cond := sync.NewCond(&mu)
+
+    // Waiter
+    mu.Lock()
+    for !condition {
+        cond.Wait()  // Releases lock, waits, reacquires
+    }
+    mu.Unlock()
+
+    // Signaler
+    mu.Lock()
+    condition = true
+    cond.Signal()  // Wake one waiter
+    // cond.Broadcast()  // Wake all waiters
+    mu.Unlock()
+    ```
+
+    ### sync.Map (Concurrent Map)
+    ```go
+    var m sync.Map
+
+    m.Store("key", "value")
+    value, ok := m.Load("key")
+    m.Delete("key")
+    m.LoadOrStore("key", "default")
+    m.Range(func(key, value interface{}) bool {
+        return true  // Continue iteration
+    })
+    ```
+
+    **When to use sync.Map:**
+    - Keys are mostly written once, read many times
+    - Multiple goroutines read/write disjoint key sets
+    - NOT for general-purpose concurrent maps (use mutex + map)
+
+    ### sync.Pool (Object Reuse)
+    ```go
+    var bufPool = sync.Pool{
+        New: func() interface{} {
+            return new(bytes.Buffer)
+        },
+    }
+
+    func Process(data []byte) {
+        buf := bufPool.Get().(*bytes.Buffer)
+        defer bufPool.Put(buf)
+        buf.Reset()  // MUST reset before use!
+        // Use buf...
+    }
+    ```
+
+    **Pool Rules:**
+    - Objects may be garbage collected at any time
+    - Always reset objects before returning to pool
+    - Not for connection pooling (use dedicated pool)
+
+    ### atomic Package
+    ```go
+    var counter int64
+
+    atomic.AddInt64(&counter, 1)
+    atomic.LoadInt64(&counter)
+    atomic.StoreInt64(&counter, 0)
+    atomic.CompareAndSwapInt64(&counter, old, new)
+
+    // Go 1.19+: atomic.Int64
+    var counter atomic.Int64
+    counter.Add(1)
+    counter.Load()
+    ```
+
+  content_concise: |
+    ## Go Sync Primitives
+    - WaitGroup: `Add()` before goroutine, `Done()` in defer, `Wait()` to block
+    - Mutex: `Lock()/Unlock()`, always defer Unlock
+    - RWMutex: `RLock()` for reads, `Lock()` for writes
+    - Once: `once.Do(fn)` - runs exactly once
+    - Pool: Object reuse, always Reset before Put
+    - atomic: Lock-free counters, `atomic.AddInt64(&v, 1)`
+
+- id: "language/go/concurrency/errgroup"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    ## ERRGROUP: CONCURRENT ERROR HANDLING
+
+    The `golang.org/x/sync/errgroup` package provides synchronized error handling
+    for groups of goroutines.
+
+    ### Basic Usage
+    ```go
+    import "golang.org/x/sync/errgroup"
+
+    func ProcessAll(ctx context.Context, items []Item) error {
+        g, ctx := errgroup.WithContext(ctx)
+
+        for _, item := range items {
+            item := item  // Capture loop variable (pre-Go 1.22)
+            g.Go(func() error {
+                return processItem(ctx, item)
+            })
+        }
+
+        return g.Wait()  // Returns first non-nil error
+    }
+    ```
+
+    ### Key Features
+
+    **1. First error cancels context:**
+    ```go
+    g, ctx := errgroup.WithContext(ctx)
+    // When any goroutine returns error, ctx is cancelled
+    // Other goroutines should check ctx.Done()
+    ```
+
+    **2. Wait blocks until all complete:**
+    ```go
+    err := g.Wait()
+    // Blocks until all goroutines finish
+    // Returns first non-nil error encountered
+    ```
+
+    **3. Limit concurrent goroutines (Go 1.20+):**
+    ```go
+    g := new(errgroup.Group)
+    g.SetLimit(10)  // Max 10 concurrent goroutines
+
+    for _, item := range items {
+        item := item
+        g.Go(func() error {
+            return process(item)  // Only 10 run at a time
+        })
+    }
+    ```
+
+    ### Common Patterns
+
+    **Parallel HTTP Requests:**
+    ```go
+    func FetchAll(ctx context.Context, urls []string) ([]Response, error) {
+        g, ctx := errgroup.WithContext(ctx)
+        results := make([]Response, len(urls))
+
+        for i, url := range urls {
+            i, url := i, url
+            g.Go(func() error {
+                resp, err := fetch(ctx, url)
+                if err != nil {
+                    return err
+                }
+                results[i] = resp  // Safe: each goroutine writes different index
+                return nil
+            })
+        }
+
+        if err := g.Wait(); err != nil {
+            return nil, err
+        }
+        return results, nil
+    }
+    ```
+
+    **With Bounded Concurrency:**
+    ```go
+    func ProcessWithLimit(items []Item, limit int) error {
+        g := new(errgroup.Group)
+        g.SetLimit(limit)
+
+        for _, item := range items {
+            item := item
+            g.Go(func() error {
+                return heavyProcess(item)
+            })
+        }
+
+        return g.Wait()
+    }
+    ```
+
+    ### errgroup vs WaitGroup
+
+    | Feature | WaitGroup | errgroup |
+    |---------|-----------|----------|
+    | Error handling | Manual | Built-in |
+    | Context cancellation | Manual | Automatic |
+    | Concurrency limit | Manual | `SetLimit()` |
+    | Return value | None | First error |
+
+    **Use errgroup when:**
+    - Goroutines can fail and you need to handle errors
+    - You want automatic context cancellation on error
+    - You need bounded concurrency
+
+    **Use WaitGroup when:**
+    - Simple fire-and-forget goroutines
+    - No error handling needed
+    - Maximum performance (slightly less overhead)
+
+  content_concise: |
+    ## errgroup: Concurrent Error Handling
+    ```go
+    g, ctx := errgroup.WithContext(ctx)
+    g.SetLimit(10)  // Optional: limit concurrency
+    for _, item := range items {
+        item := item
+        g.Go(func() error { return process(ctx, item) })
+    }
+    return g.Wait()  // First error cancels ctx, Wait returns it
+    ```
+
+- id: "language/go/concurrency/context"
+  category: "language"
+  subcategory: "go"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    ## CONTEXT: CANCELLATION AND DEADLINES
+
+    context.Context is Go's standard mechanism for:
+    - Cancellation propagation
+    - Deadline/timeout enforcement
+    - Request-scoped values
+
+    ### Context Creation
+
+    **Background and TODO:**
+    ```go
+    ctx := context.Background()  // Root context, never cancelled
+    ctx := context.TODO()        // Placeholder when unsure
+    ```
+
+    **WithCancel:**
+    ```go
+    ctx, cancel := context.WithCancel(parent)
+    defer cancel()  // ALWAYS call cancel to release resources
+
+    go func() {
+        select {
+        case <-ctx.Done():
+            return  // Cancelled
+        case result := <-work():
+            // Process result
+        }
+    }()
+
+    cancel()  // Cancels ctx and all derived contexts
+    ```
+
+    **WithTimeout:**
+    ```go
+    ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+    defer cancel()  // Even if timeout fires, call cancel
+
+    select {
+    case <-ctx.Done():
+        if ctx.Err() == context.DeadlineExceeded {
+            // Timed out
+        }
+    case result := <-work(ctx):
+        // Success
+    }
+    ```
+
+    **WithDeadline:**
+    ```go
+    deadline := time.Now().Add(10 * time.Second)
+    ctx, cancel := context.WithDeadline(parent, deadline)
+    defer cancel()
+    ```
+
+    **WithValue (Use Sparingly):**
+    ```go
+    type ctxKey string
+    const requestIDKey ctxKey = "requestID"
+
+    ctx = context.WithValue(parent, requestIDKey, "abc123")
+    requestID := ctx.Value(requestIDKey).(string)
+    ```
+
+    ### Context Best Practices
+
+    **1. Always pass context as first parameter:**
+    ```go
+    func DoSomething(ctx context.Context, arg string) error {
+        // ...
+    }
+    ```
+
+    **2. Always call cancel (even on success):**
+    ```go
+    ctx, cancel := context.WithTimeout(parent, time.Second)
+    defer cancel()  // Releases resources immediately
+    ```
+
+    **3. Check ctx.Done() in long operations:**
+    ```go
+    func Process(ctx context.Context, items []Item) error {
+        for _, item := range items {
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            default:
+            }
+            if err := processItem(item); err != nil {
+                return err
+            }
+        }
+        return nil
+    }
+    ```
+
+    **4. Don't store contexts in structs:**
+    ```go
+    // BAD
+    type Service struct {
+        ctx context.Context  // Don't do this!
+    }
+
+    // GOOD: Pass context to methods
+    func (s *Service) Do(ctx context.Context) error {
+        // ...
+    }
+    ```
+
+    **5. Context values are for request-scoped data only:**
+    - Request IDs, trace IDs
+    - Authentication tokens
+    - NOT for optional parameters
+
+    ### Context Errors
+    ```go
+    ctx.Err() == context.Canceled         // Cancel was called
+    ctx.Err() == context.DeadlineExceeded // Timeout/deadline hit
+    ```
+
+    ### HTTP Context Integration
+    ```go
+    func Handler(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()  // Gets request context
+        // ctx is cancelled when client disconnects
+
+        result, err := doWork(ctx)
+        if err == context.Canceled {
+            return  // Client disconnected
+        }
+        // ...
+    }
+    ```
+
+  content_concise: |
+    ## Context: Cancellation and Deadlines
+    ```go
+    ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+    defer cancel()  // ALWAYS call cancel
+
+    select {
+    case <-ctx.Done():
+        return ctx.Err()  // Canceled or DeadlineExceeded
+    case result := <-work(ctx):
+        return result
+    }
+    ```
+    - First param: `func Foo(ctx context.Context, ...)`
+    - Check `ctx.Done()` in loops
+    - Don't store in structs, pass to methods
+
+- id: "language/go/concurrency/race_conditions"
+  category: "language"
+  subcategory: "go"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/concurrency/fundamentals"]
+  content: |
+    ## RACE CONDITIONS AND DATA RACES
+
+    A data race occurs when two goroutines access the same variable
+    concurrently and at least one access is a write.
+
+    ### Common Race Condition Patterns
+
+    **1. Unprotected Shared State:**
+    ```go
+    // BAD: Data race
+    var counter int
+    go func() { counter++ }()
+    go func() { counter++ }()
+
+    // GOOD: Mutex protection
+    var mu sync.Mutex
+    var counter int
+    go func() {
+        mu.Lock()
+        counter++
+        mu.Unlock()
+    }()
+
+    // GOOD: Atomic operation
+    var counter int64
+    go func() { atomic.AddInt64(&counter, 1) }()
+    ```
+
+    **2. Map Concurrent Access:**
+    ```go
+    // BAD: Maps are not safe for concurrent use
+    m := make(map[string]int)
+    go func() { m["a"] = 1 }()  // Race!
+    go func() { _ = m["a"] }()  // Race!
+
+    // GOOD: sync.Map
+    var m sync.Map
+    go func() { m.Store("a", 1) }()
+    go func() { m.Load("a") }()
+
+    // GOOD: Mutex-protected map
+    var mu sync.Mutex
+    m := make(map[string]int)
+    go func() {
+        mu.Lock()
+        m["a"] = 1
+        mu.Unlock()
+    }()
+    ```
+
+    **3. Slice Append Race:**
+    ```go
+    // BAD: Concurrent append
+    var results []int
+    go func() { results = append(results, 1) }()
+    go func() { results = append(results, 2) }()
+
+    // GOOD: Channel-based collection
+    resultCh := make(chan int, 2)
+    go func() { resultCh <- 1 }()
+    go func() { resultCh <- 2 }()
+    ```
+
+    **4. Closure Variable Capture (Pre-Go 1.22):**
+    ```go
+    // BAD: All goroutines share same i
+    for i := 0; i < 3; i++ {
+        go func() {
+            fmt.Println(i)  // Usually prints "3" three times
+        }()
+    }
+
+    // GOOD: Capture in parameter
+    for i := 0; i < 3; i++ {
+        go func(i int) {
+            fmt.Println(i)  // Prints 0, 1, 2 (order varies)
+        }(i)
+    }
+
+    // GOOD: Capture in local variable
+    for i := 0; i < 3; i++ {
+        i := i  // Shadow with new variable
+        go func() {
+            fmt.Println(i)
+        }()
+    }
+    ```
+    Note: Go 1.22+ fixes this automatically for `for` loops.
+
+    ### Detecting Race Conditions
+
+    **Race Detector:**
+    ```bash
+    go test -race ./...
+    go run -race main.go
+    go build -race -o myapp
+    ```
+
+    The race detector finds data races at runtime.
+    Run tests with `-race` in CI/CD.
+
+    **Race Detector Limitations:**
+    - Only detects races that actually execute
+    - Adds ~10x slowdown and memory overhead
+    - Cannot find logic races (e.g., check-then-act)
+
+    ### Check-Then-Act Races
+    ```go
+    // BAD: Check-then-act race
+    if _, ok := cache[key]; !ok {
+        cache[key] = compute()  // Another goroutine may have added!
+    }
+
+    // GOOD: Atomic operation
+    mu.Lock()
+    if _, ok := cache[key]; !ok {
+        cache[key] = compute()
+    }
+    mu.Unlock()
+
+    // GOOD: sync.Map LoadOrStore
+    actual, loaded := m.LoadOrStore(key, value)
+    ```
+
+  content_concise: |
+    ## Race Conditions
+    - Use `-race` flag: `go test -race ./...`
+    - Maps need sync.Map or mutex protection
+    - Counters need mutex or atomic operations
+    - Pre-Go 1.22: capture loop variables explicitly
+    - Check-then-act needs atomic operation or mutex

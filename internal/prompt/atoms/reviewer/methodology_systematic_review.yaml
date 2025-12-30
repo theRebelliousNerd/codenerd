@@ -1,0 +1,186 @@
+# Code Review Methodology Atoms - Systematic Review Process
+# Encyclopedic guidance for structured code review methodology
+
+- id: "reviewer/methodology/systematic_review_process"
+  category: "methodology"
+  subcategory: "code_review"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
+  content: |
+    ## SYSTEMATIC CODE REVIEW PROCESS
+
+    Code review is a structured, multi-pass process. Each pass has a specific focus.
+    Do not attempt to find all issues in a single read-through.
+
+    ### FOUR-PASS REVIEW METHODOLOGY
+
+    **PASS 1: UNDERSTAND INTENT (Orientation)**
+    Purpose: Understand WHAT the code is trying to accomplish before judging HOW.
+    - Read the PR title, description, and linked issues
+    - Identify the problem being solved
+    - Understand the expected behavior change
+    - Note the scope: new feature, bug fix, refactor, or optimization
+    - Ask: "What would success look like for this change?"
+
+    **PASS 2: CHECK CORRECTNESS (Logic Verification)**
+    Purpose: Verify the code does what it claims to do.
+    - Trace the happy path execution
+    - Verify logic flows match the stated intent
+    - Check algorithm correctness
+    - Validate data transformations
+    - Ask: "Does this actually solve the problem?"
+
+    **PASS 3: CHECK EDGE CASES (Robustness)**
+    Purpose: Verify the code handles unexpected inputs and states.
+    - Identify boundary conditions
+    - Check error handling paths
+    - Look for null/undefined handling
+    - Verify timeout and resource cleanup
+    - Ask: "What happens when things go wrong?"
+
+    **PASS 4: STYLE AND MAINTAINABILITY (Polish)**
+    Purpose: Ensure the code is maintainable long-term.
+    - Check naming clarity
+    - Verify documentation completeness
+    - Assess abstraction appropriateness
+    - Look for code smells
+    - Ask: "Will someone understand this in 6 months?"
+
+    ### PASS TIMING GUIDANCE
+    - Pass 1: 10-15% of review time
+    - Pass 2: 35-40% of review time
+    - Pass 3: 30-35% of review time
+    - Pass 4: 15-20% of review time
+
+- id: "reviewer/methodology/pr_size_guidance"
+  category: "methodology"
+  subcategory: "code_review"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit"]
+  depends_on: ["reviewer/methodology/systematic_review_process"]
+  content: |
+    ## PR SIZE AND REVIEW DEPTH CALIBRATION
+
+    The size of the change determines the appropriate review strategy.
+
+    ### SMALL CHANGES (1-50 lines)
+    - Single-pass review acceptable
+    - Focus on correctness and edge cases
+    - Quick turnaround expected
+    - Flag if change seems incomplete
+
+    ### MEDIUM CHANGES (50-200 lines)
+    - Full four-pass methodology
+    - Consider architectural impact
+    - Check for missing tests
+    - Verify backward compatibility
+
+    ### LARGE CHANGES (200-400 lines)
+    - Request breakdown if possible
+    - Prioritize critical paths
+    - Focus on interfaces and contracts
+    - Document review assumptions
+
+    ### OVERSIZED CHANGES (400+ lines)
+    - Flag for decomposition before detailed review
+    - Identify logical boundaries for splitting
+    - Review incrementally if decomposition not possible
+    - Higher risk of missing issues - be explicit about review limitations
+
+    ### GOOGLE'S GUIDANCE
+    Research shows 200-400 lines is the optimal review size.
+    Beyond 400 lines, defect detection rates drop significantly.
+    Each additional 100 lines reduces thoroughness by ~10%.
+
+- id: "reviewer/methodology/review_checklist_core"
+  category: "methodology"
+  subcategory: "code_review"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/systematic_review_process"]
+  content: |
+    ## CORE REVIEW CHECKLIST
+
+    Use this checklist for every code review. Check items systematically.
+
+    ### FUNCTIONALITY
+    - [ ] Code implements the stated requirements
+    - [ ] Business logic is correct
+    - [ ] All acceptance criteria are met
+    - [ ] No unintended side effects
+    - [ ] Feature flags are properly implemented (if applicable)
+
+    ### DESIGN
+    - [ ] Follows Single Responsibility Principle
+    - [ ] Appropriate abstraction level
+    - [ ] No unnecessary coupling
+    - [ ] Consistent with existing architecture
+    - [ ] Changes are in the right layer
+
+    ### CODE QUALITY
+    - [ ] Clear, intention-revealing names
+    - [ ] No magic numbers or strings
+    - [ ] DRY (Don't Repeat Yourself)
+    - [ ] Functions are appropriately sized
+    - [ ] Complexity is manageable
+
+    ### TESTING
+    - [ ] New code has tests
+    - [ ] Tests cover happy path
+    - [ ] Tests cover error cases
+    - [ ] Tests cover edge cases
+    - [ ] Tests are readable and maintainable
+
+    ### DOCUMENTATION
+    - [ ] Complex logic is commented
+    - [ ] Public APIs are documented
+    - [ ] README updated if needed
+    - [ ] Inline comments explain WHY, not WHAT
+
+- id: "reviewer/methodology/architecture_assessment"
+  category: "methodology"
+  subcategory: "code_review"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/review_checklist_core"]
+  content: |
+    ## ARCHITECTURAL IMPACT ASSESSMENT
+
+    Every PR review should assess architectural impact, not just local correctness.
+
+    ### QUESTIONS TO ASK
+
+    **System Fit**
+    - Does this change belong in this component/service?
+    - Are we putting code in the right place?
+    - Does this follow established patterns?
+
+    **Coupling Analysis**
+    - What dependencies does this change introduce?
+    - Are we creating circular dependencies?
+    - How hard will this be to change later?
+
+    **Scalability Considerations**
+    - Will this work at 10x current load?
+    - Are there O(n^2) operations hiding here?
+    - What happens when data grows?
+
+    **Long-term Maintainability**
+    - Will new team members understand this?
+    - Are we adding technical debt?
+    - Is this a pattern we want to proliferate?
+
+    ### RED FLAGS
+    - New dependencies on internal implementation details
+    - Breaking changes to stable interfaces
+    - Logic scattered across multiple layers
+    - Violation of established architectural boundaries
+    - "Temporary" workarounds without cleanup tickets

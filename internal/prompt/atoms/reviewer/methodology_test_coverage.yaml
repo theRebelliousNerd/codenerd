@@ -1,0 +1,449 @@
+# Code Review Methodology Atoms - Test Coverage Review
+# Encyclopedic guidance for test quality and coverage assessment
+
+- id: "reviewer/methodology/test_coverage_fundamentals"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## TEST COVERAGE REVIEW FUNDAMENTALS
+
+    Tests are code too. Review them with the same rigor.
+
+    ### TEST REVIEW GOALS
+
+    1. **Coverage**: Does the test suite cover the code?
+    2. **Quality**: Do tests actually verify behavior?
+    3. **Maintainability**: Are tests readable and maintainable?
+    4. **Correctness**: Do tests test the right things?
+
+    ### TEST COVERAGE METRICS
+
+    **Statement Coverage**
+    - Percentage of code lines executed by tests
+    - Minimum: 70-80% for most projects
+    - Doesn't guarantee quality
+
+    **Branch Coverage**
+    - Percentage of decision branches taken
+    - More meaningful than statement coverage
+    - Target: Both true and false paths tested
+
+    **Path Coverage**
+    - All possible execution paths
+    - Often impractical to achieve 100%
+    - Focus on critical paths
+
+    ### COVERAGE GAPS TO FLAG
+
+    - [ ] New code lacks tests
+    - [ ] Changed code has unchanged tests
+    - [ ] Error handlers untested
+    - [ ] Edge cases not covered
+    - [ ] Integration points untested
+
+    ### COVERAGE QUALITY
+
+    High coverage does NOT mean quality.
+    100% coverage with no assertions = 0% value.
+
+    Tests must:
+    - Assert expected outcomes
+    - Verify edge cases
+    - Test error conditions
+    - Cover regression scenarios
+
+- id: "reviewer/methodology/mutation_testing"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    ## MUTATION TESTING CONCEPTS
+
+    Mutation testing verifies that tests actually catch bugs.
+
+    ### HOW MUTATION TESTING WORKS
+
+    1. Introduce a "mutant" (small code change)
+    2. Run test suite
+    3. If tests pass, the mutant "survived" (test weakness!)
+    4. If tests fail, the mutant was "killed" (tests working)
+
+    ### MUTATION TYPES
+
+    **Arithmetic Mutations**
+    - `+` becomes `-`
+    - `*` becomes `/`
+    - `++` becomes `--`
+
+    **Logical Mutations**
+    - `&&` becomes `||`
+    - `==` becomes `!=`
+    - `>` becomes `>=`
+
+    **Conditional Mutations**
+    - `if(x)` becomes `if(true)`
+    - `if(x)` becomes `if(false)`
+
+    **Return Mutations**
+    - Return null instead of object
+    - Return empty instead of value
+    - Return opposite boolean
+
+    ### MUTATION SCORE
+
+    ```
+    Score = (Killed Mutants / Total Mutants) * 100
+    ```
+
+    - 0%: Tests execute code but assert nothing
+    - 50%: Tests catch half of potential bugs
+    - 80%+: Good test quality
+
+    ### INTERPRETING RESULTS
+
+    **High Coverage, Low Mutation Score**
+    Tests execute code but don't verify it.
+    Action: Add assertions.
+
+    **Low Coverage, High Mutation Score**
+    Untested code, but tested code is well-tested.
+    Action: Increase coverage.
+
+    **High Coverage, High Mutation Score**
+    Good test suite.
+    Action: Maintain quality.
+
+    ### TOOLS
+    - Java: Pitest
+    - JavaScript: Stryker
+    - Python: mutmut
+    - Go: go-mutesting
+
+- id: "reviewer/methodology/test_quality"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 84
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    ## TEST QUALITY REVIEW
+
+    Good tests are assets. Bad tests are liabilities.
+
+    ### TEST QUALITY CHECKLIST
+
+    **Test Structure (Arrange-Act-Assert)**
+    - [ ] Clear setup (Arrange)
+    - [ ] Single action (Act)
+    - [ ] Meaningful assertions (Assert)
+    - [ ] Proper cleanup (if needed)
+
+    **Test Independence**
+    - [ ] Tests don't depend on execution order
+    - [ ] Tests don't share mutable state
+    - [ ] Each test can run in isolation
+
+    **Test Readability**
+    - [ ] Test names describe behavior
+    - [ ] Test body is understandable
+    - [ ] Failure message is helpful
+
+    **Test Reliability**
+    - [ ] No flaky tests
+    - [ ] No time-dependent tests
+    - [ ] No order-dependent tests
+
+    ### TEST NAMING PATTERNS
+
+    **Good Names**
+    ```
+    test_user_creation_with_valid_email_succeeds
+    test_user_creation_with_invalid_email_returns_error
+    should_return_404_when_user_not_found
+    ```
+
+    **Bad Names**
+    ```
+    test1
+    testUser
+    testSomething
+    ```
+
+    ### ASSERTION QUALITY
+
+    **Weak Assertions**
+    ```python
+    assert result is not None  # Only checks existence
+    assert len(items) > 0      # Only checks non-empty
+    ```
+
+    **Strong Assertions**
+    ```python
+    assert result == expected_value  # Checks actual value
+    assert items == [expected_item]  # Checks content
+    ```
+
+    **Assertion Messages**
+    ```python
+    # Bad
+    assert x == 5
+
+    # Good
+    assert x == 5, f"Expected balance to be 5 after deposit, got {x}"
+    ```
+
+- id: "reviewer/methodology/test_edge_cases"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 82
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    ## EDGE CASE TEST REVIEW
+
+    Edge cases are where bugs hide. Tests must cover them.
+
+    ### EDGE CASE CATEGORIES
+
+    **Empty/Null Inputs**
+    - [ ] Empty string
+    - [ ] Null/nil/None
+    - [ ] Empty collection
+    - [ ] Whitespace-only string
+
+    **Boundary Values**
+    - [ ] Zero
+    - [ ] Negative numbers
+    - [ ] Maximum values (INT_MAX)
+    - [ ] Minimum values (INT_MIN)
+
+    **Collection Boundaries**
+    - [ ] Empty collection
+    - [ ] Single element
+    - [ ] Maximum size
+    - [ ] Duplicate elements
+
+    **String Boundaries**
+    - [ ] Empty string
+    - [ ] Single character
+    - [ ] Very long string
+    - [ ] Unicode/emoji
+
+    **Time Boundaries**
+    - [ ] Midnight
+    - [ ] End of month
+    - [ ] Leap year
+    - [ ] Timezone transitions
+
+    ### EDGE CASE TEST PATTERNS
+
+    **Parameterized Tests**
+    ```python
+    @pytest.mark.parametrize("input,expected", [
+        ("", False),
+        ("a", True),
+        ("abc", True),
+        ("a" * 1000, True),
+    ])
+    def test_is_valid_string(input, expected):
+        assert is_valid_string(input) == expected
+    ```
+
+    **Boundary Value Analysis**
+    For range [0, 100]:
+    - Test: -1 (below)
+    - Test: 0 (lower boundary)
+    - Test: 50 (middle)
+    - Test: 100 (upper boundary)
+    - Test: 101 (above)
+
+    ### ERROR CONDITION TESTS
+
+    - [ ] Invalid input produces error
+    - [ ] Error message is helpful
+    - [ ] Partial failures handled
+    - [ ] Cleanup happens on error
+
+- id: "reviewer/methodology/test_anti_patterns"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    ## TEST ANTI-PATTERNS
+
+    These patterns indicate low-quality tests.
+
+    ### ANTI-PATTERN: NO ASSERTIONS
+
+    ```python
+    def test_user_creation():
+        user = create_user("test@example.com")
+        # No assertions! Test always passes.
+    ```
+
+    FIX: Add meaningful assertions.
+
+    ### ANTI-PATTERN: TESTING IMPLEMENTATION
+
+    ```python
+    def test_user_creation():
+        user = create_user("test@example.com")
+        # Testing internal implementation detail
+        assert mock_db.insert.called_once_with(...)
+    ```
+
+    FIX: Test behavior, not implementation.
+
+    ### ANTI-PATTERN: MULTIPLE ACTS
+
+    ```python
+    def test_user():
+        user = create_user("a@b.com")
+        assert user.email == "a@b.com"
+
+        user.update_email("c@d.com")
+        assert user.email == "c@d.com"
+
+        user.delete()
+        # Multiple tests in one!
+    ```
+
+    FIX: One test per behavior.
+
+    ### ANTI-PATTERN: FLAKY TESTS
+
+    ```python
+    def test_timing():
+        start = time.time()
+        do_work()
+        elapsed = time.time() - start
+        assert elapsed < 1.0  # May fail randomly
+    ```
+
+    FIX: Avoid timing assertions or use generous margins.
+
+    ### ANTI-PATTERN: HIDDEN SETUP
+
+    ```python
+    def test_user_balance():
+        # Where does user come from? What's the setup?
+        assert user.balance == 100
+    ```
+
+    FIX: Make setup explicit in each test.
+
+    ### ANTI-PATTERN: CONDITIONAL LOGIC IN TESTS
+
+    ```python
+    def test_user():
+        user = get_user()
+        if user.type == "premium":
+            assert user.discount == 0.2
+        else:
+            assert user.discount == 0
+    ```
+
+    FIX: Separate tests for each condition.
+
+    ### ANTI-PATTERN: MOCK EVERYTHING
+
+    ```python
+    def test_user_creation():
+        with mock(Database), mock(Cache), mock(Logger):
+            # Nothing real is tested!
+            result = create_user("test@example.com")
+    ```
+
+    FIX: Use real implementations where practical.
+
+- id: "reviewer/methodology/test_coverage_gaps"
+  category: "methodology"
+  subcategory: "testing"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/test_coverage_fundamentals"]
+  content: |
+    ## IDENTIFYING TEST COVERAGE GAPS
+
+    Systematically identify what's missing from test coverage.
+
+    ### CODE ANALYSIS
+
+    **New Code**
+    - [ ] All new functions have tests
+    - [ ] All new branches have tests
+    - [ ] All new error paths have tests
+
+    **Changed Code**
+    - [ ] Changes covered by existing tests
+    - [ ] New tests for new behavior
+    - [ ] Regression tests for fixes
+
+    **Integration Points**
+    - [ ] API endpoints tested
+    - [ ] Database operations tested
+    - [ ] External service calls tested
+
+    ### COVERAGE GAP DETECTION
+
+    **By Code Type**
+    - Error handlers: Often untested
+    - Cleanup code: Often untested
+    - Rare branches: Often untested
+    - Default cases: Often untested
+
+    **By Complexity**
+    - High cyclomatic complexity needs more tests
+    - Each decision point needs coverage
+    - Nested conditions need combination testing
+
+    **By Risk**
+    - Security-critical code needs thorough tests
+    - Payment processing needs thorough tests
+    - Data modification needs thorough tests
+
+    ### QUESTIONS TO ASK
+
+    1. What happens when this function receives invalid input?
+    2. What happens when an external service fails?
+    3. What happens at the boundaries?
+    4. What happens under concurrent access?
+    5. What happens when resources are exhausted?
+
+    ### COVERAGE PRIORITIES
+
+    **Must Test**
+    - Security controls
+    - Money/payment logic
+    - Data integrity
+    - Authentication/authorization
+
+    **Should Test**
+    - Business logic
+    - API contracts
+    - Error handling
+    - Integration points
+
+    **Nice to Test**
+    - UI helpers
+    - Logging
+    - Monitoring
+    - Comments/docs

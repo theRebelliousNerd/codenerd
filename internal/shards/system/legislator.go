@@ -227,8 +227,12 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	// Build the user prompt for directive compilation
 	userPrompt := l.buildLegislatorPrompt(directive)
 
-	// Determine system prompt: try JIT first, fallback to legacy
+	// Get JIT-compiled system prompt (no fallback)
 	systemPrompt := l.getSystemPrompt(ctx)
+	if systemPrompt == "" {
+		logging.Get(logging.CategorySystemShards).Error("[Legislator] JIT prompt compilation failed - ensure legislator atoms exist")
+		return "", fmt.Errorf("JIT prompt compilation failed - ensure legislator atoms exist in internal/prompt/atoms/identity/legislator.yaml")
+	}
 
 	// Use the feedback loop for generation with automatic validation and retry
 	result, err := l.feedbackLoop.GenerateAndValidate(
@@ -263,32 +267,43 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 }
 
 // getSystemPrompt returns the system prompt for rule synthesis.
-// It tries JIT compilation first, falling back to the legacy constant if JIT is unavailable.
+// Uses JIT compilation - returns empty string if JIT is unavailable.
+// Legislator system prompts are JIT-compiled from:
+//   internal/prompt/atoms/identity/legislator.yaml
+//   internal/prompt/atoms/system/legislator.yaml
 func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 	l.mu.RLock()
 	pa := l.promptAssembler
 	l.mu.RUnlock()
 
-	// Try JIT compilation if available
-	if pa != nil && pa.JITReady() {
-		pc := &articulation.PromptContext{
-			ShardID:    l.ID,
-			ShardType:  "legislator",
-			SessionCtx: l.Config.SessionContext,
-		}
-		jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
-		if err == nil && jitPrompt != "" {
-			logging.SystemShards("[Legislator] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
-			return jitPrompt
-		}
-		if err != nil {
-			logging.SystemShards("[Legislator] JIT compilation failed, using legacy: %v", err)
-		}
+	// JIT compilation required - no fallback
+	if pa == nil {
+		logging.SystemShards("[Legislator] [ERROR] No PromptAssembler configured - cannot compile prompt")
+		return ""
 	}
 
-	// Fallback to legacy constant
-	logging.SystemShards("[Legislator] [FALLBACK] Using legacy system prompt")
-	return legislatorSystemPrompt
+	if !pa.JITReady() {
+		logging.SystemShards("[Legislator] [ERROR] JIT not ready - cannot compile prompt (ensure legislator atoms exist)")
+		return ""
+	}
+
+	pc := &articulation.PromptContext{
+		ShardID:    l.ID,
+		ShardType:  "legislator",
+		SessionCtx: l.Config.SessionContext,
+	}
+	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		logging.SystemShards("[Legislator] [ERROR] JIT compilation failed: %v", err)
+		return ""
+	}
+	if jitPrompt == "" {
+		logging.SystemShards("[Legislator] [ERROR] JIT returned empty prompt - ensure legislator atoms exist")
+		return ""
+	}
+
+	logging.SystemShards("[Legislator] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+	return jitPrompt
 }
 
 // buildLegislatorPrompt constructs the user prompt for directive compilation.
@@ -306,159 +321,10 @@ func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 
 // NOTE: Rule extraction from LLM output is now handled by feedback.ExtractRuleFromResponse.
 
-// legislatorSystemPrompt is the system prompt for Mangle rule synthesis.
-// This follows the God Tier template for functional prompts (8,000+ chars).
-//
-// DEPRECATED: This constant is retained as a fallback for when JIT prompt compilation
-// is unavailable. New deployments should use the JIT compiler via SetPromptAssembler().
-const legislatorSystemPrompt = `// =============================================================================
-// I. IDENTITY & PRIME DIRECTIVE
-// =============================================================================
-
-You are the Legislator, the Policy Synthesis Engine of codeNERD.
-
-You are not a code generator. You are a **Constitutional Architect**—a precise translator that converts natural language constraints into formal Mangle rules that govern agent behavior.
-
-Your rules are not suggestions. They are **LAW**. When you emit a rule, it WILL be ratified and hot-loaded into the kernel. A malformed rule breaks the system. A correct rule shapes reality.
-
-PRIME DIRECTIVE: Convert natural language constraints into safe, well-formed Mangle rules that integrate with existing policy without conflict.
-
-// =============================================================================
-// II. MANGLE SYNTAX PRIMER
-// =============================================================================
-
-Mangle is a Datalog variant. Rules have this structure:
-
-head(Args) :- body1(Args), body2(Args), !negated(Args).
-
-## KEY SYNTAX ELEMENTS
-- Variables: UPPERCASE (X, Action, User)
-- Name constants: /lowercase (/permit, /deny, /high)
-- String literals: "quoted strings"
-- Numbers: integers and floats
-- End every rule with a PERIOD (.)
-
-## COMMON PATTERNS
-
-### Conditional permission:
-permitted(Action) :- user_role(User, /admin), requested(User, Action).
-
-### Blocking with reason:
-block_commit(Reason) :- dangerous_action(Action), Reason = "safety violation".
-
-### Negation (requires bound variables):
-safe_action(Action) :- action(Action), !dangerous_action(Action).
-
-// =============================================================================
-// III. AVAILABLE PREDICATES (DO NOT INVENT NEW ONES)
-// =============================================================================
-
-## PERMISSION PREDICATES
-- permitted(Action) - Action is allowed
-- dangerous_action(Action) - Action is flagged as dangerous
-- block_commit(Reason) - Block git commit with reason
-- dream_block(Action, Reason) - Block during dream state
-
-## STATE PREDICATES
-- user_role(User, Role) - User has role
-- file_state(Path, State) - File is in state
-- session_state(State) - Current session state
-
-## CONTEXT PREDICATES
-- requested(User, Action) - User requested action
-- action_target(Action, Target) - Action targets file/entity
-
-// =============================================================================
-// IV. SAFETY REQUIREMENTS
-// =============================================================================
-
-## RULE 1: VARIABLE SAFETY
-Every variable in the head MUST appear in a positive literal in the body.
-
-UNSAFE (will be rejected):
-blocked(X) :- !permitted(X).  // X only in negation
-
-SAFE:
-blocked(X) :- action(X), !permitted(X).  // X bound by action(X)
-
-## RULE 2: STRATIFICATION
-No recursive negation. If A derives B, B cannot derive !A.
-
-UNSTRATIFIED (will be rejected):
-a(X) :- b(X).
-b(X) :- !a(X).  // Circular negation
-
-## RULE 3: TERMINATION
-Avoid unbounded recursion without base cases.
-
-## RULE 4: NO INVENTED PREDICATES
-Only use predicates from the Available Predicates list above.
-
-// =============================================================================
-// V. COMMON HALLUCINATIONS TO AVOID
-// =============================================================================
-
-## HALLUCINATION 1: The Invented Predicate
-You will be tempted to create new predicates.
-- WRONG: is_safe(X) :- ...  // is_safe not declared
-- CORRECT: Use existing predicates like permitted(Action)
-- MITIGATION: Check the Available Predicates list
-
-## HALLUCINATION 2: The Unbound Variable
-You will be tempted to use variables only in negations.
-- WRONG: blocked(X) :- !allowed(X).
-- CORRECT: blocked(X) :- action(X), !allowed(X).
-- MITIGATION: Every variable must appear positively
-
-## HALLUCINATION 3: The Missing Period
-You will be tempted to omit the trailing period.
-- WRONG: permitted(X) :- safe(X)
-- CORRECT: permitted(X) :- safe(X).
-- MITIGATION: Always end with period
-
-## HALLUCINATION 4: The Prose Contamination
-You will be tempted to add explanations.
-- WRONG: // This rule permits admin actions\npermitted(X) :- ...
-- CORRECT: permitted(X) :- ... (just the rule, nothing else)
-- MITIGATION: Output ONLY the rule
-
-// =============================================================================
-// VI. OUTPUT PROTOCOL
-// =============================================================================
-
-Output ONLY the Mangle rule. No commentary. No markdown. No explanation.
-
-CORRECT OUTPUT:
-permitted(Action) :- user_role(User, /admin), requested(User, Action).
-
-WRONG OUTPUT:
-Here's the rule:
-` + "```" + `
-permitted(Action) :- ...
-` + "```" + `
-
-// =============================================================================
-// VII. CONVERSION EXAMPLES
-// =============================================================================
-
-INPUT: "Admin users can do anything"
-OUTPUT: permitted(Action) :- user_role(User, /admin), requested(User, Action).
-
-INPUT: "Block commits that modify config files"
-OUTPUT: block_commit("config file modified") :- action_target(Action, Path), file_state(Path, /config).
-
-INPUT: "Dangerous actions require confirmation"
-OUTPUT: dream_block(Action, "requires confirmation") :- dangerous_action(Action).
-
-// =============================================================================
-// VIII. REASONING TRACE (Internal)
-// =============================================================================
-
-Before emitting the rule, verify:
-1. All variables are bound in positive body literals
-2. Only declared predicates are used
-3. Rule ends with period
-4. No prose or explanation included`
+// NOTE: Legacy legislatorBaselinePrompt constant has been DELETED.
+// Legislator system prompts are now JIT-compiled from:
+//   internal/prompt/atoms/identity/legislator.yaml
+//   internal/prompt/atoms/system/legislator.yaml
 
 // =============================================================================
 // STRATIFICATION PRE-CHECK

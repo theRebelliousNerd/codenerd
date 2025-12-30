@@ -1,0 +1,686 @@
+# Python Testing - Encyclopedic Reference
+# Comprehensive guidance for pytest, fixtures, parametrize, mocking, and hypothesis
+
+- id: "language/python/testing/fundamentals"
+  category: "language"
+  subcategory: "python"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  content: |
+    ## PYTEST FUNDAMENTALS
+
+    ### Basic Test Structure
+    ```python
+    import pytest
+
+    def test_basic():
+        assert 1 + 1 == 2
+
+    def test_raises():
+        with pytest.raises(ValueError):
+            int("not a number")
+
+    def test_raises_with_match():
+        with pytest.raises(ValueError, match="invalid literal"):
+            int("not a number")
+
+    class TestUserService:
+        def test_create_user(self):
+            user = create_user("alice")
+            assert user.name == "alice"
+
+        def test_invalid_email(self):
+            with pytest.raises(ValidationError):
+                create_user("alice", email="invalid")
+    ```
+
+    ### Assertions
+    ```python
+    # Basic assertions
+    assert result == expected
+    assert result != other
+    assert value in collection
+    assert value is None
+    assert value is not None
+
+    # Floating point comparison
+    assert result == pytest.approx(3.14, rel=1e-3)
+    assert result == pytest.approx(3.14, abs=0.01)
+
+    # Exception assertions
+    with pytest.raises(TypeError) as exc_info:
+        bad_function()
+    assert "expected string" in str(exc_info.value)
+
+    # Warning assertions
+    with pytest.warns(DeprecationWarning):
+        deprecated_function()
+    ```
+
+    ### Test Markers
+    ```python
+    @pytest.mark.skip(reason="Not implemented yet")
+    def test_future_feature():
+        pass
+
+    @pytest.mark.skipif(sys.version_info < (3, 11), reason="Requires 3.11+")
+    def test_python311_feature():
+        pass
+
+    @pytest.mark.xfail(reason="Known bug #123")
+    def test_known_bug():
+        assert buggy_function() == expected  # Expected to fail
+
+    @pytest.mark.slow
+    def test_slow_operation():
+        # Run with: pytest -m "not slow" to skip
+        pass
+    ```
+
+    ### pytest.ini / pyproject.toml Configuration
+    ```toml
+    # pyproject.toml
+    [tool.pytest.ini_options]
+    testpaths = ["tests"]
+    python_files = ["test_*.py", "*_test.py"]
+    python_functions = ["test_*"]
+    markers = [
+        "slow: marks tests as slow",
+        "integration: integration tests",
+    ]
+    addopts = "-v --tb=short"
+    asyncio_mode = "auto"
+    ```
+
+  content_concise: |
+    ## pytest Basics
+    - `assert` for simple checks, `pytest.raises()` for exceptions
+    - `pytest.approx()` for floating point
+    - Markers: `@pytest.mark.skip`, `@pytest.mark.skipif`, `@pytest.mark.xfail`
+    - Configure in `pyproject.toml` under `[tool.pytest.ini_options]`
+
+- id: "language/python/testing/fixtures"
+  category: "language"
+  subcategory: "python"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    ## PYTEST FIXTURES
+
+    ### Basic Fixtures
+    ```python
+    import pytest
+    from typing import Generator
+
+    # Simple fixture
+    @pytest.fixture
+    def sample_user() -> User:
+        return User(name="Test", email="test@example.com")
+
+    # Fixture with teardown using yield
+    @pytest.fixture
+    def db_connection() -> Generator[Connection, None, None]:
+        conn = create_connection()
+        yield conn  # Test runs here
+        conn.close()  # Teardown
+    ```
+
+    ### Fixture Scopes
+    ```python
+    @pytest.fixture(scope="session")  # Once per test session
+    def expensive_resource():
+        return create_expensive_resource()
+
+    @pytest.fixture(scope="module")  # Once per test module
+    def module_resource():
+        return create_resource()
+
+    @pytest.fixture(scope="class")  # Once per test class
+    def class_resource():
+        return create_resource()
+
+    @pytest.fixture(scope="function")  # Default: once per test function
+    def function_resource():
+        return create_resource()
+    ```
+
+    ### Fixture Composition
+    ```python
+    @pytest.fixture
+    def database(db_connection):
+        """Uses db_connection fixture."""
+        db = Database(db_connection)
+        db.initialize()
+        return db
+
+    @pytest.fixture
+    def authenticated_client(database, sample_user):
+        """Uses multiple fixtures."""
+        client = Client(database)
+        client.login(sample_user)
+        return client
+
+    def test_with_client(authenticated_client):
+        # All fixtures in chain are set up
+        result = authenticated_client.get_profile()
+        assert result.success
+    ```
+
+    ### conftest.py for Shared Fixtures
+    ```python
+    # tests/conftest.py - fixtures available to all tests in directory
+
+    @pytest.fixture(scope="session")
+    def app():
+        """Application fixture for entire test session."""
+        app = create_app(testing=True)
+        yield app
+        app.cleanup()
+
+    @pytest.fixture
+    def client(app):
+        """Test client for each test."""
+        return app.test_client()
+    ```
+
+    ### Autouse Fixtures
+    ```python
+    @pytest.fixture(autouse=True)
+    def reset_database(database):
+        """Runs before EVERY test automatically."""
+        database.reset()
+        yield
+        database.cleanup()
+
+    # No need to explicitly request this fixture
+    def test_something():
+        # Database is automatically reset before this test
+        pass
+    ```
+
+    ### Request Object for Dynamic Fixtures
+    ```python
+    @pytest.fixture
+    def temp_file(request, tmp_path):
+        """Create temp file with test name."""
+        file_path = tmp_path / f"{request.node.name}.txt"
+        file_path.touch()
+        return file_path
+
+    @pytest.fixture
+    def user(request):
+        """Dynamic fixture based on marker."""
+        role = request.node.get_closest_marker("user_role")
+        if role:
+            return create_user(role=role.args[0])
+        return create_user()
+
+    @pytest.mark.user_role("admin")
+    def test_admin_access(user):
+        assert user.role == "admin"
+    ```
+
+  content_concise: |
+    ## pytest Fixtures
+    - `@pytest.fixture` with `yield` for setup/teardown
+    - Scopes: function (default), class, module, session
+    - Chain fixtures via parameters
+    - `conftest.py` for shared fixtures
+    - `autouse=True` for automatic execution
+
+- id: "language/python/testing/parametrize"
+  category: "language"
+  subcategory: "python"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    ## PARAMETRIZED TESTS
+
+    ### Basic Parametrization
+    ```python
+    import pytest
+
+    @pytest.mark.parametrize("input,expected", [
+        ("hello", "HELLO"),
+        ("world", "WORLD"),
+        ("", ""),
+        ("123", "123"),
+    ])
+    def test_uppercase(input: str, expected: str):
+        assert input.upper() == expected
+    ```
+
+    ### Multiple Parameters with IDs
+    ```python
+    @pytest.mark.parametrize(
+        "x,y,expected",
+        [
+            (1, 2, 3),
+            (0, 0, 0),
+            (-1, 1, 0),
+            pytest.param(1, -1, 0, id="positive-negative"),
+        ],
+        ids=["positive", "zeros", "mixed"]
+    )
+    def test_add(x: int, y: int, expected: int):
+        assert add(x, y) == expected
+    ```
+
+    ### Parametrized Fixtures
+    ```python
+    @pytest.fixture(params=["mysql", "postgres", "sqlite"])
+    def database(request) -> Database:
+        db_type = request.param
+        db = create_database(db_type)
+        yield db
+        db.close()
+
+    def test_query(database):
+        # Runs 3 times, once for each database type
+        result = database.query("SELECT 1")
+        assert result is not None
+    ```
+
+    ### Indirect Parametrization
+    ```python
+    @pytest.fixture
+    def user(request) -> User:
+        role = request.param
+        return create_user(role=role)
+
+    @pytest.mark.parametrize("user", ["admin", "editor", "viewer"], indirect=True)
+    def test_permissions(user):
+        # user fixture receives the role parameter
+        assert user.role in ["admin", "editor", "viewer"]
+    ```
+
+    ### Stacking Parametrize Decorators
+    ```python
+    @pytest.mark.parametrize("x", [1, 2, 3])
+    @pytest.mark.parametrize("y", [10, 20])
+    def test_multiply(x, y):
+        # Runs 6 times: (1,10), (1,20), (2,10), (2,20), (3,10), (3,20)
+        assert isinstance(x * y, int)
+    ```
+
+    ### Parametrize with Expected Exceptions
+    ```python
+    @pytest.mark.parametrize("input,expected", [
+        ("abc", 3),
+        ("", 0),
+        pytest.param(None, pytest.raises(TypeError), id="none-raises"),
+    ])
+    def test_length(input, expected):
+        if isinstance(expected, type(pytest.raises(Exception))):
+            with expected:
+                len(input)
+        else:
+            assert len(input) == expected
+    ```
+
+  content_concise: |
+    ## Parametrized Tests
+    - `@pytest.mark.parametrize("param", [values])` for data-driven tests
+    - `ids=` for readable test names
+    - `indirect=True` to parametrize fixtures
+    - Stack decorators for cartesian product
+    - `request.param` in fixtures for parametrized values
+
+- id: "language/python/testing/mocking"
+  category: "language"
+  subcategory: "python"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    ## MOCKING PATTERNS
+
+    ### Basic Mock
+    ```python
+    from unittest.mock import Mock, MagicMock
+
+    def test_with_mock():
+        mock_service = Mock()
+        mock_service.get_user.return_value = {"id": 1, "name": "Test"}
+
+        result = process_user(mock_service)
+
+        mock_service.get_user.assert_called_once_with(1)
+        assert result["name"] == "Test"
+
+    def test_with_magicmock():
+        # MagicMock includes magic methods (__len__, __iter__, etc.)
+        mock_list = MagicMock()
+        mock_list.__len__.return_value = 5
+        assert len(mock_list) == 5
+    ```
+
+    ### Patching
+    ```python
+    from unittest.mock import patch
+
+    # Decorator patching
+    @patch("mymodule.external_api.fetch")
+    def test_with_patch(mock_fetch):
+        mock_fetch.return_value = {"data": "test"}
+
+        result = my_function()
+
+        mock_fetch.assert_called_once()
+        assert result == {"data": "test"}
+
+    # Context manager patching
+    def test_context_patch():
+        with patch("mymodule.requests.get") as mock_get:
+            mock_get.return_value.json.return_value = {"status": "ok"}
+
+            result = fetch_status()
+
+            assert result == "ok"
+
+    # IMPORTANT: Patch where it's USED, not where it's defined
+    # If mymodule does `from requests import get`, patch "mymodule.get"
+    # NOT "requests.get"
+    ```
+
+    ### Patching with spec
+    ```python
+    @patch("mymodule.Database", spec=Database)
+    def test_with_spec(MockDatabase):
+        MockDatabase.return_value.query.return_value = []
+        # MockDatabase only allows methods that exist on Database
+        # Catches typos and wrong method names
+
+    # autospec for complete signature checking
+    @patch("mymodule.service", autospec=True)
+    def test_with_autospec(mock_service):
+        # Enforces correct argument signatures
+        pass
+    ```
+
+    ### AsyncMock
+    ```python
+    from unittest.mock import AsyncMock
+    import pytest
+
+    @pytest.mark.asyncio
+    async def test_async_mock():
+        mock_client = AsyncMock()
+        mock_client.fetch.return_value = {"data": "test"}
+
+        result = await async_function(mock_client)
+
+        mock_client.fetch.assert_awaited_once()
+
+    # Async context manager
+    @pytest.mark.asyncio
+    async def test_async_context():
+        mock_session = AsyncMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.get.return_value.json = AsyncMock(return_value={"ok": True})
+
+        async with mock_session as session:
+            result = await session.get("/api").json()
+            assert result == {"ok": True}
+    ```
+
+    ### Side Effects
+    ```python
+    # Different return values per call
+    mock.method.side_effect = [1, 2, 3]
+    assert mock.method() == 1
+    assert mock.method() == 2
+    assert mock.method() == 3
+
+    # Raise exception
+    mock.method.side_effect = ValueError("error")
+
+    # Custom function
+    def custom_side_effect(arg):
+        if arg > 0:
+            return arg * 2
+        raise ValueError("negative")
+
+    mock.method.side_effect = custom_side_effect
+    ```
+
+  content_concise: |
+    ## Mocking
+    - `Mock()` for basic mocking, `MagicMock()` includes magic methods
+    - `@patch("module.name")` - patch where USED, not defined
+    - `spec=Class` or `autospec=True` for type safety
+    - `AsyncMock` for async functions
+    - `side_effect` for sequences, exceptions, or custom logic
+
+- id: "language/python/testing/hypothesis"
+  category: "language"
+  subcategory: "python"
+  priority: 77
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    ## PROPERTY-BASED TESTING WITH HYPOTHESIS
+
+    ### Basic Property Tests
+    ```python
+    from hypothesis import given, strategies as st, assume
+
+    @given(st.lists(st.integers()))
+    def test_sort_is_idempotent(lst):
+        sorted_once = sorted(lst)
+        sorted_twice = sorted(sorted_once)
+        assert sorted_once == sorted_twice
+
+    @given(st.lists(st.integers(), min_size=1))
+    def test_sort_preserves_length(lst):
+        assert len(sorted(lst)) == len(lst)
+
+    @given(st.lists(st.integers(), min_size=1))
+    def test_sort_min_is_first(lst):
+        sorted_lst = sorted(lst)
+        assert sorted_lst[0] == min(lst)
+    ```
+
+    ### Strategies
+    ```python
+    from hypothesis import strategies as st
+
+    # Primitive strategies
+    st.integers()
+    st.integers(min_value=0, max_value=100)
+    st.floats(allow_nan=False, allow_infinity=False)
+    st.text(min_size=1, max_size=50)
+    st.booleans()
+    st.none()
+
+    # Collection strategies
+    st.lists(st.integers())
+    st.lists(st.integers(), min_size=1, max_size=10, unique=True)
+    st.dictionaries(st.text(), st.integers())
+    st.tuples(st.integers(), st.text())
+    st.frozensets(st.integers())
+
+    # Combining strategies
+    st.one_of(st.integers(), st.text())  # Union
+    st.integers() | st.text()  # Same as one_of
+    ```
+
+    ### Custom Strategies
+    ```python
+    @st.composite
+    def user_strategy(draw):
+        name = draw(st.text(min_size=1, max_size=50))
+        age = draw(st.integers(min_value=0, max_value=150))
+        email = draw(st.emails())
+        return User(name=name, age=age, email=email)
+
+    @given(user_strategy())
+    def test_user_serialization(user):
+        serialized = user.to_json()
+        deserialized = User.from_json(serialized)
+        assert user == deserialized
+    ```
+
+    ### assume() for Filtering
+    ```python
+    @given(st.integers(), st.integers())
+    def test_division(a, b):
+        assume(b != 0)  # Skip tests where b is 0
+        result = a / b
+        assert result * b == pytest.approx(a)
+    ```
+
+    ### Stateful Testing
+    ```python
+    from hypothesis.stateful import RuleBasedStateMachine, rule, invariant
+
+    class DatabaseStateMachine(RuleBasedStateMachine):
+        def __init__(self):
+            super().__init__()
+            self.db = {}
+
+        @rule(key=st.text(), value=st.integers())
+        def insert(self, key, value):
+            self.db[key] = value
+
+        @rule(key=st.text())
+        def delete(self, key):
+            self.db.pop(key, None)
+
+        @invariant()
+        def values_are_integers(self):
+            assert all(isinstance(v, int) for v in self.db.values())
+
+    TestDatabase = DatabaseStateMachine.TestCase
+    ```
+
+  content_concise: |
+    ## Hypothesis (Property-Based Testing)
+    - `@given(st.integers())` generates random inputs
+    - `assume()` to filter invalid inputs
+    - `@st.composite` for custom data generation
+    - Strategies: integers(), text(), lists(), one_of()
+    - Stateful testing with `RuleBasedStateMachine`
+
+- id: "language/python/testing/async"
+  category: "language"
+  subcategory: "python"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/python"]
+  depends_on: ["language/python/testing/fundamentals"]
+  content: |
+    ## ASYNC TESTING
+
+    ### pytest-asyncio Setup
+    ```toml
+    # pyproject.toml
+    [tool.pytest.ini_options]
+    asyncio_mode = "auto"  # Automatically mark async tests
+    # or "strict" to require explicit @pytest.mark.asyncio
+    ```
+
+    ### Basic Async Tests
+    ```python
+    import pytest
+
+    @pytest.mark.asyncio
+    async def test_async_function():
+        result = await async_operation()
+        assert result == expected
+
+    # With asyncio_mode = "auto", the marker is optional
+    async def test_auto_async():
+        result = await fetch_data()
+        assert result is not None
+    ```
+
+    ### Async Fixtures
+    ```python
+    @pytest.fixture
+    async def async_client():
+        client = await create_async_client()
+        yield client
+        await client.close()
+
+    @pytest.fixture
+    async def database_session():
+        async with create_session() as session:
+            yield session
+
+    @pytest.mark.asyncio
+    async def test_with_async_fixtures(async_client, database_session):
+        result = await async_client.query(database_session)
+        assert result.success
+    ```
+
+    ### Testing TaskGroup
+    ```python
+    import asyncio
+
+    @pytest.mark.asyncio
+    async def test_taskgroup():
+        results = []
+
+        async def append_result(value):
+            await asyncio.sleep(0.01)
+            results.append(value)
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(append_result(1))
+            tg.create_task(append_result(2))
+
+        assert sorted(results) == [1, 2]
+    ```
+
+    ### Testing Cancellation
+    ```python
+    @pytest.mark.asyncio
+    async def test_cancellation():
+        async def long_running():
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                return "cancelled"
+            return "completed"
+
+        task = asyncio.create_task(long_running())
+        await asyncio.sleep(0.1)
+        task.cancel()
+
+        result = await task
+        assert result == "cancelled"
+    ```
+
+    ### Testing Timeouts
+    ```python
+    @pytest.mark.asyncio
+    async def test_timeout_handling():
+        async def slow_operation():
+            await asyncio.sleep(10)
+            return "done"
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(slow_operation(), timeout=0.1)
+    ```
+
+  content_concise: |
+    ## Async Testing
+    - `asyncio_mode = "auto"` in pyproject.toml
+    - `@pytest.mark.asyncio` for async tests (optional with auto mode)
+    - `async def` fixtures with `yield` for teardown
+    - Test cancellation with `task.cancel()` + `await task`
+    - Test timeouts with `pytest.raises(asyncio.TimeoutError)`

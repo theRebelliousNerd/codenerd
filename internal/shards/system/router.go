@@ -768,14 +768,16 @@ func (r *TactileRouterShard) handleAutopoiesis(ctx context.Context) {
 
 	userPrompt := r.buildRouteProposalPrompt(cases)
 
-	// Try JIT prompt compilation first, fall back to legacy constant
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
 	systemPrompt, jitUsed := r.TryJITPrompt(ctx, "router_autopoiesis")
-	if !jitUsed {
-		systemPrompt = routerAutopoiesisPrompt
-		logging.SystemShards("[TactileRouter] [FALLBACK] Using legacy autopoiesis prompt")
-	} else {
-		logging.SystemShards("[TactileRouter] [JIT] Using JIT-compiled autopoiesis prompt")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[TactileRouter] [ERROR] JIT compilation failed - skipping autopoiesis (ensure system/autopoiesis atoms exist)")
+		for _, cas := range cases {
+			r.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
 	}
+	logging.SystemShards("[TactileRouter] [JIT] Using JIT-compiled autopoiesis prompt")
 
 	result, err := r.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
@@ -895,29 +897,6 @@ func (r *TactileRouterShard) getSessionID() string {
 	return fmt.Sprintf("session-%d", r.StartTime.Unix())
 }
 
-// DEPRECATED: routerAutopoiesisPrompt is the legacy system prompt for proposing new routes.
-// Prefer JIT prompt compilation via TryJITPrompt() when available.
-// This constant is retained as a fallback for when JIT is unavailable.
-const routerAutopoiesisPrompt = `You are the Tactile Router's Autopoiesis system.
-Your role is to propose tool routes for unmapped actions.
-
-Available tools in the VirtualStore:
-- fs_read, fs_write, fs_edit, fs_delete: File operations
-- code_search, impact_analyzer: Code analysis
-- shell_exec: Shell command execution
-- test_runner, build_tool: Testing and building
-- git_tool: Git operations
-- http_fetch, browser_tool, research_tool: Network operations
-- shard_manager: Delegation to specialized shards
-- user_prompt, escalation_handler: User interaction
-
-When proposing routes:
-1. Match actions to appropriate tools
-2. Set conservative timeouts
-3. Apply rate limits to expensive operations
-4. Require safety checks (RequiresSafe=true) for mutations
-
-DO NOT propose routes that:
-- Bypass safety checks for dangerous operations
-- Have no timeout for automated tools
-- Allow unlimited rate for expensive operations`
+// NOTE: Legacy routerAutopoiesisPrompt constant has been DELETED.
+// Router autopoiesis prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/autopoiesis.yaml (id: system/autopoiesis/router)

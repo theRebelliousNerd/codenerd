@@ -1,0 +1,789 @@
+# Python AI Failure Modes - Encyclopedic Reference
+# Critical mistakes AI coding agents commonly make in Python
+
+- id: "language/python/ai_failures/mutable_defaults"
+  category: "language"
+  subcategory: "python"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## MUTABLE DEFAULT ARGUMENTS (CRITICAL)
+
+    The default value is created ONCE at function definition, not per call.
+    This is the #1 Python gotcha that AI agents consistently generate.
+
+    ### The Bug
+    ```python
+    # WRONG - The list is created ONCE at function definition
+    def add_item(item, items=[]):
+        items.append(item)
+        return items
+
+    add_item(1)  # [1]
+    add_item(2)  # [1, 2] - BUG! Same list is reused
+
+    # WRONG - Dict default has same problem
+    def add_entry(key, value, data={}):
+        data[key] = value
+        return data
+    ```
+
+    ### The Fix
+    ```python
+    # CORRECT - Create new list each call
+    def add_item(item, items=None):
+        if items is None:
+            items = []
+        items.append(item)
+        return items
+
+    # CORRECT - Alternative using walrus operator
+    def add_item(item, items=None):
+        (items := items or []).append(item)
+        return items
+
+    # CORRECT - Dict version
+    def add_entry(key, value, data=None):
+        if data is None:
+            data = {}
+        data[key] = value
+        return data
+    ```
+
+    ### Why This Happens
+    Python evaluates default arguments when the function is DEFINED,
+    not when it's CALLED. The default object is stored in
+    `function.__defaults__` and reused across all calls.
+
+    ```python
+    def buggy(items=[]):
+        items.append(1)
+        return items
+
+    print(buggy.__defaults__)  # ([],) initially
+    buggy()
+    print(buggy.__defaults__)  # ([1],) - mutated!
+    ```
+
+  content_concise: |
+    ## Mutable Default Arguments
+    ```python
+    # WRONG - list created once, shared across calls
+    def add_item(item, items=[]):
+        items.append(item)
+
+    # CORRECT - create new list each call
+    def add_item(item, items=None):
+        if items is None:
+            items = []
+        items.append(item)
+    ```
+
+- id: "language/python/ai_failures/late_binding"
+  category: "language"
+  subcategory: "python"
+  priority: 94
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## LATE BINDING CLOSURES (CRITICAL)
+
+    Closures capture variables by reference, not by value.
+    The variable's value is looked up when the closure is CALLED.
+
+    ### The Bug
+    ```python
+    # WRONG - All lambdas capture the SAME variable i
+    def create_multipliers():
+        return [lambda x: i * x for i in range(5)]
+
+    multipliers = create_multipliers()
+    print(multipliers[2](3))  # 12, not 6! i=4 for all lambdas
+
+    # WRONG - Same problem in loops
+    funcs = []
+    for i in range(3):
+        funcs.append(lambda: i)
+
+    print([f() for f in funcs])  # [2, 2, 2], not [0, 1, 2]
+    ```
+
+    ### The Fixes
+    ```python
+    # CORRECT - Capture value with default argument
+    def create_multipliers():
+        return [lambda x, i=i: i * x for i in range(5)]
+
+    # CORRECT - Using functools.partial
+    from functools import partial
+
+    def create_multipliers():
+        def multiply(i, x):
+            return i * x
+        return [partial(multiply, i) for i in range(5)]
+
+    # CORRECT - Closure over a new scope
+    def create_multipliers():
+        def make_multiplier(i):
+            return lambda x: i * x
+        return [make_multiplier(i) for i in range(5)]
+    ```
+
+    ### Why This Happens
+    Python closures capture variables, not values. The variable `i`
+    is shared across all lambdas. When you call the lambda, it looks
+    up the CURRENT value of `i`, which is the final loop value.
+
+  content_concise: |
+    ## Late Binding Closures
+    ```python
+    # WRONG - all lambdas see final value of i
+    [lambda x: i * x for i in range(5)]
+
+    # CORRECT - capture value with default arg
+    [lambda x, i=i: i * x for i in range(5)]
+    ```
+
+- id: "language/python/ai_failures/class_attributes"
+  category: "language"
+  subcategory: "python"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## CLASS VS INSTANCE ATTRIBUTES (CRITICAL)
+
+    Mutable class attributes are shared by ALL instances.
+    AI agents often incorrectly use class-level lists/dicts.
+
+    ### The Bug
+    ```python
+    # WRONG - Mutable class attribute shared by ALL instances
+    class Dog:
+        tricks = []  # Shared by ALL dogs!
+
+        def add_trick(self, trick):
+            self.tricks.append(trick)
+
+    fido = Dog()
+    buddy = Dog()
+    fido.add_trick("roll over")
+    print(buddy.tricks)  # ["roll over"] - BUG!
+    ```
+
+    ### The Fix
+    ```python
+    # CORRECT - Mutable attributes in __init__
+    class Dog:
+        def __init__(self):
+            self.tricks = []  # Each dog gets own list
+
+        def add_trick(self, trick):
+            self.tricks.append(trick)
+
+    # Class attributes are OK for immutable defaults
+    class Dog:
+        species = "Canis familiaris"  # OK - immutable, shared correctly
+
+    # With dataclasses - same rule applies
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class Dog:
+        name: str
+        tricks: list[str] = field(default_factory=list)  # CORRECT
+        # tricks: list[str] = []  # WRONG - dataclass catches this!
+    ```
+
+    ### Immutable vs Mutable
+    ```python
+    class Config:
+        # OK - immutable, can be class attribute
+        version: str = "1.0"
+        max_retries: int = 3
+        timeout: float = 30.0
+
+        # WRONG - mutable, must be in __init__
+        allowed_hosts: list[str] = []  # Shared!
+        settings: dict = {}  # Shared!
+
+        def __init__(self):
+            # CORRECT
+            self.allowed_hosts = []
+            self.settings = {}
+    ```
+
+  content_concise: |
+    ## Class vs Instance Attributes
+    ```python
+    # WRONG - mutable class attribute shared by all
+    class Dog:
+        tricks = []
+
+    # CORRECT - create in __init__
+    class Dog:
+        def __init__(self):
+            self.tricks = []
+    ```
+
+- id: "language/python/ai_failures/generator_exhaustion"
+  category: "language"
+  subcategory: "python"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## GENERATOR EXHAUSTION
+
+    Generators can only be iterated ONCE.
+    AI agents often reuse generators expecting multiple iterations.
+
+    ### The Bug
+    ```python
+    # Generators can only be iterated ONCE
+    def count_to_three():
+        yield 1
+        yield 2
+        yield 3
+
+    gen = count_to_three()
+    print(list(gen))  # [1, 2, 3]
+    print(list(gen))  # [] - EMPTY! Generator exhausted
+
+    # WRONG - Trying to iterate twice
+    data = (x * 2 for x in range(10))
+    first_pass = sum(data)
+    second_pass = max(data)  # Returns nothing useful!
+    ```
+
+    ### The Fixes
+    ```python
+    # CORRECT - Convert to list if multiple iterations needed
+    data = list(x * 2 for x in range(10))
+    first_pass = sum(data)
+    second_pass = max(data)
+
+    # CORRECT - Create new generator each time
+    def get_data():
+        return (x * 2 for x in range(10))
+
+    first_pass = sum(get_data())
+    second_pass = max(get_data())
+
+    # CORRECT - Using itertools.tee for dual iteration
+    from itertools import tee
+    gen = (x * 2 for x in range(10))
+    gen1, gen2 = tee(gen, 2)
+    sum(gen1)
+    max(gen2)
+    ```
+
+    ### Iterator vs Iterable
+    ```python
+    # Iterable: Can create iterator (has __iter__)
+    # Iterator: Has state, can be exhausted (has __next__)
+
+    my_list = [1, 2, 3]  # Iterable - can iterate multiple times
+    my_gen = (x for x in [1, 2, 3])  # Iterator - one-time use
+
+    # Check if exhausted
+    def is_iterator_exhausted(it):
+        try:
+            next(it)
+            return False
+        except StopIteration:
+            return True
+    ```
+
+  content_concise: |
+    ## Generator Exhaustion
+    ```python
+    # Generators only iterate ONCE
+    gen = (x for x in range(10))
+    list(gen)  # [0, 1, ...]
+    list(gen)  # [] - exhausted!
+
+    # Convert to list for multiple iterations
+    data = list(x for x in range(10))
+    ```
+
+- id: "language/python/ai_failures/circular_imports"
+  category: "language"
+  subcategory: "python"
+  priority: 89
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## CIRCULAR IMPORT DEPENDENCIES
+
+    Circular imports cause ImportError or partially initialized modules.
+    AI agents often create circular dependencies unknowingly.
+
+    ### The Bug
+    ```python
+    # module_a.py
+    from module_b import ClassB  # Fails if module_b imports from module_a
+
+    class ClassA:
+        def __init__(self, b: ClassB):
+            self.b = b
+
+    # module_b.py
+    from module_a import ClassA  # ImportError: circular import!
+
+    class ClassB:
+        def __init__(self, a: ClassA):
+            self.a = a
+    ```
+
+    ### Solution 1: Lazy Imports
+    ```python
+    # module_a.py
+    class ClassA:
+        def get_b(self):
+            from module_b import ClassB  # Import when needed
+            return ClassB()
+    ```
+
+    ### Solution 2: TYPE_CHECKING
+    ```python
+    # module_a.py
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from module_b import ClassB  # Only for type checkers
+
+    class ClassA:
+        def __init__(self, b: "ClassB"):  # String annotation
+            self.b = b
+    ```
+
+    ### Solution 3: Import Module, Not Class
+    ```python
+    # module_a.py
+    import module_b
+
+    class ClassA:
+        def __init__(self, b: module_b.ClassB):
+            self.b = b
+    ```
+
+    ### Solution 4: Shared Types Module
+    ```python
+    # types.py (new file)
+    from typing import Protocol
+
+    class BInterface(Protocol):
+        ...
+
+    # module_a.py
+    from types import BInterface
+
+    class ClassA:
+        def __init__(self, b: BInterface):
+            self.b = b
+    ```
+
+  content_concise: |
+    ## Circular Imports
+    Solutions:
+    1. Lazy import inside functions
+    2. `if TYPE_CHECKING:` for type hints only
+    3. Import module, not class: `import module_b`
+    4. Extract shared types to third module
+
+- id: "language/python/ai_failures/init_vs_new"
+  category: "language"
+  subcategory: "python"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## __init__ vs __new__ CONFUSION
+
+    `__new__` creates the instance, `__init__` initializes it.
+    AI agents often misuse these, especially in Singletons.
+
+    ### Understanding the Difference
+    ```python
+    class MyClass:
+        def __new__(cls):
+            print("Creating instance")
+            instance = super().__new__(cls)
+            return instance
+
+        def __init__(self):
+            print("Initializing instance")
+
+    obj = MyClass()
+    # Output:
+    # Creating instance
+    # Initializing instance
+    ```
+
+    ### The Singleton Bug
+    ```python
+    # WRONG - __init__ runs every time, resetting state
+    class Singleton:
+        _instance = None
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+
+        def __init__(self):
+            self.value = 0  # Resets every call!
+
+    s1 = Singleton()
+    s1.value = 42
+    s2 = Singleton()  # __init__ runs again!
+    print(s2.value)  # 0, not 42!
+    ```
+
+    ### Correct Singleton
+    ```python
+    # CORRECT - Guard __init__
+    class Singleton:
+        _instance = None
+        _initialized = False
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+            return cls._instance
+
+        def __init__(self):
+            if not Singleton._initialized:
+                self.value = 0
+                Singleton._initialized = True
+    ```
+
+    ### When to Use __new__
+    ```python
+    # 1. Singletons
+    # 2. Subclassing immutable types
+    class MyStr(str):
+        def __new__(cls, value):
+            # str is immutable, must set value in __new__
+            return super().__new__(cls, value.upper())
+
+    # 3. Object caching/pooling
+    class CachedInt:
+        _cache = {}
+
+        def __new__(cls, value):
+            if value not in cls._cache:
+                cls._cache[value] = super().__new__(cls)
+            return cls._cache[value]
+    ```
+
+  content_concise: |
+    ## __init__ vs __new__
+    - `__new__`: Creates instance (before __init__)
+    - `__init__`: Initializes instance (can run multiple times)
+    - Singleton bug: `__init__` resets state each call
+    - Fix: Guard `__init__` with initialization flag
+
+- id: "language/python/ai_failures/asyncio_mistakes"
+  category: "language"
+  subcategory: "python"
+  priority: 91
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## ASYNCIO COMMON MISTAKES
+
+    AI agents frequently generate broken async code.
+
+    ### Mistake 1: Forgetting await
+    ```python
+    # WRONG - Creates coroutine object, doesn't execute
+    async def bad():
+        result = fetch_data()  # RuntimeWarning: coroutine was never awaited
+        return result
+
+    # CORRECT
+    async def good():
+        result = await fetch_data()
+        return result
+    ```
+
+    ### Mistake 2: Blocking the Event Loop
+    ```python
+    # WRONG - Blocks entire event loop
+    async def bad():
+        time.sleep(5)  # Blocks everything!
+        requests.get(url)  # Also blocking!
+
+    # CORRECT
+    async def good():
+        await asyncio.sleep(5)
+        async with aiohttp.ClientSession() as session:
+            await session.get(url)
+    ```
+
+    ### Mistake 3: Nested asyncio.run()
+    ```python
+    # WRONG - Can't nest event loops
+    async def outer():
+        asyncio.run(inner())  # RuntimeError!
+
+    # CORRECT
+    async def outer():
+        await inner()
+    ```
+
+    ### Mistake 4: Swallowing CancelledError
+    ```python
+    # WRONG - Breaks structured concurrency
+    async def bad():
+        try:
+            await operation()
+        except asyncio.CancelledError:
+            pass  # TaskGroup/timeout will malfunction!
+
+    # CORRECT
+    async def good():
+        try:
+            await operation()
+        except asyncio.CancelledError:
+            await cleanup()
+            raise  # Re-raise!
+    ```
+
+    ### Mistake 5: Fire-and-Forget Tasks
+    ```python
+    # WRONG - Task may be garbage collected
+    async def bad():
+        asyncio.create_task(work())  # May never run!
+
+    # CORRECT - Keep reference
+    async def good():
+        task = asyncio.create_task(work())
+        await task
+    ```
+
+  content_concise: |
+    ## Asyncio Mistakes
+    1. Always `await` coroutines - check RuntimeWarning
+    2. Use `asyncio.sleep()`, not `time.sleep()`
+    3. Don't call `asyncio.run()` inside async code
+    4. Always re-raise `CancelledError` after cleanup
+    5. Keep references to fire-and-forget tasks
+
+- id: "language/python/ai_failures/hallucinations"
+  category: "language"
+  subcategory: "python"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## AI-SPECIFIC HALLUCINATIONS
+
+    Common patterns where AI agents generate non-existent code.
+
+    ### Hallucinated Imports
+    ```python
+    # WRONG - These don't exist!
+    import python_utils
+    from std.collections import OrderedDict  # Wrong path
+    from typing import JSONType  # Not a real type
+    from dataclasses import validate  # Doesn't exist
+    from functools import memoize  # It's lru_cache
+
+    # CORRECT versions
+    from collections import OrderedDict
+    from typing import Any  # Use Any for JSON
+    from functools import lru_cache
+    ```
+
+    ### Cross-Language Leakage
+    ```python
+    # JavaScript leakage
+    my_list.push(item)  # Use .append()
+    my_list.length  # Use len(my_list)
+    array.forEach(fn)  # Use for x in array: fn(x)
+    const x = 5  # Python has no const
+
+    # Java leakage
+    string.equals(other)  # Use ==
+    string.isEmpty()  # Use not string or len(string) == 0
+    list.size()  # Use len(list)
+    new MyClass()  # Just MyClass()
+
+    # Ruby leakage
+    array.each do |x|  # Use for x in array:
+    puts "hello"  # Use print("hello")
+    ```
+
+    ### Placeholder Code
+    ```python
+    # WRONG - AI leaves unfinished code
+    def process_data(data):
+        pass  # TODO: implement
+
+    def handle_error(e):
+        ...  # To be implemented
+
+    def validate(obj):
+        raise NotImplementedError  # Forgot to implement
+    ```
+
+    ### Confident but Wrong Patterns
+    ```python
+    # WRONG - Looks correct but fails
+    def get_user_name(user_id: int) -> str:
+        return database.users.find(id=user_id).name
+        # Issues: wrong API, no error handling, assumes result exists
+
+    # CORRECT
+    def get_user_name(user_id: int) -> str | None:
+        user = database.session.query(User).filter_by(id=user_id).first()
+        return user.name if user else None
+    ```
+
+    ### Type Annotation Hallucinations
+    ```python
+    # WRONG - These types don't exist
+    from typing import JSON, URL, Path, Numeric
+    def process(data: JSON) -> URL:
+        ...
+
+    # CORRECT
+    from typing import Any
+    from pathlib import Path
+    JsonType = dict[str, Any] | list[Any] | str | int | float | bool | None
+    ```
+
+  content_concise: |
+    ## AI Hallucinations
+    - Hallucinated imports: `python_utils`, `typing.JSONType`
+    - JavaScript leakage: `.push()`, `.length`
+    - Java leakage: `.equals()`, `.isEmpty()`
+    - Placeholder code: `pass # TODO`
+    - Non-existent types: `typing.JSON`, `typing.URL`
+
+- id: "language/python/ai_failures/exception_handling"
+  category: "language"
+  subcategory: "python"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## EXCEPTION HANDLING MISTAKES
+
+    AI agents often generate broken or dangerous exception handling.
+
+    ### Mistake 1: Bare Except
+    ```python
+    # WRONG - Catches SystemExit, KeyboardInterrupt, etc.
+    try:
+        risky_operation()
+    except:
+        pass  # Swallows everything!
+
+    # WRONG - Too broad
+    try:
+        risky_operation()
+    except Exception:
+        pass  # Still too broad, and swallows the error
+
+    # CORRECT - Catch specific exceptions
+    try:
+        risky_operation()
+    except (ValueError, TypeError) as e:
+        logger.error(f"Operation failed: {e}")
+        raise
+    ```
+
+    ### Mistake 2: Lost Exception Context
+    ```python
+    # WRONG - Loses original traceback
+    try:
+        parse_data(raw)
+    except json.JSONDecodeError:
+        raise ValueError("Invalid data")  # Lost original error!
+
+    # CORRECT - Chain exceptions
+    try:
+        parse_data(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError("Invalid data") from e  # Preserves chain
+    ```
+
+    ### Mistake 3: Catching and Ignoring
+    ```python
+    # WRONG - Silent failure
+    try:
+        save_to_database(data)
+    except DatabaseError:
+        pass  # Data silently lost!
+
+    # CORRECT - At minimum, log
+    try:
+        save_to_database(data)
+    except DatabaseError as e:
+        logger.exception("Failed to save data")
+        raise  # Or handle appropriately
+    ```
+
+    ### Mistake 4: Exception in Finally
+    ```python
+    # WRONG - Exception in finally replaces original
+    try:
+        f = open("file.txt")
+        process(f)
+    finally:
+        f.close()  # If f wasn't assigned, raises NameError!
+
+    # CORRECT - Use context manager
+    with open("file.txt") as f:
+        process(f)
+
+    # Or guard the finally
+    f = None
+    try:
+        f = open("file.txt")
+        process(f)
+    finally:
+        if f:
+            f.close()
+    ```
+
+    ### Mistake 5: Return in Finally
+    ```python
+    # WRONG - Return in finally suppresses exceptions
+    def bad():
+        try:
+            raise ValueError("error")
+        finally:
+            return "ok"  # Exception suppressed!
+
+    bad()  # Returns "ok", no exception raised!
+
+    # CORRECT - Don't return in finally
+    def good():
+        try:
+            raise ValueError("error")
+        finally:
+            cleanup()  # No return here
+    ```
+
+  content_concise: |
+    ## Exception Handling Mistakes
+    - Never use bare `except:` - catches KeyboardInterrupt
+    - Chain with `raise X from e` to preserve context
+    - Don't silently swallow exceptions
+    - Don't put return statements in finally blocks
+    - Use context managers instead of try/finally for resources

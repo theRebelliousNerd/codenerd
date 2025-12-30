@@ -1,0 +1,533 @@
+# TypeScript AI Failure Modes - Encyclopedic Reference
+# Critical mistakes AI coding agents commonly make in TypeScript
+
+- id: "language/typescript/ai_failures/any_vs_unknown"
+  category: "language"
+  subcategory: "typescript"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## `any` VS `unknown` (CRITICAL)
+
+    ### `any` - AVOID AT ALL COSTS
+    ```typescript
+    // BAD: any disables ALL type checking
+    function processAny(value: any): string {
+      return value.foo.bar.baz(); // No errors - will crash at runtime!
+    }
+
+    // any spreads like a virus
+    const data: any = { name: "test" };
+    const name = data.name; // name is also any!
+    const result = name.toUpperCase(); // No type checking
+
+    // BAD: Using any to "fix" type errors
+    const users: User[] = fetchData() as any; // Hiding the problem
+    ```
+
+    ### `unknown` - THE SAFE ALTERNATIVE
+    ```typescript
+    // GOOD: unknown requires type narrowing before use
+    function processUnknown(value: unknown): string {
+      // ERROR: Object is of type 'unknown'
+      // return value.foo.bar.baz();
+
+      // Must narrow first
+      if (typeof value === "string") {
+        return value.toUpperCase(); // OK - narrowed to string
+      }
+      if (typeof value === "object" && value !== null && "name" in value) {
+        return String((value as { name: unknown }).name);
+      }
+      throw new Error("Invalid value");
+    }
+    ```
+
+    ### When Each is (Rarely) Acceptable
+    ```typescript
+    // any: Migration from JS, third-party types missing
+    declare const legacyLibrary: any; // Temporary during migration
+
+    // unknown: External data, API responses, JSON.parse
+    const data: unknown = JSON.parse(input);
+
+    // BEST: Use generics to escape the any/unknown dilemma
+    function identity<T>(value: T): T {
+      return value;
+    }
+    ```
+
+  content_concise: |
+    ## any vs unknown
+    - `any`: Disables ALL type checking - AVOID
+    - `unknown`: Requires narrowing before use - SAFE
+    - `any` spreads to everything it touches
+    - Use generics instead when possible
+
+- id: "language/typescript/ai_failures/type_assertions"
+  category: "language"
+  subcategory: "typescript"
+  priority: 94
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## TYPE ASSERTION ABUSE (CRITICAL)
+
+    ### Dangerous Patterns
+    ```typescript
+    // BAD: Lying to the compiler
+    const user = {} as User; // user has NO properties at runtime!
+    console.log(user.name.toUpperCase()); // Runtime crash!
+
+    // BAD: Double assertion to force incompatible types
+    const num = "hello" as unknown as number; // Never do this!
+
+    // BAD: Using as to silence errors instead of fixing types
+    interface API { data: string }
+    const response: unknown = await fetch("/api").then(r => r.json());
+    const api = response as API; // No validation!
+
+    // BAD: Asserting in generic functions
+    function getFirst<T>(arr: T[]): T {
+      return arr[0] as T; // Hides potential undefined!
+    }
+    ```
+
+    ### Safe Alternatives
+    ```typescript
+    // GOOD: Runtime validation with type guard
+    function isUser(value: unknown): value is User {
+      return (
+        typeof value === "object" &&
+        value !== null &&
+        "name" in value &&
+        typeof (value as User).name === "string"
+      );
+    }
+
+    const response: unknown = await fetch("/api").then(r => r.json());
+    if (isUser(response)) {
+      console.log(response.name); // Safe!
+    }
+
+    // GOOD: Use Zod or similar for runtime validation
+    import { z } from "zod";
+    const UserSchema = z.object({ name: z.string(), age: z.number() });
+    const user = UserSchema.parse(response); // Throws if invalid, type-safe if valid
+    ```
+
+    ### Legitimate Uses of Type Assertions
+    ```typescript
+    // OK: DOM elements where you know the type
+    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    // But prefer:
+    const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+
+    // OK: Narrowing after external validation
+    const data = await schema.validate(input); // Throws if invalid
+    return data as ValidatedData; // We know it's valid
+
+    // OK: Test mocks
+    const mockFn = jest.fn() as jest.MockedFunction<typeof realFn>;
+    ```
+
+  content_concise: |
+    ## Type Assertion Abuse
+    - `as` lies to compiler - no runtime checking
+    - Never: `{} as User`, `x as unknown as Y`
+    - Use type guards for runtime validation
+    - Use Zod/io-ts for API response validation
+    - Legitimate: DOM with querySelector, after validation
+
+- id: "language/typescript/ai_failures/non_null_assertion"
+  category: "language"
+  subcategory: "typescript"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## NON-NULL ASSERTION (`!`) ABUSE (CRITICAL)
+
+    ### Dangerous Patterns
+    ```typescript
+    // BAD: Asserting existence without checking
+    function getUser(id: string): User | undefined { /* ... */ }
+
+    const user = getUser("123")!; // Promises non-null
+    console.log(user.name); // Runtime crash if user is undefined!
+
+    // BAD: Environment variables
+    const apiKey = process.env.API_KEY!; // NEVER do this
+
+    // BAD: DOM queries
+    const button = document.querySelector("button")!;
+    button.addEventListener("click", () => {}); // Crash if not found
+
+    // BAD: Array access
+    const first = arr[0]!; // Crashes on empty array
+    ```
+
+    ### Safe Alternatives
+    ```typescript
+    // GOOD: Explicit checks
+    const user = getUser("123");
+    if (user) {
+      console.log(user.name);
+    }
+
+    // GOOD: Optional chaining
+    console.log(user?.name);
+
+    // GOOD: Nullish coalescing
+    const name = user?.name ?? "Unknown";
+
+    // GOOD: Throw explicitly if truly required
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY environment variable is required");
+    }
+    // apiKey is now string (narrowed)
+
+    // GOOD: Safe array access
+    const first = arr[0]; // With noUncheckedIndexedAccess: T | undefined
+    if (first !== undefined) {
+      console.log(first);
+    }
+
+    // GOOD: Provide default
+    const first = arr[0] ?? defaultValue;
+    ```
+
+    ### Legitimate Uses of `!`
+    ```typescript
+    // OK: After definite assignment in class
+    class Component {
+      private element!: HTMLElement; // Assigned in init()
+
+      init() {
+        this.element = document.createElement("div");
+      }
+    }
+
+    // OK: After exhaustive type guard
+    function process(items: string[]) {
+      if (items.length === 0) throw new Error("Empty");
+      const first = items[0]!; // We just checked length
+    }
+    ```
+
+  content_concise: |
+    ## Non-Null Assertion (!)
+    - `!` asserts non-null with NO runtime check
+    - Never on: API results, DOM queries, array access, env vars
+    - Use: `?.`, `??`, explicit `if` checks
+    - Throw explicitly if value is required
+    - Enable `noUncheckedIndexedAccess` in tsconfig
+
+- id: "language/typescript/ai_failures/array_types"
+  category: "language"
+  subcategory: "typescript"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## ARRAY TYPE GOTCHAS
+
+    ### Type Widening
+    ```typescript
+    // Array literal types widen
+    const nums = [1, 2, 3]; // number[] - not [1, 2, 3]
+
+    // Prevent with as const
+    const tuple = [1, 2, 3] as const; // readonly [1, 2, 3]
+    ```
+
+    ### CRITICAL: Array.filter Doesn't Narrow!
+    ```typescript
+    const mixed: (string | number)[] = [1, "a", 2, "b"];
+
+    // WITHOUT type guard - filter does NOT narrow:
+    const filtered = mixed.filter(x => typeof x === "string");
+    // Type is still (string | number)[]!
+
+    // WITH type guard - properly narrowed:
+    const isString = (x: unknown): x is string => typeof x === "string";
+    const strings: string[] = mixed.filter(isString); // string[]
+    ```
+
+    ### Index Access Without noUncheckedIndexedAccess
+    ```typescript
+    // Without noUncheckedIndexedAccess (DANGEROUS DEFAULT)
+    const arr: string[] = ["a", "b"];
+    const item = arr[5]; // item: string (LIE - it's undefined!)
+
+    // With noUncheckedIndexedAccess (RECOMMENDED)
+    const arr2: string[] = ["a", "b"];
+    const item2 = arr2[5]; // item2: string | undefined (TRUTH)
+
+    // Forces explicit handling
+    if (item2 !== undefined) {
+      console.log(item2.toUpperCase()); // Safe
+    }
+    ```
+
+    ### Same for Object Index Signatures
+    ```typescript
+    const dict: Record<string, number> = { a: 1 };
+
+    // Without noUncheckedIndexedAccess
+    const value = dict["nonexistent"]; // number (LIE)
+
+    // With noUncheckedIndexedAccess
+    const value2 = dict["nonexistent"]; // number | undefined (TRUTH)
+    ```
+
+  content_concise: |
+    ## Array Gotchas
+    - `.filter()` doesn't narrow - use type guard
+    - `arr[i]` returns `T` not `T | undefined` by default
+    - Enable `noUncheckedIndexedAccess` for safety
+    - Use `as const` to preserve literal types
+
+- id: "language/typescript/ai_failures/structural_typing"
+  category: "language"
+  subcategory: "typescript"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## STRUCTURAL TYPING GOTCHAS
+
+    ### Extra Properties Allowed (Except Object Literals)
+    ```typescript
+    interface Point2D { x: number; y: number; }
+    interface Point3D { x: number; y: number; z: number; }
+
+    const p3d: Point3D = { x: 1, y: 2, z: 3 };
+    const p2d: Point2D = p3d; // OK! Point3D has all Point2D properties
+
+    // This can cause unexpected behavior
+    function processPoint(p: Point2D): void {
+      console.log(Object.keys(p)); // Might log ["x", "y", "z"]!
+    }
+    ```
+
+    ### Excess Property Checking Only on Object Literals
+    ```typescript
+    // Object literal - excess property check applies
+    const valid: Point2D = { x: 1, y: 2 };
+    const invalid: Point2D = { x: 1, y: 2, z: 3 }; // ERROR: excess property
+
+    // Variable assignment - NO excess property check
+    const temp = { x: 1, y: 2, z: 3 };
+    const alsoValid: Point2D = temp; // OK - no excess property check!
+    ```
+
+    ### Functions Accept Compatible Types
+    ```typescript
+    function greet(person: { name: string }): void {
+      console.log(`Hello, ${person.name}`);
+    }
+
+    const user = { name: "Alice", age: 30, email: "a@b.com" };
+    greet(user); // OK - user has all required properties
+
+    // But NOT with object literals directly
+    greet({ name: "Bob", age: 25 }); // ERROR: 'age' does not exist
+    ```
+
+    ### Workaround: Exact Types (Manual)
+    ```typescript
+    type Exact<T, U extends T> = T & {
+      [K in Exclude<keyof U, keyof T>]: never;
+    };
+
+    function processExact<T extends Point2D>(point: Exact<Point2D, T>): void {
+      // Now only accepts exact Point2D
+    }
+    ```
+
+  content_concise: |
+    ## Structural Typing
+    - TypeScript uses structural (not nominal) typing
+    - Extra properties allowed when assigning from variables
+    - Excess property checking only on object literals
+    - `Object.keys()` may return unexpected keys
+
+- id: "language/typescript/ai_failures/hallucinations"
+  category: "language"
+  subcategory: "typescript"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## AI-SPECIFIC HALLUCINATIONS
+
+    ### Non-Existent Type Features
+    ```typescript
+    // WRONG: These don't exist in TypeScript!
+    type JSON = any; // No built-in JSON type
+    type URL = string; // No built-in URL type (it's a class)
+    interface Serializable { } // No built-in Serializable
+
+    // WRONG: Invalid syntax
+    type User<T extends string = "admin"> = { role: T }; // Default before constraint!
+
+    // CORRECT:
+    type User<T extends string = "admin"> = { role: T }; // This is actually fine
+    type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
+    ```
+
+    ### Confused Utility Types
+    ```typescript
+    // WRONG: Non-existent utilities
+    type Deep<T> = DeepPartial<T>; // DeepPartial doesn't exist!
+    type Mutable<T> = Writeable<T>; // Neither does Writeable
+
+    // CORRECT: Build them yourself
+    type DeepPartial<T> = {
+      [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+    };
+
+    type Mutable<T> = {
+      -readonly [P in keyof T]: T[P];
+    };
+    ```
+
+    ### JavaScript/TypeScript Confusion
+    ```typescript
+    // WRONG: Runtime behavior doesn't match types
+    interface User { name: string; }
+    const user: User = JSON.parse(data); // No runtime validation!
+
+    // WRONG: Thinking interfaces exist at runtime
+    if (value instanceof User) { } // ERROR: User only exists at compile time
+
+    // CORRECT: Use type guards
+    function isUser(value: unknown): value is User {
+      return typeof value === "object" && value !== null && "name" in value;
+    }
+    ```
+
+    ### Generic Constraints Confusion
+    ```typescript
+    // WRONG: Constraint too loose
+    function process<T extends object>(obj: T): T {
+      return { ...obj, processed: true }; // ERROR: Can't add properties
+    }
+
+    // CORRECT: Be explicit about return type
+    function process<T extends object>(obj: T): T & { processed: boolean } {
+      return { ...obj, processed: true };
+    }
+    ```
+
+    ### Import Hallucinations
+    ```typescript
+    // WRONG: These imports don't exist
+    import { DeepReadonly } from "typescript"; // No such export
+    import { JSONSchema } from "@types/json"; // Wrong package
+
+    // CORRECT: Use actual packages
+    import { z } from "zod"; // For runtime validation
+    import type { JSONSchema7 } from "json-schema"; // Actual type
+    ```
+
+  content_concise: |
+    ## AI Hallucinations
+    - No built-in: DeepPartial, Mutable, Writeable
+    - Interfaces don't exist at runtime (no instanceof)
+    - JSON.parse returns unknown, not your type
+    - Type imports from "typescript" package are rare
+    - Build utility types yourself when needed
+
+- id: "language/typescript/ai_failures/tsconfig"
+  category: "language"
+  subcategory: "typescript"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## TSCONFIG MISTAKES
+
+    ### Not Enabling Strict Mode
+    ```json
+    {
+      "compilerOptions": {
+        // MINIMUM: Enable strict
+        "strict": true,
+
+        // RECOMMENDED: Additional strictness
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noPropertyAccessFromIndexSignature": true,
+
+        // Code quality
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitOverride": true
+      }
+    }
+    ```
+
+    ### What `noUncheckedIndexedAccess` Does
+    ```typescript
+    // Without (DANGEROUS DEFAULT)
+    const arr: string[] = [];
+    const item = arr[0]; // string (LIE - it's undefined!)
+    item.toUpperCase(); // Runtime crash!
+
+    // With (SAFE)
+    const item2 = arr[0]; // string | undefined
+    if (item2) {
+      item2.toUpperCase(); // Safe
+    }
+    ```
+
+    ### What `exactOptionalPropertyTypes` Does
+    ```typescript
+    interface Config {
+      name: string;
+      debug?: boolean;
+    }
+
+    // Without: debug can be undefined OR omitted
+    const config: Config = { name: "test", debug: undefined }; // OK
+
+    // With: debug can only be boolean OR omitted
+    const config: Config = { name: "test", debug: undefined }; // ERROR
+    const config: Config = { name: "test" }; // OK
+    ```
+
+    ### Module Resolution
+    ```json
+    {
+      "compilerOptions": {
+        // Modern ESM
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+
+        // OR for Node.js
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext"
+      }
+    }
+    ```
+
+  content_concise: |
+    ## tsconfig.json
+    - Always enable `"strict": true`
+    - Add `noUncheckedIndexedAccess` for array safety
+    - Add `exactOptionalPropertyTypes` for optional clarity
+    - Use `moduleResolution: "bundler"` for modern bundlers
+    - Use `moduleResolution: "NodeNext"` for Node.js

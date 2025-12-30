@@ -1,0 +1,391 @@
+# Code Review Methodology Atoms - Security Review
+# Encyclopedic guidance for security vulnerability detection
+
+- id: "reviewer/methodology/security_fundamentals"
+  category: "methodology"
+  subcategory: "security"
+  priority: 98
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze", "/inspect"]
+  content: |
+    ## SECURITY CODE REVIEW FUNDAMENTALS
+
+    Security review protects users, data, and systems from exploitation.
+    Every vulnerability you catch prevents a potential breach.
+
+    ### SECURITY REVIEW MINDSET
+    Think like an attacker. Ask: "How could I abuse this code?"
+
+    ### THE OWASP TOP 10 (2021) CHECKLIST
+
+    1. **A01: Broken Access Control**
+       - Authorization bypass
+       - IDOR (Insecure Direct Object References)
+       - Privilege escalation
+
+    2. **A02: Cryptographic Failures**
+       - Sensitive data exposure
+       - Weak encryption
+       - Improper key management
+
+    3. **A03: Injection**
+       - SQL injection
+       - Command injection
+       - XSS (Cross-Site Scripting)
+
+    4. **A04: Insecure Design**
+       - Missing security controls
+       - Trust boundary violations
+       - Business logic flaws
+
+    5. **A05: Security Misconfiguration**
+       - Default credentials
+       - Unnecessary features enabled
+       - Verbose error messages
+
+    6. **A06: Vulnerable Components**
+       - Known vulnerabilities in dependencies
+       - Outdated libraries
+       - Abandoned packages
+
+    7. **A07: Auth Failures**
+       - Credential stuffing
+       - Session fixation
+       - Weak password requirements
+
+    8. **A08: Integrity Failures**
+       - Insecure deserialization
+       - CI/CD compromise
+       - Untrusted updates
+
+    9. **A09: Logging Failures**
+       - Missing audit logs
+       - Log injection
+       - Insufficient monitoring
+
+    10. **A10: SSRF**
+        - Server-side request forgery
+        - Internal service access
+        - Cloud metadata access
+
+- id: "reviewer/methodology/injection_prevention"
+  category: "methodology"
+  subcategory: "security"
+  priority: 96
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    ## INJECTION VULNERABILITY DETECTION
+
+    Injection is the #1 security risk. Untrusted data in commands = exploitation.
+
+    ### SQL INJECTION
+
+    **Vulnerable Pattern:**
+    ```
+    query := "SELECT * FROM users WHERE id = " + userId
+    ```
+
+    **Safe Pattern:**
+    ```
+    query := "SELECT * FROM users WHERE id = ?"
+    db.Query(query, userId)
+    ```
+
+    **Detection Checklist:**
+    - [ ] All database queries use parameterized statements
+    - [ ] No string concatenation with user input in SQL
+    - [ ] ORM queries don't use raw SQL with user input
+    - [ ] Stored procedures don't build dynamic SQL
+
+    ### COMMAND INJECTION
+
+    **Vulnerable Pattern:**
+    ```
+    os.system("convert " + filename)
+    ```
+
+    **Safe Pattern:**
+    ```
+    subprocess.run(["convert", filename])
+    ```
+
+    **Detection Checklist:**
+    - [ ] No shell=True with user input
+    - [ ] Command arguments passed as arrays
+    - [ ] Input validated against allowlist
+    - [ ] Dangerous characters escaped
+
+    ### XSS (Cross-Site Scripting)
+
+    **Types:**
+    - Reflected: User input directly in response
+    - Stored: User input saved and displayed later
+    - DOM-based: Client-side JS manipulation
+
+    **Detection Checklist:**
+    - [ ] All output HTML-encoded
+    - [ ] User input never in script tags
+    - [ ] Content-Security-Policy headers set
+    - [ ] Template engines auto-escape by default
+
+    ### NOSQL INJECTION
+    - [ ] MongoDB queries don't use $where with user input
+    - [ ] Object structures validated before query
+    - [ ] No operator injection in query objects
+
+- id: "reviewer/methodology/auth_security"
+  category: "methodology"
+  subcategory: "security"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    ## AUTHENTICATION & AUTHORIZATION REVIEW
+
+    Auth flaws grant attackers access to everything.
+
+    ### AUTHENTICATION CHECKLIST
+
+    **Password Handling**
+    - [ ] Passwords hashed with bcrypt/scrypt/argon2
+    - [ ] Never MD5/SHA1 for passwords
+    - [ ] Salts are unique per password
+    - [ ] Password never logged or exposed in errors
+
+    **Session Management**
+    - [ ] Session IDs are cryptographically random
+    - [ ] Sessions expire after inactivity
+    - [ ] Sessions invalidated on logout
+    - [ ] Session fixation prevented
+
+    **Token Security (JWT)**
+    - [ ] Tokens signed with strong algorithm (not "none")
+    - [ ] Token expiration enforced
+    - [ ] Refresh token rotation implemented
+    - [ ] Sensitive data not in JWT payload
+
+    **Multi-Factor Authentication**
+    - [ ] MFA cannot be bypassed
+    - [ ] Backup codes are single-use
+    - [ ] Rate limiting on MFA attempts
+
+    ### AUTHORIZATION CHECKLIST
+
+    **Access Control**
+    - [ ] Every endpoint checks authorization
+    - [ ] Authorization checked on server, not client
+    - [ ] User can only access own resources
+    - [ ] Admin functions properly restricted
+
+    **IDOR Prevention**
+    - [ ] Object references are not guessable
+    - [ ] Ownership verified before access
+    - [ ] UUIDs used instead of sequential IDs
+
+    **Privilege Escalation**
+    - [ ] Role changes require re-authentication
+    - [ ] Horizontal privilege escalation prevented
+    - [ ] Vertical privilege escalation prevented
+
+    ### SECRETS MANAGEMENT
+    - [ ] No hardcoded credentials in code
+    - [ ] API keys not committed to repo
+    - [ ] Secrets loaded from environment/vault
+    - [ ] Secrets not logged
+
+- id: "reviewer/methodology/data_protection"
+  category: "methodology"
+  subcategory: "security"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    ## SENSITIVE DATA PROTECTION
+
+    Data breaches destroy trust. Protect sensitive data in transit and at rest.
+
+    ### DATA CLASSIFICATION
+
+    **Highly Sensitive**
+    - Passwords, API keys, tokens
+    - Credit card numbers (PCI DSS)
+    - Health information (HIPAA)
+    - Personal identifiers (GDPR/PII)
+
+    **Sensitive**
+    - User email addresses
+    - Internal business data
+    - Authentication logs
+
+    **Internal**
+    - System configuration
+    - Internal communications
+
+    ### ENCRYPTION CHECKLIST
+
+    **Data at Rest**
+    - [ ] Sensitive fields encrypted in database
+    - [ ] Encryption keys properly managed
+    - [ ] Backups are encrypted
+
+    **Data in Transit**
+    - [ ] TLS 1.2+ required
+    - [ ] Certificate validation enabled
+    - [ ] No sensitive data in URLs
+
+    **Cryptography**
+    - [ ] Strong algorithms (AES-256, RSA-2048+)
+    - [ ] No deprecated algorithms (DES, RC4)
+    - [ ] Cryptographically secure random numbers
+    - [ ] No custom crypto implementations
+
+    ### DATA EXPOSURE PREVENTION
+
+    **Logging**
+    - [ ] Sensitive data masked in logs
+    - [ ] PII not logged
+    - [ ] Credentials never logged
+
+    **Error Messages**
+    - [ ] Stack traces not shown to users
+    - [ ] Internal paths not exposed
+    - [ ] Database errors not shown verbatim
+
+    **API Responses**
+    - [ ] Only necessary fields returned
+    - [ ] Sensitive fields excluded from serialization
+    - [ ] User data not leaked across accounts
+
+- id: "reviewer/methodology/input_validation"
+  category: "methodology"
+  subcategory: "security"
+  priority: 94
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    ## INPUT VALIDATION REVIEW
+
+    Never trust user input. Validate everything.
+
+    ### VALIDATION STRATEGY
+
+    **Defense in Depth**
+    1. Client-side validation (UX only, not security)
+    2. API gateway validation
+    3. Application layer validation
+    4. Database constraints
+
+    **Validation Types**
+    - Type checking (string, number, boolean)
+    - Length limits
+    - Format validation (regex)
+    - Range validation
+    - Allowlist validation
+
+    ### INPUT VALIDATION CHECKLIST
+
+    **String Inputs**
+    - [ ] Maximum length enforced
+    - [ ] Character allowlist defined
+    - [ ] Encoding validated (UTF-8)
+    - [ ] Control characters rejected
+
+    **Numeric Inputs**
+    - [ ] Type coercion safe
+    - [ ] Range validated
+    - [ ] Overflow prevented
+
+    **File Uploads**
+    - [ ] File type validated by content, not extension
+    - [ ] File size limited
+    - [ ] Filename sanitized
+    - [ ] Uploaded outside webroot
+
+    **API Parameters**
+    - [ ] Required parameters enforced
+    - [ ] Unknown parameters rejected
+    - [ ] Array size limited
+    - [ ] Nested object depth limited
+
+    ### SANITIZATION vs VALIDATION
+    - **Validation**: Reject invalid input (preferred)
+    - **Sanitization**: Transform input to be safe (risky)
+
+    Always prefer validation. Sanitization can introduce bugs.
+
+    ### PATH TRAVERSAL PREVENTION
+    - [ ] User input not used in file paths
+    - [ ] Path traversal sequences blocked (../)
+    - [ ] Paths canonicalized before use
+    - [ ] Chroot/jail for file operations
+
+- id: "reviewer/methodology/dependency_security"
+  category: "methodology"
+  subcategory: "security"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/security_fundamentals"]
+  content: |
+    ## DEPENDENCY SECURITY REVIEW
+
+    Third-party code introduces third-party vulnerabilities.
+
+    ### DEPENDENCY AUDIT CHECKLIST
+
+    **Package Verification**
+    - [ ] Package name is spelled correctly (typosquatting)
+    - [ ] Package is from official registry
+    - [ ] Package has active maintainers
+    - [ ] Package has security policy
+
+    **Version Management**
+    - [ ] Dependencies pinned to specific versions
+    - [ ] Lock files committed
+    - [ ] Update policy defined
+
+    **Vulnerability Scanning**
+    - [ ] `npm audit` / `pip-audit` / `govulncheck` run
+    - [ ] High/critical vulnerabilities addressed
+    - [ ] Transitive dependencies scanned
+
+    ### RED FLAGS IN DEPENDENCIES
+
+    **Suspicious Packages**
+    - Very new package with few downloads
+    - Package name similar to popular package
+    - Excessive permissions requested
+    - Minified code without source
+
+    **Abandoned Packages**
+    - No commits in 2+ years
+    - Unaddressed security issues
+    - No response to PRs/issues
+
+    **Risky Patterns**
+    - Install scripts that download binaries
+    - Native code compilation
+    - Network requests during install
+
+    ### SUPPLY CHAIN SECURITY
+    - Verify package integrity (checksums)
+    - Use private registry mirrors
+    - Review dependency code for small packages
+    - Monitor for typosquatting
+
+    ### TOOLS
+    - npm audit, Snyk, Dependabot
+    - pip-audit, Safety
+    - govulncheck
+    - OWASP Dependency-Check

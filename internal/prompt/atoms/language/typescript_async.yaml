@@ -1,0 +1,342 @@
+# TypeScript Async Patterns - Encyclopedic Reference
+# Comprehensive guidance for Promises, AbortController, and error handling
+
+- id: "language/typescript/async/promises"
+  category: "language"
+  subcategory: "typescript"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## PROMISE PATTERNS
+
+    ### Explicit Promise Typing
+    ```typescript
+    // Always type async function returns
+    async function fetchUser(id: string): Promise<User> {
+      const response = await fetch(`/api/users/${id}`);
+      return response.json();
+    }
+
+    // Explicit Promise construction
+    function delay(ms: number): Promise<void> {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Promise with explicit types
+    function fetchData<T>(url: string): Promise<T> {
+      return fetch(url).then(res => res.json());
+    }
+    ```
+
+    ### Promise.all - Parallel Execution, Fail Fast
+    ```typescript
+    async function fetchAllUsers(ids: string[]): Promise<User[]> {
+      const promises = ids.map(id => fetchUser(id));
+      return Promise.all(promises); // Rejects if ANY promise rejects
+    }
+
+    // Typed result is tuple
+    const [user, posts] = await Promise.all([
+      fetchUser("1"),
+      fetchPosts("1"),
+    ]); // [User, Post[]]
+    ```
+
+    ### Promise.allSettled - Capture All Results
+    ```typescript
+    async function fetchAllUsersSafe(ids: string[]): Promise<PromiseSettledResult<User>[]> {
+      const promises = ids.map(id => fetchUser(id));
+      return Promise.allSettled(promises);
+    }
+
+    // Type-safe result handling
+    const results = await fetchAllUsersSafe(["1", "2", "3"]);
+
+    const successful = results
+      .filter((r): r is PromiseFulfilledResult<User> => r.status === "fulfilled")
+      .map(r => r.value);
+
+    const failed = results
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map(r => r.reason);
+    ```
+
+    ### Promise.race and Promise.any
+    ```typescript
+    // race - first to settle wins (fulfilled OR rejected)
+    const winner = await Promise.race([
+      fetchUser("1"),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000)
+      ),
+    ]);
+
+    // any - first to FULFILL wins (ignores rejections)
+    const anyUser = await Promise.any([
+      fetchUser("1"),
+      fetchUser("2"),
+    ]); // First successful response
+    ```
+
+  content_concise: |
+    ## Promise Patterns
+    - Always type: `async function f(): Promise<T>`
+    - `Promise.all`: Parallel, fail-fast
+    - `Promise.allSettled`: Capture all results/errors
+    - `Promise.race`: First to settle wins
+    - `Promise.any`: First to fulfill wins
+
+- id: "language/typescript/async/abort"
+  category: "language"
+  subcategory: "typescript"
+  priority: 79
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    ## ABORTCONTROLLER FOR CANCELLATION
+
+    ### Basic Usage
+    ```typescript
+    async function fetchWithCancel(
+      url: string,
+      signal: AbortSignal
+    ): Promise<Response> {
+      const response = await fetch(url, { signal });
+      return response;
+    }
+
+    // Usage
+    const controller = new AbortController();
+    const promise = fetchWithCancel("/api/data", controller.signal);
+
+    // Cancel after 5 seconds
+    setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await promise;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.log("Request was cancelled");
+      } else {
+        throw err;
+      }
+    }
+    ```
+
+    ### Timeout Helper
+    ```typescript
+    async function fetchWithTimeout<T>(
+      fetcher: (signal: AbortSignal) => Promise<T>,
+      timeoutMs: number
+    ): Promise<T> {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        return await fetcher(controller.signal);
+      } finally {
+        clearTimeout(timeoutId); // Prevent memory leaks
+      }
+    }
+
+    // Usage
+    const data = await fetchWithTimeout(
+      signal => fetch("/api/data", { signal }).then(r => r.json()),
+      5000
+    );
+    ```
+
+    ### Passing Signal Through Layers
+    ```typescript
+    async function complexOperation(signal: AbortSignal): Promise<void> {
+      // Check if already aborted
+      if (signal.aborted) {
+        throw new Error("Operation cancelled");
+      }
+
+      // Listen for abort during long operations
+      signal.addEventListener("abort", () => {
+        // Cleanup logic here
+      }, { once: true });
+
+      // Pass to sub-operations
+      await fetch("/api/step1", { signal });
+
+      // Check between steps
+      if (signal.aborted) {
+        throw new Error("Operation cancelled");
+      }
+
+      await fetch("/api/step2", { signal });
+    }
+    ```
+
+    ### AbortController with Cleanup
+    ```typescript
+    function createCancellableRequest(url: string) {
+      const controller = new AbortController();
+
+      const promise = fetch(url, { signal: controller.signal });
+
+      return {
+        promise,
+        cancel: () => controller.abort(),
+      };
+    }
+
+    const { promise, cancel } = createCancellableRequest("/api/data");
+
+    // Later...
+    cancel(); // Clean cancellation
+    ```
+
+  content_concise: |
+    ## AbortController
+    - Create: `const controller = new AbortController()`
+    - Cancel: `controller.abort()`
+    - Check: `signal.aborted`
+    - Pass signal to fetch: `fetch(url, { signal })`
+    - Catch: `err.name === "AbortError"`
+
+- id: "language/typescript/async/error_handling"
+  category: "language"
+  subcategory: "typescript"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/async/promises"]
+  content: |
+    ## ASYNC ERROR HANDLING
+
+    ### Type-Safe Error Handling
+    ```typescript
+    // Define custom error types
+    class NetworkError extends Error {
+      constructor(public statusCode: number, message: string) {
+        super(message);
+        this.name = "NetworkError";
+      }
+    }
+
+    class ValidationError extends Error {
+      constructor(public field: string, public details: string) {
+        super(`Validation failed: ${field}`);
+        this.name = "ValidationError";
+      }
+    }
+
+    // Handle with type narrowing
+    async function safeOperation(): Promise<Result | null> {
+      try {
+        const data = await riskyOperation();
+        return data;
+      } catch (error) {
+        if (error instanceof NetworkError) {
+          console.error(`Network error (${error.statusCode}): ${error.message}`);
+        } else if (error instanceof ValidationError) {
+          console.error(`Invalid ${error.field}: ${error.details}`);
+        } else if (error instanceof Error) {
+          console.error("Unknown error:", error.message);
+        }
+        return null;
+      }
+    }
+    ```
+
+    ### Result Type Pattern
+    ```typescript
+    type Result<T, E = Error> =
+      | { success: true; data: T }
+      | { success: false; error: E };
+
+    async function fetchUserSafe(id: string): Promise<Result<User>> {
+      try {
+        const user = await fetchUser(id);
+        return { success: true, data: user };
+      } catch (error) {
+        return { success: false, error: error as Error };
+      }
+    }
+
+    // Usage with type narrowing
+    const result = await fetchUserSafe("123");
+    if (result.success) {
+      console.log(result.data.name); // Type-safe!
+    } else {
+      console.error(result.error.message);
+    }
+    ```
+
+    ### Retry with Exponential Backoff
+    ```typescript
+    async function withRetry<T>(
+      fn: () => Promise<T>,
+      options: {
+        maxRetries?: number;
+        baseDelay?: number;
+        shouldRetry?: (error: unknown) => boolean;
+      } = {}
+    ): Promise<T> {
+      const { maxRetries = 3, baseDelay = 1000, shouldRetry = () => true } = options;
+      let lastError: unknown;
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          return await fn();
+        } catch (error) {
+          lastError = error;
+          if (!shouldRetry(error) || attempt === maxRetries - 1) {
+            throw error;
+          }
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+
+      throw lastError;
+    }
+
+    // Usage
+    const data = await withRetry(
+      () => fetchData("/api"),
+      {
+        maxRetries: 3,
+        shouldRetry: (err) => err instanceof NetworkError && err.statusCode >= 500,
+      }
+    );
+    ```
+
+    ### CRITICAL: Await Before Return
+    ```typescript
+    // WRONG: Error may escape try/catch
+    async function bad(): Promise<Data> {
+      const resource = getResource();
+      try {
+        return fetchData(); // Not awaited!
+      } finally {
+        resource.close();
+      }
+    }
+
+    // CORRECT: Await ensures error is caught
+    async function good(): Promise<Data> {
+      const resource = getResource();
+      try {
+        return await fetchData(); // Awaited!
+      } finally {
+        resource.close();
+      }
+    }
+    ```
+
+  content_concise: |
+    ## Async Error Handling
+    - Use custom Error classes with `instanceof` checks
+    - Result type: `{ success: true; data: T } | { success: false; error: E }`
+    - Always `await` before `return` in try/catch
+    - Retry with exponential backoff for transient errors

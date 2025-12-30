@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"codenerd/internal/articulation"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -14,7 +16,9 @@ import (
 // It is intended for early-phase clarification before kicking off campaigns or large tasks.
 type RequirementsInterrogatorShard struct {
 	*coreshards.BaseShardAgent
-	llmClient types.LLMClient
+	mu              sync.RWMutex
+	llmClient       types.LLMClient
+	promptAssembler *articulation.PromptAssembler
 }
 
 // NewRequirementsInterrogatorShard creates a new interrogator shard.
@@ -37,10 +41,57 @@ func NewRequirementsInterrogatorShard() *RequirementsInterrogatorShard {
 
 // SetLLMClient injects the LLM client (satisfies ShardAgent).
 func (s *RequirementsInterrogatorShard) SetLLMClient(client types.LLMClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.llmClient = client
 	if s.BaseShardAgent != nil {
 		s.BaseShardAgent.SetLLMClient(client)
 	}
+}
+
+// SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
+func (s *RequirementsInterrogatorShard) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.promptAssembler = assembler
+	if assembler != nil {
+		logging.SystemShards("[RequirementsInterrogator] PromptAssembler attached (JIT ready: %v)", assembler.JITReady())
+	}
+}
+
+// getSystemPrompt returns the JIT-compiled system prompt.
+// Returns empty string if JIT is unavailable.
+func (s *RequirementsInterrogatorShard) getSystemPrompt(ctx context.Context) string {
+	s.mu.RLock()
+	pa := s.promptAssembler
+	s.mu.RUnlock()
+
+	if pa == nil {
+		logging.SystemShards("[RequirementsInterrogator] [ERROR] No PromptAssembler configured")
+		return ""
+	}
+
+	if !pa.JITReady() {
+		logging.SystemShards("[RequirementsInterrogator] [ERROR] JIT not ready (ensure system/requirements_interrogator atoms exist)")
+		return ""
+	}
+
+	pc := &articulation.PromptContext{
+		ShardID:   "requirements_interrogator",
+		ShardType: "requirements_interrogator",
+	}
+	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	if err != nil {
+		logging.SystemShards("[RequirementsInterrogator] [ERROR] JIT compilation failed: %v", err)
+		return ""
+	}
+	if jitPrompt == "" {
+		logging.SystemShards("[RequirementsInterrogator] [ERROR] JIT returned empty prompt")
+		return ""
+	}
+
+	logging.SystemShards("[RequirementsInterrogator] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
+	return jitPrompt
 }
 
 // Execute generates a concise set of clarifying questions for the given task/goal.
@@ -53,8 +104,12 @@ func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string
 		return "No task provided. Example: `/clarify build a refactor campaign for authentication`.", nil
 	}
 
-	if s.llmClient == nil {
-		// Fallback: static question template
+	s.mu.RLock()
+	llmClient := s.llmClient
+	s.mu.RUnlock()
+
+	if llmClient == nil {
+		// Fallback: static question template (no LLM available)
 		return s.renderQuestions(task, []string{
 			"What is the exact scope and success definition?",
 			"What files/modules are in or out of scope?",
@@ -64,8 +119,15 @@ func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string
 		}), nil
 	}
 
+	// Get JIT-compiled system prompt (no fallback constant)
+	systemPrompt := s.getSystemPrompt(ctx)
+	if systemPrompt == "" {
+		// If JIT fails, return error rather than using hardcoded prompt
+		return "", fmt.Errorf("JIT prompt compilation failed - ensure atoms exist in internal/prompt/atoms/system/requirements_interrogator.yaml")
+	}
+
 	userPrompt := s.buildUserPrompt(task)
-	rawResp, err := s.llmClient.CompleteWithSystem(ctx, requirementsInterrogatorSystemPrompt, userPrompt)
+	rawResp, err := llmClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return "", err
 	}
@@ -122,17 +184,6 @@ func (s *RequirementsInterrogatorShard) renderQuestions(task string, questions [
 	return sb.String()
 }
 
-// requirementsInterrogatorSystemPrompt is adapted from the imported spec, tuned for codeNERD.
-// It enforces ASCII-only output and focuses on clarifying dialogue (not full blueprints).
-const requirementsInterrogatorSystemPrompt = `
-You are the Requirements Interrogator for codeNERD. Produce 8-12 sharp, implementation-ready questions to turn a vague goal into a concrete plan or campaign. Be thorough but concise.
-
-Rules:
-- ASCII only. No emojis or Unicode.
-- Do NOT generate a full plan; ask questions only.
-- Focus on: problem framing, goal type (greenfield/refactor/bug/ops), scope in/out, constraints (perf/security/compliance/style/tooling), environments, data/privacy, ownership and approvers, timelines, autonomy level, deliverables/DoD, acceptance tests, risks/rollback, success metrics.
-- Include code-facing probes: target repos/files/modules, interfaces/APIs, external deps, critical migrations, expected test suites.
-- Include campaign/autonomy probes: hands-free vs checkpoints, budget/guardrails, allowed/forbidden actions.
-- Align with codeNERD architecture: Cartographer (code graph), Dreamer (precog safety), Legislator (rules), campaigns (multi-phase execution), shards (coder/tester/reviewer/researcher).
-- Challenge assumptions politely; keep it concise.
-`
+// NOTE: Legacy requirementsInterrogatorSystemPrompt constant has been DELETED.
+// Requirements interrogator system prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/requirements_interrogator.yaml

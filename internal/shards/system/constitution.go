@@ -589,14 +589,13 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-	// Try JIT prompt compilation first, fall back to legacy constant
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
 	systemPrompt, jitUsed := c.TryJITPrompt(ctx, "constitution_autopoiesis")
-	if !jitUsed {
-		systemPrompt = constitutionAutopoiesisPrompt
-		logging.SystemShards("[ConstitutionGate] [FALLBACK] Using legacy autopoiesis prompt")
-	} else {
-		logging.SystemShards("[ConstitutionGate] [JIT] Using JIT-compiled autopoiesis prompt")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[ConstitutionGate] [ERROR] JIT compilation failed - skipping autopoiesis (ensure atoms exist)")
+		return
 	}
+	logging.SystemShards("[ConstitutionGate] [JIT] Using JIT-compiled autopoiesis prompt")
 
 	// Create LLM client adapter for feedback loop
 	llmAdapter := &constitutionLLMAdapter{
@@ -1000,25 +999,6 @@ func (c *ConstitutionGateShard) processPendingAppeals(ctx context.Context) error
 	return nil
 }
 
-// DEPRECATED: constitutionAutopoiesisPrompt is the legacy system prompt for proposing new safety rules.
-// Prefer JIT prompt compilation via TryJITPrompt() when available.
-// This constant is retained as a fallback for when JIT is unavailable.
-const constitutionAutopoiesisPrompt = `You are the Constitution Gate's Autopoiesis system.
-Your role is to propose new Mangle safety rules based on unhandled action patterns.
-
-Rules you propose MUST:
-1. Follow the permitted(Action) pattern
-2. Be conservative - when in doubt, deny
-3. Be specific - avoid overly broad rules
-4. Be safe - never propose rules that could bypass safety checks
-
-Example valid rules:
-- safe_action(/read_file).
-- permitted(/search) :- user_intent(_, /query, _, _, _).
-- dangerous_action(Action) :- action_contains_pattern(Action, "rm -rf").
-
-DO NOT propose rules that:
-- Grant blanket permissions
-- Bypass admin_override requirements for dangerous actions
-- Allow unrestricted network access
-- Could enable code injection or arbitrary execution`
+// NOTE: constitutionAutopoiesisPrompt constant DELETED (Dec 2024)
+// Prompt atoms now live in internal/prompt/atoms/system/autopoiesis.yaml
+// JIT compilation is required - no fallback.
