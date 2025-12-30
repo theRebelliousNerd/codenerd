@@ -378,11 +378,6 @@ func ExtractRuleFromResponse(response string) string {
 		}
 	}
 
-	// Try to find fact pattern (just a predicate with .)
-	if strings.Contains(response, "(") && strings.HasSuffix(response, ".") {
-		return cleanRuleCandidate(response)
-	}
-
 	// Try to find a fact pattern anywhere in the response
 	factPattern := regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
 	if match := factPattern.FindString(response); match != "" {

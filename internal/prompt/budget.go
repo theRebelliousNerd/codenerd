@@ -146,6 +146,14 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 		Priority:    PriorityHigh,
 	}
 
+	m.budgets[CategoryCapability] = CategoryBudget{
+		Category:    CategoryCapability,
+		BasePercent: 0.06,
+		MinTokens:   300,
+		MaxTokens:   6000,
+		Priority:    PriorityHigh,
+	}
+
 	m.budgets[CategoryHallucination] = CategoryBudget{
 		Category:    CategoryHallucination,
 		BasePercent: 0.05,
@@ -266,6 +274,22 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 		BasePercent: 0.03,
 		MinTokens:   0,
 		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryAutopoiesis] = CategoryBudget{
+		Category:    CategoryAutopoiesis,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   3000,
+		Priority:    PriorityConditional,
+	}
+
+	m.budgets[CategoryEval] = CategoryBudget{
+		Category:    CategoryEval,
+		BasePercent: 0.02,
+		MinTokens:   0,
+		MaxTokens:   2000,
 		Priority:    PriorityConditional,
 	}
 

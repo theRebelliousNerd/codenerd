@@ -226,26 +226,30 @@ func TestFinalAssembler_AssembleWithTemplates(t *testing.T) {
 }
 
 func TestCategoryHeader(t *testing.T) {
-	tests := []struct {
-		category AtomCategory
-		expected string
-	}{
-		{CategoryIdentity, "## Identity"},
-		{CategorySafety, "## Safety & Constraints"},
-		{CategoryProtocol, "## Protocols"},
-		{CategoryMethodology, "## Methodology"},
-		{CategoryHallucination, "## Guardrails"},
-		{CategoryLanguage, "## Language Guidelines"},
-		{CategoryFramework, "## Framework Guidelines"},
-		{CategoryDomain, "## Domain Context"},
-		{CategoryCampaign, "## Campaign Context"},
-		{CategoryInit, "## Initialization"},
-		{CategoryNorthstar, "## Planning"},
-		{CategoryOuroboros, "## Self-Improvement"},
-		{CategoryContext, "## Current Context"},
-		{CategoryExemplar, "## Examples"},
-		{AtomCategory("unknown"), "## unknown"},
-	}
+		tests := []struct {
+			category AtomCategory
+			expected string
+		}{
+			{CategoryIdentity, "## Identity"},
+			{CategorySafety, "## Safety & Constraints"},
+			{CategoryProtocol, "## Protocols"},
+			{CategoryCapability, "## Capabilities"},
+			{CategoryMethodology, "## Methodology"},
+			{CategoryHallucination, "## Guardrails"},
+			{CategoryLanguage, "## Language Guidelines"},
+			{CategoryFramework, "## Framework Guidelines"},
+			{CategoryDomain, "## Domain Context"},
+			{CategoryCampaign, "## Campaign Context"},
+			{CategoryInit, "## Initialization"},
+			{CategoryNorthstar, "## Planning"},
+			{CategoryOuroboros, "## Self-Improvement"},
+			{CategoryAutopoiesis, "## Autopoiesis"},
+			{CategoryContext, "## Current Context"},
+			{CategoryReviewer, "## Reviewer Guidance"},
+			{CategoryEval, "## Evaluation"},
+			{CategoryExemplar, "## Examples"},
+			{AtomCategory("unknown"), "## unknown"},
+		}
 
 	for _, tt := range tests {
 		t.Run(string(tt.category), func(t *testing.T) {

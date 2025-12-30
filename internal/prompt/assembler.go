@@ -49,6 +49,7 @@ func defaultCategoryOrder() []AtomCategory {
 		CategoryIdentity,      // Who the agent is
 		CategorySafety,        // Constitutional constraints
 		CategoryProtocol,      // Operational protocols
+		CategoryCapability,    // Capability guidance
 		CategoryMethodology,   // Problem-solving approach
 		CategoryHallucination, // Anti-hallucination guardrails
 		CategoryLanguage,      // Language-specific guidance
@@ -58,7 +59,10 @@ func defaultCategoryOrder() []AtomCategory {
 		CategoryInit,          // Init phase specifics
 		CategoryNorthstar,     // Planning specifics
 		CategoryOuroboros,     // Self-improvement specifics
+		CategoryAutopoiesis,   // Autopoiesis specifics
 		CategoryContext,       // Dynamic context (files, symbols)
+		CategoryReviewer,      // Reviewer guidance
+		CategoryEval,          // Evaluation/judge guidance
 		CategoryExemplar,      // Few-shot examples (last)
 	}
 }
@@ -203,6 +207,7 @@ func categoryHeader(cat AtomCategory) string {
 		CategoryIdentity:      "## Identity",
 		CategorySafety:        "## Safety & Constraints",
 		CategoryProtocol:      "## Protocols",
+		CategoryCapability:    "## Capabilities",
 		CategoryMethodology:   "## Methodology",
 		CategoryHallucination: "## Guardrails",
 		CategoryLanguage:      "## Language Guidelines",
@@ -212,7 +217,10 @@ func categoryHeader(cat AtomCategory) string {
 		CategoryInit:          "## Initialization",
 		CategoryNorthstar:     "## Planning",
 		CategoryOuroboros:     "## Self-Improvement",
+		CategoryAutopoiesis:   "## Autopoiesis",
 		CategoryContext:       "## Current Context",
+		CategoryReviewer:      "## Reviewer Guidance",
+		CategoryEval:          "## Evaluation",
 		CategoryExemplar:      "## Examples",
 	}
 

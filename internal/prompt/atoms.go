@@ -39,6 +39,9 @@ const (
 	// CategoryMethodology defines how to approach problems (TDD, etc.).
 	CategoryMethodology AtomCategory = "methodology"
 
+	// CategoryCapability defines tool- and system-capability guidance.
+	CategoryCapability AtomCategory = "capability"
+
 	// CategoryHallucination contains anti-hallucination guardrails.
 	CategoryHallucination AtomCategory = "hallucination"
 
@@ -63,6 +66,9 @@ const (
 	// CategoryOuroboros contains self-improvement/tool-generation guidance.
 	CategoryOuroboros AtomCategory = "ouroboros"
 
+	// CategoryAutopoiesis contains self-learning and prompt evolution guidance.
+	CategoryAutopoiesis AtomCategory = "autopoiesis"
+
 	// CategoryContext contains dynamic context atoms (files, symbols, etc.).
 	CategoryContext AtomCategory = "context"
 
@@ -71,6 +77,9 @@ const (
 
 	// CategoryReviewer contains reviewer-specific atoms for code review enhancement.
 	CategoryReviewer AtomCategory = "reviewer"
+
+	// CategoryEval contains evaluation/judge-mode atoms.
+	CategoryEval AtomCategory = "eval"
 
 	// CategoryKnowledge contains knowledge extraction and management atoms.
 	CategoryKnowledge AtomCategory = "knowledge"
@@ -92,6 +101,7 @@ func AllCategories() []AtomCategory {
 		CategoryProtocol,
 		CategorySafety,
 		CategoryMethodology,
+		CategoryCapability,
 		CategoryHallucination,
 		CategoryLanguage,
 		CategoryFramework,
@@ -100,9 +110,11 @@ func AllCategories() []AtomCategory {
 		CategoryInit,
 		CategoryNorthstar,
 		CategoryOuroboros,
+		CategoryAutopoiesis,
 		CategoryContext,
 		CategoryExemplar,
 		CategoryReviewer,
+		CategoryEval,
 		CategoryKnowledge,
 		CategoryBuildLayer,
 		CategoryIntent,
