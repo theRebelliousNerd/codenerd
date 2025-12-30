@@ -92,7 +92,7 @@ type APISchedulerConfig struct {
 // DefaultAPISchedulerConfig returns sensible defaults.
 func DefaultAPISchedulerConfig() APISchedulerConfig {
 	return APISchedulerConfig{
-		MaxConcurrentAPICalls: 2,               // Bug #2 fix: Reduced from 5 to prevent rate limit cascade
+		MaxConcurrentAPICalls: 5,               // Default for modern LLM providers (Gemini: 60 RPM Flash, 15 RPM Pro)
 		SlotAcquireTimeout:    5 * time.Minute, // Match typical API timeout
 		EnableMetrics:         true,
 	}
