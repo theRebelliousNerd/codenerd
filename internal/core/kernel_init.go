@@ -268,6 +268,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_misc.mg",      // Northstar, Continuation Protocol, Benchmarks
 		"schemas_codedom.mg",          // Code DOM & Interactive Elements
 		"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
+		"schemas_coder.mg",            // Coder Shard Task & Strategy (extracted from coder.mg)
 		"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
 		"schemas_campaign.mg",  // Campaign Orchestration
 		"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing

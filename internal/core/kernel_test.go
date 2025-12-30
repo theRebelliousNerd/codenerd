@@ -35,7 +35,7 @@ func TestKernelLoadPolicyFileIsIdempotent(t *testing.T) {
 	}
 
 	modules := []string{
-		"coder.mg",
+		// "coder.mg", // REMOVED: Split into multiple files, not loadable as a single file anymore.
 		"tester.mg",
 		"reviewer.mg",
 	}
@@ -441,6 +441,8 @@ func TestKernelPermissionDerivation(t *testing.T) {
 // Regression: policy.mg historically derived context_priority(FactID, /high) which
 // collided with coder.mg's numeric threshold checks (P >= 50), causing
 // "value /high is not a number" during evaluation once coder.mg was loaded.
+//
+// LOGOS UPDATE: We now load the split coder files.
 func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 	kernel, err := NewRealKernel()
 	if err != nil {
@@ -470,8 +472,10 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 		t.Fatalf("LoadFacts(seed) error = %v", err)
 	}
 
-	// Loading coder.mg should not crash evaluation due to context_priority typing.
-	if err := kernel.LoadPolicyFile("coder.mg"); err != nil {
-		t.Fatalf("LoadPolicyFile(coder.mg) error = %v", err)
+	// Loading coder.mg (now coder_workflow.mg) should not crash evaluation due to context_priority typing.
+	// Since we split the file and load it by default now via defaults/policy/ iteration,
+	// this test confirms that the conflict is resolved in the base system.
+	if err := kernel.Evaluate(); err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
 	}
 }
