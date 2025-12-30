@@ -61,3 +61,58 @@ Decl safe_action(ActionType).
 # ActionType: /analyze_code, /fs_read, /search_files, /exec_cmd, /run_tests, etc.
 Decl action_mapping(IntentVerb, ActionType).
 
+# =============================================================================
+# SECTION 11: POST-ACTION VALIDATION (§4.1)
+# =============================================================================
+# These predicates track the verification of action outcomes.
+# Every action executed by VirtualStore is verified after execution
+# to ensure it actually succeeded, not just returned without error.
+
+# action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
+# Emitted when post-action validation succeeds.
+# Method: /hash, /syntax, /existence, /content_check, /output_scan, /codedom_refresh
+# Confidence: 0.0-1.0 score indicating verification certainty
+Decl action_verified(ActionID, ActionType, Method, Confidence, Timestamp).
+
+# action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp)
+# Emitted when post-action validation fails.
+# Triggers self-healing or escalation.
+Decl action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp).
+
+# validation_method_used(ActionID, Method)
+# Tracks which validation method was applied to each action.
+Decl validation_method_used(ActionID, Method).
+
+# action_pre_state(ActionID, StateHash)
+# Captures state before action execution (for rollback).
+Decl action_pre_state(ActionID, StateHash).
+
+# action_post_state(ActionID, StateHash)
+# Captures state after action execution (for verification).
+Decl action_post_state(ActionID, StateHash).
+
+# action_state_delta(ActionID, PreHash, PostHash)
+# Records the change in state from action execution.
+Decl action_state_delta(ActionID, PreHash, PostHash).
+
+# validation_attempt(ActionID, AttemptNum, Success, Timestamp)
+# Tracks validation retry attempts.
+Decl validation_attempt(ActionID, AttemptNum, Success, Timestamp).
+
+# validation_max_retries_reached(ActionID)
+# Indicates self-healing exhausted retry budget.
+Decl validation_max_retries_reached(ActionID).
+
+# needs_self_healing(ActionID, HealingType)
+# Triggers automatic recovery when validation fails.
+# HealingType: /retry, /rollback, /escalate, /alternative_approach
+Decl needs_self_healing(ActionID, HealingType).
+
+# healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp)
+# Records a self-healing attempt and its outcome.
+Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp).
+
+# action_escalated(ActionID, Reason, Timestamp)
+# Indicates an action was escalated to user for manual intervention.
+Decl action_escalated(ActionID, Reason, Timestamp).
+

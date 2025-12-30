@@ -129,6 +129,9 @@ type VirtualStore struct {
 	// This ensures session rehydration doesn't trigger old actions.
 	// Set to true on initialization, disabled when user sends first message.
 	bootGuardActive bool
+
+	// Post-action validation registry - verifies actions actually succeeded
+	validators *ValidatorRegistry
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -188,6 +191,9 @@ func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreCon
 	// Initialize constitutional rules (safety layer)
 	vs.initConstitution()
 
+	// Initialize post-action validator registry
+	vs.initValidators()
+
 	logging.VirtualStore("VirtualStore initialized successfully")
 	return vs
 }
@@ -220,6 +226,48 @@ func (v *VirtualStore) initModernExecutor() {
 	v.useModernExecutor = true
 
 	logging.VirtualStoreDebug("Modern executor initialized, audit logging enabled")
+}
+
+// initValidators sets up the post-action validation registry.
+// Validators verify that actions actually succeeded after execution.
+func (v *VirtualStore) initValidators() {
+	logging.VirtualStoreDebug("Initializing post-action validator registry")
+
+	v.validators = NewValidatorRegistry()
+
+	// Register all standard validators
+	RegisterAllValidators(v.validators)
+
+	logging.VirtualStoreDebug("Validator registry initialized with %d validators", len(v.validators.validators))
+}
+
+// processValidationResults handles the outcomes of post-action validation.
+// It injects validation facts into the kernel for policy reasoning.
+func (v *VirtualStore) processValidationResults(req ActionRequest, result ActionResult, validations []ValidationResult) {
+	if v.kernel == nil {
+		return
+	}
+
+	for _, vr := range validations {
+		// Convert validation result to Mangle facts
+		facts := vr.ToFacts()
+		for _, fact := range facts {
+			if err := v.kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategoryVirtualStore).Error(
+					"Failed to inject validation fact %s: %v", fact.Predicate, err)
+			}
+		}
+
+		// Log validation outcome
+		if vr.Verified {
+			logging.VirtualStoreDebug("Validation passed: action=%s method=%s confidence=%.2f",
+				req.ActionID, vr.Method, vr.Confidence)
+		} else {
+			logging.Get(logging.CategoryVirtualStore).Warn(
+				"Validation failed: action=%s method=%s error=%s",
+				req.ActionID, vr.Method, vr.Error)
+		}
+	}
 }
 
 // injectTactileFact converts a tactile.Fact to core.Fact and injects to kernel.
@@ -926,6 +974,24 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
 		})
 		return "", err
+	}
+
+	// Post-action validation: verify the action actually succeeded
+	if result.Success && v.validators != nil {
+		validationResults := v.validators.Validate(ctx, req, result)
+		v.processValidationResults(req, result, validationResults)
+
+		// If validation failed with high confidence, update the result
+		if !ValidateAll(validationResults) {
+			if failure := FirstFailure(validationResults); failure != nil && failure.Confidence >= 0.8 {
+				logging.Get(logging.CategoryVirtualStore).Warn(
+					"Post-action validation failed: %s - %s (confidence=%.2f)",
+					req.Type, failure.Error, failure.Confidence)
+				// Mark result as failed due to validation
+				result.Success = false
+				result.Error = "validation failed: " + failure.Error
+			}
+		}
 	}
 
 	// Inject result facts into kernel (batched when possible).
