@@ -2,7 +2,7 @@
 
 Modular Tool Registry for JIT-driven agent execution.
 
-**Architecture Version:** 2.0.0 (December 2024 - JIT-Driven)
+**Architecture Version:** 2.0.0 (December 2025 - JIT-Driven)
 
 ## Overview
 

@@ -427,6 +427,79 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 	return nil
 }
 
+// BuildToolCatalog creates a formatted tool catalog string for prompt injection.
+// This enables Piggyback++ architecture where tools are requested via structured
+// output (control_packet.tool_requests) instead of native LLM function calling.
+//
+// The catalog is organized by shard affinity and includes:
+// - Tool name and description
+// - Parameters with types and descriptions (from schema when available)
+// - Usage examples
+//
+// Parameters:
+//   - shardType: Filter tools by shard affinity ("/coder", "/tester", "/all", etc.)
+//     Pass empty string to include all tools.
+func (tr *ToolRegistry) BuildToolCatalog(shardType string) string {
+	tools := tr.GetToolsForShard(shardType)
+	if len(tools) == 0 {
+		// Also check for "/all" if specific shard has no tools
+		if shardType != "" && shardType != "/all" {
+			tools = tr.GetToolsForShard("/all")
+		}
+	}
+
+	if len(tools) == 0 {
+		return ""
+	}
+
+	var catalog strings.Builder
+	catalog.WriteString("\n## Available Tools\n\n")
+	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
+	catalog.WriteString("```json\n")
+	catalog.WriteString("\"tool_requests\": [{\n")
+	catalog.WriteString("  \"id\": \"req_1\",\n")
+	catalog.WriteString("  \"tool_name\": \"<tool_name>\",\n")
+	catalog.WriteString("  \"tool_args\": { ... },\n")
+	catalog.WriteString("  \"purpose\": \"why this tool is needed\"\n")
+	catalog.WriteString("}]\n")
+	catalog.WriteString("```\n\n")
+
+	// Group tools by affinity for better organization
+	byAffinity := make(map[string][]*Tool)
+	for _, tool := range tools {
+		affinity := tool.ShardAffinity
+		if affinity == "" {
+			affinity = "/all"
+		}
+		byAffinity[affinity] = append(byAffinity[affinity], tool)
+	}
+
+	// Output tools grouped by affinity
+	for affinity, toolList := range byAffinity {
+		catalog.WriteString(fmt.Sprintf("### %s Tools\n\n", strings.TrimPrefix(affinity, "/")))
+		for _, tool := range toolList {
+			catalog.WriteString(fmt.Sprintf("**%s**\n", tool.Name))
+			if tool.Description != "" {
+				catalog.WriteString(fmt.Sprintf("%s\n", tool.Description))
+			}
+			if len(tool.Capabilities) > 0 {
+				catalog.WriteString(fmt.Sprintf("Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
+			}
+			catalog.WriteString("\n")
+		}
+	}
+
+	// Add tool generation encouragement
+	catalog.WriteString("### Missing a Tool?\n\n")
+	catalog.WriteString("If you need a capability not available above, request tool generation:\n")
+	catalog.WriteString("1. Add a mangle_update: `missing_tool_for(\"<capability>\", \"<description>\")`\n")
+	catalog.WriteString("2. The Ouroboros system will generate, compile, and register the tool\n")
+	catalog.WriteString("3. The tool will be available in subsequent turns\n\n")
+
+	logging.ToolsDebug("BuildToolCatalog: built catalog with %d tools for shard %s (length=%d)", len(tools), shardType, catalog.Len())
+	return catalog.String()
+}
+
 // isCommandName checks if a string is a command name (not a path)
 func isCommandName(s string) bool {
 	return !filepath.IsAbs(s) && !strings.Contains(s, string(filepath.Separator))

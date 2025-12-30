@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -186,6 +187,11 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 		logging.Get(logging.CategoryCampaign).Error("LLM file generation failed for task %s: %v", task.ID, err)
 		return nil, err
 	}
+
+	// Extract code block from LLM response (removes reasoning traces and markdown fences)
+	lang := getLangFromPath(targetPath)
+	content = extractCodeBlock(content, lang)
+	logging.CampaignDebug("Extracted code block for %s (lang=%s, %d bytes)", targetPath, lang, len(content))
 
 	fullPath := filepath.Join(o.workspace, targetPath)
 	logging.CampaignDebug("Writing generated file: %s (%d bytes)", fullPath, len(content))
@@ -488,4 +494,56 @@ func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any,
 	}
 	logging.CampaignDebug("Generic task completed: %s", task.ID)
 	return map[string]interface{}{"result": result}, nil
+}
+
+// extractCodeBlock extracts code from LLM response that may contain markdown fences.
+// Returns the code inside ```lang or ``` blocks, or the original text if no fences found.
+func extractCodeBlock(text, lang string) string {
+	// Look for ```lang or ``` blocks
+	patterns := []string{
+		"```" + lang + "\n",
+		"```" + lang + "\r\n",
+		"```\n",
+		"```\r\n",
+	}
+
+	for _, pattern := range patterns {
+		if idx := strings.Index(text, pattern); idx != -1 {
+			start := idx + len(pattern)
+			end := strings.Index(text[start:], "```")
+			if end != -1 {
+				return strings.TrimSpace(text[start : start+end])
+			}
+		}
+	}
+
+	// If no code block found, return the whole text (might be raw code)
+	return strings.TrimSpace(text)
+}
+
+// getLangFromPath returns the language identifier for a file path.
+func getLangFromPath(path string) string {
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	switch ext {
+	case "go":
+		return "go"
+	case "ts", "tsx":
+		return "typescript"
+	case "js", "jsx":
+		return "javascript"
+	case "kt":
+		return "kotlin"
+	case "py":
+		return "python"
+	case "sql":
+		return "sql"
+	case "yaml", "yml":
+		return "yaml"
+	case "json":
+		return "json"
+	case "md":
+		return "markdown"
+	default:
+		return ext
+	}
 }

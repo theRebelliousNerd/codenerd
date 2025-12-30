@@ -334,6 +334,13 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		return ActionResult{}, fmt.Errorf("write_file requires 'content' in payload")
 	}
 
+	// Extract code block from content (removes LLM reasoning traces and markdown fences)
+	originalLen := len(content)
+	content = extractCodeBlockForFile(content, path)
+	if len(content) != originalLen {
+		logging.VirtualStoreDebug("Extracted code block for %s: %d -> %d bytes", path, originalLen, len(content))
+	}
+
 	logging.VirtualStoreDebug("Writing file: %s (%d bytes)", path, len(content))
 
 	dir := filepath.Dir(path)
@@ -1202,4 +1209,101 @@ func (v *VirtualStore) GetStrategicSummary() string {
 
 	logging.VirtualStoreDebug("GetStrategicSummary: generated %d chars", len(result))
 	return result
+}
+
+// extractCodeBlockForFile extracts code from content that may contain LLM reasoning traces.
+// It looks for code blocks matching the file extension's language.
+func extractCodeBlockForFile(content, path string) string {
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	lang := extToLang(ext)
+
+	// First try: Look for ```lang block
+	patterns := []string{
+		"```" + lang + "\n",
+		"```" + lang + "\r\n",
+		"```\n",
+		"```\r\n",
+	}
+
+	for _, pattern := range patterns {
+		if idx := strings.Index(content, pattern); idx != -1 {
+			start := idx + len(pattern)
+			end := strings.Index(content[start:], "```")
+			if end != -1 {
+				extracted := strings.TrimSpace(content[start : start+end])
+				if len(extracted) > 0 {
+					return extracted
+				}
+			}
+		}
+	}
+
+	// Second try: Look for first { and match to closing } (for JSON-like or code files)
+	if braceStart := strings.Index(content, "{"); braceStart != -1 && (lang == "json" || lang == "go" || lang == "kotlin" || lang == "typescript" || lang == "javascript") {
+		depth := 0
+		inString := false
+		escape := false
+		for i := braceStart; i < len(content); i++ {
+			c := content[i]
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' && inString {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if c == '{' {
+				depth++
+			} else if c == '}' {
+				depth--
+				if depth == 0 {
+					return strings.TrimSpace(content[braceStart : i+1])
+				}
+			}
+		}
+	}
+
+	// Third try: For Go files, look for "package" keyword
+	if lang == "go" {
+		if pkgIdx := strings.Index(content, "package "); pkgIdx != -1 {
+			return strings.TrimSpace(content[pkgIdx:])
+		}
+	}
+
+	// Fallback: return original (might already be clean)
+	return strings.TrimSpace(content)
+}
+
+// extToLang maps file extensions to language identifiers.
+func extToLang(ext string) string {
+	switch ext {
+	case "go":
+		return "go"
+	case "ts", "tsx":
+		return "typescript"
+	case "js", "jsx":
+		return "javascript"
+	case "kt":
+		return "kotlin"
+	case "py":
+		return "python"
+	case "sql":
+		return "sql"
+	case "yaml", "yml":
+		return "yaml"
+	case "json":
+		return "json"
+	case "md":
+		return "markdown"
+	default:
+		return ext
+	}
 }

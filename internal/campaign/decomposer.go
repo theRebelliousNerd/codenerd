@@ -1494,9 +1494,92 @@ func limitString(s string, max int) string {
 	return string(runes[:max])
 }
 
-// cleanJSONResponse removes markdown code fences from JSON response.
+// cleanJSONResponse extracts JSON from LLM response that may contain reasoning traces.
+// It looks for JSON objects/arrays in the response, handling markdown fences and preamble text.
 func cleanJSONResponse(resp string) string {
 	resp = strings.TrimSpace(resp)
+
+	// First try: Look for ```json block
+	if idx := strings.Index(resp, "```json"); idx != -1 {
+		start := idx + 7 // len("```json")
+		// Skip any whitespace after ```json
+		for start < len(resp) && (resp[start] == '\n' || resp[start] == '\r' || resp[start] == ' ') {
+			start++
+		}
+		end := strings.Index(resp[start:], "```")
+		if end != -1 {
+			return strings.TrimSpace(resp[start : start+end])
+		}
+	}
+
+	// Second try: Look for first { and match to closing }
+	if braceStart := strings.Index(resp, "{"); braceStart != -1 {
+		// Find matching closing brace by counting
+		depth := 0
+		inString := false
+		escape := false
+		for i := braceStart; i < len(resp); i++ {
+			c := resp[i]
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' && inString {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if c == '{' {
+				depth++
+			} else if c == '}' {
+				depth--
+				if depth == 0 {
+					return strings.TrimSpace(resp[braceStart : i+1])
+				}
+			}
+		}
+	}
+
+	// Third try: Look for [ for arrays
+	if bracketStart := strings.Index(resp, "["); bracketStart != -1 {
+		depth := 0
+		inString := false
+		escape := false
+		for i := bracketStart; i < len(resp); i++ {
+			c := resp[i]
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' && inString {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			if c == '[' {
+				depth++
+			} else if c == ']' {
+				depth--
+				if depth == 0 {
+					return strings.TrimSpace(resp[bracketStart : i+1])
+				}
+			}
+		}
+	}
+
+	// Fallback: strip markdown fences and return
 	resp = strings.TrimPrefix(resp, "```json")
 	resp = strings.TrimPrefix(resp, "```")
 	resp = strings.TrimSuffix(resp, "```")

@@ -165,6 +165,16 @@ func (c *GeminiClient) GetLastGroundingSources() []string {
 	return c.lastGroundingSources
 }
 
+// ShouldUsePiggybackTools returns true if this client should use Piggyback Protocol
+// for tool invocation instead of native function calling.
+// For Gemini, this is true when grounding tools (Google Search, URL Context) are enabled,
+// because Gemini API cannot combine built-in tools with function declarations.
+func (c *GeminiClient) ShouldUsePiggybackTools() bool {
+	// Use Piggyback for tools when grounding is enabled
+	// This allows tool_requests via structured output while keeping grounding active
+	return c.enableGoogleSearch || c.enableURLContext
+}
+
 // GetLastThoughtSignature returns the thought signature from the last response.
 // This should be passed back in multi-turn function calling scenarios.
 func (c *GeminiClient) GetLastThoughtSignature() string {
@@ -631,10 +641,16 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		}
 	}
 
-	// Merge function declarations with built-in tools
-	allTools := c.buildBuiltInTools()
+	// CRITICAL: Gemini API cannot combine built-in tools (Google Search, URL Context)
+	// with function calling. When we have function declarations, use ONLY those.
+	// Built-in tools are available separately via CompleteWithSystem for grounding.
+	var allTools []GeminiTool
 	if len(geminiTools) > 0 {
-		allTools = append(allTools, GeminiTool{FunctionDeclarations: geminiTools})
+		// Function calling mode - NO built-in tools allowed
+		allTools = []GeminiTool{{FunctionDeclarations: geminiTools}}
+	} else {
+		// No function declarations - safe to use built-in tools
+		allTools = c.buildBuiltInTools()
 	}
 	if len(allTools) > 0 {
 		reqBody.Tools = allTools
@@ -810,10 +826,16 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		}
 	}
 
-	// Merge function declarations with built-in tools
-	allTools := c.buildBuiltInTools()
+	// CRITICAL: Gemini API cannot combine built-in tools (Google Search, URL Context)
+	// with function calling. When we have function declarations, use ONLY those.
+	// Built-in tools are available separately via CompleteWithSystem for grounding.
+	var allTools []GeminiTool
 	if len(geminiTools) > 0 {
-		allTools = append(allTools, GeminiTool{FunctionDeclarations: geminiTools})
+		// Function calling mode - NO built-in tools allowed
+		allTools = []GeminiTool{{FunctionDeclarations: geminiTools}}
+	} else {
+		// No function declarations - safe to use built-in tools
+		allTools = c.buildBuiltInTools()
 	}
 	if len(allTools) > 0 {
 		reqBody.Tools = allTools
