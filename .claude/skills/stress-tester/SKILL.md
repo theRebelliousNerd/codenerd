@@ -1,6 +1,6 @@
 ---
 name: stress-tester
-description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 35 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation and new system stress tests (MCP, Prompt Evolution, LLM Providers, JIT Clean Loop).
+description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 36 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation, context harness testing, and new system stress tests (MCP, Prompt Evolution, LLM Providers, JIT Clean Loop).
 ---
 
 # Stress Tester
@@ -50,7 +50,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-**Total: 35 workflows across 9 categories**
+**Total: 36 workflows across 9 categories**
 
 ### 01-kernel-core (8 workflows)
 
@@ -92,13 +92,14 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [thunderdome-battle.md](references/workflows/04-autopoiesis-ouroboros/thunderdome-battle.md) | 100 attack vectors |
 | [safety-checker-bypass.md](references/workflows/04-autopoiesis-ouroboros/safety-checker-bypass.md) | Forbidden imports |
 
-### 05-world-context (3 workflows)
+### 05-world-context (4 workflows)
 
 | Workflow | What It Stresses |
 |----------|------------------|
 | [large-codebase-scan.md](references/workflows/05-world-context/large-codebase-scan.md) | 10k+ files, symlinks |
 | [context-compression.md](references/workflows/05-world-context/context-compression.md) | 100+ turn conversation |
 | [holographic-impact.md](references/workflows/05-world-context/holographic-impact.md) | Massive change set impact |
+| [context-harness-stress.md](references/workflows/05-world-context/context-harness-stress.md) | Infinite context test harness, spreading activation, compression |
 
 ### 06-advanced-features (3 workflows)
 
