@@ -92,11 +92,11 @@ func parseEmbeddedYAML(path string) ([]*PromptAtom, error) {
 	// Convert to PromptAtom structs
 	var atoms []*PromptAtom
 	for _, raw := range rawAtoms {
-		atom, err := convertEmbeddedAtom(raw, path)
-		if err != nil {
-			logging.Get(logging.CategoryStore).Warn("Skipping invalid atom in %s: %v", path, err)
-			continue
-		}
+                atom, err := convertEmbeddedAtom(raw, path)
+                if err != nil {
+                        logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
+                        continue
+                }
 		atoms = append(atoms, atom)
 	}
 
