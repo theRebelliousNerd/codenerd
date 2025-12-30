@@ -383,7 +383,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Note: Requires autopoiesis.OuroborosLoop which isn't wired in CLI mode yet
 	fmt.Println("   ⚠ Tool pregenerator pending (requires Ouroboros)")
 
-	fmt.Println("   ✓ Intelligence systems initialized\n")
+	fmt.Println("   ✓ Intelligence systems initialized")
 
 	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:            cwd,
