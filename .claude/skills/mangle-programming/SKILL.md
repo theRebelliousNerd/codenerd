@@ -1,10 +1,20 @@
 ---
 name: mangle-programming
-description: Master Google's Mangle declarative programming language for deductive database programming, constraint-like reasoning, and software analysis. From basic facts to production deployment, graph traversal to vulnerability detection, theoretical foundations to optimization. Includes comprehensive AI failure mode prevention (atom/string confusion, aggregation syntax, safety violations, stratification errors). Complete encyclopedic reference with progressive disclosure architecture.
+description: >
+  Master Google's Mangle declarative programming language for deductive database programming,
+  constraint-like reasoning, and software analysis. From basic facts to production deployment,
+  graph traversal to vulnerability detection, theoretical foundations to optimization.
+  Includes comprehensive AI failure mode prevention (atom/string confusion, aggregation syntax,
+  safety violations, stratification errors). Complete encyclopedic reference with progressive
+  disclosure architecture. This skill should also be used when the user asks to "check mangle files",
+  "lint .mg files", "get diagnostics for mangle", "find errors in mangle code", "analyze mangle syntax",
+  "format mangle files", "get hover info", "find definition", "find references", or when programmatically
+  working with Mangle language files (.mg). Includes the mangle-cli tool for parsing, semantic analysis,
+  stratification checking, code navigation, batch queries, and CI/CD integration via SARIF output.
 license: Apache-2.0
-version: 0.7.0
+version: 0.8.0
 mangle_version: 0.4.0 (November 1, 2024)
-last_updated: 2025-12-28
+last_updated: 2025-12-30
 ---
 
 # Mangle Programming: The Complete Reference
@@ -206,6 +216,65 @@ GOBIN=~/bin go install github.com/google/mangle/interpreter/mg@latest
 ::show all          # Show all predicates
 ::help              # Help
 ```
+
+## Mangle CLI Tool
+
+The `mangle-cli` provides machine-readable access to Mangle language analysis capabilities for linting, code navigation, and CI/CD integration.
+
+### CLI Location
+
+```bash
+node <skill-path>/scripts/mangle-cli.js <command> [options] <files...>
+```
+
+**Example**:
+
+```bash
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check src/rules.mg
+```
+
+### Commands Quick Reference
+
+| Command | Purpose | Key Options |
+|---------|---------|-------------|
+| `check` | Run all diagnostics | `--format`, `--severity`, `--fail-on` |
+| `symbols` | List predicates/clauses | `--format` |
+| `hover` | Info at position | `--line`, `--column` |
+| `definition` | Find where defined | `--line`, `--column` |
+| `references` | Find all uses | `--line`, `--column`, `--include-declaration` |
+| `completion` | Get completions | `--line`, `--column` |
+| `format` | Format files | `--write`, `--check`, `--diff` |
+| `batch` | Multiple queries | JSON file or stdin |
+| `file-info` | Complete analysis | (none) |
+
+### Common Workflows
+
+```bash
+# Check files for errors (JSON output)
+node mangle-cli.js check file.mg
+
+# Human-readable output
+node mangle-cli.js check --format text file.mg
+
+# SARIF for GitHub Actions
+node mangle-cli.js check --format sarif src/*.mg > results.sarif
+
+# Code navigation
+node mangle-cli.js hover file.mg --line 10 --column 5
+node mangle-cli.js definition file.mg --line 10 --column 5
+
+# Format files in place
+node mangle-cli.js format --write file.mg
+```
+
+### CLI Reference Documentation
+
+| Reference | Contents |
+|-----------|----------|
+| [CLI_COMMANDS](references/CLI_COMMANDS.md) | Detailed command documentation |
+| [CLI_ERROR_CODES](references/CLI_ERROR_CODES.md) | All diagnostic codes and meanings |
+| [CLI_OUTPUT_SCHEMAS](references/CLI_OUTPUT_SCHEMAS.md) | JSON output schemas |
+| [CLI_BATCH_API](references/CLI_BATCH_API.md) | Batch query format and examples |
 
 ## Scripts & Tools
 

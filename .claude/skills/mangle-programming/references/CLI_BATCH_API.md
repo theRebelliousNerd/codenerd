@@ -14,10 +14,10 @@ which is more efficient than running separate commands for each query.
 
 ```bash
 # From a JSON file
-node mangle-lsp/dist/cli.js batch queries.json
+node .claude/skills/mangle-programming/scripts/mangle-cli.js batch queries.json
 
 # From stdin (not well supported on Windows)
-echo '[...]' | node mangle-lsp/dist/cli.js batch -
+echo '[...]' | node .claude/skills/mangle-programming/scripts/mangle-cli.js batch -
 ```
 
 ## Query Format

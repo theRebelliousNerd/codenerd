@@ -20,7 +20,7 @@ Run diagnostics on Mangle files (parse, semantic, stratification).
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js check [options] <files...>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check [options] <files...>
 ```
 
 ### Options
@@ -35,22 +35,22 @@ node mangle-lsp/dist/cli.js check [options] <files...>
 
 ```bash
 # Check single file
-node mangle-lsp/dist/cli.js check src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check src/rules.mg
 
 # Check multiple files
-node mangle-lsp/dist/cli.js check src/*.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check src/*.mg
 
 # Human-readable output
-node mangle-lsp/dist/cli.js check --format text src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check --format text src/rules.mg
 
 # Only show errors
-node mangle-lsp/dist/cli.js check --severity error src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check --severity error src/rules.mg
 
 # CI mode: fail on warnings
-node mangle-lsp/dist/cli.js check --fail-on warning src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check --fail-on warning src/rules.mg
 
 # Generate SARIF for GitHub
-node mangle-lsp/dist/cli.js check --format sarif src/*.mg > results.sarif
+node .claude/skills/mangle-programming/scripts/mangle-cli.js check --format sarif src/*.mg > results.sarif
 ```
 
 ### JSON Output Structure
@@ -90,17 +90,17 @@ List all document symbols (predicates and their clauses).
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js symbols [options] <file>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js symbols [options] <file>
 ```
 
 ### Examples
 
 ```bash
 # JSON output
-node mangle-lsp/dist/cli.js symbols src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js symbols src/rules.mg
 
 # Human-readable
-node mangle-lsp/dist/cli.js symbols --format text src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js symbols --format text src/rules.mg
 ```
 
 ### JSON Output Structure
@@ -133,7 +133,7 @@ Get hover information at a specific position.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js hover <file> --line <n> --column <n>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js hover <file> --line <n> --column <n>
 ```
 
 ### Options
@@ -147,7 +147,7 @@ node mangle-lsp/dist/cli.js hover <file> --line <n> --column <n>
 
 ```bash
 # Get hover info at line 10, column 5
-node mangle-lsp/dist/cli.js hover src/rules.mg --line 10 --column 5
+node .claude/skills/mangle-programming/scripts/mangle-cli.js hover src/rules.mg --line 10 --column 5
 ```
 
 ### JSON Output Structure
@@ -171,13 +171,13 @@ Find the definition location of a symbol.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js definition <file> --line <n> --column <n>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js definition <file> --line <n> --column <n>
 ```
 
 ### Examples
 
 ```bash
-node mangle-lsp/dist/cli.js definition src/rules.mg --line 15 --column 10
+node .claude/skills/mangle-programming/scripts/mangle-cli.js definition src/rules.mg --line 15 --column 10
 ```
 
 ### JSON Output Structure
@@ -203,7 +203,7 @@ Find all references to a symbol.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js references <file> --line <n> --column <n> [--include-declaration]
+node .claude/skills/mangle-programming/scripts/mangle-cli.js references <file> --line <n> --column <n> [--include-declaration]
 ```
 
 ### Options
@@ -216,10 +216,10 @@ node mangle-lsp/dist/cli.js references <file> --line <n> --column <n> [--include
 
 ```bash
 # Find all references
-node mangle-lsp/dist/cli.js references src/rules.mg --line 10 --column 5
+node .claude/skills/mangle-programming/scripts/mangle-cli.js references src/rules.mg --line 10 --column 5
 
 # Include declaration
-node mangle-lsp/dist/cli.js references src/rules.mg --line 10 --column 5 --include-declaration
+node .claude/skills/mangle-programming/scripts/mangle-cli.js references src/rules.mg --line 10 --column 5 --include-declaration
 ```
 
 ### JSON Output Structure
@@ -242,7 +242,7 @@ Get code completions at a position.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js completion <file> --line <n> --column <n>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js completion <file> --line <n> --column <n>
 ```
 
 ### JSON Output Structure
@@ -268,7 +268,7 @@ Format Mangle source files.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js format [options] <files...>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js format [options] <files...>
 ```
 
 ### Options
@@ -283,13 +283,13 @@ node mangle-lsp/dist/cli.js format [options] <files...>
 
 ```bash
 # Check if formatted
-node mangle-lsp/dist/cli.js format --check src/*.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js format --check src/*.mg
 
 # Format in place
-node mangle-lsp/dist/cli.js format --write src/*.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js format --write src/*.mg
 
 # Show what would change
-node mangle-lsp/dist/cli.js format --diff src/rules.mg
+node .claude/skills/mangle-programming/scripts/mangle-cli.js format --diff src/rules.mg
 ```
 
 ### JSON Output Structure
@@ -311,8 +311,8 @@ Run multiple queries in a single call (efficient for multiple operations).
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js batch <queries.json>
-node mangle-lsp/dist/cli.js batch -  # Read from stdin
+node .claude/skills/mangle-programming/scripts/mangle-cli.js batch <queries.json>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js batch -  # Read from stdin
 ```
 
 ### Query Format
@@ -367,7 +367,7 @@ Get complete analysis of a file in one call.
 ### Usage
 
 ```bash
-node mangle-lsp/dist/cli.js file-info <file>
+node .claude/skills/mangle-programming/scripts/mangle-cli.js file-info <file>
 ```
 
 ### JSON Output Structure
