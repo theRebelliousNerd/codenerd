@@ -181,6 +181,7 @@ api_dependency(BackendRef, FrontendRef) :-
 | [500-PRACTICAL-CONCERNS](references/500-PRACTICAL-CONCERNS.md) | Error recovery, incremental parsing, performance |
 | [600-TRANSACTION-SAFETY](references/600-TRANSACTION-SAFETY.md) | 2PC protocol, shadow mode, test impact analysis |
 | [700-JIT-PROMPT-INTEGRATION](references/700-JIT-PROMPT-INTEGRATION.md) | Prompt atoms for semantic mode paradigm shift |
+| [800-SYSTEM-HARDENING](references/800-SYSTEM-HARDENING.md) | Temporal, runtime, adversarial, resilience lenses |
 
 ## Critical Mangle Patterns for Code DOM
 
