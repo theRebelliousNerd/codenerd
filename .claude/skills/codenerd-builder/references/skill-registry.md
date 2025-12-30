@@ -21,6 +21,7 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | [SK-011](#sk-011-prompt-architect) | prompt-architect | Prompt Engineering | Core |
 | [SK-012](#sk-012-stress-tester) | stress-tester | Testing & QA | Utility |
 | [SK-013](#sk-013-gemini-features) | gemini-features | LLM Integration | Component |
+| [SK-014](#sk-014-codedom-builder) | codedom-builder | Code Analysis | Core |
 
 ---
 
@@ -838,6 +839,104 @@ internal/config/llm.go                   - GeminiProviderConfig
 
 ---
 
+## SK-014: codedom-builder
+
+**Name:** `codedom-builder`
+
+**Domain:** Code Analysis & Surgical Editing
+
+**Description:** Build and extend the polyglot Code DOM system for surgical code editing. This skill should be used when implementing language parsers (Python, TypeScript, Rust, Kotlin), designing Mangle schemas for code analysis, creating semantic bridge rules, implementing language-specific safety guardrails, or working with Tree-sitter AST parsing. Covers the stratified bridge pattern, cross-language inference via wire names, and advanced code analysis patterns.
+
+### Trigger Conditions
+
+- Implementing a new language parser (Python, TS, Rust, Kotlin)
+- Adding language-specific Mangle facts (py_class, ts_interface, etc.)
+- Creating semantic bridge rules (is_data_contract, wire_name)
+- Implementing safety guardrails (decorator stripping, goroutine leaks)
+- Working with Tree-sitter AST parsing in Go
+- Cross-language refactoring via wire name inference
+- Understanding or debugging CodeElement structure
+- Extending VirtualStore with CodeDOM handlers
+
+### Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| Polyglot Parsing | Tree-sitter-based parsers for Python, TS, Rust, Kotlin |
+| Stratified Schema | Stratum 0 (language facts) + Stratum 1 (semantic bridge) |
+| Wire Name Protocol | Cross-language API dependency inference via json tags |
+| Safety Guardrails | Decorator stripping, goroutine leaks, stale closures |
+| AST Analysis | Meta-circular linting, recursive structure traversal |
+| Taint Analysis | Source-to-sink tracking for vulnerability detection |
+| Regression Detection | Bisimulation patterns for breaking change detection |
+| Repo-Anchored Refs | Stable reference URIs (lang:path:Context.Symbol) |
+
+### Bundled Resources
+
+| Resource | Type | Purpose |
+|----------|------|---------|
+| `references/000-ARCHITECTURE.md` | Reference | Full system architecture, data flow diagrams |
+| `references/100-PARSER-IMPLEMENTATION.md` | Reference | Tree-sitter parser implementation guide |
+| `references/200-MANGLE-INTEGRATION.md` | Reference | Schema design, bridge patterns, Go integration |
+| `references/300-SAFETY-GUARDRAILS.md` | Reference | Language-specific safety rules |
+| `references/400-ADVANCED-PATTERNS.md` | Reference | AST analysis, taint tracking, dead code |
+
+### Integration Points
+
+| Integrates With | Relationship |
+|-----------------|--------------|
+| mangle-programming | Stratum 0/1 schemas use Mangle predicates and rules |
+| go-architect | Tree-sitter parsers follow Go safety patterns |
+| codenerd-builder | Code DOM is core component of World Model |
+| integration-auditor | Validates CodeDOM wiring to VirtualStore |
+
+### Key Implementation Files
+
+```text
+Parser Layer:
+  internal/world/code_elements.go       - CodeElement struct, parser factory
+  internal/world/parser_interface.go    - CodeParser interface (polyglot contract)
+  internal/world/python_parser.go       - Python Tree-sitter implementation
+  internal/world/scope.go               - FileScope (1-hop dependency management)
+
+VirtualStore Layer:
+  internal/core/virtual_store_codedom.go - Action handlers (edit_element, etc.)
+  internal/core/virtual_store_types.go   - ActionType constants
+
+Tools Layer:
+  internal/tools/codedom/register.go    - Tool registration
+  internal/tools/codedom/elements.go    - get_elements, get_element tools
+  internal/tools/codedom/lines.go       - edit_lines, insert_lines tools
+
+Mangle Layer:
+  internal/core/defaults/schemas_codedom.mg - 30+ CodeDOM predicates
+  internal/core/defaults/bridge.mg          - Semantic bridge rules
+  internal/core/defaults/safety.mg          - Safety guardrails
+```
+
+### Stratified Schema Overview
+
+```text
+STRATUM 0 (EDB): Language-Specific Facts
+  py_class, py_decorator, py_async_def
+  go_struct, go_tag, go_goroutine
+  ts_interface, ts_hook, ts_component
+  rs_struct, rs_impl, rs_unsafe_block
+  kt_data_class, kt_suspend_fun, kt_annotation
+
+STRATUM 1 (IDB): Semantic Bridge
+  is_data_contract(Ref) :- go_struct(Ref).
+  is_async_context(Ref) :- py_async_def(Ref).
+  wire_name(Ref, Name) :- go_tag(Ref, Content), ...
+  api_dependency(Backend, Frontend) :- wire_name(B, K), wire_name(F, K).
+
+STRATUM 2 (IDB): Safety Guardrails
+  deny_edit(Ref, /security_regression) :- snapshot:py_decorator(Ref, /login_required), ...
+  deny_edit(Ref, /goroutine_leak) :- candidate:go_goroutine(Ref), not has_sync(Ref).
+```
+
+---
+
 ## Adding New Skills to the Registry
 
 To register a new skill:
@@ -905,6 +1004,7 @@ Add the new skill to:
 |------|--------|--------|
 | 2025-12-08 | Initial registry creation | Claude |
 | 2025-12-29 | Added SK-013 gemini-features | Claude |
+| 2025-12-30 | Added SK-014 codedom-builder | Claude |
 
 ### Guidelines
 
