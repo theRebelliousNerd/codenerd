@@ -132,24 +132,85 @@ func (e *CodeElement) ToFacts() []core.Fact {
 }
 
 // CodeElementParser extracts semantic code elements with precise line ranges.
+// It delegates to language-specific CodeParsers via ParserFactory.
 type CodeElementParser struct {
 	// Cache of file content for body extraction
 	fileCache map[string][]string
+
+	// factory delegates parsing to language-specific parsers
+	factory *ParserFactory
+
+	// projectRoot for repo-anchored refs (legacy support)
+	projectRoot string
 }
 
 // NewCodeElementParser creates a new CodeElementParser.
+// Deprecated: Use NewCodeElementParserWithFactory for polyglot support.
 func NewCodeElementParser() *CodeElementParser {
-	logging.WorldDebug("Creating new CodeElementParser")
+	logging.WorldDebug("Creating new CodeElementParser (legacy mode)")
 	return &CodeElementParser{
-		fileCache: make(map[string][]string),
+		fileCache:   make(map[string][]string),
+		projectRoot: ".",
 	}
 }
 
-// ParseFile parses a Go file and returns all code elements.
+// NewCodeElementParserWithFactory creates a CodeElementParser with a ParserFactory.
+// This is the preferred constructor for polyglot CodeDOM support.
+func NewCodeElementParserWithFactory(factory *ParserFactory) *CodeElementParser {
+	logging.WorldDebug("Creating CodeElementParser with factory (polyglot mode)")
+	return &CodeElementParser{
+		fileCache:   make(map[string][]string),
+		factory:     factory,
+		projectRoot: factory.ProjectRoot(),
+	}
+}
+
+// NewCodeElementParserWithRoot creates a CodeElementParser with a project root.
+// This creates a default factory with all built-in parsers.
+func NewCodeElementParserWithRoot(projectRoot string) *CodeElementParser {
+	factory := DefaultParserFactory(projectRoot)
+	return NewCodeElementParserWithFactory(factory)
+}
+
+// Factory returns the underlying ParserFactory, or nil if using legacy mode.
+func (p *CodeElementParser) Factory() *ParserFactory {
+	return p.factory
+}
+
+// ParseFile parses a source file and returns all code elements.
+// If a ParserFactory is configured, it delegates to the appropriate CodeParser.
+// Otherwise, falls back to legacy direct parsing for backward compatibility.
 func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 	start := time.Now()
 	logging.WorldDebug("CodeElementParser: parsing file: %s", filepath.Base(path))
 
+	// Try factory-based parsing first (polyglot mode)
+	if p.factory != nil {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			logging.Get(logging.CategoryWorld).Error("CodeElementParser: read failed: %s - %v", path, err)
+			return nil, err
+		}
+
+		// Cache for body extraction
+		lines := strings.Split(string(content), "\n")
+		p.fileCache[path] = lines
+
+		if p.factory.HasParser(path) {
+			elems, err := p.factory.Parse(path, content)
+			if err != nil {
+				logging.Get(logging.CategoryWorld).Error("CodeElementParser: factory parse failed: %s - %v", path, err)
+				return nil, err
+			}
+			logging.WorldDebug("CodeElementParser: parsed %s via factory - %d elements in %v",
+				filepath.Base(path), len(elems), time.Since(start))
+			return elems, nil
+		}
+		// Fall through to legacy parsing if no parser registered
+		logging.WorldDebug("CodeElementParser: no factory parser for %s, using legacy", filepath.Base(path))
+	}
+
+	// Legacy parsing (backward compatibility)
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".mg", ".dl", ".mangle":
@@ -163,6 +224,11 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 		return elems, nil
 	}
 
+	return p.parseGoFileLegacy(path, start)
+}
+
+// parseGoFileLegacy is the original Go parsing implementation for backward compatibility.
+func (p *CodeElementParser) parseGoFileLegacy(path string, start time.Time) ([]CodeElement, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
