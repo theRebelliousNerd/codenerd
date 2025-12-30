@@ -136,6 +136,18 @@ func (e *MockContextEngine) RetrieveContext(ctx context.Context, query string, t
 		}
 	}
 
+	// CRITICAL FIX: Collect back-referenced turns for boosting
+	// When turn N references back to turn M, facts from turn M should be boosted
+	// This enables "What was the original error?" queries to retrieve old context
+	referencedTurns := make(map[int]bool)
+	for _, fact := range e.facts {
+		if fact.Predicate == "turn_references_back" && len(fact.Args) >= 2 {
+			if referencedTurn, ok := fact.Args[1].(int); ok {
+				referencedTurns[referencedTurn] = true
+			}
+		}
+	}
+
 	// Score each fact
 	for _, fact := range e.facts {
 		score := 0.0
@@ -144,11 +156,21 @@ func (e *MockContextEngine) RetrieveContext(ctx context.Context, query string, t
 		score += 50
 
 		// Recency score: newer facts score higher (max +40)
+		factTurnID := -1
 		if len(fact.Args) > 0 {
-			if turnID, ok := fact.Args[0].(int); ok && maxTurnID > 0 {
-				recency := float64(turnID) / float64(maxTurnID)
-				score += recency * 40
+			if turnID, ok := fact.Args[0].(int); ok {
+				factTurnID = turnID
+				if maxTurnID > 0 {
+					recency := float64(turnID) / float64(maxTurnID)
+					score += recency * 40
+				}
 			}
+		}
+
+		// CRITICAL FIX: Back-reference boost (max +50)
+		// Facts from referenced turns get a major boost to overcome recency penalty
+		if factTurnID >= 0 && referencedTurns[factTurnID] {
+			score += 50 // Significant boost to overcome low recency
 		}
 
 		// Relevance score: keyword matching with query (max +30)
