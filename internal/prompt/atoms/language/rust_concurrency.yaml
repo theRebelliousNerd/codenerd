@@ -1,0 +1,627 @@
+# Rust Concurrency - Encyclopedic Reference
+# Comprehensive guidance for threads, Arc/Mutex, channels, Send/Sync, and async/await
+
+- id: "language/rust/concurrency/threads"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## RUST THREADING FUNDAMENTALS
+
+    ### Basic Thread Spawning
+    ```rust
+    use std::thread;
+    use std::time::Duration;
+
+    // Spawn a thread - returns JoinHandle
+    let handle = thread::spawn(|| {
+        for i in 1..10 {
+            println!("spawned thread: {}", i);
+            thread::sleep(Duration::from_millis(1));
+        }
+        42  // Return value
+    });
+
+    // Main thread work...
+
+    // Wait for thread to finish
+    let result = handle.join().unwrap();  // Gets return value
+    println!("Thread returned: {}", result);
+    ```
+
+    ### Moving Data Into Threads
+    ```rust
+    let data = vec![1, 2, 3];
+
+    // WRONG: closure borrows data
+    // thread::spawn(|| println!("{:?}", data));  // ERROR: may outlive
+
+    // RIGHT: move ownership into closure
+    let handle = thread::spawn(move || {
+        println!("{:?}", data);
+        // data is owned by this thread now
+    });
+    // data is NOT valid here anymore
+    ```
+
+    ### Scoped Threads (Rust 1.63+)
+    ```rust
+    use std::thread;
+
+    let data = vec![1, 2, 3];
+
+    thread::scope(|s| {
+        s.spawn(|| {
+            // Can BORROW data because scope guarantees
+            // threads finish before scope ends
+            println!("{:?}", data);
+        });
+
+        s.spawn(|| {
+            println!("Length: {}", data.len());
+        });
+    });  // All threads joined here automatically
+
+    // data still valid and usable here
+    println!("{:?}", data);
+    ```
+
+    ### Thread Builder for Configuration
+    ```rust
+    let handle = thread::Builder::new()
+        .name("worker-1".into())
+        .stack_size(32 * 1024)  // 32KB stack
+        .spawn(|| {
+            println!("Thread name: {:?}", thread::current().name());
+        })
+        .expect("failed to spawn thread");
+    ```
+
+  content_concise: |
+    ## Threads
+    - `thread::spawn(move || ...)` - spawn with ownership transfer
+    - `handle.join()` - wait for completion
+    - `thread::scope` - borrow data across threads safely
+    - Use `move` to transfer ownership into thread
+
+- id: "language/rust/concurrency/arc_mutex"
+  category: "language"
+  subcategory: "rust"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## ARC AND MUTEX - SHARED STATE
+
+    ### Arc<T> - Atomic Reference Counting
+    ```rust
+    use std::sync::Arc;
+    use std::thread;
+
+    let data = Arc::new(vec![1, 2, 3]);
+
+    let handles: Vec<_> = (0..3).map(|i| {
+        let data = Arc::clone(&data);  // Increment ref count
+        thread::spawn(move || {
+            println!("Thread {}: {:?}", i, data);
+        })
+    }).collect();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    // Original Arc still valid
+    ```
+
+    ### Mutex<T> - Mutual Exclusion
+    ```rust
+    use std::sync::Mutex;
+
+    let counter = Mutex::new(0);
+
+    // Lock and mutate
+    {
+        let mut num = counter.lock().unwrap();
+        *num += 1;
+    }  // Lock released when guard drops
+
+    // Or inline
+    *counter.lock().unwrap() += 1;
+    ```
+
+    ### Arc<Mutex<T>> - The Classic Pattern
+    ```rust
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let counter = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+    ```
+
+    ### RwLock<T> - Multiple Readers OR Single Writer
+    ```rust
+    use std::sync::RwLock;
+
+    let lock = RwLock::new(5);
+
+    // Multiple readers OK
+    {
+        let r1 = lock.read().unwrap();
+        let r2 = lock.read().unwrap();
+        println!("{} {}", *r1, *r2);
+    }
+
+    // Single writer
+    {
+        let mut w = lock.write().unwrap();
+        *w += 1;
+    }
+    ```
+
+    ### Mutex Poisoning
+    ```rust
+    // If a thread panics while holding a lock, mutex is "poisoned"
+    let result = mutex.lock();
+
+    match result {
+        Ok(guard) => { /* use guard */ },
+        Err(poisoned) => {
+            // Recover the data anyway (if safe to proceed)
+            let guard = poisoned.into_inner();
+            // Use guard cautiously - data may be inconsistent
+        }
+    }
+    ```
+
+    ### When to Use What
+    | Type | Thread-Safe | Use Case |
+    |------|-------------|----------|
+    | Rc<T> | NO | Single-threaded shared ownership |
+    | Arc<T> | YES | Multi-threaded shared ownership |
+    | RefCell<T> | NO | Single-threaded interior mutability |
+    | Mutex<T> | YES | Multi-threaded mutation |
+    | RwLock<T> | YES | Many readers, rare writers |
+
+  content_concise: |
+    ## Arc & Mutex
+    - `Arc::clone(&data)` - thread-safe reference counting
+    - `mutex.lock().unwrap()` - acquire lock, auto-release on drop
+    - `Arc<Mutex<T>>` - standard shared mutable state pattern
+    - `RwLock<T>` - many readers OR one writer
+
+- id: "language/rust/concurrency/channels"
+  category: "language"
+  subcategory: "rust"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## CHANNELS - MESSAGE PASSING
+
+    ### mpsc - Multiple Producer, Single Consumer
+    ```rust
+    use std::sync::mpsc;
+    use std::thread;
+
+    let (tx, rx) = mpsc::channel();
+
+    // Spawn producer
+    thread::spawn(move || {
+        tx.send("hello").unwrap();
+        tx.send("world").unwrap();
+        // tx dropped here, closes channel
+    });
+
+    // Receive in main thread
+    for received in rx {
+        println!("Got: {}", received);
+    }
+    ```
+
+    ### Multiple Producers
+    ```rust
+    let (tx, rx) = mpsc::channel();
+
+    for i in 0..3 {
+        let tx = tx.clone();  // Clone sender for each thread
+        thread::spawn(move || {
+            tx.send(i).unwrap();
+        });
+    }
+
+    drop(tx);  // Drop original sender so channel closes
+
+    // Receive all messages
+    for msg in rx {
+        println!("{}", msg);
+    }
+    ```
+
+    ### Bounded vs Unbounded Channels
+    ```rust
+    // Unbounded (can grow infinitely) - may cause memory issues
+    let (tx, rx) = mpsc::channel();
+
+    // Bounded (blocks when full) - backpressure
+    let (tx, rx) = mpsc::sync_channel(10);  // Buffer size 10
+    // send() blocks if buffer is full
+    ```
+
+    ### Non-Blocking Operations
+    ```rust
+    // Try receive without blocking
+    match rx.try_recv() {
+        Ok(msg) => println!("Got: {}", msg),
+        Err(mpsc::TryRecvError::Empty) => println!("No message yet"),
+        Err(mpsc::TryRecvError::Disconnected) => println!("Channel closed"),
+    }
+
+    // Receive with timeout
+    match rx.recv_timeout(Duration::from_secs(1)) {
+        Ok(msg) => println!("Got: {}", msg),
+        Err(mpsc::RecvTimeoutError::Timeout) => println!("Timeout"),
+        Err(mpsc::RecvTimeoutError::Disconnected) => println!("Closed"),
+    }
+    ```
+
+    ### Channel Patterns
+    ```rust
+    // Fan-out: One producer, multiple consumers
+    // (Not directly supported - use crossbeam or tokio channels)
+
+    // Request-Response: Include reply channel
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        tx.send((42, reply_tx)).unwrap();
+
+        // Wait for response
+        let result = reply_rx.recv().unwrap();
+        println!("Got response: {}", result);
+    });
+
+    // Handler
+    let (request, reply_tx) = rx.recv().unwrap();
+    reply_tx.send(request * 2).unwrap();
+    ```
+
+  content_concise: |
+    ## Channels
+    - `mpsc::channel()` - unbounded multi-producer single-consumer
+    - `mpsc::sync_channel(n)` - bounded with backpressure
+    - Clone `tx` for multiple producers
+    - Drop all senders to close channel
+
+- id: "language/rust/concurrency/send_sync"
+  category: "language"
+  subcategory: "rust"
+  priority: 93
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## SEND AND SYNC TRAITS
+
+    ### What They Mean
+    - **Send**: Safe to TRANSFER ownership to another thread
+    - **Sync**: Safe to SHARE references (&T) between threads
+    - Key insight: `T: Sync` ⟺ `&T: Send`
+
+    ### Automatically Derived
+    ```rust
+    // Types composed entirely of Send types are Send
+    // Types composed entirely of Sync types are Sync
+
+    struct MyStruct {
+        data: Vec<i32>,    // Vec is Send + Sync
+        name: String,       // String is Send + Sync
+    }
+    // MyStruct is automatically Send + Sync
+    ```
+
+    ### Types That Are NOT Send/Sync
+    | Type | Send | Sync | Reason |
+    |------|------|------|--------|
+    | Rc<T> | NO | NO | Non-atomic reference count |
+    | RefCell<T> | YES | NO | Non-thread-safe borrow tracking |
+    | Cell<T> | YES | NO | Non-atomic interior mutability |
+    | *const T, *mut T | NO | NO | Raw pointers need manual safety |
+    | MutexGuard<T> | NO | YES | Must unlock on same thread |
+
+    ### Thread-Safe Alternatives
+    | Not Thread-Safe | Thread-Safe Alternative |
+    |-----------------|------------------------|
+    | Rc<T> | Arc<T> |
+    | RefCell<T> | Mutex<T> or RwLock<T> |
+    | Cell<T> | AtomicXxx types |
+
+    ### Using Send/Sync in Bounds
+    ```rust
+    // Require Send for thread spawning
+    fn spawn_task<F, T>(f: F) -> JoinHandle<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        thread::spawn(f)
+    }
+
+    // Require Sync for shared references
+    fn share_between_threads<T: Sync>(data: &T) {
+        // Can safely share &data across threads
+    }
+    ```
+
+    ### 'static Requirement for Threads
+    ```rust
+    // thread::spawn requires 'static because thread may outlive caller
+    fn bad() {
+        let local = String::from("hello");
+        thread::spawn(|| {
+            println!("{}", local);  // ERROR: local may be dropped
+        });
+    }
+
+    fn good() {
+        let local = String::from("hello");
+        thread::spawn(move || {
+            println!("{}", local);  // OK: local moved into thread
+        });
+    }
+    ```
+
+  content_concise: |
+    ## Send & Sync
+    - `Send`: Safe to transfer between threads
+    - `Sync`: Safe to share references between threads
+    - `Rc` → `Arc`, `RefCell` → `Mutex` for thread safety
+    - `'static` required because threads may outlive caller
+
+- id: "language/rust/concurrency/tokio_async"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## ASYNC/AWAIT WITH TOKIO
+
+    ### Basic Async Function
+    ```rust
+    use tokio;
+
+    #[tokio::main]
+    async fn main() {
+        let result = fetch_data().await;
+        println!("{:?}", result);
+    }
+
+    async fn fetch_data() -> Result<String, reqwest::Error> {
+        let response = reqwest::get("https://api.example.com/data").await?;
+        response.text().await
+    }
+    ```
+
+    ### Spawning Tasks
+    ```rust
+    use tokio::task;
+
+    #[tokio::main]
+    async fn main() {
+        // Spawn concurrent tasks
+        let handle1 = task::spawn(async {
+            expensive_io_1().await
+        });
+
+        let handle2 = task::spawn(async {
+            expensive_io_2().await
+        });
+
+        // Await both
+        let (r1, r2) = tokio::join!(handle1, handle2);
+        println!("{:?} {:?}", r1.unwrap(), r2.unwrap());
+    }
+    ```
+
+    ### spawn_blocking for CPU Work
+    ```rust
+    // NEVER do CPU-heavy work in async context directly
+    // It blocks the executor, starving other tasks!
+
+    let result = task::spawn_blocking(|| {
+        // CPU-intensive computation
+        expensive_computation()
+    }).await.unwrap();
+    ```
+
+    ### Tokio Channels (tokio::sync::mpsc)
+    ```rust
+    use tokio::sync::mpsc;
+
+    #[tokio::main]
+    async fn main() {
+        let (tx, mut rx) = mpsc::channel(100);  // Bounded channel
+
+        tokio::spawn(async move {
+            for i in 0..10 {
+                tx.send(i).await.unwrap();
+            }
+        });
+
+        while let Some(value) = rx.recv().await {
+            println!("Got: {}", value);
+        }
+    }
+    ```
+
+    ### select! - Racing Futures
+    ```rust
+    use tokio::select;
+    use tokio::time::{sleep, Duration};
+
+    async fn race_example() {
+        select! {
+            _ = sleep(Duration::from_secs(1)) => {
+                println!("Timeout!");
+            }
+            result = fetch_data() => {
+                println!("Got result: {:?}", result);
+            }
+        }
+    }
+    ```
+
+    ### CRITICAL: Don't Hold Locks Across Await
+    ```rust
+    // WRONG - Holding lock across await
+    async fn bad(mutex: &tokio::sync::Mutex<Vec<i32>>) {
+        let mut guard = mutex.lock().await;
+        some_async_op().await;  // Lock held! Others blocked!
+        guard.push(42);
+    }
+
+    // RIGHT - Release lock before await
+    async fn good(mutex: &tokio::sync::Mutex<Vec<i32>>) {
+        let data = {
+            let guard = mutex.lock().await;
+            guard.clone()  // Clone what we need
+        };  // Lock released
+
+        some_async_op().await;
+
+        mutex.lock().await.push(42);
+    }
+    ```
+
+    ### Tokio Runtime Options
+    ```rust
+    // Multi-threaded (default for #[tokio::main])
+    #[tokio::main]
+    async fn main() { }
+
+    // Single-threaded
+    #[tokio::main(flavor = "current_thread")]
+    async fn main() { }
+
+    // Custom runtime
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    rt.block_on(async { /* ... */ });
+    ```
+
+  content_concise: |
+    ## Tokio Async
+    - `#[tokio::main]` - async main entry point
+    - `task::spawn()` - spawn concurrent task
+    - `task::spawn_blocking()` - CPU-heavy work
+    - `select!` - race multiple futures
+    - NEVER hold locks across `.await`
+
+- id: "language/rust/concurrency/rayon"
+  category: "language"
+  subcategory: "rust"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## RAYON - DATA PARALLELISM
+
+    ### Parallel Iterators
+    ```rust
+    use rayon::prelude::*;
+
+    // Sequential
+    let sum: i32 = (0..1000).map(|x| x * 2).sum();
+
+    // Parallel (just add par_iter or into_par_iter)
+    let sum: i32 = (0..1000).into_par_iter().map(|x| x * 2).sum();
+    ```
+
+    ### Common Parallel Operations
+    ```rust
+    use rayon::prelude::*;
+
+    // Parallel map
+    let results: Vec<_> = data.par_iter()
+        .map(|x| expensive_computation(x))
+        .collect();
+
+    // Parallel filter
+    let filtered: Vec<_> = data.par_iter()
+        .filter(|x| predicate(x))
+        .cloned()
+        .collect();
+
+    // Parallel for_each (side effects)
+    data.par_iter().for_each(|x| {
+        process(x);  // Must be thread-safe!
+    });
+
+    // Parallel sort
+    let mut data = vec![5, 2, 8, 1, 9];
+    data.par_sort();
+
+    // Parallel find
+    let found = data.par_iter().find_any(|&x| x > 5);
+    ```
+
+    ### When to Use Rayon vs Tokio
+    | Use Case | Tool | Why |
+    |----------|------|-----|
+    | CPU-bound, data-parallel | Rayon | Work-stealing, automatic parallelism |
+    | I/O-bound, many connections | Tokio | Non-blocking, efficient waiting |
+    | Mixed workload | Both | Rayon in spawn_blocking |
+
+    ### Combining Rayon with Tokio
+    ```rust
+    use tokio::task;
+
+    #[tokio::main]
+    async fn main() {
+        let data = vec![1, 2, 3, 4, 5];
+
+        // CPU-bound parallel work inside async context
+        let result = task::spawn_blocking(move || {
+            data.par_iter()
+                .map(|x| expensive_cpu_work(x))
+                .sum::<i32>()
+        }).await.unwrap();
+
+        println!("Result: {}", result);
+    }
+    ```
+
+  content_concise: |
+    ## Rayon
+    - `par_iter()` / `into_par_iter()` - parallel iteration
+    - Automatic work-stealing across CPU cores
+    - Use for CPU-bound data parallelism
+    - Combine with Tokio via `spawn_blocking`
+

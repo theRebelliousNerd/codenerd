@@ -1,0 +1,980 @@
+# Debugging Encyclopedia - Comprehensive Reference for AI Coding Agents
+# Systematic debugging strategies, root cause analysis, and tool mastery
+
+- id: "methodology/debugging/scientific_method"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 100
+  is_mandatory: true
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## SCIENTIFIC DEBUGGING METHOD
+
+    ### The Hypothesis-Driven Approach
+    Debugging is not guessing—it's systematic investigation:
+
+    ```
+    1. OBSERVE: Gather all available evidence
+       - Error messages (FULL stack trace)
+       - Reproduction steps (minimal, reliable)
+       - When it started (recent changes)
+       - Environment differences (works locally?)
+
+    2. HYPOTHESIZE: Form testable theories
+       - "The null pointer is from X"
+       - "The race condition is between A and B"
+       - Rank by probability AND testability
+
+    3. PREDICT: What would confirm/refute?
+       - "If hypothesis is true, adding log at X shows Y"
+       - "If hypothesis is true, test Z will fail"
+
+    4. TEST: One variable at a time
+       - Change ONLY what tests the hypothesis
+       - Preserve the ability to reproduce
+
+    5. ANALYZE: Update model based on results
+       - Hypothesis confirmed → narrow down
+       - Hypothesis refuted → eliminate branch
+       - Unexpected result → new hypothesis
+    ```
+
+    ### Evidence Hierarchy (Most to Least Reliable)
+    ```
+    1. Deterministic reproduction → Trust completely
+    2. Stack trace with line numbers → Trust, verify versions
+    3. Intermittent reproduction → Suspect concurrency/timing
+    4. User report only → Gather more evidence first
+    5. "It just stopped working" → Check recent changes
+    ```
+
+    ### The Five Whys (Root Cause)
+    ```
+    Problem: Server returns 500 error
+    Why 1: Database query failed
+    Why 2: Connection pool exhausted
+    Why 3: Connections not being released
+    Why 4: Error path doesn't close connection
+    Why 5: No defer/finally in error handler
+
+    ROOT CAUSE: Missing resource cleanup in error path
+    ```
+
+  content_concise: |
+    ## Scientific Debugging
+    1. OBSERVE → HYPOTHESIZE → PREDICT → TEST → ANALYZE
+    2. One variable at a time - preserve reproducibility
+    3. Five Whys to find root cause, not symptoms
+    4. Stack traces > user reports for evidence
+
+- id: "methodology/debugging/binary_search"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## BINARY SEARCH DEBUGGING
+
+    ### Git Bisect for Regression Hunting
+    ```bash
+    # Start bisect session
+    git bisect start
+    git bisect bad HEAD           # Current is broken
+    git bisect good v1.2.0        # Known working version
+
+    # Git checks out middle commit - test it
+    # Then mark result:
+    git bisect good  # or
+    git bisect bad
+
+    # Repeat until found (log2(N) steps)
+    # For 1000 commits: ~10 steps
+
+    # Automate with test script:
+    git bisect run ./test_script.sh
+
+    # When done:
+    git bisect reset
+    ```
+
+    ### Code Binary Search (No VCS)
+    ```
+    1. Comment out half the suspicious code
+    2. Does bug still occur?
+       - YES: Bug in remaining half
+       - NO: Bug in commented half
+    3. Repeat on the guilty half
+    4. log2(N) iterations to find exact line
+    ```
+
+    ### Log-Based Binary Search
+    ```
+    1. Add log at function entry AND exit
+    2. Run - determine if bug before/after
+    3. Add logs at midpoint of suspect region
+    4. Converge on exact failure point
+    ```
+
+    ### When Binary Search Fails
+    - **Heisenbug**: Observation changes behavior
+    - **Multi-cause**: Multiple bugs interacting
+    - **Environment**: Bug only in specific conditions
+    - **Non-monotonic**: Bug appears/disappears randomly
+
+  content_concise: |
+    ## Binary Search Debugging
+    - `git bisect`: Find regression in log2(N) steps
+    - Code binary search: Comment half, test, repeat
+    - Log binary search: Add logs at midpoints
+    - Fails for: Heisenbugs, multi-cause, environment-specific
+
+- id: "methodology/debugging/print_debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## STRATEGIC PRINT DEBUGGING
+
+    ### Why Printf Still Works
+    - Zero setup, works everywhere
+    - No debugger overhead (timing bugs)
+    - Persists across runs (log files)
+    - Works in production (with proper logging)
+
+    ### Effective Print Patterns
+    ```go
+    // 1. ENTRY/EXIT with context
+    func Process(id string, data []byte) error {
+        log.Printf("[ENTER] Process id=%s len=%d", id, len(data))
+        defer log.Printf("[EXIT] Process id=%s", id)
+
+        // ...
+    }
+
+    // 2. STATE TRANSITIONS
+    log.Printf("[STATE] %s: %s -> %s", id, oldState, newState)
+
+    // 3. DECISION POINTS
+    if condition {
+        log.Printf("[BRANCH] Taking path A because: %v", reason)
+    }
+
+    // 4. DATA SNAPSHOTS (careful with PII!)
+    log.Printf("[DATA] request=%+v", sanitize(req))
+
+    // 5. TIMING
+    start := time.Now()
+    result := slowOperation()
+    log.Printf("[PERF] slowOperation took %v", time.Since(start))
+    ```
+
+    ### Printf Anti-Patterns
+    ```go
+    // BAD: No context
+    fmt.Println("here")
+    fmt.Println("here 2")
+
+    // BAD: Changing behavior
+    fmt.Println(computeExpensiveThing())  // May hide timing bug
+
+    // BAD: Not cleaning up
+    // 47 print statements left in production code
+
+    // GOOD: Structured, removable, contextual
+    if DEBUG {
+        log.Printf("[DEBUG:%s:%d] value=%v", file, line, val)
+    }
+    ```
+
+    ### Production-Safe Logging
+    ```go
+    // Use log levels
+    logger.Debug("detailed info", "key", value)  // Dev only
+    logger.Info("operation completed", "id", id)  // Normal
+    logger.Warn("retrying", "attempt", n)         // Notable
+    logger.Error("failed", "err", err)            // Problems
+    ```
+
+  content_concise: |
+    ## Print Debugging Done Right
+    - Entry/exit, state transitions, decision points
+    - Include context: function, id, before/after values
+    - Use log levels for production safety
+    - Anti-pattern: "here", "here 2" with no context
+
+- id: "methodology/debugging/debugger_mastery"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## DEBUGGER MASTERY
+
+    ### Breakpoint Types
+    ```
+    LINE BREAKPOINT
+    - Pauses at specific line
+    - Most common, least powerful
+
+    CONDITIONAL BREAKPOINT
+    - break if (i == 42 && obj.state == "error")
+    - Invaluable for rare conditions in loops
+
+    DATA/WATCHPOINT
+    - Pauses when variable changes
+    - "Who's modifying my data?"
+
+    EXCEPTION BREAKPOINT
+    - Pauses when exception thrown
+    - Catches errors at source, not handler
+
+    FUNCTION BREAKPOINT
+    - break on function entry by name
+    - Useful without source navigation
+    ```
+
+    ### Debugger Commands (Universal)
+    ```
+    NAVIGATION
+    - step into (s): Enter function call
+    - step over (n): Execute line, don't enter
+    - step out (finish): Run to function return
+    - continue (c): Run to next breakpoint
+
+    INSPECTION
+    - print/p: Evaluate expression
+    - watch: Monitor variable changes
+    - backtrace/bt: Show call stack
+    - frame N: Switch stack frame
+
+    CONTROL
+    - set var = value: Modify state
+    - jump/goto: Skip to line (DANGEROUS)
+    - return: Force function return
+    ```
+
+    ### When NOT to Use Debugger
+    - **Timing-sensitive bugs**: Debugger pauses change timing
+    - **Multi-process**: Complex setup, state diverges
+    - **Production**: No debugger access
+    - **Heisenbugs**: Observation changes outcome
+
+    ### IDE-Specific Power Features
+    ```
+    VS Code:
+    - logpoints (print without modifying code)
+    - hit count breakpoints
+    - launch.json for complex scenarios
+
+    JetBrains:
+    - evaluate expression with side effects
+    - memory view for native code
+    - async stack traces
+
+    Delve (Go):
+    - dlv attach to running process
+    - goroutine-aware stepping
+    ```
+
+  content_concise: |
+    ## Debugger Essentials
+    - Breakpoints: line, conditional, data, exception
+    - Commands: step into/over/out, continue, print, backtrace
+    - Avoid for: timing bugs, production, multi-process
+    - Power: conditional breaks, watchpoints, logpoints
+
+- id: "methodology/debugging/concurrent_debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  languages: ["/go", "/java", "/rust"]
+  content: |
+    ## CONCURRENT CODE DEBUGGING
+
+    ### Race Condition Detection
+    ```bash
+    # Go race detector
+    go test -race ./...
+    go run -race main.go
+
+    # Thread sanitizer (C/C++/Rust)
+    clang -fsanitize=thread
+    cargo +nightly -Zsanitizer=thread
+
+    # Java
+    java -XX:+UseThreadSanitizer  # Limited support
+    # Use: FindBugs, SpotBugs for static analysis
+    ```
+
+    ### Race Condition Patterns
+    ```go
+    // CHECK-THEN-ACT (TOCTOU)
+    // WRONG:
+    if cache[key] == nil {
+        cache[key] = compute()  // Race between check and set
+    }
+    // RIGHT: sync.Map or mutex protection
+
+    // READ-MODIFY-WRITE
+    // WRONG:
+    counter++  // Not atomic!
+    // RIGHT:
+    atomic.AddInt64(&counter, 1)
+
+    // LAZY INITIALIZATION
+    // WRONG:
+    if instance == nil {
+        instance = NewService()
+    }
+    // RIGHT: sync.Once
+    ```
+
+    ### Deadlock Detection
+    ```
+    Signs of Deadlock:
+    - Program hangs with no CPU usage
+    - All threads waiting
+    - No progress, no errors
+
+    Detection:
+    - Go: runtime/pprof goroutine dump
+    - Java: jstack, ThreadMXBean
+    - Database: SHOW ENGINE INNODB STATUS
+
+    Prevention:
+    - Lock ordering (always A before B)
+    - Timeout on locks
+    - Deadlock detection algorithms
+    ```
+
+    ### Debugging Strategies
+    ```
+    1. INSTRUMENT LOCK ACQUISITION
+       log.Printf("[LOCK] goroutine=%d acquiring mutex=%s",
+                  runtime.GoID(), mutexName)
+
+    2. GOROUTINE DUMPS
+       runtime.Stack(buf, true)  // all=true for all goroutines
+
+    3. EXECUTION TRACING
+       go tool trace trace.out
+
+    4. STRESS TESTING
+       for i := 0; i < 1000; i++ {
+           go exercise_concurrent_code()
+       }
+       // Race conditions more likely under load
+    ```
+
+    ### Heisenbug Strategies
+    When observation changes behavior:
+    ```
+    - Remove ALL print statements
+    - Use atomic logging (single write)
+    - Add artificial delays to widen race window
+    - Use stress testing with randomized timing
+    ```
+
+  content_concise: |
+    ## Concurrent Debugging
+    - Race detector: `go test -race`, thread sanitizer
+    - Patterns: check-then-act, read-modify-write, lazy init
+    - Deadlock: lock ordering, timeouts, runtime dumps
+    - Heisenbugs: remove prints, atomic logging, stress test
+
+- id: "methodology/debugging/performance_debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  intent_verbs: ["/fix", "/debug", "/investigate", "/optimize"]
+  content: |
+    ## PERFORMANCE DEBUGGING
+
+    ### Profiling Workflow
+    ```
+    1. MEASURE FIRST
+       - Establish baseline (before optimization)
+       - Define "fast enough" target
+       - Identify actual bottleneck (don't guess!)
+
+    2. PROFILE
+       - CPU: Where is time spent?
+       - Memory: What's allocated? What's retained?
+       - I/O: Disk, network, database
+
+    3. ANALYZE
+       - Flame graphs for call stack visualization
+       - Top-down: Start from hot functions
+       - Look for unexpected entries
+
+    4. OPTIMIZE
+       - Change ONE thing
+       - Measure again
+       - Verify improvement
+    ```
+
+    ### Go Profiling
+    ```go
+    // CPU Profile
+    import _ "net/http/pprof"
+    go tool pprof http://localhost:6060/debug/pprof/profile
+
+    // Memory Profile
+    go tool pprof http://localhost:6060/debug/pprof/heap
+
+    // Execution Trace
+    go test -trace trace.out
+    go tool trace trace.out
+
+    // Benchmarks
+    func BenchmarkFoo(b *testing.B) {
+        for i := 0; i < b.N; i++ {
+            Foo()
+        }
+    }
+    go test -bench=. -benchmem
+    ```
+
+    ### Memory Debugging
+    ```
+    SYMPTOMS:
+    - OOM kills
+    - GC pauses increasing
+    - Memory grows over time (leak)
+
+    INVESTIGATION:
+    1. Heap profile at multiple points
+    2. Compare: what's growing?
+    3. Look for:
+       - Unbounded caches
+       - Goroutine leaks (holding references)
+       - Global variables accumulating
+       - Forgotten timers/channels
+    ```
+
+    ### Common Performance Bugs
+    ```
+    N+1 QUERIES
+    - Symptom: Slow list pages
+    - Cause: Query per item instead of batch
+    - Fix: JOIN or IN clause
+
+    UNNECESSARY ALLOCATION
+    - Symptom: High GC pressure
+    - Cause: Creating objects in hot paths
+    - Fix: Object pooling, pre-allocation
+
+    LOCK CONTENTION
+    - Symptom: Low CPU, slow response
+    - Cause: Goroutines waiting on mutex
+    - Fix: Reduce critical section, sharding
+
+    STRING CONCATENATION
+    - Symptom: Memory spikes
+    - Cause: s += s2 in loop (O(n²))
+    - Fix: strings.Builder, bytes.Buffer
+    ```
+
+  content_concise: |
+    ## Performance Debugging
+    - Measure → Profile → Analyze → Optimize (one thing)
+    - Go: pprof (CPU, heap), trace, benchmarks
+    - Common: N+1 queries, allocation in loops, lock contention
+    - Memory leaks: heap profiles over time, compare growth
+
+- id: "methodology/debugging/error_messages"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## ERROR MESSAGE INTERPRETATION
+
+    ### Reading Stack Traces
+    ```
+    panic: runtime error: index out of range [5] with length 3
+
+    goroutine 1 [running]:
+    main.processItems(0xc000010048, 0x3, 0x4)
+            /app/main.go:42 +0x7a          <- ACTUAL ERROR
+    main.handleRequest(0xc00001a0a0)
+            /app/main.go:28 +0x1f2         <- Caller
+    main.main()
+            /app/main.go:15 +0x25          <- Entry point
+
+    READ BOTTOM-UP for context
+    READ TOP-DOWN for cause
+    ```
+
+    ### Common Error Patterns
+    ```
+    "nil pointer dereference"
+    → Something is nil that shouldn't be
+    → Check: initialization, error returns, optional fields
+
+    "index out of range"
+    → Array/slice access beyond bounds
+    → Check: len() before access, off-by-one
+
+    "deadlock - all goroutines asleep"
+    → Nothing can make progress
+    → Check: channel sends without receivers, mutex cycles
+
+    "connection refused"
+    → Service not running or wrong port
+    → Check: is server up? firewall? correct address?
+
+    "context deadline exceeded"
+    → Operation took too long
+    → Check: timeout values, what's slow
+
+    "too many open files"
+    → File descriptor exhaustion
+    → Check: unclosed files/connections, ulimit
+    ```
+
+    ### Error Wrapping Investigation
+    ```go
+    // Wrapped errors need unwrapping
+    err := operation()
+    // err: "failed to save: database error: connection refused"
+
+    // Unwrap to find root cause
+    for err != nil {
+        fmt.Printf("Layer: %T: %v\n", err, err)
+        err = errors.Unwrap(err)
+    }
+
+    // Or use errors.Is/As
+    if errors.Is(err, sql.ErrNoRows) {
+        // Handle specific case
+    }
+    ```
+
+    ### Log Correlation
+    ```
+    1. Find timestamp of error
+    2. Look at logs BEFORE error (setup, inputs)
+    3. Look for request/trace ID
+    4. Follow ID across services
+    5. Build timeline of events
+    ```
+
+  content_concise: |
+    ## Error Message Debugging
+    - Stack traces: bottom-up for context, top-down for cause
+    - Common: nil deref, index OOB, deadlock, connection refused
+    - Wrapped errors: unwrap to find root cause
+    - Log correlation: timestamp, trace ID, timeline
+
+- id: "methodology/debugging/ai_code_debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 93
+  is_mandatory: true
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  intent_verbs: ["/fix", "/debug", "/investigate", "/review"]
+  content: |
+    ## DEBUGGING AI-GENERATED CODE
+
+    ### Common AI Code Failure Modes
+    ```
+    1. PLAUSIBLE BUT WRONG
+       - Code looks correct, passes casual review
+       - Logic errors in edge cases
+       - FIX: Test edge cases explicitly
+
+    2. API HALLUCINATIONS
+       - Non-existent methods/parameters
+       - Old API versions mixed with new
+       - FIX: Verify against actual docs
+
+    3. COPY-PASTE ARTIFACTS
+       - Variable names don't match context
+       - Comments describe different code
+       - FIX: Read every line, not just structure
+
+    4. INCOMPLETE ERROR HANDLING
+       - Happy path works
+       - Errors ignored or generic
+       - FIX: Trace every error path
+
+    5. SECURITY BLINDSPOTS
+       - No input validation
+       - SQL injection possible
+       - Hardcoded secrets in examples
+       - FIX: Security review checklist
+    ```
+
+    ### AI Code Review Checklist
+    ```
+    [ ] Does this function exist? (Check docs)
+    [ ] Are parameters in the right order?
+    [ ] Are types correct? (Not just similar)
+    [ ] What happens on error?
+    [ ] What happens with nil/null/empty input?
+    [ ] What happens with very large input?
+    [ ] Are resources properly cleaned up?
+    [ ] Is this thread-safe? (if concurrent)
+    [ ] Does the test actually test the code?
+    [ ] Would a wrong implementation pass this test?
+    ```
+
+    ### The "Looks Right" Trap
+    ```go
+    // AI generated - looks fine:
+    func findUser(id string) (*User, error) {
+        user, err := db.Query("SELECT * FROM users WHERE id = " + id)
+        if err != nil {
+            return nil, err
+        }
+        return user, nil
+    }
+
+    // PROBLEMS:
+    // 1. SQL injection (string concat)
+    // 2. db.Query returns rows, not user
+    // 3. Missing rows.Close()
+    // 4. Missing rows.Scan()
+    // 5. Missing null check on user
+
+    // The structure is right, details are wrong
+    ```
+
+    ### Verification Strategy
+    ```
+    1. COMPILE IT (catches obvious errors)
+    2. RUN IT (catches runtime errors)
+    3. TEST EDGES (catches logic errors)
+    4. READ DOCS (catches API errors)
+    5. SECURITY SCAN (catches vulnerabilities)
+    ```
+
+  content_concise: |
+    ## Debugging AI Code
+    - Failure modes: plausible but wrong, API hallucinations, incomplete errors
+    - "Looks right" trap: structure correct, details wrong
+    - Checklist: function exists? types correct? error handling? thread-safe?
+    - Verify: compile → run → test edges → read docs → security scan
+
+- id: "methodology/debugging/rubber_duck"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## RUBBER DUCK DEBUGGING
+
+    ### Why It Works
+    Explaining forces you to:
+    - Articulate assumptions
+    - Notice gaps in understanding
+    - Slow down and think sequentially
+    - Expose what you THINK vs what IS
+
+    ### The Protocol
+    ```
+    1. State the problem clearly
+       "I expect X to happen, but Y happens instead"
+
+    2. Explain what the code SHOULD do
+       Walk through line by line
+       "First, this line does A..."
+
+    3. Explain what the code ACTUALLY does
+       "But wait... when Z is null..."
+
+    4. Find the discrepancy
+       Often happens at step 2 or 3
+       "Oh! I assumed B but actually..."
+    ```
+
+    ### Effective Rubber Duck Questions
+    ```
+    - "What am I actually trying to do?"
+    - "What are my assumptions?"
+    - "What could be different from what I expect?"
+    - "When does this code path execute?"
+    - "What state is the system in at this point?"
+    - "What changed since it last worked?"
+    ```
+
+    ### When to Use
+    - Stuck for more than 15 minutes
+    - Making random changes hoping something works
+    - "This should work but doesn't"
+    - Before asking for help (often solves it)
+
+  content_concise: |
+    ## Rubber Duck Debugging
+    - Explain code out loud, line by line
+    - State: expect X, get Y, walk through why
+    - Forces: articulate assumptions, notice gaps
+    - Use when: stuck 15+ min, before asking for help
+
+- id: "methodology/debugging/minimization"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## BUG MINIMIZATION
+
+    ### Creating Minimal Reproductions
+    ```
+    Goal: Smallest code that reproduces bug
+
+    Benefits:
+    - Easier to understand
+    - Faster to test hypotheses
+    - Better bug reports
+    - Often reveals cause during reduction
+    ```
+
+    ### Reduction Process
+    ```
+    1. START WITH FAILING CODE
+       - Full reproduction case
+
+    2. BINARY REDUCTION
+       - Remove half the code
+       - Still fails? Keep removing
+       - Doesn't fail? Put it back, remove other half
+
+    3. SIMPLIFY INPUTS
+       - Large file → Small file → Minimal bytes
+       - Complex object → Simple object → Literal values
+
+    4. REMOVE DEPENDENCIES
+       - External services → Mocks
+       - Real database → In-memory
+       - Full config → Minimal config
+
+    5. EXTRACT
+       - From production code → Standalone script
+       - From test suite → Single test
+       - From application → Minimal main()
+    ```
+
+    ### The Ideal Bug Report
+    ```markdown
+    ## Steps to Reproduce
+    1. Run: `go run main.go`
+    2. Send request: `curl localhost:8080/api`
+    3. Observe error
+
+    ## Expected
+    Returns 200 OK with JSON body
+
+    ## Actual
+    Returns 500 with "nil pointer" error
+
+    ## Minimal Code
+    ```go
+    package main
+    // 10 lines that reproduce the issue
+    ```
+
+    ## Environment
+    - Go 1.21
+    - macOS 14.0
+    - First occurred after commit abc123
+    ```
+
+    ### Minimization Anti-Patterns
+    - "It happens sometimes" (not minimal, not reproducible)
+    - 500 lines of "minimal" code
+    - "See attached project.zip"
+    - "Works on my machine"
+
+  content_concise: |
+    ## Bug Minimization
+    - Goal: Smallest code reproducing bug
+    - Process: binary reduction, simplify inputs, remove deps
+    - Ideal: 10-line standalone repro with exact steps
+    - Reveals cause during reduction 50%+ of time
+
+- id: "methodology/debugging/production_debugging"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## PRODUCTION DEBUGGING
+
+    ### Constraints
+    - Can't attach debugger
+    - Can't add arbitrary logging
+    - Must not impact users
+    - Limited time to diagnose
+
+    ### Observability Stack
+    ```
+    LOGS
+    - Structured (JSON)
+    - Request IDs for correlation
+    - Log levels (adjust at runtime)
+
+    METRICS
+    - Request rate, error rate, latency (RED)
+    - Saturation (CPU, memory, connections)
+    - Custom business metrics
+
+    TRACES
+    - Distributed tracing (Jaeger, Zipkin)
+    - Span IDs across services
+    - Timing breakdown
+    ```
+
+    ### Investigation Workflow
+    ```
+    1. TRIAGE
+       - How many users affected?
+       - Is it getting worse?
+       - What changed recently?
+
+    2. CORRELATE
+       - Timestamp of first report
+       - Deployment time
+       - Dependency changes
+       - Traffic patterns
+
+    3. ISOLATE
+       - Which service?
+       - Which endpoint?
+       - Which users/regions?
+
+    4. DIAGNOSE
+       - Logs around error time
+       - Trace the request path
+       - Check resource metrics
+
+    5. MITIGATE (before full fix)
+       - Rollback if recent deploy
+       - Scale up if resource exhaustion
+       - Feature flag disable
+       - Traffic routing away
+    ```
+
+    ### Safe Production Debugging
+    ```
+    DO:
+    - Read-only access to logs/metrics
+    - Query existing telemetry
+    - Compare to working baselines
+    - Use feature flags for investigation
+
+    DON'T:
+    - SSH to prod to add prints
+    - Run untested queries
+    - Change config without review
+    - Restart services randomly
+    ```
+
+  content_concise: |
+    ## Production Debugging
+    - Constraints: no debugger, minimal logging changes, no user impact
+    - Stack: logs (structured), metrics (RED), traces (distributed)
+    - Flow: triage → correlate → isolate → diagnose → mitigate
+    - Safe: read-only, query existing telemetry, use feature flags
+
+- id: "methodology/debugging/toolbox"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  intent_verbs: ["/fix", "/debug", "/investigate"]
+  content: |
+    ## DEBUGGING TOOLBOX
+
+    ### Command-Line Tools
+    ```bash
+    # Process inspection
+    ps aux | grep process        # Find process
+    top -p PID                   # Resource usage
+    lsof -p PID                  # Open files/connections
+    strace -p PID                # System calls (Linux)
+    dtruss -p PID                # System calls (macOS)
+
+    # Network debugging
+    netstat -tlnp                # Listening ports
+    ss -tlnp                     # Faster netstat
+    tcpdump -i eth0 port 80      # Packet capture
+    curl -v URL                  # HTTP debugging
+
+    # Log analysis
+    tail -f /var/log/app.log    # Follow log
+    grep -r "error" logs/        # Search logs
+    awk '{print $4}' access.log | sort | uniq -c | sort -rn  # Analyze
+
+    # Disk/Memory
+    df -h                        # Disk space
+    du -sh *                     # Directory sizes
+    free -h                      # Memory usage
+    vmstat 1                     # Memory/CPU over time
+    ```
+
+    ### Language-Specific Tools
+    ```
+    Go:
+    - go tool pprof (CPU, memory profiling)
+    - go tool trace (execution trace)
+    - go test -race (race detection)
+    - dlv (Delve debugger)
+
+    Python:
+    - pdb/ipdb (debugger)
+    - cProfile (profiling)
+    - memory_profiler (memory)
+    - py-spy (sampling profiler)
+
+    JavaScript/Node:
+    - Chrome DevTools (browser)
+    - node --inspect (Node.js)
+    - 0x (flame graphs)
+    - clinic.js (diagnostics)
+
+    Java:
+    - jstack (thread dump)
+    - jmap (heap dump)
+    - jstat (GC stats)
+    - async-profiler (low overhead)
+    ```
+
+    ### Online Resources
+    ```
+    Stack Overflow: Search exact error message
+    GitHub Issues: Project-specific bugs
+    Official Docs: Authoritative behavior
+    Source Code: Ultimate truth
+    ```
+
+  content_concise: |
+    ## Debugging Toolbox
+    - CLI: ps, top, lsof, strace, netstat, tcpdump, curl -v
+    - Go: pprof, trace, race detector, delve
+    - Python: pdb, cProfile, memory_profiler, py-spy
+    - JS: DevTools, node --inspect, 0x, clinic.js
+    - Java: jstack, jmap, jstat, async-profiler

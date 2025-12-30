@@ -1,0 +1,705 @@
+# TDD Methodology Encyclopedia
+# Comprehensive test-driven development guidance for AI coding agents
+
+- id: "methodology/tdd/ai_era_fundamentals"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 100
+  is_mandatory: true
+  shard_types: ["/tester", "/coder"]
+  intent_verbs: ["/test", "/fix", "/implement", "/refactor"]
+  content: |
+    ## TDD IN THE AI ERA: WHY IT MATTERS MORE NOW
+
+    Test-Driven Development provides the foundation that makes AI agents effective. When code
+    is written by agents instead of humans, tests become the guide - the stable reference
+    point that gives the agent a sense of direction.
+
+    ### The Red-Green-Refactor Cycle (AI-Accelerated)
+    1. **RED**: Generate or write a test expressing desired behavior
+    2. **GREEN**: Implement the smallest change to make it pass
+    3. **REFACTOR**: Clean up and improve code quality
+
+    ### Why TDD + AI is Synergistic
+    - **Clear, measurable goals**: A binary test is one of the clearest goals for an AI
+    - **Fast feedback loops**: AI can iterate rapidly with immediate test validation
+    - **Protection from hallucinations**: Tests catch AI-generated errors immediately
+    - **Specification by example**: Tests codify intent better than natural language prompts
+
+    ### Key Statistics
+    - Teams adopting TDD reduce defect density by 40-90%
+    - TDD teams release 32% more frequently (2024 Thoughtworks survey)
+    - By 2025, 46% of teams replaced over half of manual testing with automation
+
+    ### Anti-Pattern: Prompting Without Tests
+    BAD: "Make a login button" (ambiguous, relies on luck)
+    GOOD: Provide a suite of tests defining button behavior (disabled, loading, error states)
+
+  content_concise: |
+    ## TDD IN THE AI ERA
+    Tests are the stable reference point for AI agents. Red-Green-Refactor cycle:
+    1. RED: Write failing test
+    2. GREEN: Minimal implementation
+    3. REFACTOR: Clean up
+    Benefits: 40-90% defect reduction, protection from hallucinations.
+
+- id: "methodology/tdd/test_first_vs_after"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/tester", "/coder"]
+  intent_verbs: ["/test", "/implement"]
+  content: |
+    ## WHEN TO WRITE TESTS FIRST VS AFTER
+
+    ### Write Tests FIRST (TDD) When:
+    1. **New feature development**: Tests define the contract before implementation
+    2. **Bug fixes**: Failing test proves the bug exists and verifies the fix
+    3. **Refactoring**: Tests protect against regression during restructuring
+    4. **Complex business logic**: Tests document edge cases and requirements
+    5. **API design**: Tests become executable documentation
+    6. **When requirements are clear**: Well-understood behavior maps to tests
+
+    ### Write Tests AFTER (Test-Later) When:
+    1. **Exploratory/spike code**: Prototyping where direction is uncertain
+    2. **Legacy code without tests**: Add characterization tests first
+    3. **UI/visualization code**: Visual behavior hard to specify upfront
+    4. **Integration testing**: Need working components to integrate
+    5. **Performance optimization**: Measure first, optimize second
+
+    ### Decision Framework
+    ```
+    Is the behavior well-defined? → YES → Write test FIRST
+                                  → NO  → Spike, then test
+
+    Is this a bug fix? → YES → Write failing test proving bug EXISTS
+
+    Is this refactoring? → YES → Ensure tests exist BEFORE changes
+    ```
+
+    ### Critical Rule for AI Agents
+    When generating code, ALWAYS prefer test-first because:
+    - Tests constrain the solution space (reduce hallucination)
+    - Immediate feedback catches errors early
+    - Forces explicit consideration of edge cases
+
+- id: "methodology/tdd/test_pyramid"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify"]
+  content: |
+    ## THE TEST PYRAMID: STRATEGIC BALANCE
+
+    The test pyramid optimizes the cost-per-bug-found ratio across the entire test suite.
+
+    ### Classic Ratio (70-20-10)
+    ```
+              /\
+             /  \        E2E Tests (10%)
+            /----\       Slow, expensive, catch UI/integration bugs
+           /      \
+          /--------\     Integration Tests (20%)
+         /          \    Medium speed, test component boundaries
+        /------------\
+       /              \  Unit Tests (70%)
+      /________________\ Fast, cheap, catch 70% of bugs
+    ```
+
+    ### Ratio Adjustments by Architecture
+    | Architecture | Unit | Integration | E2E | Reason |
+    |--------------|------|-------------|-----|--------|
+    | Microservices | 60% | 30% | 10% | More service interactions |
+    | Legacy Monolith | 80% | 15% | 5% | Integration hard to test |
+    | User-Facing App | 60% | 20% | 20% | UI bugs are high risk |
+
+    ### Cost-Benefit Economics
+    - **Unit tests**: Cost pennies, catch 70% of bugs
+    - **Integration tests**: Cost dollars, catch 20% more
+    - **E2E tests**: Cost hundreds, catch final 10%
+
+    ### Anti-Pattern: The Ice Cream Cone
+    Inverting the pyramid (mostly E2E tests) leads to:
+    - Slow feedback cycles
+    - Brittle tests
+    - High maintenance cost
+    - False sense of security
+
+  content_concise: |
+    ## TEST PYRAMID
+    - Unit (70%): Fast, cheap, 70% of bugs
+    - Integration (20%): Medium, component boundaries
+    - E2E (10%): Slow, expensive, critical paths only
+
+    Avoid Ice Cream Cone (mostly E2E = brittle, slow)
+
+- id: "methodology/tdd/table_driven_testing"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover"]
+  languages: ["/go"]
+  content: |
+    ## TABLE-DRIVEN TESTING (Go Best Practice)
+
+    Table-driven tests are the standard pattern for Go.
+
+    ### Canonical Structure
+    ```go
+    func TestFunction(t *testing.T) {
+        tests := map[string]struct {
+            input   InputType
+            want    OutputType
+            wantErr bool
+        }{
+            "valid input": {
+                input: validInput,
+                want:  expectedOutput,
+            },
+            "empty input": {
+                input:   "",
+                wantErr: true,
+            },
+            "boundary max": {
+                input: math.MaxInt64,
+                want:  expectedMax,
+            },
+        }
+
+        for name, tt := range tests {
+            t.Run(name, func(t *testing.T) {
+                got, err := FunctionUnderTest(tt.input)
+                if (err != nil) != tt.wantErr {
+                    t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+                    return
+                }
+                if got != tt.want {
+                    t.Errorf("got %v, want %v", got, tt.want)
+                }
+            })
+        }
+    }
+    ```
+
+    ### Why Use Maps Instead of Slices
+    - Map iteration order is undefined
+    - Tests run in different orders each time
+    - Exposes hidden dependencies between tests
+    - Catches global state pollution
+
+    ### Edge Case Categories to Include
+    | Category | Examples |
+    |----------|----------|
+    | Zero/Empty | nil, "", 0, empty slice/map |
+    | Boundary | MaxInt, MinInt, first/last index |
+    | Invalid | wrong type, malformed input |
+    | Special | Unicode, whitespace, special chars |
+    | Overflow | Very large numbers, long strings |
+    | Negative | Negative indices, counts |
+
+  content_concise: |
+    ## TABLE-DRIVEN TESTS (Go)
+    Use map[string]struct for test cases. Include: name, input, want, wantErr.
+    Use t.Run for subtests. Maps randomize order to catch dependencies.
+
+- id: "methodology/tdd/edge_case_identification"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/tester", "/coder"]
+  intent_verbs: ["/test", "/cover", "/verify"]
+  content: |
+    ## EDGE CASE IDENTIFICATION FRAMEWORK
+
+    Edge cases occur at the "edge" or limit of expected input/output ranges.
+
+    ### Boundary Value Analysis
+    Test values at and around boundaries:
+    ```
+    For a function accepting 1-100:
+    - Invalid below: 0, -1, MIN_INT
+    - Boundary low:  1 (valid edge), 2 (just inside)
+    - Typical:       50
+    - Boundary high: 99 (just inside), 100 (valid edge)
+    - Invalid above: 101, MAX_INT
+    ```
+
+    ### Equivalence Partitioning
+    Divide input space into classes where behavior is equivalent:
+    ```
+    For email validation:
+    - Valid emails:    user@domain.com, a@b.co
+    - Invalid format:  missing@, @domain.com, no-at-sign
+    - Empty/null:      "", null
+    - Extreme length:  very.long.email@very.long.domain.com
+    ```
+
+    ### Common Edge Cases Checklist
+    | Input Type | Edge Cases |
+    |------------|------------|
+    | Strings | "", single char, very long, unicode, whitespace only |
+    | Numbers | 0, 1, -1, MAX_INT, MIN_INT, NaN, Infinity |
+    | Arrays | [], single element, duplicates, sorted/unsorted |
+    | Dates | leap year, DST transitions, timezone boundaries |
+    | Files | empty file, very large, permissions denied, not found |
+    | Network | timeout, connection refused, partial response |
+
+    ### Concurrency Edge Cases
+    - Race conditions at boundaries
+    - Deadlock scenarios
+    - Starvation conditions
+    - Order-dependent outcomes
+
+  content_concise: |
+    ## EDGE CASES
+    - Boundaries: 0, 1, -1, MAX, MIN, empty, single, full
+    - Strings: "", unicode, whitespace, very long
+    - Collections: [], [one], duplicates
+    - Errors: timeout, not found, permission denied
+
+- id: "methodology/tdd/mocking_strategies"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 87
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/mock"]
+  content: |
+    ## TEST DOUBLES: MOCK VS STUB VS FAKE VS SPY
+
+    ### Type Comparison
+    | Type | Purpose | Returns Values | Verifies Calls | Has Real Logic |
+    |------|---------|----------------|----------------|----------------|
+    | **Stub** | Provide fixed responses | Yes (hardcoded) | No | No |
+    | **Mock** | Verify behavior/interactions | Yes (configurable) | Yes | No |
+    | **Fake** | Lightweight working impl | Yes (dynamic) | No | Yes (simplified) |
+    | **Spy** | Observe real behavior | Yes (real or stubbed) | Yes | Yes (wraps real) |
+
+    ### When to Use Each
+
+    **STUB** - When you need fixed responses for isolation:
+    ```go
+    type StubUserRepo struct{}
+    func (s *StubUserRepo) GetUser(id string) *User {
+        return &User{ID: id, Name: "Test User"}
+    }
+    ```
+
+    **MOCK** - When you need to verify specific method calls:
+    ```go
+    mock.ExpectCall("SendEmail").WithArgs("user@test.com").Times(1)
+    ```
+
+    **FAKE** - When you need working implementation without production complexity:
+    ```go
+    type FakeUserRepo struct {
+        users map[string]*User
+    }
+    func (f *FakeUserRepo) Save(u *User) error {
+        f.users[u.ID] = u
+        return nil
+    }
+    ```
+
+    **SPY** - When you need real behavior with observation:
+    ```go
+    type SpyLogger struct {
+        realLogger Logger
+        calls      []string
+    }
+    ```
+
+    ### Decision Framework
+    ```
+    Do you need to verify calls were made? → YES: Mock or Spy
+                                           → NO:  Stub or Fake
+
+    Do you need real behavior? → YES: Fake or Spy
+                               → NO:  Stub or Mock
+    ```
+
+  content_concise: |
+    ## TEST DOUBLES
+    - **Stub**: Fixed responses, no verification
+    - **Mock**: Verifies calls were made
+    - **Fake**: Lightweight real impl (in-memory DB)
+    - **Spy**: Wraps real, records calls
+
+- id: "methodology/tdd/mocking_antipatterns"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 85
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/mock"]
+  content: |
+    ## MOCKING ANTI-PATTERNS
+
+    "Mocking is a code smell" - tests requiring extensive mocking often indicate design problems.
+
+    ### Anti-Pattern 1: Mocking Everything
+    **Problem**: Tests that mock the entire world verify nothing about real behavior.
+    **Solution**: Use real implementations where practical, mock only external boundaries.
+
+    ### Anti-Pattern 2: Brittle Exact-Match Mocks
+    **Problem**: Mocks break when implementation details change.
+    ```go
+    // BAD: Breaks if column order changes
+    mock.ExpectQuery("SELECT id, name, email FROM users WHERE id = ?")
+
+    // BETTER: Flexible matching
+    mock.ExpectQuery("SELECT .* FROM users WHERE")
+    ```
+
+    ### Anti-Pattern 3: Testing Mock Implementation
+    **Problem**: Tests verify mock behavior instead of real code.
+    ```go
+    // BAD: Tests that the mock returns what we told it to return
+    mockService.On("GetUser").Return(user)
+    result := mockService.GetUser()
+    assert.Equal(user, result) // This tests the mock, not our code!
+    ```
+
+    ### Anti-Pattern 4: Flaky Tests from Module Mocking
+    **Problem**: Global module mocking causes test interference.
+    **Solution**: Use dependency injection, not module-level mocking.
+
+    ### The Golden Rule
+    "If your code gets harder to read or maintain when you make it more testable,
+    you're doing TDD wrong."
+
+  content_concise: |
+    ## MOCKING ANTI-PATTERNS
+    - Don't mock everything - tests prove nothing
+    - Don't use exact-match queries - too brittle
+    - Don't test that mock returns what you told it
+    - Use DI, not global module mocking
+
+- id: "methodology/tdd/first_principles"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover", "/verify"]
+  content: |
+    ## FIRST PRINCIPLES OF TEST QUALITY
+
+    The FIRST principles define what makes a good unit test.
+
+    ### F - FAST
+    Tests must run quickly for rapid feedback.
+    - Unit tests: milliseconds
+    - Integration tests: seconds
+    - E2E tests: tens of seconds max
+
+    **How to achieve**: Mock slow dependencies, avoid I/O, parallelize.
+
+    ### I - INDEPENDENT (Isolated)
+    Tests must not depend on each other.
+    - Run in any order
+    - No shared mutable state
+    - Each test creates its own data
+
+    **How to achieve**: Setup/teardown per test, avoid global state.
+
+    ### R - REPEATABLE
+    Tests must produce the same result every time.
+    - Same output regardless of environment
+    - No dependency on time, network, or randomness
+
+    **How to achieve**: Mock time/randomness, use deterministic inputs.
+
+    ### S - SELF-VALIDATING
+    Tests must clearly pass or fail with no manual inspection.
+    - Boolean output: pass or fail
+    - Clear assertions with good error messages
+
+    **How to achieve**: Use assertions, not print statements.
+
+    ### T - TIMELY (or Thorough)
+    Tests should be written at the right time and be comprehensive.
+    - Written before or with production code (TDD)
+    - Cover edge cases and error paths
+
+    **How to achieve**: Practice test-first development.
+
+  content_concise: |
+    ## FIRST Principles
+    - **F**ast: Milliseconds for unit tests
+    - **I**ndependent: No shared state, any order
+    - **R**epeatable: Same result every time
+    - **S**elf-validating: Clear pass/fail
+    - **T**imely: Written with code, not after
+
+- id: "methodology/tdd/coverage_strategies"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 86
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover"]
+  content: |
+    ## COVERAGE STRATEGIES: WHY 100% CAN BE WRONG
+
+    Code coverage is a useful metric but a terrible goal. High coverage without
+    meaningful assertions provides false confidence.
+
+    ### Coverage Types
+    | Type | Measures | Catches |
+    |------|----------|---------|
+    | Line/Statement | Each line executed | Basic dead code |
+    | Branch | Each if/else path | Conditional logic bugs |
+    | Path | All execution paths | Complex interaction bugs |
+    | Condition | All boolean sub-expressions | Complex boolean bugs |
+
+    ### Why 100% Line Coverage Isn't Enough
+    ```go
+    func Divide(a, b int) int {
+        if b != 0 {
+            return a / b
+        }
+        return 0
+    }
+
+    // This test achieves 100% line coverage:
+    func TestDivide(t *testing.T) {
+        result := Divide(10, 2)
+        assert.Equal(t, 5, result)
+    }
+    // But never tests the b == 0 path!
+    // Line coverage: 100%, Branch coverage: 50%
+    ```
+
+    ### Mutation Testing: True Coverage Quality
+    Mutation testing modifies code to see if tests catch the change.
+    - **Killed mutant**: Test detected the change (good)
+    - **Surviving mutant**: Test missed the change (bad)
+
+    ### Recommended Strategy
+    1. Aim for 70-80% line coverage as baseline
+    2. Require 100% branch coverage for critical paths
+    3. Use mutation testing to verify test effectiveness
+    4. Focus on behavior, not coverage numbers
+
+  content_concise: |
+    ## COVERAGE
+    - Line coverage: Necessary but not sufficient
+    - Branch coverage: More meaningful
+    - Mutation testing: Verifies test quality
+    - Target 70-80%, 100% branch for critical paths
+    - Don't chase numbers - test behavior
+
+- id: "methodology/tdd/testing_async_concurrent"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/verify"]
+  content: |
+    ## TESTING ASYNC AND CONCURRENT CODE
+
+    Concurrent code is among the hardest to test. Data races, deadlocks, and timing
+    issues create non-deterministic failures.
+
+    ### Go Race Detector
+    Always run tests with race detection enabled:
+    ```bash
+    go test -race ./...
+    ```
+    Cost: 5-10x memory, 2-20x execution time
+    Benefit: Catches data races that would be nightmares in production
+
+    ### Common Data Race Patterns (Uber's study of 1100+ races)
+    1. **Closure variable capture**: Goroutines capturing loop variables
+    2. **Unsafe map access**: Concurrent read/write to maps
+    3. **Shared state modification**: Multiple goroutines modifying same variable
+    4. **Channel close races**: Closing channels that may still be written to
+
+    ### Testing Strategies for Concurrent Code
+
+    **Use sync.WaitGroup for synchronization**
+    ```go
+    func TestConcurrentOperation(t *testing.T) {
+        var wg sync.WaitGroup
+        results := make(chan int, 10)
+
+        for i := 0; i < 10; i++ {
+            wg.Add(1)
+            go func(n int) {
+                defer wg.Done()
+                results <- process(n)
+            }(i)
+        }
+
+        wg.Wait()
+        close(results)
+    }
+    ```
+
+    **Use channels for coordination**
+    ```go
+    func TestWithTimeout(t *testing.T) {
+        done := make(chan struct{})
+        go func() {
+            // operation under test
+            close(done)
+        }()
+
+        select {
+        case <-done:
+            // success
+        case <-time.After(5 * time.Second):
+            t.Fatal("timeout waiting for operation")
+        }
+    }
+    ```
+
+  content_concise: |
+    ## CONCURRENT TESTING
+    - Always use `go test -race`
+    - Use sync.WaitGroup for coordination
+    - Use channels with timeouts
+    - Test with `-shuffle=on` for order independence
+
+- id: "methodology/tdd/test_isolation_flaky"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 89
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test"]
+  content: |
+    ## TEST ISOLATION AND FLAKY TEST PREVENTION
+
+    A flaky test is non-deterministic: it can pass or fail for the same code.
+    Flaky tests destroy trust in the test suite.
+
+    ### Root Causes of Flaky Tests (Research Data)
+    - Async Wait issues: 45%
+    - Concurrency: 20%
+    - Test Order Dependency: 12%
+    - Other (time, randomness, external): 23%
+
+    ### Prevention Strategies
+
+    **1. Ensure Test Isolation**
+    ```go
+    // WRONG: Global state pollution
+    var testUser *User  // Shared between tests!
+
+    // CORRECT: Each test independent
+    func TestCreate(t *testing.T) {
+        user := CreateUser()  // Own setup
+        assert.NotNil(t, user)
+    }
+    ```
+
+    **2. Use t.Cleanup for Teardown**
+    ```go
+    func TestWithTempFile(t *testing.T) {
+        f, err := os.CreateTemp("", "test")
+        require.NoError(t, err)
+
+        t.Cleanup(func() {
+            os.Remove(f.Name())  // Always runs, even on failure
+        })
+    }
+    ```
+
+    **3. Mock Time-Dependent Operations**
+    ```go
+    // WRONG: Flaky on slow CI
+    if time.Since(start) > 100*time.Millisecond {
+        t.Error("too slow")  // Flaky!
+    }
+
+    // CORRECT: Mock the clock
+    clock := NewMockClock()
+    clock.Advance(100 * time.Millisecond)
+    ```
+
+    **4. Run Tests with -shuffle**
+    ```bash
+    go test -shuffle=on ./...
+    ```
+
+  content_concise: |
+    ## FLAKY TEST PREVENTION
+    - No global state between tests
+    - Use t.Cleanup for teardown
+    - Mock time and randomness
+    - Run with -shuffle to catch order dependencies
+
+- id: "methodology/tdd/error_path_testing"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 87
+  is_mandatory: true
+  shard_types: ["/tester"]
+  intent_verbs: ["/test", "/cover"]
+  content: |
+    ## TESTING ERROR PATHS AND EXCEPTION HANDLING
+
+    Happy path tests prove code works; error path tests prove code is robust.
+    Every happy path needs at least one corresponding sad path.
+
+    ### Error Path Categories
+    1. **Input validation errors**: Invalid/malformed input
+    2. **Resource errors**: File not found, permission denied, network timeout
+    3. **State errors**: Invalid state transitions, concurrent modification
+    4. **External service errors**: API failures, rate limits, timeouts
+    5. **Overflow/underflow**: Numeric limits exceeded
+    6. **Security errors**: Authentication/authorization failures
+
+    ### Testing Pattern: Error Injection
+    ```go
+    func TestServiceWithDatabaseError(t *testing.T) {
+        mockDB := &MockDB{
+            GetUserFunc: func(id string) (*User, error) {
+                return nil, errors.New("connection refused")
+            },
+        }
+
+        svc := NewService(mockDB)
+        _, err := svc.GetUser("123")
+
+        require.Error(t, err)
+        assert.Contains(t, err.Error(), "connection refused")
+    }
+    ```
+
+    ### Error Handling Test Checklist
+    - [ ] Error is returned/propagated correctly
+    - [ ] Error message is informative
+    - [ ] Error type is appropriate
+    - [ ] Resources are cleaned up on error
+    - [ ] Partial state is not left corrupted
+    - [ ] Error is logged appropriately
+    - [ ] User-facing message is safe (no sensitive data)
+
+    ### Table-Driven Error Tests
+    ```go
+    tests := map[string]struct {
+        input   string
+        wantErr string
+    }{
+        "empty string":     {input: "", wantErr: "input required"},
+        "too long":         {input: strings.Repeat("a", 1001), wantErr: "exceeds maximum"},
+        "invalid chars":    {input: "abc<script>", wantErr: "invalid characters"},
+    }
+    ```
+
+  content_concise: |
+    ## ERROR PATH TESTING
+    - Test every error return path
+    - Use error injection with mocks
+    - Verify cleanup on error
+    - Include wantErr in table-driven tests

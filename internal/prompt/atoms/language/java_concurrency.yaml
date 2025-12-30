@@ -1,0 +1,437 @@
+# Java Concurrency - Encyclopedic Reference
+# Comprehensive guidance for threads, ExecutorService, CompletableFuture, synchronization
+
+- id: "language/java/concurrency/executor_service"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## EXECUTORSERVICE PATTERNS
+
+    ### Choosing the Right Executor
+    | Executor | Use Case |
+    |----------|----------|
+    | `newFixedThreadPool(n)` | CPU-bound work, known parallelism |
+    | `newCachedThreadPool()` | Short-lived I/O tasks (can grow unbounded!) |
+    | `newSingleThreadExecutor()` | Sequential task execution |
+    | `newVirtualThreadPerTaskExecutor()` | High-concurrency I/O (Java 21+) |
+    | `newScheduledThreadPool(n)` | Delayed/periodic tasks |
+
+    ### Basic Usage
+    ```java
+    // CPU-bound - use processor count
+    ExecutorService cpuPool = Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors()
+    );
+
+    // I/O-bound - use virtual threads (Java 21+)
+    ExecutorService ioPool = Executors.newVirtualThreadPerTaskExecutor();
+
+    // Submit tasks
+    Future<String> future = executor.submit(() -> {
+        return expensiveOperation();
+    });
+
+    // Get result (blocks)
+    String result = future.get();
+    String result = future.get(5, TimeUnit.SECONDS);  // With timeout
+    ```
+
+    ### Proper Shutdown Pattern
+    ```java
+    ExecutorService executor = Executors.newFixedThreadPool(10);
+    try {
+        // Submit tasks...
+        executor.submit(() -> doWork());
+    } finally {
+        executor.shutdown();  // Initiate orderly shutdown
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                executor.shutdownNow();  // Force shutdown
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    System.err.println("Executor did not terminate");
+                }
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+    ```
+
+    ### Try-With-Resources (Java 19+)
+    ```java
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        executor.submit(() -> task1());
+        executor.submit(() -> task2());
+    }  // Automatically calls shutdown() and awaitTermination()
+    ```
+
+    ### Invoke All/Any
+    ```java
+    List<Callable<String>> tasks = List.of(
+        () -> fetchFromSource1(),
+        () -> fetchFromSource2(),
+        () -> fetchFromSource3()
+    );
+
+    // Wait for ALL to complete
+    List<Future<String>> results = executor.invokeAll(tasks);
+
+    // Wait for FIRST to complete
+    String firstResult = executor.invokeAny(tasks);
+    ```
+
+  content_concise: |
+    ## ExecutorService
+    - `newFixedThreadPool(n)` for CPU-bound
+    - `newVirtualThreadPerTaskExecutor()` for I/O (Java 21+)
+    - Always `shutdown()` in finally block
+    - Java 19+: try-with-resources for auto-shutdown
+
+- id: "language/java/concurrency/completable_future"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## COMPLETABLEFUTURE PATTERNS
+
+    ### Basic Async Execution
+    ```java
+    // Always specify executor for control
+    CompletableFuture<String> future = CompletableFuture.supplyAsync(
+        () -> fetchData(),
+        customExecutor
+    );
+
+    // Chain transformations
+    CompletableFuture<Integer> result = CompletableFuture
+        .supplyAsync(() -> fetchUser(), executor)
+        .thenApply(user -> user.getOrders())      // Sync transformation
+        .thenApplyAsync(orders -> orders.size()); // Async transformation
+    ```
+
+    ### Combining Futures
+    ```java
+    CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> "Hello");
+    CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> "World");
+
+    // Combine two futures
+    CompletableFuture<String> combined = f1
+        .thenCombine(f2, (s1, s2) -> s1 + " " + s2);
+
+    // Wait for all
+    CompletableFuture<Void> all = CompletableFuture.allOf(f1, f2);
+
+    // Wait for any (first to complete)
+    CompletableFuture<Object> any = CompletableFuture.anyOf(f1, f2);
+    ```
+
+    ### Error Handling
+    ```java
+    CompletableFuture<String> withFallback = CompletableFuture
+        .supplyAsync(() -> riskyOperation())
+        // exceptionally - handle error, return fallback
+        .exceptionally(ex -> {
+            log.error("Failed", ex);
+            return "fallback value";
+        });
+
+    // handle - process both success and failure
+    CompletableFuture<String> handled = future
+        .handle((result, ex) -> {
+            if (ex != null) {
+                return "error: " + ex.getMessage();
+            }
+            return "success: " + result;
+        });
+
+    // whenComplete - side effects only (doesn't transform)
+    future.whenComplete((result, ex) -> {
+        if (ex != null) {
+            log.error("Failed", ex);
+        } else {
+            log.info("Completed: {}", result);
+        }
+    });
+    ```
+
+    ### Timeout (Java 9+)
+    ```java
+    CompletableFuture<String> withTimeout = future
+        .orTimeout(5, TimeUnit.SECONDS)
+        .exceptionally(ex -> "timeout fallback");
+
+    // Complete with default value on timeout
+    CompletableFuture<String> withDefault = future
+        .completeOnTimeout("default", 5, TimeUnit.SECONDS);
+    ```
+
+    ### Composition Patterns
+    ```java
+    // Sequential async operations
+    CompletableFuture<Order> orderFuture = CompletableFuture
+        .supplyAsync(() -> findUser(userId))
+        .thenCompose(user -> findOrders(user))  // flatMap equivalent
+        .thenCompose(orders -> processOrder(orders.get(0)));
+
+    // Parallel then combine
+    CompletableFuture<UserData> userData = CompletableFuture
+        .supplyAsync(() -> fetchUser(userId))
+        .thenCombine(
+            CompletableFuture.supplyAsync(() -> fetchOrders(userId)),
+            (user, orders) -> new UserData(user, orders)
+        );
+    ```
+
+  content_concise: |
+    ## CompletableFuture
+    - `supplyAsync(() -> ..., executor)` - always specify executor
+    - `thenApply` (map), `thenCompose` (flatMap)
+    - `thenCombine` - combine two futures
+    - `exceptionally`, `handle` - error handling
+    - `orTimeout` (Java 9+) - fail on timeout
+
+- id: "language/java/concurrency/synchronization"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## SYNCHRONIZATION PATTERNS
+
+    ### When to Use What
+    | Scenario | Use |
+    |----------|-----|
+    | Simple critical section | `synchronized` |
+    | Timed/interruptible locks | `ReentrantLock` |
+    | Fairness guarantee | `ReentrantLock(true)` |
+    | Single variable atomic updates | `Atomic*` classes |
+    | Read-heavy scenarios | `ReadWriteLock` |
+    | Virtual threads | `ReentrantLock` (avoid synchronized) |
+
+    ### synchronized Keyword
+    ```java
+    // Method-level
+    public synchronized void increment() {
+        count++;
+    }
+
+    // Block-level (preferred - finer control)
+    public void update() {
+        synchronized (lock) {
+            // Critical section
+        }
+    }
+
+    // NEVER synchronize on null or changing reference
+    private final Object lock = new Object();  // Use final!
+    ```
+
+    ### ReentrantLock
+    ```java
+    private final ReentrantLock lock = new ReentrantLock();
+
+    public void update() {
+        lock.lock();
+        try {
+            // Critical section
+        } finally {
+            lock.unlock();  // ALWAYS in finally!
+        }
+    }
+
+    // Timed lock attempt
+    public boolean tryUpdate(long timeout) throws InterruptedException {
+        if (lock.tryLock(timeout, TimeUnit.MILLISECONDS)) {
+            try {
+                // Critical section
+                return true;
+            } finally {
+                lock.unlock();
+            }
+        }
+        return false;
+    }
+
+    // Interruptible lock
+    public void interruptibleUpdate() throws InterruptedException {
+        lock.lockInterruptibly();
+        try {
+            // Critical section
+        } finally {
+            lock.unlock();
+        }
+    }
+    ```
+
+    ### ReadWriteLock
+    ```java
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final Lock readLock = rwLock.readLock();
+    private final Lock writeLock = rwLock.writeLock();
+
+    public String read() {
+        readLock.lock();
+        try {
+            return data;  // Multiple readers OK
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public void write(String newData) {
+        writeLock.lock();
+        try {
+            data = newData;  // Exclusive access
+        } finally {
+            writeLock.unlock();
+        }
+    }
+    ```
+
+    ### Atomic Classes
+    ```java
+    private final AtomicInteger counter = new AtomicInteger(0);
+
+    public int incrementAndGet() {
+        return counter.incrementAndGet();
+    }
+
+    public void addIfPositive(int delta) {
+        counter.updateAndGet(current ->
+            delta > 0 ? current + delta : current
+        );
+    }
+
+    // AtomicReference for objects
+    private final AtomicReference<State> state =
+        new AtomicReference<>(State.INITIAL);
+
+    public boolean transition(State expected, State next) {
+        return state.compareAndSet(expected, next);
+    }
+    ```
+
+    ### volatile Keyword
+    ```java
+    // Visibility only - NOT atomicity
+    private volatile boolean running = true;
+
+    public void stop() {
+        running = false;  // Visible to all threads
+    }
+
+    public void run() {
+        while (running) {  // Reads latest value
+            doWork();
+        }
+    }
+    ```
+
+  content_concise: |
+    ## Synchronization
+    - `synchronized` - simple critical sections
+    - `ReentrantLock` - timed/interruptible, virtual threads
+    - `ReadWriteLock` - multiple readers OR one writer
+    - `Atomic*` - lock-free single variable updates
+    - `volatile` - visibility only, NOT atomicity
+
+- id: "language/java/concurrency/concurrent_collections"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## CONCURRENT COLLECTIONS
+
+    ### ConcurrentHashMap Patterns
+    ```java
+    ConcurrentHashMap<String, Integer> map = new ConcurrentHashMap<>();
+
+    // WRONG - race condition
+    if (!map.containsKey(key)) {
+        map.put(key, value);  // Another thread might put between check and put!
+    }
+
+    // CORRECT - atomic putIfAbsent
+    map.putIfAbsent(key, value);
+
+    // CORRECT - atomic computeIfAbsent (lazy initialization)
+    map.computeIfAbsent(key, k -> expensiveComputation(k));
+
+    // CORRECT - atomic compute for update
+    map.compute(key, (k, v) -> v == null ? 1 : v + 1);
+
+    // CORRECT - atomic merge (increment or initialize)
+    map.merge(key, 1, Integer::sum);
+    ```
+
+    ### Bulk Operations
+    ```java
+    // Parallel forEach (parallelism threshold = 10000)
+    map.forEach(10000, (k, v) -> process(k, v));
+
+    // Parallel reduce
+    long sum = map.reduceValuesToLong(
+        10000,           // Parallelism threshold
+        v -> v,          // Transformer
+        0L,              // Identity
+        Long::sum        // Reducer
+    );
+
+    // Search (returns first match or null)
+    String found = map.search(10000, (k, v) ->
+        v > 100 ? k : null
+    );
+    ```
+
+    ### Other Concurrent Collections
+    ```java
+    // Thread-safe queue
+    ConcurrentLinkedQueue<Task> queue = new ConcurrentLinkedQueue<>();
+    queue.offer(task);
+    Task task = queue.poll();
+
+    // Blocking queue (producer-consumer)
+    BlockingQueue<Task> blockingQueue = new LinkedBlockingQueue<>(100);
+    blockingQueue.put(task);    // Blocks if full
+    Task task = blockingQueue.take();  // Blocks if empty
+
+    // Copy-on-write (read-heavy, rare writes)
+    CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
+    listeners.add(listener);  // Copies entire array
+    // Iteration never throws ConcurrentModificationException
+    ```
+
+    ### Thread-Safe Collection Wrappers
+    ```java
+    // Synchronized wrappers (legacy - prefer concurrent collections)
+    List<String> syncList = Collections.synchronizedList(new ArrayList<>());
+    Map<String, String> syncMap = Collections.synchronizedMap(new HashMap<>());
+
+    // Iteration requires manual synchronization!
+    synchronized (syncList) {
+        for (String s : syncList) {
+            process(s);
+        }
+    }
+    ```
+
+  content_concise: |
+    ## Concurrent Collections
+    - `ConcurrentHashMap` - atomic ops: `putIfAbsent`, `computeIfAbsent`, `merge`
+    - Never check-then-act, use atomic methods
+    - `BlockingQueue` for producer-consumer
+    - `CopyOnWriteArrayList` for read-heavy, rare writes
+

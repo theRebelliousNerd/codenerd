@@ -1,0 +1,473 @@
+# Java Modern Features - Encyclopedic Reference
+# Comprehensive guidance for Records, Sealed Classes, Pattern Matching, Text Blocks (Java 17-21+)
+
+- id: "language/java/modern/records"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## RECORDS (Java 16+)
+
+    Immutable data carriers that auto-generate constructor, getters, equals(), hashCode(), toString().
+
+    ### When to Use
+    - Data Transfer Objects (DTOs)
+    - Value objects in Domain-Driven Design
+    - Return types for multiple values
+    - HashMap/HashSet keys (naturally immutable)
+
+    ### Basic Syntax
+    ```java
+    // Simple record - generates everything
+    public record Point(int x, int y) {}
+
+    // Usage
+    Point p = new Point(1, 2);
+    int x = p.x();  // Component accessor (no "get" prefix!)
+    System.out.println(p);  // Point[x=1, y=2]
+    ```
+
+    ### Compact Constructor for Validation
+    ```java
+    public record User(String name, String email) {
+        public User {  // Compact constructor - no parentheses
+            Objects.requireNonNull(name, "name cannot be null");
+            Objects.requireNonNull(email, "email cannot be null");
+            if (!email.contains("@")) {
+                throw new IllegalArgumentException("Invalid email");
+            }
+            // Parameters assigned automatically after this block
+        }
+    }
+    ```
+
+    ### Records with Methods
+    ```java
+    public record Range(int start, int end) {
+        public int length() {
+            return end - start;
+        }
+
+        public boolean contains(int value) {
+            return value >= start && value < end;
+        }
+
+        // Static factory method
+        public static Range of(int start, int end) {
+            return new Range(start, end);
+        }
+    }
+    ```
+
+    ### Records Can Implement Interfaces
+    ```java
+    public sealed interface Shape permits Circle, Rectangle {}
+
+    public record Circle(double radius) implements Shape {
+        public double area() {
+            return Math.PI * radius * radius;
+        }
+    }
+
+    public record Rectangle(double width, double height) implements Shape {
+        public double area() {
+            return width * height;
+        }
+    }
+    ```
+
+    ### Limitations
+    - Cannot extend other classes (implicitly extend Record)
+    - All fields are final (no setters possible)
+    - Cannot have instance fields beyond components
+    - Can have static fields and methods
+
+  content_concise: |
+    ## Records (Java 16+)
+    - `record Point(int x, int y) {}` - immutable data carrier
+    - Auto-generates constructor, `equals()`, `hashCode()`, `toString()`
+    - Compact constructor for validation: `public User { /* validate */ }`
+    - Can have methods and implement interfaces
+
+- id: "language/java/modern/sealed_classes"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## SEALED CLASSES (Java 17+)
+
+    Restrict which classes can extend/implement a type, enabling exhaustive pattern matching.
+
+    ### Syntax
+    ```java
+    // Sealed interface - explicitly permits implementations
+    public sealed interface Shape
+        permits Circle, Rectangle, Triangle {
+    }
+
+    // Final - cannot be extended further
+    public final class Circle implements Shape {
+        private final double radius;
+        public Circle(double radius) { this.radius = radius; }
+        public double radius() { return radius; }
+    }
+
+    // Final implementation
+    public final class Rectangle implements Shape {
+        private final double width, height;
+        public Rectangle(double width, double height) {
+            this.width = width;
+            this.height = height;
+        }
+    }
+
+    // Non-sealed - allows further extension (breaks exhaustiveness)
+    public non-sealed class Triangle implements Shape {
+        // Can be extended by anyone
+    }
+    ```
+
+    ### Exhaustive Pattern Matching
+    ```java
+    // No default needed - compiler knows all subtypes
+    public double area(Shape shape) {
+        return switch (shape) {
+            case Circle c -> Math.PI * c.radius() * c.radius();
+            case Rectangle r -> r.width() * r.height();
+            case Triangle t -> calculateTriangleArea(t);
+        };
+    }
+    ```
+
+    ### Best Practices
+    - Make permitted subclasses `final` when possible
+    - Use with pattern matching for type-safe exhaustive handling
+    - Ideal for representing algebraic data types
+
+  content_concise: |
+    ## Sealed Classes (Java 17+)
+    - `sealed interface X permits A, B` - restrict implementations
+    - `final class A` - cannot be extended
+    - `non-sealed class B` - allows further extension
+    - Enables exhaustive switch without default
+
+- id: "language/java/modern/pattern_matching"
+  category: "language"
+  subcategory: "java"
+  priority: 92
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## PATTERN MATCHING (Java 16-21+)
+
+    ### instanceof Pattern Matching (Java 16+)
+    ```java
+    // OLD - redundant cast
+    if (obj instanceof String) {
+        String s = (String) obj;  // Redundant
+        System.out.println(s.length());
+    }
+
+    // NEW - pattern variable
+    if (obj instanceof String s) {
+        System.out.println(s.length());  // s already cast
+    }
+
+    // With negation
+    if (!(obj instanceof String s)) {
+        return;
+    }
+    // s is in scope here
+    ```
+
+    ### Switch Expressions (Java 14+)
+    ```java
+    // Arrow syntax - no fall-through
+    String result = switch (day) {
+        case MONDAY, FRIDAY, SUNDAY -> "relaxed";
+        case TUESDAY -> "productive";
+        case THURSDAY, SATURDAY -> "moderate";
+        case WEDNESDAY -> {
+            String msg = computeMessage();
+            yield msg;  // yield for multi-statement blocks
+        }
+    };
+    ```
+
+    ### Pattern Matching in Switch (Java 21+)
+    ```java
+    String describe(Object obj) {
+        return switch (obj) {
+            case null -> "null value";
+            case Integer i when i < 0 -> "negative: " + i;
+            case Integer i when i == 0 -> "zero";
+            case Integer i -> "positive: " + i;
+            case String s when s.isEmpty() -> "empty string";
+            case String s -> "string length " + s.length();
+            case int[] arr -> "int array length " + arr.length;
+            default -> "unknown type";
+        };
+    }
+    ```
+
+    ### Record Patterns (Java 21+)
+    ```java
+    record Point(int x, int y) {}
+    record ColoredPoint(Point p, String color) {}
+
+    // Nested deconstruction
+    void printColoredPoint(Object obj) {
+        if (obj instanceof ColoredPoint(Point(var x, var y), var color)) {
+            System.out.println("x=" + x + ", y=" + y + ", color=" + color);
+        }
+    }
+
+    // In switch
+    String format(Object obj) {
+        return switch (obj) {
+            case ColoredPoint(Point(int x, int y), String c)
+                -> "Point at (%d, %d) in %s".formatted(x, y, c);
+            case Point(int x, int y)
+                -> "Point at (%d, %d)".formatted(x, y);
+            default -> obj.toString();
+        };
+    }
+    ```
+
+    ### Guards with `when` Clause
+    ```java
+    String classify(Integer num) {
+        return switch (num) {
+            case Integer i when i < 0 -> "negative";
+            case Integer i when i == 0 -> "zero";
+            case Integer i when i > 0 && i <= 100 -> "small positive";
+            case Integer i -> "large positive";
+        };
+    }
+    ```
+
+  content_concise: |
+    ## Pattern Matching
+    - `instanceof String s` - pattern variable, no cast needed
+    - Switch expressions with `->` - no fall-through, yield for blocks
+    - `case X when condition ->` - guarded patterns (Java 21+)
+    - Record patterns: `case Point(int x, int y) ->`
+
+- id: "language/java/modern/text_blocks"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## TEXT BLOCKS (Java 15+)
+
+    Multi-line string literals with preserved formatting.
+
+    ### Basic Syntax
+    ```java
+    String json = """
+        {
+            "name": "John",
+            "age": 30,
+            "active": true
+        }
+        """;
+    // Opening """ must be followed by newline
+    // Closing """ placement affects trailing newline
+    ```
+
+    ### Variable Interpolation
+    ```java
+    // CORRECT - use formatted()
+    String name = "John";
+    int age = 30;
+    String json = """
+        {
+            "name": "%s",
+            "age": %d
+        }
+        """.formatted(name, age);
+
+    // WRONG - don't use concatenation
+    String bad = """
+        Hello """ + name;  // Awkward
+    ```
+
+    ### Special Escapes
+    ```java
+    // Line continuation (no newline in output)
+    String singleLine = """
+        This is a very long line that \
+        continues without a newline\
+        """;
+
+    // Trailing whitespace preservation
+    String withTrailing = """
+        line with trailing spaces   \s
+        """;
+    ```
+
+    ### Indentation Rules
+    - Incidental indentation (common to all lines) is stripped
+    - Position of closing `"""` affects stripping
+    - Use `.indent(n)` to add/remove indentation programmatically
+
+  content_concise: |
+    ## Text Blocks (Java 15+)
+    - Triple quotes `"""` for multi-line strings
+    - Use `.formatted()` for interpolation
+    - `\` at line end = no newline
+    - `\s` preserves trailing whitespace
+
+- id: "language/java/modern/var_keyword"
+  category: "language"
+  subcategory: "java"
+  priority: 75
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## VAR KEYWORD (Java 10+)
+
+    Local variable type inference for cleaner code.
+
+    ### When to Use
+    ```java
+    // Type obvious from RHS
+    var list = new ArrayList<String>();
+    var map = new HashMap<String, List<Customer>>();
+
+    // Try-with-resources
+    try (var reader = new BufferedReader(new FileReader(path))) {
+        return reader.readLine();
+    }
+
+    // For-each loops
+    for (var entry : map.entrySet()) {
+        process(entry.getKey(), entry.getValue());
+    }
+    ```
+
+    ### When to AVOID
+    ```java
+    // Type not obvious
+    var result = service.process(data);  // What type is result?
+
+    // Diamond operator without type hint
+    var list = new ArrayList<>();  // Infers ArrayList<Object>!
+
+    // Primitive types where clarity matters
+    var count = 0;  // int, but less clear
+    ```
+
+    ### Key Rules
+    - `var` is NOT a keyword - it's a reserved type name
+    - Must be initialized at declaration
+    - Only for local variables (not fields, parameters, returns)
+    - `final var` is allowed for immutable locals
+    - Compile-time only - no runtime overhead
+
+  content_concise: |
+    ## var (Java 10+)
+    - Use when type obvious: `var list = new ArrayList<String>();`
+    - Avoid when unclear: `var x = service.call();`
+    - Cannot use with diamond: `var list = new ArrayList<>();` → Object
+    - Local variables only, not fields/parameters
+
+- id: "language/java/modern/virtual_threads"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## VIRTUAL THREADS (Java 21+)
+
+    Lightweight threads managed by JVM for massive concurrency.
+
+    ### When to Use
+    - I/O-bound operations (network, file, database)
+    - High-concurrency scenarios (10,000+ concurrent tasks)
+    - Simple blocking operations at scale
+
+    ### When NOT to Use
+    - CPU-intensive computations (no benefit)
+    - Operations requiring thread-local state
+    - Code using synchronized blocks extensively (pinning)
+
+    ### Basic Usage
+    ```java
+    // Create virtual thread directly
+    Thread vThread = Thread.ofVirtual().start(() -> {
+        String result = fetchFromNetwork();
+        processResult(result);
+    });
+
+    // Named virtual thread
+    Thread.ofVirtual()
+        .name("worker-", 0)
+        .start(() -> doWork());
+    ```
+
+    ### Virtual Thread Executor (Preferred)
+    ```java
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        List<Future<String>> futures = urls.stream()
+            .map(url -> executor.submit(() -> fetch(url)))
+            .toList();
+
+        for (var future : futures) {
+            String result = future.get();
+            process(result);
+        }
+    }  // Auto-shutdown
+    ```
+
+    ### Structured Concurrency (Preview)
+    ```java
+    try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        Future<User> user = scope.fork(() -> fetchUser(userId));
+        Future<List<Order>> orders = scope.fork(() -> fetchOrders(userId));
+
+        scope.join();           // Wait for all
+        scope.throwIfFailed();  // Propagate exceptions
+
+        return new UserData(user.resultNow(), orders.resultNow());
+    }
+    ```
+
+    ### Avoid Pinning
+    ```java
+    // WRONG - synchronized pins virtual thread to carrier
+    synchronized (lock) {
+        blockingOperation();  // Virtual thread pinned!
+    }
+
+    // CORRECT - use ReentrantLock
+    private final ReentrantLock lock = new ReentrantLock();
+
+    lock.lock();
+    try {
+        blockingOperation();  // No pinning
+    } finally {
+        lock.unlock();
+    }
+    ```
+
+  content_concise: |
+    ## Virtual Threads (Java 21+)
+    - `Executors.newVirtualThreadPerTaskExecutor()` - preferred
+    - Use for I/O-bound work, NOT CPU-intensive
+    - Avoid `synchronized` (causes pinning) - use `ReentrantLock`
+    - Auto-shutdown with try-with-resources
+
