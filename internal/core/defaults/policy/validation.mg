@@ -87,7 +87,7 @@ block_action(/validation_pending) :-
 # Block actions if previous action awaiting self-healing
 block_action(/awaiting_healing) :-
     needs_self_healing(ActionID, HealingType),
-    HealingType != /escalate.
+    /escalate != HealingType.
 
 # =============================================================================
 # SECTION 5: VALIDATION METRICS

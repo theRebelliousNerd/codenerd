@@ -141,9 +141,8 @@ orphan_edge(From, To) :-
 # =============================================================================
 
 # Average degree of nodes
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 avg_degree(Avg) :-
     edge_count_by_source(_, Count) |>
     do fn:group_by(),
-    let Total = fn:sum(Count),
-    let Num = fn:count() |>
-    let Avg = fn:divide(Total, Num).
+    let Avg = fn:avg(Count).

@@ -128,20 +128,18 @@ sales_by_region_product(Region, Product, Total, Count) :-
 # =============================================================================
 
 # Average sale amount
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 average_sale(Avg) :-
     sale(_, _, Amount, _) |>
     do fn:group_by(),
-    let Total = fn:sum(Amount),
-    let Count = fn:count() |>
-    let Avg = fn:divide(Total, Count).
+    let Avg = fn:avg(Amount).
 
 # Average salary by department
+# NOTE: Use fn:avg() directly - it's a built-in reducer
 avg_salary_by_dept(Dept, Avg) :-
     employee(_, _, Dept, Salary) |>
     do fn:group_by(Dept),
-    let Total = fn:sum(Salary),
-    let Count = fn:count() |>
-    let Avg = fn:divide(Total, Count).
+    let Avg = fn:avg(Salary).
 
 # =============================================================================
 # PATTERN 6: Filtering Before Aggregation
@@ -200,9 +198,7 @@ region_sale_count(Region, Count) :-
 avg_sales_per_region(Avg) :-
     region_sale_count(_, Count) |>
     do fn:group_by(),
-    let Total = fn:sum(Count),
-    let Num = fn:count() |>
-    let Avg = fn:divide(Total, Num).
+    let Avg = fn:avg(Count).
 
 # =============================================================================
 # PATTERN 9: Conditional Aggregation
@@ -221,10 +217,11 @@ region_sale_totals(Region, Total) :-
     do fn:group_by(Region),
     let Total = fn:count().
 
+# Ratio requires division - use fn:div (integer) or fn:float:div (float)
 large_sale_ratio(Region, Ratio) :-
     large_sale_count(Region, Large),
     region_sale_totals(Region, Total) |>
-    let Ratio = fn:divide(Large, Total).
+    let Ratio = fn:div(Large, Total).
 
 # =============================================================================
 # PATTERN 10: Existence Checks with Aggregation

@@ -93,8 +93,8 @@ class MangleValidator:
         'decl': re.compile(r'^\s*Decl\s+([a-z][a-z0-9_]*)\s*\(', re.MULTILINE),
         'rule_arrow': re.compile(r':-|<-|⟸'),
         'pipeline': re.compile(r'\|>'),
-        'fn_call': re.compile(r'fn:([a-zA-Z_][a-zA-Z0-9_:]*)'),
-        'builtin_pred': re.compile(r':([a-z][a-z0-9_:]*)\('),
+        'fn_call': re.compile(r'fn:([a-zA-Z_][a-zA-Z0-9_]*)'),
+        'builtin_pred': re.compile(r':([a-z][a-z0-9_]*)\('),
         'negation': re.compile(r'[!]\s*([a-z][a-z0-9_]*)\s*\('),
         'type_expr': re.compile(r'\.Type<([^>]+)>'),
         'list': re.compile(r'\[(?:[^\[\]]|\[[^\]]*\])*\]'),
@@ -104,35 +104,29 @@ class MangleValidator:
     # Known built-in functions (v0.4.0)
     BUILTIN_FUNCTIONS = {
         # Aggregation
-        'count', 'count_distinct', 'sum', 'min', 'max', 'avg',
-        'collect', 'collect_distinct', 'collect_to_map', 'pick_any',
-        'float:sum', 'float:min', 'float:max',
+        'Count', 'Sum', 'Min', 'Max', 'Avg', 'Collect',
         # Grouping
         'group_by',
         # Arithmetic
-        'plus', 'minus', 'mult', 'div', 'sqrt',
-        'float:plus', 'float:mult', 'float:div',
+        'plus', 'minus', 'multiply', 'divide', 'modulo', 'negate', 'abs',
+        # Comparison
+        'eq', 'ne', 'lt', 'le', 'gt', 'ge',
         # List operations
-        'list', 'list:append', 'list:get', 'list:contains', 'list:len', 'list:cons',
+        'list', 'cons', 'list:get', 'list:length', 'list:append', 'list:contains',
         # Map/Struct operations
-        'map', 'map:get', 'struct', 'struct:get', 'pair', 'tuple',
+        'map', 'struct', 'pair', 'tuple',
         # String operations
-        'string:concat', 'string:replace',
+        'string_concat', 'string_length', 'string_contains', 'string:split',
         # Type constructors
-        'Fun', 'Rel', 'Singleton', 'Pair', 'Tuple', 'Option', 'List', 'Map', 'Struct', 'Union', 'opt',
-        # Misc constructors
-        'some',
-        # Conversions and name helpers
-        'number:to_string', 'float64:to_string', 'name:to_string',
-        'name:root', 'name:tip', 'name:list',
+        'Singleton', 'Union', 'Pair', 'List', 'Map', 'Struct',
+        # Misc
+        'filter',
     }
 
     # Known built-in predicates
     BUILTIN_PREDICATES = {
-        'match_prefix', 'match_pair', 'match_cons', 'match_nil', 'match_entry', 'match_field',
-        'string:starts_with', 'string:ends_with', 'string:contains',
-        'list:member', 'within_distance', 'filter',
-        'lt', 'le', 'gt', 'ge',
+        'match_cons', 'match_nil', 'match_field', 'match_entry',
+        'list:member', 'string:contains',
     }
 
     # Patterns for type inference
