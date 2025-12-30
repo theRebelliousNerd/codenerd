@@ -1,16 +1,18 @@
 package campaign
 
 import (
-	"codenerd/internal/core"
-	"codenerd/internal/logging"
-	"codenerd/internal/session"
-	"codenerd/internal/tactile"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"codenerd/internal/core"
+	"codenerd/internal/logging"
+	"codenerd/internal/session"
+	"codenerd/internal/tactile"
 )
 
 // spawnTask is the unified entry point for task execution.
@@ -187,6 +189,18 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 // executeFileTaskFallback uses direct LLM when shard is unavailable.
 func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
 	logging.CampaignDebug("Executing file task fallback for %s via direct LLM", task.ID)
+
+	// If no target path, try to extract from task description or fail
+	if targetPath == "" {
+		// Try to extract path from description (look for common patterns)
+		targetPath = extractPathFromDescription(task.Description)
+		if targetPath == "" {
+			logging.Get(logging.CategoryCampaign).Error("No target path for file task %s and could not extract from description", task.ID)
+			return nil, fmt.Errorf("no target path specified for file task %s", task.ID)
+		}
+		logging.CampaignDebug("Extracted target path from description: %s", targetPath)
+	}
+
 	prompt := fmt.Sprintf(`Generate the following file:
 Task: %s
 Target Path: %s
@@ -557,4 +571,37 @@ func getLangFromPath(path string) string {
 	default:
 		return ext
 	}
+}
+
+// extractPathFromDescription attempts to extract a file path from a task description.
+// Looks for common patterns like "Create internal/domain/foo.go" or "file: path/to/file.go"
+func extractPathFromDescription(desc string) string {
+	// Common path patterns in task descriptions
+	patterns := []string{
+		`(?i)create\s+(\S+\.\w+)`,           // "Create internal/domain/foo.go"
+		`(?i)file[:\s]+(\S+\.\w+)`,          // "file: path/to/file.go"
+		`(?i)(\S+/\S+\.\w+)`,                // Any path with / and extension
+		`(?i)internal/\S+\.\w+`,             // internal/... paths
+		`(?i)cmd/\S+\.\w+`,                  // cmd/... paths
+		`(?i)pkg/\S+\.\w+`,                  // pkg/... paths
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(desc)
+		if len(matches) > 1 {
+			path := matches[1]
+			// Validate it looks like a real path
+			if strings.Contains(path, "/") && strings.Contains(path, ".") {
+				return path
+			}
+		} else if len(matches) == 1 {
+			path := matches[0]
+			if strings.Contains(path, "/") && strings.Contains(path, ".") {
+				return path
+			}
+		}
+	}
+
+	return ""
 }

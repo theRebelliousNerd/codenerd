@@ -47,7 +47,7 @@ func (cr *CheckpointRunner) spawnTask(ctx context.Context, shardType string, tas
 
 	// Fall back to ShardManager
 	if cr.shardMgr != nil {
-		return cr.spawnTask(ctx, shardType, task)
+		return cr.shardMgr.Spawn(ctx, shardType, task)
 	}
 
 	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")

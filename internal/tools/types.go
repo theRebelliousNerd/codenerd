@@ -43,6 +43,13 @@ type Property struct {
 	Description string `json:"description"`
 	Default     any    `json:"default,omitempty"`
 	Enum        []any  `json:"enum,omitempty"`
+	// Items describes array element schema (required for type="array")
+	Items *PropertyItems `json:"items,omitempty"`
+}
+
+// PropertyItems describes the schema for array elements.
+type PropertyItems struct {
+	Type string `json:"type"`
 }
 
 // ToolSchema defines the JSON schema for tool arguments.
