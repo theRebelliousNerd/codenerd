@@ -34,6 +34,10 @@ type ContextEngine interface {
 	// Used by real engine for tiered file boosting.
 	SetIssueContext(ctx *internalcontext.IssueActivationContext)
 
+	// SetBackReferenceContext sets the back-reference context for follow-up question activation.
+	// Used by real engine for boosting facts from referenced turns.
+	SetBackReferenceContext(ctx *internalcontext.BackReferenceActivationContext)
+
 	// Reset clears all state for a fresh test run.
 	Reset() error
 
@@ -41,19 +45,21 @@ type ContextEngine interface {
 	GetMode() EngineMode
 }
 
-// ActivationBreakdown shows the 7-component scoring for a fact.
+// ActivationBreakdown shows the 9-component scoring for a fact.
 // This enables validation that the real system is correctly applying boosts.
 type ActivationBreakdown struct {
 	FactID string
 
-	// The 7 scoring components from ActivationEngine
-	BaseScore       float64 // From predicate corpus priority (0-100)
-	RecencyBoost    float64 // From timestamp tracking (0-50)
-	RelevanceBoost  float64 // From intent matching (0-50)
-	DependencyBoost float64 // From symbol graph spreading (0-50)
-	CampaignBoost   float64 // From campaign context (0-50)
-	SessionBoost    float64 // From session-specific facts (0-30)
-	IssueBoost      float64 // From issue context tiers (0-50)
+	// The 9 scoring components from ActivationEngine
+	BaseScore          float64 // From predicate corpus priority (0-100)
+	RecencyBoost       float64 // From timestamp tracking (0-50)
+	RelevanceBoost     float64 // From intent matching (0-50)
+	DependencyBoost    float64 // From symbol graph spreading (0-50)
+	CampaignBoost      float64 // From campaign context (0-50)
+	SessionBoost       float64 // From session-specific facts (0-30)
+	IssueBoost         float64 // From issue context tiers (0-50)
+	FeedbackBoost      float64 // From context feedback learning (-20 to +20)
+	BackReferenceBoost float64 // From back-reference context (0-70)
 
 	// Combined final score
 	TotalScore float64

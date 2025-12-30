@@ -220,15 +220,16 @@ type ScoredFact struct {
 	Fact  core.Fact
 	Score float64
 
-	// Scoring components (8 total)
-	BaseScore       float64 // From predicate priority
-	RecencyScore    float64 // Based on when it was added
-	RelevanceScore  float64 // Based on relation to current intent
-	DependencyScore float64 // Based on dependency chain distance
-	CampaignScore   float64 // Campaign-specific boost
-	SessionScore    float64 // Session-specific boost
-	IssueScore      float64 // Issue/SWE-bench specific boost
-	FeedbackScore   float64 // Learned predicate usefulness from LLM feedback
+	// Scoring components (9 total)
+	BaseScore          float64 // From predicate priority
+	RecencyScore       float64 // Based on when it was added
+	RelevanceScore     float64 // Based on relation to current intent
+	DependencyScore    float64 // Based on dependency chain distance
+	CampaignScore      float64 // Campaign-specific boost
+	SessionScore       float64 // Session-specific boost
+	IssueScore         float64 // Issue/SWE-bench specific boost
+	FeedbackScore      float64 // Learned predicate usefulness from LLM feedback
+	BackReferenceScore float64 // Back-reference boost for follow-up questions
 }
 
 // ActivationState tracks the current activation state of the system.

@@ -378,6 +378,148 @@ func (c *Compressor) refreshActivationContextsLocked() {
 		ExpectedTests:  expectedTests,
 		Source:         source,
 	})
+
+	// -------------------------------------------------------------------------
+	// Back-reference context (follow-up question activation)
+	// -------------------------------------------------------------------------
+	// When a turn references back to a previous turn, we boost facts from that turn.
+	// This enables "What was the original error?" type queries to retrieve old context.
+	backRefs := getFacts("turn_references_back")
+	if len(backRefs) == 0 {
+		c.activation.ClearBackReferenceContext()
+		return
+	}
+
+	// Collect referenced turn IDs
+	referencedTurnsMap := make(map[int]bool)
+	var referencedTurnIDs []int
+	var referenceStrength float64 = 1.0
+
+	for _, f := range backRefs {
+		if len(f.Args) >= 2 {
+			var referencedTurn int
+			switch v := f.Args[1].(type) {
+			case int:
+				referencedTurn = v
+			case int64:
+				referencedTurn = int(v)
+			case float64:
+				referencedTurn = int(v)
+			}
+			if referencedTurn >= 0 && !referencedTurnsMap[referencedTurn] {
+				referencedTurnsMap[referencedTurn] = true
+				referencedTurnIDs = append(referencedTurnIDs, referencedTurn)
+			}
+		}
+	}
+
+	if len(referencedTurnIDs) == 0 {
+		c.activation.ClearBackReferenceContext()
+		return
+	}
+
+	// Collect topics, files, symbols, and errors from referenced turns
+	var referencedTopics []string
+	var referencedFiles []string
+	var referencedSymbols []string
+	var referencedErrors []string
+
+	// turn_topic(turnID, topic)
+	if topics := getFacts("turn_topic"); len(topics) > 0 {
+		for _, f := range topics {
+			if len(f.Args) >= 2 {
+				var turnID int
+				switch v := f.Args[0].(type) {
+				case int:
+					turnID = v
+				case int64:
+					turnID = int(v)
+				case float64:
+					turnID = int(v)
+				}
+				if referencedTurnsMap[turnID] {
+					if topic, ok := f.Args[1].(string); ok && topic != "" {
+						referencedTopics = append(referencedTopics, topic)
+					}
+				}
+			}
+		}
+	}
+
+	// turn_references_file(turnID, filePath)
+	if files := getFacts("turn_references_file"); len(files) > 0 {
+		for _, f := range files {
+			if len(f.Args) >= 2 {
+				var turnID int
+				switch v := f.Args[0].(type) {
+				case int:
+					turnID = v
+				case int64:
+					turnID = int(v)
+				case float64:
+					turnID = int(v)
+				}
+				if referencedTurnsMap[turnID] {
+					if file, ok := f.Args[1].(string); ok && file != "" {
+						referencedFiles = append(referencedFiles, file)
+					}
+				}
+			}
+		}
+	}
+
+	// turn_references_symbol(turnID, symbol)
+	if symbols := getFacts("turn_references_symbol"); len(symbols) > 0 {
+		for _, f := range symbols {
+			if len(f.Args) >= 2 {
+				var turnID int
+				switch v := f.Args[0].(type) {
+				case int:
+					turnID = v
+				case int64:
+					turnID = int(v)
+				case float64:
+					turnID = int(v)
+				}
+				if referencedTurnsMap[turnID] {
+					if symbol, ok := f.Args[1].(string); ok && symbol != "" {
+						referencedSymbols = append(referencedSymbols, symbol)
+					}
+				}
+			}
+		}
+	}
+
+	// turn_error_message(turnID, errorMsg)
+	if errors := getFacts("turn_error_message"); len(errors) > 0 {
+		for _, f := range errors {
+			if len(f.Args) >= 2 {
+				var turnID int
+				switch v := f.Args[0].(type) {
+				case int:
+					turnID = v
+				case int64:
+					turnID = int(v)
+				case float64:
+					turnID = int(v)
+				}
+				if referencedTurnsMap[turnID] {
+					if errMsg, ok := f.Args[1].(string); ok && errMsg != "" {
+						referencedErrors = append(referencedErrors, errMsg)
+					}
+				}
+			}
+		}
+	}
+
+	c.activation.SetBackReferenceContext(&BackReferenceActivationContext{
+		ReferencedTurnIDs: referencedTurnIDs,
+		ReferenceStrength: referenceStrength,
+		ReferencedTopics:  referencedTopics,
+		ReferencedFiles:   referencedFiles,
+		ReferencedSymbols: referencedSymbols,
+		ReferencedErrors:  referencedErrors,
+	})
 }
 
 // SetSessionID sets the logical session ID for persistence/rehydration.

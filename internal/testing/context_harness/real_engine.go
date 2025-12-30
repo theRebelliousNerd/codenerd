@@ -146,7 +146,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	return facts
 }
 
-// RetrieveContext retrieves relevant facts using real 7-component activation.
+// RetrieveContext retrieves relevant facts using real 9-component activation.
 func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query string, tokenBudget int) ([]core.Fact, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -155,16 +155,67 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 		return nil, nil
 	}
 
-	// CRITICAL FIX: Collect back-referenced turns for boosting
-	// When turn N references back to turn M, facts from turn M should be boosted
-	// This enables "What was the original error?" queries to retrieve old context
-	referencedTurns := make(map[int]bool)
+	// Build back-reference context from turn_references_back facts
+	// This enables native back-reference scoring via computeBackReferenceScore()
+	referencedTurnsMap := make(map[int]bool)
+	var referencedTurnIDs []int
+	var referencedTopics []string
+	var referencedFiles []string
+	var referencedSymbols []string
+	var referencedErrors []string
+
 	for _, fact := range e.allFacts {
 		if fact.Predicate == "turn_references_back" && len(fact.Args) >= 2 {
 			if referencedTurn, ok := fact.Args[1].(int); ok {
-				referencedTurns[referencedTurn] = true
+				if !referencedTurnsMap[referencedTurn] {
+					referencedTurnsMap[referencedTurn] = true
+					referencedTurnIDs = append(referencedTurnIDs, referencedTurn)
+				}
 			}
 		}
+	}
+
+	// If we have back-references, collect metadata from referenced turns
+	if len(referencedTurnIDs) > 0 {
+		for _, fact := range e.allFacts {
+			if len(fact.Args) < 2 {
+				continue
+			}
+			turnID, ok := fact.Args[0].(int)
+			if !ok || !referencedTurnsMap[turnID] {
+				continue
+			}
+			switch fact.Predicate {
+			case "turn_topic":
+				if topic, ok := fact.Args[1].(string); ok && topic != "" {
+					referencedTopics = append(referencedTopics, topic)
+				}
+			case "turn_references_file":
+				if file, ok := fact.Args[1].(string); ok && file != "" {
+					referencedFiles = append(referencedFiles, file)
+				}
+			case "turn_references_symbol":
+				if symbol, ok := fact.Args[1].(string); ok && symbol != "" {
+					referencedSymbols = append(referencedSymbols, symbol)
+				}
+			case "turn_error_message":
+				if errMsg, ok := fact.Args[1].(string); ok && errMsg != "" {
+					referencedErrors = append(referencedErrors, errMsg)
+				}
+			}
+		}
+
+		// Set back-reference context for native scoring
+		e.activation.SetBackReferenceContext(&internalcontext.BackReferenceActivationContext{
+			ReferencedTurnIDs: referencedTurnIDs,
+			ReferenceStrength: 1.0,
+			ReferencedTopics:  referencedTopics,
+			ReferencedFiles:   referencedFiles,
+			ReferencedSymbols: referencedSymbols,
+			ReferencedErrors:  referencedErrors,
+		})
+	} else {
+		e.activation.ClearBackReferenceContext()
 	}
 
 	// Create intent fact from query for activation scoring
@@ -173,42 +224,25 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 		Args:      []interface{}{"query", "retrieve", query, ""},
 	}
 
-	// Score all facts with real 7-component activation
+	// Score all facts with real 9-component activation (including native back-reference scoring)
 	scored := e.activation.ScoreFacts(e.allFacts, intentFact)
 
-	// CRITICAL FIX: Apply back-reference boost after activation scoring
-	// Facts from referenced turns get a significant boost to overcome recency penalty
-	const backRefBoost = 0.5 // Add 50% to score for referenced turns
-	for i := range scored {
-		if len(scored[i].Fact.Args) > 0 {
-			if turnID, ok := scored[i].Fact.Args[0].(int); ok {
-				if referencedTurns[turnID] {
-					scored[i].Score += scored[i].Score * backRefBoost
-				}
-			}
-		}
-	}
-
-	// Re-sort after applying back-reference boost
-	sortScoredFacts(scored)
-
 	// Store activation breakdowns for later inspection
-	// Note: ScoredFact only exposes 4 of the 7 components currently
+	// ScoredFact now exposes all 9 components
 	for _, sf := range scored {
 		factID := e.factID(sf.Fact)
 		e.factScores[factID] = &ActivationBreakdown{
-			FactID:          factID,
-			BaseScore:       sf.BaseScore,
-			RecencyBoost:    sf.RecencyScore,
-			RelevanceBoost:  sf.RelevanceScore,
-			DependencyBoost: sf.DependencyScore,
-			// Campaign, Session, Issue scores are computed internally
-			// but not currently exposed in ScoredFact. When needed,
-			// ScoredFact can be extended to include these.
-			CampaignBoost: 0, // TODO: expose from ScoredFact
-			SessionBoost:  0, // TODO: expose from ScoredFact
-			IssueBoost:    0, // TODO: expose from ScoredFact
-			TotalScore:    sf.Score,
+			FactID:             factID,
+			BaseScore:          sf.BaseScore,
+			RecencyBoost:       sf.RecencyScore,
+			RelevanceBoost:     sf.RelevanceScore,
+			DependencyBoost:    sf.DependencyScore,
+			CampaignBoost:      sf.CampaignScore,
+			SessionBoost:       sf.SessionScore,
+			IssueBoost:         sf.IssueScore,
+			FeedbackBoost:      sf.FeedbackScore,
+			BackReferenceBoost: sf.BackReferenceScore,
+			TotalScore:         sf.Score,
 		}
 	}
 
@@ -224,17 +258,6 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 	return result, nil
 }
 
-// sortScoredFacts sorts scored facts by score descending
-func sortScoredFacts(facts []internalcontext.ScoredFact) {
-	n := len(facts)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
-			if facts[j].Score < facts[j+1].Score {
-				facts[j], facts[j+1] = facts[j+1], facts[j]
-			}
-		}
-	}
-}
 
 // GetCompressionStats returns original and compressed token counts.
 func (e *RealIntegrationEngine) GetCompressionStats() (originalTokens, compressedTokens int) {
@@ -260,6 +283,11 @@ func (e *RealIntegrationEngine) SetIssueContext(ctx *internalcontext.IssueActiva
 	e.activation.SetIssueContext(ctx)
 }
 
+// SetBackReferenceContext sets the back-reference context for follow-up question activation.
+func (e *RealIntegrationEngine) SetBackReferenceContext(ctx *internalcontext.BackReferenceActivationContext) {
+	e.activation.SetBackReferenceContext(ctx)
+}
+
 // Reset clears all state for a fresh test run.
 func (e *RealIntegrationEngine) Reset() error {
 	e.mu.Lock()
@@ -273,6 +301,7 @@ func (e *RealIntegrationEngine) Reset() error {
 	// Clear activation engine state
 	e.activation.ClearCampaignContext()
 	e.activation.ClearIssueContext()
+	e.activation.ClearBackReferenceContext()
 
 	return nil
 }

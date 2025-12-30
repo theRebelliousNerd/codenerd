@@ -253,6 +253,12 @@ func (e *MockContextEngine) SetIssueContext(ctx *internalcontext.IssueActivation
 	// No-op in mock mode
 }
 
+// SetBackReferenceContext is a no-op in mock mode.
+// Back-reference boosting is handled inline in RetrieveContext.
+func (e *MockContextEngine) SetBackReferenceContext(ctx *internalcontext.BackReferenceActivationContext) {
+	// No-op in mock mode - back-reference boost is applied directly in RetrieveContext
+}
+
 // Reset clears all state for a fresh test run.
 func (e *MockContextEngine) Reset() error {
 	e.facts = make([]core.Fact, 0)
