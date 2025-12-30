@@ -155,6 +155,18 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 		return nil, nil
 	}
 
+	// CRITICAL FIX: Collect back-referenced turns for boosting
+	// When turn N references back to turn M, facts from turn M should be boosted
+	// This enables "What was the original error?" queries to retrieve old context
+	referencedTurns := make(map[int]bool)
+	for _, fact := range e.allFacts {
+		if fact.Predicate == "turn_references_back" && len(fact.Args) >= 2 {
+			if referencedTurn, ok := fact.Args[1].(int); ok {
+				referencedTurns[referencedTurn] = true
+			}
+		}
+	}
+
 	// Create intent fact from query for activation scoring
 	intentFact := &core.Fact{
 		Predicate: "user_intent",
@@ -163,6 +175,22 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 
 	// Score all facts with real 7-component activation
 	scored := e.activation.ScoreFacts(e.allFacts, intentFact)
+
+	// CRITICAL FIX: Apply back-reference boost after activation scoring
+	// Facts from referenced turns get a significant boost to overcome recency penalty
+	const backRefBoost = 0.5 // Add 50% to score for referenced turns
+	for i := range scored {
+		if len(scored[i].Fact.Args) > 0 {
+			if turnID, ok := scored[i].Fact.Args[0].(int); ok {
+				if referencedTurns[turnID] {
+					scored[i].Score += scored[i].Score * backRefBoost
+				}
+			}
+		}
+	}
+
+	// Re-sort after applying back-reference boost
+	sortScoredFacts(scored)
 
 	// Store activation breakdowns for later inspection
 	// Note: ScoredFact only exposes 4 of the 7 components currently
@@ -194,6 +222,18 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 	}
 
 	return result, nil
+}
+
+// sortScoredFacts sorts scored facts by score descending
+func sortScoredFacts(facts []internalcontext.ScoredFact) {
+	n := len(facts)
+	for i := 0; i < n-1; i++ {
+		for j := 0; j < n-i-1; j++ {
+			if facts[j].Score < facts[j+1].Score {
+				facts[j], facts[j+1] = facts[j+1], facts[j]
+			}
+		}
+	}
 }
 
 // GetCompressionStats returns original and compressed token counts.
