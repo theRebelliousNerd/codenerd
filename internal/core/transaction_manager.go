@@ -33,7 +33,7 @@ type Transaction struct {
 	Status      TransactionStatus
 	Edits       []FileEdit
 	Snapshots   map[string][]byte // Original file contents for rollback
-	Validation  *ValidationResult
+	Validation  *ShadowValidationResult
 	Error       error
 }
 
@@ -68,8 +68,8 @@ const (
 	EditTypeDelete EditType = "delete" // Delete file
 )
 
-// ValidationResult holds the outcome of shadow validation.
-type ValidationResult struct {
+// ShadowValidationResult holds the outcome of shadow validation.
+type ShadowValidationResult struct {
 	IsValid       bool
 	ParseErrors   []ParseError
 	SafetyBlocks  []SafetyBlock
@@ -171,7 +171,7 @@ func (tm *TransactionManager) AddEdit(ctx context.Context, edit FileEdit) error 
 
 // Prepare validates the transaction in shadow mode (Phase 1 of 2PC).
 // Returns true if all validations pass and the transaction is ready to commit.
-func (tm *TransactionManager) Prepare(ctx context.Context) (*ValidationResult, error) {
+func (tm *TransactionManager) Prepare(ctx context.Context) (*ShadowValidationResult, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -201,7 +201,7 @@ func (tm *TransactionManager) Prepare(ctx context.Context) (*ValidationResult, e
 		return nil, fmt.Errorf("failed to start shadow simulation: %w", err)
 	}
 
-	result := &ValidationResult{
+	result := &ShadowValidationResult{
 		IsValid:      true,
 		ParseErrors:  make([]ParseError, 0),
 		SafetyBlocks: make([]SafetyBlock, 0),

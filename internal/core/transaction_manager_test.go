@@ -356,9 +356,9 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 	_ = txn
 }
 
-// TestValidationResult_Fields tests ValidationResult structure.
-func TestValidationResult_Fields(t *testing.T) {
-	result := &ValidationResult{
+// TestShadowValidationResult_Fields tests ShadowValidationResult structure.
+func TestShadowValidationResult_Fields(t *testing.T) {
+	result := &ShadowValidationResult{
 		IsValid:       true,
 		ParseErrors:   []ParseError{{FilePath: "test.go", Line: 1, Column: 0, Message: "error"}},
 		SafetyBlocks:  []SafetyBlock{{Ref: "ref", Reason: "reason", Rule: "rule"}},
