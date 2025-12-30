@@ -1,0 +1,179 @@
+# Code DOM Core Capability Atoms
+# These atoms teach the LLM to think in semantic refs, not line numbers.
+# Part of the paradigm shift from "Text Editor" to "Graph Architect".
+
+- id: "capability/codedom_core"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 95
+  is_mandatory: true
+  shard_types: []  # Applies to all personas
+  content: |
+    ## Semantic Code Editing: The Code DOM Paradigm
+
+    You are working with a **Code DOM (Document Object Model)** - a semantic graph
+    of code elements. Unlike traditional text editing where you work with files
+    and line numbers, here you work with **Refs** - stable, semantic identifiers.
+
+    ### Think in Refs, Not Lines
+
+    **Old Paradigm** (Text Editor):
+    - "Edit lines 42-55 of user.go"
+    - "Find and replace in files matching *.go"
+    - "Add code after line 120"
+
+    **New Paradigm** (Graph Architect):
+    - "Modify `go:internal/auth/user.go:User.Login`"
+    - "Find elements where `api_dependency(Backend, Frontend)`"
+    - "Insert before `go:config.go:Config.Load`"
+
+    ### Ref URI Format
+
+    Refs follow the pattern: `lang:path/from/root:Context.Symbol`
+
+    **Examples:**
+    ```
+    go:backend/auth/user.go:User.Login     # Go method
+    py:backend/models/user.py:User.login   # Python method
+    ts:frontend/types.ts:IUser.userId      # TypeScript interface property
+    rs:core/lib.rs:Config::load            # Rust associated function
+    mg:policy/safety.mg:deny_edit          # Mangle rule
+    ```
+
+    ### Why Refs Are Better
+
+    1. **Stability**: Refs survive line insertions/deletions
+    2. **Semantics**: `User.Login` conveys meaning; "line 42" doesn't
+    3. **Cross-Language**: Same model for Go, Python, TypeScript, Rust
+    4. **Dependency Tracking**: Refs enable `code_calls`, `method_of`, etc.
+    5. **Impact Analysis**: Query what changes when you modify a Ref
+
+    ### Available Element Types
+
+    - `/function` - Standalone functions
+    - `/method` - Methods attached to types
+    - `/struct` - Data structures (Go, Rust, TypeScript)
+    - `/class` - Classes (Python, TypeScript)
+    - `/interface` - Interface definitions
+    - `/type_alias` - Type aliases and definitions
+    - `/module` - Module-level declarations
+
+    ### Example: Before and After
+
+    **Before** (Text-Based Thinking):
+    "I need to rename a field. Let me search for 'UserID' across all files,
+    check each occurrence, and manually update them."
+
+    **After** (Semantic Thinking):
+    "I'll query `wire_name(Ref, 'user_id')` to find all elements with this
+    JSON field, then check `api_dependency` to ensure I update both backend
+    and frontend types atomically."
+
+- id: "capability/codedom_visibility"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 90
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    ## Element Visibility and Actions
+
+    Each code element has a **visibility** level determining its scope:
+
+    ### Visibility Levels
+
+    - `/public` - Exported, accessible from other packages
+      - Go: Uppercase first letter (`Login`, `UserID`)
+      - Python: No underscore prefix (`login`, `user_id`)
+      - TypeScript: `export` keyword
+      - Rust: `pub` keyword
+
+    - `/private` - Internal, package/module-scoped only
+      - Go: Lowercase first letter (`parseToken`)
+      - Python: Single underscore (`_internal_method`)
+      - TypeScript: No export, or private keyword
+      - Rust: No `pub` keyword
+
+    ### Available Actions on Elements
+
+    Each element supports specific actions:
+
+    - `/view` - Read the element's source code
+    - `/replace` - Replace the entire element body
+    - `/insert_before` - Insert code before the element
+    - `/insert_after` - Insert code after the element
+    - `/delete` - Remove the element (with safety checks)
+
+    ### Visibility Matters for Refactoring
+
+    When modifying a `/public` element:
+    - Check for callers via `code_calls(_, Ref)`
+    - Consider cross-package impact
+    - May require updates to documentation
+
+    When modifying a `/private` element:
+    - Impact is contained to the package
+    - Safer to change implementation details
+
+- id: "capability/codedom_polyglot"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 88
+  is_mandatory: false
+  depends_on: ["capability/codedom_core"]
+  content: |
+    ## Polyglot Code Analysis
+
+    The Code DOM supports multiple languages with a **Stratified Bridge Pattern**:
+
+    ### Stratum 0: Language-Specific Facts (EDB)
+
+    Each language emits its own facts:
+
+    **Go:**
+    - `go_struct(Ref)` - Struct definitions
+    - `go_goroutine(Ref)` - Functions spawning goroutines
+    - `go_uses_context(Ref)` - Functions using context.Context
+    - `go_returns_error(Ref)` - Functions returning error
+
+    **Python:**
+    - `py_class(Ref)` - Class definitions
+    - `py_decorator(Ref, Name)` - Decorator applications
+    - `py_async_def(Ref)` - Async function definitions
+
+    **TypeScript:**
+    - `ts_interface(Ref)` - Interface definitions
+    - `ts_component(Ref, Tag)` - React/Vue components
+    - `ts_hook(Ref, HookName)` - React hook usage
+    - `ts_async_function(Ref)` - Async functions
+
+    **Rust:**
+    - `rs_struct(Ref)` - Struct definitions
+    - `rs_async_fn(Ref)` - Async function definitions
+    - `rs_unsafe_block(Ref)` - Unsafe code blocks
+    - `rs_derive(Ref, Trait)` - Derive macro applications
+
+    ### Stratum 1: Semantic Archetypes (IDB)
+
+    Language-specific facts are normalized to universal concepts:
+
+    - `is_data_contract(Ref)` - Types for serialization/API
+    - `is_async_context(Ref)` - Async/concurrent code
+    - `is_ui_component(Ref)` - UI rendering functions
+    - `has_auth_guard(Ref)` - Protected by authentication
+    - `wire_name(Ref, Name)` - JSON field names
+
+    ### Cross-Language Queries
+
+    The power comes from querying archetypes, not language-specific facts:
+
+    ```mangle
+    # Find all data contracts across all languages
+    :- is_data_contract(Ref).
+
+    # Find elements with API coupling
+    :- api_dependency(Backend, Frontend).
+
+    # Find all async code that might leak resources
+    :- is_async_context(Ref), not is_context_aware(Ref).
+    ```

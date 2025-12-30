@@ -186,10 +186,14 @@ func DefaultParserFactory(projectRoot string) *ParserFactory {
 	// Register Mangle parser
 	factory.Register(NewMangleCodeParser(projectRoot))
 
-	// Future: Register other parsers as they are implemented
-	// factory.Register(NewPythonCodeParser(projectRoot))
-	// factory.Register(NewTypeScriptCodeParser(projectRoot))
-	// factory.Register(NewRustCodeParser(projectRoot))
+	// Register Python parser (Tree-sitter based)
+	factory.Register(NewPythonCodeParser(projectRoot))
+
+	// Register TypeScript/JavaScript parser (Tree-sitter based)
+	factory.Register(NewTypeScriptCodeParser(projectRoot))
+
+	// Register Rust parser (Tree-sitter based)
+	factory.Register(NewRustCodeParser(projectRoot))
 
 	logging.WorldDebug("DefaultParserFactory: registered %d parsers for %v",
 		len(factory.parsers), factory.SupportedExtensions())

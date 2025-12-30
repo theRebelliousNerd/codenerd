@@ -31,6 +31,7 @@ Decl test_passed_after_fix().
 Decl verb_has_specialist(Verb).
 Decl imports(Target, Path).
 Decl test_failed(Path, TestName, Reason).
+Decl diagnostic_active(Path, Line, Severity, Message).
 
 # =============================================================================
 # SECTION 1: Action Type Derivation
@@ -191,6 +192,12 @@ tool_allowed(/tester, /edit_file).
 tool_allowed(/tester, /edit_lines).
 tool_allowed(/tester, /insert_lines).
 tool_allowed(/tester, /delete_lines).
+tool_allowed(/tester, /get_impacted_tests).
+tool_allowed(/tester, /run_impacted_tests).
+
+# Coder can also use test impact tools
+tool_allowed(/coder, /get_impacted_tests).
+tool_allowed(/coder, /run_impacted_tests).
 
 # Reviewer-specific tools (read-heavy)
 tool_allowed(/reviewer, /git_diff).
@@ -235,6 +242,12 @@ modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/edit_lines, Intent) :- intent_category(Intent, /code).
 modular_tool_allowed(/insert_lines, Intent) :- intent_category(Intent, /code).
 modular_tool_allowed(/delete_lines, Intent) :- intent_category(Intent, /code).
+
+# Test impact analysis tools - available for code and test intents
+modular_tool_allowed(/get_impacted_tests, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/get_impacted_tests, Intent) :- intent_category(Intent, /test).
+modular_tool_allowed(/run_impacted_tests, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/run_impacted_tests, Intent) :- intent_category(Intent, /test).
 
 # Intent category mappings for code
 intent_category(/fix, /code) :- user_intent(_, _, /fix, _, _).

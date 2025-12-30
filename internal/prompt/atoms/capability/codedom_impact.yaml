@@ -1,0 +1,235 @@
+# Code DOM Impact Analysis Atoms
+# These atoms teach the LLM to query impact BEFORE editing.
+# "Measure twice, cut once" applied to code changes.
+
+- id: "capability/codedom_impact"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 92
+  is_mandatory: true
+  depends_on: ["capability/codedom_core"]
+  shard_types: []  # Applies to all personas
+  content: |
+    ## Impact Analysis: Query Before You Edit
+
+    The Code DOM enables **impact-aware editing**. Before modifying any element,
+    query the dependency graph to understand the blast radius of your change.
+
+    ### The Impact Analysis Workflow
+
+    1. **Identify the Target** - What Ref are you modifying?
+    2. **Query Dependencies** - Who calls this? What depends on it?
+    3. **Check Cross-Language** - Does this affect API contracts?
+    4. **Plan Atomically** - Gather all changes into one transaction
+    5. **Execute Safely** - Let the 2PC protocol handle atomicity
+
+    ### Key Predicates for Impact Analysis
+
+    **Direct Dependencies:**
+    ```mangle
+    # Who calls this function?
+    caller_of(Caller, Target) :- code_calls(Caller, Target).
+
+    # What methods belong to this type?
+    methods_of(Method, Type) :- method_of(Method, Type).
+    ```
+
+    **Cross-Language Dependencies:**
+    ```mangle
+    # Wire names for API coupling
+    wire_name(Ref, Name) :- go_tag(Ref, Content), fn:match("json:\"(\\w+)\"", Content, Name).
+    wire_name(Ref, Name) :- ts_interface_prop(Ref, Name).
+
+    # Backend-Frontend coupling
+    api_dependency(Backend, Frontend) :-
+        wire_name(Backend, Key),
+        wire_name(Frontend, Key),
+        is_backend_ref(Backend),
+        is_frontend_ref(Frontend).
+    ```
+
+    **Test Impact:**
+    ```mangle
+    # Which tests exercise this code?
+    impacted_test(TestRef) :-
+        plan_edit(TargetRef),
+        test_depends_on_transitive(TestRef, TargetRef).
+    ```
+
+    ### Example: Renaming a Field
+
+    **Scenario:** Rename `UserID` to `SubjectID` in a Go struct
+
+    **Step 1: Query the target**
+    ```mangle
+    :- code_element(Ref, /struct, _, _, _), fn:contains(Ref, "User").
+    ```
+
+    **Step 2: Check wire name**
+    ```mangle
+    :- wire_name("go:user.go:User.UserID", WireName).
+    # Result: WireName = "user_id"
+    ```
+
+    **Step 3: Find all elements with same wire name**
+    ```mangle
+    :- wire_name(Ref, "user_id").
+    # Results:
+    # - go:backend/user.go:User.UserID
+    # - ts:frontend/types.ts:IUser.userId
+    # - py:backend/models.py:User.user_id
+    ```
+
+    **Step 4: Check for API coupling**
+    ```mangle
+    :- api_dependency("go:backend/user.go:User", Frontend).
+    # Result: Frontend = "ts:frontend/types.ts:IUser"
+    ```
+
+    **Step 5: Plan atomic changes**
+    All three elements must be updated in a single transaction.
+
+- id: "capability/codedom_safety"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 91
+  is_mandatory: true
+  depends_on: ["capability/codedom_impact"]
+  content: |
+    ## Safety Guardrails: deny_edit Rules
+
+    The Code DOM enforces **safety guardrails** via Mangle rules. Before any
+    edit is committed, the system checks for `deny_edit` predicates.
+
+    ### How Safety Works
+
+    1. Proposed edits are applied to a **shadow copy**
+    2. The shadow is re-parsed and analyzed
+    3. `deny_edit` rules are evaluated against the candidate state
+    4. If any `deny_edit` fires, the transaction is **aborted**
+
+    ### Common deny_edit Rules
+
+    **Go Safety:**
+    ```mangle
+    # Don't remove error handling
+    deny_edit(Ref, /error_handling_removed) :-
+        snapshot:go_returns_error(Ref),
+        not candidate:go_returns_error(Ref).
+
+    # Don't introduce goroutine leaks
+    deny_edit(Ref, /goroutine_leak) :-
+        candidate:go_goroutine(Ref),
+        not candidate:go_uses_context(Ref).
+    ```
+
+    **Python Safety:**
+    ```mangle
+    # Don't remove auth decorators
+    deny_edit(Ref, /auth_removed) :-
+        snapshot:py_decorator(Ref, "login_required"),
+        not candidate:py_decorator(Ref, "login_required").
+    ```
+
+    **Rust Safety:**
+    ```mangle
+    # Don't introduce unsafe blocks
+    deny_edit(Ref, /unsafe_introduced) :-
+        not snapshot:rs_unsafe_block(Ref),
+        candidate:rs_unsafe_block(Ref).
+    ```
+
+    **Cross-Language Safety:**
+    ```mangle
+    # Don't break API contracts unilaterally
+    deny_edit(BackendRef, /api_contract_broken) :-
+        api_dependency(BackendRef, FrontendRef),
+        plan_edit(BackendRef),
+        not plan_edit(FrontendRef).
+    ```
+
+    ### What Happens When Blocked
+
+    If a `deny_edit` rule fires:
+    1. Transaction is aborted (no files modified)
+    2. You receive the blocking reason and rule name
+    3. You can either:
+       - Fix the issue and retry
+       - Use explicit override (if permitted by safety level)
+       - Consult with user for guidance
+
+    ### Warnings (Non-Blocking)
+
+    Some rules emit `edit_warning` instead of `deny_edit`:
+    ```mangle
+    edit_warning(Ref, /no_test_coverage) :-
+        plan_edit(Ref),
+        code_element(Ref, /function, _, _, _),
+        not has_test_coverage(Ref).
+    ```
+
+    Warnings are surfaced but don't block the edit.
+
+- id: "capability/codedom_transaction"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 89
+  is_mandatory: false
+  depends_on: ["capability/codedom_safety"]
+  content: |
+    ## Transactional Editing: Two-Phase Commit
+
+    Multi-file refactors use a **Two-Phase Commit (2PC)** protocol to ensure
+    atomicity. Either all changes succeed, or none are applied.
+
+    ### The 2PC Protocol
+
+    **Phase 1: Prepare**
+    1. Create snapshots of all affected files
+    2. Apply proposed edits to shadow filesystem
+    3. Re-parse all modified files (syntax check)
+    4. Run Mangle safety rules on candidate state
+    5. If any `deny_edit` fires → ABORT
+    6. Mark transaction as READY
+
+    **Phase 2: Commit**
+    1. Write all changes to real filesystem atomically
+    2. If any write fails → ROLLBACK using snapshots
+    3. Emit `file_written` facts to kernel
+    4. Mark transaction as COMMITTED
+
+    ### Transaction States
+
+    - `pending` - Initial state, collecting edits
+    - `preparing` - Running shadow validation
+    - `ready` - All validations passed, safe to commit
+    - `committing` - Writing to filesystem
+    - `committed` - Successfully completed
+    - `aborted` - Rolled back due to failure
+
+    ### Why Transactions Matter
+
+    **Without Transactions:**
+    - Edit file A: SUCCESS
+    - Edit file B: PARSE ERROR
+    - Result: A is modified, B is not → **Inconsistent State**
+
+    **With Transactions:**
+    - Edit file A: (staged in shadow)
+    - Edit file B: PARSE ERROR detected in prepare phase
+    - Result: ABORT → Neither A nor B modified → **Consistent State**
+
+    ### Using Transactions
+
+    When using `edit_element` or similar tools:
+    1. All edits in a single request are automatically transactional
+    2. If you need multiple requests, use explicit transaction control:
+       - `begin_transaction` - Start a new transaction
+       - `add_edit` - Queue an edit
+       - `prepare` - Validate (returns validation result)
+       - `commit` or `abort` - Finalize
+
+    ### Rollback Capability
+
+    If commit fails mid-way (e.g., disk full), the system automatically
+    restores all files from their snapshots, ensuring no partial modifications.

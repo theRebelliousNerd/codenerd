@@ -125,6 +125,12 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"delete_lines",
 	}
 
+	// Test impact analysis tools
+	testImpactTools := []string{
+		"get_impacted_tests",
+		"run_impacted_tests",
+	}
+
 	// Helper to copy slice and avoid aliasing
 	copyTools := func(base []string, more ...string) []string {
 		result := make([]string, 0, len(base)+len(more))
@@ -144,6 +150,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"bash",
 	)
 	coderTools = append(coderTools, codeDomTools...)
+	coderTools = append(coderTools, testImpactTools...)
 
 	// Tester persona tools
 	testerTools := copyTools(coreTools,
@@ -154,6 +161,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 		"edit_file",
 	)
 	testerTools = append(testerTools, codeDomTools...)
+	testerTools = append(testerTools, testImpactTools...)
 
 	// Reviewer persona tools (read-heavy, includes Code DOM for inspection)
 	reviewerTools := copyTools(coreTools,

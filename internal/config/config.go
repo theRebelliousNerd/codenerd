@@ -294,8 +294,13 @@ func (c *Config) applyEnvOverrides() {
 	}
 
 	// Embedding configuration from environment
-	if key := os.Getenv("GENAI_API_KEY"); key != "" {
-		c.Embedding.GenAIAPIKey = key
+	// Check GENAI_API_KEY first, then fall back to GEMINI_API_KEY (same API)
+	embeddingKey := os.Getenv("GENAI_API_KEY")
+	if embeddingKey == "" {
+		embeddingKey = os.Getenv("GEMINI_API_KEY")
+	}
+	if embeddingKey != "" {
+		c.Embedding.GenAIAPIKey = embeddingKey
 		if c.Embedding.Provider == "" || c.Embedding.Provider == "ollama" {
 			// Only switch to genai if no provider explicitly set or using default
 			c.Embedding.Provider = "genai"
