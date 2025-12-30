@@ -1,6 +1,6 @@
 ---
 name: stress-tester
-description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 36 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation, context harness testing, and new system stress tests (MCP, Prompt Evolution, LLM Providers, JIT Clean Loop).
+description: Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 31+ subsystems. Includes 37 comprehensive workflows with conservative, aggressive, chaos, and hybrid severity levels. Features extensive Mangle self-healing validation, context harness testing, and new system stress tests (MCP, Prompt Evolution, LLM Providers, JIT Clean Loop, Post-Action Validation).
 ---
 
 # Stress Tester
@@ -50,7 +50,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 
 ## Workflow Catalog
 
-**Total: 36 workflows across 9 categories**
+**Total: 37 workflows across 9 categories**
 
 ### 01-kernel-core (8 workflows)
 
@@ -126,7 +126,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [ouroboros-thunderdome-nemesis.md](references/workflows/08-hybrid-integration/ouroboros-thunderdome-nemesis.md) | Adversarial evolution loop |
 | [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle with clean loop |
 
-### 09-new-systems (8 workflows)
+### 09-new-systems (9 workflows)
 
 | Workflow | What It Stresses | Duration |
 |----------|------------------|----------|
@@ -136,6 +136,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py
 | [timeout-consolidation.md](references/workflows/09-new-systems/timeout-consolidation.md) | 3-tier timeout hierarchy, deadline propagation | 15-25 min |
 | [glass-box-visibility.md](references/workflows/09-new-systems/glass-box-visibility.md) | TUI glass-box rendering, concurrent tool updates | 15-25 min |
 | [knowledge-discovery.md](references/workflows/09-new-systems/knowledge-discovery.md) | Semantic Knowledge Bridge, document ingestion, vector search | 20-35 min |
+| [post-action-validation.md](references/workflows/09-new-systems/post-action-validation.md) | Hash validation, syntax checking, self-healing, Mangle facts | 25-40 min |
 | **jit-clean-loop.md** | Clean execution loop, Spawner, SubAgent lifecycle | 20-30 min |
 | **persona-atoms.md** | JIT persona compilation, ConfigFactory, intent routing | 15-25 min |
 
