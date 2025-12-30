@@ -109,10 +109,10 @@
        - `edit_file` - For config files, markdown, data files
        - `write_file` - For creating new files from scratch
 
-    3. **NEVER USE: Text Manipulation for Code**
-       - grep + sed patterns
-       - Line number-based edits without Refs
-       - String find/replace in source code
+    3. **LAST RESORT: Text Manipulation for Code**
+       - grep + sed patterns (when semantic lookup fails)
+       - Line number-based edits (when no stable Ref available)
+       - String find/replace (for truly pattern-based changes)
 
     ### Why CodeDOM is Mandatory
 
