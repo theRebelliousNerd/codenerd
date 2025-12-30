@@ -15,8 +15,17 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Path to LSP extension
-const LSP_PATH = path.join(os.homedir(), '.vscode', 'extensions', 'mangle.mangle-vscode-0.1.0', 'server');
+// Path to LSP extension - auto-detect version
+function findMangleLspPath() {
+    const extensionsDir = path.join(os.homedir(), '.vscode', 'extensions');
+    const entries = fs.readdirSync(extensionsDir);
+    const mangleExt = entries.find(e => e.startsWith('mangle.mangle-vscode-'));
+    if (!mangleExt) {
+        throw new Error('Mangle VSCode extension not found. Install it from the marketplace.');
+    }
+    return path.join(extensionsDir, mangleExt, 'server');
+}
+const LSP_PATH = findMangleLspPath();
 
 // Import parser and analysis from the LSP
 const { parse, hasErrors, hasFatalErrors, getErrorCounts } = require(path.join(LSP_PATH, 'parser', 'index.js'));
