@@ -155,7 +155,8 @@ func (d *EdgeCaseDetector) WithConfig(config EdgeCaseConfig) *EdgeCaseDetector {
 
 // AnalyzeFiles analyzes multiple files and returns decisions for each.
 func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, intelligence *IntelligenceReport) ([]FileDecision, error) {
-	logging.Campaign("Edge case analysis started for %d files", len(paths))
+	logging.Campaign("Edge case analysis: analyzing %d files (thresholds: large=%d lines, high_churn=%d commits, high_complexity=%.1f)",
+		len(paths), d.config.LargeFileLines, d.config.HighChurnRate, d.config.HighComplexity)
 	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeFiles")
 	defer timer.Stop()
 
@@ -167,6 +168,7 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	for _, path := range paths {
 		select {
 		case <-ctx.Done():
+			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
 			return decisions, ctx.Err()
 		default:
 		}
@@ -180,8 +182,73 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 		return d.actionPriority(decisions[i].RecommendedAction) > d.actionPriority(decisions[j].RecommendedAction)
 	})
 
-	logging.Campaign("Edge case analysis complete: %d decisions made", len(decisions))
+	// Log actionable summary
+	d.logDecisionSummary(decisions)
+
 	return decisions, nil
+}
+
+// logDecisionSummary logs a useful summary of analysis decisions.
+func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
+	if len(decisions) == 0 {
+		logging.Campaign("Edge case analysis complete: no files to analyze")
+		return
+	}
+
+	// Count by action type
+	actionCounts := make(map[FileAction]int)
+	var highImpactCount, noTestCount, chestertonCount int
+	var chestertonFiles []string
+
+	for _, dec := range decisions {
+		actionCounts[dec.RecommendedAction]++
+		if dec.ImpactScore > 5 {
+			highImpactCount++
+		}
+		if !dec.HasTests && dec.Exists {
+			noTestCount++
+		}
+		if dec.ChurnRate >= d.config.HighChurnRate {
+			chestertonCount++
+			if len(chestertonFiles) < 3 {
+				chestertonFiles = append(chestertonFiles, filepath.Base(dec.Path))
+			}
+		}
+	}
+
+	// Main summary line
+	logging.Campaign("Edge case analysis complete: %d files → create=%d extend=%d modularize=%d refactor_first=%d",
+		len(decisions),
+		actionCounts[ActionCreate],
+		actionCounts[ActionExtend],
+		actionCounts[ActionModularize],
+		actionCounts[ActionRefactorFirst])
+
+	// Log blocking issues (these require attention before proceeding)
+	blockingCount := actionCounts[ActionModularize] + actionCounts[ActionRefactorFirst]
+	if blockingCount > 0 {
+		logging.Campaign("⚠️ PRE-WORK REQUIRED: %d files need modularization or refactoring before campaign can proceed safely",
+			blockingCount)
+	}
+
+	// Log Chesterton's Fence warnings (high-churn files)
+	if chestertonCount > 0 {
+		if len(chestertonFiles) < chestertonCount {
+			logging.Campaign("⚠️ CHESTERTON'S FENCE: %d high-churn files detected (e.g., %s, +%d more) - understand history before modifying",
+				chestertonCount, strings.Join(chestertonFiles, ", "), chestertonCount-len(chestertonFiles))
+		} else {
+			logging.Campaign("⚠️ CHESTERTON'S FENCE: %d high-churn files detected (%s) - understand history before modifying",
+				chestertonCount, strings.Join(chestertonFiles, ", "))
+		}
+	}
+
+	// Log risk indicators
+	if highImpactCount > 0 {
+		logging.CampaignDebug("Risk indicator: %d high-impact files (>5 dependents) - changes will cascade", highImpactCount)
+	}
+	if noTestCount > 0 {
+		logging.CampaignDebug("Risk indicator: %d existing files have no tests - consider adding coverage", noTestCount)
+	}
 }
 
 // analyzeFile performs analysis on a single file.
@@ -495,20 +562,25 @@ func (d *EdgeCaseDetector) parseArg(arg interface{}) string {
 
 // AnalyzeForCampaign performs comprehensive analysis for a campaign.
 func (d *EdgeCaseDetector) AnalyzeForCampaign(ctx context.Context, targetPaths []string, intel *IntelligenceReport) (*EdgeCaseAnalysis, error) {
+	logging.Campaign("Starting comprehensive edge case analysis for campaign (%d target files)", len(targetPaths))
+	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeForCampaign")
+	defer timer.Stop()
+
 	decisions, err := d.AnalyzeFiles(ctx, targetPaths, intel)
 	if err != nil {
+		logging.Campaign("Edge case analysis failed: %v", err)
 		return nil, err
 	}
 
 	analysis := &EdgeCaseAnalysis{
-		Decisions:     decisions,
-		ActionCounts:  make(map[FileAction]int),
+		Decisions:       decisions,
+		ActionCounts:    make(map[FileAction]int),
 		ModularizeFiles: []string{},
-		RefactorFiles:  []string{},
-		CreateFiles:    []string{},
-		ExtendFiles:    []string{},
+		RefactorFiles:   []string{},
+		CreateFiles:     []string{},
+		ExtendFiles:     []string{},
 		HighImpactFiles: []string{},
-		NoTestFiles:    []string{},
+		NoTestFiles:     []string{},
 	}
 
 	// Categorize decisions
@@ -539,7 +611,56 @@ func (d *EdgeCaseDetector) AnalyzeForCampaign(ctx context.Context, targetPaths [
 	analysis.TotalFiles = len(decisions)
 	analysis.RequiresPrework = len(analysis.ModularizeFiles) + len(analysis.RefactorFiles)
 
+	// Log campaign readiness assessment
+	d.logCampaignReadiness(analysis)
+
 	return analysis, nil
+}
+
+// logCampaignReadiness logs whether campaign is ready to proceed or has blockers.
+func (d *EdgeCaseDetector) logCampaignReadiness(analysis *EdgeCaseAnalysis) {
+	if analysis.HasBlockingIssues() {
+		logging.Campaign("🛑 CAMPAIGN BLOCKED: %d files require pre-work before safe execution", analysis.RequiresPrework)
+		if len(analysis.ModularizeFiles) > 0 {
+			logging.Campaign("  → Modularization needed: %s", d.formatFileList(analysis.ModularizeFiles, 3))
+		}
+		if len(analysis.RefactorFiles) > 3 {
+			logging.Campaign("  → Refactoring needed: %s", d.formatFileList(analysis.RefactorFiles, 3))
+		}
+		preworkTasks := analysis.GetPreworkTasks()
+		logging.Campaign("  → %d pre-work tasks generated - run these before proceeding", len(preworkTasks))
+	} else if analysis.RequiresPrework > 0 {
+		logging.Campaign("⚠️ CAMPAIGN READY WITH CAUTION: %d files flagged for pre-work (below blocking threshold)",
+			analysis.RequiresPrework)
+	} else {
+		logging.Campaign("✅ CAMPAIGN READY: all %d files cleared for modification", analysis.TotalFiles)
+	}
+
+	// Log high-risk summary if applicable
+	if len(analysis.HighImpactFiles) > 0 {
+		logging.Campaign("📊 High-impact files (%d): changes will affect multiple dependents", len(analysis.HighImpactFiles))
+	}
+}
+
+// formatFileList formats a list of files for logging, truncating if too long.
+func (d *EdgeCaseDetector) formatFileList(files []string, maxShow int) string {
+	if len(files) == 0 {
+		return "(none)"
+	}
+
+	var names []string
+	for i, f := range files {
+		if i >= maxShow {
+			break
+		}
+		names = append(names, filepath.Base(f))
+	}
+
+	result := strings.Join(names, ", ")
+	if len(files) > maxShow {
+		result += fmt.Sprintf(" (+%d more)", len(files)-maxShow)
+	}
+	return result
 }
 
 // EdgeCaseAnalysis contains the full analysis results.
