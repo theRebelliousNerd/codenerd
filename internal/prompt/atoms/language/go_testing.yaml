@@ -1,0 +1,756 @@
+# Go Testing - Encyclopedic Reference
+# Comprehensive guidance for testing in Go
+
+- id: "language/go/testing/fundamentals"
+  category: "language"
+  subcategory: "go"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/tester", "/reviewer"]
+  languages: ["/go", "/golang"]
+  content: |
+    ## GO TESTING FUNDAMENTALS
+
+    ### Test File Conventions
+    - Test files: `*_test.go` in same package
+    - Test functions: `func TestXxx(t *testing.T)`
+    - Example functions: `func ExampleXxx()`
+    - Benchmark functions: `func BenchmarkXxx(b *testing.B)`
+
+    ### Basic Test Structure
+    ```go
+    func TestAdd(t *testing.T) {
+        got := Add(2, 3)
+        want := 5
+        if got != want {
+            t.Errorf("Add(2, 3) = %d, want %d", got, want)
+        }
+    }
+    ```
+
+    ### Testing Methods
+
+    **t.Error vs t.Fatal:**
+    ```go
+    // t.Errorf: Report error, continue test
+    if got != want {
+        t.Errorf("got %v, want %v", got, want)
+    }
+
+    // t.Fatalf: Report error, stop test immediately
+    if setup == nil {
+        t.Fatalf("setup failed, cannot continue")
+    }
+    ```
+
+    **t.Helper for better stack traces:**
+    ```go
+    func assertEqual(t *testing.T, got, want int) {
+        t.Helper()  // Marks this as helper, error reports caller's line
+        if got != want {
+            t.Errorf("got %d, want %d", got, want)
+        }
+    }
+    ```
+
+    **t.Parallel for concurrent tests:**
+    ```go
+    func TestSomething(t *testing.T) {
+        t.Parallel()  // Run concurrently with other parallel tests
+        // Test code...
+    }
+    ```
+
+    **t.Skip for conditional skipping:**
+    ```go
+    func TestIntegration(t *testing.T) {
+        if testing.Short() {
+            t.Skip("skipping integration test in short mode")
+        }
+        // Long-running test...
+    }
+    ```
+
+    ### Running Tests
+    ```bash
+    go test                     # Run tests in current package
+    go test ./...              # Run tests in all packages
+    go test -v                 # Verbose output
+    go test -run TestName      # Run specific test
+    go test -run TestName/Case # Run specific subtest
+    go test -short             # Skip long tests
+    go test -race              # Enable race detector
+    go test -cover             # Show coverage
+    go test -coverprofile=c.out && go tool cover -html=c.out
+    ```
+
+  content_concise: |
+    ## Go Testing Basics
+    - Files: `*_test.go`, functions: `func TestXxx(t *testing.T)`
+    - `t.Errorf()` reports and continues, `t.Fatalf()` stops
+    - `t.Helper()` improves error line numbers
+    - `t.Parallel()` enables concurrent execution
+    - Run: `go test -v -race ./...`
+
+- id: "language/go/testing/table_driven"
+  category: "language"
+  subcategory: "go"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    ## TABLE-DRIVEN TESTS
+
+    Table-driven tests are the idiomatic Go pattern for testing multiple cases.
+
+    ### Basic Table-Driven Test
+    ```go
+    func TestAdd(t *testing.T) {
+        tests := []struct {
+            name string
+            a, b int
+            want int
+        }{
+            {"positive", 2, 3, 5},
+            {"negative", -1, -2, -3},
+            {"zero", 0, 0, 0},
+            {"mixed", -1, 5, 4},
+        }
+
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                got := Add(tt.a, tt.b)
+                if got != tt.want {
+                    t.Errorf("Add(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
+                }
+            })
+        }
+    }
+    ```
+
+    ### With Error Cases
+    ```go
+    func TestDivide(t *testing.T) {
+        tests := []struct {
+            name    string
+            a, b    float64
+            want    float64
+            wantErr bool
+        }{
+            {"positive", 6, 2, 3, false},
+            {"negative", -6, 2, -3, false},
+            {"divByZero", 1, 0, 0, true},
+        }
+
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                got, err := Divide(tt.a, tt.b)
+                if (err != nil) != tt.wantErr {
+                    t.Errorf("Divide() error = %v, wantErr %v", err, tt.wantErr)
+                    return
+                }
+                if !tt.wantErr && got != tt.want {
+                    t.Errorf("Divide() = %v, want %v", got, tt.want)
+                }
+            })
+        }
+    }
+    ```
+
+    ### Parallel Table Tests
+    ```go
+    func TestProcess(t *testing.T) {
+        tests := []struct {
+            name  string
+            input string
+            want  string
+        }{
+            // ... test cases
+        }
+
+        for _, tt := range tests {
+            tt := tt  // Capture range variable (pre-Go 1.22)
+            t.Run(tt.name, func(t *testing.T) {
+                t.Parallel()  // Run subtests in parallel
+                got := Process(tt.input)
+                if got != tt.want {
+                    t.Errorf("got %q, want %q", got, tt.want)
+                }
+            })
+        }
+    }
+    ```
+
+    ### Named Fields for Clarity
+    ```go
+    tests := []struct {
+        name     string
+        input    Input
+        setup    func()       // Optional setup
+        want     Output
+        wantErr  error        // Specific error expected
+        check    func(Output) // Custom validation
+    }{
+        {
+            name:  "valid input",
+            input: Input{Value: "test"},
+            want:  Output{Result: "TEST"},
+        },
+        {
+            name:    "empty input",
+            input:   Input{},
+            wantErr: ErrEmptyInput,
+        },
+    }
+    ```
+
+  content_concise: |
+    ## Table-Driven Tests
+    ```go
+    tests := []struct{
+        name string
+        input int
+        want int
+    }{
+        {"case1", 1, 2},
+        {"case2", 2, 4},
+    }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            if got := fn(tt.input); got != tt.want {
+                t.Errorf("got %v, want %v", got, tt.want)
+            }
+        })
+    }
+    ```
+
+- id: "language/go/testing/testify"
+  category: "language"
+  subcategory: "go"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    ## TESTIFY ASSERTION LIBRARY
+
+    github.com/stretchr/testify provides assertions and mocking.
+
+    ### Assert Package
+    ```go
+    import "github.com/stretchr/testify/assert"
+
+    func TestSomething(t *testing.T) {
+        // Basic assertions
+        assert.Equal(t, expected, actual)
+        assert.NotEqual(t, expected, actual)
+        assert.Nil(t, object)
+        assert.NotNil(t, object)
+
+        // Boolean
+        assert.True(t, condition)
+        assert.False(t, condition)
+
+        // Collections
+        assert.Contains(t, slice, element)
+        assert.Len(t, slice, 5)
+        assert.Empty(t, slice)
+
+        // Errors
+        assert.NoError(t, err)
+        assert.Error(t, err)
+        assert.ErrorIs(t, err, expectedErr)
+        assert.ErrorContains(t, err, "substring")
+
+        // Comparison
+        assert.Greater(t, 2, 1)
+        assert.Less(t, 1, 2)
+
+        // With message
+        assert.Equal(t, expected, actual, "values should match")
+    }
+    ```
+
+    ### Require Package (Fatal on Failure)
+    ```go
+    import "github.com/stretchr/testify/require"
+
+    func TestSomething(t *testing.T) {
+        // Same API as assert, but stops test on failure
+        result, err := doSomething()
+        require.NoError(t, err)  // Stops here if error
+        require.NotNil(t, result)
+
+        // Continue only if above passed
+        assert.Equal(t, "expected", result.Value)
+    }
+    ```
+
+    ### Mock Package
+    ```go
+    import "github.com/stretchr/testify/mock"
+
+    // Define mock
+    type MockRepository struct {
+        mock.Mock
+    }
+
+    func (m *MockRepository) Find(id string) (*User, error) {
+        args := m.Called(id)
+        if args.Get(0) == nil {
+            return nil, args.Error(1)
+        }
+        return args.Get(0).(*User), args.Error(1)
+    }
+
+    // Use mock
+    func TestService(t *testing.T) {
+        mockRepo := new(MockRepository)
+
+        // Set expectations
+        mockRepo.On("Find", "123").Return(&User{Name: "John"}, nil)
+        mockRepo.On("Find", "999").Return(nil, ErrNotFound)
+
+        // Run test
+        svc := NewService(mockRepo)
+        user, err := svc.GetUser("123")
+
+        assert.NoError(t, err)
+        assert.Equal(t, "John", user.Name)
+
+        // Verify expectations
+        mockRepo.AssertExpectations(t)
+    }
+    ```
+
+    ### Suite Package
+    ```go
+    import "github.com/stretchr/testify/suite"
+
+    type MySuite struct {
+        suite.Suite
+        db *Database
+    }
+
+    func (s *MySuite) SetupSuite() {
+        // Run once before all tests
+        s.db = connectDB()
+    }
+
+    func (s *MySuite) TearDownSuite() {
+        // Run once after all tests
+        s.db.Close()
+    }
+
+    func (s *MySuite) SetupTest() {
+        // Run before each test
+        s.db.Truncate()
+    }
+
+    func (s *MySuite) TestSomething() {
+        s.Equal(expected, actual)  // Use suite assertions
+    }
+
+    func TestMySuite(t *testing.T) {
+        suite.Run(t, new(MySuite))
+    }
+    ```
+
+  content_concise: |
+    ## Testify
+    ```go
+    import "github.com/stretchr/testify/assert"
+    import "github.com/stretchr/testify/require"
+
+    assert.Equal(t, want, got)     // Continue on fail
+    require.NoError(t, err)        // Stop on fail
+    assert.ErrorIs(t, err, target) // Check error
+    assert.Contains(t, slice, item)
+    ```
+
+- id: "language/go/testing/httptest"
+  category: "language"
+  subcategory: "go"
+  priority: 81
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    ## HTTP TESTING
+
+    ### Testing HTTP Handlers
+    ```go
+    import (
+        "net/http"
+        "net/http/httptest"
+        "testing"
+    )
+
+    func TestHandler(t *testing.T) {
+        // Create request
+        req := httptest.NewRequest("GET", "/users/123", nil)
+        req.Header.Set("Authorization", "Bearer token")
+
+        // Create response recorder
+        w := httptest.NewRecorder()
+
+        // Call handler
+        handler := UserHandler{}
+        handler.ServeHTTP(w, req)
+
+        // Check response
+        resp := w.Result()
+        if resp.StatusCode != http.StatusOK {
+            t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+        }
+
+        body, _ := io.ReadAll(resp.Body)
+        if !strings.Contains(string(body), "John") {
+            t.Errorf("body = %s, want to contain John", body)
+        }
+    }
+    ```
+
+    ### Testing HTTP Client Code
+    ```go
+    func TestAPIClient(t *testing.T) {
+        // Create test server
+        server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // Verify request
+            if r.Method != "POST" {
+                t.Errorf("method = %s, want POST", r.Method)
+            }
+            if r.URL.Path != "/api/users" {
+                t.Errorf("path = %s, want /api/users", r.URL.Path)
+            }
+
+            // Send response
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(http.StatusCreated)
+            w.Write([]byte(`{"id": "123", "name": "John"}`))
+        }))
+        defer server.Close()
+
+        // Test client with mock server
+        client := NewAPIClient(server.URL)
+        user, err := client.CreateUser("John")
+
+        if err != nil {
+            t.Fatalf("CreateUser() error = %v", err)
+        }
+        if user.ID != "123" {
+            t.Errorf("user.ID = %s, want 123", user.ID)
+        }
+    }
+    ```
+
+    ### Testing with TLS
+    ```go
+    func TestSecureClient(t *testing.T) {
+        server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            w.Write([]byte("secure response"))
+        }))
+        defer server.Close()
+
+        // Use server's client (has proper TLS config)
+        client := server.Client()
+        resp, err := client.Get(server.URL)
+        // ...
+    }
+    ```
+
+    ### Request/Response Patterns
+    ```go
+    // POST with JSON body
+    body := strings.NewReader(`{"name": "John"}`)
+    req := httptest.NewRequest("POST", "/users", body)
+    req.Header.Set("Content-Type", "application/json")
+
+    // With query parameters
+    req := httptest.NewRequest("GET", "/users?page=1&limit=10", nil)
+
+    // With path parameters (using router)
+    req := httptest.NewRequest("GET", "/users/123", nil)
+    // Router will parse "123" as path param
+
+    // Check JSON response
+    var result User
+    json.NewDecoder(w.Body).Decode(&result)
+    assert.Equal(t, "John", result.Name)
+    ```
+
+  content_concise: |
+    ## HTTP Testing
+    ```go
+    // Test handler
+    req := httptest.NewRequest("GET", "/path", nil)
+    w := httptest.NewRecorder()
+    handler.ServeHTTP(w, req)
+    assert.Equal(t, 200, w.Code)
+
+    // Mock server for client testing
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte(`{"id":"1"}`))
+    }))
+    defer server.Close()
+    client := NewClient(server.URL)
+    ```
+
+- id: "language/go/testing/benchmarks"
+  category: "language"
+  subcategory: "go"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    ## BENCHMARKS AND FUZZING
+
+    ### Basic Benchmark
+    ```go
+    func BenchmarkFib(b *testing.B) {
+        for i := 0; i < b.N; i++ {
+            Fib(20)
+        }
+    }
+
+    // Run: go test -bench=BenchmarkFib
+    // Output: BenchmarkFib-8  12345  98765 ns/op
+    ```
+
+    ### Benchmark with Setup
+    ```go
+    func BenchmarkProcess(b *testing.B) {
+        // Setup (not timed)
+        data := generateTestData(1000)
+
+        b.ResetTimer()  // Reset timer after setup
+        for i := 0; i < b.N; i++ {
+            Process(data)
+        }
+    }
+    ```
+
+    ### Sub-benchmarks
+    ```go
+    func BenchmarkSort(b *testing.B) {
+        sizes := []int{100, 1000, 10000}
+        for _, size := range sizes {
+            b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+                data := make([]int, size)
+                for i := 0; i < b.N; i++ {
+                    b.StopTimer()
+                    shuffle(data)
+                    b.StartTimer()
+                    sort.Ints(data)
+                }
+            })
+        }
+    }
+    ```
+
+    ### Memory Allocation Benchmark
+    ```go
+    func BenchmarkConcat(b *testing.B) {
+        b.ReportAllocs()  // Report allocations
+        for i := 0; i < b.N; i++ {
+            Concat("a", "b", "c")
+        }
+    }
+
+    // Run: go test -bench=. -benchmem
+    // Output: 12345 ns/op  1024 B/op  10 allocs/op
+    ```
+
+    ### Fuzz Testing (Go 1.18+)
+    ```go
+    func FuzzParseJSON(f *testing.F) {
+        // Seed corpus
+        f.Add([]byte(`{"name": "test"}`))
+        f.Add([]byte(`{}`))
+        f.Add([]byte(`{"nested": {"value": 123}}`))
+
+        // Fuzz function
+        f.Fuzz(func(t *testing.T, data []byte) {
+            var v interface{}
+            err := json.Unmarshal(data, &v)
+
+            // If unmarshal succeeds, marshal should too
+            if err == nil {
+                _, err := json.Marshal(v)
+                if err != nil {
+                    t.Errorf("Marshal failed after successful Unmarshal: %v", err)
+                }
+            }
+        })
+    }
+
+    // Run: go test -fuzz=FuzzParseJSON -fuzztime=30s
+    ```
+
+    ### Benchmark Comparison
+    ```bash
+    # Save baseline
+    go test -bench=. -count=5 > old.txt
+
+    # Make changes, then compare
+    go test -bench=. -count=5 > new.txt
+    benchstat old.txt new.txt
+    ```
+
+  content_concise: |
+    ## Benchmarks & Fuzzing
+    ```go
+    func BenchmarkFoo(b *testing.B) {
+        b.ReportAllocs()
+        for i := 0; i < b.N; i++ {
+            Foo()
+        }
+    }
+
+    func FuzzBar(f *testing.F) {
+        f.Add([]byte("seed"))
+        f.Fuzz(func(t *testing.T, data []byte) {
+            Bar(data)  // Shouldn't panic
+        })
+    }
+    ```
+    Run: `go test -bench=. -benchmem -fuzz=Fuzz -fuzztime=30s`
+
+- id: "language/go/testing/mocking"
+  category: "language"
+  subcategory: "go"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/tester"]
+  languages: ["/go", "/golang"]
+  depends_on: ["language/go/testing/fundamentals"]
+  content: |
+    ## MOCKING AND DEPENDENCY INJECTION
+
+    ### Interface-Based Mocking (Recommended)
+    ```go
+    // Define interface for dependency
+    type UserRepository interface {
+        Find(id string) (*User, error)
+        Save(user *User) error
+    }
+
+    // Production implementation
+    type PostgresUserRepo struct {
+        db *sql.DB
+    }
+    func (r *PostgresUserRepo) Find(id string) (*User, error) { ... }
+    func (r *PostgresUserRepo) Save(user *User) error { ... }
+
+    // Test mock
+    type MockUserRepo struct {
+        users map[string]*User
+        err   error
+    }
+    func (m *MockUserRepo) Find(id string) (*User, error) {
+        if m.err != nil {
+            return nil, m.err
+        }
+        return m.users[id], nil
+    }
+    func (m *MockUserRepo) Save(user *User) error {
+        if m.err != nil {
+            return m.err
+        }
+        m.users[user.ID] = user
+        return nil
+    }
+
+    // Test
+    func TestService(t *testing.T) {
+        mock := &MockUserRepo{
+            users: map[string]*User{
+                "123": {ID: "123", Name: "John"},
+            },
+        }
+        svc := NewUserService(mock)
+
+        user, err := svc.GetUser("123")
+        require.NoError(t, err)
+        assert.Equal(t, "John", user.Name)
+    }
+    ```
+
+    ### Function Type Mocking
+    ```go
+    // Define function type
+    type TimeFunc func() time.Time
+
+    // Service using function
+    type Service struct {
+        now TimeFunc
+    }
+
+    func NewService() *Service {
+        return &Service{now: time.Now}  // Default
+    }
+
+    func (s *Service) IsExpired(expiry time.Time) bool {
+        return s.now().After(expiry)
+    }
+
+    // Test with custom time
+    func TestIsExpired(t *testing.T) {
+        fixedTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+        svc := &Service{now: func() time.Time { return fixedTime }}
+
+        assert.True(t, svc.IsExpired(fixedTime.Add(-time.Hour)))
+        assert.False(t, svc.IsExpired(fixedTime.Add(time.Hour)))
+    }
+    ```
+
+    ### gomock (Code Generation)
+    ```bash
+    go install github.com/golang/mock/mockgen@latest
+    mockgen -source=repository.go -destination=mock_repository.go
+    ```
+
+    ```go
+    func TestWithGomock(t *testing.T) {
+        ctrl := gomock.NewController(t)
+        defer ctrl.Finish()
+
+        mockRepo := NewMockUserRepository(ctrl)
+
+        // Set expectations
+        mockRepo.EXPECT().
+            Find("123").
+            Return(&User{Name: "John"}, nil).
+            Times(1)
+
+        svc := NewService(mockRepo)
+        user, _ := svc.GetUser("123")
+        assert.Equal(t, "John", user.Name)
+    }
+    ```
+
+    ### Test Doubles Summary
+    | Type | Purpose | Example |
+    |------|---------|---------|
+    | Stub | Fixed return values | `MockRepo.Find() returns User` |
+    | Mock | Verifies interactions | `AssertCalled("Find", "123")` |
+    | Fake | Working implementation | In-memory database |
+    | Spy | Records calls | `GetCallCount("Find")` |
+
+  content_concise: |
+    ## Mocking
+    1. Define interface for dependency
+    2. Production struct implements interface
+    3. Test mock implements same interface
+    4. Inject mock in tests
+    ```go
+    type Repo interface { Find(id string) (*User, error) }
+    type MockRepo struct { users map[string]*User }
+    func (m *MockRepo) Find(id string) (*User, error) { return m.users[id], nil }
+    ```

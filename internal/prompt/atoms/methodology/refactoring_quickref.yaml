@@ -1,0 +1,418 @@
+# Refactoring Quick Reference
+# Condensed decision trees and checklists for rapid refactoring decisions
+# Use when token budget is constrained
+
+- id: "methodology/refactoring/quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 75
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REFACTORING QUICK REFERENCE
+
+    ### Decision: Should I Refactor?
+    ```
+    Tests exist? ─NO──> Write tests first (Golden Master if needed)
+         │
+        YES
+         │
+    Tests pass? ─NO──> Fix tests first (not refactoring)
+         │
+        YES
+         │
+    Clear goal? ─NO──> Define specific improvement
+         │
+        YES
+         │
+    Deadline? ─YES──> Ship first, refactor later
+         │
+        NO
+         │
+    Code being replaced? ─YES──> Don't polish dead code
+         │
+        NO
+         │
+    PROCEED WITH REFACTORING
+    ```
+
+    ### Decision: Which Refactoring?
+
+    **Smell → Refactoring Map:**
+    | Smell | Primary Refactoring |
+    |-------|-------------------|
+    | Long Method | Extract Method |
+    | Large Class | Extract Class |
+    | Long Params | Introduce Parameter Object |
+    | Duplicate Code | Extract Method → Pull Up |
+    | Feature Envy | Move Method |
+    | Switch Statement | Replace with Polymorphism |
+    | Magic Number | Replace with Constant |
+    | Message Chain | Hide Delegate |
+    | Middle Man | Remove Middle Man |
+    | Data Clump | Extract Class |
+
+    ### Refactoring Safety Levels
+    ```
+    SAFE (AI can execute):
+    - Rename (variable, function, class)
+    - Extract Variable
+    - Inline Variable
+    - Remove Dead Code (static-verified)
+    - Replace Magic Number with Constant
+
+    MODERATE (verify with tests):
+    - Extract Method
+    - Move Method/Field
+    - Simplify Conditional
+    - Replace Conditional with Polymorphism
+
+    HIGH RISK (human review required):
+    - Change Function Signature
+    - Extract Class/Interface
+    - Replace Algorithm
+    - Large-scale migration
+    ```
+
+  content_concise: |
+    ## REFACTORING QUICK REFERENCE
+
+    **Checklist:** Tests pass? → Goal clear? → Not deadline? → Proceed
+
+    **Common Refactorings:**
+    - Long Method → Extract Method
+    - Long Params → Parameter Object
+    - Duplicate → Extract + Pull Up
+    - Feature Envy → Move Method
+    - Switch → Polymorphism
+
+    **Safety:** Rename/Extract Variable=Safe | Extract Method=Test | API Change=Review
+
+  content_min: |
+    Refactor: Tests first, small steps, verify each step, no behavior change.
+
+- id: "methodology/refactoring/smell_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 74
+  is_mandatory: false
+  intent_verbs: ["/refactor", "/review"]
+  content: |
+    ## CODE SMELL QUICK DETECTION
+
+    ### Quantitative Thresholds
+    | Metric | Warning | Critical |
+    |--------|---------|----------|
+    | Method lines | >30 | >50 |
+    | Class lines | >300 | >500 |
+    | Parameters | >4 | >7 |
+    | Nesting depth | >3 | >5 |
+    | Cyclomatic complexity | >10 | >20 |
+    | Methods per class | >20 | >30 |
+    | Fields per class | >10 | >15 |
+
+    ### Bloaters Quick Check
+    - [ ] Any method > 30 lines?
+    - [ ] Any class > 300 lines?
+    - [ ] Any function > 4 params?
+    - [ ] Same data group passed together 3+ times?
+    - [ ] Primitive used for complex concept (phone, money, email)?
+
+    ### OO Abuser Quick Check
+    - [ ] Switch on type in multiple places?
+    - [ ] Subclass doesn't use parent methods?
+    - [ ] Field only used in some methods?
+
+    ### Coupling Quick Check
+    - [ ] Method uses other object's data more than its own?
+    - [ ] Chain like `a.b.c.d.method()`?
+    - [ ] Class mostly delegates to another?
+
+    ### Dispensables Quick Check
+    - [ ] Comments explaining "what" not "why"?
+    - [ ] Same code in multiple places?
+    - [ ] Class does almost nothing?
+    - [ ] Unreachable code?
+    - [ ] Abstract class with 1 implementation?
+
+  content_concise: |
+    ## SMELL THRESHOLDS
+    Method: >30 lines | Class: >300 lines | Params: >4 | Nesting: >3
+
+    **Check:** Long method? Large class? Many params? Duplicates? Feature envy?
+
+- id: "methodology/refactoring/extract_method_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 73
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## EXTRACT METHOD - QUICK MECHANICS
+
+    ### Steps
+    1. Name new method (intention-revealing)
+    2. Copy code to new method
+    3. Find variables: read-only → params, modified → return
+    4. Replace original with call
+    5. Run tests
+
+    ### Variable Handling
+    ```
+    // Read-only: becomes parameter
+    extracted(localVar)
+
+    // Modified: becomes return value
+    localVar = extracted()
+
+    // Multiple modified: return struct or use pointers
+    result := extracted()
+    a, b = result.a, result.b
+    ```
+
+    ### Preconditions
+    - [ ] Code block has single purpose (nameable)
+    - [ ] No `return` that exits parent function
+    - [ ] No `break`/`continue` that exits parent loop
+    - [ ] Variables can be cleanly passed
+
+    ### Red Flags
+    - Extracted method needs >4 params → Consider Extract Class
+    - Extracted method modifies >2 vars → Consider object method
+    - Name is `processStuff()` → Name reveals nothing
+
+  content_concise: |
+    **Extract Method:** Name → Copy → Identify vars (read=param, write=return) → Replace → Test
+
+- id: "methodology/refactoring/legacy_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 72
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## LEGACY CODE QUICK STRATEGIES
+
+    ### No Tests? Create Characterization Tests
+    1. Write test calling code with various inputs
+    2. Assert current output (whatever it is)
+    3. Run 10,000+ times with random inputs
+    4. Save outputs as "golden master"
+    5. Compare after refactoring
+
+    ### Mikado Method (Large Refactoring)
+    1. Try change naively
+    2. When it breaks, note prerequisite
+    3. REVERT changes
+    4. Work from leaf prerequisites
+    5. Build dependency graph
+    6. Never have broken code in main
+
+    ### Strangler Fig (System Migration)
+    ```
+    [Client] → [Facade] → [Old System]
+                  ↓
+              [New System]
+    ```
+    Route traffic gradually from old to new.
+
+    ### Creating Seams
+    ```
+    // Static call (untestable)
+    Database.Query(sql)
+
+    // With seam (testable)
+    s.db.Query(sql)  // s.db is interface
+    ```
+
+    **Seam Types:**
+    - Object: Interface + injection
+    - Link: Classpath manipulation
+    - Preprocessing: Build flags
+
+  content_concise: |
+    **No tests:** Golden Master (capture output, compare after)
+    **Large refactor:** Mikado (try→fail→note→revert→recurse from leaves)
+    **Migration:** Strangler Fig (facade routing old→new)
+    **Testability:** Extract interface + inject dependency
+
+- id: "methodology/refactoring/ai_checklist"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 71
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## AI REFACTORING CHECKLIST
+
+    ### Before Starting
+    ```
+    [ ] Tests exist and pass
+    [ ] I understand what code does
+    [ ] I have specific improvement goal
+    [ ] Change is under 200 lines
+    [ ] No behavior change intended
+    ```
+
+    ### During Refactoring
+    ```
+    [ ] One refactoring type at a time
+    [ ] Each step compiles
+    [ ] Not adding features
+    [ ] Not fixing bugs
+    [ ] Not changing error messages
+    [ ] Not optimizing
+    [ ] Preserving public API
+    ```
+
+    ### After Refactoring
+    ```
+    [ ] All tests pass (unchanged)
+    [ ] No new warnings
+    [ ] Coverage same or better
+    [ ] Complexity reduced
+    [ ] Changes documented
+    ```
+
+    ### Stop If
+    - Test fails → Revert immediately
+    - Behavior change needed → Switch to /fix
+    - Scope growing → Propose separate changes
+    - Uncertainty → Ask before proceeding
+
+    ### Communication Template
+    ```
+    Refactoring: [Extract Method / Rename / etc.]
+    Goal: [Specific improvement]
+    Files: [List]
+    Lines changed: [Count]
+    Tests: [Passing/Updated]
+    ```
+
+  content_concise: |
+    **Before:** Tests pass, goal clear, <200 lines
+    **During:** One type, no features, no fixes, preserve API
+    **After:** Tests pass, no warnings, documented
+    **Stop if:** Test fails, behavior change, scope creep
+
+- id: "methodology/refactoring/naming_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 70
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## NAMING QUICK REFERENCE
+
+    ### Variable Naming
+    | Bad | Good |
+    |-----|------|
+    | `d` | `daysSinceModification` |
+    | `temp` | `unparsedInput` |
+    | `data` | `customerOrders` |
+    | `list` | `pendingTransactions` |
+    | `flag` | `isEmailVerified` |
+    | `val` | `discountPercentage` |
+
+    ### Function Naming
+    | Type | Pattern | Example |
+    |------|---------|---------|
+    | Action | verb | `save`, `process`, `send` |
+    | Query | get/find | `getUser`, `findByEmail` |
+    | Boolean | is/has/can | `isValid`, `hasAccess`, `canEdit` |
+    | Factory | create/build | `createOrder`, `buildConfig` |
+    | Conversion | to/from/as | `toJSON`, `fromBytes`, `asMap` |
+
+    ### Class/Type Naming
+    - Noun for entities: `Customer`, `Order`, `Payment`
+    - -er for actors: `Processor`, `Validator`, `Handler`
+    - -able/-ible for capabilities: `Comparable`, `Serializable`
+    - Avoid: `Manager`, `Helper`, `Utils` (usually too vague)
+
+    ### Avoid
+    - Single letters (except i/j in loops)
+    - Abbreviations: `usr`, `cfg`, `btn`
+    - Generic: `data`, `info`, `thing`, `item`
+    - Hungarian notation: `strName`, `iCount`
+    - Type in name: `nameString`, `userList`
+
+  content_concise: |
+    **Variables:** Descriptive nouns (`daysSinceModification` not `d`)
+    **Functions:** Verbs (`save`), is/has for bools (`isValid`)
+    **Types:** Nouns (`Customer`), -er for actors (`Processor`)
+    **Avoid:** Single letters, abbreviations, `Manager/Helper/Utils`
+
+- id: "methodology/refactoring/coupling_quickref"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 69
+  is_mandatory: false
+  intent_verbs: ["/refactor"]
+  content: |
+    ## REDUCING COUPLING - QUICK PATTERNS
+
+    ### Dependency Injection
+    ```
+    // Tight coupling (bad)
+    type Service struct {
+        db *sql.DB  // Concrete type
+    }
+    func NewService() *Service {
+        return &Service{db: sql.Open(...)}  // Creates own dependency
+    }
+
+    // Loose coupling (good)
+    type Repository interface {
+        Find(id string) (*Entity, error)
+    }
+    type Service struct {
+        repo Repository  // Interface
+    }
+    func NewService(repo Repository) *Service {
+        return &Service{repo: repo}  // Injected
+    }
+    ```
+
+    ### Interface Segregation
+    ```
+    // Fat interface (bad)
+    type Repository interface {
+        Create(...) error
+        Read(...) (*T, error)
+        Update(...) error
+        Delete(...) error
+        List(...) ([]T, error)
+        Count(...) (int, error)
+        // ... 20 more methods
+    }
+
+    // Segregated (good)
+    type Reader interface {
+        Read(id string) (*T, error)
+    }
+    type Writer interface {
+        Create(t T) error
+    }
+    // Depend only on what you need
+    ```
+
+    ### Breaking Circular Dependencies
+    1. Extract interface at dependency boundary
+    2. Introduce mediator/event bus
+    3. Merge if truly coupled
+    4. Use dependency inversion
+
+    ### Law of Demeter Fixes
+    ```
+    // Violation
+    customer.GetAddress().GetCity().GetPostalCode()
+
+    // Fixed: Tell, don't ask
+    customer.GetShippingPostalCode()
+    ```
+
+  content_concise: |
+    **DI:** Interface + inject via constructor
+    **ISP:** Small interfaces, depend on what you need
+    **Circular:** Extract interface, mediator, or merge
+    **Demeter:** `a.b.c.d` → `a.getD()` (hide chain)

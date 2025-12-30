@@ -570,14 +570,16 @@ func (w *WorldModelIngestorShard) handleAutopoiesis(ctx context.Context) {
 	// Use LLM to interpret complex changes
 	userPrompt := w.buildInterpretationPrompt(cases)
 
-	// Try JIT prompt compilation first, fall back to legacy constant
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
 	systemPrompt, jitUsed := w.TryJITPrompt(ctx, "world_model_autopoiesis")
-	if !jitUsed {
-		systemPrompt = worldModelAutopoiesisPrompt
-		logging.SystemShards("[WorldModel] [FALLBACK] Using legacy autopoiesis prompt")
-	} else {
-		logging.SystemShards("[WorldModel] [JIT] Using JIT-compiled autopoiesis prompt")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[WorldModel] [ERROR] JIT compilation failed - skipping autopoiesis (ensure system/autopoiesis atoms exist)")
+		for _, cas := range cases {
+			w.Autopoiesis.RecordUnhandled(cas.Query, cas.Context, cas.FactsAtTime)
+		}
+		return
 	}
+	logging.SystemShards("[WorldModel] [JIT] Using JIT-compiled autopoiesis prompt")
 
 	result, err := w.GuardedLLMCall(ctx, systemPrompt, userPrompt)
 	if err != nil {
@@ -693,27 +695,6 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 	}
 }
 
-// DEPRECATED: worldModelAutopoiesisPrompt is the legacy system prompt for semantic interpretation.
-// Prefer JIT prompt compilation via TryJITPrompt() when available.
-// This constant is retained as a fallback for when JIT is unavailable.
-const worldModelAutopoiesisPrompt = `You are the World Model Ingestor's semantic interpreter.
-Your role is to derive meaningful facts from file changes.
-
-Available fact predicates:
-- file_topology(Path, Hash, Language, ModTime, IsTest)
-- symbol_graph(SymbolID, Type, Visibility, Location, Signature)
-- dependency_link(CallerID, CalleeID, ImportPath)
-- diagnostic(Severity, Path, Line, Code, Message)
-- modified(Path) - marks a file as recently changed
-- impacted(Path) - marks a file as affected by changes
-
-When interpreting changes:
-1. Identify what was added, modified, or removed
-2. Detect potential impact on dependent files
-3. Note any structural changes (new functions, renamed classes)
-4. Flag potential issues (broken imports, missing dependencies)
-
-Output facts in the format:
-FACT: predicate(arg1, arg2, ...)
-
-Be conservative - only emit facts you are confident about.`
+// NOTE: Legacy worldModelAutopoiesisPrompt constant has been DELETED.
+// World model autopoiesis prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/autopoiesis.yaml (id: system/autopoiesis/world_model)

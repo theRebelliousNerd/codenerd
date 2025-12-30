@@ -665,44 +665,7 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 	return result
 }
 
-// perceptionSystemPrompt is the system prompt for intent parsing.
-//
-// DEPRECATED: This legacy prompt is retained for fallback when JIT compilation
-// is not available or fails. New prompt features should be added via the JIT
-// prompt compiler in internal/articulation. The JIT system provides dynamic
-// context injection, session awareness, and learned pattern integration.
-const perceptionSystemPrompt = `You are the Perception Firewall of the codeNERD agent.
-Your role is to transduce natural language input into structured intent atoms.
-
-Output a JSON object with these fields:
-{
-  "category": "query" | "mutation" | "instruction",
-  "verb": "<action verb>",
-  "target": "<file path, symbol, or empty>",
-  "constraint": "<additional constraints>",
-  "confidence": 0.0-1.0
-}
-
-Verb categories:
-- Query: explain, describe, search, find, show, list, analyze
-- Mutation: fix, refactor, create, delete, implement, add, modify
-- Instruction: run, test, build, deploy, review, debug
-
-Be precise:
-- Extract file paths and symbols exactly as mentioned
-- Identify the core action being requested
-- Note any constraints or conditions
-- Rate your confidence based on clarity of the request
-
-If the request is ambiguous, set confidence < 0.7 and note ambiguity in constraint.`
-
-// perceptionUserPrompt is the template for user input.
-//
-// DEPRECATED: This legacy user prompt template is retained for fallback.
-// The user prompt is typically short and context-specific, so it remains
-// as a simple template. System prompt customization should use JIT.
-const perceptionUserPrompt = `Parse the following user input into a structured intent:
-
-"%s"
-
-Respond with only the JSON object.`
+// NOTE: Legacy perceptionSystemPrompt and perceptionUserPrompt constants have been DELETED.
+// Perception system prompts are now JIT-compiled from:
+//   internal/prompt/atoms/system/perception.yaml
+// The RealTransducer handles prompt assembly via its PromptAssembler.

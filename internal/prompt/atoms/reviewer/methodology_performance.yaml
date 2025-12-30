@@ -1,0 +1,448 @@
+# Code Review Methodology Atoms - Performance Review
+# Encyclopedic guidance for performance analysis and optimization
+
+- id: "reviewer/methodology/performance_fundamentals"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## PERFORMANCE REVIEW FUNDAMENTALS
+
+    Performance issues compound. Small inefficiencies become system failures at scale.
+
+    ### PERFORMANCE REVIEW MINDSET
+    Ask: "What happens when this runs 1000x? 1,000,000x?"
+
+    ### KEY PERFORMANCE METRICS
+
+    **Time Complexity**
+    - O(1): Constant time - ideal
+    - O(log n): Logarithmic - binary search
+    - O(n): Linear - single pass
+    - O(n log n): Linearithmic - efficient sorting
+    - O(n^2): Quadratic - nested loops - WARNING
+    - O(2^n): Exponential - CRITICAL
+
+    **Space Complexity**
+    - Memory allocation patterns
+    - Data structure overhead
+    - Temporary buffer usage
+    - Memory leaks
+
+    **I/O Complexity**
+    - Network calls
+    - Database queries
+    - File system operations
+    - External service calls
+
+    ### PERFORMANCE REVIEW PROCESS
+
+    1. **Identify Hot Paths**
+       - What code runs frequently?
+       - What code is in critical paths?
+       - What code handles large data?
+
+    2. **Analyze Complexity**
+       - Calculate Big O for algorithms
+       - Count I/O operations
+       - Measure memory allocation
+
+    3. **Flag Issues**
+       - O(n^2) or worse
+       - N+1 query patterns
+       - Unnecessary allocations
+       - Missing caching
+
+- id: "reviewer/methodology/algorithm_complexity"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 86
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    ## ALGORITHM COMPLEXITY ANALYSIS
+
+    Poor algorithm choice is the #1 cause of performance problems.
+
+    ### COMPLEXITY RED FLAGS
+
+    **Nested Loops Over Same Data**
+    ```
+    for item in items:           # O(n)
+        for other in items:      # O(n) -> O(n^2) total
+            if item == other:
+                ...
+    ```
+    FIX: Use a Set for O(n) lookup
+
+    **Repeated Linear Search**
+    ```
+    for item in items:           # O(n)
+        if item in other_list:   # O(n) -> O(n^2) total
+            ...
+    ```
+    FIX: Convert other_list to Set first
+
+    **String Concatenation in Loop**
+    ```
+    result = ""
+    for item in items:
+        result += str(item)      # O(n^2) due to string copying
+    ```
+    FIX: Use StringBuilder or join()
+
+    **Sorting in Loop**
+    ```
+    for _ in range(n):
+        data.sort()              # O(n * n log n)
+    ```
+    FIX: Sort once outside loop
+
+    ### BETTER ALTERNATIVES
+
+    | Problem | Naive | Better |
+    |---------|-------|--------|
+    | Membership test | List O(n) | Set O(1) |
+    | Lookup by key | List scan O(n) | Dict/Map O(1) |
+    | Find duplicates | Nested loop O(n^2) | Set O(n) |
+    | Top K elements | Sort all O(n log n) | Heap O(n log k) |
+    | Range queries | Scan O(n) | Index O(log n) |
+
+    ### DATA STRUCTURE SELECTION
+
+    **Use Array/Slice When:**
+    - Sequential access
+    - Known size
+    - Index-based access
+
+    **Use Hash Map When:**
+    - Key-value lookup
+    - Membership testing
+    - Counting occurrences
+
+    **Use Tree/Heap When:**
+    - Sorted order needed
+    - Min/max queries
+    - Range queries
+
+- id: "reviewer/methodology/database_performance"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    ## DATABASE PERFORMANCE REVIEW
+
+    Database calls are orders of magnitude slower than in-memory operations.
+    Every query matters.
+
+    ### THE N+1 QUERY PROBLEM
+
+    **The Problem:**
+    ```python
+    users = User.query.all()           # 1 query
+    for user in users:
+        orders = user.orders.all()     # N queries!
+        ...
+    ```
+
+    **The Solution:**
+    ```python
+    users = User.query.options(
+        joinedload(User.orders)        # 1 query with JOIN
+    ).all()
+    ```
+
+    **Detection:**
+    - Loop that makes database calls
+    - Lazy loading inside iteration
+    - Multiple queries for related data
+
+    ### QUERY OPTIMIZATION CHECKLIST
+
+    **Index Usage**
+    - [ ] WHERE clauses have indexes
+    - [ ] JOIN columns are indexed
+    - [ ] ORDER BY columns are indexed
+    - [ ] Composite indexes for multi-column queries
+
+    **Query Efficiency**
+    - [ ] SELECT only needed columns
+    - [ ] LIMIT results when possible
+    - [ ] Avoid SELECT DISTINCT unless necessary
+    - [ ] Use EXISTS instead of COUNT for existence checks
+
+    **Batch Operations**
+    - [ ] Bulk inserts instead of individual inserts
+    - [ ] Batch updates with WHERE clauses
+    - [ ] Use transactions for multiple operations
+
+    ### QUERY ANTI-PATTERNS
+
+    **Selecting Too Much**
+    ```sql
+    SELECT * FROM users  -- Don't do this
+    SELECT id, name FROM users  -- Better
+    ```
+
+    **Filtering in Application**
+    ```python
+    users = User.query.all()  # Don't do this
+    active = [u for u in users if u.active]
+
+    users = User.query.filter_by(active=True).all()  # Better
+    ```
+
+    **Counting for Existence**
+    ```sql
+    SELECT COUNT(*) FROM users WHERE id = ?  -- Slower
+    SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)  -- Faster
+    ```
+
+    ### SQL COMPLEXITY
+    - O(1): Indexed lookup
+    - O(log n): Index range scan
+    - O(n): Table scan (BAD for large tables)
+    - O(n^2): Cross join without condition (CRITICAL)
+
+- id: "reviewer/methodology/memory_performance"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    ## MEMORY USAGE REVIEW
+
+    Memory pressure causes GC pauses, swapping, and OOM crashes.
+
+    ### MEMORY RED FLAGS
+
+    **Loading Large Data into Memory**
+    ```python
+    data = file.read()  # Entire file in memory
+    ```
+    FIX: Stream/chunk processing
+
+    **Accumulating Without Bounds**
+    ```python
+    cache = {}
+    def get(key):
+        if key not in cache:
+            cache[key] = compute(key)  # Grows forever!
+        return cache[key]
+    ```
+    FIX: Use LRU cache with max size
+
+    **Unnecessary Copies**
+    ```go
+    func process(data []byte) {
+        copy := make([]byte, len(data))  // Unnecessary copy
+        ...
+    }
+    ```
+    FIX: Use slices/views when possible
+
+    **Goroutine/Thread Leaks**
+    ```go
+    go func() {
+        for { ... }  // Never exits!
+    }()
+    ```
+    FIX: Context cancellation, done channels
+
+    ### MEMORY OPTIMIZATION CHECKLIST
+
+    **Allocation Reduction**
+    - [ ] Pre-allocate slices with known capacity
+    - [ ] Reuse buffers instead of allocating
+    - [ ] Use sync.Pool for temporary objects
+    - [ ] Avoid boxing/unboxing in hot paths
+
+    **Memory Limits**
+    - [ ] Caches have size limits
+    - [ ] Queues have bounded capacity
+    - [ ] Streams process data in chunks
+
+    **Leak Prevention**
+    - [ ] Resources cleaned up (defer Close())
+    - [ ] Goroutines have exit conditions
+    - [ ] Subscriptions/listeners unregistered
+    - [ ] Circular references broken
+
+    ### STREAMING PATTERNS
+
+    **Instead of:**
+    ```python
+    data = file.read()
+    for line in data.split('\n'):
+        process(line)
+    ```
+
+    **Use:**
+    ```python
+    for line in file:  # Streaming
+        process(line)
+    ```
+
+- id: "reviewer/methodology/caching"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    ## CACHING REVIEW
+
+    Caching is powerful but introduces complexity. Review carefully.
+
+    ### CACHING OPPORTUNITIES
+
+    **Good Cache Candidates**
+    - Expensive computations
+    - Slow external API calls
+    - Database queries with stable results
+    - Static configuration
+
+    **Poor Cache Candidates**
+    - Rapidly changing data
+    - User-specific data at scale
+    - Security-sensitive data
+    - Data that must be consistent
+
+    ### CACHING CHECKLIST
+
+    **Cache Correctness**
+    - [ ] Cache invalidation strategy defined
+    - [ ] TTL appropriate for data freshness needs
+    - [ ] Cache keys are unique and collision-free
+    - [ ] Stale data handling defined
+
+    **Cache Safety**
+    - [ ] Cache stampede prevention (singleflight)
+    - [ ] Thundering herd mitigation
+    - [ ] Graceful degradation when cache unavailable
+
+    **Cache Efficiency**
+    - [ ] Cache hit rate monitored
+    - [ ] Cache size bounded
+    - [ ] Eviction policy appropriate (LRU, LFU)
+
+    ### CACHE INVALIDATION PATTERNS
+
+    **Time-Based (TTL)**
+    - Simple but may serve stale data
+    - Good for: API responses, computed values
+
+    **Event-Based**
+    - Accurate but complex
+    - Good for: Database-backed caches
+
+    **Version-Based**
+    - Cache key includes version/hash
+    - Good for: Static assets, configs
+
+    ### COMMON CACHING BUGS
+
+    **Cache Key Collision**
+    ```
+    cache_key = "user"  # Same for all users!
+    cache_key = f"user:{user_id}"  # Correct
+    ```
+
+    **Missing Cache Check**
+    ```python
+    value = cache.get(key)
+    if value:  # Bug: falsy values treated as miss
+        return value
+    ```
+
+    **Race Condition on Miss**
+    ```python
+    if key not in cache:
+        value = compute()  # Multiple threads compute!
+        cache[key] = value
+    ```
+    FIX: Use singleflight/mutex
+
+- id: "reviewer/methodology/async_performance"
+  category: "methodology"
+  subcategory: "performance"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/performance_fundamentals"]
+  content: |
+    ## ASYNCHRONOUS PERFORMANCE REVIEW
+
+    Async code can improve throughput but introduces complexity.
+
+    ### ASYNC PATTERNS TO REVIEW
+
+    **Sequential When Parallel Possible**
+    ```python
+    # Bad: Sequential
+    a = await fetch_a()
+    b = await fetch_b()
+
+    # Good: Parallel
+    a, b = await asyncio.gather(fetch_a(), fetch_b())
+    ```
+
+    **Blocking in Async Context**
+    ```python
+    async def handler():
+        time.sleep(1)  # Blocks entire event loop!
+        await asyncio.sleep(1)  # Correct
+    ```
+
+    **Missing await**
+    ```python
+    result = async_function()  # Returns coroutine, doesn't execute!
+    result = await async_function()  # Correct
+    ```
+
+    ### CONCURRENCY CHECKLIST
+
+    **Parallelization**
+    - [ ] Independent operations run in parallel
+    - [ ] Degree of parallelism bounded
+    - [ ] Results collected properly
+
+    **Error Handling**
+    - [ ] Partial failures handled
+    - [ ] Timeouts on all async operations
+    - [ ] Cancellation propagated
+
+    **Resource Management**
+    - [ ] Connection pools sized appropriately
+    - [ ] Semaphores limit concurrent operations
+    - [ ] Backpressure implemented
+
+    ### NETWORK OPTIMIZATION
+
+    **Batching**
+    - Combine multiple small requests
+    - Use GraphQL/batch endpoints
+
+    **Connection Reuse**
+    - HTTP keep-alive
+    - Connection pooling
+    - Persistent connections
+
+    **Compression**
+    - Enable gzip/brotli
+    - Consider binary formats (protobuf)

@@ -825,14 +825,13 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-	// Try JIT prompt compilation first, fall back to legacy constant
+	// Use JIT prompt compilation (no fallback - atoms in internal/prompt/atoms/system/autopoiesis.yaml)
 	systemPrompt, jitUsed := e.TryJITPrompt(ctx, "executive_autopoiesis")
-	if !jitUsed {
-		systemPrompt = executiveAutopoiesisPrompt
-		logging.SystemShards("[ExecutivePolicy] [FALLBACK] Using legacy autopoiesis prompt")
-	} else {
-		logging.SystemShards("[ExecutivePolicy] [JIT] Using JIT-compiled autopoiesis prompt")
+	if !jitUsed || systemPrompt == "" {
+		logging.SystemShards("[ExecutivePolicy] [ERROR] JIT compilation failed - skipping autopoiesis (ensure atoms exist)")
+		return
 	}
+	logging.SystemShards("[ExecutivePolicy] [JIT] Using JIT-compiled autopoiesis prompt")
 
 	// Create LLM adapter that wraps GuardedLLMCall
 	llmAdapter := &executiveLLMAdapter{
@@ -1076,31 +1075,6 @@ func (e *ExecutivePolicyShard) GetLearnedPatterns() map[string][]string {
 	return result
 }
 
-// DEPRECATED: executiveAutopoiesisPrompt is the legacy system prompt for proposing policy rules.
-// Prefer JIT prompt compilation via TryJITPrompt() when available.
-// This constant is retained as a fallback for when JIT is unavailable.
-const executiveAutopoiesisPrompt = `You are the Executive Policy's Autopoiesis system.
-Your role is to propose new Mangle policy rules for decision-making.
-
-Available patterns:
-- next_action(ActionName) :- <conditions>.
-- active_strategy(StrategyName) :- <conditions>.
-- block_commit(Reason) :- <conditions>.
-
-Current strategies the system uses:
-- /tdd_repair_loop: Fix failing tests
-- /breadth_first_survey: Explore codebase
-- /depth_first_implement: Focused implementation
-- /review_and_refactor: Code quality
-
-When proposing rules:
-1. Derive actions based on current state facts
-2. Use appropriate strategy for the situation
-3. Include necessary guard conditions
-4. Keep rules specific and testable
-
-DO NOT propose rules that:
-- Bypass safety barriers
-- Create infinite action loops
-- Ignore test/build failures
-- Skip required human confirmation`
+// NOTE: executiveAutopoiesisPrompt constant DELETED (Dec 2024)
+// Prompt atoms now live in internal/prompt/atoms/system/autopoiesis.yaml
+// JIT compilation is required - no fallback.

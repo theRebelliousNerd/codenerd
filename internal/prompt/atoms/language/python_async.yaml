@@ -1,0 +1,380 @@
+# Python Async/Await - Encyclopedic Reference
+# Comprehensive guidance for asyncio patterns, TaskGroup, and concurrent programming
+
+- id: "language/python/async/fundamentals"
+  category: "language"
+  subcategory: "python"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  content: |
+    ## ASYNCIO FUNDAMENTALS
+
+    ### Core Concepts
+    - `asyncio` is Python's standard library for concurrent code using `async`/`await`
+    - Built on an event loop that schedules and executes coroutines
+    - Ideal for I/O-bound operations (network, file I/O, database queries)
+    - NOT suitable for CPU-bound operations (use `multiprocessing` instead)
+
+    ### Entry Points
+    ```python
+    # CORRECT: Use asyncio.run() as single entry point (Python 3.7+)
+    async def main():
+        result = await fetch_data()
+        return result
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+
+    # WRONG: Don't use low-level APIs unless absolutely necessary
+    loop = asyncio.get_event_loop()  # Avoid this
+    loop.run_until_complete(main())  # Avoid this
+    ```
+
+    ### Creating Tasks
+    ```python
+    # CORRECT: Use asyncio.create_task() for concurrent execution
+    async def main():
+        task1 = asyncio.create_task(fetch_url("http://example1.com"))
+        task2 = asyncio.create_task(fetch_url("http://example2.com"))
+
+        # Tasks start running immediately after creation
+        result1 = await task1
+        result2 = await task2
+
+    # WRONG: Calling coroutines without await creates coroutine objects
+    async def wrong():
+        fetch_url("http://example.com")  # RuntimeWarning: coroutine was never awaited
+    ```
+
+    ### Async Context Managers
+    ```python
+    # Use async with for async context managers
+    async def use_connection():
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://example.com") as response:
+                return await response.text()
+
+    # Creating async context managers
+    class AsyncResource:
+        async def __aenter__(self):
+            self.resource = await acquire_resource()
+            return self.resource
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            await release_resource(self.resource)
+            return False  # Don't suppress exceptions
+
+    # Using contextlib for simpler async context managers
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def managed_resource():
+        resource = await acquire()
+        try:
+            yield resource
+        finally:
+            await release(resource)
+    ```
+
+    ### Async Generators
+    ```python
+    # Async generators for streaming data
+    async def fetch_pages(urls: list[str]):
+        for url in urls:
+            data = await fetch_url(url)
+            yield data  # Yields one at a time, memory efficient
+
+    # Consuming async generators
+    async def process_all():
+        async for page in fetch_pages(urls):
+            process(page)
+    ```
+
+  content_concise: |
+    ## Asyncio Fundamentals
+    - Use `asyncio.run(main())` as entry point
+    - `asyncio.create_task()` for concurrent execution
+    - `async with` for async context managers
+    - `async for` for async iteration
+    - I/O-bound only - use multiprocessing for CPU-bound
+
+- id: "language/python/async/gather_taskgroup"
+  category: "language"
+  subcategory: "python"
+  priority: 87
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/async/fundamentals"]
+  content: |
+    ## GATHER VS TASKGROUP
+
+    ### asyncio.gather()
+    ```python
+    # Good for simple concurrent execution
+    async def fetch_all():
+        results = await asyncio.gather(
+            fetch_url("http://example1.com"),
+            fetch_url("http://example2.com"),
+            fetch_url("http://example3.com"),
+            return_exceptions=True  # Don't fail fast, collect all results
+        )
+        return results
+
+    # CAVEAT: If one task fails without return_exceptions=True,
+    # others continue running but you don't get their results
+    ```
+
+    ### asyncio.TaskGroup (Python 3.11+) - PREFERRED
+    ```python
+    # Use TaskGroup for structured concurrency with automatic cancellation
+    async def fetch_all():
+        async with asyncio.TaskGroup() as tg:
+            task1 = tg.create_task(fetch_url("http://example1.com"))
+            task2 = tg.create_task(fetch_url("http://example2.com"))
+        # All tasks complete or all are cancelled if one fails
+        # Exceptions wrapped in ExceptionGroup
+        return task1.result(), task2.result()
+
+    # KEY DIFFERENCE: TaskGroup cancels ALL tasks if ANY task fails
+    # gather() does NOT cancel other tasks on failure
+    ```
+
+    ### When to Use Which
+    | Feature | gather() | TaskGroup |
+    |---------|----------|-----------|
+    | One failure behavior | Others continue | All cancelled |
+    | Exception handling | return_exceptions | ExceptionGroup |
+    | Cancellation | Manual | Automatic |
+    | Python version | 3.4+ | 3.11+ |
+    | Use case | Independent tasks | Dependent tasks |
+
+    ### Error Handling with TaskGroup
+    ```python
+    async def robust_fetch():
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(task1())
+                tg.create_task(task2())
+        except* ValueError as eg:
+            # Handle all ValueErrors
+            for exc in eg.exceptions:
+                print(f"ValueError: {exc}")
+        except* TypeError as eg:
+            # Handle all TypeErrors
+            for exc in eg.exceptions:
+                print(f"TypeError: {exc}")
+    ```
+
+  content_concise: |
+    ## gather vs TaskGroup
+    - `gather()`: Tasks continue on failure, use `return_exceptions=True`
+    - `TaskGroup` (3.11+): Cancels all on failure, use `except*` for errors
+    - TaskGroup = structured concurrency (PREFERRED)
+    - gather() = independent tasks that shouldn't affect each other
+
+- id: "language/python/async/cancellation"
+  category: "language"
+  subcategory: "python"
+  priority: 86
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/async/fundamentals"]
+  content: |
+    ## CANCELLATION HANDLING
+
+    ### Basic Cancellation Pattern
+    ```python
+    # Handle CancelledError in try-finally, never swallow it
+    async def cancellable_task():
+        try:
+            while True:
+                await asyncio.sleep(1)
+                do_work()
+        finally:
+            # Cleanup runs even on cancellation
+            await cleanup_resources()
+            # Do NOT catch CancelledError and suppress it!
+    ```
+
+    ### Shielding Critical Operations
+    ```python
+    # Use asyncio.shield() for operations that MUST complete
+    async def critical_operation():
+        try:
+            # This operation continues even if parent is cancelled
+            result = await asyncio.shield(save_to_database(data))
+        except asyncio.CancelledError:
+            # Shield raises CancelledError but shielded task continues
+            result = await asyncio.shield(save_to_database(data))
+            raise  # Re-raise to propagate cancellation
+
+    # WRONG: Swallowing CancelledError breaks TaskGroup and timeout
+    async def bad_task():
+        try:
+            await some_operation()
+        except asyncio.CancelledError:
+            pass  # NEVER DO THIS - breaks structured concurrency
+    ```
+
+    ### Timeout Patterns
+    ```python
+    # Using wait_for with timeout
+    async def with_timeout():
+        try:
+            result = await asyncio.wait_for(slow_operation(), timeout=5.0)
+        except asyncio.TimeoutError:
+            handle_timeout()
+
+    # Using timeout context manager (Python 3.11+)
+    async def with_timeout_context():
+        try:
+            async with asyncio.timeout(5.0):
+                result = await slow_operation()
+        except TimeoutError:
+            handle_timeout()
+
+    # Deadline-based timeout (Python 3.11+)
+    async def with_deadline():
+        deadline = asyncio.get_event_loop().time() + 5.0
+        try:
+            async with asyncio.timeout_at(deadline):
+                result = await slow_operation()
+        except TimeoutError:
+            handle_timeout()
+    ```
+
+    ### Graceful Shutdown
+    ```python
+    async def main():
+        tasks = [
+            asyncio.create_task(worker(i))
+            for i in range(10)
+        ]
+
+        try:
+            await asyncio.gather(*tasks)
+        except KeyboardInterrupt:
+            # Cancel all tasks
+            for task in tasks:
+                task.cancel()
+            # Wait for cancellation to complete
+            await asyncio.gather(*tasks, return_exceptions=True)
+    ```
+
+  content_concise: |
+    ## Cancellation Handling
+    - Use try-finally for cleanup, never swallow CancelledError
+    - `asyncio.shield()` for critical operations that must complete
+    - `asyncio.timeout()` (3.11+) or `wait_for()` for timeouts
+    - Always re-raise CancelledError after cleanup
+
+- id: "language/python/async/pitfalls"
+  category: "language"
+  subcategory: "python"
+  priority: 89
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/python"]
+  depends_on: ["language/python/async/fundamentals"]
+  content: |
+    ## COMMON ASYNCIO PITFALLS
+
+    ### Blocking the Event Loop
+    ```python
+    # WRONG: Blocking calls in async code
+    async def bad():
+        time.sleep(5)  # Blocks the entire event loop!
+        requests.get(url)  # Also blocking!
+
+    # CORRECT: Use async equivalents
+    async def good():
+        await asyncio.sleep(5)
+        async with aiohttp.ClientSession() as session:
+            await session.get(url)
+
+        # For unavoidable blocking calls:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, blocking_function, arg)
+    ```
+
+    ### Forgetting to Await
+    ```python
+    # WRONG: Creates coroutine object, doesn't execute
+    result = fetch_data()  # RuntimeWarning: coroutine was never awaited
+
+    # CORRECT:
+    result = await fetch_data()
+    ```
+
+    ### Nested Event Loops
+    ```python
+    # WRONG: Calling asyncio.run() from within async code
+    async def outer():
+        asyncio.run(inner())  # RuntimeError: cannot be called from running loop
+
+    # CORRECT: Just await the coroutine
+    async def outer():
+        await inner()
+
+    # WORKAROUND (if absolutely necessary, e.g., Jupyter):
+    import nest_asyncio
+    nest_asyncio.apply()
+    ```
+
+    ### PEP 789 Warning: Don't Yield Inside TaskGroup
+    ```python
+    # WRONG: Violates structured concurrency
+    async def bad_generator():
+        async with asyncio.TaskGroup() as tg:
+            yield something  # Task outlives generator!
+
+    # CORRECT: Complete TaskGroup before yielding
+    async def good_generator():
+        async with asyncio.TaskGroup() as tg:
+            result = await some_work()
+        yield result  # TaskGroup complete before yield
+    ```
+
+    ### Fire-and-Forget Tasks Disappear
+    ```python
+    # WRONG: Task may be garbage collected
+    async def bad():
+        asyncio.create_task(background_work())  # May never run!
+
+    # CORRECT: Keep reference to task
+    async def good():
+        background_tasks = set()
+
+        task = asyncio.create_task(background_work())
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+    ```
+
+    ### Mixing Sync and Async
+    ```python
+    # WRONG: Calling sync from async without executor
+    async def bad():
+        result = sync_blocking_function()  # Blocks event loop!
+
+    # CORRECT: Use run_in_executor
+    async def good():
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,  # Use default ThreadPoolExecutor
+            sync_blocking_function,
+            arg1, arg2
+        )
+    ```
+
+  content_concise: |
+    ## Asyncio Pitfalls
+    - Never use `time.sleep()` or `requests` - use async versions
+    - Always `await` coroutines - check for RuntimeWarning
+    - Don't call `asyncio.run()` inside async code
+    - Don't `yield` inside TaskGroup/timeout
+    - Keep references to fire-and-forget tasks
+    - Use `run_in_executor()` for unavoidable blocking calls

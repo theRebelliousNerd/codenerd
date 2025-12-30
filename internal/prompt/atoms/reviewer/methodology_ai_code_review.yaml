@@ -1,0 +1,408 @@
+# Code Review Methodology Atoms - AI-Generated Code Review
+# Encyclopedic guidance for reviewing and verifying AI-generated code
+
+- id: "reviewer/methodology/ai_review_fundamentals"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 94
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## AI-GENERATED CODE REVIEW FUNDAMENTALS
+
+    AI-generated code requires special review attention.
+    Trust nothing. Verify everything.
+
+    ### AI CODE REVIEW MINDSET
+
+    AI models can produce:
+    - Syntactically correct but logically wrong code
+    - Plausible-looking APIs that don't exist
+    - Security vulnerabilities that look safe
+    - Tests that pass but test nothing
+
+    Assume all AI code is suspect until proven correct.
+
+    ### AI HALLUCINATION CATEGORIES
+
+    1. **API Hallucinations**: Invented methods/functions
+    2. **Package Hallucinations**: Non-existent dependencies
+    3. **Logic Hallucinations**: Incorrect algorithms
+    4. **Security Hallucinations**: Unsafe patterns
+    5. **Syntax Hallucinations**: Invalid language constructs
+
+    ### REVIEW PROCESS FOR AI CODE
+
+    **Step 1: Verify Imports Exist**
+    Every import statement must be validated.
+    Check official package registries.
+
+    **Step 2: Verify APIs Exist**
+    Every method call must be validated.
+    Check official documentation.
+
+    **Step 3: Test the Code**
+    Never trust AI code without running it.
+    Unit tests required for all AI code.
+
+    **Step 4: Security Review**
+    AI often produces insecure code.
+    Apply full security checklist.
+
+- id: "reviewer/methodology/api_verification"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    ## API AND PACKAGE VERIFICATION
+
+    AI models hallucinate packages and APIs at a ~20% rate.
+    Every dependency and method must be verified.
+
+    ### PACKAGE VERIFICATION CHECKLIST
+
+    **Existence Check**
+    - [ ] Package exists in official registry
+    - [ ] Package name spelled correctly
+    - [ ] Package is not typosquat of real package
+    - [ ] Package has recent activity
+
+    **Version Check**
+    - [ ] Version specified exists
+    - [ ] API used exists in that version
+    - [ ] Breaking changes not ignored
+
+    **Security Check**
+    - [ ] Package has no known vulnerabilities
+    - [ ] Package has active maintainers
+    - [ ] Package source is trustworthy
+
+    ### API VERIFICATION CHECKLIST
+
+    **Method Exists**
+    - [ ] Method exists on the class/type
+    - [ ] Method signature matches (params, return)
+    - [ ] Method is not deprecated
+
+    **Behavior Correct**
+    - [ ] Method does what code assumes
+    - [ ] Edge cases handled as expected
+    - [ ] Errors returned as expected
+
+    ### VERIFICATION TECHNIQUES
+
+    **For Packages:**
+    - Check npm/PyPI/Maven Central/pkg.go.dev
+    - Verify download counts (very low = suspicious)
+    - Check creation date (very new = suspicious)
+
+    **For APIs:**
+    - Check official documentation
+    - Check type definitions/stubs
+    - Test in REPL/playground
+
+    ### COMMON HALLUCINATION PATTERNS
+
+    **Plausible But Non-Existent**
+    ```python
+    from requests import async_get  # Doesn't exist!
+    ```
+
+    **Mixed API Versions**
+    ```javascript
+    // Mixing React class and hook patterns incorrectly
+    this.state.count = useState(0)  // Wrong!
+    ```
+
+    **Wrong Language/Framework**
+    ```go
+    // Using Python-style exception handling
+    try {
+        ...
+    } except Error as e {  // Not valid Go!
+    ```
+
+- id: "reviewer/methodology/ai_logic_verification"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    ## AI LOGIC VERIFICATION
+
+    AI can produce syntactically valid code with incorrect logic.
+    Every algorithm must be mentally traced.
+
+    ### LOGIC VERIFICATION PROCESS
+
+    **Step 1: Understand the Goal**
+    What should this code accomplish?
+    Does the approach make sense?
+
+    **Step 2: Trace Execution**
+    Walk through the code with sample inputs.
+    Does each step produce expected results?
+
+    **Step 3: Test Edge Cases**
+    What happens with empty input?
+    What happens with maximum input?
+    What happens with invalid input?
+
+    **Step 4: Verify Assumptions**
+    What does this code assume about its inputs?
+    Are those assumptions valid?
+
+    ### AI LOGIC ERROR PATTERNS
+
+    **Off-By-One**
+    AI frequently makes boundary errors.
+    Verify all loop bounds and array indices.
+
+    **Inverted Conditions**
+    AI may flip boolean logic.
+    Verify all conditional statements.
+
+    **Missing Error Handling**
+    AI often assumes success.
+    Verify all error paths.
+
+    **Incorrect Algorithm Choice**
+    AI may use naive O(n^2) when O(n) exists.
+    Verify algorithm efficiency.
+
+    ### TESTING AI CODE
+
+    **Unit Tests Are Mandatory**
+    AI code must have accompanying tests.
+    Tests must cover edge cases.
+
+    **Test the Tests**
+    AI-generated tests may not test correctly.
+    Verify tests would catch bugs.
+
+    **Mutation Testing**
+    Would tests catch if logic was wrong?
+    Consider mutation testing.
+
+- id: "reviewer/methodology/ai_security_review"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 94
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    ## AI CODE SECURITY REVIEW
+
+    AI models often generate insecure code.
+    Security review is critical for all AI output.
+
+    ### AI SECURITY RISKS
+
+    **Training Data Leakage**
+    AI may reproduce patterns from training data.
+    Check for hardcoded credentials, keys, or secrets.
+
+    **Outdated Security Patterns**
+    AI may use deprecated/insecure patterns.
+    Verify security approaches are current.
+
+    **Incomplete Input Validation**
+    AI often skips input validation.
+    Add validation for all user inputs.
+
+    **Injection Vulnerabilities**
+    AI may concatenate strings unsafely.
+    Check for SQL/command/XSS injection.
+
+    ### SECURITY CHECKLIST FOR AI CODE
+
+    **Secrets**
+    - [ ] No hardcoded passwords/keys/tokens
+    - [ ] No placeholder secrets (password123)
+    - [ ] Secrets loaded from environment/vault
+
+    **Input Handling**
+    - [ ] All inputs validated
+    - [ ] No string concatenation in queries
+    - [ ] Parameterized queries used
+
+    **Output Handling**
+    - [ ] Output properly escaped
+    - [ ] No sensitive data in responses
+    - [ ] Error messages don't leak info
+
+    **Authentication/Authorization**
+    - [ ] Auth checks present
+    - [ ] Authorization verified
+    - [ ] Session management correct
+
+    ### AI SECURITY ANTI-PATTERNS
+
+    **Placeholder Security**
+    ```python
+    # TODO: Add authentication
+    def admin_action():
+        ...  # No auth check!
+    ```
+
+    **Insecure Defaults**
+    ```go
+    http.ListenAndServe(":8080", nil)  // No TLS!
+    ```
+
+    **Debug Code in Production**
+    ```javascript
+    console.log("Password:", password)  // Logged!
+    ```
+
+- id: "reviewer/methodology/ai_hallucination_detection"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    ## HALLUCINATION DETECTION TECHNIQUES
+
+    Systematic approaches to catching AI hallucinations.
+
+    ### LLM-AS-JUDGE PATTERN
+
+    Use another LLM to evaluate AI output.
+    Classification: Valid Issue / Hallucination / Undetermined
+
+    ### CHAIN-OF-VERIFICATION
+
+    1. AI generates initial response
+    2. Generate verification questions
+    3. Answer verification questions
+    4. Revise response based on answers
+
+    ### RETRIEVAL-AUGMENTED VERIFICATION
+
+    Ground AI claims against authoritative sources.
+    Link statements to documentation/source code.
+
+    ### CONFIDENCE SIGNALS
+
+    **High Confidence (Likely Correct)**
+    - Matches official documentation
+    - Standard pattern in codebase
+    - Has test coverage
+
+    **Low Confidence (Verify Carefully)**
+    - Novel or unusual pattern
+    - No documentation reference
+    - Complex logic without tests
+
+    **Red Flags (Likely Hallucination)**
+    - Cannot find API in docs
+    - Package doesn't exist
+    - Syntax errors
+    - Inconsistent with language version
+
+    ### THREE-LAYER VERIFICATION
+
+    **Layer 1: Automated Detection**
+    - Lint/compile errors
+    - Type checking
+    - Dependency resolution
+
+    **Layer 2: Pattern-Based Review**
+    - Known hallucination patterns
+    - Security anti-patterns
+    - Performance anti-patterns
+
+    **Layer 3: Architecture Review**
+    - Does design make sense?
+    - Does it fit the codebase?
+    - Are there better approaches?
+
+    ### SELF-DETECTION CAPABILITY
+
+    AI models can often detect their own hallucinations when prompted.
+    Ask: "Are you certain this API exists? Verify against documentation."
+
+- id: "reviewer/methodology/ai_code_integration"
+  category: "methodology"
+  subcategory: "ai_review"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/ai_review_fundamentals"]
+  content: |
+    ## AI CODE INTEGRATION REVIEW
+
+    Reviewing how AI-generated code fits into existing codebase.
+
+    ### INTEGRATION CHECKLIST
+
+    **Style Consistency**
+    - [ ] Follows codebase naming conventions
+    - [ ] Matches existing code style
+    - [ ] Uses established patterns
+    - [ ] Consistent error handling approach
+
+    **Architecture Fit**
+    - [ ] Code in appropriate layer/module
+    - [ ] Dependencies flow correctly
+    - [ ] No new circular dependencies
+    - [ ] Uses existing utilities
+
+    **Existing Code Reuse**
+    - [ ] Doesn't duplicate existing functionality
+    - [ ] Uses existing helpers/utilities
+    - [ ] Consistent with similar code
+
+    ### COMMON AI INTEGRATION ISSUES
+
+    **Reinventing the Wheel**
+    AI may create new utilities that already exist.
+    Check for existing implementations.
+
+    **Inconsistent Patterns**
+    AI may use different patterns than codebase.
+    Align with established patterns.
+
+    **Missing Context**
+    AI may not know about project conventions.
+    Verify compliance with team standards.
+
+    **Overly Complex**
+    AI may over-engineer simple problems.
+    Simplify where appropriate.
+
+    ### CODEBASE CONTEXT QUESTIONS
+
+    1. Does this match our error handling pattern?
+    2. Do we have existing utilities for this?
+    3. Is this the right place for this code?
+    4. Does this follow our naming conventions?
+    5. Have we solved this problem before?
+
+    ### AI CODE ACCEPTANCE CRITERIA
+
+    **Minimum Requirements**
+    - Compiles/runs without errors
+    - Passes all tests
+    - No security vulnerabilities
+    - APIs verified to exist
+
+    **Quality Requirements**
+    - Matches codebase style
+    - Reasonable complexity
+    - Adequate test coverage
+    - Appropriate documentation

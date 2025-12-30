@@ -1,0 +1,456 @@
+# Code Review Methodology Atoms - Concurrency Review
+# Encyclopedic guidance for thread safety, race conditions, and resource management
+
+- id: "reviewer/methodology/concurrency_fundamentals"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## CONCURRENCY REVIEW FUNDAMENTALS
+
+    Concurrency bugs are the hardest to find and reproduce.
+    They cause data corruption, crashes, and security vulnerabilities.
+
+    ### CONCURRENCY THREAT MODEL
+
+    **Race Conditions**
+    Two threads access shared data, at least one writes.
+    Result depends on execution order - non-deterministic.
+
+    **Deadlocks**
+    Threads wait for each other indefinitely.
+    System hangs with no progress.
+
+    **Livelocks**
+    Threads actively doing nothing useful.
+    Constantly retrying without progress.
+
+    **Starvation**
+    Some threads never get resources.
+    Unfair scheduling or priority inversion.
+
+    ### CONCURRENCY REVIEW MINDSET
+
+    Ask: "What happens if two goroutines/threads execute this simultaneously?"
+    For every piece of shared state, verify synchronization.
+
+- id: "reviewer/methodology/race_conditions"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    ## RACE CONDITION DETECTION
+
+    Race conditions occur when concurrent access to shared state is unsynchronized.
+
+    ### RACE CONDITION PATTERNS
+
+    **Check-Then-Act Race**
+    ```go
+    if _, ok := cache[key]; !ok {  // Check
+        cache[key] = compute()      // Act - another goroutine may have added!
+    }
+    ```
+    FIX: Use sync.Map or mutex around both operations.
+
+    **Read-Modify-Write Race**
+    ```go
+    counter++  // Actually: read, increment, write - not atomic!
+    ```
+    FIX: Use atomic.AddInt64 or mutex.
+
+    **Publication Race**
+    ```go
+    var data *Data
+    go func() { data = loadData() }()
+    // Later...
+    use(data)  // May see nil or partial data!
+    ```
+    FIX: Use channels or sync.WaitGroup.
+
+    **Lazy Initialization Race**
+    ```go
+    var instance *Service
+    func GetService() *Service {
+        if instance == nil {
+            instance = newService()  // Multiple goroutines may initialize!
+        }
+        return instance
+    }
+    ```
+    FIX: Use sync.Once.
+
+    ### DETECTION CHECKLIST
+
+    - [ ] All shared variables protected
+    - [ ] No data races in concurrent access
+    - [ ] Atomic operations for counters
+    - [ ] sync.Once for lazy initialization
+    - [ ] Race detector passes (`go test -race`)
+
+    ### THE "HEISENBUG"
+
+    Race conditions may disappear when:
+    - Running in debugger (timing changes)
+    - Adding logging (timing changes)
+    - Running on different hardware
+
+    If bug is intermittent and "disappears" - suspect a race.
+
+- id: "reviewer/methodology/synchronization"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    ## SYNCHRONIZATION REVIEW
+
+    Proper synchronization prevents races but introduces complexity.
+
+    ### SYNCHRONIZATION PRIMITIVES
+
+    **Mutex (Mutual Exclusion)**
+    ```go
+    var mu sync.Mutex
+    mu.Lock()
+    defer mu.Unlock()
+    // Critical section
+    ```
+
+    **RWMutex (Readers-Writer)**
+    ```go
+    var mu sync.RWMutex
+    mu.RLock()   // Multiple readers OK
+    mu.RUnlock()
+    mu.Lock()    // Exclusive for writers
+    mu.Unlock()
+    ```
+
+    **Atomic Operations**
+    ```go
+    atomic.AddInt64(&counter, 1)
+    atomic.LoadInt64(&value)
+    atomic.StoreInt64(&value, x)
+    ```
+
+    **Channels (Go)**
+    ```go
+    ch := make(chan Result)
+    go func() { ch <- compute() }()
+    result := <-ch
+    ```
+
+    ### SYNCHRONIZATION CHECKLIST
+
+    **Mutex Usage**
+    - [ ] Lock and Unlock paired (use defer)
+    - [ ] Critical section minimized
+    - [ ] No nested locks (deadlock risk)
+    - [ ] RWMutex used when reads >> writes
+
+    **Channel Usage**
+    - [ ] Channels closed by sender
+    - [ ] Buffered channels have bounded size
+    - [ ] Select with default for non-blocking
+
+    **Atomic Usage**
+    - [ ] Only for simple counters/flags
+    - [ ] Not for complex data structures
+
+    ### ANTI-PATTERNS
+
+    **Lock Copying**
+    ```go
+    type Counter struct {
+        mu sync.Mutex
+        n  int
+    }
+    c2 := c1  // BUG: Mutex copied!
+    ```
+
+    **Forgetting to Unlock**
+    ```go
+    mu.Lock()
+    if err != nil {
+        return err  // BUG: Never unlocked!
+    }
+    mu.Unlock()
+    ```
+    FIX: Use defer mu.Unlock()
+
+    **Locking Inside Loop**
+    ```go
+    for _, item := range items {
+        mu.Lock()  // Performance: Lock once outside loop
+        process(item)
+        mu.Unlock()
+    }
+    ```
+
+- id: "reviewer/methodology/deadlocks"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 88
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    ## DEADLOCK DETECTION
+
+    Deadlocks freeze systems completely. Prevent them in code review.
+
+    ### DEADLOCK CONDITIONS (All Required)
+
+    1. **Mutual Exclusion**: Resources cannot be shared
+    2. **Hold and Wait**: Holding one resource, waiting for another
+    3. **No Preemption**: Resources cannot be forcibly taken
+    4. **Circular Wait**: A waits for B, B waits for A
+
+    Break ANY condition to prevent deadlock.
+
+    ### COMMON DEADLOCK PATTERNS
+
+    **Lock Ordering Violation**
+    ```go
+    // Goroutine 1          // Goroutine 2
+    mu1.Lock()              mu2.Lock()
+    mu2.Lock()              mu1.Lock()  // DEADLOCK!
+    ```
+    FIX: Always lock in same order.
+
+    **Channel Deadlock**
+    ```go
+    ch := make(chan int)
+    ch <- 1  // Blocks forever! No receiver.
+    ```
+    FIX: Use goroutines or buffered channels.
+
+    **Self-Deadlock**
+    ```go
+    mu.Lock()
+    doSomething()  // Calls a function that also locks mu!
+    mu.Unlock()
+    ```
+    FIX: Don't hold locks while calling unknown code.
+
+    ### DEADLOCK PREVENTION CHECKLIST
+
+    - [ ] Lock ordering consistent everywhere
+    - [ ] No nested locks or documented order
+    - [ ] Channel sends have receivers
+    - [ ] Timeouts on all blocking operations
+    - [ ] Context cancellation propagated
+
+    ### DEADLOCK DETECTION TOOLS
+
+    - Go: `go test -race`
+    - Go: Runtime deadlock detector
+    - Java: Thread dumps, JVisualVM
+    - Valgrind/Helgrind for C/C++
+
+- id: "reviewer/methodology/resource_cleanup"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 86
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    ## RESOURCE CLEANUP REVIEW
+
+    Resource leaks cause system degradation and crashes over time.
+
+    ### RESOURCE TYPES
+
+    **System Resources**
+    - File handles
+    - Network connections
+    - Database connections
+    - Memory (in manual memory languages)
+
+    **Runtime Resources (Go)**
+    - Goroutines
+    - Channels
+    - Tickers/Timers
+
+    **Application Resources**
+    - Connection pools
+    - Cache entries
+    - Temporary files
+
+    ### RESOURCE CLEANUP PATTERNS
+
+    **Go: defer Close()**
+    ```go
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close()  // Always closes
+    ```
+
+    **Go: Context Cancellation**
+    ```go
+    ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+    defer cancel()  // Always cancel context
+    ```
+
+    **Python: Context Managers**
+    ```python
+    with open(path) as f:
+        data = f.read()
+    # File automatically closed
+    ```
+
+    ### RESOURCE LEAK CHECKLIST
+
+    **File/Connection Handles**
+    - [ ] Every Open has matching Close
+    - [ ] Close called even on error paths
+    - [ ] defer used for cleanup
+
+    **Goroutines (Go)**
+    - [ ] All goroutines have exit conditions
+    - [ ] Context cancellation checked
+    - [ ] Done channels used for shutdown
+
+    **Timers/Tickers**
+    - [ ] time.Ticker stopped when done
+    - [ ] time.Timer stopped if not fired
+
+    **Channels**
+    - [ ] Channels closed when no more sends
+    - [ ] Buffered channels drained on shutdown
+
+    ### GOROUTINE LEAK PATTERNS
+
+    **No Exit Condition**
+    ```go
+    go func() {
+        for {
+            doWork()  // Never exits!
+        }
+    }()
+    ```
+
+    **Blocked Channel**
+    ```go
+    go func() {
+        ch <- result  // No receiver, goroutine leaks
+    }()
+    ```
+
+    **Missing Context Check**
+    ```go
+    go func() {
+        for {
+            select {
+            // Missing: case <-ctx.Done(): return
+            case item := <-ch:
+                process(item)
+            }
+        }
+    }()
+    ```
+
+    ### CLEANUP ORDER
+    Resources should be cleaned up in reverse order of acquisition.
+    Go's defer naturally handles this.
+
+- id: "reviewer/methodology/thread_safety"
+  category: "methodology"
+  subcategory: "concurrency"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/concurrency_fundamentals"]
+  content: |
+    ## THREAD SAFETY ANALYSIS
+
+    Determine if code is safe for concurrent use.
+
+    ### THREAD SAFETY LEVELS
+
+    **Immutable**
+    - Object never changes after creation
+    - Always thread-safe
+    - Best for shared data
+
+    **Thread-Safe**
+    - Safe for concurrent access
+    - Internal synchronization
+    - May have performance overhead
+
+    **Thread-Compatible**
+    - Can be made thread-safe by external synchronization
+    - No internal synchronization
+    - Caller must synchronize
+
+    **Thread-Hostile**
+    - Cannot be safely used concurrently
+    - Uses shared global state
+    - Must be refactored
+
+    ### THREAD SAFETY CHECKLIST
+
+    **Data Structures**
+    - [ ] No shared mutable state OR
+    - [ ] All access synchronized
+
+    **Function Properties**
+    - [ ] No side effects (pure) OR
+    - [ ] Side effects synchronized
+
+    **Class/Struct Properties**
+    - [ ] Immutable OR
+    - [ ] All methods synchronized
+
+    ### MAKING CODE THREAD-SAFE
+
+    **Strategy 1: Immutability**
+    ```go
+    // Thread-safe: no mutation
+    type Config struct {
+        Host string  // No setters, set once at creation
+        Port int
+    }
+    ```
+
+    **Strategy 2: Confinement**
+    ```go
+    // Thread-safe: data owned by single goroutine
+    go func() {
+        data := make(map[string]int)
+        for req := range requests {
+            // Only this goroutine accesses data
+        }
+    }()
+    ```
+
+    **Strategy 3: Synchronization**
+    ```go
+    type SafeCounter struct {
+        mu sync.Mutex
+        n  int
+    }
+    ```
+
+    ### THREAD-SAFE DATA STRUCTURES (Go)
+
+    - `sync.Map` - concurrent map
+    - `sync.Pool` - object pool
+    - `atomic.Value` - atomic value storage
+    - Channels - inherently thread-safe

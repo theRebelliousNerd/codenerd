@@ -1,0 +1,367 @@
+# Code Review Methodology Atoms - Maintainability Review
+# Encyclopedic guidance for code quality, readability, and maintainability
+
+- id: "reviewer/methodology/maintainability_fundamentals"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 82
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## MAINTAINABILITY REVIEW FUNDAMENTALS
+
+    Code is read 10x more than written. Optimize for the reader.
+
+    ### MAINTAINABILITY QUESTIONS
+
+    1. Can a new team member understand this in 30 minutes?
+    2. Can this code be safely modified without breaking things?
+    3. Will this code still make sense in 6 months?
+    4. Is the intent clear from the code, not just comments?
+
+    ### CODE QUALITY PRINCIPLES
+
+    **SOLID Principles**
+    - **S**ingle Responsibility: Each module does one thing
+    - **O**pen/Closed: Open for extension, closed for modification
+    - **L**iskov Substitution: Subtypes must be substitutable
+    - **I**nterface Segregation: Small, focused interfaces
+    - **D**ependency Inversion: Depend on abstractions
+
+    **DRY (Don't Repeat Yourself)**
+    - Extract repeated logic into functions
+    - But don't over-abstract - WET is sometimes better
+
+    **KISS (Keep It Simple)**
+    - Simple > clever
+    - Obvious > tricky
+    - Boring > interesting
+
+    **YAGNI (You Ain't Gonna Need It)**
+    - Don't build for hypothetical futures
+    - Don't add unused abstraction layers
+    - Delete dead code
+
+- id: "reviewer/methodology/readability"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 80
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    ## READABILITY REVIEW
+
+    Readable code reduces bugs, speeds onboarding, and eases maintenance.
+
+    ### NAMING CHECKLIST
+
+    **Variables**
+    - [ ] Names reveal intent
+    - [ ] No single-letter variables (except i, j in loops)
+    - [ ] No abbreviations unless universal (HTTP, URL)
+    - [ ] Boolean names are questions (isReady, hasPermission)
+
+    **Functions**
+    - [ ] Names describe action (verb + noun)
+    - [ ] No generic names (handle, process, do)
+    - [ ] Side effects indicated in name
+
+    **Classes/Types**
+    - [ ] Names are nouns
+    - [ ] Single responsibility clear from name
+    - [ ] No "Manager", "Handler", "Processor" without specificity
+
+    ### CODE STRUCTURE CHECKLIST
+
+    **Function Size**
+    - [ ] Functions fit on one screen (~20-30 lines)
+    - [ ] Single level of abstraction
+    - [ ] One thing per function
+
+    **Nesting Depth**
+    - [ ] Maximum 3 levels of nesting
+    - [ ] Guard clauses used for early returns
+    - [ ] Complex conditions extracted
+
+    **Comments**
+    - [ ] WHY comments, not WHAT comments
+    - [ ] No commented-out code
+    - [ ] TODO comments have tickets
+
+    ### READABILITY ANTI-PATTERNS
+
+    **Clever Code**
+    ```python
+    # Bad: Too clever
+    x = a and b or c
+
+    # Good: Clear
+    x = b if a else c
+    ```
+
+    **Magic Numbers**
+    ```go
+    // Bad
+    if len(items) > 100 {
+
+    // Good
+    const maxBatchSize = 100
+    if len(items) > maxBatchSize {
+    ```
+
+    **Deep Nesting**
+    ```go
+    // Bad
+    if a {
+        if b {
+            if c {
+                // code
+            }
+        }
+    }
+
+    // Good
+    if !a { return }
+    if !b { return }
+    if !c { return }
+    // code
+    ```
+
+- id: "reviewer/methodology/coupling_cohesion"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 78
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    ## COUPLING AND COHESION REVIEW
+
+    High cohesion + low coupling = maintainable systems.
+
+    ### COUPLING (Should Be LOW)
+
+    **Coupling Types (Worst to Best)**
+    1. Content coupling: Module modifies another's internals
+    2. Common coupling: Shared global state
+    3. Control coupling: One module controls another's flow
+    4. Stamp coupling: Passing unnecessary data structures
+    5. Data coupling: Passing only needed data (BEST)
+
+    **Coupling Red Flags**
+    - [ ] Module needs internals of another module
+    - [ ] Changing one module requires changing others
+    - [ ] Circular dependencies exist
+    - [ ] God objects that know everything
+
+    **Reducing Coupling**
+    - Use interfaces, not concrete types
+    - Pass only what's needed
+    - Avoid global state
+    - Use dependency injection
+
+    ### COHESION (Should Be HIGH)
+
+    **Cohesion Types (Best to Worst)**
+    1. Functional: All elements serve single purpose (BEST)
+    2. Sequential: Output of one element is input to next
+    3. Communicational: Elements operate on same data
+    4. Procedural: Elements in sequence, loosely related
+    5. Temporal: Elements happen at same time
+    6. Logical: Elements share category only
+    7. Coincidental: Random elements together (WORST)
+
+    **Low Cohesion Red Flags**
+    - [ ] Class has unrelated methods
+    - [ ] Method does multiple unrelated things
+    - [ ] "Utils" or "Helpers" classes
+    - [ ] Methods that don't use instance state
+
+    **Improving Cohesion**
+    - Split multi-purpose modules
+    - Group related functions together
+    - Extract classes from large classes
+    - Apply Single Responsibility Principle
+
+- id: "reviewer/methodology/code_smells"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 76
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/analyze"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    ## CODE SMELL DETECTION
+
+    Code smells are patterns that suggest deeper problems.
+
+    ### BLOATERS (Code Too Large)
+
+    **Long Method**
+    - More than 20-30 lines
+    - FIX: Extract methods
+
+    **Large Class**
+    - Too many responsibilities
+    - FIX: Extract classes
+
+    **Long Parameter List**
+    - More than 3-4 parameters
+    - FIX: Use parameter object
+
+    **Data Clumps**
+    - Same data passed together repeatedly
+    - FIX: Extract into class
+
+    ### OBJECT-ORIENTATION ABUSERS
+
+    **Switch Statements**
+    - Switch on type instead of polymorphism
+    - FIX: Use strategy pattern
+
+    **Refused Bequest**
+    - Subclass doesn't use inherited methods
+    - FIX: Use composition over inheritance
+
+    **Alternative Classes**
+    - Different classes doing same thing
+    - FIX: Unify or extract interface
+
+    ### CHANGE PREVENTERS
+
+    **Divergent Change**
+    - One class changed for multiple reasons
+    - FIX: Split class by responsibility
+
+    **Shotgun Surgery**
+    - One change requires many edits
+    - FIX: Consolidate related logic
+
+    **Parallel Inheritance**
+    - Creating subclass requires another subclass
+    - FIX: Flatten hierarchy
+
+    ### DISPENSABLES
+
+    **Dead Code**
+    - Unused code
+    - FIX: Delete it
+
+    **Speculative Generality**
+    - Abstraction for imagined future needs
+    - FIX: Remove until needed
+
+    **Duplicate Code**
+    - Same code in multiple places
+    - FIX: Extract to shared function
+
+    ### COUPLERS
+
+    **Feature Envy**
+    - Method uses another class more than its own
+    - FIX: Move method
+
+    **Inappropriate Intimacy**
+    - Classes know too much about each other
+    - FIX: Move methods, extract class
+
+    **Message Chains**
+    - a.getB().getC().getD()
+    - FIX: Law of Demeter - delegate
+
+- id: "reviewer/methodology/documentation"
+  category: "methodology"
+  subcategory: "maintainability"
+  priority: 72
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/maintainability_fundamentals"]
+  content: |
+    ## DOCUMENTATION REVIEW
+
+    Good documentation reduces questions and onboarding time.
+
+    ### DOCUMENTATION LEVELS
+
+    **Code Comments**
+    - Explain WHY, not WHAT
+    - Document non-obvious decisions
+    - Link to relevant issues/docs
+
+    **Function/Method Documentation**
+    - Purpose
+    - Parameters (types, constraints, defaults)
+    - Return value
+    - Errors/exceptions
+    - Side effects
+
+    **Module/Package Documentation**
+    - Purpose and scope
+    - Key concepts
+    - Usage examples
+    - Dependencies
+
+    **System Documentation**
+    - Architecture overview
+    - Data flow
+    - Deployment
+    - Operations
+
+    ### DOCUMENTATION CHECKLIST
+
+    **Required Documentation**
+    - [ ] Public APIs documented
+    - [ ] Complex algorithms explained
+    - [ ] Non-obvious decisions justified
+    - [ ] Error codes documented
+
+    **Comment Quality**
+    - [ ] Comments are accurate (match code)
+    - [ ] No commented-out code
+    - [ ] TODOs have issue references
+    - [ ] No redundant comments
+
+    **Examples**
+    - [ ] Usage examples for complex APIs
+    - [ ] Edge cases demonstrated
+    - [ ] Error handling shown
+
+    ### DOCUMENTATION ANTI-PATTERNS
+
+    **Redundant Comments**
+    ```python
+    # Increment i by 1
+    i += 1  # We can see that!
+    ```
+
+    **Outdated Comments**
+    ```go
+    // Returns the user's age
+    func GetUserName() string {  // Comment lies!
+    ```
+
+    **No Context**
+    ```go
+    // Magic number fix for JIRA-123
+    x = 42  # What was JIRA-123? Why 42?
+    ```
+
+    ### GOOD COMMENT EXAMPLES
+
+    ```go
+    // We use a 30-second timeout because the downstream service
+    // occasionally takes up to 25 seconds during peak load.
+    // See incident #1234 for details.
+    timeout := 30 * time.Second
+    ```
+
+    ```python
+    # IMPORTANT: Order matters here. The middleware chain
+    # depends on auth running before rate-limiting.
+    ```

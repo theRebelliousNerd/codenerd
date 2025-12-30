@@ -1,0 +1,271 @@
+# TypeScript Generics - Encyclopedic Reference
+# Comprehensive guidance for constraints, inference, and utility types
+
+- id: "language/typescript/generics/fundamentals"
+  category: "language"
+  subcategory: "typescript"
+  priority: 83
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## GENERICS FUNDAMENTALS
+
+    ### Basic Generic Functions
+    ```typescript
+    function identity<T>(value: T): T {
+      return value;
+    }
+
+    // Type inference
+    const x = identity("hello"); // T inferred as "hello" (literal)
+    const y = identity(42);      // T inferred as 42 (literal)
+
+    // Explicit type argument
+    const z = identity<string>("hello"); // T is string
+    ```
+
+    ### Generic Interfaces
+    ```typescript
+    interface Container<T> {
+      value: T;
+      getValue(): T;
+    }
+
+    const stringContainer: Container<string> = {
+      value: "hello",
+      getValue() { return this.value; }
+    };
+    ```
+
+    ### Generic Classes
+    ```typescript
+    class Stack<T> {
+      private items: T[] = [];
+
+      push(item: T): void {
+        this.items.push(item);
+      }
+
+      pop(): T | undefined {
+        return this.items.pop();
+      }
+    }
+
+    const numberStack = new Stack<number>();
+    numberStack.push(1);
+    numberStack.push(2);
+    const n = numberStack.pop(); // number | undefined
+    ```
+
+    ### Multiple Type Parameters
+    ```typescript
+    function pair<T, U>(first: T, second: U): [T, U] {
+      return [first, second];
+    }
+
+    const p = pair("hello", 42); // [string, number]
+
+    // Map-like structure
+    interface Dictionary<K, V> {
+      get(key: K): V | undefined;
+      set(key: K, value: V): void;
+    }
+    ```
+
+  content_concise: |
+    ## Generics Basics
+    - `function identity<T>(value: T): T`
+    - TypeScript infers generic types from arguments
+    - Use explicit type args when inference fails
+    - Multiple params: `<T, U>`, `<K, V>`
+
+- id: "language/typescript/generics/constraints"
+  category: "language"
+  subcategory: "typescript"
+  priority: 84
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  depends_on: ["language/typescript/generics/fundamentals"]
+  content: |
+    ## GENERIC CONSTRAINTS
+
+    ### Basic Constraint with `extends`
+    ```typescript
+    // T must have a length property
+    function getLength<T extends { length: number }>(item: T): number {
+      return item.length;
+    }
+
+    getLength("hello");       // OK
+    getLength([1, 2, 3]);     // OK
+    getLength({ length: 5 }); // OK
+    getLength(123);           // ERROR: number doesn't have length
+    ```
+
+    ### Constraining to Object Keys
+    ```typescript
+    function getProperty<T, K extends keyof T>(obj: T, key: K): T[K] {
+      return obj[key];
+    }
+
+    const person = { name: "Alice", age: 30 };
+    getProperty(person, "name"); // OK, returns string
+    getProperty(person, "foo");  // ERROR: "foo" is not in keyof person
+    ```
+
+    ### Multiple Constraints with Intersection
+    ```typescript
+    interface Named { name: string }
+    interface Aged { age: number }
+
+    function greet<T extends Named & Aged>(entity: T): string {
+      return `${entity.name} is ${entity.age}`;
+    }
+    ```
+
+    ### Default Type Parameters
+    ```typescript
+    interface Container<T = string> {
+      value: T;
+    }
+
+    const c1: Container = { value: "hello" };      // T defaults to string
+    const c2: Container<number> = { value: 42 };   // T is number
+
+    // Default must satisfy constraint
+    interface ConstrainedContainer<T extends object = {}> {
+      data: T;
+    }
+    ```
+
+    ### Constraint with Constructor
+    ```typescript
+    // Require T to be constructable
+    function create<T>(ctor: new () => T): T {
+      return new ctor();
+    }
+
+    class MyClass { }
+    const instance = create(MyClass); // MyClass
+    ```
+
+  content_concise: |
+    ## Generic Constraints
+    - `<T extends { length: number }>` - require properties
+    - `<K extends keyof T>` - require valid keys
+    - `<T extends A & B>` - multiple constraints
+    - `<T = string>` - default type parameter
+
+- id: "language/typescript/generics/utility_types"
+  category: "language"
+  subcategory: "typescript"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/typescript"]
+  content: |
+    ## UTILITY TYPES
+
+    ### Object Transformations
+    ```typescript
+    interface User { name: string; age: number; email: string; }
+
+    // Partial - all properties optional
+    type PartialUser = Partial<User>;
+    // { name?: string; age?: number; email?: string; }
+
+    // Required - all properties required
+    type RequiredUser = Required<PartialUser>;
+    // { name: string; age: number; email: string; }
+
+    // Readonly - all properties readonly
+    type ReadonlyUser = Readonly<User>;
+    // { readonly name: string; readonly age: number; readonly email: string; }
+
+    // Pick - select specific properties
+    type NameOnly = Pick<User, "name">;
+    // { name: string }
+
+    type NameAndEmail = Pick<User, "name" | "email">;
+    // { name: string; email: string }
+
+    // Omit - exclude specific properties
+    type NoEmail = Omit<User, "email">;
+    // { name: string; age: number }
+    ```
+
+    ### Record Type
+    ```typescript
+    // Create object type with specific keys and value type
+    type StringMap = Record<string, number>;
+    // { [key: string]: number }
+
+    type StatusCodes = Record<"ok" | "error" | "pending", number>;
+    // { ok: number; error: number; pending: number }
+
+    // With union keys
+    type UserRoles = "admin" | "user" | "guest";
+    type Permissions = Record<UserRoles, string[]>;
+    ```
+
+    ### Union Manipulations
+    ```typescript
+    // Exclude - remove types from union
+    type NoString = Exclude<string | number | boolean, string>;
+    // number | boolean
+
+    // Extract - keep only matching types
+    type OnlyString = Extract<string | number | boolean, string>;
+    // string
+
+    // NonNullable - remove null and undefined
+    type Safe = NonNullable<string | null | undefined>;
+    // string
+    ```
+
+    ### Function Types
+    ```typescript
+    type Fn = (a: string, b: number) => boolean;
+
+    // ReturnType - extract return type
+    type Return = ReturnType<Fn>;
+    // boolean
+
+    // Parameters - extract parameters as tuple
+    type Params = Parameters<Fn>;
+    // [a: string, b: number]
+
+    // ConstructorParameters
+    class MyClass {
+      constructor(name: string, age: number) {}
+    }
+    type CtorParams = ConstructorParameters<typeof MyClass>;
+    // [name: string, age: number]
+
+    // InstanceType
+    type Instance = InstanceType<typeof MyClass>;
+    // MyClass
+    ```
+
+    ### Awaited Type
+    ```typescript
+    // Unwrap Promise type (recursive)
+    type Awaited<T> = T extends Promise<infer U> ? Awaited<U> : T;
+
+    type A = Awaited<Promise<string>>;           // string
+    type B = Awaited<Promise<Promise<number>>>; // number
+    ```
+
+  content_concise: |
+    ## Utility Types
+    - `Partial<T>`: All optional
+    - `Required<T>`: All required
+    - `Readonly<T>`: All readonly
+    - `Pick<T, K>`: Select keys
+    - `Omit<T, K>`: Exclude keys
+    - `Record<K, V>`: Object with K keys, V values
+    - `Exclude<T, U>`: Remove from union
+    - `ReturnType<F>`: Function return type
+    - `Parameters<F>`: Function params as tuple

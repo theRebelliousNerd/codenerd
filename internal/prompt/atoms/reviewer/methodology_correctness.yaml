@@ -1,0 +1,333 @@
+# Code Review Methodology Atoms - Correctness Review
+# Encyclopedic guidance for detecting logic errors and correctness issues
+
+- id: "reviewer/methodology/correctness_fundamentals"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check", "/analyze"]
+  content: |
+    ## CORRECTNESS REVIEW METHODOLOGY
+
+    Correctness review verifies the code does what it claims to do.
+    This is the most critical review category - bugs here cause production incidents.
+
+    ### THE CORRECTNESS QUESTION
+    "Given valid inputs, does this code produce correct outputs?"
+
+    ### CORRECTNESS VERIFICATION PROCESS
+
+    **Step 1: Identify the Contract**
+    - What inputs does this code accept?
+    - What outputs does it produce?
+    - What side effects does it have?
+    - What invariants must it maintain?
+
+    **Step 2: Trace the Happy Path**
+    - Walk through the primary execution path
+    - Verify each step transforms data correctly
+    - Check that the final output matches expectations
+
+    **Step 3: Challenge Assumptions**
+    - What assumptions does the code make?
+    - Are those assumptions validated?
+    - What happens when assumptions are violated?
+
+    **Step 4: Verify State Transitions**
+    - Are all state changes intentional?
+    - Is state consistent after each operation?
+    - Are there race conditions in state updates?
+
+- id: "reviewer/methodology/logic_errors"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/correctness_fundamentals"]
+  content: |
+    ## LOGIC ERROR DETECTION
+
+    Logic errors are bugs where code executes but produces wrong results.
+
+    ### COMMON LOGIC ERROR PATTERNS
+
+    **Conditional Logic Errors**
+    - Inverted conditions (if vs if-not)
+    - Missing else branches
+    - Overlapping conditions in if-else chains
+    - Short-circuit evaluation surprises
+
+    **Arithmetic Errors**
+    - Integer overflow/underflow
+    - Division by zero possibility
+    - Floating point comparison issues
+    - Rounding errors in financial calculations
+
+    **Boolean Logic Errors**
+    - De Morgan's law violations
+    - Operator precedence mistakes (&&/||)
+    - Negation applied incorrectly
+    - Complex conditions that are never true/always true
+
+    **Assignment vs Comparison**
+    - `=` instead of `==`
+    - Accidental reassignment in conditions
+
+    ### DETECTION TECHNIQUES
+
+    **Table Testing**
+    Create a mental truth table for complex conditions:
+    | A | B | Expected | Code Produces |
+    |---|---|----------|---------------|
+
+    **Boundary Analysis**
+    For every comparison, ask: "What happens at the boundary?"
+
+    **Inverse Verification**
+    Ask: "What would make this code produce the WRONG result?"
+
+- id: "reviewer/methodology/off_by_one"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/logic_errors"]
+  content: |
+    ## OFF-BY-ONE ERROR DETECTION
+
+    Off-by-one errors are among the most common bugs in software.
+    They occur at boundaries and are notoriously hard to spot.
+
+    ### COMMON OFF-BY-ONE PATTERNS
+
+    **Loop Boundary Errors**
+    - `< length` vs `<= length`
+    - `i = 0` vs `i = 1` start
+    - `i++` vs `++i` in boundary conditions
+    - Fence post errors: n items need n+1 or n-1 iterations?
+
+    **Array/Slice Indexing**
+    - Zero-based vs one-based indexing confusion
+    - Last element access: `arr[length]` vs `arr[length-1]`
+    - Subarray bounds: inclusive vs exclusive end
+
+    **String Operations**
+    - Substring lengths
+    - Index vs position confusion
+    - Empty string handling
+
+    **Date/Time Calculations**
+    - Days between dates (inclusive vs exclusive)
+    - Month indexing (0-11 vs 1-12)
+    - Leap year edge cases
+
+    ### DETECTION CHECKLIST
+
+    For every loop, verify:
+    - [ ] Start condition processes first element correctly
+    - [ ] End condition processes last element correctly
+    - [ ] Empty collection is handled
+    - [ ] Single element collection is handled
+
+    For every range/slice:
+    - [ ] Start index includes intended first element
+    - [ ] End index includes/excludes as intended
+    - [ ] Length calculation is correct
+
+    ### FENCE POST PRINCIPLE
+    If you have N posts, you have N-1 spaces between them.
+    If you have N items, you have N-1 gaps.
+    Always ask: "Am I counting posts or spaces?"
+
+- id: "reviewer/methodology/null_handling"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 92
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/correctness_fundamentals"]
+  content: |
+    ## NULL/NIL/UNDEFINED HANDLING
+
+    Null reference errors are the "billion dollar mistake."
+    Every code review must scrutinize null handling.
+
+    ### NULL HANDLING CHECKLIST
+
+    **Function Parameters**
+    - Can any parameter be null?
+    - Is null checked before use?
+    - Is there a null object pattern that should be used?
+
+    **Return Values**
+    - Can this function return null?
+    - Is the caller checking for null?
+    - Would Optional/Maybe type be clearer?
+
+    **Object Access**
+    - Is null checked before method calls?
+    - Is null checked before property access?
+    - Are chained calls protected? (a?.b?.c)
+
+    **Collections**
+    - Is the collection itself null-checked?
+    - Are elements null-checked before use?
+    - Is empty collection handled differently from null?
+
+    ### LANGUAGE-SPECIFIC PATTERNS
+
+    **Go (nil)**
+    - Interface values can be non-nil with nil underlying value
+    - Check both `== nil` and type assertion safety
+    - Nil maps panic on write but not read
+
+    **JavaScript/TypeScript (null/undefined)**
+    - Both null and undefined exist
+    - Use nullish coalescing (??) vs logical or (||)
+    - Optional chaining (?.) for safe access
+
+    **Java (null)**
+    - NPE is the most common runtime exception
+    - Use Optional<T> for values that may be absent
+    - @Nullable/@NonNull annotations
+
+    **Python (None)**
+    - `is None` vs `== None`
+    - Falsy values: None, 0, "", [], {}
+
+    ### DEFENSIVE PATTERNS
+    - Fail fast: check nulls at entry points
+    - Never return null from collections - return empty
+    - Use type system to prevent nulls where possible
+
+- id: "reviewer/methodology/boundary_conditions"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/correctness_fundamentals"]
+  content: |
+    ## BOUNDARY CONDITION ANALYSIS
+
+    Bugs cluster at boundaries. Exhaustively check edge cases.
+
+    ### BOUNDARY CATEGORIES
+
+    **Numeric Boundaries**
+    - Zero
+    - Negative numbers
+    - Maximum/minimum values (INT_MAX, etc.)
+    - Floating point special values (NaN, Infinity)
+    - Very small floating point (precision loss)
+
+    **Collection Boundaries**
+    - Empty collection
+    - Single element
+    - Maximum size
+    - Duplicate elements
+
+    **String Boundaries**
+    - Empty string
+    - Single character
+    - Very long strings
+    - Unicode edge cases (emoji, RTL)
+    - Whitespace-only strings
+
+    **Time Boundaries**
+    - Midnight
+    - End of month/year
+    - Leap years
+    - Timezone transitions
+    - DST changes
+
+    **State Boundaries**
+    - Initial state
+    - Terminal states
+    - State transition points
+
+    ### BOUNDARY TESTING PROTOCOL
+
+    For each boundary, verify:
+    1. **AT the boundary**: Code handles exact boundary value
+    2. **JUST INSIDE**: Code handles value just inside boundary
+    3. **JUST OUTSIDE**: Code handles value just outside boundary
+    4. **FAR OUTSIDE**: Code handles values well outside boundary
+
+    ### EXAMPLE: Array Index Boundaries
+    For an array of size N:
+    - Index -1 (below boundary)
+    - Index 0 (lower boundary)
+    - Index N-1 (upper boundary)
+    - Index N (above boundary)
+    - Index MAX_INT (far above)
+
+- id: "reviewer/methodology/error_handling"
+  category: "methodology"
+  subcategory: "correctness"
+  priority: 90
+  is_mandatory: true
+  shard_types: ["/reviewer"]
+  intent_verbs: ["/review", "/audit", "/check"]
+  depends_on: ["reviewer/methodology/correctness_fundamentals"]
+  content: |
+    ## ERROR HANDLING REVIEW
+
+    Error handling is where production systems succeed or fail.
+    Incomplete error handling causes cascading failures.
+
+    ### ERROR HANDLING CHECKLIST
+
+    **Error Detection**
+    - [ ] All error-producing operations are checked
+    - [ ] External calls (DB, API, file) have error handling
+    - [ ] User input validation produces clear errors
+
+    **Error Propagation**
+    - [ ] Errors are not silently swallowed
+    - [ ] Error context is preserved up the stack
+    - [ ] Original error is accessible if wrapped
+
+    **Error Recovery**
+    - [ ] Recoverable errors have recovery logic
+    - [ ] Retries have backoff and limits
+    - [ ] Partial operations are rolled back
+
+    **Error Reporting**
+    - [ ] Errors are logged with context
+    - [ ] User-facing errors are helpful, not technical
+    - [ ] Sensitive info is not leaked in errors
+
+    ### ANTI-PATTERNS TO FLAG
+
+    **Empty Catch Blocks**
+    ```
+    try { ... } catch (e) { }  // BUG: Swallowed error
+    ```
+
+    **Catch-and-Ignore**
+    ```
+    try { ... } catch (e) { console.log(e); }  // Logged but ignored
+    ```
+
+    **Generic Catch-All**
+    ```
+    catch (Exception e) { ... }  // Too broad
+    ```
+
+    **Error as Flow Control**
+    Using exceptions for normal control flow is wrong.
+
+    ### GO ERROR HANDLING
+    - Every error return must be checked
+    - `if err != nil` pattern is mandatory
+    - Use `%w` for error wrapping
+    - Consider errors.Is/errors.As for type checking

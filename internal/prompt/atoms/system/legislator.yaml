@@ -38,14 +38,14 @@
 
     ### COMMON PATTERNS
 
-    Conditional permission:
-    permitted(Action) :- user_role(User, /admin), requested(User, Action).
+    Conditional permission (use admin_override, not user_role):
+    permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
 
     Blocking with reason:
-    block_commit(Reason) :- dangerous_action(Action), Reason = "safety violation".
+    block_commit("safety violation") :- dangerous_action(Action).
 
     Negation (requires bound variables):
-    safe_action(Action) :- action(Action), !dangerous_action(Action).
+    safe_action(Action) :- candidate_action(Action), !dangerous_action(Action).
 
 - id: "system/legislator/predicates"
   category: "domain"
@@ -54,22 +54,31 @@
   shard_types: ["/legislator"]
   depends_on: ["system/legislator/mangle_syntax"]
   content: |
-    ## AVAILABLE PREDICATES (DO NOT INVENT NEW ONES)
+    ## DECLARED PREDICATES (Use ONLY These)
 
-    ### PERMISSION PREDICATES
-    - permitted(Action) - Action is allowed
-    - dangerous_action(Action) - Action is flagged as dangerous
-    - block_commit(Reason) - Block git commit with reason
-    - dream_block(Action, Reason) - Block during dream state
+    ### PERMISSION PREDICATES (schemas_safety.mg)
+    - permitted(ActionType, Target, Payload) - 3 args, NOT 1
+    - forbidden(ActionType) - Action is constitutionally blocked
+    - dangerous_action(ActionType) - Action is flagged as dangerous
+    - safe_action(ActionType) - Action passed safety checks
+    - admin_override(User) - User has admin override
+    - block_commit(Reason) - Block git commit (1 arg)
+    - dream_block(ActionID, Reason) - Block during dream state (2 args)
 
-    ### STATE PREDICATES
-    - user_role(User, Role) - User has role
-    - file_state(Path, State) - File is in state
-    - session_state(State) - Current session state
+    ### INTENT PREDICATES (schemas_intent.mg)
+    - user_intent(ID, Category, Verb, Target, Constraint) - 5 args
+    - candidate_action(ActionType) - Use to bind variables before negation
 
-    ### CONTEXT PREDICATES
-    - requested(User, Action) - User requested action
-    - action_target(Action, Target) - Action targets file/entity
+    ### SAFETY PREDICATES (schemas_dreamer.mg)
+    - critical_file(Path) - Files whose deletion is catastrophic
+    - projected_action(ActionID, ActionType, Target) - Simulated action
+
+    ### DO NOT USE (not declared)
+    - user_role - NOT DECLARED
+    - file_state - NOT DECLARED
+    - session_state - NOT DECLARED
+    - requested - NOT DECLARED
+    - action_target - NOT DECLARED
 
 - id: "system/legislator/safety"
   category: "safety"
@@ -141,24 +150,24 @@
     Output ONLY the Mangle rule. No commentary. No markdown. No explanation.
 
     CORRECT OUTPUT:
-    permitted(Action) :- user_role(User, /admin), requested(User, Action).
+    permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
 
     WRONG OUTPUT:
     Here's the rule:
     ```
-    permitted(Action) :- ...
+    permitted(Action, Target, Payload) :- ...
     ```
 
     ## CONVERSION EXAMPLES
 
     INPUT: "Admin users can do anything"
-    OUTPUT: permitted(Action) :- user_role(User, /admin), requested(User, Action).
+    OUTPUT: permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
 
-    INPUT: "Block commits that modify config files"
-    OUTPUT: block_commit("config file modified") :- action_target(Action, Path), file_state(Path, /config).
+    INPUT: "Block commits that touch critical files"
+    OUTPUT: block_commit("critical file modified") :- critical_file(Path), user_intent(_, /mutation, _, Path, _).
 
-    INPUT: "Dangerous actions require confirmation"
-    OUTPUT: dream_block(Action, "requires confirmation") :- dangerous_action(Action).
+    INPUT: "Dangerous actions require confirmation in dream state"
+    OUTPUT: dream_block(ActionID, "requires confirmation") :- projected_action(ActionID, ActionType, _), dangerous_action(ActionType).
 
 - id: "system/legislator/verification"
   category: "methodology"
