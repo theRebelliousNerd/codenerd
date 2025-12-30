@@ -50,6 +50,7 @@ func TestIsSkeletonCategory(t *testing.T) {
 		{name: "methodology is skeleton", category: CategoryMethodology, want: true},
 
 		// Flesh categories (should return false)
+		{name: "capability is flesh", category: CategoryCapability, want: false},
 		{name: "exemplar is flesh", category: CategoryExemplar, want: false},
 		{name: "domain is flesh", category: CategoryDomain, want: false},
 		{name: "context is flesh", category: CategoryContext, want: false},
@@ -60,6 +61,8 @@ func TestIsSkeletonCategory(t *testing.T) {
 		{name: "init is flesh", category: CategoryInit, want: false},
 		{name: "northstar is flesh", category: CategoryNorthstar, want: false},
 		{name: "ouroboros is flesh", category: CategoryOuroboros, want: false},
+		{name: "autopoiesis is flesh", category: CategoryAutopoiesis, want: false},
+		{name: "eval is flesh", category: CategoryEval, want: false},
 	}
 
 	for _, tt := range tests {

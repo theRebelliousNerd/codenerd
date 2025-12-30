@@ -653,27 +653,30 @@ func TestAllCategories(t *testing.T) {
 	categories := AllCategories()
 
 	t.Run("returns all expected categories", func(t *testing.T) {
-		expected := []AtomCategory{
-			CategoryIdentity,
-			CategoryProtocol,
-			CategorySafety,
-			CategoryMethodology,
-			CategoryHallucination,
-			CategoryLanguage,
-			CategoryFramework,
-			CategoryDomain,
-			CategoryCampaign,
-			CategoryInit,
-			CategoryNorthstar,
-			CategoryOuroboros,
-			CategoryContext,
-			CategoryExemplar,
-			CategoryReviewer,
-			CategoryKnowledge,
-			CategoryBuildLayer,
-			CategoryIntent,
-			CategoryWorldState,
-		}
+			expected := []AtomCategory{
+				CategoryIdentity,
+				CategoryProtocol,
+				CategorySafety,
+				CategoryMethodology,
+				CategoryCapability,
+				CategoryHallucination,
+				CategoryLanguage,
+				CategoryFramework,
+				CategoryDomain,
+				CategoryCampaign,
+				CategoryInit,
+				CategoryNorthstar,
+				CategoryOuroboros,
+				CategoryAutopoiesis,
+				CategoryContext,
+				CategoryExemplar,
+				CategoryReviewer,
+				CategoryEval,
+				CategoryKnowledge,
+				CategoryBuildLayer,
+				CategoryIntent,
+				CategoryWorldState,
+			}
 
 		assert.ElementsMatch(t, expected, categories)
 	})
