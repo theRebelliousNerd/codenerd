@@ -9,12 +9,23 @@
 # when edits violate language-specific or cross-language safety constraints.
 
 # =============================================================================
-# SECTION 1: DENY_EDIT SCHEMA
+# SECTION 1: SCHEMA DECLARATIONS
 # =============================================================================
-# deny_edit(Ref, Reason) blocks editing the element with the given reason.
-# The Constitutional Gate checks for deny_edit before allowing edits.
+# OUTPUT predicates derived in this file (not declared elsewhere).
+# Input predicates are declared in schemas_codedom.mg and schemas_codedom_polyglot.mg.
 
+# Output predicates (derived by rules in this file)
 Decl deny_edit(Ref, Reason).
+Decl edit_warning(Ref, Reason).
+Decl safe_to_edit(Ref).
+Decl has_warnings(Ref).
+Decl has_deny_edit(Ref).
+Decl blocked_action(Action, Reason).
+
+# Input predicates unique to this file (not in schemas_*.mg)
+Decl is_serialization_boundary(Ref).
+Decl returns_error_type(Ref).
+Decl element_action(Action, Ref).
 
 
 # =============================================================================
@@ -160,12 +171,14 @@ edit_warning(Ref, /async_error_handling) :-
 # SECTION 11: HELPER PREDICATES
 # =============================================================================
 
-Decl edit_warning(Ref, Reason).
+# Helper: check if any deny_edit exists for a ref
+# (needed because !deny_edit(Ref, _) has unbound variable in negation)
+has_deny_edit(Ref) :- deny_edit(Ref, _).
 
 # safe_to_edit is true when there are no deny_edit rules for the ref
 safe_to_edit(Ref) :-
     code_element(Ref, _, _, _, _),
-    !deny_edit(Ref, _).
+    !has_deny_edit(Ref).
 
 # has_warnings is true when there are edit_warning rules for the ref
 has_warnings(Ref) :-
@@ -181,7 +194,4 @@ has_warnings(Ref) :-
 blocked_action(Action, /safety_violation) :-
     element_action(Action, Ref),
     deny_edit(Ref, _).
-
-Decl element_action(Action, Ref).
-Decl blocked_action(Action, Reason).
 

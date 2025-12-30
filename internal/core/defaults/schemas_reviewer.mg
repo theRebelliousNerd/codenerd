@@ -394,8 +394,8 @@ Decl has_suppression_unsafe_deref(File, Line).
 # has_suppression_unchecked_error(File, Line) - Helper for suppression check
 Decl has_suppression_unchecked_error(File, Line).
 
-# has_test_coverage(File) - Helper: file has test coverage
-Decl has_test_coverage(File).
+# has_test_coverage(Ref) - declared in schemas_codedom_polyglot.mg
+# (previously duplicated here, removed to avoid conflict)
 
 # has_bug_history(File) - Helper: file has bug history (count > 0)
 Decl has_bug_history(File).
