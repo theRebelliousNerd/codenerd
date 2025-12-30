@@ -237,6 +237,10 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 
 	// Piggyback Protocol tracing (assistant turns only)
 	if s.piggybackTracer != nil && turn.Speaker == "assistant" {
+		// Generate mock context feedback based on turn context
+		// This simulates what Gemini would return in the control packet
+		contextFeedback := s.generateMockContextFeedback(turn, compressedFacts)
+
 		event := &PiggybackEvent{
 			Timestamp:       time.Now(),
 			TurnNumber:      turn.TurnID,
@@ -255,12 +259,18 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 				MangleUpdates: []string{
 					fmt.Sprintf("conversation_turn(%d, \"%s\", \"%s\").", turn.TurnID, turn.Speaker, turn.Intent),
 				},
+				ContextFeedback: contextFeedback,
 			},
 			AddedFacts: []string{
 				fmt.Sprintf("conversation_turn(%d, \"%s\", \"%s\")", turn.TurnID, turn.Speaker, turn.Intent),
 			},
 		}
 		s.piggybackTracer.TracePiggyback(event)
+
+		// Also trace to FeedbackTracer for detailed feedback learning logs
+		if s.feedbackTracer != nil && contextFeedback != nil {
+			s.traceFeedbackLearning(turn, contextFeedback, compressedFacts)
+		}
 	}
 
 	// Retrieval Phase (for questions referring back)
@@ -864,4 +874,132 @@ func (s *SessionSimulator) inferOperationalMode(intent string) string {
 	default:
 		return "/default"
 	}
+}
+
+// generateMockContextFeedback generates realistic context feedback based on turn context.
+// This simulates what Gemini would return in the context_feedback field of the control packet.
+func (s *SessionSimulator) generateMockContextFeedback(turn *Turn, compressedFacts []core.Fact) *ContextFeedback {
+	// Generate feedback that reflects which facts were useful for this turn
+	helpfulFacts := []string{}
+	noiseFacts := []string{}
+
+	// Analyze compressed facts to determine usefulness
+	for _, fact := range compressedFacts {
+		predicate := fact.Predicate
+
+		// Facts that are typically helpful for different intents
+		switch turn.Intent {
+		case "debug", "analyze":
+			if predicate == "turn_error_message" || predicate == "turn_topic" {
+				helpfulFacts = append(helpfulFacts, predicate)
+			} else if predicate == "turn_references_file" {
+				helpfulFacts = append(helpfulFacts, "file_topology")
+			}
+		case "implement", "fix":
+			if predicate == "turn_references_file" {
+				helpfulFacts = append(helpfulFacts, "file_topology")
+			} else if predicate == "turn_topic" {
+				helpfulFacts = append(helpfulFacts, "test_state")
+			}
+		case "test":
+			if predicate == "turn_error_message" {
+				helpfulFacts = append(helpfulFacts, "test_state")
+			}
+		}
+	}
+
+	// Add some simulated noise (facts that weren't useful)
+	// This varies by turn to simulate real LLM behavior
+	if turn.TurnID%3 == 0 {
+		noiseFacts = append(noiseFacts, "browser_state")
+	}
+	if turn.TurnID%5 == 0 {
+		noiseFacts = append(noiseFacts, "dom_node")
+	}
+	if turn.TurnID%7 == 0 {
+		noiseFacts = append(noiseFacts, "campaign_context")
+	}
+
+	// Calculate usefulness score based on helpful vs noise ratio
+	totalMentioned := len(helpfulFacts) + len(noiseFacts)
+	usefulness := 0.75 // Default baseline
+	if totalMentioned > 0 {
+		usefulness = float64(len(helpfulFacts)) / float64(totalMentioned)
+		// Clamp to reasonable range
+		if usefulness < 0.3 {
+			usefulness = 0.3
+		}
+		if usefulness > 0.95 {
+			usefulness = 0.95
+		}
+	}
+
+	// Generate missing context hint for some turns
+	missingContext := ""
+	if turn.TurnID%10 == 0 {
+		missingContext = "dependency graph would have been helpful"
+	} else if turn.TurnID%15 == 0 {
+		missingContext = "call graph analysis needed"
+	}
+
+	// Only return feedback if there's something to report
+	if len(helpfulFacts) == 0 && len(noiseFacts) == 0 {
+		return nil
+	}
+
+	return &ContextFeedback{
+		OverallUsefulness: usefulness,
+		HelpfulFacts:      helpfulFacts,
+		NoiseFacts:        noiseFacts,
+		MissingContext:    missingContext,
+	}
+}
+
+// traceFeedbackLearning traces context feedback to the FeedbackTracer.
+func (s *SessionSimulator) traceFeedbackLearning(turn *Turn, feedback *ContextFeedback, compressedFacts []core.Fact) {
+	// Build predicate states from compressed facts
+	activePredicates := []PredicateFeedbackState{}
+	predicateStats := make(map[string]*PredicateFeedbackState)
+
+	// Count helpful/noise for each predicate
+	for _, helpful := range feedback.HelpfulFacts {
+		if _, ok := predicateStats[helpful]; !ok {
+			predicateStats[helpful] = &PredicateFeedbackState{Predicate: helpful}
+		}
+		predicateStats[helpful].HelpfulCount++
+		predicateStats[helpful].TotalMentions++
+	}
+	for _, noise := range feedback.NoiseFacts {
+		if _, ok := predicateStats[noise]; !ok {
+			predicateStats[noise] = &PredicateFeedbackState{Predicate: noise}
+		}
+		predicateStats[noise].NoiseCount++
+		predicateStats[noise].TotalMentions++
+	}
+
+	// Calculate usefulness scores and score components
+	for _, state := range predicateStats {
+		if state.TotalMentions > 0 {
+			// Usefulness score: -1.0 (all noise) to +1.0 (all helpful)
+			state.UsefulnessScore = float64(state.HelpfulCount-state.NoiseCount) / float64(state.TotalMentions)
+			// Score component: how much this affects activation (-20 to +20)
+			state.ScoreComponent = state.UsefulnessScore * 20.0
+		}
+		state.LastUpdated = time.Now()
+		activePredicates = append(activePredicates, *state)
+	}
+
+	snapshot := &FeedbackSnapshot{
+		Timestamp:            time.Now(),
+		TurnNumber:           turn.TurnID,
+		IntentVerb:           turn.Intent,
+		OverallUsefulness:    feedback.OverallUsefulness,
+		HelpfulFacts:         feedback.HelpfulFacts,
+		NoiseFacts:           feedback.NoiseFacts,
+		MissingContext:       feedback.MissingContext,
+		ActivePredicates:     activePredicates,
+		TotalFeedbackSamples: turn.TurnID + 1, // Estimate: one sample per turn
+	}
+
+	s.feedbackTracer.TraceFeedback(snapshot)
 }
