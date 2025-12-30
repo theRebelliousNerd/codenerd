@@ -188,6 +188,24 @@ type GroundingController interface {
 	SetURLContextURLs(urls []string)
 }
 
+// PiggybackToolProvider is an optional interface for LLM clients that should
+// use Piggyback Protocol for tool invocation instead of native function calling.
+// This is required for Gemini clients because native function calling conflicts
+// with built-in tools (Google Search, URL Context).
+//
+// Usage:
+//
+//	if ptp, ok := client.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+//	    // Use structured output with tool_requests in control_packet
+//	    // instead of native function calling
+//	}
+type PiggybackToolProvider interface {
+	// ShouldUsePiggybackTools returns true if this client should use
+	// Piggyback Protocol for tool invocation instead of native function calling.
+	// Typically true for Gemini clients when grounding (Google Search/URL Context) is enabled.
+	ShouldUsePiggybackTools() bool
+}
+
 // ThinkingProvider is an optional interface for LLM clients that support
 // explicit thinking/reasoning mode (Gemini 3 Thinking Mode, Claude extended thinking, etc.).
 // Use type assertion to check if a client supports thinking metadata:

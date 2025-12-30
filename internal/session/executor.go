@@ -14,10 +14,14 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"codenerd/internal/articulation"
+	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -47,6 +51,11 @@ type Executor struct {
 
 	// Perception
 	transducer perception.Transducer
+
+	// Tool registries (dual-registry Piggyback++ architecture)
+	// ouroborosRegistry holds Ouroboros-generated compiled binary tools
+	// Modular tools from tools.Global() are accessed directly
+	ouroborosRegistry *core.ToolRegistry
 
 	// Context management
 	conversationHistory []perception.ConversationTurn
@@ -112,6 +121,15 @@ func (e *Executor) SetConfig(cfg ExecutorConfig) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.config = cfg
+}
+
+// SetOuroborosRegistry sets the Ouroboros tool registry for generated tools.
+// This enables Piggyback++ to include Ouroboros-generated tools in the catalog.
+func (e *Executor) SetOuroborosRegistry(registry *core.ToolRegistry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ouroborosRegistry = registry
+	logging.Session("Ouroboros registry configured with %d tools", len(registry.ListTools()))
 }
 
 // ExecutionResult holds the result of processing user input.
@@ -295,11 +313,17 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 }
 
 // generateResponse calls the LLM with the compiled prompt and tools for tool calling.
+// Uses Piggyback Protocol for tools when the client supports it (e.g., Gemini with grounding).
 func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (*types.LLMToolResponse, error) {
+	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
+	if ptp, ok := e.llmClient.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+		return e.generateResponseWithPiggybackTools(ctx, systemPrompt, userInput, cfg)
+	}
+
 	// Convert AgentConfig tool names to ToolDefinition structs
 	toolDefs := e.buildToolDefinitions(cfg)
 
-	// If we have tools, use tool calling; otherwise fall back to simple completion
+	// If we have tools, use native function calling; otherwise fall back to simple completion
 	if len(toolDefs) > 0 {
 		logging.Session("Calling LLM with %d tools via CompleteWithTools", len(toolDefs))
 		return e.llmClient.CompleteWithTools(ctx, systemPrompt, userInput, toolDefs)
@@ -315,6 +339,279 @@ func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput
 		Text:       text,
 		StopReason: "end_turn",
 	}, nil
+}
+
+// generateResponseWithPiggybackTools uses structured output for tool invocation.
+// This enables tool use to coexist with Gemini's built-in grounding tools
+// (Google Search, URL Context) which cannot be combined with native function calling.
+func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (*types.LLMToolResponse, error) {
+	// Build tool catalog for injection into system prompt
+	toolCatalog := e.buildToolCatalogForPiggyback(cfg)
+	if toolCatalog != "" {
+		systemPrompt = systemPrompt + "\n\n" + toolCatalog
+		logging.Session("Injected tool catalog into system prompt for Piggyback++ (%d chars)", len(toolCatalog))
+	}
+
+	// Use CompleteWithSystem (supports grounding + structured output)
+	// The Piggyback envelope will contain tool_requests
+	logging.Session("Using Piggyback++ for tool invocation (grounding-compatible mode)")
+	text, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process mangle_updates (including missing_tool_for for Ouroboros)
+	e.processMangleUpdatesFromPiggyback(text)
+
+	// Parse tool_requests from Piggyback envelope
+	toolCalls := e.parseToolRequestsFromPiggyback(text)
+	logging.Session("Parsed %d tool_requests from Piggyback response", len(toolCalls))
+
+	// Extract surface response (user-facing text)
+	surfaceResponse := e.extractSurfaceFromPiggyback(text)
+
+	return &types.LLMToolResponse{
+		Text:       surfaceResponse,
+		ToolCalls:  toolCalls,
+		StopReason: "end_turn",
+	}, nil
+}
+
+// buildToolCatalogForPiggyback creates a unified tool catalog for prompt injection.
+// This merges tools from both registries:
+// 1. Modular tools (tools.Global()) - Go function handlers
+// 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
+func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string {
+	var catalog strings.Builder
+	catalog.WriteString("\n## Available Tools\n\n")
+	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
+	catalog.WriteString("```json\n")
+	catalog.WriteString("\"tool_requests\": [{\n")
+	catalog.WriteString("  \"id\": \"req_1\",\n")
+	catalog.WriteString("  \"tool_name\": \"<tool_name>\",\n")
+	catalog.WriteString("  \"tool_args\": { ... },\n")
+	catalog.WriteString("  \"purpose\": \"why this tool is needed\"\n")
+	catalog.WriteString("}]\n")
+	catalog.WriteString("```\n\n")
+
+	toolCount := 0
+
+	// 1. Add modular tools from tools.Global()
+	modularRegistry := tools.Global()
+	if cfg != nil && len(cfg.Tools.AllowedTools) > 0 {
+		catalog.WriteString("### Built-in Tools\n\n")
+		for _, toolName := range cfg.Tools.AllowedTools {
+			tool := modularRegistry.Get(toolName)
+			if tool == nil {
+				continue
+			}
+			catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
+			// Add parameter hints if schema exists
+			if len(tool.Schema.Required) > 0 {
+				catalog.WriteString(fmt.Sprintf("  Required: %s\n", strings.Join(tool.Schema.Required, ", ")))
+			}
+			toolCount++
+		}
+		catalog.WriteString("\n")
+	}
+
+	// 2. Add Ouroboros-generated tools
+	e.mu.RLock()
+	ouroborosReg := e.ouroborosRegistry
+	e.mu.RUnlock()
+
+	if ouroborosReg != nil {
+		ouroborosTools := ouroborosReg.ListTools()
+		if len(ouroborosTools) > 0 {
+			catalog.WriteString("### Generated Tools (Ouroboros)\n\n")
+			for _, tool := range ouroborosTools {
+				catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
+				if len(tool.Capabilities) > 0 {
+					catalog.WriteString(fmt.Sprintf("  Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
+				}
+				toolCount++
+			}
+			catalog.WriteString("\n")
+		}
+	}
+
+	// If no tools at all, return minimal catalog
+	if toolCount == 0 {
+		return ""
+	}
+
+	// Add tool generation encouragement
+	catalog.WriteString("### Missing a Tool?\n\n")
+	catalog.WriteString("If you need a capability not available above:\n")
+	catalog.WriteString("1. Add a mangle_update: `missing_tool_for(\"<capability>\", \"<description>\")`\n")
+	catalog.WriteString("2. The Ouroboros system will generate, compile, and register the tool\n")
+	catalog.WriteString("3. The tool will be available in subsequent turns\n\n")
+	catalog.WriteString("Example:\n")
+	catalog.WriteString("```json\n")
+	catalog.WriteString("\"mangle_updates\": [\"missing_tool_for(\\\"/parse_yaml\\\", \\\"Parse YAML files and return structured data\\\")\"]\n")
+	catalog.WriteString("```\n")
+
+	logging.Session("Built Piggyback++ tool catalog: %d tools (%d modular, %d ouroboros)",
+		toolCount, len(cfg.Tools.AllowedTools), toolCount-len(cfg.Tools.AllowedTools))
+
+	return catalog.String()
+}
+
+// parseToolRequestsFromPiggyback extracts tool_requests from Piggyback response.
+func (e *Executor) parseToolRequestsFromPiggyback(response string) []types.ToolCall {
+	// Use articulation.ProcessLLMResponse to parse the Piggyback envelope
+	envelope := articulation.ProcessLLMResponse(response)
+	if envelope.Control == nil || len(envelope.Control.ToolRequests) == 0 {
+		return nil
+	}
+
+	var calls []types.ToolCall
+	for _, req := range envelope.Control.ToolRequests {
+		calls = append(calls, types.ToolCall{
+			ID:    req.ID,
+			Name:  req.ToolName,
+			Input: req.ToolArgs,
+		})
+	}
+	return calls
+}
+
+// extractSurfaceFromPiggyback extracts the user-facing text from Piggyback response.
+func (e *Executor) extractSurfaceFromPiggyback(response string) string {
+	envelope := articulation.ProcessLLMResponse(response)
+	return envelope.Surface
+}
+
+// processMangleUpdatesFromPiggyback extracts and processes mangle_updates from the response.
+// This includes:
+// 1. Asserting all Mangle facts to the kernel
+// 2. Detecting missing_tool_for facts and triggering Ouroboros tool generation
+func (e *Executor) processMangleUpdatesFromPiggyback(response string) {
+	envelope := articulation.ProcessLLMResponse(response)
+	if envelope.Control == nil || len(envelope.Control.MangleUpdates) == 0 {
+		return
+	}
+
+	logging.Session("Processing %d mangle_updates from Piggyback response", len(envelope.Control.MangleUpdates))
+
+	for _, update := range envelope.Control.MangleUpdates {
+		// Parse the Mangle fact
+		fact := e.parseMangleFact(update)
+		if fact == nil {
+			logging.SessionDebug("Failed to parse mangle update: %s", update)
+			continue
+		}
+
+		// Assert to kernel
+		if e.kernel != nil {
+			if err := e.kernel.Assert(*fact); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to assert mangle update: %v", err)
+			} else {
+				logging.SessionDebug("Asserted mangle fact: %s", fact.Predicate)
+			}
+		}
+
+		// Check for missing_tool_for - trigger Ouroboros
+		if fact.Predicate == "missing_tool_for" && len(fact.Args) >= 2 {
+			capability := fmt.Sprintf("%v", fact.Args[0])
+			description := fmt.Sprintf("%v", fact.Args[1])
+			logging.Session("Detected missing_tool_for: capability=%s description=%s", capability, description)
+			// The kernel will pick this up and trigger Ouroboros in the next loop
+			// via the autopoiesis/ouroboros.go DetectToolNeed() mechanism
+		}
+	}
+}
+
+// parseMangleFact parses a Mangle fact string into a types.Fact.
+// Format: predicate(arg1, arg2, ...) or predicate("string arg", /atom_arg)
+func (e *Executor) parseMangleFact(factStr string) *types.Fact {
+	factStr = strings.TrimSpace(factStr)
+
+	// Extract predicate name
+	parenIdx := strings.Index(factStr, "(")
+	if parenIdx == -1 {
+		return nil
+	}
+
+	predicate := strings.TrimSpace(factStr[:parenIdx])
+	argsStr := strings.TrimSpace(factStr[parenIdx:])
+
+	// Remove surrounding parentheses
+	if !strings.HasPrefix(argsStr, "(") || !strings.HasSuffix(argsStr, ")") {
+		return nil
+	}
+	argsStr = argsStr[1 : len(argsStr)-1]
+
+	// Parse arguments (simple comma splitting, handles quoted strings)
+	args := e.parseMangleArgs(argsStr)
+
+	return &types.Fact{
+		Predicate: predicate,
+		Args:      args,
+	}
+}
+
+// parseMangleArgs parses comma-separated Mangle arguments.
+// Handles quoted strings and atom constants.
+func (e *Executor) parseMangleArgs(argsStr string) []interface{} {
+	var args []interface{}
+	var current strings.Builder
+	inString := false
+	escaped := false
+
+	for _, ch := range argsStr {
+		if escaped {
+			current.WriteRune(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			current.WriteRune(ch)
+			continue
+		}
+		if ch == ',' && !inString {
+			arg := strings.TrimSpace(current.String())
+			if arg != "" {
+				args = append(args, e.parseMangleArg(arg))
+			}
+			current.Reset()
+			continue
+		}
+		current.WriteRune(ch)
+	}
+
+	// Add final argument
+	arg := strings.TrimSpace(current.String())
+	if arg != "" {
+		args = append(args, e.parseMangleArg(arg))
+	}
+
+	return args
+}
+
+// parseMangleArg parses a single Mangle argument.
+func (e *Executor) parseMangleArg(arg string) interface{} {
+	// String literal
+	if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
+		return arg[1 : len(arg)-1] // Remove quotes
+	}
+	// Atom constant
+	if strings.HasPrefix(arg, "/") {
+		return types.MangleAtom(arg)
+	}
+	// Number
+	if n, err := fmt.Sscanf(arg, "%d", new(int)); n == 1 && err == nil {
+		var i int
+		fmt.Sscanf(arg, "%d", &i)
+		return i
+	}
+	// Default: treat as string
+	return arg
 }
 
 // buildToolDefinitions converts tool names from AgentConfig to ToolDefinition structs.
@@ -361,11 +658,14 @@ type ToolCall struct {
 	Args map[string]interface{}
 }
 
-// executeToolCall routes a tool call through the modular tool registry with safety checks.
+// executeToolCall routes a tool call through the appropriate registry with safety checks.
+// It checks both registries in order:
+// 1. Modular tools (tools.Global()) - Go function handlers
+// 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.AgentConfig) (string, error) {
-	// Check if tool is allowed by config
-	if !e.isToolAllowed(call.Name, cfg) {
-		return "", fmt.Errorf("tool %s not allowed by config", call.Name)
+	// Check if tool is allowed by config (for modular tools) or exists in Ouroboros
+	if !e.isToolAllowed(call.Name, cfg) && !e.isOuroborosTool(call.Name) {
+		return "", fmt.Errorf("tool %s not allowed by config and not in Ouroboros registry", call.Name)
 	}
 
 	// Safety check via Constitutional Gate
@@ -379,20 +679,54 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
 	defer cancel()
 
-	// Execute via modular tool registry
-	logging.Session("Executing tool: %s with %d args", call.Name, len(call.Args))
-
-	result, err := tools.Execute(toolCtx, call.Name, call.Args)
-	if err != nil {
-		return "", fmt.Errorf("tool execution failed: %w", err)
+	// Route to appropriate registry
+	// 1. Try modular tool registry first (Go function handlers)
+	modularRegistry := tools.Global()
+	if modularRegistry.Has(call.Name) {
+		logging.Session("Executing modular tool: %s with %d args", call.Name, len(call.Args))
+		result, err := modularRegistry.Execute(toolCtx, call.Name, call.Args)
+		if err != nil {
+			return "", fmt.Errorf("modular tool execution failed: %w", err)
+		}
+		if result.Error != nil {
+			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
+		}
+		return result.Result, nil
 	}
 
-	// Check for errors
-	if result.Error != nil {
-		return "", fmt.Errorf("tool returned error: %w", result.Error)
+	// 2. Try Ouroboros registry (compiled binary tools)
+	e.mu.RLock()
+	ouroborosReg := e.ouroborosRegistry
+	e.mu.RUnlock()
+
+	if ouroborosReg != nil {
+		if _, exists := ouroborosReg.GetTool(call.Name); exists {
+			logging.Session("Executing Ouroboros tool: %s with %d args", call.Name, len(call.Args))
+			// Convert args map to JSON string for binary execution
+			argsJSON, err := json.Marshal(call.Args)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal Ouroboros tool args: %w", err)
+			}
+			result, err := ouroborosReg.ExecuteRegisteredTool(toolCtx, call.Name, []string{string(argsJSON)})
+			if err != nil {
+				return "", fmt.Errorf("Ouroboros tool execution failed: %w", err)
+			}
+			return result, nil
+		}
 	}
 
-	return result.Result, nil
+	return "", fmt.Errorf("tool %s not found in any registry", call.Name)
+}
+
+// isOuroborosTool checks if a tool exists in the Ouroboros registry.
+func (e *Executor) isOuroborosTool(toolName string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.ouroborosRegistry == nil {
+		return false
+	}
+	_, exists := e.ouroborosRegistry.GetTool(toolName)
+	return exists
 }
 
 // isToolAllowed checks if a tool is in the allowed list.

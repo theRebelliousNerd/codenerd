@@ -40,6 +40,32 @@ type ControlPacket struct {
 	// This creates a feedback loop to improve spreading activation scoring over time.
 	// The LLM should emit this on every turn to provide continuous learning signal.
 	ContextFeedback *ContextFeedback `json:"context_feedback,omitempty"`
+	// ToolRequests allows the LLM to request tool execution via structured output.
+	// This replaces native LLM function calling, enabling:
+	// 1. Coexistence with Gemini's built-in tools (Google Search, URL Context)
+	// 2. Dynamic tool discovery (includes Ouroboros-generated tools)
+	// 3. Unified tool interface across all providers
+	// 4. Full debugging visibility of tool invocations
+	ToolRequests []ToolRequest `json:"tool_requests,omitempty"`
+}
+
+// ToolRequest represents a structured request for tool execution.
+// The LLM emits these in the control_packet instead of using native function calling.
+// This enables tool use to coexist with Gemini's built-in grounding tools.
+type ToolRequest struct {
+	// ID is a unique identifier for this tool request (for result correlation).
+	// Format: "tool_req_<uuid>" or sequential like "req_1", "req_2"
+	ID string `json:"id"`
+	// ToolName is the registered name of the tool to invoke.
+	// Examples: "read_file", "write_file", "run_command", "web_search"
+	ToolName string `json:"tool_name"`
+	// ToolArgs contains the arguments for the tool invocation.
+	// The structure depends on the tool's schema.
+	ToolArgs map[string]interface{} `json:"tool_args"`
+	// Purpose explains why this tool is being invoked (for debugging/learning).
+	Purpose string `json:"purpose,omitempty"`
+	// Required indicates if this tool call is blocking (true) or best-effort (false).
+	Required bool `json:"required,omitempty"`
 }
 
 // KnowledgeRequest represents a request for specialist consultation or research.

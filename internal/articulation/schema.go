@@ -166,6 +166,37 @@ const PiggybackEnvelopeSchema = `{
             }
           },
           "description": "Feedback on context usefulness for improving future context selection"
+        },
+        "tool_requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "tool_name", "tool_args"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique identifier for this tool request (e.g., req_1, tool_req_abc123)"
+              },
+              "tool_name": {
+                "type": "string",
+                "description": "Name of the tool to invoke (e.g., read_file, write_file, run_command)"
+              },
+              "tool_args": {
+                "type": "object",
+                "description": "Arguments for the tool invocation (structure depends on tool schema)"
+              },
+              "purpose": {
+                "type": "string",
+                "description": "Why this tool is being invoked (for debugging/learning)"
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether this tool call blocks execution (true) or is best-effort (false)"
+              }
+            }
+          },
+          "description": "Tool execution requests via structured output (replaces native function calling)"
         }
       }
     },
