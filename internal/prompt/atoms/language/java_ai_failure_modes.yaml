@@ -1,0 +1,673 @@
+# Java AI Failure Modes - Encyclopedic Reference
+# Critical mistakes AI coding agents commonly make in Java
+
+- id: "language/java/ai_failures/null_handling"
+  category: "language"
+  subcategory: "java"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## NULL HANDLING MISTAKES (CRITICAL)
+
+    ### FAILURE: No Null Check Before Dereference
+    ```java
+    // WRONG - NullPointerException waiting to happen
+    public String process(String input) {
+        return input.toUpperCase();
+    }
+
+    // CORRECT - null check first
+    public String process(String input) {
+        if (input == null) {
+            return "";
+        }
+        return input.toUpperCase();
+    }
+
+    // BETTER - fail-fast with Objects.requireNonNull
+    public void setName(String name) {
+        this.name = Objects.requireNonNull(name, "name cannot be null");
+    }
+    ```
+
+    ### FAILURE: String Comparison with ==
+    ```java
+    // WRONG - compares references, not content
+    if (str == "hello") { }
+
+    // CORRECT - null-safe comparison
+    if ("hello".equals(str)) { }
+
+    // Also correct - explicit null handling
+    if (Objects.equals(str, "hello")) { }
+    ```
+
+    ### FAILURE: Optional Misuse
+    ```java
+    // WRONG - using get() without check
+    String value = optional.get();  // NoSuchElementException if empty!
+
+    // WRONG - using Optional for null check defeats purpose
+    if (optional.isPresent()) {
+        return optional.get();
+    }
+
+    // CORRECT - use orElse/orElseThrow
+    String value = optional.orElse("default");
+    String value = optional.orElseThrow();
+    String value = optional.orElseThrow(() -> new NotFoundException("Not found"));
+
+    // WRONG - Optional as field or parameter
+    class User {
+        private Optional<String> nickname;  // DON'T DO THIS
+    }
+
+    // CORRECT - use nullable field, Optional as return type
+    class User {
+        private String nickname;  // May be null
+
+        public Optional<String> getNickname() {
+            return Optional.ofNullable(nickname);
+        }
+    }
+    ```
+
+  content_concise: |
+    ## Null Handling
+    - Always check null before dereference
+    - Use `"literal".equals(str)` for null-safe comparison
+    - Use `Optional.orElse/orElseThrow`, never raw `get()`
+    - Don't use Optional for fields/parameters - only return types
+
+- id: "language/java/ai_failures/equals_hashcode"
+  category: "language"
+  subcategory: "java"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## EQUALS/HASHCODE CONTRACT VIOLATIONS (CRITICAL)
+
+    ### The Contract
+    - If `a.equals(b)` is true, then `a.hashCode() == b.hashCode()` MUST be true
+    - If `hashCode()` differs, `equals()` MUST return false
+    - Override BOTH or NEITHER
+
+    ### FAILURE: Only Override equals()
+    ```java
+    // WRONG - missing hashCode
+    public class User {
+        private String id;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof User user)) return false;
+            return Objects.equals(id, user.id);
+        }
+        // Missing hashCode - BREAKS HashMap/HashSet!
+    }
+
+    // CORRECT - both methods, same fields
+    public class User {
+        private String id;
+        private String name;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof User user)) return false;
+            return Objects.equals(id, user.id)
+                && Objects.equals(name, user.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id, name);  // SAME fields as equals!
+        }
+    }
+    ```
+
+    ### FAILURE: Mutable Fields in hashCode
+    ```java
+    // WRONG - mutable field in hashCode
+    public class BadKey {
+        private String id;
+
+        public void setId(String id) { this.id = id; }
+
+        @Override
+        public int hashCode() { return id.hashCode(); }
+    }
+
+    // Problem:
+    Map<BadKey, String> map = new HashMap<>();
+    BadKey key = new BadKey("1");
+    map.put(key, "value");
+    key.setId("2");  // Hash changed!
+    map.get(key);    // Returns null - object is "lost"!
+
+    // CORRECT - use only immutable fields
+    public final class GoodKey {
+        private final String id;
+
+        public GoodKey(String id) { this.id = id; }
+
+        // No setter!
+
+        @Override
+        public int hashCode() { return id.hashCode(); }
+    }
+    ```
+
+    ### Best Practice: Use Records
+    ```java
+    // Records automatically implement equals/hashCode correctly
+    public record User(String id, String name) {}
+
+    // Or use IDE/Lombok generation
+    @EqualsAndHashCode
+    public class User {
+        private final String id;
+        private final String name;
+    }
+    ```
+
+  content_concise: |
+    ## equals/hashCode Contract
+    - Override BOTH or NEITHER
+    - Use SAME fields in both methods
+    - Never use mutable fields in hashCode
+    - Use records or IDE generation to avoid bugs
+
+- id: "language/java/ai_failures/generics"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## GENERICS AND TYPE ERASURE MISTAKES
+
+    ### FAILURE: Using Raw Types
+    ```java
+    // WRONG - raw type (pre-generics style)
+    List list = new ArrayList();
+    list.add("string");
+    list.add(42);  // No compile error!
+
+    String s = (String) list.get(1);  // ClassCastException at runtime!
+
+    // CORRECT - parameterized type
+    List<String> list = new ArrayList<>();
+    list.add("string");
+    list.add(42);  // Compile error - caught early!
+    ```
+
+    ### FAILURE: Mixing Raw and Parameterized
+    ```java
+    // WRONG - mixing types
+    List<String> strings = new ArrayList<>();
+    List raw = strings;  // Warning only
+    raw.add(42);  // No error!
+    String s = strings.get(0);  // ClassCastException!
+
+    // CORRECT - maintain type safety
+    List<String> strings = new ArrayList<>();
+    List<?> wildcard = strings;  // Safe - can't add
+    ```
+
+    ### FAILURE: instanceof with Generics
+    ```java
+    // WRONG - type erasure prevents this
+    public <T> boolean isInstance(Object obj) {
+        return obj instanceof T;  // Compile error!
+    }
+
+    // CORRECT - use Class token
+    public <T> boolean isInstance(Object obj, Class<T> type) {
+        return type.isInstance(obj);
+    }
+    ```
+
+    ### FAILURE: Generic Array Creation
+    ```java
+    // WRONG - cannot create generic array
+    T[] array = new T[10];  // Compile error!
+
+    // CORRECT - use Array.newInstance with Class token
+    @SuppressWarnings("unchecked")
+    public <T> T[] createArray(Class<T> type, int size) {
+        return (T[]) Array.newInstance(type, size);
+    }
+
+    // Or use List instead
+    List<T> list = new ArrayList<>(10);
+    ```
+
+    ### FAILURE: Overloading by Generic Type
+    ```java
+    // WRONG - same erasure
+    public void process(List<String> strings) { }
+    public void process(List<Integer> integers) { }  // Compile error!
+
+    // CORRECT - different method names
+    public void processStrings(List<String> strings) { }
+    public void processIntegers(List<Integer> integers) { }
+    ```
+
+    ### Use Wildcards Correctly
+    ```java
+    // PECS: Producer Extends, Consumer Super
+
+    // Producer - read from (extends)
+    public void copy(List<? extends Number> source) {
+        Number n = source.get(0);  // OK - reads as Number
+    }
+
+    // Consumer - write to (super)
+    public void addNumbers(List<? super Integer> dest) {
+        dest.add(42);  // OK - can add Integer
+    }
+    ```
+
+  content_concise: |
+    ## Generics Mistakes
+    - Never use raw types: `List` → `List<String>`
+    - Can't check `instanceof T` - use Class token
+    - Can't create `new T[]` - use Array.newInstance
+    - PECS: Producer Extends, Consumer Super
+
+- id: "language/java/ai_failures/collections"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## COLLECTION MISTAKES
+
+    ### FAILURE: Mutable Keys in HashMap
+    ```java
+    // WRONG - mutable key
+    List<String> mutableKey = new ArrayList<>(List.of("a", "b"));
+    Map<List<String>, String> map = new HashMap<>();
+    map.put(mutableKey, "value");
+
+    mutableKey.add("c");  // DISASTER - hash changed!
+    map.get(mutableKey);  // Returns null - key is "lost"
+
+    // CORRECT - use immutable keys
+    List<String> immutableKey = List.of("a", "b", "c");
+    map.put(immutableKey, "value");
+
+    // BEST - use records (immutable by design)
+    record Key(String part1, String part2) {}
+    Map<Key, String> map = new HashMap<>();
+    map.put(new Key("a", "b"), "value");
+    ```
+
+    ### FAILURE: Modifying Collection During Iteration
+    ```java
+    // WRONG - ConcurrentModificationException
+    for (String item : list) {
+        if (shouldRemove(item)) {
+            list.remove(item);  // BOOM!
+        }
+    }
+
+    // CORRECT - use Iterator.remove()
+    Iterator<String> iter = list.iterator();
+    while (iter.hasNext()) {
+        if (shouldRemove(iter.next())) {
+            iter.remove();
+        }
+    }
+
+    // CORRECT - use removeIf (Java 8+)
+    list.removeIf(this::shouldRemove);
+
+    // CORRECT - filter to new list
+    list = list.stream()
+        .filter(item -> !shouldRemove(item))
+        .toList();
+    ```
+
+    ### FAILURE: Wrong Collection Type
+    ```java
+    // WRONG - LinkedList for random access
+    LinkedList<String> list = new LinkedList<>();
+    String item = list.get(10000);  // O(n) - must traverse
+
+    // CORRECT - ArrayList for random access
+    ArrayList<String> list = new ArrayList<>();
+    String item = list.get(10000);  // O(1)
+
+    // WRONG - ArrayList for frequent middle insertions
+    ArrayList<String> list = new ArrayList<>();
+    list.add(0, "item");  // O(n) - shifts all elements
+
+    // CORRECT - use ArrayDeque for ends
+    ArrayDeque<String> deque = new ArrayDeque<>();
+    deque.addFirst("item");  // O(1)
+    ```
+
+    ### FAILURE: Unmodifiable vs Immutable Confusion
+    ```java
+    List<String> original = new ArrayList<>();
+    List<String> unmodifiable = Collections.unmodifiableList(original);
+
+    original.add("item");  // Modifies unmodifiable view!
+    unmodifiable.get(0);   // Returns "item"
+
+    // CORRECT - truly immutable
+    List<String> immutable = List.of("a", "b", "c");
+    List<String> copy = List.copyOf(original);  // Defensive copy
+    ```
+
+  content_concise: |
+    ## Collection Mistakes
+    - Never use mutable objects as HashMap keys
+    - Use `Iterator.remove()` or `removeIf()` when iterating
+    - ArrayList for random access, ArrayDeque for ends
+    - `List.of()` is immutable, `unmodifiableList()` is just a view
+
+- id: "language/java/ai_failures/streams"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STREAM MISTAKES
+
+    ### FAILURE: Stream Reuse
+    ```java
+    // WRONG - IllegalStateException
+    Stream<String> stream = list.stream()
+        .filter(s -> s.startsWith("A"));
+
+    long count = stream.count();
+    List<String> result = stream.toList();  // BOOM! Stream already consumed
+
+    // CORRECT - create new stream each time
+    long count = list.stream().filter(s -> s.startsWith("A")).count();
+    List<String> result = list.stream().filter(s -> s.startsWith("A")).toList();
+
+    // BETTER - use Supplier for reusable pipeline
+    Supplier<Stream<String>> streamSupplier = () ->
+        list.stream().filter(s -> s.startsWith("A"));
+
+    long count = streamSupplier.get().count();
+    List<String> result = streamSupplier.get().toList();
+    ```
+
+    ### FAILURE: Side Effects in Streams
+    ```java
+    // WRONG - shared mutable state
+    List<String> results = new ArrayList<>();
+    stream.forEach(item -> results.add(item));  // Not thread-safe!
+
+    // CORRECT - use collect
+    List<String> results = stream.collect(Collectors.toList());
+    ```
+
+    ### FAILURE: Stateful Lambda in Parallel Stream
+    ```java
+    // WRONG - race condition in parallel
+    AtomicInteger counter = new AtomicInteger(0);
+    list.parallelStream()
+        .map(item -> item + counter.incrementAndGet())  // Non-deterministic!
+        .toList();
+
+    // CORRECT - use IntStream for indexed operations
+    IntStream.range(0, list.size())
+        .mapToObj(i -> list.get(i) + i)
+        .toList();
+    ```
+
+    ### FAILURE: peek() for Side Effects
+    ```java
+    // WRONG - peek may not execute if terminal op short-circuits
+    stream.peek(item -> save(item))  // May not save all!
+          .findFirst();
+
+    // CORRECT - use forEach for side effects
+    list.forEach(item -> save(item));
+
+    // Or if you need stream result
+    List<String> result = stream.toList();
+    result.forEach(item -> save(item));
+    ```
+
+    ### FAILURE: Inefficient Terminal Operations
+    ```java
+    // WRONG - count after collecting
+    List<String> list = stream.toList();
+    int size = list.size();
+
+    // CORRECT - count directly
+    long count = stream.count();
+
+    // WRONG - checking empty with count
+    if (stream.count() > 0) { }  // Counts ALL elements
+
+    // CORRECT - use findAny for existence check
+    if (stream.findAny().isPresent()) { }
+    ```
+
+  content_concise: |
+    ## Stream Mistakes
+    - Streams can only be consumed ONCE
+    - Use `Supplier<Stream>` for reusable pipelines
+    - No mutable state in parallel streams
+    - `peek()` is for debugging only, not side effects
+
+- id: "language/java/ai_failures/strings"
+  category: "language"
+  subcategory: "java"
+  priority: 82
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STRING MISTAKES
+
+    ### FAILURE: Concatenation in Loop
+    ```java
+    // WRONG - O(n^2) performance
+    String result = "";
+    for (String item : items) {
+        result += item + ", ";  // Creates new String each iteration!
+    }
+
+    // CORRECT - O(n) with StringBuilder
+    StringBuilder sb = new StringBuilder();
+    for (String item : items) {
+        sb.append(item).append(", ");
+    }
+    String result = sb.toString();
+
+    // BETTER - with estimated capacity
+    StringBuilder sb = new StringBuilder(items.size() * 20);
+
+    // BEST - use String.join or Collectors
+    String result = String.join(", ", items);
+    String result = items.stream().collect(Collectors.joining(", "));
+    ```
+
+    ### FAILURE: Substring Memory Leak (Pre-Java 7u6)
+    ```java
+    // In older JVMs, substring kept reference to original char[]
+    String huge = readHugeFile();
+    String small = huge.substring(0, 10);
+    huge = null;  // Memory not freed - small still references it!
+
+    // Fixed in Java 7u6+ - substring creates new char[]
+    // But good practice to be explicit:
+    String small = new String(huge.substring(0, 10));
+    ```
+
+    ### FAILURE: Empty String Check
+    ```java
+    // WRONG - doesn't handle null
+    if (str.isEmpty()) { }  // NullPointerException if null!
+
+    // WRONG - verbose
+    if (str == null || str.isEmpty()) { }
+
+    // CORRECT - use utility method
+    if (str == null || str.isBlank()) { }  // Java 11+
+    // Or use library: StringUtils.isBlank(str)
+    ```
+
+    ### FAILURE: Wrong Equality Check
+    ```java
+    // WRONG - reference comparison
+    if (str1 == str2) { }
+
+    // WRONG - may throw NPE
+    if (str1.equals(str2)) { }
+
+    // CORRECT - null-safe
+    if (Objects.equals(str1, str2)) { }
+
+    // CORRECT - when comparing to literal
+    if ("expected".equals(str)) { }
+    ```
+
+    ### Use Text Blocks Correctly (Java 15+)
+    ```java
+    // WRONG - concatenation with text block
+    String json = """
+        {"name": """ + name + """"}
+        """;
+
+    // CORRECT - use formatted()
+    String json = """
+        {"name": "%s"}
+        """.formatted(name);
+    ```
+
+  content_concise: |
+    ## String Mistakes
+    - Never concatenate in loops - use StringBuilder
+    - Use `String.join()` or `Collectors.joining()` for collections
+    - Use `isBlank()` (Java 11+) for empty/whitespace check
+    - Use `Objects.equals()` for null-safe comparison
+
+- id: "language/java/ai_failures/exceptions"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## EXCEPTION HANDLING MISTAKES
+
+    ### FAILURE: Swallowing Exceptions
+    ```java
+    // WRONG - silent failure
+    try {
+        riskyOperation();
+    } catch (Exception e) {
+        // Empty catch - NEVER do this!
+    }
+
+    // WRONG - just printing
+    try {
+        riskyOperation();
+    } catch (Exception e) {
+        e.printStackTrace();  // Goes to stderr, may be missed
+    }
+
+    // CORRECT - log and handle
+    try {
+        riskyOperation();
+    } catch (SpecificException e) {
+        log.error("Operation failed", e);
+        throw new ServiceException("Operation failed", e);
+    }
+    ```
+
+    ### FAILURE: Catching Too Broadly
+    ```java
+    // WRONG - catches everything including programming errors
+    try {
+        operation();
+    } catch (Exception e) { }
+
+    // WORSE - catches even Errors
+    try {
+        operation();
+    } catch (Throwable t) { }
+
+    // CORRECT - catch specific exceptions
+    try {
+        operation();
+    } catch (IOException e) {
+        handleIO(e);
+    } catch (SQLException e) {
+        handleDB(e);
+    }
+    ```
+
+    ### FAILURE: Losing Exception Cause
+    ```java
+    // WRONG - loses original stack trace
+    try {
+        operation();
+    } catch (IOException e) {
+        throw new ServiceException("Failed");  // Lost cause!
+    }
+
+    // CORRECT - preserve cause chain
+    try {
+        operation();
+    } catch (IOException e) {
+        throw new ServiceException("Failed", e);  // Keeps cause
+    }
+    ```
+
+    ### FAILURE: Not Closing Resources
+    ```java
+    // WRONG - resource leak if exception
+    FileInputStream fis = new FileInputStream(file);
+    process(fis);
+    fis.close();  // Never reached if exception!
+
+    // CORRECT - try-with-resources
+    try (FileInputStream fis = new FileInputStream(file)) {
+        process(fis);
+    }  // Auto-closed even if exception
+    ```
+
+    ### FAILURE: Checked vs Unchecked Confusion
+    ```java
+    // Use checked exceptions for recoverable conditions
+    public void loadConfig(Path path) throws IOException {
+        // Caller can provide alternative path
+    }
+
+    // Use unchecked for programming errors
+    public void setAge(int age) {
+        if (age < 0) {
+            throw new IllegalArgumentException("Age cannot be negative");
+        }
+    }
+    ```
+
+  content_concise: |
+    ## Exception Handling
+    - Never swallow exceptions - log and handle
+    - Catch specific exceptions, not Exception/Throwable
+    - Always preserve exception cause: `new Ex("msg", cause)`
+    - Always use try-with-resources for closeable resources
+

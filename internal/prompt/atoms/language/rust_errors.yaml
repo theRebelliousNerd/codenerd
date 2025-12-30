@@ -1,0 +1,371 @@
+# Rust Error Handling - Encyclopedic Reference
+# Comprehensive guidance for Result, Option, thiserror, anyhow, and error patterns
+
+- id: "language/rust/errors/result_option"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## RESULT AND OPTION FUNDAMENTALS
+
+    ### Option<T> - Nullable Values
+    ```rust
+    enum Option<T> {
+        Some(T),
+        None,
+    }
+
+    // Use Option when a value might not exist
+    fn find_user(id: u32) -> Option<User> {
+        database.get(&id)  // Returns Some(user) or None
+    }
+
+    // Handling Option
+    match find_user(42) {
+        Some(user) => println!("Found: {}", user.name),
+        None => println!("User not found"),
+    }
+    ```
+
+    ### Result<T, E> - Fallible Operations
+    ```rust
+    enum Result<T, E> {
+        Ok(T),
+        Err(E),
+    }
+
+    // Use Result when an operation can fail
+    fn parse_config(path: &str) -> Result<Config, ConfigError> {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content).map_err(ConfigError::Parse)
+    }
+
+    // Handling Result
+    match parse_config("config.toml") {
+        Ok(config) => use_config(config),
+        Err(e) => eprintln!("Error: {}", e),
+    }
+    ```
+
+    ### The ? Operator - Error Propagation
+    ```rust
+    // ? unwraps Ok or returns Err early
+    fn process() -> Result<Output, Error> {
+        let file = File::open("input.txt")?;  // Returns Err if failed
+        let data = read_data(&file)?;
+        let result = parse_data(&data)?;
+        Ok(result)
+    }
+
+    // Equivalent to:
+    fn process_verbose() -> Result<Output, Error> {
+        let file = match File::open("input.txt") {
+            Ok(f) => f,
+            Err(e) => return Err(e.into()),
+        };
+        // ...
+    }
+    ```
+
+    ### Essential Combinators
+    ```rust
+    // Option combinators
+    opt.unwrap()              // Panic if None
+    opt.expect("msg")         // Panic with message if None
+    opt.unwrap_or(default)    // Default if None
+    opt.unwrap_or_else(|| compute())  // Lazy default
+    opt.map(|v| transform(v)) // Transform Some, pass through None
+    opt.and_then(|v| returns_option(v))  // Chain Options
+    opt.ok_or(err)            // Convert Option to Result
+    opt.filter(predicate)     // None if predicate false
+
+    // Result combinators
+    res.unwrap()              // Panic if Err
+    res.expect("msg")         // Panic with message if Err
+    res.unwrap_or(default)    // Default if Err
+    res.map(|v| transform(v)) // Transform Ok
+    res.map_err(|e| transform(e))  // Transform Err
+    res.and_then(|v| returns_result(v))  // Chain Results
+    res.ok()                  // Convert Result to Option (discards error)
+    ```
+
+  content_concise: |
+    ## Result & Option
+    - `Option<T>`: `Some(T)` or `None` for nullable values
+    - `Result<T, E>`: `Ok(T)` or `Err(E)` for fallible ops
+    - `?` operator propagates errors early
+    - Key combinators: `map`, `and_then`, `unwrap_or`
+
+- id: "language/rust/errors/thiserror"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    ## THISERROR - Custom Error Types
+
+    Use thiserror when callers need to match on error variants (libraries).
+
+    ### Basic Usage
+    ```rust
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum DataError {
+        #[error("failed to read file: {0}")]
+        Io(#[from] std::io::Error),
+
+        #[error("invalid format at line {line}: {message}")]
+        Parse { line: usize, message: String },
+
+        #[error("data not found: {0}")]
+        NotFound(String),
+
+        #[error("validation failed")]
+        Validation(#[source] ValidationError),
+    }
+    ```
+
+    ### Attribute Reference
+    | Attribute | Purpose |
+    |-----------|---------|
+    | `#[error("...")]` | Generates `Display` impl |
+    | `#[from]` | Generates `From` impl for auto-conversion |
+    | `#[source]` | Sets error source for chaining |
+    | `#[transparent]` | Delegates Display/source to inner error |
+
+    ### Using thiserror Errors
+    ```rust
+    fn load_data(path: &str) -> Result<Data, DataError> {
+        // io::Error auto-converts via #[from]
+        let content = std::fs::read_to_string(path)?;
+
+        // Manual error construction
+        let data = parse(&content).map_err(|e| DataError::Parse {
+            line: e.line,
+            message: e.message,
+        })?;
+
+        if data.is_empty() {
+            return Err(DataError::NotFound("empty data".into()));
+        }
+
+        Ok(data)
+    }
+
+    // Callers can match on variants
+    match load_data("file.txt") {
+        Ok(data) => process(data),
+        Err(DataError::NotFound(name)) => create_default(&name),
+        Err(DataError::Io(e)) if e.kind() == ErrorKind::NotFound => {
+            create_file()
+        }
+        Err(e) => return Err(e.into()),
+    }
+    ```
+
+    ### Nested Error Hierarchies
+    ```rust
+    #[derive(Error, Debug)]
+    pub enum AppError {
+        #[error("database error")]
+        Database(#[from] DbError),
+
+        #[error("network error")]
+        Network(#[from] NetworkError),
+
+        #[error("config error: {0}")]
+        Config(#[from] ConfigError),
+    }
+    ```
+
+  content_concise: |
+    ## thiserror
+    - Use for libraries where callers match on error variants
+    - `#[error("...")]`: Display impl
+    - `#[from]`: Auto-convert with `?`
+    - `#[source]`: Error chaining
+
+- id: "language/rust/errors/anyhow"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    ## ANYHOW - Opaque Error Type
+
+    Use anyhow when errors just need reporting (applications).
+
+    ### Basic Usage
+    ```rust
+    use anyhow::{anyhow, bail, Context, Result};
+
+    // anyhow::Result<T> = Result<T, anyhow::Error>
+    fn process_file(path: &str) -> Result<Output> {
+        let content = std::fs::read_to_string(path)
+            .context("failed to read input file")?;
+
+        let data: Config = serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse {}", path))?;
+
+        if data.items.is_empty() {
+            bail!("config must have at least one item");
+        }
+
+        Ok(process(data))
+    }
+    ```
+
+    ### Key Functions
+    | Function | Purpose |
+    |----------|---------|
+    | `anyhow!("msg")` | Create ad-hoc error |
+    | `bail!("msg")` | Return error early (like `return Err(anyhow!(...))`) |
+    | `.context("msg")` | Add context to error |
+    | `.with_context(\|\| ...)` | Lazy context construction |
+
+    ### In main()
+    ```rust
+    fn main() -> Result<()> {
+        let output = process_file("config.json")?;
+        println!("{:?}", output);
+        Ok(())
+    }
+    // Errors print with full context chain
+    ```
+
+    ### Downcasting to Concrete Types
+    ```rust
+    // Check if underlying error is specific type
+    if let Some(io_error) = err.downcast_ref::<std::io::Error>() {
+        if io_error.kind() == ErrorKind::NotFound {
+            // Handle not found
+        }
+    }
+
+    // Or chain of errors
+    for cause in err.chain() {
+        println!("caused by: {}", cause);
+    }
+    ```
+
+    ### Integration with thiserror
+    ```rust
+    // Domain errors with thiserror
+    #[derive(Error, Debug)]
+    pub enum DomainError {
+        #[error("user not found: {0}")]
+        UserNotFound(String),
+    }
+
+    // Application code with anyhow
+    pub async fn fetch_user(id: &str) -> anyhow::Result<User> {
+        let response = client.get(url).send().await
+            .context("HTTP request failed")?;
+
+        if response.status() == 404 {
+            return Err(DomainError::UserNotFound(id.into()).into());
+        }
+
+        response.json().await.context("failed to parse response")
+    }
+    ```
+
+  content_concise: |
+    ## anyhow
+    - Use for applications where errors are reported, not matched
+    - `context("msg")`: Add context to any error
+    - `bail!("msg")`: Return error early
+    - `anyhow!("msg")`: Create ad-hoc error
+    - Combine with thiserror for domain errors
+
+- id: "language/rust/errors/conversion"
+  category: "language"
+  subcategory: "rust"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  depends_on: ["language/rust/errors/result_option"]
+  content: |
+    ## ERROR CONVERSION PATTERNS
+
+    ### Implementing From Trait
+    ```rust
+    use std::num::ParseIntError;
+    use std::io;
+
+    #[derive(Debug)]
+    enum AppError {
+        Io(io::Error),
+        Parse(ParseIntError),
+        Custom(String),
+    }
+
+    // Implement From for automatic conversion with ?
+    impl From<io::Error> for AppError {
+        fn from(err: io::Error) -> Self {
+            AppError::Io(err)
+        }
+    }
+
+    impl From<ParseIntError> for AppError {
+        fn from(err: ParseIntError) -> Self {
+            AppError::Parse(err)
+        }
+    }
+
+    // Now ? works automatically
+    fn read_number(path: &str) -> Result<i32, AppError> {
+        let content = std::fs::read_to_string(path)?;  // io -> AppError
+        let num: i32 = content.trim().parse()?;        // ParseInt -> AppError
+        Ok(num)
+    }
+    ```
+
+    ### Box<dyn Error> - Quick and Dirty
+    ```rust
+    use std::error::Error;
+
+    // Works for any error type
+    fn quick_function() -> Result<(), Box<dyn Error>> {
+        let file = std::fs::File::open("test.txt")?;
+        let data: Config = serde_json::from_reader(file)?;
+        Ok(())
+    }
+
+    // Add Send + Sync for thread safety
+    fn thread_safe() -> Result<(), Box<dyn Error + Send + Sync>> {
+        // ...
+    }
+    ```
+
+    ### When to Use Each
+    | Approach | Use When |
+    |----------|----------|
+    | `thiserror` | Library, callers match variants |
+    | `anyhow` | Application, errors are reported |
+    | `Box<dyn Error>` | Quick prototyping |
+    | Custom `From` impls | Need specific conversion behavior |
+
+    ### Error Message Conventions
+    - Lowercase, no trailing punctuation: "failed to open file"
+    - Don't include source in message (chains automatically)
+    - Be specific: "invalid port number" not "invalid config"
+
+  content_concise: |
+    ## Error Conversion
+    - Implement `From<E>` for automatic `?` conversion
+    - `Box<dyn Error>` for quick prototyping
+    - thiserror for libraries, anyhow for applications
+    - Messages: lowercase, no punctuation, specific
+

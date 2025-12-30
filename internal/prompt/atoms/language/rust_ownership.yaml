@@ -1,0 +1,268 @@
+# Rust Ownership & Lifetimes - Encyclopedic Reference
+# Comprehensive guidance for ownership, borrowing, lifetimes, and smart pointers
+
+- id: "language/rust/ownership/rules"
+  category: "language"
+  subcategory: "rust"
+  priority: 95
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## OWNERSHIP RULES (MEMORIZE THESE)
+
+    ### The Three Ownership Rules
+    1. Each value in Rust has exactly ONE owner
+    2. When the owner goes out of scope, the value is dropped (freed)
+    3. Ownership can be transferred (moved) or borrowed
+
+    ### Move Semantics
+    ```rust
+    // MOVE - s1 becomes invalid after this
+    let s1 = String::from("hello");
+    let s2 = s1;  // s1 is MOVED to s2
+    // println!("{}", s1);  // COMPILE ERROR: value moved
+
+    // COPY - integers implement Copy
+    let x = 5;
+    let y = x;  // x is COPIED, both valid
+    println!("{} {}", x, y);  // OK
+    ```
+
+    ### Types That Implement Copy
+    - All integer types (i32, u64, etc.)
+    - Boolean (bool)
+    - Floating point (f32, f64)
+    - Character (char)
+    - Tuples containing only Copy types
+    - References (&T) - but NOT &mut T
+
+    ### Types That Do NOT Implement Copy
+    - String
+    - Vec<T>
+    - Box<T>
+    - Any type with heap allocation
+
+  content_concise: |
+    ## Ownership Rules
+    1. Each value has ONE owner
+    2. When owner drops, value is freed
+    3. Assignment = move (except Copy types)
+    Copy types: primitives, references, tuples of Copy
+
+- id: "language/rust/ownership/borrowing"
+  category: "language"
+  subcategory: "rust"
+  priority: 96
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## BORROWING RULES (CRITICAL)
+
+    ### The Two Borrowing Rules
+    1. At any time, you can have EITHER:
+       - ONE mutable reference (&mut T), OR
+       - ANY number of immutable references (&T)
+    2. References must always be valid (no dangling references)
+
+    ### Examples
+    ```rust
+    let mut s = String::from("hello");
+
+    // Multiple immutable borrows - OK
+    let r1 = &s;
+    let r2 = &s;
+    println!("{} {}", r1, r2);  // OK
+
+    // Mutable borrow - OK (r1, r2 no longer used)
+    let r3 = &mut s;
+    r3.push_str(" world");
+
+    // CANNOT mix when both in use
+    let r1 = &s;
+    let r2 = &mut s;  // COMPILE ERROR if r1 is used after
+    ```
+
+    ### Non-Lexical Lifetimes (NLL)
+    Borrows end at their LAST USE, not end of scope:
+    ```rust
+    let mut s = String::from("hello");
+    let r1 = &s;
+    println!("{}", r1);  // r1's borrow ENDS here (last use)
+    let r2 = &mut s;     // OK - r1 is no longer borrowed
+    r2.push_str(" world");
+    ```
+
+    ### Common Borrow Checker Errors
+    1. Cannot borrow as mutable more than once
+    2. Cannot borrow as mutable while borrowed as immutable
+    3. Cannot move out of borrowed content
+    4. Value does not live long enough
+
+  content_concise: |
+    ## Borrowing Rules
+    - EITHER one `&mut T` OR any number of `&T`
+    - References must always be valid
+    - NLL: borrows end at last use, not scope end
+
+- id: "language/rust/ownership/lifetimes"
+  category: "language"
+  subcategory: "rust"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## LIFETIMES
+
+    ### What Lifetimes Are
+    - Lifetimes are the SCOPE for which a reference is valid
+    - They prevent dangling references
+    - Annotations describe RELATIONSHIPS, not durations
+
+    ### Syntax
+    ```rust
+    &'a T        // Immutable reference with lifetime 'a
+    &'a mut T    // Mutable reference with lifetime 'a
+    ```
+
+    ### Lifetime in Functions
+    ```rust
+    // Returns reference that lives as long as the shorter input
+    fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+        if x.len() > y.len() { x } else { y }
+    }
+
+    // The 'a lifetime means:
+    // - Both x and y must live at least as long as 'a
+    // - Return value lives at least as long as 'a
+    // - Practically: return lives as long as SHORTER input
+    ```
+
+    ### Lifetime Elision Rules (Compiler Infers)
+    **Rule 1:** Each parameter gets its own lifetime
+    **Rule 2:** If ONE input lifetime, it's assigned to output
+    **Rule 3:** If &self or &mut self, that lifetime goes to output
+
+    ```rust
+    // Rule 2 applies:
+    fn first_word(s: &str) -> &str
+    // becomes
+    fn first_word<'a>(s: &'a str) -> &'a str
+    ```
+
+    ### 'static Lifetime
+    ```rust
+    // Lives for entire program duration
+    let s: &'static str = "I live forever";
+    // String literals are ALWAYS 'static
+    ```
+
+    ### Struct with References
+    ```rust
+    struct ImportantExcerpt<'a> {
+        part: &'a str,
+    }
+
+    impl<'a> ImportantExcerpt<'a> {
+        fn level(&self) -> i32 { 3 }
+
+        // Rule 3: return gets &self lifetime
+        fn announce_and_return(&self, msg: &str) -> &str {
+            println!("{}", msg);
+            self.part
+        }
+    }
+    ```
+
+  content_concise: |
+    ## Lifetimes
+    - Describe how long references are valid
+    - `'a` syntax: `fn longest<'a>(x: &'a str, y: &'a str) -> &'a str`
+    - Elision rules often infer lifetimes automatically
+    - `'static`: lives for entire program (string literals)
+
+- id: "language/rust/ownership/smart_pointers"
+  category: "language"
+  subcategory: "rust"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/rust"]
+  content: |
+    ## SMART POINTERS
+
+    ### When to Use Each
+    | Pointer | Thread Safety | Use Case |
+    |---------|---------------|----------|
+    | Box<T> | YES | Heap allocation, recursive types |
+    | Rc<T> | NO | Single-threaded shared ownership |
+    | Arc<T> | YES | Multi-threaded shared ownership |
+    | RefCell<T> | NO | Interior mutability (single-threaded) |
+    | Mutex<T> | YES | Thread-safe mutation |
+
+    ### Box<T> - Heap Allocation
+    ```rust
+    // Required for recursive types
+    enum List {
+        Cons(i32, Box<List>),
+        Nil,
+    }
+
+    let b = Box::new(5);
+    println!("{}", b);  // Deref to i32
+    ```
+
+    ### Rc<T> - Reference Counting (Single-Threaded)
+    ```rust
+    use std::rc::Rc;
+
+    let data = Rc::new(vec![1, 2, 3]);
+    let clone1 = Rc::clone(&data);  // Increment count
+    let clone2 = Rc::clone(&data);
+    // All point to same data
+    ```
+
+    ### Arc<T> - Atomic Reference Counting (Multi-Threaded)
+    ```rust
+    use std::sync::Arc;
+    use std::thread;
+
+    let data = Arc::new(vec![1, 2, 3]);
+    let clone = Arc::clone(&data);
+
+    thread::spawn(move || {
+        println!("{:?}", clone);  // Safe across threads
+    });
+    ```
+
+    ### RefCell<T> - Interior Mutability
+    ```rust
+    use std::cell::RefCell;
+
+    let data = RefCell::new(5);
+    *data.borrow_mut() += 1;  // Mutate through shared ref
+    println!("{}", data.borrow());
+
+    // PANICS at runtime if rules violated:
+    let r1 = data.borrow();
+    let r2 = data.borrow_mut();  // PANIC!
+    ```
+
+    ### Common Patterns
+    ```rust
+    // Rc<RefCell<T>> - Shared mutable state (single-threaded)
+    let shared = Rc::new(RefCell::new(vec![1, 2, 3]));
+
+    // Arc<Mutex<T>> - Shared mutable state (multi-threaded)
+    let shared = Arc::new(Mutex::new(0));
+    ```
+
+  content_concise: |
+    ## Smart Pointers
+    - `Box<T>`: Heap allocation, recursive types
+    - `Rc<T>`: Single-threaded shared ownership
+    - `Arc<T>`: Multi-threaded shared ownership
+    - `RefCell<T>`: Interior mutability (runtime borrow check)
+    - `Mutex<T>`: Thread-safe mutation

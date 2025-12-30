@@ -1,0 +1,341 @@
+# Java Streams API - Encyclopedic Reference
+# Comprehensive guidance for Stream creation, operations, and collectors
+
+- id: "language/java/streams/creation"
+  category: "language"
+  subcategory: "java"
+  priority: 85
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STREAM CREATION
+
+    ### From Collections
+    ```java
+    List<String> list = List.of("a", "b", "c");
+    Stream<String> stream = list.stream();
+    Stream<String> parallel = list.parallelStream();
+    ```
+
+    ### From Arrays
+    ```java
+    String[] arr = {"a", "b", "c"};
+    Stream<String> stream = Arrays.stream(arr);
+    Stream<String> stream = Stream.of("a", "b", "c");
+    ```
+
+    ### Primitive Streams (PREFER for performance)
+    ```java
+    IntStream ints = IntStream.range(0, 100);        // 0..99
+    IntStream ints = IntStream.rangeClosed(1, 100); // 1..100
+    IntStream ints = IntStream.of(1, 2, 3, 4, 5);
+    LongStream longs = LongStream.range(0, 1000000);
+    DoubleStream doubles = DoubleStream.of(1.0, 2.0, 3.0);
+    ```
+
+    ### Infinite Streams (MUST limit!)
+    ```java
+    Stream<Integer> infinite = Stream.iterate(0, n -> n + 1);
+    Stream<Integer> limited = Stream.iterate(0, n -> n + 1).limit(100);
+
+    // With predicate (Java 9+)
+    Stream<Integer> bounded = Stream.iterate(0, n -> n < 100, n -> n + 1);
+
+    Stream<Double> randoms = Stream.generate(Math::random).limit(10);
+    ```
+
+    ### Special Creation
+    ```java
+    Stream<String> empty = Stream.empty();
+    Stream<String> single = Stream.of("only");
+    Stream<String> nullable = Stream.ofNullable(maybeNull);  // Empty if null
+
+    // From String
+    IntStream chars = "hello".chars();
+
+    // From files
+    Stream<String> lines = Files.lines(Path.of("file.txt"));
+    ```
+
+  content_concise: |
+    ## Stream Creation
+    - `list.stream()`, `Arrays.stream(arr)`
+    - `IntStream.range(0, n)` - prefer primitives
+    - `Stream.iterate(seed, unaryOp).limit(n)` - infinite must limit
+    - `Stream.ofNullable(x)` - empty stream if null
+
+- id: "language/java/streams/operations"
+  category: "language"
+  subcategory: "java"
+  priority: 88
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## STREAM OPERATIONS
+
+    ### Intermediate Operations (lazy, return Stream)
+    ```java
+    stream
+        .filter(x -> x > 0)           // Keep matching elements
+        .map(x -> x.toString())       // Transform elements
+        .flatMap(x -> x.stream())     // Flatten nested streams
+        .distinct()                   // Remove duplicates
+        .sorted()                     // Natural order
+        .sorted(Comparator.reverseOrder())  // Custom order
+        .peek(System.out::println)    // Debug only!
+        .limit(10)                    // Take first n
+        .skip(5)                      // Skip first n
+        .takeWhile(x -> x < 100)      // Take until predicate fails (Java 9+)
+        .dropWhile(x -> x < 10)       // Skip until predicate fails (Java 9+)
+    ```
+
+    ### Terminal Operations (trigger execution)
+    ```java
+    // Consuming
+    stream.forEach(System.out::println);
+    stream.forEachOrdered(System.out::println);  // Preserves order
+
+    // Collecting
+    List<String> list = stream.toList();        // Java 16+ (immutable)
+    List<String> list = stream.collect(Collectors.toList());  // Mutable
+    String[] array = stream.toArray(String[]::new);
+
+    // Reducing
+    long count = stream.count();
+    Optional<T> first = stream.findFirst();
+    Optional<T> any = stream.findAny();  // Faster for parallel
+    Optional<T> max = stream.max(Comparator.naturalOrder());
+    Optional<T> min = stream.min(Comparator.naturalOrder());
+
+    // Matching
+    boolean anyMatch = stream.anyMatch(x -> x > 0);
+    boolean allMatch = stream.allMatch(x -> x > 0);
+    boolean noneMatch = stream.noneMatch(x -> x < 0);
+
+    // Reducing
+    Optional<Integer> sum = stream.reduce(Integer::sum);
+    int sum = stream.reduce(0, Integer::sum);  // With identity
+    ```
+
+    ### Best Practices
+    ```java
+    // Filter EARLY to reduce work
+    items.stream()
+        .filter(Item::isActive)    // Filter first!
+        .map(Item::getName)
+        .toList();
+
+    // Avoid stateful lambdas
+    List<String> bad = new ArrayList<>();
+    stream.forEach(item -> bad.add(item));  // WRONG
+
+    // Use collect instead
+    List<String> good = stream.collect(Collectors.toList());
+    ```
+
+  content_concise: |
+    ## Stream Operations
+    - Intermediate (lazy): `filter`, `map`, `flatMap`, `distinct`, `sorted`
+    - Terminal (execute): `forEach`, `collect`, `reduce`, `count`, `findFirst`
+    - Filter EARLY to reduce work
+    - Never use mutable state in lambdas
+
+- id: "language/java/streams/collectors"
+  category: "language"
+  subcategory: "java"
+  priority: 90
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## COLLECTORS PATTERNS
+
+    ### Basic Collectors
+    ```java
+    // Lists
+    List<String> mutable = stream.collect(Collectors.toList());
+    List<String> immutable = stream.toList();  // Java 16+
+
+    // Sets
+    Set<String> set = stream.collect(Collectors.toSet());
+
+    // Maps
+    Map<Long, User> byId = users.stream()
+        .collect(Collectors.toMap(User::getId, Function.identity()));
+
+    // Handle duplicate keys
+    Map<String, User> byName = users.stream()
+        .collect(Collectors.toMap(
+            User::getName,
+            Function.identity(),
+            (existing, replacement) -> existing  // Keep first
+        ));
+
+    // Specific map implementation
+    Map<String, User> linkedMap = users.stream()
+        .collect(Collectors.toMap(
+            User::getName,
+            Function.identity(),
+            (a, b) -> a,
+            LinkedHashMap::new
+        ));
+    ```
+
+    ### Grouping
+    ```java
+    // Group by key
+    Map<Department, List<Employee>> byDept = employees.stream()
+        .collect(Collectors.groupingBy(Employee::getDepartment));
+
+    // Group with downstream collector
+    Map<Department, Long> countByDept = employees.stream()
+        .collect(Collectors.groupingBy(
+            Employee::getDepartment,
+            Collectors.counting()
+        ));
+
+    // Group with sum
+    Map<Department, Double> salaryByDept = employees.stream()
+        .collect(Collectors.groupingBy(
+            Employee::getDepartment,
+            Collectors.summingDouble(Employee::getSalary)
+        ));
+
+    // Nested grouping
+    Map<Department, Map<Level, List<Employee>>> nested = employees.stream()
+        .collect(Collectors.groupingBy(
+            Employee::getDepartment,
+            Collectors.groupingBy(Employee::getLevel)
+        ));
+    ```
+
+    ### Partitioning
+    ```java
+    // Partition into two groups
+    Map<Boolean, List<Employee>> partitioned = employees.stream()
+        .collect(Collectors.partitioningBy(
+            e -> e.getSalary() > 50000
+        ));
+
+    List<Employee> highEarners = partitioned.get(true);
+    List<Employee> others = partitioned.get(false);
+    ```
+
+    ### String Joining
+    ```java
+    String names = employees.stream()
+        .map(Employee::getName)
+        .collect(Collectors.joining(", "));
+    // "Alice, Bob, Charlie"
+
+    String formatted = employees.stream()
+        .map(Employee::getName)
+        .collect(Collectors.joining(", ", "[", "]"));
+    // "[Alice, Bob, Charlie]"
+    ```
+
+    ### Statistics
+    ```java
+    IntSummaryStatistics stats = employees.stream()
+        .collect(Collectors.summarizingInt(Employee::getAge));
+
+    stats.getCount();
+    stats.getSum();
+    stats.getMin();
+    stats.getMax();
+    stats.getAverage();
+    ```
+
+  content_concise: |
+    ## Collectors
+    - `toList()` (Java 16+), `toSet()`, `toMap(keyFn, valueFn)`
+    - `groupingBy(classifier)` - group into Map
+    - `partitioningBy(predicate)` - split into true/false
+    - `joining(delimiter)` - concatenate strings
+    - Handle duplicate keys: `toMap(k, v, mergeFunction)`
+
+- id: "language/java/streams/parallel"
+  category: "language"
+  subcategory: "java"
+  priority: 80
+  is_mandatory: false
+  shard_types: ["/coder", "/reviewer"]
+  languages: ["/java"]
+  content: |
+    ## PARALLEL STREAMS
+
+    ### When to Use
+    - Large datasets (100,000+ elements minimum)
+    - CPU-intensive operations per element
+    - Operations are independent (no shared state)
+    - Data source is easily splittable (ArrayList, arrays)
+
+    ### When to AVOID
+    - Small datasets (overhead > benefit)
+    - I/O-bound operations (use virtual threads instead)
+    - Order matters and source is LinkedList
+    - Operations have side effects
+    - Using stateful lambdas
+
+    ### Basic Usage
+    ```java
+    // From stream
+    long count = hugeList.parallelStream()
+        .filter(item -> expensiveCheck(item))
+        .count();
+
+    // Convert existing stream
+    long count = stream.parallel()
+        .filter(item -> expensiveCheck(item))
+        .count();
+    ```
+
+    ### Custom ForkJoinPool
+    ```java
+    // Isolate parallel stream from common pool
+    ForkJoinPool customPool = new ForkJoinPool(4);
+    try {
+        List<Result> results = customPool.submit(() ->
+            hugeList.parallelStream()
+                .map(this::process)
+                .toList()
+        ).get();
+    } finally {
+        customPool.shutdown();
+    }
+    ```
+
+    ### Concurrent Collectors
+    ```java
+    // Use concurrent collectors for parallel streams
+    Map<String, List<Item>> grouped = items.parallelStream()
+        .collect(Collectors.groupingByConcurrent(Item::getCategory));
+
+    ConcurrentMap<String, Item> map = items.parallelStream()
+        .collect(Collectors.toConcurrentMap(
+            Item::getId,
+            Function.identity()
+        ));
+    ```
+
+    ### Ordered vs Unordered
+    ```java
+    // Unordered can improve parallel performance
+    long count = list.parallelStream()
+        .unordered()
+        .filter(predicate)
+        .count();
+
+    // findAny is faster than findFirst in parallel
+    Optional<Item> any = list.parallelStream().findAny();
+    ```
+
+  content_concise: |
+    ## Parallel Streams
+    - Use for: Large data (100K+), CPU-intensive, independent ops
+    - Avoid for: Small data, I/O-bound, ordered LinkedList, side effects
+    - Use `groupingByConcurrent()` for parallel grouping
+    - `findAny()` faster than `findFirst()` in parallel
+
