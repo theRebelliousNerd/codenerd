@@ -37,6 +37,12 @@ type Orchestrator struct {
 	specialistKnowledgeProvider SpecialistKnowledgeProvider
 	northstarObserver          *northstar.CampaignObserver
 
+	// Intelligence integration (Campaign Intelligence Plan)
+	intelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
+	advisoryBoard        *ShardAdvisoryBoard   // Domain expert consultation
+	edgeCaseDetector     *EdgeCaseDetector     // File action decisions
+	toolPregenerator     *ToolPregenerator     // Tool pre-generation via Ouroboros
+
 	// State
 	campaign     *Campaign
 	workspace    string
@@ -99,6 +105,12 @@ type OrchestratorConfig struct {
 	RetryBackoffBase     time.Duration // Base backoff between retries (default: 5s)
 	RetryBackoffMax      time.Duration // Max backoff between retries (default: 5m)
 	ContextBudget        int           // Token budget for context pager (default: from config.ContextWindow.MaxTokens)
+
+	// Intelligence integration (Campaign Intelligence Plan)
+	IntelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
+	AdvisoryBoard        *ShardAdvisoryBoard   // Domain expert consultation
+	EdgeCaseDetector     *EdgeCaseDetector     // File action decisions
+	ToolPregenerator     *ToolPregenerator     // Tool pre-generation via Ouroboros
 }
 
 // taskResult is used to collect async task outcomes in runPhase.

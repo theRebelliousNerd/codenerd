@@ -14,6 +14,7 @@ import (
 	coresys "codenerd/internal/system"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
+	"codenerd/internal/world"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -148,8 +149,12 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX: Wire persistence layers
+	var localDB *store.LocalStore
+	var learningStore *store.LearningStore
+
 	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
-	if localDB, err := store.NewLocalStore(knowledgeDBPath); err == nil {
+	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
+		localDB = db
 		virtualStore.SetLocalDB(localDB)
 		virtualStore.SetKernel(kern)
 	} else {
@@ -157,7 +162,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	}
 
 	learningStorePath := filepath.Join(nerdDir, "shards")
-	if learningStore, err := store.NewLearningStore(learningStorePath); err == nil {
+	if ls, err := store.NewLearningStore(learningStorePath); err == nil {
+		learningStore = ls
 		virtualStore.SetLearningStore(learningStore)
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
@@ -341,16 +347,58 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(taskExecutor)
 
+	// Initialize Intelligence Integration components (Campaign Intelligence Plan)
+	fmt.Println("🧠 Initializing intelligence gathering systems...")
+
+	// Create world.Scanner for codebase analysis
+	worldScanner := world.NewScanner()
+	fmt.Println("   ✓ World scanner initialized")
+
+	// Create IntelligenceGatherer - orchestrates pre-planning intelligence from 12 systems
+	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		kern,           // kernel
+		worldScanner,   // worldScanner - codebase analysis
+		nil,            // holographic - not yet wired in CLI mode
+		learningStore,  // learningStore - historical patterns
+		localDB,        // localStore - knowledge graph + cold storage
+		nil,            // toolGenerator - not yet wired in CLI mode
+		nil,            // mcpStore - not yet wired in CLI mode
+		nil,            // consultation - interface mismatch, needs adapter
+	)
+	fmt.Println("   ✓ Intelligence gatherer initialized")
+
+	// Create ShardAdvisoryBoard - domain experts review plans
+	var advisoryBoard *campaign.ShardAdvisoryBoard
+	// Note: NewShardAdvisoryBoard expects campaign.ConsultationProvider interface
+	// which requires an adapter from shards.ConsultationManager
+	// For now, leave as nil - can be added later with proper adapter
+	fmt.Println("   ⚠ Advisory board pending (needs interface adapter)")
+
+	// Create EdgeCaseDetector - file action decisions (create/extend/modularize)
+	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
+	fmt.Println("   ✓ Edge case detector initialized")
+
+	// Create ToolPregenerator - pre-generate tools via Ouroboros
+	var toolPregenerator *campaign.ToolPregenerator
+	// Note: Requires autopoiesis.OuroborosLoop which isn't wired in CLI mode yet
+	fmt.Println("   ⚠ Tool pregenerator pending (requires Ouroboros)")
+
+	fmt.Println("   ✓ Intelligence systems initialized\n")
+
 	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:    cwd,
-		Kernel:       kern,
-		LLMClient:    llmClient,
-		ShardManager: shardMgr,
-		TaskExecutor: taskExecutor,
-		Executor:     executor,
-		VirtualStore: virtualStore,
-		ProgressChan: progressChan,
-		EventChan:    eventChan,
+		Workspace:            cwd,
+		Kernel:               kern,
+		LLMClient:            llmClient,
+		ShardManager:         shardMgr,
+		TaskExecutor:         taskExecutor,
+		Executor:             executor,
+		VirtualStore:         virtualStore,
+		ProgressChan:         progressChan,
+		EventChan:            eventChan,
+		IntelligenceGatherer: intelligenceGatherer,
+		AdvisoryBoard:        advisoryBoard,
+		EdgeCaseDetector:     edgeCaseDetector,
+		ToolPregenerator:     toolPregenerator,
 	})
 	if campaignPromptProvider != nil {
 		orchestrator.SetPromptProvider(campaignPromptProvider)
