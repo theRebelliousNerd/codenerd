@@ -870,6 +870,11 @@ internal/config/llm.go                   - GeminiProviderConfig
 | Taint Analysis | Source-to-sink tracking for vulnerability detection |
 | Regression Detection | Bisimulation patterns for breaking change detection |
 | Repo-Anchored Refs | Stable reference URIs (lang:path:Context.Symbol) |
+| Transaction Safety | Two-Phase Commit for atomic multi-file edits |
+| Test Impact Analysis | Graph-driven minimal test selection |
+| Credentials Detection | Hardcoded API keys, tokens, secrets detection |
+| Taint Tracking | Parse error flagging with edit blocking |
+| Git Binding | Temporal facts for code evolution tracking |
 
 ### Bundled Resources
 
@@ -878,8 +883,12 @@ internal/config/llm.go                   - GeminiProviderConfig
 | `references/000-ARCHITECTURE.md` | Reference | Full system architecture, data flow diagrams |
 | `references/100-PARSER-IMPLEMENTATION.md` | Reference | Tree-sitter parser implementation guide |
 | `references/200-MANGLE-INTEGRATION.md` | Reference | Schema design, bridge patterns, Go integration |
-| `references/300-SAFETY-GUARDRAILS.md` | Reference | Language-specific safety rules |
+| `references/300-SAFETY-GUARDRAILS.md` | Reference | Language-specific safety rules, credentials detection |
 | `references/400-ADVANCED-PATTERNS.md` | Reference | AST analysis, taint tracking, dead code |
+| `references/500-PRACTICAL-CONCERNS.md` | Reference | Error recovery, incremental parsing, performance |
+| `references/600-TRANSACTION-SAFETY.md` | Reference | 2PC protocol, shadow mode, test impact analysis |
+| `references/700-JIT-PROMPT-INTEGRATION.md` | Reference | Prompt atoms for semantic mode paradigm shift |
+| `references/800-SYSTEM-HARDENING.md` | Reference | Temporal, runtime, adversarial, resilience lenses |
 
 ### Integration Points
 
