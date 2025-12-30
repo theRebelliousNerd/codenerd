@@ -1,0 +1,146 @@
+# CodeDOM Tool Selection Heuristics
+# Teaches the LLM WHEN to use semantic editing vs text manipulation
+# This is critical for effective CodeDOM adoption
+
+atoms:
+  - id: "capability/codedom_selection"
+    category: "capability"
+    subcategory: "semantic_editing"
+    priority: 96  # Very high - guides tool selection before other CodeDOM atoms
+    is_mandatory: true
+    depends_on: []
+    intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/debug", "/review", "/test"]
+    content: |
+      ## CodeDOM Tool Selection: When to Use Semantic vs Text Editing
+
+      You have access to SEMANTIC code editing tools that operate on code structure,
+      not raw text. Use these tools preferentially for safer, more reliable edits.
+
+      ### ALWAYS Use CodeDOM For:
+
+      | Scenario | Tool | Why |
+      |----------|------|-----|
+      | Find a function/class by name | `get_elements` | Stable refs, no grep guessing |
+      | Edit WITHIN a function body | `edit_lines` with Ref | Preserves context, atomic |
+      | Understand call dependencies | Mangle query | Graph traversal, not text search |
+      | Refactor across multiple files | Transaction + edit_lines | Atomic, rollback on failure |
+      | Check which tests to run | `get_impacted_tests` | Dependency-aware selection |
+      | Verify edit safety | Check `deny_edit` facts | Constitutional safety |
+
+      ### Use Text Tools Only For:
+
+      | Scenario | Tool | Why |
+      |----------|------|-----|
+      | Search for arbitrary patterns | `grep` | Regex on text, not structure |
+      | Edit config files (.json, .yaml, .toml) | `read_file`/`write_file` | No code structure |
+      | Append to end of file | `write_file` | No element structure |
+      | Bulk find-replace (strings) | `grep` + `edit` | Pattern-based, not semantic |
+
+      ### Decision Flowchart
+
+      ```
+      Is the target CODE (functions, classes, methods)?
+        YES → Does it have a NAME you know?
+                YES → Use get_elements → edit_lines with Ref
+                NO  → Use grep to find it, THEN get_elements
+        NO  → Is it CONFIG or DATA?
+                YES → Use read_file/write_file
+                NO  → Use grep/text tools
+      ```
+
+      ### Example: "Fix the Login function"
+
+      WRONG (text-based):
+      ```
+      grep "func Login" → find line number → edit by line
+      ```
+
+      RIGHT (semantic):
+      ```
+      get_elements type=/function → find "go:auth/user.go:Login"
+      edit_lines ref="go:auth/user.go:Login" start=5 end=10 content="..."
+      ```
+
+      The semantic approach:
+      - Uses STABLE references (survives other edits)
+      - Triggers SAFETY checks (deny_edit rules)
+      - Updates CODE GRAPH (callers/callees)
+      - Enables IMPACT ANALYSIS (which tests to run)
+
+      ### Before ANY Edit, Ask:
+
+      1. Can I identify the target by ELEMENT NAME? → Use CodeDOM
+      2. Will this edit affect OTHER elements? → Query dependencies first
+      3. Is this a MULTI-FILE change? → Use transactions
+      4. Do I need to run tests? → Use get_impacted_tests, not "go test ./..."
+
+  - id: "capability/codedom_workflow"
+    category: "capability"
+    subcategory: "semantic_editing"
+    priority: 89
+    is_mandatory: false
+    depends_on: ["capability/codedom_selection"]
+    intent_verbs: ["/fix", "/implement", "/refactor"]
+    content: |
+      ## Standard CodeDOM Workflow
+
+      For ANY code modification, follow this workflow:
+
+      ### 1. DISCOVER - Find the target element
+
+      ```json
+      {
+        "tool": "get_elements",
+        "params": {
+          "file": "path/to/file.go",
+          "type": "/function"
+        }
+      }
+      ```
+
+      Result gives you Refs like `go:path/file.go:FunctionName`
+
+      ### 2. UNDERSTAND - Query the code graph
+
+      Before editing, understand impact:
+      - Who CALLS this function? (`caller_of`)
+      - What does it CALL? (`code_calls`)
+      - Does it touch API contracts? (`wire_name`, `api_dependency`)
+
+      ### 3. PLAN - Check safety
+
+      Query `deny_edit` rules. If editing would trigger safety blocks:
+      - `/auth_removed` - Don't remove auth decorators
+      - `/goroutine_leak_risk` - Don't remove context cancellation
+      - `/no_test_coverage` - Add tests first
+
+      ### 4. EDIT - Use semantic tools
+
+      ```json
+      {
+        "tool": "edit_lines",
+        "params": {
+          "ref": "go:auth/user.go:Login",
+          "start_line": 5,
+          "end_line": 10,
+          "new_content": "// fixed implementation\nreturn nil"
+        }
+      }
+      ```
+
+      ### 5. VERIFY - Run impacted tests
+
+      ```json
+      {
+        "tool": "get_impacted_tests",
+        "params": {
+          "edited_refs": ["go:auth/user.go:Login"]
+        }
+      }
+      ```
+
+      Only run the tests that actually depend on your changes.
+
+      ### 6. ITERATE - If tests fail, repeat from step 1
+
+      The CodeDOM preserves your edit history and can rollback if needed.
