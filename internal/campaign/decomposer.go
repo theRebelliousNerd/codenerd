@@ -1392,7 +1392,7 @@ Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 		retryPrompt := fmt.Sprintf(`The previous response was not valid JSON. Output ONLY a JSON object.
 
 Required structure (control_packet triggers JSON mode):
-{"title": "string", "confidence": 0.9, "phases": [], "control_packet": {}, "surface_response": ""}
+{"title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE", "confidence": 0.9, "phases": [], "control_packet": {}, "surface_response": ""}
 
 Goal: %s
 Context: %s
@@ -1418,6 +1418,60 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 			logging.CampaignDebug("Retry raw response (first 500 chars): %s", retryPreview)
 			return nil, fmt.Errorf("failed to parse plan JSON after retry: %w", retryErr)
 		}
+	}
+
+	// Validate and fix plan title if it's a placeholder or empty
+	if plan.Title == "" || plan.Title == "string" || plan.Title == "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE" {
+		// Extract title from goal: use first sentence or first 60 chars
+		title := req.Goal
+		if idx := strings.Index(title, "."); idx > 0 && idx < 80 {
+			title = title[:idx]
+		} else if idx := strings.Index(title, ":"); idx > 0 && idx < 60 {
+			title = title[:idx]
+		} else if len(title) > 60 {
+			title = title[:60]
+		}
+		plan.Title = strings.TrimSpace(title)
+		logging.Campaign("Fixed placeholder title to: %s", plan.Title)
+	}
+
+	// If no phases were generated, create a fallback scaffolding phase
+	if len(plan.Phases) == 0 {
+		logging.Campaign("No phases in plan, generating fallback structure")
+		goalPreview := req.Goal
+		if len(goalPreview) > 100 {
+			goalPreview = goalPreview[:100] + "..."
+		}
+		plan.Phases = []RawPhase{
+			{
+				Name:        "Research & Planning",
+				Order:       0,
+				Category:    "/research",
+				Description: "Analyze requirements and existing codebase",
+				Tasks: []RawTask{
+					{Description: "Understand the full scope of: " + goalPreview, Type: "/research", Order: 0},
+				},
+			},
+			{
+				Name:        "Implementation",
+				Order:       1,
+				Category:    "/scaffold",
+				Description: "Implement the core functionality",
+				Tasks: []RawTask{
+					{Description: "Build the main components for: " + goalPreview, Type: "/code", Order: 0},
+				},
+			},
+			{
+				Name:        "Testing & Review",
+				Order:       2,
+				Category:    "/test",
+				Description: "Validate the implementation",
+				Tasks: []RawTask{
+					{Description: "Ensure quality for: " + goalPreview, Type: "/test", Order: 0},
+				},
+			},
+		}
+		plan.Confidence = 0.5 // Lower confidence for fallback plan
 	}
 
 	logging.Campaign("Plan proposed: %s (confidence=%.2f, phases=%d)", plan.Title, plan.Confidence, len(plan.Phases))

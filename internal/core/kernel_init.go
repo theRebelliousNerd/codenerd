@@ -266,8 +266,9 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_safety.mg",    // Constitution, Git Safety, Shadow Mode
 		"schemas_analysis.mg",  // Spreading Activation, Strategy, Impact
 		"schemas_misc.mg",      // Northstar, Continuation Protocol, Benchmarks
-		"schemas_codedom.mg",   // Code DOM & Interactive Elements
-		"schemas_testing.mg",   // Verification, Reasoning Traces, Pytest
+		"schemas_codedom.mg",          // Code DOM & Interactive Elements
+		"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
+		"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
 		"schemas_campaign.mg",  // Campaign Orchestration
 		"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing
 		"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT

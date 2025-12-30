@@ -15,6 +15,10 @@ func RegisterAll(registry *tools.Registry) error {
 		EditLinesTool(),
 		InsertLinesTool(),
 		DeleteLinesTool(),
+
+		// Test impact analysis
+		RunImpactedTestsTool(),
+		GetImpactedTestsTool(),
 	}
 
 	for _, tool := range allTools {

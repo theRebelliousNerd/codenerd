@@ -1,0 +1,369 @@
+# Code DOM Refactoring Exemplars
+# These atoms provide concrete examples of the semantic editing workflow.
+# Shows the paradigm shift in action.
+
+- id: "exemplar/codedom_rename_field"
+  category: "exemplar"
+  subcategory: "semantic_editing"
+  priority: 80
+  is_mandatory: false
+  depends_on: ["capability/codedom_impact"]
+  content: |
+    ## Exemplar: Cross-Language Field Rename
+
+    **Task:** Rename `user_id` to `subject_id` across backend (Go) and frontend (TypeScript)
+
+    ### Step 1: Find All Elements with Wire Name
+
+    **Query:**
+    ```mangle
+    :- wire_name(Ref, "user_id").
+    ```
+
+    **Results:**
+    ```
+    go:backend/models/user.go:User.UserID      (json:"user_id")
+    go:backend/api/handlers.go:LoginResponse.UserID
+    ts:frontend/src/types/user.ts:IUser.userId
+    ts:frontend/src/types/auth.ts:LoginResponse.userId
+    ```
+
+    ### Step 2: Check API Dependencies
+
+    **Query:**
+    ```mangle
+    :- api_dependency(Backend, Frontend), wire_name(Backend, "user_id").
+    ```
+
+    **Results:**
+    ```
+    api_dependency("go:backend/models/user.go:User", "ts:frontend/src/types/user.ts:IUser")
+    api_dependency("go:backend/api/handlers.go:LoginResponse", "ts:frontend/src/types/auth.ts:LoginResponse")
+    ```
+
+    ### Step 3: Plan Atomic Transaction
+
+    All four elements must be updated together:
+    1. `go:backend/models/user.go:User.UserID` → `SubjectID` (with `json:"subject_id"`)
+    2. `go:backend/api/handlers.go:LoginResponse.UserID` → `SubjectID`
+    3. `ts:frontend/src/types/user.ts:IUser.userId` → `subjectId`
+    4. `ts:frontend/src/types/auth.ts:LoginResponse.userId` → `subjectId`
+
+    ### Step 4: Execute with Transaction
+
+    ```json
+    {
+      "tool_requests": [
+        {
+          "id": "edit_1",
+          "tool_name": "edit_element",
+          "tool_args": {
+            "ref": "go:backend/models/user.go:User.UserID",
+            "new_name": "SubjectID",
+            "new_tag": "json:\"subject_id\""
+          }
+        },
+        {
+          "id": "edit_2",
+          "tool_name": "edit_element",
+          "tool_args": {
+            "ref": "go:backend/api/handlers.go:LoginResponse.UserID",
+            "new_name": "SubjectID"
+          }
+        },
+        {
+          "id": "edit_3",
+          "tool_name": "edit_element",
+          "tool_args": {
+            "ref": "ts:frontend/src/types/user.ts:IUser.userId",
+            "new_name": "subjectId"
+          }
+        },
+        {
+          "id": "edit_4",
+          "tool_name": "edit_element",
+          "tool_args": {
+            "ref": "ts:frontend/src/types/auth.ts:LoginResponse.userId",
+            "new_name": "subjectId"
+          }
+        }
+      ],
+      "transaction_mode": "atomic"
+    }
+    ```
+
+    ### Step 5: Validation (Automatic)
+
+    The 2PC protocol automatically:
+    1. Creates snapshots of all four files
+    2. Applies changes to shadow copies
+    3. Re-parses to verify syntax
+    4. Checks `deny_edit` rules (e.g., API contract intact since both sides updated)
+    5. Commits or aborts atomically
+
+    ### Step 6: Run Impacted Tests
+
+    ```json
+    {
+      "tool_name": "run_impacted_tests",
+      "tool_args": {
+        "edited_refs": [
+          "go:backend/models/user.go:User.SubjectID",
+          "go:backend/api/handlers.go:LoginResponse.SubjectID"
+        ]
+      }
+    }
+    ```
+
+- id: "exemplar/codedom_safety_block"
+  category: "exemplar"
+  subcategory: "semantic_editing"
+  priority: 78
+  is_mandatory: false
+  depends_on: ["capability/codedom_safety"]
+  content: |
+    ## Exemplar: Safety Rule Blocking an Edit
+
+    **Task:** Modify a Python API handler by removing the `@login_required` decorator
+
+    ### Attempted Edit
+
+    ```json
+    {
+      "tool_name": "edit_element",
+      "tool_args": {
+        "ref": "py:backend/api/users.py:get_user_profile",
+        "remove_decorator": "login_required"
+      }
+    }
+    ```
+
+    ### Safety Rule Triggered
+
+    During the prepare phase, this rule fires:
+
+    ```mangle
+    deny_edit(Ref, /auth_removed) :-
+        snapshot:py_decorator(Ref, "login_required"),
+        not candidate:py_decorator(Ref, "login_required").
+    ```
+
+    ### Response from System
+
+    ```json
+    {
+      "status": "aborted",
+      "reason": "deny_edit rule triggered",
+      "safety_blocks": [
+        {
+          "ref": "py:backend/api/users.py:get_user_profile",
+          "reason": "/auth_removed",
+          "rule": "deny_edit"
+        }
+      ],
+      "message": "Edit blocked: Removing authentication decorator from protected endpoint."
+    }
+    ```
+
+    ### How to Proceed
+
+    **Option A: Fix the issue**
+    - Don't remove the decorator; modify the function body instead
+
+    **Option B: Explicit override (if allowed)**
+    ```json
+    {
+      "tool_args": {
+        "ref": "py:backend/api/users.py:get_user_profile",
+        "remove_decorator": "login_required",
+        "safety_override": {
+          "rule": "/auth_removed",
+          "justification": "Converting to public health check endpoint per SEC-123"
+        }
+      }
+    }
+    ```
+
+    **Option C: Consult user**
+    "I've been blocked from removing the @login_required decorator because this
+    would expose the endpoint without authentication. Should I proceed with an
+    override, or would you like to take a different approach?"
+
+- id: "exemplar/codedom_async_refactor"
+  category: "exemplar"
+  subcategory: "semantic_editing"
+  priority: 76
+  is_mandatory: false
+  depends_on: ["capability/codedom_polyglot"]
+  content: |
+    ## Exemplar: Async Code Refactoring with Safety
+
+    **Task:** Add proper context cancellation to a Go function that spawns goroutines
+
+    ### Step 1: Identify the Problem
+
+    **Query:**
+    ```mangle
+    :- go_goroutine(Ref), not go_uses_context(Ref).
+    ```
+
+    **Results:**
+    ```
+    go:internal/worker/processor.go:ProcessBatch
+    ```
+
+    ### Step 2: Get the Element
+
+    ```json
+    {
+      "tool_name": "get_element",
+      "tool_args": {
+        "ref": "go:internal/worker/processor.go:ProcessBatch"
+      }
+    }
+    ```
+
+    **Returns:**
+    ```go
+    func ProcessBatch(items []Item) error {
+        for _, item := range items {
+            go processItem(item)  // Goroutine leak risk!
+        }
+        return nil
+    }
+    ```
+
+    ### Step 3: Plan the Fix
+
+    The function needs:
+    1. Context parameter for cancellation
+    2. WaitGroup for goroutine lifecycle
+    3. Error collection mechanism
+
+    ### Step 4: Edit with Safety
+
+    ```json
+    {
+      "tool_name": "edit_element",
+      "tool_args": {
+        "ref": "go:internal/worker/processor.go:ProcessBatch",
+        "new_content": "func ProcessBatch(ctx context.Context, items []Item) error {\n    var wg sync.WaitGroup\n    errCh := make(chan error, len(items))\n\n    for _, item := range items {\n        wg.Add(1)\n        go func(item Item) {\n            defer wg.Done()\n            select {\n            case <-ctx.Done():\n                errCh <- ctx.Err()\n            default:\n                if err := processItem(ctx, item); err != nil {\n                    errCh <- err\n                }\n            }\n        }(item)\n    }\n\n    wg.Wait()\n    close(errCh)\n\n    var errs []error\n    for err := range errCh {\n        errs = append(errs, err)\n    }\n    if len(errs) > 0 {\n        return fmt.Errorf(\"batch processing errors: %v\", errs)\n    }\n    return nil\n}"
+      }
+    }
+    ```
+
+    ### Step 5: Validation Passes
+
+    Now both facts are true:
+    - `go_goroutine("go:internal/worker/processor.go:ProcessBatch")`
+    - `go_uses_context("go:internal/worker/processor.go:ProcessBatch")`
+
+    The `deny_edit` rule for goroutine leaks won't fire.
+
+    ### Step 6: Update Callers
+
+    Since we changed the signature, query callers:
+    ```mangle
+    :- code_calls(Caller, "go:internal/worker/processor.go:ProcessBatch").
+    ```
+
+    Update each caller to pass context.
+
+- id: "exemplar/codedom_test_impact"
+  category: "exemplar"
+  subcategory: "semantic_editing"
+  priority: 74
+  is_mandatory: false
+  depends_on: ["capability/codedom_test_tools"]
+  content: |
+    ## Exemplar: Using Test Impact Analysis
+
+    **Task:** Fix a bug in a utility function and run only affected tests
+
+    ### Step 1: Make the Fix
+
+    ```json
+    {
+      "tool_name": "edit_lines",
+      "tool_args": {
+        "ref": "go:internal/utils/strings.go:TruncateString",
+        "start_line": 5,
+        "end_line": 5,
+        "new_content": "    if maxLen <= 0 || len(s) <= maxLen {"
+      }
+    }
+    ```
+
+    ### Step 2: Query Impacted Tests
+
+    ```json
+    {
+      "tool_name": "get_impacted_tests",
+      "tool_args": {
+        "edited_refs": ["go:internal/utils/strings.go:TruncateString"]
+      }
+    }
+    ```
+
+    **Response:**
+    ```json
+    {
+      "impacted_tests": [
+        {
+          "ref": "go:internal/utils/strings_test.go:TestTruncateString",
+          "priority": "high",
+          "reason": "depends_on_edited_code"
+        },
+        {
+          "ref": "go:internal/api/handlers_test.go:TestUserProfileResponse",
+          "priority": "medium",
+          "reason": "transitive_dependency"
+        }
+      ],
+      "impacted_packages": [
+        "./internal/utils",
+        "./internal/api"
+      ]
+    }
+    ```
+
+    ### Step 3: Run Only Impacted Tests
+
+    ```json
+    {
+      "tool_name": "run_impacted_tests",
+      "tool_args": {
+        "edited_refs": ["go:internal/utils/strings.go:TruncateString"],
+        "verbose": true
+      }
+    }
+    ```
+
+    **Output:**
+    ```
+    Found 2 impacted tests:
+
+    High Priority (1 tests):
+      - go:internal/utils/strings_test.go:TestTruncateString
+
+    Medium Priority (1 tests):
+      - go:internal/api/handlers_test.go:TestUserProfileResponse
+
+    Executing tests...
+
+    Command: go test -v -timeout 10m ./internal/utils ./internal/api
+    === RUN   TestTruncateString
+    --- PASS: TestTruncateString (0.00s)
+    === RUN   TestUserProfileResponse
+    --- PASS: TestUserProfileResponse (0.01s)
+    PASS
+    ok      internal/utils  0.015s
+    ok      internal/api    0.023s
+    ```
+
+    ### Comparison: Full Suite vs. Smart Selection
+
+    - **Full Suite:** 150 tests across 45 packages, ~3 minutes
+    - **Smart Selection:** 2 tests across 2 packages, ~0.04 seconds
+
+    **Speedup: 4500x**

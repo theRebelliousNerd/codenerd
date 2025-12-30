@@ -49,8 +49,11 @@ type FileScope struct {
 	// ModulePath is the Go module path (from go.mod)
 	ModulePath string
 
-	// Parser for extracting code elements
+	// Parser for extracting code elements (legacy)
 	parser *CodeElementParser
+
+	// ParserFactory for polyglot parsing
+	parserFactory *ParserFactory
 
 	// Fact callback for injecting facts to kernel
 	factCallback func(core.Fact)
@@ -73,6 +76,7 @@ func NewFileScope(projectRoot string) *FileScope {
 		FileHashes:          make(map[string]string),
 		ProjectRoot:         projectRoot,
 		parser:              NewCodeElementParser(),
+		parserFactory:       DefaultParserFactory(projectRoot),
 		diagnosticFacts:     make([]core.Fact, 0),
 		diagnosticFactIndex: make(map[string]struct{}),
 	}
@@ -137,12 +141,41 @@ func (s *FileScope) Open(path string) error {
 		s.InboundDeps = make(map[string][]string)
 		s.FileHashes = make(map[string]string)
 
-		var loadErrors int
-		if err := s.loadFile(absPath); err != nil {
-			logging.Get(logging.CategoryWorld).Warn("Failed to load file in scope: %s - %v", absPath, err)
-			loadErrors++
+		// Include sibling files of the same language type (0-hop scope)
+		// Similar to how Go includes all files in the same package directory
+		seen := make(map[string]bool)
+		seen[absPath] = true
+		pkgDir := filepath.Dir(absPath)
+		if entries, err := os.ReadDir(pkgDir); err == nil {
+			supportedExts := s.getSupportedExtensionsForLang(lang)
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				fileExt := strings.ToLower(filepath.Ext(name))
+				// Check if this file has a supported extension for the same language
+				for _, supportedExt := range supportedExts {
+					if fileExt == supportedExt {
+						siblingPath := filepath.Join(pkgDir, name)
+						if !seen[siblingPath] {
+							s.InScope = append(s.InScope, siblingPath)
+							seen[siblingPath] = true
+						}
+						break
+					}
+				}
+			}
 		}
-		logging.World("Loaded %d files (%d errors), extracted %d elements", 1-loadErrors, loadErrors, len(s.Elements))
+
+		var loadErrors int
+		for _, file := range s.InScope {
+			if err := s.loadFile(file); err != nil {
+				logging.Get(logging.CategoryWorld).Warn("Failed to load file in scope: %s - %v", file, err)
+				loadErrors++
+			}
+		}
+		logging.World("Loaded %d files (%d errors), extracted %d elements", len(s.InScope)-loadErrors, loadErrors, len(s.Elements))
 		s.emitScopeFacts()
 		timer.StopWithInfo()
 		return nil
@@ -343,14 +376,40 @@ func (s *FileScope) Close() {
 	s.FileHashes = make(map[string]string)
 }
 
+// getSupportedExtensionsForLang returns the file extensions associated with a language.
+// Used for including sibling files of the same language in scope.
+func (s *FileScope) getSupportedExtensionsForLang(lang string) []string {
+	switch lang {
+	case "go":
+		return []string{".go"}
+	case "python":
+		return []string{".py", ".pyw"}
+	case "typescript":
+		return []string{".ts", ".tsx"}
+	case "javascript":
+		return []string{".js", ".jsx", ".mjs", ".cjs"}
+	case "rust":
+		return []string{".rs"}
+	case "mangle":
+		return []string{".mg", ".dl", ".mangle"}
+	default:
+		// Try to get extensions from parser factory
+		if s.parserFactory != nil {
+			return s.parserFactory.SupportedExtensions()
+		}
+		return nil
+	}
+}
+
 // loadFile parses a file and adds its elements to the scope.
 // It detects encoding issues and emits appropriate facts.
 func (s *FileScope) loadFile(path string) error {
 	start := time.Now()
 	logging.WorldDebug("Loading file: %s", filepath.Base(path))
 
-	lang := detectLanguage(filepath.Ext(path), path)
-	if lang != "go" && lang != "mangle" {
+	// Check if we have a parser for this file type
+	if s.parserFactory != nil && !s.parserFactory.HasParser(path) {
+		lang := detectLanguage(filepath.Ext(path), path)
 		logging.WorldDebug("Skipping unsupported language for Code DOM: %s (lang=%s)", filepath.Base(path), lang)
 		return nil
 	}
@@ -417,6 +476,8 @@ func (s *FileScope) loadFile(path string) error {
 	s.Elements = append(s.Elements, elements...)
 	logging.WorldDebug("Extracted %d code elements from: %s", len(elements), filepath.Base(path))
 
+	// Go-specific pattern detection
+	lang := detectLanguage(filepath.Ext(path), path)
 	if lang == "go" {
 		// Detect code patterns (generated code, API clients, CGo, etc.)
 		patterns := DetectCodePatterns(string(content), elements)
@@ -445,6 +506,7 @@ func (s *FileScope) loadFile(path string) error {
 }
 
 // safeParseFile wraps parser.ParseFile with panic recovery.
+// Uses the parser factory for polyglot support when available.
 func (s *FileScope) safeParseFile(path string) (elements []CodeElement, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -452,6 +514,25 @@ func (s *FileScope) safeParseFile(path string) (elements []CodeElement, err erro
 			err = fmt.Errorf("panic during parse: %v", r)
 		}
 	}()
+
+	// Try parser factory first for polyglot support
+	if s.parserFactory != nil && s.parserFactory.HasParser(path) {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, readErr
+		}
+		result, parseErr := s.parserFactory.ParseWithFacts(path, content)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		// Emit language-specific facts
+		for _, fact := range result.LanguageFacts {
+			s.emitFact(fact)
+		}
+		return result.Elements, nil
+	}
+
+	// Fall back to legacy parser
 	return s.parser.ParseFile(path)
 }
 

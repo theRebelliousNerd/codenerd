@@ -1,0 +1,243 @@
+# Code DOM Tools Capability Atoms
+# These atoms teach the LLM to use semantic tools instead of text manipulation.
+# "Use the scalpel, not the machete."
+
+- id: "capability/codedom_tools"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 87
+  is_mandatory: true
+  depends_on: ["capability/codedom_core"]
+  shard_types: []  # Applies to all personas
+  content: |
+    ## Semantic Tools: The Right Tool for the Job
+
+    The Code DOM provides specialized tools for semantic editing. Always prefer
+    these over text-manipulation approaches like grep+sed.
+
+    ### Available Code DOM Tools
+
+    **Element Discovery:**
+    - `get_elements` - List elements in a file with their Refs
+    - `get_element` - Get a specific element by Ref
+
+    **Element Editing:**
+    - `edit_lines` - Edit specific lines within an element (uses Ref)
+    - `insert_lines` - Insert code at a position within an element
+    - `delete_lines` - Remove lines from an element
+
+    **Impact Analysis:**
+    - `get_impacted_tests` - Query which tests would be affected by edits
+    - `run_impacted_tests` - Run only the tests affected by changes
+
+    ### Tool vs. Text Approach
+
+    | Task | Wrong (Text) | Right (Semantic) |
+    |------|-------------|-----------------|
+    | Find function | `grep -n "func Login"` | `get_elements --type function --name Login` |
+    | Edit method | `sed -i '42,55d' file.go` | `edit_lines --ref go:user.go:User.Login` |
+    | Rename field | `find . -name "*.go" \| xargs sed` | Query `wire_name`, use transaction |
+    | Run affected tests | `go test ./...` | `run_impacted_tests --edited-refs [...]` |
+
+    ### get_elements Example
+
+    ```json
+    {
+      "tool_name": "get_elements",
+      "tool_args": {
+        "file": "internal/auth/user.go",
+        "type": "function"
+      }
+    }
+    ```
+
+    **Returns:**
+    ```json
+    {
+      "elements": [
+        {
+          "ref": "go:internal/auth/user.go:Login",
+          "type": "/function",
+          "start_line": 42,
+          "end_line": 55,
+          "signature": "func Login(ctx context.Context, email, password string) (*User, error)",
+          "visibility": "/public"
+        },
+        ...
+      ]
+    }
+    ```
+
+    ### edit_lines Example
+
+    ```json
+    {
+      "tool_name": "edit_lines",
+      "tool_args": {
+        "ref": "go:internal/auth/user.go:Login",
+        "start_line": 45,
+        "end_line": 47,
+        "new_content": "    // Validate credentials\n    if err := validateCredentials(email, password); err != nil {\n        return nil, fmt.Errorf(\"invalid credentials: %w\", err)\n    }"
+      }
+    }
+    ```
+
+    ### Why Refs Matter for Tools
+
+    When you use a Ref with a tool:
+    1. The system knows the **semantic boundary**
+    2. Line numbers are **relative to the element**, not the file
+    3. Changes are **validated** against the element's grammar
+    4. Dependency tracking is **automatic**
+
+- id: "capability/codedom_test_tools"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 85
+  is_mandatory: false
+  depends_on: ["capability/codedom_tools"]
+  content: |
+    ## Smart Test Selection Tools
+
+    Don't run all tests after every change. Use impact analysis to run only
+    the tests that actually exercise the modified code.
+
+    ### get_impacted_tests
+
+    Query which tests would be affected without running them:
+
+    ```json
+    {
+      "tool_name": "get_impacted_tests",
+      "tool_args": {
+        "edited_refs": [
+          "go:internal/auth/user.go:Login",
+          "go:internal/auth/user.go:ValidateToken"
+        ],
+        "include_coverage_gaps": true
+      }
+    }
+    ```
+
+    **Returns:**
+    ```json
+    {
+      "edited_refs": ["go:internal/auth/user.go:Login", ...],
+      "impacted_tests": [
+        {
+          "ref": "go:internal/auth/user_test.go:TestLogin",
+          "file": "internal/auth/user_test.go",
+          "priority": "high",
+          "reason": "depends_on_edited_code",
+          "triggers": ["go:internal/auth/user.go:Login"]
+        }
+      ],
+      "impacted_packages": ["./internal/auth"],
+      "coverage_gaps": ["go:internal/auth/user.go:RefreshToken"]
+    }
+    ```
+
+    ### run_impacted_tests
+
+    Run only the affected tests:
+
+    ```json
+    {
+      "tool_name": "run_impacted_tests",
+      "tool_args": {
+        "edited_refs": [...],
+        "include_low_priority": false,
+        "verbose": true,
+        "timeout": "5m"
+      }
+    }
+    ```
+
+    ### Test Priority Levels
+
+    - **High**: Test directly calls the edited function
+    - **Medium**: Test depends on edited function transitively
+    - **Low**: Test is in same package but no detected dependency
+
+    ### Benefits of Smart Test Selection
+
+    | Scenario | Full Test Suite | Smart Selection |
+    |----------|----------------|-----------------|
+    | Small fix | 50 tests, 2 min | 3 tests, 5 sec |
+    | Refactor | 200 tests, 8 min | 15 tests, 30 sec |
+    | New feature | 200 tests, 8 min | 0 tests (no deps yet) |
+
+- id: "capability/codedom_query_tools"
+  category: "capability"
+  subcategory: "semantic_editing"
+  priority: 84
+  is_mandatory: false
+  depends_on: ["capability/codedom_tools"]
+  content: |
+    ## Querying the Code Graph
+
+    Before making changes, query the dependency graph to understand the codebase.
+
+    ### Mangle Queries via Control Packet
+
+    Add queries to your `mangle_queries` field:
+
+    ```json
+    "mangle_queries": [
+      {
+        "id": "q1",
+        "query": "code_element(Ref, /function, File, _, _), fn:contains(Ref, \"Login\")"
+      },
+      {
+        "id": "q2",
+        "query": "api_dependency(Backend, Frontend)"
+      }
+    ]
+    ```
+
+    Query results appear in the next turn's context.
+
+    ### Common Useful Queries
+
+    **Find all functions in a file:**
+    ```mangle
+    :- code_element(Ref, /function, "internal/auth/user.go", Start, End).
+    ```
+
+    **Find callers of a function:**
+    ```mangle
+    :- code_calls(Caller, "go:internal/auth/user.go:Login").
+    ```
+
+    **Find data contracts:**
+    ```mangle
+    :- is_data_contract(Ref).
+    ```
+
+    **Find async code without context:**
+    ```mangle
+    :- is_async_context(Ref), not is_context_aware(Ref).
+    ```
+
+    **Find API couplings:**
+    ```mangle
+    :- api_dependency(Backend, Frontend), wire_name(Backend, Key).
+    ```
+
+    **Find test coverage gaps:**
+    ```mangle
+    :- coverage_gap(Ref, /no_direct_tests).
+    ```
+
+    **Find potential panics (Rust):**
+    ```mangle
+    :- potential_panic(Ref), rs_uses_unwrap(Ref).
+    ```
+
+    ### Combining Queries with Actions
+
+    1. **Query**: Find elements matching criteria
+    2. **Analyze**: Review the results
+    3. **Plan**: Decide which elements to modify
+    4. **Edit**: Use semantic tools with discovered Refs
+    5. **Verify**: Run impacted tests

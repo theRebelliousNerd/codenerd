@@ -292,8 +292,24 @@ Return JSON only:
 		Summary string `json:"summary"`
 	}
 
+	// Try parsing as object first, then fall back to array
 	if err := json.Unmarshal([]byte(resp), &changes); err != nil {
-		return fmt.Errorf("failed to parse refinement response: %w", err)
+		// LLM might have returned just an array instead of {tasks: [], summary: ""}
+		var tasksOnly []struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+			Type        string `json:"type"`
+			Priority    string `json:"priority"`
+			Action      string `json:"action"`
+		}
+		if arrErr := json.Unmarshal([]byte(resp), &tasksOnly); arrErr != nil {
+			logging.Get(logging.CategoryCampaign).Error("RefineNextPhase: failed to parse refinement response as object or array: object_err=%v, array_err=%v, response=%s", err, arrErr, resp[:min(500, len(resp))])
+			return fmt.Errorf("failed to parse refinement response: %w (also tried array: %v)", err, arrErr)
+		}
+		// Successfully parsed as array - convert to expected format
+		changes.Tasks = tasksOnly
+		changes.Summary = "Rolling-wave refinement (tasks only)"
+		logging.CampaignDebug("RefineNextPhase: parsed %d tasks from array response", len(tasksOnly))
 	}
 
 	// Apply changes

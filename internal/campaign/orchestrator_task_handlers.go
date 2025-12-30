@@ -170,6 +170,17 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	}
 
 	logging.CampaignDebug("Coder shard completed for task %s, result_len=%d", task.ID, len(result))
+
+	// CRITICAL: Verify file was actually written
+	// Shards may return successfully without calling write_file tool
+	fullPath := filepath.Join(o.workspace, targetPath)
+	if _, statErr := os.Stat(fullPath); os.IsNotExist(statErr) {
+		logging.Get(logging.CategoryCampaign).Warn("Coder shard returned but file not created: %s, using fallback", fullPath)
+		// Shard didn't write file - fall back to direct LLM
+		return o.executeFileTaskFallback(ctx, task, targetPath)
+	}
+
+	logging.Campaign("File verified after shard execution: %s", fullPath)
 	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
 }
 
