@@ -80,6 +80,30 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
 	o.transducer = perception.NewRealTransducer(cfg.LLMClient)
 
+	// Wire intelligence integration components
+	o.intelligenceGatherer = cfg.IntelligenceGatherer
+	o.advisoryBoard = cfg.AdvisoryBoard
+	o.edgeCaseDetector = cfg.EdgeCaseDetector
+	o.toolPregenerator = cfg.ToolPregenerator
+
+	// Wire intelligence components into decomposer for campaign planning
+	if cfg.IntelligenceGatherer != nil {
+		o.decomposer.SetIntelligenceGatherer(cfg.IntelligenceGatherer)
+		logging.CampaignDebug("IntelligenceGatherer wired into decomposer")
+	}
+	if cfg.AdvisoryBoard != nil {
+		o.decomposer.SetAdvisoryBoard(cfg.AdvisoryBoard)
+		logging.CampaignDebug("AdvisoryBoard wired into decomposer")
+	}
+	if cfg.EdgeCaseDetector != nil {
+		o.decomposer.SetEdgeCaseDetector(cfg.EdgeCaseDetector)
+		logging.CampaignDebug("EdgeCaseDetector wired into decomposer")
+	}
+	if cfg.ToolPregenerator != nil {
+		o.decomposer.SetToolPregenerator(cfg.ToolPregenerator)
+		logging.CampaignDebug("ToolPregenerator wired into decomposer")
+	}
+
 	if cfg.MaxParallelTasks > 0 {
 		o.maxParallelTasks = cfg.MaxParallelTasks
 	}
@@ -141,4 +165,52 @@ func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver
 	defer o.mu.Unlock()
 	o.northstarObserver = observer
 	logging.Campaign("NorthstarObserver set on orchestrator")
+}
+
+// SetIntelligenceGatherer sets the intelligence gatherer for pre-planning intelligence.
+// When set, the decomposer will gather intelligence from 12 systems before planning.
+func (o *Orchestrator) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.intelligenceGatherer = gatherer
+	if o.decomposer != nil {
+		o.decomposer.SetIntelligenceGatherer(gatherer)
+	}
+	logging.Campaign("IntelligenceGatherer set on orchestrator")
+}
+
+// SetAdvisoryBoard sets the shard advisory board for plan review.
+// When set, domain experts will review plans before execution.
+func (o *Orchestrator) SetAdvisoryBoard(board *ShardAdvisoryBoard) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.advisoryBoard = board
+	if o.decomposer != nil {
+		o.decomposer.SetAdvisoryBoard(board)
+	}
+	logging.Campaign("AdvisoryBoard set on orchestrator")
+}
+
+// SetEdgeCaseDetector sets the edge case detector for file action decisions.
+// When set, the decomposer will analyze files to determine create/extend/modularize actions.
+func (o *Orchestrator) SetEdgeCaseDetector(detector *EdgeCaseDetector) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.edgeCaseDetector = detector
+	if o.decomposer != nil {
+		o.decomposer.SetEdgeCaseDetector(detector)
+	}
+	logging.Campaign("EdgeCaseDetector set on orchestrator")
+}
+
+// SetToolPregenerator sets the tool pregenerator for pre-execution tool generation.
+// When set, the decomposer will generate missing tools before campaign execution.
+func (o *Orchestrator) SetToolPregenerator(pregenerator *ToolPregenerator) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.toolPregenerator = pregenerator
+	if o.decomposer != nil {
+		o.decomposer.SetToolPregenerator(pregenerator)
+	}
+	logging.Campaign("ToolPregenerator set on orchestrator")
 }

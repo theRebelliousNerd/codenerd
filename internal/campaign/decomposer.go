@@ -33,6 +33,15 @@ type Decomposer struct {
 	workspace      string
 	promptProvider PromptProvider // Optional JIT prompt provider
 	shardLister    ShardLister    // Optional shard discovery for shard-aware planning
+
+	// Intelligence integration (Step 0)
+	intelligence     *IntelligenceGatherer  // Pre-planning intelligence from 12 systems
+	advisoryBoard    *ShardAdvisoryBoard    // Domain expert consultation (Step 4b)
+	edgeCaseDetector *EdgeCaseDetector      // File action decisions
+	toolPregenerator *ToolPregenerator      // Tool pre-generation (Step 9)
+
+	// Cached intelligence report for current decomposition
+	lastIntelligence *IntelligenceReport
 }
 
 // NewDecomposer creates a new decomposer.
@@ -63,6 +72,47 @@ func (d *Decomposer) SetShardLister(lister ShardLister) {
 	if lister != nil {
 		logging.CampaignDebug("Decomposer configured with shard discovery")
 	}
+}
+
+// SetIntelligenceGatherer sets the intelligence gatherer for pre-planning intelligence.
+// When set, the decomposer will gather intelligence from 12 systems before planning.
+func (d *Decomposer) SetIntelligenceGatherer(gatherer *IntelligenceGatherer) {
+	d.intelligence = gatherer
+	if gatherer != nil {
+		logging.CampaignDebug("Decomposer configured with intelligence gathering")
+	}
+}
+
+// SetAdvisoryBoard sets the shard advisory board for plan review.
+// When set, domain experts will review plans before execution.
+func (d *Decomposer) SetAdvisoryBoard(board *ShardAdvisoryBoard) {
+	d.advisoryBoard = board
+	if board != nil {
+		logging.CampaignDebug("Decomposer configured with advisory board")
+	}
+}
+
+// SetEdgeCaseDetector sets the edge case detector for file action decisions.
+// When set, the decomposer will analyze files to determine create/extend/modularize actions.
+func (d *Decomposer) SetEdgeCaseDetector(detector *EdgeCaseDetector) {
+	d.edgeCaseDetector = detector
+	if detector != nil {
+		logging.CampaignDebug("Decomposer configured with edge case detection")
+	}
+}
+
+// SetToolPregenerator sets the tool pregenerator for pre-execution tool generation.
+// When set, the decomposer will generate missing tools before campaign execution.
+func (d *Decomposer) SetToolPregenerator(pregenerator *ToolPregenerator) {
+	d.toolPregenerator = pregenerator
+	if pregenerator != nil {
+		logging.CampaignDebug("Decomposer configured with tool pre-generation")
+	}
+}
+
+// GetLastIntelligence returns the intelligence report from the last decomposition.
+func (d *Decomposer) GetLastIntelligence() *IntelligenceReport {
+	return d.lastIntelligence
 }
 
 // DecomposeRequest represents a request to create a campaign.
@@ -114,6 +164,25 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 
 	kbPath := filepath.Join(d.workspace, ".nerd", "campaigns", safeCampaignID, "knowledge.db")
 
+	// Step 0: Intelligence Gathering (NEW - from 12 systems)
+	if d.intelligence != nil {
+		logging.Campaign("Step 0: Gathering intelligence from all systems")
+		intelTimer := logging.StartTimer(logging.CategoryCampaign, "gatherIntelligence")
+		intel, intelErr := d.intelligence.Gather(ctx, req.Goal, req.SourcePaths)
+		intelTimer.Stop()
+		if intelErr != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Intelligence gathering failed (non-fatal): %v", intelErr)
+		} else {
+			d.lastIntelligence = intel
+			logging.Campaign("Intelligence gathered: %d world facts, %d churn hotspots, %d learnings, %d MCP tools",
+				len(intel.WorldFacts), len(intel.GitChurnHotspots),
+				len(intel.HistoricalPatterns), len(intel.MCPToolsAvailable))
+
+			// Seed intelligence facts into kernel
+			d.seedIntelligenceFacts(campaignID, intel)
+		}
+	}
+
 	// Step 1: Ingest source documents
 	logging.Campaign("Step 1: Ingesting source documents")
 	ingestTimer := logging.StartTimer(logging.CategoryCampaign, "ingestSourceDocuments")
@@ -164,6 +233,68 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	campaign.SourceDocs = sourceDocs
 	campaign.KnowledgeBase = kbPath
 	logging.CampaignDebug("Campaign built: phases=%d, totalTasks=%d", len(campaign.Phases), campaign.TotalTasks)
+
+	// Step 4b: Shard Advisory Board Review (NEW)
+	if d.advisoryBoard != nil {
+		logging.Campaign("Step 4b: Consulting advisory board")
+		advisoryTimer := logging.StartTimer(logging.CategoryCampaign, "advisoryBoardReview")
+
+		// Build advisory request
+		advisoryPhases := make([]AdvisoryPhase, len(campaign.Phases))
+		for i, phase := range campaign.Phases {
+			advisoryPhases[i] = AdvisoryPhase{
+				ID:          phase.ID,
+				Name:        phase.Name,
+				Description: phase.Objectives[0].Description,
+				TaskCount:   len(phase.Tasks),
+			}
+		}
+
+		advisoryReq := AdvisoryRequest{
+			CampaignID:   campaignID,
+			Goal:         req.Goal,
+			RawPlan:      rawPlan.Title,
+			Phases:       advisoryPhases,
+			TaskCount:    campaign.TotalTasks,
+			TargetPaths:  req.SourcePaths,
+			Intelligence: d.lastIntelligence,
+		}
+
+		responses, advErr := d.advisoryBoard.ConsultAdvisors(ctx, advisoryReq)
+		advisoryTimer.Stop()
+
+		if advErr != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Advisory board consultation failed (non-fatal): %v", advErr)
+		} else {
+			synthesis := d.advisoryBoard.SynthesizeVotes(responses)
+			logging.Campaign("Advisory board: approved=%v, confidence=%.2f, votes=%d",
+				synthesis.Approved, synthesis.OverallConfidence, len(responses))
+
+			// Log blocking concerns if any
+			if len(synthesis.BlockingConcerns) > 0 {
+				logging.Campaign("Advisory board has %d blocking concerns:", len(synthesis.BlockingConcerns))
+				for _, bc := range synthesis.BlockingConcerns {
+					logging.CampaignDebug("  - [%s] %s: %s", bc.Severity, bc.Advisor, bc.Concern)
+				}
+			}
+
+			// Log suggestions for user awareness
+			if len(synthesis.AllSuggestions) > 0 {
+				logging.Campaign("Advisory suggestions: %d total", len(synthesis.AllSuggestions))
+				for i, suggestion := range synthesis.AllSuggestions {
+					if i >= 5 {
+						logging.CampaignDebug("  ... and %d more suggestions", len(synthesis.AllSuggestions)-5)
+						break
+					}
+					logging.CampaignDebug("  - %s", suggestion)
+				}
+			}
+
+			// Log synthesis summary for later reference
+			// Note: AdvisorySummary and AdvisoryApproved fields to be added to Campaign type
+			logging.Campaign("Advisory synthesis: %s", synthesis.Summary)
+		}
+	}
 
 	// Step 5: Load into Mangle for validation
 	logging.Campaign("Step 5: Loading campaign facts into Mangle kernel")
@@ -217,6 +348,40 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		}
 	}
 	logging.Campaign("Requirement coverage: %d/%d requirements linked to tasks", coveredCount, len(requirements))
+
+	// Step 9: Tool Pre-Generation (NEW - Ouroboros integration)
+	if d.toolPregenerator != nil {
+		logging.Campaign("Step 9: Pre-generating tools for campaign")
+		toolTimer := logging.StartTimer(logging.CategoryCampaign, "toolPregeneration")
+
+		// Extract task info for gap analysis
+		taskInfos := d.extractTaskInfos(campaign)
+
+		// Detect tool gaps
+		gaps, gapErr := d.toolPregenerator.DetectGaps(ctx, req.Goal, taskInfos, d.lastIntelligence)
+		if gapErr != nil {
+			logging.Get(logging.CategoryCampaign).Warn("Tool gap detection failed (non-fatal): %v", gapErr)
+		} else if len(gaps) > 0 {
+			logging.Campaign("Detected %d tool gaps, attempting pre-generation", len(gaps))
+
+			// Pre-generate tools
+			result, genErr := d.toolPregenerator.PregenerateTools(ctx, gaps)
+			if genErr != nil {
+				logging.Get(logging.CategoryCampaign).Warn("Tool pre-generation failed (non-fatal): %v", genErr)
+			} else if result != nil {
+				logging.Campaign("Tool pre-generation: %d generated, %d failed, %d unresolved",
+					len(result.ToolsGenerated), result.FailedTools, len(result.UnresolvedGaps))
+
+				// Log generated tools
+				for _, tool := range result.ToolsGenerated {
+					logging.CampaignDebug("  Generated: %s - %s", tool.Name, tool.Purpose)
+				}
+			}
+		} else {
+			logging.Campaign("No tool gaps detected")
+		}
+		toolTimer.Stop()
+	}
 
 	logging.Campaign("=== Decomposition complete: %s ===", campaign.Title)
 	logging.Campaign("Final plan: phases=%d, tasks=%d, validation=%v",
@@ -1116,6 +1281,16 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		contextBuilder.WriteString("\n\n")
 	}
 
+	// Add intelligence report context (from Step 0)
+	if d.lastIntelligence != nil {
+		intelContext := d.formatIntelligenceContext(d.lastIntelligence)
+		if intelContext != "" {
+			contextBuilder.WriteString(intelContext)
+			contextBuilder.WriteString("\n")
+			logging.Campaign("Intelligence context injected into LLM prompt")
+		}
+	}
+
 	// Add available shards for shard-aware planning
 	if d.shardLister != nil {
 		shards := d.shardLister.ListAvailableShards()
@@ -1500,6 +1675,299 @@ Output ONLY valid JSON with the same structure as the input:`, string(planJSON),
 
 	logging.Campaign("Plan refined successfully: %s (phases=%d)", refinedPlan.Title, len(refinedPlan.Phases))
 	return &refinedPlan, nil
+}
+
+// seedIntelligenceFacts loads intelligence facts into the Mangle kernel for logical reasoning.
+func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *IntelligenceReport) {
+	if d.kernel == nil || intel == nil {
+		return
+	}
+
+	facts := make([]core.Fact, 0, 100)
+
+	// World facts
+	for _, wf := range intel.WorldFacts {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_world_fact",
+			Args:      []interface{}{campaignID, wf.Predicate, wf.Args},
+		})
+	}
+
+	// Churn hotspots (Chesterton's Fence warnings)
+	for _, ch := range intel.GitChurnHotspots {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_churn_hotspot",
+			Args:      []interface{}{ch.Path, ch.ChurnRate, ch.Reason},
+		})
+	}
+
+	// Historical patterns from learning store
+	for _, lp := range intel.HistoricalPatterns {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_learning_pattern",
+			Args:      []interface{}{lp.ShardType, lp.Description, lp.Confidence},
+		})
+	}
+
+	// Safety warnings from constitutional gate
+	for _, sw := range intel.SafetyWarnings {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_safety_warning",
+			Args:      []interface{}{campaignID, sw.Path, sw.Action, sw.RuleViolated},
+		})
+	}
+
+	// Tool gaps
+	for _, tg := range intel.ToolGaps {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_tool_gap",
+			Args:      []interface{}{campaignID, tg.Name, tg.Purpose},
+		})
+	}
+
+	// MCP tools available
+	for _, mt := range intel.MCPToolsAvailable {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_mcp_tool",
+			Args:      []interface{}{mt.ToolID, mt.ServerID, mt.Affinity},
+		})
+	}
+
+	// Shard advice
+	for _, sa := range intel.ShardAdvice {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_shard_advice",
+			Args:      []interface{}{campaignID, sa.FromSpec, sa.Advice, sa.Confidence},
+		})
+	}
+
+	// Test coverage data
+	for path, coverage := range intel.TestCoverage {
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_test_coverage",
+			Args:      []interface{}{path, coverage},
+		})
+	}
+
+	// Code patterns detected
+	for _, cp := range intel.CodePatterns {
+		files := ""
+		if len(cp.Files) > 0 {
+			files = strings.Join(cp.Files, ",")
+		}
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_code_pattern",
+			Args:      []interface{}{cp.Name, files, cp.Confidence},
+		})
+	}
+
+	// Previous campaign artifacts (for reuse)
+	for _, ca := range intel.PreviousCampaigns {
+		success := ca.SuccessRate > 0.5 // Consider successful if > 50%
+		facts = append(facts, core.Fact{
+			Predicate: "intelligence_previous_campaign",
+			Args:      []interface{}{ca.CampaignID, ca.Goal, success},
+		})
+	}
+
+	if err := d.kernel.AssertBatch(facts); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to seed intelligence facts: %v", err)
+	} else {
+		logging.CampaignDebug("Seeded %d intelligence facts into kernel", len(facts))
+	}
+}
+
+// formatIntelligenceContext builds LLM context from intelligence report.
+func (d *Decomposer) formatIntelligenceContext(intel *IntelligenceReport) string {
+	if intel == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("INTELLIGENCE REPORT (from 12 systems):\n\n")
+
+	// Churn hotspots (Chesterton's Fence)
+	if len(intel.GitChurnHotspots) > 0 {
+		sb.WriteString("## HIGH-CHURN FILES (Chesterton's Fence - understand before modifying)\n")
+		shown := 0
+		for _, ch := range intel.GitChurnHotspots {
+			if shown >= 10 {
+				sb.WriteString(fmt.Sprintf("... and %d more high-churn files\n", len(intel.GitChurnHotspots)-10))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %d changes (%s)\n", ch.Path, ch.ChurnRate, ch.Reason))
+			shown++
+		}
+		sb.WriteString("\n")
+	}
+
+	// Historical patterns
+	if len(intel.HistoricalPatterns) > 0 {
+		sb.WriteString("## LEARNED PATTERNS (from previous sessions)\n")
+		for _, lp := range intel.HistoricalPatterns {
+			if lp.Confidence >= 0.5 {
+				sb.WriteString(fmt.Sprintf("- [%s] %s (%.0f%% confidence)\n", lp.ShardType, lp.Description, lp.Confidence*100))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Safety warnings
+	if len(intel.SafetyWarnings) > 0 {
+		sb.WriteString("## SAFETY WARNINGS (constitutional pre-check)\n")
+		for _, sw := range intel.SafetyWarnings {
+			sb.WriteString(fmt.Sprintf("- %s on %s: blocked by rule '%s'\n", sw.Action, sw.Path, sw.RuleViolated))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Available MCP tools
+	if len(intel.MCPToolsAvailable) > 0 {
+		sb.WriteString("## AVAILABLE TOOLS (from MCP servers)\n")
+		shown := 0
+		for _, mt := range intel.MCPToolsAvailable {
+			if shown >= 15 {
+				sb.WriteString(fmt.Sprintf("... and %d more MCP tools available\n", len(intel.MCPToolsAvailable)-15))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", mt.Name, mt.Description))
+			shown++
+		}
+		sb.WriteString("\n")
+	}
+
+	// Tool gaps detected
+	if len(intel.ToolGaps) > 0 {
+		sb.WriteString("## TOOL GAPS (capabilities needed but not available)\n")
+		for _, tg := range intel.ToolGaps {
+			sb.WriteString(fmt.Sprintf("- %s: %s (confidence: %.0f%%)\n", tg.Name, tg.Purpose, tg.Confidence*100))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Expert recommendations from shards
+	if len(intel.ShardAdvice) > 0 {
+		sb.WriteString("## EXPERT RECOMMENDATIONS\n")
+		for _, sa := range intel.ShardAdvice {
+			if sa.Confidence >= 0.6 {
+				sb.WriteString(fmt.Sprintf("### %s (%.0f%% confidence)\n%s\n\n", sa.FromSpec, sa.Confidence*100, sa.Advice))
+			}
+		}
+	}
+
+	// Test coverage summary
+	if len(intel.TestCoverage) > 0 {
+		sb.WriteString("## TEST COVERAGE (by path)\n")
+		lowCoverage := make([]string, 0)
+		for path, cov := range intel.TestCoverage {
+			if cov < 0.5 {
+				lowCoverage = append(lowCoverage, fmt.Sprintf("- %s: %.0f%%", path, cov*100))
+			}
+		}
+		if len(lowCoverage) > 0 {
+			sb.WriteString("Low coverage areas:\n")
+			for _, lc := range lowCoverage {
+				sb.WriteString(lc + "\n")
+			}
+		} else {
+			sb.WriteString("All areas have adequate test coverage.\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Code patterns
+	if len(intel.CodePatterns) > 0 {
+		sb.WriteString("## DETECTED CODE PATTERNS\n")
+		for _, cp := range intel.CodePatterns {
+			files := ""
+			if len(cp.Files) > 0 {
+				files = strings.Join(cp.Files, ", ")
+			}
+			sb.WriteString(fmt.Sprintf("- %s in %s\n", cp.Name, files))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Previous campaign references
+	if len(intel.PreviousCampaigns) > 0 {
+		sb.WriteString("## RELEVANT PREVIOUS CAMPAIGNS\n")
+		for _, ca := range intel.PreviousCampaigns {
+			status := "failed"
+			if ca.SuccessRate > 0.5 {
+				status = fmt.Sprintf("succeeded (%.0f%%)", ca.SuccessRate*100)
+			} else {
+				status = fmt.Sprintf("failed (%.0f%%)", ca.SuccessRate*100)
+			}
+			goalSummary := ca.Goal
+			if len(goalSummary) > 50 {
+				goalSummary = goalSummary[:50] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s - %s\n", ca.CampaignID, goalSummary, status))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// extractTaskInfos extracts task information for tool gap analysis.
+func (d *Decomposer) extractTaskInfos(campaign *Campaign) []TaskInfo {
+	taskInfos := make([]TaskInfo, 0)
+
+	for _, phase := range campaign.Phases {
+		for _, task := range phase.Tasks {
+			// Extract file paths from artifacts
+			filePaths := make([]string, 0, len(task.Artifacts))
+			for _, artifact := range task.Artifacts {
+				filePaths = append(filePaths, artifact.Path)
+			}
+
+			// Extract actions from task description (simple heuristic)
+			actions := extractActionsFromDescription(task.Description)
+
+			taskInfos = append(taskInfos, TaskInfo{
+				ID:          task.ID,
+				Description: task.Description,
+				Type:        string(task.Type),
+				Actions:     actions,
+				FilePaths:   filePaths,
+			})
+		}
+	}
+
+	return taskInfos
+}
+
+// extractActionsFromDescription extracts action keywords from a task description.
+func extractActionsFromDescription(description string) []string {
+	actions := []string{}
+	lower := strings.ToLower(description)
+
+	// Common action keywords
+	actionKeywords := map[string]string{
+		"parse":    "parse",
+		"validate": "validate",
+		"generate": "generate",
+		"create":   "create",
+		"update":   "update",
+		"delete":   "delete",
+		"read":     "read",
+		"write":    "write",
+		"test":     "test",
+		"build":    "build",
+		"deploy":   "deploy",
+		"analyze":  "analyze",
+		"refactor": "refactor",
+		"optimize": "optimize",
+	}
+
+	for keyword, action := range actionKeywords {
+		if strings.Contains(lower, keyword) {
+			actions = append(actions, action)
+		}
+	}
+
+	return actions
 }
 
 // linkRequirementsToTasks links extracted requirements to tasks.
