@@ -342,7 +342,8 @@ func LoadConfigForTest() (string, string, error) {
 	paths := []string{
 		".nerd/config.json",
 		"../../.nerd/config.json",
-		"C:/CodeProjects/codeNERD/.nerd/config.json",
+		"../../../.nerd/config.json",
+		"../../../../.nerd/config.json",
 	}
 
 	var data []byte

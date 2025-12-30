@@ -75,6 +75,7 @@ import (
 	"time"
 
 	"codenerd/internal/build"
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 	"codenerd/internal/mangle/transpiler"
@@ -270,16 +271,15 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 	toolCount := len(loop.registry.List())
 	logging.Autopoiesis("Restored %d tools from registry", toolCount)
 
-	// Load State Machine Rules
-	statePath := filepath.Join(config.WorkspaceRoot, "internal", "core", "defaults", "state.mg")
-	logging.AutopoiesisDebug("Loading state machine rules from: %s", statePath)
-	if err := loop.engine.LoadSchema(statePath); err != nil {
-		// Warn but proceed? No, state.mg is critical for "Check ?valid_transition".
-		// But in development environments the file might strictly not be compiled in binary.
-		// We try to load it. If it fails, we log.
-		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to load state.mg from %s: %v. Operating in open-loop mode", statePath, err)
+	// Load State Machine Rules from embedded core (not workspace filesystem)
+	logging.AutopoiesisDebug("Loading state machine rules from embedded core")
+	stateContent, err := core.GetDefaultContent("state.mg")
+	if err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to get embedded state.mg: %v. Operating in open-loop mode", err)
+	} else if err := loop.engine.LoadSchemaString(stateContent); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to parse state.mg: %v. Operating in open-loop mode", err)
 	} else {
-		logging.AutopoiesisDebug("State machine rules loaded successfully")
+		logging.AutopoiesisDebug("State machine rules loaded successfully from embedded core")
 	}
 
 	loop.engine.ToggleAutoEval(true)
