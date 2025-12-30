@@ -370,6 +370,108 @@ deny_edit(Ref, /breaking_api_change) :-
     api_dependency(Ref, _).
 ```
 
+### Hardcoded Credentials Detection
+
+```mangle
+# =============================================================================
+# UNIVERSAL: Hardcoded Credentials
+# Detect API keys, passwords, secrets in code
+# =============================================================================
+
+# Suspicious variable names
+secret_var_pattern(/api_key).
+secret_var_pattern(/apikey).
+secret_var_pattern(/api_secret).
+secret_var_pattern(/password).
+secret_var_pattern(/passwd).
+secret_var_pattern(/secret).
+secret_var_pattern(/token).
+secret_var_pattern(/auth_token).
+secret_var_pattern(/access_key).
+secret_var_pattern(/private_key).
+secret_var_pattern(/credential).
+
+# Detect hardcoded secrets by pattern
+has_hardcoded_secret(Ref) :-
+    candidate:element_body(Ref, Body),
+    secret_var_pattern(Pattern),
+    fn:contains(fn:lowercase(Body), Pattern),
+    # Has string literal assignment
+    fn:match("=\\s*[\"'][^\"']{8,}[\"']", Body, _).
+
+# Detect AWS-style keys
+has_hardcoded_secret(Ref) :-
+    candidate:element_body(Ref, Body),
+    fn:match("AKIA[0-9A-Z]{16}", Body, _).
+
+# Detect generic API keys (long alphanumeric strings)
+has_hardcoded_secret(Ref) :-
+    candidate:element_body(Ref, Body),
+    fn:match("['\"][a-zA-Z0-9_-]{32,}['\"]", Body, _),
+    # Not a hash or UUID
+    not fn:contains(Body, "sha256"),
+    not fn:contains(Body, "md5").
+
+# Detect private keys
+has_hardcoded_secret(Ref) :-
+    candidate:element_body(Ref, Body),
+    fn:contains(Body, "-----BEGIN").
+
+# Block edits that introduce secrets
+deny_edit(Ref, /hardcoded_credential) :-
+    candidate:has_hardcoded_secret(Ref),
+    not snapshot:has_hardcoded_secret(Ref).
+
+# Warn on existing secrets (softer check)
+code_smell(Ref, /existing_hardcoded_credential) :-
+    has_hardcoded_secret(Ref).
+```
+
+### Go Implementation for Secret Detection
+
+```go
+// SecretPatterns for additional detection beyond Mangle
+var secretPatterns = []*regexp.Regexp{
+    // AWS
+    regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+    regexp.MustCompile(`aws_secret_access_key\s*=\s*["'][^"']+["']`),
+
+    // Generic API keys
+    regexp.MustCompile(`api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9_-]{20,}["']`),
+
+    // Private keys
+    regexp.MustCompile(`-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`),
+
+    // JWT tokens
+    regexp.MustCompile(`eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*`),
+
+    // GitHub tokens
+    regexp.MustCompile(`gh[ps]_[a-zA-Z0-9]{36}`),
+    regexp.MustCompile(`github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}`),
+
+    // Slack tokens
+    regexp.MustCompile(`xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`),
+
+    // Generic high-entropy strings (likely secrets)
+    regexp.MustCompile(`["'][a-zA-Z0-9/+]{40,}={0,2}["']`),
+}
+
+func (p *Parser) detectSecrets(body string) []SecretMatch {
+    var matches []SecretMatch
+    for _, pattern := range secretPatterns {
+        if loc := pattern.FindStringIndex(body); loc != nil {
+            matches = append(matches, SecretMatch{
+                Pattern: pattern.String(),
+                Start:   loc[0],
+                End:     loc[1],
+                Value:   body[loc[0]:loc[1]],
+            })
+        }
+    }
+    return matches
+}
+```
+
 ### Test Coverage Regression
 
 ```mangle
@@ -473,12 +575,24 @@ When a deny rule fires, provide actionable remediation:
 
 ```go
 var remediations = map[string]string{
-    "/security_regression":    "Restore the security decorator or add @login_required",
-    "/goroutine_leak":         "Add WaitGroup, channel, or context cancellation",
-    "/react_stale_closure":    "Add missing variable to useEffect dependency array",
-    "/kotlin_force_unwrap":    "Use safe call (?.) or null check instead of !!",
-    "/rust_async_lock_hazard": "Drop the MutexGuard before .await or use tokio::sync::Mutex",
-    "/breaking_api_change":    "Update all API consumers or add backward compatibility",
+    "/security_regression":       "Restore the security decorator or add @login_required",
+    "/goroutine_leak":            "Add WaitGroup, channel, or context cancellation",
+    "/goroutine_no_context":      "Pass context.Context to goroutine for cancellation",
+    "/react_stale_closure":       "Add missing variable to useEffect dependency array",
+    "/kotlin_force_unwrap":       "Use safe call (?.) or null check instead of !!",
+    "/suspend_without_dispatcher": "Wrap IO operations in withContext(Dispatchers.IO)",
+    "/rust_async_lock_hazard":    "Drop the MutexGuard before .await or use tokio::sync::Mutex",
+    "/new_unsafe_code":           "Document safety invariants or use safe alternatives",
+    "/breaking_api_change":       "Update all API consumers or add backward compatibility",
+    "/hardcoded_credential":      "Use environment variables, secrets manager, or config files",
+    "/type_hint_regression":      "Restore type hints for type safety",
+    "/type_weakened_to_any":      "Use specific types instead of 'any'",
+    "/error_handling_regression": "Restore error handling or explain why it's safe to remove",
+    "/ignored_error":             "Handle the error explicitly: if err != nil { return err }",
+    "/lock_without_defer":        "Use defer mu.Unlock() immediately after Lock()",
+    "/missing_error_handling":    "Add try/catch, .catch(), or onError handler",
+    "/unprotected_route":         "Add @login_required or @authenticated decorator",
+    "/test_coverage_regression":  "Restore tests or add equivalent coverage",
 }
 
 func (v *VirtualStore) getRemediation(reason string) string {

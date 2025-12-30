@@ -178,6 +178,9 @@ api_dependency(BackendRef, FrontendRef) :-
 | [200-MANGLE-INTEGRATION](references/200-MANGLE-INTEGRATION.md) | Schema design, bridge patterns |
 | [300-SAFETY-GUARDRAILS](references/300-SAFETY-GUARDRAILS.md) | Language-specific safety rules |
 | [400-ADVANCED-PATTERNS](references/400-ADVANCED-PATTERNS.md) | AST analysis, taint tracking |
+| [500-PRACTICAL-CONCERNS](references/500-PRACTICAL-CONCERNS.md) | Error recovery, incremental parsing, performance |
+| [600-TRANSACTION-SAFETY](references/600-TRANSACTION-SAFETY.md) | 2PC protocol, shadow mode, test impact analysis |
+| [700-JIT-PROMPT-INTEGRATION](references/700-JIT-PROMPT-INTEGRATION.md) | Prompt atoms for semantic mode paradigm shift |
 
 ## Critical Mangle Patterns for Code DOM
 
@@ -289,3 +292,50 @@ Mangle Layer:
 | Missing wire name extraction | Implement for json tags, annotations |
 | Ignoring visibility | Map `_` prefix to /private in Python |
 | Safety rules not triggering | Check atom vs string in facts |
+
+## Critical Implementation Concerns
+
+### The Split Brain Problem
+
+Multi-file refactoring creates a new failure mode: if some edits succeed and others fail, the codebase is left inconsistent.
+
+#### Solution: Two-Phase Commit (2PC)
+
+1. **Prepare Phase:** Apply all edits to shadow filesystem, validate with Mangle
+2. **Commit Phase:** Atomically flush to real filesystem, or abort entirely
+
+See [600-TRANSACTION-SAFETY](references/600-TRANSACTION-SAFETY.md) for implementation.
+
+### Test Impact Analysis
+
+Running `go test ./...` after every edit is expensive. Use the dependency graph to select only impacted tests:
+
+```mangle
+impacted_test(TestRef) :-
+    plan_edit(TargetRef),
+    test_depends_on_transitive(TestRef, TargetRef).
+```
+
+### Incremental Graph Maintenance
+
+After edits, refresh only affected files instead of re-parsing the entire codebase:
+
+```go
+// Atomic single-file refresh
+func (p *Parser) Refresh(ctx context.Context, file string) error {
+    p.kernel.RetractByFile(file)
+    elements := p.ParseFile(file)
+    p.kernel.AssertFacts(p.EmitFacts(elements))
+}
+```
+
+### Prompt Blindness Prevention
+
+The LLM needs a paradigm shift from "Text Editor" to "Graph Architect". Create JIT prompt atoms that teach this mental model:
+
+1. **Core Concept Atom:** Teach that Refs are the primary interface, not filenames
+2. **Impact Simulation Atom:** Query Mangle before editing, not after
+3. **Tool Steering Atom:** Forbid grep/sed in favor of semantic tools
+4. **Exemplar Atom:** Concrete example of polyglot refactor workflow
+
+See [700-JIT-PROMPT-INTEGRATION](references/700-JIT-PROMPT-INTEGRATION.md) for complete atom templates.
