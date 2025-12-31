@@ -18,6 +18,34 @@ func DecodeSpec(raw string) (Spec, error) {
 		return Spec{}, err
 	}
 
+	spec, specErr := decodeSpecPayload(payload)
+	if specErr == nil {
+		return spec, nil
+	}
+
+	if surface, ok := extractPiggybackSurface(payload); ok {
+		if spec, err := decodeSpecPayload(surface); err == nil {
+			return spec, nil
+		}
+		if embedded, ok := findJSONObject(surface); ok {
+			if spec, err := decodeSpecPayload(embedded); err == nil {
+				return spec, nil
+			}
+		}
+	}
+
+	return Spec{}, specErr
+}
+
+func FromResponse(raw string, options Options) (Result, error) {
+	spec, err := DecodeSpec(raw)
+	if err != nil {
+		return Result{}, err
+	}
+	return Compile(spec, options)
+}
+
+func decodeSpecPayload(payload string) (Spec, error) {
 	decoder := json.NewDecoder(strings.NewReader(payload))
 	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
@@ -31,14 +59,6 @@ func DecodeSpec(raw string) (Spec, error) {
 	}
 
 	return spec, nil
-}
-
-func FromResponse(raw string, options Options) (Result, error) {
-	spec, err := DecodeSpec(raw)
-	if err != nil {
-		return Result{}, err
-	}
-	return Compile(spec, options)
 }
 
 func extractJSONPayload(raw string) (string, error) {
@@ -69,6 +89,30 @@ func extractJSONPayload(raw string) (string, error) {
 		return payload, nil
 	}
 	return "", ErrMissingJSON
+}
+
+type piggybackSurface struct {
+	Surface json.RawMessage `json:"surface_response"`
+}
+
+func extractPiggybackSurface(payload string) (string, bool) {
+	var envelope piggybackSurface
+	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		return "", false
+	}
+	if len(envelope.Surface) == 0 {
+		return "", false
+	}
+	var surfaceText string
+	if err := json.Unmarshal(envelope.Surface, &surfaceText); err == nil {
+		surfaceText = strings.TrimSpace(surfaceText)
+		return surfaceText, surfaceText != ""
+	}
+	surfaceRaw := strings.TrimSpace(string(envelope.Surface))
+	if surfaceRaw == "" {
+		return "", false
+	}
+	return surfaceRaw, true
 }
 
 func findJSONObject(input string) (string, bool) {

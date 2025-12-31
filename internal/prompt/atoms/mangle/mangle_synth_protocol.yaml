@@ -8,6 +8,7 @@
     ## MANGLE SYNTH OUTPUT FORMAT (MANDATORY)
 
     You MUST output a single JSON object. No markdown. No code fences. No extra keys.
+    If Piggyback Protocol is active, the surface_response field MUST be the JSON object and nothing else.
 
     REQUIRED ENVELOPE:
     {
