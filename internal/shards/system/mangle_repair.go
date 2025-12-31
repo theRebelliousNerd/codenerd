@@ -6,6 +6,7 @@ package system
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -176,8 +177,24 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 	result.Errors = errors
 	logging.SystemShards("[MangleRepair] Rule has %d errors, attempting repair", len(errors))
 
-	// Phase 2: Repair loop
+	// Phase 1b: Deterministic fixes (avoid LLM when possible)
 	currentRule := rule
+	if fixedRule, fixedErrors, fixes, applied := m.applyDeterministicFixes(rule, kernel, corpus); applied {
+		if len(fixedErrors) == 0 {
+			result.RepairedRule = fixedRule
+			result.WasRepaired = true
+			result.Attempts = 0
+			result.FixesApplied = fixes
+			return result, nil
+		}
+		currentRule = fixedRule
+		errors = fixedErrors
+		result.Errors = fixedErrors
+	}
+
+	// Phase 2: Repair loop
+	var lastResponse string
+	var lastParseErr string
 	for attempt := 1; attempt <= m.maxRetries; attempt++ {
 		result.Attempts = attempt
 
@@ -194,7 +211,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		// Build repair prompt
-		repairPrompt := m.buildRepairPrompt(currentRule, errors, corpus)
+		repairPrompt := m.buildRepairPrompt(currentRule, errors, corpus, lastResponse, lastParseErr)
 
 		// Attempt LLM repair
 		if llmClient == nil {
@@ -227,23 +244,35 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 
 		// Process response through Piggyback
 		processed := articulation.ProcessLLMResponseAllowPlain(rawResponse)
+		lastResponse = processed.Surface
 		compiled, synthErr := synth.FromResponse(processed.Surface, synth.Options{
 			RequireSingleClause: true,
 		})
 		if synthErr != nil {
-			errors = append(errors, fmt.Sprintf("mangle synth JSON error: %v", synthErr))
-			result.Errors = errors
+			lastParseErr = synthErr.Error()
+			result.Errors = append(append([]string{}, errors...), fmt.Sprintf("mangle synth JSON error: %s", lastParseErr))
+			if stderrors.Is(synthErr, synth.ErrMissingJSON) {
+				if candidate := m.extractRule(processed.Surface); candidate != "" {
+					newErrors := m.validateRule(candidate, kernel, corpus)
+					if len(newErrors) == 0 {
+						result.RepairedRule = candidate
+						result.WasRepaired = true
+						result.FixesApplied = m.identifyFixes(rule, candidate, errors)
+						logging.SystemShards("[MangleRepair] Accepted plain rule output on attempt %d", attempt)
+						return result, nil
+					}
+				}
+			}
 			logging.SystemShardsDebug("[MangleRepair] Invalid MangleSynth JSON: %v", synthErr)
 			continue
 		}
+		lastParseErr = ""
 		repairedRule, err := compiled.SingleClause()
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("mangle synth error: %v", err))
-			result.Errors = errors
+			result.Errors = append(append([]string{}, errors...), fmt.Sprintf("mangle synth error: %v", err))
 			logging.SystemShardsDebug("[MangleRepair] MangleSynth clause error: %v", err)
 			continue
 		}
-
 		// Validate repaired rule
 		newErrors := m.validateRule(repairedRule, kernel, corpus)
 		if len(newErrors) == 0 {
@@ -266,6 +295,27 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 	result.RejectionReason = fmt.Sprintf("could not repair after %d attempts", m.maxRetries)
 	logging.Get(logging.CategorySystemShards).Warn("[MangleRepair] Rule rejected after %d attempts", m.maxRetries)
 	return result, nil
+}
+
+func (m *MangleRepairShard) applyDeterministicFixes(rule string, kernel core.Kernel, corpus *core.PredicateCorpus) (string, []string, []string, bool) {
+	trimmed := strings.TrimSpace(rule)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return rule, nil, nil, false
+	}
+
+	fixes := []string{}
+	fixed := rule
+	if !strings.HasSuffix(trimmed, ".") {
+		fixed = trimmed + "."
+		fixes = append(fixes, "added terminal period")
+	}
+
+	if fixed == rule {
+		return rule, nil, nil, false
+	}
+
+	errors := m.validateRule(fixed, kernel, corpus)
+	return fixed, errors, fixes, true
 }
 
 // InterceptLearnedRule intercepts a learned rule before persistence.
@@ -458,7 +508,7 @@ func (m *MangleRepairShard) checkInfiniteLoopRisk(rule string) []string {
 
 // buildRepairPrompt builds a prompt for LLM repair.
 // Uses PredicateSelector to inject only ~60 relevant predicates instead of all 799.
-func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corpus *core.PredicateCorpus) string {
+func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corpus *core.PredicateCorpus, lastResponse, lastParseErr string) string {
 	var sb strings.Builder
 
 	sb.WriteString("The following Mangle rule has validation errors:\n\n")
@@ -473,6 +523,22 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
+
+	if lastParseErr != "" || lastResponse != "" {
+		sb.WriteString("Previous attempt failed to parse as MangleSynth JSON.\n")
+		if lastParseErr != "" {
+			sb.WriteString("Parse error: ")
+			sb.WriteString(lastParseErr)
+			sb.WriteString("\n")
+		}
+		if lastResponse != "" {
+			sb.WriteString("Previous output (invalid):\n")
+			sb.WriteString("```text\n")
+			sb.WriteString(truncateForLog(lastResponse, 800))
+			sb.WriteString("\n```\n")
+		}
+		sb.WriteString("\n")
+	}
 
 	// Use PredicateSelector for targeted predicate selection
 	m.mu.RLock()
@@ -562,6 +628,7 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	sb.WriteString("4. Uses /atom syntax for constants (not \"strings\")\n\n")
 	sb.WriteString("Output ONLY a MangleSynth JSON object (format mangle_synth_v1).\n")
 	sb.WriteString("If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.\n")
+	sb.WriteString("Plain Mangle rules will be rejected; always wrap them in the JSON format.\n")
 	sb.WriteString("No commentary. No markdown.\n")
 
 	return sb.String()

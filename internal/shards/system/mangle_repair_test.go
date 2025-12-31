@@ -38,7 +38,7 @@ func TestMangleRepairShard_BuildRepairPromptWithoutCorpus(t *testing.T) {
 	}
 
 	// Build repair prompt WITHOUT corpus (should still work, just no predicate list)
-	prompt := shard.buildRepairPrompt(rule, errors, nil)
+	prompt := shard.buildRepairPrompt(rule, errors, nil, "", "")
 
 	// Verify prompt contains key sections
 	if !strings.Contains(prompt, "validation errors") {
@@ -156,7 +156,7 @@ func TestMangleRepairShard_FallbackWithoutSelector(t *testing.T) {
 	rule := "next_action(/start)."
 	errors := []string{"some error"}
 
-	prompt := shard.buildRepairPrompt(rule, errors, nil)
+	prompt := shard.buildRepairPrompt(rule, errors, nil, "", "")
 
 	// Should still generate a valid prompt with instructions
 	if !strings.Contains(prompt, "MangleSynth JSON object") {
