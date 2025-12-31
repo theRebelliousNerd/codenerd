@@ -78,6 +78,10 @@ func (sm *ShardManager) SpawnWithPriority(ctx context.Context, typeName, task st
 	sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
 
 	typeName = normalizeShardTypeName(typeName)
+	if cfg, ok := sm.GetProfile(typeName); ok && cfg.Type == types.ShardTypeSystem {
+		// System shards are long-lived; bypass the spawn queue to avoid blocking on completion.
+		return sm.SpawnWithContext(ctx, typeName, task, sessionCtx)
+	}
 
 	sm.mu.RLock()
 	sq := sm.spawnQueue
@@ -351,6 +355,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}
 		logging.Audit().ShardComplete(id, task, 0, err == nil, errMsg)
 
+		// Record the result before cleanup so synchronous callers don't block on kernel churn.
+		sm.recordResult(id, res, err)
+
 		if sm.kernel != nil {
 			_ = sm.kernel.RetractFact(types.Fact{
 				Predicate: "active_shard",
@@ -361,8 +368,6 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 				Args:      []interface{}{id, "/running", task},
 			})
 		}
-
-		sm.recordResult(id, res, err)
 	}()
 
 	return id, nil
@@ -432,6 +437,9 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 	for name, config := range sm.profiles {
 		if config.Type == types.ShardTypeSystem {
 			if _, disabled := sm.disabled[name]; disabled {
+				continue
+			}
+			if config.StartupMode != "" && config.StartupMode != types.StartupAuto {
 				continue
 			}
 			toStart = append(toStart, name)

@@ -123,22 +123,31 @@ func (m *MangleRepairShard) Execute(ctx context.Context, task string) (string, e
 	if rule == "" {
 		return "MangleRepair ready. Provide a Mangle rule to validate and repair.", nil
 	}
+	if rule == "system_start" {
+		logging.SystemShardsDebug("[MangleRepair] Ignoring system_start task")
+		return "MangleRepair ready. Provide a Mangle rule to validate and repair.", nil
+	}
+	logging.SystemShards("[MangleRepair] Executing task: %s", truncateForLog(rule, 120))
 
 	result, err := m.ValidateAndRepair(ctx, rule)
 	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[MangleRepair] Validation failed: %v", err)
 		return "", err
 	}
 
 	if result.Rejected {
+		logging.SystemShards("[MangleRepair] Rule rejected after %d attempts", result.Attempts)
 		return fmt.Sprintf("Rule rejected after %d attempts: %s\nErrors: %s",
 			result.Attempts, result.RejectionReason, strings.Join(result.Errors, "; ")), nil
 	}
 
 	if result.WasRepaired {
+		logging.SystemShards("[MangleRepair] Rule repaired after %d attempts", result.Attempts)
 		return fmt.Sprintf("Rule repaired after %d attempts:\nOriginal: %s\nRepaired: %s\nFixes: %s",
 			result.Attempts, result.OriginalRule, result.RepairedRule, strings.Join(result.FixesApplied, "; ")), nil
 	}
 
+	logging.SystemShards("[MangleRepair] Rule valid on first check")
 	return fmt.Sprintf("Rule valid: %s", result.RepairedRule), nil
 }
 
