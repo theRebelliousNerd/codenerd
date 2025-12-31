@@ -66,11 +66,10 @@ type CodexCLIConfig struct {
 }
 
 // GeminiProviderConfig holds Gemini-specific configuration.
-// Supports Gemini 3 Flash Preview features: thinking mode, grounding tools.
+// Supports Gemini 3 Flash/Pro features: thinking mode, grounding tools.
 //
 // Thinking Mode:
-//   - For Gemini 3: use ThinkingLevel ("Low", "Medium", "High", "Minimal")
-//   - For Gemini 2.5: use ThinkingBudget (128-32768 tokens)
+//   - Use ThinkingLevel ("minimal", "low", "medium", "high")
 //
 // Built-in Tools:
 //   - GoogleSearch: Enables grounding responses with Google Search results
@@ -82,10 +81,6 @@ type GeminiProviderConfig struct {
 	// ThinkingLevel for Gemini 3: "minimal", "low", "medium", "high" (MUST be lowercase)
 	// Default: "high" when thinking is enabled
 	ThinkingLevel string `json:"thinking_level,omitempty"`
-
-	// ThinkingBudget for Gemini 2.5: token budget 128-32768
-	// Only used when ThinkingLevel is empty
-	ThinkingBudget int `json:"thinking_budget,omitempty"`
 
 	// EnableGoogleSearch enables Google Search grounding
 	// Responses will be grounded with real-time search results

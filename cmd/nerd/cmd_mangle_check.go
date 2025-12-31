@@ -7,7 +7,7 @@
 // Author: Gemini
 // Date: 2025-12-05
 //
-// Recommended Model: 2.5 Flash
+// Recommended Model: Gemini 3 Flash
 //
 // Overview:
 // This file implements the `check-mangle` command for the codeNERD CLI.

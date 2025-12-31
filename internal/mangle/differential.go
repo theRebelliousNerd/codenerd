@@ -2,7 +2,7 @@
 // This file contains critical product requirements and architectural mandates.
 // DO NOT REMOVE OR SIGNIFICANTLY ALTER THESE COMMENTS.
 // They serve as a source of truth for the Symbiogen Agentic Intelligence Platform.
-// This File is best written for Gemini 2.5 Pro.
+// This file is best written for Gemini 3 Pro.
 // YOU MUST READ THIS ENTIRE HEADER BEFORE AND AFTER EVERY INTERACTION WITH THIS FILE.
 
 // Symbiogen Product Requirements Document (PRD) for internal/mangle/differential.go
@@ -11,7 +11,7 @@
 // Author: Gemini
 // Date: 2025-12-08
 //
-// Recommended Model: 2.5 Pro
+// Recommended Model: Gemini 3 Pro
 //
 // Overview:
 // This file implements the DifferentialEngine, a wrapper around the standard Mangle engine.

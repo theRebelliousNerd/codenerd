@@ -5,7 +5,7 @@
 # Author: Gemini
 # Date: 2025-12-08
 #
-# Recommended Model: 2.5 Pro
+# Recommended Model: Gemini 3 Pro
 #
 # Overview:
 # Defines the Mangle schema and rules for the Ouroboros Loop "Transactional State Machine".

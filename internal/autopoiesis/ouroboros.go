@@ -9,7 +9,7 @@
 // Author: Gemini
 // Date: 2025-12-08
 //
-// Recommended Model: 2.5 Pro
+// Recommended Model: Gemini 3 Pro
 //
 // Overview:
 // Implements the Ouroboros Loop, the self-eating serpent of tool generation.
