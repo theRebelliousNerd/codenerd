@@ -32,6 +32,10 @@
     "target_compression_ratio": 100,
     "activation_threshold": 30
   },
+  "jit": {
+    "debug_mode": true,
+    "trace_llm_io": true
+  },
   "embedding": {
     "provider": "genai",
     "ollama_endpoint": "http://localhost:11434",

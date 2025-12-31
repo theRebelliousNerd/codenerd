@@ -1,0 +1,457 @@
+# =============================================================================
+# COMPREHENSIVE MANGLE LSP TEST FILE
+# This file exercises ALL diagnostic types the LSP can detect.
+# =============================================================================
+
+# Package declaration for testing (not yet supported by parser)
+# Package example.
+
+# =============================================================================
+# SECTION 1: VALID CODE (baseline - no errors expected)
+# =============================================================================
+
+# Simple facts (ground terms only)
+parent("alice", "bob").
+parent("bob", "charlie").
+parent("charlie", "david").
+person("alice", 35).
+person("bob", 60).
+person("charlie", 85).
+numbers(1).
+numbers(2).
+numbers(3).
+
+# Simple rule with proper variable binding
+grandparent(X, Z) :- parent(X, Y), parent(Y, Z).
+
+# Rule using built-in comparison (variables bound before comparison)
+adult(Name) :- person(Name, Age), :gt(Age, 18).
+
+# Negation with proper binding (variable bound before negation)
+orphan(X) :- person(X, _), !parent(_, X).
+
+# Transform with proper group_by usage
+total(Sum) :- numbers(N) |> do fn:group_by(), let Sum = fn:sum(N).
+
+# Function application
+doubled(X, Y) :- numbers(X), Y = fn:mult(X, 2).
+
+# =============================================================================
+# SECTION 2: PARSE ERRORS (Syntax)
+# =============================================================================
+
+# Uncomment these to test parse errors:
+# missing_period(X) :- foo(X)
+# bad_syntax(X :- foo(X).
+# unclosed_string("hello).
+# invalid@char(X) :- foo(X).
+
+# =============================================================================
+# SECTION 3: E001 - Variable in fact head (facts must be ground)
+# =============================================================================
+
+# ERROR: Facts cannot contain variables
+variable_fact(X).
+variable_fact2(X, Y).
+variable_fact3("constant", UnboundVar).
+
+# =============================================================================
+# SECTION 4: E002 - Variable in head not bound in body (range restriction)
+# =============================================================================
+
+# ERROR: Z appears in head but not bound in body
+unbound_head(X, Z) :- parent(X, Y).
+
+# ERROR: Multiple unbound variables in head
+multi_unbound(A, B, C) :- parent(X, Y).
+
+# ERROR: Y is not bound (X is from the body, but Y is not)
+partial_binding(X, Y) :- numbers(X).
+
+# =============================================================================
+# SECTION 5: E003 - Variable in negation must be bound before negation
+# =============================================================================
+
+# ERROR: X used in negation but not bound beforehand
+negation_unbound(Result) :- !parent(X, "bob"), Result = "orphan".
+
+# ERROR: Both variables in negation are unbound
+negation_both_unbound(R) :- !parent(A, B), R = "test".
+
+# =============================================================================
+# SECTION 6: E004 - Variable in comparison must be bound before comparison
+# =============================================================================
+
+# ERROR: Age not bound before comparison
+comparison_unbound(Name) :- :gt(Age, 18), person(Name, Age).
+
+# ERROR: Both comparison arguments unbound
+comparison_both_unbound(X) :- :lt(A, B), numbers(X).
+
+# =============================================================================
+# SECTION 7: E005 - Unknown built-in predicate
+# =============================================================================
+
+# ERROR: :undefined_predicate doesn't exist
+unknown_builtin(X) :- numbers(X), :undefined_predicate(X).
+
+# ERROR: Common typo/hallucination
+bad_builtin(X) :- numbers(X), :greater_than(X, 5).
+
+# ERROR: Another unknown predicate
+misspelled(X) :- person(X, Age), :greaterThan(Age, 18).
+
+# =============================================================================
+# SECTION 8: E006 - Built-in predicate arity mismatch
+# =============================================================================
+
+# ERROR: :gt expects 2 args, given 1
+arity_mismatch1(X) :- numbers(X), :gt(X).
+
+# ERROR: :gt expects 2 args, given 3
+arity_mismatch2(X) :- numbers(X), :gt(X, 5, 10).
+
+# ERROR: :string_concat wrong arity
+arity_mismatch3(X) :- :string_concat("a", X).
+
+# =============================================================================
+# SECTION 9: E007 - Built-in requires bound variable
+# =============================================================================
+
+# ERROR: :lt second argument should be bound for some modes
+# builtin_needs_bound(X) :- :lt(X, Y).
+
+# =============================================================================
+# SECTION 10: E008 - Unknown built-in function
+# =============================================================================
+
+# ERROR: fn:unknown doesn't exist
+unknown_function(X, Y) :- numbers(X), Y = fn:unknown(X).
+
+# ERROR: Common hallucination
+bad_function(X, Y) :- numbers(X), Y = fn:square(X).
+
+# ERROR: Misspelled function
+misspelled_fn(X, Y) :- numbers(X), Y = fn:summation(X).
+
+# =============================================================================
+# SECTION 11: E009 - Built-in function arity mismatch
+# =============================================================================
+
+# ERROR: fn:add expects 2 args
+fn_arity_bad1(X, Y) :- numbers(X), Y = fn:add(X).
+
+# ERROR: fn:mult expects 2 args
+fn_arity_bad2(X, Y) :- numbers(X), Y = fn:mult(X, 2, 3).
+
+# =============================================================================
+# SECTION 12: E010 - Variable in function must be bound
+# =============================================================================
+
+# ERROR: Z is not bound before use in function
+fn_var_unbound(X, Y) :- numbers(X), Y = fn:add(X, Z).
+
+# =============================================================================
+# SECTION 13: E011 - Transform must start with do fn:group_by
+# =============================================================================
+
+# ERROR: Transform doesn't start with group_by
+bad_transform1(Sum) :- numbers(N) |> let Sum = fn:sum(N).
+
+# ERROR: Transform starts with wrong function
+bad_transform2(Sum) :- numbers(N) |> do fn:collect(N), let Sum = fn:sum(N).
+
+# =============================================================================
+# SECTION 14: E012 - Variable in group_by must be bound in body
+# =============================================================================
+
+# ERROR: Grouping by unbound variable
+bad_groupby(Sum) :- numbers(N) |> do fn:group_by(UnboundVar), let Sum = fn:sum(N).
+
+# =============================================================================
+# SECTION 15: E013 - Warning: Function after group_by should be reducer
+# =============================================================================
+
+# WARNING: fn:add is not a typical reducer
+# non_reducer(Result) :- numbers(N) |> do fn:group_by(), let Result = fn:add(N, 1).
+
+# =============================================================================
+# SECTION 16: E014 - Variable in equality must be bound
+# =============================================================================
+
+# ERROR: Unbound variable in function application
+equality_unbound(X, Y) :- Y = fn:add(A, B), numbers(X).
+
+# =============================================================================
+# SECTION 17: E015 - Stratification violation (negation cycle)
+# =============================================================================
+
+# ERROR: Circular negation - p depends on NOT q, q depends on NOT p
+cycle_p(X) :- numbers(X), !cycle_q(X).
+cycle_q(X) :- numbers(X), !cycle_p(X).
+
+# ERROR: Self-referential negation
+self_neg(X) :- numbers(X), !self_neg(X).
+
+# =============================================================================
+# SECTION 18: E016 - Warning: Recursive without base case
+# =============================================================================
+
+# WARNING: No base case for recursion
+no_base(X, Y) :- no_base(X, Z), parent(Z, Y).
+
+# =============================================================================
+# SECTION 19: E017 - Warning: Recursive may be unbounded
+# =============================================================================
+
+# WARNING: Generates new values each iteration
+# unbounded_rec(X, Y) :- unbounded_rec(X, Z), Y = fn:add(Z, 1).
+
+# =============================================================================
+# SECTION 20: E018 - Wrong casing for function
+# =============================================================================
+
+# ERROR: Should be fn:sum not fn:Sum
+wrong_case1(Sum) :- numbers(N) |> do fn:group_by(), let Sum = fn:Sum(N).
+
+# ERROR: Should be fn:add not fn:ADD
+wrong_case2(X, Y) :- numbers(X), Y = fn:ADD(X, 1).
+
+# ERROR: Should be fn:mult not fn:Mult
+wrong_case3(X, Y) :- numbers(X), Y = fn:Mult(X, 2).
+
+# =============================================================================
+# SECTION 21: E019 - Warning: Cartesian explosion
+# =============================================================================
+
+# WARNING: a and b have no shared variables (Cartesian product)
+cartesian_warn(X, Y) :- numbers(X), parent(Y, _).
+
+# =============================================================================
+# SECTION 22: E020 - Function doesn't exist (hallucinated)
+# =============================================================================
+
+# ERROR: fn:average is often hallucinated (doesn't exist)
+hallucinated1(X, Y) :- numbers(X), Y = fn:average(X).
+
+# ERROR: fn:concat is hallucinated (use fn:string_concat)
+hallucinated2(X, Y) :- person(X, _), Y = fn:concat(X, "_suffix").
+
+# ERROR: fn:length is hallucinated
+hallucinated3(X, Y) :- person(X, _), Y = fn:length(X).
+
+# =============================================================================
+# SECTION 23: E021 - Warning: Late filtering
+# =============================================================================
+
+# WARNING: Comparison appears after multiple predicates
+late_filter(X, Y, Z) :- parent(X, Y), parent(Y, Z), person(X, Age), :gt(Age, 18).
+
+# =============================================================================
+# SECTION 24: E022 - Warning: Late negation
+# =============================================================================
+
+# WARNING: Negation appears late but variables bound early
+# late_neg(X, Y) :- parent(X, Y), person(X, Age), person(Y, Age2), !orphan(X).
+
+# =============================================================================
+# SECTION 25: E023 - Massive Cartesian product
+# =============================================================================
+
+# ERROR: Three predicates with no shared variables
+massive_cartesian(A, B, C) :- numbers(A), parent(B, _), person(C, _).
+
+# =============================================================================
+# SECTION 26: E024 - Declaration argument must be variable
+# =============================================================================
+
+# Note: Declaration syntax with mode(+,-) not yet implemented in parser
+# Decl parent2 : mode(bound, free).
+
+# =============================================================================
+# SECTION 27: E025 - Declaration bounds count mismatch
+# =============================================================================
+
+# Note: Declaration syntax not yet implemented
+# Decl parent_bad : mode(bound, free, bound).
+
+# =============================================================================
+# SECTION 28: E027 - fn:struct/fn:map needs even args
+# =============================================================================
+
+# ERROR: fn:struct with odd number of args (not key-value pairs)
+struct_odd(X, S) :- numbers(X), S = fn:struct("key1", X, "key2").
+
+# ERROR: fn:map with odd args
+map_odd(X, M) :- numbers(X), M = fn:map("a", 1, "b").
+
+# =============================================================================
+# SECTION 29: E030 - String predicate second arg must be constant
+# =============================================================================
+
+# ERROR: Pattern must be a constant, not a variable
+# string_var_pattern(X, Y) :- person(X, _), :string_contains(X, Y).
+
+# =============================================================================
+# SECTION 30: E031 - Package names must be lowercase
+# =============================================================================
+
+# Uncomment to test:
+# Package Example.Bad.Package.
+
+# =============================================================================
+# SECTION 31: E032 - Name constant validation errors
+# =============================================================================
+
+# Note: These cause parse errors (lexer rejects them). Validation would catch
+# them if parser allowed them through:
+# name_empty(X) :- X = /foo//bar.    # ERROR: double slash
+# name_trailing(X) :- X = /foo/bar/. # ERROR: trailing slash
+# name_just_slash(X) :- X = /.       # ERROR: just slash
+
+# =============================================================================
+# SECTION 32: E033 - Destructuring predicates need variables
+# =============================================================================
+
+# ERROR: :match_pair args 2 & 3 must be variables
+# match_pair_bad(X) :- pairs(X), :match_pair(X, "constant", Y).
+
+# =============================================================================
+# SECTION 33: E034 - Field selector arg 2 must be constant
+# =============================================================================
+
+# ERROR: Field name must be constant
+# match_field_bad(X, V) :- structs(X), :match_field(X, Field, V).
+
+# =============================================================================
+# SECTION 34: E035 - Division by zero
+# =============================================================================
+
+# ERROR: Constant divisor is 0
+div_by_zero(X, Y) :- numbers(X), Y = fn:div(X, 0).
+
+# ERROR: Float division by zero
+float_div_zero(X, Y) :- numbers(X), Y = fn:float_div(X, 0).
+
+# =============================================================================
+# SECTION 35: E036 - fn:group_by args must be variables
+# =============================================================================
+
+# ERROR: Constant in group_by
+groupby_constant(Sum) :- numbers(N) |> do fn:group_by("constant"), let Sum = fn:sum(N).
+
+# =============================================================================
+# SECTION 36: E037 - Duplicate variable in fn:group_by
+# =============================================================================
+
+# ERROR: Same variable listed twice
+groupby_duplicate(X, Sum) :- parent(X, Y) |> do fn:group_by(X, X), let Sum = fn:count().
+
+# =============================================================================
+# SECTION 37: E038 - Invalid escape sequence
+# =============================================================================
+
+# Note: Invalid escapes cause lexer errors. Validation catches them if they
+# somehow get through. The lexer correctly rejects these:
+# bad_escape1(X) :- X = "hello\q world".  # ERROR: \q invalid
+# bad_escape2(X) :- X = "test\xGG".       # ERROR: invalid hex
+# bad_escape3(X) :- X = "test\u00".       # ERROR: incomplete unicode
+
+# Valid escape sequences work:
+valid_escape(X) :- X = "hello\nworld\ttab".
+
+# =============================================================================
+# SECTION 38: E039 - Warning: Wildcard in head
+# =============================================================================
+
+# WARNING: Underscore in head is unusual
+wildcard_head(_, Y) :- parent("alice", Y).
+
+# WARNING: Multiple wildcards
+multi_wildcard(_, _, Z) :- grandparent("alice", Z).
+
+# =============================================================================
+# SECTION 39: E040 - Wrong arity for user predicate
+# =============================================================================
+
+# Define parent as 2-arity, then call with wrong arity
+wrong_arity1(X) :- parent(X).
+wrong_arity2(X) :- parent(X, "bob", "charlie").
+wrong_arity3(X) :- grandparent(X, "bob", "charlie", "david").
+
+# =============================================================================
+# SECTION 40: E041 - Private predicate access (info)
+# =============================================================================
+
+# INFO: Accessing private predicate from another module
+# (Would need @Private annotation support)
+
+# =============================================================================
+# SECTION 41: Complex Combined Errors
+# =============================================================================
+
+# Multiple errors in one rule
+multi_error(X, Y, Z) :-
+    :unknown_pred(X),
+    Y = fn:nonexistent(X),
+    :gt(Z).
+
+# Deeply nested errors
+nested_bad(Result) :-
+    numbers(N),
+    X = fn:Bad_Case(N),
+    Y = fn:add(X, UnboundVar),
+    :undefined(Y),
+    Result = fn:collect(Y).
+
+# =============================================================================
+# SECTION 42: Edge Cases
+# =============================================================================
+
+# Empty body (just a fact)
+simple_fact(42).
+string_fact("test").
+name_fact(/foo/bar/baz).
+
+# Very long predicate name
+this_is_a_very_long_predicate_name_that_tests_handling_of_long_identifiers(X) :- numbers(X).
+
+# Unicode in strings - parser may have issues with unicode
+# unicode_test(X) :- X = "hello world".
+
+# Multiple transforms (if supported)
+# multi_transform(Sum, Count) :- numbers(N) |> do fn:group_by(), let Sum = fn:sum(N), let Count = fn:count().
+
+# Deeply nested structure
+deep_struct(S) :- S = fn:struct(/outer, fn:struct(/inner, fn:struct(/deep, 42))).
+
+# =============================================================================
+# SECTION 43: Valid comparison operators (for reference)
+# =============================================================================
+
+# All valid comparison predicates
+cmp_lt(X) :- numbers(X), :lt(X, 5).
+cmp_le(X) :- numbers(X), :le(X, 5).
+cmp_gt(X) :- numbers(X), :gt(X, 5).
+cmp_ge(X) :- numbers(X), :ge(X, 5).
+
+# =============================================================================
+# SECTION 44: Valid functions (for reference)
+# =============================================================================
+
+# Arithmetic
+fn_add(X, Y) :- numbers(X), Y = fn:add(X, 1).
+fn_sub(X, Y) :- numbers(X), Y = fn:sub(X, 1).
+fn_mult(X, Y) :- numbers(X), Y = fn:mult(X, 2).
+fn_div(X, Y) :- numbers(X), X > 0, Y = fn:div(10, X).
+
+# Aggregation
+agg_sum(S) :- numbers(N) |> do fn:group_by(), let S = fn:sum(N).
+agg_count(C) :- numbers(N) |> do fn:group_by(), let C = fn:count().
+agg_max(M) :- numbers(N) |> do fn:group_by(), let M = fn:max(N).
+agg_min(M) :- numbers(N) |> do fn:group_by(), let M = fn:min(N).
+agg_collect(L) :- numbers(N) |> do fn:group_by(), let L = fn:collect(N).
+
+# =============================================================================
+# END OF TEST FILE
+# =============================================================================
