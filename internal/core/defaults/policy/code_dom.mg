@@ -1,6 +1,75 @@
 # Code DOM Rules
 # Section 22 of Cortex Executive Policy
 
+# EDB Declarations
+Decl active_file(File).
+Decl file_in_scope(File, Reason, Context, Timestamp).
+Decl code_element(Ref, Type, File, Span, Extra).
+Decl code_interactable(Ref, Action).
+Decl element_signature(Ref, Sig).
+Decl element_parent(Child, Parent).
+Decl high_element_count_flag().
+Decl user_intent(ID, Category, Action, Target, Params).
+Decl file_topology(File, Lang, Type, IsTest, IsMock).
+Decl modified(File).
+Decl code_edit_outcome(Ref, EditType, Success, Timestamp).
+Decl element_visibility(Ref, Visibility).
+Decl api_handler_function(Ref, Method, Path).
+Decl generated_code(File, Generator, Timestamp).
+Decl cgo_code(File).
+Decl file_hash_mismatch(File, Expected, Actual).
+Decl element_stale(Ref, Reason).
+Decl element_modified(Ref, Diff, Timestamp).
+Decl parse_error(File, Line, Message).
+Decl api_client_function(Ref, Service, Endpoint).
+Decl shard_result(TaskID, Status, ShardType, Description, Meta).
+Decl pending_test(TaskID, Description).
+Decl pending_review(TaskID, Description).
+Decl interrupt_requested().
+Decl pending_clarification(Ref, Question, Context).
+Decl continuation_step(Current, Max).
+Decl max_continuation_steps(Limit).
+Decl pending_subtask_count_computed(Count).
+Decl copular_verb(Verb, Type, Priority).
+Decl state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
+Decl churn_rate(File, Rate).
+
+# IDB Declarations
+Decl in_scope(File).
+Decl editable(Ref).
+Decl function_in_scope(Ref, File, Sig).
+Decl method_in_scope(Ref, File, Sig).
+Decl method_of(MethodRef, StructRef).
+Decl code_contains(Parent, Child).
+Decl safe_to_modify(Ref).
+Decl element_count_high().
+Decl requires_campaign(Intent).
+Decl next_action(Action).
+Decl scope_refreshed(File).
+Decl successful_edit(Ref, EditType).
+Decl failed_edit(Ref, EditType).
+Decl proven_safe_edit(Ref, EditType).
+Decl promote_to_long_term(Category, Value).
+Decl activation(Ref, Score).
+Decl has_external_callers(Ref).
+Decl breaking_change_risk(Ref, Level, Reason).
+Decl edit_unsafe(Ref, Reason).
+Decl interface_impl(StructRef, InterfaceRef).
+Decl mock_file(TestFile, SourceFile).
+Decl suggest_update_mocks(Ref).
+Decl file_modified_externally(Path).
+Decl needs_scope_refresh().
+Decl element_edit_blocked(Ref, Reason).
+Decl requires_integration_test(Ref).
+Decl requires_contract_check(Ref).
+Decl api_edit_warning(Ref, Reason).
+Decl has_pending_subtask(TaskID, Description, ShardType).
+Decl continuation_blocked(Reason).
+Decl has_continuation_block().
+Decl should_auto_continue().
+Decl has_blocking_condition().
+Decl pending_subtask_count(Count).
+
 
 # File Scope Rules
 

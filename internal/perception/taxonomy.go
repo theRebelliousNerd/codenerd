@@ -82,7 +82,11 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	}
 
 	// Load declarations and logic (Must be loaded AFTER learning.mg)
-	if err := eng.LoadSchemaString(InferenceLogicMG); err != nil {
+	inferenceLogic, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inference logic content: %w", err)
+	}
+	if err := eng.LoadSchemaString(inferenceLogic); err != nil {
 		return nil, fmt.Errorf("failed to load inference logic: %w", err)
 	}
 
@@ -334,8 +338,13 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	}
 
 	// 2. Reload Inference Logic - ALWAYS REQUIRED
-	if err := t.engine.LoadSchemaString(InferenceLogicMG); err != nil {
-		logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
+	inferenceLogic, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
+	if err == nil {
+		if err := t.engine.LoadSchemaString(inferenceLogic); err != nil {
+			logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
+		}
+	} else {
+		logging.PerceptionDebug("Failed to get inference logic content: %v", err)
 	}
 
 	// 3. Re-hydrate Verb Taxonomy (EDB facts)
