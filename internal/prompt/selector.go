@@ -40,6 +40,55 @@ func isSkeletonCategory(cat AtomCategory) bool {
 	return skeletonCategories[cat]
 }
 
+func normalizeTagValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "/")
+	return strings.ToLower(value)
+}
+
+func isMangleMandatoryContext(cc *CompilationContext) bool {
+	if cc == nil {
+		return false
+	}
+	shard := normalizeTagValue(cc.ShardType)
+	if shard != "legislator" && shard != "mangle_repair" {
+		return false
+	}
+	return normalizeTagValue(cc.Language) == "mangle"
+}
+
+func atomHasLanguage(atom *PromptAtom, language string) bool {
+	if atom == nil {
+		return false
+	}
+	target := normalizeTagValue(language)
+	if target == "" {
+		return false
+	}
+	for _, lang := range atom.Languages {
+		if normalizeTagValue(lang) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldForceMandatoryAtom(cc *CompilationContext, atom *PromptAtom) bool {
+	return isMangleMandatoryContext(cc) && atomHasLanguage(atom, "mangle")
+}
+
+func applyMandatoryOverride(cc *CompilationContext, atom *PromptAtom) *PromptAtom {
+	if atom == nil || atom.IsMandatory {
+		return atom
+	}
+	if !shouldForceMandatoryAtom(cc, atom) {
+		return atom
+	}
+	clone := *atom
+	clone.IsMandatory = true
+	return &clone
+}
+
 // ScoredAtom is an atom with its selection score.
 // The score determines priority when fitting within budget.
 type ScoredAtom struct {
@@ -298,13 +347,19 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	addContextFact("intent", cc.IntentVerb)
 	addContextFact("shard", cc.ShardID)
 
+	forceMangleMandatory := isMangleMandatoryContext(cc)
+
 	// Candidate Facts
 	for _, atom := range atoms {
 		id := atom.ID
+		isMandatory := atom.IsMandatory
+		if forceMangleMandatory && atomHasLanguage(atom, "mangle") {
+			isMandatory = true
+		}
 		facts = append(facts, fmt.Sprintf("atom('%s')", id))
 		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
 		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
-		if atom.IsMandatory {
+		if isMandatory {
 			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
 		}
 
@@ -380,6 +435,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 		source := extractStringArg(fact.Args[2])
 
 		if atom, exists := atomMap[atomID]; exists {
+			atom = applyMandatoryOverride(cc, atom)
 			// Calculate scores locally
 			score := 1.0
 			vScore := vectorScores[atomID]
@@ -526,6 +582,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 		if !exists {
 			continue
 		}
+		atom = applyMandatoryOverride(cc, atom)
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,
@@ -645,6 +702,7 @@ func (s *AtomSelector) loadFleshAtoms(
 		if !exists {
 			continue
 		}
+		atom = applyMandatoryOverride(cc, atom)
 
 		// Calculate combined score
 		vScore := vectorScores[atomID]
@@ -682,6 +740,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 		if !atom.MatchesContext(cc) {
 			continue
 		}
+		atom = applyMandatoryOverride(cc, atom)
 
 		// Calculate score
 		vScore := vectorScores[atom.ID]
@@ -791,28 +850,31 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	  for _, ws := range cc.WorldStates() {
 			addContextFact("state", ws)
 		}
-	
-		// Candidate Facts
-		for _, atom := range atoms {
-			id := atom.ID
-			facts = append(facts, fmt.Sprintf("atom('%s')", id))
-			facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
-			facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
-			if atom.IsMandatory {
-				facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
-			}
+
+	forceMangleMandatory := isMangleMandatoryContext(cc)
+
+	// Candidate Facts
+	for _, atom := range atoms {
+		id := atom.ID
+		isMandatory := atom.IsMandatory
+		if forceMangleMandatory && atomHasLanguage(atom, "mangle") {
+			isMandatory = true
+		}
+		facts = append(facts, fmt.Sprintf("atom('%s')", id))
+		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
+		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
+		if isMandatory {
+			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+		}
 	
 					// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
 	
 					// prompt_atom(ID, Category, Priority, Hash, IsMandatory)
 	
-					isMandatoryAtom := "/false"
-	
-					if atom.IsMandatory {
-	
-						isMandatoryAtom = "/true"
-	
-					}
+		isMandatoryAtom := "/false"
+		if isMandatory {
+			isMandatoryAtom = "/true"
+		}
 	
 					hash := atom.ContentHash
 	
