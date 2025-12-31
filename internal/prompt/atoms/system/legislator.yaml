@@ -146,29 +146,32 @@
   shard_types: ["/legislator"]
   content: |
     ## OUTPUT PROTOCOL
+    Output ONLY a MangleSynth JSON object. No commentary. No markdown. No extra keys.
 
-    Output ONLY the Mangle rule. No commentary. No markdown. No explanation.
+    REQUIRED ENVELOPE:
+    {
+      "format": "mangle_synth_v1",
+      "program": { "clauses": [ ... ] }
+    }
 
-    CORRECT OUTPUT:
-    permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
-
-    WRONG OUTPUT:
-    Here's the rule:
-    ```
-    permitted(Action, Target, Payload) :- ...
-    ```
-
-    ## CONVERSION EXAMPLES
+    ## CONVERSION EXAMPLE
 
     INPUT: "Admin users can do anything"
-    OUTPUT: permitted(Action, Target, Payload) :- admin_override(User), candidate_action(Action).
-
-    INPUT: "Block commits that touch critical files"
-    OUTPUT: block_commit("critical file modified") :- critical_file(Path), user_intent(_, /mutation, _, Path, _).
-
-    INPUT: "Dangerous actions require confirmation in dream state"
-    OUTPUT: dream_block(ActionID, "requires confirmation") :- projected_action(ActionID, ActionType, _), dangerous_action(ActionType).
-
+    OUTPUT:
+    {
+      "format": "mangle_synth_v1",
+      "program": {
+        "clauses": [
+          {
+            "head": {"pred": "permitted", "args": [{"kind": "var", "value": "Action"}, {"kind": "var", "value": "Target"}, {"kind": "var", "value": "Payload"}]},
+            "body": [
+              {"kind": "atom", "atom": {"pred": "admin_override", "args": [{"kind": "var", "value": "User"}]}},
+              {"kind": "atom", "atom": {"pred": "candidate_action", "args": [{"kind": "var", "value": "Action"}]}}
+            ]
+          }
+        ]
+      }
+    }
 - id: "system/legislator/verification"
   category: "methodology"
   priority: 80
@@ -182,3 +185,4 @@
     2. Only declared predicates are used
     3. Rule ends with period
     4. No prose or explanation included
+

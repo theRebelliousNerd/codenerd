@@ -10,6 +10,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
+	"codenerd/internal/mangle/synth"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
@@ -85,9 +86,13 @@ func NewLegislatorShard() *LegislatorShard {
 		Capability: types.CapabilityHighReasoning,
 	}
 
+	loop := feedback.NewFeedbackLoop(feedback.DefaultConfig())
+	loop.SetSynthMode(feedback.SynthModeRequire, synth.Options{
+		RequireSingleClause: true,
+	})
 	return &LegislatorShard{
 		BaseSystemShard: base,
-		feedbackLoop:    feedback.NewFeedbackLoop(feedback.DefaultConfig()),
+		feedbackLoop:    loop,
 	}
 }
 
@@ -310,10 +315,10 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 // The feedback loop enhances this with syntax guidance and predicate lists.
 func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 	var sb strings.Builder
-	sb.WriteString("Translate the constraint into a single Mangle rule.\n")
-	sb.WriteString("Use name constants (/atom) for enums; end the rule with a period.\n")
+	sb.WriteString("Translate the constraint into a single MangleSynth JSON rule spec.\n")
+	sb.WriteString("Use name constants (/atom) for enums; ensure predicates are declared.\n")
 	sb.WriteString("Avoid inventing new predicates outside declared schemas; prefer permitted/next_action/safety rules.\n")
-	sb.WriteString("Return only the rule, no commentary.\n\n")
+	sb.WriteString("Return only the JSON object, no commentary.\n\n")
 	sb.WriteString("Constraint:\n")
 	sb.WriteString(directive)
 	return sb.String()

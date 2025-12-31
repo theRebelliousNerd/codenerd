@@ -365,6 +365,7 @@ func TestPromptBuilder_BuildFeedbackPrompt(t *testing.T) {
 		MaxAttempts:         3,
 		AvailablePredicates: []string{"test_state/1", "next_action/1"},
 		ValidExamples:       []string{`next_action(/run_tests) :- test_state(/failing).`},
+		OutputProtocol:      OutputProtocolRule,
 	}
 
 	result := pb.BuildFeedbackPrompt(ctx)
@@ -388,7 +389,7 @@ func TestPromptBuilder_BuildInitialPromptAdditions(t *testing.T) {
 	pb := NewPromptBuilder()
 
 	predicates := []string{"user_intent/5", "next_action/1", "permitted/1"}
-	result := pb.BuildInitialPromptAdditions(predicates)
+	result := pb.BuildInitialPromptAdditions(predicates, OutputProtocolRule)
 
 	// Check syntax reminders included
 	if !strings.Contains(result, "/atom") {

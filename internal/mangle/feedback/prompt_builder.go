@@ -40,9 +40,13 @@ func (pb *PromptBuilder) BuildFeedbackPrompt(ctx FeedbackContext) string {
 	sb.WriteString(fmt.Sprintf("\n## MANGLE VALIDATION ERROR (attempt %d/%d)\n\n",
 		ctx.AttemptNumber, ctx.MaxAttempts))
 
-	// Original rule that failed
+	// Original output that failed
 	if ctx.OriginalRule != "" {
-		sb.WriteString("Your previous rule:\n```mangle\n")
+		if ctx.OutputProtocol == OutputProtocolSynth {
+			sb.WriteString("Your previous JSON spec:\n```json\n")
+		} else {
+			sb.WriteString("Your previous rule:\n```mangle\n")
+		}
 		sb.WriteString(ctx.OriginalRule)
 		sb.WriteString("\n```\n\n")
 	}
@@ -90,8 +94,8 @@ func (pb *PromptBuilder) BuildFeedbackPrompt(ctx FeedbackContext) string {
 	}
 
 	// Final instruction
-	sb.WriteString("\nPlease regenerate the rule, fixing the above errors.\n")
-	sb.WriteString("Respond with ONLY the corrected Mangle rule. No explanation.\n")
+	sb.WriteString("\nPlease regenerate the output, fixing the above errors.\n")
+	sb.WriteString(outputProtocolInstructions(ctx.OutputProtocol))
 
 	return sb.String()
 }
@@ -163,7 +167,7 @@ func (pb *PromptBuilder) buildFinalAttemptAdditions(ctx FeedbackContext) string 
 }
 
 // BuildInitialPromptAdditions returns syntax guidance to add to initial prompts.
-func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string) string {
+func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, outputProtocol OutputProtocol) string {
 	var sb strings.Builder
 
 	sb.WriteString(pb.MangleSyntaxReminder)
@@ -185,17 +189,44 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string) string
 		}
 	}
 
-	sb.WriteString("\n## Example Rules:\n")
-	sb.WriteString("```mangle\n")
-	sb.WriteString("# Derive action based on state\n")
-	sb.WriteString("next_action(/run_tests) :- test_state(/failing), !build_state(/broken).\n\n")
-	sb.WriteString("# Strategy activation\n")
-	sb.WriteString("active_strategy(/tdd_repair_loop) :- diagnostic(/error, _, _, _, _).\n\n")
-	sb.WriteString("# Block commit on condition\n")
-	sb.WriteString("block_commit(/unsafe_changes) :- modified(F), !test_coverage(F).\n")
-	sb.WriteString("```\n")
+	if outputProtocol == OutputProtocolSynth {
+		sb.WriteString("\n## Output Format (MangleSynth JSON):\n")
+		sb.WriteString("```json\n")
+		sb.WriteString("{\n")
+		sb.WriteString("  \"format\": \"mangle_synth_v1\",\n")
+		sb.WriteString("  \"program\": {\n")
+		sb.WriteString("    \"clauses\": [\n")
+		sb.WriteString("      {\n")
+		sb.WriteString("        \"head\": {\"pred\": \"next_action\", \"args\": [{\"kind\": \"name\", \"value\": \"/run_tests\"}]},\n")
+		sb.WriteString("        \"body\": [\n")
+		sb.WriteString("          {\"kind\": \"atom\", \"atom\": {\"pred\": \"test_state\", \"args\": [{\"kind\": \"name\", \"value\": \"/failing\"}]}},\n")
+		sb.WriteString("          {\"kind\": \"not\", \"atom\": {\"pred\": \"build_state\", \"args\": [{\"kind\": \"name\", \"value\": \"/broken\"}]}}\n")
+		sb.WriteString("        ]\n")
+		sb.WriteString("      }\n")
+		sb.WriteString("    ]\n")
+		sb.WriteString("  }\n")
+		sb.WriteString("}\n")
+		sb.WriteString("```\n")
+	} else {
+		sb.WriteString("\n## Example Rules:\n")
+		sb.WriteString("```mangle\n")
+		sb.WriteString("# Derive action based on state\n")
+		sb.WriteString("next_action(/run_tests) :- test_state(/failing), !build_state(/broken).\n\n")
+		sb.WriteString("# Strategy activation\n")
+		sb.WriteString("active_strategy(/tdd_repair_loop) :- diagnostic(/error, _, _, _, _).\n\n")
+		sb.WriteString("# Block commit on condition\n")
+		sb.WriteString("block_commit(/unsafe_changes) :- modified(F), !test_coverage(F).\n")
+		sb.WriteString("```\n")
+	}
 
 	return sb.String()
+}
+
+func outputProtocolInstructions(protocol OutputProtocol) string {
+	if protocol == OutputProtocolSynth {
+		return "Respond with ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.\n"
+	}
+	return "Respond with ONLY the corrected Mangle rule. No explanation.\n"
 }
 
 func extractRuleFromJSON(response string) string {
