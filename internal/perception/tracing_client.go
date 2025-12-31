@@ -168,6 +168,75 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 	return response, err
 }
 
+// SchemaCapable reports whether the underlying client supports schema enforcement.
+func (tc *TracingLLMClient) SchemaCapable() bool {
+	if checker, ok := tc.underlying.(interface{ SchemaCapable() bool }); ok {
+		return checker.SchemaCapable()
+	}
+	_, ok := tc.underlying.(core.SchemaCapableLLMClient)
+	return ok
+}
+
+// CompleteWithSchema implements schema-enforced completion with trace capture.
+func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	// Capture current context
+	tc.mu.RLock()
+	shardID := tc.shardID
+	shardType := tc.shardType
+	shardCategory := tc.shardCategory
+	sessionID := tc.sessionID
+	taskContext := tc.taskContext
+	tc.mu.RUnlock()
+
+	start := time.Now()
+	logging.API("LLM schema call started: shard=%s type=%s prompt_len=%d", shardID, shardType, len(userPrompt))
+
+	schemaClient, ok := core.AsSchemaCapable(tc.underlying)
+	if !ok {
+		return "", core.ErrSchemaNotSupported
+	}
+
+	// Make the actual LLM call
+	response, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+
+	duration := time.Since(start)
+	if err != nil {
+		logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+	} else {
+		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
+	}
+
+	trace := &ReasoningTrace{
+		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+		ShardID:       shardID,
+		ShardType:     shardType,
+		ShardCategory: shardCategory,
+		SessionID:     sessionID,
+		TaskContext:   taskContext,
+		SystemPrompt:  systemPrompt,
+		UserPrompt:    userPrompt,
+		Response:      response,
+		DurationMs:    duration.Milliseconds(),
+		Success:       err == nil,
+		Timestamp:     time.Now(),
+	}
+
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+
+	// Store trace asynchronously to not block execution
+	if tc.store != nil {
+		go func() {
+			if storeErr := tc.store.StoreReasoningTrace(trace); storeErr != nil {
+				logging.APIDebug("Failed to store reasoning trace: %v", storeErr)
+			}
+		}()
+	}
+
+	return response, err
+}
+
 type streamingChannelsClient interface {
 	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
 }

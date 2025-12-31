@@ -450,6 +450,23 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 }
 
+// CompleteWithSchema makes a scheduled LLM call with response schema enforcement.
+func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	// Acquire slot (blocks until available)
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		return "", fmt.Errorf("failed to acquire API slot: %w", err)
+	}
+
+	// Always release the slot when done
+	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+
+	// Make the actual LLM call
+	if sc, ok := AsSchemaCapable(c.Client); ok {
+		return sc.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+	}
+	return "", ErrSchemaNotSupported
+}
+
 // CompleteWithTools makes an LLM call with tools and cooperative scheduling.
 // Acquires a slot, makes the call, releases the slot.
 func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -487,6 +504,15 @@ func (c *ScheduledLLMCall) ClearShardContext() {
 	if tc, ok := c.Client.(tracingContextSetter); ok {
 		tc.ClearShardContext()
 	}
+}
+
+// SchemaCapable reports whether the wrapped client supports schema enforcement.
+func (c *ScheduledLLMCall) SchemaCapable() bool {
+	if checker, ok := c.Client.(interface{ SchemaCapable() bool }); ok {
+		return checker.SchemaCapable()
+	}
+	_, ok := c.Client.(SchemaCapableLLMClient)
+	return ok
 }
 
 type llmStreamingChannels interface {

@@ -246,14 +246,33 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 				"rule":          currentRule,
 			})
 		}
-		rawResponse, err := llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
-		if traceLLMIO {
-			fields := map[string]interface{}{
-				"shard_id":     m.ID,
-				"attempt":      attempt,
-				"response":     rawResponse,
-				"response_len": len(rawResponse),
-			}
+				var rawResponse string
+				var err error
+				schemaJSON := synth.SchemaV1SingleClauseJSON()
+				schemaUsed := false
+				if schemaJSON != "" {
+					if schemaClient, ok := core.AsSchemaCapable(llmClient); ok {
+						rawResponse, err = schemaClient.CompleteWithSchema(ctx, systemPrompt, repairPrompt, schemaJSON)
+						if err != nil && stderrors.Is(err, core.ErrSchemaNotSupported) {
+							logging.SystemShardsDebug("[MangleRepair] Schema enforcement not supported, falling back")
+							rawResponse = ""
+							err = nil
+						} else if err == nil {
+							schemaUsed = true
+						}
+					}
+				}
+				if rawResponse == "" && err == nil {
+					rawResponse, err = llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
+				}
+				if traceLLMIO {
+					fields := map[string]interface{}{
+						"shard_id":     m.ID,
+						"attempt":      attempt,
+						"schema_used":  schemaUsed,
+						"response":     rawResponse,
+						"response_len": len(rawResponse),
+					}
 			if err != nil {
 				fields["error"] = err.Error()
 			}

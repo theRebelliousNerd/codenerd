@@ -14,6 +14,8 @@ type LLMClient = types.LLMClient
 // Defined in core so wrappers (scheduler) can return a shared sentinel without importing
 // perception and creating cycles.
 var ErrStreamingNotSupported = errors.New("streaming not supported")
+// ErrSchemaNotSupported is returned when a client doesn't support response schema validation.
+var ErrSchemaNotSupported = errors.New("schema validation not supported")
 
 // SchemaCapableLLMClient extends LLMClient with JSON Schema validation.
 // This is an optional capability - use AsSchemaCapable() to check and convert.
@@ -37,7 +39,18 @@ type SchemaCapableLLMClient interface {
 //	}
 func AsSchemaCapable(client LLMClient) (SchemaCapableLLMClient, bool) {
 	sc, ok := client.(SchemaCapableLLMClient)
-	return sc, ok
+	if !ok {
+		return nil, false
+	}
+	type schemaCapability interface {
+		SchemaCapable() bool
+	}
+	if checker, ok := client.(schemaCapability); ok {
+		if !checker.SchemaCapable() {
+			return nil, false
+		}
+	}
+	return sc, true
 }
 
 // TracingClient extends LLMClient with context-setting for trace capture.
