@@ -47,8 +47,8 @@ type ModelCapability string
 
 const (
 	CapabilityHighReasoning ModelCapability = "high_reasoning" // e.g. Claude 3.5 Sonnet, GPT-4o
-	CapabilityBalanced      ModelCapability = "balanced"       // e.g. Gemini 2.5 Pro
-	CapabilityHighSpeed     ModelCapability = "high_speed"     // e.g. Gemini 2.5 Flash, Haiku
+	CapabilityBalanced      ModelCapability = "balanced"       // e.g. Gemini 3 Pro
+	CapabilityHighSpeed     ModelCapability = "high_speed"     // e.g. Gemini 3 Flash, Haiku
 )
 
 // ModelConfig defines the LLM requirements for a shard.

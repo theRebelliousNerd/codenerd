@@ -174,7 +174,6 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		if config.Gemini != nil {
 			geminiCfg.EnableThinking = config.Gemini.EnableThinking
 			geminiCfg.ThinkingLevel = config.Gemini.ThinkingLevel
-			geminiCfg.ThinkingBudget = config.Gemini.ThinkingBudget
 			geminiCfg.EnableGoogleSearch = config.Gemini.EnableGoogleSearch
 			geminiCfg.EnableURLContext = config.Gemini.EnableURLContext
 		}

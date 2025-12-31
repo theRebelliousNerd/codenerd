@@ -107,7 +107,7 @@ var ProviderModels = map[string][]string{
 	"zai":       {"glm-4.6", "glm-4", "glm-4-air"},
 	"anthropic": {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
 	"openai":    {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
-	"gemini":    {"gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"},
+	"gemini":    {"gemini-3-flash-preview", "gemini-3-pro-preview"},
 	"xai":       {"grok-2-latest", "grok-2", "grok-beta"},
 	"openrouter": {
 		// Anthropic via OpenRouter
@@ -121,8 +121,7 @@ var ProviderModels = map[string][]string{
 		"openai/o1-mini",
 		// Google via OpenRouter
 		"google/gemini-3-flash-preview",
-		"google/gemini-2.0-flash-exp:free",
-		"google/gemini-pro-1.5",
+		"google/gemini-3-pro-preview",
 		// Meta Llama
 		"meta-llama/llama-3.1-405b-instruct",
 		"meta-llama/llama-3.1-70b-instruct",

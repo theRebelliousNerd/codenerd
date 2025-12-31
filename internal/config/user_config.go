@@ -13,7 +13,7 @@ import (
 // Supported models by provider:
 //   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
 //   - openai:      gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
-//   - gemini:      gemini-3-flash-preview (default), gemini-3-pro-preview, gemini-2.5-pro, gemini-2.5-flash
+//   - gemini:      gemini-3-flash-preview (default), gemini-3-pro-preview
 //   - xai:         grok-2-latest (default), grok-2, grok-beta
 //   - zai:         GLM-4.6 (default)
 //   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.
@@ -745,7 +745,7 @@ func (c *UserConfig) GetGeminiConfig() *GeminiProviderConfig {
 	if c.Gemini != nil {
 		cfg := *c.Gemini
 		// Apply defaults for thinking level if thinking is enabled but level not set
-		if cfg.EnableThinking && cfg.ThinkingLevel == "" && cfg.ThinkingBudget == 0 {
+		if cfg.EnableThinking && cfg.ThinkingLevel == "" {
 			cfg.ThinkingLevel = "high" // Dynamic reasoning - maximizes reasoning depth
 		}
 		return &cfg

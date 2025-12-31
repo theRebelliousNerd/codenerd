@@ -545,7 +545,7 @@ Each item includes: severity, symptom, root cause, fix, and test.
 - **Severity:** Medium
 - **Symptom:** The Constitution and Router cannot propose new rules or routes despite having logic to do so (`handleAutopoiesis`).
 - **Root Cause:** `NewConstitutionGateShard` and `NewTactileRouterShard` explicitly initialize with empty `ModelConfig{}`. Unless `ShardManager` forcibly overrides this during hydration, these shards have `nil` LLM clients, causing `handleAutopoiesis` to abort silently.
-- **Fix:** Update `ShardManager` to inject a low-cost model (e.g., 2.5-flash) into system shards specifically for autopoiesis tasks, or update their constructors to request one.
+- **Fix:** Update `ShardManager` to inject a low-cost model (e.g., Gemini 3 Flash) into system shards specifically for autopoiesis tasks, or update their constructors to request one.
 - **Test:** Verify `LLMClient` is not nil inside `ConstitutionGateShard` during runtime.
 
 ### 11.11 Audit Fact Type Mismatch

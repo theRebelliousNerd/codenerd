@@ -3,8 +3,8 @@ package perception
 import (
 	"bufio"
 	"bytes"
-	"codenerd/internal/logging"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,17 +17,18 @@ import (
 
 // GeminiClient implements LLMClient for Google Gemini API.
 type GeminiClient struct {
-	apiKey      string
-	baseURL     string
-	model       string
-	httpClient  *http.Client
-	mu          sync.Mutex
-	lastRequest time.Time
+	apiKey                string
+	baseURL               string
+	model                 string
+	maxOutputTokens       int
+	maxOutputTokensConfig bool
+	httpClient            *http.Client
+	mu                    sync.Mutex
+	lastRequest           time.Time
 
 	// Thinking mode settings
 	enableThinking bool
-	thinkingLevel  string // "Low", "Medium", "High", "Minimal"
-	thinkingBudget int    // For Gemini 2.5: 128-32768
+	thinkingLevel  string // Gemini 3: minimal/low/medium/high (lowercase)
 
 	// Built-in tools
 	enableGoogleSearch bool
@@ -36,6 +37,7 @@ type GeminiClient struct {
 
 	// Multi-turn function calling: thought signature from last response
 	lastThoughtSignature string
+	lastToolCalls        []geminiToolCall
 
 	// Grounding sources from last response (for transparency)
 	lastGroundingSources []string
@@ -45,14 +47,21 @@ type GeminiClient struct {
 	lastThinkingTokens int
 }
 
+type geminiToolCall struct {
+	id        string
+	name      string
+	signature string
+}
+
 // DefaultGeminiConfig returns sensible defaults.
-// Uses gemini-2.5-flash - Google's fast multimodal model with 1M token context.
+// Uses gemini-3-flash-preview - 1M context, 64K output, Gemini 3 thinking by default.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
-		APIKey:  apiKey,
-		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
-		Model:   "gemini-2.5-flash",
-		Timeout: 10 * time.Minute, // Large context models need extended timeout
+		APIKey:          apiKey,
+		BaseURL:         "https://generativelanguage.googleapis.com/v1beta",
+		Model:           "gemini-3-flash-preview",
+		Timeout:         10 * time.Minute, // Large context models need extended timeout
+		MaxOutputTokens: 65536,
 	}
 }
 
@@ -64,28 +73,52 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 
 // NewGeminiClientWithConfig creates a new Gemini client with custom config.
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
-	// Default thinking level for Gemini 3 (must be lowercase)
-	thinkingLevel := config.ThinkingLevel
-	if thinkingLevel == "" && config.EnableThinking {
-		thinkingLevel = "high" // Default to "high" for maximum reasoning depth
+	model := strings.TrimSpace(config.Model)
+	if model == "" {
+		model = "gemini-3-flash-preview"
+	}
+
+	maxOutputTokens := config.MaxOutputTokens
+	maxOutputTokensConfigured := config.MaxOutputTokens > 0
+	if !maxOutputTokensConfigured {
+		maxOutputTokens = defaultMaxOutputTokensForModel(model)
+	}
+
+	thinkingLevel := strings.ToLower(strings.TrimSpace(config.ThinkingLevel))
+	if config.EnableThinking {
+		if thinkingLevel == "" {
+			thinkingLevel = "high"
+		}
 	}
 
 	return &GeminiClient{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
+		apiKey:                config.APIKey,
+		baseURL:               config.BaseURL,
+		model:                 model,
+		maxOutputTokens:       maxOutputTokens,
+		maxOutputTokensConfig: maxOutputTokensConfigured,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
 		// Thinking mode
 		enableThinking: config.EnableThinking,
 		thinkingLevel:  thinkingLevel,
-		thinkingBudget: config.ThinkingBudget,
 		// Built-in tools
 		enableGoogleSearch: config.EnableGoogleSearch,
 		enableURLContext:   config.EnableURLContext,
 		urlContextURLs:     config.URLContextURLs,
 	}
+}
+
+func isGemini3Model(model string) bool {
+	return strings.Contains(strings.ToLower(model), "gemini-3")
+}
+
+func defaultMaxOutputTokensForModel(model string) int {
+	if isGemini3Model(model) {
+		return 65536
+	}
+	return 65536
 }
 
 // buildThinkingConfig creates a GeminiThinkingConfig if thinking is enabled.
@@ -98,17 +131,61 @@ func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
 		IncludeThoughts: true,
 	}
 
-	// For Gemini 3: use thinkingLevel
-	if c.thinkingLevel != "" {
-		cfg.ThinkingLevel = c.thinkingLevel
+	level := c.thinkingLevel
+	if level == "" {
+		level = "high"
 	}
-
-	// For Gemini 2.5: use thinkingBudget (if specified)
-	if c.thinkingBudget > 0 {
-		cfg.ThinkingBudget = c.thinkingBudget
-	}
+	cfg.ThinkingLevel = level
 
 	return cfg
+}
+
+func (c *GeminiClient) captureThoughtSignature(resp *GeminiResponse) {
+	if resp == nil {
+		return
+	}
+	if resp.ThoughtSignature != "" {
+		c.lastThoughtSignature = resp.ThoughtSignature
+	}
+	if len(resp.Candidates) == 0 {
+		return
+	}
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.FunctionCall != nil && part.FunctionCall.ThoughtSignature != "" {
+			c.lastThoughtSignature = part.FunctionCall.ThoughtSignature
+			return
+		}
+		if part.ThoughtSignature != "" {
+			c.lastThoughtSignature = part.ThoughtSignature
+			return
+		}
+	}
+}
+
+func (c *GeminiClient) extractToolCalls(resp *GeminiResponse) []geminiToolCall {
+	if resp == nil || len(resp.Candidates) == 0 {
+		return nil
+	}
+	responseSignature := resp.ThoughtSignature
+	calls := make([]geminiToolCall, 0, len(resp.Candidates[0].Content.Parts))
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.FunctionCall == nil {
+			continue
+		}
+		signature := part.FunctionCall.ThoughtSignature
+		if signature == "" {
+			signature = part.ThoughtSignature
+		}
+		if signature == "" {
+			signature = responseSignature
+		}
+		calls = append(calls, geminiToolCall{
+			id:        fmt.Sprintf("call_%d", len(calls)),
+			name:      part.FunctionCall.Name,
+			signature: signature,
+		})
+	}
+	return calls
 }
 
 // buildBuiltInTools creates GeminiTool entries for enabled built-in tools.
@@ -259,8 +336,8 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			Parts: []GeminiPart{{Text: systemPrompt}},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     0.1,
-			MaxOutputTokens: 4096,
+			Temperature:     1.0,
+			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},
 		Tools: c.buildBuiltInTools(),
@@ -313,13 +390,14 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			// Some models may reject response_schema; retry once without it.
+			// Some models may reject responseJsonSchema; retry once without it.
 			if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
 				bodyStr := string(body)
-				if strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
+				if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") ||
+					strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
 					reqBody.GenerationConfig.ResponseSchema = nil
 					reqBody.GenerationConfig.ResponseMimeType = ""
-					lastErr = fmt.Errorf("request rejected structured output, retrying without response_schema: %s", bodyStr)
+					lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
 					continue
 				}
 			}
@@ -335,18 +413,13 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("API error: %s", geminiResp.Error.Message)
 		}
 
+		c.captureThoughtSignature(&geminiResp)
+		c.lastThoughtSummary = geminiResp.ThoughtSummary
+		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+
 		if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 			return "", fmt.Errorf("no completion returned")
 		}
-
-		// Capture thought signature for multi-turn function calling (Gemini 3)
-		if geminiResp.ThoughtSignature != "" {
-			c.lastThoughtSignature = geminiResp.ThoughtSignature
-		}
-
-		// Capture thinking metadata for SPL learning
-		c.lastThoughtSummary = geminiResp.ThoughtSummary
-		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 
 		var result strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
@@ -391,7 +464,7 @@ func (c *GeminiClient) SchemaCapable() bool {
 }
 
 // CompleteWithSchema sends a prompt and enforces a JSON schema in the response.
-// Uses Gemini generationConfig.response_schema with response_mime_type.
+// Uses Gemini generationConfig.responseJsonSchema with responseMimeType.
 func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
 	// Auto-apply timeout if context has no deadline (centralized timeout handling)
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
@@ -442,8 +515,8 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			Parts: []GeminiPart{{Text: systemPrompt}},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:      0.1,
-			MaxOutputTokens:  4096,
+			Temperature:      1.0,
+			MaxOutputTokens:  c.maxOutputTokens,
 			ThinkingConfig:   c.buildThinkingConfig(),
 			ResponseMimeType: "application/json",
 			ResponseSchema:   schema,
@@ -496,7 +569,9 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		if resp.StatusCode != http.StatusOK {
 			bodyStr := string(body)
 			if resp.StatusCode == http.StatusBadRequest &&
-				(strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") || strings.Contains(bodyStr, "responseSchema")) {
+				(strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") ||
+					strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") ||
+					strings.Contains(bodyStr, "responseSchema")) {
 				return "", core.ErrSchemaNotSupported
 			}
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, bodyStr)
@@ -511,18 +586,13 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("API error: %s", geminiResp.Error.Message)
 		}
 
+		c.captureThoughtSignature(&geminiResp)
+		c.lastThoughtSummary = geminiResp.ThoughtSummary
+		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+
 		if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 			return "", fmt.Errorf("no completion returned")
 		}
-
-		// Capture thought signature for multi-turn function calling (Gemini 3)
-		if geminiResp.ThoughtSignature != "" {
-			c.lastThoughtSignature = geminiResp.ThoughtSignature
-		}
-
-		// Capture thinking metadata for SPL learning
-		c.lastThoughtSummary = geminiResp.ThoughtSummary
-		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 
 		var result strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
@@ -617,8 +687,8 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				Parts: []GeminiPart{{Text: systemPrompt}},
 			},
 			GenerationConfig: GeminiGenerationConfig{
-				Temperature:     0.1,
-				MaxOutputTokens: 4096,
+				Temperature:     1.0,
+				MaxOutputTokens: c.maxOutputTokens,
 				ThinkingConfig:  c.buildThinkingConfig(),
 			},
 			Tools: c.buildBuiltInTools(),
@@ -670,13 +740,14 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
 
-				// Some models may reject response_schema; retry once without it.
+				// Some models may reject responseJsonSchema; retry once without it.
 				if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
 					bodyStr := string(body)
-					if strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
+					if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") ||
+						strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
 						reqBody.GenerationConfig.ResponseSchema = nil
 						reqBody.GenerationConfig.ResponseMimeType = ""
-						lastErr = fmt.Errorf("request rejected structured output, retrying without response_schema: %s", bodyStr)
+						lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
 						continue
 					}
 				}
@@ -716,10 +787,19 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
 						return
 					}
+					if chunk.ThoughtSignature != "" {
+						c.lastThoughtSignature = chunk.ThoughtSignature
+					}
 					if len(chunk.Candidates) == 0 {
 						continue
 					}
 					for _, part := range chunk.Candidates[0].Content.Parts {
+						if part.FunctionCall != nil && part.FunctionCall.ThoughtSignature != "" {
+							c.lastThoughtSignature = part.FunctionCall.ThoughtSignature
+						}
+						if part.ThoughtSignature != "" {
+							c.lastThoughtSignature = part.ThoughtSignature
+						}
 						if part.Text == "" {
 							continue
 						}
@@ -763,6 +843,9 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 // SetModel changes the model used for completions.
 func (c *GeminiClient) SetModel(model string) {
 	c.model = model
+	if !c.maxOutputTokensConfig {
+		c.maxOutputTokens = defaultMaxOutputTokensForModel(model)
+	}
 }
 
 // GetModel returns the current model.
@@ -786,6 +869,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key not configured")
 	}
+	c.lastToolCalls = nil
 
 	// Convert tools to Gemini format
 	geminiTools := make([]GeminiFunctionDeclaration, len(tools))
@@ -806,8 +890,8 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 			},
 		},
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     0.1,
-			MaxOutputTokens: 8192,
+			Temperature:     1.0,
+			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},
 	}
@@ -873,11 +957,11 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		return nil, fmt.Errorf("API error: %s", geminiResp.Error.Message)
 	}
 
-	// Capture thought signature for multi-turn function calling (Gemini 3)
-	// This is mandatory for Gemini 3 function calling - must be passed back in subsequent turns
-	if geminiResp.ThoughtSignature != "" {
-		c.lastThoughtSignature = geminiResp.ThoughtSignature
-	}
+	// Capture thought signatures/tool calls for Gemini 3 multi-turn continuity.
+	c.captureThoughtSignature(&geminiResp)
+	c.lastToolCalls = c.extractToolCalls(&geminiResp)
+	c.lastThoughtSummary = geminiResp.ThoughtSummary
+	c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 
 	// Parse response content into text and tool calls
 	result := &LLMToolResponse{}
@@ -886,8 +970,8 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	if geminiResp.ThoughtSummary != "" {
 		result.ThoughtSummary = geminiResp.ThoughtSummary
 	}
-	if geminiResp.ThoughtSignature != "" {
-		result.ThoughtSignature = geminiResp.ThoughtSignature
+	if c.lastThoughtSignature != "" {
+		result.ThoughtSignature = c.lastThoughtSignature
 	}
 	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
 		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
@@ -956,18 +1040,49 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		return nil, fmt.Errorf("API key not configured")
 	}
 
-	// Build tool result parts
-	var resultParts []GeminiPart
-	for _, tr := range toolResults {
-		resultParts = append(resultParts, GeminiPart{
-			FunctionResponse: &GeminiFunctionResponse{
-				Name: tr.ToolUseID, // Use tool ID as name reference
-				Response: map[string]interface{}{
-					"content":  tr.Content,
-					"is_error": tr.IsError,
+	// Build tool result parts (preserve Gemini 3 thought signature positions)
+	resultParts := make([]GeminiPart, 0, len(toolResults))
+	if len(c.lastToolCalls) > 0 {
+		resultsByID := make(map[string]ToolResult, len(toolResults))
+		for _, tr := range toolResults {
+			resultsByID[tr.ToolUseID] = tr
+		}
+		for _, call := range c.lastToolCalls {
+			tr, ok := resultsByID[call.id]
+			if !ok {
+				logging.PerceptionWarn("[Gemini] CompleteWithToolResults: missing tool result for %s", call.id)
+				continue
+			}
+			part := GeminiPart{
+				FunctionResponse: &GeminiFunctionResponse{
+					Name: call.name,
+					Response: map[string]interface{}{
+						"content":  tr.Content,
+						"is_error": tr.IsError,
+					},
 				},
-			},
-		})
+			}
+			signature := call.signature
+			if signature == "" {
+				signature = c.lastThoughtSignature
+			}
+			if signature != "" {
+				part.ThoughtSignature = signature
+			}
+			resultParts = append(resultParts, part)
+		}
+	} else {
+		for _, tr := range toolResults {
+			resultParts = append(resultParts, GeminiPart{
+				FunctionResponse: &GeminiFunctionResponse{
+					Name: tr.ToolUseID,
+					Response: map[string]interface{}{
+						"content":  tr.Content,
+						"is_error": tr.IsError,
+					},
+				},
+			})
+		}
 	}
 
 	// Append the tool results as a function role message
@@ -991,8 +1106,8 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		Contents:         allContents,
 		ThoughtSignature: c.lastThoughtSignature, // Pass back the previous signature
 		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     0.1,
-			MaxOutputTokens: 8192,
+			Temperature:     1.0,
+			MaxOutputTokens: c.maxOutputTokens,
 			ThinkingConfig:  c.buildThinkingConfig(),
 		},
 	}
@@ -1058,10 +1173,11 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		return nil, fmt.Errorf("API error: %s", geminiResp.Error.Message)
 	}
 
-	// Update thought signature for next turn
-	if geminiResp.ThoughtSignature != "" {
-		c.lastThoughtSignature = geminiResp.ThoughtSignature
-	}
+	// Update thought signatures/tool calls for next turn
+	c.captureThoughtSignature(&geminiResp)
+	c.lastToolCalls = c.extractToolCalls(&geminiResp)
+	c.lastThoughtSummary = geminiResp.ThoughtSummary
+	c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 
 	// Parse response
 	result := &LLMToolResponse{}
@@ -1070,8 +1186,8 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	if geminiResp.ThoughtSummary != "" {
 		result.ThoughtSummary = geminiResp.ThoughtSummary
 	}
-	if geminiResp.ThoughtSignature != "" {
-		result.ThoughtSignature = geminiResp.ThoughtSignature
+	if c.lastThoughtSignature != "" {
+		result.ThoughtSignature = c.lastThoughtSignature
 	}
 	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
 		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount

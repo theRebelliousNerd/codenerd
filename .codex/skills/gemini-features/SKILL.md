@@ -1,7 +1,7 @@
 ---
 name: gemini-features
 description: |
-  Master Google Gemini 3 API integration for codeNERD. This skill should be used when implementing Gemini-specific features including: thinking mode configuration (thinkingLevel vs thinkingBudget), thought signatures for multi-turn function calling, Google Search grounding, URL Context tool, document processing, and structured output. Covers Go implementation patterns, API request/response formats, and integration with codeNERD's perception layer. Use when writing or debugging Gemini client code, configuring thinking modes, or implementing grounding tools.
+  Master Google Gemini 3 API integration for codeNERD. This skill should be used when implementing Gemini-specific features including: thinking mode configuration (thinkingLevel), thought signatures for multi-turn function calling, Google Search grounding, URL Context tool, document processing, and structured output. Covers Go implementation patterns, API request/response formats, and integration with codeNERD's perception layer. Use when writing or debugging Gemini client code, configuring thinking modes, or implementing grounding tools.
 ---
 
 # Gemini Features Skill
@@ -10,14 +10,14 @@ Comprehensive guide for Google Gemini 3 API integration in codeNERD's Go codebas
 
 ## Quick Reference
 
-| Feature | Gemini 3 | Gemini 2.5 | codeNERD Location |
-|---------|----------|------------|-------------------|
-| Thinking Control | `thinkingLevel` (minimal/low/medium/high) | `thinkingBudget` (token count) | `client_gemini.go` |
-| Context Window | 1M tokens | 1M tokens | Config |
-| Output Limit | 64K tokens | 8K tokens | Config |
-| Thought Signatures | Required for function calling | Optional | `CompleteWithToolResults` |
-| Google Search | `{"google_search": {}}` | Same | `buildBuiltInTools()` |
-| URL Context | Max 20 URLs, 34MB each | Same | `SetURLContextURLs()` |
+| Feature | Gemini 3 | codeNERD Location |
+|---------|----------|-------------------|
+| Thinking Control | `thinkingLevel` (minimal/low/medium/high) | `client_gemini.go` |
+| Context Window | 1M tokens | Config |
+| Output Limit | 64K tokens | Config |
+| Thought Signatures | Required for function calling | `CompleteWithToolResults` |
+| Google Search | `{"googleSearch": {}}` | `buildBuiltInTools()` |
+| URL Context | Max 20 URLs, 34MB each | `SetURLContextURLs()` |
 
 ## Models
 
@@ -51,8 +51,6 @@ func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
 - `low` - Light reasoning
 - `medium` - Moderate reasoning (Flash only)
 - `high` - Maximum reasoning depth (default for codeNERD)
-
-For Gemini 2.5 compatibility, use `thinkingBudget` (token count 128-32768).
 
 ### Thought Signatures (CRITICAL for Multi-Turn)
 
