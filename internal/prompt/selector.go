@@ -40,6 +40,101 @@ func isSkeletonCategory(cat AtomCategory) bool {
 	return skeletonCategories[cat]
 }
 
+const (
+	mangleMandatoryTokenCap    = 150000
+	mangleMandatoryAtomCap     = 200
+	mangleMandatoryBudgetRatio = 0.75
+)
+
+func estimateAtomTokens(atom *PromptAtom) int {
+	if atom == nil {
+		return 0
+	}
+	if atom.TokenCount > 0 {
+		return atom.TokenCount
+	}
+	return EstimateTokens(atom.Content)
+}
+
+func mangleMandatoryLimits(cc *CompilationContext) (int, int) {
+	tokenCap := mangleMandatoryTokenCap
+	atomCap := mangleMandatoryAtomCap
+
+	if cc == nil || cc.TokenBudget <= 0 {
+		return tokenCap, atomCap
+	}
+
+	budget := cc.TokenBudget
+	if cc.ReservedTokens > 0 && cc.ReservedTokens < budget {
+		budget -= cc.ReservedTokens
+	}
+
+	budgetCap := int(float64(budget) * mangleMandatoryBudgetRatio)
+	if budgetCap > 0 && budgetCap < tokenCap {
+		tokenCap = budgetCap
+	}
+
+	if tokenCap < 0 {
+		tokenCap = 0
+	}
+
+	return tokenCap, atomCap
+}
+
+func selectMangleMandatoryIDs(cc *CompilationContext, atoms []*PromptAtom) map[string]struct{} {
+	if !isMangleMandatoryContext(cc) || len(atoms) == 0 {
+		return nil
+	}
+
+	candidates := make([]*PromptAtom, 0, len(atoms))
+	for _, atom := range atoms {
+		if atomHasLanguage(atom, "mangle") {
+			candidates = append(candidates, atom)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	tokenCap, atomCap := mangleMandatoryLimits(cc)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Priority != candidates[j].Priority {
+			return candidates[i].Priority > candidates[j].Priority
+		}
+		tokensI := estimateAtomTokens(candidates[i])
+		tokensJ := estimateAtomTokens(candidates[j])
+		if tokensI != tokensJ {
+			return tokensI < tokensJ
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+
+	selected := make(map[string]struct{}, len(candidates))
+	tokensUsed := 0
+	for _, atom := range candidates {
+		if atomCap > 0 && len(selected) >= atomCap {
+			break
+		}
+
+		tokens := estimateAtomTokens(atom)
+		if tokenCap > 0 && tokensUsed+tokens > tokenCap {
+			continue
+		}
+		selected[atom.ID] = struct{}{}
+		tokensUsed += tokens
+	}
+
+	if len(selected) < len(candidates) {
+		logging.Get(logging.CategoryContext).Debug(
+			"Mangle mandatory cap applied: selected %d/%d atoms, tokens=%d cap=%d",
+			len(selected), len(candidates), tokensUsed, tokenCap,
+		)
+	}
+
+	return selected
+}
+
 func normalizeTagValue(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(value, "/")
@@ -73,15 +168,14 @@ func atomHasLanguage(atom *PromptAtom, language string) bool {
 	return false
 }
 
-func shouldForceMandatoryAtom(cc *CompilationContext, atom *PromptAtom) bool {
-	return isMangleMandatoryContext(cc) && atomHasLanguage(atom, "mangle")
-}
-
-func applyMandatoryOverride(cc *CompilationContext, atom *PromptAtom) *PromptAtom {
+func applyMandatoryOverride(atom *PromptAtom, forcedMandatory map[string]struct{}) *PromptAtom {
 	if atom == nil || atom.IsMandatory {
 		return atom
 	}
-	if !shouldForceMandatoryAtom(cc, atom) {
+	if forcedMandatory == nil {
+		return atom
+	}
+	if _, ok := forcedMandatory[atom.ID]; !ok {
 		return atom
 	}
 	clone := *atom
@@ -189,10 +283,12 @@ func (s *AtomSelector) SelectAtoms(
 		return nil, nil
 	}
 
+	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
+
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL)
 	// =========================================================================
-	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc)
+	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {
 		return nil, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", err)
 	}
@@ -204,7 +300,7 @@ func (s *AtomSelector) SelectAtoms(
 	// =========================================================================
 	// PHASE 2: Load Flesh (probabilistic, degradable)
 	// =========================================================================
-	flesh, err := s.loadFleshAtoms(ctx, atoms, cc)
+	flesh, err := s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {
 		// Flesh failure is NOT critical - continue with skeleton only
 		logging.Get(logging.CategoryContext).Warn(
@@ -247,6 +343,8 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 		return nil, 0, nil
 	}
 
+	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
+
 	// Track vector search timing via the flesh atom loader
 	// The actual vector search happens inside loadFleshAtoms
 	var vectorMs int64
@@ -254,7 +352,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
 	// =========================================================================
-	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc)
+	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {
 		return nil, 0, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", err)
 	}
@@ -269,14 +367,14 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	var flesh []*ScoredAtom
 	if s.vectorSearcher != nil && cc != nil && cc.SemanticQuery != "" {
 		vectorStart := time.Now()
-		flesh, err = s.loadFleshAtoms(ctx, atoms, cc)
+		flesh, err = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
 		vectorMs = time.Since(vectorStart).Milliseconds()
 
 		logging.Get(logging.CategoryJIT).Debug(
 			"Vector-enabled flesh loading took %dms", vectorMs,
 		)
 	} else {
-		flesh, err = s.loadFleshAtoms(ctx, atoms, cc)
+		flesh, err = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
 	}
 
 	if err != nil {
@@ -347,14 +445,16 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	addContextFact("intent", cc.IntentVerb)
 	addContextFact("shard", cc.ShardID)
 
-	forceMangleMandatory := isMangleMandatoryContext(cc)
+	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
 
 	// Candidate Facts
 	for _, atom := range atoms {
 		id := atom.ID
 		isMandatory := atom.IsMandatory
-		if forceMangleMandatory && atomHasLanguage(atom, "mangle") {
-			isMandatory = true
+		if forcedMandatory != nil {
+			if _, ok := forcedMandatory[id]; ok {
+				isMandatory = true
+			}
 		}
 		facts = append(facts, fmt.Sprintf("atom('%s')", id))
 		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
@@ -435,7 +535,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 		source := extractStringArg(fact.Args[2])
 
 		if atom, exists := atomMap[atomID]; exists {
-			atom = applyMandatoryOverride(cc, atom)
+			atom = applyMandatoryOverride(atom, forcedMandatory)
 			// Calculate scores locally
 			score := 1.0
 			vScore := vectorScores[atomID]
@@ -505,6 +605,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
 	cc *CompilationContext,
+	forcedMandatory map[string]struct{},
 ) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadSkeletonAtoms")
 	defer timer.Stop()
@@ -526,7 +627,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	}
 
 	// Build facts for Mangle query
-	facts, err := s.buildContextFacts(cc, skeletonAtoms)
+	facts, err := s.buildContextFacts(cc, skeletonAtoms, forcedMandatory)
 	if err != nil {
 		return nil, fmt.Errorf("CRITICAL: failed to build skeleton context facts: %w", err)
 	}
@@ -582,7 +683,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 		if !exists {
 			continue
 		}
-		atom = applyMandatoryOverride(cc, atom)
+		atom = applyMandatoryOverride(atom, forcedMandatory)
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,
@@ -622,6 +723,7 @@ func (s *AtomSelector) loadFleshAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
 	cc *CompilationContext,
+	forcedMandatory map[string]struct{},
 ) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadFleshAtoms")
 	defer timer.Stop()
@@ -652,7 +754,7 @@ func (s *AtomSelector) loadFleshAtoms(
 	}
 
 	// Step 2: Build facts for Mangle
-	facts, err := s.buildContextFacts(cc, fleshAtoms)
+	facts, err := s.buildContextFacts(cc, fleshAtoms, forcedMandatory)
 	if err != nil {
 		// Fact building failure is logged but we continue
 		logging.Get(logging.CategoryContext).Warn("Failed to build flesh context facts: %v", err)
@@ -668,18 +770,18 @@ func (s *AtomSelector) loadFleshAtoms(
 	if s.kernel == nil {
 		// No kernel - fall back to context matching only
 		logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc), nil
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
 	if err := s.kernel.AssertBatch(facts); err != nil {
 		logging.Get(logging.CategoryContext).Warn("Failed to assert flesh facts: %v", err)
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc), nil
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
 	results, err := s.kernel.Query("selected_result(Atom, Priority, Source)")
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("Flesh query failed: %v", err)
-		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc), nil
+		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
 	// Step 4: Map results to ScoredAtoms
@@ -702,7 +804,7 @@ func (s *AtomSelector) loadFleshAtoms(
 		if !exists {
 			continue
 		}
-		atom = applyMandatoryOverride(cc, atom)
+		atom = applyMandatoryOverride(atom, forcedMandatory)
 
 		// Calculate combined score
 		vScore := vectorScores[atomID]
@@ -732,6 +834,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 	atoms []*PromptAtom,
 	vectorScores map[string]float64,
 	cc *CompilationContext,
+	forcedMandatory map[string]struct{},
 ) []*ScoredAtom {
 	var selected []*ScoredAtom
 
@@ -740,7 +843,7 @@ func (s *AtomSelector) fallbackFleshSelection(
 		if !atom.MatchesContext(cc) {
 			continue
 		}
-		atom = applyMandatoryOverride(cc, atom)
+		atom = applyMandatoryOverride(atom, forcedMandatory)
 
 		// Calculate score
 		vScore := vectorScores[atom.ID]
@@ -818,7 +921,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
-func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom) ([]interface{}, error) {
+func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	var facts []interface{}
 
 	// Context Facts - dimension names must be Mangle constants (start with /)
@@ -847,18 +950,18 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	for _, fw := range cc.Frameworks {
 		addContextFact("framework", fw)
 	}
-	  for _, ws := range cc.WorldStates() {
-			addContextFact("state", ws)
-		}
-
-	forceMangleMandatory := isMangleMandatoryContext(cc)
+	for _, ws := range cc.WorldStates() {
+		addContextFact("state", ws)
+	}
 
 	// Candidate Facts
 	for _, atom := range atoms {
 		id := atom.ID
 		isMandatory := atom.IsMandatory
-		if forceMangleMandatory && atomHasLanguage(atom, "mangle") {
-			isMandatory = true
+		if forcedMandatory != nil {
+			if _, ok := forcedMandatory[id]; ok {
+				isMandatory = true
+			}
 		}
 		facts = append(facts, fmt.Sprintf("atom('%s')", id))
 		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
@@ -866,41 +969,39 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		if isMandatory {
 			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
 		}
-	
-					// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
-	
-					// prompt_atom(ID, Category, Priority, Hash, IsMandatory)
-	
+
+		// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
+
+		// prompt_atom(ID, Category, Priority, Hash, IsMandatory)
+
 		isMandatoryAtom := "/false"
 		if isMandatory {
 			isMandatoryAtom = "/true"
 		}
-	
-					hash := atom.ContentHash
-	
-					if hash == "" {
-	
-						hash = "nohash"
-	
-					}
-	
-					// Category must be an atom (e.g. /identity) not a string ('identity')
-	
-					category := string(atom.Category)
-	
-					if !strings.HasPrefix(category, "/") {
-	
-						category = "/" + category
-	
-					}
-	
-					facts = append(facts, fmt.Sprintf("prompt_atom('%s', %s, %d, '%s', %s)",
-	
-						id, category, atom.Priority, hash, isMandatoryAtom))
-	
-			
-	
-					// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
+
+		hash := atom.ContentHash
+
+		if hash == "" {
+
+			hash = "nohash"
+
+		}
+
+		// Category must be an atom (e.g. /identity) not a string ('identity')
+
+		category := string(atom.Category)
+
+		if !strings.HasPrefix(category, "/") {
+
+			category = "/" + category
+
+		}
+
+		facts = append(facts, fmt.Sprintf("prompt_atom('%s', %s, %d, '%s', %s)",
+
+			id, category, atom.Priority, hash, isMandatoryAtom))
+
+		// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
 		// String 'shard' != atom /shard in Mangle (disjoint types)
 		addTags := func(dim string, values []string) {

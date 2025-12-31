@@ -29,6 +29,36 @@ func (sm *ShardManager) SetSpawnQueue(sq *SpawnQueue) {
 	logging.ShardsDebug("SpawnQueue attached to ShardManager")
 }
 
+// StopSpawnQueue stops the spawn queue with a timeout to avoid shutdown hangs.
+func (sm *ShardManager) StopSpawnQueue(timeout time.Duration) {
+	sm.mu.RLock()
+	sq := sm.spawnQueue
+	sm.mu.RUnlock()
+
+	if sq == nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = sq.Stop()
+		close(done)
+	}()
+
+	if timeout <= 0 {
+		<-done
+		return
+	}
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		logging.Get(logging.CategoryShards).Warn(
+			"StopSpawnQueue: timed out after %v; continuing shutdown", timeout,
+		)
+	}
+}
+
 // GetBackpressureStatus returns queue status if a spawn queue is attached.
 func (sm *ShardManager) GetBackpressureStatus() *BackpressureStatus {
 	sm.mu.RLock()

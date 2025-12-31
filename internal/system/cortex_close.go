@@ -3,6 +3,7 @@ package system
 import (
 	"codenerd/internal/perception"
 	"errors"
+	"time"
 )
 
 // Close releases resources held by a Cortex instance.
@@ -18,6 +19,7 @@ func (c *Cortex) Close() error {
 
 	if c.ShardManager != nil {
 		c.ShardManager.StopAll()
+		c.ShardManager.StopSpawnQueue(5 * time.Second)
 	}
 
 	if c.JITCompiler != nil {
@@ -36,6 +38,10 @@ func (c *Cortex) Close() error {
 
 	if err := perception.ClosePerceptionLayer(); err != nil {
 		errs = append(errs, err)
+	}
+
+	if c == globalCortex {
+		ResetGlobalCortex()
 	}
 
 	if len(errs) > 0 {
