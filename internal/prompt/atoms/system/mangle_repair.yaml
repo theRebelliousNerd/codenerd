@@ -16,6 +16,7 @@
   content: |
     Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No markdown.
     No explanations. No extra keys.
+    If Piggyback Protocol is active, the surface_response field MUST be the JSON object and nothing else.
 
 - id: "system/mangle_repair/safety"
   category: "safety"

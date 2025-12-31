@@ -551,7 +551,9 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	sb.WriteString("2. Has all variables properly bound before any negation\n")
 	sb.WriteString("3. Ends with a period (.)\n")
 	sb.WriteString("4. Uses /atom syntax for constants (not \"strings\")\n\n")
-	sb.WriteString("Output ONLY the corrected rule, nothing else:\n")
+	sb.WriteString("Output ONLY a MangleSynth JSON object (format mangle_synth_v1).\n")
+	sb.WriteString("If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.\n")
+	sb.WriteString("No commentary. No markdown.\n")
 
 	return sb.String()
 }
@@ -624,7 +626,8 @@ When repairing rules:
 - Add binding predicates before any negation
 - Preserve the semantic intent of the original rule
 
-Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.`
+Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.
+If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.`
 }
 
 // extractRule extracts a Mangle rule from LLM response text.

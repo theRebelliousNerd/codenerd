@@ -207,6 +207,7 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, output
 		sb.WriteString("  }\n")
 		sb.WriteString("}\n")
 		sb.WriteString("```\n")
+		sb.WriteString("If Piggyback Protocol is active, the surface_response field must be this JSON object and nothing else.\n")
 	} else {
 		sb.WriteString("\n## Example Rules:\n")
 		sb.WriteString("```mangle\n")
@@ -224,7 +225,7 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, output
 
 func outputProtocolInstructions(protocol OutputProtocol) string {
 	if protocol == OutputProtocolSynth {
-		return "Respond with ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.\n"
+		return "Respond with ONLY a MangleSynth JSON object (format mangle_synth_v1). If Piggyback Protocol is active, the surface_response field must contain the JSON object and nothing else. No explanation.\n"
 	}
 	return "Respond with ONLY the corrected Mangle rule. No explanation.\n"
 }
