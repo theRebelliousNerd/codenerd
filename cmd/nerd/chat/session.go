@@ -946,22 +946,25 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
 
-		logStep("Creating task verifier...")
-		context7Key := appCfg.Context7APIKey
-		if context7Key == "" {
-			context7Key = os.Getenv("CONTEXT7_API_KEY")
-		}
-		taskVerifier := verification.NewTaskVerifier(
-			llmClient,
-			localDB,
-			shardMgr,
-			autopoiesisOrch,
-			context7Key,
-		)
-		taskVerifier.SetTaskExecutor(taskExecutor)
+				logStep("Creating task verifier...")
+				context7Key := appCfg.Context7APIKey
+				if context7Key == "" {
+					context7Key = os.Getenv("CONTEXT7_API_KEY")
+				}
+				taskVerifier := verification.NewTaskVerifier(
+					llmClient,
+					localDB,
+					shardMgr,
+					autopoiesisOrch,
+					context7Key,
+				)
+				logStep("Task verifier initialized")
+				taskVerifier.SetTaskExecutor(taskExecutor)
+				logStep("Task verifier wired to executor")
 
-		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
-		virtualStore.SetToolExecutor(toolExecutor)
+				toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
+				virtualStore.SetToolExecutor(toolExecutor)
+				logStep("Tool executor wired")
 
 		// Wire Ouroboros as ToolGenerator for coder shard self-tool routing
 		if ouroborosLoop := autopoiesisOrch.GetOuroborosLoop(); ouroborosLoop != nil {

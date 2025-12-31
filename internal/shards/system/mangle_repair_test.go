@@ -2,11 +2,41 @@
 package system
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"codenerd/internal/prompt"
+	"codenerd/internal/types"
 )
+
+type schemaCapableLLMMock struct {
+	schemaCalls int
+	systemCalls int
+	response    string
+}
+
+func (m *schemaCapableLLMMock) SchemaCapable() bool {
+	return true
+}
+
+func (m *schemaCapableLLMMock) Complete(ctx context.Context, prompt string) (string, error) {
+	return m.response, nil
+}
+
+func (m *schemaCapableLLMMock) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	m.systemCalls++
+	return m.response, nil
+}
+
+func (m *schemaCapableLLMMock) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	m.schemaCalls++
+	return m.response, nil
+}
+
+func (m *schemaCapableLLMMock) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return &types.LLMToolResponse{Text: ""}, nil
+}
 
 func TestMangleRepairShard_PredicateSelectorWiring(t *testing.T) {
 	// Create a repair shard
@@ -186,4 +216,32 @@ func TestMangleRepairShard_SetPredicateSelectorDirectly(t *testing.T) {
 	}
 
 	t.Log("SetPredicateSelector properly stores the provided selector")
+}
+
+func TestMangleRepairShard_UsesSchemaCapableClient(t *testing.T) {
+	shard := NewMangleRepairShard()
+	shard.maxRetries = 1
+
+	mock := &schemaCapableLLMMock{
+		response: `{"format":"mangle_synth_v1","program":{"clauses":[{"head":{"pred":"next_action","args":[{"kind":"name","value":"/run_tests"}]}}]}}`,
+	}
+	shard.SetLLMClient(mock)
+
+	rule := "next_action(/run_tests) :- not test_state(X)."
+	result, err := shard.ValidateAndRepair(context.Background(), rule)
+	if err != nil {
+		t.Fatalf("ValidateAndRepair failed: %v", err)
+	}
+	if result.Rejected {
+		t.Fatalf("Expected repair, got rejection: %s (errors: %v)", result.RejectionReason, result.Errors)
+	}
+	if !result.WasRepaired {
+		t.Fatalf("Expected rule to be repaired")
+	}
+	if mock.schemaCalls == 0 {
+		t.Fatalf("Expected schema-based completion to be used")
+	}
+	if mock.systemCalls != 0 {
+		t.Fatalf("Expected CompleteWithSystem to be skipped when schema is supported")
+	}
 }
