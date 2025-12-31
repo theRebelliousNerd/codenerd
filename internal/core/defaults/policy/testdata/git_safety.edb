@@ -1,0 +1,30 @@
+# Git Safety Test Data
+# EDB (Facts)
+
+# User Info
+# current_user("Testudo")
+current_user("Testudo").
+
+# Git History: File, Hash, Author, Age (days), Message
+# File A: Changed by "Alice" 1 day ago (Recent, Other)
+git_history("file_a.go", "hash1", "Alice", 1, "fix").
+
+# File B: Changed by "Testudo" 1 day ago (Recent, Self)
+git_history("file_b.go", "hash2", "Testudo", 1, "fix").
+
+# File C: Changed by "Bob" 5 days ago (Old, Other)
+git_history("file_c.go", "hash3", "Bob", 5, "feat").
+
+# File D: High Churn
+git_history("file_d.go", "hash4", "Charlie", 10, "churn").
+churn_rate("file_d.go", 10).
+
+# Intents
+# Intent: Delete File A (Should Trigger Fence)
+user_intent(/current_intent, /mutation, /delete, "file_a.go", "test").
+
+# Intent: Delete File B (Should NOT Trigger Fence - Self)
+user_intent(/current_intent, /mutation, /delete, "file_b.go", "test").
+
+# Intent: Refactor File D (Should Trigger Fence - Churn)
+user_intent(/current_intent, /mutation, /refactor, "file_d.go", "test").
