@@ -333,7 +333,7 @@ func TestAtomSelector_FallbackFleshSelection(t *testing.T) {
 		cc := NewCompilationContext().WithOperationalMode("/active")
 		vectorScores := map[string]float64{}
 
-		result := selector.fallbackFleshSelection(atoms, vectorScores, cc)
+		result := selector.fallbackFleshSelection(atoms, vectorScores, cc, nil)
 
 		// Only "match" should be selected
 		require.Len(t, result, 1)
@@ -352,7 +352,7 @@ func TestAtomSelector_FallbackFleshSelection(t *testing.T) {
 			"high-vector": 0.9,
 		}
 
-		result := selector.fallbackFleshSelection(atoms, vectorScores, cc)
+		result := selector.fallbackFleshSelection(atoms, vectorScores, cc, nil)
 
 		require.Len(t, result, 2)
 		// Higher vector score should come first
@@ -380,7 +380,7 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 		}
 		selector.SetKernel(kernel)
 
-		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 
 		// Should only include skeleton atoms
@@ -397,7 +397,7 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
 		}
 
-		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext())
+		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "CRITICAL")
 	})
@@ -412,7 +412,7 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 			{ID: "domain-1", Category: CategoryDomain, Content: "content"},
 		}
 
-		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext())
+		_, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no skeleton atoms")
 	})
@@ -431,7 +431,7 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 		}
 		selector.SetKernel(kernel)
 
-		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadSkeletonAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Equal(t, "skeleton", result[0].Source)
@@ -458,7 +458,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		}
 		selector.SetKernel(kernel)
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 
 		// Should only include flesh atoms
@@ -477,7 +477,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 			{ID: "identity-1", Category: CategoryIdentity, Content: "content"},
 		}
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 		assert.Nil(t, result)
 	})
@@ -495,7 +495,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		selector.SetKernel(kernel)
 
 		// Should not return error - falls back to context matching
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 		// Falls back to context matching
 		assert.NotNil(t, result)
@@ -521,7 +521,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		selector.SetVectorSearcher(vectorSearcher)
 
 		cc := NewCompilationContext().WithSemanticQuery("test query", 10)
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, cc)
+		result, err := selector.loadFleshAtoms(context.Background(), atoms, cc, nil)
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 
@@ -543,7 +543,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		}
 		selector.SetKernel(kernel)
 
-		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext())
+		result, err := selector.loadFleshAtoms(context.Background(), atoms, NewCompilationContext(), nil)
 		require.NoError(t, err)
 		require.Len(t, result, 1)
 		assert.Equal(t, "flesh", result[0].Source)
