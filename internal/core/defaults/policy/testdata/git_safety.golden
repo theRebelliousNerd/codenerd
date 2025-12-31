@@ -1,0 +1,14 @@
+# Expected derived facts for git_safety.mg
+
+# Recent change by Alice on file_a.go
+recent_change_by_other("file_a.go").
+
+# Warning for File A (Delete on recent other)
+chesterton_fence_warning("file_a.go", "recent_change_by_other").
+
+# Warning for File D (Refactor on high churn)
+chesterton_fence_warning("file_d.go", "high_churn_file").
+
+# Clarification needed
+clarification_needed("file_a.go").
+clarification_needed("file_d.go").
