@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/core"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -381,6 +382,182 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	}
 
 	logging.PerceptionError("[Gemini] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// SchemaCapable reports whether this client supports response schema enforcement.
+func (c *GeminiClient) SchemaCapable() bool {
+	return true
+}
+
+// CompleteWithSchema sends a prompt and enforces a JSON schema in the response.
+// Uses Gemini generationConfig.response_schema with response_mime_type.
+func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+	logging.PerceptionDebug("[Gemini] CompleteWithSchema: model=%s system_len=%d user_len=%d schema_len=%d", c.model, len(systemPrompt), len(userPrompt), len(jsonSchema))
+
+	if c.apiKey == "" {
+		logging.PerceptionError("[Gemini] CompleteWithSchema: API key not configured")
+		return "", fmt.Errorf("API key not configured")
+	}
+
+	schemaText := strings.TrimSpace(jsonSchema)
+	if schemaText == "" {
+		return "", fmt.Errorf("json schema is empty")
+	}
+
+	var schema map[string]interface{}
+	if err := json.Unmarshal([]byte(schemaText), &schema); err != nil {
+		return "", fmt.Errorf("invalid json schema: %w", err)
+	}
+
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+
+	reqBody := GeminiRequest{
+		Contents: []GeminiContent{
+			{
+				Role:  "user",
+				Parts: []GeminiPart{{Text: userPrompt}},
+			},
+		},
+		SystemInstruction: &GeminiContent{
+			Parts: []GeminiPart{{Text: systemPrompt}},
+		},
+		GenerationConfig: GeminiGenerationConfig{
+			Temperature:      0.1,
+			MaxOutputTokens:  4096,
+			ThinkingConfig:   c.buildThinkingConfig(),
+			ResponseMimeType: "application/json",
+			ResponseSchema:   schema,
+		},
+		Tools: c.buildBuiltInTools(),
+	}
+
+	// Construct URL with API key
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
+
+	// Retry loop for rate limits
+	maxRetries := 3
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyStr := string(body)
+			if resp.StatusCode == http.StatusBadRequest &&
+				(strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") || strings.Contains(bodyStr, "responseSchema")) {
+				return "", core.ErrSchemaNotSupported
+			}
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, bodyStr)
+		}
+
+		var geminiResp GeminiResponse
+		if err := json.Unmarshal(body, &geminiResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if geminiResp.Error != nil {
+			return "", fmt.Errorf("API error: %s", geminiResp.Error.Message)
+		}
+
+		if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		// Capture thought signature for multi-turn function calling (Gemini 3)
+		if geminiResp.ThoughtSignature != "" {
+			c.lastThoughtSignature = geminiResp.ThoughtSignature
+		}
+
+		// Capture thinking metadata for SPL learning
+		c.lastThoughtSummary = geminiResp.ThoughtSummary
+		c.lastThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+
+		var result strings.Builder
+		for _, part := range geminiResp.Candidates[0].Content.Parts {
+			result.WriteString(part.Text)
+		}
+
+		response := strings.TrimSpace(result.String())
+
+		// Extract and store grounding sources for transparency
+		c.lastGroundingSources = nil // Reset
+		if len(geminiResp.Candidates) > 0 && geminiResp.Candidates[0].GroundingMetadata != nil {
+			gm := geminiResp.Candidates[0].GroundingMetadata
+			for _, chunk := range gm.GroundingChunks {
+				if chunk.Web != nil && chunk.Web.URI != "" {
+					c.lastGroundingSources = append(c.lastGroundingSources, chunk.Web.URI)
+				}
+			}
+			if len(c.lastGroundingSources) > 0 {
+				logging.PerceptionDebug("[Gemini] CompleteWithSchema: grounding sources=%d queries=%v",
+					len(c.lastGroundingSources), gm.WebSearchQueries)
+			}
+		}
+
+		// Log thinking tokens if used
+		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
+			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources))
+		} else {
+			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d",
+				time.Since(startTime), len(response), len(c.lastGroundingSources))
+		}
+		return response, nil
+	}
+
+	logging.PerceptionError("[Gemini] CompleteWithSchema: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 

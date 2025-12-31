@@ -976,7 +976,8 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 		"dropped_count":  len(manifest.Dropped),
 	}
 
-	logging.Get(logging.CategoryJIT).StructuredLog("debug", "prompt_manifest", fields)
+        // Use info level so manifests persist even when log level is set to info.
+        logging.Get(logging.CategoryJIT).StructuredLog("info", "prompt_manifest", fields)
 }
 
 // GetLastResult returns the most recent compilation result.

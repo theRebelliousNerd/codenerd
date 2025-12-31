@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -47,12 +48,31 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 		}
 	}
 
-	rawResponse, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	var rawResponse string
+	var err error
+	schemaJSON := synth.SchemaV1SingleClauseJSON()
+	schemaUsed := false
+	if schemaJSON != "" {
+		if schemaClient, ok := core.AsSchemaCapable(a.client); ok {
+			rawResponse, err = schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, schemaJSON)
+			if err != nil && stderrors.Is(err, core.ErrSchemaNotSupported) {
+				logging.SystemShardsDebug("[%s] Schema enforcement not supported, falling back", a.shardID)
+				rawResponse = ""
+				err = nil
+			} else if err == nil {
+				schemaUsed = true
+			}
+		}
+	}
+	if rawResponse == "" && err == nil {
+		rawResponse, err = a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	}
 	if a.traceLLMIO {
 		fields := map[string]interface{}{
 			"shard_id":      a.shardID,
 			"system_prompt": systemPrompt,
 			"user_prompt":   userPrompt,
+			"schema_used":   schemaUsed,
 			"response":      rawResponse,
 			"response_len":  len(rawResponse),
 		}
