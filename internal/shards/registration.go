@@ -134,6 +134,13 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		return pa
 	}
 
+	withJITConfig := func(agent types.ShardAgent) types.ShardAgent {
+		if setter, ok := agent.(interface{ SetJITConfig(config.JITConfig) }); ok {
+			setter.SetJITConfig(ctx.JITConfig)
+		}
+		return agent
+	}
+
 	// =========================================================================
 	// DOMAIN SHARDS REMOVED - JIT CLEAN LOOP ARCHITECTURE
 	// =========================================================================
@@ -154,7 +161,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard := NewRequirementsInterrogatorShard()
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetParentKernel(ctx.Kernel)
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// =========================================================================
@@ -169,7 +176,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register World Model Ingestor - ON-DEMAND, Hybrid
@@ -179,7 +186,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Executive Policy - AUTO-START, Logic-primary
@@ -190,7 +197,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable strategy pattern learning
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
@@ -200,7 +207,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Legislator - ON-DEMAND, Logic-primary (learned constraints)
@@ -210,7 +217,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetVirtualStore(ctx.VirtualStore)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Mangle Repair - AUTO-START, Logic-primary (self-healing rules)
@@ -228,7 +235,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 			// Wire repair interceptor for learned rule validation/repair before persistence
 			realKernel.SetRepairInterceptor(shard)
 		}
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Tactile Router - ON-DEMAND, Logic-primary
@@ -239,7 +246,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetPromptAssembler(createAssembler())
 		// BrowserManager will be injected separately if available
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Campaign Runner - AUTO-START supervisor for long-horizon campaigns
@@ -251,7 +258,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetWorkspaceRoot(ctx.Workspace)
 		shard.SetPromptAssembler(createAssembler())
 		// Shared ShardManager is injected in system factory to avoid cycles.
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Register Session Planner - ON-DEMAND, LLM-primary
@@ -261,7 +268,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetLLMClient(ctx.LLMClient)
 		shard.SetVirtualStore(ctx.VirtualStore) // FIX: Enable codebase scanning for planning
 		shard.SetPromptAssembler(createAssembler())
-		return shard
+		return withJITConfig(shard)
 	})
 
 	// Define shard profiles with proper configurations

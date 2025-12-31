@@ -60,6 +60,7 @@ func TestDefaultCompilerConfig(t *testing.T) {
 	assert.Equal(t, 10, config.MaxAtomsPerCategory)
 	assert.True(t, config.EnableCaching)
 	assert.Equal(t, 300, config.CacheTTLSeconds)
+	assert.False(t, config.DebugMode)
 }
 
 func TestNewJITPromptCompiler(t *testing.T) {

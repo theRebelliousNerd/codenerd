@@ -272,17 +272,18 @@ type BaseSystemShard struct {
 	State  types.ShardState
 
 	// Components
-	Kernel        *core.RealKernel
-	LLMClient     types.LLMClient
-	VirtualStore  *core.VirtualStore
-	GlassBox      *transparency.GlassBoxEventBus // For Glass Box visibility events
-	ToolEventBus  *transparency.ToolEventBus     // For always-visible tool execution events
-	ToolStore     *store.ToolStore               // For persisting full tool execution results
+	Kernel       *core.RealKernel
+	LLMClient    types.LLMClient
+	VirtualStore *core.VirtualStore
+	GlassBox     *transparency.GlassBoxEventBus // For Glass Box visibility events
+	ToolEventBus *transparency.ToolEventBus     // For always-visible tool execution events
+	ToolStore    *store.ToolStore               // For persisting full tool execution results
 
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
 	// Set via SetPromptAssembler() which accepts interface{}.
 	promptAssembler interface{}
+	jitConfig       config.JITConfig
 
 	// System shard specific
 	StartupMode StartupMode
@@ -471,6 +472,20 @@ func (b *BaseSystemShard) SetPromptAssembler(assembler interface{}) {
 	}
 }
 
+// SetJITConfig stores the effective JIT configuration for debug/trace gating.
+func (b *BaseSystemShard) SetJITConfig(cfg config.JITConfig) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.jitConfig = cfg
+}
+
+// TraceLLMIOEnabled returns true when raw prompt/response tracing is enabled.
+func (b *BaseSystemShard) TraceLLMIOEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.jitConfig.TraceLLMIO
+}
+
 // GetPromptAssembler returns the prompt assembler if set.
 func (b *BaseSystemShard) GetPromptAssembler() interface{} {
 	b.mu.RLock()
@@ -503,8 +518,8 @@ func (b *BaseSystemShard) TryJITPrompt(ctx context.Context, shardType string) (s
 
 	// Build proper PromptContext
 	promptCtx := &articulation.PromptContext{
-		ShardID:   shardID,
-		ShardType: shardType,
+		ShardID:    shardID,
+		ShardType:  shardType,
 		SessionCtx: b.Config.SessionContext,
 	}
 
