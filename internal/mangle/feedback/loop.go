@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle/synth"
 	"codenerd/internal/mangle/transpiler"
 )
 
@@ -55,6 +56,8 @@ type FeedbackLoop struct {
 	sanitizer         *transpiler.Sanitizer
 	budget            *ValidationBudget
 	predicateSelector PredicateSelectorInterface // Optional: JIT-style selector
+	synthMode         SynthMode
+	synthOptions      synth.Options
 }
 
 // NewFeedbackLoop creates a new feedback loop with the given configuration.
@@ -74,6 +77,12 @@ func NewFeedbackLoop(config RetryConfig) *FeedbackLoop {
 // using the full list from the validator.
 func (fl *FeedbackLoop) SetPredicateSelector(selector PredicateSelectorInterface) {
 	fl.predicateSelector = selector
+}
+
+// SetSynthMode configures structured JSON output parsing for MangleSynth.
+func (fl *FeedbackLoop) SetSynthMode(mode SynthMode, options synth.Options) {
+	fl.synthMode = mode
+	fl.synthOptions = options
 }
 
 // GenerateResult holds the outcome of a generation attempt.
@@ -127,7 +136,11 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 	}
 
 	// Add syntax guidance to initial prompt
-	enhancedPrompt := userPrompt + "\n" + fl.promptBuilder.BuildInitialPromptAdditions(predicates)
+	outputProtocol := OutputProtocolRule
+	if fl.synthMode != SynthModeOff {
+		outputProtocol = OutputProtocolSynth
+	}
+	enhancedPrompt := userPrompt + "\n" + fl.promptBuilder.BuildInitialPromptAdditions(predicates, outputProtocol)
 
 	// Hash for budget tracking
 	promptHash := hashPrompt(userPrompt)
@@ -167,6 +180,7 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 				MaxAttempts:         fl.config.MaxRetries,
 				AvailablePredicates: predicates,
 				ValidExamples:       ValidRuleExamples(domain),
+				OutputProtocol:      outputProtocol,
 			}
 			currentPrompt = userPrompt + fl.promptBuilder.BuildFeedbackPrompt(feedbackCtx)
 		}
@@ -196,7 +210,33 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		}
 
 		// Extract rule from response
-		rule := ExtractRuleFromResponse(response)
+		var (
+			rule      string
+			synthUsed bool
+		)
+		if fl.synthMode != SynthModeOff {
+			compiled, synthErr := synth.FromResponse(response, fl.synthOptions)
+			if synthErr == nil {
+				if clause, err := compiled.SingleClause(); err == nil {
+					rule = clause
+					synthUsed = true
+				} else {
+					synthErr = err
+				}
+			}
+			if synthErr != nil && fl.synthMode == SynthModeRequire {
+				lastErrors = []ValidationError{{
+					Category: CategoryParse,
+					Message:  fmt.Sprintf("MangleSynth JSON error: %v", synthErr),
+				}}
+				lastRule = response
+				continue
+			}
+		}
+
+		if rule == "" {
+			rule = ExtractRuleFromResponse(response)
+		}
 		if rule == "" {
 			lastErrors = []ValidationError{{
 				Category: CategoryParse,
@@ -206,7 +246,9 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			logging.KernelDebug("FeedbackLoop: empty rule extracted from response")
 			continue
 		}
-		rule = NormalizeRuleInput(rule)
+		if !synthUsed {
+			rule = NormalizeRuleInput(rule)
+		}
 		lastRule = rule
 
 		// Phase 1: Pre-validation (fast regex checks)

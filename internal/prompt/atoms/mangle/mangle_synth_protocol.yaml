@@ -1,0 +1,63 @@
+- id: "mangle/synth/output_protocol"
+  category: "protocol"
+  priority: 95
+  is_mandatory: true
+  shard_types: ["/legislator", "/mangle_repair"]
+  languages: ["/mangle"]
+  content: |
+    ## MANGLE SYNTH OUTPUT FORMAT (MANDATORY)
+
+    You MUST output a single JSON object. No markdown. No code fences. No extra keys.
+
+    REQUIRED ENVELOPE:
+    {
+      "format": "mangle_synth_v1",
+      "program": { ... }
+    }
+
+    ### ProgramSpec
+    - package: { name, atoms? }            # optional
+    - use: [ { name, atoms? }, ... ]       # optional
+    - decls: [ DeclSpec, ... ]             # optional
+    - clauses: [ ClauseSpec, ... ]         # REQUIRED for rule generation
+
+    ### ClauseSpec
+    {
+      "head": AtomSpec,
+      "body": [ TermSpec, ... ],           # optional
+      "transform": TransformSpec?          # optional
+    }
+
+    ### TermSpec
+    - {"kind": "atom", "atom": AtomSpec}
+    - {"kind": "not",  "atom": AtomSpec}
+    - {"kind": "eq",   "left": ExprSpec, "right": ExprSpec}
+    - {"kind": "neq",  "left": ExprSpec, "right": ExprSpec}
+    - {"kind": "cmp",  "op": "lt|le|gt|ge", "left": ExprSpec, "right": ExprSpec}
+
+    ### AtomSpec
+    { "pred": "predicate_name", "args": [ ExprSpec, ... ] }
+
+    ### ExprSpec
+    - {"kind": "var",    "value": "X"}
+    - {"kind": "name",   "value": "/atom"}
+    - {"kind": "string", "value": "text"}
+    - {"kind": "bytes",  "value": "raw-bytes"}
+    - {"kind": "number", "number": 123}           # or "value": "123"
+    - {"kind": "float",  "float": 1.23}           # or "value": "1.23"
+    - {"kind": "apply",  "function": "fn:sum", "args": [ ExprSpec, ... ]}
+    - {"kind": "list",   "args": [ ExprSpec, ... ]}     # maps to fn:list
+    - {"kind": "map",    "args": [ ExprSpec, ... ]}     # even arg count
+    - {"kind": "struct", "args": [ ExprSpec, ... ]}     # even arg count
+
+    ### TransformSpec
+    { "statements": [ TransformStmtSpec, ... ] }
+
+    ### TransformStmtSpec
+    - {"kind": "do",  "fn": ExprSpec}              # fn.kind must be "apply"
+    - {"kind": "let", "var": "X", "fn": ExprSpec}  # fn.kind must be "apply"
+
+    ### Requirements
+    - Output EXACTLY one ClauseSpec for rule generation.
+    - Do not include extra keys or commentary.
+    - Predicate names must be declared in available predicates.

@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle/synth"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
@@ -217,10 +218,20 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 
 		// Process response through Piggyback
 		processed := articulation.ProcessLLMResponseAllowPlain(rawResponse)
-		repairedRule := m.extractRule(processed.Surface)
-
-		if repairedRule == "" {
-			logging.SystemShardsDebug("[MangleRepair] No rule extracted from response")
+		compiled, synthErr := synth.FromResponse(processed.Surface, synth.Options{
+			RequireSingleClause: true,
+		})
+		if synthErr != nil {
+			errors = append(errors, fmt.Sprintf("mangle synth JSON error: %v", synthErr))
+			result.Errors = errors
+			logging.SystemShardsDebug("[MangleRepair] Invalid MangleSynth JSON: %v", synthErr)
+			continue
+		}
+		repairedRule, err := compiled.SingleClause()
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("mangle synth error: %v", err))
+			result.Errors = errors
+			logging.SystemShardsDebug("[MangleRepair] MangleSynth clause error: %v", err)
 			continue
 		}
 
@@ -613,7 +624,7 @@ When repairing rules:
 - Add binding predicates before any negation
 - Preserve the semantic intent of the original rule
 
-Output ONLY the corrected rule, no explanation.`
+Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.`
 }
 
 // extractRule extracts a Mangle rule from LLM response text.

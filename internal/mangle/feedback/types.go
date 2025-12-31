@@ -234,4 +234,20 @@ type FeedbackContext struct {
 	MaxAttempts         int
 	AvailablePredicates []string
 	ValidExamples       []string
+	OutputProtocol      OutputProtocol
 }
+
+type OutputProtocol string
+
+const (
+	OutputProtocolRule  OutputProtocol = "mangle_rule"
+	OutputProtocolSynth OutputProtocol = "mangle_synth_json"
+)
+
+type SynthMode int
+
+const (
+	SynthModeOff SynthMode = iota
+	SynthModePrefer
+	SynthModeRequire
+)
