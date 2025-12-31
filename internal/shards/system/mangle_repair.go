@@ -14,6 +14,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle/feedback"
 	"codenerd/internal/mangle/synth"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
@@ -37,6 +38,8 @@ type MangleRepairShard struct {
 	corpus            *core.PredicateCorpus
 	predicateSelector *prompt.PredicateSelector
 	promptAssembler   *articulation.PromptAssembler
+	preValidator      *feedback.PreValidator
+	errorClassifier   *feedback.ErrorClassifier
 	maxRetries        int
 }
 
@@ -65,6 +68,8 @@ func NewMangleRepairShard() *MangleRepairShard {
 
 	return &MangleRepairShard{
 		BaseSystemShard: base,
+		preValidator:    feedback.NewPreValidator(),
+		errorClassifier: feedback.NewErrorClassifier(),
 		maxRetries:      3,
 	}
 }
@@ -166,6 +171,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		OriginalRule: rule,
 		RepairedRule: rule,
 	}
+	traceLLMIO := m.TraceLLMIOEnabled()
 
 	// Phase 1: Initial validation
 	errors := m.validateRule(rule, kernel, corpus)
@@ -230,7 +236,29 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		logging.SystemShardsDebug("[MangleRepair] Attempt %d: calling LLM for repair", attempt)
-		rawResponse, err := llmClient.CompleteWithSystem(ctx, m.getSystemPrompt(ctx), repairPrompt)
+		systemPrompt := m.getSystemPrompt(ctx)
+		if traceLLMIO {
+			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_request", map[string]interface{}{
+				"shard_id":      m.ID,
+				"attempt":       attempt,
+				"system_prompt": systemPrompt,
+				"user_prompt":   repairPrompt,
+				"rule":          currentRule,
+			})
+		}
+		rawResponse, err := llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
+		if traceLLMIO {
+			fields := map[string]interface{}{
+				"shard_id":     m.ID,
+				"attempt":      attempt,
+				"response":     rawResponse,
+				"response_len": len(rawResponse),
+			}
+			if err != nil {
+				fields["error"] = err.Error()
+			}
+			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_response", fields)
+		}
 		if err != nil {
 			if costGuard != nil {
 				costGuard.RecordError()
@@ -524,6 +552,15 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	}
 	sb.WriteString("\n")
 
+	if diagnostics := m.collectFeedbackDiagnostics(rule, errors); len(diagnostics) > 0 {
+		sb.WriteString("Targeted diagnostics:\n\n")
+		for i, diag := range diagnostics {
+			sb.WriteString(fmt.Sprintf("Diagnostic %d:\n", i+1))
+			sb.WriteString(feedback.FormatErrorForFeedback(diag))
+			sb.WriteString("\n\n")
+		}
+	}
+
 	if lastParseErr != "" || lastResponse != "" {
 		sb.WriteString("Previous attempt failed to parse as MangleSynth JSON.\n")
 		if lastParseErr != "" {
@@ -666,6 +703,77 @@ func (m *MangleRepairShard) extractErrorTypes(errors []string) []string {
 	}
 
 	return types
+}
+
+func (m *MangleRepairShard) collectFeedbackDiagnostics(rule string, errors []string) []feedback.ValidationError {
+	var diagnostics []feedback.ValidationError
+
+	if m.preValidator != nil {
+		diagnostics = append(diagnostics, m.preValidator.Validate(rule)...)
+	}
+
+	if m.errorClassifier != nil {
+		for _, errMsg := range errors {
+			lower := strings.ToLower(errMsg)
+			switch {
+			case strings.HasPrefix(lower, "syntax:"):
+				msg := strings.TrimSpace(strings.TrimPrefix(errMsg, "syntax:"))
+				diagnostics = append(diagnostics, m.errorClassifier.ClassifyWithContext(msg, rule)...)
+			case strings.Contains(lower, "undefined predicate"):
+				pred := ""
+				parts := strings.SplitN(errMsg, ":", 2)
+				if len(parts) == 2 {
+					pred = strings.TrimSpace(parts[1])
+				}
+				diag := feedback.ValidationError{
+					Category:   feedback.CategoryUndeclaredPredicate,
+					Message:    errMsg,
+					Suggestion: "Use only predicates declared in schemas, or add a Decl statement.",
+				}
+				if pred != "" {
+					diag.Wrong = pred
+				}
+				diagnostics = append(diagnostics, diag)
+			case strings.Contains(lower, "missing terminal period") || strings.Contains(lower, "missing period"):
+				trimmed := strings.TrimSpace(rule)
+				diagnostics = append(diagnostics, feedback.ValidationError{
+					Category:   feedback.CategoryMissingPeriod,
+					Message:    "Rule must end with a period",
+					Wrong:      trimmed,
+					Correct:    strings.TrimSuffix(trimmed, ".") + ".",
+					Suggestion: "Add a period (.) at the end of the rule",
+				})
+			case strings.Contains(lower, "unbound") || strings.Contains(lower, "negation"):
+				diagnostics = append(diagnostics, feedback.ValidationError{
+					Category:   feedback.CategoryUnboundNegation,
+					Message:    errMsg,
+					Suggestion: "Bind variables in a positive predicate before using them in negation.",
+				})
+			case strings.Contains(lower, "infinite loop risk"):
+				diagnostics = append(diagnostics, feedback.ValidationError{
+					Category:   feedback.CategorySyntax,
+					Message:    errMsg,
+					Suggestion: "Add a gating condition so the rule does not fire unconditionally.",
+				})
+			}
+		}
+	}
+
+	return dedupeValidationErrors(diagnostics)
+}
+
+func dedupeValidationErrors(errors []feedback.ValidationError) []feedback.ValidationError {
+	seen := make(map[string]struct{}, len(errors))
+	result := make([]feedback.ValidationError, 0, len(errors))
+	for _, err := range errors {
+		key := fmt.Sprintf("%d:%d:%d:%s:%s:%s", err.Category, err.Line, err.Column, err.Message, err.Wrong, err.Correct)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, err)
+	}
+	return result
 }
 
 // getSystemPrompt returns the system prompt for repair.

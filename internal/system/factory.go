@@ -446,6 +446,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	if jitCfg.TokenBudget > 0 {
 		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
 	}
+	compilerCfg.DebugMode = jitCfg.DebugMode
 	compilerOpts := []prompt.CompilerOption{
 		prompt.WithKernel(NewKernelAdapter(kernel)),
 		prompt.WithEmbeddedCorpus(embeddedCorpus),
@@ -552,11 +553,14 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	// Overwrite System Shards (Manual Injection if needed, but RegistryContext handles most)
 	// However, TactileRouter needs BrowserManager which isn't in RegistryContext yet
 	// So we manually re-register TactileRouter to inject BrowserManager
-	shardManager.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
+	shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
+		if setter, ok := interface{}(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
+			setter.SetJITConfig(jitCfg)
+		}
 		if browserMgr != nil {
 			shard.SetBrowserManager(browserMgr)
 		}
@@ -567,11 +571,14 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	})
 
 	// CampaignRunner needs access to the shared ShardManager; inject it here.
-	shardManager.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
+	shardManager.RegisterShard("campaign_runner", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewCampaignRunnerShard()
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
+		if setter, ok := interface{}(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
+			setter.SetJITConfig(jitCfg)
+		}
 		shard.SetWorkspaceRoot(workspace)
 		shard.SetShardManager(shardManager)
 		if promptAssembler != nil {

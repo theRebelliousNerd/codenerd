@@ -26,9 +26,10 @@ type LegislatorShard struct {
 
 // llmClientAdapter adapts types.LLMClient to feedback.LLMClient interface.
 type llmClientAdapter struct {
-	client    types.LLMClient
-	costGuard *CostGuard
-	shardID   string
+	client     types.LLMClient
+	costGuard  *CostGuard
+	shardID    string
+	traceLLMIO bool
 }
 
 // Complete implements feedback.LLMClient by delegating to types.LLMClient.CompleteWithSystem.
@@ -47,6 +48,19 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 	}
 
 	rawResponse, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if a.traceLLMIO {
+		fields := map[string]interface{}{
+			"shard_id":      a.shardID,
+			"system_prompt": systemPrompt,
+			"user_prompt":   userPrompt,
+			"response":      rawResponse,
+			"response_len":  len(rawResponse),
+		}
+		if err != nil {
+			fields["error"] = err.Error()
+		}
+		logging.Get(logging.CategorySystemShards).StructuredLog("debug", "legislator_llm_exchange", fields)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -224,9 +238,10 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 
 	// Create adapter for the feedback loop's LLMClient interface
 	adapter := &llmClientAdapter{
-		client:    l.LLMClient,
-		costGuard: l.CostGuard,
-		shardID:   l.ID,
+		client:     l.LLMClient,
+		costGuard:  l.CostGuard,
+		shardID:    l.ID,
+		traceLLMIO: l.TraceLLMIOEnabled(),
 	}
 
 	// Build the user prompt for directive compilation
@@ -274,8 +289,9 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 // getSystemPrompt returns the system prompt for rule synthesis.
 // Uses JIT compilation - returns empty string if JIT is unavailable.
 // Legislator system prompts are JIT-compiled from:
-//   internal/prompt/atoms/identity/legislator.yaml
-//   internal/prompt/atoms/system/legislator.yaml
+//
+//	internal/prompt/atoms/identity/legislator.yaml
+//	internal/prompt/atoms/system/legislator.yaml
 func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 	l.mu.RLock()
 	pa := l.promptAssembler
@@ -344,7 +360,8 @@ var (
 
 // checkStratificationFast performs a lightweight check for obvious stratification violations
 // before the expensive sandbox validation. This catches direct self-negation patterns like:
-//   bad(X) :- !bad(X).
+//
+//	bad(X) :- !bad(X).
 //
 // More complex cycles (A -> B -> !A) are caught by the full sandbox evaluation.
 func checkStratificationFast(rule string) error {

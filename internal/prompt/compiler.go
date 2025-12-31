@@ -246,10 +246,10 @@ type JITPromptCompiler struct {
 	assembler *FinalAssembler
 
 	// Bug #5 fix: Prompt cache to prevent recompilation spam
-	cache      map[string]*CompilationResult
-	cacheMu    sync.RWMutex
-	cacheHits  int64
-	cacheMiss  int64
+	cache     map[string]*CompilationResult
+	cacheMu   sync.RWMutex
+	cacheHits int64
+	cacheMiss int64
 
 	// Observability
 	lastResult *CompilationResult
@@ -289,6 +289,9 @@ type CompilerConfig struct {
 
 	// CacheTTLSeconds is the cache TTL in seconds
 	CacheTTLSeconds int
+
+	// DebugMode enables verbose JIT manifest logging
+	DebugMode bool
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
@@ -301,6 +304,7 @@ func DefaultCompilerConfig() CompilerConfig {
 		MaxAtomsPerCategory: 10,
 		EnableCaching:       true,
 		CacheTTLSeconds:     300, // 5 minutes
+		DebugMode:           false,
 	}
 }
 
@@ -545,6 +549,9 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Build result with comprehensive stats
 	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
+	if result.Manifest != nil {
+		result.Manifest.ContextHash = cacheKey
+	}
 
 	// Step 6: Generate Agent Config if factory is present
 	if c.configFactory != nil {
@@ -580,6 +587,9 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Log comprehensive stats using JIT category
 	c.logCompilationStats(stats, result)
+	if c.config.DebugMode {
+		c.logCompilationManifest(stats, result)
+	}
 
 	return result, nil
 }
@@ -935,6 +945,38 @@ func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result 
 
 	// Structured log for machine parsing (if JSON mode enabled)
 	logger.StructuredLog("info", "compilation_complete", stats.ToLogFields())
+}
+
+// logCompilationManifest logs the prompt manifest (selected/dropped atom IDs) for debugging.
+func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, result *CompilationResult) {
+	if result == nil || result.Manifest == nil {
+		return
+	}
+
+	manifest := result.Manifest
+	selectedIDs := make([]string, 0, len(manifest.Selected))
+	for _, entry := range manifest.Selected {
+		selectedIDs = append(selectedIDs, entry.ID)
+	}
+
+	droppedIDs := make([]string, 0, len(manifest.Dropped))
+	for _, entry := range manifest.Dropped {
+		droppedIDs = append(droppedIDs, entry.ID)
+	}
+
+	fields := map[string]interface{}{
+		"context_hash":   manifest.ContextHash,
+		"shard_id":       stats.ShardID,
+		"intent_verb":    stats.IntentVerb,
+		"selected_ids":   selectedIDs,
+		"selected":       manifest.Selected,
+		"selected_count": len(manifest.Selected),
+		"dropped_ids":    droppedIDs,
+		"dropped":        manifest.Dropped,
+		"dropped_count":  len(manifest.Dropped),
+	}
+
+	logging.Get(logging.CategoryJIT).StructuredLog("debug", "prompt_manifest", fields)
 }
 
 // GetLastResult returns the most recent compilation result.
