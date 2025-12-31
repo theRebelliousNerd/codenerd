@@ -184,6 +184,7 @@
       "context": true,
       "dream": true,
       "embedding": true,
+      "jit": true,
       "kernel": true,
       "perception": true,
       "researcher": true,
