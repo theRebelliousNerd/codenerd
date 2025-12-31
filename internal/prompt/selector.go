@@ -41,9 +41,9 @@ func isSkeletonCategory(cat AtomCategory) bool {
 }
 
 const (
-	mangleMandatoryTokenCap    = 150000
-	mangleMandatoryAtomCap     = 200
-	mangleMandatoryBudgetRatio = 0.75
+	mangleMandatoryTokenCap    = 900000
+	mangleMandatoryAtomCap     = 600
+	mangleMandatoryBudgetRatio = 0.90
 )
 
 func estimateAtomTokens(atom *PromptAtom) int {
