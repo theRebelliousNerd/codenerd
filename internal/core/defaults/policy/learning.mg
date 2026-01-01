@@ -19,8 +19,8 @@ next_action(/interrogative_mode) :-
     !any_awaiting_clarification(/yes).
 
 clarification_question(/current_intent, Question) :-
-    learning_confirmation_needed(Phrase, Verb, _, _),
-    Question = fn:string_concat("I can learn this mapping: ", Phrase, " -> ", Verb, ". Should I learn it?").
+    learning_confirmation_needed(_, _, _, _),
+    Question = "I can learn this mapping. Should I learn it?".
 
 clarification_option(/current_intent, /learn_yes, "Yes, learn this mapping") :-
     learning_confirmation_needed(_, _, _, _).
