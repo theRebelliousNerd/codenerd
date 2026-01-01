@@ -44,8 +44,8 @@ func (ls *LearningStore) ensureLearningIndexes(db *sql.DB) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_learnings_handle_hash ON learnings(handle_hash);`)
-	return err
+	ensureIndexIfColumn(db, "learnings", "handle_hash", "idx_learnings_handle_hash")
+	return nil
 }
 
 // ListLearningEmbeddingCandidates returns learning rows missing handles or embeddings.
