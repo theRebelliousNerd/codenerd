@@ -106,6 +106,106 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	return nil
 }
 
+// StoreVectorBatchWithEmbedding stores a batch of entries with embeddings.
+// Falls back to keyword-only storage when no embedding engine is configured.
+func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents []string, metadata []map[string]interface{}) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "StoreVectorBatchWithEmbedding")
+	defer timer.Stop()
+
+	if len(contents) == 0 {
+		return 0, nil
+	}
+	if len(contents) != len(metadata) {
+		return 0, fmt.Errorf("contents/metadata length mismatch: %d != %d", len(contents), len(metadata))
+	}
+
+	s.mu.RLock()
+	engine := s.embeddingEngine
+	vecEnabled := s.vectorExt
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return s.storeVectorBatchKeywordOnly(contents, metadata)
+	}
+
+	embeddings, err := engine.EmbedBatch(ctx, contents)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Batch embedding failed: %v", err)
+		return 0, err
+	}
+	if len(embeddings) != len(contents) {
+		return 0, fmt.Errorf("embedding batch size mismatch: %d != %d", len(embeddings), len(contents))
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)")
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	var vecStmt *sql.Stmt
+	if vecEnabled {
+		vecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)")
+		if err != nil {
+			_ = tx.Rollback()
+			return 0, err
+		}
+		defer vecStmt.Close()
+	}
+
+	stored := 0
+	failed := 0
+	var firstErr error
+	for i, content := range contents {
+		if len(embeddings[i]) == 0 {
+			failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("empty embedding for content index %d", i)
+			}
+			continue
+		}
+		embeddingJSON, err := json.Marshal(embeddings[i])
+		if err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		metaJSON, _ := json.Marshal(metadata[i])
+		if _, err := stmt.Exec(content, string(embeddingJSON), string(metaJSON)); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if vecEnabled {
+			vecBlob := encodeFloat32Slice(embeddings[i])
+			_, _ = vecStmt.Exec(vecBlob, content, string(metaJSON))
+		}
+		stored++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return stored, err
+	}
+	if failed > 0 {
+		logging.Get(logging.CategoryStore).Warn("StoreVectorBatchWithEmbedding: stored %d/%d vectors (%d failed): %v", stored, len(contents), failed, firstErr)
+		return stored, fmt.Errorf("stored %d/%d vectors (%d failed): %v", stored, len(contents), failed, firstErr)
+	}
+	logging.Store("StoreVectorBatchWithEmbedding: stored %d vectors", stored)
+	return stored, nil
+}
+
 // storeVectorKeywordOnly stores content without embeddings (fallback).
 func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]interface{}) error {
 	metaJSON, _ := json.Marshal(metadata)
@@ -115,6 +215,36 @@ func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]
 		content, string(metaJSON),
 	)
 	return err
+}
+
+func (s *LocalStore) storeVectorBatchKeywordOnly(contents []string, metadata []map[string]interface{}) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vectors (content, metadata) VALUES (?, ?)")
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	stored := 0
+	for i, content := range contents {
+		metaJSON, _ := json.Marshal(metadata[i])
+		if _, err := stmt.Exec(content, string(metaJSON)); err != nil {
+			continue
+		}
+		stored++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return stored, err
+	}
+	return stored, nil
 }
 
 // VectorRecallSemantic performs true semantic search using cosine similarity.
@@ -750,6 +880,33 @@ func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue interface{
 		return 0, err
 	}
 	return count, nil
+}
+
+// VectorContentsByMetadata returns a set of vector contents matching a metadata key/value.
+func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue interface{}) (map[string]struct{}, error) {
+	if metaKey == "" {
+		return nil, fmt.Errorf("metadata key is required")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
+	rows, err := s.db.Query("SELECT content FROM vectors WHERE metadata LIKE ?", pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	contents := make(map[string]struct{})
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			continue
+		}
+		contents[content] = struct{}{}
+	}
+	return contents, nil
 }
 
 // DeleteVectorsByMetadata removes vectors whose metadata contains the key/value pair.
