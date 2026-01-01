@@ -125,8 +125,8 @@ Decl failing_test(TestName, ErrorMessage).
 # 41.9 Constitutional Safety Predicates
 # -----------------------------------------------------------------------------
 
-# blocked_action(Action) - action blocked by constitutional rules
-Decl blocked_action(Action).
+# blocked_action(Action, Reason) - action blocked by constitutional rules
+Decl blocked_action(Action, Reason).
 
 # safety_warning(Warning) - active safety concern/warning message
 Decl safety_warning(Warning).
