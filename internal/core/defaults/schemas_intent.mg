@@ -34,31 +34,31 @@ Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis).
 
 # intent_unknown(Input, Reason)
 # Reason: /llm_failed, /heuristic_low, /no_verb_match
-Decl intent_unknown(Input.Type<string>, Reason).
+Decl intent_unknown(INPUT, REASON).
 
 # intent_unmapped(Verb, Reason)
 # Reason: /unknown_verb, /no_action_mapping, /deprecated_verb
-Decl intent_unmapped(Verb.Type<string>, Reason).
+Decl intent_unmapped(VERB, REASON).
 
 # no_action_reason(IntentID, Reason)
 # Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout, /no_action_derived
-Decl no_action_reason(IntentID.Type<string>, Reason).
+Decl no_action_reason(INTENTID, REASON).
 
 # learning_candidate(Phrase, Verb, Target, Reason)
 # Staged for confirmation before promotion to learned_exemplar
-Decl learning_candidate(Phrase.Type<string>, Verb.Type<string>, Target.Type<string>, Reason).
+Decl learning_candidate(PHRASE, VERB, TARGET, REASON).
 
 # clarification_question(IntentID, Question)
-Decl clarification_question(IntentID.Type<string>, Question.Type<string>).
+Decl clarification_question(INTENTID, QUESTION).
 
 # clarification_option(IntentID, OptionVerb, OptionLabel)
-Decl clarification_option(IntentID.Type<string>, OptionVerb.Type<string>, OptionLabel.Type<string>).
+Decl clarification_option(INTENTID, OPTIONVERB, OPTIONLABEL).
 
 # learning_candidate_count(Phrase, Count)
-Decl learning_candidate_count(Phrase.Type<string>, Count.Type<int>).
+Decl learning_candidate_count(PHRASE, COUNT).
 
 # learning_candidate_ready(Phrase, Verb)
-Decl learning_candidate_ready(Phrase.Type<string>, Verb.Type<string>).
+Decl learning_candidate_ready(PHRASE, VERB).
 
 # intent_definition(Sentence, Verb, Target)
 # Canonical intent examples for heuristic matching
