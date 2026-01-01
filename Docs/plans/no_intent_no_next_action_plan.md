@@ -1221,6 +1221,16 @@ path and hides a valid teaching opportunity from the user.
      same persistence rule.
    - Confirm `learning_candidates` records switch from `pending` → `confirmed`.
 
+### Additional Hardening (Follow-up)
+
+5) **Tighten Critic prompt output contract:**
+   - Explicitly forbid JSON, commentary, or extra text.
+   - Require a single-line `learned_exemplar(...)` or empty output.
+
+6) **Add unit tests for extraction + parsing:**
+   - `ExtractFactFromResponse` with JSON noise and parentheses inside quotes.
+   - `ParseLearnedFact` with comma in constraint + escaped quotes.
+
 ### Validation Notes
 
 - The hardening tasks must be considered part of the “learning candidate” phase
