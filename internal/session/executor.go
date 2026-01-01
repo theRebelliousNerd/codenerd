@@ -274,12 +274,12 @@ func (e *Executor) buildCompilationContext(intent perception.Intent) *prompt.Com
 	// Determine world states from kernel facts
 	if e.kernel != nil {
 		// Check for failing tests
-		if facts, err := e.kernel.Query("test_failed"); err == nil {
+		if facts, err := e.kernel.Query("test_state(/failing)"); err == nil {
 			cc.FailingTestCount = len(facts)
 		}
 
 		// Check for active diagnostics
-		if facts, err := e.kernel.Query("diagnostic_active"); err == nil {
+		if facts, err := e.kernel.Query("diagnostic"); err == nil {
 			cc.DiagnosticCount = len(facts)
 		}
 	}
