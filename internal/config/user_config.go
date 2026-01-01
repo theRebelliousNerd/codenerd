@@ -150,6 +150,15 @@ type UserConfig struct {
 	// JIT Prompt Compiler configuration
 	JIT *JITConfig `json:"jit,omitempty"`
 
+	// =====================================================================
+	// LEARNING CANDIDATES
+	// =====================================================================
+
+	// Repeats required before proposing a learning candidate (default: 3)
+	LearningCandidateThreshold int `json:"learning_candidate_threshold,omitempty"`
+	// Require explicit confirmation before promotion (default: false)
+	LearningCandidateAutoPromote bool `json:"learning_candidate_auto_promote,omitempty"`
+
 	// =========================================================================
 	// USER EXPERIENCE
 	// =========================================================================
@@ -649,6 +658,22 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 		File:      "codenerd.log",
 		DebugMode: false, // Production mode by default
 	}
+}
+
+// GetLearningCandidateThreshold returns the candidate threshold with defaults applied.
+func (c *UserConfig) GetLearningCandidateThreshold() int {
+	if c != nil && c.LearningCandidateThreshold > 0 {
+		return c.LearningCandidateThreshold
+	}
+	return 3
+}
+
+// GetLearningCandidateAutoPromote returns whether candidates auto-promote.
+func (c *UserConfig) GetLearningCandidateAutoPromote() bool {
+	if c != nil {
+		return c.LearningCandidateAutoPromote
+	}
+	return false
 }
 
 // DefaultUserConfig returns a UserConfig with sensible defaults.

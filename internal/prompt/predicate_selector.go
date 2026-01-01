@@ -590,6 +590,7 @@ func (ps *PredicateSelector) indexPredicateVectors() bool {
 			"arity":                p.Arity,
 			"domain":               p.Domain,
 			"category":             p.Category,
+			"content_type":         "knowledge_atom",
 		})
 	}
 	if len(contents) == 0 {

@@ -367,18 +367,18 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 
 	if l.embeddingEngine != nil {
 		taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
-		var embedding []float32
+		var embeddingVec []float32
 		var err error
-		if taskAware, ok := l.embeddingEngine.(taskTypeAwareEngine); ok && taskType != "" {
-			embedding, err = taskAware.EmbedWithTask(ctx, textToEmbed, taskType)
+		if taskAware, ok := l.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			embeddingVec, err = taskAware.EmbedWithTask(ctx, textToEmbed, taskType)
 		} else {
-			embedding, err = l.embeddingEngine.Embed(ctx, textToEmbed)
+			embeddingVec, err = l.embeddingEngine.Embed(ctx, textToEmbed)
 		}
 		if err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to generate embedding for atom %s: %v", atom.ID, err)
 			// Continue without embedding
 		} else {
-			embeddingBlob = encodeFloat32Slice(embedding)
+			embeddingBlob = encodeFloat32Slice(embeddingVec)
 			embeddingTask = taskType
 		}
 	}

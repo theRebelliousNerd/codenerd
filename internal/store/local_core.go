@@ -310,6 +310,24 @@ func (s *LocalStore) initialize() error {
 	CREATE INDEX IF NOT EXISTS idx_findings_severity ON review_findings(severity);
 	`
 
+	// Learning Candidates (staged taxonomy learnings)
+	learningCandidatesTable := `
+	CREATE TABLE IF NOT EXISTS learning_candidates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		phrase TEXT NOT NULL,
+		verb TEXT NOT NULL,
+		target TEXT,
+		reason TEXT,
+		count INTEGER DEFAULT 1,
+		status TEXT DEFAULT 'pending',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(phrase, verb, target, reason)
+	);
+	CREATE INDEX IF NOT EXISTS idx_learning_candidates_status ON learning_candidates(status);
+	CREATE INDEX IF NOT EXISTS idx_learning_candidates_phrase ON learning_candidates(phrase);
+	`
+
 	// Prompt Atoms (for Universal JIT Prompt Compiler)
 	// NOTE: Table creation WITHOUT indexes - indexes created after migrations
 	promptAtomsTableOnly := `
@@ -413,6 +431,7 @@ func (s *LocalStore) initialize() error {
 		verificationTable,
 		reasoningTracesTableOnly,
 		reviewFindingsTable,
+		learningCandidatesTable,
 		promptAtomsTableOnly,
 	} {
 		if _, err := s.db.Exec(table); err != nil {
@@ -525,7 +544,7 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	logging.StoreDebug("Computing database statistics")
 
 	stats := make(map[string]int64)
-	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts"}
+	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates"}
 
 	for _, table := range tables {
 		var count int64

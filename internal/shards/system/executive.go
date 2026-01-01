@@ -57,6 +57,7 @@ type ExecutiveConfig struct {
 	StrictBarriers    bool // Block all actions when barriers exist (default: true)
 	MaxActionsPerTick int  // Prevent action storms (default: 5)
 	DebugMode         bool // Emit detailed derivation traces
+	OODATimeout       time.Duration // How long to wait before declaring OODA stalled
 }
 
 // DefaultExecutiveConfig returns sensible defaults.
@@ -66,6 +67,7 @@ func DefaultExecutiveConfig() ExecutiveConfig {
 		StrictBarriers:    true,
 		MaxActionsPerTick: 5,
 		DebugMode:         false,
+		OODATimeout:       30 * time.Second,
 	}
 }
 
@@ -103,6 +105,11 @@ type ExecutivePolicyShard struct {
 	// Boot guard: prevents action execution until first user interaction
 	// This ensures session rehydration doesn't trigger old actions
 	bootGuardActive bool
+
+	// OODA stall tracking
+	lastIntentFingerprint string
+	pendingIntentSince    time.Time
+	oodaTimeoutEmitted    bool
 }
 
 // NewExecutivePolicyShard creates a new Executive Policy shard.
@@ -171,9 +178,11 @@ func (e *ExecutivePolicyShard) ResetValidationBudget() {
 // that the system is ready for normal operation.
 func (e *ExecutivePolicyShard) DisableBootGuard() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.bootGuardActive {
-		e.bootGuardActive = false
+	wasActive := e.bootGuardActive
+	e.bootGuardActive = false
+	e.mu.Unlock()
+	if wasActive {
+		e.resetOODATimeout()
 		logging.SystemShards("[ExecutivePolicy] Boot guard disabled, action execution enabled")
 	}
 }
@@ -183,6 +192,82 @@ func (e *ExecutivePolicyShard) IsBootGuardActive() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.bootGuardActive
+}
+
+func (e *ExecutivePolicyShard) resetOODATimeout() {
+	e.mu.Lock()
+	e.resetOODATimeoutLocked()
+	e.mu.Unlock()
+	if e.Kernel != nil {
+		_ = e.Kernel.Retract("ooda_timeout")
+	}
+}
+
+func (e *ExecutivePolicyShard) resetOODATimeoutLocked() {
+	e.pendingIntentSince = time.Time{}
+	e.oodaTimeoutEmitted = false
+	e.lastIntentFingerprint = ""
+}
+
+func (e *ExecutivePolicyShard) hasPendingIntent() bool {
+	if e.Kernel == nil {
+		return false
+	}
+	facts, err := e.Kernel.Query("pending_intent")
+	return err == nil && len(facts) > 0
+}
+
+func (e *ExecutivePolicyShard) intentFingerprint(intent *userIntentSnapshot) string {
+	if intent == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%s|%s", intent.Category, intent.Verb, intent.Target, intent.Constraint)
+}
+
+func (e *ExecutivePolicyShard) updateOODATimeout(intent *userIntentSnapshot, hasActions bool) {
+	if e.Kernel == nil {
+		return
+	}
+
+	pending := e.hasPendingIntent()
+	fingerprint := e.intentFingerprint(intent)
+
+	e.mu.Lock()
+	bootGuardActive := e.bootGuardActive
+	if fingerprint != "" && fingerprint != e.lastIntentFingerprint {
+		e.lastIntentFingerprint = fingerprint
+		e.pendingIntentSince = time.Now()
+		e.oodaTimeoutEmitted = false
+	}
+	pendingSince := e.pendingIntentSince
+	alreadyEmitted := e.oodaTimeoutEmitted
+	timeout := e.config.OODATimeout
+	e.mu.Unlock()
+
+	if bootGuardActive || !pending || hasActions {
+		e.resetOODATimeout()
+		return
+	}
+
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+
+	if pendingSince.IsZero() {
+		e.mu.Lock()
+		e.pendingIntentSince = time.Now()
+		e.oodaTimeoutEmitted = false
+		e.mu.Unlock()
+		return
+	}
+
+	if !alreadyEmitted && time.Since(pendingSince) >= timeout {
+		if err := e.Kernel.Assert(types.Fact{Predicate: "ooda_timeout"}); err == nil {
+			e.mu.Lock()
+			e.oodaTimeoutEmitted = true
+			e.mu.Unlock()
+		}
+	}
 }
 
 // trackSuccess records a successful action derivation.
@@ -342,6 +427,9 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		return fmt.Errorf("action query failed: %w", err)
 	}
 
+	latestIntent := e.latestUserIntent()
+	e.updateOODATimeout(latestIntent, len(actions) > 0)
+
 	// Boot guard: prevent action execution until first user interaction
 	// This ensures session rehydration doesn't trigger old persisted actions
 	e.mu.RLock()
@@ -359,7 +447,6 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	// 4. Emit pending_action facts for Constitution Gate
-	latestIntent := e.latestUserIntent()
 	consumedCurrentIntent := false
 	for _, action := range actions {
 		if action.Blocked {
@@ -382,7 +469,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		payload := copyStringAnyMap(action.Payload)
 		target := action.Target
 		if latestIntent != nil {
-			target, payload = hydrateActionFromIntent(action.Action, target, payload, latestIntent)
+			target, payload = e.hydrateActionFromIntent(action.Action, target, payload, latestIntent)
 		}
 		if latestIntent != nil && latestIntent.ID == "/current_intent" {
 			if v, ok := payload["intent_id"]; ok {
@@ -508,6 +595,66 @@ func parseIntentTimestamp(intentID string) (int64, bool) {
 	return ts, true
 }
 
+func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string, []interface{}) {
+	if e.Kernel == nil || intentID == "" {
+		return "", nil
+	}
+
+	question := ""
+	if facts, err := e.Kernel.Query("clarification_question"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 2 {
+				continue
+			}
+			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+				continue
+			}
+			if q, ok := f.Args[1].(string); ok {
+				question = q
+			} else {
+				question = fmt.Sprintf("%v", f.Args[1])
+			}
+			break
+		}
+	}
+
+	options := make([]interface{}, 0)
+	if facts, err := e.Kernel.Query("clarification_option"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 3 {
+				continue
+			}
+			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+				continue
+			}
+			verb := fmt.Sprintf("%v", f.Args[1])
+			label := fmt.Sprintf("%v", f.Args[2])
+			if label != "" && label != "<nil>" {
+				options = append(options, fmt.Sprintf("%s (%s)", label, verb))
+			} else {
+				options = append(options, verb)
+			}
+		}
+	}
+
+	if question == "" {
+		if facts, err := e.Kernel.Query("awaiting_clarification"); err == nil && len(facts) > 0 {
+			if len(facts[0].Args) > 0 {
+				if q, ok := facts[0].Args[0].(string); ok {
+					question = q
+				} else {
+					question = fmt.Sprintf("%v", facts[0].Args[0])
+				}
+			}
+		}
+	}
+	if strings.TrimSpace(question) == "" {
+		question = "I need a bit more detail to proceed. What would you like me to do?"
+	}
+
+	return question, options
+}
+
 func copyStringAnyMap(src map[string]interface{}) map[string]interface{} {
 	if len(src) == 0 {
 		return map[string]interface{}{}
@@ -519,7 +666,7 @@ func copyStringAnyMap(src map[string]interface{}) map[string]interface{} {
 	return dst
 }
 
-func hydrateActionFromIntent(actionType string, target string, payload map[string]interface{}, intent *userIntentSnapshot) (string, map[string]interface{}) {
+func (e *ExecutivePolicyShard) hydrateActionFromIntent(actionType string, target string, payload map[string]interface{}, intent *userIntentSnapshot) (string, map[string]interface{}) {
 	if intent == nil {
 		return target, payload
 	}
@@ -533,6 +680,16 @@ func hydrateActionFromIntent(actionType string, target string, payload map[strin
 	intentConstraint := strings.TrimSpace(intent.Constraint)
 
 	switch actionAtom {
+	case "/interrogative_mode":
+		payload["intent_id"] = intent.ID
+		question, options := e.loadClarificationPayload(intent.ID)
+		if strings.TrimSpace(question) != "" {
+			target = question
+		}
+		if len(options) > 0 {
+			payload["options"] = options
+		}
+		return target, payload
 	case "/delegate_reviewer", "/delegate_coder", "/delegate_researcher", "/delegate_tool_generator":
 		// For delegation actions, ensure we always supply a usable task string.
 		task, _ := payload["task"].(string)
@@ -684,6 +841,16 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 	if len(actions) == 0 && len(results) == 0 {
 		// Check if there's an active user intent that we failed to handle
 		if intent := e.latestUserIntent(); intent != nil {
+			if !e.IsBootGuardActive() {
+				reason := "/no_action_derived"
+				if unmapped, err := e.Kernel.Query("intent_unmapped"); err == nil && len(unmapped) > 0 {
+					reason = "/unmapped_verb"
+				}
+				_ = e.Kernel.Assert(types.Fact{
+					Predicate: "no_action_reason",
+					Args:      []interface{}{intent.ID, types.MangleAtom(reason)},
+				})
+			}
 			e.Autopoiesis.RecordUnhandled(
 				"next_action",
 				map[string]string{"reason": "no_action_derived", "intent_id": intent.ID},

@@ -154,7 +154,7 @@ func (s *LocalStore) processReflectionCycle() {
 }
 
 func (s *LocalStore) buildTraceEmbeddingUpdates(ctx context.Context, candidates []TraceEmbeddingCandidate, engine embedding.EmbeddingEngine, expectedTask, expectedModel string, expectedDim int, forceEmbed bool) ([]TraceEmbeddingUpdate, int, error) {
-	taskAware, hasTaskAware := engine.(TaskTypeAwareEngine)
+	taskAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
 
 	type embedTarget struct {
 		idx  int
@@ -473,7 +473,7 @@ func (ls *LearningStore) processLearningReflectionCycle() {
 }
 
 func (ls *LearningStore) buildLearningEmbeddingUpdates(ctx context.Context, candidates []LearningEmbeddingCandidate, engine embedding.EmbeddingEngine, expectedTask, expectedModel string, expectedDim int, forceEmbed bool) ([]LearningEmbeddingUpdate, int, error) {
-	taskAware, hasTaskAware := engine.(TaskTypeAwareEngine)
+	taskAware, hasTaskAware := engine.(embedding.TaskTypeAwareEngine)
 
 	type embedTarget struct {
 		idx  int

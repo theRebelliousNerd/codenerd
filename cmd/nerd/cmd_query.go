@@ -190,7 +190,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	switch predicate {
 	case "next_action":
 		fmt.Println("  - next_action(A) :- user_intent(_, V, T, _), action_mapping(V, A).")
-		fmt.Println("  - next_action(/ask_user) :- clarification_needed(_).")
+		fmt.Println("  - next_action(/interrogative_mode) :- clarification_needed(_).")
 	case "block_commit":
 		fmt.Println("  - block_commit(R) :- diagnostic(_, _, _, /error, R).")
 		fmt.Println("  - block_commit(\"Untested\") :- impacted(F), !test_coverage(F).")

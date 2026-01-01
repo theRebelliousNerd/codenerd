@@ -60,11 +60,18 @@ func (a *ToolAnalyzer) Analyze(ctx context.Context, schema MCPToolSchema) (*Tool
 	// Generate embedding for the tool
 	if a.embedder != nil {
 		embeddingText := a.buildEmbeddingText(schema, analysis)
-		embedding, err := a.embedder.Embed(ctx, embeddingText)
+		taskType := embedding.SelectTaskType(embedding.ContentTypeDocumentation, false)
+		var embeddingVec []float32
+		var err error
+		if taskAware, ok := a.embedder.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			embeddingVec, err = taskAware.EmbedWithTask(ctx, embeddingText, taskType)
+		} else {
+			embeddingVec, err = a.embedder.Embed(ctx, embeddingText)
+		}
 		if err != nil {
 			logging.Get(logging.CategoryTools).Debug("Failed to generate embedding: %v", err)
 		} else {
-			analysis.Embedding = embedding
+			analysis.Embedding = embeddingVec
 		}
 	}
 
@@ -87,9 +94,16 @@ func (a *ToolAnalyzer) analyzeWithoutLLM(schema MCPToolSchema) (*ToolAnalysis, e
 	if a.embedder != nil {
 		ctx := context.Background()
 		embeddingText := a.buildEmbeddingText(schema, analysis)
-		embedding, err := a.embedder.Embed(ctx, embeddingText)
+		taskType := embedding.SelectTaskType(embedding.ContentTypeDocumentation, false)
+		var embeddingVec []float32
+		var err error
+		if taskAware, ok := a.embedder.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			embeddingVec, err = taskAware.EmbedWithTask(ctx, embeddingText, taskType)
+		} else {
+			embeddingVec, err = a.embedder.Embed(ctx, embeddingText)
+		}
 		if err == nil {
-			analysis.Embedding = embedding
+			analysis.Embedding = embeddingVec
 		}
 	}
 

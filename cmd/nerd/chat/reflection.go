@@ -206,7 +206,7 @@ func embedReflectionQuery(ctx context.Context, engine embedding.EmbeddingEngine,
 	if query == "" {
 		return nil, fmt.Errorf("empty reflection query")
 	}
-	if taskAware, ok := engine.(store.TaskTypeAwareEngine); ok && taskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
 		return taskAware.EmbedWithTask(ctx, query, taskType)
 	}
 	return engine.Embed(ctx, query)

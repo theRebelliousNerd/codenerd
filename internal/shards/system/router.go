@@ -446,11 +446,17 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				)
 				continue
 			}
-			// Emit routing error
+			// Emit routing failure so policy can react deterministically
 			_ = r.Kernel.Assert(types.Fact{
-				Predicate: "routing_error",
-				Args:      []interface{}{actionType, "no_handler", time.Now().Unix()},
+				Predicate: "routing_result",
+				Args:      []interface{}{actionID, types.MangleAtom("/failure"), "no_handler", time.Now().Unix()},
 			})
+			if intentID, ok := payload["intent_id"].(string); ok && intentID != "" {
+				_ = r.Kernel.Assert(types.Fact{
+					Predicate: "no_action_reason",
+					Args:      []interface{}{intentID, types.MangleAtom("/no_route")},
+				})
+			}
 			continue
 		}
 		logging.Routing("Route found: action=%s -> tool=%s (timeout=%v)", actionType, route.ToolName, route.Timeout)
@@ -460,8 +466,8 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			if !limiter.allow() {
 				logging.Routing("Rate limit exceeded for tool: %s (action=%s)", route.ToolName, actionType)
 				_ = r.Kernel.Assert(types.Fact{
-					Predicate: "routing_error",
-					Args:      []interface{}{actionType, "rate_limit_exceeded", time.Now().Unix()},
+					Predicate: "routing_result",
+					Args:      []interface{}{actionID, types.MangleAtom("/failure"), "rate_limit_exceeded", time.Now().Unix()},
 				})
 				continue
 			}

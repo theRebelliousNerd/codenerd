@@ -42,6 +42,10 @@ type PerceptionConfig struct {
 
 	// Fallback
 	UseFallbackParsing bool // Use regex fallback if LLM fails
+
+	// Learning candidates
+	LearningCandidateThreshold   int  // Repeats required before candidate (default: 3)
+	LearningCandidateAutoPromote bool // Require confirmation before promotion
 }
 
 // DefaultPerceptionConfig returns sensible defaults.
@@ -52,7 +56,14 @@ func DefaultPerceptionConfig() PerceptionConfig {
 		TickInterval:        50 * time.Millisecond,
 		MaxQueueSize:        100,
 		UseFallbackParsing:  true,
+		LearningCandidateThreshold:   3,
+		LearningCandidateAutoPromote: false,
 	}
+}
+
+// LearningCandidateStore records potential taxonomy learnings.
+type LearningCandidateStore interface {
+	RecordLearningCandidate(phrase, verb, target, reason string) (int, error)
 }
 
 // PerceptionFirewallShard transduces user input to structured atoms.
@@ -83,6 +94,9 @@ type PerceptionFirewallShard struct {
 
 	// Canonical Perception transducer (NL -> Piggyback -> intent)
 	transducer *perception.RealTransducer
+
+	// Optional learning candidate store (SQLite-backed)
+	candidateStore LearningCandidateStore
 }
 
 // NewPerceptionFirewallShard creates a new Perception Firewall shard.
@@ -121,6 +135,13 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 // Delegates to BaseSystemShard which loads existing patterns.
 func (p *PerceptionFirewallShard) SetLearningStore(ls core.LearningStore) {
 	p.BaseSystemShard.SetLearningStore(ls)
+}
+
+// SetLearningCandidateStore wires a store for learning candidates (optional).
+func (p *PerceptionFirewallShard) SetLearningCandidateStore(store LearningCandidateStore) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.candidateStore = store
 }
 
 // SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
@@ -258,6 +279,74 @@ func (p *PerceptionFirewallShard) trackFailure(pattern string, reason string) {
 func (p *PerceptionFirewallShard) trackCorrection(original, corrected string) {
 	p.BaseSystemShard.trackCorrection(original, corrected)
 }
+
+func (p *PerceptionFirewallShard) isVerbKnown(verb string) bool {
+	normalized := normalizeAtom(verb)
+	if normalized == "" || normalized == "none" {
+		return false
+	}
+	for _, entry := range perception.VerbCorpus {
+		if normalizeAtom(entry.Verb) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *PerceptionFirewallShard) isVerbActionMapped(verb string) (bool, error) {
+	if p.Kernel == nil {
+		return true, nil
+	}
+	results, err := p.Kernel.Query("action_mapping")
+	if err != nil {
+		return false, err
+	}
+	normalized := normalizeAtom(verb)
+	for _, fact := range results {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		mappedVerb := normalizeAtom(fmt.Sprintf("%v", fact.Args[0]))
+		if mappedVerb == normalized {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *PerceptionFirewallShard) classifyVerbMapping(verb string) (bool, string) {
+	normalized := normalizeAtom(verb)
+	if normalized == "" || normalized == "none" {
+		return false, "/no_verb_match"
+	}
+	known := p.isVerbKnown(normalized)
+	mapped, err := p.isVerbActionMapped(normalized)
+	if err != nil {
+		logging.SystemShardsDebug("[PerceptionFirewall] action_mapping query failed: %v", err)
+		return true, ""
+	}
+	if !known && mapped {
+		return true, ""
+	}
+	if !known {
+		return false, "/unknown_verb"
+	}
+	if !mapped {
+		return false, "/no_action_mapping"
+	}
+	return true, ""
+}
+
+func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, reason string) (int, error) {
+	p.mu.RLock()
+	store := p.candidateStore
+	p.mu.RUnlock()
+	if store == nil || strings.TrimSpace(phrase) == "" {
+		return 0, nil
+	}
+	return store.RecordLearningCandidate(phrase, verb, target, reason)
+}
+
 func buildVerbPatterns() map[string]*regexp.Regexp {
 	patterns := map[string]string{
 		"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
@@ -388,6 +477,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	}
 
 	intent, validatedUpdates, parseErr := transducer.ParseIntentWithGCD(ctx, input, history, maxRetries)
+	parseFailed := parseErr != nil
 	if parseErr != nil {
 		logging.SystemShardsDebug("[PerceptionFirewall] Transducer parse failed (degrading): %v", parseErr)
 		if p.config.UseFallbackParsing {
@@ -408,10 +498,18 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Use a stable intent ID so policy can scope rules to the active user intent.
 	// This prevents stale intent accumulation across turns.
 	intentID := "/current_intent"
+	phrase := strings.TrimSpace(input)
 
 	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
 	_ = p.Kernel.Retract("ambiguity_flag")
 	_ = p.Kernel.Retract("clarification_needed")
+	_ = p.Kernel.Retract("intent_unknown")
+	_ = p.Kernel.Retract("intent_unmapped")
+	_ = p.Kernel.Retract("no_action_reason")
+	_ = p.Kernel.Retract("clarification_question")
+	_ = p.Kernel.Retract("clarification_option")
+	_ = p.Kernel.Retract("learning_candidate")
+	_ = p.Kernel.Retract("learning_candidate_count")
 	_ = p.Kernel.Retract("awaiting_clarification")
 	_ = p.Kernel.Retract("awaiting_user_input")
 	_ = p.Kernel.Retract("campaign_awaiting_clarification")
@@ -419,6 +517,80 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+
+	unknownReason := ""
+	if strings.TrimSpace(intent.Verb) == "" {
+		unknownReason = "/no_verb_match"
+		intent.Verb = "/explain"
+		if intent.Category == "" || intent.Category == "/instruction" {
+			intent.Category = "/query"
+		}
+		if intent.Confidence > 0.3 {
+			intent.Confidence = 0.3
+		}
+	} else if parseFailed {
+		unknownReason = "/llm_failed"
+		if intent.Confidence > 0.4 {
+			intent.Confidence = 0.4
+		}
+	} else if intent.Confidence < p.config.AmbiguityThreshold {
+		unknownReason = "/heuristic_low"
+	}
+
+	if unknownReason != "" {
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "intent_unknown",
+			Args: []interface{}{
+				truncateForLog(input, 120),
+				types.MangleAtom(unknownReason),
+			},
+		})
+	}
+
+	if mapped, mapReason := p.classifyVerbMapping(intent.Verb); !mapped {
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "intent_unmapped",
+			Args: []interface{}{
+				types.MangleAtom(intent.Verb),
+				types.MangleAtom(mapReason),
+			},
+		})
+		if intent.Confidence > 0.4 {
+			intent.Confidence = 0.4
+		}
+		if count, err := p.recordLearningCandidate(phrase, intent.Verb, intent.Target, mapReason); err != nil {
+			logging.SystemShardsDebug("[PerceptionFirewall] Failed to record learning candidate: %v", err)
+		} else if p.config.LearningCandidateThreshold > 0 {
+			if p.Kernel != nil {
+				// Replace any stale count fact for this phrase.
+				if existing, err := p.Kernel.Query("learning_candidate_count"); err == nil {
+					for _, f := range existing {
+						if len(f.Args) < 2 {
+							continue
+						}
+						if existingPhrase, ok := f.Args[0].(string); ok && existingPhrase == phrase {
+							_ = p.Kernel.RetractFact(f)
+						}
+					}
+				}
+				_ = p.Kernel.Assert(types.Fact{
+					Predicate: "learning_candidate_count",
+					Args:      []interface{}{phrase, count},
+				})
+			}
+			if count >= p.config.LearningCandidateThreshold {
+				_ = p.Kernel.Assert(types.Fact{
+					Predicate: "learning_candidate",
+					Args: []interface{}{
+						phrase,
+						types.MangleAtom(intent.Verb),
+						intent.Target,
+						types.MangleAtom(mapReason),
+					},
+				})
+			}
+		}
+	}
 
 	// Emit user_intent/5
 	_ = p.Kernel.Assert(types.Fact{

@@ -67,6 +67,12 @@ When Autopoiesis creates a new preference/3 fact, it also generates a semantic_h
 - Persist model metadata (embedding_model_id, embedding_dim, distance_metric) in a DB metadata table or a local store header. On mismatch, disable semantic recall and emit a warning.
 - Record embedding_task per row (RETRIEVAL_DOCUMENT vs RETRIEVAL_QUERY) to detect task mismatch.
 
+### D. Task-Type Contract (Query vs Document)
+- Stored descriptors/handles are **documents** and MUST use `RETRIEVAL_DOCUMENT`.
+- Observe-time intent descriptors are **queries** and MUST use `RETRIEVAL_QUERY`.
+- Use `embedding.SelectTaskType(...)` or `embedding.GetOptimalTaskType(...)` consistently and persist `embedding_task` per row.
+- Any vector write path must set `content_type` metadata to drive task selection (docs, knowledge atoms, prompt atoms, predicates).
+
 ---
 
 ## 4. Descriptor Synthesis and Dedupe
@@ -88,8 +94,9 @@ Embedding is slow (~300 to 500ms). Use an asynchronous background worker to prev
    - Use task-aware embedding when available:
      - Documents: RETRIEVAL_DOCUMENT
      - Queries: RETRIEVAL_QUERY
-   - Task types selected via embedding/task_selector.go (no edits required).
-   - Do not modify genai.go or task_selector.go until reconciliation.
+   - Prefer EmbedBatchWithTask/EmbedWithTask when the engine supports it.
+   - Task types selected via embedding/task_selector.go and `content_type` metadata.
+   - If task-aware APIs are unavailable, embed anyway and mark embedding_task empty for re-embed later.
 4. Index: Sync embeddings into sqlite-vec tables.
 
 ### B. Retention and Backpressure

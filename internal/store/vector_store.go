@@ -85,7 +85,7 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	taskType := embedding.GetOptimalTaskType(content, metadata, false)
 	var embeddingVec []float32
 	var err error
-	if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok && taskType != "" {
+	if taskAware, ok := s.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
 		embeddingVec, err = taskAware.EmbedWithTask(ctx, content, taskType)
 	} else {
 		embeddingVec, err = s.embeddingEngine.Embed(ctx, content)
@@ -163,9 +163,9 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 	var embeddings [][]float32
 	var err error
 	if uniformTask && taskTypes[0] != "" {
-		if batchAware, ok := engine.(TaskTypeBatchAwareEngine); ok {
+		if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok {
 			embeddings, err = batchAware.EmbedBatchWithTask(ctx, contents, taskTypes[0])
-		} else if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+		} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
 			embeddings = make([][]float32, len(contents))
 			for i, content := range contents {
 				vec, embedErr := taskAware.EmbedWithTask(ctx, content, taskTypes[0])
@@ -178,7 +178,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 		} else {
 			embeddings, err = engine.EmbedBatch(ctx, contents)
 		}
-	} else if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+	} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
 		embeddings = make([][]float32, len(contents))
 		for i, content := range contents {
 			vec, embedErr := taskAware.EmbedWithTask(ctx, content, taskTypes[i])
@@ -335,7 +335,7 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
 	var queryEmbedding []float32
 	var err error
-	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && queryTaskType != "" {
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
 	} else {
 		queryEmbedding, err = engine.Embed(ctx, query)
@@ -469,7 +469,7 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
 	var queryEmbedding []float32
 	var err error
-	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && queryTaskType != "" {
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
 	} else {
 		queryEmbedding, err = engine.Embed(ctx, query)
@@ -591,7 +591,7 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
 	var queryEmbedding []float32
 	var err error
-	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && queryTaskType != "" {
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
 	} else {
 		queryEmbedding, err = engine.Embed(ctx, query)
@@ -1222,9 +1222,9 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		var embeddings [][]float32
 		var err error
 		if uniformTask && taskTypes[0] != "" {
-			if batchAware, ok := s.embeddingEngine.(TaskTypeBatchAwareEngine); ok {
+			if batchAware, ok := s.embeddingEngine.(embedding.TaskTypeBatchAwareEngine); ok {
 				embeddings, err = batchAware.EmbedBatchWithTask(ctx, texts, taskTypes[0])
-			} else if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+			} else if taskAware, ok := s.embeddingEngine.(embedding.TaskTypeAwareEngine); ok {
 				embeddings = make([][]float32, len(batch))
 				for j, v := range batch {
 					vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[0])
@@ -1237,7 +1237,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 			} else {
 				embeddings, err = s.embeddingEngine.EmbedBatch(ctx, texts)
 			}
-		} else if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+		} else if taskAware, ok := s.embeddingEngine.(embedding.TaskTypeAwareEngine); ok {
 			embeddings = make([][]float32, len(batch))
 			for j, v := range batch {
 				vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[j])
@@ -1258,7 +1258,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 			for j, v := range batch {
 				var vec []float32
 				var embedErr error
-				if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+				if taskAware, ok := s.embeddingEngine.(embedding.TaskTypeAwareEngine); ok {
 					vec, embedErr = taskAware.EmbedWithTask(ctx, v.content, taskTypes[j])
 				} else {
 					vec, embedErr = s.embeddingEngine.Embed(ctx, v.content)
@@ -1303,21 +1303,6 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 // TASK-TYPE AWARE VECTOR SEARCH
 // =============================================================================
 
-// TaskTypeAwareEngine extends EmbeddingEngine with task-type-specific embedding.
-// If the underlying engine supports this interface, task-specific embeddings are used.
-type TaskTypeAwareEngine interface {
-	embedding.EmbeddingEngine
-	// EmbedWithTask generates embeddings with a specific task type
-	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
-}
-
-// TaskTypeBatchAwareEngine extends EmbeddingEngine with task-type-specific batch embedding.
-type TaskTypeBatchAwareEngine interface {
-	embedding.EmbeddingEngine
-	// EmbedBatchWithTask generates embeddings with a specific task type.
-	EmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error)
-}
-
 // VectorRecallSemanticWithTask performs vector search with explicit query task type.
 // This allows using RETRIEVAL_QUERY for queries while documents use RETRIEVAL_DOCUMENT.
 func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query string, limit int, queryTaskType string) ([]VectorEntry, error) {
@@ -1344,7 +1329,7 @@ func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query str
 	var queryEmbedding []float32
 	var err error
 
-	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && queryTaskType != "" {
 		logging.StoreDebug("Using task-aware embedding with task type: %s", queryTaskType)
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
 	} else {
@@ -1403,7 +1388,7 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 	var queryEmbedding []float32
 	var err error
 
-	if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
 		logging.StoreDebug("Using RETRIEVAL_QUERY task type for prompt atom search")
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, "RETRIEVAL_QUERY")
 	} else {
