@@ -38,6 +38,13 @@ func TestLogic_Golden(t *testing.T) {
 			edbFile:     "testdata/jit_logic.edb",
 			goldenFile:  "testdata/jit_logic.golden",
 		},
+		{
+			name:        "Git Safety (Chesterton's Fence)",
+			policyFiles: []string{"git_safety.mg"},
+			schemaFiles: []string{"../schemas_safety.mg", "../schemas_intent.mg"},
+			edbFile:     "testdata/git_safety.edb",
+			goldenFile:  "testdata/git_safety.golden",
+		},
 	}
 
 	for _, sc := range scenarios {
