@@ -101,18 +101,13 @@ func (ts *TraceStore) ensureSchema() error {
 		embedding_task TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
-
-	CREATE INDEX IF NOT EXISTS idx_traces_shard_type ON reasoning_traces(shard_type);
-	CREATE INDEX IF NOT EXISTS idx_traces_session ON reasoning_traces(session_id);
-	CREATE INDEX IF NOT EXISTS idx_traces_shard_id ON reasoning_traces(shard_id);
-	CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
-	CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
-	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
-	CREATE INDEX IF NOT EXISTS idx_traces_descriptor_hash ON reasoning_traces(descriptor_hash);
 	`
 
-	_, err := ts.db.Exec(schema)
-	return err
+	if _, err := ts.db.Exec(schema); err != nil {
+		return err
+	}
+	ensureReasoningTraceIndexes(ts.db)
+	return nil
 }
 
 // ========== Write Operations (perception.TraceStore interface) ==========

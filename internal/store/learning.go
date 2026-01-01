@@ -131,7 +131,6 @@ func (ls *LearningStore) initializeSchema(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_learnings_predicate ON learnings(fact_predicate);
 	CREATE INDEX IF NOT EXISTS idx_learnings_confidence ON learnings(confidence);
-	CREATE INDEX IF NOT EXISTS idx_learnings_handle_hash ON learnings(handle_hash);
 	`
 	_, err := db.Exec(schema)
 	return err

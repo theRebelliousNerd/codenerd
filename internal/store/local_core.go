@@ -264,11 +264,11 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Reasoning traces for shard LLM interactions (Task 4)
-	reasoningTracesTable := `
-        CREATE TABLE IF NOT EXISTS reasoning_traces (
-                id TEXT PRIMARY KEY,
-                shard_id TEXT NOT NULL,
-                shard_type TEXT NOT NULL,
+	reasoningTracesTableOnly := `
+	CREATE TABLE IF NOT EXISTS reasoning_traces (
+		id TEXT PRIMARY KEY,
+		shard_id TEXT NOT NULL,
+		shard_type TEXT NOT NULL,
                 shard_category TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 task_context TEXT,
@@ -286,19 +286,12 @@ func (s *LocalStore) initialize() error {
                 descriptor_version INTEGER DEFAULT 0,
                 descriptor_hash TEXT,
                 embedding BLOB,
-                embedding_model_id TEXT,
-                embedding_dim INTEGER,
-                embedding_task TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_traces_shard_type ON reasoning_traces(shard_type);
-        CREATE INDEX IF NOT EXISTS idx_traces_session ON reasoning_traces(session_id);
-        CREATE INDEX IF NOT EXISTS idx_traces_shard_id ON reasoning_traces(shard_id);
-        CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
-        CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
-        CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
-        CREATE INDEX IF NOT EXISTS idx_traces_descriptor_hash ON reasoning_traces(descriptor_hash);
-        `
+		embedding_model_id TEXT,
+		embedding_dim INTEGER,
+		embedding_task TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
 
 	// Review Findings (for persistent history and analysis)
 	reviewFindingsTable := `
@@ -418,7 +411,7 @@ func (s *LocalStore) initialize() error {
 		sessionTable,
 		compressedStateTable,
 		verificationTable,
-		reasoningTracesTable,
+		reasoningTracesTableOnly,
 		reviewFindingsTable,
 		promptAtomsTableOnly,
 	} {
@@ -431,6 +424,8 @@ func (s *LocalStore) initialize() error {
 	if err := RunMigrations(s.db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
+
+	ensureReasoningTraceIndexes(s.db)
 
 	// Now create indexes that depend on migrated columns
 	coldIndexes := `
