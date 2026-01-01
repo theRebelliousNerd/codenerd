@@ -58,6 +58,7 @@ type ExecutiveConfig struct {
 	MaxActionsPerTick int  // Prevent action storms (default: 5)
 	DebugMode         bool // Emit detailed derivation traces
 	OODATimeout       time.Duration // How long to wait before declaring OODA stalled
+	LearningCandidateThreshold int // Repeats required before candidate (default: 3)
 }
 
 // DefaultExecutiveConfig returns sensible defaults.
@@ -68,6 +69,7 @@ func DefaultExecutiveConfig() ExecutiveConfig {
 		MaxActionsPerTick: 5,
 		DebugMode:         false,
 		OODATimeout:       30 * time.Second,
+		LearningCandidateThreshold: 3,
 	}
 }
 
@@ -97,6 +99,7 @@ type ExecutivePolicyShard struct {
 	patternSuccess map[string]int // Track successful action patterns
 	patternFailure map[string]int // Track failed action patterns
 	learningStore  core.LearningStore
+	candidateStore LearningCandidateStore
 
 	// Mangle feedback loop for validated rule generation
 	feedbackLoop          *feedback.FeedbackLoop
@@ -160,6 +163,13 @@ func (e *ExecutivePolicyShard) SetLearningStore(ls core.LearningStore) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.learningStore = ls
+}
+
+// SetLearningCandidateStore wires a store for learning candidates (optional).
+func (e *ExecutivePolicyShard) SetLearningCandidateStore(store LearningCandidateStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.candidateStore = store
 }
 
 // ResetValidationBudget resets the FeedbackLoop validation budget.
@@ -655,6 +665,88 @@ func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string
 	return question, options
 }
 
+func (e *ExecutivePolicyShard) loadUserInputString() string {
+	if e.Kernel == nil {
+		return ""
+	}
+	facts, err := e.Kernel.Query("user_input_string")
+	if err != nil || len(facts) == 0 {
+		return ""
+	}
+	if len(facts[0].Args) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", facts[0].Args[0]))
+}
+
+func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapshot, reason string) {
+	if intent == nil || reason == "" {
+		return
+	}
+	e.mu.RLock()
+	store := e.candidateStore
+	threshold := e.config.LearningCandidateThreshold
+	e.mu.RUnlock()
+	if store == nil {
+		return
+	}
+
+	phrase := e.loadUserInputString()
+	if phrase == "" {
+		phrase = strings.TrimSpace(intent.Constraint)
+	}
+	phrase = strings.TrimSpace(phrase)
+	if phrase == "" || phrase == "none" || phrase == "_" {
+		phrase = strings.TrimSpace(fmt.Sprintf("%s %s", intent.Verb, intent.Target))
+		phrase = strings.TrimSpace(phrase)
+	}
+	if phrase == "" {
+		return
+	}
+
+	verb := normalizeAtom(intent.Verb)
+	target := strings.TrimSpace(intent.Target)
+	if target == "" || target == "none" || target == "_" {
+		target = ""
+	}
+
+	count, err := store.RecordLearningCandidate(phrase, verb, target, reason)
+	if err != nil {
+		logging.SystemShardsDebug("[ExecutivePolicy] Failed to record learning candidate: %v", err)
+		return
+	}
+
+	if e.Kernel == nil || threshold <= 0 {
+		return
+	}
+	if existing, err := e.Kernel.Query("learning_candidate_count"); err == nil {
+		for _, f := range existing {
+			if len(f.Args) < 2 {
+				continue
+			}
+			if existingPhrase, ok := f.Args[0].(string); ok && existingPhrase == phrase {
+				_ = e.Kernel.RetractFact(f)
+			}
+		}
+	}
+	_ = e.Kernel.Assert(types.Fact{
+		Predicate: "learning_candidate_count",
+		Args:      []interface{}{phrase, count},
+	})
+
+	if count >= threshold {
+		_ = e.Kernel.Assert(types.Fact{
+			Predicate: "learning_candidate",
+			Args: []interface{}{
+				phrase,
+				types.MangleAtom(verb),
+				target,
+				types.MangleAtom(reason),
+			},
+		})
+	}
+}
+
 func copyStringAnyMap(src map[string]interface{}) map[string]interface{} {
 	if len(src) == 0 {
 		return map[string]interface{}{}
@@ -846,10 +938,27 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 				if unmapped, err := e.Kernel.Query("intent_unmapped"); err == nil && len(unmapped) > 0 {
 					reason = "/unmapped_verb"
 				}
-				_ = e.Kernel.Assert(types.Fact{
-					Predicate: "no_action_reason",
-					Args:      []interface{}{intent.ID, types.MangleAtom(reason)},
-				})
+				alreadyRecorded := false
+				if existing, err := e.Kernel.Query("no_action_reason"); err == nil {
+					for _, f := range existing {
+						if len(f.Args) < 2 {
+							continue
+						}
+						if fmt.Sprintf("%v", f.Args[0]) == intent.ID {
+							alreadyRecorded = true
+							break
+						}
+					}
+				}
+				if !alreadyRecorded {
+					_ = e.Kernel.Assert(types.Fact{
+						Predicate: "no_action_reason",
+						Args:      []interface{}{intent.ID, types.MangleAtom(reason)},
+					})
+					if reason == "/no_action_derived" {
+						e.recordNoActionCandidate(intent, reason)
+					}
+				}
 			}
 			e.Autopoiesis.RecordUnhandled(
 				"next_action",

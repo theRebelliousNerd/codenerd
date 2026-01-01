@@ -514,9 +514,17 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	_ = p.Kernel.Retract("awaiting_user_input")
 	_ = p.Kernel.Retract("campaign_awaiting_clarification")
 	_ = p.Kernel.Retract("focus_resolution")
+	_ = p.Kernel.Retract("user_input_string")
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
 	_ = p.Kernel.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+
+	if phrase != "" {
+		_ = p.Kernel.Assert(types.Fact{
+			Predicate: "user_input_string",
+			Args:      []interface{}{phrase},
+		})
+	}
 
 	unknownReason := ""
 	if strings.TrimSpace(intent.Verb) == "" {
