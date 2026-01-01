@@ -3,9 +3,13 @@
 learning_candidate_ready(Phrase, Verb) :-
     learning_candidate(Phrase, Verb, _, _).
 
-# Only surface confirmation for explicit no_action_derived candidates.
+# Surface confirmation for explicit learning candidates.
 learning_confirmation_needed(Phrase, Verb, Target, /no_action_derived) :-
     learning_candidate(Phrase, Verb, Target, /no_action_derived).
+learning_confirmation_needed(Phrase, Verb, Target, /critic_autolearn) :-
+    learning_candidate(Phrase, Verb, Target, /critic_autolearn).
+learning_confirmation_needed(Phrase, Verb, Target, /critic_manual) :-
+    learning_candidate(Phrase, Verb, Target, /critic_manual).
 
 learning_confirmation_active(/yes) :-
     learning_confirmation_needed(_, _, _, _).
