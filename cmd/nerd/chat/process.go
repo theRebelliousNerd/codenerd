@@ -978,17 +978,14 @@ func (m Model) processInputWithKnowledge(input string) tea.Cmd {
 				if kr.Error == nil && kr.Response != "" {
 					knowledgeSummary.WriteString(fmt.Sprintf("### From %s\n", kr.Specialist))
 					knowledgeSummary.WriteString(fmt.Sprintf("**Query:** %s\n\n", kr.Query))
-					// Truncate very long responses for context budget
-					response := kr.Response
-					if len(response) > 2000 {
-						response = response[:2000] + "\n\n[...truncated for brevity]"
-					}
-					knowledgeSummary.WriteString(response)
+					knowledgeSummary.WriteString(kr.Response)
 					knowledgeSummary.WriteString("\n\n")
 				}
 			}
 			knowledgeSummary.WriteString("---\n\n")
-			knowledgeSummary.WriteString("Please synthesize this knowledge to answer the user's question.\n")
+			knowledgeSummary.WriteString("When responding:\n")
+			knowledgeSummary.WriteString("1. Provide a short **Knowledge Summary** section that synthesizes the gathered specialist responses.\n")
+			knowledgeSummary.WriteString("2. Then answer the user's question.\n")
 		}
 
 		// Augment the input with gathered knowledge context

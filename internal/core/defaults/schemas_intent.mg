@@ -41,7 +41,7 @@ Decl intent_unknown(Input.Type<string>, Reason).
 Decl intent_unmapped(Verb.Type<string>, Reason).
 
 # no_action_reason(IntentID, Reason)
-# Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout
+# Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout, /no_action_derived
 Decl no_action_reason(IntentID.Type<string>, Reason).
 
 # learning_candidate(Phrase, Verb, Target, Reason)

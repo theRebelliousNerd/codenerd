@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-const maxKnowledgeResultChars = 2000
-
 func formatKnowledgeResults(results []KnowledgeResult) string {
 	if len(results) == 0 {
 		return ""
@@ -43,12 +41,7 @@ func formatKnowledgeResults(results []KnowledgeResult) string {
 			continue
 		}
 
-		response := kr.Response
-		if len(response) > maxKnowledgeResultChars {
-			response = response[:maxKnowledgeResultChars] + "\n\n[...truncated for brevity]"
-		}
-
-		sb.WriteString(response)
+		sb.WriteString(kr.Response)
 		sb.WriteString("\n\n")
 	}
 
