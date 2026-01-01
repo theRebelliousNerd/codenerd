@@ -67,3 +67,14 @@ ooda_stalled("no_action_derived") :-
 # Escalate stalled OODA loop
 escalation_needed(/ooda_loop, "stalled", Reason) :-
     ooda_stalled(Reason).
+
+# OODA stall escalation actions
+next_action(/escalate_to_user) :-
+    escalation_needed(/ooda_loop, "stalled", _).
+
+next_action(/interrogative_mode) :-
+    ooda_stalled("no_action_derived"),
+    !any_awaiting_clarification(/yes).
+
+clarification_question(/current_intent, "I'm having trouble determining what action to take. Could you rephrase your request?") :-
+    ooda_stalled("no_action_derived").

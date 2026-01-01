@@ -7,6 +7,10 @@ type LoggingConfig struct {
 	File       string          `yaml:"file" json:"file,omitempty"`             // legacy single file
 	DebugMode  bool            `yaml:"debug_mode" json:"debug_mode,omitempty"` // Master toggle - false = no logging (production)
 	Categories map[string]bool `yaml:"categories" json:"categories,omitempty"` // Per-category toggles
+	// PerformanceSampling controls sampling rate for non-slow performance logs (0.0-1.0).
+	PerformanceSampling float64 `yaml:"performance_sampling" json:"performance_sampling,omitempty"`
+	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
+	PerformanceThresholdsMs map[string]int64 `yaml:"performance_thresholds_ms" json:"performance_thresholds_ms,omitempty"`
 }
 
 // IsCategoryEnabled returns whether logging is enabled for a category.
