@@ -54,19 +54,36 @@ func ExtractFactFromResponse(response string) string {
 		logging.PerceptionDebug("ExtractFactFromResponse: no learned_exemplar found")
 		return ""
 	}
-	// Find the closing parenthesis
-	// This is a naive extraction, assuming the LLM outputs it on one line or cleanly.
-	rest := response[start:]
-	end := strings.Index(rest, ").")
-	if end == -1 {
-		// Try just )
-		end = strings.Index(rest, ")")
-	}
-
-	if end != -1 {
-		fact := rest[:end+1] + "." // Include closing param and dot
-		logging.PerceptionDebug("ExtractFactFromResponse: extracted fact: %s", fact)
-		return fact
+	// Scan forward to find the closing parenthesis outside quotes.
+	inQuotes := false
+	escaped := false
+	for i := start + len("learned_exemplar("); i < len(response); i++ {
+		ch := response[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inQuotes {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inQuotes = !inQuotes
+			continue
+		}
+		if ch == ')' && !inQuotes {
+			end := i + 1
+			// Include trailing period if present.
+			if end < len(response) && response[end] == '.' {
+				end++
+			}
+			fact := response[start:end]
+			if !strings.HasSuffix(fact, ".") {
+				fact += "."
+			}
+			logging.PerceptionDebug("ExtractFactFromResponse: extracted fact: %s", fact)
+			return fact
+		}
 	}
 	logging.PerceptionDebug("ExtractFactFromResponse: malformed fact (no closing paren)")
 	return ""
@@ -233,8 +250,7 @@ func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, co
 	s = strings.TrimSuffix(s, ".")
 	s = strings.TrimSuffix(s, ")")
 
-	// Split by comma
-	parts := strings.Split(s, ",")
+	parts := splitLearnedFactArgs(s)
 	if len(parts) != 5 {
 		logging.PerceptionDebug("ParseLearnedFact: wrong number of args (expected 5, got %d)", len(parts))
 		return "", "", "", "", 0, fmt.Errorf("expected 5 args, got %d", len(parts))
@@ -242,7 +258,11 @@ func ParseLearnedFact(fact string) (pattern, verb, target, constraint string, co
 
 	// Helper to clean quotes
 	clean := func(in string) string {
-		return strings.Trim(strings.TrimSpace(in), "\"")
+		trimmed := strings.TrimSpace(in)
+		trimmed = strings.TrimPrefix(trimmed, "\"")
+		trimmed = strings.TrimSuffix(trimmed, "\"")
+		trimmed = strings.ReplaceAll(trimmed, `\"`, `"`)
+		return trimmed
 	}
 
 	pattern = clean(parts[0])
@@ -289,4 +309,39 @@ func NormalizeLearnedFact(fact string) (string, error) {
 		pattern, verb, target, constraint, confInt)
 	logging.PerceptionDebug("NormalizeLearnedFact: normalized result: %s", normalized)
 	return normalized, nil
+}
+
+func splitLearnedFactArgs(input string) []string {
+	var parts []string
+	var buf strings.Builder
+	inQuotes := false
+	escaped := false
+	for i := 0; i < len(input); i++ {
+		ch := input[i]
+		if escaped {
+			buf.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inQuotes {
+			escaped = true
+			buf.WriteByte(ch)
+			continue
+		}
+		if ch == '"' {
+			inQuotes = !inQuotes
+			buf.WriteByte(ch)
+			continue
+		}
+		if ch == ',' && !inQuotes {
+			parts = append(parts, strings.TrimSpace(buf.String()))
+			buf.Reset()
+			continue
+		}
+		buf.WriteByte(ch)
+	}
+	if buf.Len() > 0 {
+		parts = append(parts, strings.TrimSpace(buf.String()))
+	}
+	return parts
 }

@@ -116,6 +116,14 @@ sync with the plan document as changes land.
   - [x] `learning_candidate_auto_promote: false`
 - [x] Audit docs to distinguish kernel `learned.mg` vs taxonomy `learned_taxonomy.mg` (avoid blanket renames).
 
+## Addendum: Critic Learned-Exemplar Hardening
+
+- [x] Harden `ExtractFactFromResponse` to capture the first `learned_exemplar(...)` outside quotes.
+- [x] Split learned_exemplar args on commas *outside* quotes to support constraint strings with commas.
+- [x] Preserve raw `learned_exemplar` during confirmation so constraints/confidence survive intact.
+- [x] Validate manual `/learn`: no `.nerd/mangle/learned_taxonomy.mg` until confirmation.
+- [x] Validate auto-learn: dissatisfaction triggers candidate; confirmation appends to `.nerd/mangle/learned_taxonomy.mg`.
+
 ## JIT Prompt Atom Work (Required for New LLM Flows)
 
 - [x] Add prompt atoms for clarification flow (e.g., `internal/prompt/atoms/system/clarification.yaml`).
