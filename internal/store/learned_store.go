@@ -170,7 +170,14 @@ func (s *LearnedCorpusStore) AddPattern(ctx context.Context, pattern, verb, targ
 	}
 
 	// Generate embedding for the pattern
-	embeddingVec, err := s.embedEngine.Embed(ctx, pattern)
+	taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+	var embeddingVec []float32
+	var err error
+	if taskAware, ok := s.embedEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		embeddingVec, err = taskAware.EmbedWithTask(ctx, pattern, taskType)
+	} else {
+		embeddingVec, err = s.embedEngine.Embed(ctx, pattern)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for pattern: %v", err)
 		return fmt.Errorf("failed to generate embedding: %w", err)

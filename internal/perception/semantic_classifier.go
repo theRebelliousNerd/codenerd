@@ -277,7 +277,14 @@ func (sc *SemanticClassifier) ClassifyWithoutInjection(ctx context.Context, inpu
 		return nil, nil
 	}
 
-	queryEmbed, err := embedEngine.Embed(ctx, input)
+	queryTask := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
+	var queryEmbed []float32
+	var err error
+	if taskAware, ok := embedEngine.(embedding.TaskTypeAwareEngine); ok && queryTask != "" {
+		queryEmbed, err = taskAware.EmbedWithTask(ctx, input, queryTask)
+	} else {
+		queryEmbed, err = embedEngine.Embed(ctx, input)
+	}
 	if err != nil {
 		// Graceful degradation: return empty matches, don't fail
 		logging.Get(logging.CategoryPerception).Warn("Semantic embedding failed: %v, falling back to regex-only", err)
@@ -489,8 +496,15 @@ func (sc *SemanticClassifier) AddLearnedPattern(ctx context.Context, pattern, ve
 
 	logging.Perception("Adding learned pattern: verb=%s, pattern=%q", verb, truncateForLog(pattern, 50))
 
-	// Generate embedding for the new pattern
-	patternEmbed, err := embedEngine.Embed(ctx, pattern)
+	// Generate embedding for the new pattern (document-side of retrieval)
+	patternTask := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+	var patternEmbed []float32
+	var err error
+	if taskAware, ok := embedEngine.(embedding.TaskTypeAwareEngine); ok && patternTask != "" {
+		patternEmbed, err = taskAware.EmbedWithTask(ctx, pattern, patternTask)
+	} else {
+		patternEmbed, err = embedEngine.Embed(ctx, pattern)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to generate embedding for pattern: %w", err)
 	}
@@ -600,7 +614,22 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 		return nil
 	}
 
-	embeds, err := engine.EmbedBatch(ctx, texts)
+	taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+	var embeds [][]float32
+	if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+		embeds, err = batchAware.EmbedBatchWithTask(ctx, texts, taskType)
+	} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		embeds = make([][]float32, len(texts))
+		for i, text := range texts {
+			vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
+			if embedErr != nil {
+				continue
+			}
+			embeds[i] = vec
+		}
+	} else {
+		embeds, err = engine.EmbedBatch(ctx, texts)
+	}
 	if err != nil {
 		return err
 	}

@@ -45,6 +45,12 @@ clarification_question(/current_intent, "Could you rephrase what you'd like me t
 clarification_question(/current_intent, "I'm not confident I understood correctly. Could you clarify?") :-
     intent_unknown(_, /heuristic_low).
 
+clarification_question(/current_intent, "I couldn't identify the action you want. What would you like me to do?") :-
+    intent_unknown(_, /no_verb_match).
+
+clarification_question(/current_intent, "I recognize the action but don't have a mapping for it. Which action should I take instead?") :-
+    intent_unmapped(_, /no_action_mapping).
+
 clarification_option(/current_intent, /explain, "Explain or describe something") :-
     intent_unmapped(_, _).
 clarification_option(/current_intent, /fix, "Fix a bug or issue") :-

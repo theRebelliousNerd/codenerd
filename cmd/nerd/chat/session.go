@@ -755,9 +755,17 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// System Shards
 		shardMgr.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := shardsystem.NewPerceptionFirewallShard()
+			perceptionCfg := shardsystem.DefaultPerceptionConfig()
+			if appCfg != nil {
+				perceptionCfg.LearningCandidateThreshold = appCfg.GetLearningCandidateThreshold()
+				perceptionCfg.LearningCandidateAutoPromote = appCfg.GetLearningCandidateAutoPromote()
+			}
+			shard := shardsystem.NewPerceptionFirewallShardWithConfig(perceptionCfg)
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if localDB != nil {
+				shard.SetLearningCandidateStore(localDB)
+			}
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}

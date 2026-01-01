@@ -36,6 +36,8 @@
     "debug_mode": true,
     "trace_llm_io": true
   },
+  "learning_candidate_threshold": 3,
+  "learning_candidate_auto_promote": false,
   "embedding": {
     "provider": "genai",
     "ollama_endpoint": "http://localhost:11434",

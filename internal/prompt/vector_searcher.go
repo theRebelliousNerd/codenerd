@@ -13,13 +13,6 @@ import (
 	"codenerd/internal/logging"
 )
 
-// taskTypeAwareEngine mirrors store.TaskTypeAwareEngine without importing store.
-// Engines that support task-specific embeddings will satisfy this interface.
-type taskTypeAwareEngine interface {
-	embedding.EmbeddingEngine
-	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
-}
-
 // CompilerVectorSearcher is the default VectorSearcher for JIT prompts.
 // It searches prompt_atoms embeddings across the compiler's registered DBs.
 type CompilerVectorSearcher struct {
@@ -57,7 +50,7 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	// Embed query (prefer RETRIEVAL_QUERY if supported).
 	var queryEmbedding []float32
 	var err error
-	if taskAware, ok := engine.(taskTypeAwareEngine); ok {
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
 		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, "RETRIEVAL_QUERY")
 	} else {
 		queryEmbedding, err = engine.Embed(ctx, query)
@@ -164,4 +157,3 @@ func decodeFloat32Slice(blob []byte) []float32 {
 	}
 	return vec
 }
-

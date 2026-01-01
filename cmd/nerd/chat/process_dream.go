@@ -572,6 +572,79 @@ func (m Model) shouldAutoClarify(intent *perception.Intent, input string) bool {
 	return isBuildish && (looksLikeCampaign || needsDetails)
 }
 
+func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) (string, []string, bool) {
+	if m.kernel == nil || intent == nil {
+		return "", nil, false
+	}
+
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || strings.HasPrefix(trimmed, "/") {
+		return "", nil, false
+	}
+	if strings.EqualFold(trimmed, strings.TrimSpace(m.lastClarifyInput)) {
+		return "", nil, false
+	}
+
+	intentID := "/current_intent"
+	question := ""
+	if facts, err := m.kernel.Query("clarification_question"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 2 {
+				continue
+			}
+			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+				continue
+			}
+			if q, ok := f.Args[1].(string); ok {
+				question = q
+			} else {
+				question = fmt.Sprintf("%v", f.Args[1])
+			}
+			break
+		}
+	}
+	if question == "" {
+		if facts, err := m.kernel.Query("awaiting_clarification"); err == nil && len(facts) > 0 {
+			if len(facts[0].Args) > 0 {
+				if q, ok := facts[0].Args[0].(string); ok {
+					question = q
+				} else {
+					question = fmt.Sprintf("%v", facts[0].Args[0])
+				}
+			}
+		}
+	}
+	if question == "" {
+		return "", nil, false
+	}
+
+	options := make([]string, 0)
+	seen := make(map[string]struct{})
+	if facts, err := m.kernel.Query("clarification_option"); err == nil {
+		for _, f := range facts {
+			if len(f.Args) < 3 {
+				continue
+			}
+			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+				continue
+			}
+			verb := fmt.Sprintf("%v", f.Args[1])
+			label := fmt.Sprintf("%v", f.Args[2])
+			option := verb
+			if label != "" && label != "<nil>" {
+				option = fmt.Sprintf("%s (%s)", label, verb)
+			}
+			if _, ok := seen[option]; ok {
+				continue
+			}
+			seen[option] = struct{}{}
+			options = append(options, option)
+		}
+	}
+
+	return question, options, true
+}
+
 func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool {
 	if intent == nil {
 		return false

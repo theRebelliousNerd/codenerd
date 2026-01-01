@@ -8,43 +8,46 @@ sync with the plan document as changes land.
 ## Re-ingest + Alignment
 
 - [x] Re-read the plan (v2.0.0 Bulletproof Edition) in `Docs/plans/no_intent_no_next_action_plan.md`.
-- [ ] Re-confirm plan intent: deterministic fallback ladder for unknown intent or no `next_action`, with safe learning candidates only.
-- [ ] Re-confirm constraints: LLM-first intent classification, no auto-learn from noisy failures, JIT prompt atoms for new LLM flows, boot guard awareness.
-- [ ] Re-confirm canonical action name: `/interrogative_mode` (deprecate `/ask_user` in docs).
-- [ ] Re-confirm learning candidate policy: threshold 3, explicit user confirmation only, no auto-promotion.
+- [x] Re-confirm plan intent: deterministic fallback ladder for unknown intent or no `next_action`, with safe learning candidates only.
+- [x] Re-confirm constraints: LLM-first intent classification, no auto-learn from noisy failures, JIT prompt atoms for new LLM flows, boot guard awareness.
+- [x] Re-confirm canonical action name: `/interrogative_mode` (deprecate `/ask_user` in docs).
+- [x] Re-confirm learning candidate policy: threshold 3, explicit user confirmation only, no auto-promotion.
 
 ## Phase 0: Schema Declarations (CRITICAL FIRST)
 
-- [ ] Add new Decl predicates for unknown intent, unmapped verbs, learning candidates, clarification payloads, and no-action reasons.
-  - [ ] Decide correct schema file location (likely `internal/core/defaults/schemas_intent.mg`, not `schemas_perception.mg`).
-  - [ ] Add `Decl intent_unknown(Input.Type<string>, Reason).`
-  - [ ] Add `Decl intent_unmapped(Verb.Type<string>, Reason).`
-  - [ ] Add `Decl no_action_reason(IntentID.Type<string>, Reason).`
-  - [ ] Add `Decl learning_candidate(Phrase.Type<string>, Verb.Type<string>, Target.Type<string>, Reason).`
-  - [ ] Add `Decl clarification_question(IntentID.Type<string>, Question.Type<string>).`
-  - [ ] Add `Decl clarification_option(IntentID.Type<string>, OptionVerb.Type<string>, OptionLabel.Type<string>).`
-  - [ ] Add `Decl learning_candidate_count(Phrase.Type<string>, Count.Type<int>).`
-- [ ] Verify `Decl ooda_timeout().` exists in `internal/core/defaults/schemas_memory.mg` and matches usage.
-- [ ] Validate schemas compile: `go test ./internal/core/...` (or broader if needed).
+- [x] Add new Decl predicates for unknown intent, unmapped verbs, learning candidates, clarification payloads, and no-action reasons.
+  - [x] Decide correct schema file location (use `internal/core/defaults/schemas_intent.mg`).
+  - [x] Add `Decl intent_unknown(Input, Reason).`
+  - [x] Add `Decl intent_unmapped(Verb, Reason).`
+  - [x] Add `Decl no_action_reason(IntentID, Reason).`
+  - [x] Add `Decl learning_candidate(Phrase, Verb, Target, Reason).`
+  - [x] Add `Decl clarification_question(IntentID, Question).`
+  - [x] Add `Decl clarification_option(IntentID, OptionVerb, OptionLabel).`
+  - [x] Add `Decl learning_candidate_count(Phrase, Count).`
+  - [x] Add `Decl learning_candidate_ready(Phrase, Verb).`
+- [x] Verify `Decl ooda_timeout().` exists in `internal/core/defaults/schemas_memory.mg` and matches usage.
+- [ ] Validate schemas compile: `go test ./internal/core/...` (blocked: `internal/store/prompt_reembed.go` undefined `embedding`).
 - [ ] Validate Mangle syntax using tooling if available (`tools/mangle-check.js`).
 
 ## Phase 0.5: Policy Rules
 
-- [ ] Update `internal/core/defaults/policy/clarification.mg`:
-  - [ ] Add `next_action(/interrogative_mode)` when `intent_unknown` and no awaiting clarification.
-  - [ ] Add `next_action(/interrogative_mode)` when `intent_unmapped` and no awaiting clarification.
-  - [ ] Add `clarification_question` rules for `intent_unknown` reasons (`/llm_failed`, `/heuristic_low`).
-  - [ ] Add `clarification_question` rule for `intent_unmapped` with unknown verb (use string concat function).
-  - [ ] Add default `clarification_option` set for unmapped verbs (`/explain`, `/fix`, `/review`, `/search`, `/test`, `/create`).
-  - [ ] Add `next_action(/interrogative_mode)` and question when `no_action_reason(_, /no_route)` occurs.
-- [ ] Update `internal/core/defaults/policy/system_ooda.mg`:
-  - [ ] Derive `next_action(/escalate_to_user)` or `next_action(/interrogative_mode)` when `ooda_stalled` is present.
-  - [ ] Provide `clarification_question` for `ooda_stalled("no_action_derived")`.
-- [ ] Create new policy file `internal/core/defaults/policy/learning.mg`:
-  - [ ] Add `learning_candidate_ready` derivation for future confirmation flows.
-  - [ ] Keep rule set minimal and safe (no auto-apply).
-- [ ] Ensure all new predicates used in policy have Decl statements.
-- [ ] Add new policy file to kernel init module list in `internal/core/kernel_init.go`.
+- [x] Update `internal/core/defaults/policy/clarification.mg`:
+  - [x] Add `next_action(/interrogative_mode)` when `intent_unknown` and no awaiting clarification.
+  - [x] Add `next_action(/interrogative_mode)` when `intent_unmapped` and no awaiting clarification.
+  - [x] Add `clarification_question` rules for `intent_unknown` reasons (`/llm_failed`, `/heuristic_low`, `/no_verb_match`).
+  - [x] Add `clarification_question` rule for `intent_unmapped` with unknown verb (use string concat function).
+  - [x] Add `clarification_question` rule for `intent_unmapped` with `/no_action_mapping`.
+  - [x] Add default `clarification_option` set for unmapped verbs (`/explain`, `/fix`, `/review`, `/search`, `/test`, `/create`).
+  - [x] Add `next_action(/interrogative_mode)` and question when `no_action_reason(_, /no_route)` occurs.
+  - [x] Add `next_action(/interrogative_mode)` and question when `no_action_reason(_, /no_action_derived)` occurs.
+- [x] Update `internal/core/defaults/policy/system_ooda.mg`:
+  - [x] Derive `next_action(/escalate_to_user)` or `next_action(/interrogative_mode)` when `ooda_stalled` is present.
+  - [x] Provide `clarification_question` for `ooda_stalled("no_action_derived")`.
+- [x] Create new policy file `internal/core/defaults/policy/learning.mg`:
+  - [x] Add `learning_candidate_ready` derivation for future confirmation flows.
+  - [x] Keep rule set minimal and safe (no auto-apply).
+- [x] Ensure all new predicates used in policy have Decl statements.
+- [x] Confirm policy directory auto-loads `learning.mg` (no `kernel_init.go` change needed).
 
 ## Phase 1: Intent Validation + Unknown Verb Detection
 

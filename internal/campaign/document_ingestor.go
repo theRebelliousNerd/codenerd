@@ -63,10 +63,11 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 
 		for idx, chunk := range chunks {
 			meta := map[string]interface{}{
-				"campaign_id": campaignID,
-				"path":        path,
-				"chunk_index": idx,
-				"total":       len(chunks),
+				"campaign_id":  campaignID,
+				"path":         path,
+				"chunk_index":  idx,
+				"total":        len(chunks),
+				"content_type": "documentation",
 			}
 			// Vector + metadata
 			if err := di.store.StoreVectorWithEmbedding(ctx, chunk, meta); err != nil {

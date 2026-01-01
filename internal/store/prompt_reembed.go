@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 )
 
@@ -58,7 +59,8 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 
 	logging.Store("Force re-embedding %d prompt atoms in DB: %s", len(atoms), s.dbPath)
 
-	taskTypeAware, hasTaskAware := s.embeddingEngine.(TaskTypeAwareEngine)
+	taskTypeAware, hasTaskAware := s.embeddingEngine.(embedding.TaskTypeAwareEngine)
+	expectedTask := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
 
 	batchSize := 32
 	totalBatches := (len(atoms) + batchSize - 1) / batchSize
@@ -72,10 +74,10 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 
 		embeddings := make([][]float32, len(batch))
 
-		// If task-aware, embed individually with RETRIEVAL_DOCUMENT.
+		// If task-aware, embed individually with the prompt atom task type.
 		if hasTaskAware {
 			for j, a := range batch {
-				vec, err := taskTypeAware.EmbedWithTask(ctx, a.text, "RETRIEVAL_DOCUMENT")
+				vec, err := taskTypeAware.EmbedWithTask(ctx, a.text, expectedTask)
 				if err != nil {
 					return totalEmbedded, fmt.Errorf("failed to embed prompt atom %s: %w", a.atomID, err)
 				}
@@ -110,7 +112,7 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 			blob := encodeFloat32Slice(embeddings[j])
 			_, err := s.db.Exec(
 				"UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?",
-				blob, "RETRIEVAL_DOCUMENT", a.atomID,
+				blob, expectedTask, a.atomID,
 			)
 			if err != nil {
 				return totalEmbedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)

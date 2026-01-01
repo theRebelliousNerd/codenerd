@@ -124,7 +124,14 @@ func (c *JITToolCompiler) Compile(ctx context.Context, tcc ToolCompilationContex
 // vectorSearch performs semantic search over tool embeddings.
 func (c *JITToolCompiler) vectorSearch(ctx context.Context, query string, tools []*MCPTool) (map[string]float64, error) {
 	// Generate query embedding
-	queryEmbed, err := c.embedder.Embed(ctx, query)
+	queryTask := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
+	var queryEmbed []float32
+	var err error
+	if taskAware, ok := c.embedder.(embedding.TaskTypeAwareEngine); ok && queryTask != "" {
+		queryEmbed, err = taskAware.EmbedWithTask(ctx, query, queryTask)
+	} else {
+		queryEmbed, err = c.embedder.Embed(ctx, query)
+	}
 	if err != nil {
 		return nil, err
 	}

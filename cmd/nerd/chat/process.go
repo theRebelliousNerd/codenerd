@@ -309,6 +309,16 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4.1 GENERAL CLARIFICATION: Guard ambiguous intents before delegation.
+		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok {
+			return clarificationMsg{
+				Question:      question,
+				Options:       options,
+				Context:       input,
+				PendingIntent: &intent,
+			}
+		}
+
+		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
 		if m.shouldClarifyIntent(&intent, input) {
 			m.ReportStatus("Clarifier: resolving ambiguity...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {

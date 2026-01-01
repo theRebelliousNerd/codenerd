@@ -30,6 +30,20 @@ type EmbeddingEngine interface {
 	Name() string
 }
 
+// TaskTypeAwareEngine extends EmbeddingEngine with task-type-specific embedding.
+type TaskTypeAwareEngine interface {
+	EmbeddingEngine
+	// EmbedWithTask generates embeddings with a specific task type.
+	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
+}
+
+// TaskTypeBatchAwareEngine extends EmbeddingEngine with task-type-specific batch embedding.
+type TaskTypeBatchAwareEngine interface {
+	EmbeddingEngine
+	// EmbedBatchWithTask generates embeddings with a specific task type.
+	EmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error)
+}
+
 // HealthChecker is an optional interface for embedding engines that support
 // health checks. If an engine implements this interface, the system can
 // verify availability before attempting batch operations.
