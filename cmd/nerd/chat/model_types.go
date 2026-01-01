@@ -15,13 +15,14 @@ import (
 	ctxcompress "codenerd/internal/context"
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
-	"codenerd/internal/shards"
+	"codenerd/internal/embedding"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/retrieval"
 	"codenerd/internal/session"
+	"codenerd/internal/shards"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
@@ -216,8 +217,8 @@ type Model struct {
 	// Backend
 	client              perception.LLMClient
 	kernel              *core.RealKernel
-	shardMgr            *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
-	taskExecutor        session.TaskExecutor       // New: unified task execution interface
+	shardMgr            *coreshards.ShardManager // DEPRECATED: Use taskExecutor instead
+	taskExecutor        session.TaskExecutor     // New: unified task execution interface
 	shadowMode          *core.ShadowMode
 	transducer          perception.Transducer
 	executor            tactile.Executor
@@ -249,7 +250,9 @@ type Model struct {
 	isInterrupted     bool             // User pressed Ctrl+X
 
 	// Learning Store for Autopoiesis (§8.3)
-	learningStore *store.LearningStore
+	learningStore   *store.LearningStore
+	embeddingEngine embedding.EmbeddingEngine
+	lastReflection  *ReflectionState
 
 	// Dream State Learning (§8.3.1) - Extracts learnings from multi-agent consultations
 	dreamCollector *core.DreamLearningCollector
@@ -440,11 +443,13 @@ type Session struct {
 // SystemComponents holds the initialized backend services
 type SystemComponents struct {
 	Kernel                *core.RealKernel
-	ShardMgr              *coreshards.ShardManager  // DEPRECATED: Use TaskExecutor instead
-	TaskExecutor          session.TaskExecutor       // New: unified task execution interface
+	ShardMgr              *coreshards.ShardManager // DEPRECATED: Use TaskExecutor instead
+	TaskExecutor          session.TaskExecutor     // New: unified task execution interface
 	VirtualStore          *core.VirtualStore
 	LLMClient             perception.LLMClient
 	LocalDB               *store.LocalStore
+	LearningStore         *store.LearningStore
+	EmbeddingEngine       embedding.EmbeddingEngine
 	Transducer            perception.Transducer
 	Executor              tactile.Executor
 	Scanner               *world.Scanner

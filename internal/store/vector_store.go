@@ -26,9 +26,14 @@ import (
 // SetEmbeddingEngine configures the embedding engine for this LocalStore.
 // Must be called before StoreVectorWithEmbedding.
 func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s == nil {
+		return
+	}
 
+	var startReflection bool
+	var stopReflection bool
+
+	s.mu.Lock()
 	if engine != nil {
 		logging.Store("Setting embedding engine: %s (dimensions=%d)", engine.Name(), engine.Dimensions())
 		s.initVecIndex(engine.Dimensions())
@@ -43,10 +48,21 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 			s.backfillVecIndex(dim)
 			logging.Store("Background vector index backfill completed")
 		}()
+		if s.reflectionCfg != nil && s.reflectionCfg.Enabled {
+			startReflection = true
+		}
 	} else {
 		logging.StoreDebug("Embedding engine set to nil (keyword-only mode)")
+		stopReflection = true
 	}
 	s.embeddingEngine = engine
+	s.mu.Unlock()
+
+	if startReflection {
+		s.startReflectionWorker()
+	} else if stopReflection {
+		s.stopReflectionWorker()
+	}
 }
 
 // StoreVectorWithEmbedding stores content with a real vector embedding.

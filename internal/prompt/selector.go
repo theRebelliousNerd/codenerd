@@ -88,6 +88,9 @@ func selectMangleMandatoryIDs(cc *CompilationContext, atoms []*PromptAtom) map[s
 
 	candidates := make([]*PromptAtom, 0, len(atoms))
 	for _, atom := range atoms {
+		if !atom.IsMandatory {
+			continue
+		}
 		if atomHasLanguage(atom, "mangle") {
 			candidates = append(candidates, atom)
 		}
@@ -283,6 +286,11 @@ func (s *AtomSelector) SelectAtoms(
 		return nil, nil
 	}
 
+	atoms = filterAtomsForStructuredOutput(atoms, cc)
+	if len(atoms) == 0 {
+		return nil, nil
+	}
+
 	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
 
 	// =========================================================================
@@ -339,6 +347,11 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	timer := logging.StartTimer(logging.CategoryJIT, "AtomSelector.SelectAtomsWithTiming")
 	defer timer.Stop()
 
+	if len(atoms) == 0 {
+		return nil, 0, nil
+	}
+
+	atoms = filterAtomsForStructuredOutput(atoms, cc)
 	if len(atoms) == 0 {
 		return nil, 0, nil
 	}
@@ -411,6 +424,11 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.SelectAtomsLegacy")
 	defer timer.Stop()
 
+	if len(atoms) == 0 {
+		return nil, nil
+	}
+
+	atoms = filterAtomsForStructuredOutput(atoms, cc)
 	if len(atoms) == 0 {
 		return nil, nil
 	}

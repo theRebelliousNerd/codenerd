@@ -14,12 +14,14 @@ import (
 
 // reembedCompleteMsg is sent when re-embedding finishes.
 type reembedCompleteMsg struct {
-	dbCount     int
-	vectorsDone int
-	atomsDone   int
-	skipped     []string
-	duration    time.Duration
-	err         error
+	dbCount       int
+	vectorsDone   int
+	atomsDone     int
+	tracesDone    int
+	learningsDone int
+	skipped       []string
+	duration      time.Duration
+	err           error
 }
 
 // runReembedAllDBs force re-embeds vectors and prompt atoms across all .db files
@@ -65,11 +67,13 @@ func (m Model) runReembedAllDBs() tea.Cmd {
 		m.ReportStatus("Re-embedding complete")
 
 		return reembedCompleteMsg{
-			dbCount:     res.DBCount,
-			vectorsDone: res.VectorsDone,
-			atomsDone:   res.AtomsDone,
-			skipped:     res.Skipped,
-			duration:    res.Duration,
+			dbCount:       res.DBCount,
+			vectorsDone:   res.VectorsDone,
+			atomsDone:     res.AtomsDone,
+			tracesDone:    res.TracesDone,
+			learningsDone: res.LearningsDone,
+			skipped:       res.Skipped,
+			duration:      res.Duration,
 		}
 	}
 }

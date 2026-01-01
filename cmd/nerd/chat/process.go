@@ -191,6 +191,8 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("routing_result")
 			_ = m.kernel.Retract("pending_action")
 			_ = m.kernel.Retract("delegate_task")
+			_ = m.kernel.Retract("trace_recall_result")
+			_ = m.kernel.Retract("learning_recall_result")
 
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
@@ -241,6 +243,15 @@ func (m Model) processInput(input string) tea.Cmd {
 			// GAP-002 FIX: Seed campaign facts if there's an active campaign.
 			// This enables the activation engine and JIT compiler to be campaign-aware.
 			m.seedCampaignFacts()
+		}
+
+		if reflection := m.performReflection(ctx, input, intent); reflection != nil {
+			m.lastReflection = reflection
+			if len(reflection.Warnings) > 0 {
+				warnings = append(warnings, reflection.Warnings...)
+			}
+		} else {
+			m.lastReflection = nil
 		}
 
 		// 1.3.1 MEMORY OPERATIONS: Process promote_to_long_term, forget, etc.

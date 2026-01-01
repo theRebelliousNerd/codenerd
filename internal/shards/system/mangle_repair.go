@@ -265,7 +265,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		}
 
 		logging.SystemShardsDebug("[MangleRepair] Attempt %d: calling LLM for repair", attempt)
-		systemPrompt := m.getSystemPrompt(ctx)
+		systemPrompt := m.getSystemPrompt(ctx, errors)
 		if traceLLMIO {
 			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_request", map[string]interface{}{
 				"shard_id":      m.ID,
@@ -830,12 +830,15 @@ func dedupeValidationErrors(errors []feedback.ValidationError) []feedback.Valida
 }
 
 // getSystemPrompt returns the system prompt for repair.
-func (m *MangleRepairShard) getSystemPrompt(ctx context.Context) string {
+func (m *MangleRepairShard) getSystemPrompt(ctx context.Context, errors []string) string {
 	if m.promptAssembler != nil && m.promptAssembler.JITReady() {
+		semanticQuery := m.buildRepairSemanticQuery(errors)
 		pc := &articulation.PromptContext{
-			ShardID:    m.ID,
-			ShardType:  "mangle_repair",
-			SessionCtx: m.Config.SessionContext,
+			ShardID:       m.ID,
+			ShardType:     "mangle_repair",
+			SessionCtx:    m.Config.SessionContext,
+			SemanticQuery: semanticQuery,
+			SemanticTopK:  100,
 		}
 		jitPrompt, err := m.promptAssembler.AssembleSystemPrompt(ctx, pc)
 		if err == nil && jitPrompt != "" {
@@ -865,6 +868,50 @@ When repairing rules:
 
 Output ONLY a MangleSynth JSON object (format mangle_synth_v1). No explanation.
 If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.`
+}
+
+func (m *MangleRepairShard) buildRepairSemanticQuery(errors []string) string {
+	if len(errors) == 0 {
+		return ""
+	}
+	keywords := []string{"mangle", "rule", "repair"}
+	seen := map[string]bool{
+		"mangle": true,
+		"rule":   true,
+		"repair": true,
+	}
+
+	add := func(term string) {
+		term = strings.TrimSpace(term)
+		if term == "" || seen[term] {
+			return
+		}
+		seen[term] = true
+		keywords = append(keywords, term)
+	}
+
+	for _, err := range errors {
+		lower := strings.ToLower(err)
+		switch {
+		case strings.Contains(lower, "undefined predicate"):
+			add("undefined predicate")
+			add("declared predicates")
+		case strings.Contains(lower, "unbound") || strings.Contains(lower, "negation"):
+			add("unbound variable")
+			add("negation safety")
+		case strings.Contains(lower, "stratification"):
+			add("stratification")
+		case strings.Contains(lower, "parse") || strings.Contains(lower, "syntax") || strings.Contains(lower, "period"):
+			add("parse error")
+			add("syntax")
+		case strings.Contains(lower, "type mismatch") || strings.Contains(lower, "type"):
+			add("type mismatch")
+		case strings.Contains(lower, "recursion"):
+			add("infinite recursion")
+		}
+	}
+
+	return strings.Join(keywords, " ")
 }
 
 // extractRule extracts a Mangle rule from LLM response text.

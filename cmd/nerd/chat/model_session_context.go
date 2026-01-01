@@ -128,6 +128,11 @@ func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 		sessionCtx.SpecialistHints = m.querySpecialistHints()
 	}
 
+	if m.lastReflection != nil && len(m.lastReflection.ContextHits) > 0 {
+		sessionCtx.ReflectionHits = append(sessionCtx.ReflectionHits, m.lastReflection.ContextHits...)
+		sessionCtx.ExtraContext["reflection_hits"] = strings.Join(m.lastReflection.ContextHits, "\n")
+	}
+
 	// ==========================================================================
 	// GAP-004 FIX: MULTI-TIER MEMORY RETRIEVAL (Vector, Graph, Cold)
 	// ==========================================================================

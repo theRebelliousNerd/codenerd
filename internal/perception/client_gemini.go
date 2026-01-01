@@ -478,6 +478,74 @@ func requiresJSONOutput(systemPrompt, userPrompt string) bool {
 	return false
 }
 
+const geminiSchemaDepthLimit = 6
+
+func schemaMaxDepth(value interface{}, depth int) int {
+	maxDepth := depth
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		if depth+1 > maxDepth {
+			maxDepth = depth + 1
+		}
+		for _, child := range typed {
+			if childDepth := schemaMaxDepth(child, depth+1); childDepth > maxDepth {
+				maxDepth = childDepth
+			}
+		}
+	case []interface{}:
+		if depth+1 > maxDepth {
+			maxDepth = depth + 1
+		}
+		for _, child := range typed {
+			if childDepth := schemaMaxDepth(child, depth+1); childDepth > maxDepth {
+				maxDepth = childDepth
+			}
+		}
+	}
+	return maxDepth
+}
+
+func shallowSchema(schema map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		return map[string]interface{}{"type": "object"}
+	}
+	props := map[string]interface{}{}
+	if rawProps, ok := schema["properties"].(map[string]interface{}); ok {
+		for key, value := range rawProps {
+			props[key] = shallowSchemaProperty(value)
+		}
+	}
+	result := map[string]interface{}{
+		"type": "object",
+	}
+	if len(props) > 0 {
+		result["properties"] = props
+	}
+	if required, ok := schema["required"]; ok {
+		result["required"] = required
+	}
+	return result
+}
+
+func shallowSchemaProperty(value interface{}) map[string]interface{} {
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		if enumVal, ok := valueMap["enum"]; ok {
+			return map[string]interface{}{
+				"type": "string",
+				"enum": enumVal,
+			}
+		}
+		if typeVal, ok := valueMap["type"].(string); ok && typeVal != "" {
+			return map[string]interface{}{
+				"type": typeVal,
+			}
+		}
+	}
+	return map[string]interface{}{
+		"type": "string",
+	}
+}
+
 // SchemaCapable reports whether this client supports response schema enforcement.
 func (c *GeminiClient) SchemaCapable() bool {
 	return true
@@ -509,6 +577,13 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 	var schema map[string]interface{}
 	if err := json.Unmarshal([]byte(schemaText), &schema); err != nil {
 		return "", fmt.Errorf("invalid json schema: %w", err)
+	}
+	if isGemini3Model(c.model) {
+		depth := schemaMaxDepth(schema, 0)
+		if depth > geminiSchemaDepthLimit {
+			logging.PerceptionWarn("[Gemini] Schema depth %d exceeds limit %d; using shallow schema", depth, geminiSchemaDepthLimit)
+			schema = shallowSchema(schema)
+		}
 	}
 
 	if strings.TrimSpace(systemPrompt) == "" {
@@ -589,12 +664,13 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		if resp.StatusCode != http.StatusOK {
 			bodyStr := string(body)
 			if resp.StatusCode == http.StatusBadRequest {
-				if strings.Contains(bodyStr, "responseJsonSchema") ||
-					strings.Contains(bodyStr, "responseMimeType") ||
-					strings.Contains(bodyStr, "response_schema") ||
-					strings.Contains(bodyStr, "response_mime_type") ||
-					strings.Contains(bodyStr, "responseSchema") ||
-					(strings.Contains(bodyStr, "schema") && strings.Contains(bodyStr, "nesting depth")) {
+				bodyLower := strings.ToLower(bodyStr)
+				if strings.Contains(bodyLower, "responsejsonschema") ||
+					strings.Contains(bodyLower, "responsemimetype") ||
+					strings.Contains(bodyLower, "response_schema") ||
+					strings.Contains(bodyLower, "response_mime_type") ||
+					strings.Contains(bodyLower, "responseschema") ||
+					(strings.Contains(bodyLower, "schema") && strings.Contains(bodyLower, "nesting depth")) {
 					return "", core.ErrSchemaNotSupported
 				}
 			}
@@ -767,8 +843,10 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				// Some models may reject responseJsonSchema; retry once without it.
 				if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
 					bodyStr := string(body)
-					if strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") ||
-						strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") {
+					bodyLower := strings.ToLower(bodyStr)
+					if strings.Contains(bodyLower, "responsejsonschema") || strings.Contains(bodyLower, "responsemimetype") ||
+						strings.Contains(bodyLower, "response_schema") || strings.Contains(bodyLower, "response_mime_type") ||
+						strings.Contains(bodyLower, "responseschema") {
 						reqBody.GenerationConfig.ResponseSchema = nil
 						reqBody.GenerationConfig.ResponseMimeType = ""
 						lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
@@ -1127,8 +1205,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 
 	// Build request with thought signature for reasoning continuity
 	reqBody := GeminiRequest{
-		Contents:         allContents,
-		ThoughtSignature: c.lastThoughtSignature, // Pass back the previous signature
+		Contents: allContents,
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     1.0,
 			MaxOutputTokens: c.maxOutputTokens,

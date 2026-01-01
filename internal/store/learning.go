@@ -5,6 +5,7 @@ package store
 
 import (
 	"codenerd/internal/config"
+	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"database/sql"
@@ -18,28 +19,28 @@ import (
 
 // Learning represents a persisted learning from Autopoiesis.
 type Learning struct {
-	ID             int64     `json:"id"`
-	ShardType      string    `json:"shard_type"`     // "coder", "tester", "reviewer"
-	FactPredicate  string    `json:"fact_predicate"` // e.g., "style_preference", "avoid_pattern"
-	FactArgs       []any     `json:"fact_args"`      // Arguments to the predicate
-	LearnedAt      time.Time `json:"learned_at"`
-	SourceCampaign string    `json:"source_campaign"` // Campaign that taught this
-	Confidence     float64   `json:"confidence"`      // Can decay over time (0.0-1.0)
-	SemanticHandle string    `json:"semantic_handle,omitempty"`
-	HandleVersion  int       `json:"handle_version,omitempty"`
-	HandleHash     string    `json:"handle_hash,omitempty"`
-	Embedding      []byte    `json:"embedding,omitempty"`
-	EmbeddingModelID string  `json:"embedding_model_id,omitempty"`
-	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
-	EmbeddingTask  string    `json:"embedding_task,omitempty"`
+	ID               int64     `json:"id"`
+	ShardType        string    `json:"shard_type"`     // "coder", "tester", "reviewer"
+	FactPredicate    string    `json:"fact_predicate"` // e.g., "style_preference", "avoid_pattern"
+	FactArgs         []any     `json:"fact_args"`      // Arguments to the predicate
+	LearnedAt        time.Time `json:"learned_at"`
+	SourceCampaign   string    `json:"source_campaign"` // Campaign that taught this
+	Confidence       float64   `json:"confidence"`      // Can decay over time (0.0-1.0)
+	SemanticHandle   string    `json:"semantic_handle,omitempty"`
+	HandleVersion    int       `json:"handle_version,omitempty"`
+	HandleHash       string    `json:"handle_hash,omitempty"`
+	Embedding        []byte    `json:"embedding,omitempty"`
+	EmbeddingModelID string    `json:"embedding_model_id,omitempty"`
+	EmbeddingDim     int       `json:"embedding_dim,omitempty"`
+	EmbeddingTask    string    `json:"embedding_task,omitempty"`
 }
 
 // LearningStore manages shard learnings persistence per Cortex §8.3 Autopoiesis.
 // Learnings are stored in SQLite files per shard type under .nerd/shards/.
 type LearningStore struct {
-	mu       sync.RWMutex
-	basePath string
-	dbs      map[string]*sql.DB // One DB per shard type
+	mu              sync.RWMutex
+	basePath        string
+	dbs             map[string]*sql.DB // One DB per shard type
 	embeddingEngine embedding.EmbeddingEngine
 	workerStop      chan struct{}
 	workerDone      chan struct{}
@@ -370,6 +371,7 @@ func (ls *LearningStore) GetStats(shardType string) (map[string]interface{}, err
 
 // Close closes all database connections.
 func (ls *LearningStore) Close() error {
+	ls.stopLearningReflectionWorker()
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 

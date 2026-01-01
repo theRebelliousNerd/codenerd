@@ -49,7 +49,7 @@ func (ls *LearningStore) ensureLearningIndexes(db *sql.DB) error {
 }
 
 // ListLearningEmbeddingCandidates returns learning rows missing handles or embeddings.
-func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit int) ([]LearningEmbeddingCandidate, error) {
+func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit int, expectedModel string, expectedDim int, expectedTask string) ([]LearningEmbeddingCandidate, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "ListLearningEmbeddingCandidates")
 	defer timer.Stop()
 
@@ -68,10 +68,84 @@ func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit
 		FROM learnings
 		WHERE (semantic_handle IS NULL OR semantic_handle = '' OR handle_version IS NULL OR handle_version != ? OR handle_hash IS NULL OR handle_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
+	`
+	args := []interface{}{learningHandleVersion}
+	if expectedModel != "" {
+		query += " OR embedding_model_id != ?"
+		args = append(args, expectedModel)
+	}
+	if expectedDim > 0 {
+		query += " OR embedding_dim != ?"
+		args = append(args, expectedDim)
+	}
+	if expectedTask != "" {
+		query += " OR embedding_task != ?"
+		args = append(args, expectedTask)
+	}
+	query += `
 		ORDER BY learned_at DESC
 		LIMIT ?`
+	args = append(args, limit)
 
-	rows, err := db.Query(query, learningHandleVersion, limit)
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var candidates []LearningEmbeddingCandidate
+	for rows.Next() {
+		var c LearningEmbeddingCandidate
+		var argsJSON string
+		var embedding []byte
+		if err := rows.Scan(
+			&c.ID,
+			&c.ShardType,
+			&c.FactPredicate,
+			&argsJSON,
+			&c.LearnedAt,
+			&c.Confidence,
+			&c.SemanticHandle,
+			&c.HandleVersion,
+			&c.HandleHash,
+			&embedding,
+			&c.EmbeddingModelID,
+			&c.EmbeddingDim,
+			&c.EmbeddingTask,
+		); err != nil {
+			continue
+		}
+		if argsJSON != "" {
+			_ = json.Unmarshal([]byte(argsJSON), &c.FactArgs)
+		}
+		c.Embedding = embedding
+		candidates = append(candidates, c)
+	}
+	return candidates, nil
+}
+
+// ListAllLearningEmbeddingCandidates returns learning rows regardless of embedding state.
+func (ls *LearningStore) ListAllLearningEmbeddingCandidates(shardType string, limit int, offset int) ([]LearningEmbeddingCandidate, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ListAllLearningEmbeddingCandidates")
+	defer timer.Stop()
+
+	db, err := ls.getDB(shardType)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, shard_type, fact_predicate, fact_args, learned_at, confidence,
+		       COALESCE(semantic_handle, ''), COALESCE(handle_version, 0), COALESCE(handle_hash, ''),
+		       embedding, COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
+		FROM learnings
+		ORDER BY learned_at DESC
+		LIMIT ? OFFSET ?`
+
+	rows, err := db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +183,7 @@ func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit
 }
 
 // CountLearningEmbeddingBacklog returns count of learnings missing handles or embeddings.
-func (ls *LearningStore) CountLearningEmbeddingBacklog(shardType string) (int, error) {
+func (ls *LearningStore) CountLearningEmbeddingBacklog(shardType string, expectedModel string, expectedDim int, expectedTask string) (int, error) {
 	db, err := ls.getDB(shardType)
 	if err != nil {
 		return 0, err
@@ -120,8 +194,21 @@ func (ls *LearningStore) CountLearningEmbeddingBacklog(shardType string) (int, e
 		WHERE (semantic_handle IS NULL OR semantic_handle = '' OR handle_version IS NULL OR handle_version != ? OR handle_hash IS NULL OR handle_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
+	args := []interface{}{learningHandleVersion}
+	if expectedModel != "" {
+		query += " OR embedding_model_id != ?"
+		args = append(args, expectedModel)
+	}
+	if expectedDim > 0 {
+		query += " OR embedding_dim != ?"
+		args = append(args, expectedDim)
+	}
+	if expectedTask != "" {
+		query += " OR embedding_task != ?"
+		args = append(args, expectedTask)
+	}
 	var count int
-	if err := db.QueryRow(query, learningHandleVersion).Scan(&count); err != nil {
+	if err := db.QueryRow(query, args...).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil

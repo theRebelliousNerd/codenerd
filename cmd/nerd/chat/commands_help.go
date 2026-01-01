@@ -18,6 +18,7 @@ const helpCommandText = `## Available Commands
 | /load-session <id> | Load a specific session by ID |
 | /continue | Resume from paused multi-step task |
 | /status | Show system status (includes tools) |
+| /reflection | Show last System 2 reflection recall |
 | /init | Initialize codeNERD in the workspace |
 | /init --force | Reinitialize (preserves learned preferences) |
 | /scan | Refresh codebase index without full reinit |

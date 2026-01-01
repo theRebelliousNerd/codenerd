@@ -264,7 +264,7 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Reasoning traces for shard LLM interactions (Task 4)
-        reasoningTracesTable := `
+	reasoningTracesTable := `
         CREATE TABLE IF NOT EXISTS reasoning_traces (
                 id TEXT PRIMARY KEY,
                 shard_id TEXT NOT NULL,
@@ -475,6 +475,7 @@ func (s *LocalStore) GetTraceStore() *TraceStore {
 // Close closes the database connection.
 func (s *LocalStore) Close() error {
 	logging.Store("Closing LocalStore database connection")
+	s.stopReflectionWorker()
 	return s.db.Close()
 }
 

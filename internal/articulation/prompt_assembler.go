@@ -33,6 +33,10 @@ type PromptContext struct {
 	SessionCtx *types.SessionContext   // Session context from the Blackboard
 	UserIntent *types.StructuredIntent // Parsed user intent from perception
 	CampaignID string                  // Active campaign ID (if any)
+	// SemanticQuery overrides the default semantic search query for JIT selection.
+	SemanticQuery string
+	// SemanticTopK overrides the default semantic search top-K for JIT selection.
+	SemanticTopK int
 }
 
 // defaultUseJIT is set from the USE_JIT_PROMPTS environment variable.
@@ -156,7 +160,7 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	}
 
 	// Extract from SessionContext if available
-		if pc.SessionCtx != nil {
+	if pc.SessionCtx != nil {
 		// Determine operational mode
 		if pc.SessionCtx.DreamMode {
 			cc.OperationalMode = "/dream"
@@ -193,11 +197,11 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			cc.HasSecurityIssues = true
 		}
 
-			// Map optional contextual selectors from ExtraContext if present.
-			if pc.SessionCtx.ExtraContext != nil {
-				if v := pc.SessionCtx.ExtraContext["build_layer"]; v != "" {
-					cc.BuildLayer = normalizeTag(v)
-				}
+		// Map optional contextual selectors from ExtraContext if present.
+		if pc.SessionCtx.ExtraContext != nil {
+			if v := pc.SessionCtx.ExtraContext["build_layer"]; v != "" {
+				cc.BuildLayer = normalizeTag(v)
+			}
 			if v := pc.SessionCtx.ExtraContext["init_phase"]; v != "" {
 				cc.InitPhase = normalizeTag(v)
 			}
@@ -218,18 +222,18 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			} else if v := pc.SessionCtx.ExtraContext["framework"]; v != "" {
 				cc.Frameworks = []string{normalizeTag(v)}
 			}
-				if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
-					cc.Language = normalizeTag(v)
-				}
-				if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
-					cc.HasReflectionHits = true
-				}
+			if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
+				cc.Language = normalizeTag(v)
 			}
-
-			if len(pc.SessionCtx.ReflectionHits) > 0 {
+			if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
 				cc.HasReflectionHits = true
 			}
 		}
+
+		if len(pc.SessionCtx.ReflectionHits) > 0 {
+			cc.HasReflectionHits = true
+		}
+	}
 
 	// Extract from UserIntent if available
 	if pc.UserIntent != nil {
@@ -245,6 +249,13 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 		if cc.Language == "" && pc.UserIntent.Target != "" {
 			cc.Language = inferLanguageFromTarget(pc.UserIntent.Target)
 		}
+	}
+
+	if pc.SemanticQuery != "" {
+		cc.SemanticQuery = pc.SemanticQuery
+	}
+	if pc.SemanticTopK > 0 {
+		cc.SemanticTopK = pc.SemanticTopK
 	}
 
 	// Force Mangle language for system autopoiesis and rule synthesis prompts.
@@ -325,8 +336,9 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 		cc := pa.toCompilationContext(pc)
 		result, err := pa.jitCompiler.Compile(ctx, cc)
 		if err == nil {
-			// Ensure Piggyback Protocol is present
-			if !strings.Contains(result.Prompt, "\"control_packet\"") {
+			// Ensure Piggyback Protocol is present when required
+			if !prompt.IsStructuredOutputOnly(cc.ShardType) &&
+				!strings.Contains(result.Prompt, "\"control_packet\"") {
 				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
 				result.Prompt += "\n\n" + PiggybackProtocolSuffix
 			}
@@ -411,7 +423,7 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptC
 	}
 
 	// 5. If we had to fall back to hard-coded legacy templates, ensure Piggyback suffix.
-	if usedLegacyTemplate {
+	if usedLegacyTemplate && !prompt.IsStructuredOutputOnly(pc.ShardType) {
 		sb.WriteString(PiggybackProtocolSuffix)
 	}
 
@@ -684,7 +696,7 @@ func (pa *PromptAssembler) getFallbackTemplate(shardType string) string {
 }
 
 // =============================================================================
-// PIGGYBACK PROTOCOL SUFFIX (Mandatory for all shards)
+// PIGGYBACK PROTOCOL SUFFIX (Mandatory for user-facing shards)
 // =============================================================================
 
 // PiggybackProtocolSuffix is the standard suffix appended to all shard prompts.
@@ -892,6 +904,15 @@ func (pc *PromptContext) WithIntent(intent *types.StructuredIntent) *PromptConte
 // WithCampaign returns a new PromptContext with campaign ID added.
 func (pc *PromptContext) WithCampaign(campaignID string) *PromptContext {
 	pc.CampaignID = campaignID
+	return pc
+}
+
+// WithSemanticQuery overrides the semantic search query and top-K for JIT selection.
+func (pc *PromptContext) WithSemanticQuery(query string, topK int) *PromptContext {
+	pc.SemanticQuery = query
+	if topK > 0 {
+		pc.SemanticTopK = topK
+	}
 	return pc
 }
 
