@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -187,6 +188,93 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 // CLARIFICATION HANDLERS
 // =============================================================================
 
+type learningCandidate struct {
+	Phrase string
+	Verb   string
+	Target string
+	Reason string
+}
+
+func (m Model) loadLearningConfirmationCandidate() (*learningCandidate, bool) {
+	if m.kernel == nil {
+		return nil, false
+	}
+	facts, err := m.kernel.Query("learning_confirmation_needed")
+	if err != nil || len(facts) == 0 {
+		return nil, false
+	}
+	for _, f := range facts {
+		if len(f.Args) < 4 {
+			continue
+		}
+		return &learningCandidate{
+			Phrase: strings.TrimSpace(fmt.Sprintf("%v", f.Args[0])),
+			Verb:   strings.TrimSpace(fmt.Sprintf("%v", f.Args[1])),
+			Target: strings.TrimSpace(fmt.Sprintf("%v", f.Args[2])),
+			Reason: strings.TrimSpace(fmt.Sprintf("%v", f.Args[3])),
+		}, true
+	}
+	return nil, false
+}
+
+func (m Model) clearLearningCandidateFacts() {
+	if m.kernel == nil {
+		return
+	}
+	_ = m.kernel.Retract("learning_candidate")
+	_ = m.kernel.Retract("learning_candidate_count")
+	_ = m.kernel.Retract("learning_confirmation_needed")
+	_ = m.kernel.Retract("awaiting_clarification")
+	_ = m.kernel.Retract("interrogative_mode")
+	_ = m.kernel.Retract("clarification_question")
+	_ = m.kernel.Retract("clarification_option")
+	_ = m.kernel.Retract("no_action_reason")
+	_ = m.kernel.Retract("intent_unknown")
+	_ = m.kernel.Retract("intent_unmapped")
+	_ = m.kernel.Retract("focus_clarification")
+}
+
+func (m Model) confirmLearningCandidate(candidate *learningCandidate) error {
+	if candidate == nil {
+		return fmt.Errorf("no learning candidate available")
+	}
+	if strings.TrimSpace(candidate.Phrase) == "" {
+		return fmt.Errorf("invalid learning candidate phrase")
+	}
+	if m.localDB != nil {
+		if err := m.localDB.ConfirmLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason); err != nil && err != sql.ErrNoRows {
+			return err
+		}
+	}
+	if perception.SharedTaxonomy == nil {
+		return fmt.Errorf("taxonomy engine not available")
+	}
+	verb := normalizeVerbAtom(candidate.Verb)
+	if verb == "" {
+		return fmt.Errorf("invalid verb for learning candidate")
+	}
+	fact := fmt.Sprintf(
+		`learned_exemplar("%s", %s, "%s", "", 0.90).`,
+		escapeMangleString(candidate.Phrase),
+		verb,
+		escapeMangleString(candidate.Target),
+	)
+	return perception.SharedTaxonomy.PersistLearnedFact(fact)
+}
+
+func (m Model) rejectLearningCandidate(candidate *learningCandidate) error {
+	if candidate == nil {
+		return nil
+	}
+	if m.localDB == nil {
+		return nil
+	}
+	if err := m.localDB.RejectLearningCandidateMatch(candidate.Phrase, candidate.Verb, candidate.Target, candidate.Reason); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	return nil
+}
+
 // handleClarificationResponse processes the user's response to a clarification request
 func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	var response string
@@ -257,6 +345,33 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 		// Guard: kernel must be initialized
 		if m.kernel == nil {
 			return errorMsg(fmt.Errorf("system not ready: kernel not initialized"))
+		}
+
+		if candidate, ok := m.loadLearningConfirmationCandidate(); ok {
+			confirmed := isAffirmativeResponse(response)
+			rejected := isNegativeResponse(response)
+			if !confirmed && !rejected {
+				rejected = true
+			}
+			if confirmed {
+				if err := m.confirmLearningCandidate(candidate); err != nil {
+					return errorMsg(fmt.Errorf("failed to confirm learning candidate: %w", err))
+				}
+				m.clearLearningCandidateFacts()
+				if strings.TrimSpace(context) != "" {
+					return m.processInput(context)()
+				}
+				return assistantMsg{
+					Surface: fmt.Sprintf("Learned mapping: \"%s\" -> %s. You can retry the request when ready.", candidate.Phrase, candidate.Verb),
+				}
+			}
+			if err := m.rejectLearningCandidate(candidate); err != nil {
+				return errorMsg(fmt.Errorf("failed to reject learning candidate: %w", err))
+			}
+			m.clearLearningCandidateFacts()
+			return assistantMsg{
+				Surface: "Okay, I won't learn that mapping. Please rephrase your request.",
+			}
 		}
 
 		// Inject the clarification fact into the kernel

@@ -98,7 +98,7 @@ sync with the plan document as changes land.
   - [x] Assert `learning_candidate` when threshold met.
   - [x] Do not auto-promote; only record.
 - [x] Extend learning candidate capture for `no_action_derived` (use `user_input_string` as phrase source).
-- [ ] Confirm `TaxonomyStore.StoreLearnedExemplar` is called only after explicit user confirmation.
+- [x] Confirm `TaxonomyStore.StoreLearnedExemplar` is called only after explicit user confirmation.
 
 ## Phase 6: Kernel-Driven Clarification in Chat UI
 

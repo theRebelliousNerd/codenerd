@@ -110,6 +110,16 @@ func (s *LocalStore) RejectLearningCandidate(id int64) error {
 	return s.updateLearningCandidateStatus(id, "rejected")
 }
 
+// ConfirmLearningCandidateMatch marks a candidate as confirmed by its fields.
+func (s *LocalStore) ConfirmLearningCandidateMatch(phrase, verb, target, reason string) error {
+	return s.updateLearningCandidateStatusMatch(phrase, verb, target, reason, "confirmed")
+}
+
+// RejectLearningCandidateMatch marks a candidate as rejected by its fields.
+func (s *LocalStore) RejectLearningCandidateMatch(phrase, verb, target, reason string) error {
+	return s.updateLearningCandidateStatusMatch(phrase, verb, target, reason, "rejected")
+}
+
 func (s *LocalStore) updateLearningCandidateStatus(id int64, status string) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("local store not initialized")
@@ -126,6 +136,35 @@ func (s *LocalStore) updateLearningCandidateStatus(id int64, status string) erro
 		SET status = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, status, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *LocalStore) updateLearningCandidateStatusMatch(phrase, verb, target, reason, status string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("local store not initialized")
+	}
+	if phrase == "" {
+		return fmt.Errorf("invalid candidate phrase")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`
+		UPDATE learning_candidates
+		SET status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE phrase = ? AND verb = ? AND target = ? AND reason = ?
+	`, status, phrase, verb, target, reason)
 	if err != nil {
 		return err
 	}

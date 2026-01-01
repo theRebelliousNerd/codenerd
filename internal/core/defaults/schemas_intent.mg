@@ -48,6 +48,10 @@ Decl no_action_reason(INTENTID, REASON).
 # Staged for confirmation before promotion to learned_exemplar
 Decl learning_candidate(PHRASE, VERB, TARGET, REASON).
 
+# learning_confirmation_needed(Phrase, Verb, Target, Reason)
+# Derived from learning_candidate when explicit confirmation is required
+Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON).
+
 # clarification_question(IntentID, Question)
 Decl clarification_question(INTENTID, QUESTION).
 
