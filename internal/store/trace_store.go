@@ -26,30 +26,30 @@ type TraceStore struct {
 // ReasoningTrace represents a captured LLM interaction for learning.
 // Mirrors perception.ReasoningTrace to avoid import cycles.
 type ReasoningTrace struct {
-	ID            string    `json:"id"`
-	ShardID       string    `json:"shard_id"`
-	ShardType     string    `json:"shard_type"`
-	ShardCategory string    `json:"shard_category"` // system, ephemeral, specialist
-	SessionID     string    `json:"session_id"`
-	TaskContext   string    `json:"task_context"`
-	SystemPrompt  string    `json:"system_prompt"`
-	UserPrompt    string    `json:"user_prompt"`
-	Response      string    `json:"response"`
-	Model         string    `json:"model,omitempty"`
-	TokensUsed    int       `json:"tokens_used,omitempty"`
-	DurationMs    int64     `json:"duration_ms"`
-	Success       bool      `json:"success"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
-	QualityScore  float64   `json:"quality_score,omitempty"`
-	LearningNotes []string  `json:"learning_notes,omitempty"`
-	SummaryDescriptor  string `json:"summary_descriptor,omitempty"`
-	DescriptorVersion  int    `json:"descriptor_version,omitempty"`
-	DescriptorHash     string `json:"descriptor_hash,omitempty"`
-	Embedding          []byte `json:"embedding,omitempty"`
-	EmbeddingModelID   string `json:"embedding_model_id,omitempty"`
-	EmbeddingDim       int    `json:"embedding_dim,omitempty"`
-	EmbeddingTask      string `json:"embedding_task,omitempty"`
-	CreatedAt     time.Time `json:"timestamp"`
+	ID                string    `json:"id"`
+	ShardID           string    `json:"shard_id"`
+	ShardType         string    `json:"shard_type"`
+	ShardCategory     string    `json:"shard_category"` // system, ephemeral, specialist
+	SessionID         string    `json:"session_id"`
+	TaskContext       string    `json:"task_context"`
+	SystemPrompt      string    `json:"system_prompt"`
+	UserPrompt        string    `json:"user_prompt"`
+	Response          string    `json:"response"`
+	Model             string    `json:"model,omitempty"`
+	TokensUsed        int       `json:"tokens_used,omitempty"`
+	DurationMs        int64     `json:"duration_ms"`
+	Success           bool      `json:"success"`
+	ErrorMessage      string    `json:"error_message,omitempty"`
+	QualityScore      float64   `json:"quality_score,omitempty"`
+	LearningNotes     []string  `json:"learning_notes,omitempty"`
+	SummaryDescriptor string    `json:"summary_descriptor,omitempty"`
+	DescriptorVersion int       `json:"descriptor_version,omitempty"`
+	DescriptorHash    string    `json:"descriptor_hash,omitempty"`
+	Embedding         []byte    `json:"embedding,omitempty"`
+	EmbeddingModelID  string    `json:"embedding_model_id,omitempty"`
+	EmbeddingDim      int       `json:"embedding_dim,omitempty"`
+	EmbeddingTask     string    `json:"embedding_task,omitempty"`
+	CreatedAt         time.Time `json:"timestamp"`
 }
 
 // NewTraceStore creates a new TraceStore using an existing database connection.
@@ -137,12 +137,16 @@ func (ts *TraceStore) StoreReasoningTrace(trace *ReasoningTrace) error {
 		INSERT OR REPLACE INTO reasoning_traces
 		(id, shard_id, shard_type, shard_category, session_id, task_context,
 		 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		 success, error_message, quality_score, learning_notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 success, error_message, quality_score, learning_notes,
+		 summary_descriptor, descriptor_version, descriptor_hash,
+		 embedding, embedding_model_id, embedding_dim, embedding_task)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		trace.ID, trace.ShardID, trace.ShardType, trace.ShardCategory,
 		trace.SessionID, trace.TaskContext, trace.SystemPrompt, trace.UserPrompt,
 		trace.Response, trace.Model, trace.TokensUsed, trace.DurationMs,
 		trace.Success, trace.ErrorMessage, trace.QualityScore, string(notesJSON),
+		trace.SummaryDescriptor, trace.DescriptorVersion, trace.DescriptorHash,
+		trace.Embedding, trace.EmbeddingModelID, trace.EmbeddingDim, trace.EmbeddingTask,
 	)
 
 	if err != nil {
@@ -161,6 +165,8 @@ func (ts *TraceStore) storeReasoningTraceRaw(
 	systemPrompt, userPrompt, response, model, errorMessage string,
 	tokensUsed int, durationMs int64, success bool,
 	qualityScore float64, learningNotes []string,
+	summaryDescriptor string, descriptorVersion int, descriptorHash string,
+	embedding []byte, embeddingModelID string, embeddingDim int, embeddingTask string,
 ) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -171,11 +177,15 @@ func (ts *TraceStore) storeReasoningTraceRaw(
 		INSERT OR REPLACE INTO reasoning_traces
 		(id, shard_id, shard_type, shard_category, session_id, task_context,
 		 system_prompt, user_prompt, response, model, tokens_used, duration_ms,
-		 success, error_message, quality_score, learning_notes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 success, error_message, quality_score, learning_notes,
+		 summary_descriptor, descriptor_version, descriptor_hash,
+		 embedding, embedding_model_id, embedding_dim, embedding_task)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, shardID, shardType, shardCategory, sessionID, taskContext,
 		systemPrompt, userPrompt, response, model, tokensUsed, durationMs,
 		success, errorMessage, qualityScore, string(notesJSON),
+		summaryDescriptor, descriptorVersion, descriptorHash,
+		embedding, embeddingModelID, embeddingDim, embeddingTask,
 	)
 
 	return err

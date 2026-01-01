@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,11 +15,13 @@ import (
 
 // ReembedResult summarizes a force re-embed run across multiple DBs.
 type ReembedResult struct {
-	DBCount     int
-	VectorsDone int
-	AtomsDone   int
-	Skipped     []string
-	Duration    time.Duration
+	DBCount       int
+	VectorsDone   int
+	AtomsDone     int
+	TracesDone    int
+	LearningsDone int
+	Skipped       []string
+	Duration      time.Duration
 }
 
 // ReembedProgressFn is an optional progress callback.
@@ -48,7 +51,11 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 			if walkErr != nil || d == nil || d.IsDir() {
 				return nil
 			}
-			if strings.HasSuffix(strings.ToLower(d.Name()), ".db") {
+			nameLower := strings.ToLower(d.Name())
+			if strings.HasSuffix(nameLower, "_learnings.db") {
+				return nil
+			}
+			if strings.HasSuffix(nameLower, ".db") {
 				if _, ok := seen[path]; !ok {
 					seen[path] = struct{}{}
 					dbPaths = append(dbPaths, path)
@@ -68,6 +75,7 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 
 	totalVectors := 0
 	totalAtoms := 0
+	totalTraces := 0
 	dbCount := 0
 	var skipped []string
 
@@ -96,21 +104,59 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 			skipped = append(skipped, fmt.Sprintf("%s prompt_atoms: %v", dbPath, atomErr))
 		}
 
+		traces, traceErr := ls.ReembedAllTracesForce(ctx)
+		if traceErr != nil {
+			logging.Get(logging.CategoryStore).Warn("Trace force re-embed failed for %s: %v", dbPath, traceErr)
+			skipped = append(skipped, fmt.Sprintf("%s traces: %v", dbPath, traceErr))
+		}
+
 		totalVectors += vecs
 		totalAtoms += atoms
+		totalTraces += traces
 		dbCount++
-		logging.Store("Finished DB: %s (vectors=%d, prompt_atoms=%d)", dbPath, vecs, atoms)
+		logging.Store("Finished DB: %s (vectors=%d, prompt_atoms=%d, traces=%d)", dbPath, vecs, atoms, traces)
 		_ = ls.Close()
+	}
+
+	learningRoots := make(map[string]struct{})
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		shardsDir := filepath.Join(root, "shards")
+		if info, err := os.Stat(shardsDir); err == nil && info.IsDir() {
+			learningRoots[shardsDir] = struct{}{}
+		}
+	}
+
+	totalLearnings := 0
+	for shardsDir := range learningRoots {
+		learningStore, err := NewLearningStore(shardsDir)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Skipping learning store re-embed at %s: %v", shardsDir, err)
+			skipped = append(skipped, fmt.Sprintf("%s learnings: %v", shardsDir, err))
+			continue
+		}
+		learningStore.SetEmbeddingEngine(engine)
+		learnings, learnErr := learningStore.ReembedAllLearningsForce(ctx)
+		if learnErr != nil {
+			logging.Get(logging.CategoryStore).Warn("Learning force re-embed failed for %s: %v", shardsDir, learnErr)
+			skipped = append(skipped, fmt.Sprintf("%s learnings: %v", shardsDir, learnErr))
+		}
+		totalLearnings += learnings
+		_ = learningStore.Close()
 	}
 
 	result.DBCount = dbCount
 	result.VectorsDone = totalVectors
 	result.AtomsDone = totalAtoms
+	result.TracesDone = totalTraces
+	result.LearningsDone = totalLearnings
 	result.Skipped = skipped
 	result.Duration = time.Since(start)
 
-	logging.Store("ReembedAllDBsForce complete: dbs=%d vectors=%d atoms=%d skipped=%d duration=%s",
-		result.DBCount, result.VectorsDone, result.AtomsDone, len(result.Skipped), result.Duration)
+	logging.Store("ReembedAllDBsForce complete: dbs=%d vectors=%d atoms=%d traces=%d learnings=%d skipped=%d duration=%s",
+		result.DBCount, result.VectorsDone, result.AtomsDone, result.TracesDone, result.LearningsDone, len(result.Skipped), result.Duration)
 
 	return result, nil
 }

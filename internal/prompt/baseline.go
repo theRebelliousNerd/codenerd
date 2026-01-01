@@ -44,6 +44,10 @@ func AssembleEmbeddedBaselinePrompt(cc *CompilationContext) (string, error) {
 	if len(candidates) == 0 {
 		return "", nil
 	}
+	candidates = filterAtomsForStructuredOutput(candidates, cc)
+	if len(candidates) == 0 {
+		return "", nil
+	}
 
 	// Select mandatory atoms matching context.
 	var mandatory []*PromptAtom
@@ -108,4 +112,3 @@ func AssembleEmbeddedBaselinePrompt(cc *CompilationContext) (string, error) {
 
 	return promptText, nil
 }
-

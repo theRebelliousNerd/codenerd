@@ -29,8 +29,8 @@ const (
 	CategoryArticulation Category = "articulation" // Atoms -> NL (Piggyback)
 
 	// Execution categories
-	CategoryRouting     Category = "routing"      // Action routing decisions
-	CategoryTools       Category = "tools"        // Tool execution
+	CategoryRouting      Category = "routing"       // Action routing decisions
+	CategoryTools        Category = "tools"         // Tool execution
 	CategoryVirtualStore Category = "virtual_store" // Virtual store operations
 
 	// Shard categories
@@ -73,13 +73,13 @@ type configFile struct {
 // StructuredLogEntry represents a JSON log entry for Mangle parsing
 // Format: log_entry(Timestamp, Category, Level, Message, File, Line)
 type StructuredLogEntry struct {
-	Timestamp int64  `json:"ts"`       // Unix milliseconds
-	Category  string `json:"cat"`      // Log category
-	Level     string `json:"lvl"`      // debug/info/warn/error
-	Message   string `json:"msg"`      // Log message
-	File      string `json:"file"`     // Source file (optional)
-	Line      int    `json:"line"`     // Source line (optional)
-	RequestID string `json:"req,omitempty"` // Request correlation ID
+	Timestamp int64                  `json:"ts"`               // Unix milliseconds
+	Category  string                 `json:"cat"`              // Log category
+	Level     string                 `json:"lvl"`              // debug/info/warn/error
+	Message   string                 `json:"msg"`              // Log message
+	File      string                 `json:"file"`             // Source file (optional)
+	Line      int                    `json:"line"`             // Source line (optional)
+	RequestID string                 `json:"req,omitempty"`    // Request correlation ID
 	Fields    map[string]interface{} `json:"fields,omitempty"` // Additional structured fields
 }
 
@@ -101,8 +101,8 @@ var (
 	logLevel     int // 0=debug, 1=info, 2=warn, 3=error
 
 	// Initialization guard (Bug #1 fix)
-	initOnce sync.Once
-	initErr  error
+	initOnce    sync.Once
+	initErr     error
 	initialized bool
 )
 
@@ -1062,6 +1062,45 @@ type Timer struct {
 	start    time.Time
 }
 
+func shouldLogLevel(level string) bool {
+	switch level {
+	case "debug":
+		return logLevel <= LevelDebug
+	case "info":
+		return logLevel <= LevelInfo
+	case "warn":
+		return logLevel <= LevelWarn
+	case "error":
+		return logLevel <= LevelError
+	default:
+		return logLevel <= LevelInfo
+	}
+}
+
+func logPerformance(category Category, operation string, elapsed time.Duration, threshold *time.Duration, level string) {
+	if category == CategoryPerformance {
+		return
+	}
+	if !shouldLogLevel(level) {
+		return
+	}
+	logger := Get(CategoryPerformance)
+	if logger.logger == nil {
+		return
+	}
+
+	fields := map[string]interface{}{
+		"system":      string(category),
+		"operation":   operation,
+		"duration_ms": elapsed.Milliseconds(),
+	}
+	if threshold != nil {
+		fields["threshold_ms"] = threshold.Milliseconds()
+	}
+
+	logger.StructuredLog(level, fmt.Sprintf("%s.%s", category, operation), fields)
+}
+
 // StartTimer begins timing an operation
 func StartTimer(category Category, operation string) *Timer {
 	return &Timer{
@@ -1075,6 +1114,7 @@ func StartTimer(category Category, operation string) *Timer {
 func (t *Timer) Stop() time.Duration {
 	elapsed := time.Since(t.start)
 	Get(t.category).Debug("%s completed in %v", t.op, elapsed)
+	logPerformance(t.category, t.op, elapsed, nil, "info")
 	return elapsed
 }
 
@@ -1082,6 +1122,7 @@ func (t *Timer) Stop() time.Duration {
 func (t *Timer) StopWithInfo() time.Duration {
 	elapsed := time.Since(t.start)
 	Get(t.category).Info("%s completed in %v", t.op, elapsed)
+	logPerformance(t.category, t.op, elapsed, nil, "info")
 	return elapsed
 }
 
@@ -1090,8 +1131,10 @@ func (t *Timer) StopWithThreshold(threshold time.Duration) time.Duration {
 	elapsed := time.Since(t.start)
 	if elapsed > threshold {
 		Get(t.category).Warn("%s took %v (threshold: %v)", t.op, elapsed, threshold)
+		logPerformance(t.category, t.op, elapsed, &threshold, "warn")
 	} else {
 		Get(t.category).Debug("%s completed in %v", t.op, elapsed)
+		logPerformance(t.category, t.op, elapsed, &threshold, "info")
 	}
 	return elapsed
 }

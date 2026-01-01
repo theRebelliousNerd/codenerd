@@ -199,12 +199,21 @@ func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
 	errorMessage, _ := getField("ErrorMessage").(string)
 	qualityScore, _ := getField("QualityScore").(float64)
 	learningNotes, _ := getField("LearningNotes").([]string)
+	summaryDescriptor, _ := getField("SummaryDescriptor").(string)
+	descriptorVersion, _ := getField("DescriptorVersion").(int)
+	descriptorHash, _ := getField("DescriptorHash").(string)
+	embedding, _ := getField("Embedding").([]byte)
+	embeddingModelID, _ := getField("EmbeddingModelID").(string)
+	embeddingDim, _ := getField("EmbeddingDim").(int)
+	embeddingTask, _ := getField("EmbeddingTask").(string)
 
 	// Delegate to trace store
 	return s.traceStore.storeReasoningTraceRaw(
 		id, shardID, shardType, shardCategory, sessionID, taskContext,
 		systemPrompt, userPrompt, response, model, errorMessage,
 		tokensUsed, durationMs, success, qualityScore, learningNotes,
+		summaryDescriptor, descriptorVersion, descriptorHash,
+		embedding, embeddingModelID, embeddingDim, embeddingTask,
 	)
 }
 

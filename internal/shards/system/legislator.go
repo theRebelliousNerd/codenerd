@@ -278,7 +278,7 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	userPrompt := l.buildLegislatorPrompt(directive)
 
 	// Get JIT-compiled system prompt (no fallback)
-	systemPrompt := l.getSystemPrompt(ctx)
+	systemPrompt := l.getSystemPrompt(ctx, directive)
 	if systemPrompt == "" {
 		logging.Get(logging.CategorySystemShards).Error("[Legislator] JIT prompt compilation failed - ensure legislator atoms exist")
 		return "", fmt.Errorf("JIT prompt compilation failed - ensure legislator atoms exist in internal/prompt/atoms/identity/legislator.yaml")
@@ -333,7 +333,7 @@ func looksLikeMangleRule(directive string) bool {
 //
 //	internal/prompt/atoms/identity/legislator.yaml
 //	internal/prompt/atoms/system/legislator.yaml
-func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
+func (l *LegislatorShard) getSystemPrompt(ctx context.Context, directive string) string {
 	l.mu.RLock()
 	pa := l.promptAssembler
 	l.mu.RUnlock()
@@ -350,9 +350,11 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 	}
 
 	pc := &articulation.PromptContext{
-		ShardID:    l.ID,
-		ShardType:  "legislator",
-		SessionCtx: l.Config.SessionContext,
+		ShardID:       l.ID,
+		ShardType:     "legislator",
+		SessionCtx:    l.Config.SessionContext,
+		SemanticQuery: buildLegislatorSemanticQuery(directive),
+		SemanticTopK:  100,
 	}
 	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
@@ -366,6 +368,18 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 
 	logging.SystemShards("[Legislator] [JIT] Using JIT-compiled system prompt (%d bytes)", len(jitPrompt))
 	return jitPrompt
+}
+
+func buildLegislatorSemanticQuery(directive string) string {
+	directive = strings.TrimSpace(directive)
+	if directive == "" {
+		return ""
+	}
+	query := "mangle rule " + directive
+	if len(query) > 600 {
+		query = query[:600]
+	}
+	return query
 }
 
 // buildLegislatorPrompt constructs the user prompt for directive compilation.

@@ -1014,6 +1014,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Set up learning store and connect to shard manager via adapter
 		if msg.learningStore != nil {
 			m.learningStore = msg.learningStore
+			if m.embeddingEngine != nil {
+				m.learningStore.SetEmbeddingEngine(m.embeddingEngine)
+			}
+			if m.Config != nil {
+				m.learningStore.SetReflectionConfig(m.Config.GetReflectionConfig())
+			}
 			adapter := &learningStoreAdapter{store: msg.learningStore}
 			m.shardMgr.SetLearningStore(adapter)
 		}
@@ -1106,8 +1112,8 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		} else {
 			var sb strings.Builder
 			sb.WriteString("**Re-embedding complete**\n\n")
-			sb.WriteString(fmt.Sprintf("| Metric | Value |\n|--------|-------|\n| DBs processed | %d |\n| Vectors re-embedded | %d |\n| Prompt atoms re-embedded | %d |\n| Duration | %.2fs |\n",
-				msg.dbCount, msg.vectorsDone, msg.atomsDone, msg.duration.Seconds()))
+			sb.WriteString(fmt.Sprintf("| Metric | Value |\n|--------|-------|\n| DBs processed | %d |\n| Vectors re-embedded | %d |\n| Prompt atoms re-embedded | %d |\n| Traces re-embedded | %d |\n| Learnings re-embedded | %d |\n| Duration | %.2fs |\n",
+				msg.dbCount, msg.vectorsDone, msg.atomsDone, msg.tracesDone, msg.learningsDone, msg.duration.Seconds()))
 			if len(msg.skipped) > 0 {
 				sb.WriteString("\nSkipped/errored DBs:\n")
 				for _, s := range msg.skipped {
@@ -1196,6 +1202,8 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.virtualStore = c.VirtualStore
 			m.scanner = c.Scanner
 			m.localDB = c.LocalDB
+			m.embeddingEngine = c.EmbeddingEngine
+			m.learningStore = c.LearningStore
 			m.compressor = c.Compressor
 			m.feedbackStore = c.FeedbackStore
 			m.autopoiesis = c.Autopoiesis
@@ -1203,6 +1211,19 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.autopoiesisListenerCh = c.AutopoiesisListenerCh
 			m.verifier = c.Verifier
 			m.client = c.Client
+
+			if m.learningStore != nil && m.shardMgr != nil {
+				adapter := &learningStoreAdapter{store: m.learningStore}
+				m.shardMgr.SetLearningStore(adapter)
+			}
+			if m.learningStore != nil {
+				if m.embeddingEngine != nil {
+					m.learningStore.SetEmbeddingEngine(m.embeddingEngine)
+				}
+				if m.Config != nil {
+					m.learningStore.SetReflectionConfig(m.Config.GetReflectionConfig())
+				}
+			}
 
 			// Wire browser manager for graceful shutdown
 			m.browserMgr = c.BrowserManager

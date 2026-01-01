@@ -396,7 +396,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				})
 			}
 		}
-		_ = embeddingEngine
+		if localDB != nil {
+			localDB.SetReflectionConfig(appCfg.GetReflectionConfig())
+		}
 
 		// Ensure .nerd paths resolve to the active workspace for learned rules,
 		// even if SQLite is unavailable (file-based persistence still uses .nerd/mangle).
@@ -410,6 +412,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		learningsPath := filepath.Join(workspace, ".nerd", "shards")
 		if ls, err := store.NewLearningStore(learningsPath); err == nil {
 			learningStore = ls
+			if embeddingEngine != nil {
+				learningStore.SetEmbeddingEngine(embeddingEngine)
+			}
+			learningStore.SetReflectionConfig(appCfg.GetReflectionConfig())
 			virtualStore.SetLearningStore(learningStore)
 
 			// GAP-008 FIX: Apply periodic confidence decay on session startup
@@ -946,25 +952,25 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
 
-				logStep("Creating task verifier...")
-				context7Key := appCfg.Context7APIKey
-				if context7Key == "" {
-					context7Key = os.Getenv("CONTEXT7_API_KEY")
-				}
-				taskVerifier := verification.NewTaskVerifier(
-					llmClient,
-					localDB,
-					shardMgr,
-					autopoiesisOrch,
-					context7Key,
-				)
-				logStep("Task verifier initialized")
-				taskVerifier.SetTaskExecutor(taskExecutor)
-				logStep("Task verifier wired to executor")
+		logStep("Creating task verifier...")
+		context7Key := appCfg.Context7APIKey
+		if context7Key == "" {
+			context7Key = os.Getenv("CONTEXT7_API_KEY")
+		}
+		taskVerifier := verification.NewTaskVerifier(
+			llmClient,
+			localDB,
+			shardMgr,
+			autopoiesisOrch,
+			context7Key,
+		)
+		logStep("Task verifier initialized")
+		taskVerifier.SetTaskExecutor(taskExecutor)
+		logStep("Task verifier wired to executor")
 
-				toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
-				virtualStore.SetToolExecutor(toolExecutor)
-				logStep("Tool executor wired")
+		toolExecutor := NewToolExecutorAdapter(autopoiesisOrch)
+		virtualStore.SetToolExecutor(toolExecutor)
+		logStep("Tool executor wired")
 
 		// Wire Ouroboros as ToolGenerator for coder shard self-tool routing
 		if ouroborosLoop := autopoiesisOrch.GetOuroborosLoop(); ouroborosLoop != nil {
@@ -1068,6 +1074,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				ToolEventBus:          toolEventBus,
 				ToolStore:             toolStore,
 				PromptEvolver:         promptEvolver,
+				EmbeddingEngine:       embeddingEngine,
+				LearningStore:         learningStore,
 				// Clean Loop Architecture
 				SessionExecutor: sessionExecutor,
 				SessionSpawner:  sessionSpawner,

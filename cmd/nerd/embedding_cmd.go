@@ -157,7 +157,7 @@ var embeddingReembedCmd = &cobra.Command{
 			filepath.Join(ws, "internal"),
 		}
 
-		fmt.Println("Re-embedding all databases (vectors + prompt atoms)...")
+		fmt.Println("Re-embedding all databases (vectors + prompt atoms + traces + learnings)...")
 		res, err := store.ReembedAllDBsForce(context.Background(), roots, engine, func(msg string) {
 			fmt.Println(msg)
 		})
@@ -165,8 +165,8 @@ var embeddingReembedCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("\nRe-embedding complete.\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Duration: %.2fs\n",
-			res.DBCount, res.VectorsDone, res.AtomsDone, res.Duration.Seconds())
+		fmt.Printf("\nRe-embedding complete.\n  DBs processed: %d\n  Vectors re-embedded: %d\n  Prompt atoms re-embedded: %d\n  Traces re-embedded: %d\n  Learnings re-embedded: %d\n  Duration: %.2fs\n",
+			res.DBCount, res.VectorsDone, res.AtomsDone, res.TracesDone, res.LearningsDone, res.Duration.Seconds())
 		if len(res.Skipped) > 0 {
 			fmt.Println("\nSkipped/errored DBs:")
 			for _, s := range res.Skipped {

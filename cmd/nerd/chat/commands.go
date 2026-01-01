@@ -208,6 +208,18 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.textarea.Reset()
 		return m, nil
 
+	case "/reflection":
+		content := m.renderReflectionStatus()
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/legislate":
 		if len(parts) < 2 {
 			m.history = append(m.history, Message{

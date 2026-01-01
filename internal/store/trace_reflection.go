@@ -12,14 +12,14 @@ import (
 
 // TraceEmbeddingCandidate represents a trace that needs descriptor or embedding updates.
 type TraceEmbeddingCandidate struct {
-	ID               string
-	ShardType        string
-	ShardCategory    string
-	TaskContext      string
-	UserPrompt       string
-	ErrorMessage     string
-	Success          bool
-	LearningNotes    []string
+	ID                string
+	ShardType         string
+	ShardCategory     string
+	TaskContext       string
+	UserPrompt        string
+	ErrorMessage      string
+	Success           bool
+	LearningNotes     []string
 	SummaryDescriptor string
 	DescriptorVersion int
 	DescriptorHash    string
@@ -43,7 +43,7 @@ type TraceEmbeddingUpdate struct {
 }
 
 // ListTraceEmbeddingCandidates returns trace rows missing descriptors or embeddings.
-func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool) ([]TraceEmbeddingCandidate, error) {
+func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool, expectedModel string, expectedDim int, expectedTask string) ([]TraceEmbeddingCandidate, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "ListTraceEmbeddingCandidates")
 	defer timer.Stop()
 
@@ -58,6 +58,19 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool) 
 		(summary_descriptor IS NULL OR summary_descriptor = '' OR descriptor_version IS NULL OR descriptor_version != ? OR descriptor_hash IS NULL OR descriptor_hash = '')
 		OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
+	args := []interface{}{traceDescriptorVersion}
+	if expectedModel != "" {
+		where += " OR embedding_model_id != ?"
+		args = append(args, expectedModel)
+	}
+	if expectedDim > 0 {
+		where += " OR embedding_dim != ?"
+		args = append(args, expectedDim)
+	}
+	if expectedTask != "" {
+		where += " OR embedding_task != ?"
+		args = append(args, expectedTask)
+	}
 	if skipSuccess {
 		where += " AND success = 0"
 	}
@@ -73,7 +86,76 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool) 
 		ORDER BY created_at DESC
 		LIMIT ?`, where)
 
-	rows, err := ts.db.Query(query, traceDescriptorVersion, limit)
+	args = append(args, limit)
+	rows, err := ts.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var candidates []TraceEmbeddingCandidate
+	for rows.Next() {
+		var c TraceEmbeddingCandidate
+		var notesJSON string
+		var embedding []byte
+		var createdAt sql.NullTime
+
+		if err := rows.Scan(
+			&c.ID,
+			&c.ShardType,
+			&c.ShardCategory,
+			&c.TaskContext,
+			&c.UserPrompt,
+			&c.ErrorMessage,
+			&c.Success,
+			&notesJSON,
+			&c.SummaryDescriptor,
+			&c.DescriptorVersion,
+			&c.DescriptorHash,
+			&embedding,
+			&c.EmbeddingModelID,
+			&c.EmbeddingDim,
+			&c.EmbeddingTask,
+			&createdAt,
+		); err != nil {
+			continue
+		}
+
+		if notesJSON != "" {
+			_ = json.Unmarshal([]byte(notesJSON), &c.LearningNotes)
+		}
+		if createdAt.Valid {
+			c.CreatedAt = createdAt.Time
+		}
+		c.Embedding = embedding
+		candidates = append(candidates, c)
+	}
+	return candidates, nil
+}
+
+// ListAllTraceEmbeddingCandidates returns trace rows regardless of embedding state.
+func (ts *TraceStore) ListAllTraceEmbeddingCandidates(limit int, offset int) ([]TraceEmbeddingCandidate, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "ListAllTraceEmbeddingCandidates")
+	defer timer.Stop()
+
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, shard_type, shard_category, COALESCE(task_context, ''), user_prompt,
+		       COALESCE(error_message, ''), success, COALESCE(learning_notes, ''),
+		       COALESCE(summary_descriptor, ''), COALESCE(descriptor_version, 0), COALESCE(descriptor_hash, ''),
+		       embedding, COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, ''),
+		       created_at
+		FROM reasoning_traces
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?`
+
+	rows, err := ts.db.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +202,7 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool) 
 }
 
 // CountTraceEmbeddingBacklog returns the number of traces missing descriptors or embeddings.
-func (ts *TraceStore) CountTraceEmbeddingBacklog() (int, error) {
+func (ts *TraceStore) CountTraceEmbeddingBacklog(expectedModel string, expectedDim int, expectedTask string) (int, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
@@ -130,8 +212,21 @@ func (ts *TraceStore) CountTraceEmbeddingBacklog() (int, error) {
 		WHERE (summary_descriptor IS NULL OR summary_descriptor = '' OR descriptor_version IS NULL OR descriptor_version != ? OR descriptor_hash IS NULL OR descriptor_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
+	args := []interface{}{traceDescriptorVersion}
+	if expectedModel != "" {
+		query += " OR embedding_model_id != ?"
+		args = append(args, expectedModel)
+	}
+	if expectedDim > 0 {
+		query += " OR embedding_dim != ?"
+		args = append(args, expectedDim)
+	}
+	if expectedTask != "" {
+		query += " OR embedding_task != ?"
+		args = append(args, expectedTask)
+	}
 	var count int
-	if err := ts.db.QueryRow(query, traceDescriptorVersion).Scan(&count); err != nil {
+	if err := ts.db.QueryRow(query, args...).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
