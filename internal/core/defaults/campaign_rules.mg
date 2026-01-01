@@ -64,7 +64,8 @@ campaign_too_ambitious(CampaignID) :-
 campaign_too_trivial(CampaignID) :-
     campaign_metadata(CampaignID, _, EstPhases, _),
     EstPhases < 2,
-    goal_requires_campaign(_).
+    campaign_goal(CampaignID, Goal),
+    goal_requires_campaign(Goal).
 
 # Warning for LLM to reconsider decomposition
 decomposition_warning(CampaignID, "too_many_phases") :-
@@ -150,8 +151,8 @@ task_is_simple(TaskID) :-
 prefer_specialist_for_task(TaskID, SpecialistName) :-
     task_is_complex(TaskID),
     campaign_task(TaskID, _, Description, _, TaskType),
-    shard_profile(SpecialistName, /specialist, _),
-    shard_can_handle(SpecialistName, TaskType).
+    shard_can_handle(SpecialistName, TaskType),
+    shard_profile(SpecialistName, /specialist, _).
 
 # -----------------------------------------------------------------------------
 # 2.3 Task Retry Strategy
@@ -220,8 +221,8 @@ task_needs_verification(TaskID) :-
 # Task passes verification if checkpoint succeeded
 task_verified(TaskID) :-
     task_needs_verification(TaskID),
-    phase_checkpoint(PhaseID, _, /true, _, _),
-    campaign_task(TaskID, PhaseID, _, _, _).
+    campaign_task(TaskID, PhaseID, _, _, _),
+    phase_checkpoint(PhaseID, _, /true, _, _).
 
 # Unverified completed task (quality risk)
 task_unverified(TaskID) :-
@@ -243,9 +244,9 @@ phase_blocked(PhaseID, "unverified_tasks") :-
 # Quality violation patterns (detected by shards)
 quality_violation_detected(TaskID, /no_error_handling) :-
     campaign_task(TaskID, _, _, /completed, /file_create),
+    quality_violation(TaskID, /missing_errors),
     task_artifact(TaskID, /source_file, Path, _),
-    file_topology(Path, _, /go, _, _),
-    quality_violation(TaskID, /missing_errors).
+    file_topology(Path, _, /go, _, _).
 
 quality_violation_detected(TaskID, /no_tests) :-
     campaign_task(TaskID, _, _, /completed, /file_create),
@@ -459,9 +460,9 @@ shard_has_many_failures(ShardType) :-
 delegate_task(ShardType, Task, /pending) :-
     next_campaign_task(TaskID),
     campaign_task(TaskID, _, Task, _, TaskType),
+    shard_can_handle(ShardType, TaskType),
     shard_profile(ShardType, _, _),
-    shard_campaign_reliable(ShardType),
-    shard_can_handle(ShardType, TaskType).
+    shard_campaign_reliable(ShardType).
 
 # =============================================================================
 # SECTION 6: RESILIENCE & RECOVERY
@@ -489,6 +490,7 @@ phase_blocked(PhaseID, "failure_cascade") :-
 replan_needed(CampaignID, "phase_failure_cascade") :-
     current_campaign(CampaignID),
     current_phase(PhaseID),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
     phase_failure_cascade(PhaseID).
 
 # -----------------------------------------------------------------------------
@@ -498,8 +500,8 @@ replan_needed(CampaignID, "phase_failure_cascade") :-
 # Phase is stuck: in-progress but no runnable tasks
 phase_stuck(PhaseID) :-
     campaign_phase(PhaseID, CampaignID, _, _, /in_progress, _),
-    !has_runnable_task(PhaseID),
     current_campaign(CampaignID),
+    !has_runnable_task(PhaseID),
     has_pending_tasks(PhaseID).
 
 # Helper: phase has runnable tasks
@@ -613,7 +615,8 @@ milestone_reached(CampaignID, /integrated) :-
 # Trigger progress update on task completion
 progress_changed(CampaignID) :-
     current_campaign(CampaignID),
-    campaign_task(_, _, _, /completed, _).
+    campaign_task(_, PhaseID, _, /completed, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 progress_changed(CampaignID) :-
     current_campaign(CampaignID),
@@ -671,9 +674,9 @@ campaign_task_shard(TaskID, /coder) :-
 # If specialist available and performs well, prefer it
 campaign_task_shard_override(TaskID, SpecialistName) :-
     campaign_task(TaskID, _, _, /pending, TaskType),
+    shard_can_handle(SpecialistName, TaskType),
     shard_profile(SpecialistName, /specialist, _),
-    shard_campaign_reliable(SpecialistName),
-    shard_can_handle(SpecialistName, TaskType).
+    shard_campaign_reliable(SpecialistName).
 
 # Final shard selection (specialist override or default)
 final_shard_for_task(TaskID, SpecialistName) :-

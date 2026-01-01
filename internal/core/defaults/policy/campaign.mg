@@ -228,8 +228,8 @@ phase_blocked(PhaseID, "checkpoint_failed") :-
 # Helper: identify failed tasks (for counting in Go runtime)
 failed_campaign_task(CampaignID, TaskID) :-
     current_campaign(CampaignID),
-    campaign_task(TaskID, PhaseID, Desc, /failed, TaskType),
-    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile).
+    campaign_phase(PhaseID, CampaignID, PhaseName, Seq, Status, Profile),
+    campaign_task(TaskID, PhaseID, Desc, /failed, TaskType).
 
 # Trigger replan on repeated failures (configurable threshold).
 replan_needed(CampaignID, "task_failure_cascade") :-
@@ -287,6 +287,7 @@ campaign_blocked(CampaignID, "no_eligible_phases") :-
 # Campaign blocked if all remaining tasks are blocked
 campaign_blocked(CampaignID, "all_tasks_blocked") :-
     current_campaign(CampaignID),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
     current_phase(PhaseID),
     !has_next_campaign_task(),
     has_incomplete_phase_task(PhaseID).
@@ -306,7 +307,8 @@ promote_to_long_term(/phase_success, PhaseType) :-
 # Learn from task failures for future avoidance
 campaign_learning(CampaignID, /failure_pattern, TaskType, ErrorMsg, Now) :-
     current_campaign(CampaignID),
-    campaign_task(TaskID, _, _, /failed, TaskType),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    campaign_task(TaskID, PhaseID, _, /failed, TaskType),
     task_error(TaskID, _, ErrorMsg),
     current_time(Now).
 
@@ -322,7 +324,8 @@ phase_tool_permitted(Tool) :-
 # Block tools not in phase profile during active campaign
 # NOTE: E023 warning is false positive - current_campaign/current_phase are singletons (1×1×N)
 tool_advisory_block(Tool, "not_in_phase_profile") :-
-    current_campaign(_),
-    current_phase(_),
+    current_campaign(CampaignID),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    current_phase(PhaseID),
     tool_capabilities(Tool, _),
     !phase_tool_permitted(Tool).

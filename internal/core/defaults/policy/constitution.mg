@@ -225,13 +225,22 @@ permitted(ActionType, Target, Payload) :-
     has_active_override(ActionType),
     pending_action(_, ActionType, Target, Payload, _).
 
+# Count denied appeals for thresholding
+appeal_denial_count(Count) :-
+    appeal_denied(_, _, _, _)
+    |> do fn:group_by(), let Count = fn:count().
+
 # Alert if too many appeals are being denied
 excessive_appeal_denials() :-
-    appeal_denied(_, _, _, _),
-    appeal_denied(_, _, _, _),
-    appeal_denied(_, _, _, _).
+    appeal_denial_count(Count),
+    Count >= 3.
+
+# Count granted appeals by action type for pattern detection
+appeal_grant_count(ActionType, Count) :-
+    appeal_granted(_, ActionType, _, _)
+    |> do fn:group_by(ActionType), let Count = fn:count().
 
 # Signal need for policy review if appeals frequently granted
 appeal_pattern_detected(ActionType) :-
-    appeal_granted(_, ActionType, _, _),
-    appeal_granted(_, ActionType, _, _).
+    appeal_grant_count(ActionType, Count),
+    Count >= 2.

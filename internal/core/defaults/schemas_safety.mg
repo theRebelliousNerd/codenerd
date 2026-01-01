@@ -79,6 +79,12 @@ Decl appeal_needs_review(ActionID, ActionType, Justification).
 # has_active_override(ActionType) - helper: true if override is active
 Decl has_active_override(ActionType).
 
+# appeal_denial_count(Count) - count of denied appeals
+Decl appeal_denial_count(Count).
+
+# appeal_grant_count(ActionType, Count) - count of granted appeals by action type
+Decl appeal_grant_count(ActionType, Count).
+
 # excessive_appeal_denials() - helper: true if too many denials (autopoiesis signal)
 Decl excessive_appeal_denials().
 
