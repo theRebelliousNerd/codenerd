@@ -69,6 +69,13 @@ next_action(/interrogative_mode) :-
 clarification_question(IntentID, "I don't have a tool to handle this action. Would you like me to try a different approach?") :-
     no_action_reason(IntentID, /no_route).
 
+next_action(/interrogative_mode) :-
+    no_action_reason(_, /no_action_derived),
+    !any_awaiting_clarification(/yes).
+
+clarification_question(IntentID, "I'm not sure which action to take for this request. Could you clarify?") :-
+    no_action_reason(IntentID, /no_action_derived).
+
 # Section 11: Abductive Reasoning
 
 # Abductive reasoning: missing hypotheses are symptoms without known causes

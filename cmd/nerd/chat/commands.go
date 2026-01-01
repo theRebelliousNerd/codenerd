@@ -27,6 +27,8 @@ package chat
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -213,6 +215,220 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: content,
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/knowledge":
+		if len(parts) == 1 {
+			if len(m.knowledgeHistory) > 0 {
+				limit := 5
+				recent := make([]KnowledgeResult, 0, limit)
+				for i := len(m.knowledgeHistory) - 1; i >= 0 && len(recent) < limit; i-- {
+					recent = append(recent, m.knowledgeHistory[i])
+				}
+
+				var sb strings.Builder
+				sb.WriteString("## Recent Knowledge Requests\n\n")
+				for i, kr := range recent {
+					query := kr.Query
+					if strings.TrimSpace(query) == "" {
+						query = "(no query)"
+					}
+					specialist := kr.Specialist
+					if strings.TrimSpace(specialist) == "" {
+						specialist = "specialist"
+					}
+					timestamp := kr.Timestamp
+					timeLabel := "-"
+					if !timestamp.IsZero() {
+						timeLabel = timestamp.Format("15:04:05")
+					}
+					sb.WriteString(fmt.Sprintf("%d. [%s] %s — %s\n", i+1, specialist, query, timeLabel))
+				}
+				sb.WriteString("\nUse `/knowledge <n>` to view the full response.")
+
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: sb.String(),
+					Time:    time.Now(),
+				})
+			} else if m.localDB != nil {
+				atoms, err := m.localDB.GetKnowledgeAtomsByPrefix("session/")
+				if err != nil || len(atoms) == 0 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "No persisted knowledge entries found.",
+						Time:    time.Now(),
+					})
+				} else {
+					sort.Slice(atoms, func(i, j int) bool {
+						return atoms[i].CreatedAt.After(atoms[j].CreatedAt)
+					})
+					limit := 5
+					if len(atoms) < limit {
+						limit = len(atoms)
+					}
+					var sb strings.Builder
+					sb.WriteString("## Recent Knowledge Entries (Persisted)\n\n")
+					for i := 0; i < limit; i++ {
+						atom := atoms[i]
+						concept := atom.Concept
+						if strings.TrimSpace(concept) == "" {
+							concept = "(unknown concept)"
+						}
+						timeLabel := atom.CreatedAt.Format("2006-01-02 15:04:05")
+						sb.WriteString(fmt.Sprintf("%d. %s — %s\n", i+1, concept, timeLabel))
+					}
+					sb.WriteString("\nUse `/knowledge <n>` to view the full response.")
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: sb.String(),
+						Time:    time.Now(),
+					})
+				}
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "No knowledge history or database available.",
+					Time:    time.Now(),
+				})
+			}
+
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		if parts[1] == "search" {
+			if len(parts) < 3 {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Usage: `/knowledge search <query>`",
+					Time:    time.Now(),
+				})
+			} else if m.localDB == nil {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "No knowledge database available.",
+					Time:    time.Now(),
+				})
+			} else {
+				query := strings.Join(parts[2:], " ")
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				atoms, err := m.localDB.SearchKnowledgeAtomsSemantic(ctx, query, 5)
+				if err != nil || len(atoms) == 0 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "No matching knowledge entries found.",
+						Time:    time.Now(),
+					})
+				} else {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("## Knowledge Search Results (%d)\n\n", len(atoms)))
+					for i, atom := range atoms {
+						concept := atom.Concept
+						if strings.TrimSpace(concept) == "" {
+							concept = "(unknown concept)"
+						}
+						sb.WriteString(fmt.Sprintf("### %d. %s\n\n", i+1, concept))
+						sb.WriteString(atom.Content)
+						sb.WriteString("\n\n")
+					}
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: strings.TrimSpace(sb.String()),
+						Time:    time.Now(),
+					})
+				}
+			}
+
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		if idx, err := strconv.Atoi(parts[1]); err == nil {
+			if idx < 1 {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "Usage: `/knowledge <n>` (n starts at 1).",
+					Time:    time.Now(),
+				})
+			} else if len(m.knowledgeHistory) > 0 {
+				recent := make([]KnowledgeResult, 0, len(m.knowledgeHistory))
+				for i := len(m.knowledgeHistory) - 1; i >= 0; i-- {
+					recent = append(recent, m.knowledgeHistory[i])
+				}
+				if idx > len(recent) {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Only %d knowledge entries available.", len(recent)),
+						Time:    time.Now(),
+					})
+				} else {
+					content := formatKnowledgeResults([]KnowledgeResult{recent[idx-1]})
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: content,
+						Time:    time.Now(),
+					})
+				}
+			} else if m.localDB != nil {
+				atoms, err := m.localDB.GetKnowledgeAtomsByPrefix("session/")
+				if err != nil || len(atoms) == 0 {
+					m.history = append(m.history, Message{
+						Role:    "assistant",
+						Content: "No persisted knowledge entries found.",
+						Time:    time.Now(),
+					})
+				} else {
+					sort.Slice(atoms, func(i, j int) bool {
+						return atoms[i].CreatedAt.After(atoms[j].CreatedAt)
+					})
+					if idx > len(atoms) {
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Only %d persisted knowledge entries available.", len(atoms)),
+							Time:    time.Now(),
+						})
+					} else {
+						atom := atoms[idx-1]
+						var sb strings.Builder
+						sb.WriteString("## Persisted Knowledge Entry\n\n")
+						sb.WriteString(fmt.Sprintf("**Concept:** %s\n\n", atom.Concept))
+						sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", atom.CreatedAt.Format(time.RFC3339)))
+						sb.WriteString(atom.Content)
+						m.history = append(m.history, Message{
+							Role:    "assistant",
+							Content: sb.String(),
+							Time:    time.Now(),
+						})
+					}
+				}
+			} else {
+				m.history = append(m.history, Message{
+					Role:    "assistant",
+					Content: "No knowledge history or database available.",
+					Time:    time.Now(),
+				})
+			}
+
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Usage: `/knowledge`, `/knowledge <n>`, or `/knowledge search <query>`",
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
