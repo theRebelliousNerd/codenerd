@@ -32,8 +32,8 @@ mcp_tool_available(ToolID) :-
 # Base relevance from shard affinity (must have affinity >= 30 to be relevant)
 mcp_tool_base_relevance(ShardType, ToolID, Score) :-
     mcp_tool_shard_affinity(ToolID, ShardType, Score),
-    mcp_tool_available(ToolID),
-    Score >= 30.
+    Score >= 30,
+    mcp_tool_available(ToolID).
 
 # -----------------------------------------------------------------------------
 # 50.3 Intent Boost
