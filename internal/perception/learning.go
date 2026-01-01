@@ -30,6 +30,12 @@ If the user provides recurring constraints like "Don't forget to wire it into th
 If a pattern is found, output a MANGLE FACT to correct it globally.
 The fact MUST be a 'learned_exemplar'.
 
+OUTPUT FORMAT (STRICT):
+- Output ONLY a single line containing the learned_exemplar fact.
+- Do NOT output JSON, commentary, analysis, code fences, or extra text.
+- Do NOT escape quotes; use raw double quotes as shown in the schema.
+- If no pattern is found, output an EMPTY response (no text).
+
 Schema:
 learned_exemplar("USER_PHRASE", /correct_verb, "correct_target", "constraint_string", CONFIDENCE).
 

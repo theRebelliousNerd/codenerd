@@ -123,6 +123,8 @@ sync with the plan document as changes land.
 - [x] Preserve raw `learned_exemplar` during confirmation so constraints/confidence survive intact.
 - [x] Validate manual `/learn`: no `.nerd/mangle/learned_taxonomy.mg` until confirmation.
 - [x] Validate auto-learn: dissatisfaction triggers candidate; confirmation appends to `.nerd/mangle/learned_taxonomy.mg`.
+- [x] Tighten Critic prompt output contract (single-line learned_exemplar or empty).
+- [x] Add unit tests for extraction + parsing (JSON noise, commas, escaped quotes).
 
 ## JIT Prompt Atom Work (Required for New LLM Flows)
 
