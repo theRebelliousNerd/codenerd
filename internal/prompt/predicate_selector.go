@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"codenerd/internal/core"
@@ -22,12 +21,12 @@ import (
 // - Domain relevance
 // - Semantic similarity to the task
 type PredicateSelector struct {
-	corpus           *core.PredicateCorpus
-	vectorStore      *store.LocalStore
-	vectorIndexOnce  sync.Once
-	vectorIndexReady atomic.Bool
-	maxPredicates    int
-	vectorLimit      int
+	corpus             *core.PredicateCorpus
+	vectorStore        *store.LocalStore
+	vectorIndexReady   atomic.Bool
+	vectorIndexRunning atomic.Bool
+	maxPredicates      int
+	vectorLimit        int
 }
 
 const (
@@ -517,20 +516,27 @@ func (ps *PredicateSelector) ensurePredicateVectorIndex() {
 	if ps.vectorStore == nil || ps.corpus == nil {
 		return
 	}
-	ps.vectorIndexOnce.Do(func() {
-		go ps.indexPredicateVectors()
-	})
+	if ps.vectorIndexReady.Load() {
+		return
+	}
+	if !ps.vectorIndexRunning.CompareAndSwap(false, true) {
+		return
+	}
+	defer ps.vectorIndexRunning.Store(false)
+	if ps.indexPredicateVectors() {
+		ps.vectorIndexReady.Store(true)
+	}
 }
 
-func (ps *PredicateSelector) indexPredicateVectors() {
+func (ps *PredicateSelector) indexPredicateVectors() bool {
 	if ps.vectorStore == nil || ps.corpus == nil {
-		return
+		return false
 	}
 
 	stats, err := ps.vectorStore.GetVectorStats()
 	if err == nil {
 		if engine, ok := stats["embedding_engine"].(string); ok && strings.HasPrefix(engine, "none") {
-			return
+			return false
 		}
 	}
 
@@ -546,39 +552,63 @@ func (ps *PredicateSelector) indexPredicateVectors() {
 	}
 
 	if totalPredicates > 0 && existing >= totalPredicates {
-		ps.vectorIndexReady.Store(true)
-		return
-	}
-	if existing > 0 && totalPredicates > 0 && existing < totalPredicates {
-		if _, err := ps.vectorStore.DeleteVectorsByMetadata(predicateVectorMetaKey, predicateVectorMetaValue); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("PredicateSelector: failed to reset predicate vectors: %v", err)
-		}
+		return true
 	}
 
 	predicates, err := ps.corpus.GetAllPredicates()
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Warn("PredicateSelector: failed to load predicates for vector index: %v", err)
-		return
+		return false
 	}
 
 	logging.Get(logging.CategoryKernel).Debug("PredicateSelector: indexing %d predicates for vector search", len(predicates))
 
+	var existingContents map[string]struct{}
+	if existing > 0 && totalPredicates > 0 && existing < totalPredicates {
+		contents, err := ps.vectorStore.VectorContentsByMetadata(predicateVectorMetaKey, predicateVectorMetaValue)
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Warn("PredicateSelector: failed to load existing predicate vectors: %v", err)
+		} else {
+			existingContents = contents
+		}
+	}
+
 	ctx := context.Background()
+	contents := make([]string, 0, len(predicates))
+	metadata := make([]map[string]interface{}, 0, len(predicates))
 	for _, p := range predicates {
 		content := predicateVectorContent(p)
-		metadata := map[string]interface{}{
+		if existingContents != nil {
+			if _, ok := existingContents[content]; ok {
+				continue
+			}
+		}
+		contents = append(contents, content)
+		metadata = append(metadata, map[string]interface{}{
 			predicateVectorMetaKey: predicateVectorMetaValue,
 			"name":                 p.Name,
 			"arity":                p.Arity,
 			"domain":               p.Domain,
 			"category":             p.Category,
-		}
-		if err := ps.vectorStore.StoreVectorWithEmbedding(ctx, content, metadata); err != nil {
-			logging.Get(logging.CategoryKernel).Debug("PredicateSelector: failed to index %s/%d: %v", p.Name, p.Arity, err)
-		}
+		})
+	}
+	if len(contents) == 0 {
+		return false
+	}
+	if _, err := ps.vectorStore.StoreVectorBatchWithEmbedding(ctx, contents, metadata); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("PredicateSelector: batch index failed: %v", err)
+		return false
 	}
 
-	ps.vectorIndexReady.Store(true)
+	if totalPredicates <= 0 {
+		totalPredicates = len(predicates)
+	}
+	existing, err = ps.vectorStore.CountVectorsByMetadata(predicateVectorMetaKey, predicateVectorMetaValue)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("PredicateSelector: failed to count predicate vectors after index: %v", err)
+		return false
+	}
+	return totalPredicates > 0 && existing >= totalPredicates
 }
 
 func predicateVectorContent(p core.PredicateInfo) string {
