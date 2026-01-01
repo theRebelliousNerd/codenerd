@@ -1339,15 +1339,30 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			successCount, failCount,
 		)
 
-		// Show interim response to user if provided
+		// Show interim response and gathered knowledge to the user if provided
+		historyUpdated := false
 		if msg.InterimResponse != "" {
 			m.history = append(m.history, Message{
 				Role:    "assistant",
 				Content: msg.InterimResponse,
 				Time:    time.Now(),
 			})
+			historyUpdated = true
+		}
+
+		if knowledgeOutput := formatKnowledgeResults(msg.Results); knowledgeOutput != "" {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: knowledgeOutput,
+				Time:    time.Now(),
+			})
+			historyUpdated = true
+		}
+
+		if historyUpdated {
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
+			m.saveSessionState()
 		}
 
 		// Re-process the original input with knowledge context
