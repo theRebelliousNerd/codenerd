@@ -1,0 +1,17 @@
+# Reflection (System 2) Prompt Atom
+- id: "system/reflection/meta_cognition"
+  category: "context"
+  subcategory: "reflection"
+  priority: 84
+  is_mandatory: false
+  world_states: ["reflection_hits"]
+  content: |
+    ## SYSTEM 2 REFLECTION (Semantic Recall)
+    The kernel surfaced reflection hits from prior traces and learnings.
+    Use them to avoid repeating failures and to reuse proven strategies.
+
+    Guidance:
+    - Treat reflection hits as *context*, not ground truth.
+    - Cross-check with the current codebase and facts before acting.
+    - If a reflection conflicts with present evidence, call out the conflict.
+    - Prefer explicit verification over blind reuse.

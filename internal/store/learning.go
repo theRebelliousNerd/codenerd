@@ -25,6 +25,13 @@ type Learning struct {
 	LearnedAt      time.Time `json:"learned_at"`
 	SourceCampaign string    `json:"source_campaign"` // Campaign that taught this
 	Confidence     float64   `json:"confidence"`      // Can decay over time (0.0-1.0)
+	SemanticHandle string    `json:"semantic_handle,omitempty"`
+	HandleVersion  int       `json:"handle_version,omitempty"`
+	HandleHash     string    `json:"handle_hash,omitempty"`
+	Embedding      []byte    `json:"embedding,omitempty"`
+	EmbeddingModelID string  `json:"embedding_model_id,omitempty"`
+	EmbeddingDim   int       `json:"embedding_dim,omitempty"`
+	EmbeddingTask  string    `json:"embedding_task,omitempty"`
 }
 
 // LearningStore manages shard learnings persistence per Cortex §8.3 Autopoiesis.
@@ -33,6 +40,9 @@ type LearningStore struct {
 	mu       sync.RWMutex
 	basePath string
 	dbs      map[string]*sql.DB // One DB per shard type
+	embeddingEngine embedding.EmbeddingEngine
+	workerStop      chan struct{}
+	workerDone      chan struct{}
 }
 
 // NewLearningStore creates a new learning store at the specified base path.
@@ -86,6 +96,12 @@ func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := RunMigrations(db); err != nil {
+		logging.Get(logging.CategoryStore).Warn("LearningStore migrations failed for %s: %v", shardType, err)
+	}
+	if err := ls.ensureLearningIndexes(db); err != nil {
+		logging.Get(logging.CategoryStore).Warn("LearningStore index ensure failed for %s: %v", shardType, err)
+	}
 
 	ls.dbs[shardType] = db
 	logging.StoreDebug("Learning database ready for shard=%s", shardType)
@@ -103,10 +119,18 @@ func (ls *LearningStore) initializeSchema(db *sql.DB) error {
 		learned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		source_campaign TEXT DEFAULT '',
 		confidence REAL DEFAULT 1.0,
+		semantic_handle TEXT,
+		handle_version INTEGER DEFAULT 0,
+		handle_hash TEXT,
+		embedding BLOB,
+		embedding_model_id TEXT,
+		embedding_dim INTEGER,
+		embedding_task TEXT,
 		UNIQUE(fact_predicate, fact_args)
 	);
 	CREATE INDEX IF NOT EXISTS idx_learnings_predicate ON learnings(fact_predicate);
 	CREATE INDEX IF NOT EXISTS idx_learnings_confidence ON learnings(confidence);
+	CREATE INDEX IF NOT EXISTS idx_learnings_handle_hash ON learnings(handle_hash);
 	`
 	_, err := db.Exec(schema)
 	return err

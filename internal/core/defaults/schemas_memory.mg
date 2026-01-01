@@ -18,6 +18,14 @@ Decl knowledge_link(EntityA, Relation, EntityB).
 # new_fact(FactID) - marks a fact as newly added (for activation)
 Decl new_fact(FactID).
 
+# trace_recall_result(TraceID, Score, Outcome, Summary)
+# Score is integer 0-100 (scaled from 0.0-1.0 in Go)
+Decl trace_recall_result(TraceID, Score, Outcome, Summary).
+
+# learning_recall_result(LearningID, Score, Predicate, Description)
+# Score is integer 0-100 (scaled from 0.0-1.0 in Go)
+Decl learning_recall_result(LearningID, Score, Predicate, Description).
+
 # =============================================================================
 # SECTION 7B: VIRTUAL PREDICATES FOR KNOWLEDGE QUERIES (Bound)
 # =============================================================================

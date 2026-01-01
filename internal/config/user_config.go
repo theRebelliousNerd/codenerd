@@ -83,6 +83,9 @@ type UserConfig struct {
 	// Embedding engine configuration for semantic vector search
 	Embedding *EmbeddingConfig `json:"embedding,omitempty"`
 
+	// Reflection (System 2 memory) configuration
+	Reflection *ReflectionConfig `json:"reflection,omitempty"`
+
 	// =========================================================================
 	// SHARD CONFIGURATION (Per-Shard Settings)
 	// =========================================================================
@@ -239,6 +242,31 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		GenAIModel:     "gemini-embedding-001",
 		TaskType:       "SEMANTIC_SIMILARITY",
 	}
+}
+
+// GetReflectionConfig returns reflection config with defaults applied.
+func (c *UserConfig) GetReflectionConfig() ReflectionConfig {
+	def := DefaultReflectionConfig()
+	if c.Reflection != nil {
+		cfg := *c.Reflection
+		if !cfg.enabledSet {
+			cfg.Enabled = def.Enabled
+		}
+		if cfg.TopK == 0 {
+			cfg.TopK = def.TopK
+		}
+		if cfg.MinScore == 0 {
+			cfg.MinScore = def.MinScore
+		}
+		if cfg.RecencyHalfLifeDays == 0 {
+			cfg.RecencyHalfLifeDays = def.RecencyHalfLifeDays
+		}
+		if cfg.BacklogWatermark == 0 {
+			cfg.BacklogWatermark = def.BacklogWatermark
+		}
+		return cfg
+	}
+	return def
 }
 
 // GetToolGenerationConfig returns tool generation settings with defaults applied.

@@ -344,6 +344,11 @@ type SessionContext struct {
 	SpecialistHints []string // Hints from specialist knowledge base
 
 	// ==========================================================================
+	// REFLECTION HITS (System 2 Memory)
+	// ==========================================================================
+	ReflectionHits []string // Summaries of recalled traces/learnings
+
+	// ==========================================================================
 	// GATHERED KNOWLEDGE (LLM-First Knowledge Discovery)
 	// ==========================================================================
 	// Knowledge gathered from specialists during the current session.

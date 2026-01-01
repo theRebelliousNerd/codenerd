@@ -59,6 +59,22 @@ var pendingMigrations = []Migration{
 	{"prompt_atoms", "content_min", "TEXT"},
 	// Prompt atoms metadata column
 	{"prompt_atoms", "source_file", "TEXT"},
+	// Reasoning traces reflection columns
+	{"reasoning_traces", "summary_descriptor", "TEXT"},
+	{"reasoning_traces", "descriptor_version", "INTEGER DEFAULT 0"},
+	{"reasoning_traces", "descriptor_hash", "TEXT"},
+	{"reasoning_traces", "embedding", "BLOB"},
+	{"reasoning_traces", "embedding_model_id", "TEXT"},
+	{"reasoning_traces", "embedding_dim", "INTEGER"},
+	{"reasoning_traces", "embedding_task", "TEXT"},
+	// Learning store reflection columns
+	{"learnings", "semantic_handle", "TEXT"},
+	{"learnings", "handle_version", "INTEGER DEFAULT 0"},
+	{"learnings", "handle_hash", "TEXT"},
+	{"learnings", "embedding", "BLOB"},
+	{"learnings", "embedding_model_id", "TEXT"},
+	{"learnings", "embedding_dim", "INTEGER"},
+	{"learnings", "embedding_task", "TEXT"},
 }
 
 // RunMigrations applies schema migrations for existing databases.

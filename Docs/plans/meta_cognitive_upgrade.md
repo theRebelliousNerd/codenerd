@@ -35,6 +35,7 @@ ALTER TABLE reasoning_traces ADD COLUMN descriptor_hash TEXT;
 ALTER TABLE reasoning_traces ADD COLUMN embedding BLOB;
 ALTER TABLE reasoning_traces ADD COLUMN embedding_model_id TEXT;
 ALTER TABLE reasoning_traces ADD COLUMN embedding_dim INTEGER;
+ALTER TABLE reasoning_traces ADD COLUMN embedding_task TEXT;
 ```
 
 **Descriptor Template (deterministic):**
@@ -51,6 +52,7 @@ ALTER TABLE learnings ADD COLUMN handle_hash TEXT;
 ALTER TABLE learnings ADD COLUMN embedding BLOB;
 ALTER TABLE learnings ADD COLUMN embedding_model_id TEXT;
 ALTER TABLE learnings ADD COLUMN embedding_dim INTEGER;
+ALTER TABLE learnings ADD COLUMN embedding_task TEXT;
 ```
 
 **Semantic Bridge Example:**
@@ -63,6 +65,7 @@ When Autopoiesis creates a new preference/3 fact, it also generates a semantic_h
   - `learnings_vec(rowid, embedding)`
 - rowid maps to the base table primary key for join and retrieval.
 - Persist model metadata (embedding_model_id, embedding_dim, distance_metric) in a DB metadata table or a local store header. On mismatch, disable semantic recall and emit a warning.
+- Record embedding_task per row (RETRIEVAL_DOCUMENT vs RETRIEVAL_QUERY) to detect task mismatch.
 
 ---
 
@@ -82,6 +85,11 @@ Embedding is slow (~300 to 500ms). Use an asynchronous background worker to prev
 1. Capture: StoreReasoningTrace saves to SQLite with embedding = NULL.
 2. Describe: Worker fills missing summary_descriptor and semantic_handle if needed.
 3. Embed: Worker batches up to 32 items with EmbeddingEngine.EmbedBatch().
+   - Use task-aware embedding when available:
+     - Documents: RETRIEVAL_DOCUMENT
+     - Queries: RETRIEVAL_QUERY
+   - Task types selected via embedding/task_selector.go (no edits required).
+   - Do not modify genai.go or task_selector.go until reconciliation.
 4. Index: Sync embeddings into sqlite-vec tables.
 
 ### B. Retention and Backpressure
@@ -100,7 +108,7 @@ Add config toggles under `.nerd/config.json`:
 - `reflection.top_k`
 - `reflection.min_score`
 - `reflection.recency_half_life_days`
-- `embedding.backlog_watermark`
+- `reflection.backlog_watermark`
 
 ---
 
@@ -108,7 +116,7 @@ Add config toggles under `.nerd/config.json`:
 Reflection must be synchronous in Observe so results are available before Decide.
 
 1. Build intent descriptor (cached for the turn).
-2. Embed or reuse cached embedding.
+2. Embed or reuse cached embedding (RETRIEVAL_QUERY).
 3. Vector search TraceStore and LearningStore (top_k).
 4. Apply gating: score >= min_score, recency weighting, and model_id match.
 5. Assert ephemeral facts:
@@ -121,7 +129,7 @@ Fallback: If embeddings or sqlite-vec are disabled, skip vector search and optio
 ---
 
 ## 7. JIT Prompt Integration (No Wiring Gaps)
-- Add a reflection prompt atom under `internal/prompt/atoms/` (e.g., `internal/prompt/atoms/system/reflection.md`).
+- Add a reflection prompt atom under `internal/prompt/atoms/` (e.g., `internal/prompt/atoms/system/reflection.yaml`).
 - Add selector logic so reflection atoms are included when recall results exist.
 - Include reflection hits in Piggyback control packets for transparency and debugging.
 
@@ -133,13 +141,13 @@ Fallback: If embeddings or sqlite-vec are disabled, skip vector search and optio
 past_failure_warning(TraceID, Summary) :-
     user_intent(_, _, Task, _),
     trace_recall_result(TraceID, Score, /failure, Summary),
-    Score > 0.85.
+    Score > 85.
 
 # Strategy alignment
 aligned_preference(Pred, Args) :-
     user_intent(_, _, Task, _),
     learning_recall_result(ID, Score, Pred, _),
-    Score > 0.80,
+    Score > 80,
     learning_data(ID, Args).
 ```
 
@@ -147,6 +155,7 @@ aligned_preference(Pred, Args) :-
 
 ## 9. Risk Analysis and Mitigation
 - Model drift: On embedding_model_id mismatch, disable semantic search and prompt reembed.
+- Task mismatch: If embedding_task is not RETRIEVAL_DOCUMENT for stored rows, mark as stale and reembed.
 - Privacy leaks: SanitizeDescriptor() before persistence and embedding.
 - Hallucinated reflection: Hard gating on score and recency; cap to top_k.
 - Performance: Cache embeddings per turn, speculative embedding, and fail open with lexical fallback.
@@ -208,6 +217,7 @@ aligned_preference(Pred, Args) :-
 - [ ] `internal/store/init_vec.go`: vector schema bootstrapping.
 - [ ] `internal/store/reembed_all.go`: include reasoning_traces and learnings.
 - [ ] `internal/store/background_worker.go`: write-behind embedder.
+- [ ] `internal/store/reflection_search.go`: trace + learning recall (vec + brute-force fallback).
 
 **Kernel and Policy**
 - [ ] `internal/core/kernel.go` or `internal/core/kernel_facts.go`: PerformReflection hook and ephemeral fact lifecycle.
@@ -216,8 +226,7 @@ aligned_preference(Pred, Args) :-
 
 **Prompt and JIT**
 - [ ] `internal/prompt/atoms/`: reflection atom content (system/reflection).
-- [ ] `internal/prompt/selector.go`: include reflection atoms when hits exist.
-- [ ] `internal/prompt/compiler.go`: ensure reflection atoms are prioritized.
+- [ ] `internal/prompt/compiler.go`: reflection atoms gated by world_state=reflection_hits.
 - [ ] `internal/articulation/emitter.go`: piggyback reflection diagnostics.
 
 **CLI/TUI and Observability**

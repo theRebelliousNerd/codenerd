@@ -17,6 +17,24 @@ shard_context_atom(ShardID, Knowledge, 80) :-
     active_shard(ShardID, _),
     specialist_knowledge(ShardID, _, Knowledge).
 
+# Reflection: recent trace recall hits (System 2 memory) - HIGH relevance (85)
+shard_context_atom(ShardID, Summary, 85) :-
+    active_shard(ShardID, _),
+    trace_recall_result(_, Score, _, Summary),
+    Score >= 85.
+
+# Reflection: past failures are prioritized slightly higher (90)
+shard_context_atom(ShardID, Summary, 90) :-
+    active_shard(ShardID, _),
+    trace_recall_result(_, Score, /failure, Summary),
+    Score >= 85.
+
+# Reflection: learned preferences and patterns - MEDIUM relevance (75)
+shard_context_atom(ShardID, Description, 75) :-
+    active_shard(ShardID, _),
+    learning_recall_result(_, Score, _, Description),
+    Score >= 80.
+
 # Include campaign constraints in context - MEDIUM relevance (70)
 shard_context_atom(ShardID, Constraint, 70) :-
     active_shard(ShardID, ShardType),

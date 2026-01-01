@@ -42,6 +42,13 @@ type ReasoningTrace struct {
 	ErrorMessage  string    `json:"error_message,omitempty"`
 	QualityScore  float64   `json:"quality_score,omitempty"`
 	LearningNotes []string  `json:"learning_notes,omitempty"`
+	SummaryDescriptor  string `json:"summary_descriptor,omitempty"`
+	DescriptorVersion  int    `json:"descriptor_version,omitempty"`
+	DescriptorHash     string `json:"descriptor_hash,omitempty"`
+	Embedding          []byte `json:"embedding,omitempty"`
+	EmbeddingModelID   string `json:"embedding_model_id,omitempty"`
+	EmbeddingDim       int    `json:"embedding_dim,omitempty"`
+	EmbeddingTask      string `json:"embedding_task,omitempty"`
 	CreatedAt     time.Time `json:"timestamp"`
 }
 
@@ -85,6 +92,13 @@ func (ts *TraceStore) ensureSchema() error {
 		error_message TEXT,
 		quality_score REAL,
 		learning_notes TEXT,
+		summary_descriptor TEXT,
+		descriptor_version INTEGER DEFAULT 0,
+		descriptor_hash TEXT,
+		embedding BLOB,
+		embedding_model_id TEXT,
+		embedding_dim INTEGER,
+		embedding_task TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -94,6 +108,7 @@ func (ts *TraceStore) ensureSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
 	CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
 	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
+	CREATE INDEX IF NOT EXISTS idx_traces_descriptor_hash ON reasoning_traces(descriptor_hash);
 	`
 
 	_, err := ts.db.Exec(schema)

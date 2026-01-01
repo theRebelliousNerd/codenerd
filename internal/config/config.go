@@ -28,6 +28,9 @@ type Config struct {
 	// Embedding engine configuration
 	Embedding EmbeddingConfig `yaml:"embedding"`
 
+	// Reflection (System 2 memory) configuration
+	Reflection ReflectionConfig `yaml:"reflection"`
+
 	// Integration services
 	Integrations IntegrationsConfig `yaml:"integrations"`
 
@@ -98,6 +101,8 @@ func DefaultConfig() *Config {
 			GenAIModel:     "gemini-embedding-001",   // GenAI default model
 			TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
 		},
+
+		Reflection: DefaultReflectionConfig(),
 
 		// Integrations: No default MCP servers - user configures external servers as needed.
 		// Internal capabilities (code analysis, browser automation) use internal packages directly.
