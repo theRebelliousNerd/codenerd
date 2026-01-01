@@ -97,7 +97,7 @@ sync with the plan document as changes land.
   - [x] Increment count on repeated failures (`intent_unmapped`).
   - [x] Assert `learning_candidate` when threshold met.
   - [x] Do not auto-promote; only record.
-- [ ] Extend learning candidate capture for `no_action_derived` (needs reliable raw-input capture or a safe phrase surrogate).
+- [x] Extend learning candidate capture for `no_action_derived` (use `user_input_string` as phrase source).
 - [ ] Confirm `TaxonomyStore.StoreLearnedExemplar` is called only after explicit user confirmation.
 
 ## Phase 6: Kernel-Driven Clarification in Chat UI
@@ -114,7 +114,7 @@ sync with the plan document as changes land.
 - [x] Add config values in `.nerd/config.json`:
   - [x] `learning_candidate_threshold: 3`
   - [x] `learning_candidate_auto_promote: false`
-- [ ] Audit docs to distinguish kernel `learned.mg` vs taxonomy `learned_taxonomy.mg` (avoid blanket renames).
+- [x] Audit docs to distinguish kernel `learned.mg` vs taxonomy `learned_taxonomy.mg` (avoid blanket renames).
 
 ## JIT Prompt Atom Work (Required for New LLM Flows)
 
@@ -150,7 +150,7 @@ sync with the plan document as changes land.
 - [x] Confirm OODA stall behavior respects boot guard.
 - [x] Confirm learning candidates are persisted but not auto-applied.
 - [x] Confirm chat UI uses kernel clarification path before its own heuristics.
-- [ ] Confirm docs and config changes are consistent and distinguish `learned.mg` vs `learned_taxonomy.mg`.
+- [x] Confirm docs and config changes are consistent and distinguish `learned.mg` vs `learned_taxonomy.mg`.
 
 ## Git Hygiene
 

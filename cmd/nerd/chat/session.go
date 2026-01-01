@@ -782,9 +782,16 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			return shard
 		})
 		shardMgr.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
-			shard := shardsystem.NewExecutivePolicyShard()
+			execCfg := shardsystem.DefaultExecutiveConfig()
+			if appCfg != nil {
+				execCfg.LearningCandidateThreshold = appCfg.GetLearningCandidateThreshold()
+			}
+			shard := shardsystem.NewExecutivePolicyShardWithConfig(execCfg)
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			if localDB != nil {
+				shard.SetLearningCandidateStore(localDB)
+			}
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}

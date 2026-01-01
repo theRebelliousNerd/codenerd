@@ -47,7 +47,7 @@ Every LLM response contains dual payloads:
 | `learning.go` | Autopoiesis learning from user rejections via Meta-Cognitive Supervisor. Exports CriticSystemPrompt and ExtractFactFromResponse() for learned_exemplar generation. |
 | `semantic_classifier.go` | Vector-based intent classification bridging embedding search and Mangle. Exports SemanticMatch and SemanticClassifier for neuro-symbolic pipeline. |
 | `semantic_classifier_test.go` | Unit tests for SemanticClassifier vector search and Mangle integration. Tests similarity scoring and semantic_match fact assertion. |
-| `taxonomy.go` | TaxonomyEngine managing verb taxonomy using Mangle for intent parsing. Exports SharedTaxonomy singleton with GetVerbs() and intent schema loading. |
+| `taxonomy.go` | TaxonomyEngine managing verb taxonomy using Mangle for intent parsing. Exports SharedTaxonomy singleton with GetVerbs() and intent schema loading. Loads `.nerd/mangle/learned_taxonomy.mg` for learned exemplars (separate from kernel `learned.mg`). |
 | `taxonomy_persistence.go` | Persistence layer for taxonomy facts to SQLite database. Exports TaxonomyStore with StoreVerbDef(), StoreLearnedExemplar(), and HydrateEngine(). |
 | `tracing_client.go` | Debug wrapper capturing all LLM interactions for learning analysis. Exports TracingLLMClient and ReasoningTrace for shard trace storage. |
 | `transducer.go` | Main Transducer converting NL to structured intents via Piggyback Protocol. Exports VerbCorpus, VerbEntry, ParseIntent(), and PiggybackEnvelope aliases. |
