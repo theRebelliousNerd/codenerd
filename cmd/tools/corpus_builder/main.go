@@ -692,7 +692,26 @@ func generateAndStoreEmbeddings(ctx context.Context, engine embedding.EmbeddingE
 		}
 
 		// Generate embeddings
-		embeddings, err := engine.EmbedBatch(ctx, texts)
+		taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+		var embeddings [][]float32
+		var err error
+		if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+			embeddings, err = batchAware.EmbedBatchWithTask(ctx, texts, taskType)
+		} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			embeddings = make([][]float32, len(texts))
+			for j, text := range texts {
+				vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
+				if embedErr != nil {
+					return fmt.Errorf("failed to embed corpus entry %d: %w", i+j, embedErr)
+				}
+				if len(vec) == 0 {
+					return fmt.Errorf("empty embedding for corpus entry %d", i+j)
+				}
+				embeddings[j] = vec
+			}
+		} else {
+			embeddings, err = engine.EmbedBatch(ctx, texts)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to generate embeddings for batch %d: %w", i/batchSize, err)
 		}

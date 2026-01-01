@@ -1388,9 +1388,10 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 	var queryEmbedding []float32
 	var err error
 
-	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
-		logging.StoreDebug("Using RETRIEVAL_QUERY task type for prompt atom search")
-		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, "RETRIEVAL_QUERY")
+	taskType := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		logging.StoreDebug("Using %s task type for prompt atom search", taskType)
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, taskType)
 	} else {
 		logging.StoreDebug("Using standard embedding (no task type support)")
 		queryEmbedding, err = engine.Embed(ctx, query)

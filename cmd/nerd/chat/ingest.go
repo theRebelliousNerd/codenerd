@@ -154,11 +154,12 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 
 				if localDB != nil {
 					meta := map[string]interface{}{
-						"path":        rel,
-						"chunk_index": idx,
-						"total":       len(chunks),
-						"source":      "agent_ingest",
-						"agent":       agentName,
+						"path":         rel,
+						"chunk_index":  idx,
+						"total":        len(chunks),
+						"source":       "agent_ingest",
+						"agent":        agentName,
+						"content_type": contentTypeForIngestPath(rel),
 					}
 					_ = localDB.StoreVectorWithEmbedding(ctx, chunk, meta)
 					_ = localDB.StoreKnowledgeAtom(rel, chunk, 0.9)
@@ -247,5 +248,17 @@ func isSupportedIngestExt(path string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func contentTypeForIngestPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".ts", ".tsx", ".js", ".jsx", ".cs", ".java", ".py", ".mg", ".gl":
+		return "code"
+	case ".md", ".mdx", ".txt", ".rst", ".adoc", ".asciidoc",
+		".yaml", ".yml", ".json", ".toml", ".ini", ".cfg":
+		return "documentation"
+	default:
+		return "documentation"
 	}
 }

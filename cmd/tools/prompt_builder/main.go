@@ -562,6 +562,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 
 		// Generate embeddings for batch (unless skipped)
 		var embeddings [][]float32
+		taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
 		if !skipEmbeddings && engine != nil {
 			texts := make([]string, len(batch))
 			for j, atom := range batch {
@@ -569,7 +570,23 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			}
 
 			var embedErr error
-			embeddings, embedErr = engine.EmbedBatch(ctx, texts)
+			if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+				embeddings, embedErr = batchAware.EmbedBatchWithTask(ctx, texts, taskType)
+			} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+				embeddings = make([][]float32, len(texts))
+				for j, text := range texts {
+					vec, err := taskAware.EmbedWithTask(ctx, text, taskType)
+					if err != nil {
+						return fmt.Errorf("failed to embed atom %d: %w", i+j, err)
+					}
+					if len(vec) == 0 {
+						return fmt.Errorf("empty embedding for atom %d", i+j)
+					}
+					embeddings[j] = vec
+				}
+			} else {
+				embeddings, embedErr = engine.EmbedBatch(ctx, texts)
+			}
 			if embedErr != nil {
 				return fmt.Errorf("failed to generate embeddings for batch %d: %w", i/batchSize, embedErr)
 			}
@@ -582,7 +599,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 
 			if !skipEmbeddings && embeddings != nil && j < len(embeddings) {
 				embeddingBlob = encodeFloat32Slice(embeddings[j])
-				embeddingTask = "RETRIEVAL_DOCUMENT"
+				embeddingTask = taskType
 			}
 
 			_, err := insertAtomStmt.Exec(
