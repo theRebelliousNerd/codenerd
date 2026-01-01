@@ -1,5 +1,5 @@
 # .nerd Directory Structure
-
+**before running tests, clear the logs...**
 This directory contains codeNERD's runtime state, agent configurations, and knowledge databases.
 
 ## Prompt Atom Sync Architecture

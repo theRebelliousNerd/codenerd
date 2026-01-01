@@ -69,9 +69,9 @@ const (
 	AuditToolError    AuditEventType = "tool_error"
 
 	// Safety/Constitutional -> safety_check/4
-	AuditSafetyCheck  AuditEventType = "safety_check"
-	AuditSafetyBlock  AuditEventType = "safety_block"
-	AuditSafetyAllow  AuditEventType = "safety_allow"
+	AuditSafetyCheck AuditEventType = "safety_check"
+	AuditSafetyBlock AuditEventType = "safety_block"
+	AuditSafetyAllow AuditEventType = "safety_allow"
 
 	// Performance -> perf_metric/4
 	AuditPerfMetric AuditEventType = "perf_metric"
@@ -101,20 +101,20 @@ const (
 // AuditEvent represents a structured audit log entry that can be parsed to Mangle.
 // Format: predicate(timestamp, category, ...args)
 type AuditEvent struct {
-	Timestamp   int64                  `json:"ts"`        // Unix milliseconds
-	EventType   AuditEventType         `json:"event"`     // Maps to Mangle predicate
-	Category    string                 `json:"cat"`       // Log category
-	SessionID   string                 `json:"session"`   // Session correlation
-	RequestID   string                 `json:"req"`       // Request correlation
-	ShardID     string                 `json:"shard"`     // Shard ID if applicable
-	Target      string                 `json:"target"`    // Target of operation
-	Action      string                 `json:"action"`    // Action being performed
-	Success     bool                   `json:"success"`   // Operation succeeded
-	DurationMs  int64                  `json:"dur_ms"`    // Duration in milliseconds
-	Error       string                 `json:"error"`     // Error message if failed
-	Message     string                 `json:"msg"`       // Human-readable message
-	Fields      map[string]interface{} `json:"fields"`    // Additional structured fields
-	MangleFact  string                 `json:"mangle"`    // Pre-formatted Mangle fact
+	Timestamp  int64                  `json:"ts"`      // Unix milliseconds
+	EventType  AuditEventType         `json:"event"`   // Maps to Mangle predicate
+	Category   string                 `json:"cat"`     // Log category
+	SessionID  string                 `json:"session"` // Session correlation
+	RequestID  string                 `json:"req"`     // Request correlation
+	ShardID    string                 `json:"shard"`   // Shard ID if applicable
+	Target     string                 `json:"target"`  // Target of operation
+	Action     string                 `json:"action"`  // Action being performed
+	Success    bool                   `json:"success"` // Operation succeeded
+	DurationMs int64                  `json:"dur_ms"`  // Duration in milliseconds
+	Error      string                 `json:"error"`   // Error message if failed
+	Message    string                 `json:"msg"`     // Human-readable message
+	Fields     map[string]interface{} `json:"fields"`  // Additional structured fields
+	MangleFact string                 `json:"mangle"`  // Pre-formatted Mangle fact
 }
 
 // =============================================================================
@@ -488,15 +488,21 @@ func (a *AuditLogger) SafetyCheck(action string, allowed bool, reason string) {
 // PerfMetric logs a performance metric
 func (a *AuditLogger) PerfMetric(operation string, durationMs int64, threshold int64) {
 	eventType := AuditPerfMetric
-	if durationMs > threshold {
+	success := true
+	if threshold > 0 && durationMs > threshold {
 		eventType = AuditPerfSlow
+		success = false
+	}
+	fields := map[string]interface{}{}
+	if threshold > 0 {
+		fields["threshold_ms"] = threshold
 	}
 	a.Log(AuditEvent{
 		EventType:  eventType,
 		Action:     operation,
 		DurationMs: durationMs,
-		Success:    durationMs <= threshold,
-		Fields:     map[string]interface{}{"threshold_ms": threshold},
+		Success:    success,
+		Fields:     fields,
 		Message:    fmt.Sprintf("Perf: %s took %dms (threshold=%dms)", operation, durationMs, threshold),
 	})
 }

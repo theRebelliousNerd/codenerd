@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,6 +64,10 @@ type loggingConfig struct {
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
 	JSONFormat bool            `json:"json_format"` // Output structured JSON for Mangle parsing
+	// PerformanceSampling controls sampling rate for non-slow performance logs (0.0-1.0).
+	PerformanceSampling float64 `json:"performance_sampling"`
+	// PerformanceThresholdsMs sets per-system slow thresholds in milliseconds.
+	PerformanceThresholdsMs map[string]int64 `json:"performance_thresholds_ms"`
 }
 
 // configFile structure for reading .nerd/config.json
@@ -138,6 +143,7 @@ func Initialize(ws string) error {
 func initializeInternal(ws string) error {
 	workspace = ws
 	logsDir = filepath.Join(workspace, ".nerd", "logs")
+	rand.Seed(time.Now().UnixNano())
 
 	// Load config first to check if debug mode is enabled
 	if err := loadConfig(); err != nil {
@@ -176,6 +182,10 @@ func initializeInternal(ws string) error {
 		bootLogger.Info("Enabled categories: %d/%d", enabledCount, len(config.Categories))
 	} else {
 		bootLogger.Info("All categories enabled (no category filter)")
+	}
+
+	if err := InitAudit(); err != nil {
+		bootLogger.Warn("Failed to initialize audit logging: %v", err)
 	}
 
 	return nil
@@ -1077,13 +1087,68 @@ func shouldLogLevel(level string) bool {
 	}
 }
 
-func logPerformance(category Category, operation string, elapsed time.Duration, threshold *time.Duration, level string) {
+func performanceSamplingRate() float64 {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	if !configLoaded {
+		return 1.0
+	}
+	if config.PerformanceSampling <= 0 {
+		return 1.0
+	}
+	if config.PerformanceSampling > 1 {
+		return 1.0
+	}
+	return config.PerformanceSampling
+}
+
+func performanceThresholdMs(category Category) int64 {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	if !configLoaded || config.PerformanceThresholdsMs == nil {
+		return 0
+	}
+	if threshold, ok := config.PerformanceThresholdsMs[string(category)]; ok {
+		return threshold
+	}
+	if threshold, ok := config.PerformanceThresholdsMs["default"]; ok {
+		return threshold
+	}
+	return 0
+}
+
+func logPerformance(category Category, operation string, elapsed time.Duration, threshold *time.Duration) {
 	if category == CategoryPerformance {
 		return
+	}
+	if !IsCategoryEnabled(CategoryPerformance) {
+		return
+	}
+
+	thresholdMs := int64(0)
+	if threshold != nil {
+		thresholdMs = threshold.Milliseconds()
+	} else {
+		thresholdMs = performanceThresholdMs(category)
+	}
+
+	elapsedMs := elapsed.Milliseconds()
+	isSlow := thresholdMs > 0 && elapsedMs > thresholdMs
+	if !isSlow {
+		sampleRate := performanceSamplingRate()
+		if sampleRate < 1 && rand.Float64() > sampleRate {
+			return
+		}
+	}
+
+	level := "info"
+	if isSlow {
+		level = "warn"
 	}
 	if !shouldLogLevel(level) {
 		return
 	}
+
 	logger := Get(CategoryPerformance)
 	if logger.logger == nil {
 		return
@@ -1092,13 +1157,16 @@ func logPerformance(category Category, operation string, elapsed time.Duration, 
 	fields := map[string]interface{}{
 		"system":      string(category),
 		"operation":   operation,
-		"duration_ms": elapsed.Milliseconds(),
+		"duration_ms": elapsedMs,
 	}
-	if threshold != nil {
-		fields["threshold_ms"] = threshold.Milliseconds()
+	if thresholdMs > 0 {
+		fields["threshold_ms"] = thresholdMs
 	}
 
 	logger.StructuredLog(level, fmt.Sprintf("%s.%s", category, operation), fields)
+
+	auditLogger := AuditWithContext("", "", category)
+	auditLogger.PerfMetric(operation, elapsedMs, thresholdMs)
 }
 
 // StartTimer begins timing an operation
@@ -1114,7 +1182,7 @@ func StartTimer(category Category, operation string) *Timer {
 func (t *Timer) Stop() time.Duration {
 	elapsed := time.Since(t.start)
 	Get(t.category).Debug("%s completed in %v", t.op, elapsed)
-	logPerformance(t.category, t.op, elapsed, nil, "info")
+	logPerformance(t.category, t.op, elapsed, nil)
 	return elapsed
 }
 
@@ -1122,7 +1190,7 @@ func (t *Timer) Stop() time.Duration {
 func (t *Timer) StopWithInfo() time.Duration {
 	elapsed := time.Since(t.start)
 	Get(t.category).Info("%s completed in %v", t.op, elapsed)
-	logPerformance(t.category, t.op, elapsed, nil, "info")
+	logPerformance(t.category, t.op, elapsed, nil)
 	return elapsed
 }
 
@@ -1131,10 +1199,10 @@ func (t *Timer) StopWithThreshold(threshold time.Duration) time.Duration {
 	elapsed := time.Since(t.start)
 	if elapsed > threshold {
 		Get(t.category).Warn("%s took %v (threshold: %v)", t.op, elapsed, threshold)
-		logPerformance(t.category, t.op, elapsed, &threshold, "warn")
+		logPerformance(t.category, t.op, elapsed, &threshold)
 	} else {
 		Get(t.category).Debug("%s completed in %v", t.op, elapsed)
-		logPerformance(t.category, t.op, elapsed, &threshold, "info")
+		logPerformance(t.category, t.op, elapsed, &threshold)
 	}
 	return elapsed
 }

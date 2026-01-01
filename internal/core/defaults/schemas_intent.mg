@@ -28,6 +28,38 @@ Decl focus_resolution(RawReference, ResolvedPath, SymbolName, Confidence).
 # ambiguity_flag(MissingParam, ContextClue, Hypothesis)
 Decl ambiguity_flag(MissingParam, ContextClue, Hypothesis).
 
+# =============================================================================
+# SECTION 2.1: INTENT CLARIFICATION + LEARNING (§1.3)
+# =============================================================================
+
+# intent_unknown(Input, Reason)
+# Reason: /llm_failed, /heuristic_low, /no_verb_match
+Decl intent_unknown(Input.Type<string>, Reason).
+
+# intent_unmapped(Verb, Reason)
+# Reason: /unknown_verb, /no_action_mapping, /deprecated_verb
+Decl intent_unmapped(Verb.Type<string>, Reason).
+
+# no_action_reason(IntentID, Reason)
+# Reason: /unmapped_verb, /no_route, /blocked_by_constitution, /ooda_timeout
+Decl no_action_reason(IntentID.Type<string>, Reason).
+
+# learning_candidate(Phrase, Verb, Target, Reason)
+# Staged for confirmation before promotion to learned_exemplar
+Decl learning_candidate(Phrase.Type<string>, Verb.Type<string>, Target.Type<string>, Reason).
+
+# clarification_question(IntentID, Question)
+Decl clarification_question(IntentID.Type<string>, Question.Type<string>).
+
+# clarification_option(IntentID, OptionVerb, OptionLabel)
+Decl clarification_option(IntentID.Type<string>, OptionVerb.Type<string>, OptionLabel.Type<string>).
+
+# learning_candidate_count(Phrase, Count)
+Decl learning_candidate_count(Phrase.Type<string>, Count.Type<int>).
+
+# learning_candidate_ready(Phrase, Verb)
+Decl learning_candidate_ready(Phrase.Type<string>, Verb.Type<string>).
+
 # intent_definition(Sentence, Verb, Target)
 # Canonical intent examples for heuristic matching
 Decl intent_definition(Sentence, Verb, Target).

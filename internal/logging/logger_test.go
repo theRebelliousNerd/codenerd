@@ -63,10 +63,12 @@ func TestAllCategoriesLog(t *testing.T) {
 
 	// Reset logging state
 	CloseAll()
+	CloseAudit()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
 	configLoaded = false
+	auditLogger = nil
 
 	// Initialize logging with temp workspace
 	if err := Initialize(tempDir); err != nil {
@@ -144,6 +146,7 @@ func TestAllCategoriesLog(t *testing.T) {
 
 	// Close all loggers to flush
 	CloseAll()
+	CloseAudit()
 
 	// Verify log files were created
 	logsPath := filepath.Join(tempDir, ".nerd", "logs")
@@ -214,6 +217,7 @@ func TestDebugModeDisabled(t *testing.T) {
 
 	// Reset logging state completely (including sync.Once guard)
 	CloseAll()
+	CloseAudit()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
@@ -222,6 +226,7 @@ func TestDebugModeDisabled(t *testing.T) {
 	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
 	initErr = nil
 	initialized = false
+	auditLogger = nil
 
 	// Initialize logging with temp workspace
 	if err := Initialize(tempDir); err != nil {
@@ -259,6 +264,7 @@ func TestDebugModeDisabled(t *testing.T) {
 
 	// Close all loggers
 	CloseAll()
+	CloseAudit()
 
 	// Verify NO log files were created (logs directory shouldn't even exist)
 	logsPath := filepath.Join(tempDir, ".nerd", "logs")
@@ -314,6 +320,7 @@ func TestCategoryToggle(t *testing.T) {
 
 	// Reset logging state completely (including sync.Once guard)
 	CloseAll()
+	CloseAudit()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
@@ -322,6 +329,7 @@ func TestCategoryToggle(t *testing.T) {
 	initOnce = sync.Once{}   // Reset sync.Once to allow re-initialization
 	initErr = nil
 	initialized = false
+	auditLogger = nil
 
 	// Initialize
 	if err := Initialize(tempDir); err != nil {
@@ -357,6 +365,7 @@ func TestCategoryToggle(t *testing.T) {
 	Coder("This SHOULD be logged (default enabled)")
 
 	CloseAll()
+	CloseAudit()
 
 	// Verify correct files created
 	logsPath := filepath.Join(tempDir, ".nerd", "logs")
@@ -417,10 +426,12 @@ func TestTimerLogging(t *testing.T) {
 
 	// Reset and initialize
 	CloseAll()
+	CloseAudit()
 	loggers = make(map[Category]*Logger)
 	logsDir = ""
 	workspace = ""
 	configLoaded = false
+	auditLogger = nil
 	Initialize(tempDir)
 
 	// Test timer
@@ -436,4 +447,5 @@ func TestTimerLogging(t *testing.T) {
 	t.Logf("✓ Timer recorded: %v", elapsed)
 
 	CloseAll()
+	CloseAudit()
 }
