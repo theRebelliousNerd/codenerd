@@ -28,10 +28,10 @@ phase_eligible(PhaseID) :-
 
 # Helper: check if there's an earlier eligible phase
 has_earlier_phase(PhaseID) :-
-    campaign_phase(PhaseID, _, _, Order, _, _),
+    campaign_phase(PhaseID, CampaignID, _, Order, _, _),
     phase_eligible(OtherPhaseID),
+    campaign_phase(OtherPhaseID, CampaignID, _, OtherOrder, _, _),
     OtherPhaseID != PhaseID,
-    campaign_phase(OtherPhaseID, _, _, OtherOrder, _, _),
     OtherOrder < Order.
 
 # Current phase: lowest order eligible phase, or the one in progress
@@ -82,6 +82,7 @@ task_conflict(TaskID, OtherTaskID) :-
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
     campaign_task(OtherTaskID, PhaseID, _, /pending, _),
+    campaign_task(TaskID, PhaseID, _, /pending, _),
     task_priority(OtherTaskID, OtherPriority),
     task_priority(TaskID, Priority),
     OtherTaskID != TaskID,
