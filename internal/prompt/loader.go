@@ -235,11 +235,11 @@ func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
 	// Convert to PromptAtom structs
 	var atoms []*PromptAtom
 	for _, raw := range rawAtoms {
-                atom, err := l.convertYAMLAtom(raw, path)
-                if err != nil {
-                        logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
-                        continue
-                }
+		atom, err := l.convertYAMLAtom(raw, path)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
+			continue
+		}
 		atoms = append(atoms, atom)
 	}
 
@@ -366,13 +366,20 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 	}
 
 	if l.embeddingEngine != nil {
-		embedding, err := l.embeddingEngine.Embed(ctx, textToEmbed)
+		taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
+		var embedding []float32
+		var err error
+		if taskAware, ok := l.embeddingEngine.(taskTypeAwareEngine); ok && taskType != "" {
+			embedding, err = taskAware.EmbedWithTask(ctx, textToEmbed, taskType)
+		} else {
+			embedding, err = l.embeddingEngine.Embed(ctx, textToEmbed)
+		}
 		if err != nil {
 			logging.Get(logging.CategoryStore).Warn("Failed to generate embedding for atom %s: %v", atom.ID, err)
 			// Continue without embedding
 		} else {
 			embeddingBlob = encodeFloat32Slice(embedding)
-			embeddingTask = "RETRIEVAL_DOCUMENT"
+			embeddingTask = taskType
 		}
 	}
 

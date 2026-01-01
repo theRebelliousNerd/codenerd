@@ -82,7 +82,14 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	logging.StoreDebug("Generating embedding for content (length=%d bytes)", len(content))
 
 	// Generate embedding
-	embeddingVec, err := s.embeddingEngine.Embed(ctx, content)
+	taskType := embedding.GetOptimalTaskType(content, metadata, false)
+	var embeddingVec []float32
+	var err error
+	if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok && taskType != "" {
+		embeddingVec, err = taskAware.EmbedWithTask(ctx, content, taskType)
+	} else {
+		embeddingVec, err = s.embeddingEngine.Embed(ctx, content)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding: %v", err)
 		return fmt.Errorf("failed to generate embedding: %w", err)
@@ -144,7 +151,46 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 		return s.storeVectorBatchKeywordOnly(contents, metadata)
 	}
 
-	embeddings, err := engine.EmbedBatch(ctx, contents)
+	taskTypes := make([]string, len(contents))
+	uniformTask := true
+	for i, content := range contents {
+		taskTypes[i] = embedding.GetOptimalTaskType(content, metadata[i], false)
+		if i > 0 && taskTypes[i] != taskTypes[0] {
+			uniformTask = false
+		}
+	}
+
+	var embeddings [][]float32
+	var err error
+	if uniformTask && taskTypes[0] != "" {
+		if batchAware, ok := engine.(TaskTypeBatchAwareEngine); ok {
+			embeddings, err = batchAware.EmbedBatchWithTask(ctx, contents, taskTypes[0])
+		} else if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+			embeddings = make([][]float32, len(contents))
+			for i, content := range contents {
+				vec, embedErr := taskAware.EmbedWithTask(ctx, content, taskTypes[0])
+				if embedErr != nil {
+					logging.Get(logging.CategoryStore).Warn("Failed to embed batch item %d (task_type=%s): %v", i, taskTypes[0], embedErr)
+					continue
+				}
+				embeddings[i] = vec
+			}
+		} else {
+			embeddings, err = engine.EmbedBatch(ctx, contents)
+		}
+	} else if taskAware, ok := engine.(TaskTypeAwareEngine); ok {
+		embeddings = make([][]float32, len(contents))
+		for i, content := range contents {
+			vec, embedErr := taskAware.EmbedWithTask(ctx, content, taskTypes[i])
+			if embedErr != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to embed batch item %d (task_type=%s): %v", i, taskTypes[i], embedErr)
+				continue
+			}
+			embeddings[i] = vec
+		}
+	} else {
+		embeddings, err = engine.EmbedBatch(ctx, contents)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Batch embedding failed: %v", err)
 		return 0, err
@@ -286,7 +332,14 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	}
 
 	// Generate query embedding
-	queryEmbedding, err := engine.Embed(ctx, query)
+	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
+	var queryEmbedding []float32
+	var err error
+	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
+	} else {
+		queryEmbedding, err = engine.Embed(ctx, query)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate query embedding: %v", err)
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
@@ -413,7 +466,14 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		return filtered, nil
 	}
 
-	queryEmbedding, err := engine.Embed(ctx, query)
+	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
+	var queryEmbedding []float32
+	var err error
+	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
+	} else {
+		queryEmbedding, err = engine.Embed(ctx, query)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for path search: %v", err)
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
@@ -528,7 +588,14 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 		return filtered, nil
 	}
 
-	queryEmbedding, err := engine.Embed(ctx, query)
+	queryTaskType := embedding.GetOptimalTaskType(query, nil, true)
+	var queryEmbedding []float32
+	var err error
+	if taskAware, ok := engine.(TaskTypeAwareEngine); ok && queryTaskType != "" {
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, queryTaskType)
+	} else {
+		queryEmbedding, err = engine.Embed(ctx, query)
+	}
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to generate embedding for filtered search: %v", err)
 		return nil, fmt.Errorf("failed to generate embedding: %w", err)
@@ -1138,17 +1205,64 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 			s.dbPath, batchNum, totalBatches, len(batch))
 
 		texts := make([]string, len(batch))
+		taskTypes := make([]string, len(batch))
+		uniformTask := true
 		for j, v := range batch {
 			texts[j] = v.content
+			var meta map[string]interface{}
+			if v.metadata != "" {
+				_ = json.Unmarshal([]byte(v.metadata), &meta)
+			}
+			taskTypes[j] = embedding.GetOptimalTaskType(v.content, meta, false)
+			if j > 0 && taskTypes[j] != taskTypes[0] {
+				uniformTask = false
+			}
 		}
 
-		embeddings, err := s.embeddingEngine.EmbedBatch(ctx, texts)
+		var embeddings [][]float32
+		var err error
+		if uniformTask && taskTypes[0] != "" {
+			if batchAware, ok := s.embeddingEngine.(TaskTypeBatchAwareEngine); ok {
+				embeddings, err = batchAware.EmbedBatchWithTask(ctx, texts, taskTypes[0])
+			} else if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+				embeddings = make([][]float32, len(batch))
+				for j, v := range batch {
+					vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[0])
+					if embedErr != nil {
+						logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s (task_type=%s): %v", v.id, s.dbPath, taskTypes[0], embedErr)
+						continue
+					}
+					embeddings[j] = vec
+				}
+			} else {
+				embeddings, err = s.embeddingEngine.EmbedBatch(ctx, texts)
+			}
+		} else if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+			embeddings = make([][]float32, len(batch))
+			for j, v := range batch {
+				vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[j])
+				if embedErr != nil {
+					logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s (task_type=%s): %v", v.id, s.dbPath, taskTypes[j], embedErr)
+					continue
+				}
+				embeddings[j] = vec
+			}
+		} else {
+			embeddings, err = s.embeddingEngine.EmbedBatch(ctx, texts)
+		}
+
 		if err != nil {
 			logging.Get(logging.CategoryStore).Warn("Force batch embeddings failed for %s (batch %d/%d): %v; falling back to per-item embedding",
 				s.dbPath, batchNum, totalBatches, err)
 			embeddings = make([][]float32, len(batch))
 			for j, v := range batch {
-				vec, embedErr := s.embeddingEngine.Embed(ctx, v.content)
+				var vec []float32
+				var embedErr error
+				if taskAware, ok := s.embeddingEngine.(TaskTypeAwareEngine); ok {
+					vec, embedErr = taskAware.EmbedWithTask(ctx, v.content, taskTypes[j])
+				} else {
+					vec, embedErr = s.embeddingEngine.Embed(ctx, v.content)
+				}
 				if embedErr != nil {
 					logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s: %v", v.id, s.dbPath, embedErr)
 					continue
@@ -1195,6 +1309,13 @@ type TaskTypeAwareEngine interface {
 	embedding.EmbeddingEngine
 	// EmbedWithTask generates embeddings with a specific task type
 	EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error)
+}
+
+// TaskTypeBatchAwareEngine extends EmbeddingEngine with task-type-specific batch embedding.
+type TaskTypeBatchAwareEngine interface {
+	embedding.EmbeddingEngine
+	// EmbedBatchWithTask generates embeddings with a specific task type.
+	EmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error)
 }
 
 // VectorRecallSemanticWithTask performs vector search with explicit query task type.
