@@ -31,7 +31,7 @@ type PredicateSelector struct {
 
 const (
 	defaultPredicateLimit    = 100
-	defaultPredicateVecLimit = 120
+	defaultPredicateVecLimit = 200
 	predicateVectorMetaKey   = "kind"
 	predicateVectorMetaValue = "predicate"
 )
