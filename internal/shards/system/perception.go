@@ -509,6 +509,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	_ = p.Kernel.Retract("clarification_question")
 	_ = p.Kernel.Retract("clarification_option")
 	_ = p.Kernel.Retract("learning_candidate")
+	_ = p.Kernel.Retract("learning_candidate_fact")
 	_ = p.Kernel.Retract("learning_candidate_count")
 	_ = p.Kernel.Retract("awaiting_clarification")
 	_ = p.Kernel.Retract("awaiting_user_input")

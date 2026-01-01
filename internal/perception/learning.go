@@ -127,16 +127,8 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 		return "", nil // No pattern found
 	}
 
-	logging.Perception("LearnFromInteraction: pattern detected, persisting fact: %s", fact)
-
-	// 4. Persist the Lesson
-	if err := t.PersistLearnedFact(fact); err != nil {
-		logging.Get(logging.CategoryPerception).Error("LearnFromInteraction: failed to persist fact: %v", err)
-		return "", fmt.Errorf("failed to persist fact: %w", err)
-	}
-
-	logging.Perception("LearnFromInteraction: successfully learned and persisted new pattern")
-	return fact, nil
+        logging.Perception("LearnFromInteraction: pattern detected, awaiting confirmation: %s", fact)
+        return fact, nil
 }
 
 // PersistLearnedFact writes the new rule to the learned.mg file and reloads definitions.

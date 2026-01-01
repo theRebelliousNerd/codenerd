@@ -13,6 +13,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+    criticAutoLearnReason  = "/critic_autolearn"
+    criticManualLearnReason = "/critic_manual"
+)
+
+
 // =============================================================================
 // RENDERING CACHE HELPERS
 // =============================================================================
@@ -217,11 +223,35 @@ func (m Model) loadLearningConfirmationCandidate() (*learningCandidate, bool) {
 	return nil, false
 }
 
+func (m Model) loadLearningCandidateFact(candidate *learningCandidate) string {
+	if candidate == nil || m.kernel == nil {
+		return ""
+	}
+	facts, err := m.kernel.Query("learning_candidate_fact")
+	if err != nil || len(facts) == 0 {
+		return ""
+	}
+	for _, f := range facts {
+		if len(f.Args) < 5 {
+			continue
+		}
+		phrase := strings.TrimSpace(fmt.Sprintf("%v", f.Args[0]))
+		verb := strings.TrimSpace(fmt.Sprintf("%v", f.Args[1]))
+		target := strings.TrimSpace(fmt.Sprintf("%v", f.Args[2]))
+		reason := strings.TrimSpace(fmt.Sprintf("%v", f.Args[3]))
+		if phrase == candidate.Phrase && verb == candidate.Verb && target == candidate.Target && reason == candidate.Reason {
+			return strings.TrimSpace(fmt.Sprintf("%v", f.Args[4]))
+		}
+	}
+	return ""
+}
+
 func (m Model) clearLearningCandidateFacts() {
 	if m.kernel == nil {
 		return
 	}
 	_ = m.kernel.Retract("learning_candidate")
+	_ = m.kernel.Retract("learning_candidate_fact")
 	_ = m.kernel.Retract("learning_candidate_count")
 	_ = m.kernel.Retract("learning_confirmation_needed")
 	_ = m.kernel.Retract("awaiting_clarification")
@@ -232,6 +262,81 @@ func (m Model) clearLearningCandidateFacts() {
 	_ = m.kernel.Retract("intent_unknown")
 	_ = m.kernel.Retract("intent_unmapped")
 	_ = m.kernel.Retract("focus_clarification")
+}
+
+func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificationMsg, error) {
+	if m.kernel == nil {
+		return clarificationMsg{}, fmt.Errorf("kernel not initialized")
+	}
+	if strings.TrimSpace(fact) == "" {
+		return clarificationMsg{}, fmt.Errorf("empty learned fact")
+	}
+	phrase, verb, target, _, _, err := perception.ParseLearnedFact(fact)
+	if err != nil {
+		return clarificationMsg{}, fmt.Errorf("failed to parse learned fact: %w", err)
+	}
+	phrase = strings.TrimSpace(phrase)
+	target = strings.TrimSpace(target)
+	verb = normalizeVerbAtom(verb)
+	if phrase == "" || verb == "" {
+		return clarificationMsg{}, fmt.Errorf("invalid learned fact components")
+	}
+	reason = normalizeVerbAtom(reason)
+	if reason == "" {
+		return clarificationMsg{}, fmt.Errorf("invalid learning reason")
+	}
+
+	m.clearLearningCandidateFacts()
+
+	var count int
+	if m.localDB != nil {
+		if recorded, err := m.localDB.RecordLearningCandidate(phrase, verb, target, reason); err != nil {
+			return clarificationMsg{}, err
+		} else {
+			count = recorded
+		}
+	}
+
+	facts := []core.Fact{
+		{
+			Predicate: "learning_candidate",
+			Args: []interface{}{
+				phrase,
+				core.MangleAtom(verb),
+				target,
+				core.MangleAtom(reason),
+			},
+		},
+		{
+			Predicate: "learning_candidate_fact",
+			Args: []interface{}{
+				phrase,
+				core.MangleAtom(verb),
+				target,
+				core.MangleAtom(reason),
+				fact,
+			},
+		},
+	}
+	if count > 0 {
+		facts = append(facts, core.Fact{
+			Predicate: "learning_candidate_count",
+			Args:      []interface{}{phrase, count},
+		})
+	}
+	if err := m.kernel.AssertBatch(facts); err != nil {
+		return clarificationMsg{}, fmt.Errorf("failed to stage learning candidate: %w", err)
+	}
+
+	question := fmt.Sprintf("I can learn this mapping: %s -> %s. Should I learn it?", phrase, verb)
+	options := []string{
+		"Yes, learn this mapping (/learn_yes)",
+		"No, do not learn this (/learn_no)",
+	}
+	return clarificationMsg{
+		Question: question,
+		Options:  options,
+	}, nil
 }
 
 func (m Model) confirmLearningCandidate(candidate *learningCandidate) error {
@@ -248,6 +353,9 @@ func (m Model) confirmLearningCandidate(candidate *learningCandidate) error {
 	}
 	if perception.SharedTaxonomy == nil {
 		return fmt.Errorf("taxonomy engine not available")
+	}
+	if fact := m.loadLearningCandidateFact(candidate); fact != "" {
+		return perception.SharedTaxonomy.PersistLearnedFact(fact)
 	}
 	verb := normalizeVerbAtom(candidate.Verb)
 	if verb == "" {
@@ -711,8 +819,13 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 		if fact == "" {
 			return responseMsg("I analyzed the interaction but couldn't identify a clear pattern to generalize yet. I will keep this in mind.")
 		}
-		return responseMsg(fmt.Sprintf("I have crystallized a new rule from this interaction:\n```\n%s\n```\nI will apply this correction in future turns.", fact))
+			clarification, err := m.stageLearningCandidateFromFact(fact, criticAutoLearnReason)
+			if err != nil {
+				return responseMsg(fmt.Sprintf("Auto-learning candidate staging failed: %v", err))
+			}
+			return clarification
 	}
 
 	return m, tea.Batch(m.spinner.Tick, learningCmd)
 }
+

@@ -47,6 +47,9 @@ Decl no_action_reason(INTENTID, REASON).
 # learning_candidate(Phrase, Verb, Target, Reason)
 # Staged for confirmation before promotion to learned_exemplar
 Decl learning_candidate(PHRASE, VERB, TARGET, REASON).
+# learning_candidate_fact(Phrase, Verb, Target, Reason, Fact)
+# Stores raw learned_exemplar text for confirmation flows
+Decl learning_candidate_fact(PHRASE, VERB, TARGET, REASON, FACT).
 
 # learning_confirmation_needed(Phrase, Verb, Target, Reason)
 # Derived from learning_candidate when explicit confirmation is required
@@ -103,4 +106,5 @@ Decl tool_priority(Tool, Score).
 Decl constraint_type(Constraint, Effect).
 Decl constraint_forces_mode(Constraint, Mode).
 Decl constraint_blocks_tool(Constraint, Tool).
+
 

@@ -1189,7 +1189,11 @@ You have an existing Northstar definition. What would you like to do?
 			if fact == "" {
 				return responseMsg("No new patterns detected in recent interactions.")
 			}
-			return responseMsg(fmt.Sprintf("Successfully learned and crystallized new pattern:\n```\n%s\n```", fact))
+				clarification, err := m.stageLearningCandidateFromFact(fact, criticManualLearnReason)
+				if err != nil {
+					return responseMsg(fmt.Sprintf("Learning candidate staging failed: %v", err))
+				}
+				return clarification
 		}
 
 	case "/agents":
@@ -2159,3 +2163,4 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 	}
 }
+
