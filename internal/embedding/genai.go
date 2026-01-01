@@ -47,6 +47,7 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 		logging.EmbeddingDebug("GenAI model defaulted to: %s", model)
 	}
 
+	taskType = normalizeTaskType(taskType)
 	if taskType == "" {
 		taskType = "SEMANTIC_SIMILARITY"
 		logging.EmbeddingDebug("GenAI taskType defaulted to: %s", taskType)
@@ -77,25 +78,41 @@ func NewGenAIEngine(apiKey, model, taskType string) (*GenAIEngine, error) {
 
 // Embed generates an embedding for a single text.
 func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error) {
+	return e.embedWithTask(ctx, text, e.taskType)
+}
+
+// EmbedWithTask generates an embedding for a single text using an explicit task type.
+func (e *GenAIEngine) EmbedWithTask(ctx context.Context, text string, taskType string) ([]float32, error) {
+	return e.embedWithTask(ctx, text, taskType)
+}
+
+func (e *GenAIEngine) embedWithTask(ctx context.Context, text string, taskType string) ([]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.Embed")
+	defer timer.Stop()
+
+	if taskType == "" {
+		taskType = e.taskType
+	}
+	taskType = normalizeTaskType(taskType)
 
 	textLen := len(text)
-	logging.EmbeddingDebug("GenAI.Embed: starting embed request, text_length=%d chars, model=%s", textLen, e.model)
+	logging.EmbeddingDebug("GenAI.Embed: starting embed request, text_length=%d chars, model=%s, task_type=%s", textLen, e.model, taskType)
 
 	contents := []*genai.Content{
 		genai.NewContentFromText(text, genai.RoleUser),
 	}
 
+	cfg := &genai.EmbedContentConfig{
+		OutputDimensionality: int32Ptr(3072),
+	}
+	if taskType != "" {
+		cfg.TaskType = taskType
+	}
+
 	logging.EmbeddingDebug("GenAI.Embed: calling EmbedContent API")
 	apiStart := time.Now()
 
-	result, err := e.client.Models.EmbedContent(ctx,
-		e.model,
-		contents,
-		&genai.EmbedContentConfig{
-			OutputDimensionality: int32Ptr(3072),
-		},
-	)
+	result, err := e.client.Models.EmbedContent(ctx, e.model, contents, cfg)
 	apiLatency := time.Since(apiStart)
 
 	if err != nil {
@@ -111,7 +128,6 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 	}
 
 	dimensions := len(result.Embeddings[0].Values)
-	timer.Stop()
 	logging.Embedding("GenAI.Embed: completed successfully, dimensions=%d, api_latency=%v", dimensions, apiLatency)
 
 	return result.Embeddings[0].Values, nil
@@ -121,10 +137,24 @@ func (e *GenAIEngine) Embed(ctx context.Context, text string) ([]float32, error)
 // GenAI has native batch support but limits batches to 100 items.
 // This function automatically chunks larger batches and concatenates results.
 func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	return e.embedBatchWithTask(ctx, texts, e.taskType)
+}
+
+// EmbedBatchWithTask generates embeddings for multiple texts using an explicit task type.
+func (e *GenAIEngine) EmbedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error) {
+	return e.embedBatchWithTask(ctx, texts, taskType)
+}
+
+func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, taskType string) ([][]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.EmbedBatch")
 	defer timer.Stop()
 
-	logging.Embedding("GenAI.EmbedBatch: starting native batch embed for %d texts", len(texts))
+	if taskType == "" {
+		taskType = e.taskType
+	}
+	taskType = normalizeTaskType(taskType)
+
+	logging.Embedding("GenAI.EmbedBatch: starting native batch embed for %d texts (task_type=%s)", len(texts), taskType)
 
 	if len(texts) == 0 {
 		logging.EmbeddingDebug("GenAI.EmbedBatch: empty input, returning nil")
@@ -140,7 +170,7 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 
 	// If within batch limit, process in single request
 	if len(texts) <= maxBatchSize {
-		return e.embedBatchChunk(ctx, texts)
+		return e.embedBatchChunk(ctx, texts, taskType)
 	}
 
 	// Chunk into batches of maxBatchSize and process sequentially
@@ -166,7 +196,7 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 		logging.EmbeddingDebug("GenAI.EmbedBatch: processing batch %d/%d with %d texts (indices %d-%d)",
 			batchIdx+1, numBatches, len(chunk), start, end-1)
 
-		chunkEmbeddings, err := e.embedBatchChunk(ctx, chunk)
+		chunkEmbeddings, err := e.embedBatchChunk(ctx, chunk, taskType)
 		if err != nil {
 			return nil, fmt.Errorf("batch %d/%d failed: %w", batchIdx+1, numBatches, err)
 		}
@@ -186,10 +216,17 @@ func (e *GenAIEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float
 }
 
 // embedBatchChunk processes a single batch chunk (must be <= maxBatchSize).
-func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string) ([][]float32, error) {
+func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string, taskType string) ([][]float32, error) {
 	contents := make([]*genai.Content, len(texts))
 	for i, text := range texts {
 		contents[i] = genai.NewContentFromText(text, genai.RoleUser)
+	}
+
+	cfg := &genai.EmbedContentConfig{
+		OutputDimensionality: int32Ptr(3072),
+	}
+	if taskType != "" {
+		cfg.TaskType = taskType
 	}
 
 	logging.EmbeddingDebug("GenAI.embedBatchChunk: calling EmbedContent API with %d contents", len(contents))
@@ -198,9 +235,7 @@ func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string) ([][]
 	result, err := e.client.Models.EmbedContent(ctx,
 		e.model,
 		contents,
-		&genai.EmbedContentConfig{
-			OutputDimensionality: int32Ptr(3072),
-		},
+		cfg,
 	)
 	apiLatency := time.Since(apiStart)
 

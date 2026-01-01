@@ -14,18 +14,22 @@ import (
 type ContentType string
 
 const (
-	ContentTypeCode             ContentType = "code"              // Source code
-	ContentTypeDocumentation    ContentType = "documentation"     // Technical docs
-	ContentTypeConversation     ContentType = "conversation"      // Chat messages
-	ContentTypeKnowledgeAtom    ContentType = "knowledge_atom"    // Extracted knowledge
-	ContentTypePromptAtom       ContentType = "prompt_atom"       // Prompt atoms for JIT compilation
-	ContentTypeQuery            ContentType = "query"             // User queries
-	ContentTypeFact             ContentType = "fact"              // Logical facts
-	ContentTypeQuestion         ContentType = "question"          // Questions
-	ContentTypeAnswer           ContentType = "answer"            // Answers
-	ContentTypeClassification   ContentType = "classification"    // For classification
-	ContentTypeClustering       ContentType = "clustering"        // For grouping
+	ContentTypeCode           ContentType = "code"           // Source code
+	ContentTypeDocumentation  ContentType = "documentation"  // Technical docs
+	ContentTypeConversation   ContentType = "conversation"   // Chat messages
+	ContentTypeKnowledgeAtom  ContentType = "knowledge_atom" // Extracted knowledge
+	ContentTypePromptAtom     ContentType = "prompt_atom"    // Prompt atoms for JIT compilation
+	ContentTypeQuery          ContentType = "query"          // User queries
+	ContentTypeFact           ContentType = "fact"           // Logical facts
+	ContentTypeQuestion       ContentType = "question"       // Questions
+	ContentTypeAnswer         ContentType = "answer"         // Answers
+	ContentTypeClassification ContentType = "classification" // For classification
+	ContentTypeClustering     ContentType = "clustering"     // For grouping
 )
+
+func normalizeTaskType(taskType string) string {
+	return strings.ToUpper(strings.TrimSpace(taskType))
+}
 
 // SelectTaskType intelligently selects the optimal GenAI task type based on content.
 // This ensures embeddings are optimized for their specific use case.
@@ -71,6 +75,7 @@ func SelectTaskType(contentType ContentType, isQuery bool) string {
 		logging.EmbeddingDebug("SelectTaskType: unknown content_type=%s, defaulting to SEMANTIC_SIMILARITY", contentType)
 	}
 
+	taskType = normalizeTaskType(taskType)
 	logging.EmbeddingDebug("SelectTaskType: selected task_type=%s", taskType)
 	return taskType
 }
@@ -104,6 +109,24 @@ func DetectContentType(text string, metadata map[string]interface{}) ContentType
 		case "knowledge_atom", "fact":
 			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeKnowledgeAtom")
 			return ContentTypeKnowledgeAtom
+		case "prompt_atom":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypePromptAtom")
+			return ContentTypePromptAtom
+		case "conversation", "chat":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeConversation")
+			return ContentTypeConversation
+		case "question":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeQuestion")
+			return ContentTypeQuestion
+		case "answer":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeAnswer")
+			return ContentTypeAnswer
+		case "classification":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeClassification")
+			return ContentTypeClassification
+		case "clustering":
+			logging.EmbeddingDebug("DetectContentType: metadata type matched -> ContentTypeClustering")
+			return ContentTypeClustering
 		}
 	}
 
@@ -161,6 +184,13 @@ func GetOptimalTaskType(text string, metadata map[string]interface{}, isQuery bo
 	logging.EmbeddingDebug("GetOptimalTaskType: starting auto-detection for text (length=%d), is_query=%v", len(text), isQuery)
 
 	contentType := DetectContentType(text, metadata)
+	if isQuery {
+		switch contentType {
+		case ContentTypeCode, ContentTypeClassification, ContentTypeClustering:
+		default:
+			contentType = ContentTypeQuery
+		}
+	}
 	taskType := SelectTaskType(contentType, isQuery)
 
 	logging.Embedding("GetOptimalTaskType: detected content_type=%s -> task_type=%s", contentType, taskType)
