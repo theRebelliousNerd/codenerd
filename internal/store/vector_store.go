@@ -732,6 +732,51 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	logging.Store("Backfill complete: migrated=%d, skipped=%d", backfillCount, skippedCount)
 }
 
+// CountVectorsByMetadata returns the number of vectors whose metadata contains the key/value pair.
+func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue interface{}) (int, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "CountVectorsByMetadata")
+	defer timer.Stop()
+
+	if metaKey == "" {
+		return 0, fmt.Errorf("metadata key is required")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM vectors WHERE metadata LIKE ?", pattern).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// DeleteVectorsByMetadata removes vectors whose metadata contains the key/value pair.
+// Returns the number of rows deleted.
+func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue interface{}) (int64, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "DeleteVectorsByMetadata")
+	defer timer.Stop()
+
+	if metaKey == "" {
+		return 0, fmt.Errorf("metadata key is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pattern := fmt.Sprintf("%%\"%s\":\"%v\"%%", metaKey, metaValue)
+	result, err := s.db.Exec("DELETE FROM vectors WHERE metadata LIKE ?", pattern)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
 // GetVectorStats returns statistics about stored vectors.
 func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetVectorStats")
@@ -793,8 +838,8 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 	defer rows.Close()
 
 	type vectorToEmbed struct {
-		id      int64
-		content string
+		id       int64
+		content  string
 		metadata string
 	}
 

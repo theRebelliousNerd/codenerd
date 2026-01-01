@@ -44,7 +44,7 @@ type RuleValidator interface {
 // PredicateSelectorInterface allows JIT-style context-aware predicate selection.
 type PredicateSelectorInterface interface {
 	// SelectForContext returns predicates relevant to the given context.
-	SelectForContext(shardType, intentVerb, domain string) ([]string, error)
+	SelectForContext(ctx context.Context, shardType, intentVerb, domain, query string) ([]string, error)
 }
 
 type PredicateCatalogProvider interface {
@@ -125,25 +125,7 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 	}
 
 	// Get available predicates for feedback - use JIT selector if available
-	var predicates []string
-	var fullCatalog []string
-	if fl.predicateSelector != nil {
-		// JIT-style: select context-relevant predicates (~50-100 instead of 799)
-		if selected, err := fl.predicateSelector.SelectForContext("", "", domain); err == nil {
-			predicates = selected
-			logging.Get(logging.CategoryKernel).Debug("FeedbackLoop: JIT selected %d predicates for domain %q", len(predicates), domain)
-		} else {
-			logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: JIT selector failed, falling back to full list: %v", err)
-			predicates = validator.GetDeclaredPredicates()
-		}
-		if provider, ok := fl.predicateSelector.(PredicateCatalogProvider); ok {
-			if all, err := provider.AllPredicateSignatures(); err == nil {
-				fullCatalog = all
-			}
-		}
-	} else {
-		predicates = validator.GetDeclaredPredicates()
-	}
+	predicates := fl.selectPredicates(ctx, domain, userPrompt, nil, validator)
 
 	// Add syntax guidance to initial prompt
 	outputProtocol := OutputProtocolRule
@@ -182,22 +164,14 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		// Build prompt (with feedback on retry attempts)
 		currentPrompt := enhancedPrompt
 		if attempt > 1 && len(lastErrors) > 0 {
-			predicateList := predicates
-			if len(fullCatalog) > 0 {
-				for _, err := range lastErrors {
-					if err.Category == CategoryUndeclaredPredicate {
-						predicateList = fullCatalog
-						break
-					}
-				}
-			}
+			predicates = fl.selectPredicates(ctx, domain, userPrompt, lastErrors, validator)
 			feedbackCtx := FeedbackContext{
 				OriginalPrompt:      userPrompt,
 				OriginalRule:        lastRule,
 				Errors:              lastErrors,
 				AttemptNumber:       attempt,
 				MaxAttempts:         fl.config.MaxRetries,
-				AvailablePredicates: predicateList,
+				AvailablePredicates: predicates,
 				ValidExamples:       ValidRuleExamples(domain),
 				OutputProtocol:      outputProtocol,
 			}
@@ -429,4 +403,58 @@ func BuildEnhancedSystemPrompt(basePrompt string, predicates []string) string {
 	}
 
 	return sb.String()
+}
+
+const maxPredicateListSize = 100
+
+func (fl *FeedbackLoop) selectPredicates(ctx context.Context, domain, userPrompt string, errs []ValidationError, validator RuleValidator) []string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	query := userPrompt
+	if len(errs) > 0 {
+		query = buildPredicateQuery(userPrompt, errs)
+	}
+
+	if fl.predicateSelector != nil {
+		if selected, err := fl.predicateSelector.SelectForContext(ctx, "", "", domain, query); err == nil && len(selected) > 0 {
+			logging.Get(logging.CategoryKernel).Debug("FeedbackLoop: JIT selected %d predicates for domain %q", len(selected), domain)
+			return limitPredicateList(selected, maxPredicateListSize)
+		}
+		logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: JIT selector failed, falling back to declared predicates")
+	}
+
+	return limitPredicateList(validator.GetDeclaredPredicates(), maxPredicateListSize)
+}
+
+func buildPredicateQuery(userPrompt string, errs []ValidationError) string {
+	var sb strings.Builder
+	sb.WriteString(userPrompt)
+	if len(errs) == 0 {
+		return sb.String()
+	}
+	sb.WriteString("\nErrors:\n")
+	for _, err := range errs {
+		sb.WriteString(err.Category.String())
+		sb.WriteString(": ")
+		sb.WriteString(truncatePredicateQuery(err.Message, 200))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func truncatePredicateQuery(text string, max int) string {
+	text = strings.TrimSpace(text)
+	if max <= 0 || len(text) <= max {
+		return text
+	}
+	return text[:max] + "..."
+}
+
+func limitPredicateList(predicates []string, limit int) []string {
+	if limit <= 0 || len(predicates) <= limit {
+		return predicates
+	}
+	return append([]string{}, predicates[:limit]...)
 }

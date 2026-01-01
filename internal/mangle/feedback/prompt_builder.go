@@ -175,10 +175,7 @@ func (pb *PromptBuilder) BuildInitialPromptAdditions(predicates []string, output
 	if len(predicates) > 0 {
 		sb.WriteString("\n## Available Predicates:\n")
 		// Group by category if possible, or just list
-		maxDisplay := 50 // Default: cap to avoid huge prompts
-		if outputProtocol == OutputProtocolSynth {
-			maxDisplay = 0 // Mangle synth benefits from complete predicate catalog
-		}
+		maxDisplay := 100 // Cap to avoid huge prompts
 		displayed := 0
 		for _, pred := range predicates {
 			if maxDisplay > 0 && displayed >= maxDisplay {
