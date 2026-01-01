@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -201,7 +202,11 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 
 	duration := time.Since(start)
 	if err != nil {
-		logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		if errors.Is(err, core.ErrSchemaNotSupported) {
+			logging.APIDebug("LLM schema call skipped: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		} else {
+			logging.Get(logging.CategoryAPI).Error("LLM schema call failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		}
 	} else {
 		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
 	}

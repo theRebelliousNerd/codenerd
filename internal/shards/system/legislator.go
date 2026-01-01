@@ -123,6 +123,10 @@ func NewLegislatorShard() *LegislatorShard {
 	loop := feedback.NewFeedbackLoop(feedback.DefaultConfig())
 	loop.SetSynthMode(feedback.SynthModeRequire, synth.Options{
 		RequireSingleClause: true,
+		AllowDecls:          false,
+		AllowPackage:        false,
+		AllowUse:            false,
+		SkipAnalysis:        true,
 	})
 	return &LegislatorShard{
 		BaseSystemShard: base,
@@ -226,7 +230,7 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	}
 
 	// If it already looks like a rule, validate it directly via the feedback loop.
-	if strings.Contains(directive, ":-") || strings.HasPrefix(strings.TrimSpace(directive), "Decl ") {
+	if looksLikeMangleRule(directive) {
 		logging.SystemShardsDebug("[Legislator] Directive is already a Mangle rule, validating via feedback loop")
 		rule := strings.TrimSpace(directive)
 
@@ -306,6 +310,17 @@ func (l *LegislatorShard) compileRule(ctx context.Context, directive string) (st
 	return result.Rule, nil
 }
 
+func looksLikeMangleRule(directive string) bool {
+	trimmed := strings.TrimSpace(directive)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "Decl ") {
+		return true
+	}
+	return ruleHeadPattern.MatchString(trimmed)
+}
+
 // getSystemPrompt returns the system prompt for rule synthesis.
 // Uses JIT compilation - returns empty string if JIT is unavailable.
 // Legislator system prompts are JIT-compiled from:
@@ -352,6 +367,7 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context) string {
 func (l *LegislatorShard) buildLegislatorPrompt(directive string) string {
 	var sb strings.Builder
 	sb.WriteString("Translate the constraint into a single MangleSynth JSON rule spec.\n")
+	sb.WriteString("Only include program.clauses (no package/use/decls).\n")
 	sb.WriteString("Use name constants (/atom) for enums; ensure predicates are declared.\n")
 	sb.WriteString("Avoid inventing new predicates outside declared schemas; prefer permitted/next_action/safety rules.\n")
 	sb.WriteString("Return only the JSON object, no commentary.\n")

@@ -334,7 +334,10 @@ func (ps *PredicateSelector) SelectForContext(shardType, intentVerb, domain stri
 
 	// Map domain to relevant predicate domains
 	if domain != "" {
-		switch domain {
+		cleanDomain := strings.TrimSpace(strings.TrimPrefix(domain, "/"))
+		switch cleanDomain {
+		case "legislator", "mangle", "policy":
+			ctx.Domains = []string{"core", "routing", "safety", "shard_lifecycle"}
 		case "executive", "action":
 			ctx.Domains = []string{"core", "routing", "shard_lifecycle"}
 		case "constitution", "safety":
@@ -342,7 +345,7 @@ func (ps *PredicateSelector) SelectForContext(shardType, intentVerb, domain stri
 		case "campaign":
 			ctx.Domains = []string{"core", "campaign", "shard_lifecycle"}
 		default:
-			ctx.Domains = []string{domain}
+			ctx.Domains = []string{cleanDomain}
 		}
 	}
 
@@ -367,4 +370,12 @@ func (ps *PredicateSelector) SelectForContext(shardType, intentVerb, domain stri
 	}
 
 	return signatures, nil
+}
+
+// AllPredicateSignatures returns every predicate in the corpus as name/arity.
+func (ps *PredicateSelector) AllPredicateSignatures() ([]string, error) {
+	if ps.corpus == nil {
+		return nil, fmt.Errorf("no predicate corpus configured")
+	}
+	return ps.corpus.GetAllPredicateSignatures()
 }

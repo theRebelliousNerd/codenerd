@@ -268,6 +268,29 @@ func (pc *PredicateCorpus) GetAllPredicateNames() ([]string, error) {
 	return names, nil
 }
 
+// GetAllPredicateSignatures returns all predicate signatures in the corpus as "name/arity".
+func (pc *PredicateCorpus) GetAllPredicateSignatures() ([]string, error) {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	rows, err := pc.db.Query("SELECT name, arity FROM predicates ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var signatures []string
+	for rows.Next() {
+		var name string
+		var arity int
+		if err := rows.Scan(&name, &arity); err != nil {
+			return nil, err
+		}
+		signatures = append(signatures, fmt.Sprintf("%s/%d", name, arity))
+	}
+	return signatures, nil
+}
+
 // ValidatePredicates checks if all predicates in the list are declared.
 // Returns the list of undefined predicates.
 func (pc *PredicateCorpus) ValidatePredicates(predicates []string) []string {

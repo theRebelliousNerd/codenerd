@@ -345,6 +345,8 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	if isPiggyback {
 		reqBody.GenerationConfig.ResponseMimeType = "application/json"
 		reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
+	} else if requiresJSONOutput(systemPrompt, userPrompt) {
+		reqBody.GenerationConfig.ResponseMimeType = "application/json"
 	}
 
 	// Construct URL with API key
@@ -458,6 +460,24 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
+func requiresJSONOutput(systemPrompt, userPrompt string) bool {
+	markers := []string{
+		"mangle_synth_v1",
+		"MangleSynth",
+		"Output ONLY a MangleSynth JSON object",
+		"responseJsonSchema",
+		"responseMimeType",
+		"application/json",
+	}
+	combined := systemPrompt + "\n" + userPrompt
+	for _, marker := range markers {
+		if strings.Contains(combined, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // SchemaCapable reports whether this client supports response schema enforcement.
 func (c *GeminiClient) SchemaCapable() bool {
 	return true
@@ -568,11 +588,15 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 
 		if resp.StatusCode != http.StatusOK {
 			bodyStr := string(body)
-			if resp.StatusCode == http.StatusBadRequest &&
-				(strings.Contains(bodyStr, "responseJsonSchema") || strings.Contains(bodyStr, "responseMimeType") ||
-					strings.Contains(bodyStr, "response_schema") || strings.Contains(bodyStr, "response_mime_type") ||
-					strings.Contains(bodyStr, "responseSchema")) {
-				return "", core.ErrSchemaNotSupported
+			if resp.StatusCode == http.StatusBadRequest {
+				if strings.Contains(bodyStr, "responseJsonSchema") ||
+					strings.Contains(bodyStr, "responseMimeType") ||
+					strings.Contains(bodyStr, "response_schema") ||
+					strings.Contains(bodyStr, "response_mime_type") ||
+					strings.Contains(bodyStr, "responseSchema") ||
+					(strings.Contains(bodyStr, "schema") && strings.Contains(bodyStr, "nesting depth")) {
+					return "", core.ErrSchemaNotSupported
+				}
 			}
 			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, bodyStr)
 		}

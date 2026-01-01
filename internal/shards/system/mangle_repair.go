@@ -246,33 +246,33 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 				"rule":          currentRule,
 			})
 		}
-				var rawResponse string
-				var err error
-				schemaJSON := synth.SchemaV1SingleClauseJSON()
-				schemaUsed := false
-				if schemaJSON != "" {
-					if schemaClient, ok := core.AsSchemaCapable(llmClient); ok {
-						rawResponse, err = schemaClient.CompleteWithSchema(ctx, systemPrompt, repairPrompt, schemaJSON)
-						if err != nil && stderrors.Is(err, core.ErrSchemaNotSupported) {
-							logging.SystemShardsDebug("[MangleRepair] Schema enforcement not supported, falling back")
-							rawResponse = ""
-							err = nil
-						} else if err == nil {
-							schemaUsed = true
-						}
-					}
+		var rawResponse string
+		var err error
+		schemaJSON := synth.SchemaV1SingleClauseJSON()
+		schemaUsed := false
+		if schemaJSON != "" {
+			if schemaClient, ok := core.AsSchemaCapable(llmClient); ok {
+				rawResponse, err = schemaClient.CompleteWithSchema(ctx, systemPrompt, repairPrompt, schemaJSON)
+				if err != nil && stderrors.Is(err, core.ErrSchemaNotSupported) {
+					logging.SystemShardsDebug("[MangleRepair] Schema enforcement not supported, falling back")
+					rawResponse = ""
+					err = nil
+				} else if err == nil {
+					schemaUsed = true
 				}
-				if rawResponse == "" && err == nil {
-					rawResponse, err = llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
-				}
-				if traceLLMIO {
-					fields := map[string]interface{}{
-						"shard_id":     m.ID,
-						"attempt":      attempt,
-						"schema_used":  schemaUsed,
-						"response":     rawResponse,
-						"response_len": len(rawResponse),
-					}
+			}
+		}
+		if rawResponse == "" && err == nil {
+			rawResponse, err = llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
+		}
+		if traceLLMIO {
+			fields := map[string]interface{}{
+				"shard_id":     m.ID,
+				"attempt":      attempt,
+				"schema_used":  schemaUsed,
+				"response":     rawResponse,
+				"response_len": len(rawResponse),
+			}
 			if err != nil {
 				fields["error"] = err.Error()
 			}
@@ -294,6 +294,10 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		lastResponse = processed.Surface
 		compiled, synthErr := synth.FromResponse(processed.Surface, synth.Options{
 			RequireSingleClause: true,
+			AllowDecls:          false,
+			AllowPackage:        false,
+			AllowUse:            false,
+			SkipAnalysis:        true,
 		})
 		if synthErr != nil {
 			lastParseErr = synthErr.Error()
@@ -682,6 +686,7 @@ func (m *MangleRepairShard) buildRepairPrompt(rule string, errors []string, corp
 	sb.WriteString("2. Has all variables properly bound before any negation\n")
 	sb.WriteString("3. Ends with a period (.)\n")
 	sb.WriteString("4. Uses /atom syntax for constants (not \"strings\")\n\n")
+	sb.WriteString("Only include program.clauses (no package/use/decls).\n")
 	sb.WriteString("Output ONLY a MangleSynth JSON object (format mangle_synth_v1).\n")
 	sb.WriteString("If Piggyback Protocol is active, the surface_response field must be the JSON object and nothing else.\n")
 	sb.WriteString("Plain Mangle rules will be rejected; always wrap them in the JSON format.\n")

@@ -81,6 +81,7 @@ type Options struct {
 	AllowDecls          bool
 	AllowPackage        bool
 	AllowUse            bool
+	SkipAnalysis        bool
 }
 
 func DefaultOptions() Options {
