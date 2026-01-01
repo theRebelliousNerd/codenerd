@@ -649,12 +649,12 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	c.Autopoiesis.RecordProposal(proposedRule)
 
 	// If high confidence, auto-apply; otherwise escalate for human approval
-	if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
-		// Rule already validated by feedback loop, safe to apply
-		if err := c.Kernel.HotLoadRule(proposedRule.MangleCode); err == nil {
-			c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
-			logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
-		} else {
+		if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
+			// Rule already validated by feedback loop, safe to apply
+			if err := c.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
+				c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+				logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
+			} else {
 			// This should not happen since feedback loop validated it, but handle gracefully
 			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to apply validated rule: %v", err)
 		}

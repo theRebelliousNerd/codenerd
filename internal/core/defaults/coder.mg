@@ -24,6 +24,7 @@
 # Coder-specific predicates (not in schemas.mg)
 Decl coder_task(ID, Action, Target, Instruction).
 Decl coder_target(File).
+Decl task_target_count(ID, Count).
 Decl file_extension(FilePath, Extension).
 Decl workspace_root(Root).
 Decl path_in_workspace(Path).
@@ -93,9 +94,13 @@ task_complexity(/critical) :-
 
 # Helpers for safe negation
 task_has_multiple_targets(ID) :-
-    coder_task(ID, _, T1, _),
-    coder_task(ID, _, T2, _),
-    T1 != T2.
+    task_target_count(ID, Count),
+    Count >= 2.
+
+# Count task targets (approximate distinctness by task rows)
+task_target_count(ID, Count) :-
+    coder_task(ID, _, _, _)
+    |> do fn:group_by(ID), let Count = fn:count().
 
 task_is_architectural(ID) :-
     coder_task(ID, _, Target, _),
@@ -404,15 +409,15 @@ coder_safe_to_write(File) :-
 # Edit should include tests if creating new code
 edit_needs_tests(File) :-
     coder_task(_, /create, File, _),
+    !is_test_file(File),
     detected_language(File, Lang),
-    testable_language(Lang),
-    !is_test_file(File).
+    testable_language(Lang).
 
 # Edit should update docs if modifying public API
 edit_needs_docs(File) :-
     coder_task(_, /modify, File, _),
-    is_public_api(File),
-    !doc_exists_for(File).
+    !doc_exists_for(File),
+    is_public_api(File).
 
 # Testable languages
 testable_language(/go).
@@ -517,8 +522,8 @@ next_coder_action(/generate_code) :-
 # Apply edit when code generated
 next_coder_action(/apply_edit) :-
     coder_state(/code_generated),
-    pending_edit(_, _),
-    coder_safe_to_write(_).
+    pending_edit(File, _),
+    coder_safe_to_write(File).
 
 # Request review for high-impact edits
 next_coder_action(/request_review) :-
@@ -604,9 +609,9 @@ context_priority(File, 75) :-
 
 # Interface definitions have high priority
 context_priority(File, 70) :-
-    is_interface_file(File),
     coder_target(Target),
-    same_package(File, Target).
+    same_package(File, Target),
+    is_interface_file(File).
 
 # -----------------------------------------------------------------------------
 # 8.2 Context Selection
@@ -626,8 +631,8 @@ include_in_context(File) :-
 # Include type definitions
 include_in_context(File) :-
     coder_target(Target),
-    type_definition_file(File),
-    same_package(File, Target).
+    same_package(File, Target),
+    type_definition_file(File).
 
 # -----------------------------------------------------------------------------
 # 8.3 Context Exclusion
@@ -729,25 +734,25 @@ tdd_violation(/green_phase_test) :-
 # Go file needs error handling check
 go_needs_error_check(File) :-
     pending_edit(File, _),
+    !edit_handles_errors(File),
     detected_language(File, /go),
-    edit_contains_operation(File, /return),
-    !edit_handles_errors(File).
+    edit_contains_operation(File, /return).
 
 # Go file needs context parameter
 go_needs_context(File) :-
     pending_edit(File, _),
+    !edit_has_context(File),
     detected_language(File, /go),
     edit_is_public_function(File),
-    edit_does_io(File),
-    !edit_has_context(File).
+    edit_does_io(File).
 
 # Go file leaks goroutine
 go_goroutine_leak_risk(File) :-
     pending_edit(File, _),
-    detected_language(File, /go),
-    edit_spawns_goroutine(File),
     !edit_has_waitgroup(File),
-    !edit_has_context_cancel(File).
+    !edit_has_context_cancel(File),
+    detected_language(File, /go),
+    edit_spawns_goroutine(File).
 
 # Go interface quality
 go_interface_too_large(File) :-

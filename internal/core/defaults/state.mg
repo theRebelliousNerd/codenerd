@@ -103,23 +103,23 @@ has_penalty(StepID) :- has_panic_penalty(StepID).
 has_penalty(StepID) :- has_retry_penalty(StepID).
 
 # Cumulative penalty calculation (no aggregation - fixed penalty tiers)
-# Both penalties: 0.3
-cumulative_penalty(StepID, 0.3) :-
+# Both penalties: 30 (0-100 scale)
+cumulative_penalty(StepID, 30) :-
     has_panic_penalty(StepID),
     has_retry_penalty(StepID).
 
-# Only panic penalty: 0.2
-cumulative_penalty(StepID, 0.2) :-
+# Only panic penalty: 20 (0-100 scale)
+cumulative_penalty(StepID, 20) :-
     has_panic_penalty(StepID),
     !has_retry_penalty(StepID).
 
-# Only retry penalty: 0.1
-cumulative_penalty(StepID, 0.1) :-
+# Only retry penalty: 10 (0-100 scale)
+cumulative_penalty(StepID, 10) :-
     has_retry_penalty(StepID),
     !has_panic_penalty(StepID).
 
 # Default zero penalty if no penalties exist
-cumulative_penalty(StepID, 0.0) :-
+cumulative_penalty(StepID, 0) :-
     state(StepID, _, _),
     !has_penalty(StepID).
 

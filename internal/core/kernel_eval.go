@@ -126,8 +126,10 @@ func (k *RealKernel) evaluate() error {
 	for _, atom := range k.cachedAtoms {
 		baseStore.Add(atom)
 	}
-	k.store = baseStore
-	k.wrapStoreLocked()
+	evalStore := factstore.FactStore(baseStore)
+	if k.virtualStore != nil {
+		evalStore = newVirtualFactStore(baseStore, k.virtualStore)
+	}
 
 	// Evaluate to fixpoint using cached programInfo
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
@@ -136,7 +138,7 @@ func (k *RealKernel) evaluate() error {
 	logging.KernelDebug("evaluate: running fixpoint evaluation (derivedFactLimit=%d)", derivedFactLimit)
 
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
-	stats, err := engine.EvalProgramWithStats(k.programInfo, k.store,
+	stats, err := engine.EvalProgramWithStats(k.programInfo, evalStore,
 		engine.WithCreatedFactLimit(derivedFactLimit)) // Hard cap: max 500K derived facts
 	evalDuration := evalTimer.Stop()
 
@@ -148,6 +150,9 @@ func (k *RealKernel) evaluate() error {
 		}
 		return fmt.Errorf("failed to evaluate program: %w", err)
 	}
+
+	k.store = baseStore
+	k.wrapStoreLocked()
 
 	// Log evaluation stats
 	totalDuration := time.Duration(0)

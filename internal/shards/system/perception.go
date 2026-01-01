@@ -239,27 +239,18 @@ func (p *PerceptionFirewallShard) applyPerceptionMangleUpdates(updates []string)
 	}
 
 	// Perception is an untrusted boundary: only allow a conservative subset of facts.
-	allowed := map[string]struct{}{
-		"ambiguity_flag":       {},
-		"clarification_needed": {},
+	policy := core.MangleUpdatePolicy{
+		AllowedPredicates: map[string]struct{}{
+			"ambiguity_flag":       {},
+			"clarification_needed": {},
+		},
+		MaxUpdates: 50,
 	}
 
-	const maxUpdates = 50
-	facts := make([]types.Fact, 0, min(len(updates), maxUpdates))
-	for i, s := range updates {
-		if i >= maxUpdates {
-			break
-		}
-		f, err := core.ParseSingleFact(s)
-		if err != nil {
-			continue
-		}
-		if _, ok := allowed[f.Predicate]; !ok {
-			continue
-		}
-		facts = append(facts, f)
+	facts, blocked := core.FilterMangleUpdates(p.Kernel, updates, policy)
+	for _, b := range blocked {
+		logging.SystemShardsDebug("[PerceptionFirewall] Blocked mangle_update %q: %s", b.Update, b.Reason)
 	}
-
 	if len(facts) > 0 {
 		_ = p.Kernel.AssertBatch(facts)
 	}

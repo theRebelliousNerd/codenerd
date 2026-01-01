@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/mangle"
 
 	"github.com/google/mangle/parse"
 )
@@ -51,6 +52,25 @@ func (k *RealKernel) ValidateLearnedProgram(programText string) error {
 	}
 
 	return k.schemaValidator.ValidateProgram(programText)
+}
+
+func (k *RealKernel) refreshSchemaValidatorLocked() {
+	if k.schemas == "" {
+		k.schemaValidator = nil
+		return
+	}
+	k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned)
+	if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
+	} else {
+		logging.KernelDebug("Schema validator refreshed")
+	}
+}
+
+func (k *RealKernel) refreshSchemaValidator() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.refreshSchemaValidatorLocked()
 }
 
 // healLearnedRules validates learned rules and comments out invalid ones.
@@ -375,6 +395,7 @@ func (k *RealKernel) SetSchemas(schemas string) {
 	defer k.mu.Unlock()
 	k.schemas = schemas
 	k.policyDirty = true
+	k.refreshSchemaValidatorLocked()
 	logging.KernelDebug("SetSchemas: policyDirty set to true, will rebuild on next evaluate")
 }
 

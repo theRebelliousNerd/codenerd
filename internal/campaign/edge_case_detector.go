@@ -330,21 +330,21 @@ func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, in
 
 // queryDependencies gets file dependencies from the kernel.
 func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string) {
-	// Query code_imports for dependencies
-	facts, err := d.kernel.Query("code_imports")
+	// Query dependency_link for dependencies
+	facts, err := d.kernel.Query("dependency_link")
 	if err != nil {
 		return
 	}
 
 	for _, fact := range facts {
-		if len(fact.Args) >= 2 {
+		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
-			imported := d.parseArg(fact.Args[1])
+			imported := d.parseArg(fact.Args[2])
 
-			if strings.HasSuffix(file, filepath.Base(path)) {
+			if d.matchesPath(file, path) {
 				decision.Dependencies = append(decision.Dependencies, imported)
 			}
-			if strings.HasSuffix(imported, filepath.Base(path)) {
+			if d.matchesPath(d.parseArg(fact.Args[1]), path) || strings.HasSuffix(imported, filepath.Base(path)) {
 				decision.Dependents = append(decision.Dependents, file)
 			}
 		}
@@ -357,24 +357,33 @@ func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string
 // queryComplexity estimates complexity from kernel facts.
 func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) {
 	// Query for complexity-related facts
-	facts, err := d.kernel.Query("code_complexity")
+	facts, err := d.kernel.Query("cyclomatic_complexity")
 	if err != nil {
 		return
 	}
 
+	var (
+		maxComplexity float64
+		hasComplexity bool
+	)
 	for _, fact := range facts {
-		if len(fact.Args) >= 2 {
+		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
-			if strings.HasSuffix(file, filepath.Base(path)) {
-				if complexity, ok := fact.Args[1].(float64); ok {
-					decision.Complexity = complexity
+			if d.matchesPath(file, path) {
+				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
+					if !hasComplexity || complexity > maxComplexity {
+						maxComplexity = complexity
+					}
+					hasComplexity = true
 				}
 			}
 		}
 	}
 
 	// If no complexity data, estimate from line count
-	if decision.Complexity == 0 && decision.LineCount > 0 {
+	if hasComplexity {
+		decision.Complexity = maxComplexity
+	} else if decision.LineCount > 0 {
 		// Rough heuristic: 1 complexity point per 50 lines
 		decision.Complexity = float64(decision.LineCount) / 50.0
 	}
@@ -544,6 +553,13 @@ func (d *EdgeCaseDetector) detectLanguage(path string) string {
 	return "unknown"
 }
 
+func (d *EdgeCaseDetector) matchesPath(candidate, path string) bool {
+	if candidate == path {
+		return true
+	}
+	return strings.HasSuffix(candidate, filepath.Base(path))
+}
+
 // parseArg safely extracts a string from an interface{}.
 func (d *EdgeCaseDetector) parseArg(arg interface{}) string {
 	switch v := arg.(type) {
@@ -553,6 +569,21 @@ func (d *EdgeCaseDetector) parseArg(arg interface{}) string {
 		return string(v)
 	default:
 		return fmt.Sprintf("%v", v)
+	}
+}
+
+func (d *EdgeCaseDetector) parseNumber(arg interface{}) (float64, bool) {
+	switch v := arg.(type) {
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float32:
+		return float64(v), true
+	case float64:
+		return v, true
+	default:
+		return 0, false
 	}
 }
 

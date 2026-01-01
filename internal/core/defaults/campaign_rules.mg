@@ -22,10 +22,14 @@
 
 # Goal requires campaign (not single-shot) if it mentions multiple components
 goal_requires_campaign(Goal) :-
-    campaign_goal(CampaignID, Goal),
-    goal_topic(CampaignID, Topic1),
-    goal_topic(CampaignID, Topic2),
-    Topic1 != Topic2.
+    goal_topic_count(CampaignID, Count),
+    Count >= 2,
+    campaign_goal(CampaignID, Goal).
+
+# Count goal topics per campaign
+goal_topic_count(CampaignID, Count) :-
+    goal_topic(CampaignID, _)
+    |> do fn:group_by(CampaignID), let Count = fn:count().
 
 # Goal requires campaign if it involves known complex patterns
 goal_requires_campaign(Goal) :-
@@ -126,7 +130,6 @@ parallel_batch_task(TaskID) :-
 has_parallel_opportunity(PhaseID) :-
     campaign_task(T1, PhaseID, _, /pending, _),
     campaign_task(T2, PhaseID, _, /pending, _),
-    T1 != T2,
     tasks_parallelizable(T1, T2).
 
 # -----------------------------------------------------------------------------
@@ -385,10 +388,10 @@ activation(Summary, 80) :-
 
 # Phase completed quickly (success pattern)
 phase_completed_fast(PhaseID) :-
-    campaign_phase(PhaseID, _, _, _, /completed, _),
-    campaign_milestone(_, PhaseID, _, CompletedAt),
     phase_estimate(PhaseID, EstTasks, _),
-    EstTasks > 0.
+    EstTasks > 0,
+    campaign_phase(PhaseID, _, _, _, /completed, _),
+    campaign_milestone(_, PhaseID, _, CompletedAt).
 
 # Phase had no failures (success pattern)
 phase_zero_failures(PhaseID) :-
@@ -409,27 +412,32 @@ promote_to_long_term(/phase_pattern, PhaseType) :-
 # -----------------------------------------------------------------------------
 
 # Same error type across multiple tasks (systemic issue)
-systemic_error_detected(ErrorType) :-
-    task_error(T1, ErrorType, _),
-    task_error(T2, ErrorType, _),
-    task_error(T3, ErrorType, _),
-    T1 != T2,
-    T2 != T3,
-    T1 != T3.
+campaign_task_error(CampaignID, ErrorType) :-
+    task_error(TaskID, ErrorType, _),
+    campaign_task(TaskID, PhaseID, _, /failed, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+
+campaign_task_error_count(CampaignID, ErrorType, Count) :-
+    campaign_task_error(CampaignID, ErrorType)
+    |> do fn:group_by(CampaignID, ErrorType), let Count = fn:count().
+
+systemic_error_detected(CampaignID, ErrorType) :-
+    campaign_task_error_count(CampaignID, ErrorType, Count),
+    Count >= 3.
 
 # Systemic error should trigger investigation
 next_action(/investigate_systemic) :-
-    current_campaign(_),
-    systemic_error_detected(ErrorType),
-    !systemic_error_investigated(ErrorType).
+    current_campaign(CampaignID),
+    systemic_error_detected(CampaignID, ErrorType),
+    !systemic_error_investigated(CampaignID, ErrorType).
 
 # Helper for safe negation
-systemic_error_investigated(ErrorType) :-
-    campaign_learning(_, /failure_pattern, ErrorType, _, _).
+systemic_error_investigated(CampaignID, ErrorType) :-
+    campaign_learning(CampaignID, /failure_pattern, ErrorType, _, _).
 
 # Learn to avoid systemic errors
 learning_signal(/avoid_pattern, ErrorType) :-
-    systemic_error_detected(ErrorType).
+    systemic_error_detected(_, ErrorType).
 
 # -----------------------------------------------------------------------------
 # 5.3 Shard Performance in Campaigns
@@ -452,9 +460,13 @@ shard_campaign_reliable(ShardType) :-
 
 # Helper: shard has 2+ failures
 shard_has_many_failures(ShardType) :-
-    campaign_shard(_, S1, ShardType, _, /failed),
-    campaign_shard(_, S2, ShardType, _, /failed),
-    S1 != S2.
+    shard_failure_count(ShardType, Count),
+    Count >= 2.
+
+# Count shard failures per type
+shard_failure_count(ShardType, Count) :-
+    campaign_shard(_, _, ShardType, _, /failed)
+    |> do fn:group_by(ShardType), let Count = fn:count().
 
 # Prefer reliable shards for campaign tasks
 delegate_task(ShardType, Task, /pending) :-
@@ -475,12 +487,13 @@ delegate_task(ShardType, Task, /pending) :-
 
 # Multiple consecutive task failures in same phase
 phase_failure_cascade(PhaseID) :-
-    campaign_task(T1, PhaseID, _, /failed, _),
-    campaign_task(T2, PhaseID, _, /failed, _),
-    campaign_task(T3, PhaseID, _, /failed, _),
-    T1 != T2,
-    T2 != T3,
-    T1 != T3.
+    phase_failed_task_count(PhaseID, Count),
+    Count >= 3.
+
+# Count failed tasks per phase
+phase_failed_task_count(PhaseID, Count) :-
+    campaign_task(_, PhaseID, _, /failed, _)
+    |> do fn:group_by(PhaseID), let Count = fn:count().
 
 # Cascade triggers phase pause
 phase_blocked(PhaseID, "failure_cascade") :-
@@ -488,10 +501,10 @@ phase_blocked(PhaseID, "failure_cascade") :-
 
 # Cascade triggers replan consideration
 replan_needed(CampaignID, "phase_failure_cascade") :-
-    current_campaign(CampaignID),
     current_phase(PhaseID),
+    phase_failure_cascade(PhaseID),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    phase_failure_cascade(PhaseID).
+    current_campaign(CampaignID).
 
 # -----------------------------------------------------------------------------
 # 6.2 Stuck Detection
@@ -499,9 +512,9 @@ replan_needed(CampaignID, "phase_failure_cascade") :-
 
 # Phase is stuck: in-progress but no runnable tasks
 phase_stuck(PhaseID) :-
-    campaign_phase(PhaseID, CampaignID, _, _, /in_progress, _),
-    current_campaign(CampaignID),
+    current_phase(PhaseID),
     !has_runnable_task(PhaseID),
+    campaign_phase(PhaseID, _, _, _, /in_progress, _),
     has_pending_tasks(PhaseID).
 
 # Helper: phase has runnable tasks
@@ -614,13 +627,13 @@ milestone_reached(CampaignID, /integrated) :-
 
 # Trigger progress update on task completion
 progress_changed(CampaignID) :-
-    current_campaign(CampaignID),
     campaign_task(_, PhaseID, _, /completed, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    current_campaign(CampaignID).
 
 progress_changed(CampaignID) :-
-    current_campaign(CampaignID),
-    campaign_phase(_, CampaignID, _, _, /completed, _).
+    campaign_phase(_, CampaignID, _, _, /completed, _),
+    current_campaign(CampaignID).
 
 # =============================================================================
 # SECTION 8: SHARD SELECTION FOR CAMPAIGNS
@@ -697,15 +710,16 @@ final_shard_for_task(TaskID, ShardType) :-
 
 # User mutation intent during campaign needs routing decision
 campaign_intent_conflict(IntentID) :-
-    current_campaign(_),
     user_intent(IntentID, /mutation, _, _, _),
-    !intent_is_campaign_related(IntentID).
+    !intent_is_campaign_related(IntentID),
+    current_campaign(_).
 
 # Intent is campaign-related if it matches current phase
 intent_is_campaign_related(IntentID) :-
     current_phase(PhaseID),
-    phase_objective(PhaseID, _, Description, _),
-    current_campaign(_),
+    phase_objective(PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    current_campaign(CampaignID),
     user_intent(IntentID, _, _, _, _).
 
 # Route conflict to user for decision
@@ -718,13 +732,13 @@ next_action(/ask_campaign_interrupt) :-
 
 # Status query during campaign
 next_action(/show_campaign_status) :-
-    current_campaign(_),
-    user_intent(/current_intent, /query, _, /status, _).
+    user_intent(/current_intent, /query, _, /status, _),
+    current_campaign(_).
 
 # Progress query during campaign
 next_action(/show_campaign_progress) :-
-    current_campaign(_),
-    user_intent(/current_intent, /query, _, /progress, _).
+    user_intent(/current_intent, /query, _, /progress, _),
+    current_campaign(_).
 
 # =============================================================================
 # SECTION 10: CAMPAIGN COMPLETION & CLEANUP
@@ -756,9 +770,9 @@ next_action(/campaign_final_verify) :-
 
 # Extract success patterns from completed campaign
 campaign_success_pattern(CampaignID, Pattern) :-
-    campaign(CampaignID, Type, _, _, /completed),
     campaign_metadata(CampaignID, _, _, Confidence),
     Confidence > 80,
+    campaign(CampaignID, Type, _, _, /completed),
     Pattern = Type.
 
 # Promote campaign success to long-term memory
@@ -767,9 +781,12 @@ promote_to_long_term(/campaign_success, Pattern) :-
 
 # Track campaign type effectiveness
 campaign_type_effective(Type) :-
-    campaign(C1, Type, _, _, /completed),
-    campaign(C2, Type, _, _, /completed),
-    C1 != C2.
+    campaign_type_count(Type, Count),
+    Count >= 2.
+
+campaign_type_count(Type, Count) :-
+    campaign(_, Type, _, _, /completed)
+    |> do fn:group_by(Type), let Count = fn:count().
 
 # Learn from campaign failures
 campaign_failure_pattern(CampaignID, Reason) :-
@@ -846,9 +863,12 @@ campaign_has_tasks(CampaignID) :-
 
 # Phases per campaign (simplified heuristic)
 campaign_has_multiple_phases(CampaignID) :-
-    campaign_phase(P1, CampaignID, _, _, _, _),
-    campaign_phase(P2, CampaignID, _, _, _, _),
-    P1 != P2.
+    campaign_phase_count(CampaignID, Count),
+    Count >= 2.
+
+campaign_phase_count(CampaignID, Count) :-
+    campaign_phase(_, CampaignID, _, _, _, _)
+    |> do fn:group_by(CampaignID), let Count = fn:count().
 
 # =============================================================================
 # SECTION 12: INTEGRATION WITH BUILD TOPOLOGY
@@ -885,15 +905,15 @@ phase_layer_priority(PhaseID, Priority) :-
 
 # Earlier layers should complete before later layers start
 layer_sequencing_correct(PhaseA, PhaseB) :-
-    phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseA, PriorityA),
+    phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseB, PriorityB),
     PriorityA < PriorityB.
 
 # Warning if layer sequencing is wrong
 layer_sequencing_warning(PhaseA, PhaseB) :-
-    phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseA, PriorityA),
+    phase_dependency(PhaseB, PhaseA, _),
     phase_layer_priority(PhaseB, PriorityB),
     PriorityA >= PriorityB.
 

@@ -12,13 +12,13 @@
 # An action is validated if verification succeeded with sufficient confidence
 action_validated(ActionID) :-
     action_verified(ActionID, _, _, Confidence, _),
-    Confidence >= 0.8.
+    Confidence >= 80.
 
 # Weak validation (lower confidence, might need confirmation)
 action_weakly_validated(ActionID) :-
     action_verified(ActionID, _, _, Confidence, _),
-    Confidence >= 0.5,
-    Confidence < 0.8.
+    Confidence >= 50,
+    Confidence < 80.
 
 # =============================================================================
 # SECTION 2: VALIDATION FAILURE DERIVATION
@@ -116,13 +116,13 @@ validation_by_method(Method, N) :-
 # Define confidence thresholds for different validation methods
 # These can be queried to determine acceptable confidence levels
 
-validation_threshold(/hash, 0.95).
-validation_threshold(/syntax, 0.90).
-validation_threshold(/existence, 0.70).
-validation_threshold(/content_check, 0.85).
-validation_threshold(/output_scan, 0.75).
-validation_threshold(/codedom_refresh, 0.90).
-validation_threshold(/skipped, 0.0).
+validation_threshold(/hash, 95).
+validation_threshold(/syntax, 90).
+validation_threshold(/existence, 70).
+validation_threshold(/content_check, 85).
+validation_threshold(/output_scan, 75).
+validation_threshold(/codedom_refresh, 90).
+validation_threshold(/skipped, 0).
 
 # Check if validation meets threshold for its method
 validation_meets_threshold(ActionID) :-

@@ -1023,11 +1023,35 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 	// 1. Assert mangle_updates as facts
 	if len(control.MangleUpdates) > 0 {
 		logging.SystemShardsDebug("[SessionPlanner] Routing %d mangle_updates to kernel", len(control.MangleUpdates))
-		for _, atomStr := range control.MangleUpdates {
-			if fact := parseMangleAtomPlanner(atomStr); fact != nil {
-				if err := kernel.Assert(*fact); err != nil {
-					logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] Failed to assert mangle_update %q: %v", atomStr, err)
-				}
+		policy := core.MangleUpdatePolicy{
+			AllowedPredicates: map[string]struct{}{
+				"missing_tool_for": {},
+				"observation":      {},
+				"task_status":      {},
+				"task_completed":   {},
+				"campaign_completed": {},
+			},
+			AllowedPrefixes: []string{
+				"campaign_",
+				"phase_",
+				"task_",
+				"context_",
+				"plan_",
+				"replan_",
+				"build_",
+				"architectural_",
+				"suspicious_",
+				"eligible_",
+			},
+			MaxUpdates: 200,
+		}
+		facts, blocked := core.FilterMangleUpdates(kernel, control.MangleUpdates, policy)
+		for _, b := range blocked {
+			logging.SystemShardsDebug("[SessionPlanner] Blocked mangle_update %q: %s", b.Update, b.Reason)
+		}
+		if len(facts) > 0 {
+			if err := kernel.AssertBatch(facts); err != nil {
+				logging.Get(logging.CategorySystemShards).Warn("[SessionPlanner] Failed to assert mangle_updates batch: %v", err)
 			}
 		}
 	}
@@ -1048,17 +1072,4 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 	}
 }
 
-// parseMangleAtomPlanner attempts to parse a string into a Mangle fact.
-func parseMangleAtomPlanner(atomStr string) *core.Fact {
-	atomStr = strings.TrimSpace(atomStr)
-	if atomStr == "" {
-		return nil
-	}
-
-	fact, err := core.ParseFactString(atomStr)
-	if err != nil {
-		logging.SystemShardsDebug("Failed to parse mangle atom %q: %v", atomStr, err)
-		return nil
-	}
-	return &fact
-}
+// parseMangleAtomPlanner removed in favor of core.FilterMangleUpdates.

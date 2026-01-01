@@ -16,6 +16,7 @@ import (
 
 type stubKernel struct {
 	permitted []Fact
+	safe      []Fact
 	asserted  []Fact
 }
 
@@ -23,6 +24,9 @@ func (s *stubKernel) LoadFacts([]Fact) error { return nil }
 func (s *stubKernel) Query(predicate string) ([]Fact, error) {
 	if predicate == "permitted" {
 		return s.permitted, nil
+	}
+	if predicate == "safe_action" {
+		return s.safe, nil
 	}
 	return nil, nil
 }
@@ -233,13 +237,13 @@ func (s *stubShard) SetSessionContext(ctx *types.SessionContext) {}
 func TestPermissionCacheOptimization(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 
-	// Set up a kernel with multiple permitted actions
+	// Set up a kernel with multiple safe actions
 	k := &stubKernel{
-		permitted: []Fact{
-			{Predicate: "permitted", Args: []interface{}{"/read_file"}},
-			{Predicate: "permitted", Args: []interface{}{"/write_file"}},
-			{Predicate: "permitted", Args: []interface{}{"/review"}},
-			{Predicate: "permitted", Args: []interface{}{"/run_tests"}},
+		safe: []Fact{
+			{Predicate: "safe_action", Args: []interface{}{"/read_file"}},
+			{Predicate: "safe_action", Args: []interface{}{"/write_file"}},
+			{Predicate: "safe_action", Args: []interface{}{"/review"}},
+			{Predicate: "safe_action", Args: []interface{}{"/run_tests"}},
 		},
 	}
 	vs.SetKernel(k)
@@ -309,7 +313,6 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	if out != content {
 		t.Fatalf("unexpected output content; got len=%d want len=%d", len(out), len(content))
 	}
-
 	fileFacts, err := kernel.Query("file_content")
 	if err != nil {
 		t.Fatalf("Query(file_content) error: %v", err)

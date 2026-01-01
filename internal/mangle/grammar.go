@@ -126,11 +126,9 @@ func (v *AtomValidator) loadCorePredicates() {
 		},
 	}
 	v.ValidPredicates["file_content"] = PredicateSpec{
-		Name: "file_content", Arity: 4,
+		Name: "file_content", Arity: 2,
 		Args: []ArgSpec{
 			{Name: "Path", Type: ArgTypeString},
-			{Name: "StartLine", Type: ArgTypeNumber},
-			{Name: "EndLine", Type: ArgTypeNumber},
 			{Name: "Content", Type: ArgTypeString},
 		},
 	}
